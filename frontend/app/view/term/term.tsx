@@ -322,7 +322,6 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
                 nodeModel: model.nodeModel,
             }
         );
-        (window as any).term = termWrap;
         model.termRef.current = termWrap;
         setTermWrapInst(termWrap);
         const rszObs = new ResizeObserver(() => {

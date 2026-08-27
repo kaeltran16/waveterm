@@ -9,6 +9,9 @@ const dlog = debug("wave:router");
 
 const SysRouteName = "sys";
 const ControlRouteName = "$control";
+// bound unanswered reqid route entries (responses lost across reconnect gaps never delete them); Map
+// preserves insertion order so evicting the first key is a cheap FIFO prune
+const MaxRpcMapSize = 5000;
 
 type RouteInfo = {
     rpcId: string;
@@ -75,6 +78,12 @@ class WshRouter {
             destRouteId: destRouteId,
         };
         this.rpcMap.set(reqid, routeInfo);
+        if (this.rpcMap.size > MaxRpcMapSize) {
+            const eldest = this.rpcMap.keys().next().value;
+            if (eldest !== undefined) {
+                this.rpcMap.delete(eldest);
+            }
+        }
     }
 
     recvRpcMessage(msg: RpcMessage) {

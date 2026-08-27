@@ -124,4 +124,23 @@ describe("WshRouter", () => {
         expect(announced).toEqual(["tab:a", "tab:b"]);
         expect(upstream.recv.every((m) => m.command === "routeannounce")).toBe(true);
     });
+
+    it("prunes the oldest unanswered reqid when rpcMap exceeds the cap", () => {
+        const src = new FakeClient();
+        const dest = new FakeClient();
+        router.registerRoute("tab:src", src);
+        router.registerRoute("tab:dest", dest);
+        // one more than the 5000-entry cap forces a FIFO prune of the first reqid
+        for (let i = 0; i < 5001; i++) {
+            router.recvRpcMessage({ command: "test", reqid: "r" + i, source: "tab:src", route: "tab:dest" });
+        }
+        expect(router.rpcMap.size).toBeLessThanOrEqual(5000);
+        // the first reqid was evicted, so its late response is discarded (nowhere)
+        src.recv = [];
+        router.recvRpcMessage({ resid: "r0", data: "ok" });
+        expect(src.recv).toEqual([]);
+        // a still-tracked reqid keeps routing its response back to the source
+        router.recvRpcMessage({ resid: "r4999", data: "ok" });
+        expect(src.recv).toContainEqual({ resid: "r4999", data: "ok" });
+    });
 });

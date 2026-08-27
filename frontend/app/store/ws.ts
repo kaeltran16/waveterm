@@ -11,6 +11,16 @@ const WarnWebSocketSendSize = 1024 * 1024; // 1MB
 const MaxWebSocketSendSize = 5 * 1024 * 1024; // 5MB
 const reconnectHandlers: (() => void)[] = [];
 const StableConnTime = 2000;
+// bound the disconnected backlog so a long outage can't flood stale RPCs back at 10/s after reconnect
+const MsgQueueMaxSize = 200;
+// commands queued longer than this are stale by the time we reconnect — drop them on drain instead of
+// head-of-line blocking fresh traffic (poller RPCs are idempotent; reconnect handlers re-issue state)
+const MsgQueueMaxAgeMs = 5000;
+
+type QueuedMessage = {
+    data: WSCommandType;
+    ts: number;
+};
 
 function addWSReconnectHandler(handler: () => void) {
     reconnectHandlers.push(handler);
@@ -34,17 +44,15 @@ class WSControl {
     open: boolean;
     opening: boolean = false;
     reconnectTimes: number = 0;
-    msgQueue: any[] = [];
+    msgQueue: QueuedMessage[] = [];
     stableId: string;
     messageCallback: WSEventCallback;
-    watchSessionId: string = null;
-    watchScreenId: string = null;
-    wsLog: string[] = [];
     baseHostPort: string;
     lastReconnectTime: number = 0;
     eoOpts: ElectronOverrideOpts;
     noReconnect: boolean = false;
     onOpenTimeoutId: NodeJS.Timeout = null;
+    pingIntervalId: NodeJS.Timeout = null;
 
     constructor(
         baseHostPort: string,
@@ -57,11 +65,15 @@ class WSControl {
         this.stableId = stableId;
         this.open = false;
         this.eoOpts = electronOverrideOpts;
-        setInterval(this.sendPing.bind(this), 5000);
+        this.pingIntervalId = setInterval(this.sendPing.bind(this), 5000);
     }
 
     shutdown() {
         this.noReconnect = true;
+        if (this.pingIntervalId) {
+            clearInterval(this.pingIntervalId);
+            this.pingIntervalId = null;
+        }
         this.wsConn.close();
     }
 
@@ -158,8 +170,15 @@ class WSControl {
         if (this.msgQueue.length == 0) {
             return;
         }
-        const msg = this.msgQueue.shift();
-        this.sendMessage(msg);
+        const entry = this.msgQueue.shift();
+        if (Date.now() - entry.ts > MsgQueueMaxAgeMs) {
+            // stale command: drop it so fresh traffic isn't head-of-line blocked behind an old backlog
+            setTimeout(() => {
+                this.runMsgQueue();
+            }, 100);
+            return;
+        }
+        this.sendMessage(entry.data);
         setTimeout(() => {
             this.runMsgQueue();
         }, 100);
@@ -168,7 +187,12 @@ class WSControl {
     onmessage(event: MessageEvent) {
         let eventData = null;
         if (event.data != null) {
-            eventData = JSON.parse(event.data);
+            try {
+                eventData = JSON.parse(event.data);
+            } catch (e) {
+                dlog("bad ws frame", e);
+                return;
+            }
         }
         if (eventData == null) {
             return;
@@ -221,7 +245,10 @@ class WSControl {
                     return;
                 }
             }
-            this.msgQueue.push(data);
+            this.msgQueue.push({ data, ts: Date.now() });
+            if (this.msgQueue.length > MsgQueueMaxSize) {
+                this.msgQueue.shift(); // bound the backlog under a long outage
+            }
             return;
         }
         this.sendMessage(data);

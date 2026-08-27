@@ -632,10 +632,14 @@ export const AgentRow = memo(function AgentRow({
                         const up = () => {
                             window.removeEventListener("pointermove", move);
                             window.removeEventListener("pointerup", up);
+                            window.removeEventListener("pointercancel", up);
                             onResizeEnd?.(pendingFull);
                         };
                         window.addEventListener("pointermove", move);
                         window.addEventListener("pointerup", up);
+                        // pointercancel (alt-tab mid-drag, pen leaving range) must run the same
+                        // cleanup, otherwise the listeners leak for the session and resize stays active
+                        window.addEventListener("pointercancel", up);
                     }}
                     onClick={(e) => e.stopPropagation()}
                     title={fullWidth ? "Drag in to un-span · down to resize" : "Drag out to span · down to resize"}

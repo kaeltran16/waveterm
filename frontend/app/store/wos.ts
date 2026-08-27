@@ -11,10 +11,14 @@ import { fireAndForget } from "@/util/util";
 import { atom, Atom, Getter, PrimitiveAtom, Setter, useAtomValue } from "jotai";
 import { globalStore } from "./jotaiStore";
 import { ObjectService } from "./services";
+import debug from "debug";
+
+const dlog = debug("wave:wos");
 
 type WaveObjectDataItemType<T extends WaveObj> = {
     value: T;
     loading: boolean;
+    error: boolean;
 };
 
 type WaveObjectValue<T extends WaveObj> = {
@@ -74,18 +78,18 @@ function GetObject<T>(oref: string): Promise<T> {
 function debugLogBackendCall(methodName: string, durationStr: string, args: any[]) {
     durationStr = "| " + durationStr;
     if (methodName == "object.UpdateObject" && args.length > 0) {
-        console.log("[service] object.UpdateObject", args[0].otype, args[0].oid, durationStr, args[0]);
+        dlog("[service] object.UpdateObject", args[0].otype, args[0].oid, durationStr, args[0]);
         return;
     }
     if (methodName == "object.GetObject" && args.length > 0) {
-        console.log("[service] object.GetObject", args[0], durationStr);
+        dlog("[service] object.GetObject", args[0], durationStr);
         return;
     }
     if (methodName == "file.StatFile" && args.length >= 2) {
-        console.log("[service] file.StatFile", args[1], durationStr);
+        dlog("[service] file.StatFile", args[1], durationStr);
         return;
     }
-    console.log("[service]", methodName, durationStr);
+    dlog("[service]", methodName, durationStr);
 }
 
 function wpsSubscribeToObject(oref: string): () => void {
@@ -156,37 +160,53 @@ function reloadWaveObject<T extends WaveObj>(oref: string): Promise<T> {
     }
     const prtn = GetObject<T>(oref);
     prtn.then((val) => {
-        globalStore.set(wov.dataAtom, { value: val, loading: false });
+        globalStore.set(wov.dataAtom, { value: val, loading: false, error: false });
+    }).catch((err) => {
+        // don't cache a failed load: drop the entry so a remount retries, and clear loading
+        waveObjectValueCache.delete(oref);
+        globalStore.set(wov.dataAtom, { value: null, loading: false, error: true });
+        dlog("WaveObj reload failed", oref, err);
     });
     return prtn;
 }
 
 function createWaveValueObject<T extends WaveObj>(oref: string, shouldFetch: boolean): WaveObjectValue<T> {
     const wov = { pendingPromise: null, dataAtom: null };
-    wov.dataAtom = atom({ value: null, loading: true });
+    wov.dataAtom = atom({ value: null, loading: true, error: false });
     if (!shouldFetch) {
         return wov;
     }
-    const startTs = Date.now();
     const localPromise = GetObject<T>(oref);
     wov.pendingPromise = localPromise;
-    localPromise.then((val) => {
-        if (wov.pendingPromise != localPromise) {
-            return;
-        }
-        const [otype, oid] = splitORef(oref);
-        if (val != null) {
-            if (val["otype"] != otype) {
-                throw new Error("GetObject returned wrong type");
+    localPromise
+        .then((val) => {
+            if (wov.pendingPromise != localPromise) {
+                return;
             }
-            if (val["oid"] != oid) {
-                throw new Error("GetObject returned wrong id");
+            const [otype, oid] = splitORef(oref);
+            if (val != null) {
+                if (val["otype"] != otype) {
+                    throw new Error("GetObject returned wrong type");
+                }
+                if (val["oid"] != oid) {
+                    throw new Error("GetObject returned wrong id");
+                }
             }
-        }
-        wov.pendingPromise = null;
-        globalStore.set(wov.dataAtom, { value: val, loading: false });
-        console.log("WaveObj resolved", oref, Date.now() - startTs + "ms");
-    });
+            wov.pendingPromise = null;
+            dlog("WaveObj resolved", oref);
+            globalStore.set(wov.dataAtom, { value: val, loading: false, error: false });
+        })
+        .catch((err) => {
+            // a transient backend failure must not leave the atom loading forever nor be cached, so
+            // a remount can retry: clear the pending state and drop the cache entry
+            if (wov.pendingPromise != localPromise) {
+                return;
+            }
+            wov.pendingPromise = null;
+            waveObjectValueCache.delete(oref);
+            globalStore.set(wov.dataAtom, { value: null, loading: false, error: true });
+            dlog("WaveObj load failed", oref, err);
+        });
     return wov;
 }
 
@@ -261,19 +281,19 @@ function updateWaveObject(update: WaveObjUpdate) {
     const oref = makeORef(update.otype, update.oid);
     const wov = getWaveObjectValue(oref);
     if (update.updatetype == "delete") {
-        console.log("WaveObj deleted", oref);
-        globalStore.set(wov.dataAtom, { value: null, loading: false });
+        dlog("WaveObj deleted", oref);
+        globalStore.set(wov.dataAtom, { value: null, loading: false, error: false });
     } else {
         if (!isValidWaveObj(update.obj)) {
-            console.log("invalid wave object update", update);
+            dlog("invalid wave object update", update);
             return;
         }
         const curValue: WaveObjectDataItemType<WaveObj> = globalStore.get(wov.dataAtom);
         if (curValue.value != null && curValue.value.version >= update.obj.version) {
             return;
         }
-        console.log("WaveObj updated", oref);
-        globalStore.set(wov.dataAtom, { value: update.obj, loading: false });
+        dlog("WaveObj updated", oref);
+        globalStore.set(wov.dataAtom, { value: update.obj, loading: false, error: false });
     }
     return;
 }
@@ -308,7 +328,7 @@ function setObjectValue<T extends WaveObj>(value: T, setFn?: Setter, pushToServe
     if (setFn === undefined) {
         setFn = globalStore.set;
     }
-    setFn(wov.dataAtom, { value: value, loading: false });
+    setFn(wov.dataAtom, { value: value, loading: false, error: false });
     if (pushToServer) {
         fireAndForget(() => ObjectService.UpdateObject(value, false));
     }
@@ -319,6 +339,7 @@ export {
     getObjectValue,
     getWaveObjectAtom,
     getWaveObjectLoadingAtom,
+    getWaveObjectValue,
     isWaveObjectNullAtom,
     loadAndPinWaveObject,
     makeORef,
