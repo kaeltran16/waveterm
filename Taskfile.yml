@@ -23,13 +23,20 @@ tasks:
         deps:
             - npm:install
             - sync:piartifacts
-            - build:backend
+            - tauri:sync-version
+            - build:backend:devhost
+            - build:backend:devhost:full
         env:
             WAVETERM_ENVFILE: "{{.ROOT_DIR}}/.env"
             WCLOUD_PING_ENDPOINT: "https://ping-dev.waveterm.dev/central"
             WCLOUD_ENDPOINT: "https://api-dev.waveterm.dev/central"
             WCLOUD_WS_ENDPOINT: "wss://wsapi-dev.waveterm.dev"
             WAVETERM_NOCONFIRMQUIT: "1"
+
+    tauri:sync-version:
+        desc: Write package.json's version into src-tauri/tauri.conf.json so the bundled installer and app.getVersion() agree (package.json stays the single source of truth).
+        cmds:
+            - node scripts/sync-tauri-version.mjs
 
     preview:
         desc: Run the standalone component preview server with HMR (no Electron, no backend).
@@ -154,6 +161,50 @@ tasks:
             - "pkg/**/*.sh"
         generates:
             - dist/bin/wavesrv.x64.exe
+
+    # dev-loop backend: wavesrv + wsh for the dev host only, instead of the 8-target wsh matrix
+    # (build:backend/build:wsh stay the full matrix for release). Linux has no quickdev flavor, so
+    # it falls back to the full build. `platforms` must live at task level here: this Task version
+    # silently ignores per-cmd `platforms`.
+    build:backend:devhost:
+        desc: Build wavesrv + wsh for the dev host only (windows/darwin); release keeps the full matrix via build:backend.
+        internal: true
+        platforms: [windows, darwin]
+        cmds:
+            - task: build:backend:quickdev
+            - task: build:backend:quickdev:windows
+            - task: build:wsh:devhost
+
+    build:backend:devhost:full:
+        desc: Fallback backend build for hosts without a quickdev flavor (linux uses the full matrix).
+        internal: true
+        platforms: [linux]
+        cmds:
+            - task: build:backend
+
+    build:wsh:devhost:
+        desc: Build wsh for the dev host OS/arch only (dev loop).
+        internal: true
+        platforms: [windows, darwin]
+        deps:
+            - go:mod:tidy
+            - generate
+        vars:
+            HOSTGOOS:
+                sh: echo {{if eq OS "windows"}}windows{{else}}darwin{{end}}
+            HOSTARCH:
+                sh: echo {{if eq "arm" ARCH}}arm64{{else}}{{ARCH}}{{end}}
+        sources:
+            - "cmd/wsh/**/*.go"
+            - "pkg/**/*.go"
+            - package.json
+        generates:
+            - "dist/bin/wsh*"
+        cmds:
+            - task: build:wsh:internal
+              vars:
+                  GOOS: "{{.HOSTGOOS}}"
+                  GOARCH: "{{.HOSTARCH}}"
 
     build:server:windows:
         desc: Build the wavesrv component for Windows platforms (only generates artifacts for the current architecture).
@@ -409,7 +460,7 @@ tasks:
 
     check:ts:
         desc: Typecheck TypeScript code (frontend).
-        cmd: npx tsc --noEmit
+        cmd: node --stack-size=4000 node_modules/typescript/lib/tsc.js --noEmit
         deps:
             - npm:install
 

@@ -49,7 +49,6 @@ const previewElectronApi: ElectronApi = {
     setKeyboardChordMode: () => {},
     clearWebviewStorage: (_webContentsId: number) => Promise.resolve(),
     setWaveAIOpen: (_isOpen: boolean) => {},
-    incrementTermCommands: (_opts?: { isRemote?: boolean; isWsl?: boolean; isDurable?: boolean }) => {},
     nativePaste: () => {},
     doRefresh: () => {},
     getPathForFile: (_file: File) => "",

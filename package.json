@@ -16,7 +16,7 @@
     ],
     "scripts": {
         "dev": "cargo tauri dev",
-        "build": "cargo tauri build",
+        "build": "task tauri:sync-version && cargo tauri build",
         "cockpit:fixtures": "node scripts/gen-cockpit-fixtures.mjs",
         "check:pi-theme": "node scripts/validate-pi-theme.mjs",
         "coverage": "vitest run --coverage",
@@ -24,7 +24,6 @@
     },
     "devDependencies": {
         "@eslint/js": "^9.39",
-        "@rollup/plugin-node-resolve": "^16.0.3",
         "@tailwindcss/vite": "^4.2.1",
         "@types/css-tree": "^2",
         "@types/debug": "^4",
@@ -129,7 +128,6 @@
         "unist-util-visit": "^5.1.0",
         "use-device-pixel-ratio": "^1.1.2",
         "uuid": "^14.0.0",
-        "winston": "^3.19.0",
         "ws": "^8.19.0",
         "yaml": "^2.8.3"
     },

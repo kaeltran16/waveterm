@@ -47,7 +47,7 @@ export default [
     },
 
     {
-        files: ["emain/**/*.ts", "electron.vite.config.ts", "**/*.cjs", "eslint.config.js"],
+        files: ["**/*.cjs", "eslint.config.js"],
         languageOptions: {
             globals: {
                 ...globals.node,

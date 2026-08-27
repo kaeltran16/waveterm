@@ -64,9 +64,6 @@ export function installTauriApi(init: InitData) {
                 console.error("Invalid URL passed to openExternal:", url);
             }
         },
-        incrementTermCommands: () => {
-            invoke("increment_term_commands").catch(noop);
-        },
 
         // --- window chrome + interaction (Phase 2) ---
         getZoomFactor: () => chrome.getZoomFactor(),

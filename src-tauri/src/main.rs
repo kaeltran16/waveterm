@@ -33,7 +33,14 @@ unsafe impl Send for JobHandle {}
 #[cfg(windows)]
 unsafe impl Sync for JobHandle {}
 
-fn spawn_wavesrv(auth_key: String, app_path: PathBuf, data_base: PathBuf, state: tauri::State<InitState>) -> Child {
+// Returns Err (not a panic) so a missing/corrupted backend aborts setup visibly via Tauri's
+// startup error path instead of an opaque crash; packaged runs at least exit non-zero.
+fn spawn_wavesrv(
+    auth_key: String,
+    app_path: PathBuf,
+    data_base: PathBuf,
+    state: tauri::State<InitState>,
+) -> Result<Child, String> {
     // Packaged: app_path = resource_dir(); dev: app_path = src-tauri/../dist (paths::resolve_app_path).
     // wavesrv + wsh both live under {app_path}/bin; wavesrv discovers wsh via WAVETERM_APP_PATH.
     let exe = app_path.join("bin").join("wavesrv.x64.exe");
@@ -60,17 +67,17 @@ fn spawn_wavesrv(auth_key: String, app_path: PathBuf, data_base: PathBuf, state:
     }
     let mut child = cmd
         .spawn()
-        .unwrap_or_else(|e| panic!("failed to spawn wavesrv at {:?}: {}", exe, e));
+        .map_err(|e| format!("failed to spawn wavesrv at {:?}: {}", exe, e))?;
 
-    let stderr = child.stderr.take().unwrap();
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "wavesrv stderr pipe missing".to_string())?;
     let state_data = state.0.clone();
     let ready = state.1.clone();
     std::thread::spawn(move || {
         let reader = BufReader::new(stderr);
         for line in reader.lines().flatten() {
-            if line.starts_with("WAVESRV-EVENT:") {
-                continue; // same stream carries event JSON; ignore for the spike
-            }
             if let Some(info) = estart::parse_estart(&line) {
                 let mut d = state_data.lock().unwrap();
                 d.ws_endpoint = info.ws;
@@ -86,7 +93,7 @@ fn spawn_wavesrv(auth_key: String, app_path: PathBuf, data_base: PathBuf, state:
         }
     });
 
-    child
+    Ok(child)
 }
 
 // Put a freshly-spawned child in a KILL_ON_JOB_CLOSE job so it dies with wave-tauri no matter how
@@ -199,8 +206,7 @@ fn main() {
             init::fe_log,
             commands::set_window_init_status,
             commands::set_is_active,
-            commands::open_external,
-            commands::increment_term_commands
+            commands::open_external
         ])
         .setup(move |app| {
             // seed the static identity fields before wavesrv parsing fills in the endpoints.
@@ -220,7 +226,16 @@ fn main() {
             let app_path = paths::resolve_app_path(is_dev, manifest_dir, &resource_dir);
             install_agent_hooks(&app_path);
             let data_base = paths::data_base_for(&app.path().app_local_data_dir()?, is_dev);
-            let child = spawn_wavesrv(auth_key.clone(), app_path, data_base, app.state::<InitState>());
+            let child = spawn_wavesrv(
+                auth_key.clone(),
+                app_path,
+                data_base,
+                app.state::<InitState>(),
+            )
+            .map_err(|e| {
+                eprintln!("[tauri] {}", e);
+                e
+            })?;
             // Safety net for the Ctrl+C path RunEvent::Exit can't catch: bind wavesrv's lifetime to
             // ours via a kill-on-close job. Held in state so the handle (and thus the job) survives.
             #[cfg(windows)]

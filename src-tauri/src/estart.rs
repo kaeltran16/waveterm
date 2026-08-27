@@ -1,4 +1,5 @@
 use regex::Regex;
+use std::sync::LazyLock;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct EstartInfo {
@@ -9,9 +10,16 @@ pub struct EstartInfo {
 }
 
 // Mirrors emain/emain-wavesrv.ts:110 — matches the ESTART line wavesrv prints on stderr.
+// Compiled once for the app lifetime, not per stderr line.
+static ESTART_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"WAVESRV-ESTART ws:([a-z0-9.:]+) web:([a-z0-9.:]+) version:([a-z0-9.-]+) buildtime:(\d+)",
+    )
+    .expect("static ESTART regex must compile")
+});
+
 pub fn parse_estart(line: &str) -> Option<EstartInfo> {
-    let re = Regex::new(r"WAVESRV-ESTART ws:([a-z0-9.:]+) web:([a-z0-9.:]+) version:([a-z0-9.-]+) buildtime:(\d+)").ok()?;
-    let caps = re.captures(line)?;
+    let caps = ESTART_RE.captures(line)?;
     Some(EstartInfo {
         ws: caps[1].to_string(),
         web: caps[2].to_string(),
