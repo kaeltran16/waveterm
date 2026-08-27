@@ -137,7 +137,9 @@ export function LaunchComposer({
 
     const runBehavior =
         selectedShape === "orchestrator"
-            ? "→ persistent lead · DAG when useful"
+            ? workerRoute
+                ? `→ lead ${route?.model || route?.tier || ""} · workers ${workerRoute.model || workerRoute.tier || ""}`
+                : "→ persistent lead · DAG when useful · workers inherit"
             : selectedShape === "quick"
               ? `→ direct quick launch in #${channelName}`
               : "→ direct pipeline launch";
@@ -277,7 +279,6 @@ export function LaunchComposer({
                             >
                                 ✕ inherit
                             </button>
-                            <span className="font-mono text-[10px] text-muted">workers inherit lead when empty</span>
                         </div>
                     ) : null}
                     {workerExpanded ? <span className="font-mono text-[11px] text-ink-mid">{footer}</span> : null}
