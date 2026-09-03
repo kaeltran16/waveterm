@@ -88,7 +88,7 @@ func TestCreateDagForRunReturnsExisting(t *testing.T) {
 
 func TestGetDagsWithPendingCleanup(t *testing.T) {
 	ctx := context.Background()
-	pendingID, clearID := uuid.NewString(), uuid.NewString()
+	pendingID, clearID, failedID := uuid.NewString(), uuid.NewString(), uuid.NewString()
 	pending := &waveobj.TaskGroup{
 		OID: pendingID, ID: pendingID, RunID: uuid.NewString(), ChannelId: uuid.NewString(),
 		Parallelism: 1, Status: "done", Tasks: []waveobj.TaskNode{{ID: "t-1", State: "done", CleanupPending: true}},
@@ -97,22 +97,31 @@ func TestGetDagsWithPendingCleanup(t *testing.T) {
 		OID: clearID, ID: clearID, RunID: uuid.NewString(), ChannelId: uuid.NewString(),
 		Parallelism: 1, Status: "done", Tasks: []waveobj.TaskNode{{ID: "t-1", State: "done"}},
 	}
+	// failed-cleanup debt keeps CleanupPending cleared and carries a bounded error — the sweep
+	// must still find it, or error-only debt would never be retried at startup.
+	failed := &waveobj.TaskGroup{
+		OID: failedID, ID: failedID, RunID: uuid.NewString(), ChannelId: uuid.NewString(),
+		Parallelism: 1, Status: "running", Tasks: []waveobj.TaskNode{{ID: "t-1", State: "done", Merged: true, CleanupError: "locked"}},
+	}
 	if err := AppendDag(ctx, pending); err != nil { t.Fatal(err) }
 	if err := AppendDag(ctx, clear); err != nil { t.Fatal(err) }
+	if err := AppendDag(ctx, failed); err != nil { t.Fatal(err) }
 	t.Cleanup(func() {
 		_ = DBDelete(context.Background(), waveobj.OType_Dag, pendingID)
 		_ = DBDelete(context.Background(), waveobj.OType_Dag, clearID)
+		_ = DBDelete(context.Background(), waveobj.OType_Dag, failedID)
 	})
 
 	got, err := GetDagsWithPendingCleanup(ctx)
 	if err != nil { t.Fatal(err) }
-	foundPending, foundClear := false, false
+	foundPending, foundClear, foundFailed := false, false, false
 	for _, dag := range got {
 		foundPending = foundPending || dag.OID == pendingID
 		foundClear = foundClear || dag.OID == clearID
+		foundFailed = foundFailed || dag.OID == failedID
 	}
-	if !foundPending || foundClear {
-		t.Fatalf("pending=%v clear=%v dags=%+v", foundPending, foundClear, got)
+	if !foundPending || !foundFailed || foundClear {
+		t.Fatalf("pending=%v failed=%v clear=%v dags=%+v", foundPending, foundFailed, foundClear, got)
 	}
 }
 

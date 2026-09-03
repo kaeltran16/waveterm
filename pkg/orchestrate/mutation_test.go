@@ -455,6 +455,64 @@ func TestCancelReturnsStopFailureWithoutRevertingState(t *testing.T) {
 	}
 }
 
+func TestCancelPersistsCleanupDebtAndRetry(t *testing.T) {
+	ctx := context.Background()
+	projectDir := newGitRepo(t)
+	ch, err := wstore.CreateChannel(ctx, "cancel-cleanup", projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := jarvis.NewRun("owner", "ws-1", projectDir, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	owner.BaseCommit = gitCmd(t, projectDir, "rev-parse", "HEAD")
+	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
+		t.Fatal(err)
+	}
+	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 1, true, []waveobj.TaskNode{{ID: "t-0", Label: "a"}}, 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := wstore.AppendDag(ctx, &g); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := EnsureRunWorktree(ctx, projectDir, TaskWorktreeKey(owner.ID, "t-0"), owner.BaseCommit); err != nil {
+		t.Fatal(err)
+	}
+
+	oldRemover := RemoveTaskWorktree
+	persistedPending := false
+	RemoveTaskWorktree = func(cleanupCtx context.Context, _, _ string) error {
+		stored, loadErr := wstore.GetDag(cleanupCtx, g.OID)
+		persistedPending = loadErr == nil && stored.Status == DagStatus_Cancelled && stored.Tasks[0].CleanupPending
+		return errors.New("locked")
+	}
+	t.Cleanup(func() { RemoveTaskWorktree = oldRemover })
+
+	if err := Cancel(ctx, g.OID); err == nil || !strings.Contains(err.Error(), "locked") {
+		t.Fatalf("cancel error = %v, want cleanup failure", err)
+	}
+	if !persistedPending {
+		t.Fatal("cancelled cleanup pending must persist before removal")
+	}
+	stored, err := wstore.GetDag(ctx, g.OID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != DagStatus_Cancelled || stored.Tasks[0].CleanupPending || stored.Tasks[0].CleanupError == "" {
+		t.Fatalf("cancelled cleanup debt = status %q pending %v error %q", stored.Status, stored.Tasks[0].CleanupPending, stored.Tasks[0].CleanupError)
+	}
+
+	RemoveTaskWorktree = func(context.Context, string, string) error { return nil }
+	if err := RetryPendingCleanup(ctx, stored); err != nil {
+		t.Fatal(err)
+	}
+	if err := PersistCleanupState(ctx, stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != DagStatus_Cancelled || HasCleanupDebt(stored) {
+		t.Fatalf("cleanup retry reopened or retained debt: status %q debt %v", stored.Status, HasCleanupDebt(stored))
+	}
+}
+
 func TestCancelRollsBackAllStateBeforeWorkerStop(t *testing.T) {
 	ctx, dag, owner, child := seedRunningDag(t)
 	const trigger = "fail_cancel_run_update"

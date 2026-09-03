@@ -35,6 +35,7 @@ import { EffortsListView } from "./effortslistview";
 import { peekFocus } from "./graphfocus";
 import { GraphPeek } from "./graphpeek";
 import { DagModal } from "../orchestrate/dagmodal";
+import { setDagModalAgentsContext } from "../orchestrate/dagmodalstate";
 import { activeConversationAtom, graphPeekOpenAtom } from "./jarvisstore";
 import {
     activeSubjectAtom,
@@ -63,6 +64,9 @@ export function Stage({ model }: { model: AgentsViewModel }) {
     const conversation = useAtomValue(activeConversationAtom);
     const ambient = useAtomValue(ambientProviderAtom);
     const agents = useAtomValue(model.agentsAtom);
+    useEffect(() => {
+        setDagModalAgentsContext(model, agents);
+    }, [model, agents]);
     const allRuns = useAtomValue(activeChannelRunsAtom);
     const bandOpen = useAtomValue(recordBandOpenAtom);
     const composingRun = useAtomValue(composingRunAtom);

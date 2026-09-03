@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -54,6 +55,35 @@ func AppendRunEvent(ctx context.Context, channelId, runId, kind string, phaseIdx
 	})
 }
 
+// QueryRunEventsByKind returns retained lifecycle boundaries newest-first without using the UI's
+// 200-row window. The result stays bounded by the per-run retention cap.
+func QueryRunEventsByKind(ctx context.Context, channelId, runId string, kinds []string, limit int) ([]waveobj.RunEvent, error) {
+	if len(kinds) == 0 {
+		return []waveobj.RunEvent{}, nil
+	}
+	if limit <= 0 || limit > maxRunEventsPerRun {
+		limit = maxRunEventsPerRun
+	}
+	return WithReadTxRtn(ctx, func(tx *TxWrap) ([]waveobj.RunEvent, error) {
+		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(kinds)), ",")
+		args := make([]any, 0, len(kinds)+3)
+		args = append(args, runId, channelId)
+		for _, kind := range kinds {
+			args = append(args, kind)
+		}
+		args = append(args, limit)
+		var rows []runEventRow
+		tx.Select(&rows, `SELECT oid, runid, channelid, ts, kind, phaseidx, data FROM db_runevent
+			WHERE runid = ? AND channelid = ? AND kind IN (`+placeholders+`)
+			ORDER BY ts DESC, rowid DESC
+			LIMIT ?`, args...)
+		if tx.Err != nil {
+			return nil, tx.Err
+		}
+		return runEventsFromRows(rows), nil
+	})
+}
+
 // QueryRunEvents returns a run's events newest-first, capped at limit rows (0/negative -> 200, max 500).
 func QueryRunEvents(ctx context.Context, channelId, runId string, limit int) ([]waveobj.RunEvent, error) {
 	if limit <= 0 || limit > 500 {
@@ -68,13 +98,17 @@ func QueryRunEvents(ctx context.Context, channelId, runId string, limit int) ([]
 		if tx.Err != nil {
 			return nil, tx.Err
 		}
-		out := make([]waveobj.RunEvent, 0, len(rows))
-		for _, r := range rows {
-			out = append(out, waveobj.RunEvent{
-				ID: r.OID, RunID: r.RunID, ChannelID: r.ChannelID, Ts: r.Ts,
-				Kind: r.Kind, PhaseIdx: r.PhaseIdx, Detail: json.RawMessage(r.Data),
-			})
-		}
-		return out, nil
+		return runEventsFromRows(rows), nil
 	})
+}
+
+func runEventsFromRows(rows []runEventRow) []waveobj.RunEvent {
+	out := make([]waveobj.RunEvent, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, waveobj.RunEvent{
+			ID: r.OID, RunID: r.RunID, ChannelID: r.ChannelID, Ts: r.Ts,
+			Kind: r.Kind, PhaseIdx: r.PhaseIdx, Detail: json.RawMessage(r.Data),
+		})
+	}
+	return out
 }

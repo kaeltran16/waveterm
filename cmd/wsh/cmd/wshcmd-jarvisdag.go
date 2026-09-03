@@ -16,7 +16,6 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/pitasks"
-	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc/wshclient"
 )
@@ -100,69 +99,55 @@ var dagStatusCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		g, err := wshclient.DagStatusCommand(RpcClient, wshrpc.CommandDagStatusData{ChannelId: channelId, RunId: runId}, &wshrpc.RpcOpts{Timeout: 10_000})
+		rtn, err := wshclient.DagStatusCommand(RpcClient, wshrpc.CommandDagStatusData{ChannelId: channelId, RunId: runId}, &wshrpc.RpcOpts{Timeout: 10_000})
 		if err != nil {
 			return err
 		}
-		asks := pendingAsks(channelId, runId)
-		now := time.Now().UnixMilli()
-		done := 0
-		for _, t := range g.Tasks {
-			if t.State == orchestrate.TaskState_Done {
-				done++
-			}
+		for _, line := range dagStatusLines(rtn, time.Now().UnixMilli()) {
+			fmt.Println(line)
 		}
-		fmt.Printf("dag %s  status=%s  tasks=%d/%d  failures=%d  parallelism=%d\n", g.ID, g.Status, done, len(g.Tasks), g.Failures, g.Parallelism)
-		if len(g.Tasks) == 0 {
-			return nil
-		}
-		w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-		for _, t := range g.Tasks {
-			actions := dagTaskActions(t)
-			signal := ""
-			if ask, ok := asks[t.ID]; ok {
-				actions = []string{"answer"}
-				signal = "ask: " + compactText(ask.Question, 60)
-			} else if t.LastActivity > 0 && (t.State == orchestrate.TaskState_Running || t.State == orchestrate.TaskState_Stalled) {
-				signal = "idle " + compactDur(now-t.LastActivity)
-			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", t.ID, t.State, signal, strings.Join(actions, ","), t.Label)
-		}
-		w.Flush()
 		return nil
 	},
 }
 
-// pendingAsks maps task id -> its pending child ask, best-effort: a failure to read the ask registry
-// degrades the digest to stall/state signals only, not a hard error.
-func pendingAsks(channelId, runId string) map[string]wshrpc.DagAskItem {
-	asks := map[string]wshrpc.DagAskItem{}
-	rtn, err := wshclient.DagAsksCommand(RpcClient, wshrpc.CommandDagStatusData{ChannelId: channelId, RunId: runId}, &wshrpc.RpcOpts{Timeout: 10_000})
-	if err != nil {
-		return asks
+// dagStatusLines renders the shared digest: header counts and per-task action/signal come from the
+// backend's typed digest, never re-derived from task state locally.
+func dagStatusLines(rtn *wshrpc.CommandDagStatusRtnData, now int64) []string {
+	g := rtn.Group
+	d := rtn.Digest
+	if g == nil {
+		return []string{"dag status unavailable"}
 	}
-	for _, a := range rtn.Asks {
-		asks[a.TaskId] = a
+	line := fmt.Sprintf("dag %s  status=%s  tasks=%d/%d  failures=%d  parallelism=%d",
+		g.ID, g.Status, d.Counts.Done, d.Counts.Total, g.Failures, g.Parallelism)
+	lines := []string{line}
+	if len(g.Tasks) == 0 {
+		return lines
 	}
-	return asks
-}
-
-// dagTaskActions mirrors the frontend graph's next-action hint: the human action a task is waiting on.
-func dagTaskActions(t waveobj.TaskNode) []string {
-	switch t.State {
-	case orchestrate.TaskState_Done:
-		if t.Gate {
-			return []string{"approve", "sendback"}
+	taskDigestByID := map[string]wshrpc.DagTaskDigest{}
+	for _, td := range d.Tasks {
+		taskDigestByID[td.TaskId] = td
+	}
+	var buf strings.Builder
+	w := tabwriter.NewWriter(&buf, 0, 4, 2, ' ', 0)
+	for _, t := range g.Tasks {
+		td, ok := taskDigestByID[t.ID]
+		if !ok {
+			continue
 		}
-		if !t.Released {
-			return []string{"merge"}
+		signal := ""
+		if td.AskSummary != "" {
+			signal = "ask: " + compactText(td.AskSummary, 60)
+		} else if td.FreshnessTs > 0 && (t.State == orchestrate.TaskState_Running || t.State == orchestrate.TaskState_Stalled) {
+			signal = "idle " + compactDur(now-td.FreshnessTs)
 		}
-	case orchestrate.TaskState_Failed, orchestrate.TaskState_Stalled:
-		return []string{"retry", "skip"}
-	case orchestrate.TaskState_BlockedMerge:
-		return []string{"resolve"}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", t.ID, t.State, signal, strings.Join(td.HumanActions, ","), t.Label)
 	}
-	return nil
+	w.Flush()
+	for _, row := range strings.Split(strings.TrimSuffix(buf.String(), "\n"), "\n") {
+		lines = append(lines, row)
+	}
+	return lines
 }
 
 // compactDur renders a millisecond span as the shortest readable form ("45s", "2m3s", "1h2m").

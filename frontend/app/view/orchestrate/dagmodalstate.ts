@@ -4,6 +4,8 @@
 import { globalStore } from "@/app/store/jotaiStore";
 import { selectedTaskIdAtom } from "./dagstore";
 import { atom, type PrimitiveAtom } from "jotai";
+import type { AgentsViewModel } from "../agents/agents";
+import type { AgentVM } from "../agents/agentsviewmodel";
 
 export type DagModalState = {
     kind: "live";
@@ -12,6 +14,17 @@ export type DagModalState = {
     dagOref: string;
     error: string;
 };
+
+// dagModalAgentsContextAtom carries the agents view model + live roster into the modal so its worker
+// rail can resolve and navigate workers without a second navigation mechanism. Read-only for the
+// modal; set by the Stage whenever the modal is open. Selection stays selectedTaskIdAtom.
+export const dagModalAgentsContextAtom = atom<{ model: AgentsViewModel; agents: AgentVM[] } | null>(
+    null
+) as PrimitiveAtom<{ model: AgentsViewModel; agents: AgentVM[] } | null>;
+
+export function setDagModalAgentsContext(model: AgentsViewModel, agents: AgentVM[]): void {
+    globalStore.set(dagModalAgentsContextAtom, { model, agents });
+}
 
 export type DagModalAction =
     | { type: "open-live"; channelId: string; runId: string; dagOref: string }

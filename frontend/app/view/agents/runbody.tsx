@@ -23,6 +23,7 @@ import { useAtomValue } from "jotai";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { openDagLive } from "../orchestrate/dagmodalstate";
+import { DagOverview } from "../orchestrate/dagoverview";
 import type { AgentsViewModel } from "./agents";
 import { streamableTranscriptAgents, type AgentVM } from "./agentsviewmodel";
 import { AmbientTags } from "./ambientviews";
@@ -394,6 +395,15 @@ export function OrchestratorBody({
                     onSteerClose={onSteerClose}
                     hideSteer={hideSteer}
                 />
+                {run.dagoref ? (
+                    <DagOverview
+                        channelId={channel.oid}
+                        runId={run.id}
+                        dagOref={"dag:" + run.dagoref}
+                        model={model}
+                        agents={agents}
+                    />
+                ) : null}
                 <RunTimeline channel={channel} run={run} />
                 <CancelSurvivorsCard model={model} channelId={channel.oid} run={run} agents={agents} />
                 {thread.showGate ? <ReviewGateCard channelId={channel.oid} run={run} gateIdx={idx} /> : null}

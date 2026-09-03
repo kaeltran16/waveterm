@@ -19,13 +19,21 @@ import (
 
 var dagMutationLocks = keyedmutex.New()
 
-func withDagMutation(dagID string, fn func() error) error {
+// WithDagMutation serializes every read-modify-write of one DAG. The engine's scheduling write is a
+// whole-object replace of a snapshot loaded under this lock, so any writer that skips it has its
+// changes silently reverted by an overlapping tick. Exported because the merge handlers live in
+// wshserver (which imports this package) and are dag writers too. Not reentrant.
+func WithDagMutation(dagID string, fn func() error) error {
 	if dagID == "" {
 		return fmt.Errorf("dag id is required")
 	}
 	dagMutationLocks.Lock(dagID)
 	defer dagMutationLocks.Unlock(dagID)
 	return fn()
+}
+
+func withDagMutation(dagID string, fn func() error) error {
+	return WithDagMutation(dagID, fn)
 }
 
 var stopRunWorkers = jarvis.StopRunWorkers
@@ -110,6 +118,20 @@ func escalationTarget(task *waveobj.TaskNode, owner *waveobj.Run, group *waveobj
 	return target, nil
 }
 
+// applyEscalation repins a task to a higher-tier route and returns it to pending so the next tick
+// dispatches it fresh. Shared by the human escalate action and the automatic context-window hop, so
+// both leave the node in exactly one shape.
+func applyEscalation(task *waveobj.TaskNode, target waveobj.RoutePin) {
+	task.RunSpec.Runtime = target.Runtime
+	task.RunSpec.Tier = target.Tier
+	task.RunSpec.Model = target.Model
+	task.Attempts = 0
+	task.LastFailureKind = ""
+	task.Escalations++
+	task.State = TaskState_Pending
+	task.RunID = ""
+}
+
 func applyActionLocked(ctx context.Context, dagID, taskID, action string, target waveobj.RoutePin) error {
 	g, err := wstore.GetDag(ctx, dagID)
 	if err != nil {
@@ -168,14 +190,7 @@ func applyActionLocked(ctx context.Context, dagID, taskID, action string, target
 		if err := cancelAndStopTaskRun(ctx, g, taskID); err != nil {
 			return err
 		}
-		task.RunSpec.Runtime = target.Runtime
-		task.RunSpec.Tier = target.Tier
-		task.RunSpec.Model = target.Model
-		task.Attempts = 0
-		task.LastFailureKind = ""
-		task.Escalations++
-		task.State = TaskState_Pending
-		task.RunID = ""
+		applyEscalation(task, target)
 		RecomputeDagStatus(g)
 	default:
 		return fmt.Errorf("unknown dag action %q", action)
@@ -233,13 +248,25 @@ func Cancel(ctx context.Context, dagID string) error {
 func cancelLocked(ctx context.Context, dagID string) error {
 	var gCopy *waveobj.TaskGroup
 	var runIDs []string
+	var projectPath string
 	if err := withMutationTx(ctx, func(tx *wstore.TxWrap) error {
 		txCtx := tx.Context()
 		g, err := wstore.GetDag(txCtx, dagID)
 		if err != nil {
 			return err
 		}
+		owner, err := wstore.GetRun(txCtx, g.ChannelId, g.RunID)
+		if err != nil {
+			return err
+		}
+		projectPath = owner.ProjectPath
 		CancelGroup(g)
+		if IsGitRepo(projectPath) {
+			for i := range g.Tasks {
+				g.Tasks[i].CleanupPending = true
+				g.Tasks[i].CleanupError = ""
+			}
+		}
 		if err := wstore.UpdateDag(txCtx, dagID, func(cur *waveobj.TaskGroup) error {
 			*cur = *g
 			return nil
@@ -264,6 +291,9 @@ func cancelLocked(ctx context.Context, dagID string) error {
 		return err
 	}
 
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, dagID))
+	// dag-cancelled: the terminal lifecycle boundary, recorded only after the cancelled state persists.
+	appendRunEvent(ctx, gCopy.ChannelId, gCopy.RunID, waveobj.RunEventKindDagCancelled, nil, map[string]any{"source": "cancel"})
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cancelCleanupTimeout)
 	defer cancel()
 	var errs []error
@@ -280,19 +310,22 @@ func cancelLocked(ctx context.Context, dagID string) error {
 			errs = append(errs, fmt.Errorf("run %s: %w", runID, err))
 		}
 	}
-	// worktree sweep: cancelled work is abandoned, so every task's tree goes — dirty state is dumped
-	// to a recovery patch first. Done-but-unmerged trees are swept too; merge is unreachable after
-	// cancel, so keeping them would only strand branches.
-	if owner, oerr := wstore.GetRun(cleanupCtx, gCopy.ChannelId, gCopy.RunID); oerr == nil && IsGitRepo(owner.ProjectPath) {
+	// cancelled work is abandoned, so every task's tree goes through the same durable cleanup path.
+	// dump dirty state first; each cleanup outcome persists and publishes before the next task.
+	if IsGitRepo(projectPath) {
 		for i := range gCopy.Tasks {
-			key := TaskWorktreeKey(owner.ID, gCopy.Tasks[i].ID)
-			DumpRecoveryPatch(cleanupCtx, owner.ProjectPath, key) // best effort
-			if err := RemoveRunWorktree(cleanupCtx, owner.ProjectPath, key); err != nil {
-				errs = append(errs, fmt.Errorf("worktree %s: %w", key, err))
+			taskID := gCopy.Tasks[i].ID
+			key := TaskWorktreeKey(gCopy.RunID, taskID)
+			DumpRecoveryPatch(cleanupCtx, projectPath, key) // best effort
+			cleanupErr := CleanupTaskWorktree(cleanupCtx, gCopy, taskID)
+			if err := PersistCleanupState(cleanupCtx, gCopy); err != nil {
+				errs = append(errs, fmt.Errorf("persisting worktree %s cleanup: %w", key, err))
+			}
+			if cleanupErr != nil {
+				errs = append(errs, fmt.Errorf("worktree %s: %w", key, cleanupErr))
 			}
 		}
 	}
-	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, dagID))
 	for _, runID := range runIDs {
 		if runID != "" {
 			wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Run, runID))

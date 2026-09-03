@@ -14,13 +14,19 @@ import {
     type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { useAtomValue } from "jotai";
+import { atom, useAtomValue, type Atom } from "jotai";
 import { useEffect, useMemo, useState } from "react";
+import type { AgentsViewModel } from "../agents/agents";
+import type { AgentVM } from "../agents/agentsviewmodel";
+import { runAtom } from "../agents/channelsstore";
+import { StatusLine } from "../agents/statusline";
 import { RoutePicker } from "../agents/routepicker";
 import { DagGraphHeader } from "./daggraph-header";
 import { computeLayeredLayout } from "./daglayout";
 import { buildViewData, selectedTaskIdAtom, useDagGroup, type DagViewNode } from "./dagstore";
 import { escalatePayload } from "./escalate";
+import { dagModalAgentsContextAtom } from "./dagmodalstate";
+import { openTaskWorker, resolveTaskWorker, type TaskWorkerView } from "./taskcorrelate";
 
 const STATE_TONE: Record<string, string> = {
     running: "border-accent/60 bg-accent/15 text-accent-soft",
@@ -96,6 +102,72 @@ function DagTaskNode({ data }: NodeProps) {
 
 const nodeTypes = { dagTask: DagTaskNode };
 
+// SelectedTaskWorker renders the selected task's worker treatment in the modal rail: the shared status
+// line when dispatched, Open in Agent navigation, and the explicit pending / worker-unavailable states
+// per spec 6.2. Node clicks still only select — navigation happens through the buttons.
+function SelectedTaskWorker({
+    taskNode,
+    channelId,
+    model,
+    agents,
+}: {
+    taskNode: TaskNode;
+    channelId: string;
+    model: AgentsViewModel;
+    agents: AgentVM[];
+}) {
+    const childRun = useAtomValue<Run | undefined>(
+        (taskNode.runid ? runAtom(taskNode.runid) : NO_RUN_ATOM) as Atom<Run | undefined>
+    );
+    const worker: TaskWorkerView = resolveTaskWorker({ id: taskNode.id, runid: taskNode.runid }, childRun, agents);
+    if (worker.state === "pending") {
+        return (
+            <div className="mt-1.5 flex items-center gap-1.5 font-mono text-[10px] text-muted">
+                <span className="h-1.5 w-1.5 rounded-full bg-edge-strong" />
+                Not dispatched yet
+            </div>
+        );
+    }
+    if (worker.state === "dispatched" && worker.agent) {
+        return (
+            <div className="mt-1.5 flex min-w-0 items-center gap-2">
+                <StatusLine agent={worker.agent} nowAtom={model.nowAtom} className="min-w-0 flex-1" />
+                <button
+                    type="button"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        openTaskWorker(worker, model, channelId);
+                    }}
+                    className="flex-none cursor-pointer rounded-[5px] border border-accent/50 px-1.5 py-0.5 font-mono text-[9.5px] font-semibold text-accent-soft hover:border-accent"
+                >
+                    Open in Agent ↗
+                </button>
+            </div>
+        );
+    }
+    return (
+        <div className="mt-1.5 flex min-w-0 items-center gap-2 font-mono text-[10px] text-muted">
+            <span className="shrink-0">Worker session unavailable</span>
+            <div className="flex-1" />
+            <button
+                type="button"
+                onClick={(e) => {
+                    e.stopPropagation();
+                    openTaskWorker(worker, model, channelId);
+                }}
+                className="flex-none cursor-pointer rounded-[5px] border border-edge-mid px-1.5 py-0.5 font-mono text-[9.5px] text-secondary hover:border-edge-strong"
+            >
+                View child run
+            </button>
+        </div>
+    );
+}
+
+// stable no-run atom for a task that has not been dispatched (runAtom is oref-cached, so per-run
+// atoms keep identity across renders; a static Atom is needed for the no-run slot so the row's hook
+// count never varies)
+const NO_RUN_ATOM = atom<Run | undefined>(undefined);
+
 // the per-run graph: ReactFlow canvas fed by the pure view data + layered layout. Actions
 // round-trip through the dag commands; the waveobj update re-derives the view. The provider
 // must wrap the component that calls useReactFlow (the hook reads the provider's context).
@@ -160,6 +232,8 @@ function DagGraphInner({ oref, owner, harnesses }: { oref: string; owner: Run; h
     }, [selectedId, orderedIds]);
 
     const selected = selectedId && byId.get(selectedId) ? byId.get(selectedId)! : null;
+    const agentsCtx = useAtomValue(dagModalAgentsContextAtom);
+    const selectedNode = group && selectedId ? group.tasks.find((t) => t.id === selectedId) : undefined;
 
     if (loading || !group) {
         return <div className="flex h-full items-center justify-center text-sm text-muted">loading dag…</div>;
@@ -232,6 +306,14 @@ function DagGraphInner({ oref, owner, harnesses }: { oref: string; owner: Run; h
                             <div className="font-mono text-[10px] text-secondary" data-dag-node-route={`${selected.route.source}:${selected.route.runtime}:${selected.route.tier}`}>
                                 {selected.route.source === "pinned" ? "pinned" : "inherits run route"} · {selected.route.runtime} / {selected.route.model || selected.route.tier} · {selected.route.resolvedModel}
                             </div>
+                            {selectedNode && agentsCtx ? (
+                                <SelectedTaskWorker
+                                    taskNode={selectedNode}
+                                    channelId={group.channelid}
+                                    model={agentsCtx.model}
+                                    agents={agentsCtx.agents}
+                                />
+                            ) : null}
                         </div>
                         {selected.actions.length > 0 ? (
                             <div className="flex flex-none gap-1.5">

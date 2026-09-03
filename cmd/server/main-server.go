@@ -400,6 +400,29 @@ func shutdownActivityUpdate() {
 	}
 }
 
+// retryCleanupDebtAtStartup sweeps worktree-cleanup debt left by a previous process (interrupted
+// or failed merges/cancels) through the same idempotent helper the merge path uses, so an old
+// locked worktree cannot strand a merged task forever. Best effort: a still-stuck tree stays on
+// the dag as debt (digest attention) until the next startup or retry — startup never fails over
+// cleanup, and the sweep never re-runs content integration.
+func retryCleanupDebtAtStartup() {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	groups, err := wstore.GetDagsWithPendingCleanup(ctx)
+	if err != nil {
+		log.Printf("error loading cleanup debt at startup: %v\n", err)
+		return
+	}
+	for _, g := range groups {
+		if err := orchestrate.RetryPendingCleanup(ctx, g); err != nil {
+			log.Printf("startup cleanup retry for dag %s: %v\n", g.ID, err)
+		}
+		if err := orchestrate.PersistCleanupState(ctx, g); err != nil {
+			log.Printf("error persisting cleanup retry for dag %s: %v\n", g.ID, err)
+		}
+	}
+}
+
 func createMainWshClient() {
 	rpc := wshserver.GetMainRpcClient()
 	wshutil.DefaultRouter.RegisterTrustedLeaf(rpc, wshutil.DefaultRoute)
@@ -578,6 +601,7 @@ func main() {
 		log.Printf("error fixing up wave zsh history: %v\n", err)
 	}
 	createMainWshClient()
+	retryCleanupDebtAtStartup()
 	sigutil.InstallShutdownSignalHandlers(doShutdown)
 	sigutil.InstallSIGUSR1Handler()
 	wconfig.MigratePresetsBackgrounds()

@@ -129,6 +129,30 @@ func cleanupScheduleFailure(ctx, workerCtx context.Context, g *waveobj.TaskGroup
 	return errors.Join(errs...)
 }
 
+// failDispatch records a task that died before it ever started. A dispatch failure produces no child
+// run and no transcript, so unless the reason is written here it exists nowhere: the classifier kind
+// lands on the node (feeding the digest's blocking-kind), the message on the task-failed lifecycle
+// event, and the raw error in the server log. RecomputeDagStatus already blocks the DAG on any failed
+// task, so the streak counter is deliberately untouched — this is a dispatch fault, not a run of bad
+// worker outcomes.
+func failDispatch(ctx context.Context, g *waveobj.TaskGroup, taskID, kind string, cause error, afterCommit *[]func()) {
+	idx := taskIdx(g, taskID)
+	if idx < 0 {
+		return
+	}
+	g.Tasks[idx].State = TaskState_Failed
+	g.Tasks[idx].LastFailureKind = kind
+	g.Tasks[idx].Attempts++
+	log.Printf("schedule dag %s task %s: %s: %v", g.OID, taskID, kind, cause)
+	detail := truncateText(cause.Error(), MaxFailureDetailLen)
+	attempts := g.Tasks[idx].Attempts
+	*afterCommit = append(*afterCommit, func() {
+		appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskFailed, nil, map[string]any{
+			"taskid": taskID, "lastfailurekind": kind, "attempts": attempts, "detail": detail,
+		})
+	})
+}
+
 // Schedule advances the DAG one step: derive task states from child runs, count
 // consecutive failures, spawn ready tasks (managed worktrees when the project is git),
 // persist, and publish waveobj + event updates. Idempotent — safe to call repeatedly.
@@ -161,6 +185,16 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 	}
 	if g.Status == DagStatus_Cancelled {
 		return nil
+	}
+	// cleanup debt retry (ordinary merge retry / interrupted prior run): a merged task still
+	// owning its worktree is retried through the same idempotent helper before any dispatch, and
+	// the outcome persists with this tick's group write. A still-stuck tree never blocks
+	// scheduling — it stays visible as task debt for the digest's attention.
+	if HasCleanupDebt(g) {
+		_ = RetryPendingCleanup(ctx, g)
+		if err := PersistCleanupState(ctx, g); err != nil {
+			return fmt.Errorf("persisting cleanup retry for dag %s: %w", g.ID, err)
+		}
 	}
 	var afterCommit []func()
 	spawnCtx := context.WithoutCancel(ctx)
@@ -200,14 +234,17 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 			t.State = TaskState_Stalled
 		}
 	}
-	// child-done notification: a task whose child just reached done wakes the lead (publish + control file).
+	// child-done notification: a task whose child just reached done wakes the lead (publish + control file)
+	// and records the task-done lifecycle boundary (task id + child run id).
 	for i := range g.Tasks {
 		t := &g.Tasks[i]
 		if t.State == TaskState_Done && t.RunID != "" && prevStates[t.ID] == TaskState_Running {
 			taskID := t.ID
+			childRunID := t.RunID
 			afterCommit = append(afterCommit, func() {
 				publishDagEvent(DagEventChildDone, g, taskID)
 				notifyLeadBestEffort(ctx, g, DagEventChildDone, taskID)
+				appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskDone, nil, map[string]any{"taskid": taskID, "runid": childRunID})
 			})
 		}
 		if t.State == TaskState_Stalled && prevStates[t.ID] == TaskState_Running {
@@ -236,6 +273,15 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 	for i := range g.Tasks {
 		if g.Tasks[i].State == TaskState_Failed && prevStates[g.Tasks[i].ID] == TaskState_Running {
 			g.Failures++
+			// task-failed: record the terminal failure boundary (task id, child run id, failure
+			// classifier, attempt count) — emitted only after the persist lands.
+			taskID := g.Tasks[i].ID
+			childRunID := g.Tasks[i].RunID
+			kind := g.Tasks[i].LastFailureKind
+			attempts := g.Tasks[i].Attempts
+			afterCommit = append(afterCommit, func() {
+				appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskFailed, nil, map[string]any{"taskid": taskID, "runid": childRunID, "lastfailurekind": kind, "attempts": attempts})
+			})
 		}
 	}
 	var spawned []spawnedWorkerInfo
@@ -251,18 +297,18 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		pin := effectiveTaskRoute(task, owner, g)
 		capability, routeErr := runroute.Resolve(pin)
 		if routeErr != nil {
-			g.Tasks[taskIdx(g, taskID)].State = TaskState_Failed
+			failDispatch(ctx, g, taskID, FailureKindRoute, routeErr, &afterCommit)
 			continue
 		}
 		if harnessErr := validateWorkerHarness(pin.Runtime); harnessErr != nil {
-			g.Tasks[taskIdx(g, taskID)].State = TaskState_Failed
+			failDispatch(ctx, g, taskID, FailureKindHarness, harnessErr, &afterCommit)
 			continue
 		}
 		cwd := owner.ProjectPath
 		if IsGitRepo(owner.ProjectPath) {
 			wt, werr := EnsureRunWorktree(spawnCtx, owner.ProjectPath, TaskWorktreeKey(owner.ID, taskID), spawnBase)
 			if werr != nil {
-				g.Tasks[taskIdx(g, taskID)].State = TaskState_Failed
+				failDispatch(ctx, g, taskID, FailureKindWorktree, werr, &afterCommit)
 				continue
 			}
 			cwd = wt
@@ -270,9 +316,12 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		prompt := taskPrompt(task, owner) + "\n\n" + dagSessionMarker(g.OID, taskID)
 		oref, err := spawnWorker(spawnCtx, capability, owner.WorkspaceId, "", cwd, prompt, jarvis.RunWorkerOptions{})
 		if err != nil {
-			g.Tasks[taskIdx(g, taskID)].State = TaskState_Failed
+			failDispatch(ctx, g, taskID, FailureKindSpawn, err, &afterCommit)
 			continue
 		}
+		// a fresh dispatch writes a new transcript; drop any cached path from a prior attempt so
+		// liveness never reads the dead session's mtime as this one's heartbeat.
+		sessionPathCache.Delete(dagSessionMarker(g.OID, taskID))
 		childRun := childRunFromSpec(g, task, owner, pin, cwd, spawnBase, prompt)
 		// attach worker to child run before persisting
 		attached := false
@@ -310,10 +359,12 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 	// status-transition notifications: gate-open / blocked / complete wake the lead.
 	switch g.Status {
 	case DagStatus_AwaitingReview:
-		detail := fmt.Sprintf("gate %s", gatedTaskID(g))
+		gateTask := gatedTaskID(g)
+		detail := fmt.Sprintf("gate %s", gateTask)
 		afterCommit = append(afterCommit, func() {
 			publishDagEvent(DagEventGateOpen, g, "")
 			notifyLeadBestEffort(ctx, g, DagEventGateOpen, detail)
+			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindDagGateOpen, nil, map[string]any{"taskid": gateTask})
 		})
 	case DagStatus_Blocked:
 		failures := g.Failures
@@ -345,6 +396,11 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		})
 	}
 	g.UpdatedTs = time.Now().UnixMilli()
+	// whole-object replace: the snapshot was loaded under the dag mutation lock, so it cannot have
+	// gone stale. This is only sound while EVERY dag writer holds that lock — a write made outside it
+	// (the merge stamp used to be one) is silently discarded here, because UpdateDag hands the mutator
+	// the fresh row and this mutator throws it away. Field-scoped writers (PersistCleanupState) are the
+	// pattern to follow if a writer ever genuinely cannot take the lock.
 	if err := wstore.UpdateDag(ctx, g.OID, func(cur *waveobj.TaskGroup) error {
 		*cur = *g
 		return nil
@@ -482,8 +538,8 @@ func publishDagEvent(kind string, g *waveobj.TaskGroup, detail string) {
 // appendRunEvent records a lifecycle event on the dag's owning run's log and broadcasts it to the
 // focused run card. Best-effort telemetry — a failure is logged, never returned: the engine's
 // scheduling must not fail over a log write. Local copy of the wshserver helper (that package imports
-// this one, so a shared implementation would be a cycle).
-func appendRunEvent(ctx context.Context, channelId, runId, kind string, phaseIdx *int, detail any) {
+// this one, so a shared implementation would be a cycle). Var so tests can stub an append failure.
+var appendRunEvent = func(ctx context.Context, channelId, runId, kind string, phaseIdx *int, detail any) {
 	if ev, err := wstore.AppendRunEvent(ctx, channelId, runId, kind, phaseIdx, detail); err != nil {
 		log.Printf("appendRunEvent(%s): %v", kind, err)
 	} else {

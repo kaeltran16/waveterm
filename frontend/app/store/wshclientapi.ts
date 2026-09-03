@@ -301,7 +301,7 @@ export class RpcApiType {
     }
 
     // command "dagstatus" [call]
-    DagStatusCommand(client: WshClient, data: CommandDagStatusData, opts?: RpcOpts): Promise<TaskGroup> {
+    DagStatusCommand(client: WshClient, data: CommandDagStatusData, opts?: RpcOpts): Promise<CommandDagStatusRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "dagstatus", data, opts);
         return client.wshRpcCall("dagstatus", data, opts);
     }

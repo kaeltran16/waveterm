@@ -12,6 +12,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wcore"
 	"github.com/wavetermdev/waveterm/pkg/wps"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
@@ -37,6 +38,52 @@ func (c *captureClient) saw(kind, scope string) bool {
 		}
 	}
 	return false
+}
+
+// dagVersions returns every captured TaskGroup waveobj update version for scope, in order.
+func (c *captureClient) dagVersions(scope string) []int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var out []int
+	for _, e := range c.events {
+		if e.Event != wps.Event_WaveObjUpdate || !e.HasScope(scope) {
+			continue
+		}
+		if wu, ok := e.Data.(waveobj.WaveObjUpdate); ok {
+			if g, ok := wu.Obj.(*waveobj.TaskGroup); ok {
+				out = append(out, g.Version)
+			}
+		}
+	}
+	return out
+}
+
+func (c *captureClient) dagCleanupStates(scope string) []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var out []string
+	for _, e := range c.events {
+		if e.Event != wps.Event_WaveObjUpdate || !e.HasScope(scope) {
+			continue
+		}
+		wu, ok := e.Data.(waveobj.WaveObjUpdate)
+		if !ok {
+			continue
+		}
+		g, ok := wu.Obj.(*waveobj.TaskGroup)
+		if !ok || len(g.Tasks) == 0 {
+			continue
+		}
+		switch {
+		case g.Tasks[0].CleanupPending:
+			out = append(out, "pending")
+		case g.Tasks[0].CleanupError != "":
+			out = append(out, "failed")
+		default:
+			out = append(out, "clear")
+		}
+	}
+	return out
 }
 
 func TestTaskPromptCarriesDescriptionAndContract(t *testing.T) {
@@ -149,6 +196,122 @@ func TestScheduleOnceSpawnsUpToCap(t *testing.T) {
 	}
 	if len(spawned) != 3 {
 		t.Fatalf("no new spawns expected, got %d", len(spawned))
+	}
+}
+
+// TestScheduleOncePublishesCleanupTransitions: every persisted cleanup transition (pending→failed
+// on a retry, failed→clear on a later retry) must emit a dag waveobj update carrying the matching
+// task state, so the FE can render cleanup debt authoritatively. Regression net for the rule that
+// the engine's cleanup outcome persists and publishes with the same tick.
+func TestCleanupPublishTransitions(t *testing.T) {
+	ctx := context.Background()
+	cc := &captureClient{}
+	prevClient := wps.Broker.GetClient()
+	wps.Broker.SetClient(cc)
+	defer wps.Broker.SetClient(prevClient)
+	wps.Broker.Subscribe("cleanup-publish-test", wps.SubscriptionRequest{Event: wps.Event_WaveObjUpdate, AllScopes: true})
+	defer wps.Broker.Unsubscribe("cleanup-publish-test", wps.Event_WaveObjUpdate)
+
+	projectDir := newGitRepo(t)
+	ch, err := wstore.CreateChannel(ctx, "cleanup-publish", projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := jarvis.NewRun("owner goal", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	owner.BaseCommit = gitCmd(t, projectDir, "rev-parse", "HEAD")
+	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
+		t.Fatal(err)
+	}
+	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 1, true, []waveobj.TaskNode{
+		{ID: "t-0", Label: "a"},
+	}, 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := wstore.AppendDag(ctx, &g); err != nil {
+		t.Fatal(err)
+	}
+	// persisted merge identity + cleanup pending (version 2)
+	if err := wstore.UpdateDag(ctx, g.OID, func(cur *waveobj.TaskGroup) error {
+		cur.Tasks[0].State = TaskState_Done
+		cur.Tasks[0].Merged = true
+		cur.Tasks[0].CleanupPending = true
+		RecomputeDagStatus(cur)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	scope := waveobj.MakeORef(waveobj.OType_Dag, g.OID).String()
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, g.OID))
+
+	stubCleanupRemover(t, func(context.Context, string, string) error {
+		return errors.New("still locked")
+	})
+	if err := ScheduleOnce(ctx, &g); err != nil {
+		t.Fatal(err)
+	}
+	persisted, err := wstore.GetDag(ctx, g.OID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Tasks[0].CleanupPending || persisted.Tasks[0].CleanupError == "" {
+		t.Fatalf("failed retry must persist debt, got pending=%v err=%q", persisted.Tasks[0].CleanupPending, persisted.Tasks[0].CleanupError)
+	}
+
+	stubCleanupRemover(t, func(context.Context, string, string) error { return nil })
+	if err := ScheduleOnce(ctx, &g); err != nil {
+		t.Fatal(err)
+	}
+	states := cc.dagCleanupStates(scope)
+	want := []string{"pending", "failed", "clear"}
+	at := 0
+	for _, state := range states {
+		if at < len(want) && state == want[at] {
+			at++
+		}
+	}
+	if at != len(want) {
+		t.Fatalf("cleanup publications = %v, want ordered %v", states, want)
+	}
+	final, err := wstore.GetDag(ctx, g.OID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if final.Tasks[0].CleanupPending || final.Tasks[0].CleanupError != "" {
+		t.Fatalf("cleared retry must clear debt, got pending=%v err=%q", final.Tasks[0].CleanupPending, final.Tasks[0].CleanupError)
+	}
+	if final.Status != DagStatus_Done {
+		t.Fatalf("merge-required dag with cleared debt must reach done, got %s", final.Status)
+	}
+}
+
+func TestCleanupPersistsBeforeLaterScheduleFailure(t *testing.T) {
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "cleanup-before-error", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, err := NewTaskGroup("missing-owner", ch.OID, "g", 1, true, []waveobj.TaskNode{{ID: "t-0", Label: "a"}}, 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.Tasks[0].State = TaskState_Done
+	g.Tasks[0].Merged = true
+	g.Tasks[0].CleanupPending = true
+	if err := wstore.AppendDag(ctx, &g); err != nil {
+		t.Fatal(err)
+	}
+	stubCleanupRemover(t, func(context.Context, string, string) error { return nil })
+
+	if err := Schedule(ctx, g.OID); err == nil || !strings.Contains(err.Error(), "loading owning run") {
+		t.Fatalf("schedule error = %v, want missing owner", err)
+	}
+	stored, err := wstore.GetDag(ctx, g.OID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Tasks[0].CleanupPending || stored.Tasks[0].CleanupError != "" {
+		t.Fatalf("cleanup outcome was lost: pending=%v error=%q", stored.Tasks[0].CleanupPending, stored.Tasks[0].CleanupError)
 	}
 }
 

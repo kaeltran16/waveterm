@@ -25,11 +25,8 @@ import {
 import {
     formatAge,
     hasAnswerableAsk,
-    isQuiet,
     nextFullWidth,
-    projectOf,
     taskProgress,
-    type AgentState,
     type AgentVM,
     type CardRect,
     type CardTask,
@@ -37,12 +34,10 @@ import {
 import { AnswerBar } from "./answerbar";
 import { AttentionBanner, BannerChip } from "./attentioncard";
 import { diffStatsByIdAtom } from "./cardgitstore";
-import { activityAtomFor, entriesAtomFor, tasksAtomFor } from "./livetranscriptatoms";
+import { entriesAtomFor, tasksAtomFor } from "./livetranscriptatoms";
 import { NarrationTimeline } from "./narrationtimeline";
-import { RuntimeMark } from "./runtimemark";
-import { runtimeMeta } from "./runtimemeta";
 import type { SubagentState, SubagentVM } from "./session-models/sessionviewmodel";
-import { StatusDot } from "./statusdot";
+import { ActivityLine, StatusLine } from "./statusline";
 import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
 import { subagentsByIdAtom } from "./subagentsstore";
 
@@ -174,15 +169,8 @@ function FanoutBadge({ subs, onOpen }: { subs: SubagentVM[]; onOpen: () => void 
     );
 }
 
-// Header liveness dot as a self-subscribing leaf: reads the 1s nowAtom + this agent's last-activity
-// stamp itself, so the tick re-renders only this dot (quiet flips at the 45s threshold) instead of the
-// whole card. Was `isQuiet(lastActivity, now)` computed in AgentRow from a prop-drilled `now`.
-function QuietDot({ nowAtom, agentId, state }: { nowAtom: Atom<number>; agentId: string; state: AgentState }) {
-    const now = useAtomValue(nowAtom);
-    const stamp = useAtomValue(activityAtomFor(agentId));
-    const quiet = isQuiet(stamp, now);
-    return <StatusDot state={state} quiet={quiet} pulse={state !== "idle" && !quiet} className="!h-2 !w-2" />;
-}
+// Header liveness dot and the identity/status/activity rows are shared units extracted for the
+// orchestrator overview (statusline.tsx); AgentRow composes them with its own controls.
 
 export const AgentRow = memo(function AgentRow({
     agent,
@@ -281,8 +269,6 @@ export const AgentRow = memo(function AgentRow({
     const liveEntries = useAtomValue(entriesAtomFor(agent.id));
     const entries = entriesToShow(liveEntries, agent.previousInfo);
     const { scrollRef, onScroll, atBottom, jumpToBottom } = useStickToBottom(entries);
-    const project = projectOf(agent);
-    const rt = runtimeMeta(agent.agent);
     const asking = agent.state === "asking";
     const working = agent.state === "working";
     const idle = agent.state === "idle";
@@ -382,21 +368,7 @@ export const AgentRow = memo(function AgentRow({
         >
             {/* header bar */}
             <div className="flex shrink-0 items-center gap-2 border-b border-edge-mid bg-surface px-3 py-1.5">
-                <QuietDot nowAtom={nowAtom} agentId={agent.id} state={agent.state} />
-                <span title={rt.label} className="shrink-0">
-                    <RuntimeMark
-                        runtime={agent.agent}
-                        className={cn("shrink-0 font-mono text-[10px] leading-none", rt.text)}
-                    />
-                </span>
-                <b className="min-w-[30px] flex-1 truncate font-mono text-[13.5px] font-semibold text-primary">
-                    {agent.name}
-                </b>
-                {project ? (
-                    <span className="shrink-0 rounded-[5px] border border-edge-mid bg-surface-raised px-1.5 py-px font-mono text-[10px] text-muted">
-                        {project}
-                    </span>
-                ) : null}
+                <StatusLine agent={agent} nowAtom={nowAtom} className="min-w-0 flex-1" />
                 {subs.length > 0 ? <FanoutBadge subs={subs} onOpen={onOpen} /> : null}
                 {diff ? (
                     <button
@@ -522,22 +494,19 @@ export const AgentRow = memo(function AgentRow({
                     {/* feed */}
                     <div className="shrink-0 grow px-3 py-1.5">
                         {working && agent.activity ? (
-                            <div className="mb-1.5 flex items-center gap-2 border-b border-edge-mid pb-1.5">
-                                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-success animate-[pulseDot_1.6s_infinite] motion-reduce:animate-none" />
-                                <span
-                                    title={agent.activity}
-                                    className="min-w-0 flex-1 truncate font-mono text-[12px] leading-[1.4] text-success-soft"
-                                >
-                                    {agent.activity}
-                                </span>
-                                {prog ? (
-                                    <TaskChip
-                                        done={prog.done}
-                                        total={prog.total}
-                                        onClick={() => setTasksOpen((v) => !v)}
-                                    />
-                                ) : null}
-                            </div>
+                            <ActivityLine
+                                agent={agent}
+                                className="mb-1.5 border-b border-edge-mid pb-1.5"
+                                right={
+                                    prog ? (
+                                        <TaskChip
+                                            done={prog.done}
+                                            total={prog.total}
+                                            onClick={() => setTasksOpen((v) => !v)}
+                                        />
+                                    ) : null
+                                }
+                            />
                         ) : null}
                         {entries.length > 0 ? (
                             <NarrationTimeline entries={entries} accentLatest active={!idle} />

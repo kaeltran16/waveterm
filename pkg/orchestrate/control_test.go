@@ -36,8 +36,12 @@ func TestControlMessageShape(t *testing.T) {
 	}
 	// NotifyLead without the control dir is a silent no-op, not an error
 	g, _ := NewTaskGroup("run-1", "g", "g", 2, false, []waveobj.TaskNode{{ID: "t-0", Label: "a"}}, 1, nil)
-	if err := NotifyLead(context.Background(), &g, DagEventGateOpen, "t-0"); err != nil {
+	sent, err := NotifyLead(context.Background(), &g, DagEventGateOpen, "t-0")
+	if err != nil {
 		t.Fatalf("NotifyLead without env must be a no-op: %v", err)
+	}
+	if sent {
+		t.Fatal("NotifyLead without env must not report a delivered control file")
 	}
 }
 
@@ -46,8 +50,8 @@ func TestNotifyLeadBestEffortLogsFailure(t *testing.T) {
 	g.OID = "dag-123"
 	g.RunID = "run-42"
 	old := notifyLeadFn
-	notifyLeadFn = func(context.Context, *waveobj.TaskGroup, string, string) error {
-		return errors.New("write failed")
+	notifyLeadFn = func(context.Context, *waveobj.TaskGroup, string, string) (bool, error) {
+		return false, errors.New("write failed")
 	}
 	t.Cleanup(func() { notifyLeadFn = old })
 	var buf bytes.Buffer

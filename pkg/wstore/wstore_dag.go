@@ -50,6 +50,7 @@ func GetDagsWithPendingCleanup(ctx context.Context) ([]*waveobj.TaskGroup, error
 			WHERE EXISTS (
 				SELECT 1 FROM json_each(data, '$.tasks') AS task
 				WHERE json_extract(task.value, '$.cleanuppending') = 1
+				   OR json_extract(task.value, '$.cleanuperror') != ''
 			)
 			ORDER BY json_extract(data, '$.updatedts') ASC`
 		var rows []idDataType

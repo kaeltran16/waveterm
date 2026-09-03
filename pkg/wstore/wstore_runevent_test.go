@@ -43,6 +43,38 @@ func TestAppendAndQueryRunEvents(t *testing.T) {
 	}
 }
 
+func TestQueryRunEventsByKind(t *testing.T) {
+	ctx := context.Background()
+	ch, err := CreateChannel(ctx, "runevent-kinds", "/p/one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []string{
+		waveobj.RunEventKindCreated,
+		waveobj.RunEventKindTaskRetried,
+		waveobj.RunEventKindTaskDone,
+		waveobj.RunEventKindTaskCleanupCompleted,
+	} {
+		if _, err := AppendRunEvent(ctx, ch.OID, "run-kinds", kind, nil, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	events, err := QueryRunEventsByKind(ctx, ch.OID, "run-kinds", []string{
+		waveobj.RunEventKindTaskRetried,
+		waveobj.RunEventKindTaskCleanupCompleted,
+	}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].Kind != waveobj.RunEventKindTaskCleanupCompleted {
+		t.Fatalf("bounded newest matching event = %+v", events)
+	}
+	if empty, err := QueryRunEventsByKind(ctx, ch.OID, "run-kinds", nil, 10); err != nil || len(empty) != 0 {
+		t.Fatalf("empty kind set = %v, %v", empty, err)
+	}
+}
+
 func TestRunEventPrune(t *testing.T) {
 	ctx := context.Background()
 	ch, err := CreateChannel(ctx, "runevent-prune", "/p/one")

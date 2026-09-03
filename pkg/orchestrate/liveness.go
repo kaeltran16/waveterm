@@ -8,9 +8,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -37,6 +39,25 @@ type piSessionHeader struct {
 	Cwd string `json:"cwd"`
 }
 
+// maxSessionLineBytes bounds one transcript line the liveness scan will read. pi writes whole tool
+// results as a single JSONL line, so bufio's 64KB default token cap is routinely exceeded — and a
+// scan killed by an oversized line reports "marker absent", which flags a perfectly healthy child
+// stalled once StallThreshold passes.
+const maxSessionLineBytes = 4 << 20
+
+func sessionScanner(f *os.File) *bufio.Scanner {
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), maxSessionLineBytes)
+	return sc
+}
+
+// sessionPathCache maps a task's dag session marker to the transcript that matched it, so a
+// steady-state tick is one stat instead of a walk of every pi session opening every .jsonl. The
+// cached mtime is trusted only while it is fresher than StallThreshold: at the exact point it could
+// produce a stall verdict the full scan runs again, so a resumed session writing a new file is
+// picked up rather than mistaken for silence.
+var sessionPathCache sync.Map // marker -> path
+
 // lastActivityForRun returns the newest write time of the run's worker pi sessions (the child's
 // transcript file mtimes — the heartbeat a headless agent actually emits), or 0 when no session
 // matches. Only the first line of each candidate file is read (the v3 header carries cwd), so a tick
@@ -56,7 +77,11 @@ func lastActivityForRun(run *waveobj.Run, marker string) int64 {
 	if cwd == "" {
 		return 0
 	}
+	if ms, ok := cachedActivity(marker); ok {
+		return ms
+	}
 	var newest int64
+	var newestPath string
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return 0
@@ -74,21 +99,48 @@ func lastActivityForRun(run *waveobj.Run, marker string) int64 {
 			if f.IsDir() || !strings.HasSuffix(f.Name(), ".jsonl") {
 				continue
 			}
-			if !headerCwdMatches(filepath.Join(sessDir, f.Name()), cwd) {
+			path := filepath.Join(sessDir, f.Name())
+			if !headerCwdMatches(path, cwd) {
 				continue
 			}
-			if marker != "" && !sessionMentions(filepath.Join(sessDir, f.Name()), marker) {
+			if marker != "" && !sessionMentions(path, marker) {
 				continue
 			}
 			if info, ierr := f.Info(); ierr == nil {
 				ms := info.ModTime().UnixMilli()
 				if ms > newest {
 					newest = ms
+					newestPath = path
 				}
 			}
 		}
 	}
+	if marker != "" && newestPath != "" {
+		sessionPathCache.Store(marker, newestPath)
+	}
 	return newest
+}
+
+// cachedActivity returns the cached transcript's mtime when it is recent enough to be conclusive.
+// A cached file that has gone quiet past the threshold, or vanished, falls through to a full scan
+// so the stall verdict is never made on a stale cache entry.
+func cachedActivity(marker string) (int64, bool) {
+	if marker == "" {
+		return 0, false
+	}
+	v, ok := sessionPathCache.Load(marker)
+	if !ok {
+		return 0, false
+	}
+	info, err := os.Stat(v.(string))
+	if err != nil {
+		sessionPathCache.Delete(marker)
+		return 0, false
+	}
+	if time.Since(info.ModTime()) >= StallThreshold {
+		return 0, false
+	}
+	return info.ModTime().UnixMilli(), true
 }
 
 // headerCwdMatches reads the first line of a pi session file and reports whether its cwd equals the
@@ -99,7 +151,7 @@ func headerCwdMatches(path, cwd string) bool {
 		return false
 	}
 	defer f.Close()
-	sc := bufio.NewScanner(f)
+	sc := sessionScanner(f)
 	if !sc.Scan() {
 		return false
 	}
@@ -119,18 +171,25 @@ func dagSessionMarker(dagOID, taskID string) string {
 
 // sessionMentions scans the opening lines of a pi session for the marker substring. Bounded read:
 // the prompt (and therefore the marker) lands in the first user message, never deep in a
-// multi-MB transcript.
+// multi-MB transcript. A scan that dies on an unreadable line reports a match rather than a miss:
+// the header cwd already matched, and cross-refreshing a sibling's heartbeat (only possible when
+// several children share one cwd, i.e. non-git projects) is a far cheaper wrong answer than
+// declaring a live child stalled.
 func sessionMentions(path, marker string) bool {
 	f, err := os.Open(path)
 	if err != nil {
 		return false
 	}
 	defer f.Close()
-	sc := bufio.NewScanner(f)
+	sc := sessionScanner(f)
 	for i := 0; i < 200 && sc.Scan(); i++ {
 		if strings.Contains(sc.Text(), marker) {
 			return true
 		}
+	}
+	if serr := sc.Err(); serr != nil {
+		log.Printf("liveness scan %s: %v", path, serr)
+		return true
 	}
 	return false
 }

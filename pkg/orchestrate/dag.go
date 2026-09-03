@@ -261,7 +261,7 @@ func RecomputeDagStatus(g *waveobj.TaskGroup) {
 				allTerminal = false
 				continue
 			}
-			if g.MergeRequired && (!t.Merged || t.CleanupPending) {
+			if g.MergeRequired && (!t.Merged || t.CleanupPending || t.CleanupError != "") {
 				allTerminal = false
 				continue
 			}

@@ -86,23 +86,29 @@ func TestDagSubmitAndAction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if g2.Status != "awaiting-review" {
-		t.Fatalf("want awaiting-review, got %s", g2.Status)
+	if g2.Group.Status != "awaiting-review" {
+		t.Fatalf("want awaiting-review, got %s", g2.Group.Status)
+	}
+	if g2.Digest.DagVersion != g2.Group.Version || g2.Digest.Counts.Total != len(g2.Group.Tasks) {
+		t.Fatalf("status digest not tied to group: version %d/%d counts %+v", g2.Digest.DagVersion, g2.Group.Version, g2.Digest.Counts)
+	}
+	if g2.Digest.Next.Kind != "human-action" || len(g2.Digest.Next.Actions) != 2 {
+		t.Fatalf("gate digest must expose approve/sendback, got %+v", g2.Digest.Next)
 	}
 	if err := ws.DagActionCommand(ctx, wshrpc.CommandDagActionData{ChannelId: ch.OID, RunId: run.ID, TaskId: "t-1", Action: "approve"}); err != nil {
 		t.Fatal(err)
 	}
 	g3, _ := ws.DagStatusCommand(ctx, wshrpc.CommandDagStatusData{ChannelId: ch.OID, RunId: run.ID})
-	if g3.Status != "running" {
-		t.Fatalf("want running after approve, got %s", g3.Status)
+	if g3.Group.Status != "running" {
+		t.Fatalf("want running after approve, got %s", g3.Group.Status)
 	}
 	// cancel is terminal
 	if err := ws.DagActionCommand(ctx, wshrpc.CommandDagActionData{ChannelId: ch.OID, RunId: run.ID, TaskId: "", Action: "cancel"}); err != nil {
 		t.Fatalf("cancel: %v", err)
 	}
 	g4, _ := ws.DagStatusCommand(ctx, wshrpc.CommandDagStatusData{ChannelId: ch.OID, RunId: run.ID})
-	if g4.Status != "cancelled" {
-		t.Fatalf("want cancelled, got %s", g4.Status)
+	if g4.Group.Status != "cancelled" {
+		t.Fatalf("want cancelled, got %s", g4.Group.Status)
 	}
 	cancelledOwner, err := wstore.GetRun(ctx, ch.OID, run.ID)
 	if err != nil {
@@ -111,7 +117,7 @@ func TestDagSubmitAndAction(t *testing.T) {
 	if cancelledOwner.Status != jarvis.RunStatus_Cancelled {
 		t.Fatalf("owner status = %q, want cancelled", cancelledOwner.Status)
 	}
-	for _, task := range g4.Tasks {
+	for _, task := range g4.Group.Tasks {
 		if task.RunID == "" {
 			continue
 		}
@@ -791,5 +797,153 @@ func TestDagMergeContinueFinishesBlockedMerge(t *testing.T) {
 	}
 	if err := ws.DagMergeContinueCommand(ctx, wshrpc.CommandDagMergeData{ChannelId: ch.OID, RunId: run.ID, TaskId: "t-0"}); err == nil || !strings.Contains(err.Error(), "want blocked-merge") {
 		t.Fatalf("continue on a done task must error, got %v", err)
+	}
+}
+
+// TestDagMergeCleanupFailurePersistsDebt: when content integration lands but worktree removal
+// fails (locked worktree), the merge handler must persist identity + debt before reporting, never
+// re-integrate on a retry, and leave removal to the retry/startup sweep.
+func TestDagMergeCleanupFailurePersistsDebt(t *testing.T) {
+	ctx := context.Background()
+	projectDir := t.TempDir()
+	execGit := func(args ...string) string {
+		out, err := exec.Command("git", append([]string{"-C", projectDir}, args...)...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	execGit("init", "-b", "main")
+	execGit("config", "user.email", "t@test")
+	execGit("config", "user.name", "t")
+	if err := os.WriteFile(filepath.Join(projectDir, "base.txt"), []byte("base\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	execGit("add", ".")
+	execGit("commit", "-m", "base")
+	baseSha := execGit("rev-parse", "HEAD")
+
+	ch, err := wstore.CreateChannel(ctx, "dag-merge-cleanup", projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := jarvis.NewRun("do the thing", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	run.Status = jarvis.RunStatus_Planning
+	run.BaseCommit = baseSha
+	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
+		t.Fatalf("AppendRun: %v", err)
+	}
+	oldSpawn := jarvis.SpawnRunWorker
+	jarvis.SpawnRunWorker = func(context.Context, runroute.Capability, string, string, string, string, jarvis.RunWorkerOptions) (string, error) {
+		tabId := uuid.NewString()
+		blockId := uuid.NewString()
+		tab := &waveobj.Tab{OID: tabId, BlockIds: []string{blockId}}
+		_ = wstore.DBInsert(ctx, tab)
+		block := &waveobj.Block{OID: blockId, ParentORef: "tab:" + tabId}
+		_ = wstore.DBInsert(ctx, block)
+		return "tab:" + tabId, nil
+	}
+	t.Cleanup(func() { jarvis.SpawnRunWorker = oldSpawn })
+	ws := &WshServer{}
+	g, err := ws.DagSubmitCommand(ctx, wshrpc.CommandDagSubmitData{
+		ChannelId: ch.OID, RunId: run.ID, Title: "t", Parallelism: 1,
+		Tasks: []waveobj.TaskNode{{ID: "t-0", Label: "feature work"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := orchestrate.TaskWorktreeKey(run.ID, "t-0")
+	wtPath := filepath.Join(projectDir, ".waveterm", "worktrees", key)
+	if _, err := os.Stat(wtPath); err != nil {
+		t.Fatalf("expected task worktree at %s: %v", wtPath, err)
+	}
+	if err := os.WriteFile(filepath.Join(wtPath, "feature.txt"), []byte("feat\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	execGit2 := func(dir string, args ...string) {
+		out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	execGit2(wtPath, "add", ".")
+	execGit2(wtPath, "commit", "-m", "feature")
+	if err := wstore.UpdateDag(ctx, g.OID, func(cur *waveobj.TaskGroup) error {
+		cur.Tasks[0].State = orchestrate.TaskState_Done
+		orchestrate.RecomputeDagStatus(cur)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// first attempt: content integrates, cleanup is stubbed to fail. The remover observes the
+	// authoritative database boundary, not the handler's in-memory objects.
+	oldRemover := orchestrate.RemoveTaskWorktree
+	cleanupCalls := 0
+	failCleanup := true
+	persistedBeforeCleanup := true
+	orchestrate.RemoveTaskWorktree = func(cleanupCtx context.Context, projectPath, worktreeKey string) error {
+		cleanupCalls++
+		persistedDag, dagErr := wstore.GetDag(cleanupCtx, g.OID)
+		persistedChild, childErr := wstore.GetRun(cleanupCtx, ch.OID, g.Tasks[0].RunID)
+		persistedBeforeCleanup = persistedBeforeCleanup && dagErr == nil && childErr == nil &&
+			persistedDag.Tasks[0].Merged && persistedDag.Tasks[0].CleanupPending && len(persistedChild.EndCommit) == 40
+		if failCleanup {
+			return fmt.Errorf("windows dir lock: %s", strings.Repeat("x", 300))
+		}
+		return oldRemover(cleanupCtx, projectPath, worktreeKey)
+	}
+	t.Cleanup(func() { orchestrate.RemoveTaskWorktree = oldRemover })
+	if err := ws.DagMergeCommand(ctx, wshrpc.CommandDagMergeData{ChannelId: ch.OID, RunId: run.ID, TaskId: "t-0"}); err == nil {
+		t.Fatal("cleanup failure must surface from the merge RPC")
+	}
+	if _, err := os.Stat(filepath.Join(projectDir, "feature.txt")); err != nil {
+		t.Fatalf("child work must land in the project tree: %v", err)
+	}
+	mergedDag, err := wstore.GetDag(ctx, g.OID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := mergedDag.Tasks[0]
+	if !task.Merged {
+		t.Fatal("merged marker must be persisted despite cleanup failure")
+	}
+	if task.CleanupPending {
+		t.Fatal("cleanup pending must clear after the attempt")
+	}
+	if task.CleanupError == "" || len(task.CleanupError) > orchestrate.MaxCleanupErrorLen {
+		t.Fatalf("cleanup error must be persisted and bounded, got %q", task.CleanupError)
+	}
+	if !persistedBeforeCleanup {
+		t.Fatal("merge identity and cleanup pending must be committed before cleanup starts")
+	}
+
+	// retry: cleanup runs again, while the merged marker prevents content integration from running.
+	failCleanup = false
+	if err := ws.DagMergeCommand(ctx, wshrpc.CommandDagMergeData{ChannelId: ch.OID, RunId: run.ID, TaskId: "t-0"}); err != nil {
+		t.Fatalf("retry merge: %v", err)
+	}
+	if cleanupCalls != 2 {
+		t.Fatalf("cleanup calls = %d, want one initial attempt and one retry", cleanupCalls)
+	}
+	if regs := execGit("worktree", "list"); strings.Contains(regs, key) {
+		t.Fatalf("retry must clear the worktree without re-integration: %s", regs)
+	}
+	if got := execGit("rev-list", "--count", "HEAD"); got != "2" {
+		t.Fatalf("merge must not re-integrate on retry, want 2 commits, got %s", got)
+	}
+	child, err := wstore.GetRun(ctx, ch.OID, task.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(child.EndCommit) != 40 {
+		t.Fatalf("child EndCommit must record the merge sha, got %q", child.EndCommit)
+	}
+	finalDag, err := wstore.GetDag(ctx, g.OID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if finalDag.Tasks[0].CleanupPending || finalDag.Tasks[0].CleanupError != "" || finalDag.Status != orchestrate.DagStatus_Done {
+		t.Fatalf("retry must clear debt and recompute status: %+v", finalDag.Tasks[0])
 	}
 }

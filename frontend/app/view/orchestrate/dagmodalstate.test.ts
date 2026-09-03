@@ -4,7 +4,15 @@
 import { describe, expect, it } from "vitest";
 import { globalStore } from "@/app/store/jotaiStore";
 import { selectedTaskIdAtom } from "./dagstore";
-import { closeDagModal, dagModalStateAtom, openDagLive, reduceDagModalState, type DagModalState } from "./dagmodalstate";
+import {
+    closeDagModal,
+    dagModalAgentsContextAtom,
+    dagModalStateAtom,
+    openDagLive,
+    reduceDagModalState,
+    setDagModalAgentsContext,
+    type DagModalState,
+} from "./dagmodalstate";
 
 function live(): DagModalState {
     return { kind: "live", channelId: "channel-1", runId: "run-1", dagOref: "dag:1", error: "" };
@@ -45,5 +53,17 @@ describe("dag modal atom actions", () => {
         closeDagModal();
         expect(globalStore.get(selectedTaskIdAtom)).toBeNull();
         expect(globalStore.get(dagModalStateAtom)).toBeNull();
+    });
+
+    it("carries the agents context for worker navigation without touching selection", () => {
+        setDagModalAgentsContext(
+            { nowAtom: "now" } as never,
+            [{ id: "w1", name: "w1", task: "", state: "working" }]
+        );
+        const ctx = globalStore.get(dagModalAgentsContextAtom);
+        expect(ctx?.agents).toHaveLength(1);
+        expect(ctx?.agents[0]).toMatchObject({ id: "w1" });
+        // selection source stays selectedTaskIdAtom — the context never writes it
+        expect(globalStore.get(selectedTaskIdAtom)).toBeNull();
     });
 });

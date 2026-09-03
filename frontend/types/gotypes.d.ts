@@ -571,6 +571,12 @@ declare global {
         runid: string;
     };
 
+    // wshrpc.CommandDagStatusRtnData
+    type CommandDagStatusRtnData = {
+        group: TaskGroup;
+        digest: DagStatusDigest;
+    };
+
     // wshrpc.CommandDagSubmitData
     type CommandDagSubmitData = {
         channelid: string;
@@ -1821,6 +1827,18 @@ declare global {
         text: string;
     };
 
+    // wshrpc.ControlDigest
+    type ControlDigest = {
+        eventid: string;
+        kind: string;
+        taskid?: string;
+        sessionid?: string;
+        status: string;
+        sentts?: number;
+        acknowledgedts?: number;
+        error?: string;
+    };
+
     // wshrpc.CwdQueueWire
     type CwdQueueWire = {
         cwd: string;
@@ -1831,6 +1849,7 @@ declare global {
     // wshrpc.DagAskItem
     type DagAskItem = {
         taskid: string;
+        askid?: string;
         question: string;
         options?: DagAskOption[];
         blockoref: string;
@@ -1840,6 +1859,69 @@ declare global {
     // wshrpc.DagAskOption
     type DagAskOption = {
         label: string;
+    };
+
+    // wshrpc.DagDurationDigest
+    type DagDurationDigest = {
+        elapsedms: number;
+        partial?: boolean;
+        tasks?: DagTaskDuration[];
+    };
+
+    // wshrpc.DagNextStep
+    type DagNextStep = {
+        kind: string;
+        taskids?: string[];
+        blockingtaskids?: string[];
+        actions?: string[];
+        terminalstatus?: string;
+    };
+
+    // wshrpc.DagStatusCounts
+    type DagStatusCounts = {
+        total: number;
+        done: number;
+        running: number;
+        stalled: number;
+        dependencywaiting: number;
+        attention: number;
+        recoveredretry: number;
+        mergeready: number;
+    };
+
+    // wshrpc.DagStatusDigest
+    type DagStatusDigest = {
+        dagversion: number;
+        health: string;
+        counts: DagStatusCounts;
+        next: DagNextStep;
+        tasks: DagTaskDigest[];
+        durations: DagDurationDigest;
+        control?: ControlDigest;
+    };
+
+    // wshrpc.DagTaskDigest
+    type DagTaskDigest = {
+        taskid: string;
+        waitreason: string;
+        blockingtaskids?: string[];
+        humanactions?: string[];
+        askid?: string;
+        asksummary?: string;
+        askts?: number;
+        freshnessts?: number;
+        recoveredretry?: boolean;
+        mergestate: string;
+        cleanupstate: string;
+    };
+
+    // wshrpc.DagTaskDuration
+    type DagTaskDuration = {
+        taskid: string;
+        runms?: number;
+        mergewaitms?: number;
+        cleanupms?: number;
+        partial?: boolean;
     };
 
     // wshrpc.DecisionCard

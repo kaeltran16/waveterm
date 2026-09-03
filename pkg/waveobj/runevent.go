@@ -25,6 +25,33 @@ const (
 	RunEventKindDagBlocked     = "dag-blocked"
 	RunEventKindDagDone        = "dag-done"
 	RunEventKindTaskRetried    = "task-retried"
+	// orchestration lifecycle transitions beyond run/phase/child coverage. Start/sent events append
+	// after the request is accepted or its delivery write succeeds; outcome events append only after
+	// the authoritative state mutation persists. Each writer attempts once at that boundary; a
+	// successful append yields one row:
+	//   task-done / task-failed       child ran to its end (task + child run id + failure detail)
+	//   dag-cancelled / dag-gate-open orchestration boundaries the run status alone cannot explain
+	//   child-ask / -answered / -cleared  one ask id survives across every answer path
+	//   task-merge-*                  merge lifecycle at persisted content-integration boundaries
+	//   task-cleanup-*                durable worktree cleanup at persisted transition boundaries
+	//   lead-control-*                lead-control delivery + acknowledgement (stable event id)
+	RunEventKindTaskDone                = "task-done"
+	RunEventKindTaskFailed              = "task-failed"
+	RunEventKindDagCancelled            = "dag-cancelled"
+	RunEventKindDagGateOpen             = "dag-gate-open"
+	RunEventKindChildAsk                = "child-ask"
+	RunEventKindChildAnswered           = "child-answered"
+	RunEventKindChildAskCleared         = "child-ask-cleared"
+	RunEventKindTaskMergeStarted        = "task-merge-started"
+	RunEventKindTaskMergeBlocked        = "task-merge-blocked"
+	RunEventKindTaskMergeContinued      = "task-merge-continued"
+	RunEventKindTaskMerged              = "task-merged"
+	RunEventKindTaskCleanupPending      = "task-cleanup-pending"
+	RunEventKindTaskCleanupCompleted    = "task-cleanup-completed"
+	RunEventKindTaskCleanupFailed       = "task-cleanup-failed"
+	RunEventKindLeadControlSent         = "lead-control-sent"
+	RunEventKindLeadControlFailed       = "lead-control-failed"
+	RunEventKindLeadControlAcknowledged = "lead-control-acknowledged"
 )
 
 // Detail payload keys per kind (values are built as map[string]any by writers):

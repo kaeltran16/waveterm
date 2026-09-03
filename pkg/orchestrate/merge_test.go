@@ -25,8 +25,10 @@ func TestMergeSquash(t *testing.T) {
 	if len(sha) != 40 {
 		t.Fatalf("bad merge sha %q", sha)
 	}
-	if _, err := os.Stat(wt); !os.IsNotExist(err) {
-		t.Fatalf("worktree not cleaned up")
+	// integration is separate from resource cleanup: the worktree stays until the caller
+	// runs CleanupTaskWorktree, so a cleanup failure can never obscure an already-landed merge.
+	if _, err := os.Stat(wt); err != nil {
+		t.Fatalf("worktree removal must be left to the cleanup helper: %v", err)
 	}
 }
 

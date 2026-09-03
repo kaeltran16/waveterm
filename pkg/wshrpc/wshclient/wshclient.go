@@ -298,8 +298,8 @@ func DagMergeContinueCommand(w *wshutil.WshRpc, data wshrpc.CommandDagMergeData,
 }
 
 // command "dagstatus", wshserver.DagStatusCommand
-func DagStatusCommand(w *wshutil.WshRpc, data wshrpc.CommandDagStatusData, opts *wshrpc.RpcOpts) (*waveobj.TaskGroup, error) {
-	resp, err := sendRpcRequestCallHelper[*waveobj.TaskGroup](w, "dagstatus", data, opts)
+func DagStatusCommand(w *wshutil.WshRpc, data wshrpc.CommandDagStatusData, opts *wshrpc.RpcOpts) (*wshrpc.CommandDagStatusRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandDagStatusRtnData](w, "dagstatus", data, opts)
 	return resp, err
 }
 

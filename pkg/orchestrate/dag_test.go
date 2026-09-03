@@ -180,6 +180,38 @@ func TestRecomputeStatusDerivation(t *testing.T) {
 	}
 }
 
+func TestRecomputeStatusCleanupDebt(t *testing.T) {
+	// merge-required dag with a merged task carrying cleanup debt stays non-terminal (08-27
+	// acceptance: pending cleanup keeps the dag non-terminal and the lead available).
+	g4 := mustGroup(t, mkTasks())
+	g4.MergeRequired = true
+	for i := range g4.Tasks {
+		g4.Tasks[i].State = TaskState_Done
+		g4.Tasks[i].Merged = true
+	}
+	g4.Tasks[2].Released = true // released gate
+	RecomputeDagStatus(g4)
+	if g4.Status != DagStatus_Done {
+		t.Fatalf("clean merged dag: want done, got %s", g4.Status)
+	}
+	g4.Tasks[0].CleanupPending = true
+	RecomputeDagStatus(g4)
+	if g4.Status != DagStatus_Running {
+		t.Fatalf("cleanup pending: want running, got %s", g4.Status)
+	}
+	g4.Tasks[0].CleanupPending = false
+	g4.Tasks[0].CleanupError = "locked"
+	RecomputeDagStatus(g4)
+	if g4.Status != DagStatus_Running {
+		t.Fatalf("cleanup failed: want running, got %s", g4.Status)
+	}
+	g4.Tasks[0].CleanupError = ""
+	RecomputeDagStatus(g4)
+	if g4.Status != DagStatus_Done {
+		t.Fatalf("cleanup cleared: want done, got %s", g4.Status)
+	}
+}
+
 func TestDeriveTaskStatesFromRuns(t *testing.T) {
 	g := mustGroup(t, mkTasks())
 	g.Tasks[0].State = TaskState_Running

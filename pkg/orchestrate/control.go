@@ -37,24 +37,39 @@ func controlMessage(kind, detail string) string {
 
 var notifyLeadFn = NotifyLead
 
+// notifyLeadBestEffort wakes the lead and records whether the control file actually reached it.
+// Only a real write is reported as sent: a missing control dir or an unresolvable lead session is a
+// silent no-op by design and must not show up in the timeline as a delivered notification.
 func notifyLeadBestEffort(ctx context.Context, g *waveobj.TaskGroup, kind, detail string) {
-	if err := notifyLeadFn(ctx, g, kind, detail); err != nil {
+	sent, err := notifyLeadFn(ctx, g, kind, detail)
+	if err != nil {
 		log.Printf("dag %s run %s notify lead %s: %v", g.OID, g.RunID, kind, err)
+		appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindLeadControlFailed, nil, map[string]any{"kind": kind, "detail": detail, "error": err.Error()})
+		return
+	}
+	if sent {
+		appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindLeadControlSent, nil, map[string]any{"kind": kind, "detail": detail})
 	}
 }
 
 // NotifyLead writes a control event for the lead pi session of the owning run. The lead
-// session id is resolved from the run's worker oref; unresolvable -> no-op (non-fatal).
-func NotifyLead(ctx context.Context, g *waveobj.TaskGroup, kind, detail string) error {
-	if dir := os.Getenv("WAVETERM_PI_CONTROL_DIR"); dir == "" {
-		return nil
+// session id is resolved from the run's worker oref; unresolvable -> no-op (non-fatal). The bool
+// reports whether a control file was actually written, so callers can tell a delivered notification
+// from a configured-away one.
+func NotifyLead(ctx context.Context, g *waveobj.TaskGroup, kind, detail string) (bool, error) {
+	dir := os.Getenv("WAVETERM_PI_CONTROL_DIR")
+	if dir == "" {
+		return false, nil
 	}
 	sessionID := resolveLeadSessionID(ctx, g.ChannelId, g.RunID)
 	if sessionID == "" {
-		return nil
+		return false, nil
 	}
-	path := filepath.Join(os.Getenv("WAVETERM_PI_CONTROL_DIR"), controlFileName(sessionID))
-	return os.WriteFile(path, []byte(controlMessage(kind, detail)), 0o644)
+	path := filepath.Join(dir, controlFileName(sessionID))
+	if err := os.WriteFile(path, []byte(controlMessage(kind, detail)), 0o644); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // resolveLeadSessionID finds the pi session id of the owning run's lead worker so the control file
@@ -100,6 +115,7 @@ func resolveLeadSessionID(ctx context.Context, channelId, runID string) string {
 func PublishChildAsk(ctx context.Context, g *waveobj.TaskGroup, taskId, question string) {
 	detail, _ := json.Marshal(map[string]string{"taskid": taskId, "question": question})
 	publishDagEvent(DagEventChildAsk, g, string(detail))
+	appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindChildAsk, nil, map[string]any{"taskid": taskId, "question": truncateText(question, MaxAskSummaryLen)})
 	notifyLeadBestEffort(ctx, g, DagEventChildAsk, fmt.Sprintf("%s: %s", taskId, question))
 }
 

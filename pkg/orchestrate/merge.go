@@ -4,15 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 )
 
 var ErrMergeConflict = errors.New("merge conflict")
 
-// MergeRunWorktree squash-merges wave/<runID> into the project branch, removes the
-// worktree, and returns the merge commit sha. On conflict the tree is left mid-merge
-// (ErrMergeConflict) and the caller resolves then calls MergeContinue.
+// MergeRunWorktree squash-merges wave/<runID> into the project branch and returns the merge commit
+// sha. Worktree removal is the caller's step (CleanupTaskWorktree) so a cleanup failure can never
+// obscure an already-landed merge. On conflict the tree is left mid-merge (ErrMergeConflict) and the
+// caller resolves then calls MergeContinue.
 func MergeRunWorktree(ctx context.Context, projectPath, runID, goal string) (string, error) {
 	if !IsGitRepo(projectPath) {
 		return "", ErrNotGitRepo
@@ -20,10 +20,9 @@ func MergeRunWorktree(ctx context.Context, projectPath, runID, goal string) (str
 	branch := "wave/" + runID
 	// Idempotency: if the branch is already gone, the squash commit landed on a
 	// prior attempt that failed only on worktree cleanup. Return HEAD without
-	// re-merging so the caller can still stamp Merged/EndCommit.
+	// re-merging so the caller can still stamp Merged/EndCommit and clean up.
 	if _, err := git(ctx, projectPath, "rev-parse", "--verify", branch); err != nil {
 		if sha, gerr := git(ctx, projectPath, "rev-parse", "HEAD"); gerr == nil {
-			_ = RemoveRunWorktree(ctx, projectPath, runID)
 			return strings.TrimSpace(sha), nil
 		}
 		return "", fmt.Errorf("squash merge: %w", err)
@@ -36,7 +35,6 @@ func MergeRunWorktree(ctx context.Context, projectPath, runID, goal string) (str
 		// "Already up to date" and there is nothing to commit.
 		if strings.Contains(err.Error(), "Already up to date") {
 			if sha, gerr := git(ctx, projectPath, "rev-parse", "HEAD"); gerr == nil {
-				_ = RemoveRunWorktree(ctx, projectPath, runID)
 				return strings.TrimSpace(sha), nil
 			}
 		}
@@ -66,30 +64,11 @@ func finishMerge(ctx context.Context, projectPath, runID, goal string) (string, 
 		// attempt failed on worktree cleanup, so git commit reports
 		// "nothing to commit". Treat as already merged.
 		if strings.Contains(err.Error(), "nothing to commit") || strings.Contains(err.Error(), "no changes added") || strings.Contains(err.Error(), "nothing added") {
-			sha, gerr := git(ctx, projectPath, "rev-parse", "HEAD")
-			if gerr != nil {
-				return "", gerr
-			}
-			_ = RemoveRunWorktree(ctx, projectPath, runID)
-			return strings.TrimSpace(sha), nil
+			return git(ctx, projectPath, "rev-parse", "HEAD")
 		}
 		return "", fmt.Errorf("merge commit: %w", err)
 	}
-	sha, err := git(ctx, projectPath, "rev-parse", "HEAD")
-	if err != nil {
-		return "", err
-	}
-	if err := RemoveRunWorktree(ctx, projectPath, runID); err != nil {
-		return "", err
-	}
-	if _, err := os.Stat(worktreeDir(projectPath, runID)); err == nil {
-		// Worktree dir lingers but git no longer tracks it (Windows lock /
-		// junction). Treat as already removed.
-		if isWorktreeRegistered(ctx, projectPath, worktreeDir(projectPath, runID)) {
-			return "", fmt.Errorf("worktree still present after merge")
-		}
-	}
-	return strings.TrimSpace(sha), nil
+	return git(ctx, projectPath, "rev-parse", "HEAD")
 }
 
 func firstLine(s string) string {

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -84,25 +85,47 @@ func TestDagInitScaffoldsParseableStore(t *testing.T) {
 	}
 }
 
-func TestDagTaskActions(t *testing.T) {
-	cases := []struct {
-		name string
-		node waveobj.TaskNode
-		want []string
-	}{
-		{"done gate", waveobj.TaskNode{State: "done", Gate: true}, []string{"approve", "sendback"}},
-		{"done ready to merge", waveobj.TaskNode{State: "done"}, []string{"merge"}},
-		{"done released", waveobj.TaskNode{State: "done", Released: true}, nil},
-		{"failed", waveobj.TaskNode{State: "failed"}, []string{"retry", "skip"}},
-		{"stalled", waveobj.TaskNode{State: "stalled"}, []string{"retry", "skip"}},
-		{"blocked-merge", waveobj.TaskNode{State: "blocked-merge"}, []string{"resolve"}},
-		{"running", waveobj.TaskNode{State: "running"}, nil},
-		{"pending", waveobj.TaskNode{State: "pending"}, nil},
+func TestDagStatusLinesUsesDigest(t *testing.T) {
+	g := &waveobj.TaskGroup{
+		ID: "dag-1", Status: "running", Failures: 2, Parallelism: 3,
+		Tasks: []waveobj.TaskNode{
+			{ID: "t-0", Label: "a", State: "running", LastActivity: 9000},
+			{ID: "t-1", Label: "b", State: "stalled", LastActivity: 1000},
+		},
 	}
-	for _, c := range cases {
-		if got := dagTaskActions(c.node); !reflect.DeepEqual(got, c.want) {
-			t.Errorf("%s: dagTaskActions = %v, want %v", c.name, got, c.want)
-		}
+	rtn := &wshrpc.CommandDagStatusRtnData{
+		Group: g,
+		Digest: wshrpc.DagStatusDigest{
+			DagVersion: 4,
+			Counts:     wshrpc.DagStatusCounts{Total: 2, Done: 0},
+			Tasks: []wshrpc.DagTaskDigest{
+				{TaskId: "t-0", FreshnessTs: 9000, HumanActions: nil},
+				{TaskId: "t-1", FreshnessTs: 1000, HumanActions: []string{"retry", "skip"}},
+			},
+		},
+	}
+	lines := dagStatusLines(rtn, 10_000)
+	joined := strings.Join(lines, "\n")
+	// header counts come from the digest
+	if !strings.Contains(joined, "tasks=0/2  failures=2") {
+		t.Fatalf("header must use digest counts, got:\n%s", joined)
+	}
+	// per-task actions come from the digest, never locally reconstructed
+	if !strings.Contains(joined, "retry,skip") {
+		t.Fatalf("stalled task must show digest actions, got:\n%s", joined)
+	}
+	if !strings.Contains(joined, "idle ") {
+		t.Fatalf("running task must show idle signal, got:\n%s", joined)
+	}
+	// a needs-you digest surfaces the ask action for the asked task
+	g.Tasks = append(g.Tasks, waveobj.TaskNode{ID: "t-2", Label: "c", State: "running"})
+	rtn.Digest.Tasks = append(rtn.Digest.Tasks, wshrpc.DagTaskDigest{
+		TaskId: "t-2", HumanActions: []string{"answer"}, AskSummary: "which approach?", AskTs: 500,
+	})
+	lines = dagStatusLines(rtn, 10_000)
+	joined = strings.Join(lines, "\n")
+	if !strings.Contains(joined, "answer") || !strings.Contains(joined, "ask: which approach?") {
+		t.Fatalf("needs-you task must show the digest ask action, got:\n%s", joined)
 	}
 }
 
