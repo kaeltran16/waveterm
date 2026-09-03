@@ -260,3 +260,71 @@ func TestHarvestAllAggregates(t *testing.T) {
 		t.Fatalf("ingested=%d skipped=%d, want 1/0", ingested, skipped)
 	}
 }
+
+func TestSynthDescription(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"Use Postgres, not a new dependency. It is already deployed.", "Use Postgres, not a new dependency."},
+		{"Single sentence with no period", "Single sentence with no period"},
+		{"", ""},
+	}
+	for _, c := range cases {
+		if got := synthDescription(c.in); got != c.want {
+			t.Fatalf("synthDescription(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+	long := strings.Repeat("a", 300) + ". tail"
+	if got := synthDescription(long); len(got) > 200 {
+		t.Fatalf("description not capped, len=%d", len(got))
+	}
+}
+
+// readBackNote is the round trip that matters: description binds at the TOP level of frontmatter
+// (frontmatter.Description), not under metadata, so a nested line writes fine and reads back empty.
+func readBackNote(t *testing.T, dir, slug string) Note {
+	t.Helper()
+	p := filepath.Join(dir, slug+".md")
+	data, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, _ := parseNote(p, data, "claude")
+	return n
+}
+
+func TestFoldHubNotePreservesDescription(t *testing.T) {
+	vault := t.TempDir()
+	n := Note{ID: "keeps-desc", Description: "the short form", Type: "reference", Scope: "proj"}
+	if _, err := foldHubNote(vault, n, "Long body text. Second sentence.\n"); err != nil {
+		t.Fatal(err)
+	}
+	if got := readBackNote(t, vault, "keeps-desc").Description; got != "the short form" {
+		t.Fatalf("description = %q, want %q", got, "the short form")
+	}
+}
+
+func TestFoldHubNoteSynthesizesMissingDescription(t *testing.T) {
+	vault := t.TempDir()
+	n := Note{ID: "no-desc", Type: "learning", Scope: "proj"}
+	if _, err := foldHubNote(vault, n, "First sentence here. Second one.\n"); err != nil {
+		t.Fatal(err)
+	}
+	if got := readBackNote(t, vault, "no-desc").Description; got != "First sentence here." {
+		t.Fatalf("description = %q, want %q", got, "First sentence here.")
+	}
+}
+
+func TestWriteSourcedNoteCarriesDescription(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := writeSourcedNote(dir, "carried", "reference", "proj", "vault", "abc123", "the short form", "Long body text. More."); err != nil {
+		t.Fatal(err)
+	}
+	if got := readBackNote(t, dir, "carried").Description; got != "the short form" {
+		t.Fatalf("description = %q, want %q", got, "the short form")
+	}
+	if _, err := writeSourcedNote(dir, "synthed", "reference", "proj", "vault", "def456", "", "First sentence here. Second one."); err != nil {
+		t.Fatal(err)
+	}
+	if got := readBackNote(t, dir, "synthed").Description; got != "First sentence here." {
+		t.Fatalf("description = %q, want %q", got, "First sentence here.")
+	}
+}

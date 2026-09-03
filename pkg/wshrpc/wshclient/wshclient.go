@@ -1056,6 +1056,12 @@ func MemoryProjectionStatusCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*ws
 	return resp, err
 }
 
+// command "memoryprojectmanifest", wshserver.MemoryProjectManifestCommand
+func MemoryProjectManifestCommand(w *wshutil.WshRpc, data wshrpc.CommandMemoryProjectData, opts *wshrpc.RpcOpts) (string, error) {
+	resp, err := sendRpcRequestCallHelper[string](w, "memoryprojectmanifest", data, opts)
+	return resp, err
+}
+
 // command "memoryprunelist", wshserver.MemoryPruneListCommand
 func MemoryPruneListCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandMemoryPruneListRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandMemoryPruneListRtnData](w, "memoryprunelist", nil, opts)

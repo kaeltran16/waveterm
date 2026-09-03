@@ -140,10 +140,38 @@ func yamlQuote(s string) string {
 	return `"` + s + `"`
 }
 
-// writeSourcedNote is the one note-file writer: deterministic slug, frontmatter with type/scope/
-// source/source_hash, body. Skips silently when the slug already exists. Shared by the codex
-// harvest, the claude-hub fold, pi-memory harvest, and the vault→hub export.
-func writeSourcedNote(dir, slug, noteType, scope, source, hash, body string) (bool, error) {
+// capLine flattens a description into a single manifest-sized line. Authored descriptions in this
+// vault routinely run to a full paragraph, so the cap is what keeps the manifest one line per fact.
+func capLine(s string) string {
+	s = strings.ReplaceAll(strings.TrimSpace(s), "\n", " ")
+	if len(s) > descriptionMaxLen {
+		s = strings.TrimSpace(s[:descriptionMaxLen-len(ellipsis)]) + ellipsis
+	}
+	return s
+}
+
+const (
+	descriptionMaxLen = 200
+	ellipsis          = "..."
+)
+
+// synthDescription derives a manifest-sized short form for notes that carry no frontmatter
+// description — pi- and codex-sourced facts never have one. First sentence, capped.
+func synthDescription(body string) string {
+	s := strings.TrimSpace(body)
+	if s == "" {
+		return ""
+	}
+	if i := strings.Index(s, ". "); i >= 0 {
+		s = s[:i+1]
+	}
+	return capLine(s)
+}
+
+// writeSourcedNote is the one note-file writer: deterministic slug, frontmatter with description +
+// type/scope/source/source_hash, body. Skips silently when the slug already exists. Shared by the
+// codex harvest, the claude-hub fold, pi-memory harvest, and the vault→hub export.
+func writeSourcedNote(dir, slug, noteType, scope, source, hash, description, body string) (bool, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return false, err
 	}
@@ -154,9 +182,16 @@ func writeSourcedNote(dir, slug, noteType, scope, source, hash, body string) (bo
 	if noteType == "" {
 		noteType = "learning"
 	}
+	if description == "" {
+		description = synthDescription(body)
+	}
 	var b strings.Builder
 	b.WriteString("---\n")
 	b.WriteString("name: " + slug + "\n")
+	// top level, not under metadata: parseNote binds description off frontmatter.Description
+	if description != "" {
+		b.WriteString("description: " + yamlQuote(description) + "\n")
+	}
 	b.WriteString("metadata:\n")
 	b.WriteString("  type: " + noteType + "\n")
 	if scope != "" {
@@ -180,7 +215,7 @@ func writeSourcedNote(dir, slug, noteType, scope, source, hash, body string) (bo
 }
 
 func writeHarvestedNote(vaultDir, bullet, hash, scope string) (bool, error) {
-	return writeSourcedNote(vaultDir, harvestSlug(bullet, hash), "reference", scope, "codex", hash, bullet)
+	return writeSourcedNote(vaultDir, harvestSlug(bullet, hash), "reference", scope, "codex", hash, "", bullet)
 }
 
 // harvestInto parses codex memory content for cwd's facts, dedups against vaultDir, and writes the
@@ -230,9 +265,17 @@ func foldHubNote(vaultDir string, n Note, body string) (bool, error) {
 		n.Scope = "shared"
 	}
 	slug := boundedSlug(n.ID, "note")
+	desc := n.Description
+	if desc == "" {
+		desc = synthDescription(body)
+	}
 	var b strings.Builder
 	b.WriteString("---\n")
 	b.WriteString("name: " + slug + "\n")
+	// top level, not under metadata: parseNote binds description off frontmatter.Description
+	if desc != "" {
+		b.WriteString("description: " + yamlQuote(desc) + "\n")
+	}
 	b.WriteString("metadata:\n")
 	b.WriteString("  type: " + nonEmpty(n.Type, "learning") + "\n")
 	b.WriteString("  scope: " + yamlQuote(n.Scope) + "\n")
@@ -357,7 +400,7 @@ func harvestPiMemoryInto(vaultDir, md string) (int, int, error) {
 			continue
 		}
 		slug := harvestSlug(firstLine(entry), h)
-		wrote, werr := writeSourcedNote(vaultDir, slug, piTypeFromTag(entry), "", "pi", h, entry)
+		wrote, werr := writeSourcedNote(vaultDir, slug, piTypeFromTag(entry), "", "pi", h, "", entry)
 		if werr != nil {
 			return ingested, skipped, fmt.Errorf("writing pi note: %w", werr)
 		}

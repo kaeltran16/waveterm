@@ -1062,6 +1062,12 @@ export class RpcApiType {
         return client.wshRpcCall("memoryprojectionstatus", null, opts);
     }
 
+    // command "memoryprojectmanifest" [call]
+    MemoryProjectManifestCommand(client: WshClient, data: CommandMemoryProjectData, opts?: RpcOpts): Promise<string> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "memoryprojectmanifest", data, opts);
+        return client.wshRpcCall("memoryprojectmanifest", data, opts);
+    }
+
     // command "memoryprunelist" [call]
     MemoryPruneListCommand(client: WshClient, opts?: RpcOpts): Promise<CommandMemoryPruneListRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "memoryprunelist", null, opts);
