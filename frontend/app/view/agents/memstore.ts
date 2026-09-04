@@ -184,8 +184,13 @@ export async function harvestMemory(cwd: string): Promise<{ ingested: number; sk
 export async function deleteNote(path: string): Promise<void> {
     globalStore.set(memReflowAnimatedAtom, true); // the removed row should play its exit
     await RpcApi.MemoryDeleteCommand(TabRpcClient, { path });
-    // no rescan: a delete only removes a known note, so filter it (and its edges) out of the
-    // in-memory scan result directly. a full MemoryScanCommand here walks + parses the whole vault.
+    dropNoteLocally(path);
+}
+
+// The local half of a single-note removal, shared by delete and archive: no rescan, because the
+// removed note is already known — filter it (and its edges) out of the in-memory scan result
+// directly. A full MemoryScanCommand here walks + parses the whole vault.
+function dropNoteLocally(path: string): void {
     const notes = globalStore.get(memNotesAtom);
     const removed = notes.find((n) => n.path === path);
     if (!removed) return; // not in the loaded list; nothing local to update
@@ -313,18 +318,23 @@ export async function loadPrune(): Promise<boolean> {
     }
 }
 
-// Confirmed removal (human action). deleteNote now updates the list locally (no rescan), so the
-// prune queue only needs the candidate filtered out as well.
-export async function prune(path: string): Promise<void> {
-    await deleteNote(path);
+// Confirmed removal (human action). Archived, not deleted: the queue acts on the gardener's judgment
+// calls, which are wrong often enough to need an undo (see pkg/memgarden/dedup.go on the two sweeps
+// that stamped ~50 false duplicate flags each). The note lands in the archived section, restorable.
+export async function prune(path: string, reason: string): Promise<void> {
+    globalStore.set(memReflowAnimatedAtom, true); // the removed row should play its exit
+    await RpcApi.MemoryArchiveCommand(TabRpcClient, { path, reason });
+    dropNoteLocally(path);
     globalStore.set(memPruneAtom, (prev) => prev.filter((c) => c.path !== path));
+    await loadArchived(); // it has to show up where the undo lives
 }
 
-// Shared bulk removal: deletes every given path, then rewrites the notes graph and prune queue
+// Shared bulk removal: archives every given candidate, then rewrites the notes graph and prune queue
 // once (a rescan would re-walk the whole vault). Mirrors dismissAllPending.
-async function prunePaths(paths: string[]): Promise<void> {
-    for (const p of paths) {
-        await RpcApi.MemoryDeleteCommand(TabRpcClient, { path: p });
+async function pruneCandidates(cands: MemoryPruneCandidate[]): Promise<void> {
+    const paths = cands.map((c) => c.path);
+    for (const c of cands) {
+        await RpcApi.MemoryArchiveCommand(TabRpcClient, { path: c.path, reason: c.reason });
     }
     globalStore.set(memReflowAnimatedAtom, true);
     const notes = globalStore.get(memNotesAtom);
@@ -344,29 +354,27 @@ async function prunePaths(paths: string[]): Promise<void> {
     }
     const removedPaths = new Set(paths);
     globalStore.set(memPruneAtom, (prev) => prev.filter((c) => !removedPaths.has(c.path)));
+    await loadArchived(); // they have to show up where the undo lives
 }
 
 // Bulk removal of every superseded candidate.
 export async function pruneAllSuperseded(): Promise<void> {
-    const paths = globalStore
-        .get(memPruneAtom)
-        .filter((c) => c.reason === "superseded")
-        .map((c) => c.path);
-    await prunePaths(paths);
+    await pruneCandidates(globalStore.get(memPruneAtom).filter((c) => c.reason === "superseded"));
 }
 
 // Bulk removal of every candidate in the queue, whatever its reason.
 export async function pruneAll(): Promise<void> {
-    await prunePaths(globalStore.get(memPruneAtom).map((c) => c.path));
+    await pruneCandidates(globalStore.get(memPruneAtom));
 }
 
-// Bulk clears are many irreversible deletes at once, so they confirm first (single-row Remove stays
-// one-click). Mirrors confirmDeleteNote.
+// Bulk clears move many notes at once, so they confirm first (single-row Remove stays one-click).
+// Restorable now that the queue archives rather than deletes, so the prompt says where they went
+// instead of warning — the confirm is about the scale, not about permanence. Mirrors confirmDeleteNote.
 function confirmPruneAll(count: number, reason: string | null, action: () => Promise<void>): void {
     const label = reason ? `${count} ${reason} note${count === 1 ? "" : "s"}` : `${count} note${count === 1 ? "" : "s"} from the cleanup queue`;
     modalsModel.pushModal("ConfirmModal", {
         title: reason ? "Clear superseded notes" : "Clean up all notes",
-        message: `Remove ${label}? This deletes the files and can't be undone.`,
+        message: `Remove ${label}? They move to Archived, where you can restore them.`,
         confirmLabel: "Remove all",
         destructive: true,
         onConfirm: () => fireAndForget(action),

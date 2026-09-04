@@ -144,6 +144,18 @@ func (ws *WshServer) MemoryPruneListCommand(ctx context.Context) (*wshrpc.Comman
 	return &wshrpc.CommandMemoryPruneListRtnData{Candidates: out}, nil
 }
 
+// MemoryArchiveCommand is the cleanup queue's removal: reversible, unlike MemoryDeleteCommand, which
+// stays a hard delete for the two gestures that mean it (a note the user deletes outright, and a
+// rejected pending candidate that was never vault content). Archiving also enters the note's
+// source_hash into the distiller's do-not-re-learn set, so clearing the queue is not undone by the
+// next flush.
+func (ws *WshServer) MemoryArchiveCommand(ctx context.Context, data wshrpc.CommandMemoryArchiveData) error {
+	if _, err := memvault.Archive(data.Path, data.Reason, time.Now().UTC()); err != nil {
+		return fmt.Errorf("archiving note: %w", err)
+	}
+	return nil
+}
+
 func (ws *WshServer) MemoryArchiveListCommand(ctx context.Context) (*wshrpc.CommandMemoryArchiveListRtnData, error) {
 	ans := memvault.ListArchived()
 	out := make([]wshrpc.MemoryArchivedNote, len(ans))

@@ -984,6 +984,12 @@ export class RpcApiType {
         return client.wshRpcCall("macosversion", null, opts);
     }
 
+    // command "memoryarchive" [call]
+    MemoryArchiveCommand(client: WshClient, data: CommandMemoryArchiveData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "memoryarchive", data, opts);
+        return client.wshRpcCall("memoryarchive", data, opts);
+    }
+
     // command "memoryarchivelist" [call]
     MemoryArchiveListCommand(client: WshClient, opts?: RpcOpts): Promise<CommandMemoryArchiveListRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "memoryarchivelist", null, opts);

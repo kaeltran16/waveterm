@@ -29,7 +29,7 @@ type ArchivedNote struct {
 	ID         string `json:"id"`
 	Title      string `json:"title"`
 	Type       string `json:"type"`       // original metadata.type (kept in the archived file), for the row's type badge
-	Reason     string `json:"reason"`     // decay | drift
+	Reason     string `json:"reason"`     // gardener: decay | drift; cleanup queue: superseded | stale | drift | duplicate
 	ArchivedAt string `json:"archivedat"` // RFC3339
 	Path       string `json:"path"`       // path inside the archive dir
 	OriginHub  string `json:"originhub"`  // hub dir to restore into
@@ -43,7 +43,9 @@ type archivedFrontmatter struct {
 	} `yaml:"metadata"`
 }
 
-// Archive moves notePath into ArchiveDir, stamping archive metadata. reason is decay | drift.
+// Archive moves notePath into ArchiveDir, stamping archive metadata. reason is the caller's removal
+// reason — decay | drift from the gardener's pillars, or the prune candidate's reason when the
+// cleanup queue clears a note.
 func Archive(notePath, reason string, now time.Time) (string, error) {
 	data, err := os.ReadFile(notePath)
 	if err != nil {
