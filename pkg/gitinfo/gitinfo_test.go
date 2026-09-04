@@ -1042,6 +1042,89 @@ func TestCommitDiffReturnsThatCommitsPatch(t *testing.T) {
 	}
 }
 
+// repoWithRename: old.txt on main, then a `renamed` branch whose one commit is nothing but a git mv.
+// Serves both the commit-scoped and the two-ref rename tests.
+func repoWithRename(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	git(t, dir, "init", "-b", "main")
+	writeFile(t, dir, "old.txt", "alpha\nbravo\ncharlie\ndelta\necho\n")
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-m", "add old.txt")
+	git(t, dir, "checkout", "-b", "renamed")
+	git(t, dir, "mv", "old.txt", "new.txt")
+	git(t, dir, "commit", "-m", "rename old.txt to new.txt")
+	return dir
+}
+
+// A pure rename has to read as a rename from both reads, or the diff pane and the file list beside it
+// disagree about the same file. The path-scoped read used to answer "new file mode" plus every line
+// as an addition, because a pathspec naming only the new path hides the deletion git needs in order
+// to pair the two.
+func TestCommitDiffOnAPureRenameReportsTheRename(t *testing.T) {
+	dir := repoWithRename(t)
+	hash := commitBySubject(t, dir, "rename old.txt to new.txt")
+
+	ch, err := CommitChanges(context.Background(), dir, hash)
+	if err != nil {
+		t.Fatalf("CommitChanges: %v", err)
+	}
+	if !strings.Contains(ch.Numstat, "0\t0\t") {
+		t.Fatalf("Numstat = %q, want the rename counted as 0 adds and 0 dels", ch.Numstat)
+	}
+
+	d, err := CommitDiff(context.Background(), dir, hash, "new.txt")
+	if err != nil {
+		t.Fatalf("CommitDiff: %v", err)
+	}
+	if !strings.Contains(d.Diff, "rename from old.txt") {
+		t.Errorf("Diff = %q, want a `rename from old.txt` header", d.Diff)
+	}
+	if strings.Contains(d.Diff, "new file mode") {
+		t.Errorf("Diff = %q, want no `new file mode` header", d.Diff)
+	}
+	if strings.Contains(d.Diff, "\n+") {
+		t.Errorf("Diff = %q, want no added lines", d.Diff)
+	}
+}
+
+// Same defect, same fix, in the compare column's aggregate row.
+func TestCompareDiffOnAPureRenameReportsTheRename(t *testing.T) {
+	dir := repoWithRename(t)
+	d, err := CompareDiff(context.Background(), dir, "main", "renamed", "new.txt")
+	if err != nil {
+		t.Fatalf("CompareDiff: %v", err)
+	}
+	if !strings.Contains(d.Diff, "rename from old.txt") {
+		t.Errorf("Diff = %q, want a `rename from old.txt` header", d.Diff)
+	}
+	if strings.Contains(d.Diff, "\n+") {
+		t.Errorf("Diff = %q, want no added lines", d.Diff)
+	}
+}
+
+// A file that really is new must stay an addition: the second read only fires when the whole-commit
+// read names a source for it.
+func TestCommitDiffOnARealAdditionStaysAnAddition(t *testing.T) {
+	dir := repoWithRename(t)
+	git(t, dir, "checkout", "main")
+	writeFile(t, dir, "fresh.txt", "one\ntwo\n")
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-m", "add fresh.txt")
+	hash := commitBySubject(t, dir, "add fresh.txt")
+
+	d, err := CommitDiff(context.Background(), dir, hash, "fresh.txt")
+	if err != nil {
+		t.Fatalf("CommitDiff: %v", err)
+	}
+	if !strings.Contains(d.Diff, "new file mode") {
+		t.Errorf("Diff = %q, want a `new file mode` header", d.Diff)
+	}
+	if !strings.Contains(d.Diff, "\n+one") {
+		t.Errorf("Diff = %q, want the added lines", d.Diff)
+	}
+}
+
 func TestCommitChangesNotARepo(t *testing.T) {
 	ch, err := CommitChanges(context.Background(), t.TempDir(), "HEAD")
 	if err != nil {

@@ -20,7 +20,7 @@ vi.mock("@/app/store/wshclientapi", () => ({
 }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 
-import { compareOnAtom, enterCompare, leaveCompare } from "./comparestore";
+import { compareOnAtom, compareRefsAtom, enterCompare, leaveCompare } from "./comparestore";
 import type { DiffScope } from "./diffscope";
 import { diffScopeAtom } from "./diffscopeatom";
 
@@ -75,5 +75,38 @@ describe("comparison as a range", () => {
         await enterCompare("/repo", "feat");
         expect(divergence).not.toHaveBeenCalled();
         expect(globalStore.get(compareOnAtom)).toBe(false);
+    });
+
+    it("offers the pair last used when re-entering the same repository", async () => {
+        globalStore.set(diffScopeAtom, base);
+        listBranches.mockResolvedValue({ branches: [], default: "main" });
+        divergence.mockResolvedValue({ isrepo: true, ahead: [], behind: [], mergebase: "m1" });
+        compareChanges.mockResolvedValue({ isrepo: true, statusz: "", numstat: "" });
+
+        await enterCompare("/repo", "feat");
+        leaveCompare();
+        globalStore.set(diffScopeAtom, base);
+        await enterCompare("/repo", "other");
+
+        expect(globalStore.get(compareRefsAtom)).toEqual({ base: "main", head: "feat" });
+    });
+
+    // The remembered pair is a convenience for the repository it was picked in. Carried into another
+    // one it names branches that do not resolve there — the summary line was seen naming a branch the
+    // freshly-picked repository does not have.
+    it("forgets that pair when the source moves to another repository", async () => {
+        globalStore.set(diffScopeAtom, base);
+        listBranches.mockResolvedValue({ branches: [], default: "main" });
+        divergence.mockResolvedValue({ isrepo: true, ahead: [], behind: [], mergebase: "m1" });
+        compareChanges.mockResolvedValue({ isrepo: true, statusz: "", numstat: "" });
+
+        await enterCompare("/repo-a", "feat/a");
+        leaveCompare();
+
+        globalStore.set(diffScopeAtom, base);
+        listBranches.mockResolvedValue({ branches: [], default: "trunk" });
+        await enterCompare("/repo-b", "feat/b");
+
+        expect(globalStore.get(compareRefsAtom)).toEqual({ base: "trunk", head: "feat/b" });
     });
 });

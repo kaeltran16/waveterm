@@ -90,8 +90,10 @@ export function RefPicker({
                 <span className="font-mono text-xxxs font-semibold uppercase tracking-[0.1em] text-ink-faint">
                     Compare
                 </span>
+                {/* base first, the order `git diff base...head` reads in and the order the summary
+                    line beside this chip prints — the two used to name the same pair backwards */}
                 <span className="font-mono text-[12px] text-ink-hi">
-                    {head || "—"} … {base || "—"}
+                    {base || "—"} … {head || "—"}
                 </span>
             </button>
         );
@@ -118,31 +120,31 @@ export function RefPicker({
             </span>
             <div className="relative">
                 <input
-                    value={draftHead}
-                    onChange={(e) => setDraftHead(e.target.value)}
-                    onFocus={() => setFocused("head")}
-                    onKeyDown={keys}
-                    placeholder="head ref"
-                    // side colours come from comparerows, so the picker and the column cannot drift
-                    className={cn(field, SIDE_TEXT.head)}
-                />
-                {focused === "head" ? (
-                    <Suggestions branches={branches} query={draftHead} onPick={setDraftHead} />
-                ) : null}
-            </div>
-            <span className="flex-none font-mono text-[12px] text-ink-faint">…</span>
-            <div className="relative">
-                <input
                     ref={baseRef}
                     value={draftBase}
                     onChange={(e) => setDraftBase(e.target.value)}
                     onFocus={() => setFocused("base")}
                     onKeyDown={keys}
                     placeholder="base ref"
+                    // side colours come from comparerows, so the picker and the column cannot drift
                     className={cn(field, SIDE_TEXT.base)}
                 />
                 {focused === "base" ? (
                     <Suggestions branches={branches} query={draftBase} onPick={setDraftBase} />
+                ) : null}
+            </div>
+            <span className="flex-none font-mono text-[12px] text-ink-faint">…</span>
+            <div className="relative">
+                <input
+                    value={draftHead}
+                    onChange={(e) => setDraftHead(e.target.value)}
+                    onFocus={() => setFocused("head")}
+                    onKeyDown={keys}
+                    placeholder="head ref"
+                    className={cn(field, SIDE_TEXT.head)}
+                />
+                {focused === "head" ? (
+                    <Suggestions branches={branches} query={draftHead} onPick={setDraftHead} />
                 ) : null}
             </div>
             <button

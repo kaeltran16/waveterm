@@ -7,6 +7,7 @@
 // and nothing could set it. Here it is one value, and every question the surface and its three git
 // stores ask about scope is answered by a function in this file.
 
+import type { GitChanges } from "./gitstatus";
 import type { HistoryFilters } from "./historyquery";
 
 // A project's path comes from the config registry and a run's directory and base commit were captured
@@ -196,6 +197,29 @@ export function rangeSummary(range: DiffRange, f: SummaryFacts): string {
         case "working":
             return `uncommitted work against HEAD on ${f.branch || "—"} · ${counts}`;
     }
+}
+
+// What the surface has on hand when it draws the summary. Two change lists, because comparison has
+// its own store: the surface reads compare's, so the line has to read compare's too.
+export interface SummaryInput {
+    range: DiffRange;
+    branch: string;
+    ref: string;
+    changes: GitChanges | null;
+    compareChanges: GitChanges | null;
+}
+
+// Picks the change list the panes are showing and phrases it. Fed from the history store in every
+// mode, the line printed the working tree's totals under the compare's ref names.
+export function summaryLine(input: SummaryInput): string {
+    const src = input.range.kind === "compare" ? input.compareChanges : input.changes;
+    return rangeSummary(input.range, {
+        branch: input.branch,
+        ref: input.ref,
+        files: src?.files.length ?? 0,
+        adds: src?.adds ?? 0,
+        dels: src?.dels ?? 0,
+    });
 }
 
 function shortSha(sha: string): string {

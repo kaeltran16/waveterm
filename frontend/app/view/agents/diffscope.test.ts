@@ -10,8 +10,10 @@ import {
     originCwd,
     rangeSummary,
     scopeKey,
+    summaryLine,
     type DiffScope,
 } from "./diffscope";
+import type { GitChanges } from "./gitstatus";
 import { NO_FILTERS } from "./historyquery";
 
 const agentScope: DiffScope = {
@@ -203,5 +205,56 @@ describe("rangeSummary", () => {
                 { branch: "feat", ref: "", files: 4, adds: 51, dels: 9 }
             )
         ).toBe("main … feat · 4 files · +51 −9");
+    });
+});
+
+describe("summaryLine", () => {
+    // The dirty working tree the shipped git-history fixture does not have: with a clean tree both
+    // stores read zero and the wrong one is indistinguishable from the right one.
+    const working: GitChanges = {
+        files: Array(8).fill({ path: "f", status: "M", adds: 0, dels: 0 }),
+        adds: 689,
+        dels: 0,
+    };
+    const compared: GitChanges = {
+        files: Array(1827).fill({ path: "f", status: "M", adds: 0, dels: 0 }),
+        adds: 288262,
+        dels: 177129,
+    };
+
+    it("reports the compared refs' counts while comparing, not the working tree's", () => {
+        expect(
+            summaryLine({
+                range: { kind: "compare", base: "main", head: "feat/memory-redesign", from: { kind: "working" } },
+                branch: "main",
+                ref: "",
+                changes: working,
+                compareChanges: compared,
+            })
+        ).toBe("main … feat/memory-redesign · 1827 files · +288262 −177129");
+    });
+
+    it("reports the working tree's counts outside compare", () => {
+        expect(
+            summaryLine({
+                range: { kind: "working" },
+                branch: "main",
+                ref: "",
+                changes: working,
+                compareChanges: compared,
+            })
+        ).toBe("uncommitted work against HEAD on main · 8 files · +689 −0");
+    });
+
+    it("reads zero while the compare load is still in flight", () => {
+        expect(
+            summaryLine({
+                range: { kind: "compare", base: "main", head: "feat", from: { kind: "working" } },
+                branch: "main",
+                ref: "",
+                changes: working,
+                compareChanges: null,
+            })
+        ).toBe("main … feat · 0 files · +0 −0");
     });
 });
