@@ -15,7 +15,7 @@ import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
 import { graphPeekOpenAtom, stageRailOpenAtom } from "@/app/view/jarvis/jarvisstore";
 import { activeRunIdAtom, activeSubjectAtom } from "@/app/view/jarvis/jarvissubjectstore";
 import { petPeekOpenAtom } from "@/app/view/jarvis/petstore";
-import { codeFinderOpenAtom } from "@/app/view/code/codestore";
+import { codeFinderOpenAtom, codeTreeFocusedAtom } from "@/app/view/code/codestore";
 import {
     buildAgentBindings,
     buildCodeBindings,
@@ -451,6 +451,19 @@ describe("code surface bindings", () => {
     it("keeps bare-letter refresh out of the editor, while save survives it", () => {
         expect(find("code:refresh").when?.({ ...code, editable: true })).toBe(false);
         expect(find("code:save").when?.({ ...code, editable: true })).toBe(true);
+    });
+
+    // The inline name input sits inside the tree, so its focusin bubbles and leaves the tree
+    // "focused". Without the !editable gate, Enter here runs tree-activate — it opens the cursor's
+    // file and the create/rename never commits.
+    it("stands the tree bindings down while the inline name input has focus", () => {
+        globalStore.set(codeTreeFocusedAtom, true);
+        const typing = { ...code, editable: true };
+        for (const id of ["code:tree-activate", "code:new-file", "code:new-folder", "code:rename", "code:delete"]) {
+            expect(find(id).when?.(typing), id).toBe(false);
+        }
+        expect(find("code:tree-activate").when?.(code)).toBe(true);
+        globalStore.set(codeTreeFocusedAtom, false);
     });
 });
 

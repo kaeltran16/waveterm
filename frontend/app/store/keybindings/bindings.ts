@@ -744,12 +744,14 @@ export function buildFilesBindings(): Binding[] {
 
 export function buildCodeBindings(): Binding[] {
     const on = (ctx: KeyContext) => ctx.surface === "code" && !ctx.editable && !ctx.modalOpen;
-    // Live whenever the tree pane holds focus — NOT gated on !editable, because the editor is
-    // writable and the caret sits in Monaco most of the time. Focus is read from an atom, not the
-    // DOM: store.test.ts evaluates every `when` in vitest's node environment, where document is
-    // undefined.
+    // Live whenever the tree pane holds focus. Focus is read from an atom, not the DOM:
+    // store.test.ts evaluates every `when` in vitest's node environment, where document is
+    // undefined. !editable matters because the inline name input lives INSIDE the tree — its
+    // focusin bubbles, so the atom stays true while you type a filename, and without this gate
+    // Enter reaches code:tree-activate first and opens the cursor's file instead of committing
+    // the name (n, F2 and Delete are stolen the same way).
     const inTree = (ctx: KeyContext) =>
-        ctx.surface === "code" && !ctx.modalOpen && globalStore.get(codeTreeFocusedAtom);
+        ctx.surface === "code" && !ctx.editable && !ctx.modalOpen && globalStore.get(codeTreeFocusedAtom);
     const treeKey = (key: TreeKey) => (): void | boolean => {
         const action = treeKeyAction(globalStore.get(codeRowsAtom), globalStore.get(codeCursorAtom), key);
         switch (action.kind) {
