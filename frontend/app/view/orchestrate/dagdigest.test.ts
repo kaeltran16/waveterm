@@ -70,6 +70,7 @@ describe("nextStepText", () => {
         expect(nextStepText({ kind: "dispatch" })).toBe("dispatching next task");
         expect(nextStepText({ kind: "parallelism-wait" })).toBe("waiting on parallelism limit");
         expect(nextStepText({ kind: "dependency-wait" })).toBe("waiting on dependencies");
+        expect(nextStepText({ kind: "cleanup-wait" })).toBe("waiting on worktree cleanup");
         expect(nextStepText({ kind: "terminal", terminalstatus: "done" })).toBe("finished (done)");
     });
 
