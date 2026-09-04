@@ -978,6 +978,12 @@ func MacOSVersionCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (string, error
 	return resp, err
 }
 
+// command "memoryarchive", wshserver.MemoryArchiveCommand
+func MemoryArchiveCommand(w *wshutil.WshRpc, data wshrpc.CommandMemoryArchiveData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "memoryarchive", data, opts)
+	return err
+}
+
 // command "memoryarchivelist", wshserver.MemoryArchiveListCommand
 func MemoryArchiveListCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandMemoryArchiveListRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandMemoryArchiveListRtnData](w, "memoryarchivelist", nil, opts)

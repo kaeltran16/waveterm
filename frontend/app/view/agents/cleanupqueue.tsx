@@ -50,7 +50,7 @@ function CleanupRow({ c }: { c: MemoryPruneCandidate }) {
             </span>
             <button
                 title="Remove"
-                onClick={() => void prune(c.path)}
+                onClick={() => void prune(c.path, c.reason)}
                 className="flex h-[30px] w-[30px] flex-none items-center justify-center rounded-[8px] border border-edge-mid text-muted hover:border-error/45 hover:bg-error/10 hover:text-error"
             >
                 <Trash2 size={14} />

@@ -5,16 +5,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // selectNote fires MemoryReadCommand over TabRpcClient; stub the RPC layer so the test
 // exercises only the synchronous atom side-effects (open drawer, clear edit state). The
-// mutation helpers fire MemoryDeleteCommand on the same client.
+// mutation helpers fire MemoryDeleteCommand / MemoryArchiveCommand on the same client.
 vi.mock("@/app/store/wshclientapi", () => ({
     RpcApi: {
         MemoryReadCommand: vi.fn().mockResolvedValue({ body: "", note: { updatedts: 0 } }),
         MemoryDeleteCommand: vi.fn().mockResolvedValue(undefined),
+        MemoryArchiveCommand: vi.fn().mockResolvedValue(undefined),
+        MemoryArchiveListCommand: vi.fn().mockResolvedValue({ archived: [] }),
     },
 }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 
 import { globalStore } from "@/app/store/jotaiStore";
+import { RpcApi } from "@/app/store/wshclientapi";
 import {
     advanceSavedSelection,
     advanceSelection,
@@ -25,9 +28,13 @@ import {
     memEditingAtom,
     memNotesAtom,
     memPendingAtom,
+    memPruneAtom,
     memRailOpenAtom,
     memSelectedIdAtom,
     memSelectedPendingPathAtom,
+    prune,
+    pruneAll,
+    pruneAllSuperseded,
     removeNoteFromGraph,
     selectNote,
     sortArchived,
@@ -155,6 +162,50 @@ describe("deleteNote local update", () => {
         await deleteNote("/vault/a.md");
         expect(globalStore.get(memNotesAtom)).toEqual([]);
         expect(globalStore.get(memSelectedIdAtom)).toBeNull();
+    });
+});
+
+const candidate = (path: string, reason: string): MemoryPruneCandidate =>
+    ({ id: path, path, title: path, type: "user", reason }) as MemoryPruneCandidate;
+
+// The cleanup queue removes through Archive, never Delete: its candidates are the gardener's
+// judgment calls, so every removal has to stay restorable. Each candidate carries its own reason
+// into the archive stamp, which is what makes the archived row say why the note left.
+describe("cleanup queue removal archives", () => {
+    beforeEach(() => {
+        vi.mocked(RpcApi.MemoryArchiveCommand).mockClear();
+        vi.mocked(RpcApi.MemoryDeleteCommand).mockClear();
+        globalStore.set(memNotesAtom, [note("a"), note("b")]);
+        globalStore.set(memEdgesAtom, []);
+        globalStore.set(memPruneAtom, [candidate("/vault/a.md", "superseded"), candidate("/vault/b.md", "stale")]);
+    });
+
+    it("archives the candidate with its reason instead of deleting it", async () => {
+        await prune("/vault/a.md", "superseded");
+        expect(RpcApi.MemoryArchiveCommand).toHaveBeenCalledWith({}, { path: "/vault/a.md", reason: "superseded" });
+        expect(RpcApi.MemoryDeleteCommand).not.toHaveBeenCalled();
+    });
+
+    it("drops the archived candidate from the queue and the notes list", async () => {
+        await prune("/vault/a.md", "superseded");
+        expect(globalStore.get(memPruneAtom).map((c) => c.path)).toEqual(["/vault/b.md"]);
+        expect(globalStore.get(memNotesAtom).map((n) => n.id)).toEqual(["b"]);
+    });
+
+    it("clears only superseded candidates, keeping the rest of the queue", async () => {
+        await pruneAllSuperseded();
+        expect(RpcApi.MemoryArchiveCommand).toHaveBeenCalledTimes(1);
+        expect(RpcApi.MemoryArchiveCommand).toHaveBeenCalledWith({}, { path: "/vault/a.md", reason: "superseded" });
+        expect(globalStore.get(memPruneAtom).map((c) => c.path)).toEqual(["/vault/b.md"]);
+    });
+
+    it("gives each candidate its own reason on a bulk clear", async () => {
+        await pruneAll();
+        expect(vi.mocked(RpcApi.MemoryArchiveCommand).mock.calls.map((c) => c[1])).toEqual([
+            { path: "/vault/a.md", reason: "superseded" },
+            { path: "/vault/b.md", reason: "stale" },
+        ]);
+        expect(globalStore.get(memPruneAtom)).toEqual([]);
     });
 });
 

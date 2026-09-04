@@ -19,6 +19,7 @@ type MemoryCommands interface {
 	MemoryReviewListCommand(ctx context.Context) (*CommandMemoryReviewListRtnData, error)
 	MemoryReviewAcceptCommand(ctx context.Context, data CommandMemoryReviewAcceptData) error
 	MemoryPruneListCommand(ctx context.Context) (*CommandMemoryPruneListRtnData, error)
+	MemoryArchiveCommand(ctx context.Context, data CommandMemoryArchiveData) error
 	MemoryArchiveListCommand(ctx context.Context) (*CommandMemoryArchiveListRtnData, error)
 	MemoryRestoreCommand(ctx context.Context, data CommandMemoryRestoreData) error
 }
@@ -114,6 +115,13 @@ type CommandMemoryPruneListRtnData struct {
 
 type CommandMemoryArchiveListRtnData struct {
 	Archived []MemoryArchivedNote `json:"archived"`
+}
+
+// Reason carries the prune candidate's reason (superseded | stale | drift | duplicate) through to the
+// archived note's stamp, so the archive row reads as why it left rather than a generic removal.
+type CommandMemoryArchiveData struct {
+	Path   string `json:"path"`
+	Reason string `json:"reason"`
 }
 
 type CommandMemoryRestoreData struct {

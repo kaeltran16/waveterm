@@ -1298,6 +1298,12 @@ declare global {
         dossiers: SpaceSummary[];
     };
 
+    // wshrpc.CommandMemoryArchiveData
+    type CommandMemoryArchiveData = {
+        path: string;
+        reason: string;
+    };
+
     // wshrpc.CommandMemoryArchiveListRtnData
     type CommandMemoryArchiveListRtnData = {
         archived: MemoryArchivedNote[];
