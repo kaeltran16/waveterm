@@ -1435,3 +1435,106 @@ func TestGrepOnNonRepoIsAnError(t *testing.T) {
 		t.Error("a non-repository must error (git exits 128), not report zero matches")
 	}
 }
+
+func TestFileAtRefReadsCommittedContent(t *testing.T) {
+	dir := repoWithChange(t)
+	got, err := FileAtRef(context.Background(), dir, "HEAD", "a.txt", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.IsRepo || got.Missing || got.Binary || got.TooLarge {
+		t.Fatalf("flags = %+v, want a plain text hit", got)
+	}
+	if got.Content != "one\ntwo\n" {
+		t.Errorf("content = %q, want the committed text not the dirty worktree text", got.Content)
+	}
+}
+
+// The regression this test exists for: paths from every other reader in this package are
+// cwd-relative (--relative), and "<ref>:<path>" resolves from the repo root, so a bare path
+// silently misses whenever the surface is scoped to a subdirectory.
+func TestFileAtRefSubdir(t *testing.T) {
+	dir := t.TempDir()
+	git(t, dir, "init", "-b", "main")
+	writeAt(t, dir, "sub/c.txt", "deep\n")
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-m", "init")
+
+	got, err := FileAtRef(context.Background(), filepath.Join(dir, "sub"), "HEAD", "c.txt", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Content != "deep\n" {
+		t.Errorf("content = %q, want %q", got.Content, "deep\n")
+	}
+}
+
+// A file added since the ref is an answer, not a failure: the diff renders it as wholly added.
+func TestFileAtRefMissingIsNotAnError(t *testing.T) {
+	dir := repoWithChange(t) // b.txt exists on disk, was never committed
+	got, err := FileAtRef(context.Background(), dir, "HEAD", "b.txt", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Missing || got.Content != "" {
+		t.Errorf("got %+v, want Missing with no content", got)
+	}
+}
+
+func TestFileAtRefPathWithASpace(t *testing.T) {
+	dir := t.TempDir()
+	git(t, dir, "init", "-b", "main")
+	writeAt(t, dir, "has space.txt", "spaced\n")
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-m", "init")
+
+	got, err := FileAtRef(context.Background(), dir, "HEAD", "has space.txt", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Content != "spaced\n" {
+		t.Errorf("content = %q, want %q", got.Content, "spaced\n")
+	}
+}
+
+func TestFileAtRefBinary(t *testing.T) {
+	dir := t.TempDir()
+	git(t, dir, "init", "-b", "main")
+	if err := os.WriteFile(filepath.Join(dir, "bin.dat"), []byte{0x00, 0xff, 0xfe, 0x01}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-m", "init")
+
+	got, err := FileAtRef(context.Background(), dir, "HEAD", "bin.dat", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Binary || got.Content != "" {
+		t.Errorf("got %+v, want Binary with no content", got)
+	}
+}
+
+func TestFileAtRefTooLargeSkipsTheRead(t *testing.T) {
+	dir := repoWithChange(t)
+	got, err := FileAtRef(context.Background(), dir, "HEAD", "a.txt", 4) // "one\ntwo\n" is 8 bytes
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.TooLarge || got.Content != "" {
+		t.Errorf("got %+v, want TooLarge with no content", got)
+	}
+	if got.Size != 8 {
+		t.Errorf("Size = %d, want 8", got.Size)
+	}
+}
+
+func TestFileAtRefNotARepo(t *testing.T) {
+	got, err := FileAtRef(context.Background(), t.TempDir(), "HEAD", "a.txt", 0)
+	if err != nil {
+		t.Fatalf("a non-repo directory must not error: %v", err)
+	}
+	if got.IsRepo {
+		t.Errorf("IsRepo = true, want false")
+	}
+}

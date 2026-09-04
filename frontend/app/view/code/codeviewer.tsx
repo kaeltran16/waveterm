@@ -21,6 +21,7 @@ import { useAtomValue } from "jotai";
 import type * as MonacoTypes from "monaco-editor";
 import { useEffect } from "react";
 import { isMarkdownPath } from "./codeclassify";
+import { CodeDiffView } from "./codediffview";
 import {
     codeDraftsAtom,
     codeFileAtom,
@@ -128,6 +129,11 @@ export function CodeViewer({ model }: { model: AgentsViewModel }) {
             // prop-sync effect no-ops when the incoming text already equals the model's (monaco-react
             // checks before pushing an edit), so feeding our own keystrokes back does not move the caret.
             const draft = project != null ? drafts.get(draftKey(project, file.path)) : undefined;
+            // keyed by path: MonacoDiffViewer creates its models once, so a new file needs a new
+            // instance or it keeps the previous file's model URI and language
+            if (mode === "diff") {
+                return <CodeDiffView key={file.path} path={file.path} text={draft?.text ?? file.text} />;
+            }
             // READMEs and other prose render as documents; Source (the CodeEditor below) stays one
             // toggle away, and the draft feeds the preview so unsaved edits show what you would save
             if (isMarkdownPath(file.path) && mode === "preview") {

@@ -87,3 +87,14 @@ func (ws *WshServer) GitGrepCommand(ctx context.Context, data wshrpc.CommandGitG
 	}
 	return &wshrpc.CommandGitGrepRtnData{Matches: matches, Truncated: res.Truncated}, nil
 }
+
+func (ws *WshServer) GitFileAtRefCommand(ctx context.Context, data wshrpc.CommandGitFileAtRefData) (*wshrpc.CommandGitFileAtRefRtnData, error) {
+	fc, err := gitinfo.FileAtRef(ctx, data.Cwd, data.Ref, data.Path, data.MaxBytes)
+	if err != nil {
+		return nil, err
+	}
+	return &wshrpc.CommandGitFileAtRefRtnData{
+		Content: fc.Content, Binary: fc.Binary, Missing: fc.Missing,
+		TooLarge: fc.TooLarge, Size: fc.Size, IsRepo: fc.IsRepo,
+	}, nil
+}

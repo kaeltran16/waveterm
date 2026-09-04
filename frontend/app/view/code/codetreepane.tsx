@@ -11,23 +11,39 @@
 // surface owns its keys (see listnav.ts), and the shared "moving is selecting" contract would make
 // every cursor step read a file over RPC.
 
+import { ContextMenuModel } from "@/app/store/contextmenu";
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
+import { joinRepoPath } from "@/util/paths";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { ChevronDown, ChevronRight, File } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { ChevronDown, ChevronRight, File, FilePlus, FolderPlus, Pencil, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { nameErrorMessage, provisionalIndex, validateName } from "./codemutate";
+import { statusGlyph, type CodeStatus } from "./codestatus";
 import {
+    cancelEdit,
+    checkStale,
     codeCursorAtom,
     codeDraftsAtom,
+    codeEditAtom,
     codeFileAtom,
+    codeIndexAtom,
     codeProjectAtom,
     codeRowsAtom,
+    codeStatusAtom,
+    codeStatusDirsAtom,
     codeTreeFocusedAtom,
+    confirmDelete,
+    createEntry,
     draftKey,
     openPath,
+    renamePath,
+    startCreate,
+    startRename,
     toggleDir,
 } from "./codestore";
+import type { TreeRow } from "./codetree";
 
 export function CodeTreePane({ model }: { model: AgentsViewModel }) {
     void model;
@@ -36,8 +52,19 @@ export function CodeTreePane({ model }: { model: AgentsViewModel }) {
     const file = useAtomValue(codeFileAtom);
     const project = useAtomValue(codeProjectAtom);
     const drafts = useAtomValue(codeDraftsAtom);
+    // read once for the whole pane rather than per row: hundreds of rows would otherwise mean
+    // hundreds of subscriptions
+    const status = useAtomValue(codeStatusAtom);
+    const changedDirSet = useAtomValue(codeStatusDirsAtom);
+    const edit = useAtomValue(codeEditAtom);
+    const index = useAtomValue(codeIndexAtom);
     const openFile = file.kind === "none" ? null : file.path;
     const rowRefs = useRef(new Map<string, HTMLDivElement>());
+
+    const paths = index?.paths ?? [];
+    const provisional = edit?.kind === "create" ? provisionalIndex(rows, edit.dir) : -1;
+    const provisionalDepth =
+        edit?.kind === "create" && edit.dir !== "" ? (rows.find((r) => r.path === edit.dir)?.depth ?? -1) + 1 : 0;
 
     // a finder or search jump expands ancestors, which is invisible if the row it revealed is
     // off-screen; the cursor is what makes the landing visible
@@ -47,64 +74,214 @@ export function CodeTreePane({ model }: { model: AgentsViewModel }) {
         }
     }, [cursor]);
 
+    const provisionalInput =
+        edit?.kind === "create" ? (
+            <NameInput
+                key="__provisional"
+                initial=""
+                dir={edit.dir}
+                depth={provisionalDepth}
+                existing={paths}
+                onCommit={(name) => fireAndForget(() => createEntry(edit.dir, name, edit.isDir))}
+            />
+        ) : null;
+
+    const renderRow = (row: TreeRow) => (
+        <div
+            key={row.path}
+            ref={(el) => {
+                if (el == null) {
+                    rowRefs.current.delete(row.path);
+                } else {
+                    rowRefs.current.set(row.path, el);
+                }
+            }}
+            role="treeitem"
+            aria-selected={row.path === cursor}
+            aria-expanded={row.kind === "dir" ? row.expanded : undefined}
+            onClick={() => {
+                globalStore.set(codeCursorAtom, row.path);
+                if (row.kind === "dir") {
+                    toggleDir(row.path);
+                } else {
+                    fireAndForget(() => openPath(row.path));
+                }
+            }}
+            onContextMenu={(ev) => {
+                // startCreate reads the cursor, so moving it first is what makes New File land where
+                // the user pointed rather than where they last clicked
+                globalStore.set(codeCursorAtom, row.path);
+                ContextMenuModel.getInstance().showContextMenu(
+                    [
+                        {
+                            label: "New File",
+                            icon: <FilePlus size={13} strokeWidth={1.8} />,
+                            click: () => startCreate(false),
+                        },
+                        {
+                            label: "New Folder",
+                            icon: <FolderPlus size={13} strokeWidth={1.8} />,
+                            click: () => startCreate(true),
+                        },
+                        { type: "separator" },
+                        {
+                            label: "Rename",
+                            icon: <Pencil size={13} strokeWidth={1.8} />,
+                            accel: "F2",
+                            click: () => startRename(row.path),
+                        },
+                        {
+                            label: "Delete",
+                            icon: <Trash2 size={13} strokeWidth={1.8} />,
+                            danger: true,
+                            accel: "Delete",
+                            click: () => confirmDelete(row.path, row.kind === "dir"),
+                        },
+                        { type: "separator" },
+                        {
+                            label: "Copy Path",
+                            click: () => {
+                                if (project != null) {
+                                    void navigator.clipboard?.writeText(joinRepoPath(project.path, row.path));
+                                }
+                            },
+                        },
+                    ],
+                    ev
+                );
+            }}
+            style={{ paddingLeft: 8 + row.depth * 12 }}
+            className={cn(
+                "flex w-full cursor-pointer items-center gap-1.5 py-[3px] pr-2 text-left text-[12.5px] text-secondary hover:bg-accent/10 hover:text-primary",
+                row.path === openFile && "text-accent-soft",
+                row.path === cursor && "bg-accent/10"
+            )}
+        >
+            {row.kind === "dir" ? (
+                row.expanded ? (
+                    <ChevronDown size={13} strokeWidth={1.8} className="flex-none" />
+                ) : (
+                    <ChevronRight size={13} strokeWidth={1.8} className="flex-none" />
+                )
+            ) : (
+                <File size={13} strokeWidth={1.8} className="flex-none opacity-50" />
+            )}
+            {edit?.kind === "rename" && edit.path === row.path ? (
+                <NameInput
+                    initial={row.name}
+                    dir={row.path.includes("/") ? row.path.slice(0, row.path.lastIndexOf("/")) : ""}
+                    depth={0}
+                    existing={paths.filter((p) => p !== row.path && !p.startsWith(`${row.path}/`))}
+                    onCommit={(name) => fireAndForget(() => renamePath(row.path, name))}
+                />
+            ) : (
+                <span className="min-w-0 truncate">{row.name}</span>
+            )}
+            <span className="ml-auto flex flex-none items-center gap-1.5">
+                {row.kind === "file" ? <StatusMark s={status?.get(row.path)} /> : null}
+                {/* a collapsed directory is the only place the roll-up has anything to say:
+                    expanded, the rows underneath speak for themselves */}
+                {row.kind === "dir" && !row.expanded && changedDirSet.has(row.path) ? (
+                    <span
+                        aria-label="Contains changes"
+                        title="Contains changes"
+                        className="size-[5px] rounded-full bg-muted"
+                    />
+                ) : null}
+                {/* drafts survive an unmount, so unsaved work can exist on a file you are not
+                    looking at — the dot is the only thing that says so */}
+                {row.kind === "file" && project != null && drafts.has(draftKey(project, row.path)) ? (
+                    <span
+                        aria-label="Unsaved edits"
+                        title="Unsaved edits"
+                        className="size-[6px] rounded-full bg-accent-soft"
+                    />
+                ) : null}
+            </span>
+        </div>
+    );
+
     return (
         <div
             role="tree"
             tabIndex={0}
             data-code-tree
-            onFocus={() => globalStore.set(codeTreeFocusedAtom, true)}
+            onFocus={() => {
+                globalStore.set(codeTreeFocusedAtom, true);
+                fireAndForget(checkStale);
+            }}
             onBlur={() => globalStore.set(codeTreeFocusedAtom, false)}
             className="h-full overflow-y-auto border-r border-border py-2 outline-none"
         >
-            {rows.map((row) => (
-                <div
-                    key={row.path}
-                    ref={(el) => {
-                        if (el == null) {
-                            rowRefs.current.delete(row.path);
-                        } else {
-                            rowRefs.current.set(row.path, el);
-                        }
-                    }}
-                    role="treeitem"
-                    aria-selected={row.path === cursor}
-                    aria-expanded={row.kind === "dir" ? row.expanded : undefined}
-                    onClick={() => {
-                        globalStore.set(codeCursorAtom, row.path);
-                        if (row.kind === "dir") {
-                            toggleDir(row.path);
-                        } else {
-                            fireAndForget(() => openPath(row.path));
-                        }
-                    }}
-                    style={{ paddingLeft: 8 + row.depth * 12 }}
-                    className={cn(
-                        "flex w-full cursor-pointer items-center gap-1.5 py-[3px] pr-2 text-left text-[12.5px] text-secondary hover:bg-accent/10 hover:text-primary",
-                        row.path === openFile && "text-accent-soft",
-                        row.path === cursor && "bg-accent/10"
-                    )}
-                >
-                    {row.kind === "dir" ? (
-                        row.expanded ? (
-                            <ChevronDown size={13} strokeWidth={1.8} className="flex-none" />
-                        ) : (
-                            <ChevronRight size={13} strokeWidth={1.8} className="flex-none" />
-                        )
-                    ) : (
-                        <File size={13} strokeWidth={1.8} className="flex-none opacity-50" />
-                    )}
-                    <span className="min-w-0 truncate">{row.name}</span>
-                    {/* drafts survive an unmount, so unsaved work can exist on a file you are not looking
-                        at — the dot is the only thing that says so */}
-                    {row.kind === "file" && project != null && drafts.has(draftKey(project, row.path)) ? (
-                        <span
-                            aria-label="Unsaved edits"
-                            title="Unsaved edits"
-                            className="ml-auto size-[6px] flex-none rounded-full bg-accent-soft"
-                        />
-                    ) : null}
-                </div>
-            ))}
+            {rows.flatMap((row, i) => {
+                const out: React.ReactNode[] = [];
+                if (i === provisional) {
+                    out.push(provisionalInput);
+                }
+                out.push(renderRow(row));
+                return out;
+            })}
+            {provisional >= rows.length ? provisionalInput : null}
         </div>
+    );
+}
+
+// Enter commits, Escape cancels, and the error shows while you type — the pre-check reads the index
+// snapshot, so it can be wrong, which is why the write still surfaces the backend's error.
+function NameInput({
+    initial,
+    dir,
+    depth,
+    existing,
+    onCommit,
+}: {
+    initial: string;
+    dir: string;
+    depth: number;
+    existing: readonly string[];
+    onCommit: (name: string) => void;
+}) {
+    const [value, setValue] = useState(initial);
+    // an unchanged rename is not an error, but an empty create is — so the skip only applies to a
+    // name that is both non-empty and untouched
+    const trimmed = value.trim();
+    const err = trimmed !== "" && trimmed === initial ? null : validateName(value, dir, existing);
+    return (
+        <div style={{ paddingLeft: 8 + depth * 12 }} className="flex w-full items-center gap-1.5 py-[3px] pr-2">
+            <input
+                autoFocus
+                value={value}
+                data-code-name-input
+                onChange={(e) => setValue(e.target.value)}
+                onBlur={cancelEdit}
+                onKeyDown={(e) => {
+                    e.stopPropagation(); // the tree's j/k/n bindings must not eat what you type
+                    if (e.key === "Escape") {
+                        cancelEdit();
+                    }
+                    if (e.key === "Enter" && err == null) {
+                        onCommit(trimmed);
+                    }
+                }}
+                className="min-w-0 flex-1 rounded-[4px] border border-border bg-surface px-1 py-[1px] text-[12px] text-primary outline-none"
+            />
+            {err != null ? (
+                <span title={nameErrorMessage(err)} className="flex-none text-[10px] text-error">
+                    {nameErrorMessage(err)}
+                </span>
+            ) : null}
+        </div>
+    );
+}
+
+function StatusMark({ s }: { s: CodeStatus | undefined }) {
+    if (s == null) {
+        return null;
+    }
+    const g = statusGlyph(s.status);
+    return (
+        <span data-code-status={g.letter} title={g.label} className={cn("font-mono text-[10.5px]", g.className)}>
+            {g.letter}
+        </span>
     );
 }

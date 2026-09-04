@@ -27,11 +27,15 @@ import {
     codeFinderOpenAtom,
     codeRowsAtom,
     codeTreeFocusedAtom,
+    codeViewModeAtom,
+    confirmDelete,
     goBack,
     goForward,
     openPath,
     refreshIndex,
     saveCurrent,
+    startCreate,
+    startRename,
     toggleDir,
 } from "@/app/view/code/codestore";
 import { codeSearchModeAtom } from "@/app/view/code/codesearchstore";
@@ -796,6 +800,17 @@ export function buildCodeBindings(): Binding[] {
             },
         },
         {
+            id: "code:diff",
+            keys: "d",
+            group: "Code",
+            label: "Toggle the diff against HEAD",
+            when: on,
+            run: () => {
+                const mode = globalStore.get(codeViewModeAtom);
+                globalStore.set(codeViewModeAtom, mode === "diff" ? "source" : "diff");
+            },
+        },
+        {
             id: "code:save",
             keys: "Ctrl:s",
             group: "Code",
@@ -863,6 +878,51 @@ export function buildCodeBindings(): Binding[] {
             label: "Open file / toggle folder",
             when: inTree,
             run: treeKey("activate"),
+        },
+        {
+            id: "code:new-file",
+            keys: "n",
+            group: "Code",
+            label: "New file in the cursor's directory",
+            when: inTree,
+            run: () => startCreate(false),
+        },
+        {
+            id: "code:new-folder",
+            keys: "Shift:n",
+            group: "Code",
+            label: "New folder in the cursor's directory",
+            when: inTree,
+            run: () => startCreate(true),
+        },
+        {
+            id: "code:rename",
+            keys: "F2",
+            group: "Code",
+            label: "Rename the cursor row",
+            when: inTree,
+            run: () => {
+                const cursor = globalStore.get(codeCursorAtom);
+                if (cursor == null) {
+                    return false; // nothing named, so let the key pass
+                }
+                startRename(cursor);
+            },
+        },
+        {
+            id: "code:delete",
+            keys: "Delete",
+            group: "Code",
+            label: "Delete the cursor row",
+            when: inTree,
+            run: () => {
+                const cursor = globalStore.get(codeCursorAtom);
+                const row = globalStore.get(codeRowsAtom).find((r) => r.path === cursor);
+                if (row == null) {
+                    return false;
+                }
+                confirmDelete(row.path, row.kind === "dir");
+            },
         },
         {
             id: "code:search",

@@ -21,7 +21,11 @@ export type SearchState =
     | { kind: "done"; query: string; matches: GitGrepMatch[]; truncated: boolean }
     | { kind: "error"; query: string; message: string };
 
-export const codeSearchModeAtom = atom<"files" | "search">("files") as PrimitiveAtom<"files" | "search">;
+// "changed" is the working tree's change list — a navigation aid, not a diff: a row opens the
+// editor, and the diff for the file you land on is one toggle away in the path bar.
+export const codeSearchModeAtom = atom<"files" | "search" | "changed">("files") as PrimitiveAtom<
+    "files" | "search" | "changed"
+>;
 export const codeSearchQueryAtom = atom<string>("") as PrimitiveAtom<string>;
 export const codeSearchAtom = atom<SearchState>({ kind: "idle" }) as PrimitiveAtom<SearchState>;
 

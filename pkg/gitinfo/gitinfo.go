@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const gitTimeout = 10 * time.Second
@@ -750,6 +751,53 @@ func CompareDiff(ctx context.Context, cwd, base, head, path string) (*Diff, erro
 		return nil, err
 	}
 	return &Diff{Diff: diff}, nil
+}
+
+// FileContent is one file's content at one ref. Binary, Missing and TooLarge are states a caller
+// draws rather than errors, because each is a normal thing to find at a ref: a blob that is not
+// text, a file added since that ref, a file too big to be worth mounting an editor on.
+type FileContent struct {
+	Content  string `json:"content"`
+	Binary   bool   `json:"binary"`
+	Missing  bool   `json:"missing"`
+	TooLarge bool   `json:"toolarge"`
+	Size     int64  `json:"size"`
+	IsRepo   bool   `json:"isrepo"`
+}
+
+// FileAtRef returns one file's full content at a ref. The path is cwd-relative like every other
+// reader here, so the rev spec uses the "./" form: `<ref>:./<path>` resolves relative to cwd, while
+// `<ref>:<path>` resolves from the repo root and silently misses in a subdirectory checkout.
+// maxBytes caps the transport (0 = no cap) and the size is read from the blob header first, so an
+// oversized file is refused without ever being read.
+func FileAtRef(ctx context.Context, cwd, ref, path string, maxBytes int64) (*FileContent, error) {
+	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
+	defer cancel()
+	inside, err := run(ctx, cwd, "rev-parse", "--is-inside-work-tree")
+	if err != nil || strings.TrimSpace(inside) != "true" {
+		return &FileContent{IsRepo: false}, nil
+	}
+	spec := ref + ":./" + path
+	sizeOut, err := run(ctx, cwd, "cat-file", "-s", spec)
+	if err != nil {
+		// the blob does not exist at this ref: an add on one side, a delete on the other
+		return &FileContent{IsRepo: true, Missing: true}, nil
+	}
+	size, err := strconv.ParseInt(strings.TrimSpace(sizeOut), 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("git cat-file -s %s: unparsable size %q", spec, strings.TrimSpace(sizeOut))
+	}
+	if maxBytes > 0 && size > maxBytes {
+		return &FileContent{IsRepo: true, TooLarge: true, Size: size}, nil
+	}
+	out, err := run(ctx, cwd, "show", spec)
+	if err != nil {
+		return nil, err
+	}
+	if !utf8.ValidString(out) {
+		return &FileContent{IsRepo: true, Binary: true, Size: size}, nil
+	}
+	return &FileContent{IsRepo: true, Content: out, Size: size}, nil
 }
 
 // DefaultBranch resolves the repo's default branch as a *local* branch name: origin/HEAD when the

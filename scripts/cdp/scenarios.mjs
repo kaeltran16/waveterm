@@ -3792,6 +3792,185 @@ const codeSearch = {
     },
 };
 
+const codeGitStatus = {
+    name: "code-git-status",
+    surface: "code",
+    async arrange() {
+        return {};
+    },
+    async assert(h) {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const steps = [];
+        await h.goto("code");
+        steps.push({
+            step: "Code surface is active",
+            ok: (await h.activeSurfaceLabel()) === SURFACE_LABEL.code,
+            detail: `active=${await h.activeSurfaceLabel()}`,
+        });
+
+        if ((await openProjectPicker(h)) === true) {
+            await sleep(300);
+            const picked = await chooseProjectRow(h);
+            steps.push({ step: "select a project", ok: picked === true, detail: `picked=${picked}` });
+            await sleep(1200); // the index is one git ls-files call, status one git status call
+        }
+
+        const switched = await h.ev(`(() => {
+            const t = document.querySelector('[data-code-column-tab="changed"]');
+            if (!t) return false;
+            t.click();
+            return true;
+        })()`);
+        steps.push({ step: "switch the left column to Changed", ok: switched === true, detail: `switched=${switched}` });
+
+        // poll rather than sleep a guessed interval: status shells out to git
+        let rowPath = "";
+        for (let i = 0; i < 20; i++) {
+            rowPath = await h.ev(
+                `(() => { const r = document.querySelector('[data-code-changed-row]'); return r ? r.getAttribute('data-code-changed-row') : ''; })()`
+            );
+            if (rowPath) break;
+            await sleep(500);
+        }
+        steps.push({
+            step: "the Changed column lists at least one changed file",
+            ok: rowPath !== "",
+            detail: `first=${rowPath || "(none)"}`,
+        });
+
+        const counts = await h.ev(
+            `(() => { const r = document.querySelector('[data-code-changed-row]'); return r ? (r.textContent || '').trim() : ''; })()`
+        );
+        steps.push({
+            step: "a changed row carries its +/- counts",
+            ok: /\+\d+/.test(counts) && /-\d+/.test(counts),
+            detail: `row="${counts}"`,
+        });
+        await h.shot("cdp-shots/code-changed.png");
+
+        // scoped to the row container, never a document-wide button query
+        const clicked = await h.ev(`(() => {
+            const r = document.querySelector('[data-code-changed-row]');
+            if (!r) return false;
+            r.click();
+            return true;
+        })()`);
+        steps.push({ step: "click the first changed row", ok: clicked === true, detail: `clicked=${clicked}` });
+        await sleep(900); // one stat-then-read round trip
+
+        const openPath = await h.ev(
+            `(() => { const p = document.querySelector('[data-code-path]'); return p ? p.getAttribute('data-code-path') : ''; })()`
+        );
+        steps.push({
+            step: "the editor opened on that path",
+            ok: openPath === rowPath,
+            detail: `open=${openPath} want=${rowPath}`,
+        });
+
+        const backToFiles = await h.ev(`(() => {
+            const t = document.querySelector('[data-code-column-tab="files"]');
+            if (!t) return false;
+            t.click();
+            return true;
+        })()`);
+        await sleep(400);
+        const letters = await h.ev(`(() => document.querySelectorAll('[data-code-status]').length)()`);
+        steps.push({
+            step: "the tree paints a status letter on the revealed file",
+            ok: backToFiles === true && letters > 0,
+            detail: `letters=${letters}`,
+        });
+        await h.shot("cdp-shots/code-git-status.png");
+        return steps;
+    },
+    async teardown(h) {
+        await h.goto("cockpit"); // leave the app where a human expects it
+    },
+};
+
+const codeDiff = {
+    name: "code-diff",
+    surface: "code",
+    async arrange() {
+        return {};
+    },
+    async assert(h) {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const steps = [];
+        await h.goto("code");
+        if ((await openProjectPicker(h)) === true) {
+            await sleep(300);
+            await chooseProjectRow(h);
+            await sleep(1200);
+        }
+
+        // the Changed column guarantees the file we open actually differs from HEAD
+        await h.ev(`(() => {
+            const t = document.querySelector('[data-code-column-tab="changed"]');
+            if (t) t.click();
+            return true;
+        })()`);
+        let rowPath = "";
+        for (let i = 0; i < 20; i++) {
+            rowPath = await h.ev(
+                `(() => { const r = document.querySelector('[data-code-changed-row]'); return r ? r.getAttribute('data-code-changed-row') : ''; })()`
+            );
+            if (rowPath) break;
+            await sleep(500);
+        }
+        const opened = await h.ev(`(() => {
+            const r = document.querySelector('[data-code-changed-row]');
+            if (!r) return false;
+            r.click();
+            return true;
+        })()`);
+        steps.push({
+            step: "open a file that differs from HEAD",
+            ok: opened === true && rowPath !== "",
+            detail: `path=${rowPath || "(none)"}`,
+        });
+        await sleep(900);
+
+        const toDiff = await h.ev(`(() => {
+            const b = document.querySelector('[data-code-view-mode="diff"]');
+            if (!b) return false;
+            b.click();
+            return true;
+        })()`);
+        await sleep(1500); // monaco is lazy, and the HEAD read is one git call
+        const mounted = await h.ev(`(() => !!document.querySelector('.monaco-diff-editor'))()`);
+        steps.push({
+            step: "Diff mounts the Monaco diff editor",
+            ok: toDiff === true && mounted === true,
+            detail: `toggled=${toDiff} mounted=${mounted}`,
+        });
+        await h.shot("cdp-shots/code-diff.png");
+
+        // `d` is gated on !editable, so focus has to leave Monaco first
+        await h.ev(`(() => {
+            const t = document.querySelector('[data-code-tree]');
+            if (t) t.focus();
+            return true;
+        })()`);
+        await h.ev(
+            `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', code: 'KeyD', bubbles: true }))`
+        );
+        await sleep(800);
+        const back = await h.ev(
+            `(() => ({ diff: !!document.querySelector('.monaco-diff-editor'), plain: !!document.querySelector('.monaco-editor') }))()`
+        );
+        steps.push({
+            step: "pressing d again returns to the single editor",
+            ok: back.diff === false && back.plain === true,
+            detail: `diff=${back.diff} plain=${back.plain}`,
+        });
+        return steps;
+    },
+    async teardown(h) {
+        await h.goto("cockpit"); // leave the app where a human expects it
+    },
+};
+
 // --- terminal palette follows the cockpit theme -------------------------------------------------
 // Asserts against window.term (term.tsx assigns it) + the resolved custom properties, NOT pixels:
 // reading the applied xterm theme is exact, where a screenshot sample is not. The shots are for a
@@ -4894,6 +5073,8 @@ export const SCENARIOS = [
     gitHistory,
     surfaceSmoke,
     codeSearch,
+    codeGitStatus,
+    codeDiff,
     codeMarkdown,
     jarvisAvatar,
     jarvisStates,

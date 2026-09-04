@@ -38,7 +38,9 @@ export function CodePathBar({ model }: { model: AgentsViewModel }) {
 
     return (
         <div className="flex flex-none items-center gap-2 border-b border-border px-3 py-1.5">
-            <span className="min-w-0 truncate font-mono text-[11.5px] text-secondary">{file.path}</span>
+            <span data-code-path={file.path} className="min-w-0 truncate font-mono text-[11.5px] text-secondary">
+                {file.path}
+            </span>
             {dirty ? (
                 <span
                     aria-label="Unsaved edits"
@@ -46,7 +48,7 @@ export function CodePathBar({ model }: { model: AgentsViewModel }) {
                     className="size-[6px] flex-none rounded-full bg-accent-soft"
                 />
             ) : null}
-            {file.kind === "text" && isMarkdownPath(file.path) ? <ViewModeToggle /> : null}
+            {file.kind === "text" ? <ViewModeToggle markdown={isMarkdownPath(file.path)} /> : null}
             <div className="flex-1" />
             <button
                 type="button"
@@ -70,13 +72,15 @@ export function CodePathBar({ model }: { model: AgentsViewModel }) {
     );
 }
 
-// Markdown files render as documents by default; this is the escape back to the editable view.
-// The segmented control mirrors the Files/Search column-mode idiom.
-function ViewModeToggle() {
+// Markdown files render as documents by default; Source is the escape back to the editable view and
+// Diff shows the file against HEAD. Preview is markdown-only — there is nothing to render for a Go
+// file — while Source and Diff are offered for any text file.
+function ViewModeToggle({ markdown }: { markdown: boolean }) {
     const [mode, setMode] = useAtom(codeViewModeAtom);
+    const modes = (["preview", "source", "diff"] as const).filter((m) => markdown || m !== "preview");
     return (
         <div className="flex flex-none items-center gap-0.5 rounded-[6px] border border-border p-[2px]">
-            {(["preview", "source"] as const).map((m) => (
+            {modes.map((m) => (
                 <button
                     key={m}
                     type="button"

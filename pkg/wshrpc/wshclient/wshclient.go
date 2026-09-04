@@ -758,6 +758,12 @@ func GitDivergenceCommand(w *wshutil.WshRpc, data wshrpc.CommandGitDivergenceDat
 	return resp, err
 }
 
+// command "gitfileatref", wshserver.GitFileAtRefCommand
+func GitFileAtRefCommand(w *wshutil.WshRpc, data wshrpc.CommandGitFileAtRefData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGitFileAtRefRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGitFileAtRefRtnData](w, "gitfileatref", data, opts)
+	return resp, err
+}
+
 // command "gitgrep", wshserver.GitGrepCommand
 func GitGrepCommand(w *wshutil.WshRpc, data wshrpc.CommandGitGrepData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGitGrepRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGitGrepRtnData](w, "gitgrep", data, opts)

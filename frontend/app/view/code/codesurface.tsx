@@ -7,6 +7,8 @@
 
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import { useSyncMonacoTheme } from "@/app/monaco/monacotheme";
+import { atoms } from "@/app/store/global-atoms";
+import { globalStore } from "@/app/store/jotaiStore";
 import { buildCodeBindings } from "@/app/store/keybindings/bindings";
 import { useKeybindings } from "@/app/store/keybindings/store";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
@@ -14,20 +16,24 @@ import { projectsAtom } from "@/app/view/agents/projectsstore";
 import { SurfaceEmptyState, SurfaceError, SurfaceHeader } from "@/app/view/agents/surfacescaffold";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
-import { ChevronDown, FolderGit2, RotateCw, Save, Undo2 } from "lucide-react";
+import { ChevronDown, FilePlus, FolderGit2, FolderPlus, RotateCw, Save, Undo2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { CodeChangedPane } from "./codechangedpane";
 import { CodeFinderPalette } from "./codefinderpalette";
 import { canBack, canForward } from "./codehistory";
 import { CodePathBar } from "./codepathbar";
 import { CodeSearchPane } from "./codesearchpane";
 import { codeSearchModeAtom } from "./codesearchstore";
+import { CodeStaleBar } from "./codestalebar";
 import {
     canRestoreProject,
+    checkStale,
     codeDraftsAtom,
     codeFileAtom,
     codeHistoryAtom,
     codeIndexAtom,
     codeIndexErrorAtom,
+    codeMutateErrorAtom,
     codeProjectAtom,
     codeSaveAtom,
     draftKey,
@@ -39,6 +45,7 @@ import {
     revertDraft,
     saveCurrent,
     selectProject,
+    startCreate,
     type CodeProject,
 } from "./codestore";
 import { CodeTreePane } from "./codetreepane";
@@ -51,6 +58,8 @@ export function CodeSurface({ model }: { model: AgentsViewModel }) {
     const index = useAtomValue(codeIndexAtom);
     const indexError = useAtomValue(codeIndexErrorAtom);
     const history = useAtomValue(codeHistoryAtom);
+    const hasFocus = useAtomValue(atoms.documentHasFocus);
+    const mutateError = useAtomValue(codeMutateErrorAtom);
     const [pickerOpen, setPickerOpen] = useState(false);
 
     // stable array: every run() reads live atoms, so it never needs rebuilding
@@ -78,6 +87,13 @@ export function CodeSurface({ model }: { model: AgentsViewModel }) {
             fireAndForget(() => selectProject(stored));
         }
     }, [project, index, indexError, stored, registry]);
+
+    // the case that actually bites: an agent wrote while you were looking at another window
+    useEffect(() => {
+        if (hasFocus) {
+            fireAndForget(checkStale);
+        }
+    }, [hasFocus]);
 
     return (
         <div className="relative flex h-full w-full flex-col">
@@ -126,6 +142,14 @@ export function CodeSurface({ model }: { model: AgentsViewModel }) {
                             </PopoverReveal>
                         </div>
                         <SaveControls />
+                        {/* the affordance for an empty or unfocused tree, where there is no row to
+                            right-click */}
+                        <HeaderButton label="New file (n)" onClick={() => startCreate(false)}>
+                            <FilePlus size={13} strokeWidth={1.8} />
+                        </HeaderButton>
+                        <HeaderButton label="New folder (Shift+N)" onClick={() => startCreate(true)}>
+                            <FolderPlus size={13} strokeWidth={1.8} />
+                        </HeaderButton>
                         <HeaderButton label="Refresh index" onClick={() => fireAndForget(refreshIndex)}>
                             <RotateCw size={13} strokeWidth={1.8} />
                         </HeaderButton>
@@ -146,6 +170,13 @@ export function CodeSurface({ model }: { model: AgentsViewModel }) {
                 <SurfaceError
                     message={`Could not list files: ${indexError}`}
                     onRetry={() => fireAndForget(refreshIndex)}
+                />
+            ) : null}
+            {mutateError != null ? (
+                <SurfaceError
+                    message={mutateError}
+                    actionLabel="Dismiss"
+                    onRetry={() => globalStore.set(codeMutateErrorAtom, null)}
                 />
             ) : null}
             <SaveBanner />
@@ -284,9 +315,9 @@ function CodePanes({ model }: { model: AgentsViewModel }) {
         <div className="flex h-full w-full">
             {/* Search rows carry a line number and a line of source, which is unreadable at the
                 tree's width, so the column widens for them rather than truncating everything. */}
-            <div className={cn("flex flex-none flex-col", mode === "search" ? "w-[380px]" : "w-[280px]")}>
+            <div className={cn("flex flex-none flex-col", mode === "files" ? "w-[280px]" : "w-[380px]")}>
                 <div className="flex flex-none gap-1 border-b border-border px-2 py-1">
-                    {(["files", "search"] as const).map((m) => (
+                    {(["files", "search", "changed"] as const).map((m) => (
                         <button
                             key={m}
                             type="button"
@@ -302,11 +333,18 @@ function CodePanes({ model }: { model: AgentsViewModel }) {
                     ))}
                 </div>
                 <div className="min-h-0 flex-1">
-                    {mode === "files" ? <CodeTreePane model={model} /> : <CodeSearchPane model={model} />}
+                    {mode === "files" ? (
+                        <CodeTreePane model={model} />
+                    ) : mode === "search" ? (
+                        <CodeSearchPane model={model} />
+                    ) : (
+                        <CodeChangedPane model={model} />
+                    )}
                 </div>
             </div>
             <div className="flex min-w-0 flex-1 flex-col">
                 <CodePathBar model={model} />
+                <CodeStaleBar />
                 <div className="min-h-0 flex-1">
                     <CodeViewer model={model} />
                 </div>

@@ -1023,6 +1023,24 @@ declare global {
         isrepo: boolean;
     };
 
+    // wshrpc.CommandGitFileAtRefData
+    type CommandGitFileAtRefData = {
+        cwd: string;
+        ref: string;
+        path: string;
+        maxbytes?: number;
+    };
+
+    // wshrpc.CommandGitFileAtRefRtnData
+    type CommandGitFileAtRefRtnData = {
+        content: string;
+        binary?: boolean;
+        missing?: boolean;
+        toolarge?: boolean;
+        size?: number;
+        isrepo: boolean;
+    };
+
     // wshrpc.CommandGitGrepData
     type CommandGitGrepData = {
         cwd: string;

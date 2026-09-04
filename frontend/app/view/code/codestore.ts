@@ -7,18 +7,22 @@
 // (selected project, expanded tree, history) every time you looked at something else.
 
 import { globalStore } from "@/app/store/jotaiStore";
+import { modalsModel } from "@/app/store/modalmodel";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
+import { parseGitChanges } from "@/app/view/agents/gitstatus";
 import { projectsAtom } from "@/app/view/agents/projectsstore";
 import { joinRepoPath, repoBasename, sameRepoPath } from "@/util/paths";
-import { base64ToString, stringToBase64 } from "@/util/util";
+import { base64ToString, fireAndForget, stringToBase64 } from "@/util/util";
 import { atom, type PrimitiveAtom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
-import { classifyFile, hasNulByte } from "./codeclassify";
+import { classifyFile, hasNulByte, MAX_VIEW_BYTES } from "./codeclassify";
 import { conflictMessage, conflictOf, nextDrafts, withoutDraft, type Draft, type FileBase } from "./codedraft";
 import { back, currentPath, EMPTY_HISTORY, forward, push, type History } from "./codehistory";
+import { deleteWarning, renamedPath, targetDir } from "./codemutate";
 import { resetSearch } from "./codesearchstore";
+import { changedDirs, statusByPath, type CodeStatus } from "./codestatus";
 import { ancestorsOf, buildTree, visibleRows } from "./codetree";
 
 export interface CodeProject {
@@ -83,10 +87,46 @@ export const codePendingLineAtom = atom<number | null>(null) as PrimitiveAtom<nu
 // there is no document — and because this codebase keeps DOM reads in `run`, never in `when`.
 export const codeTreeFocusedAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
 
-// Markdown files render as documents by default; Source switches to the editable Monaco view.
-// Ignored for non-markdown files, which are always Source. Reset on project switch, but not on
-// file switch — a reader who prefers source stays in source across files.
-export const codeViewModeAtom = atom<"preview" | "source">("preview") as PrimitiveAtom<"preview" | "source">;
+// Markdown files render as documents by default; Source switches to the editable Monaco view, and
+// Diff shows the file against HEAD without leaving the editor. Ignored for non-markdown files,
+// which are never Preview. Reset on project switch, but not on file switch — a reader who prefers
+// source stays in source across files.
+export const codeViewModeAtom = atom<"preview" | "source" | "diff">("preview") as PrimitiveAtom<
+    "preview" | "source" | "diff"
+>;
+
+// The left-hand side of the diff. One union rather than parallel booleans, for the same reason
+// CodeFile is one: the pane renders an exhaustive switch and cannot land in a contradictory pair.
+export type HeadText =
+    | { kind: "idle" }
+    | { kind: "loading"; path: string }
+    | { kind: "text"; path: string; text: string }
+    | { kind: "absent"; path: string } // the file is new since HEAD, so the whole file reads as added
+    | { kind: "error"; path: string; message: string };
+
+export const codeHeadAtom = atom<HeadText>({ kind: "idle" }) as PrimitiveAtom<HeadText>;
+
+// Set when the open file's bytes moved on disk since we read them. Never auto-reloads: the caret,
+// the scroll offset and the selection would jump under a reader's eyes with no action of theirs.
+export const codeStaleAtom = atom<{ path: string } | null>(null) as PrimitiveAtom<{ path: string } | null>;
+
+// A mutation is a user-initiated action, so its failure gets a banner rather than a silent no-op.
+export const codeMutateErrorAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
+
+// The inline name input's whole state. There is no modal for create or rename: a modal to type
+// eleven characters is friction, and the inline row shows WHERE the thing will land.
+export type CodeEdit = { kind: "rename"; path: string } | { kind: "create"; dir: string; isDir: boolean } | null;
+export const codeEditAtom = atom<CodeEdit>(null) as PrimitiveAtom<CodeEdit>;
+
+// Working-tree status, keyed by repo-relative path. null = not loaded yet, which is a different
+// thing from an empty map (a clean tree) and different again from a failed read.
+export const codeStatusAtom = atom<Map<string, CodeStatus> | null>(null) as PrimitiveAtom<Map<
+    string,
+    CodeStatus
+> | null>;
+export const codeStatusErrorAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
+// the collapsed-row marker: does anything under this directory have a status
+export const codeStatusDirsAtom = atom((get) => changedDirs(get(codeStatusAtom)?.keys() ?? []));
 
 // The rendered row list. Derived rather than memoized inside the pane, because the keyboard bindings
 // have to agree with the pane about which rows exist and cannot see a component's useMemo.
@@ -104,7 +144,7 @@ export function draftKey(project: CodeProject, rel: string): string {
 const indexCache = new Map<string, CodeIndex>();
 
 // guards a slow load against a newer one, same pattern as filesstore.ts
-const current = { indexToken: "", fileToken: "" };
+const current = { indexToken: "", fileToken: "", statusToken: "", headToken: "" };
 
 export async function selectProject(p: CodeProject | null): Promise<void> {
     globalStore.set(codeProjectAtom, p);
@@ -121,6 +161,10 @@ export async function selectProject(p: CodeProject | null): Promise<void> {
     globalStore.set(codeCursorAtom, null);
     globalStore.set(codePendingLineAtom, null);
     globalStore.set(codeViewModeAtom, "preview");
+    globalStore.set(codeStatusAtom, null);
+    globalStore.set(codeStatusErrorAtom, null);
+    globalStore.set(codeHeadAtom, { kind: "idle" });
+    globalStore.set(codeStaleAtom, null);
     resetSearch(); // results belong to the repository they were found in
     // drafts survive on purpose — they are keyed by absolute path, so coming back to this project
     // brings your unsaved edits back with it
@@ -148,6 +192,7 @@ export function canRestoreProject(stored: CodeProject | null, registry: Record<s
 async function loadIndex(p: CodeProject): Promise<void> {
     const token = `index:${p.path}`;
     current.indexToken = token;
+    void loadStatus(); // independent of ls-files, so it runs alongside rather than after
     const cached = indexCache.get(p.path);
     if (cached != null) {
         globalStore.set(codeIndexAtom, cached);
@@ -185,6 +230,290 @@ export async function refreshIndex(): Promise<void> {
     await loadIndex(p);
 }
 
+// Status is decoration over the rows, so a failure degrades rather than blocks: the tree still
+// renders, the Changed column says why it is empty, and the retry is one click.
+export async function loadStatus(): Promise<void> {
+    const p = globalStore.get(codeProjectAtom);
+    if (p == null) {
+        return;
+    }
+    const token = `status:${p.path}`;
+    current.statusToken = token;
+    try {
+        const res = await RpcApi.GitChangesCommand(TabRpcClient, { cwd: p.path });
+        if (current.statusToken !== token) {
+            return;
+        }
+        globalStore.set(codeStatusAtom, statusByPath(parseGitChanges(res?.statusz ?? "", res?.numstat ?? "")));
+        globalStore.set(codeStatusErrorAtom, null);
+    } catch (e) {
+        if (current.statusToken !== token) {
+            return;
+        }
+        globalStore.set(codeStatusAtom, null);
+        globalStore.set(codeStatusErrorAtom, e instanceof Error ? e.message : String(e));
+    }
+}
+
+// Binary and too-large are answers rather than failures, but from the diff's point of view both
+// mean the same thing — there is nothing to render on the left — so they land in `error` with an
+// honest message rather than earning their own variants.
+export async function loadHead(rel: string): Promise<void> {
+    const project = globalStore.get(codeProjectAtom);
+    if (project == null) {
+        return;
+    }
+    const token = `head:${rel}`;
+    current.headToken = token;
+    globalStore.set(codeHeadAtom, { kind: "loading", path: rel });
+    try {
+        const res = await RpcApi.GitFileAtRefCommand(TabRpcClient, {
+            cwd: project.path,
+            ref: "HEAD",
+            path: rel,
+            maxbytes: MAX_VIEW_BYTES,
+        });
+        if (current.headToken !== token) {
+            return;
+        }
+        if (res?.missing) {
+            globalStore.set(codeHeadAtom, { kind: "absent", path: rel });
+            return;
+        }
+        if (res?.binary) {
+            globalStore.set(codeHeadAtom, {
+                kind: "error",
+                path: rel,
+                message: "The committed copy is a binary blob.",
+            });
+            return;
+        }
+        if (res?.toolarge) {
+            globalStore.set(codeHeadAtom, {
+                kind: "error",
+                path: rel,
+                message: "The committed copy is larger than the 2 MB view limit.",
+            });
+            return;
+        }
+        globalStore.set(codeHeadAtom, { kind: "text", path: rel, text: res?.content ?? "" });
+    } catch (e) {
+        if (current.headToken !== token) {
+            return;
+        }
+        globalStore.set(codeHeadAtom, {
+            kind: "error",
+            path: rel,
+            message: e instanceof Error ? e.message : String(e),
+        });
+    }
+}
+
+// A re-stat of the ONE open file, on window focus and on tree focus. No watcher, by design: a
+// watcher means a backend subscription, debouncing, and reconciling against expand state, to catch
+// the same case this catches — an agent wrote while you were looking at another window.
+export async function checkStale(): Promise<void> {
+    const project = globalStore.get(codeProjectAtom);
+    const file = globalStore.get(codeFileAtom);
+    if (project == null || file.kind !== "text") {
+        return;
+    }
+    const abs = draftKey(project, file.path);
+    const draft = globalStore.get(codeDraftsAtom).get(abs);
+    // with a draft, the pinned base is the truth about what we last read; without one, the buffer's
+    // own size/modtime is
+    const base: FileBase = draft?.base ?? { text: file.text, size: file.size, modtime: file.modtime };
+    try {
+        const latest = await RpcApi.FileInfoCommand(TabRpcClient, { info: { path: abs } });
+        const now = globalStore.get(codeFileAtom);
+        if (now.kind !== "text" || now.path !== file.path) {
+            return; // the open file changed under a slow stat; only speak for the file we statted
+        }
+        globalStore.set(codeStaleAtom, conflictOf(base, latest) === "none" ? null : { path: file.path });
+    } catch {
+        // a failed stat is not evidence of a change, and crying wolf is worse than staying quiet
+    }
+}
+
+export function startCreate(isDir: boolean): void {
+    const dir = targetDir(globalStore.get(codeCursorAtom), globalStore.get(codeRowsAtom));
+    if (dir !== "") {
+        // the provisional row is the target directory's first child, so that directory has to be open
+        const expanded = new Set(globalStore.get(codeExpandedAtom));
+        for (const a of ancestorsOf(`${dir}/x`)) {
+            expanded.add(a);
+        }
+        expanded.add(dir);
+        globalStore.set(codeExpandedAtom, expanded);
+    }
+    globalStore.set(codeEditAtom, { kind: "create", dir, isDir });
+}
+
+export function startRename(path: string): void {
+    globalStore.set(codeEditAtom, { kind: "rename", path });
+}
+
+export function cancelEdit(): void {
+    globalStore.set(codeEditAtom, null);
+}
+
+function errorText(e: unknown): string {
+    return e instanceof Error ? e.message : String(e);
+}
+
+// Every mutation is RPC -> refreshIndex(), and refreshIndex reloads status too (see loadIndex).
+// Nothing optimistically patches the tree: splicing a path into a cached array and hoping git
+// agrees is exactly the drift the single-row-list rule exists to prevent. The index is refreshed
+// even when the RPC failed, so the tree shows what is actually there rather than what we intended.
+export async function createEntry(dir: string, name: string, isDir: boolean): Promise<void> {
+    const project = globalStore.get(codeProjectAtom);
+    if (project == null) {
+        return;
+    }
+    const rel = dir === "" ? name : `${dir}/${name}`;
+    const abs = joinRepoPath(project.path, rel);
+    globalStore.set(codeMutateErrorAtom, null);
+    globalStore.set(codeEditAtom, null);
+    let ok = true;
+    try {
+        if (isDir) {
+            await RpcApi.FileMkdirCommand(TabRpcClient, { info: { path: abs } });
+        } else {
+            await RpcApi.FileCreateCommand(TabRpcClient, { info: { path: abs } });
+        }
+    } catch (e) {
+        ok = false;
+        globalStore.set(codeMutateErrorAtom, `Could not create ${rel}: ${errorText(e)}`);
+    }
+    await refreshIndex();
+    if (!ok) {
+        return;
+    }
+    revealPath(rel);
+    globalStore.set(codeCursorAtom, rel);
+    if (!isDir) {
+        // an empty directory is not in `git ls-files` output at all, so only a file has a row to open
+        await openPath(rel);
+    }
+}
+
+// Renaming the file you are reading and landing on a `missing` empty state would be a bug wearing a
+// feature's clothes, so the open buffer, the cursor, the drafts and the history all come along.
+export async function renamePath(rel: string, newName: string): Promise<void> {
+    const project = globalStore.get(codeProjectAtom);
+    if (project == null) {
+        return;
+    }
+    const cut = rel.lastIndexOf("/");
+    const next = cut === -1 ? newName : `${rel.slice(0, cut)}/${newName}`;
+    globalStore.set(codeEditAtom, null);
+    if (next === rel) {
+        return;
+    }
+    globalStore.set(codeMutateErrorAtom, null);
+    let ok = true;
+    try {
+        await RpcApi.FileMoveCommand(TabRpcClient, {
+            srcuri: joinRepoPath(project.path, rel),
+            desturi: joinRepoPath(project.path, next),
+            opts: { recursive: true },
+        });
+    } catch (e) {
+        ok = false;
+        globalStore.set(codeMutateErrorAtom, `Could not rename ${rel}: ${errorText(e)}`);
+    }
+    if (ok) {
+        carryRename(project, rel, next);
+    }
+    await refreshIndex();
+}
+
+// Windows-only build: draft keys come from joinRepoPath, which normalizes the whole join to
+// backslashes, so both sides of this comparison are built the same way and a plain prefix match is
+// exact rather than approximate.
+const ABS_SEP = "\\";
+
+function carryRename(project: CodeProject, rel: string, next: string): void {
+    const from = draftKey(project, rel);
+    const to = draftKey(project, next);
+    const drafts = globalStore.get(codeDraftsAtom);
+    const moved = new Map<string, Draft>();
+    for (const [key, d] of drafts) {
+        if (key === from) {
+            moved.set(to, d);
+        } else if (key.startsWith(from + ABS_SEP)) {
+            moved.set(to + key.slice(from.length), d);
+        } else {
+            moved.set(key, d);
+        }
+    }
+    globalStore.set(codeDraftsAtom, moved);
+
+    const file = globalStore.get(codeFileAtom);
+    if (file.kind !== "none") {
+        const p = renamedPath(file.path, rel, next);
+        if (p !== file.path) {
+            globalStore.set(codeFileAtom, { ...file, path: p });
+        }
+    }
+    const cursor = globalStore.get(codeCursorAtom);
+    if (cursor != null) {
+        globalStore.set(codeCursorAtom, renamedPath(cursor, rel, next));
+    }
+    globalStore.set(codeHistoryAtom, (h) => ({ stack: h.stack.map((p) => renamedPath(p, rel, next)), idx: h.idx }));
+    revealPath(next);
+}
+
+// FileDeleteCommand is a hard delete — no recycle bin, no trash, and deliberately no undo stack
+// (holding deleted bytes in memory would be a second source of truth for a file's content). The
+// confirm carries the recoverability instead; see confirmDelete.
+export async function deletePath(rel: string, isDir: boolean): Promise<void> {
+    const project = globalStore.get(codeProjectAtom);
+    if (project == null) {
+        return;
+    }
+    globalStore.set(codeMutateErrorAtom, null);
+    try {
+        await RpcApi.FileDeleteCommand(TabRpcClient, {
+            path: joinRepoPath(project.path, rel),
+            recursive: isDir,
+        });
+    } catch (e) {
+        globalStore.set(codeMutateErrorAtom, `Could not delete ${rel}: ${errorText(e)}`);
+    }
+    const file = globalStore.get(codeFileAtom);
+    if (file.kind !== "none" && underOrEqual(file.path, rel)) {
+        // the buffer's file is gone; the DRAFT is not touched — it is keyed by absolute path and
+        // throwing typed text away is never automatic here
+        globalStore.set(codeFileAtom, { kind: "none" });
+        globalStore.set(codeCursorAtom, null);
+    }
+    await refreshIndex();
+}
+
+function underOrEqual(path: string, dir: string): boolean {
+    return path === dir || path.startsWith(`${dir}/`);
+}
+
+// Shared by the tree context menu and the Delete keybinding, the way memstore's confirmDeleteNote
+// is shared by its list menu and its detail pane.
+export function confirmDelete(rel: string, isDir: boolean): void {
+    const paths = globalStore.get(codeIndexAtom)?.paths ?? [];
+    const status = globalStore.get(codeStatusAtom);
+    const under = isDir ? paths.filter((p) => p.startsWith(`${rel}/`)) : [rel];
+    modalsModel.pushModal("ConfirmModal", {
+        title: isDir ? "Delete folder" : "Delete file",
+        message: deleteWarning(
+            rel,
+            under.map((p) => status?.get(p)),
+            isDir
+        ),
+        confirmLabel: "Delete",
+        destructive: true,
+        onConfirm: () => fireAndForget(() => deletePath(rel, isDir)),
+    });
+}
+
 export function toggleDir(path: string): void {
     const next = new Set(globalStore.get(codeExpandedAtom));
     if (next.has(path)) {
@@ -215,6 +544,7 @@ export async function openPath(rel: string, opts?: { pushHistory?: boolean }): P
     const token = `file:${rel}`;
     current.fileToken = token;
     globalStore.set(codeSaveAtom, { kind: "idle" });
+    globalStore.set(codeStaleAtom, null);
     const abs = joinRepoPath(project.path, rel);
 
     // A file you have unsaved edits in is restored from its pinned base rather than re-read. Re-reading
@@ -337,6 +667,8 @@ export async function saveCurrent(): Promise<void> {
         });
         globalStore.set(codeDraftsAtom, (d) => withoutDraft(d, abs));
         globalStore.set(codeSaveAtom, { kind: "saved", path: rel });
+        void loadStatus(); // a write is exactly what turns an unchanged file into a modified one
+        globalStore.set(codeStaleAtom, null); // we just wrote it, so the disk copy is ours again
     } catch (e) {
         globalStore.set(codeSaveAtom, {
             kind: "error",

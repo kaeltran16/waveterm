@@ -21,6 +21,7 @@ type GitCommands interface {
 	GitCompareDiffCommand(ctx context.Context, data CommandGitCompareDiffData) (*CommandGitCompareDiffRtnData, error)
 	GitListFilesCommand(ctx context.Context, data CommandGitListFilesData) (*CommandGitListFilesRtnData, error)
 	GitGrepCommand(ctx context.Context, data CommandGitGrepData) (*CommandGitGrepRtnData, error)
+	GitFileAtRefCommand(ctx context.Context, data CommandGitFileAtRefData) (*CommandGitFileAtRefRtnData, error)
 }
 
 type CommandGitHistoryData struct {
@@ -134,4 +135,23 @@ type GitGrepMatch struct {
 	Path string `json:"path"`
 	Line int    `json:"line"`
 	Text string `json:"text"`
+}
+
+type CommandGitFileAtRefData struct {
+	Cwd  string `json:"cwd"`
+	Ref  string `json:"ref"`
+	Path string `json:"path"`
+	// MaxBytes refuses a blob larger than this without reading it. 0 = no cap.
+	MaxBytes int64 `json:"maxbytes,omitempty"`
+}
+
+// Mirrors gitinfo.FileContent one field for one field: Binary, Missing and TooLarge are answers the
+// caller renders, not errors, so each is a flag rather than an RPC failure.
+type CommandGitFileAtRefRtnData struct {
+	Content  string `json:"content"`
+	Binary   bool   `json:"binary,omitempty"`
+	Missing  bool   `json:"missing,omitempty"`
+	TooLarge bool   `json:"toolarge,omitempty"`
+	Size     int64  `json:"size,omitempty"`
+	IsRepo   bool   `json:"isrepo"`
 }

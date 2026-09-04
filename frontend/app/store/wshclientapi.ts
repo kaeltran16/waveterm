@@ -762,6 +762,12 @@ export class RpcApiType {
         return client.wshRpcCall("gitdivergence", data, opts);
     }
 
+    // command "gitfileatref" [call]
+    GitFileAtRefCommand(client: WshClient, data: CommandGitFileAtRefData, opts?: RpcOpts): Promise<CommandGitFileAtRefRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "gitfileatref", data, opts);
+        return client.wshRpcCall("gitfileatref", data, opts);
+    }
+
     // command "gitgrep" [call]
     GitGrepCommand(client: WshClient, data: CommandGitGrepData, opts?: RpcOpts): Promise<CommandGitGrepRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "gitgrep", data, opts);
