@@ -708,11 +708,71 @@ func CommitDiff(ctx context.Context, cwd, hash, path string) (*Diff, error) {
 	if err != nil {
 		return nil, err
 	}
-	diff, err := run(ctx, cwd, "diff", base, hash, "--", path)
+	diff, err := pathDiff(ctx, cwd, path, base, hash)
 	if err != nil {
 		return nil, err
 	}
 	return &Diff{Diff: diff}, nil
+}
+
+// renameSource returns the path a rename moved from, or "" when this path is a genuine addition. It
+// asks the same whole-diff question the change list asks — deliberately with the same flags, so the
+// two reads cannot disagree about whether a file was renamed.
+func renameSource(ctx context.Context, cwd, path string, revs ...string) string {
+	args := append([]string{"diff", "--name-status", "-z", "--relative"}, revs...)
+	out, err := run(ctx, cwd, args...)
+	if err != nil {
+		return ""
+	}
+	toks := strings.Split(out, "\x00")
+	for i := 0; i < len(toks); i++ {
+		st := toks[i]
+		if st == "" {
+			continue
+		}
+		if st[0] == 'R' || st[0] == 'C' { // Rxxx \0 old \0 new
+			if i+2 >= len(toks) {
+				break
+			}
+			if toks[i+2] == path {
+				return toks[i+1]
+			}
+			i += 2
+			continue
+		}
+		if i+1 >= len(toks) {
+			break
+		}
+		i++
+	}
+	return ""
+}
+
+// pathDiff reads one path's diff over a rev spec. A rename comes back as a whole new file when only
+// the new path is in the pathspec — git has no deletion in view to pair it with — so an addition is
+// re-read with the source path alongside it. Without that, the change list (which reads the whole
+// diff, and does pair them) called a file a rename while this read called it every line added.
+func pathDiff(ctx context.Context, cwd, path string, revs ...string) (string, error) {
+	diffArgs := func(paths ...string) []string {
+		args := append([]string{"diff"}, revs...)
+		return append(append(args, "--"), paths...)
+	}
+	out, err := run(ctx, cwd, diffArgs(path)...)
+	if err != nil {
+		return "", err
+	}
+	if !strings.Contains(out, "\nnew file mode ") {
+		return out, nil
+	}
+	src := renameSource(ctx, cwd, path, revs...)
+	if src == "" {
+		return out, nil
+	}
+	paired, err := run(ctx, cwd, diffArgs(src, path)...)
+	if err != nil {
+		return out, nil // the first read already answered; a failed second one is not worth surfacing
+	}
+	return paired, nil
 }
 
 // CompareChanges returns the per-file changes head introduces relative to base, anchored at their
@@ -746,7 +806,7 @@ func CompareChanges(ctx context.Context, cwd, base, head string) (*Changes, erro
 func CompareDiff(ctx context.Context, cwd, base, head, path string) (*Diff, error) {
 	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
 	defer cancel()
-	diff, err := run(ctx, cwd, "diff", base+"..."+head, "--", path)
+	diff, err := pathDiff(ctx, cwd, path, base+"..."+head)
 	if err != nil {
 		return nil, err
 	}
