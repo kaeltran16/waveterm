@@ -113,6 +113,10 @@ cleanup debt is already real, not just a risk at the merge gate.
 - **R13 (F17):** the composer must say which orchestrator a runtime buys (engine-managed DAG vs.
   adaptive self-dispatch), or the shape choice must stop depending on the route.
 
+> **F11–F17 are mirrored into `docs/open-issues.md` §2 as of 2026-09-04**, re-verified against the
+> code. They had lived only here since Capture 2, which is why the consolidated backlog read as
+> though orchestration were closed. File new rows in both places.
+
 ## Capture 3 — code review after the Claude-lead change (2026-09-04)
 
 > Not a live run. A read of `pkg/orchestrate`, `pkg/jarvis/run.go`, `wshcmd-jarvisdag.go` and
@@ -125,7 +129,7 @@ The Claude-lead change made the engine reachable from a non-pi lead and, by the 
 ("workers same as lead"), from non-pi children. Three of the four rows are places where the engine
 still assumes pi on the other side.
 
-> **All four resolved 2026-09-04** (`5b5f933b` for F19/F20/F21, `b24a998c` for F18; `0eb4794d` names
+> **All four resolved 2026-09-04** (`d966c27e` for F19/F20/F21, `3ca9cd6d` for F18; `75738bfb` names
 > `cleanup-wait` in the DAG overview). Unit-tested only — none has been reproduced or confirmed in a
 > live DAG run, which is the same evidence gap the capture was written under. See the R14–R17 notes
 > below for what each fix did and did not take.
@@ -149,7 +153,7 @@ still assumes pi on the other side.
   `control.go:163`), but that hook has the install-ownership flakiness recorded in the retired
   `docs/agents/runs-pipeline-known-issues.md` (`git show b8de5b11^:docs/agents/runs-pipeline-known-issues.md`),
   so it must not be the only thing standing between a healthy child and `retry`.
-  **Shipped `b24a998c`**, taking the trade as written: `lastActivityForRun` returns a `tracked` flag,
+  **Shipped `3ca9cd6d`**, taking the trade as written: `lastActivityForRun` returns a `tracked` flag,
   and an untracked runtime reports freshness unknown (`LastActivity = 0`) rather than aging into a
   stall from its spawn-time seed. Activity sources now read pi, claude and codex transcript roots
   through `agentsessions.SessionRoot`. **`opencode` stays untracked on purpose** — its cwd lives only
@@ -160,7 +164,7 @@ still assumes pi on the other side.
   merged-cleanup-pending case its own kind (`cleanup-wait`, no actions) so `wait` keeps blocking.
   Only after that may `waitDecision` treat an empty `TerminalStatus` as a contract error instead of
   substituting `Health` — the ordering caveat in the open-issues note still holds.
-  **Digest side shipped `5b5f933b`**: the fall-through is now `cleanup-wait` (no actions), and the
+  **Digest side shipped `d966c27e`**: the fall-through is now `cleanup-wait` (no actions), and the
   flat-DAG hole that fed the same fallthrough is closed by a second `merge-ready` branch ranked below
   dispatch and parallelism-wait. **The `waitDecision` half deliberately did not ship** —
   `wshcmd-jarvisdag.go:150` still substitutes `d.Health` for an empty `TerminalStatus`. That is now
@@ -168,13 +172,13 @@ still assumes pi on the other side.
   over a running DAG, nothing produces the bare `terminal` it would have to catch.
 - **R16 (F20):** the prompt uses the digest's words. One constant set for `merge-ready` /
   `resolve-merge`, referenced from both the prompt builder and the digest, so they cannot drift again.
-  **Half shipped `5b5f933b`:** the prompt now says "when the digest reports `merge-ready` with the
+  **Half shipped `d966c27e`:** the prompt now says "when the digest reports `merge-ready` with the
   action `resolve-merge`" (`pkg/jarvis/run.go:428`), which closes the observed failure. The *shared
   constant* was not built — `run.go` still writes the words as literals in prose while `digest.go`
   keeps its own `digestActionResolveMerge`, so the two can drift again. A comment at `run.go:426`
   pins the intent; that is the only thing holding them together.
 - **R17 (F21):** `dagDigestChildRunLimit` follows `jarvis.MaxDagTasks`, or is removed — sixteen run
-  reads per status call is not a cost worth a partial digest. **Shipped `5b5f933b`:** the constant is
+  reads per status call is not a cost worth a partial digest. **Shipped `d966c27e`:** the constant is
   now `= jarvis.MaxDagTasks`, so raising the task cap carries the digest cap with it.
 - **R10 addendum (F13/F16, Claude lead):** pull-based wake removes the last signal. For a pi lead an
   unreachable session at least leaves a `lead-control-failed: unavailable` row. For a Claude lead
