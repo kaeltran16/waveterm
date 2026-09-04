@@ -58,8 +58,9 @@ func RunWorkerSpecFor(cap runroute.Capability, prompt string) (RunWorkerSpec, bo
 // SpawnRunWorker creates a background tab running the runtime's unattended worker form in cwd and
 // returns its tab oref ("tab:<id>"). Mirrors the frontend launchAgent path, but the permission-skip
 // flag is mandatory here (opt-in in the launcher): a run worker is headless with no human attached, so
-// without it the agent blocks forever on the folder-trust dialog / per-tool prompts — alive but never
-// running, never firing the hooks that report agent:status (the "worker never starts" symptom).
+// without it the agent blocks forever on per-tool prompts — alive but never running, never firing the
+// hooks that report agent:status (the "worker never starts" symptom). The flag stops there, so claude's
+// separate first-run folder-trust prompt is handled by ensureClaudeDirTrusted (see claudetrust.go).
 // Configure the new tab's default block as a cmd worker, tag the tab for the roster, and force-start
 // the controller (controllers otherwise start lazily on a frontend terminal resync — force=true
 // launches it headlessly).
@@ -115,6 +116,17 @@ var SpawnRunWorker = func(ctx context.Context, cap runroute.Capability, workspac
 	spec, ok := RunWorkerSpecFor(cap, prompt)
 	if !ok {
 		return "", fmt.Errorf("no unattended run worker adapter for runtime %q tier %q", cap.Runtime, cap.Tier)
+	}
+	// --dangerously-skip-permissions covers tool prompts, not the first-run folder-trust prompt, so a
+	// worker launched into an untrusted project would park there forever with no signal. Every claude
+	// spawn is checked, not just leads: a run can pin a non-claude lead with claude workers, making a
+	// DAG child the first claude process to touch the project. The check costs one config read and
+	// writes at most one entry per project (never per worktree — see claudetrust.go); when it cannot
+	// register the trust the spawn fails visibly instead of returning a worker that can never start.
+	if cap.Runtime == "claude" && cwd != "" {
+		if err := ensureClaudeDirTrusted(cwd); err != nil {
+			return "", fmt.Errorf("registering claude folder trust for %s: %w", cwd, err)
+		}
 	}
 	tabId, err := wcore.CreateTab(ctx, workspaceId, projectName, false, false)
 	if err != nil {
