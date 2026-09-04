@@ -13,7 +13,15 @@ import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useState } from "react";
 import type { AgentsViewModel } from "./agents";
-import { formatAge, isQuiet, latestMessageText, taskProgress, type AgentEntry, type AgentVM } from "./agentsviewmodel";
+import {
+    displayAgeMs,
+    formatAge,
+    isQuiet,
+    latestMessageText,
+    taskProgress,
+    type AgentEntry,
+    type AgentVM,
+} from "./agentsviewmodel";
 import { jumpToAgent } from "./channelsprimitives";
 import { liveEntriesByIdAtom } from "./livetranscript";
 import { activityAtomFor, entriesAtomFor, tasksAtomFor } from "./livetranscriptatoms";
@@ -61,7 +69,7 @@ export function RunWorkerCard({ model, agent, now, fill }: { model: AgentsViewMo
                     </span>
                 ) : null}
                 <div className="min-w-[6px] flex-1" />
-                <span className="shrink-0 font-mono text-[10.5px] text-muted">{formatAge(agent.activeMs)}</span>
+                <span className="shrink-0 font-mono text-[10.5px] text-muted">{formatAge(displayAgeMs(agent, now))}</span>
                 <button
                     type="button"
                     onClick={(e) => {
@@ -202,7 +210,7 @@ export function RunRollup({ agent, now }: { agent: AgentVM; now: number }) {
             </span>
             <span className="min-w-0 flex-1 truncate text-[12.5px] text-secondary">{current}</span>
             <span className="shrink-0 font-mono text-[10.5px] text-muted">
-                {agent.name} · {formatAge(agent.activeMs)}
+                {agent.name} · {formatAge(displayAgeMs(agent, now))}
             </span>
         </div>
     );

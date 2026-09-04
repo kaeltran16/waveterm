@@ -23,6 +23,7 @@ import {
     type AgentRowMenuItem,
 } from "./agentrowmodel";
 import {
+    displayAgeMs,
     formatAge,
     hasAnswerableAsk,
     nextFullWidth,
@@ -436,7 +437,7 @@ export const AgentRow = memo(function AgentRow({
                     <AttentionBanner
                         glyph="diamond"
                         label="Waiting on you"
-                        meta={formatAge(agent.activeMs)}
+                        meta={formatAge(displayAgeMs(agent))}
                         right={
                             prog ? (
                                 <button
