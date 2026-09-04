@@ -423,7 +423,9 @@ func buildEngineOrchestratePrompt(b *strings.Builder, goal, runtime string) {
 	}
 	b.WriteString("Use `wsh jarvis dag status` for detail at any time.\n")
 	b.WriteString("If a genuinely consequential or ambiguous decision comes up — one where a wrong assumption would waste real work — use the AskUserQuestion tool to ask the human; it renders an answerable question in the cockpit and blocks until they reply. Never pose such a question in prose.\n")
-	b.WriteString("A Git-backed dependent task stays pending until each predecessor is merged; when the digest reports `merge`, run `wsh jarvis dag merge <task-id>` with the reported id after reviewing that finished child, so its successors start from the integrated project HEAD.\n")
+	// the digest's own words: kind `merge-ready`, action `resolve-merge`. A lead that pattern-matches
+	// any other word never acts on the gate.
+	b.WriteString("A Git-backed dependent task stays pending until each predecessor is merged; when the digest reports `merge-ready` with the action `resolve-merge`, run `wsh jarvis dag merge <task-id>` for each reported id after reviewing that finished child, so its successors start from the integrated project HEAD.\n")
 	fmt.Fprintf(b, "Goal: %s\n", goal)
 	b.WriteString("When the goal is fully accomplished, commit your work and run `wsh jarvis complete --commit $(git rev-parse HEAD)`.\n")
 }

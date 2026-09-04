@@ -120,7 +120,7 @@ type DagStatusCounts struct {
 }
 
 type DagNextStep struct {
-	Kind            string   `json:"kind"` // human-action | merge-ready | dispatch | parallelism-wait | dependency-wait | terminal
+	Kind            string   `json:"kind"` // human-action | merge-ready | dispatch | parallelism-wait | dependency-wait | cleanup-wait | terminal
 	TaskIds         []string `json:"taskids,omitempty"`
 	BlockingTaskIds []string `json:"blockingtaskids,omitempty"`
 	Actions         []string `json:"actions,omitempty"` // answer | approve | sendback | resolve-merge | retry | skip | escalate | retry-cleanup

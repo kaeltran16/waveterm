@@ -63,6 +63,8 @@ export function nextStepText(next: DagNextStep): string {
             return "waiting on parallelism limit";
         case "dependency-wait":
             return "waiting on dependencies";
+        case "cleanup-wait":
+            return "waiting on worktree cleanup";
         case "terminal":
             return `finished (${next.terminalstatus ?? "done"})`;
         default:
