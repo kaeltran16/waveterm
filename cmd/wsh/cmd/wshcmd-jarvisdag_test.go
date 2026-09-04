@@ -220,6 +220,11 @@ func TestWaitDecision(t *testing.T) {
 			wantReturn: false,
 		},
 		{
+			name:       "cleanup wait keeps blocking",
+			digest:     wshrpc.DagStatusDigest{Health: "healthy", Next: wshrpc.DagNextStep{Kind: "cleanup-wait", TaskIds: []string{"t-1"}}},
+			wantReturn: false,
+		},
+		{
 			name:       "merge gate needs the lead",
 			digest:     wshrpc.DagStatusDigest{Health: "healthy", Next: wshrpc.DagNextStep{Kind: "merge-ready", Actions: []string{"resolve-merge"}}},
 			wantReturn: true, wantReason: "action:merge-ready",

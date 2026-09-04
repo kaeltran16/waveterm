@@ -982,6 +982,14 @@ func ackRows(t *testing.T, channelId, runId string) []waveobj.RunEvent {
 	return ev
 }
 
+// The digest loads at most one child run per task, so a limit below the task ceiling silently
+// degrades durations to Partial on exactly the wide dags the ceiling was raised for.
+func TestDagDigestChildRunLimitCoversTaskCap(t *testing.T) {
+	if dagDigestChildRunLimit != jarvis.MaxDagTasks {
+		t.Fatalf("dagDigestChildRunLimit must follow jarvis.MaxDagTasks: %d vs %d", dagDigestChildRunLimit, jarvis.MaxDagTasks)
+	}
+}
+
 func TestPiControlAckAppendsOnceAndIsIdempotent(t *testing.T) {
 	channelId, runId := controlAckFixture(t)
 	seedControlEvent(t, channelId, runId, waveobj.RunEventKindLeadControlSent, "ev-1", "sess-1")

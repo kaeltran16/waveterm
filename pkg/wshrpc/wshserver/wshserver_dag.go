@@ -107,8 +107,9 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 }
 
 // dagDigestChildRunLimit bounds the child runs a status snapshot loads; the digest never pages the
-// whole fan-out, and missing runs just mark partial durations.
-const dagDigestChildRunLimit = 8
+// whole fan-out, and missing runs just mark partial durations. Derived from the task ceiling so a
+// raised cap cannot leave the tail of a full dag reporting partial durations.
+const dagDigestChildRunLimit = jarvis.MaxDagTasks
 
 // dagDigestRetainedKinds are the lifecycle boundaries the digest derives durations/retries/control
 // from. The UI's 200-row window is not consulted.

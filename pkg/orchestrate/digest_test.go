@@ -223,6 +223,63 @@ func TestNextMergeReadyNoBlocker(t *testing.T) {
 	}
 }
 
+// A flat dag has no pending successors, so nothing is ever blocked by an unmerged task and the merge
+// gate would otherwise fall through to a bare terminal step — telling the lead to stop with every
+// child unmerged.
+func TestNextMergeReadyFlatDag(t *testing.T) {
+	g := digestGroup(t, true, plainTasks())
+	setTaskStates(g, map[string]string{"t-0": TaskState_Done, "t-1": TaskState_Done, "t-2": TaskState_Done})
+	if g.Status != DagStatus_Running {
+		t.Fatalf("unmerged tasks must keep the dag running, got %q", g.Status)
+	}
+	d := BuildDigest(digestSnapshot(g, nil, nil, nil, digestNow))
+	if d.Next.Kind != "merge-ready" {
+		t.Fatalf("flat dag with every task done and unmerged must be merge-ready, got %+v", d.Next)
+	}
+	if !sameStrings(d.Next.TaskIds, []string{"t-0", "t-1", "t-2"}) {
+		t.Fatalf("merge-ready must name every unmerged task in dag order, got %+v", d.Next.TaskIds)
+	}
+	if !sameStrings(d.Next.Actions, []string{"resolve-merge"}) {
+		t.Fatalf("merge-ready must offer resolve-merge, got %+v", d.Next.Actions)
+	}
+}
+
+// Unmerged work must not preempt the engine's own next move: with every slot busy the lead has
+// nothing to do yet, and reporting merge-ready here would wake it on every child that finishes.
+func TestNextMergeReadyDoesNotPreemptRunningWork(t *testing.T) {
+	g := digestGroup(t, true, plainTasks())
+	setTaskStates(g, map[string]string{"t-0": TaskState_Done, "t-1": TaskState_Running, "t-2": TaskState_Running})
+	d := BuildDigest(digestSnapshot(g, nil, nil, nil, digestNow))
+	if d.Next.Kind != "parallelism-wait" {
+		t.Fatalf("unmerged task with both slots busy must stay parallelism-wait, got %+v", d.Next)
+	}
+}
+
+// Cleanup keeps the dag running after the last merge; reporting terminal there is the same
+// fabricated stop signal as the flat-dag gate, and worktree removal is exactly what hangs on Windows.
+func TestNextCleanupPendingIsNotTerminal(t *testing.T) {
+	g := digestGroup(t, true, plainTasks())
+	setTaskStates(g, map[string]string{"t-0": TaskState_Done, "t-1": TaskState_Done, "t-2": TaskState_Done})
+	for i := range g.Tasks {
+		g.Tasks[i].Merged = true
+	}
+	g.Tasks[1].CleanupPending = true
+	RecomputeDagStatus(g)
+	if g.Status != DagStatus_Running {
+		t.Fatalf("pending cleanup must keep the dag running, got %q", g.Status)
+	}
+	d := BuildDigest(digestSnapshot(g, nil, nil, nil, digestNow))
+	if d.Next.Kind == "terminal" {
+		t.Fatalf("a running dag must never report terminal, got %+v", d.Next)
+	}
+	if d.Next.Kind != "cleanup-wait" || !sameStrings(d.Next.TaskIds, []string{"t-1"}) {
+		t.Fatalf("merged dag with pending cleanup must be cleanup-wait on t-1, got %+v", d.Next)
+	}
+	if len(d.Next.Actions) != 0 {
+		t.Fatalf("cleanup is the engine's work, not the lead's, got actions %+v", d.Next.Actions)
+	}
+}
+
 func TestNextDispatch(t *testing.T) {
 	g := digestGroup(t, false, plainTasks())
 	setTaskStates(g, map[string]string{}) // all pending, nothing busy
