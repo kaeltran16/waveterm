@@ -1243,6 +1243,19 @@ func allProviders() []provider {
 	}
 }
 
+// SessionRoot returns the on-disk root a runtime writes its transcripts under, or "" for a runtime
+// this package cannot read. Exported so other scanners (the orchestrate liveness probe) locate a
+// runtime's sessions from the definition allProviders already owns instead of keeping a second copy
+// of these paths.
+func SessionRoot(runtime string) string {
+	for _, p := range allProviders() {
+		if p.runtime == runtime {
+			return p.root
+		}
+	}
+	return ""
+}
+
 // scanProviders merges every provider's candidates before parsing, so the limit is the global newest
 // sessions across runtimes — a provider that writes many files cannot crowd other runtimes' recent
 // sessions out of the parse set by quota alone.
