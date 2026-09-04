@@ -95,6 +95,20 @@ The reliability findings below are ranked and detailed in
 | OS/dock/titlebar badge when Arc is backgrounded (in-app counter ships; nothing reaches you cross-app) — measure-first | feature | M | scan brief B2; `badge.ts`, `navrail.tsx` |
 | Diff-surface orphans: `GitRevertCommand` / `gitinfo.RevertFile` / `gitinfo.RevertHunk` / `filesstore.reloadChanges` have no caller — delete both together or neither | tech-debt | S | `docs/deferred.md` 2026-07-31 entry. **2026-09-04:** `reloadChanges` should be split from the revert three — the surface reads its change list on mount and never again, so a file edited while on screen keeps stale counts, and this is the refresh that gap wants |
 | Files-surface CDP visual pass (plan Task 9, deferred while :9222 was occupied) | verification | S | `docs/deferred.md` Files-surface entry |
+| `MaxDagTasks` has no path for a plan larger than the cap — a 17-task plan hard-fails at import with no split path, and the natural workaround (two DAG phases) is blocked by F12 | bug | S | flaws tracker F11; the cap was raised 8 → 16, the structural gap stands |
+| One run holds exactly one DAG, stated nowhere — `CreateDagForRun` returns the *existing* dag and a differing proposal fails `dag conflict`; nothing in the prompt, CLI help or error text says so, so a lead confidently recommends a dead-end shape and a human discovers it eight tasks later | bug | S | flaws tracker F12; `wstore_dag.go:88`, `wshserver_dag.go:91` |
+| No first-token deadline: a lead that dies on its first model call is indistinguishable from one that is thinking | bug | M | flaws tracker F13 + R10 addendum; nothing in `pkg/` implements one (verified 2026-09-04) |
+| Route picker offers routes the account cannot run — the backend rejects at `runroute.go:79`, the picker still lists them as selectable | bug | S | flaws tracker F14 |
+| `import-tasks` hardcodes `parallelism: 2` with no flag | tech-debt | S | flaws tracker F15; `wshcmd-jarvisdag.go:109` |
+| Merge gate has no liveness and no age — the gate now *opens* correctly (F19), but a lead that ignores it leaves it sitting silently with nothing escalating | bug | M | flaws tracker F16 + R10; verified 2026-09-04, no merge-gate age exists in `pkg/orchestrate` |
+
+**F11–F17 were never mirrored here (noted 2026-09-04).** They were filed in
+`docs/orchestrator-redesign-flaws.md` Capture 2 and stayed there, so this list — which calls itself
+the single "what's left" list — showed orchestration as closed while seven flaws were open. The six
+rows above are that omission corrected, each re-verified against the code rather than copied. **F17**
+(`runtime` silently forking between two orchestrators) is deliberately *not* among them: the fork is
+now an explicit `orchestration` parameter documented at `run.go:377`, so only the runtime-based
+*default* remains and the "silent" complaint is answered — it is a close-out review, not a fix.
 
 ### Shipped 2026-09-04 — do not re-file
 
@@ -104,16 +118,16 @@ before (a fixed bug with a vivid repro note reads like an open one). Each fix is
 
 | Was | Fix | Live |
 |---|---|---|
-| Flat DAG never opened the merge gate — `dag wait` returned `terminal:healthy` with children unmerged | `5b5f933b`: `buildNext` reports `merge-ready` whenever `mergeReadyIDs` is non-empty, ranked below dispatch and parallelism-wait so a DAG that can still spawn is never reported as needing the lead | no — needs a live DAG run |
-| `buildNext` fell through to a bare `terminal` on a running DAG with cleanup pending (F19) | `5b5f933b`: the fall-through is now a typed `cleanup-wait` step, never terminal — the lead's stop signal is the only terminal kind. Named in the FE by `0eb4794d` | no |
-| Engine prompt said act "when the digest reports `merge`"; the digest says `merge-ready` / `resolve-merge` (F20) | `5b5f933b`: prompt uses the digest's own words (`pkg/jarvis/run.go`) | no |
-| `dagDigestChildRunLimit = 8` not raised with `MaxDagTasks = 16` (F21) | `5b5f933b`: the constant now follows `jarvis.MaxDagTasks` | no |
-| Every non-pi DAG child flagged **stalled** at 15 min regardless of progress; `retry` then killed healthy work (F18) | `b24a998c`: liveness reads pi, claude and codex transcript roots via `agentsessions.SessionRoot`. A runtime with **no** readable activity source now reports freshness *unknown* rather than aging into a false stall — a missed stall costs a timeout, a false one kills a working child. `opencode` is deliberately untracked (cwd lives only in a sidecar file; rewrite behaviour unverified) | no |
-| A `claude` worker in a never-opened directory blocked forever on the folder-trust dialog | `91ebd220`: `ensureClaudeDirTrusted` pre-registers the directory under Claude's own canonical-git-root key and lock protocol before spawn. Writes at most one entry per project, never per worktree | no — needs an untrusted dir |
+| Flat DAG never opened the merge gate — `dag wait` returned `terminal:healthy` with children unmerged | `d966c27e`: `buildNext` reports `merge-ready` whenever `mergeReadyIDs` is non-empty, ranked below dispatch and parallelism-wait so a DAG that can still spawn is never reported as needing the lead | no — needs a live DAG run |
+| `buildNext` fell through to a bare `terminal` on a running DAG with cleanup pending (F19) | `d966c27e`: the fall-through is now a typed `cleanup-wait` step, never terminal — the lead's stop signal is the only terminal kind. Named in the FE by `75738bfb` | no |
+| Engine prompt said act "when the digest reports `merge`"; the digest says `merge-ready` / `resolve-merge` (F20) | `d966c27e`: prompt uses the digest's own words (`pkg/jarvis/run.go`) | no |
+| `dagDigestChildRunLimit = 8` not raised with `MaxDagTasks = 16` (F21) | `d966c27e`: the constant now follows `jarvis.MaxDagTasks` | no |
+| Every non-pi DAG child flagged **stalled** at 15 min regardless of progress; `retry` then killed healthy work (F18) | `3ca9cd6d`: liveness reads pi, claude and codex transcript roots via `agentsessions.SessionRoot`. A runtime with **no** readable activity source now reports freshness *unknown* rather than aging into a false stall — a missed stall costs a timeout, a false one kills a working child. `opencode` is deliberately untracked (cwd lives only in a sidecar file; rewrite behaviour unverified) | no |
+| A `claude` worker in a never-opened directory blocked forever on the folder-trust dialog | `50cdc2d8`: `ensureClaudeDirTrusted` pre-registers the directory under Claude's own canonical-git-root key and lock protocol before spawn. Writes at most one entry per project, never per worktree | no — needs an untrusted dir |
 | Engine `dag merge` not idempotent on a Windows worktree-lock failure | `851511a5`: worktree removal is the caller's step, so a cleanup failure cannot obscure a landed merge; an already-merged branch returns HEAD instead of re-merging | no |
-| Pure rename rendered as the whole file added while the list beside it said `+0 −0` | `25d5c2f7`: `pathDiff` asks the rename-source question **only** when a path-scoped read reports `new file mode`, then re-reads with both paths | **yes** — `R100` fixture renders *Renamed.* with `+0 −0` |
-| Compare-mode summary printed the working tree's counts under the compare's ref names, refs reversed vs. the chip | `25d5c2f7`: `summaryLine` picks the store the panes are showing; picker and chip print `base … head` | **yes** — `main … feat · 3 files · +30 −0` against a dirty tree |
-| Hints footer never recomputed on compare/filter changes, advertising keys that did something else | `1c4cd848` + `ab95360a`: `whenVersionAtom` counter over the 10 atoms the predicates read, plus a `store.test.ts` guard that fails when a predicate reads an unregistered atom | **yes** — 11 chips → 3 on toggle, no focus change |
+| Pure rename rendered as the whole file added while the list beside it said `+0 −0` | `cd9cb5c8`: `pathDiff` asks the rename-source question **only** when a path-scoped read reports `new file mode`, then re-reads with both paths | **yes** — `R100` fixture renders *Renamed.* with `+0 −0` |
+| Compare-mode summary printed the working tree's counts under the compare's ref names, refs reversed vs. the chip | `cd9cb5c8`: `summaryLine` picks the store the panes are showing; picker and chip print `base … head` | **yes** — `main … feat · 3 files · +30 −0` against a dirty tree |
+| Hints footer never recomputed on compare/filter changes, advertising keys that did something else | `7807aa93` + `2ed1cc85`: `whenVersionAtom` counter over the 10 atoms the predicates read, plus a `store.test.ts` guard that fails when a predicate reads an unregistered atom | **yes** — 11 chips → 3 on toggle, no focus change |
 
 The three unverified-live engine fixes all need a real orchestrator DAG run; that is the remaining
 gap on this batch, not a known defect.
