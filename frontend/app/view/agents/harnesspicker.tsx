@@ -12,6 +12,7 @@ import { cn } from "@/util/util";
 import {
     autoUpdate,
     offset,
+    shift,
     useClick,
     useDismiss,
     useFloating,
@@ -117,7 +118,9 @@ export function HarnessPicker({ operation, placement = "top-start", className, o
         open,
         onOpenChange: setOpen,
         placement,
-        middleware: [offset(6)],
+        // shift keeps the menu on screen when the trigger sits near a viewport edge — without it the
+        // menu simply overflows, which is what clipped it in the peek's composer at a 440px width.
+        middleware: [offset(6), shift({ padding: 8 })],
         whileElementsMounted: autoUpdate,
     });
     const { getReferenceProps, getFloatingProps } = useInteractions([useClick(context), useDismiss(context)]);

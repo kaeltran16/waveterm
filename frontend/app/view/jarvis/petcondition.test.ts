@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
     conditionLine,
+    conditionsFor,
     DRIFT_QUEUE_BAND,
     EXPRESSION_RANK,
     expressionFor,
@@ -163,5 +164,48 @@ describe("wording", () => {
         expect(postureLine("escalation")).not.toBe("");
         expect(postureLine("blocked-worker")).not.toBe("");
         expect(postureLine("none")).toBe("");
+    });
+});
+
+// The peek lists every standing condition, where the creature wears only one. Precedence decides which
+// LEADS rather than capping the list at one — the brief's state 3 (recall off AND the vault drifting) is a
+// required frame, and today's panel states that pair twice: once as a banner, once as a tile.
+describe("conditionsFor — every standing condition, in rank order", () => {
+    it("returns nothing to say when no signal is degraded", () => {
+        expect(conditionsFor({})).toEqual([]);
+        expect(conditionsFor({ decay: { queueDepth: 0, staleNotes: 0 } })).toEqual([]);
+    });
+
+    it("lists one entry per degraded signal, ranked, not just the winner", () => {
+        expect(conditionsFor({ index: OFF, decay: QUEUE }).map((c) => c.kind)).toEqual(["cannot-see", "drifting"]);
+        expect(conditionsFor({ index: OFF, rateLimit: HOT, decay: QUEUE }).map((c) => c.kind)).toEqual([
+            "cannot-see",
+            "tired",
+            "drifting",
+        ]);
+    });
+
+    it("carries each condition whole, so conditionLine can word it without re-deriving", () => {
+        expect(conditionsFor({ rateLimit: HOT, decay: QUEUE })).toEqual([
+            { kind: "tired", provider: "claude", pct: 94, resetAt: 1_800_000_000 },
+            { kind: "drifting", queueDepth: DRIFT_QUEUE_BAND },
+        ]);
+    });
+
+    it("never lists at-rest: an empty list is how quiet is spelled", () => {
+        expect(conditionsFor({}).some((c) => c.kind === "at-rest")).toBe(false);
+    });
+
+    // the crossing rule: the creature wears one face, and the peek's lead line must be that same face.
+    // Two derivations of the same precedence would let the corner and the panel disagree.
+    it("leads with exactly the expression the creature is wearing", () => {
+        for (const signals of [
+            { index: OFF, rateLimit: HOT, decay: QUEUE },
+            { rateLimit: HOT, decay: QUEUE },
+            { decay: QUEUE },
+            { index: STALE },
+        ]) {
+            expect(conditionsFor(signals)[0]).toEqual(expressionFor(signals));
+        }
     });
 });

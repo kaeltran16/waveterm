@@ -3365,32 +3365,40 @@ const jarvisPeek = {
             if (!panel) return null;
             const labelledBy = panel.getAttribute('aria-labelledby');
             const label = labelledBy ? document.getElementById(labelledBy)?.textContent?.trim() : null;
-            const sections = [...panel.querySelectorAll('[data-pet-section]')]
-                .map((section) => section.getAttribute('data-pet-section'));
-            const updates = panel.querySelector('[data-pet-section="updates"]');
             const input = panel.querySelector('[data-pet-errand-input]');
-            const health = panel.querySelector('[data-pet-health]')?.textContent?.trim() ?? null;
+            const dest = panel.querySelector('[data-pet-errand-dest]');
+            const rect = panel.getBoundingClientRect();
             return {
                 role: panel.getAttribute('role'),
                 label,
-                sections,
-                health,
                 close: panel.querySelector('button[aria-label="Close Jarvis panel"]') != null,
                 panelFocused: document.activeElement === panel,
-                emptyUpdates: (updates?.innerText || '').includes('No updates yet'),
+                // the panel is header / queue / composer, in that DOM order. Conditions and the updates
+                // drawer are conditional and absent in the reset state, which is the point of the redesign.
+                header: panel.querySelector('[data-pet-peek-header]') != null,
+                queue: panel.querySelector('[data-pet-queue]') != null,
+                composer: panel.querySelector('[data-pet-composer]') != null,
+                conditions: panel.querySelector('[data-pet-conditions]') != null,
+                updatesDrawer: panel.querySelector('[data-pet-updates]') != null,
+                rows: panel.querySelectorAll('[data-pet-row]').length,
+                // absence must not be rendered: no tile reading "Nothing", no empty-updates card, no
+                // health badge restating what the lines below already say (2026-09-04 brief §3, §6).
+                text: (panel.innerText || '').trim(),
+                height: Math.round(rect.height),
+                destPresent: dest != null,
+                destLabel: dest?.selectedOptions?.[0]?.textContent?.trim() ?? null,
                 inputDisabled: input?.disabled ?? null,
                 inputPlaceholder: input?.getAttribute('placeholder') ?? null,
             };
         })()`);
         rec(
-            "1. keyboard open renders a labelled three-section dialog and focuses its container",
+            "1. keyboard open renders a labelled dialog of header/queue/composer and focuses its container",
             creatureFocused === true &&
                 structure?.role === "dialog" &&
                 structure?.label === "Jarvis" &&
-                JSON.stringify(structure?.sections) === JSON.stringify(["status", "updates", "ask"]) &&
-                ["Needs attention", "Window constrained", "Vault needs review", "Needs you", "All quiet"].includes(
-                    structure?.health
-                ) &&
+                structure?.header === true &&
+                structure?.queue === true &&
+                structure?.composer === true &&
                 structure?.close === true &&
                 structure?.panelFocused === true,
             JSON.stringify({ creatureFocused, structure })
@@ -3410,12 +3418,22 @@ const jarvisPeek = {
             firstTab.inside === true && firstTab.text === "Open full view" && wrappedInside === true,
             JSON.stringify({ firstTab, wrappedInside })
         );
+        // Each string below is one the old three-card panel rendered to report that nothing was wrong:
+        // two of its four tiles said "No reading" / "Nothing", the updates card cost 78px to say it was
+        // empty, and the ask row stated its disabled condition three times. None may come back.
+        const ABSENCE =
+            /No updates yet|No reading|Usage unavailable|No action needed|No destination|No channel selected|Select a channel to ask Jarvis/;
         rec(
-            "3. the empty/no-channel state is explicit without inventing activity",
+            "3. the resting panel renders no absence, and the composer is live wherever there is a destination",
             ctx.reset === true &&
-                structure?.emptyUpdates === true &&
-                structure?.inputDisabled === true &&
-                structure?.inputPlaceholder === "Select a channel to ask Jarvis",
+                structure?.updatesDrawer === false &&
+                ABSENCE.test(structure?.text ?? "") === false &&
+                // the fix: dead only when there is genuinely nowhere to send. The composer used to read the
+                // Jarvis surface's selection, which nothing sets at boot, so it was dead on every surface.
+                structure?.inputDisabled === !structure?.destPresent &&
+                // resting height, against the 693px the three-card panel cost. Only asserted with an empty
+                // queue: rows are real content and are allowed to make the panel taller.
+                (structure?.rows > 0 || (structure?.height > 0 && structure?.height < 320)),
             JSON.stringify(structure)
         );
         await h.shot("cdp-shots/jarvis-peek-empty.png");
@@ -3480,14 +3498,16 @@ const jarvisPeek = {
         await h.ev(`document.querySelector('[data-pet-peek] [data-testid="harness-picker"]')?.click()`);
         await settle(350);
         rec(
-            "4. the narrow panel stays bounded with a fixed header, no horizontal overflow, and an unclipped harness picker",
+            // bodyScrollable is deliberately no longer required: the resting panel now FITS 440x420, which
+            // is the redesign's first success criterion. headerStayed still proves the pin structurally —
+            // the header sits outside the scroll container whether or not the queue currently overflows.
+            "4. the narrow panel stays bounded with a pinned header, no horizontal overflow, and an unclipped harness picker",
             narrow != null &&
                 narrow.left >= 8 &&
                 narrow.right <= narrow.viewportWidth - 8 &&
                 narrow.top >= 8 &&
                 narrow.bottom <= narrow.viewportHeight - 8 &&
                 narrow.horizontalOverflow <= 0 &&
-                narrow.bodyScrollable === true &&
                 narrow.headerStayed === true &&
                 pickerOpened === true &&
                 pickerVisibility?.visible === true,

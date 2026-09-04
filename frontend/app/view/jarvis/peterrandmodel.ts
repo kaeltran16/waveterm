@@ -80,3 +80,27 @@ export function petErrandState(input: PetErrandStateInput): PetErrandState {
         runtime: input.runtime,
     };
 }
+
+export interface DestinationInput {
+    // the panel's own choice, once the user has made one
+    picked: string | null;
+    // the Jarvis surface's selection, which may be null for a whole session
+    active: string | null;
+    channels: Channel[] | null;
+}
+
+// Where the reply lands. A ladder rather than a single read, because the peek opens over every surface and
+// must never be dead: the panel's own pick wins, the surface's selection is the next best guess, and
+// failing both any channel beats none. An oid that no longer resolves falls through instead of blanking —
+// channels outlive neither reloads nor deletion, and a remembered pick must not be able to kill the field.
+export function resolveDestination(input: DestinationInput): Channel | null {
+    const channels = input.channels ?? [];
+    const find = (oid: string | null) => (oid == null ? undefined : channels.find((c) => c.oid === oid));
+    // newest by createdts rather than first in the list: a cockpit accumulates a per-task channel for every
+    // run and scan, so "whatever the backend listed first" reliably lands the reply somewhere months stale.
+    const newest = channels.reduce<Channel | null>(
+        (best, candidate) => (best == null || candidate.createdts > best.createdts ? candidate : best),
+        null
+    );
+    return find(input.picked) ?? find(input.active) ?? newest;
+}

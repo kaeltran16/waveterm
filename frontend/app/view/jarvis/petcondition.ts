@@ -62,20 +62,30 @@ export function isWindowConstrained(rateLimit: PetSignals["rateLimit"]): boolean
 // queue stops being something the next Memory visit absorbs in passing.
 export const DRIFT_QUEUE_BAND = 5;
 
-export function expressionFor(signals: PetSignals): PetExpression {
+// Every standing condition, ranked. The creature wears one face, but the peek lists them all — recall off
+// AND a drifting vault is a real pair, and stating only the winner is what made the old panel print the
+// loser a second time as a tile. at-rest is never a member: an empty list is how quiet is spelled.
+export function conditionsFor(signals: PetSignals): PetExpression[] {
+    const out: PetExpression[] = [];
     const index = signals.index?.state;
     if (index === "off" || index === "stale") {
-        return { kind: "cannot-see", reason: index };
+        out.push({ kind: "cannot-see", reason: index });
     }
     const rl = signals.rateLimit;
     if (rl != null && isWindowConstrained(rl)) {
-        return { kind: "tired", provider: rl.provider, pct: rl.pct, resetAt: rl.resetAt };
+        out.push({ kind: "tired", provider: rl.provider, pct: rl.pct, resetAt: rl.resetAt });
     }
     const decay = signals.decay;
     if (decay != null && decay.queueDepth >= DRIFT_QUEUE_BAND) {
-        return { kind: "drifting", queueDepth: decay.queueDepth };
+        out.push({ kind: "drifting", queueDepth: decay.queueDepth });
     }
-    return { kind: "at-rest" };
+    return out;
+}
+
+// The face the creature wears: the highest-ranked condition, or at-rest. Delegating rather than repeating
+// the predicates is what keeps the corner and the panel from disagreeing — the peek's lead line IS this.
+export function expressionFor(signals: PetSignals): PetExpression {
+    return conditionsFor(signals)[0] ?? { kind: "at-rest" };
 }
 
 // Gate before escalation before ask, which is the order pkg/jarvis/attention.go itself sorts by ("a gate

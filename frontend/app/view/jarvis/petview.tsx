@@ -408,13 +408,9 @@ export function PetView({ model }: { model: AgentsViewModel }) {
                     globalStore.set(petUnreadAtom, true);
                 }}
             />
-            <PetPeek
-                model={model}
-                anchor={anchor}
-                corner={corner}
-                signals={signals}
-                expression={expression}
-            />
+            {/* the peek derives its own ranked condition LIST from the same signals — expressionFor is
+                the creature's single face, and passing it here would cap the panel at one condition */}
+            <PetPeek model={model} anchor={anchor} corner={corner} signals={signals} />
         </>
     );
 }

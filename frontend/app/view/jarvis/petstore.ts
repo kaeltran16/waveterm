@@ -10,6 +10,7 @@
 // corner on the first frame rather than jumping there after a hydration pass.
 
 import { globalStore } from "@/app/store/jotaiStore";
+import { attentionAtom } from "@/app/view/agents/attentionstore";
 import { atom, type PrimitiveAtom } from "jotai";
 import type { PetActState } from "./petacts";
 import type { PetPass } from "./petjoin";
@@ -220,6 +221,17 @@ export interface PetErrand {
 // backend posts, which is where a reply worth keeping belongs.
 export const petErrandAtom = atom<PetErrand | null>(null) as PrimitiveAtom<PetErrand | null>;
 
+// The channel the peek's composer sends to, as an oid, or null for "no opinion — follow the surface".
+//
+// The panel owns this rather than reading the Jarvis surface's activeChannelAtom, which nothing sets at
+// boot: primeChannels fetches the channel list without selecting, so the composer was dead on every
+// surface until the user visited Jarvis and clicked a channel. A creature reachable from everywhere cannot
+// depend on a surface the user may never open. resolveDestination turns this into an actual channel.
+//
+// Session-scoped: persisting an oid would let a deleted channel outlive its own existence, and the ladder
+// below it already lands somewhere sensible on every launch.
+export const petPeekDestAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
+
 // cdp drives inputs that are either too expensive to arrange through production (a volunteer judge) or
 // must be deterministic (the empty peek). This is compiled out of production builds.
 if (import.meta.env.DEV) {
@@ -233,5 +245,12 @@ if (import.meta.env.DEV) {
             globalStore.set(petActStateAtom, {});
             globalStore.set(petErrandAtom, null);
         },
+        // the peek's PRIMARY state is a populated queue, and attention is server-computed from live runs,
+        // gates and pending asks — arranging three real waiting items to photograph the panel would mean
+        // starting three runs and parking them. Injecting the polled list is the same trade resetPeek makes.
+        // The next poll (10s) overwrites this, which is why a shot must be taken promptly.
+        setAttention: (items: AttentionItem[]) => globalStore.set(attentionAtom, items ?? []),
+        // plural: setActState (singular, above) is the production one-act setter
+        setActStates: (state: Record<string, PetActState>) => globalStore.set(petActStateAtom, state ?? {}),
     };
 }
