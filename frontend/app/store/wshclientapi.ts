@@ -1086,6 +1086,12 @@ export class RpcApiType {
         return client.wshRpcCall("path", data, opts);
     }
 
+    // command "picontrolack" [call]
+    PiControlAckCommand(client: WshClient, data: CommandPiControlAckData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "picontrolack", data, opts);
+        return client.wshRpcCall("picontrolack", data, opts);
+    }
+
     // command "pisendcontrol" [call]
     PiSendControlCommand(client: WshClient, data: PiControlCommandData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "pisendcontrol", data, opts);

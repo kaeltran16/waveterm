@@ -2,7 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { acceptDigest, nextStepText, shouldRefreshDigest } from "./dagdigest";
+import {
+    acceptDigest,
+    controlWarning,
+    freshCounts,
+    healthView,
+    nextStepText,
+    nextStepView,
+    shouldRefreshDigest,
+} from "./dagdigest";
 
 function digest(version: number): DagStatusDigest {
     return {
@@ -67,5 +75,61 @@ describe("nextStepText", () => {
 
     it("falls back to a refresh cue for an unknown kind rather than inventing a claim", () => {
         expect(nextStepText({ kind: "mystery" })).toBe("refreshing status");
+    });
+});
+describe("degradation views (spec 8)", () => {
+    const digest = (health: string, control?: ControlDigest): DagStatusDigest =>
+        ({
+            dagversion: 1,
+            health,
+            counts: { total: 2, done: 1 } as DagStatusCounts,
+            next: { kind: "dispatch" },
+            tasks: [],
+            durations: { elapsedms: 1000 },
+            control,
+        }) as DagStatusDigest;
+
+    it("never infers healthy when the digest is unavailable", () => {
+        const v = healthView({ loading: false, stale: true, error: "boom" });
+        expect(v.text).toBe("DAG status unavailable");
+        expect(v.tone).not.toContain("success");
+    });
+
+    it("hides a stale health claim behind Refreshing status", () => {
+        const v = healthView({ loading: false, stale: true, digest: digest("healthy") });
+        expect(v.text).toBe("Refreshing status");
+        expect(v.tone).not.toContain("success");
+    });
+
+    it("shows the digest health when the digest is fresh", () => {
+        expect(healthView({ loading: false, stale: false, digest: digest("needs-you") })).toEqual({
+            text: "needs-you",
+            tone: "text-warning",
+        });
+        expect(healthView({ loading: false, stale: false, digest: digest("healthy") }).tone).toBe("text-success");
+        expect(healthView({ loading: false, stale: false, digest: digest("stalled") }).tone).toBe("text-error");
+    });
+
+    it("hides the next move and counts while the digest is stale", () => {
+        const stale = { loading: false, stale: true, digest: digest("healthy") };
+        expect(nextStepView(stale)).toBeNull();
+        expect(freshCounts(stale)).toBeUndefined();
+        const fresh = { loading: false, stale: false, digest: digest("healthy") };
+        expect(nextStepView(fresh)).toBe("dispatching next task");
+        expect(freshCounts(fresh)?.total).toBe(2);
+    });
+
+    it("warns only for control states the human should know about", () => {
+        expect(controlWarning(digest("healthy"))).toBeNull();
+        expect(controlWarning(digest("healthy", { eventid: "e", kind: "gate_open", status: "acknowledged" }))).toBeNull();
+        expect(
+            controlWarning(digest("healthy", { eventid: "e", kind: "gate_open", status: "unconfirmed" }))
+        ).toContain("not confirmed");
+        expect(controlWarning(digest("healthy", { eventid: "e", kind: "gate_open", status: "failed" }))).toContain(
+            "failed"
+        );
+        expect(
+            controlWarning(digest("healthy", { eventid: "e", kind: "gate_open", status: "unavailable" }))
+        ).toContain("unreachable");
     });
 });

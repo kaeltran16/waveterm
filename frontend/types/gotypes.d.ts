@@ -1399,6 +1399,14 @@ declare global {
         message: string;
     };
 
+    // wshrpc.CommandPiControlAckData
+    type CommandPiControlAckData = {
+        channelid: string;
+        runid: string;
+        eventid: string;
+        sessionid: string;
+    };
+
     // wshrpc.CommandPostChannelMessageData
     type CommandPostChannelMessageData = {
         channelid: string;

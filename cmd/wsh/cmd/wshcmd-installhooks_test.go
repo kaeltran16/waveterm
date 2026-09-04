@@ -499,6 +499,28 @@ func TestInstallPiSimplifyGateExtension_writesBothFiles(t *testing.T) {
 	}
 }
 
+// pi auto-loads every file in ~/.pi/agent/extensions/ and requires each to export a factory
+// function. A dependency module (a *-core.ts) that omits the no-op default export loads fine as
+// TS but crashes the whole extensions dir at pi boot. Guard every template that lands there.
+func TestPiExtensionTemplatesExportAFactory(t *testing.T) {
+	templates := map[string]string{
+		"waveterm-status.ts":              piStatusExtensionTemplate,
+		"waveterm-tools.ts":               piToolsExtensionTemplate,
+		"waveterm-tools-core.ts":          piToolsCoreExtensionTemplate,
+		"waveterm-ask.ts":                 piAskExtensionTemplate,
+		"waveterm-ask-core.ts":            piAskCoreExtensionTemplate,
+		"waveterm-prose-core.ts":          piProseCoreExtensionTemplate,
+		"waveterm-simplify-gate.ts":       piSimplifyGateExtensionTemplate,
+		"waveterm-simplify-gate-core.ts":  piSimplifyGateCoreExtensionTemplate,
+		"waveterm-memory.ts":              piMemoryExtensionTemplate,
+	}
+	for name, src := range templates {
+		if !strings.Contains(src, "export default") {
+			t.Errorf("%s: pi extensions must export a default factory function (add a no-op for -core dependency modules)", name)
+		}
+	}
+}
+
 func TestInstallPiSimplifyGateExtension_skipsWhenPiMissing(t *testing.T) {
 	orig := piLookPath
 	piLookPath = func(string) (string, error) { return "", os.ErrNotExist }

@@ -6,6 +6,7 @@ import {
     makeSerialChain,
     notifyArgs,
     openFileArgs,
+    controlAckArgs,
     parseControlCommand,
     querySessionsArgs,
     runCommandArgs,
@@ -46,7 +47,56 @@ describe("waveterm-tools-core", () => {
 
     it("parses a valid control command", () => {
         const cmd = parseControlCommand(JSON.stringify({ cmd: "steer", content: "look at this" }));
-        expect(cmd).toEqual({ cmd: "steer", content: "look at this", name: "", path: "" });
+        expect(cmd).toEqual({
+            cmd: "steer",
+            content: "look at this",
+            name: "",
+            path: "",
+            eventid: "",
+            channelid: "",
+            runid: "",
+            taskid: "",
+            sessionid: "",
+        });
+    });
+
+    it("preserves the engine's envelope fields", () => {
+        const cmd = parseControlCommand(
+            JSON.stringify({
+                cmd: "gate_open",
+                content: "gate t-0",
+                eventid: "ev-1",
+                channelid: "ch-1",
+                runid: "run-1",
+                taskid: "t-0",
+                sessionid: "sess-1",
+            })
+        );
+        expect(cmd).toMatchObject({
+            eventid: "ev-1",
+            channelid: "ch-1",
+            runid: "run-1",
+            taskid: "t-0",
+            sessionid: "sess-1",
+        });
+        expect(controlAckArgs(cmd!)).toEqual([
+            "jarvis",
+            "dag",
+            "ack",
+            "--channel",
+            "ch-1",
+            "--runid",
+            "run-1",
+            "--event",
+            "ev-1",
+            "--session",
+            "sess-1",
+        ]);
+    });
+
+    it("has nothing to acknowledge for a control file without an envelope", () => {
+        const cmd = parseControlCommand(JSON.stringify({ cmd: "steer", content: "hi" }));
+        expect(controlAckArgs(cmd!)).toBeNull();
     });
 
     it("rejects malformed or unknown control commands", () => {

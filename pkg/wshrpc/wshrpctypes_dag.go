@@ -19,6 +19,17 @@ type DagCommands interface {
 	DagMergeContinueCommand(ctx context.Context, data CommandDagMergeData) error                                        // finish a squash merge after manual conflict resolution
 	DagAsksCommand(ctx context.Context, data CommandDagStatusData) (*CommandDagAsksRtnData, error)                      // pending child asks (children block on one at a time)
 	DagAnswerCommand(ctx context.Context, data CommandDagAnswerData) error                                              // deliver an answer to a child's pending ask
+	PiControlAckCommand(ctx context.Context, data CommandPiControlAckData) error                                        // the pi watcher confirms it accepted a lead-control event
+}
+
+// CommandPiControlAckData is the pi watcher's confirmation that it dispatched a lead-control event.
+// The four fields are echoed straight back from the control file's envelope, so an acknowledgement
+// can only ever name the exact attempt it processed.
+type CommandPiControlAckData struct {
+	ChannelId string `json:"channelid"`
+	RunId     string `json:"runid"`
+	EventId   string `json:"eventid"`
+	SessionId string `json:"sessionid"`
 }
 
 type CommandDagSubmitData struct {

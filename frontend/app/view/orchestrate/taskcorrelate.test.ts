@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { resolveTaskWorker, type TaskWorkerView } from "./taskcorrelate";
+import { resolveTaskWorker, workerActivityText, type TaskWorkerView } from "./taskcorrelate";
 import type { AgentVM } from "../agents/agentsviewmodel";
 
 function agent(id: string): AgentVM {
@@ -50,5 +50,16 @@ describe("resolveTaskWorker", () => {
         const view = resolveTaskWorker({ id: "t-0", runid: "r_missing" }, undefined, [agent("t1")]);
         expect(view.state).toBe("unavailable");
         expect(view.runId).toBe("r_missing");
+    });
+});
+
+describe("workerActivityText", () => {
+    it("defers to the agent's own activity when a worker session is reachable", () => {
+        expect(workerActivityText({ state: "dispatched", tabId: "t1", agent: agent("t1") })).toBeNull();
+    });
+
+    it("says the activity is unavailable rather than showing a fabricated idle state", () => {
+        expect(workerActivityText({ state: "pending" })).toBe("Not dispatched yet");
+        expect(workerActivityText({ state: "unavailable", runId: "r-1" })).toBe("Activity unavailable");
     });
 });

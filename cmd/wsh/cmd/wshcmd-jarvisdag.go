@@ -332,6 +332,26 @@ var dagAnswerCmd = &cobra.Command{
 	},
 }
 
+// dagAckCmd is invoked by the pi control watcher, not by a human — it echoes the control file's
+// envelope back so the server can record that the lead actually received the event. Hidden because a
+// hand-typed acknowledgement would be a claim nobody made.
+var dagAckCmd = &cobra.Command{
+	Use:     "ack",
+	Short:   "confirm a lead-control event was dispatched (pi control watcher)",
+	Hidden:  true,
+	Args:    cobra.NoArgs,
+	PreRunE: preRunSetupRpcClient,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		channelId, _ := cmd.Flags().GetString("channel")
+		runId, _ := cmd.Flags().GetString("runid")
+		eventId, _ := cmd.Flags().GetString("event")
+		sessionId, _ := cmd.Flags().GetString("session")
+		return wshclient.PiControlAckCommand(RpcClient, wshrpc.CommandPiControlAckData{
+			ChannelId: channelId, RunId: runId, EventId: eventId, SessionId: sessionId,
+		}, &wshrpc.RpcOpts{Timeout: 5_000})
+	},
+}
+
 var dagInitCmd = &cobra.Command{
 	Use:   "init",
 	Short: "scaffold a .pi/tasks/tasks.json store for a DAG (edit the sample, then import-tasks)",
@@ -372,7 +392,7 @@ var dagInitCmd = &cobra.Command{
 func init() {
 	jarvisDagCmd.AddCommand(dagSubmitCmd, dagImportCmd, dagStatusCmd, dagMergeCmd, dagAsksCmd, dagAnswerCmd)
 	jarvisDagCmd.AddCommand(dagAction("approve"), dagAction("sendback"), dagAction("retry"), dagAction("skip"), dagEscalateCmd, dagAction("cancel"))
-	jarvisDagCmd.AddCommand(dagInitCmd)
+	jarvisDagCmd.AddCommand(dagInitCmd, dagAckCmd)
 	for _, c := range jarvisDagCmd.Commands() {
 		c.Flags().String("runid", "", "run id")
 		c.Flags().String("channel", "", "channel id")
@@ -380,6 +400,8 @@ func init() {
 	dagImportCmd.Flags().String("dir", "", "pi-tasks dir (default .)")
 	dagImportCmd.Flags().String("title", "", "dag title (shown in the ui; default runs the first task's label)")
 	dagInitCmd.Flags().String("dir", "", "pi-tasks dir (default .)")
+	dagAckCmd.Flags().String("event", "", "control event id from the control file envelope")
+	dagAckCmd.Flags().String("session", "", "pi session id the control file was written for")
 	dagEscalateCmd.Flags().String("model", "", "exact model id to retry on (e.g. opencode/claude-opus-4-8)")
 	dagEscalateCmd.Flags().String("runtime", "", "runtime to retry on; empty keeps the task's current runtime")
 	dagEscalateCmd.Flags().String("tier", "", "legacy: retry on a higher tier (mid|capable)")

@@ -1,6 +1,8 @@
 // pi-simplify commit gate core: pure logic, no pi coupling. The gate blocks `git commit` on
 // complex diffs (beyond thresholds, generated paths excluded) unless a /simplify review stamp
 // covers exactly the diff being committed. `--no-verify` overrides, mirroring git semantics.
+// The default export is a no-op: pi auto-loads every file in the extensions directory, and this
+// module is a dependency, not an extension.
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -162,4 +164,8 @@ export function lastUserMessageText(messages: unknown[]): string | null {
         return null;
     }
     return null;
+}
+
+export default function wavetermSimplifyGateCore(): void {
+    // no-op dependency module
 }

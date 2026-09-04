@@ -16,8 +16,11 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wps"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
-	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
+
+// askEventTimeout bounds the ask-lifecycle recording work (a block -> run -> dag walk plus one
+// append) so a slow store can never hold up the answer or clear path it hangs off.
+const askEventTimeout = 5 * time.Second
 
 func (ws *WshServer) AskCommand(ctx context.Context, data wshrpc.CommandAskData) (wshrpc.AskRtnData, error) {
 	if data.ORef == "" || len(data.Questions) == 0 {
@@ -49,7 +52,7 @@ func (ws *WshServer) AskCommand(ctx context.Context, data wshrpc.CommandAskData)
 	// a dag child raising an ask is a lead event: the child blocks on the question, so the lead must
 	// be able to see it (and answer it via `wsh jarvis dag answer`) — the child sessions are invisible
 	// to the human (the "child asks never reach anyone" flaw).
-	forwardChildAsk(ctx, data.ORef, data.Questions)
+	forwardChildAsk(ctx, data.ORef, askId, data.Questions)
 	if !data.Wait {
 		return wshrpc.AskRtnData{AskId: askId}, nil
 	}
@@ -63,6 +66,7 @@ func (ws *WshServer) AskCommand(ctx context.Context, data wshrpc.CommandAskData)
 	case <-ctx.Done():
 		agentask.GlobalRegistry.RemoveWaiter(askId)
 		agentask.GlobalRegistry.Drop(data.ORef)
+		recordAskTransition(data.ORef, askId, waveobj.RunEventKindChildAskCleared, orchestrate.AskClearReasonWaiterEnded)
 		publishAgentAsk(baseds.AgentAskData{ORef: data.ORef, AskId: askId, Cleared: true})
 		return wshrpc.AskRtnData{}, ctx.Err()
 	}
@@ -86,6 +90,9 @@ func (ws *WshServer) AgentAskClearCommand(ctx context.Context, oref string) erro
 		// a blocked --wait caller (pi) treats a cockpit dismiss as cancellation; CC's
 		// PostToolUse clear finds no waiter and is unchanged in effect.
 		agentask.GlobalRegistry.ResolveWaiter(askId, agentask.WaitResult{Cancelled: true})
+		// only a clear that found something pending is a lifecycle transition — a repeat clear
+		// (PostToolUse after a cockpit dismiss) must not append a second row.
+		recordAskTransition(oref, askId, waveobj.RunEventKindChildAskCleared, orchestrate.AskClearReasonDismissed)
 	}
 	agentask.GlobalRegistry.Drop(oref)
 	publishAgentAsk(baseds.AgentAskData{ORef: oref, AskId: askId, Cleared: true})
@@ -106,24 +113,42 @@ func publishAgentAsk(data baseds.AgentAskData) {
 // the child's ask card renders only on the child session (invisible to the human), so the engine
 // mirrors it as a dag:child-ask event the lead and the cockpit's parent-run surface can show. No-op
 // for blocks that are not dag children.
-func forwardChildAsk(ctx context.Context, blockOref string, questions []baseds.AgentAskQuestion) {
-	run, _, ok := ownerRunForBlock(ctx, blockOref)
-	if !ok || run.DagORef == "" || len(questions) == 0 {
+func forwardChildAsk(ctx context.Context, blockOref, askId string, questions []baseds.AgentAskQuestion) {
+	if len(questions) == 0 {
 		return
 	}
-	g, err := wstore.GetDag(ctx, run.DagORef)
-	if err != nil {
+	g, target, ok := askTargetForBlock(ctx, blockOref, askId)
+	if !ok {
 		return
 	}
-	taskId := ""
-	for i := range g.Tasks {
-		if g.Tasks[i].RunID == run.ID {
-			taskId = g.Tasks[i].ID
-			break
-		}
+	orchestrate.PublishChildAsk(ctx, g, target, questions[0].Question)
+}
+
+// askTargetForBlock resolves the dag task behind a block's ask, so the raise, answer and clear paths
+// all attach their lifecycle rows to the same task and ask id. ok=false for a plain (non-dag) block.
+func askTargetForBlock(ctx context.Context, blockOref, askId string) (*waveobj.TaskGroup, orchestrate.AskTarget, bool) {
+	run, channelId, ok := ownerRunForBlock(ctx, blockOref)
+	if !ok {
+		return nil, orchestrate.AskTarget{}, false
 	}
-	if taskId == "" {
-		return
+	return orchestrate.ResolveAskTarget(ctx, channelId, run, askId)
+}
+
+// recordAskTransition resolves the dag task behind a block's ask and records one lifecycle row for
+// it. It builds its own bounded context rather than taking one: the clear-on-waiter-end caller's
+// context is already cancelled, and a dead context would silently drop the row. Non-dag blocks
+// resolve to nothing and record nothing.
+func recordAskTransition(oref, askId, kind, detail string) {
+	ctx, cancel := context.WithTimeout(context.Background(), askEventTimeout)
+	defer cancel()
+	if _, target, ok := askTargetForBlock(ctx, oref, askId); ok {
+		orchestrate.RecordAskLifecycle(ctx, target, kind, detail)
 	}
-	orchestrate.PublishChildAsk(ctx, g, taskId, questions[0].Question)
+}
+
+// RecordAskAnswered is agentask's answer-hook implementation, wired at server startup. It runs on
+// every delivered answer — cockpit, Gatekeeper, or dag lead — and records the one child-answered row
+// that closes the ask the child raised.
+func RecordAskAnswered(oref, askId string) {
+	recordAskTransition(oref, askId, waveobj.RunEventKindChildAnswered, "")
 }

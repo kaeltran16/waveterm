@@ -12,7 +12,12 @@ import { atom, useAtomValue, type PrimitiveAtom } from "jotai";
 import { useEffect } from "react";
 
 const eventsAtoms = new Map<string, PrimitiveAtom<RunEvent[]>>();
+const statusAtoms = new Map<string, PrimitiveAtom<RunEventsStatus>>();
 const loadedRuns = new Set<string>();
+
+// RunEventsStatus is what the timeline is allowed to claim about itself. "live" only after a load
+// actually returned — a rail that prints "● live" over an empty list it never fetched is a lie.
+export type RunEventsStatus = "loading" | "live" | "error";
 
 function eventsAtomFor(runId: string) {
     let a = eventsAtoms.get(runId);
@@ -23,11 +28,21 @@ function eventsAtomFor(runId: string) {
     return a;
 }
 
+function statusAtomFor(runId: string) {
+    let a = statusAtoms.get(runId);
+    if (!a) {
+        a = atom<RunEventsStatus>("loading") as PrimitiveAtom<RunEventsStatus>;
+        statusAtoms.set(runId, a);
+    }
+    return a;
+}
+
 async function load(runId: string, channelId: string): Promise<void> {
     if (loadedRuns.has(runId)) {
         return;
     }
     loadedRuns.add(runId);
+    globalStore.set(statusAtomFor(runId), "loading");
     try {
         const rtn = await RpcApi.JarvisRunEventsCommand(TabRpcClient, {
             channelid: channelId,
@@ -35,9 +50,18 @@ async function load(runId: string, channelId: string): Promise<void> {
             limit: 200,
         });
         globalStore.set(eventsAtomFor(runId), rtn.events ?? []);
+        globalStore.set(statusAtomFor(runId), "live");
     } catch {
         loadedRuns.delete(runId); // allow retry on transient failure
+        globalStore.set(statusAtomFor(runId), "error");
     }
+}
+
+// retryRunEvents re-attempts a failed history load. The rail's explicit retry — a timeline that
+// failed to load stays failed until someone asks again, it never silently reappears as empty.
+export function retryRunEvents(runId: string, channelId: string): Promise<void> {
+    loadedRuns.delete(runId);
+    return load(runId, channelId);
 }
 
 let subscribed = false;
@@ -75,4 +99,11 @@ export function useRunEvents(runId: string, channelId: string): RunEvent[] {
         fireAndForget(() => load(runId, channelId));
     }, [runId, channelId]);
     return useAtomValue(eventsAtomFor(runId));
+}
+
+// Same subscription, plus whether the history load succeeded — for surfaces that must show a load
+// failure instead of an empty timeline.
+export function useRunEventsState(runId: string, channelId: string): { events: RunEvent[]; status: RunEventsStatus } {
+    const events = useRunEvents(runId, channelId);
+    return { events, status: useAtomValue(statusAtomFor(runId)) };
 }

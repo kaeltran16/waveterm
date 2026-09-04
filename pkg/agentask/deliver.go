@@ -16,6 +16,12 @@ var sendInput = func(blockId string, data []byte) error {
 	return blockcontroller.SendInput(blockId, &blockcontroller.BlockInputUnion{InputData: data})
 }
 
+// AnswerHook runs after a delivered answer, whichever path delivered it — the cockpit panel, the
+// server-side Gatekeeper actuator, or the dag lead's `wsh jarvis dag answer`. All three claim through
+// DeliverAnswer, so hooking here is what stops them recording the ask lifecycle three different ways
+// (or, for two of them, not at all). Wired once at server startup; nil = no-op.
+var AnswerHook func(oref, askId string)
+
 // DeliverAnswer atomically claims the pending ask for oref, then injects its answers into the native
 // picker. It returns delivered=false with no error when no ask is pending (already answered in the
 // terminal or cleared), or when askid != "" and no longer matches the pending ask — the idempotent no-op
@@ -33,6 +39,15 @@ func DeliverAnswer(oref, askid string, answers []baseds.AgentAnswerItem) (bool, 
 	if !ok {
 		return false, nil
 	}
+	delivered, err := injectAnswer(oref, pending, answers)
+	if delivered && AnswerHook != nil {
+		AnswerHook(oref, pending.AskId)
+	}
+	return delivered, err
+}
+
+// injectAnswer delivers a claimed ask's answers, returning whether the agent actually received them.
+func injectAnswer(oref string, pending PendingAsk, answers []baseds.AgentAnswerItem) (bool, error) {
 	// waiter path (pi ask bridge): a --wait caller registered on this ask — resolve it
 	// directly. pi has no native picker to drive, so keystrokes would type into the
 	// session; the waiter is the delivery. No waiter -> CC path (keystroke injection).

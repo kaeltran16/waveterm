@@ -947,3 +947,101 @@ func TestDagMergeCleanupFailurePersistsDebt(t *testing.T) {
 		t.Fatalf("retry must clear debt and recompute status: %+v", finalDag.Tasks[0])
 	}
 }
+
+// controlAckFixture seeds a channel + orchestrator run carrying a dag, and returns the ids an
+// acknowledgement is addressed to.
+func controlAckFixture(t *testing.T) (channelId, runId string) {
+	t.Helper()
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "control-ack-"+uuid.NewString(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
+		t.Fatal(err)
+	}
+	return ch.OID, owner.ID
+}
+
+func seedControlEvent(t *testing.T, channelId, runId, kind, eventId, sessionId string) {
+	t.Helper()
+	detail := map[string]any{"eventid": eventId, "sessionid": sessionId, "cmd": "gate_open"}
+	if _, err := wstore.AppendRunEvent(context.Background(), channelId, runId, kind, nil, detail); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func ackRows(t *testing.T, channelId, runId string) []waveobj.RunEvent {
+	t.Helper()
+	ev, err := wstore.QueryRunEventsByKind(context.Background(), channelId, runId,
+		[]string{waveobj.RunEventKindLeadControlAcknowledged}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ev
+}
+
+func TestPiControlAckAppendsOnceAndIsIdempotent(t *testing.T) {
+	channelId, runId := controlAckFixture(t)
+	seedControlEvent(t, channelId, runId, waveobj.RunEventKindLeadControlSent, "ev-1", "sess-1")
+	ws := &WshServer{}
+	data := wshrpc.CommandPiControlAckData{ChannelId: channelId, RunId: runId, EventId: "ev-1", SessionId: "sess-1"}
+
+	if err := ws.PiControlAckCommand(context.Background(), data); err != nil {
+		t.Fatal(err)
+	}
+	if rows := ackRows(t, channelId, runId); len(rows) != 1 {
+		t.Fatalf("want one acknowledged row, got %d", len(rows))
+	}
+	if err := ws.PiControlAckCommand(context.Background(), data); err != nil {
+		t.Fatalf("a repeated matching ack is an idempotent no-op, got %v", err)
+	}
+	if rows := ackRows(t, channelId, runId); len(rows) != 1 {
+		t.Fatalf("a repeated ack must append nothing, got %d rows", len(rows))
+	}
+}
+
+func TestPiControlAckRejectsUnknownEvent(t *testing.T) {
+	channelId, runId := controlAckFixture(t)
+	ws := &WshServer{}
+	err := ws.PiControlAckCommand(context.Background(), wshrpc.CommandPiControlAckData{
+		ChannelId: channelId, RunId: runId, EventId: "ev-missing", SessionId: "sess-1",
+	})
+	if err == nil {
+		t.Fatal("an ack for an event that was never sent must be rejected")
+	}
+	if len(ackRows(t, channelId, runId)) != 0 {
+		t.Fatal("a rejected ack must append nothing")
+	}
+}
+
+func TestPiControlAckRejectsMismatchedSession(t *testing.T) {
+	channelId, runId := controlAckFixture(t)
+	seedControlEvent(t, channelId, runId, waveobj.RunEventKindLeadControlSent, "ev-2", "sess-a")
+	ws := &WshServer{}
+	err := ws.PiControlAckCommand(context.Background(), wshrpc.CommandPiControlAckData{
+		ChannelId: channelId, RunId: runId, EventId: "ev-2", SessionId: "sess-b",
+	})
+	if err == nil {
+		t.Fatal("an ack from a different session must be rejected")
+	}
+	if len(ackRows(t, channelId, runId)) != 0 {
+		t.Fatal("a rejected ack must append nothing")
+	}
+}
+
+func TestPiControlAckRejectsFailedDelivery(t *testing.T) {
+	channelId, runId := controlAckFixture(t)
+	seedControlEvent(t, channelId, runId, waveobj.RunEventKindLeadControlFailed, "ev-3", "sess-1")
+	ws := &WshServer{}
+	err := ws.PiControlAckCommand(context.Background(), wshrpc.CommandPiControlAckData{
+		ChannelId: channelId, RunId: runId, EventId: "ev-3", SessionId: "sess-1",
+	})
+	if err == nil {
+		t.Fatal("an ack for a delivery that failed must be rejected")
+	}
+	if len(ackRows(t, channelId, runId)) != 0 {
+		t.Fatal("a rejected ack must append nothing")
+	}
+}

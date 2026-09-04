@@ -52,7 +52,78 @@ func BuildDigest(sn DagDigestSnapshot) wshrpc.DagStatusDigest {
 	for i := range g.Tasks {
 		d.Tasks = append(d.Tasks, buildTaskDigest(g, &g.Tasks[i], askByTask, retried))
 	}
+	d.Control = buildControl(sn.Retained)
 	return d
+}
+
+// Control digest statuses (spec 7.1). Visibility only: none of them gate the engine, because the
+// persisted DAG — not the lead's awareness of it — is what execution runs on.
+const (
+	controlStatusAcknowledged = "acknowledged"
+	controlStatusUnconfirmed  = "unconfirmed"
+	controlStatusFailed       = "failed"
+	controlStatusUnavailable  = "unavailable"
+)
+
+// controlRow is one parsed lead-control-* detail payload.
+type controlRow struct {
+	EventId   string `json:"eventid"`
+	SessionId string `json:"sessionid"`
+	TaskId    string `json:"taskid"`
+	Cmd       string `json:"cmd"`
+	Failure   string `json:"failure"`
+	Error     string `json:"error"`
+}
+
+// buildControl reports the LATEST control attempt only. Acknowledgements are matched by event id, so
+// a superseded control file stays unconfirmed rather than inheriting the previous attempt's ack —
+// exactly the case where a stale "acknowledged" would be a lie about what the lead has seen.
+func buildControl(retained []waveobj.RunEvent) *wshrpc.ControlDigest {
+	var latest *wshrpc.ControlDigest
+	var latestTs int64
+	acked := map[string]int64{}
+	for _, ev := range retained {
+		var row controlRow
+		if err := json.Unmarshal(ev.Detail, &row); err != nil || row.EventId == "" {
+			continue
+		}
+		if ev.Kind == waveobj.RunEventKindLeadControlAcknowledged {
+			if ts, seen := acked[row.EventId]; !seen || ev.Ts > ts {
+				acked[row.EventId] = ev.Ts
+			}
+			continue
+		}
+		sent := ev.Kind == waveobj.RunEventKindLeadControlSent
+		if !sent && ev.Kind != waveobj.RunEventKindLeadControlFailed {
+			continue
+		}
+		if latest != nil && ev.Ts <= latestTs {
+			continue
+		}
+		latestTs = ev.Ts
+		attempt := &wshrpc.ControlDigest{
+			EventId:   row.EventId,
+			Kind:      row.Cmd,
+			TaskId:    row.TaskId,
+			SessionId: row.SessionId,
+			Error:     row.Error,
+		}
+		if sent {
+			attempt.Status, attempt.SentTs = controlStatusUnconfirmed, ev.Ts
+		} else if row.Failure == ControlFailureUnavailable {
+			attempt.Status = controlStatusUnavailable
+		} else {
+			attempt.Status = controlStatusFailed
+		}
+		latest = attempt
+	}
+	if latest == nil {
+		return nil
+	}
+	if ts, ok := acked[latest.EventId]; ok && latest.Status == controlStatusUnconfirmed {
+		latest.Status, latest.AcknowledgedTs = controlStatusAcknowledged, ts
+	}
+	return latest
 }
 
 // askIndex maps task id -> its pending ask. A child may raise multiple asks (one block at a time); the

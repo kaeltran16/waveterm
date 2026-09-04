@@ -70,6 +70,57 @@ export function nextStepText(next: DagNextStep): string {
     }
 }
 
+// --- degradation views (spec 8): what the overview may claim, given the digest's state ---------
+
+// HEALTH_TONE maps the digest's health enum onto tone tokens. Absent from the map means the digest
+// said something this UI does not understand — which is never a reason to paint it healthy.
+const HEALTH_TONE: Record<string, string> = {
+    "needs-you": "text-warning",
+    stalled: "text-error",
+    healthy: "text-success",
+    done: "text-muted",
+    cancelled: "text-muted",
+};
+
+// healthView is the single decision about what the health strip says. Two rules it must never break:
+// an unavailable digest is never rendered as healthy, and a stale digest's health is replaced by
+// "Refreshing status" rather than shown as if it were current.
+export function healthView(state: DigestState): { text: string; tone: string } {
+    if (state.digest == null) {
+        return { text: state.loading ? "Loading status…" : "DAG status unavailable", tone: "text-muted" };
+    }
+    if (state.stale) {
+        return { text: "Refreshing status", tone: "text-muted" };
+    }
+    return { text: state.digest.health, tone: HEALTH_TONE[state.digest.health] ?? "text-muted" };
+}
+
+// nextStepView returns the next-engine-move line, or null when there is no claim the UI is entitled
+// to make. A stale digest's "next" is a statement about a DAG version that has already moved on.
+export function nextStepView(state: DigestState): string | null {
+    if (state.digest == null || state.stale) {
+        return null;
+    }
+    return nextStepText(state.digest.next);
+}
+
+// freshCounts returns the counts only while they are current, for the same reason.
+export function freshCounts(state: DigestState): DagStatusCounts | undefined {
+    return state.digest == null || state.stale ? undefined : state.digest.counts;
+}
+
+// CONTROL_WARNING is the human-facing half of the control digest. Acknowledged (and no attempt at
+// all) say nothing: control delivery is visibility, and a warning for the normal case is noise.
+const CONTROL_WARNING: Record<string, string> = {
+    unconfirmed: "lead not confirmed",
+    failed: "lead notify failed",
+    unavailable: "lead unreachable",
+};
+
+export function controlWarning(digest: DagStatusDigest | undefined): string | null {
+    return digest?.control ? (CONTROL_WARNING[digest.control.status] ?? null) : null;
+}
+
 // useDagDigest loads the status digest for an orchestrator run and keeps it fresh: initially, on any
 // observed TaskGroup.Version change (via the live WOS group), and on digest-relevant run events. A
 // running request token guards out-of-order responses. Errors degrade to stale=true with the last good

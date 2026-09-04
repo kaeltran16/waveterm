@@ -5,6 +5,7 @@ package wshserver
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 	"testing"
 	"time"
@@ -202,5 +203,87 @@ func TestDagAsksAndAnswerRoundTrip(t *testing.T) {
 	}
 	if len(asks2.Asks) != 0 {
 		t.Fatalf("ask should be consumed, got %+v", asks2.Asks)
+	}
+}
+
+// askLifecycleRows returns the details of every run event of kind on the dag's owning run.
+func askLifecycleRows(t *testing.T, channelId, runId, kind string) []map[string]any {
+	t.Helper()
+	events, err := wstore.QueryRunEvents(context.Background(), channelId, runId, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []map[string]any
+	for _, ev := range events {
+		if ev.Kind != kind {
+			continue
+		}
+		var detail map[string]any
+		if err := json.Unmarshal(ev.Detail, &detail); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, detail)
+	}
+	return out
+}
+
+func TestDagAnswerRecordsChildAnsweredOnce(t *testing.T) {
+	g, _, blockORef := dagAskFixture(t)
+	ws := &WshServer{}
+	agentask.GlobalRegistry = agentask.MakeRegistry()
+	agentask.AnswerHook = RecordAskAnswered
+	t.Cleanup(func() { agentask.AnswerHook = nil })
+
+	agentask.GlobalRegistry.Set(blockORef, agentask.PendingAsk{
+		AskId:     "ask-answered",
+		Questions: []baseds.AgentAskQuestion{{Question: "A or B?", Options: []baseds.AgentAskOption{{Label: "A"}, {Label: "B"}}}},
+		Ts:        1,
+	})
+	waiter := agentask.GlobalRegistry.RegisterWaiter("ask-answered")
+
+	if err := ws.DagAnswerCommand(context.Background(), wshrpc.CommandDagAnswerData{
+		ChannelId: g.ChannelId, RunId: g.RunID, TaskId: "t-0",
+		Answers: []baseds.AgentAnswerItem{{SelectedIndexes: []int{1}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-waiter:
+	case <-time.After(2 * time.Second):
+		t.Fatal("waiter never resolved")
+	}
+
+	rows := askLifecycleRows(t, g.ChannelId, g.RunID, waveobj.RunEventKindChildAnswered)
+	if len(rows) != 1 {
+		t.Fatalf("want exactly one child-answered row, got %d (%+v)", len(rows), rows)
+	}
+	if rows[0]["askid"] != "ask-answered" || rows[0]["taskid"] != "t-0" {
+		t.Fatalf("answered row must carry the raised ask id: %+v", rows[0])
+	}
+}
+
+func TestAgentAskClearRecordsChildAskClearedOnce(t *testing.T) {
+	g, _, blockORef := dagAskFixture(t)
+	ws := &WshServer{}
+	agentask.GlobalRegistry = agentask.MakeRegistry()
+	agentask.GlobalRegistry.Set(blockORef, agentask.PendingAsk{AskId: "ask-cleared", Ts: 1})
+
+	if err := ws.AgentAskClearCommand(context.Background(), blockORef); err != nil {
+		t.Fatal(err)
+	}
+	rows := askLifecycleRows(t, g.ChannelId, g.RunID, waveobj.RunEventKindChildAskCleared)
+	if len(rows) != 1 {
+		t.Fatalf("want one child-ask-cleared row, got %d (%+v)", len(rows), rows)
+	}
+	if rows[0]["reason"] != orchestrate.AskClearReasonDismissed || rows[0]["askid"] != "ask-cleared" {
+		t.Fatalf("cleared row = %+v", rows[0])
+	}
+
+	// a repeat clear (CC's PostToolUse after a cockpit dismiss) finds nothing pending
+	if err := ws.AgentAskClearCommand(context.Background(), blockORef); err != nil {
+		t.Fatal(err)
+	}
+	if again := askLifecycleRows(t, g.ChannelId, g.RunID, waveobj.RunEventKindChildAskCleared); len(again) != 1 {
+		t.Fatalf("duplicate clear must append nothing, got %d rows", len(again))
 	}
 }

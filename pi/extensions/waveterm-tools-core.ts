@@ -25,6 +25,14 @@ export interface PiControlCommand {
     content: string;
     name: string;
     path: string;
+    // envelope: the identity the engine minted for this attempt. Preserved verbatim so the
+    // acknowledgement names the exact control file that was dispatched — a superseded file and the
+    // one actually handled are otherwise indistinguishable.
+    eventid: string;
+    channelid: string;
+    runid: string;
+    taskid: string;
+    sessionid: string;
 }
 
 export function controlFileName(sessionId: string): string {
@@ -98,12 +106,40 @@ export function parseControlCommand(raw: string): PiControlCommand | null {
     if (typeof obj.cmd !== "string" || !(CONTROL_COMMANDS as readonly string[]).includes(obj.cmd)) {
         return null;
     }
+    const str = (key: string): string => (typeof obj[key] === "string" ? (obj[key] as string) : "");
     return {
         cmd: obj.cmd as ControlCommand,
-        content: typeof obj.content === "string" ? obj.content : "",
-        name: typeof obj.name === "string" ? obj.name : "",
-        path: typeof obj.path === "string" ? obj.path : "",
+        content: str("content"),
+        name: str("name"),
+        path: str("path"),
+        eventid: str("eventid"),
+        channelid: str("channelid"),
+        runid: str("runid"),
+        taskid: str("taskid"),
+        sessionid: str("sessionid"),
     };
+}
+
+// controlAckArgs builds the wsh invocation that confirms a dispatched control event. Returns null
+// when the envelope is incomplete — an older control file predating envelopes has nothing to
+// acknowledge, and a partial ack would be rejected by the server anyway.
+export function controlAckArgs(cmd: PiControlCommand): string[] | null {
+    if (!cmd.eventid || !cmd.channelid || !cmd.runid || !cmd.sessionid) {
+        return null;
+    }
+    return [
+        "jarvis",
+        "dag",
+        "ack",
+        "--channel",
+        cmd.channelid,
+        "--runid",
+        cmd.runid,
+        "--event",
+        cmd.eventid,
+        "--session",
+        cmd.sessionid,
+    ];
 }
 
 // makeSerialChain coerces burst callers into one-at-a-time execution: each call waits for the

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
+	"github.com/wavetermdev/waveterm/pkg/agentask"
 	"github.com/wavetermdev/waveterm/pkg/aiusechat"
 	"github.com/wavetermdev/waveterm/pkg/authkey"
 	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
@@ -619,8 +620,9 @@ func main() {
 	go updateTelemetryCountsLoop()
 	go backupCleanupLoop()
 	go tempAttachmentCleanupLoop()
-	go startupActivityUpdate(firstLaunch)           // must be after startConfigWatcher()
-	orchestrate.StartWatchdog(context.Background()) // dag advance + stall detection tick
+	go startupActivityUpdate(firstLaunch)             // must be after startConfigWatcher()
+	orchestrate.StartWatchdog(context.Background())   // dag advance + stall detection tick
+	agentask.AnswerHook = wshserver.RecordAskAnswered // one ask lifecycle row per delivered answer, whichever surface delivered it
 	blocklogger.InitBlockLogger()
 	jobcontroller.InitJobController()
 	blockcontroller.InitBlockController()

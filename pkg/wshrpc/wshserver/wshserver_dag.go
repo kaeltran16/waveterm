@@ -6,6 +6,7 @@ package wshserver
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -176,6 +177,62 @@ func dagDigestRetained(ctx context.Context, channelId, runId string) []waveobj.R
 		return nil
 	}
 	return ev
+}
+
+// controlAckKinds are the rows an acknowledgement is checked against: the attempt it claims to
+// confirm must appear as sent, must not have failed, and must not already be acknowledged.
+var controlAckKinds = []string{
+	waveobj.RunEventKindLeadControlSent,
+	waveobj.RunEventKindLeadControlFailed,
+	waveobj.RunEventKindLeadControlAcknowledged,
+}
+
+// PiControlAckCommand records that the lead's pi watcher accepted a control event. Acknowledgement is
+// visibility only — the persisted DAG is authoritative either way — so the handler's job is to make
+// sure the row it writes is TRUE: it appends only for an attempt that was really sent to really this
+// session, and never twice for the same attempt.
+func (ws *WshServer) PiControlAckCommand(ctx context.Context, data wshrpc.CommandPiControlAckData) error {
+	if data.ChannelId == "" || data.RunId == "" || data.EventId == "" || data.SessionId == "" {
+		return fmt.Errorf("channelid, runid, eventid and sessionid are required")
+	}
+	events, err := wstore.QueryRunEventsByKind(ctx, data.ChannelId, data.RunId, controlAckKinds, 0)
+	if err != nil {
+		return fmt.Errorf("loading control events: %w", err)
+	}
+	sentSession := ""
+	sent, failed, acked := false, false, false
+	for _, ev := range events {
+		var detail struct {
+			EventId   string `json:"eventid"`
+			SessionId string `json:"sessionid"`
+		}
+		if jerr := json.Unmarshal(ev.Detail, &detail); jerr != nil || detail.EventId != data.EventId {
+			continue
+		}
+		switch ev.Kind {
+		case waveobj.RunEventKindLeadControlSent:
+			sent, sentSession = true, detail.SessionId
+		case waveobj.RunEventKindLeadControlFailed:
+			failed = true
+		case waveobj.RunEventKindLeadControlAcknowledged:
+			acked = true
+		}
+	}
+	if !sent {
+		if failed {
+			return fmt.Errorf("control event %s was never delivered", data.EventId)
+		}
+		return fmt.Errorf("unknown control event %s for run %s", data.EventId, data.RunId)
+	}
+	if sentSession != data.SessionId {
+		return fmt.Errorf("control event %s was sent to session %s, not %s", data.EventId, sentSession, data.SessionId)
+	}
+	if acked {
+		return nil // already confirmed; a watcher retry must not write a second row
+	}
+	appendRunEvent(ctx, data.ChannelId, data.RunId, waveobj.RunEventKindLeadControlAcknowledged, nil,
+		map[string]any{"eventid": data.EventId, "sessionid": data.SessionId})
+	return nil
 }
 
 func (ws *WshServer) DagActionCommand(ctx context.Context, data wshrpc.CommandDagActionData) error {
@@ -379,11 +436,9 @@ func (ws *WshServer) DagAnswerCommand(ctx context.Context, data wshrpc.CommandDa
 		}
 		for _, bo := range blocks {
 			if _, pending := agentask.GlobalRegistry.Get(bo); pending {
-				if err := ws.AnswerAgentCommand(ctx, wshrpc.CommandAnswerAgentData{ORef: bo, Answers: data.Answers}); err != nil {
-					return err
-				}
-				appendRunEvent(ctx, data.ChannelId, run.ID, waveobj.RunEventKindChildAnswered, nil, map[string]any{"taskid": data.TaskId})
-				return nil
+				// child-answered is recorded by the shared answer hook inside DeliverAnswer, so
+				// this path cannot diverge from a cockpit or Gatekeeper answer.
+				return ws.AnswerAgentCommand(ctx, wshrpc.CommandAnswerAgentData{ORef: bo, Answers: data.Answers})
 			}
 		}
 		return fmt.Errorf("task %s has no pending ask", data.TaskId)

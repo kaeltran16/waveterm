@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { Type } from "typebox";
 import {
     captureTailArgs,
+    controlAckArgs,
     controlFileName,
     dagEventMessage,
     makeSerialChain,
@@ -172,8 +173,20 @@ export function registerWavetermTools(pi: any, wshPath: string): void {
     // makeDispatcher maps a parsed command file onto pi/ctx APIs. ctx is the session ctx from
     // the enclosing session_start; the ctx-dependent commands (compact/abort/new_session/
     // switch_session) use it, per the spec's session-replacement notes.
+    // ackControl confirms a dispatched engine control event back to the server. Best-effort: a failed
+    // acknowledgement leaves the attempt "unconfirmed" in the cockpit, which is the honest state — it
+    // must never block or undo the command the lead already acted on.
+    const ackControl = async (cmd: PiControlCommand, log: (m: string) => void): Promise<void> => {
+        const args = controlAckArgs(cmd);
+        if (!args) return; // not an engine control event (no envelope) — nothing to confirm
+        const r = await wsh(args);
+        if (!r.ok) log(`pi-control: ack for ${cmd.eventid} failed: ${r.stderr}`);
+    };
+
+    // makeDispatcher returns whether the command was accepted, so only a real dispatch is
+    // acknowledged — a command that threw must not be reported to the cockpit as received.
     const makeDispatcher = (ctx: any, log: (m: string) => void) => {
-        return async (cmd: PiControlCommand): Promise<void> => {
+        return async (cmd: PiControlCommand): Promise<boolean> => {
             try {
                 switch (cmd.cmd) {
                     case "steer":
@@ -210,9 +223,11 @@ export function registerWavetermTools(pi: any, wshPath: string): void {
                         await notify(dagEventMessage(cmd.cmd, cmd.content));
                         break;
                 }
+                return true;
             } catch (e) {
                 log(`pi-control: command ${cmd.cmd} failed: ${String(e)}`);
                 await notify(`Pi control command failed: ${cmd.cmd}`, { level: "error" });
+                return false;
             }
         };
     };
@@ -223,7 +238,7 @@ export function registerWavetermTools(pi: any, wshPath: string): void {
     const startControlWatcher = (
         dir: string,
         sessionId: string,
-        onCommand: (cmd: PiControlCommand) => Promise<void>,
+        onCommand: (cmd: PiControlCommand) => Promise<boolean>,
         log: (m: string) => void
     ): (() => void) => {
         const file = join(dir, controlFileName(sessionId));
@@ -241,7 +256,9 @@ export function registerWavetermTools(pi: any, wshPath: string): void {
                 return;
             }
             try {
-                await onCommand(cmd);
+                if (await onCommand(cmd)) {
+                    await ackControl(cmd, log);
+                }
             } finally {
                 rmSync(file, { force: true });
             }

@@ -13,7 +13,8 @@ export interface RunTimelineGroup {
     events: RunEvent[];
 }
 
-// kinds that render under the RUN group — everything not phase-scoped.
+// kinds that render under the RUN group — everything not phase-scoped. A kind missing here and
+// carrying no phaseidx renders only in the collapsed preview, so every dag lifecycle kind belongs.
 const RUN_GROUP_KINDS = new Set([
     "run-created",
     "triage",
@@ -24,8 +25,26 @@ const RUN_GROUP_KINDS = new Set([
     "evidence-sealed",
     "task-spawned",
     "task-stalled",
+    "task-retried",
     "dag-blocked",
     "dag-done",
+    "task-done",
+    "task-failed",
+    "dag-cancelled",
+    "dag-gate-open",
+    "child-ask",
+    "child-answered",
+    "child-ask-cleared",
+    "task-merge-started",
+    "task-merge-blocked",
+    "task-merge-continued",
+    "task-merged",
+    "task-cleanup-pending",
+    "task-cleanup-completed",
+    "task-cleanup-failed",
+    "lead-control-sent",
+    "lead-control-failed",
+    "lead-control-acknowledged",
 ]);
 
 export function buildRunTimeline(run: Run, events: RunEvent[]): { groups: RunTimelineGroup[]; preview: RunEvent[] } {
@@ -69,8 +88,26 @@ const KIND_TITLE: Record<string, string> = {
     "evidence-sealed": "Evidence sealed",
     "task-spawned": "Task spawned",
     "task-stalled": "Task stalled",
+    "task-retried": "Task retried",
     "dag-blocked": "DAG blocked",
     "dag-done": "DAG complete",
+    "task-done": "Task done",
+    "task-failed": "Task failed",
+    "dag-cancelled": "DAG cancelled",
+    "dag-gate-open": "Gate awaiting release",
+    "child-ask": "Child asked a question",
+    "child-answered": "Child answered",
+    "child-ask-cleared": "Question cleared",
+    "task-merge-started": "Merge started",
+    "task-merge-blocked": "Merge blocked",
+    "task-merge-continued": "Merge continued",
+    "task-merged": "Task merged",
+    "task-cleanup-pending": "Cleanup pending",
+    "task-cleanup-completed": "Cleanup complete",
+    "task-cleanup-failed": "Cleanup failed",
+    "lead-control-sent": "Lead notified",
+    "lead-control-failed": "Lead notify failed",
+    "lead-control-acknowledged": "Lead acknowledged",
 };
 
 // KIND_TONE stays inside the EXISTING status/phase tone utilities (the same token classes
@@ -86,13 +123,31 @@ const KIND_TONE: Record<string, string> = {
     "gate-approved": "text-success",
     "task-spawned": "text-success",
     "dag-done": "text-success",
+    "task-done": "text-success",
+    "task-merged": "text-success",
+    "task-cleanup-completed": "text-success",
+    "child-answered": "text-success",
+    "task-merge-continued": "text-success",
     "phase-held": "text-asking",
+    "child-ask": "text-asking",
+    "dag-gate-open": "text-asking",
     "gate-sent-back": "text-warning",
     triage: "text-warning",
     "task-stalled": "text-warning",
     "dag-blocked": "text-warning",
+    "task-retried": "text-warning",
+    "task-failed": "text-warning",
+    "task-merge-blocked": "text-warning",
+    "task-cleanup-failed": "text-warning",
+    "lead-control-failed": "text-warning",
     "child-cancelled": "text-muted",
     "run-cancelled": "text-muted",
+    "dag-cancelled": "text-muted",
+    "child-ask-cleared": "text-muted",
+    "task-merge-started": "text-muted",
+    "task-cleanup-pending": "text-muted",
+    "lead-control-sent": "text-muted",
+    "lead-control-acknowledged": "text-muted",
 };
 
 export function eventKindTitle(kind: string): string {

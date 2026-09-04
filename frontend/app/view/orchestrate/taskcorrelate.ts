@@ -48,6 +48,16 @@ export function resolveTaskWorker(task: TaskWorkerTask, childRun: Run | undefine
     return { state: "unavailable", runId };
 }
 
+// workerActivityText says what a row shows in place of live activity, or null when the worker is
+// reachable and its own activity line should render. An unreachable worker gets an explicit
+// "unavailable" — rendering it as idle would be a fabricated claim about a session nobody can see.
+export function workerActivityText(view: TaskWorkerView): string | null {
+    if (view.state === "dispatched" && view.agent) {
+        return null;
+    }
+    return view.state === "pending" ? "Not dispatched yet" : "Activity unavailable";
+}
+
 // openTaskWorker routes a resolved worker view: dispatched jumps to the agent tab; unavailable falls
 // back to the child run (pending has no navigable target and does nothing).
 export function openTaskWorker(view: TaskWorkerView, model: AgentsViewModel, channelId: string): void {

@@ -243,7 +243,7 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 			childRunID := t.RunID
 			afterCommit = append(afterCommit, func() {
 				publishDagEvent(DagEventChildDone, g, taskID)
-				notifyLeadBestEffort(ctx, g, DagEventChildDone, taskID)
+				notifyLeadBestEffort(ctx, g, DagEventChildDone, taskID, taskID)
 				appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskDone, nil, map[string]any{"taskid": taskID, "runid": childRunID})
 			})
 		}
@@ -363,7 +363,7 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		detail := fmt.Sprintf("gate %s", gateTask)
 		afterCommit = append(afterCommit, func() {
 			publishDagEvent(DagEventGateOpen, g, "")
-			notifyLeadBestEffort(ctx, g, DagEventGateOpen, detail)
+			notifyLeadBestEffort(ctx, g, DagEventGateOpen, detail, gateTask)
 			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindDagGateOpen, nil, map[string]any{"taskid": gateTask})
 		})
 	case DagStatus_Blocked:
@@ -386,13 +386,13 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		afterCommit = append(afterCommit, func() {
 			publishDagEvent(DagEventBlocked, g, "")
 			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindDagBlocked, nil, map[string]any{"failures": failures, "kind": blockingKind})
-			notifyLeadBestEffort(ctx, g, DagEventBlocked, fmt.Sprintf("%d failures", failures))
+			notifyLeadBestEffort(ctx, g, DagEventBlocked, fmt.Sprintf("%d failures", failures), "")
 		})
 	case DagStatus_Done:
 		afterCommit = append(afterCommit, func() {
 			publishDagEvent(DagEventComplete, g, "")
 			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindDagDone, nil, map[string]any{})
-			notifyLeadBestEffort(ctx, g, DagEventComplete, "all tasks done")
+			notifyLeadBestEffort(ctx, g, DagEventComplete, "all tasks done", "")
 		})
 	}
 	g.UpdatedTs = time.Now().UnixMilli()

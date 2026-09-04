@@ -7,9 +7,11 @@ import { useWaveObjectValue } from "@/app/store/wos";
 import { harnessesAtom } from "../agents/harnessstore";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { useAtomValue } from "jotai";
-import { useEffect, useRef, type JSX } from "react";
+import { useEffect, useRef, useState, type JSX } from "react";
 import { DagGraphView } from "./daggraph";
 import { closeDagModal, dagModalStateAtom, type DagModalState } from "./dagmodalstate";
+import { timelineLayout, type TimelineLayout } from "./timelinefilter";
+import { TimelineRail } from "./timelinerail";
 
 const DAG_MODAL_HEADING_ID = "dag-modal-heading";
 const FOCUSABLE_SELECTOR =
@@ -19,6 +21,7 @@ export function DagModal() {
     const state = useAtomValue(dagModalStateAtom);
     const panelRef = useRef<HTMLDivElement>(null);
     const open = state != null;
+    const layout = useTimelineLayout();
 
     useEffect(() => {
         if (!open) return;
@@ -90,8 +93,9 @@ export function DagModal() {
                                     Close · Esc
                                 </button>
                             </div>
-                            <div className="min-h-0 flex flex-1">
+                            <div className={"min-h-0 flex flex-1 " + (layout === "drawer" ? "flex-col" : "")}>
                                 <LiveDagModal state={state} />
+                                <TimelineRail channelId={state.channelId} runId={state.runId} layout={layout} />
                             </div>
                         </motion.div>
                     </motion.div>
@@ -99,6 +103,18 @@ export function DagModal() {
             </AnimatePresence>
         </MotionConfig>
     );
+}
+
+// useTimelineLayout tracks whether the modal is wide enough to show live work and history side by
+// side. Mirrors the nav rail's window-resize pattern; the decision itself is the pure timelineLayout.
+function useTimelineLayout(): TimelineLayout {
+    const [layout, setLayout] = useState(() => timelineLayout(window.innerWidth));
+    useEffect(() => {
+        const onResize = () => setLayout(timelineLayout(window.innerWidth));
+        window.addEventListener("resize", onResize);
+        return () => window.removeEventListener("resize", onResize);
+    }, []);
+    return layout;
 }
 
 function LiveDagModal({ state }: { state: Extract<DagModalState, { kind: "live" }> }): JSX.Element {

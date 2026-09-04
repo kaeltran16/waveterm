@@ -1080,6 +1080,12 @@ func PathCommand(w *wshutil.WshRpc, data wshrpc.PathCommandData, opts *wshrpc.Rp
 	return resp, err
 }
 
+// command "picontrolack", wshserver.PiControlAckCommand
+func PiControlAckCommand(w *wshutil.WshRpc, data wshrpc.CommandPiControlAckData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "picontrolack", data, opts)
+	return err
+}
+
 // command "pisendcontrol", wshserver.PiSendControlCommand
 func PiSendControlCommand(w *wshutil.WshRpc, data wshrpc.PiControlCommandData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "pisendcontrol", data, opts)

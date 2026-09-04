@@ -611,3 +611,79 @@ func sameStrings(a, b []string) bool {
 	}
 	return true
 }
+
+func controlDigestFor(t *testing.T, retained []waveobj.RunEvent) *wshrpc.ControlDigest {
+	t.Helper()
+	g := digestGroup(t, false, []waveobj.TaskNode{{ID: "t-0", Label: "a"}})
+	return BuildDigest(digestSnapshot(g, nil, nil, retained, digestNow)).Control
+}
+
+func TestControlDigestUnconfirmedWhenSentWithoutAck(t *testing.T) {
+	c := controlDigestFor(t, []waveobj.RunEvent{
+		controlEvent(waveobj.RunEventKindLeadControlSent, "ev-1", "sess-1", "t-0", "gate_open", "", 100),
+	})
+	if c == nil {
+		t.Fatal("a sent control must produce a control digest")
+	}
+	if c.Status != "unconfirmed" || c.EventId != "ev-1" || c.SessionId != "sess-1" || c.Kind != "gate_open" {
+		t.Fatalf("digest = %+v", c)
+	}
+	if c.SentTs != 100 || c.AcknowledgedTs != 0 || c.TaskId != "t-0" {
+		t.Fatalf("digest = %+v", c)
+	}
+}
+
+func TestControlDigestAcknowledged(t *testing.T) {
+	c := controlDigestFor(t, []waveobj.RunEvent{
+		controlEvent(waveobj.RunEventKindLeadControlSent, "ev-1", "sess-1", "t-0", "gate_open", "", 100),
+		controlEvent(waveobj.RunEventKindLeadControlAcknowledged, "ev-1", "sess-1", "", "", "", 140),
+	})
+	if c == nil || c.Status != "acknowledged" || c.AcknowledgedTs != 140 {
+		t.Fatalf("digest = %+v", c)
+	}
+}
+
+func TestControlDigestFailedAndUnavailable(t *testing.T) {
+	write := controlDigestFor(t, []waveobj.RunEvent{
+		controlEvent(waveobj.RunEventKindLeadControlFailed, "ev-2", "sess-1", "t-0", "gate_open", ControlFailureWrite, 100),
+	})
+	if write == nil || write.Status != "failed" {
+		t.Fatalf("a write failure is status failed: %+v", write)
+	}
+	gone := controlDigestFor(t, []waveobj.RunEvent{
+		controlEvent(waveobj.RunEventKindLeadControlFailed, "ev-3", "", "", "dag_complete", ControlFailureUnavailable, 100),
+	})
+	if gone == nil || gone.Status != "unavailable" {
+		t.Fatalf("an unreachable lead is status unavailable: %+v", gone)
+	}
+}
+
+func TestControlDigestLatestAttemptWins(t *testing.T) {
+	c := controlDigestFor(t, []waveobj.RunEvent{
+		controlEvent(waveobj.RunEventKindLeadControlSent, "ev-1", "sess-1", "t-0", "gate_open", "", 100),
+		controlEvent(waveobj.RunEventKindLeadControlAcknowledged, "ev-1", "sess-1", "", "", "", 110),
+		controlEvent(waveobj.RunEventKindLeadControlSent, "ev-2", "sess-1", "t-1", "child_ask", "", 200),
+	})
+	if c == nil || c.EventId != "ev-2" {
+		t.Fatalf("the newest attempt is the one reported: %+v", c)
+	}
+	if c.Status != "unconfirmed" {
+		t.Fatalf("an ack for an older attempt must not confirm the newest one: %+v", c)
+	}
+}
+
+func TestControlDigestAckNeverTransfersBetweenEvents(t *testing.T) {
+	c := controlDigestFor(t, []waveobj.RunEvent{
+		controlEvent(waveobj.RunEventKindLeadControlSent, "ev-5", "sess-1", "t-0", "gate_open", "", 100),
+		controlEvent(waveobj.RunEventKindLeadControlAcknowledged, "ev-other", "sess-1", "", "", "", 150),
+	})
+	if c == nil || c.Status != "unconfirmed" {
+		t.Fatalf("an ack naming a different event id must not confirm this one: %+v", c)
+	}
+}
+
+func TestControlDigestAbsentWithoutControlRows(t *testing.T) {
+	if c := controlDigestFor(t, nil); c != nil {
+		t.Fatalf("no control attempt means no control digest, got %+v", c)
+	}
+}

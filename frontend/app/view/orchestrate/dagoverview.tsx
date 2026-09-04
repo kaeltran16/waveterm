@@ -14,9 +14,9 @@ import { runAtom } from "../agents/channelsstore";
 import type { AgentsViewModel } from "../agents/agents";
 import type { AgentVM } from "../agents/agentsviewmodel";
 import { ActivityLine, StatusLine } from "../agents/statusline";
-import { useDagDigest, nextStepText, type DigestState } from "./dagdigest";
+import { controlWarning, freshCounts, healthView, nextStepView, useDagDigest, type DigestState } from "./dagdigest";
 import { useDagGroup } from "./dagstore";
-import { resolveTaskWorker, openTaskWorker, type TaskWorkerView } from "./taskcorrelate";
+import { openTaskWorker, resolveTaskWorker, workerActivityText, type TaskWorkerView } from "./taskcorrelate";
 import { workerSortKey } from "./workertasksort";
 
 export function DagOverview({
@@ -36,32 +36,38 @@ export function DagOverview({
     const [group] = useDagGroup(dagOref);
     const digest = digestState.digest;
 
-    const healthTone = healthToneFor(digestState);
-    const elapsed = digest?.durations?.elapsedms;
+    const health = healthView(digestState);
+    const counts = freshCounts(digestState);
+    const nextMove = nextStepView(digestState);
+    const control = controlWarning(digest);
+    const elapsed = counts ? digest?.durations?.elapsedms : undefined;
 
     return (
         <div className="mb-4 overflow-hidden rounded-xl border border-edge-mid bg-surface">
-            {/* health strip */}
+            {/* health strip: aria-live so a health/attention transition is announced, not every tick */}
             <div className="flex items-center gap-3 border-b border-edge-mid px-3.5 py-2.5">
-                <span className={healthTone + " text-[13px] font-bold"}>{digestState.stale ? "Refreshing status" : digest?.health ?? "DAG status unavailable"}</span>
+                <span aria-live="polite" className={health.tone + " text-[13px] font-bold"}>
+                    {health.text}
+                </span>
                 <div className="flex flex-1 flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10.5px] text-muted">
-                    <span>{digest?.counts ? `${digest.counts.done}/${digest.counts.total} done` : "…"}</span>
+                    <span>{counts ? `${counts.done}/${counts.total} done` : "…"}</span>
                     {elapsed ? <span>{formatElapsed(elapsed)}</span> : null}
-                    <span>{digest?.counts?.attention ? `attention ${digest.counts.attention}` : ""}</span>
-                    <span>{digest?.counts?.mergeready ? `merge ${digest.counts.mergeready}` : ""}</span>
+                    <span aria-live="polite">{counts?.attention ? `attention ${counts.attention}` : ""}</span>
+                    <span>{counts?.mergeready ? `merge ${counts.mergeready}` : ""}</span>
+                    {control ? <span className="text-warning">⚠ {control}</span> : null}
                 </div>
             </div>
 
             {/* next engine move */}
-            {digest ? (
+            {nextMove ? (
                 <div className="border-b border-edge-mid px-3.5 py-2 font-mono text-[11px] text-secondary">
                     <span className="mr-1.5 text-muted">next:</span>
-                    {nextStepText(digest.next)}
+                    {nextMove}
                 </div>
             ) : null}
 
             {/* attention / merge queue: only actionable exceptions + merge-ready tasks */}
-            {digest ? <Queue digest={digest} group={group} /> : null}
+            {digest && !digestState.stale ? <Queue digest={digest} group={group} /> : null}
 
             {/* worker rows */}
             <div className="flex flex-col px-3.5 py-2">
@@ -73,23 +79,6 @@ export function DagOverview({
             </div>
         </div>
     );
-}
-
-function healthToneFor(state: DigestState): string {
-    if (state.stale) {
-        return "text-muted";
-    }
-    switch (state.digest?.health) {
-        case "needs-you":
-            return "text-warning";
-        case "stalled":
-            return "text-error";
-        case "done":
-        case "cancelled":
-            return "text-muted";
-        default:
-            return "text-success";
-    }
 }
 
 function formatElapsed(ms: number): string {
@@ -171,6 +160,7 @@ function WorkerRow({
         (task.runid ? runAtom(task.runid) : NO_RUN_ATOM) as Atom<Run | undefined>
     );
     const worker: TaskWorkerView = resolveTaskWorker({ id: task.id, runid: task.runid }, childRun, agents);
+    const activityText = workerActivityText(worker);
 
     return (
         <div className="flex min-w-0 items-center gap-2 border-b border-edge-faint py-1.5 last:border-b-0">
@@ -182,19 +172,15 @@ function WorkerRow({
                         <span className="shrink-0 truncate">{task.label || task.id}</span>
                     </div>
                 )}
-                <ActivityLine
-                    agent={worker.state === "dispatched" && worker.agent ? worker.agent : idleAgent(task.label || task.id)}
-                    right={null}
-                    className="mt-0.5"
-                />
+                {activityText == null && worker.agent ? (
+                    <ActivityLine agent={worker.agent} right={null} className="mt-0.5" />
+                ) : (
+                    <div className="mt-0.5 font-mono text-[10.5px] text-muted">{activityText}</div>
+                )}
             </div>
             <TaskRowSignal task={task} td={td} worker={worker} channelId={channelId} model={model} digestStale={digestStale} />
         </div>
     );
-}
-
-function idleAgent(name: string): AgentVM {
-    return { id: "", name, task: "", state: "idle" };
 }
 
 function TaskRowSignal({

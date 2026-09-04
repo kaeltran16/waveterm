@@ -93,3 +93,18 @@ func digestSnapshot(g *waveobj.TaskGroup, runs []*waveobj.Run, asks []wshrpc.Dag
 }
 
 var digestNow = time.UnixMilli(10_000)
+
+// controlEvent builds one lead-control-* row as the control writers persist it.
+func controlEvent(kind, eventID, sessionID, taskID, cmd, failure string, ts int64) waveobj.RunEvent {
+	detail := map[string]any{"eventid": eventID}
+	for k, v := range map[string]string{"sessionid": sessionID, "taskid": taskID, "cmd": cmd, "failure": failure} {
+		if v != "" {
+			detail[k] = v
+		}
+	}
+	detailJSON, _ := json.Marshal(detail)
+	return waveobj.RunEvent{
+		ID: uuid.NewString(), RunID: "run-1", ChannelID: "ch-1",
+		Ts: ts, Kind: kind, Detail: detailJSON,
+	}
+}
