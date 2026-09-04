@@ -217,18 +217,26 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		}
 	}
 	DeriveTaskStates(g, runs)
-	// liveness + stall detection: refresh each running task's last-activity from its child's pi
-	// session writes; a running task silent past StallThreshold is flagged stalled and reported to the
-	// lead (nothing else ever notices a headless child that stopped progressing). A stalled task whose
-	// child later completes still derives done (DeriveTaskStates).
+	// liveness + stall detection: refresh each running task's last-activity from its child's own
+	// transcript writes; a running task silent past StallThreshold is flagged stalled and reported to
+	// the lead (nothing else ever notices a headless child that stopped progressing). A stalled task
+	// whose child later completes still derives done (DeriveTaskStates).
 	now := time.Now().UnixMilli()
 	for i := range g.Tasks {
 		t := &g.Tasks[i]
 		if t.RunID == "" {
 			continue
 		}
-		if activity := lastActivityForRun(runs[t.RunID], dagSessionMarker(g.OID, t.ID)); activity > t.LastActivity {
+		activity, tracked := lastActivityForRun(runs[t.RunID], dagSessionMarker(g.OID, t.ID))
+		if activity > t.LastActivity {
 			t.LastActivity = activity
+		}
+		// no readable activity source: the spawn-time seed would age into a stall on its own and hand
+		// the lead a retry that kills a working child. Report freshness unknown (zero) instead — a
+		// missed stall only costs a timeout.
+		if !tracked {
+			t.LastActivity = 0
+			continue
 		}
 		if t.State == TaskState_Running && t.LastActivity > 0 && now-t.LastActivity > StallThreshold.Milliseconds() {
 			t.State = TaskState_Stalled
