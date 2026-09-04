@@ -827,3 +827,25 @@ func TestCreateRunCommand_RejectsCrossNamespaceModelBeforePersistence(t *testing
 		t.Fatalf("rejected route spawned %d workers", spawnCalls)
 	}
 }
+
+func TestCreateRunCommand_PersistsOrchestration(t *testing.T) {
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "create-orch", "/repo")
+	if err != nil {
+		t.Fatalf("CreateChannel: %v", err)
+	}
+	var spawnedCap runroute.Capability
+	stubRunServer(t, "claude", nil, &spawnedCap)
+
+	ws := &WshServer{}
+	rtn, err := ws.CreateRunCommand(ctx, wshrpc.CommandCreateRunData{
+		ChannelId: ch.OID, WorkspaceId: "ws-1", Goal: "do it", Runtime: "claude", Tier: "capable",
+		Mode: jarvis.RunMode_Orchestrator, Orchestration: jarvis.Orchestration_Engine,
+	})
+	if err != nil {
+		t.Fatalf("CreateRunCommand: %v", err)
+	}
+	if rtn.Run.Orchestration != jarvis.Orchestration_Engine {
+		t.Fatalf("persisted orchestration = %q, want engine", rtn.Run.Orchestration)
+	}
+}

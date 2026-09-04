@@ -6,6 +6,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +17,8 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/pitasks"
+	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wps"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc/wshclient"
 )
@@ -27,18 +30,42 @@ var jarvisDagCmd = &cobra.Command{
 	RunE:  func(cmd *cobra.Command, args []string) error { return cmd.Help() },
 }
 
+// dagSubmitSource reads the DAG payload from exactly one source: inline argv JSON, or --file (a path,
+// or "-" for stdin). A lead writing a large DAG cannot reliably quote it through argv on Windows,
+// which is what --file is for.
+func dagSubmitSource(args []string, file string, stdin io.Reader) ([]byte, error) {
+	if len(args) == 1 && file != "" {
+		return nil, fmt.Errorf("pass the dag JSON inline or with --file, not both")
+	}
+	if len(args) == 1 {
+		return []byte(args[0]), nil
+	}
+	if file == "-" {
+		return io.ReadAll(stdin)
+	}
+	if file != "" {
+		return os.ReadFile(file)
+	}
+	return nil, fmt.Errorf("dag JSON required: pass it inline or with --file <path>")
+}
+
 var dagSubmitCmd = &cobra.Command{
-	Use:     "submit <dag-json>",
-	Short:   "validate and submit a DAG for the current run",
-	Args:    cobra.ExactArgs(1),
+	Use:     "submit [dag-json]",
+	Short:   "validate and submit a DAG for the current run (inline JSON, or --file <path>|-)",
+	Args:    cobra.MaximumNArgs(1),
 	PreRunE: preRunSetupRpcClient,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		file, _ := cmd.Flags().GetString("file")
+		raw, err := dagSubmitSource(args, file, cmd.InOrStdin())
+		if err != nil {
+			return err
+		}
 		channelId, runId, err := dagIds(cmd)
 		if err != nil {
 			return err
 		}
 		var data wshrpc.CommandDagSubmitData
-		if err := json.Unmarshal([]byte(args[0]), &data); err != nil {
+		if err := json.Unmarshal(raw, &data); err != nil {
 			return fmt.Errorf("dag json: %w", err)
 		}
 		data.ChannelId = channelId
@@ -107,6 +134,94 @@ var dagStatusCmd = &cobra.Command{
 			fmt.Println(line)
 		}
 		return nil
+	},
+}
+
+// dagWaitEvents is every engine event that can change what the lead should do next. Each is already
+// registered in wps.AllEvents and published scoped to the owning run.
+var dagWaitEvents = []string{
+	wps.DagEventChildDone, wps.DagEventGateOpen, wps.DagEventBlocked, wps.DagEventComplete,
+	wps.DagEventTaskSpawned, wps.DagEventChildAsk, wps.DagEventTaskStalled, wps.DagEventTaskRetried,
+}
+
+// waitDecision reports whether the lead should be handed control now, and why. Pure, so the blocking
+// glue evaluates it identically against the first digest and every post-event digest. Actions come
+// from the digest's own single derivation — never re-derived here from task state.
+func waitDecision(d wshrpc.DagStatusDigest) (bool, string) {
+	if d.Next.Kind == "terminal" || d.Health == "done" || d.Health == "cancelled" {
+		status := d.Next.TerminalStatus
+		if status == "" {
+			status = d.Health
+		}
+		return true, "terminal:" + status
+	}
+	if len(d.Next.Actions) > 0 {
+		return true, "action:" + d.Next.Kind
+	}
+	return false, ""
+}
+
+func printDagWait(rtn *wshrpc.CommandDagStatusRtnData, reason string) {
+	fmt.Printf("woke: %s\n", reason)
+	for _, line := range dagStatusLines(rtn, time.Now().UnixMilli()) {
+		fmt.Println(line)
+	}
+	fmt.Printf("dagversion=%d\n", rtn.Digest.DagVersion)
+}
+
+// DagWaitDefaultTimeout is bounded by Claude Code's Bash tool, which caps at 600s: a wait that
+// outlives its caller is killed and reported as a tool failure, which reads as a real error to a lead.
+const DagWaitDefaultTimeout = 540
+
+var dagWaitCmd = &cobra.Command{
+	Use:     "wait",
+	Short:   "block until the dag needs the lead, goes terminal, or the timeout elapses",
+	Args:    cobra.NoArgs,
+	PreRunE: preRunSetupRpcClient,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		timeoutSec, _ := cmd.Flags().GetInt("timeout")
+		channelId, runId, err := dagIds(cmd)
+		if err != nil {
+			return err
+		}
+		// subscribe before the first status read: an event landing between the two would otherwise be
+		// lost, and the lead would block on state that had already moved.
+		runScope := waveobj.MakeORef(waveobj.OType_Run, runId).String()
+		woke := make(chan struct{}, 1)
+		for _, ev := range dagWaitEvents {
+			RpcClient.EventListener.On(ev, func(e *wps.WaveEvent) {
+				if !e.HasScope(runScope) {
+					return
+				}
+				select {
+				case woke <- struct{}{}:
+				default: // a pending wake already covers this one
+				}
+			})
+			wshclient.EventSubCommand(RpcClient, wps.SubscriptionRequest{Event: ev, Scopes: []string{runScope}}, nil)
+		}
+		// one deadline for the whole call, not restarted per event
+		deadline := time.After(time.Duration(timeoutSec) * time.Second)
+		for {
+			rtn, err := wshclient.DagStatusCommand(RpcClient, wshrpc.CommandDagStatusData{ChannelId: channelId, RunId: runId}, &wshrpc.RpcOpts{Timeout: 10_000})
+			if err != nil {
+				return err
+			}
+			if rtn.Group == nil {
+				return fmt.Errorf("no dag for this run — submit one first")
+			}
+			if ret, reason := waitDecision(rtn.Digest); ret {
+				printDagWait(rtn, reason)
+				return nil
+			}
+			select {
+			case <-woke:
+				// re-read and re-evaluate; a purely informational event resumes blocking
+			case <-deadline:
+				printDagWait(rtn, "timeout")
+				return nil
+			}
+		}
 	},
 }
 
@@ -392,11 +507,13 @@ var dagInitCmd = &cobra.Command{
 func init() {
 	jarvisDagCmd.AddCommand(dagSubmitCmd, dagImportCmd, dagStatusCmd, dagMergeCmd, dagAsksCmd, dagAnswerCmd)
 	jarvisDagCmd.AddCommand(dagAction("approve"), dagAction("sendback"), dagAction("retry"), dagAction("skip"), dagEscalateCmd, dagAction("cancel"))
-	jarvisDagCmd.AddCommand(dagInitCmd, dagAckCmd)
+	jarvisDagCmd.AddCommand(dagInitCmd, dagAckCmd, dagWaitCmd)
 	for _, c := range jarvisDagCmd.Commands() {
 		c.Flags().String("runid", "", "run id")
 		c.Flags().String("channel", "", "channel id")
 	}
+	dagSubmitCmd.Flags().String("file", "", "read the dag JSON from a file (\"-\" for stdin)")
+	dagWaitCmd.Flags().Int("timeout", DagWaitDefaultTimeout, "seconds to block before returning the current digest")
 	dagImportCmd.Flags().String("dir", "", "pi-tasks dir (default .)")
 	dagImportCmd.Flags().String("title", "", "dag title (shown in the ui; default runs the first task's label)")
 	dagInitCmd.Flags().String("dir", "", "pi-tasks dir (default .)")

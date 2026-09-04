@@ -71,6 +71,7 @@ export async function createRun(
         deferStart?: boolean;
         radarOrigin?: { reportid: string; findingid: string; fingerprint: string };
         workerRoute?: RoutePin | null;
+        orchestration?: string;
     }
 ): Promise<Run> {
     if (!route.runtime) throw new Error("Choose a route");
@@ -83,6 +84,7 @@ export async function createRun(
         tier: route.tier ?? "",
         ...(route.model ? { model: route.model } : {}),
         ...(opts?.workerRoute ? { workerroute: opts.workerRoute } : {}),
+        ...(opts?.orchestration ? { orchestration: opts.orchestration } : {}),
         mode: opts?.mode,
         plangate: opts?.planGate,
         deferstart: opts?.deferStart,

@@ -286,10 +286,14 @@ type Run struct {
 	EffortRef *RunEffortRef `json:"effortref,omitempty"`
 	// DagORef links an orchestrator run to its TaskGroup ("dag:<id>"); set by DagSubmitCommand,
 	// copied onto child runs so the engine can resolve the group from any run in the DAG.
-	DagORef string      `json:"dagoref,omitempty"`
+	DagORef string `json:"dagoref,omitempty"`
 	// WorkerRoute is the default worker route for orchestrator children (nil = inherit lead); B1b stores it here at CreateRun so `dag import-tasks` can submit the group with it.
 	WorkerRoute *RoutePin `json:"workerroute,omitempty"`
-	Meta    MetaMapType `json:"meta"`
+	// Orchestration selects which machine an orchestrator lead drives: "engine" publishes a TaskGroup
+	// that pkg/orchestrate schedules; "adaptive" dispatches the lead's own subagents with no TaskGroup.
+	// Empty preserves the pre-2026-09 fork, where runtime alone decided (pi engine, others adaptive).
+	Orchestration string      `json:"orchestration,omitempty"`
+	Meta          MetaMapType `json:"meta"`
 }
 
 func (*Run) GetOType() string {

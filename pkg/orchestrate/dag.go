@@ -36,7 +36,10 @@ const (
 // MaxConsecutiveFailures is the circuit-break: the DAG blocks with a "stop and ask" flag.
 const MaxConsecutiveFailures = 3
 
-const MaxTasks = 8
+// MaxTasks is the per-DAG node ceiling, declared in pkg/jarvis so the lead's prompt can state it.
+// See jarvis.MaxDagTasks for what the cap is actually for. MaxParallelism is the limit that governs
+// concurrent cost; this one only bounds how much one lead can fan out.
+const MaxTasks = jarvis.MaxDagTasks
 const MaxParallelism = 8
 
 // ValidateTasks rejects duplicate/empty ids, unknown or self deps, and dependency cycles.

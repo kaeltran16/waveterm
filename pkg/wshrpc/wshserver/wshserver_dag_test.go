@@ -246,9 +246,9 @@ func TestDagSubmitDeferredRun(t *testing.T) {
 }
 
 func TestDagSubmitRejectsEngineStateAndLimitsBeforePersistence(t *testing.T) {
-	nineTasks := make([]waveobj.TaskNode, 9)
-	for i := range nineTasks {
-		nineTasks[i] = waveobj.TaskNode{ID: fmt.Sprintf("t-%d", i), Label: "task"}
+	tooManyTasks := make([]waveobj.TaskNode, orchestrate.MaxTasks+1)
+	for i := range tooManyTasks {
+		tooManyTasks[i] = waveobj.TaskNode{ID: fmt.Sprintf("t-%d", i), Label: "task"}
 	}
 	cases := []struct {
 		name        string
@@ -263,7 +263,7 @@ func TestDagSubmitRejectsEngineStateAndLimitsBeforePersistence(t *testing.T) {
 		{name: "attempts", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "a", Attempts: 1}}},
 		{name: "lastfailurekind", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "a", LastFailureKind: "timeout"}}},
 		{name: "escalations", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "a", Escalations: 1}}},
-		{name: "too-many-tasks", title: "g", parallelism: 1, tasks: nineTasks},
+		{name: "too-many-tasks", title: "g", parallelism: 1, tasks: tooManyTasks},
 		{name: "zero-parallelism", title: "g", parallelism: 0, tasks: []waveobj.TaskNode{{ID: "t", Label: "a"}}},
 		{name: "excess-parallelism", title: "g", parallelism: 9, tasks: []waveobj.TaskNode{{ID: "t", Label: "a"}}},
 	}
