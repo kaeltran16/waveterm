@@ -374,6 +374,19 @@ describe("diff-surface history bindings", () => {
         expect(globalStore.get(historyScrollAtom)).toBe(0);
         expect(container.scrollTop).toBe(0);
     });
+
+    // Unlike the history-only keys above, refresh is scoped to `on` — it must survive into compare,
+    // which has no filter row or graph of its own but still shows changes that can go stale.
+    it("stays live in compare — refresh is not gated by inHistory/inCompare", () => {
+        const b = find("files:refresh");
+        expect(b.keys).toBe("r");
+        expect(b.when?.(ctx)).toBe(true);
+        globalStore.set(diffScopeAtom, {
+            repo: { origin: { kind: "agent", id: "a1" }, label: "a1" },
+            range: { kind: "compare", base: "main", head: "feat", from: { kind: "working" } },
+        });
+        expect(b.when?.(ctx)).toBe(true);
+    });
 });
 
 describe("command palette chord", () => {
