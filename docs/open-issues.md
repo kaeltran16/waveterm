@@ -67,24 +67,20 @@ J3 (meta-doc corrected, `Backfill`/`Harden` unexported), J4 (per-line timeline t
 failure logging) landed in the same two commits — the scan is fully closed as of 2026-08-25. Historical
 evidence remains in `docs/superpowers/briefs/2026-08-24-jarvis-orchestrator-improvement-scan.md`.
 
-### 2026-08-26 orchestrator gaps scan — remaining findings (G1–G7)
+### 2026-08-26 orchestrator gaps scan — closed except G6
 
 Read-only scan of the shipped phase-2 engine, child-ask lifecycle, lead CLI, and DAG graph FE
-(`docs/superpowers/briefs/2026-08-26-orchestrator-gaps-scan.md`). Sequencing deliberately not decided in
-the brief; each fix batch gets its own spec/plan. Severity in parens; G6 deferred as design work.
+(`docs/superpowers/briefs/2026-08-26-orchestrator-gaps-scan.md`). **G1, G2, G4, G5 and G7 shipped in
+`6c474fa1`**, verified against the code 2026-09-04: `SendBackGate` returns a reopened gate to
+`Pending` with the RunID cleared (`scheduler.go:115`); the failure streak clears only on a *fresh*
+success (`engine.go` `freshSuccess`, the guard itself from `d692708d` — a blanket clear on any
+success would have made the circuit-break untrippable once any task had ever succeeded, so G2's
+policy question is answered and closed); `MergeContinue` is reachable as `DagMergeContinueCommand`
+end to end; a landed merge stamps `Merged` (marker from `5a863daa`), which cleanup keys off; and
+`dag status` prints per-task health/age through `dagStatusLines`.
 
-- **G1** (S): `dag sendback` reopens a done gate to `Running` with no RunID; the scheduler never
-  respawns a `Running` task (deadlock, one parallelism slot leaked, status silently `running`).
-  Direction: `SendBackGate` should return to `Pending` like `RetryTask`. The unit test codifies the bad
-  state (`scheduler_test.go`).
-- **G2** (S, policy): auto-retried flakes still increment `g.Failures` toward `MaxConsecutiveFailures=3`
-  even after a clean success; decide whether a retry's success should clear the streak.
-- **G4** (M): `MergeContinue` has no callers — blocked-merge (`dag merge --continue`) is a dead end; the
-  FE's only action maps to `resolve`, rejected by the backend. Wire the verb + FE mapping.
-- **G5** (S): a successful merge stamps no merged marker, so the Merge button persists and re-runs a
-  failing merge. Stamp a `Merged` marker on the task and key the FE action off it.
-- **G6** (low, deferred as design): lead control notifications are fire-and-forget with no delivery ack.
-- **G7** (low): `dag status` dumps raw JSON with no per-task health/age/ask summary (the R4 intent).
+**G6 remains** (low, deferred as design): lead control notifications are fire-and-forget with no
+delivery ack.
 
 ---
 
@@ -97,15 +93,30 @@ The reliability findings below are ranked and detailed in
 |---|---|---|---|
 | Issue 8 deep-link fix was never reproduced live (unit-tested only) — verify with a focused agent + dirty worktree | verification gap | S | pre-consolidation issue 8 detail (in git history); fixed 2026-08-04 |
 | OS/dock/titlebar badge when Arc is backgrounded (in-app counter ships; nothing reaches you cross-app) — measure-first | feature | M | scan brief B2; `badge.ts`, `navrail.tsx` |
-| Diff-surface orphans: `GitRevertCommand` / `gitinfo.RevertFile` / `gitinfo.RevertHunk` / `filesstore.reloadChanges` have no caller — delete both together or neither | tech-debt | S | `docs/deferred.md` 2026-07-31 entry |
+| Diff-surface orphans: `GitRevertCommand` / `gitinfo.RevertFile` / `gitinfo.RevertHunk` / `filesstore.reloadChanges` have no caller — delete both together or neither | tech-debt | S | `docs/deferred.md` 2026-07-31 entry. **2026-09-04:** `reloadChanges` should be split from the revert three — the surface reads its change list on mount and never again, so a file edited while on screen keeps stale counts, and this is the refresh that gap wants |
 | Files-surface CDP visual pass (plan Task 9, deferred while :9222 was occupied) | verification | S | `docs/deferred.md` Files-surface entry |
-| Engine dag-merge not idempotent on Windows worktree-lock failure; a landed merge can leave the task permanently unmarked `merged` | bug | S | observed 2026-08-27 on an orchestrator run; see note below |
-| On a **flat** DAG the merge gate never reports `merge-ready`, so `dag wait` tells the lead to stop with children unmerged | bug | S | observed 2026-09-04 on the claude-lead e2e; `docs/jarvis-claude-lead-e2e.md` §6; see note below |
-| A `claude` run worker in a never-before-opened directory blocks forever on Claude Code's folder-trust dialog — `--dangerously-skip-permissions` covers tool prompts only, not first-run directory trust | bug | S | observed 2026-09-04, same e2e; `docs/jarvis-claude-lead-e2e.md` §7; worker is alive-but-idle with no signal |
 
-**Dag-merge idempotency gap (2026-08-27):** `DagMergeCommand` → `MergeRunWorktree` runs `git merge --squash` + `commit`, then `RemoveRunWorktree`. On Windows, `git worktree remove` can fail on a dir still locked by the idle child shell (and junctioned `node_modules`/`src-tauri/target`/`dist/bin` from `task worktree:prepare` make removal flaky). When removal fails the command errors out **before** the `UpdateRun(EndCommit)` / `UpdateDag(Merged)` / `SealEvidence` steps — the squash commit is already on `main`, but the DAG task stays `done`/unmerged forever. Re-running `dag merge` then fails with “nothing to commit”, so there is no redo path; the lead has to stamp `merged` + `EndCommit` manually in the wstore. Fix direction: make the command idempotent (if the branch is already fully merged, skip the git work, still write `Merged`/`EndCommit` and seal evidence), treat an unregistered-but-locked worktree dir as already removed, and/or derive the merge action from `git rev-list main..branch` being empty instead of from the removal outcome. Minor trailing issue: the merge commit message embeds the entire child task description rather than just the task label (noise in `git log`).
+### Shipped 2026-09-04 — do not re-file
 
-**Flat-DAG merge gate never opens (2026-09-04):** on a DAG where no task has dependencies, `dag wait` returns `woke: terminal:healthy` at the merge gate instead of `woke: action:merge-ready` — a stop signal, while every child sits unmerged. `buildNext` (`pkg/orchestrate/digest.go:292`) gates its `merge-ready` branch on `mergeReadyBlocking(g)`, which returns *pending tasks whose dep chain reaches a merge-ready task*. A flat DAG has no pending tasks, so the branch never fires even though `mergeReadyIDs(g)` would return every finished task; `buildNext` falls through to the terminal default and, since `g.Status` is still `running`, returns a bare `DagNextStep{Kind: "terminal"}` with an empty `TerminalStatus`. `waitDecision` (`cmd/wsh/cmd/wshcmd-jarvisdag.go`) then treats any `Kind == "terminal"` as terminal and substitutes `d.Health`, producing the nonsense reason `terminal:healthy`. The lead's prompt says "Stop when it reports a line beginning `woke: terminal:`", so a literal lead strands the work — the observed run only completed because the model ignored the signal, ran `dag status`, and merged anyway. Fix direction: report `merge-ready` + `resolve-merge` whenever `mergeReadyIDs(g)` is non-empty, not only when a successor is blocked. **Do not "fix" `waitDecision` alone** — if it stops treating a bare `terminal` as terminal, a flat DAG reports neither an action nor a terminal state and the lead blocks forever, which is worse. `TestWaitDecision` passes and stays correct; it only covers well-formed digests, never `Kind: "terminal"` with an empty status on a running DAG.
+Ten rows left this table in one batch. Recorded here with pointers because several were filed twice
+before (a fixed bug with a vivid repro note reads like an open one). Each fix is unit-tested; the
+"live" column says whether it was also confirmed in the running app over CDP.
+
+| Was | Fix | Live |
+|---|---|---|
+| Flat DAG never opened the merge gate — `dag wait` returned `terminal:healthy` with children unmerged | `5b5f933b`: `buildNext` reports `merge-ready` whenever `mergeReadyIDs` is non-empty, ranked below dispatch and parallelism-wait so a DAG that can still spawn is never reported as needing the lead | no — needs a live DAG run |
+| `buildNext` fell through to a bare `terminal` on a running DAG with cleanup pending (F19) | `5b5f933b`: the fall-through is now a typed `cleanup-wait` step, never terminal — the lead's stop signal is the only terminal kind. Named in the FE by `0eb4794d` | no |
+| Engine prompt said act "when the digest reports `merge`"; the digest says `merge-ready` / `resolve-merge` (F20) | `5b5f933b`: prompt uses the digest's own words (`pkg/jarvis/run.go`) | no |
+| `dagDigestChildRunLimit = 8` not raised with `MaxDagTasks = 16` (F21) | `5b5f933b`: the constant now follows `jarvis.MaxDagTasks` | no |
+| Every non-pi DAG child flagged **stalled** at 15 min regardless of progress; `retry` then killed healthy work (F18) | `b24a998c`: liveness reads pi, claude and codex transcript roots via `agentsessions.SessionRoot`. A runtime with **no** readable activity source now reports freshness *unknown* rather than aging into a false stall — a missed stall costs a timeout, a false one kills a working child. `opencode` is deliberately untracked (cwd lives only in a sidecar file; rewrite behaviour unverified) | no |
+| A `claude` worker in a never-opened directory blocked forever on the folder-trust dialog | `91ebd220`: `ensureClaudeDirTrusted` pre-registers the directory under Claude's own canonical-git-root key and lock protocol before spawn. Writes at most one entry per project, never per worktree | no — needs an untrusted dir |
+| Engine `dag merge` not idempotent on a Windows worktree-lock failure | `851511a5`: worktree removal is the caller's step, so a cleanup failure cannot obscure a landed merge; an already-merged branch returns HEAD instead of re-merging | no |
+| Pure rename rendered as the whole file added while the list beside it said `+0 −0` | `25d5c2f7`: `pathDiff` asks the rename-source question **only** when a path-scoped read reports `new file mode`, then re-reads with both paths | **yes** — `R100` fixture renders *Renamed.* with `+0 −0` |
+| Compare-mode summary printed the working tree's counts under the compare's ref names, refs reversed vs. the chip | `25d5c2f7`: `summaryLine` picks the store the panes are showing; picker and chip print `base … head` | **yes** — `main … feat · 3 files · +30 −0` against a dirty tree |
+| Hints footer never recomputed on compare/filter changes, advertising keys that did something else | `1c4cd848` + `ab95360a`: `whenVersionAtom` counter over the 10 atoms the predicates read, plus a `store.test.ts` guard that fails when a predicate reads an unregistered atom | **yes** — 11 chips → 3 on toggle, no focus change |
+
+The three unverified-live engine fixes all need a real orchestrator DAG run; that is the remaining
+gap on this batch, not a known defect.
 
 ---
 
