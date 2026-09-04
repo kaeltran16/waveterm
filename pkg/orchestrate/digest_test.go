@@ -5,6 +5,7 @@ package orchestrate
 
 import (
 	"testing"
+	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -742,5 +743,63 @@ func TestControlDigestAckNeverTransfersBetweenEvents(t *testing.T) {
 func TestControlDigestAbsentWithoutControlRows(t *testing.T) {
 	if c := controlDigestFor(t, nil); c != nil {
 		t.Fatalf("no control attempt means no control digest, got %+v", c)
+	}
+}
+
+// The merge gate opens correctly; what was missing was any age on it. A gate nobody has acted on
+// past MergeGateStaleAfter must stop reading "healthy", or a lead that died at the gate strands
+// finished work indefinitely with nothing escalating.
+func TestStaleMergeGateNeedsYou(t *testing.T) {
+	g := digestGroup(t, true, []waveobj.TaskNode{{ID: "t-0", Label: "a"}})
+	setTaskStates(g, map[string]string{"t-0": TaskState_Done})
+	now := time.Now()
+	doneTs := now.Add(-MergeGateStaleAfter - time.Minute).UnixMilli()
+
+	d := BuildDigest(DagDigestSnapshot{
+		Group:    g,
+		Retained: []waveobj.RunEvent{retainedEvent(waveobj.RunEventKindTaskDone, "t-0", doneTs)},
+		Now:      now,
+	})
+	if d.Health != "needs-you" {
+		t.Fatalf("a merge gate open past the threshold must read needs-you, got %q", d.Health)
+	}
+	if d.Counts.Attention != 1 {
+		t.Fatalf("stale gate must count as attention, got %d", d.Counts.Attention)
+	}
+	// the gate itself is still reported the same way: this adds an age, it does not change the step
+	if d.Next.Kind != "merge-ready" {
+		t.Fatalf("next step must stay merge-ready, got %q", d.Next.Kind)
+	}
+}
+
+// A gate that just opened is a lead's normal working window, not an escalation.
+func TestFreshMergeGateStaysHealthy(t *testing.T) {
+	g := digestGroup(t, true, []waveobj.TaskNode{{ID: "t-0", Label: "a"}})
+	setTaskStates(g, map[string]string{"t-0": TaskState_Done})
+	now := time.Now()
+
+	d := BuildDigest(DagDigestSnapshot{
+		Group:    g,
+		Retained: []waveobj.RunEvent{retainedEvent(waveobj.RunEventKindTaskDone, "t-0", now.Add(-time.Minute).UnixMilli())},
+		Now:      now,
+	})
+	if d.Health != "healthy" {
+		t.Fatalf("a just-opened merge gate must stay healthy, got %q", d.Health)
+	}
+	if d.Counts.Attention != 0 {
+		t.Fatalf("fresh gate must not count as attention, got %d", d.Counts.Attention)
+	}
+}
+
+// Run events are pruned by volume, so a long-parked gate can lose the boundary it ages from. With no
+// clock, the gate is left alone: a missed escalation costs a timeout, a fabricated one raises a false
+// alarm on work that may be perfectly live.
+func TestMergeGateWithoutDoneEventIsNotStale(t *testing.T) {
+	g := digestGroup(t, true, []waveobj.TaskNode{{ID: "t-0", Label: "a"}})
+	setTaskStates(g, map[string]string{"t-0": TaskState_Done})
+
+	d := BuildDigest(DagDigestSnapshot{Group: g, Now: time.Now()})
+	if d.Health != "healthy" {
+		t.Fatalf("a gate with no done boundary has no age; want healthy, got %q", d.Health)
 	}
 }

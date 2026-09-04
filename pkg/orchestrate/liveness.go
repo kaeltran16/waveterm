@@ -27,6 +27,28 @@ import (
 // child is not progressing (provider hang, dead process) — and nothing else ever notices.
 const StallThreshold = 15 * time.Minute
 
+// FirstTokenDeadline is how long a running child may go having written NOTHING before the engine
+// treats it as dead. It is separate from StallThreshold because the two measure different things:
+// StallThreshold ages a transcript that stopped growing, and a child that never wrote one has no
+// such clock. Shorter, because "no first token yet" resolves within seconds in the healthy case —
+// the pathological one is a provider hang, where every extra minute is wasted wall time.
+const FirstTokenDeadline = 5 * time.Minute
+
+// spawnTs is when a child run started working: the earliest StartedTs across its phases. It is the
+// only clock available for a child that has produced no transcript at all.
+func spawnTs(run *waveobj.Run) int64 {
+	if run == nil {
+		return 0
+	}
+	var earliest int64
+	for _, p := range run.Phases {
+		if p.StartedTs > 0 && (earliest == 0 || p.StartedTs < earliest) {
+			earliest = p.StartedTs
+		}
+	}
+	return earliest
+}
+
 // sessionsRootFor resolves a worker runtime's transcript root (a var so tests can point the scan at a
 // temp dir). agentsessions owns where every runtime writes, so liveness asks it rather than keeping a
 // second copy of those paths.

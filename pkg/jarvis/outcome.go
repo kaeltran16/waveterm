@@ -21,6 +21,10 @@ type OutcomeData struct {
 	Summary    string `json:"summary"`    // short transcript-derived "what came of it" line
 	DurationMs int64  `json:"durationMs"` // wall time from the transcript
 	ExitCode   int    `json:"exitCode"`   // process exit code (recorded, not the status source)
+	// NoTranscript marks the one exit the transcript cannot describe: the agent died before writing
+	// anything. Consumers need it distinguishable from an ordinary failure because it is the only
+	// outcome that says the launch itself never got off the ground.
+	NoTranscript bool `json:"noTranscript,omitempty"`
 }
 
 var ChildOutcomeHook func(context.Context, string, OutcomeData) error

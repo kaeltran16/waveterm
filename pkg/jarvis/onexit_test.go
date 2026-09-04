@@ -89,3 +89,34 @@ func TestOnWorkerExit_NoTranscriptStaysSilent(t *testing.T) {
 		t.Fatalf("normal no-transcript path should not log: %q", buf.String())
 	}
 }
+
+// An agent that exits non-zero having stamped no transcript died before its first token (rejected
+// model, missing entitlement, auth failure). Nothing else can see it: liveness has no mtime to age,
+// so the work reads healthy until the stall threshold expires. This is the signal that used to be
+// discarded at the same early return that skips ordinary non-agent blocks.
+func TestExitOutcomeReportsDeathBeforeFirstToken(t *testing.T) {
+	data, ok := exitOutcome("", "codex", 1)
+	if !ok {
+		t.Fatal("a non-zero exit with no transcript must be reported")
+	}
+	if data.Status != "failed" {
+		t.Fatalf("want failed, got %q", data.Status)
+	}
+	if !data.NoTranscript {
+		t.Fatal("NoTranscript must mark the outcome the transcript cannot describe")
+	}
+	if data.ExitCode != 1 {
+		t.Fatalf("want the exit code carried through, got %d", data.ExitCode)
+	}
+	if !strings.Contains(data.Summary, "first token") {
+		t.Fatalf("summary must say what happened, got %q", data.Summary)
+	}
+}
+
+// A clean exit with no transcript is a runtime whose reporter hook is not installed, not a failure.
+// Reporting those would turn every hook-less agent exit into a spurious failure.
+func TestExitOutcomeIgnoresCleanExitWithoutTranscript(t *testing.T) {
+	if _, ok := exitOutcome("", "codex", 0); ok {
+		t.Fatal("a clean exit with no transcript must stay silent")
+	}
+}

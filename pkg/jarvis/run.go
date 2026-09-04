@@ -221,6 +221,33 @@ func CompletePhase(run waveobj.Run, phaseIdx int, artifacts []string, ts int64) 
 	return run, nil
 }
 
+// FailPhase marks a running phase failed so recomputeStatus derives blocked. Nothing else in the
+// engine ever writes PhaseState_Failed, which is why a lead whose process died kept reading as
+// executing: the status is derived from the phases, and no phase ever failed. Out of range /
+// not-running fail safe, so a duplicate exit report is a no-op.
+func FailPhase(run waveobj.Run, phaseIdx int, ts int64) (waveobj.Run, error) {
+	if phaseIdx < 0 || phaseIdx >= len(run.Phases) {
+		return run, fmt.Errorf("phase index %d out of range", phaseIdx)
+	}
+	if run.Phases[phaseIdx].State != PhaseState_Running {
+		return run, fmt.Errorf("phase %d is %q, not running", phaseIdx, run.Phases[phaseIdx].State)
+	}
+	run.Phases[phaseIdx].State = PhaseState_Failed
+	run.Phases[phaseIdx].DoneTs = ts
+	recomputeStatus(&run)
+	return run, nil
+}
+
+// RunningPhaseIndex returns the index of the run's current running phase, or -1.
+func RunningPhaseIndex(run waveobj.Run) int {
+	for i := range run.Phases {
+		if run.Phases[i].State == PhaseState_Running {
+			return i
+		}
+	}
+	return -1
+}
+
 // HoldPhase marks a gated running phase as held (the lead paused itself for plan review) and records the
 // plan artifact(s) it reported, so the review gate can preview the plan (the orchestrator lead writes the
 // plan to a file and passes its path; unlike pipeline, there is no completion hook to record it).

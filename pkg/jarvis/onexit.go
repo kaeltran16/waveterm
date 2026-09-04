@@ -5,6 +5,7 @@ package jarvis
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"time"
 
@@ -42,8 +43,8 @@ func OnWorkerExit(blockId string, exitCode int) {
 		return
 	}
 	tpath := blockData.Meta.GetString(waveobj.MetaKey_AgentTranscriptPath, "")
-	if tpath == "" {
-		return // no transcript stamped (non-agent, or hook never fired) — normal, skip
+	if !reportableExit(tpath, exitCode) {
+		return
 	}
 	tabId, err := wstore.DBFindTabForBlockId(ctx, blockId)
 	if err != nil {
@@ -59,18 +60,11 @@ func OnWorkerExit(blockId string, exitCode int) {
 	if runtime == "" {
 		return // not an agent session
 	}
-	sess, err := agentsessions.ExtractSession(tpath, runtime)
-	if err != nil || sess == nil {
-		log.Printf("jarvis onexit: transcript %s parse failed: %v", tpath, err)
+	data, ok := exitOutcome(tpath, runtime, exitCode)
+	if !ok {
 		return
 	}
 	workerORef := waveobj.MakeORef(waveobj.OType_Tab, tabId).String()
-	data := OutcomeData{
-		Status:     OutcomeStatus(sess.Status),
-		Summary:    outcomeSummary(sess),
-		DurationMs: sess.DurationMs,
-		ExitCode:   exitCode,
-	}
 	notifyChildOutcome(ctx, workerORef, data)
 	ch := resolveDispatchChannelForWorker(ctx, workerORef)
 	if ch == nil {
@@ -78,6 +72,44 @@ func OnWorkerExit(blockId string, exitCode int) {
 		return
 	}
 	PostOutcome(ch, workerORef, runtime, data)
+}
+
+// reportableExit reports whether an exited worker's outcome is worth resolving at all. A clean exit
+// that stamped no transcript is a runtime whose reporter hook is not installed — the documented
+// normal case, and by far the most common — so it is taken before the tab lookup and stays silent.
+func reportableExit(tpath string, exitCode int) bool {
+	return tpath != "" || exitCode != 0
+}
+
+// exitOutcome derives the outcome of an exited agent worker, and whether there is one to report.
+// The transcript is the normal source. An agent that exited NON-ZERO having never stamped one is the
+// case no watcher can see: it died before its first token (rejected model, missing entitlement, auth
+// failure), so liveness has no mtime to age and the work reads healthy until the stall threshold
+// expires. A clean exit with no transcript is left alone as before — that is a runtime whose reporter
+// hook is not installed, not a failure.
+func exitOutcome(tpath, runtime string, exitCode int) (OutcomeData, bool) {
+	if !reportableExit(tpath, exitCode) {
+		return OutcomeData{}, false
+	}
+	if tpath == "" {
+		return OutcomeData{
+			Status:       "failed",
+			Summary:      fmt.Sprintf("exited with code %d before writing a transcript — the agent died before its first token", exitCode),
+			ExitCode:     exitCode,
+			NoTranscript: true,
+		}, true
+	}
+	sess, err := agentsessions.ExtractSession(tpath, runtime)
+	if err != nil || sess == nil {
+		log.Printf("jarvis onexit: transcript %s parse failed: %v", tpath, err)
+		return OutcomeData{}, false
+	}
+	return OutcomeData{
+		Status:     OutcomeStatus(sess.Status),
+		Summary:    outcomeSummary(sess),
+		DurationMs: sess.DurationMs,
+		ExitCode:   exitCode,
+	}, true
 }
 
 // outcomeSummary picks a short "what came of it" line from a session: the last event's text (the
