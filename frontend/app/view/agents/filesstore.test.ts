@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
 import { globalStore } from "@/app/store/jotaiStore";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const gitChanges = vi.fn();
 const gitDiff = vi.fn();
@@ -22,7 +22,9 @@ import {
     filesSelectedPathAtom,
     filesStateAtom,
     loadFilesForScope,
+    reloadChanges,
     requestFileLink,
+    selectFile,
 } from "./filesstore";
 
 const runScopeVal = (id: string, cwd = "/repo", base = "abc123"): DiffScope => ({
@@ -125,6 +127,69 @@ describe("loadFilesForScope, working range on an agent", () => {
 
         expect(gitChanges).toHaveBeenCalledWith({}, { cwd: "/wt" });
         expect(ensureSessionStart).not.toHaveBeenCalled();
+    });
+});
+
+describe("reloadChanges", () => {
+    it("does not move the selection back to the first file on a refresh", async () => {
+        gitChanges.mockResolvedValueOnce({
+            isrepo: true,
+            branch: "main",
+            statusz: "M  a.ts\0M  b.ts\0",
+            numstat: "1\t0\ta.ts\n1\t0\tb.ts\n",
+        });
+        gitDiff.mockResolvedValue({ diff: "", content: "", untracked: false });
+
+        await loadFilesForScope(projectScopeVal("proj"));
+        await new Promise((r) => setTimeout(r, 0));
+        expect(globalStore.get(filesSelectedPathAtom)).toBe("a.ts");
+
+        // user navigates away from the auto-selected first file
+        await selectFile("/repo", "b.ts");
+        expect(globalStore.get(filesSelectedPathAtom)).toBe("b.ts");
+
+        gitDiff.mockClear();
+        gitChanges.mockResolvedValueOnce({
+            isrepo: true,
+            branch: "main",
+            statusz: "M  a.ts\0M  b.ts\0",
+            numstat: "2\t0\ta.ts\n1\t0\tb.ts\n",
+        });
+
+        await reloadChanges("/repo");
+        await new Promise((r) => setTimeout(r, 0));
+
+        expect(globalStore.get(filesSelectedPathAtom)).toBe("b.ts");
+        // the open file's diff is resynced in place, not dropped
+        expect(gitDiff).toHaveBeenCalledWith({}, { cwd: "/repo", path: "b.ts", ref: "" });
+    });
+
+    it("leaves the selection in place and skips the diff refetch when the selected file drops out of the change set", async () => {
+        gitChanges.mockResolvedValueOnce({
+            isrepo: true,
+            branch: "main",
+            statusz: "M  a.ts\0M  b.ts\0",
+            numstat: "1\t0\ta.ts\n1\t0\tb.ts\n",
+        });
+        gitDiff.mockResolvedValue({ diff: "", content: "", untracked: false });
+
+        await loadFilesForScope(projectScopeVal("proj"));
+        await new Promise((r) => setTimeout(r, 0));
+        await selectFile("/repo", "b.ts");
+
+        gitDiff.mockClear();
+        gitChanges.mockResolvedValueOnce({
+            isrepo: true,
+            branch: "main",
+            statusz: "M  a.ts\0",
+            numstat: "1\t0\ta.ts\n",
+        });
+
+        await reloadChanges("/repo");
+        await new Promise((r) => setTimeout(r, 0));
+
+        expect(globalStore.get(filesSelectedPathAtom)).toBe("b.ts");
+        expect(gitDiff).not.toHaveBeenCalled();
     });
 });
 
