@@ -24,7 +24,7 @@ import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
 import { firstChangedLine, type DiffLine, type FileView } from "./gitdiff";
 import { StatusDot } from "./statusdot";
-import { filesErrorAtom, filesStateAtom, loadFilesForScope, type FilesProject } from "./filesstore";
+import { filesErrorAtom, filesStateAtom, loadFilesForScope, startChangesPoll, type FilesProject } from "./filesstore";
 import { availableRanges, historyOptsFor, rangeKey, scopeKey, summaryLine } from "./diffscope";
 import { agentDiffScope, projectDiffScope } from "./agentdiffnav";
 import { setDiffRange } from "./diffscopeatom";
@@ -454,6 +454,9 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
     // The surface unmounts on every nav switch; stamping the time on the way out is all it has to do.
     // The next history load decides whether anything is worth announcing (historyquery.restoreNotice).
     useEffect(() => () => noteSurfaceLeft(), []);
+
+    // Keeps the change list from going stale while this surface is on screen; stops the moment it isn't.
+    useEffect(() => startChangesPoll(), []);
 
     useEffect(() => {
         if (restoreMsg == null) {

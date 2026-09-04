@@ -1,5 +1,5 @@
 import { globalStore } from "@/app/store/jotaiStore";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const gitChanges = vi.fn();
 const gitDiff = vi.fn();
@@ -25,6 +25,7 @@ import {
     reloadChanges,
     requestFileLink,
     selectFile,
+    startChangesPoll,
 } from "./filesstore";
 
 const runScopeVal = (id: string, cwd = "/repo", base = "abc123"): DiffScope => ({
@@ -190,6 +191,48 @@ describe("reloadChanges", () => {
 
         expect(globalStore.get(filesSelectedPathAtom)).toBe("b.ts");
         expect(gitDiff).not.toHaveBeenCalled();
+    });
+});
+
+describe("startChangesPoll", () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    it("re-fetches changes for the active cwd on every tick", async () => {
+        gitChanges.mockResolvedValue({ isrepo: true, branch: "main", statusz: "", numstat: "" });
+        gitDiff.mockResolvedValue({ diff: "", content: "", untracked: false });
+        await loadFilesForScope(projectScopeVal("proj"));
+        gitChanges.mockClear();
+
+        const stop = startChangesPoll(1_000);
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(gitChanges).toHaveBeenCalledTimes(1);
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(gitChanges).toHaveBeenCalledTimes(2);
+
+        stop();
+    });
+
+    it("stops ticking once stopped", async () => {
+        gitChanges.mockResolvedValue({ isrepo: true, branch: "main", statusz: "", numstat: "" });
+        gitDiff.mockResolvedValue({ diff: "", content: "", untracked: false });
+        await loadFilesForScope(projectScopeVal("proj"));
+        gitChanges.mockClear();
+
+        const stop = startChangesPoll(1_000);
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(gitChanges).toHaveBeenCalledTimes(1);
+
+        stop();
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(gitChanges).toHaveBeenCalledTimes(1);
+    });
+
+    it("is a harmless no-op tick before anything has loaded", async () => {
+        const stop = startChangesPoll(1_000);
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(gitChanges).not.toHaveBeenCalled();
+        stop();
     });
 });
 

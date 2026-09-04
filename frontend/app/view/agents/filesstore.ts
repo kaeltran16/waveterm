@@ -113,6 +113,18 @@ export async function reloadChanges(cwd: string | null): Promise<void> {
     await loadChangesForCwd(current.token, cwd, { ref }, false);
 }
 
+// The Diff surface reads its change list once on mount and otherwise has no way to learn a file was
+// touched — there is no git file-watch event to subscribe to. Polling is the mechanism: while the
+// surface is on screen, re-fetch on a fixed cadence. Reads the cwd fresh on every tick rather than
+// closing over it, so a source/range switch mid-interval polls the new subject; reloadChanges no-ops
+// until something has loaded, so a tick before the first load is harmless.
+export const FILES_POLL_MS = 10_000;
+
+export function startChangesPoll(intervalMs: number = FILES_POLL_MS): () => void {
+    const t = setInterval(() => void reloadChanges(globalStore.get(filesStateAtom)?.cwd ?? null), intervalMs);
+    return () => clearInterval(t);
+}
+
 function beginLoad(token: string): void {
     current.token = token;
     globalStore.set(filesStateAtom, null);
