@@ -14,6 +14,7 @@ import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
 import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
 import { sideJumpTarget, type CompareRow } from "@/app/view/agents/comparerows";
 import { compareOnAtom, compareSelectionAtom, leaveCompare } from "@/app/view/agents/comparestore";
+import { filesStateAtom, reloadChanges } from "@/app/view/agents/filesstore";
 import {
     clearHistoryFilters,
     graphOnAtom,
@@ -709,6 +710,16 @@ export function buildFilesBindings(): Binding[] {
                     return false; // no repository scoped -> nothing to compare; let the key pass
                 }
                 el.click();
+            },
+        },
+        {
+            id: "files:refresh",
+            keys: "r",
+            group: "Diff",
+            label: "Refresh changes",
+            when: on,
+            run: () => {
+                void reloadChanges(globalStore.get(filesStateAtom)?.cwd ?? null);
             },
         },
         {

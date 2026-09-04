@@ -44,6 +44,7 @@ export const SURFACE_HINTS: Partial<Record<SurfaceKey, FooterHint[]>> = {
         { ids: ["files:toggle-graph"], glyph: "G", label: "graph" },
         { ids: ["files:top"], glyph: "g g", label: "top" },
         { ids: ["files:compare"], glyph: "c", label: "compare" },
+        { ids: ["files:refresh"], glyph: "r", label: "refresh" },
         { ids: ["files:switch-side"], glyph: "⇥", label: "side" }, // compare-only via its binding
         { ids: ["files:clear-filters"], glyph: "esc", label: "clear filters" }, // filtered-only via its binding
         { ids: ["files:exit-compare"], glyph: "esc", label: "history" }, // compare-only via its binding
