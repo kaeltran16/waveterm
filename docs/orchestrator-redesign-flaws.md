@@ -7,6 +7,8 @@
 > summary line.
 > A second capture (2026-09-04, a 13-task plan executed end to end) adds F11-F17 below; the
 > capture-1 sections keep their original scope.
+> A code review the same day, after the Claude-lead change (eda08f24), adds F18-F21. Those rows
+> were read from source, not observed in a run, and the evidence column says so.
 
 ## Capture 1 — first live DAG run (2026-08-16)
 
@@ -110,6 +112,76 @@ cleanup debt is already real, not just a risk at the merge gate.
   `MaxParallelism`, instead of a literal 2.
 - **R13 (F17):** the composer must say which orchestrator a runtime buys (engine-managed DAG vs.
   adaptive self-dispatch), or the shape choice must stop depending on the route.
+
+## Capture 3 — code review after the Claude-lead change (2026-09-04)
+
+> Not a live run. A read of `pkg/orchestrate`, `pkg/jarvis/run.go`, `wshcmd-jarvisdag.go` and
+> `wshserver_dag.go` at 409ea04a, prompted by the Claude-lead e2e
+> (`docs/jarvis-claude-lead-e2e.md`). Unit tests for `pkg/orchestrate` and `pkg/jarvis` pass at this
+> commit (cgo via zig, as the Taskfile builds wavesrv). Every row below is inferred from source and
+> cross-checked against the e2e's wake log; none has been reproduced in the dev app.
+
+The Claude-lead change made the engine reachable from a non-pi lead and, by the composer default
+("workers same as lead"), from non-pi children. Three of the four rows are places where the engine
+still assumes pi on the other side.
+
+> **All four resolved 2026-09-04** (`5b5f933b` for F19/F20/F21, `b24a998c` for F18; `0eb4794d` names
+> `cleanup-wait` in the DAG overview). Unit-tested only — none has been reproduced or confirmed in a
+> live DAG run, which is the same evidence gap the capture was written under. See the R14–R17 notes
+> below for what each fix did and did not take.
+
+### Flaw table
+
+| #  | Flaw                                                    | Evidence (source at 409ea04a)                                                  | Impact                                   | Status |
+| -- | ------------------------------------------------------- | ------------------------------------------------------------------------------ | ---------------------------------------- | ------ |
+| F18 | Stall detection is pi-only; every non-pi child is flagged stalled at the threshold regardless of progress | `lastActivityForRun` (`pkg/orchestrate/liveness.go:67`) scans `~/.pi/agent/sessions` only (`piSessionsRoot`, `liveness.go:29`); a claude/codex/opencode child writes no pi session. The engine seeds `LastActivity` at spawn (`engine.go:351`) and only ever raises it from that scan (`engine.go:230`), so for a non-pi child it never moves. At `StallThreshold` (15 min, `liveness.go:25`) the running task flips stalled (`engine.go:233`), `dag:task-stalled` wakes `dag wait`, and the digest hands the lead `retry/skip/escalate` (`digest.go:310`). `retry` runs `cancelAndStopTaskRun` (`mutation.go:171`), which kills the child. The Claude-lead e2e wake log shows no stall wake, so all four children finished inside the window — the only reason it did not surface | a healthy non-pi child looks stalled after 15 min; a lead that follows its prompt retries and destroys in-flight work. This is the composer's default worker route for a Claude lead | ✅ Resolved 2026-09-04 |
+| F19 | `buildNext` is not total: a running DAG can still yield a bare `terminal` step | The flat-DAG merge-gate bug (`docs/open-issues.md`, 2026-09-04 note) is one path into the fallthrough at `digest.go:334`. At least one more: every task merged with worktree removal still pending. `RecomputeDagStatus` keeps the DAG running while `CleanupPending` (`dag.go:267`); the digest's attention path only sees `CleanupError` (`failedCleanupIDs`, `digest.go:372`); nothing is busy, ready or dependency-waiting, so step 6 returns `{Kind: "terminal"}` with no status and `waitDecision` (`wshcmd-jarvisdag.go:150`) prints `woke: terminal:healthy`. Transient (the watchdog retries cleanup), but it is the same fabricated stop signal, and worktree removal is exactly what is slow or locked on Windows | the lead is told to stop while the engine is still working; the wake protocol has a case its own contract calls impossible | ✅ Resolved 2026-09-04 |
+| F20 | Engine prompt and digest disagree on the merge vocabulary | `buildEngineOrchestratePrompt` (`pkg/jarvis/run.go:426`): "when the digest reports `merge`, run `wsh jarvis dag merge`". The digest never reports `merge`: the wake line is `action:merge-ready` (`wshcmd-jarvisdag.go:159`) and the per-task action is `resolve-merge` (`digest.go:31`). The e2e lead bridged the gap by reading `dag merge --help` | the prompt is load-bearing protocol; a lead that pattern-matches the literal word never acts on the gate | ✅ Resolved 2026-09-04 |
+| F21 | Digest child-run cap was not raised with `MaxTasks` | `dagDigestChildRunLimit = 8` (`wshserver_dag.go:111`) bounds `dagDigestChildRuns`; `MaxDagTasks = 16` (`pkg/jarvis/run.go:45`). Tasks 9–16 of a full DAG load no child run, so their durations report `Partial` (`digest.go:619`) | durations degrade on exactly the larger DAGs the raise was for; one constant | ✅ Resolved 2026-09-04 |
+
+### Derived requirements
+
+- **R14 (F18):** a task with no activity source must not be flagged stalled; the digest reports its
+  freshness as unknown instead. The engine already accepts this trade in `sessionMentions`
+  ("cross-refreshing a sibling's heartbeat is a far cheaper wrong answer than declaring a live child
+  stalled"). A non-pi activity source is a separate, later step: the child block's retained
+  `agent:status` event is the obvious candidate (the same read `resolveLeadSessionID` does at
+  `control.go:163`), but that hook has the install-ownership flakiness recorded in the retired
+  `docs/agents/runs-pipeline-known-issues.md` (`git show b8de5b11^:docs/agents/runs-pipeline-known-issues.md`),
+  so it must not be the only thing standing between a healthy child and `retry`.
+  **Shipped `b24a998c`**, taking the trade as written: `lastActivityForRun` returns a `tracked` flag,
+  and an untracked runtime reports freshness unknown (`LastActivity = 0`) rather than aging into a
+  stall from its spawn-time seed. Activity sources now read pi, claude and codex transcript roots
+  through `agentsessions.SessionRoot`. **`opencode` stays untracked on purpose** — its cwd lives only
+  in a sidecar info file whose rewrite behaviour was not verified, and a wrong activity read is worse
+  than none. The later non-pi source this note contemplates (the child block's `agent:status` event)
+  was not built and is still the open follow-up.
+- **R15 (F19):** `buildNext` must be total over a running DAG: no bare `terminal`. Give the
+  merged-cleanup-pending case its own kind (`cleanup-wait`, no actions) so `wait` keeps blocking.
+  Only after that may `waitDecision` treat an empty `TerminalStatus` as a contract error instead of
+  substituting `Health` — the ordering caveat in the open-issues note still holds.
+  **Digest side shipped `5b5f933b`**: the fall-through is now `cleanup-wait` (no actions), and the
+  flat-DAG hole that fed the same fallthrough is closed by a second `merge-ready` branch ranked below
+  dispatch and parallelism-wait. **The `waitDecision` half deliberately did not ship** —
+  `wshcmd-jarvisdag.go:150` still substitutes `d.Health` for an empty `TerminalStatus`. That is now
+  unblocked and safe to take, but it is a hardening step, not a live defect: with `buildNext` total
+  over a running DAG, nothing produces the bare `terminal` it would have to catch.
+- **R16 (F20):** the prompt uses the digest's words. One constant set for `merge-ready` /
+  `resolve-merge`, referenced from both the prompt builder and the digest, so they cannot drift again.
+  **Half shipped `5b5f933b`:** the prompt now says "when the digest reports `merge-ready` with the
+  action `resolve-merge`" (`pkg/jarvis/run.go:428`), which closes the observed failure. The *shared
+  constant* was not built — `run.go` still writes the words as literals in prose while `digest.go`
+  keeps its own `digestActionResolveMerge`, so the two can drift again. A comment at `run.go:426`
+  pins the intent; that is the only thing holding them together.
+- **R17 (F21):** `dagDigestChildRunLimit` follows `jarvis.MaxDagTasks`, or is removed — sixteen run
+  reads per status call is not a cost worth a partial digest. **Shipped `5b5f933b`:** the constant is
+  now `= jarvis.MaxDagTasks`, so raising the task cap carries the digest cap with it.
+- **R10 addendum (F13/F16, Claude lead):** pull-based wake removes the last signal. For a pi lead an
+  unreachable session at least leaves a `lead-control-failed: unavailable` row. For a Claude lead
+  every attempt is `unavailable` by construction (`NotifyLead`, `control.go:119-126`; the Claude
+  `agent-hook` never sets `SessionID`), so the row carries no information, and a dead lead is simply
+  nobody calling `wait`. The lead-liveness check R10 asks for cannot come from the control channel
+  on this runtime; it needs the lead block's own status or a merge-gate age, surfaced in `health`.
 
 ## Constraints carried into the redesign
 

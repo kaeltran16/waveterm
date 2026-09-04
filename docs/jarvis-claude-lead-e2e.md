@@ -217,7 +217,13 @@ The lead ignored the stop signal. It ran `wsh jarvis dag status`, saw four merge
 `woke: terminal:done`. **The model recovered by being sensible, not because the protocol worked.** A
 lead that followed its instructions literally would have stopped and stranded the work.
 
-### Suggested fix (not applied — it is a design call)
+### Suggested fix — applied 2026-09-04 (`5b5f933b`)
+
+> The fix below was taken as written: `buildNext` gained a second `merge-ready` branch that fires
+> whenever `mergeReadyIDs(g)` is non-empty, ranked below dispatch and parallelism-wait so a DAG that
+> can still spawn is never reported as needing the lead, and the old bare-`terminal` fall-through
+> became a typed `cleanup-wait` step. `waitDecision` was left alone, exactly as the caveat below
+> asks. The rest of this section is the original analysis, kept as the record.
 
 The narrow fix belongs in the digest, not in `wait`: report `merge-ready` with `resolve-merge`
 actions whenever `mergeReadyIDs(g)` is non-empty, regardless of whether a successor is blocked. Then
@@ -246,6 +252,12 @@ Quick safety check: Is this a project you created or one you trust?
 here — its own comment names "the folder-trust dialog / per-tool prompts" as the reason the flag is
 mandatory. But that flag covers **tool** permissions only; a directory Claude Code has never seen
 still gets the trust gate, and the worker sat alive-but-idle with no signal that it was stuck.
+
+> **Fixed 2026-09-04 (`91ebd220`).** `SpawnRunWorker` now calls `ensureClaudeDirTrusted` before
+> launching a `claude` worker: it resolves Claude's own canonical-git-root project key (which maps a
+> linked worktree back to its main repo, so one entry covers every worktree under it) and pre-registers
+> the directory in `~/.claude.json` under Claude's `.lock` directory protocol, refusing to write if the
+> file is malformed. The flag's comment was also corrected — it never covered directory trust.
 
 Unblocked by sending `Down` then `Enter` to the block over `controllerinput`. This only bites on a
 directory the operator has never opened in Claude Code — which is exactly what a fresh scratch repo
