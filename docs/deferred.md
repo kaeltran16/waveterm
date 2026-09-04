@@ -7,6 +7,34 @@ where it would plug in, and how to pick it back up. Append new entries at the to
 > append-only rationale log — append the full deferral here, then mirror a one-line row there. Entries
 > marked RESOLVED/DECLINED below are kept for the reasoning, not as pending work.
 
+## Diff surface — repository actions split out of the parity work (2026-09-04)
+
+Deferred by the two-spec split agreed during brainstorming on 2026-09-04. The Diff surface's
+JetBrains-parity work was scoped as six gaps; five are specced and planned
+(`docs/superpowers/specs/2026-09-04-git-compare-viewer-parity-design.md`,
+`docs/superpowers/plans/2026-09-04-git-compare-viewer-parity.md`). The sixth — **repository
+actions** — is this entry.
+
+- **What was deferred:** checkout, cherry-pick, revert (file and hunk), and any other operation that
+  writes to the repository from the Diff surface. JetBrains offers these from its compare view's
+  context menu; this surface offers none of them and stays read-only.
+- **Why:** everything in the parity spec reads; these write. Different risk class, needs its own
+  confirmation UX and its own conversation about what a cockpit should be allowed to do to a working
+  tree. Designing a diff renderer and a destructive action in the same spec would have rushed the
+  second.
+- **What already exists:** `gitinfo.RevertFile` / `gitinfo.RevertHunk` and `GitRevertCommand` are
+  shipped, tested (`TestRevertFileSubdir`, `TestRevertHunkSubdir`) and orphaned — see the 2026-07-31
+  entry below, which this supersedes as the reason they are kept. `gitdiff.ts`'s `hunks` /
+  `diffHeader` fields are retained by the parity spec's decision 4 specifically as the patch source a
+  hunk revert needs; if this work is abandoned, delete them.
+- **Where it plugs in:** the affordances belong in `diffpane.tsx`'s header and the changed-file rows
+  in `changedfilelist.tsx` — both of which the parity plan rewrites, which is the argument for doing
+  the parity work first and designing this against the result.
+- **How to pick it back up:** brainstorm it as its own spec (Spec B). Open questions to settle there:
+  which actions are in scope, what confirmation each needs, whether anything is allowed while a run
+  or agent holds the same working tree, and how a failed write surfaces. Do not start from the parity
+  spec alone — it deliberately says nothing about writes.
+
 ## Channel data-model scaling — Phase 3 (Contract) — parked on evidence gate (2026-08-25)
 
 Deferred after the 2026-08-25 prod reality check. Phase 3 was the irrevocable step of the approved scaling

@@ -29,6 +29,17 @@ badges, visual-parity CDP check) before any contract work. Spec:
 `docs/superpowers/specs/2026-07-21-channel-data-model-scaling-design.md`. Source: improvement-scan
 brief Theme A.
 
+### Diff surface JetBrains parity — Spec A planned, Spec B (repository actions) not written
+
+Five of six gaps are specced and planned (Monaco diff pane, merge-base/tip-to-tip toggle, remote refs
++ fetch, ref swap, file tree) plus a collapsible history column, since the app ships a 1000x700 window
+where the diff pane gets ~240px. **Outstanding: gap 6, repository actions** (checkout, cherry-pick,
+revert) — needs its own spec before any code; `gitinfo.RevertFile`/`RevertHunk` already exist and are
+orphaned. Status: Actionable (Spec A), Blocked on a brainstorm (Spec B). Specs:
+`docs/superpowers/specs/2026-09-04-git-compare-viewer-parity-design.md`, plan
+`docs/superpowers/plans/2026-09-04-git-compare-viewer-parity.md`, rationale in the `docs/deferred.md`
+2026-09-04 entry.
+
 ### Lead-authored task routing — Phases 1–3
 
 The roadmap header still reads "draft, awaiting review" (2026-08-19), but the route chain has shipped:
@@ -89,8 +100,12 @@ The reliability findings below are ranked and detailed in
 | Diff-surface orphans: `GitRevertCommand` / `gitinfo.RevertFile` / `gitinfo.RevertHunk` / `filesstore.reloadChanges` have no caller — delete both together or neither | tech-debt | S | `docs/deferred.md` 2026-07-31 entry |
 | Files-surface CDP visual pass (plan Task 9, deferred while :9222 was occupied) | verification | S | `docs/deferred.md` Files-surface entry |
 | Engine dag-merge not idempotent on Windows worktree-lock failure; a landed merge can leave the task permanently unmarked `merged` | bug | S | observed 2026-08-27 on an orchestrator run; see note below |
+| On a **flat** DAG the merge gate never reports `merge-ready`, so `dag wait` tells the lead to stop with children unmerged | bug | S | observed 2026-09-04 on the claude-lead e2e; `docs/jarvis-claude-lead-e2e.md` §6; see note below |
+| A `claude` run worker in a never-before-opened directory blocks forever on Claude Code's folder-trust dialog — `--dangerously-skip-permissions` covers tool prompts only, not first-run directory trust | bug | S | observed 2026-09-04, same e2e; `docs/jarvis-claude-lead-e2e.md` §7; worker is alive-but-idle with no signal |
 
 **Dag-merge idempotency gap (2026-08-27):** `DagMergeCommand` → `MergeRunWorktree` runs `git merge --squash` + `commit`, then `RemoveRunWorktree`. On Windows, `git worktree remove` can fail on a dir still locked by the idle child shell (and junctioned `node_modules`/`src-tauri/target`/`dist/bin` from `task worktree:prepare` make removal flaky). When removal fails the command errors out **before** the `UpdateRun(EndCommit)` / `UpdateDag(Merged)` / `SealEvidence` steps — the squash commit is already on `main`, but the DAG task stays `done`/unmerged forever. Re-running `dag merge` then fails with “nothing to commit”, so there is no redo path; the lead has to stamp `merged` + `EndCommit` manually in the wstore. Fix direction: make the command idempotent (if the branch is already fully merged, skip the git work, still write `Merged`/`EndCommit` and seal evidence), treat an unregistered-but-locked worktree dir as already removed, and/or derive the merge action from `git rev-list main..branch` being empty instead of from the removal outcome. Minor trailing issue: the merge commit message embeds the entire child task description rather than just the task label (noise in `git log`).
+
+**Flat-DAG merge gate never opens (2026-09-04):** on a DAG where no task has dependencies, `dag wait` returns `woke: terminal:healthy` at the merge gate instead of `woke: action:merge-ready` — a stop signal, while every child sits unmerged. `buildNext` (`pkg/orchestrate/digest.go:292`) gates its `merge-ready` branch on `mergeReadyBlocking(g)`, which returns *pending tasks whose dep chain reaches a merge-ready task*. A flat DAG has no pending tasks, so the branch never fires even though `mergeReadyIDs(g)` would return every finished task; `buildNext` falls through to the terminal default and, since `g.Status` is still `running`, returns a bare `DagNextStep{Kind: "terminal"}` with an empty `TerminalStatus`. `waitDecision` (`cmd/wsh/cmd/wshcmd-jarvisdag.go`) then treats any `Kind == "terminal"` as terminal and substitutes `d.Health`, producing the nonsense reason `terminal:healthy`. The lead's prompt says "Stop when it reports a line beginning `woke: terminal:`", so a literal lead strands the work — the observed run only completed because the model ignored the signal, ran `dag status`, and merged anyway. Fix direction: report `merge-ready` + `resolve-merge` whenever `mergeReadyIDs(g)` is non-empty, not only when a successor is blocked. **Do not "fix" `waitDecision` alone** — if it stops treating a bare `terminal` as terminal, a flat DAG reports neither an action nor a terminal state and the lead blocks forever, which is worse. `TestWaitDecision` passes and stays correct; it only covers well-formed digests, never `Kind: "terminal"` with an empty status on a running DAG.
 
 ---
 

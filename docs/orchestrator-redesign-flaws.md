@@ -5,8 +5,12 @@
 > Every flaw below was observed first-hand in that run, with evidence. The redesign
 > (`docs/orchestrator-roadmap.md` + this tracker) closes these rows; resolved rows keep only their
 > summary line.
+> A second capture (2026-09-04, a 13-task plan executed end to end) adds F11-F17 below; the
+> capture-1 sections keep their original scope.
 
-## The failure story in one paragraph
+## Capture 1 — first live DAG run (2026-08-16)
+
+### The failure story in one paragraph
 
 The engine spawns headless children that run the full superpowers workflow, including human gates
 (brainstorming design-approval, `ask_user_question`). The ask bridge projects the question onto the
@@ -16,7 +20,7 @@ provider hang sits "running" for 40+ minutes, the 30-minute ask timeout expires 
 and `dag status` reports both as healthy. The lead's only unblock was a hand-written raw socket RPC
 client. Current DAG state at capture time: both children frozen, tasks still `running`.
 
-## Flaw table
+### Flaw table
 
 | #  | Flaw                                                         | Evidence (this session)                                                        | Impact                                   | Status |
 | -- | ------------------------------------------------------------ | ------------------------------------------------------------------------------ | ---------------------------------------- | ------ |
@@ -31,7 +35,7 @@ client. Current DAG state at capture time: both children frozen, tasks still `ru
 | F9 | Plan tooling fights the lead                                 | pi-tasks extension quality gate rejected `task_plan` 5× (multi-action steps, multi-output expectedOutputs, allowedActions > 3); the engine file store `.pi/tasks/tasks.json` has no gate and imported clean on the first write | minutes of churn; wrong tool for the destination | ✅ Resolved 2026-08-16 |
 | F10 | No template/init for the DAG store                           | `.pi/tasks` schema rediscovered from `pkg/pitasks` source (`pitasks.go` Read/Parse); no example or scaffold command | every lead re-learns the schema; wiring errors possible | ✅ Resolved 2026-08-16 |
 
-## Derived redesign requirements
+### Derived redesign requirements
 
 The redesign must provide (one per flaw cluster):
 
@@ -53,6 +57,59 @@ The redesign must provide (one per flaw cluster):
 - **R8 (F9/F10):** document the `.pi/tasks/tasks.json` format + ship a scaffold (`wsh jarvis dag init`
   or `docs/orchestrator/tasks.example.json`); lead writes the store directly, skipping the extension
   quality gate.
+
+## Capture 2 — executing a 13-task plan (2026-09-04)
+
+> Second live capture, evidence in `docs/jarvis-orchestrator-plan-e2e.md`: lead run
+> `e4a54512`, DAG `f2347178`, `mode=orchestrator runtime=pi model=openai-codex/gpt-5.6-sol`,
+> project `.claude/worktrees/git-compare-viewer-parity`, engine parallelism 2. Plan under execution:
+> `docs/superpowers/plans/2026-09-04-git-compare-viewer-parity.md` (13 numbered tasks).
+
+The engine itself worked: it validated the DAG, spawned children into managed worktrees, drained them
+against the parallelism cap, derived state from child runs, and stopped correctly at the merge gate.
+Everything that went wrong sat around it. The route picker's first offer was a route the account
+cannot run, and the lead died on its first API call in a way indistinguishable from thinking for 15
+minutes. Re-launched, the lead spent ~10 minutes planning and produced 13 task records, which
+`import-tasks` rejected outright at 8. Asked how to proceed, the lead recommended splitting into two
+DAG phases — a shape this build cannot execute, because a run links exactly one `TaskGroup` for its
+lifetime, a constraint stated nowhere. It compressed 13 → 8 instead and the DAG ran. State at capture
+and still true at review time: 4 of 8 tasks done, four child branches unmerged, project HEAD still at
+the base commit, digest `health: "healthy"`, nothing advancing.
+
+### Flaw table
+
+| #  | Flaw                                                    | Evidence (2026-09-04 run)                                                      | Impact                                   | Status |
+| -- | ------------------------------------------------------- | ------------------------------------------------------------------------------ | ---------------------------------------- | ------ |
+| F11 | `MaxTasks = 8` has no path for a larger plan           | 13-task plan; `wsh jarvis dag import-tasks` → `Error: no more than 8 tasks are allowed` (`pkg/orchestrate/dag.go:137`) after the lead had already spent ~10 min producing 13 pi-tasks records. `MaxTasks` (`dag.go:39`) is referenced from that one call site and asserted by no test | plan rejected *after* the planning cost; only workaround is lossy compression | open |
+| F12 | One run holds exactly one DAG, stated nowhere           | `wstore.CreateDagForRun` (`pkg/wstore/wstore_dag.go:88`) returns the *existing* dag whenever `run.DagORef != ""`; `DagSubmitCommand` fails a differing proposal with `dag conflict: run %s already linked to a different dag` (`wshserver_dag.go:91`). The lead's own recommended escalation answer — "two DAG phases, import 9–13 after the first integrates" — would have hard-failed at the second import, stranding tasks 9–13. Nothing in the prompt, CLI help, or error text says so | lead confidently recommends a dead-end shape; a human taking it discovers it eight tasks later | open |
+| F13 | No first-token deadline: a dead lead looks like a thinking one | First launch pinned `openai-codex/gpt-5.3-codex-spark`; lead died on its first API call (`the 'gpt-5.3-codex-spark' model is not supported when using Codex with a ChatGPT account`) with a 4-line transcript, while the run read `executing / orchestrate:running`. Liveness is transcript-mtime only (`pkg/orchestrate/liveness.go:25`, `StallThreshold` 15 min), so dying *before* writing is indistinguishable from thinking | 15 min to notice a launch that failed in seconds | open |
+| F14 | Route picker offers routes the account cannot run       | `openai-codex/gpt-5.3-codex-spark` listed, selectable, rejected by the provider; the `pi` **tier** routes resolve to a bare `deepseek-v4-pro`, which pi rejects as "ambiguous across providers". `ListHarnessesCommand` reports capability, not entitlement | the picker's first option is a guaranteed dead run | open |
+| F15 | `import-tasks` hardcodes `parallelism: 2`               | `cmd/wsh/cmd/wshcmd-jarvisdag.go:82` sends `Parallelism: 2` with no flag; `DagSubmitCommand` accepts up to `MaxParallelism = 8` (`dag.go:40`). This DAG had 4 independent backend tasks (t-1..t-4) draining two at a time — digest `next.kind = parallelism-wait` while t-1/t-4 were ready | ~2× wall clock on wide DAGs; only the CLI path pins it | open |
+| F16 | Merge gate has no liveness and no age                   | 4 done / 4 worktrees on `wave/e4a54512-…-t-1..t-4`; digest `health: "healthy"`, 0 stalled, 0 attention, `next.kind = merge-ready`, `actions: ["resolve-merge"]`. `StallThreshold` covers only *running* children, so nothing ages the gate. Confirmed still parked at review time: project worktree still at `fcfca8da`, four child branches unmerged | a lead that died or drifted strands finished work indefinitely while health reads clean | open |
+| F17 | `runtime` silently selects between two different orchestrators | `BuildOrchestratePrompt` (`pkg/jarvis/run.go:353`) forks: `pi` → create pi-tasks + `dag import-tasks`, engine schedules (the only path producing a `TaskGroup`); `claude`/`codex` → "execute it adaptively by dispatching your own subagents" — no TaskGroup, no managed worktrees, `pkg/orchestrate` never runs. Nothing in the composer says which one a route buys | same UI, two execution models; every DAG affordance silently absent on one of them | open |
+
+*Also observed, outside the seven:* `.waveterm/worktrees/34571345-…-t-3` and `-t-4` sit in the main
+checkout on disk but are absent from `git worktree list` — orphans leaked by an earlier DAG. Worktree
+cleanup debt is already real, not just a risk at the merge gate.
+
+### Derived requirements
+
+- **R9 (F11/F12):** a plan larger than one DAG needs *a* path. Either raise `MaxTasks` (one call site,
+  no test pins it) or make the import failure state the real constraint — "one run holds one DAG for
+  its lifetime; compress, or split into a second run" — so the lead cannot recommend a shape the
+  engine refuses. Whichever, the one-DAG-per-run rule belongs in the lead's prompt and the CLI help.
+- **R10 (F13/F16):** these are one root cause — *nothing watches the lead itself*. `StallThreshold`
+  only covers running children, so both a lead that dies before its first token and one that dies at
+  the merge gate read as healthy. Needs a spawn/first-token deadline at launch and an age on the merge
+  gate. Note the fix is **not** health precedence: `next.kind = merge-ready` already reports the state
+  correctly, there is just no signal that nobody is acting on it.
+- **R11 (F14):** the route list must reflect entitlement, not just capability — either probe at
+  `CreateRunCommand` (which already resolves the route before persisting,
+  `wshserver_runs.go:282`) or mark unusable routes in the picker.
+- **R12 (F15):** `import-tasks --parallelism`, defaulting to the DAG's ready-width capped at
+  `MaxParallelism`, instead of a literal 2.
+- **R13 (F17):** the composer must say which orchestrator a runtime buys (engine-managed DAG vs.
+  adaptive self-dispatch), or the shape choice must stop depending on the route.
 
 ## Constraints carried into the redesign
 
