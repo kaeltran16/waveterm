@@ -263,7 +263,36 @@ func TestNewTaskGroupTaskCeiling(t *testing.T) {
 		t.Fatalf("%d tasks must be accepted: %v", MaxTasks, err)
 	}
 	_, err := NewTaskGroup("run-1", "ch-1", "title", 2, false, mk(MaxTasks+1), 1000, nil)
-	if err == nil || !strings.Contains(err.Error(), "no more than 16 tasks") {
+	// the message must carry the constraint that decides what to do next, not just the number: a
+	// second import cannot take the remainder, so naming the cap alone sends the lead down a
+	// dead end it only discovers at the next submit.
+	if err == nil || !strings.Contains(err.Error(), "16") {
 		t.Fatalf("want ceiling error naming 16, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "exactly one dag") {
+		t.Fatalf("ceiling error must state the one-dag-per-run rule, got %v", err)
+	}
+}
+
+// import-tasks used to pin parallelism at a literal 2, so a dag with four independent tasks drained
+// two at a time for no reason. The default is now the shape of the plan.
+func TestDefaultParallelismFollowsReadyWidth(t *testing.T) {
+	four := []waveobj.TaskNode{{ID: "t-1"}, {ID: "t-2"}, {ID: "t-3"}, {ID: "t-4"}}
+	if got := DefaultParallelism(four); got != 4 {
+		t.Fatalf("four independent tasks want width 4, got %d", got)
+	}
+	chain := []waveobj.TaskNode{{ID: "t-1"}, {ID: "t-2", Deps: []string{"t-1"}}, {ID: "t-3", Deps: []string{"t-2"}}}
+	if got := DefaultParallelism(chain); got != 1 {
+		t.Fatalf("a chain can only start one task, got %d", got)
+	}
+	wide := make([]waveobj.TaskNode, MaxParallelism+4)
+	for i := range wide {
+		wide[i] = waveobj.TaskNode{ID: fmt.Sprintf("t-%d", i)}
+	}
+	if got := DefaultParallelism(wide); got != MaxParallelism {
+		t.Fatalf("width must cap at MaxParallelism, got %d", got)
+	}
+	if got := DefaultParallelism(nil); got != 1 {
+		t.Fatalf("no tasks must still be a legal width, got %d", got)
 	}
 }

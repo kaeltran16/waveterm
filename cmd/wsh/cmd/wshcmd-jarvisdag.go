@@ -30,6 +30,15 @@ var jarvisDagCmd = &cobra.Command{
 	RunE:  func(cmd *cobra.Command, args []string) error { return cmd.Help() },
 }
 
+// dagOneDagPerRunNote states the constraint both submit paths hit at the same moment — after
+// the planning cost is already spent. Stating it in help is the cheap half of the fix: a lead
+// that reads it while planning never proposes the two-phase import the engine refuses.
+var dagOneDagPerRunNote = fmt.Sprintf(`
+
+A run holds exactly one dag for its whole lifetime: the first submission wins and a later,
+differing one is rejected as a dag conflict. There is no multi-phase import, so a plan that
+does not fit in %d tasks must be compressed, or split across two runs.`, orchestrate.MaxTasks)
+
 // dagSubmitSource reads the DAG payload from exactly one source: inline argv JSON, or --file (a path,
 // or "-" for stdin). A lead writing a large DAG cannot reliably quote it through argv on Windows,
 // which is what --file is for.
@@ -52,6 +61,7 @@ func dagSubmitSource(args []string, file string, stdin io.Reader) ([]byte, error
 var dagSubmitCmd = &cobra.Command{
 	Use:     "submit [dag-json]",
 	Short:   "validate and submit a DAG for the current run (inline JSON, or --file <path>|-)",
+	Long:    "Validate and submit a DAG for the current run (inline JSON, or --file <path>|-)." + dagOneDagPerRunNote,
 	Args:    cobra.MaximumNArgs(1),
 	PreRunE: preRunSetupRpcClient,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -82,6 +92,7 @@ var dagSubmitCmd = &cobra.Command{
 var dagImportCmd = &cobra.Command{
 	Use:     "import-tasks",
 	Short:   "submit a DAG from the pi-tasks store in <cwd> (default .)",
+	Long:    "Submit a DAG from the pi-tasks store in <cwd> (default .)." + dagOneDagPerRunNote,
 	Args:    cobra.NoArgs,
 	PreRunE: preRunSetupRpcClient,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -105,13 +116,17 @@ var dagImportCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		parallelism, _ := cmd.Flags().GetInt("parallelism")
+		if parallelism == 0 {
+			parallelism = orchestrate.DefaultParallelism(nodes)
+		}
 		g, err := wshclient.DagSubmitCommand(RpcClient, wshrpc.CommandDagSubmitData{
-			ChannelId: channelId, RunId: runId, Title: title, Parallelism: 2, Tasks: nodes,
+			ChannelId: channelId, RunId: runId, Title: title, Parallelism: parallelism, Tasks: nodes,
 		}, &wshrpc.RpcOpts{Timeout: 20_000})
 		if err != nil {
 			return err
 		}
-		fmt.Printf("dag %s submitted from %d pi-tasks\n", g.ID, len(g.Tasks))
+		fmt.Printf("dag %s submitted from %d pi-tasks (parallelism %d)\n", g.ID, len(g.Tasks), g.Parallelism)
 		return nil
 	},
 }
@@ -516,6 +531,7 @@ func init() {
 	dagWaitCmd.Flags().Int("timeout", DagWaitDefaultTimeout, "seconds to block before returning the current digest")
 	dagImportCmd.Flags().String("dir", "", "pi-tasks dir (default .)")
 	dagImportCmd.Flags().String("title", "", "dag title (shown in the ui; default runs the first task's label)")
+	dagImportCmd.Flags().Int("parallelism", 0, fmt.Sprintf("concurrent children (1-%d); default is the dag's ready width", orchestrate.MaxParallelism))
 	dagInitCmd.Flags().String("dir", "", "pi-tasks dir (default .)")
 	dagAckCmd.Flags().String("event", "", "control event id from the control file envelope")
 	dagAckCmd.Flags().String("session", "", "pi session id the control file was written for")

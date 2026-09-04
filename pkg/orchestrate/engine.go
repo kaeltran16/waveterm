@@ -241,6 +241,13 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		if t.State == TaskState_Running && t.LastActivity > 0 && now-t.LastActivity > StallThreshold.Milliseconds() {
 			t.State = TaskState_Stalled
 		}
+		// first-token deadline: a child that has written nothing has no mtime to age, so without this
+		// it can never stall. The exit hook catches a child that DIED before its first token; this
+		// catches one that hangs, which leaves no signal anywhere else.
+		if spawned := spawnTs(runs[t.RunID]); t.State == TaskState_Running && t.LastActivity == 0 &&
+			spawned > 0 && now-spawned > FirstTokenDeadline.Milliseconds() {
+			t.State = TaskState_Stalled
+		}
 	}
 	// child-done notification: a task whose child just reached done wakes the lead (publish + control file)
 	// and records the task-done lifecycle boundary (task id + child run id).

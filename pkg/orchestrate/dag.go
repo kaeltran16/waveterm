@@ -42,6 +42,26 @@ const MaxConsecutiveFailures = 3
 const MaxTasks = jarvis.MaxDagTasks
 const MaxParallelism = 8
 
+// DefaultParallelism is the width a dag can actually use on its first tick: the tasks with no
+// dependencies, capped at MaxParallelism. It exists so a caller that does not pin a width gets the
+// shape of the plan instead of a literal — a dag whose four independent tasks drained two at a time
+// spent twice the wall clock it needed to.
+func DefaultParallelism(tasks []waveobj.TaskNode) int {
+	ready := 0
+	for _, t := range tasks {
+		if len(t.Deps) == 0 {
+			ready++
+		}
+	}
+	if ready < 1 {
+		return 1
+	}
+	if ready > MaxParallelism {
+		return MaxParallelism
+	}
+	return ready
+}
+
 // ValidateTasks rejects duplicate/empty ids, unknown or self deps, and dependency cycles.
 func ValidateTasks(tasks []waveobj.TaskNode) error {
 	if len(tasks) == 0 {
@@ -138,7 +158,10 @@ func NewTaskGroup(runID, channelId, title string, parallelism int, mergeRequired
 		return waveobj.TaskGroup{}, fmt.Errorf("dag has no tasks")
 	}
 	if len(tasks) > MaxTasks {
-		return waveobj.TaskGroup{}, fmt.Errorf("no more than %d tasks are allowed", MaxTasks)
+		// the cap is discovered at submit time, after the planning cost is already spent, so the
+		// message has to carry the constraint that decides what to do next: a second import is not
+		// an option, because the run already owns this dag for good.
+		return waveobj.TaskGroup{}, fmt.Errorf("%d tasks exceeds the limit of %d; a run holds exactly one dag for its whole lifetime, so a second import cannot carry the remainder — compress the plan to fit, or split the goal across two runs", len(tasks), MaxTasks)
 	}
 	if parallelism < 1 || parallelism > MaxParallelism {
 		return waveobj.TaskGroup{}, fmt.Errorf("parallelism must be an integer from 1 through %d", MaxParallelism)

@@ -44,6 +44,13 @@ func HandleChildOutcome(ctx context.Context, workerORef string, data jarvis.Outc
 	if err != nil {
 		return fmt.Errorf("loading child run %s: %w", runRef.OID, err)
 	}
+	// a lead is not a task in its own dag, so the child path below can never account for it: before
+	// submit there is no dag at all, and after submit taskByRunID misses it. Its worker exiting
+	// without ever writing a transcript is the only evidence it is gone, and without this the run
+	// keeps reading "executing" forever.
+	if data.NoTranscript && isOrchestratorLead(ctx, run) {
+		return failLeadRun(ctx, channelRef.OID, run)
+	}
 	if run.DagORef == "" {
 		return nil
 	}
@@ -139,6 +146,52 @@ func autoEscalationTarget(ctx context.Context, g *waveobj.TaskGroup, task *waveo
 		return waveobj.RoutePin{}, false
 	}
 	return target, true
+}
+
+// isOrchestratorLead reports whether a run drives a dag rather than being driven by one. A dag names
+// its lead in RunID, so a run holding a dag it does not own is a child; a run holding none at all is
+// a lead only if it was launched as one.
+func isOrchestratorLead(ctx context.Context, run *waveobj.Run) bool {
+	if run.Mode != jarvis.RunMode_Orchestrator {
+		return false
+	}
+	if run.DagORef == "" {
+		return true
+	}
+	g, err := wstore.GetDag(ctx, run.DagORef)
+	if err != nil {
+		return false
+	}
+	return g.RunID == run.ID
+}
+
+// failLeadRun fails the lead's running phase so the run derives "blocked" instead of "executing".
+// Only the phase is written: run status is derived from phases everywhere else, and a hand-set status
+// would be a second source of truth for the same question.
+func failLeadRun(ctx context.Context, channelId string, run *waveobj.Run) error {
+	if run.Status != jarvis.RunStatus_Executing && run.Status != jarvis.RunStatus_Planning {
+		return nil
+	}
+	idx := jarvis.RunningPhaseIndex(*run)
+	if idx < 0 {
+		return nil
+	}
+	return wstore.UpdateRun(ctx, channelId, run.ID, func(cur *waveobj.Run) error {
+		// re-check under the update: the lead may have completed between the exit and this write
+		if cur.Status != jarvis.RunStatus_Executing && cur.Status != jarvis.RunStatus_Planning {
+			return nil
+		}
+		i := jarvis.RunningPhaseIndex(*cur)
+		if i < 0 {
+			return nil
+		}
+		updated, err := jarvis.FailPhase(*cur, i, time.Now().UnixMilli())
+		if err != nil {
+			return err
+		}
+		*cur = updated
+		return nil
+	})
 }
 
 func taskByRunID(g *waveobj.TaskGroup, runID string) *waveobj.TaskNode {

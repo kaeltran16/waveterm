@@ -88,7 +88,7 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 	}
 	if !created {
 		if !orchestrate.SameDagProposal(stored, &proposed) {
-			return nil, fmt.Errorf("dag conflict: run %s already linked to a different dag", data.RunId)
+			return nil, fmt.Errorf("dag conflict: run %s already holds a different dag; a run holds exactly one dag for its whole lifetime, so remaining work needs a new run, not a second submission", data.RunId)
 		}
 	} else {
 		zero := 0

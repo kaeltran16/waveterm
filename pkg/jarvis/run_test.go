@@ -525,3 +525,30 @@ func TestParentNotifyLine(t *testing.T) {
 		t.Errorf("cancelled: line=%q ok=%v", cl, ok)
 	}
 }
+
+// Nothing in the engine ever wrote PhaseState_Failed, which is why a lead whose process died kept
+// reading "executing": status is derived from the phases, and no phase ever failed.
+func TestFailPhaseDerivesBlocked(t *testing.T) {
+	run := NewRun("goal", "ws-1", "/p", nil, RunMode_Orchestrator, DefaultOrchestratorPlaybook(false), 1000)
+	if run.Status != RunStatus_Executing {
+		t.Fatalf("fixture must start executing, got %q", run.Status)
+	}
+	idx := RunningPhaseIndex(run)
+	if idx < 0 {
+		t.Fatal("fixture must have a running phase")
+	}
+	failed, err := FailPhase(run, idx, 2000)
+	if err != nil {
+		t.Fatalf("FailPhase: %v", err)
+	}
+	if failed.Status != RunStatus_Blocked {
+		t.Fatalf("a failed phase must derive blocked, got %q", failed.Status)
+	}
+	if failed.Phases[idx].State != PhaseState_Failed {
+		t.Fatalf("phase must be failed, got %q", failed.Phases[idx].State)
+	}
+	// a duplicate exit report must not fail an already-failed phase again
+	if _, err := FailPhase(failed, idx, 3000); err == nil {
+		t.Fatal("failing a non-running phase must error rather than double-write")
+	}
+}

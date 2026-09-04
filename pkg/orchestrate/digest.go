@@ -42,10 +42,11 @@ func BuildDigest(sn DagDigestSnapshot) wshrpc.DagStatusDigest {
 	}
 	askByTask := askIndex(sn.Asks)
 	retried := retriedTaskSet(sn.Retained)
+	staleGate := staleMergeGates(g, sn.Retained, sn.Now)
 	d := wshrpc.DagStatusDigest{
 		DagVersion: g.Version,
-		Health:     buildHealth(g, askByTask),
-		Counts:     buildCounts(g, askByTask, retried),
+		Health:     buildHealth(g, askByTask, staleGate),
+		Counts:     buildCounts(g, askByTask, retried, staleGate),
 		Next:       buildNext(g, askByTask),
 		Durations:  buildDurations(sn),
 	}
@@ -169,7 +170,28 @@ func eventTaskID(ev waveobj.RunEvent) string {
 	return tid
 }
 
-func taskAttention(g *waveobj.TaskGroup, t *waveobj.TaskNode, askByTask map[string]wshrpc.DagAskItem) bool {
+// MergeGateStaleAfter is how long an open merge gate may sit before the digest reports that nobody
+// is acting on it. The gate already OPENS correctly; what was missing is any age on it, so a lead
+// that died or drifted stranded finished work indefinitely while health read "healthy". Longer than
+// StallThreshold because a live lead legitimately finishes other work before coming back to merge.
+const MergeGateStaleAfter = 30 * time.Minute
+
+// staleMergeGates returns the merge-ready tasks whose gate has been open past MergeGateStaleAfter,
+// aged from the task-done boundary. A task whose done event has been pruned has no clock and is left
+// out: a missed escalation costs a timeout, a fabricated one raises a false alarm on live work.
+func staleMergeGates(g *waveobj.TaskGroup, retained []waveobj.RunEvent, now time.Time) map[string]bool {
+	stale := map[string]bool{}
+	nowMs := now.UnixMilli()
+	for _, id := range mergeReadyIDs(g) {
+		doneTs := firstTaskEventTs(retained, waveobj.RunEventKindTaskDone, id, true)
+		if doneTs > 0 && nowMs-doneTs > MergeGateStaleAfter.Milliseconds() {
+			stale[id] = true
+		}
+	}
+	return stale
+}
+
+func taskAttention(g *waveobj.TaskGroup, t *waveobj.TaskNode, askByTask map[string]wshrpc.DagAskItem, staleGate map[string]bool) bool {
 	if _, ok := askByTask[t.ID]; ok {
 		return true
 	}
@@ -179,10 +201,13 @@ func taskAttention(g *waveobj.TaskGroup, t *waveobj.TaskNode, askByTask map[stri
 	if t.State == TaskState_Failed || t.State == TaskState_BlockedMerge {
 		return true
 	}
+	if staleGate[t.ID] {
+		return true
+	}
 	return t.CleanupError != ""
 }
 
-func buildCounts(g *waveobj.TaskGroup, askByTask map[string]wshrpc.DagAskItem, retried map[string]bool) wshrpc.DagStatusCounts {
+func buildCounts(g *waveobj.TaskGroup, askByTask map[string]wshrpc.DagAskItem, retried map[string]bool, staleGate map[string]bool) wshrpc.DagStatusCounts {
 	c := wshrpc.DagStatusCounts{Total: len(g.Tasks)}
 	for i := range g.Tasks {
 		t := &g.Tasks[i]
@@ -203,7 +228,7 @@ func buildCounts(g *waveobj.TaskGroup, askByTask map[string]wshrpc.DagAskItem, r
 		if t.State == TaskState_Pending && hasUnsatDep(g, t) {
 			c.DependencyWaiting++
 		}
-		if taskAttention(g, t, askByTask) {
+		if taskAttention(g, t, askByTask, staleGate) {
 			c.Attention++
 		}
 	}
@@ -222,12 +247,12 @@ func hasUnsatDep(g *waveobj.TaskGroup, t *waveobj.TaskNode) bool {
 // buildHealth derives aggregate health strictly per spec §5.2 precedence: needs-you (ask, unreleased
 // gate, terminal failure, blocked merge, failed cleanup, blocked dag, terminal-with-debt) -> stalled ->
 // healthy -> done/cancelled.
-func buildHealth(g *waveobj.TaskGroup, askByTask map[string]wshrpc.DagAskItem) string {
+func buildHealth(g *waveobj.TaskGroup, askByTask map[string]wshrpc.DagAskItem, staleGate map[string]bool) string {
 	if g.Status == DagStatus_Blocked {
 		return "needs-you"
 	}
 	for i := range g.Tasks {
-		if taskAttention(g, &g.Tasks[i], askByTask) {
+		if taskAttention(g, &g.Tasks[i], askByTask, staleGate) {
 			return "needs-you"
 		}
 	}

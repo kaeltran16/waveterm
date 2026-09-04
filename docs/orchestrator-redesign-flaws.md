@@ -83,11 +83,11 @@ the base commit, digest `health: "healthy"`, nothing advancing.
 | #  | Flaw                                                    | Evidence (2026-09-04 run)                                                      | Impact                                   | Status |
 | -- | ------------------------------------------------------- | ------------------------------------------------------------------------------ | ---------------------------------------- | ------ |
 | F11 | `MaxTasks = 8` has no path for a larger plan           | 13-task plan; `wsh jarvis dag import-tasks` → `Error: no more than 8 tasks are allowed` (`pkg/orchestrate/dag.go:137`) after the lead had already spent ~10 min producing 13 pi-tasks records. `MaxTasks` (`dag.go:39`) is referenced from that one call site and asserted by no test | plan rejected *after* the planning cost; only workaround is lossy compression | open |
-| F12 | One run holds exactly one DAG, stated nowhere           | `wstore.CreateDagForRun` (`pkg/wstore/wstore_dag.go:88`) returns the *existing* dag whenever `run.DagORef != ""`; `DagSubmitCommand` fails a differing proposal with `dag conflict: run %s already linked to a different dag` (`wshserver_dag.go:91`). The lead's own recommended escalation answer — "two DAG phases, import 9–13 after the first integrates" — would have hard-failed at the second import, stranding tasks 9–13. Nothing in the prompt, CLI help, or error text says so | lead confidently recommends a dead-end shape; a human taking it discovers it eight tasks later | open |
-| F13 | No first-token deadline: a dead lead looks like a thinking one | First launch pinned `openai-codex/gpt-5.3-codex-spark`; lead died on its first API call (`the 'gpt-5.3-codex-spark' model is not supported when using Codex with a ChatGPT account`) with a 4-line transcript, while the run read `executing / orchestrate:running`. Liveness is transcript-mtime only (`pkg/orchestrate/liveness.go:25`, `StallThreshold` 15 min), so dying *before* writing is indistinguishable from thinking | 15 min to notice a launch that failed in seconds | open |
+| F12 | One run holds exactly one DAG, stated nowhere           | `wstore.CreateDagForRun` (`pkg/wstore/wstore_dag.go:88`) returns the *existing* dag whenever `run.DagORef != ""`; `DagSubmitCommand` fails a differing proposal with `dag conflict: run %s already linked to a different dag` (`wshserver_dag.go:91`). The lead's own recommended escalation answer — "two DAG phases, import 9–13 after the first integrates" — would have hard-failed at the second import, stranding tasks 9–13. Nothing in the prompt, CLI help, or error text says so | lead confidently recommends a dead-end shape; a human taking it discovers it eight tasks later | ✅ Resolved 2026-09-04 |
+| F13 | No first-token deadline: a dead lead looks like a thinking one | First launch pinned `openai-codex/gpt-5.3-codex-spark`; lead died on its first API call (`the 'gpt-5.3-codex-spark' model is not supported when using Codex with a ChatGPT account`) with a 4-line transcript, while the run read `executing / orchestrate:running`. Liveness is transcript-mtime only (`pkg/orchestrate/liveness.go:25`, `StallThreshold` 15 min), so dying *before* writing is indistinguishable from thinking | 15 min to notice a launch that failed in seconds | ✅ Resolved 2026-09-04 |
 | F14 | Route picker offers routes the account cannot run       | `openai-codex/gpt-5.3-codex-spark` listed, selectable, rejected by the provider; the `pi` **tier** routes resolve to a bare `deepseek-v4-pro`, which pi rejects as "ambiguous across providers". `ListHarnessesCommand` reports capability, not entitlement | the picker's first option is a guaranteed dead run | open |
-| F15 | `import-tasks` hardcodes `parallelism: 2`               | `cmd/wsh/cmd/wshcmd-jarvisdag.go:82` sends `Parallelism: 2` with no flag; `DagSubmitCommand` accepts up to `MaxParallelism = 8` (`dag.go:40`). This DAG had 4 independent backend tasks (t-1..t-4) draining two at a time — digest `next.kind = parallelism-wait` while t-1/t-4 were ready | ~2× wall clock on wide DAGs; only the CLI path pins it | open |
-| F16 | Merge gate has no liveness and no age                   | 4 done / 4 worktrees on `wave/e4a54512-…-t-1..t-4`; digest `health: "healthy"`, 0 stalled, 0 attention, `next.kind = merge-ready`, `actions: ["resolve-merge"]`. `StallThreshold` covers only *running* children, so nothing ages the gate. Confirmed still parked at review time: project worktree still at `fcfca8da`, four child branches unmerged | a lead that died or drifted strands finished work indefinitely while health reads clean | open |
+| F15 | `import-tasks` hardcodes `parallelism: 2`               | `cmd/wsh/cmd/wshcmd-jarvisdag.go:82` sends `Parallelism: 2` with no flag; `DagSubmitCommand` accepts up to `MaxParallelism = 8` (`dag.go:40`). This DAG had 4 independent backend tasks (t-1..t-4) draining two at a time — digest `next.kind = parallelism-wait` while t-1/t-4 were ready | ~2× wall clock on wide DAGs; only the CLI path pins it | ✅ Resolved 2026-09-04 |
+| F16 | Merge gate has no liveness and no age                   | 4 done / 4 worktrees on `wave/e4a54512-…-t-1..t-4`; digest `health: "healthy"`, 0 stalled, 0 attention, `next.kind = merge-ready`, `actions: ["resolve-merge"]`. `StallThreshold` covers only *running* children, so nothing ages the gate. Confirmed still parked at review time: project worktree still at `fcfca8da`, four child branches unmerged | a lead that died or drifted strands finished work indefinitely while health reads clean | ✅ Resolved 2026-09-04 |
 | F17 | `runtime` silently selects between two different orchestrators | `BuildOrchestratePrompt` (`pkg/jarvis/run.go:353`) forks: `pi` → create pi-tasks + `dag import-tasks`, engine schedules (the only path producing a `TaskGroup`); `claude`/`codex` → "execute it adaptively by dispatching your own subagents" — no TaskGroup, no managed worktrees, `pkg/orchestrate` never runs. Nothing in the composer says which one a route buys | same UI, two execution models; every DAG affordance silently absent on one of them | open |
 
 *Also observed, outside the seven:* `.waveterm/worktrees/34571345-…-t-3` and `-t-4` sit in the main
@@ -116,6 +116,58 @@ cleanup debt is already real, not just a risk at the merge gate.
 > **F11–F17 are mirrored into `docs/open-issues.md` §2 as of 2026-09-04**, re-verified against the
 > code. They had lived only here since Capture 2, which is why the consolidated backlog read as
 > though orchestration were closed. File new rows in both places.
+
+### Resolution — 2026-09-04
+
+Four of the seven shipped the same day. Recorded with what each fix did **not** take, so a later
+reader does not assume more coverage than exists.
+
+- **F12 (R9, second branch) — resolved.** The one-dag-per-run rule is now stated in all three places
+  a lead meets it: the prompt (`run.go:416`, already there since `eda08f24` — the earlier note that
+  it was "unstated in the prompt" was wrong), both submit paths' `--help` via `dagOneDagPerRunNote`,
+  and both error texts (the task-ceiling error in `dag.go`, the `dag conflict` error in
+  `wshserver_dag.go`). Each message now carries the constraint that decides what to do next, not just
+  the number that was exceeded.
+- **F13 (R10, half) — resolved, by an existing seam rather than a new watcher.** The root cause was
+  not a missing subsystem: `blockcontroller.AgentOutcomeHook` → `jarvis.OnWorkerExit` →
+  `orchestrate.HandleChildOutcome` already reports an exited worker in *seconds*, and `OnWorkerExit`
+  was discarding the F13 case at one early return — an agent block that exited without ever stamping
+  a transcript was treated as a non-agent block. It is now reported when the exit was non-zero
+  (`reportableExit`); a **clean** exit with no transcript stays silent, because that is a runtime
+  whose reporter hook is not installed, and reporting those would turn every hook-less exit into a
+  spurious failure. A lead that dies this way fails its running phase (`jarvis.FailPhase`), so the
+  run derives `blocked` instead of reading `executing` — nothing hand-sets a status, because status
+  is derived from phases everywhere else. Separately, a child that *hangs* before its first token
+  leaves no exit to hook, so the engine sweep ages it from its spawn time against
+  `FirstTokenDeadline` (5 min); before this the stall path was gated on `LastActivity > 0` and a
+  child that never wrote anything could not stall at all.
+- **F15 (R12) — resolved.** `import-tasks --parallelism`, defaulting to
+  `orchestrate.DefaultParallelism` — the dag's ready width, capped at `MaxParallelism`. The `submit`
+  JSON path still requires an explicit width; it was never the path that pinned a literal.
+- **F16 (R10, half) — resolved as a signal, not as a renderer.** A merge-ready task open past
+  `MergeGateStaleAfter` (30 min) counts as attention, so `health` leaves `healthy` for `needs-you`.
+  Purely a digest derivation — no schema change, no new event kind — aged from the retained
+  task-done boundary. **Two limits.** Run events are pruned by volume, so a gate whose done event is
+  gone has no clock and is deliberately left alone (a missed escalation costs a timeout; a
+  fabricated one raises a false alarm on live work). And the age is not *rendered* anywhere: the CLI
+  and UI report that the gate needs you, not how long it has sat.
+
+Still open, and why:
+
+- **F11 (R9, first branch).** The cap raise (8 → 16) and the error text together satisfy R9 as
+  written, but the structural gap stands: a plan too big for one DAG still has no path to carry its
+  remainder. That is a feature — chaining a second run — not a message fix, and it was not built.
+- **F14 (R11).** Investigated 2026-09-04 and deliberately not fixed. Entitlement is not statically
+  knowable: `ListHarnessesCommand` reports capability by construction, and a probe costs a process
+  spawn per launch and goes stale anyway. The pi half **did not reproduce** — `pi --list-models` on
+  this install shows `deepseek-v4-pro` only under `opencode-go`, so the bare id is unambiguous and
+  resolves. The failure is data-dependent (a second provider offering the same id makes the pin
+  ambiguous overnight), which also means a hardcoded provider prefix would be exactly as fragile.
+  The durable fix is catalog-backed resolution at spawn, where ctx is available. F13 lowers the
+  severity either way: a dead route now fails in seconds with the provider's own message.
+- **F17.** Close-out review, not a fix — see the `open-issues.md` note.
+
+None of the four is verified against a live DAG run; all are unit-tested only.
 
 ## Capture 3 — code review after the Claude-lead change (2026-09-04)
 
