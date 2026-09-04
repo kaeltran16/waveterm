@@ -58,6 +58,11 @@ export const compareActiveChangesAtom = atom<GitChanges | null>((get) =>
 
 const current = { token: "" };
 
+// Which repository the remembered pair in compareRefsAtom was picked in. That atom survives
+// clearCompareState on purpose, but the pair is only an offer for the repo it came from — carried
+// into another one it names branches that do not resolve there.
+const remembered = { cwd: "" };
+
 // Restores the range comparison interrupted. Named leaveCompare rather than exitCompare because it
 // now moves the surface somewhere specific instead of clearing a flag.
 export function leaveCompare(): void {
@@ -108,7 +113,7 @@ export async function enterCompare(cwd: string, currentBranch: string): Promise<
     globalStore.set(compareSidesAtom, null);
     globalStore.set(compareAggregateAtom, null);
     const def = await loadCompareRefsMeta(cwd);
-    const prev = globalStore.get(compareRefsAtom);
+    const prev = remembered.cwd === cwd ? globalStore.get(compareRefsAtom) : null;
     const base = prev?.base || def;
     const head = prev?.head || currentBranch;
     globalStore.set(diffScopeAtom, { ...scope, range: { kind: "compare", base, head, from } });
@@ -117,6 +122,7 @@ export async function enterCompare(cwd: string, currentBranch: string): Promise<
 
 export async function setCompareRefs(cwd: string, base: string, head: string): Promise<void> {
     globalStore.set(compareRefsAtom, { base, head });
+    remembered.cwd = cwd;
     // the scope stays the single source of truth for what the surface is showing
     const scope = globalStore.get(diffScopeAtom);
     if (scope?.range.kind === "compare") {

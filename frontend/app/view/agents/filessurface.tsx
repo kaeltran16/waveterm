@@ -25,7 +25,7 @@ import type { AgentVM } from "./agentsviewmodel";
 import { firstChangedLine, type DiffLine, type FileView } from "./gitdiff";
 import { StatusDot } from "./statusdot";
 import { filesErrorAtom, filesStateAtom, loadFilesForScope, type FilesProject } from "./filesstore";
-import { availableRanges, historyOptsFor, rangeKey, rangeSummary, scopeKey } from "./diffscope";
+import { availableRanges, historyOptsFor, rangeKey, scopeKey, summaryLine } from "./diffscope";
 import { agentDiffScope, projectDiffScope } from "./agentdiffnav";
 import { setDiffRange } from "./diffscopeatom";
 import { peekSessionStart } from "./agentsessionstore";
@@ -599,12 +599,12 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                     </div>
                     {scope ? (
                         <div data-files-range-summary className="pb-[11px] font-mono text-[11.5px] text-ink-faint">
-                            {rangeSummary(scope.range, {
+                            {summaryLine({
+                                range: scope.range,
                                 branch: state?.branch ?? "",
                                 ref: state?.ref ?? "",
-                                files: activeChanges?.files.length ?? 0,
-                                adds: activeChanges?.adds ?? 0,
-                                dels: activeChanges?.dels ?? 0,
+                                changes: activeChanges,
+                                compareChanges,
                             })}
                         </div>
                     ) : null}
