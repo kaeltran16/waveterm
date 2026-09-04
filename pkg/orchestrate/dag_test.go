@@ -72,7 +72,7 @@ func TestNewTaskGroupRejectsInvalidAuthoringAndEngineState(t *testing.T) {
 
 func TestNewTaskGroupSanitizesDeepCopy(t *testing.T) {
 	tasks := []waveobj.TaskNode{
-		{ID: "a", Label: "a", RunSpec: waveobj.RunSpec{Runtime: "pi", Tier: "mid"}},
+		{ID: "a", Label: "a", RunSpec: waveobj.RunSpec{Runtime: "claude", Tier: "mid"}},
 		{ID: "b", Label: "b", Deps: []string{"a"}},
 	}
 	g, err := NewTaskGroup("run", "channel", "g", 1, false, tasks, 1, nil)

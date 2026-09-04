@@ -36,10 +36,10 @@ func TestEffectiveTaskRoute_InheritOwnerWhenNoWorkerRoute(t *testing.T) {
 }
 
 func TestEffectiveTaskRoute_WorkerRouteTierFallback(t *testing.T) {
-	owner := &waveobj.Run{Runtime: "claude", Tier: "capable"}
-	group := &waveobj.TaskGroup{WorkerRoute: &waveobj.RoutePin{Runtime: "pi", Tier: "cheap"}}
+	owner := &waveobj.Run{Runtime: "claude", Tier: "cheap"}
+	group := &waveobj.TaskGroup{WorkerRoute: &waveobj.RoutePin{Runtime: "codex", Tier: "capable"}}
 	got := effectiveTaskRoute(&waveobj.TaskNode{}, owner, group)
-	if got.Tier != "cheap" || got.Runtime != "pi" {
+	if got.Tier != "capable" || got.Runtime != "codex" {
 		t.Fatalf("workerRoute tier fallback: got %+v", got)
 	}
 }

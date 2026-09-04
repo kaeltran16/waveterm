@@ -8,7 +8,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/wavetermdev/waveterm/pkg/consult"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -406,7 +405,7 @@ func TestScheduleOnceUsesTaskRouteForSpawnAndChild(t *testing.T) {
 		t.Fatal(err)
 	}
 	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 1, false, []waveobj.TaskNode{{
-		ID: "t-0", Label: "pi task", RunSpec: waveobj.RunSpec{Runtime: "pi", Tier: "cheap"},
+		ID: "t-0", Label: "pi task", RunSpec: waveobj.RunSpec{Runtime: "pi", Model: "opencode/deepseek-v4-pro"},
 	}}, 1, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -425,15 +424,15 @@ func TestScheduleOnceUsesTaskRouteForSpawnAndChild(t *testing.T) {
 	if err := ScheduleOnce(ctx, &g); err != nil {
 		t.Fatal(err)
 	}
-	if gotCap.Runtime != "pi" || gotCap.Tier != "cheap" || len(gotCap.ModelArgs) != 2 || gotCap.ModelArgs[1] != consult.PiCheapModel {
-		t.Fatalf("spawn capability = %+v, want pi/cheap with flash model args", gotCap)
+	if gotCap.Runtime != "pi" || gotCap.Model != "opencode/deepseek-v4-pro" || len(gotCap.ModelArgs) != 2 || gotCap.ModelArgs[1] != "opencode/deepseek-v4-pro" {
+		t.Fatalf("spawn capability = %+v, want the task's pinned pi model", gotCap)
 	}
 	child, err := wstore.GetRun(ctx, ch.OID, g.Tasks[0].RunID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if child.Runtime != "pi" || child.Tier != "cheap" {
-		t.Fatalf("child route = %s/%s, want pi/cheap", child.Runtime, child.Tier)
+	if child.Runtime != "pi" || child.Model != "opencode/deepseek-v4-pro" {
+		t.Fatalf("child route = %s/%s, want the task's pinned pi model", child.Runtime, child.Model)
 	}
 }
 
@@ -450,7 +449,7 @@ func TestScheduleOnceRejectsUnavailableTaskRouteBeforeSpawn(t *testing.T) {
 		t.Fatal(err)
 	}
 	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 1, false, []waveobj.TaskNode{{
-		ID: "t-0", Label: "a", RunSpec: waveobj.RunSpec{Runtime: "pi", Tier: "cheap"},
+		ID: "t-0", Label: "a", RunSpec: waveobj.RunSpec{Runtime: "pi", Model: "opencode/deepseek-v4-pro"},
 	}}, 1, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -525,8 +524,10 @@ func TestScheduleOnceLegacyRuntimeOnlyAndInheritedRoutes(t *testing.T) {
 			if caps[id].Runtime != "claude" || caps[id].Tier != "capable" || child.Runtime != "claude" || child.Tier != "capable" {
 				t.Fatalf("legacy route = cap %+v child %s/%s, want claude/capable", caps[id], child.Runtime, child.Tier)
 			}
-		} else if caps[id].Runtime != "pi" || caps[id].Tier != "mid" || child.Runtime != "pi" || child.Tier != "mid" {
-			t.Fatalf("inherited route = cap %+v child %s/%s, want pi/mid", caps[id], child.Runtime, child.Tier)
+			// the owner's persisted pi/mid is a legacy pin: pi has no tiers, so it normalizes to
+			// capable (pi's own default model) instead of stranding the child on a dead route
+		} else if caps[id].Runtime != "pi" || caps[id].Tier != "capable" || child.Runtime != "pi" || child.Tier != "capable" {
+			t.Fatalf("inherited route = cap %+v child %s/%s, want pi/capable", caps[id], child.Runtime, child.Tier)
 		}
 	}
 }

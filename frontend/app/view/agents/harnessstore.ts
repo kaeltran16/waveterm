@@ -87,7 +87,10 @@ export function setPreferredHarness(runtime: string): void {
         globalStore.set(harnessPreferenceAtom, { ...current, error: `No route capability available for ${runtime}` });
         return;
     }
-    setPreferredRoute({ runtime: route.runtime, tier: route.tier });
+    // re-picking the harness already in use must not discard its model pin; a model id belongs to one
+    // harness's namespace, so switching harnesses does drop it
+    const model = current.route?.runtime === runtime ? current.route.model : undefined;
+    setPreferredRoute({ runtime: route.runtime, tier: route.tier, ...(model ? { model } : {}) });
 }
 
 export function initHarnessPreference(persistedRuntime: string, persistedTier = "", persistedModel = ""): void {

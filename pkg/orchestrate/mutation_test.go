@@ -313,7 +313,7 @@ func assertEscalationRejectedWithoutCancelling(t *testing.T, ctx context.Context
 }
 
 func TestEscalateRejectsEmptyTarget(t *testing.T) {
-	ctx, dag, _, _ := seedEscalationDag(t, "pi", "mid", TaskState_Failed, 0)
+	ctx, dag, _, _ := seedEscalationDag(t, "claude", "mid", TaskState_Failed, 0)
 	allowEscalationSchedule(t)
 	// no automatic tier ladder: a judged hop requires an explicit model or higher tier
 	if err := ApplyAction(ctx, dag.OID, "t-0", "escalate", waveobj.RoutePin{}); err == nil {
@@ -327,13 +327,13 @@ func TestEscalateRejectsEmptyTarget(t *testing.T) {
 }
 
 func TestEscalateAcceptsExplicitHigherTier(t *testing.T) {
-	ctx, dag, _, _ := seedEscalationDag(t, "pi", "cheap", TaskState_Failed, 0)
+	ctx, dag, _, _ := seedEscalationDag(t, "claude", "cheap", TaskState_Failed, 0)
 	allowEscalationSchedule(t)
 	if err := ApplyAction(ctx, dag.OID, "t-0", "escalate", waveobj.RoutePin{Tier: "capable"}); err != nil {
 		t.Fatal(err)
 	}
 	got := mustLoadDag(t, ctx, dag.OID)
-	if got.Tasks[0].RunSpec.Runtime != "pi" || got.Tasks[0].RunSpec.Tier != "capable" || got.Tasks[0].Escalations != 1 {
+	if got.Tasks[0].RunSpec.Runtime != "claude" || got.Tasks[0].RunSpec.Tier != "capable" || got.Tasks[0].Escalations != 1 {
 		t.Fatalf("explicit escalation = %+v", got.Tasks[0])
 	}
 }
@@ -341,14 +341,14 @@ func TestEscalateAcceptsExplicitHigherTier(t *testing.T) {
 func TestEscalateRejectsSameOrLowerTierWithoutCancellingRun(t *testing.T) {
 	for _, requested := range []string{"mid", "cheap"} {
 		t.Run(requested, func(t *testing.T) {
-			ctx, dag, child, worker := seedEscalationDag(t, "pi", "mid", TaskState_Failed, 0)
+			ctx, dag, child, worker := seedEscalationDag(t, "claude", "mid", TaskState_Failed, 0)
 			assertEscalationRejectedWithoutCancelling(t, ctx, dag, child, worker, waveobj.RoutePin{Tier: requested})
 		})
 	}
 }
 
 func TestEscalateRejectsSecondHopWithoutCancellingRun(t *testing.T) {
-	ctx, dag, child, worker := seedEscalationDag(t, "pi", "mid", TaskState_Failed, 1)
+	ctx, dag, child, worker := seedEscalationDag(t, "claude", "mid", TaskState_Failed, 1)
 	assertEscalationRejectedWithoutCancelling(t, ctx, dag, child, worker, waveobj.RoutePin{Tier: "capable"})
 }
 
@@ -360,7 +360,7 @@ func TestEscalateRejectsUnsupportedRouteWithoutCancellingRun(t *testing.T) {
 func TestEscalateRejectsPendingTask(t *testing.T) {
 	ctx, dag := seedPendingDag(t)
 	if err := wstore.UpdateRun(ctx, dag.ChannelId, dag.RunID, func(owner *waveobj.Run) error {
-		owner.Runtime = "pi"
+		owner.Runtime = "claude"
 		owner.Tier = "mid"
 		return nil
 	}); err != nil {
