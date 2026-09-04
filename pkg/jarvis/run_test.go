@@ -367,6 +367,23 @@ func TestBuildOrchestratePromptEngine(t *testing.T) {
 	}
 }
 
+// The prompt is load-bearing protocol: a lead that pattern-matches the literal word it was given
+// never acts on the gate. The digest reports the kind `merge-ready` and the action `resolve-merge`,
+// and never the bare word `merge`.
+func TestBuildOrchestratePromptUsesDigestMergeVocabulary(t *testing.T) {
+	for _, runtime := range []string{"claude", "pi"} {
+		p := BuildOrchestratePrompt("do X", nil, runtime, Orchestration_Engine)
+		for _, want := range []string{"`merge-ready`", "`resolve-merge`"} {
+			if !strings.Contains(p, want) {
+				t.Fatalf("%s engine prompt missing the digest's merge vocabulary %s:\n%s", runtime, want, p)
+			}
+		}
+		if strings.Contains(p, "reports `merge`") {
+			t.Fatalf("%s engine prompt names a digest kind that does not exist:\n%s", runtime, p)
+		}
+	}
+}
+
 func TestResolveOrchestrationLegacyFork(t *testing.T) {
 	cases := []struct{ orch, runtime, want string }{
 		{"", "pi", Orchestration_Engine},

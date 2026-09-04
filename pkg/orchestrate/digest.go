@@ -312,8 +312,7 @@ func buildNext(g *waveobj.TaskGroup, askByTask map[string]wshrpc.DagAskItem) wsh
 	}
 	// 2. merge-ready work that blocks successors (merge-required dags only)
 	if blocked := mergeReadyBlocking(g); len(blocked) > 0 {
-		ids := mergeReadyIDs(g)
-		return wshrpc.DagNextStep{Kind: "merge-ready", TaskIds: ids, Actions: digestActionResolveMerge}
+		return mergeReadyStep(mergeReadyIDs(g))
 	}
 	// 3. tasks the scheduler can dispatch now
 	if next := NextToSpawn(g); len(next) > 0 {
@@ -323,6 +322,12 @@ func buildNext(g *waveobj.TaskGroup, askByTask map[string]wshrpc.DagAskItem) wsh
 	if busy := busyTaskIDs(g); len(busy) > 0 {
 		return wshrpc.DagNextStep{Kind: "parallelism-wait", BlockingTaskIds: busy}
 	}
+	// 4b. merge-ready work that blocks nothing: on a flat dag no successor is ever waiting, so step 2
+	// never fires and the gate would fall through to terminal. Ranked below dispatch and parallelism
+	// so a dag that can still spawn is never reported as needing the lead.
+	if ids := mergeReadyIDs(g); len(ids) > 0 {
+		return mergeReadyStep(ids)
+	}
 	// 5. dependency wait on pending tasks with unsatisfied deps
 	if depWait, blocking := dependencyWait(g); len(depWait) > 0 {
 		return wshrpc.DagNextStep{Kind: "dependency-wait", TaskIds: depWait, BlockingTaskIds: blocking}
@@ -331,7 +336,14 @@ func buildNext(g *waveobj.TaskGroup, askByTask map[string]wshrpc.DagAskItem) wsh
 	if g.Status == DagStatus_Done || g.Status == DagStatus_Cancelled {
 		return wshrpc.DagNextStep{Kind: "terminal", TerminalStatus: g.Status}
 	}
-	return wshrpc.DagNextStep{Kind: "terminal"}
+	// 7. a running dag with nothing schedulable, waiting, actionable or unmerged left is waiting on
+	// worktree cleanup. Never terminal: the lead's stop signal is the terminal kind, and a fabricated
+	// one strands the run while the engine's cleanup retry is still working.
+	return wshrpc.DagNextStep{Kind: "cleanup-wait", TaskIds: cleanupPendingIDs(g)}
+}
+
+func mergeReadyStep(taskIDs []string) wshrpc.DagNextStep {
+	return wshrpc.DagNextStep{Kind: "merge-ready", TaskIds: taskIDs, Actions: digestActionResolveMerge}
 }
 
 func humanActionStep(_ string, taskIDs, actions []string) wshrpc.DagNextStep {
@@ -373,6 +385,16 @@ func failedCleanupIDs(g *waveobj.TaskGroup) []string {
 	var ids []string
 	for i := range g.Tasks {
 		if g.Tasks[i].CleanupError != "" {
+			ids = append(ids, g.Tasks[i].ID)
+		}
+	}
+	return ids
+}
+
+func cleanupPendingIDs(g *waveobj.TaskGroup) []string {
+	var ids []string
+	for i := range g.Tasks {
+		if g.Tasks[i].CleanupPending {
 			ids = append(ids, g.Tasks[i].ID)
 		}
 	}
