@@ -894,11 +894,16 @@ export function buildCodeBindings(): Binding[] {
             label: "Focus the editor",
             when: (ctx) => ctx.surface === "code" && !ctx.modalOpen,
             run: () => {
-                const ta = document.querySelector<HTMLTextAreaElement>(".monaco-editor textarea");
-                if (ta == null) {
+                // Both edit-context hosts: the EditContext div Monaco uses by default since 0.52, and
+                // the legacy textarea. `.monaco-editor textarea` alone matches the readonly aria-hidden
+                // IME textarea first, so focus landed somewhere that swallows every keystroke.
+                const host = document.querySelector<HTMLElement>(
+                    ".monaco-editor .native-edit-context, .monaco-editor textarea.inputarea"
+                );
+                if (host == null) {
                     return false; // no editor open — let the key pass
                 }
-                ta.focus();
+                host.focus();
             },
         },
     ];

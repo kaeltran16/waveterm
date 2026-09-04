@@ -28,12 +28,22 @@ function setLeader(next: string | null): void {
     }
 }
 
-function isEditableTarget(el: Element | null): boolean {
+// Exported for its unit test. Getting this wrong is not cosmetic: every bare-letter binding is gated
+// on it, so a false negative fires cockpit actions out of the middle of a word.
+export function isEditableTarget(el: Element | null): boolean {
     if (el == null) {
         return false;
     }
     const tag = el.tagName;
-    return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (el as HTMLElement).isContentEditable;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (el as HTMLElement).isContentEditable) {
+        return true;
+    }
+    // Monaco 0.52+ types into a <div class="native-edit-context"> (the EditContext API) rather than a
+    // hidden textarea, and that div is neither a form element nor contenteditable — so the tag test
+    // alone called the Code editor "not editable" and bare `r` refreshed the index mid-word, bare `g`
+    // opened the leader, and Escape left the surface. Matching the container covers both edit-context
+    // implementations and any future swap of the focus target.
+    return el.closest?.(".monaco-editor") != null;
 }
 
 export function deriveKeyContext(): KeyContext {
