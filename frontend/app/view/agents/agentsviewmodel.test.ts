@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, answerHint, hasAnswerableAsk, isQuiet, isRecentlyIdle, isAskStale, mergeOrder, nextAskId, askSentKey, usageLevel, formatTokens, formatReset, providerPlanUsage, liveWindowAgents, latestMessageText, recentActions, moveCursor, cycleId, groupTimeline, summarizeActions, detailExceedsInline, detailLineCount, aggregateEditBurst, isEditAction, partitionBackgrounded, focusedAskId, toggleSelection, liveProjectsForLaunch, taskProgress, mergePendingLaunches, pendingToVM, streamableTranscriptAgents, applyAgentOrder, deriveTerminalVMs, isNearBottom, STICK_THRESHOLD_PX, burstRenderMode, type AgentVM, type AgentState, type CardTask, type LiveAgentInput, type AgentAskQuestion, type AgentEntry, type AgentActionEntry, type PendingLaunch, conversationText } from "./agentsviewmodel";
+import { displayAgeMs, sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, answerHint, hasAnswerableAsk, isQuiet, isRecentlyIdle, isAskStale, mergeOrder, nextAskId, askSentKey, usageLevel, formatTokens, formatReset, providerPlanUsage, liveWindowAgents, latestMessageText, recentActions, moveCursor, cycleId, groupTimeline, summarizeActions, detailExceedsInline, detailLineCount, aggregateEditBurst, isEditAction, partitionBackgrounded, focusedAskId, toggleSelection, liveProjectsForLaunch, taskProgress, mergePendingLaunches, pendingToVM, streamableTranscriptAgents, applyAgentOrder, deriveTerminalVMs, isNearBottom, STICK_THRESHOLD_PX, burstRenderMode, type AgentVM, type AgentState, type CardTask, type LiveAgentInput, type AgentAskQuestion, type AgentEntry, type AgentActionEntry, type PendingLaunch, conversationText } from "./agentsviewmodel";
 
 const mk = (id: string, state: AgentVM["state"], extra: Partial<AgentVM> = {}): AgentVM => ({
     id,
@@ -130,6 +130,28 @@ describe("formatAge", () => {
     });
     it("keeps hours right up to the boundary", () => {
         expect(formatAge(23 * 3_600_000)).toBe("23h");
+    });
+});
+
+describe("displayAgeMs", () => {
+    it("reads blockedMs for an asking agent — the bug was rendering activeMs, which is undefined there", () => {
+        // withAsk clears activeMs and sets blockedMs, so an activeMs reader showed "just now" forever
+        const a = mk("a", "asking", { blockedMs: 25 * 60_000, activeMs: undefined });
+        expect(displayAgeMs(a)).toBe(25 * 60_000);
+        expect(formatAge(displayAgeMs(a))).toBe("25m");
+    });
+    it("reads activeMs for a working agent", () => {
+        expect(displayAgeMs(mk("a", "working", { activeMs: 240_000 }))).toBe(240_000);
+    });
+    it("derives an idle agent's age from idleSince, which is a stamp rather than a duration", () => {
+        const a = mk("a", "idle", { idleSince: 1_000_000 - 7_200_000 });
+        expect(formatAge(displayAgeMs(a, 1_000_000))).toBe("2h");
+    });
+    it("falls back to no age for idle when the caller has no clock", () => {
+        expect(displayAgeMs(mk("a", "idle", { idleSince: 1 }))).toBeUndefined();
+    });
+    it("stays undefined when the state's own field is absent, rather than borrowing another state's", () => {
+        expect(displayAgeMs(mk("a", "asking", { activeMs: 999_000 }))).toBeUndefined();
     });
 });
 

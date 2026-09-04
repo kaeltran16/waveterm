@@ -368,6 +368,23 @@ export function formatAge(ms?: number): string {
     return `${Math.floor(hours / 24)}d`;
 }
 
+/**
+ * Pure: the age a card should render for this agent — the field that is actually populated for its
+ * state. agentVMFromInput writes exactly one of activeMs | blockedMs | idleSince depending on state,
+ * so a reader that always reaches for activeMs renders "just now" forever on an asking or idle agent
+ * (formatAge(undefined) === "just now"). `now` is only consulted for idle, because idleSince is an
+ * absolute stamp rather than a duration; callers that render a provably-asking row may omit it.
+ */
+export function displayAgeMs(agent: AgentVM, now?: number): number | undefined {
+    if (agent.state === "asking") {
+        return agent.blockedMs;
+    }
+    if (agent.state === "idle") {
+        return agent.idleSince != null && now != null ? Math.max(0, now - agent.idleSince) : undefined;
+    }
+    return agent.activeMs;
+}
+
 /** Pure: usage percentage -> threshold band for color (shared by the plan strip and context bars). */
 export function usageLevel(pct: number): "ok" | "warn" | "hot" {
     if (pct > 85) {

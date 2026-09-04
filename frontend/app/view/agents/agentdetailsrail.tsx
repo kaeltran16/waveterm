@@ -11,7 +11,15 @@ import { useAtomValue } from "jotai";
 import { useEffect } from "react";
 import { agentDiffScope, openDiff } from "./agentdiffnav";
 import type { AgentsViewModel } from "./agents";
-import { formatAge, projectOf, recentActions, summarizeActions, usageLevel, type AgentVM } from "./agentsviewmodel";
+import {
+    displayAgeMs,
+    formatAge,
+    projectOf,
+    recentActions,
+    summarizeActions,
+    usageLevel,
+    type AgentVM,
+} from "./agentsviewmodel";
 import { agentCacheStatusAtom, formatCacheCountdown, loadCacheStatusForAgent } from "./cachestatusstore";
 import { capFiles, statusColor } from "./gitstatus";
 import { entriesAtomFor } from "./livetranscriptatoms";
@@ -88,7 +96,8 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
         );
     };
 
-    const running = agent.state === "idle" ? `${formatAge(agent.activeMs)} idle` : formatAge(agent.activeMs);
+    const age = formatAge(displayAgeMs(agent, now));
+    const running = agent.state === "idle" ? `${age} idle` : age;
     const cacheCountdown = formatCacheCountdown(cacheStatus, now);
     const isClaude = (agent.agent || "claude") === "claude";
 
