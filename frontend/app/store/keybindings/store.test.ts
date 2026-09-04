@@ -2,6 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { globalStore } from "@/app/store/jotaiStore";
+import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
+import { diffScopeAtom } from "@/app/view/agents/diffscopeatom";
+import { historyFiltersAtom } from "@/app/view/agents/githistorystore";
+import { NO_FILTERS } from "@/app/view/agents/historyquery";
+import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
+import { codeTreeFocusedAtom } from "@/app/view/code/codestore";
+import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
+import { graphPeekOpenAtom } from "@/app/view/jarvis/jarvisstore";
+import { petPeekOpenAtom } from "@/app/view/jarvis/petstore";
 import { describe, expect, it } from "vitest";
 import {
     buildAgentBindings,
@@ -13,15 +22,10 @@ import {
     buildJarvisBindings,
     buildListNavBindings,
 } from "./bindings";
-import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
-import { diffScopeAtom } from "@/app/view/agents/diffscopeatom";
-import { historyFiltersAtom } from "@/app/view/agents/githistorystore";
-import { NO_FILTERS } from "@/app/view/agents/historyquery";
-import { codeTreeFocusedAtom } from "@/app/view/code/codestore";
-import { graphPeekOpenAtom } from "@/app/view/jarvis/jarvisstore";
 import { listNavAtom } from "./listnav";
 import { bindingsAtom, registerBindings, unregisterBindings } from "./store";
 import type { Binding, KeyContext, SurfaceKey } from "./types";
+import { PREDICATE_ATOMS } from "./whenstate";
 
 function b(id: string, keys = "j"): Binding {
     return { id, keys, group: "g", label: id, run: () => {} };
@@ -263,5 +267,61 @@ describe("keybinding conflict invariant", () => {
         // fires only while the TUI owns focus (editable) on the agent surface
         expect(b?.when?.({ surface: "agent", editable: true, modalOpen: false, leader: null })).toBe(true);
         expect(b?.when?.({ surface: "agent", editable: false, modalOpen: false, leader: null })).toBe(false);
+    });
+});
+
+// Guards the hand-maintained list in whenstate.ts, which is what lets the hints footer stay reactive
+// to state a when(ctx) predicate reads outside of ctx (see docs/open-issues.md, "Hints-footer
+// staleness"). A predicate reading an atom this list doesn't have reproduces that staleness bug for
+// whatever the predicate gates; a stale entry that no predicate reads any more makes the footer
+// re-render on unrelated state for no reason. Both directions are checked mechanically here instead of
+// trusted to whoever last edited bindings.ts.
+describe("PREDICATE_ATOMS completeness (whenstate.ts)", () => {
+    it("matches exactly the atoms a when() predicate can read — no more, no less", () => {
+        const model = {} as any;
+        const askRef = { current: { id: "w1", state: "asking" } as AgentVM };
+        const all: Binding[] = [
+            ...buildGlobalBindings(model),
+            ...buildListNavBindings(),
+            ...buildChannelsAskBindings(model, askRef),
+            ...buildJarvisBindings(),
+            ...buildCockpitBindings(),
+            ...buildAgentBindings(model),
+            ...buildFilesBindings(),
+            ...buildCodeBindings(),
+        ];
+
+        // Neutral so no `&&` chain (e.g. surface:back-home's, subagent:back's) short-circuits before
+        // reaching a later globalStore.get — a short-circuited read would falsely report a registered
+        // atom as unused.
+        globalStore.set(diffScopeAtom, null);
+        globalStore.set(graphPeekOpenAtom, false);
+        globalStore.set(autonomyPanelOpenAtom, false);
+        globalStore.set(petPeekOpenAtom, false);
+        globalStore.set(renamingRowAtom, null);
+
+        const seen = new Set<unknown>();
+        const realGet = globalStore.get;
+        (globalStore as { get: typeof globalStore.get }).get = ((a: unknown) => {
+            seen.add(a);
+            return (realGet as (a: unknown) => unknown)(a);
+        }) as typeof globalStore.get;
+        try {
+            for (const ctx of contexts()) {
+                for (const binding of all) {
+                    binding.when?.(ctx);
+                }
+            }
+        } finally {
+            (globalStore as { get: typeof globalStore.get }).get = realGet;
+            globalStore.set(diffScopeAtom, null);
+            globalStore.set(renamingRowAtom, null);
+        }
+
+        const registered = new Set<unknown>(PREDICATE_ATOMS);
+        const missing = [...seen].filter((a) => !registered.has(a));
+        const unused = PREDICATE_ATOMS.filter((a) => !seen.has(a));
+        expect(missing).toEqual([]); // a when() predicate reads an atom whenstate.ts doesn't watch
+        expect(unused).toEqual([]); // whenstate.ts watches an atom no when() predicate reads
     });
 });
