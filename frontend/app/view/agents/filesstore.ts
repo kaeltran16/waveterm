@@ -51,9 +51,11 @@ interface LoadOpts {
     sessionStartTs?: number;
 }
 
-// Core: fetch branch + changes for a resolved cwd and select the first file. The caller owns the
-// guard token (set before any await) so a newer load short-circuits this one's writes.
-async function loadChangesForCwd(token: string, cwd: string | null, opts: LoadOpts): Promise<void> {
+// Core: fetch branch + changes for a resolved cwd. The caller owns the guard token (set before any
+// await) so a newer load short-circuits this one's writes. isInitial distinguishes a fresh scope load
+// (beginLoad already cleared the selection, so pick the first file) from a refresh of the same scope
+// (leave the user's selection alone; just resync its diff if it's still in the change set).
+async function loadChangesForCwd(token: string, cwd: string | null, opts: LoadOpts, isInitial: boolean): Promise<void> {
     if (!cwd) {
         if (current.token === token) {
             globalStore.set(filesStateAtom, EMPTY);
@@ -75,12 +77,22 @@ async function loadChangesForCwd(token: string, cwd: string | null, opts: LoadOp
         const changes = ch.isrepo ? parseGitChanges(ch.statusz, ch.numstat) : null;
         globalStore.set(filesStateAtom, { cwd, branch: ch.branch, isRepo: ch.isrepo, changes, ref });
         globalStore.set(filesErrorAtom, false);
-        // Deliberately always the first file: a deep link is claimed by the history store, which owns
-        // the *visible* selection. Honouring it here as well would load one file's diff and then have
-        // the history load pick another, so the pane showed whichever RPC landed last.
-        const first = changes?.files[0]?.path;
-        if (first) {
-            void selectFile(cwd, first);
+        if (isInitial) {
+            // Deliberately always the first file: a deep link is claimed by the history store, which owns
+            // the *visible* selection. Honouring it here as well would load one file's diff and then have
+            // the history load pick another, so the pane showed whichever RPC landed last.
+            const first = changes?.files[0]?.path;
+            if (first) {
+                void selectFile(cwd, first);
+            }
+        } else {
+            // Refresh: never move the selection out from under the user. Just resync the open file's
+            // diff in place, and only if it's still in the change set — a file that dropped out (reverted,
+            // committed elsewhere) keeps showing its last-known diff rather than going blank.
+            const selected = globalStore.get(filesSelectedPathAtom);
+            if (selected && changes?.files.some((f) => f.path === selected)) {
+                void selectFile(cwd, selected);
+            }
         }
     } catch {
         if (current.token === token) {
@@ -98,7 +110,7 @@ export async function reloadChanges(cwd: string | null): Promise<void> {
     // reuse the already-resolved concrete base (a sha for worktree/run modes, "" for live) so the
     // reload stays anchored to the same point the initial load picked.
     const ref = globalStore.get(filesStateAtom)?.ref ?? "";
-    await loadChangesForCwd(current.token, cwd, { ref });
+    await loadChangesForCwd(current.token, cwd, { ref }, false);
 }
 
 function beginLoad(token: string): void {
@@ -127,7 +139,7 @@ export async function loadFilesForScope(scope: DiffScope, agent?: ScopeAgent): P
     if (current.token !== token) {
         return;
     }
-    await loadChangesForCwd(token, cwd, opts);
+    await loadChangesForCwd(token, cwd, opts, true);
 }
 
 async function resolveScopeCwd(origin: DiffOrigin, agent?: ScopeAgent): Promise<string | null> {
