@@ -503,6 +503,7 @@ declare global {
         tier: string;
         model?: string;
         workerroute?: RoutePin;
+        orchestration?: string;
         playbookid?: string;
         mode?: string;
         plangate?: boolean;
@@ -2948,6 +2949,7 @@ declare global {
         effortref?: RunEffortRef;
         dagoref?: string;
         workerroute?: RoutePin;
+        orchestration?: string;
     };
 
     // waveobj.RunEffortRef

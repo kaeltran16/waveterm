@@ -1,6 +1,8 @@
 package orchestrate
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
@@ -35,9 +37,9 @@ func TestNewTaskGroupSetsIdentity(t *testing.T) {
 }
 
 func TestNewTaskGroupRejectsInvalidAuthoringAndEngineState(t *testing.T) {
-	nineTasks := make([]waveobj.TaskNode, 9)
-	for i := range nineTasks {
-		nineTasks[i] = waveobj.TaskNode{ID: string(rune('a' + i)), Label: "task"}
+	tooManyTasks := make([]waveobj.TaskNode, MaxTasks+1)
+	for i := range tooManyTasks {
+		tooManyTasks[i] = waveobj.TaskNode{ID: string(rune('a' + i)), Label: "task"}
 	}
 	cases := []struct {
 		name        string
@@ -48,7 +50,7 @@ func TestNewTaskGroupRejectsInvalidAuthoringAndEngineState(t *testing.T) {
 		{name: "blank title", title: "   ", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "a"}}},
 		{name: "blank label", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "   "}}},
 		{name: "duplicate dependency", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "a", Label: "a"}, {ID: "b", Label: "b", Deps: []string{"a", "a"}}}},
-		{name: "too many tasks", title: "g", parallelism: 1, tasks: nineTasks},
+		{name: "too many tasks", title: "g", parallelism: 1, tasks: tooManyTasks},
 		{name: "zero parallelism", title: "g", parallelism: 0, tasks: []waveobj.TaskNode{{ID: "t", Label: "a"}}},
 		{name: "excess parallelism", title: "g", parallelism: 9, tasks: []waveobj.TaskNode{{ID: "t", Label: "a"}}},
 		{name: "state", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "a", State: TaskState_Running}}},
@@ -240,5 +242,28 @@ func TestNewTaskGroupPersistsMergeRequirement(t *testing.T) {
 	}
 	if !g.MergeRequired {
 		t.Fatal("git-backed dag must require merged tasks")
+	}
+}
+
+func TestNewTaskGroupTaskCeiling(t *testing.T) {
+	mk := func(n int) []waveobj.TaskNode {
+		out := make([]waveobj.TaskNode, n)
+		for i := range out {
+			out[i] = waveobj.TaskNode{ID: fmt.Sprintf("t-%d", i), Label: fmt.Sprintf("task %d", i)}
+		}
+		return out
+	}
+	if MaxTasks != jarvis.MaxDagTasks {
+		t.Fatalf("MaxTasks must alias jarvis.MaxDagTasks: %d vs %d", MaxTasks, jarvis.MaxDagTasks)
+	}
+	if MaxTasks < 16 {
+		t.Fatalf("task ceiling regressed to %d", MaxTasks)
+	}
+	if _, err := NewTaskGroup("run-1", "ch-1", "title", 2, false, mk(MaxTasks), 1000, nil); err != nil {
+		t.Fatalf("%d tasks must be accepted: %v", MaxTasks, err)
+	}
+	_, err := NewTaskGroup("run-1", "ch-1", "title", 2, false, mk(MaxTasks+1), 1000, nil)
+	if err == nil || !strings.Contains(err.Error(), "no more than 16 tasks") {
+		t.Fatalf("want ceiling error naming 16, got %v", err)
 	}
 }

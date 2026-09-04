@@ -329,6 +329,7 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 	run.Tier = cap.Tier
 	run.Model = cap.Model
 	run.WorkerRoute = data.WorkerRoute
+	run.Orchestration = data.Orchestration // prompt-shaping only; DagSubmit stays open to either choice
 	// capture the repo baseline so the evidence diff survives the worker committing its changes;
 	// non-fatal — an unborn/absent repo just leaves BaseCommit "" and the diff falls back to HEAD.
 	if head, herr := gitinfo.HeadCommit(ctx, ch.ProjectPath); herr == nil {

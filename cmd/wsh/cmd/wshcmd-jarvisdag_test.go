@@ -167,3 +167,88 @@ func TestDagMergeExposesContinueFlag(t *testing.T) {
 		t.Fatal("dag merge must expose --continue for finishing a blocked squash merge")
 	}
 }
+
+func TestDagSubmitSource(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "dag.json")
+	if err := os.WriteFile(path, []byte(`{"title":"from file"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := dagSubmitSource(nil, path, strings.NewReader(""))
+	if err != nil || string(got) != `{"title":"from file"}` {
+		t.Fatalf("--file = %q, %v", got, err)
+	}
+
+	got, err = dagSubmitSource([]string{`{"title":"inline"}`}, "", strings.NewReader(""))
+	if err != nil || string(got) != `{"title":"inline"}` {
+		t.Fatalf("inline = %q, %v", got, err)
+	}
+
+	got, err = dagSubmitSource(nil, "-", strings.NewReader(`{"title":"stdin"}`))
+	if err != nil || string(got) != `{"title":"stdin"}` {
+		t.Fatalf("stdin = %q, %v", got, err)
+	}
+
+	// two sources is a mistake to surface, not a precedence rule to guess at
+	if _, err := dagSubmitSource([]string{`{}`}, path, strings.NewReader("")); err == nil {
+		t.Fatal("inline + --file must be rejected")
+	}
+	if _, err := dagSubmitSource(nil, "", strings.NewReader("")); err == nil {
+		t.Fatal("no source must be rejected")
+	}
+	if _, err := dagSubmitSource(nil, filepath.Join(dir, "missing.json"), strings.NewReader("")); err == nil {
+		t.Fatal("missing file must be rejected")
+	}
+}
+
+func TestWaitDecision(t *testing.T) {
+	cases := []struct {
+		name       string
+		digest     wshrpc.DagStatusDigest
+		wantReturn bool
+		wantReason string
+	}{
+		{
+			name:       "quiet dag keeps blocking",
+			digest:     wshrpc.DagStatusDigest{Health: "healthy", Next: wshrpc.DagNextStep{Kind: "parallelism-wait", BlockingTaskIds: []string{"t-2"}}},
+			wantReturn: false,
+		},
+		{
+			name:       "dependency wait keeps blocking",
+			digest:     wshrpc.DagStatusDigest{Health: "healthy", Next: wshrpc.DagNextStep{Kind: "dependency-wait"}},
+			wantReturn: false,
+		},
+		{
+			name:       "merge gate needs the lead",
+			digest:     wshrpc.DagStatusDigest{Health: "healthy", Next: wshrpc.DagNextStep{Kind: "merge-ready", Actions: []string{"resolve-merge"}}},
+			wantReturn: true, wantReason: "action:merge-ready",
+		},
+		{
+			name:       "child ask needs the lead",
+			digest:     wshrpc.DagStatusDigest{Health: "needs-you", Next: wshrpc.DagNextStep{Kind: "human-action", Actions: []string{"answer"}}},
+			wantReturn: true, wantReason: "action:human-action",
+		},
+		{
+			name:       "terminal kind wins",
+			digest:     wshrpc.DagStatusDigest{Health: "healthy", Next: wshrpc.DagNextStep{Kind: "terminal", TerminalStatus: "done"}},
+			wantReturn: true, wantReason: "terminal:done",
+		},
+		{
+			name:       "cancelled health is terminal even without a terminal next",
+			digest:     wshrpc.DagStatusDigest{Health: "cancelled", Next: wshrpc.DagNextStep{Kind: "dispatch"}},
+			wantReturn: true, wantReason: "terminal:cancelled",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, reason := waitDecision(c.digest)
+			if got != c.wantReturn {
+				t.Fatalf("returnNow = %v, want %v", got, c.wantReturn)
+			}
+			if c.wantReturn && reason != c.wantReason {
+				t.Fatalf("reason = %q, want %q", reason, c.wantReason)
+			}
+		})
+	}
+}

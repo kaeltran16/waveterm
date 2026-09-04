@@ -22,6 +22,7 @@ import {
 } from "@/app/view/agents/composercommand";
 import { harnessRuntimeIds } from "@/app/view/agents/harnesspicker";
 import { harnessPreferenceAtom, harnessesAtom } from "@/app/view/agents/harnessstore";
+import { type Orchestration } from "@/app/view/agents/orchestratorpicker";
 import { resolveEffectiveRoute, routeForRuntime } from "@/app/view/agents/route";
 import { createRun, pendingRunDraftAtom, resolveChannelLaunchRoute } from "@/app/view/agents/runactions";
 import { currentPhaseIndex } from "@/app/view/agents/runmodel";
@@ -251,6 +252,7 @@ export function StageComposer({
     const [shape, setShape] = useState<RunShape>(profile?.defaultmode === "orchestrator" ? "orchestrator" : "pipeline");
     const [runRoute, setRunRoute] = useState<RoutePin | null>(route ?? pref.route);
     const [workerRoute, setWorkerRoute] = useState<RoutePin | null>(null);
+    const [orchestration, setOrchestration] = useState<Orchestration>("engine");
     const shapeTouched = useRef(false);
     const routeTouched = useRef(false);
     const channelIdentity = channel?.oid ?? null;
@@ -261,6 +263,7 @@ export function StageComposer({
         setShape("pipeline");
         setRunRoute(null);
         setWorkerRoute(null);
+        setOrchestration("engine");
     }, [channelIdentity]);
 
     useEffect(() => {
@@ -420,7 +423,8 @@ export function StageComposer({
             try {
                 const created = await createRun(decision.channelId, decision.goal, decision.route, {
                     mode: decision.mode,
-                    ...(shape === "orchestrator" && workerRoute ? { workerRoute } : {}),
+                    ...(shape === "orchestrator" ? { orchestration } : {}),
+                    ...(shape === "orchestrator" && orchestration === "engine" && workerRoute ? { workerRoute } : {}),
                 });
                 setActiveRunId(decision.channelId, created.id);
                 setDraft("");
@@ -572,6 +576,8 @@ export function StageComposer({
                                 routeOpenRequest={routeOpenRequest}
                                 workerRoute={workerRoute}
                                 onWorkerRouteChange={setWorkerRoute}
+                                orchestration={orchestration}
+                                onOrchestrationChange={setOrchestration}
                             />
                         </>
                     )

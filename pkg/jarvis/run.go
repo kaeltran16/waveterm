@@ -38,6 +38,18 @@ const (
 	RunMode_Orchestrator = "orchestrator"
 )
 
+// MaxDagTasks is the ceiling orchestrate.MaxTasks enforces. It lives here because the lead's engine
+// prompt has to state it while planning, and pkg/orchestrate imports pkg/jarvis, never the reverse.
+// The cap bounds blast radius — a lead fanning dozens of children into a user's repo — not resource
+// use: concurrency is governed by Parallelism, and each worktree is removed on merge.
+const MaxDagTasks = 16
+
+// Orchestration selects which machine an orchestrator lead drives.
+const (
+	Orchestration_Engine   = "engine"
+	Orchestration_Adaptive = "adaptive"
+)
+
 // Phase kinds.
 const (
 	PhaseKind_Brainstorm  = "brainstorm"
@@ -348,17 +360,40 @@ func BuildQuickPrompt(goal string, principles waveobj.PrincipleList) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-// BuildOrchestratePrompt is the lead's initial prompt for an orchestrator run: adaptively choose direct
-// execution or typed DAG publication while carrying principles into every child description.
-func BuildOrchestratePrompt(goal string, principles waveobj.PrincipleList, runtime string) string {
+// ResolveOrchestration maps a run's stored choice onto the machine its prompt describes. Empty is the
+// pre-2026-09 shape, where runtime alone decided: pi drove the engine and every other harness
+// dispatched its own subagents. Preserving that mapping means a run created before the composer
+// gained the control still builds the prompt it was created under.
+func ResolveOrchestration(orchestration, runtime string) string {
+	if orchestration != "" {
+		return orchestration
+	}
+	if runtime == "pi" {
+		return Orchestration_Engine
+	}
+	return Orchestration_Adaptive
+}
+
+// BuildOrchestratePrompt is the lead's initial prompt for an orchestrator run. The fork is the
+// orchestration choice, not the runtime: "engine" publishes a TaskGroup that pkg/orchestrate
+// schedules into managed worktrees, "adaptive" leaves fan-out to the lead's own subagents. Runtime
+// still selects how an engine lead publishes and how it is woken, because those differ per harness.
+func BuildOrchestratePrompt(goal string, principles waveobj.PrincipleList, runtime, orchestration string) string {
 	var b strings.Builder
 	if rendered := RenderPrinciples(principles); rendered != "" {
 		fmt.Fprintf(&b, "Work by these principles, and propagate them into every subagent you dispatch:\n%s\n\n", rendered)
 	}
-	if runtime == "pi" {
-		buildPiOrchestratePrompt(&b, goal)
-		return strings.TrimRight(b.String(), "\n")
+	if ResolveOrchestration(orchestration, runtime) == Orchestration_Engine {
+		buildEngineOrchestratePrompt(&b, goal, runtime)
+	} else {
+		buildAdaptiveOrchestratePrompt(&b, goal)
 	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// buildAdaptiveOrchestratePrompt: the lead sizes up the goal and fans out with its own subagents.
+// No TaskGroup, so no engine, no managed worktrees, and no merge gate.
+func buildAdaptiveOrchestratePrompt(b *strings.Builder, goal string) {
 	b.WriteString("You are the lead orchestrator for this goal.\n")
 	b.WriteString("First size up the goal and announce your call:\n")
 	b.WriteString("- If it is a small, well-understood change, run `wsh jarvis triage quick \"<one-line reason>\"` and just make the fix directly — no plan document, and dispatch subagents only if the work genuinely needs them.\n")
@@ -367,18 +402,28 @@ func BuildOrchestratePrompt(goal string, principles waveobj.PrincipleList, runti
 	// The intended ask channel is AskUserQuestion (it renders as an answerable card in the cockpit and
 	// blocks); a question typed in prose does not render, so the run proceeds without an answer.
 	b.WriteString("If a genuinely consequential or ambiguous decision comes up mid-run — one where a wrong assumption would waste real work — use the AskUserQuestion tool to ask the human; it renders as an answerable question in the cockpit and blocks until they reply. Never pose such a question in prose: a prose question does not render as a question, so the run just proceeds without an answer.\n")
-	fmt.Fprintf(&b, "Goal: %s\n", goal)
+	fmt.Fprintf(b, "Goal: %s\n", goal)
 	b.WriteString("When the goal is fully accomplished, commit your work and run `wsh jarvis complete --commit $(git rev-parse HEAD)` from your working tree (the SHA of your own final commit), so the run's evidence reflects exactly your changes.\n")
-	return strings.TrimRight(b.String(), "\n")
 }
 
-// buildPiOrchestratePrompt is the pi-runtime variant: the engine's DAG replaces the
-// dispatch-your-own-subagents loop, and control events replace the per-child notify lines.
-func buildPiOrchestratePrompt(b *strings.Builder, goal string) {
-	b.WriteString("You are the lead orchestrator for this goal, running under pi with the waveterm bridge.\n")
-	b.WriteString("Size up the goal: if it is a small well-understood change, run `wsh jarvis triage quick \"<reason>\"` and do it directly. Otherwise plan it with the writing-plans approach, create pi-tasks records, and run `wsh jarvis dag import-tasks`; the engine validates and schedules ready children automatically and wakes you with control events; respond to control events as they arrive — do not babysit. Each task description must include the task-specific goal, relevant evidence and constraints, expected verification, and pinned decisions so the child does not have to rediscover the broad goal. Use `wsh jarvis dag status` for detail.\n")
+// buildEngineOrchestratePrompt: the lead publishes a DAG and the engine schedules it. The two hard
+// limits are stated up front because discovering them at submit time costs a blocking escalation —
+// and the two-phase import a lead naturally proposes as the remedy is exactly what CreateDagForRun
+// rejects.
+func buildEngineOrchestratePrompt(b *strings.Builder, goal, runtime string) {
+	b.WriteString("You are the lead orchestrator for this goal, driving the Arc orchestration engine.\n")
+	b.WriteString("Size up the goal: if it is a small well-understood change, run `wsh jarvis triage quick \"<reason>\"` and do it directly. Otherwise run `wsh jarvis triage plan \"<reason>\"`, plan it with the superpowers:writing-plans approach, and publish that plan as a DAG.\n")
+	fmt.Fprintf(b, "Two hard limits shape the plan, so respect them while planning instead of discovering them at submit time: a DAG holds at most %d tasks, and one orchestrator run holds exactly one DAG for its whole lifetime — a second, different submission is rejected as a dag conflict, so a multi-phase import is not available. Compress the plan to fit.\n", MaxDagTasks)
+	b.WriteString("Each task description must include the task-specific goal, relevant evidence and constraints, expected verification, and pinned decisions, so the child never has to rediscover the broad goal.\n")
+	if runtime == "pi" {
+		b.WriteString("Create pi-tasks records and run `wsh jarvis dag import-tasks`; the engine validates and schedules ready children automatically and wakes you with control events; respond to control events as they arrive — do not babysit.\n")
+	} else {
+		b.WriteString("Write the DAG as JSON to a file and submit it with `wsh jarvis dag submit --file <path>`. The JSON is an object with `title`, `parallelism` (1-8), and `tasks`, each task `{\"id\": \"t-1\", \"label\": \"...\", \"description\": \"...\", \"deps\": [\"t-0\"]}`.\n")
+		b.WriteString("Then loop: run `wsh jarvis dag wait`, do exactly what it reports, and wait again. Stop when it reports a line beginning `woke: terminal:`. Acting on a reported action is what lets the next wait block — an action you leave untaken makes wait return immediately.\n")
+	}
+	b.WriteString("Use `wsh jarvis dag status` for detail at any time.\n")
 	b.WriteString("If a genuinely consequential or ambiguous decision comes up — one where a wrong assumption would waste real work — use the AskUserQuestion tool to ask the human; it renders an answerable question in the cockpit and blocks until they reply. Never pose such a question in prose.\n")
-	b.WriteString("A Git-backed dependent task remains pending until each predecessor is merged; when `wsh jarvis dag status` shows `merge`, run the command with the reported id, for example `wsh jarvis dag merge t-1`, after reviewing the completed task so its successors start from the integrated project HEAD.\n")
+	b.WriteString("A Git-backed dependent task stays pending until each predecessor is merged; when the digest reports `merge`, run `wsh jarvis dag merge <task-id>` with the reported id after reviewing that finished child, so its successors start from the integrated project HEAD.\n")
 	fmt.Fprintf(b, "Goal: %s\n", goal)
 	b.WriteString("When the goal is fully accomplished, commit your work and run `wsh jarvis complete --commit $(git rev-parse HEAD)`.\n")
 }

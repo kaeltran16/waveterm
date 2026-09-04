@@ -22,7 +22,12 @@ import {
 } from "./composercommand";
 import { HarnessPicker, harnessRuntimeIds } from "./harnesspicker";
 import { harnessPreferenceAtom, harnessesAtom } from "./harnessstore";
-import { orchestratorPickerState } from "./orchestratorpicker";
+import {
+    ORCHESTRATION_OPTIONS,
+    orchestratorBehaviorFace,
+    orchestratorPickerState,
+    type Orchestration,
+} from "./orchestratorpicker";
 import { RoutePicker } from "./routepicker";
 import { runtimeMeta } from "./runtimemeta";
 
@@ -40,6 +45,8 @@ export function LaunchComposer({
     attach,
     shape,
     onShapeChange,
+    orchestration,
+    onOrchestrationChange,
     route,
     onRouteChange,
     harnessOpenRequest = 0,
@@ -56,6 +63,8 @@ export function LaunchComposer({
     attach: UseComposerAttachments;
     shape: RunShape;
     onShapeChange: (shape: RunShape) => void;
+    orchestration: Orchestration;
+    onOrchestrationChange: (next: Orchestration) => void;
     route: RoutePin | null;
     onRouteChange: (route: RoutePin | null) => void;
     harnessOpenRequest?: number;
@@ -138,9 +147,11 @@ export function LaunchComposer({
 
     const runBehavior =
         selectedShape === "orchestrator"
-            ? workerRoute
-                ? `→ lead ${route?.model || route?.tier || ""} · workers ${workerRoute.model || workerRoute.tier || ""}`
-                : "→ persistent lead · DAG when useful · workers use lead"
+            ? orchestratorBehaviorFace({
+                  orchestration,
+                  leadFace: route?.model || route?.tier || "unset",
+                  workerFace: workerRoute ? workerRoute.model || workerRoute.tier || null : null,
+              })
             : selectedShape === "quick"
               ? `→ direct quick launch in #${channelName}`
               : "→ direct pipeline launch";
@@ -164,6 +175,7 @@ export function LaunchComposer({
         mode,
         pending,
         hasWorkerCallback: onWorkerRouteChange != null,
+        orchestration,
     });
 
     return (
@@ -235,6 +247,31 @@ export function LaunchComposer({
                                         className={
                                             "rounded-[5px] px-1.5 py-0.5 font-mono text-[10px] font-semibold capitalize " +
                                             (selectedShape === option
+                                                ? "bg-accentbg text-accent-soft"
+                                                : "text-muted hover:text-secondary")
+                                        }
+                                    >
+                                        {option}
+                                    </button>
+                                ))}
+                            </div>
+                        ) : null}
+                        {selectedShape === "orchestrator" && mode !== "ask" && !pending ? (
+                            <div className="flex items-center gap-1 rounded-[7px] border border-border bg-surface px-1 py-0.5">
+                                {ORCHESTRATION_OPTIONS.map((option) => (
+                                    <button
+                                        key={option}
+                                        type="button"
+                                        aria-pressed={orchestration === option}
+                                        onClick={() => onOrchestrationChange(option)}
+                                        title={
+                                            option === "engine"
+                                                ? "Publish a DAG the engine schedules into managed worktrees"
+                                                : "Let the lead dispatch its own subagents"
+                                        }
+                                        className={
+                                            "rounded-[5px] px-1.5 py-0.5 font-mono text-[10px] font-semibold capitalize " +
+                                            (orchestration === option
                                                 ? "bg-accentbg text-accent-soft"
                                                 : "text-muted hover:text-secondary")
                                         }

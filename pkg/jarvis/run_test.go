@@ -320,15 +320,66 @@ func TestApproveGate_ResumesHeldInPlace(t *testing.T) {
 	}
 }
 
-func TestBuildOrchestratePrompt(t *testing.T) {
-	p := BuildOrchestratePrompt("do X", waveobj.PrincipleList{{ID: "clean", Text: "be clean"}}, "claude")
-	for _, want := range []string{"do X", "be clean", "wsh jarvis triage", "wsh jarvis complete", "subagent", "AskUserQuestion", "prose"} {
-		if !strings.Contains(p, want) {
-			t.Fatalf("prompt missing %q:\n%s", want, p)
+func TestBuildOrchestratePromptAdaptive(t *testing.T) {
+	principles := waveobj.PrincipleList{{ID: "clean", Text: "be clean"}}
+	// explicit adaptive, and the legacy empty-on-claude that must resolve to it
+	for _, orch := range []string{Orchestration_Adaptive, ""} {
+		p := BuildOrchestratePrompt("do X", principles, "claude", orch)
+		for _, want := range []string{"do X", "be clean", "wsh jarvis triage", "wsh jarvis complete", "subagent", "AskUserQuestion", "prose"} {
+			if !strings.Contains(p, want) {
+				t.Fatalf("orch=%q prompt missing %q:\n%s", orch, want, p)
+			}
+		}
+		if strings.Contains(p, "wsh jarvis hold") {
+			t.Fatalf("orch=%q: orchestrator prompt must not tell the lead to hold", orch)
+		}
+		if strings.Contains(p, "dag submit") || strings.Contains(p, "import-tasks") {
+			t.Fatalf("orch=%q: adaptive prompt must not mention the engine:\n%s", orch, p)
 		}
 	}
-	if strings.Contains(p, "wsh jarvis hold") {
-		t.Fatal("orchestrator prompt must not tell the lead to hold")
+}
+
+func TestBuildOrchestratePromptEngine(t *testing.T) {
+	principles := waveobj.PrincipleList{{ID: "clean", Text: "be clean"}}
+
+	claude := BuildOrchestratePrompt("do X", principles, "claude", Orchestration_Engine)
+	for _, want := range []string{
+		"do X", "be clean", "dag submit --file", "wsh jarvis dag wait", "terminal:",
+		"wsh jarvis dag merge", "AskUserQuestion", "16 tasks", "one DAG", "wsh jarvis complete",
+	} {
+		if !strings.Contains(claude, want) {
+			t.Fatalf("claude engine prompt missing %q:\n%s", want, claude)
+		}
+	}
+	if strings.Contains(claude, "import-tasks") {
+		t.Fatalf("claude engine prompt must not mention pi-tasks:\n%s", claude)
+	}
+
+	// pi keeps push delivery: control events, never the wait loop.
+	pi := BuildOrchestratePrompt("do X", principles, "pi", Orchestration_Engine)
+	for _, want := range []string{"import-tasks", "control events", "16 tasks", "wsh jarvis dag merge"} {
+		if !strings.Contains(pi, want) {
+			t.Fatalf("pi engine prompt missing %q:\n%s", want, pi)
+		}
+	}
+	if strings.Contains(pi, "dag wait") || strings.Contains(pi, "--file") {
+		t.Fatalf("pi engine prompt must not use the pull loop:\n%s", pi)
+	}
+}
+
+func TestResolveOrchestrationLegacyFork(t *testing.T) {
+	cases := []struct{ orch, runtime, want string }{
+		{"", "pi", Orchestration_Engine},
+		{"", "claude", Orchestration_Adaptive},
+		{"", "codex", Orchestration_Adaptive},
+		{"", "", Orchestration_Adaptive},
+		{Orchestration_Engine, "claude", Orchestration_Engine},
+		{Orchestration_Adaptive, "pi", Orchestration_Adaptive},
+	}
+	for _, c := range cases {
+		if got := ResolveOrchestration(c.orch, c.runtime); got != c.want {
+			t.Fatalf("ResolveOrchestration(%q, %q) = %q, want %q", c.orch, c.runtime, got, c.want)
+		}
 	}
 }
 

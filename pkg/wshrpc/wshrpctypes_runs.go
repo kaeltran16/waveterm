@@ -20,19 +20,20 @@ type RunCommands interface {
 }
 
 type CommandCreateRunData struct {
-	ChannelId   string                  `json:"channelid"`
-	WorkspaceId string                  `json:"workspaceid"` // where phase-worker tabs are created
-	Goal        string                  `json:"goal"`
-	Runtime     string                  `json:"runtime"` // the harness that runs every phase and child run; immutable after Start
-	Tier        string                  `json:"tier"`
-	Model       string                  `json:"model,omitempty"` // exact model id; empty = tier. wins over tier
-	WorkerRoute *waveobj.RoutePin       `json:"workerroute,omitempty"` // B1b default worker route (nil = inherit lead)
-	PlaybookId  string                  `json:"playbookid,omitempty"`
-	Mode        string                  `json:"mode,omitempty"`        // quick | pipeline | orchestrator (empty = resolved profile default)
-	PlanGate    *bool                   `json:"plangate,omitempty"`    // orchestrator plan gate; nil = resolved profile default
-	RadarOrigin *waveobj.RunRadarOrigin `json:"radarorigin,omitempty"` // set when started from a Radar finding
-	EffortOID   string                  `json:"effortoid,omitempty"`   // optional effort tracker link (composer picker)
-	ChunkLabel  string                  `json:"chunklabel,omitempty"`
+	ChannelId     string                  `json:"channelid"`
+	WorkspaceId   string                  `json:"workspaceid"` // where phase-worker tabs are created
+	Goal          string                  `json:"goal"`
+	Runtime       string                  `json:"runtime"` // the harness that runs every phase and child run; immutable after Start
+	Tier          string                  `json:"tier"`
+	Model         string                  `json:"model,omitempty"`         // exact model id; empty = tier. wins over tier
+	WorkerRoute   *waveobj.RoutePin       `json:"workerroute,omitempty"`   // B1b default worker route (nil = inherit lead)
+	Orchestration string                  `json:"orchestration,omitempty"` // engine | adaptive (empty = legacy runtime fork)
+	PlaybookId    string                  `json:"playbookid,omitempty"`
+	Mode          string                  `json:"mode,omitempty"`        // quick | pipeline | orchestrator (empty = resolved profile default)
+	PlanGate      *bool                   `json:"plangate,omitempty"`    // orchestrator plan gate; nil = resolved profile default
+	RadarOrigin   *waveobj.RunRadarOrigin `json:"radarorigin,omitempty"` // set when started from a Radar finding
+	EffortOID     string                  `json:"effortoid,omitempty"`   // optional effort tracker link (composer picker)
+	ChunkLabel    string                  `json:"chunklabel,omitempty"`
 	// DeferStart persists the run in planning without spawning phase workers; the caller (the
 	// draft-first composer) submits the TaskGroup explicitly and DagSubmit transitions it to executing.
 	DeferStart bool `json:"deferstart,omitempty"`
