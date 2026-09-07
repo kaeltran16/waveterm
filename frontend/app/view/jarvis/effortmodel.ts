@@ -126,3 +126,17 @@ export function effortTone(card: EffortCardModel): "blocked" | "done" | "active"
     }
     return card.status === "done" ? "done" : "active";
 }
+
+// The efforts list splits archived rows into their own group so "show archived" is a render toggle
+// rather than a second fetch shape. Wire order is already newest-updated first; both groups keep it.
+export function partitionEfforts(efforts: EffortSummary[]): {
+    active: EffortCardModel[];
+    archived: EffortCardModel[];
+} {
+    const active: EffortCardModel[] = [];
+    const archived: EffortCardModel[] = [];
+    for (const e of efforts) {
+        (e.status === "archived" ? archived : active).push(buildEffortCard(e));
+    }
+    return { active, archived };
+}

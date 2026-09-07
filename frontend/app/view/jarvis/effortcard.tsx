@@ -22,6 +22,7 @@ import {
     effortDetailErrorAtom,
     loadEffortDetail,
     reopenChunk,
+    setEffortStatus,
 } from "./effortstore";
 import { ProgressBar } from "./progressbar";
 
@@ -259,6 +260,12 @@ export function EffortCard({
                                     }}
                                 >
                                     Note
+                                </FooterButton>
+                                {/* no confirm: the efforts list's "show archived" toggle is the way back */}
+                                <FooterButton
+                                    onClick={() => void runMutation(() => setEffortStatus(model.oref, "archived"))}
+                                >
+                                    Archive
                                 </FooterButton>
                                 {addingChunk ? (
                                     <input

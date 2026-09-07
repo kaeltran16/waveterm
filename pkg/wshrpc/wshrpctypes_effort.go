@@ -49,7 +49,8 @@ type CommandEffortMutateRtnData struct {
 }
 
 type CommandEffortListData struct {
-	Project string `json:"project,omitempty"` // "" = all non-archived efforts
+	Project         string `json:"project,omitempty"`         // "" = all non-archived efforts
+	IncludeArchived bool   `json:"includearchived,omitempty"` // archived efforts are hidden unless asked for
 }
 
 type CommandEffortListRtnData struct {

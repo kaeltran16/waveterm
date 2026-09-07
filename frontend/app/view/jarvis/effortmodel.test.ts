@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { buildEffortCard, chunkTone, effortDeltaRow, effortStatusLines, effortTone } from "./effortmodel";
+import {
+    buildEffortCard,
+    chunkTone,
+    effortDeltaRow,
+    effortStatusLines,
+    effortTone,
+    partitionEfforts,
+} from "./effortmodel";
 
 const base = {
     oref: "effort:abc",
@@ -125,5 +132,37 @@ describe("effortTone", () => {
         const clean = base.chunks!.filter((c) => c.status !== "blocked");
         expect(effortTone(buildEffortCard({ ...base, chunks: clean } as EffortSummary))).toBe("active");
         expect(effortTone(buildEffortCard({ ...base, status: "done", chunks: clean } as EffortSummary))).toBe("done");
+    });
+});
+
+describe("partitionEfforts", () => {
+    const of = (oref: string, status: string) => ({ ...base, oref, status }) as EffortSummary;
+
+    it("splits archived out of the active list", () => {
+        const p = partitionEfforts([of("effort:a", "active"), of("effort:b", "archived"), of("effort:c", "done")]);
+        expect(p.active.map((e) => e.oref)).toEqual(["effort:a", "effort:c"]);
+        expect(p.archived.map((e) => e.oref)).toEqual(["effort:b"]);
+    });
+
+    it("preserves the wire order within each group", () => {
+        const p = partitionEfforts([
+            of("effort:a", "archived"),
+            of("effort:b", "active"),
+            of("effort:c", "archived"),
+            of("effort:d", "paused"),
+        ]);
+        expect(p.active.map((e) => e.oref)).toEqual(["effort:b", "effort:d"]);
+        expect(p.archived.map((e) => e.oref)).toEqual(["effort:a", "effort:c"]);
+    });
+
+    it("returns an empty archived group when nothing is archived", () => {
+        const p = partitionEfforts([of("effort:a", "active")]);
+        expect(p.archived).toEqual([]);
+        expect(p.active).toHaveLength(1);
+    });
+
+    it("projects each row through buildEffortCard", () => {
+        const p = partitionEfforts([of("effort:a", "active")]);
+        expect(p.active[0].countLine).toBe("2 of 7 · 1 skipped · active: Phase 3");
     });
 });

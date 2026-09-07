@@ -762,6 +762,7 @@ declare global {
     // wshrpc.CommandEffortListData
     type CommandEffortListData = {
         project?: string;
+        includearchived?: boolean;
     };
 
     // wshrpc.CommandEffortListRtnData
