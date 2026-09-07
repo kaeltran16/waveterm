@@ -80,3 +80,25 @@ describe("harnessstore model catalog freshness", () => {
         });
     });
 });
+
+describe("harnessstore catalog load resilience", () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        globalStore.set(harnessesAtom, []);
+        refreshRouteCatalog.mockResolvedValue(undefined);
+    });
+
+    it("gives the catalog RPC more than the 5s default budget", async () => {
+        listHarnesses.mockResolvedValue({ harnesses: [] });
+        await loadHarnesses();
+        expect(listHarnesses.mock.calls[0][1]?.timeout).toBeGreaterThan(5000);
+    });
+
+    it("keeps the loaded catalog when a refresh fails", async () => {
+        const loaded = [{ runtime: "pi", label: "Pi" }] as HarnessInfo[];
+        globalStore.set(harnessesAtom, loaded);
+        listHarnesses.mockRejectedValue(new Error("EC-TIME: timeout"));
+        await loadHarnesses(true);
+        expect(globalStore.get(harnessesAtom)).toEqual(loaded);
+    });
+});

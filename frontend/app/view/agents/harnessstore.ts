@@ -104,6 +104,12 @@ export function initHarnessPreference(persistedRuntime: string, persistedTier = 
     globalStore.set(harnessPreferenceAtom, { route, persistedRoute: route, saving: false });
 }
 
+// A cold listharnesses spawns one CLI per harness to enumerate its models (`pi --list-models`,
+// `opencode models`, `claude --help`), serialized server-side; that measured 5.3s against the RPC
+// layer's 5s DefaultTimeoutMs, so the picker loaded or came up empty depending on machine luck. The
+// budget has to cover the process spawns, not the wire.
+const CATALOG_RPC_TIMEOUT_MS = 30_000;
+
 export async function loadHarnesses(forceRefresh = false): Promise<void> {
     if (forceRefresh) {
         // the catalog is cached server-side; only a forced refresh re-enumerates installed CLIs
@@ -114,11 +120,12 @@ export async function loadHarnesses(forceRefresh = false): Promise<void> {
         }
     }
     try {
-        const rtn = await RpcApi.ListHarnessesCommand(TabRpcClient);
+        const rtn = await RpcApi.ListHarnessesCommand(TabRpcClient, { timeout: CATALOG_RPC_TIMEOUT_MS });
         globalStore.set(harnessesAtom, rtn?.harnesses ?? []);
     } catch (e) {
+        // a failed re-list must not empty a catalog that already loaded — the picker would fall back
+        // to "Unknown: <runtime>" for a selection that is in fact valid
         console.error("loading harness catalog failed", e);
-        globalStore.set(harnessesAtom, []);
     }
 }
 
