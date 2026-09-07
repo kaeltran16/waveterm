@@ -11,10 +11,15 @@ const createTab = vi.fn();
 const setMeta = vi.fn().mockResolvedValue(undefined);
 const reloadWaveObject = vi.fn().mockResolvedValue(undefined);
 const fileInfo = vi.fn();
+const agentSyncApply = vi.fn().mockResolvedValue({ actions: [] });
 
 vi.mock("@/app/store/services", () => ({ WorkspaceService: { CreateTab: (...a: any[]) => createTab(...a) } }));
 vi.mock("@/app/store/wshclientapi", () => ({
-    RpcApi: { SetMetaCommand: (...a: any[]) => setMeta(...a), FileInfoCommand: (...a: any[]) => fileInfo(...a) },
+    RpcApi: {
+        SetMetaCommand: (...a: any[]) => setMeta(...a),
+        FileInfoCommand: (...a: any[]) => fileInfo(...a),
+        AgentSyncApplyCommand: (...a: any[]) => agentSyncApply(...a),
+    },
 }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 vi.mock("@/app/view/agents/agents", () => ({ AgentsViewModel: class {} }));

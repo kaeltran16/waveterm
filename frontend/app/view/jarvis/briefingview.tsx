@@ -7,17 +7,22 @@
 
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { formatAge } from "@/app/view/agents/agentsviewmodel";
+import { attentionAtom } from "@/app/view/agents/attentionstore";
+import { pendingRunFocusAtom } from "@/app/view/agents/runactions";
 import { cn } from "@/util/util";
 import { useAtomValue, useSetAtom } from "jotai";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { BRIEFING_FIXTURES } from "./briefingfixtures";
 import {
+    buildAttentionQueue,
+    effortListLabel,
     groupDelta,
     mergeActiveWork,
     normalizeBriefingNav,
     projectBriefing,
     SEVEN_DAYS_MS,
     type ActiveWorkRow,
+    type QueueRow,
 } from "./briefingmodel";
 import {
     ackBriefingVisit,
@@ -104,6 +109,11 @@ function chipClass(tone: ChipTone): string {
     return tone === "blocked" || tone === "asking" ? "bg-asking/15 text-asking" : "bg-surface-raised text-secondary";
 }
 
+// a blocker row, or any row whose chip says blocked/asking — the same tiering mergeActiveWork sorts by.
+function needsEyes(r: ActiveWorkRow): boolean {
+    return r.kind === "blocker" || (r.chip != null && (r.chip.tone === "blocked" || r.chip.tone === "asking"));
+}
+
 function kindBadge(kind: ActiveWorkRow["kind"]): string {
     return cn(
         "flex-none rounded-[4px] border px-1.5 py-[2px] font-mono text-[8.5px] font-bold uppercase tracking-[.06em]",
@@ -127,6 +137,56 @@ function MoreLink({ label, onClick }: { label: string; onClick: () => void }) {
     );
 }
 
+// one waiting-on-you row: tone bar, kind badge, what is waiting, how long, and its own action. The
+// action navigates to the run body that owns the gate/ask — the briefing surfaces the queue, the run
+// body still resolves it, so there is one place a decision is actually made.
+function QueueRowView({ row, first, onGo }: { row: QueueRow; first: boolean; onGo: () => void }) {
+    const body = (
+        <>
+            <span className={cn("my-3 self-stretch rounded-[2px]", row.tone === "error" ? "bg-error" : "bg-asking")} />
+            <span className="flex min-w-0 flex-col gap-1.5 py-[11px]">
+                <span className="flex min-w-0 flex-wrap items-center gap-2.5">
+                    <span className="flex-none rounded-[4px] bg-asking/15 px-1.5 py-[2px] font-mono text-[8.5px] font-bold uppercase tracking-[.06em] text-asking">
+                        {row.kind}
+                    </span>
+                    <span className="min-w-[180px] flex-1 text-[12.5px] font-semibold text-primary">{row.title}</span>
+                    {row.ts != null ? (
+                        <span className="flex-none font-mono text-[9.5px] text-muted">
+                            {formatAge(Date.now() - row.ts)}
+                        </span>
+                    ) : null}
+                    {row.action != null ? (
+                        <span className="flex-none rounded-[7px] border border-accent/40 bg-surface-raised px-3 py-[5px] text-[11px] font-semibold text-accent-soft">
+                            {row.action}
+                        </span>
+                    ) : null}
+                </span>
+                <span className="text-[11px] leading-[1.45] text-ink-mid">{row.detail}</span>
+            </span>
+        </>
+    );
+    const shell = cn("grid grid-cols-[3px_minmax(0,1fr)] gap-3 pl-[11px] pr-3.5", !first && "border-t border-border");
+    // no nav → the owning channel could not be resolved; static info, not a dead control.
+    if (row.nav == null) {
+        return <div className={shell}>{body}</div>;
+    }
+    return (
+        <button
+            type="button"
+            data-jarvis-briefing-row
+            data-row-kind="queue"
+            aria-label={row.kind + ": " + row.title + ", " + row.detail}
+            onClick={onGo}
+            className={cn(
+                shell,
+                "w-full cursor-pointer text-left transition-colors duration-[140ms] hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            )}
+        >
+            {body}
+        </button>
+    );
+}
+
 export function BriefingView({ model }: { model: AgentsViewModel }) {
     const { snapshot, loading, error } = useAtomValue(briefingStateAtom);
     const fixture = useAtomValue(briefingFixtureAtom);
@@ -134,6 +194,8 @@ export function BriefingView({ model }: { model: AgentsViewModel }) {
     const askState = useAtomValue(briefingAskStateAtom);
     const answer = useAtomValue(briefingAnswerAtom);
     const setRailOpen = useSetAtom(stageRailOpenAtom);
+    const setPendingFocus = useSetAtom(pendingRunFocusAtom);
+    const liveAttention = useAtomValue(attentionAtom);
     const expandedEffort = useAtomValue(expandedEffortOrefAtom);
     const [showCreateForm, setShowCreateForm] = useState(false);
 
@@ -179,6 +241,29 @@ export function BriefingView({ model }: { model: AgentsViewModel }) {
               })
             : null;
     const deltaGroups = model_ != null ? groupDelta(model_.delta, Date.now()) : null;
+
+    // the queue reads the live attention poll rather than the snapshot's count, so an ask raised
+    // after the snapshot still lands here without waiting for a refresh — and a fixture seeds it the
+    // same way it seeds the agent roster, so every fixture state previews the queue too.
+    const attention = fixture != null ? BRIEFING_FIXTURES[fixture].attention : liveAttention;
+    const queue = model_ != null ? buildAttentionQueue({ attention, efforts: model_.efforts }) : [];
+
+    // a queued item in another channel has to move the Stage there first; pendingRunFocus is the
+    // one-shot the Stage already consumes to land on a run once that channel's runs have loaded.
+    const goToQueueRow = (row: QueueRow): void => {
+        if (row.nav == null) {
+            return;
+        }
+        if (row.nav.kind === "effort") {
+            selectSubject({ kind: "effort", id: row.nav.oref.replace(/^effort:/, "") });
+            return;
+        }
+        if (row.nav.runId != null) {
+            setPendingFocus({ channelId: row.nav.channelId, runId: row.nav.runId });
+            return;
+        }
+        selectSubject({ kind: "channel", id: row.nav.channelId });
+    };
 
     // one effort expanded at a time, owned by the store so subjects and delta rows can drive it.
     const failedRefresh = error != null && snapshot != null;
@@ -269,42 +354,32 @@ export function BriefingView({ model }: { model: AgentsViewModel }) {
                                 </>
                             ) : null}
                         </div>
-                        {/* needs-you: attention card, asking tone, whole card opens the rail */}
-                        {model_.attention != null || model_.attentionLines.length > 0 ? (
-                            <button
-                                type="button"
-                                data-jarvis-briefing-banner
-                                onClick={openRail}
-                                className="flex w-full cursor-pointer flex-col items-start gap-1.5 rounded-[10px] border border-asking/30 bg-asking/10 px-4 py-3 text-left shadow-[inset_3px_0_0_0_var(--color-asking)] transition-colors duration-[140ms] hover:bg-asking/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                            >
-                                <span className="flex items-center gap-2.5">
-                                    <span className="h-2 w-2 flex-none animate-pulse rounded-full bg-asking motion-reduce:animate-none" />
-                                    <span className="text-[13.5px] font-bold text-primary">Needs you</span>
+                        {/* waiting on you: one actionable row per waiting thing, not a count that
+                            only opened the rail. Absent rather than empty when nothing waits. */}
+                        {queue.length > 0 ? (
+                            <section data-jarvis-briefing-section="queue" className="flex flex-col">
+                                <div className="mb-1.5 flex items-center gap-2">
+                                    <span className="h-[7px] w-[7px] flex-none animate-pulse rounded-full bg-asking motion-reduce:animate-none" />
+                                    <span className="font-mono text-[9.5px] font-bold uppercase tracking-[.12em] text-asking">
+                                        Waiting on you
+                                    </span>
                                     <span className="rounded-full bg-asking px-1.5 py-[1px] font-mono text-[9.5px] font-bold text-on-warning">
-                                        {model_.attention != null
-                                            ? model_.attention.count
-                                            : model_.attentionLines.length}
+                                        {queue.length}
                                     </span>
-                                    <span className="ml-auto font-mono text-[10.5px] font-semibold text-accent-soft">
-                                        Review all →
-                                    </span>
-                                </span>
-                                {model_.attentionLines.length > 0 ? (
-                                    <span className="flex flex-col gap-1 pl-[18px]">
-                                        {model_.attentionLines.map((l) => (
-                                            <span
-                                                key={l}
-                                                className="flex items-baseline gap-2 text-[12px] text-secondary"
-                                            >
-                                                <span className="flex-none rounded-[4px] bg-asking/15 px-1 py-[1px] font-mono text-[8.5px] font-bold uppercase tracking-[.06em] text-asking">
-                                                    blocked
-                                                </span>
-                                                {l}
-                                            </span>
-                                        ))}
-                                    </span>
-                                ) : null}
-                            </button>
+                                    <span className="h-px min-w-3 flex-1 bg-edge-faint" />
+                                    <MoreLink label="Review all →" onClick={openRail} />
+                                </div>
+                                <div className="overflow-hidden rounded-[10px] border border-asking/30 bg-asking/10">
+                                    {queue.map((q, i) => (
+                                        <QueueRowView
+                                            key={q.key}
+                                            row={q}
+                                            first={i === 0}
+                                            onGo={() => goToQueueRow(q)}
+                                        />
+                                    ))}
+                                </div>
+                            </section>
                         ) : null}
                         {/* Efforts — full width, first section */}
                         <section data-jarvis-briefing-section="efforts" className="flex flex-col gap-2">
@@ -335,20 +410,19 @@ export function BriefingView({ model }: { model: AgentsViewModel }) {
                                             model={e}
                                             expanded={expandedEffort === e.oref}
                                             onToggle={() => void toggleEffort(e.oref)}
-                                            onChipClick={() => void toggleEffort(e.oref)}
                                             onOpenDetail={() =>
                                                 selectSubject({ kind: "effort", id: e.oref.replace(/^effort:/, "") })
                                             }
                                         />
                                     ))}
-                                    {model_.effortMore > 0 ? (
-                                        <MoreLink
-                                            label={`+${model_.effortMore} more`}
-                                            onClick={() => selectSubject({ kind: "effort-list", id: "all" })}
-                                        />
-                                    ) : null}
                                 </div>
                             )}
+                            {/* outside the branch: archived initiatives live only on the list, so the
+                                way there cannot depend on this section having overflowed. */}
+                            <MoreLink
+                                label={effortListLabel(model_.effortMore)}
+                                onClick={() => selectSubject({ kind: "effort-list", id: "all" })}
+                            />
                         </section>
                         {/* two-column cockpit grid: Active work | Since last visit + Shipped */}
                         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -357,6 +431,16 @@ export function BriefingView({ model }: { model: AgentsViewModel }) {
                                 <SectionHead
                                     label="Active work"
                                     count={model_.counts.runs + model_.blockers.length + model_.counts.agents}
+                                    action={
+                                        /* the whole point of the queue above is that this section is
+                                           then just running work — but only say so when no row here
+                                           actually carries a blocked/asking chip. */
+                                        activeRows.length > 0 && !activeRows.some(needsEyes) ? (
+                                            <span className="font-mono text-[9.5px] text-muted">
+                                                nothing here needs you
+                                            </span>
+                                        ) : null
+                                    }
                                 />
                                 {activeRows.length === 0 ? (
                                     <span className="px-2.5 py-1 text-[12px] text-secondary">

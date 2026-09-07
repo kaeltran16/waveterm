@@ -37,13 +37,20 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 	}
 	ownerPin := runroute.NormalizeLegacy(run.Runtime, run.Tier)
 	for _, task := range data.Tasks {
-		runtimePresent := task.RunSpec.Runtime != ""
-		tierPresent := task.RunSpec.Tier != ""
-		if runtimePresent != tierPresent {
-			return nil, fmt.Errorf("task %q runtime and tier must be provided together", task.ID)
-		}
+		// a submitted route must be fully specified — unlike the engine, which also has to dispatch
+		// legacy pins already sitting in the store. A model pin is the exception that stands alone:
+		// it needs no tier, and an absent runtime inherits the owner's, exactly as dispatch does.
 		pin := ownerPin
-		if runtimePresent {
+		switch {
+		case task.RunSpec.Model != "":
+			runtime := task.RunSpec.Runtime
+			if runtime == "" {
+				runtime = ownerPin.Runtime
+			}
+			pin = waveobj.RoutePin{Runtime: runtime, Model: task.RunSpec.Model}
+		case (task.RunSpec.Runtime != "") != (task.RunSpec.Tier != ""):
+			return nil, fmt.Errorf("task %q runtime and tier must be provided together", task.ID)
+		case task.RunSpec.Runtime != "":
 			pin = waveobj.RoutePin{Runtime: task.RunSpec.Runtime, Tier: task.RunSpec.Tier}
 		}
 		if _, err := runroute.Resolve(pin); err != nil {

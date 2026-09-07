@@ -266,3 +266,84 @@ func TestVaultNotesForProjectFilter(t *testing.T) {
 		t.Fatalf("vaultNotesForProject = %d notes, want 4 (registry + leaf + shared + empty)", len(got))
 	}
 }
+
+func TestSharedDirIsOutsideHarvestPath(t *testing.T) {
+	repo := `C:\Users\k\proj`
+	shared := SharedDirForCwd(repo)
+	hub := HubDirForCwd(repo)
+	if shared == hub {
+		t.Fatalf("shared dir must not be the hub dir, both %q", shared)
+	}
+	if filepath.Base(shared) != "shared" {
+		t.Fatalf("shared dir should end in 'shared', got %q", shared)
+	}
+	// the echo guarantee: both live under the same project hash, but only the hub is enumerated
+	if filepath.Dir(shared) != filepath.Dir(hub) {
+		t.Fatalf("shared %q and hub %q should be siblings", shared, hub)
+	}
+	if SharedDirForCwd("") != "" {
+		t.Fatalf("empty cwd must yield empty shared dir")
+	}
+}
+
+// the echo guarantee is structural, not filter logic: ClaudeHubDirs only ever yields */memory, so a
+// sibling export dir can never be walked back into the vault.
+func TestClaudeHubDirsNeverEnumeratesShared(t *testing.T) {
+	for _, d := range ClaudeHubDirs() {
+		if filepath.Base(d) != "memory" {
+			t.Fatalf("harvest would walk a non-hub dir: %q", d)
+		}
+	}
+}
+
+func TestRenderManifestLines(t *testing.T) {
+	dir := t.TempDir()
+	notes := []NoteWithBody{
+		{Note: Note{ID: "wsh-not-on-path", Description: "non-interactive launch leaves wsh off PATH"}, Body: "long body"},
+		{Note: Note{ID: "no-desc-note"}, Body: "First sentence. Second sentence."},
+	}
+	got := renderManifestFrom("waveterm", dir, notes)
+	if !strings.Contains(got, "Shared project memory: waveterm") {
+		t.Fatalf("missing label header:\n%s", got)
+	}
+	if !strings.Contains(got, "- wsh-not-on-path — non-interactive launch leaves wsh off PATH") {
+		t.Fatalf("missing manifest line:\n%s", got)
+	}
+	if !strings.Contains(got, "- no-desc-note — First sentence.") {
+		t.Fatalf("missing synthesized line:\n%s", got)
+	}
+	if strings.Contains(got, "long body") {
+		t.Fatalf("manifest must not carry bodies:\n%s", got)
+	}
+	if !strings.Contains(got, dir) {
+		t.Fatalf("manifest must name the directory holding the bodies:\n%s", got)
+	}
+}
+
+// authored descriptions in this vault routinely run to a full paragraph; the manifest is only worth
+// injecting if every fact stays one scannable line
+func TestRenderManifestCapsAuthoredDescriptions(t *testing.T) {
+	long := strings.Repeat("word ", 200)
+	notes := []NoteWithBody{{Note: Note{ID: "verbose", Description: long}, Body: "body"}}
+	got := renderManifestFrom("waveterm", t.TempDir(), notes)
+	for _, line := range strings.Split(strings.TrimSpace(got), "\n") {
+		if strings.HasPrefix(line, "- ") && len(line) > 260 {
+			t.Fatalf("manifest line not capped, len=%d: %s", len(line), line)
+		}
+	}
+	if strings.Count(got, "\n- ") > 1 {
+		t.Fatalf("one fact must render as exactly one line:\n%s", got)
+	}
+}
+
+func TestRenderManifestEmptyIsBlank(t *testing.T) {
+	if got := renderManifestFrom("waveterm", t.TempDir(), nil); got != "" {
+		t.Fatalf("empty note set must render blank, got %q", got)
+	}
+}
+
+func TestRenderManifestEmptyCwd(t *testing.T) {
+	if got := RenderManifest(""); got != "" {
+		t.Fatalf("empty cwd must render blank, got %q", got)
+	}
+}

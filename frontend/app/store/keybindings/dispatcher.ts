@@ -4,6 +4,7 @@
 import { globalStore } from "@/app/store/jotaiStore";
 import { modalsModel } from "@/app/store/modalmodel";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
+import { codeFinderOpenAtom } from "@/app/view/code/codestore";
 import * as keyutil from "@/util/keyutil";
 import { CHORD_TIMEOUT } from "@/util/sharedconst";
 import { activeLeaderAtom } from "./leaderatom";
@@ -56,6 +57,10 @@ export function deriveKeyContext(): KeyContext {
         globalStore.get(model.newAgentOpenAtom) ||
         globalStore.get(model.newProjectOpenAtom) ||
         globalStore.get(model.memNewOpenAtom) ||
+        // the Code file finder is a modal too, and leaving it out was not cosmetic: every Code and
+        // global binding stayed live behind it, so Ctrl+N stacked New Agent on top of it and stole
+        // focus, and any key the finder's input did not swallow drove the surface underneath.
+        globalStore.get(codeFinderOpenAtom) ||
         globalStore.get(modalsModel.modalsAtom).length > 0;
     return {
         surface: globalStore.get(model.surfaceAtom),

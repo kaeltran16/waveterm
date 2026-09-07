@@ -15,7 +15,7 @@ import { formatAge } from "@/app/view/agents/agentsviewmodel";
 import { sendChannelMessage } from "@/app/view/agents/channelactions";
 import { activeChannelAtom, channelsAtom } from "@/app/view/agents/channelsstore";
 import type { Runtime } from "@/app/view/agents/launch";
-import { createRun, getJarvisProfile, resolveChannelLaunchRoute } from "@/app/view/agents/runactions";
+import { createRun, resolveChannelLaunchRoute } from "@/app/view/agents/runactions";
 import { loadSessionsArchive, sessionsArchiveAtom } from "@/app/view/agents/sessionsarchivestore";
 import { activeSpaceAtom, enterSpace, exitSpace, loadSpaces, spacesAtom } from "@/app/view/agents/spacestore";
 import { themeOverridesAtom, themePresetAtom } from "@/app/view/agents/themestore";
@@ -112,7 +112,6 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     const mru = useAtomValue(paletteMruAtom);
     const [query, setQuery] = useState("");
     const [sel, setSel] = useState(0);
-    const [runStrategy, setRunStrategy] = useState<string | undefined>(undefined);
     const [launchError, setLaunchError] = useState<string | undefined>(undefined);
     const inputRef = useRef<HTMLInputElement>(null);
     const listRef = useRef<HTMLDivElement>(null);
@@ -156,26 +155,6 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         const raf = requestAnimationFrame(() => inputRef.current?.focus());
         return () => cancelAnimationFrame(raf);
     }, [open]);
-
-    // Pre-fetch the active channel's Jarvis strategy so the Run row can label itself
-    // (Run · pipeline / Run · orchestrator). Labelling only — the dispatch sends no mode, so an
-    // unresolved profile costs a suffix, never the wrong strategy.
-    useEffect(() => {
-        if (!open || !targetChannel) {
-            setRunStrategy(undefined);
-            return;
-        }
-        let cancelled = false;
-        fireAndForget(async () => {
-            const p = await getJarvisProfile(targetChannel.oid);
-            if (!cancelled) {
-                setRunStrategy(p.resolved?.defaultmode);
-            }
-        });
-        return () => {
-            cancelled = true;
-        };
-    }, [open, targetChannel?.oid]);
 
     const items = useMemo<PaletteItem[]>(() => {
         const now = Date.now();
@@ -276,8 +255,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
             });
         // Quick and Run both go through createRun: that is the only path that captures a dossier, so a
         // goal dispatched from here lands in the record system like one dispatched from the composer.
-        // Run sends no mode — the channel's profile is the server's to resolve (resolveRunPlan takes any
-        // non-empty mode as an override, so a stale prefetch here would beat the channel's own setting).
+        // run sends no mode and uses the server's Quick default; saved strategies do not select heavier modes.
         // A missing preferred runtime blocks before any RPC: the goal stays in the palette, nothing dispatches.
         const guarded = (goal: string, action: (route: RoutePin) => Promise<unknown>) => {
             fireLaunch(async () => action(await resolveChannelLaunchRoute(ch.oid)));
@@ -287,7 +265,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
             run: (goal) => guarded(goal, (route) => createRun(ch.oid, goal, route)),
             consult: (runtime, goal) => fireLaunch(() => sendText(`ask @${runtime} ${goal}`)),
         };
-        return buildLaunchItems(launchGoal, ch.name, runStrategy, deps).map((li) => ({
+        return buildLaunchItems(launchGoal, ch.name, deps).map((li) => ({
             key: li.key,
             kind: "launch" as const,
             search: "",
@@ -299,7 +277,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
             desc: li.desc,
             footer: li.footer,
         }));
-    }, [showLaunch, targetChannel, launchGoal, runStrategy, agents, model]);
+    }, [showLaunch, targetChannel, launchGoal, agents, model]);
 
     // "Ask Jarvis" lead group: turn the typed goal into a recall conversation and open the Jarvis surface.
     // Reuses jarvisstore's module-scope streaming so the answer keeps arriving after the palette closes.

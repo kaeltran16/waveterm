@@ -230,6 +230,26 @@ export async function refreshIndex(): Promise<void> {
     await loadIndex(p);
 }
 
+// Returning to the surface is the other moment the cache is stale — an agent wrote while Code was
+// off-screen — but unlike the explicit refresh this one must not blank the tree: the index already on
+// screen stays until the refetch lands. Guarded against pile-up, since nav switching is a keystroke.
+let revalidating = false;
+
+export async function revalidateIndex(): Promise<void> {
+    const p = globalStore.get(codeProjectAtom);
+    if (p == null || revalidating) {
+        return;
+    }
+    revalidating = true;
+    try {
+        indexCache.delete(p.path);
+        globalStore.set(codeIndexErrorAtom, null);
+        await loadIndex(p); // refetches ls-files and, alongside it, git status
+    } finally {
+        revalidating = false;
+    }
+}
+
 // Status is decoration over the rows, so a failure degrades rather than blocks: the tree still
 // renders, the Changed column says why it is empty, and the retry is one click.
 export async function loadStatus(): Promise<void> {

@@ -100,6 +100,44 @@ declare global {
         usage?: AgentUsage;
     };
 
+    // wshrpc.AgentSyncAction
+    type AgentSyncAction = {
+        kind: string;
+        runtime: string;
+        path: string;
+        detail?: string;
+    };
+
+    // wshrpc.AgentSyncCarriedLine
+    type AgentSyncCarriedLine = {
+        runtime: string;
+        line: string;
+    };
+
+    // wshrpc.AgentSyncHarness
+    type AgentSyncHarness = {
+        runtime: string;
+        label: string;
+        present: boolean;
+        steering: string;
+        skillslinked: number;
+        skillsconflict: number;
+        note?: string;
+    };
+
+    // wshrpc.AgentSyncSkillCollision
+    type AgentSyncSkillCollision = {
+        name: string;
+        sources: string[];
+    };
+
+    // wshrpc.AgentSyncSkillMove
+    type AgentSyncSkillMove = {
+        runtime: string;
+        name: string;
+        from: string;
+    };
+
     // wshrpc.AgentTranscriptUpdate
     type AgentTranscriptUpdate = {
         lines: string[];
@@ -335,6 +373,60 @@ declare global {
         verdict?: string;
         note?: string;
         commit?: string;
+    };
+
+    // wshrpc.CommandAgentSyncAdoptData
+    type CommandAgentSyncAdoptData = {
+        apply?: boolean;
+        prefer?: {[key: string]: string};
+        acceptloss?: boolean;
+    };
+
+    // wshrpc.CommandAgentSyncAdoptRtnData
+    type CommandAgentSyncAdoptRtnData = {
+        seedfrom?: string;
+        seedlines: number;
+        carried?: AgentSyncCarriedLine[];
+        moves?: AgentSyncSkillMove[];
+        collisions?: AgentSyncSkillCollision[];
+        blocked: boolean;
+        reasons?: string[];
+    };
+
+    // wshrpc.CommandAgentSyncApplyData
+    type CommandAgentSyncApplyData = {
+        dryrun?: boolean;
+    };
+
+    // wshrpc.CommandAgentSyncApplyRtnData
+    type CommandAgentSyncApplyRtnData = {
+        actions: AgentSyncAction[];
+    };
+
+    // wshrpc.CommandAgentSyncStatusRtnData
+    type CommandAgentSyncStatusRtnData = {
+        harnesses: AgentSyncHarness[];
+        steeringdoc: string;
+        skillsroot: string;
+    };
+
+    // wshrpc.CommandAgentSyncSteeringReadRtnData
+    type CommandAgentSyncSteeringReadRtnData = {
+        path: string;
+        content: string;
+        mtime: number;
+    };
+
+    // wshrpc.CommandAgentSyncSteeringWriteData
+    type CommandAgentSyncSteeringWriteData = {
+        content: string;
+        basemtime: number;
+    };
+
+    // wshrpc.CommandAgentSyncSteeringWriteRtnData
+    type CommandAgentSyncSteeringWriteRtnData = {
+        mtime: number;
+        conflict: boolean;
     };
 
     // wshrpc.CommandAnswerAgentData
@@ -670,6 +762,7 @@ declare global {
     // wshrpc.CommandEffortListData
     type CommandEffortListData = {
         project?: string;
+        includearchived?: boolean;
     };
 
     // wshrpc.CommandEffortListRtnData

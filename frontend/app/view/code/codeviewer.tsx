@@ -33,6 +33,10 @@ import {
     refreshIndex,
 } from "./codestore";
 
+// The markdown element defaults to 14px with no padding — sized for the old full-width chat block,
+// which reads oversized in a cockpit pane beside the 12px mono source view.
+const DOC_FONT_SIZE = 12.5;
+
 function sizeLabel(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
@@ -137,7 +141,16 @@ export function CodeViewer({ model }: { model: AgentsViewModel }) {
             // READMEs and other prose render as documents; Source (the CodeEditor below) stays one
             // toggle away, and the draft feeds the preview so unsaved edits show what you would save
             if (isMarkdownPath(file.path) && mode === "preview") {
-                return <Markdown key={file.path} text={draft?.text ?? file.text} scrollable className="h-full" />;
+                return (
+                    <Markdown
+                        key={file.path}
+                        text={draft?.text ?? file.text}
+                        scrollable
+                        className="h-full"
+                        contentClassName="px-5 py-4"
+                        fontSizeOverride={DOC_FONT_SIZE}
+                    />
+                );
             }
             return (
                 <CodeEditor

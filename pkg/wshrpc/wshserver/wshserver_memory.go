@@ -79,6 +79,15 @@ func (ws *WshServer) MemoryProjectCommand(ctx context.Context, data wshrpc.Comma
 	return nil
 }
 
+// MemoryProjectManifestCommand projects cwd's memory and returns the manifest for session-start
+// injection. One round trip so the hook cannot inject a manifest older than the projection.
+func (ws *WshServer) MemoryProjectManifestCommand(ctx context.Context, data wshrpc.CommandMemoryProjectData) (string, error) {
+	if err := memvault.Project(data.Cwd); err != nil {
+		return "", fmt.Errorf("projecting memory: %w", err)
+	}
+	return memvault.RenderManifest(data.Cwd), nil
+}
+
 func (ws *WshServer) MemoryProjectionStatusCommand(ctx context.Context) (*wshrpc.CommandMemoryProjectionStatusRtnData, error) {
 	return &wshrpc.CommandMemoryProjectionStatusRtnData{Runtimes: memvault.ProjectionStatus()}, nil
 }

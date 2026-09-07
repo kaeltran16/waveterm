@@ -25,12 +25,13 @@ paste-and-tick list. Ticked lines become `done`; chunks you plan but have not st
 
 | Command | What it does |
 |---|---|
-| `wsh effort list [--project P]` | non-archived efforts: oid, title, done/total, active chunk |
+| `wsh effort list [--project P] [--archived]` | efforts: oid, title, status, done/total, active chunk; archived hidden unless `--archived` |
 | `wsh effort show <effort>` | full detail: chunks, statuses, owners, note trails |
 | `wsh effort rename <effort> <title>` | retitle |
 | `wsh effort project <effort> <project\|"">` | set/clear project |
 | `wsh effort ticket <effort> <ticket\|"">` | set/clear ticket |
 | `wsh effort status <effort> <active\|paused\|done\|archived>` | effort-level status |
+| `wsh effort unarchive <effort>` | restore an archived effort to the status it held when archived |
 | `wsh effort link <effort> --parent <effort>` / `unlink` | parent link (e.g. sub-migration under the rollout) |
 | `wsh effort delete <effort> [--force]` | delete (refuses unless archived or `--force`) |
 | `wsh effort advance <effort> [--note "..."]` | active chunk → done; marker moves to the next non-done chunk |

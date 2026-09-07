@@ -16,7 +16,7 @@ func hasSub(cmd *cobra.Command, name string) bool {
 }
 
 func TestEffortSubcommandsRegistered(t *testing.T) {
-	for _, want := range []string{"create", "list", "show", "rename", "project", "ticket", "status", "link", "unlink", "delete", "advance", "reopen", "chunk"} {
+	for _, want := range []string{"create", "list", "show", "rename", "project", "ticket", "status", "unarchive", "link", "unlink", "delete", "advance", "reopen", "chunk"} {
 		if !hasSub(effortCmd, want) {
 			t.Fatalf("`effort %s` subcommand is not registered", want)
 		}
@@ -31,6 +31,17 @@ func TestEffortSubcommandsRegistered(t *testing.T) {
 func TestEffortCreateFlags(t *testing.T) {
 	f := effortCreateCmd.Flags()
 	for _, want := range []string{"project", "ticket", "chunk", "parent", "json"} {
+		if f.Lookup(want) == nil {
+			t.Fatalf("missing --%s flag", want)
+		}
+	}
+}
+
+func TestEffortListFlags(t *testing.T) {
+	f := effortListCmd.Flags()
+	// without --archived there is no way to learn an archived effort's oid, and `effort unarchive`
+	// needs one.
+	for _, want := range []string{"project", "archived", "json"} {
 		if f.Lookup(want) == nil {
 			t.Fatalf("missing --%s flag", want)
 		}

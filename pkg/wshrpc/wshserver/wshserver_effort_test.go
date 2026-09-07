@@ -179,3 +179,43 @@ func TestEffortListAndGet(t *testing.T) {
 		t.Fatalf("get: %+v", got.Effort)
 	}
 }
+
+func TestEffortListIncludeArchived(t *testing.T) {
+	ctx := context.Background()
+	ws := &WshServer{}
+	active, err := ws.EffortCreateCommand(ctx, wshrpc.CommandEffortCreateData{Title: "still going"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanupEffort(t, active.EffortOID)
+	archived, err := ws.EffortCreateCommand(ctx, wshrpc.CommandEffortCreateData{Title: "put away"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanupEffort(t, archived.EffortOID)
+	if _, err := ws.EffortMutateCommand(ctx, wshrpc.CommandEffortMutateData{
+		EffortOID: archived.EffortOID,
+		Ops:       []wshrpc.EffortOp{{Op: "setStatus", Status: "archived"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	list, err := ws.EffortListCommand(ctx, wshrpc.CommandEffortListData{IncludeArchived: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sawActive, sawArchived bool
+	for _, s := range list.Efforts {
+		switch s.ORef {
+		case "effort:" + active.EffortOID:
+			sawActive = true
+		case "effort:" + archived.EffortOID:
+			sawArchived = true
+		}
+	}
+	if !sawArchived {
+		t.Fatalf("includearchived did not return the archived effort: %+v", list.Efforts)
+	}
+	if !sawActive {
+		t.Fatalf("includearchived dropped the active effort: %+v", list.Efforts)
+	}
+}

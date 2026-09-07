@@ -3,9 +3,9 @@
 //
 // Pure logic for the merged Channels surface's two-face composer. The Launch face is a plain goal input
 // driven by a curated `@`-command vocabulary — @quick/@run/@ask — that sets the launch mode (a bare goal
-// defaults to @run). parseComposerCommand strips the command; runFooterFor renders the channel's resolved
-// run strategy (from ⚙) as a one-liner; composerFace picks Launch vs Talk from whether the selected run
-// has a live worker. No React/jotai — unit-tested in composercommand.test.ts.
+// defaults to @run, with Quick selected). parseComposerCommand strips the command; composerFace picks
+// Launch vs Talk from whether the selected run has a live worker. No React/jotai — unit-tested in
+// composercommand.test.ts.
 
 import type { AgentVM } from "./agentsviewmodel";
 import { supportsOperation, type HarnessOperation } from "./harnesspicker";
@@ -51,7 +51,7 @@ export function resolveRunCreationDecision(input: {
 
 export const LAUNCH_COMMANDS: { cmd: string; mode: LaunchMode; desc: string }[] = [
     { cmd: "@quick", mode: "quick", desc: "one worker, no phases" },
-    { cmd: "@run", mode: "run", desc: "managed run · channel strategy" },
+    { cmd: "@run", mode: "run", desc: "selected mode · quick by default" },
     { cmd: "@ask", mode: "ask", desc: "one-shot consult · no worker" },
 ];
 
@@ -152,20 +152,6 @@ function resolvePreferredForOperation(
         return { kind: "blocked", focusHarness: true, reason: "Choose a harness" };
     }
     return { kind: "ok", runtime: preferredRuntime, body };
-}
-
-// One-line description of what an `@run` will do, given the channel's resolved Jarvis profile (set in ⚙).
-// The strategy comes from the channel's setting, never chosen per-dispatch — so an unresolved profile says
-// so rather than naming a default the server may not agree with.
-export function runFooterFor(profile: JarvisProfile | undefined): string {
-    if (profile == null) {
-        return "→ resolving channel strategy…";
-    }
-    if (profile.defaultmode === "orchestrator") {
-        return "→ adaptive lead · DAG when useful · set in ⚙";
-    }
-    const gate = profile.playbook?.length ? profile.playbook.some((phase) => phase.gate) : true;
-    return gate ? "→ pipeline run · stops at a review gate · set in ⚙" : "→ pipeline run · no gate · set in ⚙";
 }
 
 // The composer's face: Talk when the selected run has a live worker to message (the old "Steer" target),

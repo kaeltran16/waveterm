@@ -14,7 +14,6 @@ import {
     loadResolvedProfile,
     pendingRunDraftAtom,
     pendingRunFocusAtom,
-    resolvedProfileAtom,
     channelOverrideAtom,
 } from "@/app/view/agents/runactions";
 import { RunBody } from "@/app/view/agents/runbody";
@@ -78,18 +77,14 @@ export function Stage({ model }: { model: AgentsViewModel }) {
     const setPendingDraft = useSetAtom(pendingRunDraftAtom);
     const graphOpen = useAtomValue(graphPeekOpenAtom);
     const setGraphOpen = useSetAtom(graphPeekOpenAtom);
-    const profiles = useAtomValue(resolvedProfileAtom);
     const overrides = useAtomValue(channelOverrideAtom);
     const profileChannelId = subject?.kind === "channel" ? subject.id : null;
-    const profile = profileChannelId != null ? profiles[profileChannelId] : undefined;
     const briefingSnapshot = useAtomValue(briefingStateAtom).snapshot;
     const effortCache = useAtomValue(effortDetailAtom);
 
     useEffect(() => ensureAmbient(), []);
 
-    // the channel's resolved profile labels the composer's run footer. It does *not* feed the dispatch —
-    // the server resolves the strategy — so a slow load costs a label, never the wrong run. The cache is
-    // shared with ⚙, which refreshes it on Save.
+    // the profile cache supplies channel route overrides, but never selects the launch mode.
     useEffect(() => {
         if (profileChannelId != null) {
             loadResolvedProfile(profileChannelId);
@@ -279,7 +274,6 @@ export function Stage({ model }: { model: AgentsViewModel }) {
                 run={run}
                 recordId={subject.kind === "dossier" ? subject.id : null}
                 recordObjective={detail?.objective ?? ""}
-                profile={profile}
                 route={profileChannelId != null ? overrides[profileChannelId]?.route : undefined}
             />
             {/* last child, so the overlay layers above the whole Stage while containing none of it. The

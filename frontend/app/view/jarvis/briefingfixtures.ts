@@ -14,6 +14,9 @@ export type BriefingFixtureName = "normal" | "attention" | "empty" | "partial" |
 export interface BriefingFixture {
     load: BriefingLoadState;
     agents: AgentVM[];
+    // the waiting-on-you queue reads the live attention poll, not the snapshot, so a fixture has to
+    // seed it separately or the queue is invisible in every fixture state.
+    attention: AttentionItem[];
 }
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -183,12 +186,53 @@ const loaded = (state: WorkState): BriefingLoadState => ({
     error: null,
 });
 
+// one of each shape the queue can take: a gate with a run to land on, an escalation, and a
+// dag-blocked row carrying the error tone.
+const attentionItems: AttentionItem[] = [
+    {
+        kind: "gate",
+        key: "gate:r-briefing-1",
+        channelid: "ch-briefing",
+        channelname: "waveterm",
+        runid: "r-briefing-1",
+        source: "the ask bridge",
+        text: "Approve before Jarvis proceeds.",
+        action: "Review",
+        phaseidx: 1,
+        waitingsince: NOW - DAY,
+    },
+    {
+        kind: "escalation",
+        key: "esc:m-1",
+        channelid: "ch-briefing",
+        channelname: "waveterm",
+        runid: "r-briefing-1",
+        source: "frontend-e2e",
+        text: "Confirm the CDP port override before I keep going.",
+        action: "Decide",
+        phaseidx: 0,
+        waitingsince: NOW - 2 * 60 * 1000,
+    },
+    {
+        kind: "dag-blocked",
+        key: "dag-blocked:g-1",
+        channelid: "ch-briefing",
+        channelname: "waveterm",
+        runid: "r-briefing-2",
+        source: "usage charts",
+        text: "3 consecutive failures — decide retry/skip.",
+        action: "Review",
+        phaseidx: 0,
+        waitingsince: NOW - DAY,
+    },
+];
+
 export const BRIEFING_FIXTURES: Record<BriefingFixtureName, BriefingFixture> = {
-    normal: { load: loaded(normalState), agents },
-    attention: { load: loaded(attentionState), agents },
-    empty: { load: loaded(emptyState), agents },
-    partial: { load: loaded(partialState), agents },
-    failed: { load: { snapshot: null, loading: false, error: "fixture failure" }, agents: [] },
+    normal: { load: loaded(normalState), agents, attention: [] },
+    attention: { load: loaded(attentionState), agents, attention: attentionItems },
+    empty: { load: loaded(emptyState), agents, attention: [] },
+    partial: { load: loaded(partialState), agents, attention: [] },
+    failed: { load: { snapshot: null, loading: false, error: "fixture failure" }, agents: [], attention: [] },
 };
 
 // The ask fixture answers once and stays: the inline ask is launch-local state, so the answer is

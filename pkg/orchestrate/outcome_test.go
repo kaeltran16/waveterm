@@ -36,7 +36,7 @@ func newChildOutcomeHarness(t *testing.T, taskCount int) *childOutcomeHarness {
 		t.Fatal(err)
 	}
 	owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
-	owner.Runtime = "pi"
+	owner.Runtime = "claude"
 	owner.Tier = "mid"
 	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
 		t.Fatal(err)

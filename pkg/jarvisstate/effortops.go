@@ -72,6 +72,29 @@ func effortEvent(e *waveobj.Effort, kind, label, text string, now int64) {
 	e.Events = append(e.Events, waveobj.EffortEvent{Ts: now, Kind: kind, Label: label, Text: text})
 }
 
+// preArchiveStatus is the status an unarchive restores. Archiving does not record what it replaced,
+// but the event log already has it: the last effort-status before the archive is where the effort
+// came from. Trailing archive events are skipped so a second archive cycle does not read its own
+// restore as the answer. Falls back to active — an effort archived straight from creation has no
+// earlier status event to find.
+func preArchiveStatus(e *waveobj.Effort) string {
+	seenArchived := false
+	for i := len(e.Events) - 1; i >= 0; i-- {
+		ev := e.Events[i]
+		if ev.Kind != "effort-status" {
+			continue
+		}
+		if ev.Text == "archived" {
+			seenArchived = true
+			continue
+		}
+		if seenArchived {
+			return ev.Text
+		}
+	}
+	return "active"
+}
+
 // noteSuffix appends the batch note to effort-trail stamps; chunk ops fold it into their own text.
 func noteSuffix(cmdNote string) string {
 	if cmdNote == "" {
@@ -94,6 +117,10 @@ func ApplyEffortOps(e *waveobj.Effort, ops []wshrpc.EffortOp, cmdNote string, no
 		case "setStatus":
 			if !effortStatuses[op.Status] {
 				return fmt.Errorf("EC-INVALID-STATUS: %q not one of active|paused|done|archived", op.Status)
+			}
+		case "unarchive":
+			if e.Status != "archived" {
+				return fmt.Errorf("EC-NOT-ARCHIVED: effort is %s, not archived", e.Status)
 			}
 		case "addChunk":
 			label := strings.TrimSpace(op.Label)
@@ -210,6 +237,11 @@ func ApplyEffortOps(e *waveobj.Effort, ops []wshrpc.EffortOp, cmdNote string, no
 			e.Status = op.Status
 			effortNote(e, "effort "+op.Status+noteSuffix(cmdNote), now)
 			effortEvent(e, "effort-status", "", op.Status, now)
+		case "unarchive":
+			prev := preArchiveStatus(e)
+			e.Status = prev
+			effortNote(e, "effort unarchived to "+prev+noteSuffix(cmdNote), now)
+			effortEvent(e, "effort-status", "", prev, now)
 		case "link":
 			e.ParentOID = op.ParentOID
 			effortNote(e, "linked to parent "+orNone(op.ParentOID)+noteSuffix(cmdNote), now)

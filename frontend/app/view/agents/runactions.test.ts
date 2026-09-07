@@ -70,6 +70,33 @@ describe("profile cache", () => {
 });
 
 describe("createRun", () => {
+    it.each([undefined, "quick", "pipeline"])("omits orchestrator options for mode %s", async (mode) => {
+        createRunCommand.mockResolvedValueOnce({ run: { id: "run-1" } });
+        await createRun("channel-1", "fix", { runtime: "pi", tier: "mid" }, {
+            mode,
+            orchestration: "engine",
+            workerRoute: { runtime: "claude", tier: "", model: "sonnet" },
+        });
+        const payload = createRunCommand.mock.calls[0][1];
+        expect(payload.mode).toBe(mode);
+        expect(payload).not.toHaveProperty("orchestration");
+        expect(payload).not.toHaveProperty("workerroute");
+    });
+
+    it("preserves an explicitly selected engine orchestrator", async () => {
+        createRunCommand.mockResolvedValueOnce({ run: { id: "run-1" } });
+        await createRun("channel-1", "coordinate", { runtime: "pi", tier: "mid" }, {
+            mode: "orchestrator",
+            orchestration: "engine",
+            workerRoute: { runtime: "claude", tier: "", model: "sonnet" },
+        });
+        expect(createRunCommand.mock.calls[0][1]).toMatchObject({
+            mode: "orchestrator",
+            orchestration: "engine",
+            workerroute: { runtime: "claude", model: "sonnet" },
+        });
+    });
+
     it("sends workerRoute when B1b workers picker is set", async () => {
         createRunCommand.mockResolvedValueOnce({ run: { id: "run-1" } });
         await createRun("channel-1", "ship", { runtime: "claude", tier: "", model: "opus" }, { mode: "orchestrator", workerRoute: { runtime: "pi", model: "opencode/deepseek-v4-pro" } as RoutePin });

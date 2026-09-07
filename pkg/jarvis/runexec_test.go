@@ -26,7 +26,7 @@ func TestRunWorkerSpecFor(t *testing.T) {
 		{"claude", "claude", []string{"--dangerously-skip-permissions", "do work"}},
 		{"codex", "codex", []string{"--dangerously-bypass-approvals-and-sandbox", "do work"}},
 		{"opencode", "opencode", []string{"--auto", "--prompt", "do work"}},
-		{"pi", "pi", []string{"--model", consult.PiMidModel, "do work"}},
+		{"pi", "pi", []string{"do work"}},
 	}
 	for _, tt := range tests {
 		cap, err := runroute.Resolve(waveobj.RoutePin{Runtime: tt.runtime, Tier: string(consult.TierCapable)})
@@ -47,8 +47,7 @@ func TestRunWorkerSpecFor_CapabilityArgs(t *testing.T) {
 		tier    consult.Tier
 		args    []string
 	}{
-		{"pi cheap", "pi", consult.TierCheap, []string{"--model", consult.PiCheapModel, "do work"}},
-		{"pi mid", "pi", consult.TierMid, []string{"--model", consult.PiMidModel, "do work"}},
+		{"pi capable", "pi", consult.TierCapable, []string{"do work"}},
 		{"claude cheap", "claude", consult.TierCheap, []string{"--dangerously-skip-permissions", "--model", consult.CheapModel, "do work"}},
 		{"claude mid", "claude", consult.TierMid, []string{"--dangerously-skip-permissions", "--model", consult.MidModel, "do work"}},
 		{"claude capable", "claude", consult.TierCapable, []string{"--dangerously-skip-permissions", "do work"}},
@@ -117,7 +116,10 @@ func TestEnsureWorkersPassesKeepOnExitOnlyForOrchestrator(t *testing.T) {
 		got = append(got, opts)
 		return "tab:worker", nil
 	}
-	cap, _ := runroute.Resolve(waveobj.RoutePin{Runtime: "pi", Tier: string(consult.TierMid)})
+	cap, err := runroute.Resolve(waveobj.RoutePin{Runtime: "pi", Tier: string(consult.TierCapable)})
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
 
 	orch := NewRun("orchestrate", "ws", "/p", nil, RunMode_Orchestrator, DefaultOrchestratorPlaybook(false), 1)
 	if _, err := EnsureWorkers(context.Background(), &orch, cap, "project"); err != nil {
@@ -186,5 +188,22 @@ func TestInitialWorkerStatusEvent(t *testing.T) {
 	}
 	if data.State != baseds.AgentState_Working || data.ORef != "block:abc" || data.Agent != "claude" {
 		t.Errorf("data = %#v, want working/block:abc/claude", data)
+	}
+}
+
+// A pi worker only ever carries a model when one was pinned, and a pinned pi model is always
+// provider-qualified — that qualified id is what reaches the CLI, unmodified.
+func TestRunWorkerSpecFor_piModelPinPassesQualifiedID(t *testing.T) {
+	cap, err := runroute.Resolve(waveobj.RoutePin{Runtime: "pi", Model: "opencode/deepseek-v4-pro"})
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	spec, ok := RunWorkerSpecFor(cap, "do work")
+	if !ok {
+		t.Fatal("pi model pin must produce a worker spec")
+	}
+	want := []string{"--model", "opencode/deepseek-v4-pro", "do work"}
+	if !reflect.DeepEqual(spec.Args, want) {
+		t.Errorf("args = %v, want %v", spec.Args, want)
 	}
 }

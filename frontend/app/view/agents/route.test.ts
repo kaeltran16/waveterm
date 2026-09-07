@@ -58,6 +58,14 @@ describe("route derivation", () => {
         expect(routeForRuntime("codex", pin("pi", "capable"), harnesses)).toEqual(pin("codex", "cheap"));
     });
 
+    it("keeps a model pin when the runtime is unchanged", () => {
+        const harnesses = [harness("pi", [capability("pi", "capable")]), harness("codex", [capability("codex", "capable")])];
+        const model: RoutePin = { runtime: "pi", tier: "", model: "opencode/deepseek-v4-pro" };
+        expect(routeForRuntime("pi", model, harnesses)).toEqual(model);
+        // switching harness cannot carry the old harness's model id into the new namespace
+        expect(routeForRuntime("codex", model, harnesses)).toEqual(pin("codex"));
+    });
+
     it("normalizes legacy channel override routes before persistence", () => {
         expect(normalizeProfileOverrideRoute({ route: { runtime: "pi", tier: "" } })).toEqual({ route: pin("pi") });
     });

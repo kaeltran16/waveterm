@@ -16,6 +16,7 @@ import { graphPeekOpenAtom, stageRailOpenAtom } from "@/app/view/jarvis/jarvisst
 import { activeRunIdAtom, activeSubjectAtom } from "@/app/view/jarvis/jarvissubjectstore";
 import { petPeekOpenAtom } from "@/app/view/jarvis/petstore";
 import { codeFinderOpenAtom, codeTreeFocusedAtom } from "@/app/view/code/codestore";
+import { codeSearchModeAtom } from "@/app/view/code/codesearchstore";
 import {
     buildAgentBindings,
     buildCodeBindings,
@@ -452,7 +453,11 @@ describe("code surface bindings", () => {
     };
     const code = ctx("code");
 
-    beforeEach(() => globalStore.set(codeFinderOpenAtom, false));
+    beforeEach(() => {
+        globalStore.set(codeFinderOpenAtom, false);
+        globalStore.set(codeSearchModeAtom, "files");
+    });
+    afterEach(() => vi.unstubAllGlobals());
 
     // The file finder used to own Ctrl+P here. It has no chord of its own now — the single global
     // "palette" binding routes Ctrl+P to it whenever this surface is active (see "command palette
@@ -477,6 +482,34 @@ describe("code surface bindings", () => {
         }
         expect(find("code:tree-activate").when?.(code)).toBe(true);
         globalStore.set(codeTreeFocusedAtom, false);
+    });
+
+    it("opens the collapsed sidebar before switching to Search", () => {
+        const clicked = vi.fn();
+        const focused = vi.fn();
+        const opener = { classList: { contains: () => false }, click: clicked, focus: focused };
+        vi.stubGlobal("document", { querySelector: vi.fn(() => opener) });
+
+        find("code:search").run(code);
+
+        expect(globalStore.get(codeSearchModeAtom)).toBe("search");
+        expect(clicked).toHaveBeenCalledOnce();
+        expect(focused).toHaveBeenCalledOnce();
+    });
+
+    it("focuses the reachable opener instead of the hidden tree while collapsed", () => {
+        const treeFocus = vi.fn();
+        const tree = { closest: vi.fn(() => null), focus: treeFocus };
+        const openerFocus = vi.fn();
+        const opener = { classList: { contains: () => false }, click: vi.fn(), focus: openerFocus };
+        const querySelector = vi.fn((selector: string) => (selector.includes("Expand Code sidebar") ? opener : tree));
+        vi.stubGlobal("document", { querySelector });
+        vi.stubGlobal("window", { requestAnimationFrame: (callback: () => void) => callback() });
+
+        find("code:focus-tree").run(code);
+
+        expect(openerFocus).toHaveBeenCalledOnce();
+        expect(treeFocus).toHaveBeenCalledOnce();
     });
 });
 

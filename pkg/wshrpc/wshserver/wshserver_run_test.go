@@ -229,6 +229,57 @@ func TestApplyRunActionUnknown(t *testing.T) {
 	}
 }
 
+func TestResolveRunPlanDefaultsToQuickRegardlessOfProfile(t *testing.T) {
+	gate := true
+	for _, savedMode := range []string{"", jarvis.RunMode_Quick, jarvis.RunMode_Pipeline, jarvis.RunMode_Orchestrator} {
+		t.Run("saved="+savedMode, func(t *testing.T) {
+			profile := waveobj.JarvisProfile{DefaultMode: savedMode, Playbook: jarvis.DefaultPlaybook()}
+			mode, phases := resolveRunPlan(profile, "", &gate)
+			if mode != jarvis.RunMode_Quick || len(phases) != 1 || phases[0].Kind != jarvis.PhaseKind_Execute || phases[0].Gate || phases[0].Skill != "" {
+				t.Fatalf("default launch must be one ungated bare worker: mode=%q phases=%+v", mode, phases)
+			}
+		})
+	}
+}
+
+func TestResolveRunPlanHonorsExplicitMode(t *testing.T) {
+	custom := []waveobj.RunPhase{{Kind: jarvis.PhaseKind_Execute, Gate: true}}
+	profile := waveobj.JarvisProfile{DefaultMode: jarvis.RunMode_Orchestrator, Playbook: custom}
+	for _, requested := range []string{jarvis.RunMode_Quick, jarvis.RunMode_Pipeline, jarvis.RunMode_Orchestrator} {
+		t.Run(requested, func(t *testing.T) {
+			mode, phases := resolveRunPlan(profile, requested, nil)
+			if mode != requested {
+				t.Fatalf("mode=%q, want explicit %q", mode, requested)
+			}
+			if requested == jarvis.RunMode_Pipeline && !reflect.DeepEqual(phases, custom) {
+				t.Fatalf("explicit pipeline lost custom playbook: %+v", phases)
+			}
+		})
+	}
+}
+
+func TestChildRunPlanPreservesInheritedStrategy(t *testing.T) {
+	for _, tc := range []struct{ saved, requested, want string }{
+		{"", "", jarvis.RunMode_Pipeline},
+		{jarvis.RunMode_Pipeline, "", jarvis.RunMode_Pipeline},
+		{jarvis.RunMode_Orchestrator, "", jarvis.RunMode_Orchestrator},
+		{jarvis.RunMode_Orchestrator, jarvis.RunMode_Quick, jarvis.RunMode_Quick},
+		{jarvis.RunMode_Quick, jarvis.RunMode_Orchestrator, jarvis.RunMode_Orchestrator},
+	} {
+		t.Run(tc.saved+"/"+tc.requested, func(t *testing.T) {
+			mode, phases := childRunPlan(waveobj.JarvisProfile{DefaultMode: tc.saved}, tc.requested)
+			if mode != tc.want || len(phases) == 0 {
+				t.Fatalf("mode=%q phases=%+v, want %q", mode, phases, tc.want)
+			}
+			for _, phase := range phases {
+				if phase.Gate {
+					t.Fatalf("child phase must remain ungated: %+v", phase)
+				}
+			}
+		})
+	}
+}
+
 func TestResolveRunPlanOrchestratorIsAlwaysUngated(t *testing.T) {
 	enabled := true
 	disabled := false

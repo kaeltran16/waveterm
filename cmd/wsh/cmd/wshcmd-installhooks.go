@@ -35,6 +35,9 @@ var managedHooks = []managedHook{
 	{"SubagentStop", "", "agent-hook", 10},
 	{"UserPromptSubmit", "", "agent-hook", 10},
 	{"SessionEnd", "", "agent-memory-hook", 10},
+	// matcher mirrors the superpowers plugin's SessionStart hook: /clear and a compaction both drop
+	// the previous injection from context, so memory has to be re-injected on each
+	{"SessionStart", "startup|clear|compact", "agent-memory-project --inject", 15},
 }
 
 func managedEventOrder() []string {
@@ -62,7 +65,7 @@ func isManagedCommand(command string) bool {
 		return false
 	}
 	switch strings.TrimSpace(rest) {
-	case "agent-hook", "ask", "ask --clear", "agent-memory-hook":
+	case "agent-hook", "ask", "ask --clear", "agent-memory-hook", "agent-memory-project --inject":
 		return true
 	}
 	return false

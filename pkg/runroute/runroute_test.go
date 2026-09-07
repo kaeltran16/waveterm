@@ -17,9 +17,7 @@ func TestResolveV1Capabilities(t *testing.T) {
 		model   string
 		args    []string
 	}{
-		{"pi", consult.TierCheap, consult.PiCheapModel, []string{"--model", consult.PiCheapModel}},
-		{"pi", consult.TierMid, consult.PiMidModel, []string{"--model", consult.PiMidModel}},
-		{"pi", consult.TierCapable, consult.PiMidModel, []string{"--model", consult.PiMidModel}},
+		{"pi", consult.TierCapable, "operator default", nil},
 		{"claude", consult.TierCheap, consult.CheapModel, []string{"--model", consult.CheapModel}},
 		{"claude", consult.TierMid, consult.MidModel, []string{"--model", consult.MidModel}},
 		{"claude", consult.TierCapable, "operator default", nil},
@@ -53,6 +51,8 @@ func TestResolveRejectsInvalidPins(t *testing.T) {
 		{Runtime: "codex", Tier: string(consult.TierMid)},
 		{Runtime: "opencode", Tier: string(consult.TierCheap)},
 		{Runtime: "opencode", Tier: string(consult.TierMid)},
+		{Runtime: "pi", Tier: string(consult.TierCheap)},
+		{Runtime: "pi", Tier: string(consult.TierMid)},
 	} {
 		_, err := Resolve(pin)
 		if err == nil {
@@ -65,24 +65,24 @@ func TestResolveRejectsInvalidPins(t *testing.T) {
 }
 
 func TestCapabilitiesReturnsIndependentSlices(t *testing.T) {
-	first := Capabilities("pi")
+	first := Capabilities("claude")
 	if len(first) == 0 {
-		t.Fatal("Capabilities(pi) is empty")
+		t.Fatal("Capabilities(claude) is empty")
 	}
 	first[0].ModelArgs[0] = "mutated"
 	first[0].ModelArgs = append(first[0].ModelArgs, "extra")
 
-	second := Capabilities("pi")
+	second := Capabilities("claude")
 	if second[0].ModelArgs[0] == "mutated" || reflect.DeepEqual(first[0].ModelArgs, second[0].ModelArgs) {
 		t.Fatalf("capability slices share mutable state: first=%v second=%v", first[0].ModelArgs, second[0].ModelArgs)
 	}
 
-	resolved, err := Resolve(waveobj.RoutePin{Runtime: "pi", Tier: string(consult.TierCheap)})
+	resolved, err := Resolve(waveobj.RoutePin{Runtime: "claude", Tier: string(consult.TierCheap)})
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
 	resolved.ModelArgs[0] = "mutated"
-	again, err := Resolve(waveobj.RoutePin{Runtime: "pi", Tier: string(consult.TierCheap)})
+	again, err := Resolve(waveobj.RoutePin{Runtime: "claude", Tier: string(consult.TierCheap)})
 	if err != nil {
 		t.Fatalf("Resolve again: %v", err)
 	}
@@ -166,10 +166,10 @@ func TestResolveModelWinsOverTier(t *testing.T) {
 	}
 }
 
-// legacy path must stay byte-identical: every pinned tier resolves to the same model+args as today.
+// legacy tier pins never carry a Model: the tier is the whole selector, and Resolve fills the args.
 func TestResolveLegacyTableUnchanged(t *testing.T) {
 	for _, pin := range []waveobj.RoutePin{
-		{Runtime: "pi", Tier: "cheap"}, {Runtime: "pi", Tier: "mid"}, {Runtime: "pi", Tier: "capable"},
+		{Runtime: "pi", Tier: "capable"},
 		{Runtime: "claude", Tier: "cheap"}, {Runtime: "claude", Tier: "mid"}, {Runtime: "claude", Tier: "capable"},
 		{Runtime: "codex", Tier: "capable"}, {Runtime: "opencode", Tier: "capable"},
 	} {
@@ -195,5 +195,26 @@ func TestIsValidModelCapability(t *testing.T) {
 	forged.ModelArgs = []string{"--model", "not-the-resolved-model"}
 	if IsValid(forged) {
 		t.Fatal("forged ModelArgs must be rejected")
+	}
+}
+
+// pi's id space is provider-namespaced: a bare id means "whichever authenticated provider serves it",
+// which pi refuses to guess at spawn. Wave must not be able to represent that route at all.
+func TestResolveRejectsBarePiModel(t *testing.T) {
+	for _, model := range []string{"deepseek-v4-pro", "deepseek-v4-flash", "claude-opus-4-8"} {
+		if _, err := Resolve(waveobj.RoutePin{Runtime: "pi", Model: model}); err == nil {
+			t.Errorf("Resolve(pi, %q) succeeded; bare ids are ambiguous across providers", model)
+		}
+	}
+}
+
+// Tier never meant anything for pi (its ids are provider-namespaced, not aliases), so a pin persisted
+// at an old pi tier normalizes to capable rather than stranding the run on an unresolvable route.
+func TestNormalizeLegacyPiTierAlwaysCapable(t *testing.T) {
+	for _, tier := range []string{"", "cheap", "mid", "capable"} {
+		got := NormalizeLegacy("pi", tier)
+		if got != (waveobj.RoutePin{Runtime: "pi", Tier: "capable"}) {
+			t.Errorf("NormalizeLegacy(pi, %q) = %+v, want capable", tier, got)
+		}
 	}
 }

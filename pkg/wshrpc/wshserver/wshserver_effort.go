@@ -104,7 +104,7 @@ func (ws *WshServer) EffortListCommand(ctx context.Context, data wshrpc.CommandE
 	}
 	var out []wshrpc.EffortSummary
 	for _, e := range all {
-		if e.Status == "archived" {
+		if e.Status == "archived" && !data.IncludeArchived {
 			continue
 		}
 		if data.Project != "" && e.Project != data.Project {

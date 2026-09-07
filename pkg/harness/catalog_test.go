@@ -3,6 +3,7 @@ package harness
 import (
 	"context"
 	"os/exec"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -107,4 +108,40 @@ func TestProbeAllBoundedConcurrency(t *testing.T) {
 	}
 	close(release)
 	wg.Wait()
+}
+
+func TestConfigSurfacePaths(t *testing.T) {
+	home := filepath.Join("C:", "Users", "k")
+	cases := []struct{ runtime, steering, skills string }{
+		{"claude", filepath.Join(home, ".claude", "CLAUDE.md"), filepath.Join(home, ".claude", "skills")},
+		{"codex", filepath.Join(home, ".codex", "AGENTS.md"), filepath.Join(home, ".codex", "skills")},
+		{"opencode", filepath.Join(home, ".config", "opencode", "AGENTS.md"), filepath.Join(home, ".config", "opencode", "skills")},
+		{"pi", filepath.Join(home, ".pi", "agent", "AGENTS.md"), ""},
+	}
+	for _, c := range cases {
+		spec, ok := Lookup(c.runtime)
+		if !ok {
+			t.Fatalf("%s missing from catalog", c.runtime)
+		}
+		if got := spec.SteeringPath(home); got != c.steering {
+			t.Errorf("%s SteeringPath = %q, want %q", c.runtime, got, c.steering)
+		}
+		if got := spec.SkillsPath(home); got != c.skills {
+			t.Errorf("%s SkillsPath = %q, want %q", c.runtime, got, c.skills)
+		}
+	}
+}
+
+func TestConfigRootIsSteeringParent(t *testing.T) {
+	home := filepath.Join("C:", "Users", "k")
+	for _, c := range []struct{ runtime, want string }{
+		{"pi", filepath.Join(home, ".pi", "agent")},
+		{"claude", filepath.Join(home, ".claude")},
+		{"opencode", filepath.Join(home, ".config", "opencode")},
+	} {
+		spec, _ := Lookup(c.runtime)
+		if got := spec.ConfigRoot(home); got != c.want {
+			t.Errorf("%s ConfigRoot = %q, want %q", c.runtime, got, c.want)
+		}
+	}
 }

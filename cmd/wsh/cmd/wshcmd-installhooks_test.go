@@ -56,16 +56,16 @@ func TestIsManagedCommand(t *testing.T) {
 
 func TestMergeAgentHooksEmpty(t *testing.T) {
 	got := mergeAgentHooks(map[string]any{}, testWsh)
-	if n := countManaged(t, got); n != 9 {
-		t.Fatalf("managed entries = %d, want 9", n)
+	if n := countManaged(t, got); n != len(managedHooks) {
+		t.Fatalf("managed entries = %d, want %d", n, len(managedHooks))
 	}
 }
 
 func TestMergeAgentHooksIdempotent(t *testing.T) {
 	once := mergeAgentHooks(map[string]any{}, testWsh)
 	twice := mergeAgentHooks(once, testWsh)
-	if n := countManaged(t, twice); n != 9 {
-		t.Fatalf("managed entries after 2x = %d, want 9", n)
+	if n := countManaged(t, twice); n != len(managedHooks) {
+		t.Fatalf("managed entries after 2x = %d, want %d", n, len(managedHooks))
 	}
 }
 
@@ -105,16 +105,16 @@ func TestMergeAgentHooksPreservesUnrelated(t *testing.T) {
 	if !foundUser {
 		t.Fatal("user hook was clobbered")
 	}
-	if n := countManaged(t, got); n != 9 {
-		t.Fatalf("managed entries = %d, want 9", n)
+	if n := countManaged(t, got); n != len(managedHooks) {
+		t.Fatalf("managed entries = %d, want %d", n, len(managedHooks))
 	}
 }
 
 func TestMergeAgentHooksRefreshesStalePath(t *testing.T) {
 	old := mergeAgentHooks(map[string]any{}, `C:\old\bin\wsh-0.14.4-windows.x64.exe`)
 	refreshed := mergeAgentHooks(old, testWsh)
-	if n := countManaged(t, refreshed); n != 9 {
-		t.Fatalf("managed entries = %d, want 9 (stale not replaced)", n)
+	if n := countManaged(t, refreshed); n != len(managedHooks) {
+		t.Fatalf("managed entries = %d, want %d (stale not replaced)", n, len(managedHooks))
 	}
 	// no command should still reference the old path
 	hooks := refreshed["hooks"].(map[string]any)
@@ -670,5 +670,24 @@ func TestInstallPiKeybindingsOnlyWhenAbsent(t *testing.T) {
 	got, _ = os.ReadFile(path)
 	if string(got) != userFile {
 		t.Fatalf("user keybindings clobbered: %s", got)
+	}
+}
+
+func TestSessionStartMemoryHookIsManaged(t *testing.T) {
+	var found *managedHook
+	for i := range managedHooks {
+		if managedHooks[i].Event == "SessionStart" && managedHooks[i].Args == "agent-memory-project --inject" {
+			found = &managedHooks[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatal("no managed SessionStart memory hook registered")
+	}
+	if found.Matcher != "startup|clear|compact" {
+		t.Fatalf("matcher = %q, want startup|clear|compact", found.Matcher)
+	}
+	if !isManagedCommand(`"C:\bin\wsh-0.14.5-windows.x64.exe" agent-memory-project --inject`) {
+		t.Fatal("SessionStart command not recognized as Arc-managed; re-runs would duplicate it")
 	}
 }

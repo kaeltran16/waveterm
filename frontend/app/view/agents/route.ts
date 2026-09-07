@@ -75,6 +75,11 @@ export function routeForRuntime(
     if (capabilities.length === 0) {
         return undefined;
     }
+    // a model pin survives a no-op runtime switch; model ids are per-harness namespaces, so one can
+    // never be carried across harnesses
+    if (effective?.runtime === runtime && effective.model) {
+        return effective;
+    }
     const normalized = effective == null ? null : normalizeLegacyRoute(effective.runtime, effective.tier);
     const selected = normalized?.runtime === runtime ? normalized : undefined;
     if (selected != null && capabilityFor(selected, harnesses) != null) {

@@ -19,7 +19,6 @@ var (
 	claudeAliasRe    = regexp.MustCompile(`^(opus|sonnet|haiku|fable|best)(\[[0-9]+m\])?$`)
 	claudeFullRe     = regexp.MustCompile(`^claude-[a-zA-Z0-9-]+$`)
 	providerModelRe  = regexp.MustCompile(`^[a-zA-Z0-9_-]+/[a-zA-Z0-9._:+-]+$`)
-	piBareRe         = regexp.MustCompile(`^[a-zA-Z0-9._:+-]+$`)
 	codexForbiddenRe = regexp.MustCompile(`[\s;&|` + "`" + `$<>'"]`)
 )
 
@@ -42,9 +41,9 @@ type Capability struct {
 }
 
 var capabilityTable = []Capability{
-	{Runtime: "pi", Tier: string(consult.TierCheap), ResolvedModel: consult.PiCheapModel, ModelArgs: []string{"--model", consult.PiCheapModel}},
-	{Runtime: "pi", Tier: string(consult.TierMid), ResolvedModel: consult.PiMidModel, ModelArgs: []string{"--model", consult.PiMidModel}},
-	{Runtime: "pi", Tier: string(consult.TierCapable), ResolvedModel: consult.PiMidModel, ModelArgs: []string{"--model", consult.PiMidModel}},
+	// pi has no tiers: its ids are provider-namespaced (provider/model), not aliases, so there is no
+	// bare id Wave can pin that pi can resolve on its own. A tier pin means "pi's configured default".
+	{Runtime: "pi", Tier: string(consult.TierCapable), ResolvedModel: operatorDefault},
 	{Runtime: "claude", Tier: string(consult.TierCheap), ResolvedModel: consult.CheapModel, ModelArgs: []string{"--model", consult.CheapModel}},
 	{Runtime: "claude", Tier: string(consult.TierMid), ResolvedModel: consult.MidModel, ModelArgs: []string{"--model", consult.MidModel}},
 	{Runtime: "claude", Tier: string(consult.TierCapable), ResolvedModel: operatorDefault},
@@ -101,7 +100,7 @@ func modelNamespaceValid(runtime, model string) bool {
 	case "claude":
 		return claudeAliasRe.MatchString(model) || claudeFullRe.MatchString(model)
 	case "pi":
-		return providerModelRe.MatchString(model) || piBareRe.MatchString(model)
+		return providerModelRe.MatchString(model)
 	case "opencode":
 		return providerModelRe.MatchString(model)
 	case "codex":
@@ -122,7 +121,8 @@ func NormalizeLegacy(runtime, tier string) waveobj.RoutePin {
 	if runtime == "" {
 		runtime = "claude"
 	}
-	if tier == "" {
+	if tier == "" || runtime == "pi" {
+		// pi never had meaningful tiers; a pin persisted at one still has to resolve.
 		tier = string(consult.TierCapable)
 	}
 	return waveobj.RoutePin{Runtime: runtime, Tier: tier}
