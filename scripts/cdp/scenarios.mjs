@@ -3812,6 +3812,223 @@ const codeSearch = {
     },
 };
 
+const codeSidebar = {
+  name: "code-sidebar",
+  surface: "code",
+  async arrange(h) {
+    // unmount Code before seeding storage so the assertion starts from fresh component state.
+    await h.goto("cockpit");
+    const previous = await h.ev("localStorage.getItem('code.sidebar.prefs')");
+    await h.ev(
+      `localStorage.setItem('code.sidebar.prefs', ${JSON.stringify(
+        JSON.stringify({ widths: { files: 280, search: 380, changed: 380 }, open: true })
+      )})`
+    );
+    return { previous };
+  },
+  async assert(h, ctx) {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const steps = [];
+    await h.goto("code");
+    if ((await openProjectPicker(h)) === true) {
+      await sleep(300);
+      await chooseProjectRow(h);
+      await sleep(1200);
+    }
+    ctx.previousMode = await h.ev(`document.querySelector('[data-code-column-tab][aria-pressed="true"]')?.getAttribute('data-code-column-tab') || null`);
+    const files = await h.ev(`(() => {
+            const button = document.querySelector('[data-code-column-tab="files"]');
+            if (!button) return false;
+            button.click();
+            return true;
+        })()`);
+    await sleep(100);
+    steps.push({ step: "start in Files mode", ok: files === true, detail: `selected=${files}` });
+    const probe = () =>
+      h.ev(`(() => {
+                const sidebar = document.querySelector('[aria-label="Code sidebar"]');
+                const grip = document.querySelector('[role="separator"][aria-label="Resize Code sidebar"]');
+                return sidebar && grip ? {
+                    width: Math.round(sidebar.getBoundingClientRect().width),
+                    value: Number(grip.getAttribute('aria-valuenow')),
+                    active: document.activeElement?.getAttribute('aria-label') || ''
+                } : null;
+            })()`);
+    let initial = null;
+    for (let i = 0; i < 10 && initial == null; i++) {
+      initial = await probe();
+      if (initial == null) await sleep(200);
+    }
+    steps.push({
+      step: "Files starts at its remembered default width",
+      ok: initial?.width === 280 && initial?.value === 280,
+      detail: JSON.stringify(initial),
+    });
+
+    const search = await h.ev(`(() => {
+            const tab = document.querySelector('[data-code-column-tab="search"]');
+            if (!tab) return false;
+            tab.click();
+            return true;
+        })()`);
+    await sleep(200);
+    const searchWidth = await probe();
+    steps.push({
+      step: "Search keeps its independent remembered width",
+      ok: search === true && searchWidth?.width === 380,
+      detail: JSON.stringify(searchWidth),
+    });
+
+    const gripFocused = await h.ev(`(() => {
+            const grip = document.querySelector('[role="separator"][aria-label="Resize Code sidebar"]');
+            if (!grip) return false;
+            grip.focus();
+            return document.activeElement === grip;
+        })()`);
+    await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", key: "ArrowRight", code: "ArrowRight" });
+    await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", key: "ArrowRight", code: "ArrowRight" });
+    await h.cdp("Input.dispatchKeyEvent", {
+      type: "keyDown",
+      key: "ArrowLeft",
+      code: "ArrowLeft",
+      modifiers: 8,
+    });
+    await h.cdp("Input.dispatchKeyEvent", {
+      type: "keyUp",
+      key: "ArrowLeft",
+      code: "ArrowLeft",
+      modifiers: 8,
+    });
+    const keyboard = gripFocused === true;
+    await sleep(100);
+    const keyboardWidth = await probe();
+    steps.push({
+      step: "Focused separator adjusts with keyboard without losing focus",
+      ok: keyboard === true && keyboardWidth?.value === 356 && keyboardWidth?.active === "Resize Code sidebar",
+      detail: JSON.stringify(keyboardWidth),
+    });
+
+    const collapsed = await h.ev(`(() => {
+            const button = document.querySelector('button[aria-label="Collapse Code sidebar"]');
+            if (!button) return false;
+            button.click();
+            return true;
+        })()`);
+    await sleep(200);
+    const collapsedWidth = await probe();
+    const openerFocused = await h.ev(`document.activeElement?.getAttribute('aria-label') || ''`);
+    steps.push({
+      step: "Collapse leaves a 36px reachable opener",
+      ok: collapsed === true && collapsedWidth?.width === 36 && /Expand Code sidebar/.test(openerFocused),
+      detail: JSON.stringify({ collapsedWidth, openerFocused }),
+    });
+
+    await h.cdp("Input.dispatchKeyEvent", {
+      type: "keyDown",
+      key: "f",
+      code: "KeyF",
+      modifiers: 10,
+    });
+    await h.cdp("Input.dispatchKeyEvent", {
+      type: "keyUp",
+      key: "f",
+      code: "KeyF",
+      modifiers: 10,
+    });
+    await sleep(200);
+    const searchShortcut = await h.ev(`(() => {
+            const tab = document.querySelector('[data-code-column-tab="search"]');
+            const sidebar = document.querySelector('[aria-label="Code sidebar"]');
+            return tab && sidebar ? {
+                selected: tab.getAttribute('aria-pressed') === 'true',
+                width: Math.round(sidebar.getBoundingClientRect().width),
+                active: document.activeElement?.getAttribute('aria-label') || ''
+            } : null;
+        })()`);
+    steps.push({
+      step: "Ctrl+Shift+F expands the collapsed sidebar and selects Search",
+      ok: searchShortcut?.selected === true && searchShortcut?.width === 356,
+      detail: JSON.stringify(searchShortcut),
+    });
+
+    const collapsedForTree = await h.ev(`(() => {
+            const button = document.querySelector('button[aria-label="Collapse Code sidebar"]');
+            if (!button) return false;
+            button.click();
+            return true;
+        })()`);
+    await sleep(200);
+    await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", key: "t", code: "KeyT", modifiers: 1 });
+    await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", key: "t", code: "KeyT", modifiers: 1 });
+    await sleep(200);
+    const treeShortcut = await h.ev(`(() => {
+            const tree = document.querySelector('[data-code-tree]');
+            const active = document.activeElement;
+            return {
+                collapsed: Math.round(document.querySelector('[aria-label="Code sidebar"]')?.getBoundingClientRect().width || 0) === 36,
+                expanded: !!tree && !!active && tree.contains(active),
+                active: active?.getAttribute('aria-label') || ''
+            };
+        })()`);
+    steps.push({
+      step: "Alt+T expands the collapsed sidebar before focusing the tree",
+      ok: collapsedForTree === true && treeShortcut?.expanded === true,
+      detail: JSON.stringify(treeShortcut),
+    });
+
+    await h.ev(`document.querySelector('button[aria-label="Collapse Code sidebar"]')?.click()`);
+    await sleep(200);
+    await h.ev(`document.querySelector('button[aria-label="Expand Code sidebar"]')?.click()`);
+    await sleep(200);
+    const reopened = await probe();
+    steps.push({
+      step: "Opener restores the selected mode width and focus",
+      ok: reopened?.width === 280 && reopened?.active === "Collapse Code sidebar",
+      detail: JSON.stringify(reopened),
+    });
+
+    await h.cdp("Emulation.setDeviceMetricsOverride", { width: 520, height: 950, deviceScaleFactor: 1, mobile: false });
+    await sleep(300);
+    const narrow = await probe();
+    steps.push({
+      step: "Narrow viewport temporarily compacts without changing the preference",
+      ok: narrow?.width === 36 && /wider/.test(narrow?.active || ""),
+      detail: JSON.stringify(narrow),
+    });
+    await h.cdp("Emulation.setDeviceMetricsOverride", {
+      width: 1600,
+      height: 950,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+    await sleep(300);
+    const restored = await probe();
+    steps.push({
+      step: "Widening restores the open preference and remembered width",
+      ok: restored?.width === 280 && restored?.active === "Collapse Code sidebar",
+      detail: JSON.stringify(restored),
+    });
+    await h.shot("cdp-shots/code-sidebar.png");
+    return steps;
+  },
+  async teardown(h, ctx) {
+    await h.ev(
+      `(() => {
+                const previousMode = ${JSON.stringify(ctx.previousMode ?? null)};
+                if (previousMode === 'files' || previousMode === 'search' || previousMode === 'changed') {
+                    document.querySelector(
+                        '[data-code-column-tab="' + previousMode + '"]'
+                    )?.click();
+                }
+                const previous = ${JSON.stringify(ctx.previous)};
+                if (previous == null) localStorage.removeItem('code.sidebar.prefs');
+                else localStorage.setItem('code.sidebar.prefs', previous);
+            })()`
+    );
+    await h.goto("cockpit");
+  },
+};
+
 const codeGitStatus = {
     name: "code-git-status",
     surface: "code",
@@ -5130,6 +5347,7 @@ export const SCENARIOS = [
     gitHistory,
     surfaceSmoke,
     codeSearch,
+    codeSidebar,
     codeGitStatus,
     codeDiff,
     codeMarkdown,

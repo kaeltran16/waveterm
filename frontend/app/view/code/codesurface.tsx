@@ -17,13 +17,28 @@ import { SurfaceEmptyState, SurfaceError, SurfaceHeader } from "@/app/view/agent
 import { cn, fireAndForget } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
 import { ChevronDown, FilePlus, FolderGit2, FolderPlus, RotateCw, Save, Undo2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useInsertionEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { CodeChangedPane } from "./codechangedpane";
 import { CodeFinderPalette } from "./codefinderpalette";
 import { canBack, canForward } from "./codehistory";
 import { CodePathBar } from "./codepathbar";
 import { CodeSearchPane } from "./codesearchpane";
 import { codeSearchModeAtom } from "./codesearchstore";
+import {
+    CODE_SIDEBAR_COMPACT_WIDTH,
+    CODE_SIDEBAR_MIN_WIDTH,
+    codeSidebarDragEndWidth,
+    codeSidebarDragWidthForWorkspace,
+    codeSidebarMaxWidth,
+    codeSidebarPrefsJson,
+    codeSidebarVisibility,
+    codeSidebarWidthAfterPointer,
+    codeSidebarWidthFor,
+    nextCodeSidebarWidth,
+    parseCodeSidebarPrefs,
+    type CodeSidebarMode,
+    type CodeSidebarPrefs,
+} from "./codesidebar";
 import { CodeStaleBar } from "./codestalebar";
 import {
     canRestoreProject,
@@ -319,30 +334,239 @@ function CodeBody({ model, onPickProject }: { model: AgentsViewModel; onPickProj
     return <CodePanes model={model} />;
 }
 
+const CODE_SIDEBAR_PREFS_KEY = "code.sidebar.prefs";
+const CODE_SIDEBAR_MODES: readonly CodeSidebarMode[] = ["files", "search", "changed"];
+
+function isCodeEditorFocused(element: Element | null): boolean {
+    return (
+        element instanceof HTMLElement &&
+        (element.closest(".monaco-editor") != null || element.matches(".native-edit-context, textarea.inputarea"))
+    );
+}
+
+function readCodeSidebarPrefs(): CodeSidebarPrefs {
+    try {
+        return parseCodeSidebarPrefs(window.localStorage.getItem(CODE_SIDEBAR_PREFS_KEY));
+    } catch {
+        return parseCodeSidebarPrefs(null);
+    }
+}
+
 function CodePanes({ model }: { model: AgentsViewModel }) {
     const [mode, setMode] = useAtom(codeSearchModeAtom);
+    const [prefs, setPrefs] = useState(readCodeSidebarPrefs);
+    const [workspaceWidth, setWorkspaceWidth] = useState(0);
+    const [dragWidth, setDragWidth] = useState<number | null>(null);
+    const workspaceRef = useRef<HTMLDivElement>(null);
+    const sidebarRef = useRef<HTMLElement>(null);
+    const gripRef = useRef<HTMLDivElement>(null);
+    const collapseRef = useRef<HTMLButtonElement>(null);
+    const openerRef = useRef<HTMLButtonElement>(null);
+    const dragRef = useRef<{
+        pointerId: number;
+        mode: CodeSidebarMode;
+        startX: number;
+        startWidth: number;
+        width: number;
+    } | null>(null);
+    const wasCompactRef = useRef(false);
+    const restoreFocusRef = useRef(false);
+    const focusBeforeVisibilityRef = useRef<HTMLElement | null>(null);
+    const visibility = codeSidebarVisibility(workspaceWidth, prefs.open);
+    const compact = visibility.compact;
+    const width =
+        dragWidth == null
+            ? codeSidebarWidthFor(mode, prefs.widths, workspaceWidth)
+            : codeSidebarDragWidthForWorkspace(dragWidth, workspaceWidth);
+
+    useEffect(() => {
+        const workspace = workspaceRef.current;
+        if (workspace == null) {
+            return;
+        }
+        const measure = () => setWorkspaceWidth(workspace.clientWidth);
+        measure();
+        const observer = new ResizeObserver(measure);
+        observer.observe(workspace);
+        return () => observer.disconnect();
+    }, []);
+
+    // Capture ownership before React applies the hidden classes. Once a focused control is hidden,
+    // the browser can move focus to the document before a passive effect gets to inspect it.
+    useInsertionEffect(() => {
+        const active = document.activeElement;
+        if (compact) {
+            const sidebar = sidebarRef.current;
+            focusBeforeVisibilityRef.current =
+                active instanceof HTMLElement && (sidebar?.contains(active) || active === gripRef.current)
+                    ? active
+                    : null;
+        } else if (wasCompactRef.current && active === openerRef.current) {
+            restoreFocusRef.current = true;
+        }
+    }, [compact]);
+
+    useLayoutEffect(() => {
+        if (compact) {
+            const ownedElement = focusBeforeVisibilityRef.current;
+            focusBeforeVisibilityRef.current = null;
+            if (ownedElement != null && !isCodeEditorFocused(document.activeElement)) {
+                restoreFocusRef.current = true;
+                openerRef.current?.focus();
+            }
+        } else if (wasCompactRef.current) {
+            const shouldRestoreFocus = restoreFocusRef.current;
+            restoreFocusRef.current = false;
+            if (shouldRestoreFocus && !isCodeEditorFocused(document.activeElement)) {
+                collapseRef.current?.focus();
+            }
+        }
+        wasCompactRef.current = compact;
+    }, [compact]);
+
+    useEffect(() => {
+        const drag = dragRef.current;
+        if (drag == null) {
+            return;
+        }
+        const nextWidth = codeSidebarDragWidthForWorkspace(drag.width, workspaceWidth);
+        drag.width = nextWidth;
+        setDragWidth(nextWidth);
+    }, [workspaceWidth]);
+
+    const persist = (next: CodeSidebarPrefs) => {
+        setPrefs(next);
+        try {
+            window.localStorage.setItem(CODE_SIDEBAR_PREFS_KEY, codeSidebarPrefsJson(next));
+        } catch {
+            // localStorage can be unavailable in a restricted webview; the session state still works.
+        }
+    };
+
+    const focusAfterRender = (ref: React.RefObject<HTMLElement>) => {
+        window.requestAnimationFrame(() => ref.current?.focus());
+    };
+
+    const setOpen = (open: boolean) => {
+        restoreFocusRef.current = false;
+        persist({ ...prefs, open });
+        focusAfterRender(open ? collapseRef : openerRef);
+    };
+
+    const endDrag = (event: React.PointerEvent<HTMLDivElement>, commit: boolean) => {
+        const drag = dragRef.current;
+        if (drag == null || drag.pointerId !== event.pointerId) {
+            return;
+        }
+        dragRef.current = null;
+        setDragWidth(null);
+        if (gripRef.current?.hasPointerCapture(event.pointerId)) {
+            gripRef.current.releasePointerCapture(event.pointerId);
+        }
+        const completedWidth = codeSidebarDragEndWidth(drag.width, workspaceWidth, commit);
+        if (completedWidth != null) {
+            persist({ ...prefs, widths: { ...prefs.widths, [drag.mode]: completedWidth } });
+        }
+    };
+
+    const finishDrag = (event: React.PointerEvent<HTMLDivElement>) => endDrag(event, true);
+    const cancelDrag = (event: React.PointerEvent<HTMLDivElement>) => endDrag(event, false);
+
+    const onGripKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+        if (
+            event.altKey ||
+            event.ctrlKey ||
+            event.metaKey ||
+            (event.key !== "ArrowLeft" && event.key !== "ArrowRight" && event.key !== "Home" && event.key !== "End")
+        ) {
+            return;
+        }
+        event.preventDefault();
+        const nextWidth = nextCodeSidebarWidth(
+            codeSidebarWidthFor(mode, prefs.widths, workspaceWidth),
+            event.key,
+            event.shiftKey,
+            codeSidebarMaxWidth(workspaceWidth)
+        );
+        persist({ ...prefs, widths: { ...prefs.widths, [mode]: nextWidth } });
+    };
+
+    const onGripPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+        if (compact || gripRef.current == null) {
+            return;
+        }
+        const startWidth = codeSidebarWidthFor(mode, prefs.widths, workspaceWidth);
+        dragRef.current = {
+            pointerId: event.pointerId,
+            mode,
+            startX: event.clientX,
+            startWidth,
+            width: startWidth,
+        };
+        gripRef.current.setPointerCapture(event.pointerId);
+        event.preventDefault();
+    };
+
+    const onGripPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+        const drag = dragRef.current;
+        if (drag == null || drag.pointerId !== event.pointerId) {
+            return;
+        }
+        const nextWidth = codeSidebarWidthAfterPointer(
+            drag.startWidth,
+            event.clientX - drag.startX,
+            codeSidebarMaxWidth(workspaceWidth)
+        );
+        drag.width = nextWidth;
+        setDragWidth(nextWidth);
+    };
+
     return (
-        <div className="flex h-full w-full">
-            {/* Search rows carry a line number and a line of source, which is unreadable at the
-                tree's width, so the column widens for them rather than truncating everything. */}
-            <div className={cn("flex flex-none flex-col", mode === "files" ? "w-[280px]" : "w-[380px]")}>
-                <div className="flex flex-none gap-1 border-b border-border px-2 py-1">
-                    {(["files", "search", "changed"] as const).map((m) => (
-                        <button
-                            key={m}
-                            type="button"
-                            data-code-column-tab={m}
-                            onClick={() => setMode(m)}
-                            className={cn(
-                                "cursor-pointer rounded-[6px] px-2 py-[3px] text-[11px] capitalize",
-                                m === mode ? "bg-accent/10 text-accent-soft" : "text-muted hover:text-primary"
-                            )}
-                        >
-                            {m}
-                        </button>
-                    ))}
+        <div ref={workspaceRef} className="flex h-full w-full">
+            <aside
+                ref={sidebarRef}
+                aria-label="Code sidebar"
+                className="flex flex-none flex-col overflow-hidden bg-surface"
+                style={{ width: compact ? CODE_SIDEBAR_COMPACT_WIDTH : width }}
+            >
+                <div
+                    className={cn(
+                        "flex flex-none items-center gap-1 border-b border-border px-2 py-1",
+                        compact && "hidden"
+                    )}
+                >
+                    <div className="flex min-w-0 flex-1 gap-1">
+                        {CODE_SIDEBAR_MODES.map((m) => (
+                            <button
+                                key={m}
+                                type="button"
+                                aria-pressed={m === mode}
+                                data-code-column-tab={m}
+                                onClick={() => {
+                                    setDragWidth(null);
+                                    setMode(m);
+                                }}
+                                className={cn(
+                                    "cursor-pointer rounded-[6px] px-2 py-[3px] text-[11px] capitalize focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent",
+                                    m === mode ? "bg-accent/10 text-accent-soft" : "text-muted hover:text-primary"
+                                )}
+                            >
+                                {m}
+                            </button>
+                        ))}
+                    </div>
+                    <button
+                        ref={collapseRef}
+                        type="button"
+                        aria-label="Collapse Code sidebar"
+                        title="Collapse Code sidebar"
+                        onClick={() => setOpen(false)}
+                        className="flex size-6 flex-none cursor-pointer items-center justify-center rounded-[6px] text-[14px] text-muted hover:bg-surface-hover hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
+                    >
+                        ‹
+                    </button>
                 </div>
-                <div className="min-h-0 flex-1">
+                <div className={cn("min-h-0 flex-1", compact && "hidden")}>
                     {mode === "files" ? (
                         <CodeTreePane model={model} />
                     ) : mode === "search" ? (
@@ -351,6 +575,52 @@ function CodePanes({ model }: { model: AgentsViewModel }) {
                         <CodeChangedPane model={model} />
                     )}
                 </div>
+                <button
+                    ref={openerRef}
+                    type="button"
+                    aria-label={
+                        visibility.temporary ? "Expand Code sidebar when window is wider" : "Expand Code sidebar"
+                    }
+                    aria-expanded={!compact}
+                    title={visibility.temporary ? "Widen window to expand Code sidebar" : "Expand Code sidebar"}
+                    onClick={() => {
+                        if (visibility.temporary) {
+                            if (!prefs.open) {
+                                persist({ ...prefs, open: true });
+                            }
+                            return;
+                        }
+                        setOpen(true);
+                    }}
+                    className={cn(
+                        "flex size-9 flex-none cursor-pointer items-center justify-center self-start rounded-[6px] font-mono text-[14px] text-muted hover:bg-surface-hover hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent",
+                        !compact && "hidden"
+                    )}
+                >
+                    ›
+                </button>
+            </aside>
+            <div
+                ref={gripRef}
+                role="separator"
+                tabIndex={compact ? -1 : 0}
+                aria-orientation="vertical"
+                aria-label="Resize Code sidebar"
+                aria-valuemin={CODE_SIDEBAR_MIN_WIDTH}
+                aria-valuemax={codeSidebarMaxWidth(workspaceWidth)}
+                aria-valuenow={Math.round(width)}
+                onKeyDown={onGripKeyDown}
+                onPointerDown={onGripPointerDown}
+                onPointerMove={onGripPointerMove}
+                onPointerUp={finishDrag}
+                onPointerCancel={cancelDrag}
+                onLostPointerCapture={cancelDrag}
+                className={cn(
+                    "group relative z-10 flex w-2 flex-none cursor-col-resize items-center justify-center bg-transparent focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent",
+                    compact && "hidden"
+                )}
+            >
+                <span className="h-full w-px bg-edge-mid group-hover:bg-accent group-focus-visible:bg-accent" />
             </div>
             <div className="flex min-w-0 flex-1 flex-col">
                 <CodePathBar model={model} />

@@ -49,6 +49,23 @@ import type { Binding, KeyContext } from "./types";
 
 const DOUBLE_CTRL_C_MS = 500;
 
+function focusCodeSidebarOpener(): boolean {
+    const opener = document.querySelector<HTMLButtonElement>('button[aria-label^="Expand Code sidebar"]');
+    if (opener == null || opener.classList.contains("hidden")) {
+        return false;
+    }
+    opener.focus();
+    opener.click();
+    return true;
+}
+
+function focusCodeTree(): void {
+    const tree = document.querySelector<HTMLElement>("[data-code-tree]");
+    if (tree != null && tree.closest(".hidden") == null) {
+        tree.focus();
+    }
+}
+
 // g-leader surface teleports (collision-free letters; see design spec).
 const GO_TARGETS: { letter: string; surface: SurfaceKey; label: string }[] = [
     { letter: "h", surface: "cockpit", label: "Cockpit (home)" },
@@ -937,7 +954,10 @@ export function buildCodeBindings(): Binding[] {
             // like the file finder's Ctrl+P and save's Ctrl+S, deliberately NOT gated on !editable:
             // the caret is in Monaco when you want this, so a bare letter would be unreachable
             when: (ctx) => ctx.surface === "code" && !ctx.modalOpen,
-            run: () => globalStore.set(codeSearchModeAtom, "search"),
+            run: () => {
+                globalStore.set(codeSearchModeAtom, "search");
+                focusCodeSidebarOpener();
+            },
         },
         {
             id: "code:focus-tree",
@@ -948,8 +968,13 @@ export function buildCodeBindings(): Binding[] {
             // swallowed by Monaco, which is why the finder moved to Ctrl+P
             when: (ctx) => ctx.surface === "code" && !ctx.modalOpen,
             run: () => {
+                globalStore.set(codeSearchModeAtom, "files");
                 // a DOM read in `run` is the established convention here (see files:compare)
-                document.querySelector<HTMLElement>("[data-code-tree]")?.focus();
+                if (focusCodeSidebarOpener()) {
+                    window.requestAnimationFrame(focusCodeTree);
+                    return;
+                }
+                focusCodeTree();
             },
         },
         {

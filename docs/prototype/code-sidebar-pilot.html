@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<!--
+  Mockup kit — copy this file to start any UI mockup/prototype in this repo.
+  Prototype first, always: UI changes get a validated high-fidelity mockup before code.
+
+  AUDIT CHECKLIST — run this before presenting the mockup:
+  1. every color from the generated :root tokens below (no hand-added hex; regenerate
+     after @theme changes with `task mockup:kit`)
+  2. contrast floor: text >= 4.5:1, non-text >= 3:1; ink ramp steps ink-faint < muted < ink-mid < secondary
+  3. status never color alone — pair amber/green/red with an icon, label, or dot
+  4. focus-visible ring on every interactive element (keyboard first)
+  5. reduced motion respected (prefers-reduced-motion)
+  6. card recipe: briefing-surface cards = bg-surface + border-border + 10px;
+     generic panels = bg-surface-raised + edge-mid + 6px (see .card vs .panel)
+  7. accent only for the single most important action per screen
+  8. motion only from the micro scale: 140ms cubic-bezier(0.22,1,0.36,1)
+  9. no new design vocabulary per surface — reuse these recipes and the tokens
+
+  Workflow: copy -> build with the recipes -> self-audit -> serve (python -m http.server
+  8766 in docs/prototype/) -> present. See pi/skills/ui-mockup for the full workflow.
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Code sidebar pilot · Wave Terminal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  /* MOCKUP-TOKENS:START */
+:root {
+    --color-background: #0c0e11;
+    --color-surface: #0e1116;
+    --color-surface-raised: #13171d;
+    --color-surface-hover: #171c22;
+    --color-surface-code: #0b0d10;
+    --color-surface-selected: #1a222c;
+    --color-panel: rgba(19, 23, 29, 0.6);
+    --color-modalbg: #13171d;
+    --color-lane: #12161b;
+    --color-foreground: #e6e9ed;
+    --color-white: #e6e9ed;
+    --color-primary: #e6e9ed;
+    --color-secondary: #cfd5db;
+    --color-muted-foreground: #c3cad1;
+    --color-ink-hi: #dfe4ea;
+    --color-ink-mid: #9aa3ad;
+    --color-muted: #7f858b;
+    --color-ink-faint: #646a72;
+    --color-border: #1c2128;
+    --color-edge-mid: #20262e;
+    --color-edge-strong: #2a313a;
+    --color-edge-faint: #161a20;
+    --color-accent-50: #e8ecff;
+    --color-accent-100: #cdd6ff;
+    --color-accent-200: #aebfff;
+    --color-accent-300: #8da3ff;
+    --color-accent-400: #5e9cff;
+    --color-accent-500: #5f74e0;
+    --color-accent-600: #4f61c4;
+    --color-accent-700: #3f4ea0;
+    --color-accent-800: #2f3b7a;
+    --color-accent-900: #232c5c;
+    --color-accent: #5e9cff;
+    --color-accenthover: #8da3ff;
+    --color-accent-soft: #aebfff;
+    --color-accentbg: rgba(94, 156, 255, 0.12);
+    --color-skill: #c58cff;
+    --color-skill-soft: #dcc0ff;
+    --color-error: #e0726c;
+    --color-warning: #e6b450;
+    --color-asking: #e6b450;
+    --color-success: #54c79a;
+    --color-cacheread: #5b6675;
+    --color-on-warning: #1a1306;
+    --color-provider-claude: #d97757;
+    --color-provider-codex: #96aacd;
+    --color-provider-opencode: #a78bfa;
+    --color-provider-pi: #ececec;
+    --color-success-soft: #bfe6d6;
+    --color-error-soft: #f0a9a4;
+    --color-warning-soft: #f0d79f;
+    --color-feed-label: #777f89;
+    --color-feed-summary: #9aa3ad;
+    --color-feed-time: #4f565f;
+    --color-feed-glyph: #454c55;
+    --color-working: #54c79a;
+    --color-avatar-1: #7c95ff;
+    --color-avatar-2: #54c79a;
+    --color-avatar-3: #e0726c;
+    --color-avatar-4: #e6b450;
+    --color-avatar-5: #c98fe6;
+    --color-avatar-6: #9aa3ad;
+    --color-conn-1: #53b4ea;
+    --color-conn-2: #aa67ff;
+    --color-conn-3: #fda7fd;
+    --color-conn-4: #ef476f;
+    --color-conn-5: #497bf8;
+    --color-conn-6: #ffa24e;
+    --color-conn-7: #dbde52;
+    --color-conn-8: #58c142;
+    --color-graphlane-1: #7c95ff;
+    --color-graphlane-2: #54c79a;
+    --color-graphlane-3: #e6b450;
+    --color-graphlane-4: #c9a4ff;
+    --color-graphlane-5: #e0726c;
+    --color-graphlane-6: #5cc8d8;
+    --color-graphlane-fold: #6b7178;
+    --color-rt-claude: #d97757;
+    --color-rt-claude-soft: rgba(217, 119, 87, 0.13);
+    --color-rt-claude-line: rgba(217, 119, 87, 0.34);
+    --color-rt-codex: #ececec;
+    --color-rt-codex-soft: rgba(236, 236, 236, 0.13);
+    --color-rt-codex-line: rgba(236, 236, 236, 0.32);
+    --color-rt-opencode: #a78bfa;
+    --color-rt-opencode-soft: rgba(167, 139, 250, 0.13);
+    --color-rt-opencode-line: rgba(167, 139, 250, 0.34);
+    --color-rt-pi: #ececec;
+    --color-rt-pi-soft: rgba(236, 236, 236, 0.13);
+    --color-rt-pi-line: rgba(236, 236, 236, 0.32);
+    --color-rt-terminal: #9aa3ad;
+    --color-rt-terminal-soft: rgba(154, 163, 173, 0.1);
+    --color-rt-terminal-line: rgba(154, 163, 173, 0.28);
+    --color-mem-project: #8aa0ff;
+    --color-mem-reference: #54c79a;
+    --color-mem-feedback: #e6b450;
+    --color-mem-user: #a78bfa;
+    --color-graph-task: #8aa0ff;
+    --color-graph-decision: #54c79a;
+    --color-graph-memory: #a78bfa;
+    --color-graph-run: #e6b450;
+    --color-graph-semantic: #d98cff;
+    --color-hover: rgba(255, 255, 255, 0.1);
+    --color-hoverbg: rgba(255, 255, 255, 0.2);
+    --color-highlightbg: rgba(255, 255, 255, 0.2);
+    --color-syntax-keyword: #aebfff;
+    --color-syntax-string: #7fd6ab;
+    --color-syntax-number: #e6b450;
+    --color-syntax-comment: #6b7178;
+    --color-syntax-punct: #8b939d;
+    --color-syntax-ident: #cdd3da;
+}
+/* MOCKUP-TOKENS:END */
+
+  :root {
+    --dur-micro: 140ms;
+    --curve-out: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { background: var(--color-background); }
+  body {
+    font-family: 'Hanken Grotesk', system-ui, -apple-system, sans-serif;
+    background: var(--color-background);
+    color: var(--color-primary);
+    font-size: 14px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+    padding: 16px 24px 48px;
+  }
+  .stage { max-width: 1080px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+
+  /* ── recipes (reuse, don't invent) ───────────────────────────────────── */
+
+  /* section header: label + count pill + hairline + optional action */
+  .sec-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .sec-head .label {
+    font-family: 'JetBrains Mono', monospace; font-size: 9.5px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.12em; color: var(--color-feed-label);
+  }
+  .sec-head .count {
+    font-family: 'JetBrains Mono', monospace; font-size: 9.5px; font-weight: 600; color: var(--color-muted);
+    background: var(--color-surface-raised); border: 1px solid var(--color-edge-faint); border-radius: 999px; padding: 1px 8px;
+  }
+  .sec-head .rule { flex: 1; height: 1px; background: var(--color-edge-faint); }
+  .sec-head .action {
+    font-family: 'JetBrains Mono', monospace; font-size: 10.5px; font-weight: 600; color: var(--color-accent-soft);
+    background: var(--color-accentbg); border: 1px solid rgba(94, 156, 255, 0.4); border-radius: 7px; padding: 4px 10px; cursor: pointer;
+    transition: all var(--dur-micro) var(--curve-out);
+  }
+  .sec-head .action:hover { border-color: rgba(94, 156, 255, 0.6); background: rgba(94, 156, 255, 0.18); }
+
+  /* cards: .card = briefing-surface convention, .panel = generic DESIGN.md recipe */
+  .card { border: 1px solid var(--color-border); background: var(--color-surface); border-radius: 10px; }
+  .panel { border: 1px solid var(--color-edge-mid); background: var(--color-surface-raised); border-radius: 6px; }
+
+  /* row: clickable list row with hover + focus ring */
+  .row {
+    display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+    border-radius: 8px; padding: 7px 10px; cursor: pointer;
+    border: 1px solid transparent; background: transparent;
+    transition: background var(--dur-micro) var(--curve-out);
+  }
+  .row:hover { background: var(--color-surface-hover); }
+  .row:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+  .row .main { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+  .row .name { font-size: 12.5px; font-weight: 500; color: var(--color-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .meta { font-family: 'JetBrains Mono', monospace; font-size: 9.5px; color: var(--color-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .age { font-family: 'JetBrains Mono', monospace; font-size: 9.5px; color: var(--color-ink-faint); flex: none; }
+
+  /* kind badges + status chips: always labeled, never color alone */
+  .badge, .chip {
+    flex: none; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; font-weight: 600;
+    text-transform: uppercase; border-radius: 4px; padding: 2px 6px;
+  }
+  .badge { font-size: 8.5px; letter-spacing: 0.06em; }
+  .badge-run { color: var(--color-ink-mid); background: var(--color-surface-raised); border: 1px solid var(--color-edge-faint); }
+  .badge-agent { color: var(--color-accent-soft); background: var(--color-accentbg); border: 1px solid rgba(94, 156, 255, 0.25); }
+  .badge-blocked { color: var(--color-asking); background: rgba(230, 180, 80, 0.15); border: 1px solid rgba(230, 180, 80, 0.3); }
+  .chip-blocked { color: var(--color-asking); background: var(--color-askingbg); }
+  .chip-done, .chip-new { color: var(--color-success); background: var(--color-successbg); }
+  .chip-running { color: var(--color-secondary); background: var(--color-surface-raised); }
+  .chip-asking { color: var(--color-asking); background: var(--color-askingbg); }
+
+  /* status dot: pulse pair for live states (motion-reduce aware) */
+  .status-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--color-asking); flex: none; animation: pulseDot 1.6s infinite; }
+  @keyframes pulseDot { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+  @media (prefers-reduced-motion: reduce) {
+    .status-dot { animation: none; }
+    .row, .sec-head .action, .more { transition: none; }
+  }
+
+  /* buttons (DESIGN.md): primary = accent, secondary = raised + edge-mid, ghost = text */
+  .btn-primary {
+    font-family: 'JetBrains Mono', monospace; font-size: 10.5px; font-weight: 600;
+    color: var(--color-background); background: var(--color-accent); border: none; border-radius: 7px;
+    padding: 6px 12px; cursor: pointer; transition: background var(--dur-micro) var(--curve-out);
+  }
+  .btn-primary:hover { background: var(--color-accenthover); }
+  .btn-primary:focus-visible, .btn-secondary:focus-visible, .btn-ghost:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+  .btn-secondary {
+    font-family: 'JetBrains Mono', monospace; font-size: 10.5px; font-weight: 600; color: var(--color-muted);
+    background: var(--color-surface-raised); border: 1px solid var(--color-edge-mid); border-radius: 7px;
+    padding: 6px 12px; cursor: pointer; transition: all var(--dur-micro) var(--curve-out);
+  }
+  .btn-secondary:hover { color: var(--color-primary); border-color: var(--color-edge-strong); background: var(--color-surface-hover); }
+  .btn-ghost {
+    font-family: 'JetBrains Mono', monospace; font-size: 10.5px; font-weight: 600; color: var(--color-muted);
+    background: none; border: none; border-radius: 7px; padding: 4px 10px; cursor: pointer;
+    transition: background var(--dur-micro) var(--curve-out);
+  }
+  .btn-ghost:hover { background: var(--color-surface-hover); color: var(--color-primary); }
+
+  /* more-link, group label, tags, progress track, skeleton */
+  .more {
+    width: fit-content; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; font-weight: 600;
+    color: var(--color-accent-soft); background: none; border: none; border-radius: 7px; padding: 4px 10px;
+    cursor: pointer; transition: background var(--dur-micro) var(--curve-out);
+  }
+  .more:hover { background: var(--color-surface-hover); }
+  .group-label {
+    font-family: 'JetBrains Mono', monospace; font-size: 9.5px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.12em; color: var(--color-feed-label); padding: 2px 10px;
+  }
+  .tag { font-family: 'JetBrains Mono', monospace; font-size: 9.5px; color: var(--color-muted); background: var(--color-surface); border: 1px solid var(--color-edge-faint); border-radius: 999px; padding: 1px 8px; }
+  .track { flex: 1; height: 4px; border-radius: 999px; background: var(--color-surface); overflow: hidden; }
+  .track .fill { height: 100%; border-radius: 999px; background: var(--color-accent); }
+  .track .fill.amber { background: var(--color-asking); }
+  .skeleton { border-radius: 10px; background: var(--color-surface); animation: pulseDot 1.6s infinite; }
+  @media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }
+
+
+  /* code sidebar pilot: proposal-only geometry and interaction surface */
+  body { padding-top: 22px; }
+  .stage { gap: 18px; }
+  .eyebrow {
+    color: var(--color-accent-soft); font-family: 'JetBrains Mono', monospace; font-size: 9.5px;
+    font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
+  }
+  .intro { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; }
+  .intro h1 { margin-top: 5px; color: var(--color-primary); font-size: 22px; line-height: 1.15; letter-spacing: -0.02em; }
+  .intro p { max-width: 610px; margin-top: 8px; color: var(--color-secondary); font-size: 12.5px; }
+  .proposal-note { flex: none; max-width: 280px; color: var(--color-muted); font-family: 'JetBrains Mono', monospace; font-size: 10px; line-height: 1.5; text-align: right; }
+  .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px; }
+  .toolbar-label { margin-right: 2px; color: var(--color-muted); font-size: 11px; }
+  .view-choice, .mode-tab, .collapse-button, .strip-opener, .editor-link, .tree-row, .search-row, .changed-row {
+    cursor: pointer; border: 0; font: inherit;
+  }
+  .view-choice {
+    border: 1px solid var(--color-edge-mid); border-radius: 7px; padding: 5px 9px; color: var(--color-muted);
+    background: var(--color-surface-raised); font-family: 'JetBrains Mono', monospace; font-size: 10px;
+    transition: background var(--dur-micro) var(--curve-out), border-color var(--dur-micro) var(--curve-out), color var(--dur-micro) var(--curve-out);
+  }
+  .view-choice:hover { border-color: var(--color-edge-strong); color: var(--color-primary); background: var(--color-surface-hover); }
+  .view-choice[aria-pressed="true"] { border-color: var(--color-accent); color: var(--color-accent-soft); background: var(--color-accentbg); }
+  .toolbar .btn-ghost { margin-left: auto; }
+  .surface-card { padding: 12px; }
+  .surface-caption { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 0 2px 8px; }
+  .surface-caption strong { color: var(--color-primary); font-size: 12px; }
+  .surface-caption span { color: var(--color-muted); font-family: 'JetBrains Mono', monospace; font-size: 9.5px; }
+  .live-surface { overflow: hidden; border: 1px solid var(--color-edge-mid); border-radius: 8px; background: var(--color-surface-code); }
+  .surface-topbar { display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 12px; border-bottom: 1px solid var(--color-border); background: var(--color-surface); }
+  .surface-topbar .crumb { color: var(--color-secondary); font-size: 12px; }
+  .surface-topbar .path { overflow: hidden; color: var(--color-muted); font-family: 'JetBrains Mono', monospace; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+  .surface-topbar .project { margin-left: auto; color: var(--color-muted); font-family: 'JetBrains Mono', monospace; font-size: 9.5px; }
+  .workspace { display: flex; width: 100%; height: 426px; min-width: 0; overflow: hidden; }
+  .code-sidebar { display: flex; flex: none; flex-direction: column; width: var(--sidebar-width, 280px); min-width: 0; background: var(--color-surface); transition: width var(--dur-micro) var(--curve-out); }
+  .code-sidebar[data-open="false"] { width: 36px; }
+  .sidebar-tabs { display: flex; align-items: center; gap: 2px; flex: none; min-width: 0; height: 36px; padding: 4px 5px; border-bottom: 1px solid var(--color-border); }
+  .mode-tab { min-width: 0; overflow: hidden; border-radius: 6px; padding: 5px 7px; color: var(--color-muted); background: transparent; font-family: 'JetBrains Mono', monospace; font-size: 10px; text-overflow: ellipsis; text-transform: capitalize; white-space: nowrap; }
+  .mode-tab:hover { color: var(--color-primary); background: var(--color-surface-hover); }
+  .mode-tab[aria-selected="true"] { color: var(--color-accent-soft); background: var(--color-accentbg); }
+  .collapse-button { display: flex; flex: none; align-items: center; justify-content: center; width: 25px; height: 25px; margin-left: auto; border-radius: 6px; color: var(--color-muted); background: transparent; font-size: 14px; line-height: 1; }
+  .collapse-button:hover, .strip-opener:hover { color: var(--color-primary); background: var(--color-surface-hover); }
+  .sidebar-content { min-width: 0; min-height: 0; flex: 1; overflow: hidden; }
+  .code-sidebar[data-open="false"] .sidebar-tabs, .code-sidebar[data-open="false"] .sidebar-content { visibility: hidden; }
+  .code-sidebar[data-open="false"] .sidebar-tabs { pointer-events: none; }
+  .strip-opener { display: none; align-items: center; justify-content: center; width: 35px; height: 35px; color: var(--color-muted); background: transparent; font-family: 'JetBrains Mono', monospace; font-size: 14px; }
+  .code-sidebar[data-open="false"] .strip-opener { display: flex; }
+  .resize-grip { position: relative; z-index: 1; display: flex; flex: none; align-items: center; justify-content: center; width: 8px; border: 0; background: transparent; cursor: col-resize; }
+  .resize-grip::before { width: 1px; height: 100%; background: var(--color-edge-mid); content: ''; transition: background var(--dur-micro) var(--curve-out); }
+  .resize-grip:hover::before, .resize-grip[data-dragging="true"]::before { width: 2px; background: var(--color-accent); }
+  .resize-grip[hidden] { display: none; }
+  .editor { display: flex; min-width: 0; flex: 1; flex-direction: column; background: var(--color-surface-code); }
+  .editor-bar { display: flex; align-items: center; gap: 7px; flex: none; height: 36px; padding: 0 12px; border-bottom: 1px solid var(--color-border); }
+  .editor-bar .file { min-width: 0; overflow: hidden; color: var(--color-secondary); font-family: 'JetBrains Mono', monospace; font-size: 10.5px; text-overflow: ellipsis; white-space: nowrap; }
+  .editor-bar .line { margin-left: auto; color: var(--color-muted); font-family: 'JetBrains Mono', monospace; font-size: 9.5px; }
+  .stale-note { flex: none; padding: 5px 12px; border-bottom: 1px solid var(--color-edge-faint); color: var(--color-warning-soft); background: var(--color-askingbg); font-family: 'JetBrains Mono', monospace; font-size: 9.5px; }
+  .code-lines { min-width: 0; overflow: hidden; padding: 14px 0; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; line-height: 1.8; }
+  .code-line { display: flex; min-width: 0; padding-right: 14px; white-space: pre; }
+  .code-line .ln { width: 38px; flex: none; padding-right: 10px; color: var(--color-ink-faint); text-align: right; user-select: none; }
+  .code-line .src { min-width: 0; overflow: hidden; color: var(--color-syntax-ident); text-overflow: ellipsis; }
+  .syntax-keyword { color: var(--color-syntax-keyword); } .syntax-string { color: var(--color-syntax-string); }
+  .syntax-comment { color: var(--color-syntax-comment); } .syntax-punct { color: var(--color-syntax-punct); }
+  .sidebar-pane { height: 100%; overflow-y: auto; }
+  .tree-row, .search-row, .changed-row { display: flex; align-items: center; width: 100%; min-width: 0; border-radius: 0; padding: 4px 10px; color: var(--color-secondary); background: transparent; text-align: left; font-size: 11.5px; }
+  .tree-row:hover, .search-row:hover, .changed-row:hover { background: var(--color-surface-hover); }
+  .tree-row[aria-current="true"] { color: var(--color-accent-soft); background: var(--color-accentbg); }
+  .tree-glyph { width: 18px; flex: none; color: var(--color-muted); font-family: 'JetBrains Mono', monospace; text-align: center; }
+  .tree-name, .changed-path, .search-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tree-dir { color: var(--color-muted); } .tree-indent-1 { padding-left: 22px; } .tree-indent-2 { padding-left: 34px; }
+  .status-letter { width: 12px; flex: none; color: var(--color-success); font-family: 'JetBrains Mono', monospace; font-size: 10px; }
+  .status-letter.modified { color: var(--color-warning); } .status-letter.added { color: var(--color-success); }
+  .search-controls { padding: 10px; border-bottom: 1px solid var(--color-edge-faint); }
+  .search-controls input { width: 100%; border: 1px solid var(--color-edge-mid); border-radius: 7px; padding: 6px 8px; color: var(--color-primary); background: var(--color-surface-code); font: 10.5px 'JetBrains Mono', monospace; outline: none; }
+  .search-controls input:focus-visible { border-color: var(--color-accent); outline: 2px solid var(--color-accent); outline-offset: 1px; }
+  .search-summary { padding: 7px 10px 3px; color: var(--color-muted); font-family: 'JetBrains Mono', monospace; font-size: 9.5px; }
+  .search-file { padding: 5px 10px 2px; color: var(--color-muted); font-family: 'JetBrains Mono', monospace; font-size: 9.5px; }
+  .search-row { gap: 7px; padding-top: 3px; padding-bottom: 3px; font-family: 'JetBrains Mono', monospace; font-size: 10px; }
+  .search-line { width: 30px; flex: none; color: var(--color-muted); text-align: right; }
+  .changed-row { gap: 7px; padding-top: 5px; padding-bottom: 5px; font-family: 'JetBrains Mono', monospace; font-size: 10px; }
+  .changed-path { flex: 1; } .changed-path .dir { color: var(--color-muted); }
+  .diff-add { color: var(--color-success); } .diff-del { color: var(--color-error); }
+  .surface-legend { display: flex; align-items: center; gap: 10px; min-height: 28px; padding: 7px 2px 0; color: var(--color-muted); font-family: 'JetBrains Mono', monospace; font-size: 9.5px; }
+  .surface-legend .live-state { margin-left: auto; color: var(--color-success); }
+  .dimension-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+  .dimension { padding: 9px 10px; }
+  .dimension .key { color: var(--color-muted); font-family: 'JetBrains Mono', monospace; font-size: 9.5px; }
+  .dimension .value { display: block; margin-top: 4px; color: var(--color-primary); font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 600; }
+  .dimension .note { display: block; margin-top: 2px; color: var(--color-muted); font-size: 10px; }
+  .state-heading { margin: 2px 0 0; color: var(--color-secondary); font-size: 12px; font-weight: 600; }
+  .state-grid { display: grid; grid-template-columns: 1.2fr 0.8fr 0.8fr; gap: 10px; }
+  .state-card { min-width: 0; padding: 10px; }
+  .state-card h3 { color: var(--color-primary); font-size: 11.5px; font-weight: 600; }
+  .state-card p { min-height: 31px; margin-top: 4px; color: var(--color-muted); font-size: 10.5px; }
+  .mini-surface { display: flex; height: 80px; margin-top: 9px; overflow: hidden; border: 1px solid var(--color-edge-mid); border-radius: 6px; background: var(--color-surface-code); }
+  .mini-sidebar { flex: none; width: 45%; border-right: 1px solid var(--color-edge-mid); background: var(--color-surface); }
+  .mini-sidebar .mini-tabs { height: 18px; border-bottom: 1px solid var(--color-border); background: var(--color-surface-raised); }
+  .mini-sidebar .mini-lines { margin: 10px 7px; }
+  .mini-lines i { display: block; width: 82%; height: 5px; margin-bottom: 7px; border-radius: 2px; background: var(--color-edge-strong); }
+  .mini-lines i:nth-child(2) { width: 62%; } .mini-lines i:nth-child(3) { width: 74%; }
+  .mini-editor { flex: 1; background: var(--color-surface-code); }
+  .mini-editor::before { display: block; width: 58%; height: 5px; margin: 28px 10px; border-radius: 2px; background: var(--color-edge-mid); content: ''; }
+  .mini-surface.collapsed .mini-sidebar, .mini-surface.narrow .mini-sidebar { width: 15px; border-right-color: var(--color-edge-mid); }
+  .mini-surface.collapsed .mini-sidebar .mini-tabs, .mini-surface.collapsed .mini-lines, .mini-surface.narrow .mini-sidebar .mini-tabs, .mini-surface.narrow .mini-lines { display: none; }
+  .mini-surface.collapsed .mini-sidebar::after, .mini-surface.narrow .mini-sidebar::after { display: block; margin: 30px 4px; color: var(--color-muted); content: '›'; font-family: 'JetBrains Mono', monospace; font-size: 11px; text-align: center; }
+  .interaction-note { display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px; color: var(--color-secondary); font-size: 11px; }
+  .interaction-note strong { color: var(--color-primary); font-weight: 600; }
+  .interaction-note .marker { flex: none; color: var(--color-accent); font-family: 'JetBrains Mono', monospace; }
+  .focus-target:focus-visible, .view-choice:focus-visible, .mode-tab:focus-visible, .collapse-button:focus-visible, .strip-opener:focus-visible, .tree-row:focus-visible, .search-row:focus-visible, .changed-row:focus-visible, .editor-link:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+  @media (max-width: 760px) {
+    body { padding-right: 12px; padding-left: 12px; }
+    .intro { display: block; } .proposal-note { max-width: none; margin-top: 10px; text-align: left; }
+    .dimension-grid, .state-grid { grid-template-columns: 1fr 1fr; }
+    .state-card:first-child { grid-column: 1 / -1; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .code-sidebar, .resize-grip::before, .view-choice, .collapse-button, .mode-tab { transition: none; }
+  }
+
+</style>
+</head>
+<body>
+<div class="stage">
+  <header class="intro">
+    <div>
+      <div class="eyebrow">visual approval · code surface</div>
+      <h1>Code sidebar pilot</h1>
+      <p>A focused proposal for the existing Files, Search, and Changed column. The editor stays fluid; the sidebar remembers each mode's width without changing the Code surface's content model.</p>
+    </div>
+    <div class="proposal-note">PROPOSED INTERACTION<br>drag or focus the separator<br>collapse is a user preference<br>narrow collapse is temporary</div>
+  </header>
+
+  <section class="panel toolbar" aria-label="Preview controls">
+    <span class="toolbar-label">Preview state</span>
+    <button class="view-choice" type="button" data-view-choice="expanded" aria-pressed="true">Expanded</button>
+    <button class="view-choice" type="button" data-view-choice="collapsed" aria-pressed="false">Collapsed</button>
+    <button class="view-choice" type="button" data-view-choice="narrow" aria-pressed="false">Narrow window</button>
+    <button class="btn-ghost" type="button" id="reset-prefs">Reset remembered widths</button>
+  </section>
+
+  <section class="panel surface-card" aria-labelledby="live-preview-title">
+    <div class="surface-caption">
+      <strong id="live-preview-title">Interactive Code surface</strong>
+      <span id="state-caption">expanded · user preference: open</span>
+    </div>
+    <div class="live-surface" id="live-surface" data-view="expanded">
+      <div class="surface-topbar">
+        <span class="crumb">Code</span><span class="path" id="top-path">arc / frontend/app/view/code/codesurface.tsx</span>
+        <span class="project">project · arc</span>
+      </div>
+      <div class="workspace" id="workspace">
+        <aside class="code-sidebar" id="code-sidebar" data-open="true" aria-label="Code sidebar">
+          <div class="sidebar-tabs" role="tablist" aria-label="Code sidebar modes">
+            <button class="mode-tab" type="button" role="tab" data-mode="files" aria-selected="true">Files</button>
+            <button class="mode-tab" type="button" role="tab" data-mode="search" aria-selected="false">Search</button>
+            <button class="mode-tab" type="button" role="tab" data-mode="changed" aria-selected="false">Changed</button>
+            <button class="collapse-button focus-target" id="collapse-button" type="button" aria-label="Collapse Code sidebar" aria-expanded="true" title="Collapse Code sidebar">‹</button>
+          </div>
+          <div class="sidebar-content">
+            <div class="sidebar-pane" data-pane="files" role="tabpanel">
+              <button class="tree-row" type="button" aria-current="true" style="padding-left:10px"><span class="tree-glyph">⌄</span><span class="tree-name tree-dir">frontend</span></button>
+              <button class="tree-row tree-indent-1" type="button"><span class="tree-glyph">⌄</span><span class="tree-name tree-dir">app</span></button>
+              <button class="tree-row tree-indent-2" type="button"><span class="tree-glyph">◇</span><span class="tree-name">view</span></button>
+              <button class="tree-row tree-indent-2" type="button" aria-current="true"><span class="tree-glyph">◇</span><span class="tree-name">codesurface.tsx</span><span class="status-letter modified">M</span></button>
+              <button class="tree-row tree-indent-2" type="button"><span class="tree-glyph">◇</span><span class="tree-name">codetreepane.tsx</span></button>
+              <button class="tree-row tree-indent-2" type="button"><span class="tree-glyph">◇</span><span class="tree-name">codesearchpane.tsx</span></button>
+              <button class="tree-row tree-indent-2" type="button"><span class="tree-glyph">◇</span><span class="tree-name">codechangedpane.tsx</span></button>
+              <button class="tree-row tree-indent-1" type="button"><span class="tree-glyph">⌄</span><span class="tree-name tree-dir">store</span></button>
+              <button class="tree-row tree-indent-2" type="button"><span class="tree-glyph">◇</span><span class="tree-name">global-atoms.ts</span></button>
+              <button class="tree-row" type="button"><span class="tree-glyph">⌄</span><span class="tree-name tree-dir">pkg</span></button>
+              <button class="tree-row tree-indent-1" type="button"><span class="tree-glyph">◇</span><span class="tree-name">README.md</span><span class="status-letter added">A</span></button>
+            </div>
+            <div class="sidebar-pane" data-pane="search" role="tabpanel" hidden>
+              <div class="search-controls"><input id="search-input" type="search" value="sidebar" aria-label="Search file contents"></div>
+              <div class="search-summary" id="search-summary">6 matches in 3 files</div>
+              <div class="search-file">codesurface.tsx</div>
+              <button class="search-row" type="button"><span class="search-line">328</span><span class="search-text">sidebar width follows mode</span></button>
+              <button class="search-row" type="button"><span class="search-line">333</span><span class="search-text">Code sidebar modes</span></button>
+              <div class="search-file">codetreepane.tsx</div>
+              <button class="search-row" type="button"><span class="search-line">204</span><span class="search-text">role tree and focus owner</span></button>
+              <button class="search-row" type="button"><span class="search-line">215</span><span class="search-text">overflow-y-auto</span></button>
+              <div class="search-file">codestore.ts</div>
+              <button class="search-row" type="button"><span class="search-line">81</span><span class="search-text">codeSearchModeAtom</span></button>
+            </div>
+            <div class="sidebar-pane" data-pane="changed" role="tabpanel" hidden>
+              <button class="changed-row" type="button"><span class="status-letter modified">M</span><span class="changed-path"><span class="dir">frontend/app/view/code/</span>codesurface.tsx</span><span class="diff-add">+18</span><span class="diff-del">-4</span></button>
+              <button class="changed-row" type="button"><span class="status-letter modified">M</span><span class="changed-path"><span class="dir">frontend/app/view/code/</span>codetreepane.tsx</span><span class="diff-add">+3</span><span class="diff-del">-1</span></button>
+              <button class="changed-row" type="button"><span class="status-letter added">A</span><span class="changed-path"><span class="dir">docs/prototype/</span>code-sidebar-pilot.html</span><span class="diff-add">+412</span><span class="diff-del">-0</span></button>
+              <button class="changed-row" type="button"><span class="status-letter modified">M</span><span class="changed-path"><span class="dir">frontend/app/store/</span>keybindings.ts</span><span class="diff-add">+2</span><span class="diff-del">-2</span></button>
+              <div class="search-summary">Status letters pair with file names; +/- columns stay visible at 380px.</div>
+            </div>
+          </div>
+          <button class="strip-opener focus-target" id="strip-opener" type="button" aria-label="Expand Code sidebar" aria-expanded="false" title="Expand Code sidebar">›</button>
+        </aside>
+        <button class="resize-grip focus-target" id="resize-grip" type="button" role="separator" aria-orientation="vertical" aria-label="Resize Code sidebar" aria-controls="code-editor-preview" aria-valuemin="200" aria-valuemax="480" aria-valuenow="280" title="Drag to resize · Arrow keys adjust · Home/End set limits"></button>
+        <main class="editor" id="code-editor-preview" aria-label="Code editor preview">
+          <div class="editor-bar"><span class="file" id="editor-file">frontend/app/view/code/codesurface.tsx</span><span class="line">read-only preview</span></div>
+          <div class="stale-note">Working tree changed · refresh keeps the open file visible</div>
+          <div class="code-lines" aria-label="Code preview">
+            <div class="code-line"><span class="ln">322</span><span class="src"><span class="syntax-keyword">function</span> CodePanes<span class="syntax-punct">({</span> model <span class="syntax-punct">}) {</span></span></div>
+            <div class="code-line"><span class="ln">323</span><span class="src">  <span class="syntax-keyword">const</span> [mode, setMode] = useAtom<span class="syntax-punct">(</span>codeSearchModeAtom<span class="syntax-punct">);</span></span></div>
+            <div class="code-line"><span class="ln">324</span><span class="src">  <span class="syntax-keyword">return</span> <span class="syntax-punct">(</span></span></div>
+            <div class="code-line"><span class="ln">325</span><span class="src">    &lt;div className=<span class="syntax-string">"flex h-full w-full"</span>&gt;</span></div>
+            <div class="code-line"><span class="ln">326</span><span class="src">      <span class="syntax-comment">{/* mode-specific column */}</span></span></div>
+            <div class="code-line"><span class="ln">327</span><span class="src">      &lt;CodeViewer model={model} /&gt;</span></div>
+            <div class="code-line"><span class="ln">328</span><span class="src">    &lt;/div&gt;</span></div>
+          </div>
+        </main>
+      </div>
+    </div>
+    <div class="surface-legend"><span id="width-readout">Files 280px</span><span>·</span><span>separator keyboard-focusable</span><span class="live-state" id="live-state" aria-live="polite">ready · preferred width saved per mode</span></div>
+  </section>
+
+  <section class="dimension-grid" aria-label="Proposed dimensions">
+    <div class="panel dimension"><span class="key">mode defaults</span><span class="value">280 / 380 / 380px</span><span class="note">existing widths retained</span></div>
+    <div class="panel dimension"><span class="key">sidebar bounds</span><span class="value">200–480px</span><span class="note">proposed min / max</span></div>
+    <div class="panel dimension"><span class="key">editor floor</span><span class="value">280px</span><span class="note">proposed preferred floor</span></div>
+    <div class="panel dimension"><span class="key">collapsed strip</span><span class="value">36px</span><span class="note">proposed opener width</span></div>
+  </section>
+
+  <section aria-labelledby="states-title">
+    <div class="sec-head"><span class="label" id="states-title">State map</span><span class="rule"></span><span class="count">3 states</span></div>
+    <div class="state-grid">
+      <article class="panel state-card"><h3>Expanded · remembered width</h3><p>Mode tabs, content, and the collapse control remain in the existing left-column rhythm. Drag the divider or focus it and use arrows.</p><div class="mini-surface"><div class="mini-sidebar"><div class="mini-tabs"></div><div class="mini-lines"><i></i><i></i><i></i></div></div><div class="mini-editor"></div></div></article>
+      <article class="panel state-card"><h3>Collapsed · user preference</h3><p>The 36px strip keeps a visible, keyboard-reachable opener. Widths and the selected mode remain intact.</p><div class="mini-surface collapsed"><div class="mini-sidebar"><div class="mini-tabs"></div><div class="mini-lines"><i></i><i></i><i></i></div></div><div class="mini-editor"></div></div></article>
+      <article class="panel state-card"><h3>Narrow window · temporary</h3><p>Responsive collapse does not overwrite the user's open preference or any mode width; widening restores the prior state.</p><div class="mini-surface narrow"><div class="mini-sidebar"><div class="mini-tabs"></div><div class="mini-lines"><i></i><i></i><i></i></div></div><div class="mini-editor"></div></div></article>
+    </div>
+  </section>
+
+  <section class="panel interaction-note" aria-label="Interaction notes"><span class="marker">KEY</span><span><strong>Keyboard:</strong> Tab reaches the separator and opener; Left/Right adjust by 16px, Shift+Left/Right by 40px, Home/End go to effective bounds. <strong>Pointer:</strong> the grip captures the pointer for stable drag resizing. <strong>Responsive:</strong> only the narrow-window preview forces the compact strip; the stored open preference is never rewritten.</span></section>
+</div>
+<script>
+(() => {
+  const DEFAULT_WIDTHS = { files: 280, search: 380, changed: 380 };
+  const MIN_WIDTH = 200;
+  const MAX_WIDTH = 480;
+  const EDITOR_FLOOR = 280;
+  const STORAGE_KEY = 'code-sidebar-pilot-prefs';
+  const workspace = document.getElementById('workspace');
+  const surface = document.getElementById('live-surface');
+  const sidebar = document.getElementById('code-sidebar');
+  const grip = document.getElementById('resize-grip');
+  const collapseButton = document.getElementById('collapse-button');
+  const opener = document.getElementById('strip-opener');
+  const caption = document.getElementById('state-caption');
+  const widthReadout = document.getElementById('width-readout');
+  const liveState = document.getElementById('live-state');
+  const editorFile = document.getElementById('editor-file');
+  const topPath = document.getElementById('top-path');
+  const modeNames = { files: 'Files', search: 'Search', changed: 'Changed' };
+  let mode = 'files';
+  let view = 'expanded';
+  let prefs = loadPrefs();
+  let drag = null;
+
+  function finiteWidth(value, fallback) {
+    return Number.isFinite(value) ? Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, value)) : fallback;
+  }
+
+  function loadPrefs() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+      return {
+        widths: {
+          files: finiteWidth(Number(raw?.widths?.files), DEFAULT_WIDTHS.files),
+          search: finiteWidth(Number(raw?.widths?.search), DEFAULT_WIDTHS.search),
+          changed: finiteWidth(Number(raw?.widths?.changed), DEFAULT_WIDTHS.changed),
+        },
+        open: raw.open !== false,
+      };
+    } catch {
+      return { widths: { ...DEFAULT_WIDTHS }, open: true };
+    }
+  }
+
+  function savePrefs() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
+  }
+
+  function effectiveMax() {
+    const available = workspace.clientWidth - EDITOR_FLOOR;
+    return Math.min(MAX_WIDTH, available);
+  }
+
+  function boundedWidth(value) {
+    const max = effectiveMax();
+    return max >= MIN_WIDTH ? Math.min(max, Math.max(MIN_WIDTH, value)) : MIN_WIDTH;
+  }
+
+  function forcedNarrow() {
+    return view === 'narrow' || workspace.clientWidth < MIN_WIDTH + EDITOR_FLOOR;
+  }
+
+  function render() {
+    const compact = forcedNarrow() || !prefs.open;
+    const width = boundedWidth(prefs.widths[mode]);
+    surface.dataset.view = view;
+    sidebar.dataset.open = String(!compact);
+    sidebar.style.setProperty('--sidebar-width', `${width}px`);
+    grip.hidden = compact;
+    collapseButton.hidden = compact;
+    opener.hidden = !compact;
+    collapseButton.setAttribute('aria-expanded', String(!compact));
+    collapseButton.setAttribute('aria-label', 'Collapse Code sidebar');
+    opener.setAttribute('aria-expanded', String(!compact));
+    opener.setAttribute('aria-label', 'Expand Code sidebar');
+    document.querySelectorAll('[data-view-choice]').forEach((button) => {
+      button.setAttribute('aria-pressed', String(button.dataset.viewChoice === view));
+    });
+    document.querySelectorAll('[data-mode]').forEach((button) => {
+      const active = button.dataset.mode === mode;
+      button.setAttribute('aria-selected', String(active));
+      button.tabIndex = active ? 0 : -1;
+    });
+    document.querySelectorAll('[data-pane]').forEach((pane) => {
+      pane.hidden = pane.dataset.pane !== mode;
+    });
+    grip.setAttribute('aria-valuemax', String(Math.max(MIN_WIDTH, effectiveMax())));
+    grip.setAttribute('aria-valuenow', String(Math.round(width)));
+    widthReadout.textContent = `${modeNames[mode]} ${Math.round(width)}px`;
+    const preference = prefs.open ? 'open' : 'collapsed';
+    const stateName = view === 'narrow' ? 'narrow window' : view;
+    caption.textContent = `${stateName} · user preference: ${preference}`;
+    if (forcedNarrow()) {
+      liveState.textContent = `temporary strip · preference stays ${preference}`;
+    } else {
+      liveState.textContent = `${preference} · preferred width saved per mode`;
+    }
+  }
+
+  function focusLater(element) {
+    window.setTimeout(() => element.focus(), 0);
+  }
+
+  document.querySelectorAll('[data-view-choice]').forEach((button) => {
+    button.addEventListener('click', () => {
+      view = button.dataset.viewChoice;
+      if (view === 'expanded') prefs.open = true;
+      if (view === 'collapsed') prefs.open = false;
+      savePrefs();
+      render();
+      if (view === 'collapsed') focusLater(opener);
+      if (view === 'expanded') focusLater(collapseButton);
+    });
+  });
+
+  document.querySelectorAll('[data-mode]').forEach((button) => {
+    button.addEventListener('click', () => {
+      mode = button.dataset.mode;
+      render();
+    });
+  });
+
+  collapseButton.addEventListener('click', () => {
+    prefs.open = false;
+    view = 'collapsed';
+    savePrefs();
+    render();
+    focusLater(opener);
+  });
+
+  opener.addEventListener('click', () => {
+    prefs.open = true;
+    view = 'expanded';
+    savePrefs();
+    render();
+    focusLater(collapseButton);
+  });
+
+  grip.addEventListener('keydown', (event) => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight' && event.key !== 'Home' && event.key !== 'End') return;
+    event.preventDefault();
+    const current = prefs.widths[mode];
+    const step = event.shiftKey ? 40 : 16;
+    const next = event.key === 'Home' ? MIN_WIDTH : event.key === 'End' ? effectiveMax() : current + (event.key === 'ArrowRight' ? step : -step);
+    prefs.widths[mode] = boundedWidth(next);
+    savePrefs();
+    render();
+  });
+
+  grip.addEventListener('pointerdown', (event) => {
+    if (forcedNarrow() || !prefs.open) return;
+    drag = { pointerId: event.pointerId, startX: event.clientX, startWidth: prefs.widths[mode] };
+    grip.setPointerCapture(event.pointerId);
+    grip.dataset.dragging = 'true';
+    event.preventDefault();
+  });
+
+  grip.addEventListener('pointermove', (event) => {
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    prefs.widths[mode] = boundedWidth(drag.startWidth + event.clientX - drag.startX);
+    render();
+  });
+
+  function finishDrag(event) {
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (grip.hasPointerCapture(event.pointerId)) grip.releasePointerCapture(event.pointerId);
+    drag = null;
+    grip.dataset.dragging = 'false';
+    savePrefs();
+    render();
+  }
+
+  grip.addEventListener('pointerup', finishDrag);
+  grip.addEventListener('pointercancel', finishDrag);
+
+  document.querySelectorAll('.tree-row, .search-row, .changed-row').forEach((row) => {
+    row.addEventListener('click', () => {
+      const text = row.querySelector('.tree-name, .search-text, .changed-path');
+      if (!text) return;
+      const selected = text.textContent.trim();
+      editorFile.textContent = selected;
+      topPath.textContent = `arc / ${selected}`;
+      document.querySelectorAll('.tree-row').forEach((item) => item.removeAttribute('aria-current'));
+      if (row.classList.contains('tree-row')) row.setAttribute('aria-current', 'true');
+    });
+  });
+
+  document.getElementById('search-input').addEventListener('input', (event) => {
+    document.getElementById('search-summary').textContent = `${event.target.value ? '6' : '0'} matches in 3 files`;
+  });
+
+  document.getElementById('reset-prefs').addEventListener('click', () => {
+    prefs = { widths: { ...DEFAULT_WIDTHS }, open: true };
+    view = 'expanded';
+    savePrefs();
+    render();
+    focusLater(collapseButton);
+  });
+
+  const observer = new ResizeObserver(render);
+  observer.observe(workspace);
+  render();
+})();
+</script>
+</body>
+</html>
