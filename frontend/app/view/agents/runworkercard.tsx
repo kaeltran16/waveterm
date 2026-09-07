@@ -36,7 +36,17 @@ function currentLine(agent: AgentVM, entries: AgentEntry[]): string | undefined 
     return agent.activity ?? latestMessageText(entries);
 }
 
-export function RunWorkerCard({ model, agent, now, fill }: { model: AgentsViewModel; agent: AgentVM; now: number; fill?: boolean }) {
+export function RunWorkerCard({
+    model,
+    agent,
+    now,
+    fill,
+}: {
+    model: AgentsViewModel;
+    agent: AgentVM;
+    now: number;
+    fill?: boolean;
+}) {
     const [open, setOpen] = useState(true);
     const liveEntries = useAtomValue(entriesAtomFor(agent.id));
     const lastActivityStamp = useAtomValue(activityAtomFor(agent.id));
@@ -52,7 +62,12 @@ export function RunWorkerCard({ model, agent, now, fill }: { model: AgentsViewMo
     const quietSecs = quiet ? Math.floor(Math.max(0, now - (lastActivityStamp ?? now)) / 1000) : 0;
 
     return (
-        <div className={cn("overflow-hidden rounded-[13px] border border-edge-mid bg-lane", fill && "flex min-h-0 flex-1 flex-col")}>
+        <div
+            className={cn(
+                "overflow-hidden rounded-[13px] border border-edge-mid bg-lane",
+                fill && "flex min-h-0 flex-1 flex-col"
+            )}
+        >
             {/* worker header — click to collapse */}
             <div
                 onClick={() => setOpen((o) => !o)}
@@ -60,7 +75,10 @@ export function RunWorkerCard({ model, agent, now, fill }: { model: AgentsViewMo
             >
                 <StatusDot state={agent.state} quiet={quiet} pulse={working && !quiet} className="!h-2 !w-2" />
                 <span title={rt.label} className="shrink-0">
-                    <RuntimeMark runtime={agent.agent} className={cn("shrink-0 font-mono text-[10px] leading-none", rt.text)} />
+                    <RuntimeMark
+                        runtime={agent.agent}
+                        className={cn("shrink-0 font-mono text-[10px] leading-none", rt.text)}
+                    />
                 </span>
                 <b className="shrink-0 font-mono text-[13px] font-semibold text-primary">{agent.name}</b>
                 {agent.model ? (
@@ -69,7 +87,9 @@ export function RunWorkerCard({ model, agent, now, fill }: { model: AgentsViewMo
                     </span>
                 ) : null}
                 <div className="min-w-[6px] flex-1" />
-                <span className="shrink-0 font-mono text-[10.5px] text-muted">{formatAge(displayAgeMs(agent, now))}</span>
+                <span className="shrink-0 font-mono text-[10.5px] text-muted">
+                    {formatAge(displayAgeMs(agent, now))}
+                </span>
                 <button
                     type="button"
                     onClick={(e) => {
@@ -118,7 +138,11 @@ export function RunWorkerCard({ model, agent, now, fill }: { model: AgentsViewMo
                     {/* live feed — capped in pipeline (many stacked cards); fills in the orchestrator body */}
                     {entries.length > 0 ? (
                         <div className={cn("relative", fill && "min-h-0 flex-1")}>
-                            <div ref={scrollRef} onScroll={onScroll} className={cn("sc overflow-y-auto px-3 pb-2", fill ? "h-full" : "max-h-[260px]")}>
+                            <div
+                                ref={scrollRef}
+                                onScroll={onScroll}
+                                className={cn("sc overflow-y-auto px-3 pb-2", fill ? "h-full" : "max-h-[260px]")}
+                            >
                                 <NarrationTimeline entries={entries} accentLatest active={working} />
                             </div>
                             {!atBottom ? <JumpToLatestPill onClick={jumpToBottom} /> : null}
@@ -149,7 +173,9 @@ export function RunWorkerCard({ model, agent, now, fill }: { model: AgentsViewMo
                 /* collapsed one-liner */
                 <div className="flex items-center gap-2 px-3 pb-2.5 pt-0.5">
                     <span className="min-w-0 flex-1 truncate text-[12px] text-muted">{current ?? "…"}</span>
-                    {prog ? <span className="shrink-0 font-mono text-[10px] font-bold text-success">{prog.pct}%</span> : null}
+                    {prog ? (
+                        <span className="shrink-0 font-mono text-[10px] font-bold text-success">{prog.pct}%</span>
+                    ) : null}
                 </div>
             )}
         </div>
