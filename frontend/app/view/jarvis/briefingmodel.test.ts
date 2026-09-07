@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { EFFORT_FIXTURES } from "./briefingfixtures";
 import {
     buildAttentionQueue,
+    effortListLabel,
     groupDelta,
     mergeActiveWork,
     normalizeBriefingNav,
@@ -518,5 +519,16 @@ describe("buildAttentionQueue", () => {
         const q = buildAttentionQueue({ attention: [item({})], efforts });
         expect(q.map((r) => r.kind)).toEqual(["gate", "chunk blocked"]);
         expect(q[1]!.ts).toBeNull();
+    });
+});
+
+describe("effortListLabel", () => {
+    it("names the overflow when the briefing caps the list", () => {
+        expect(effortListLabel(3)).toBe("+3 more");
+    });
+
+    it("still offers a route to the full list when nothing overflows", () => {
+        // the archived group lives only on that list, so the link cannot be conditional on overflow
+        expect(effortListLabel(0)).toBe("All initiatives");
     });
 });

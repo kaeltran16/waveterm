@@ -16,6 +16,13 @@ export const ACTIVE_CAP = 8;
 export const DELTA_CAP = 10;
 export const SHIPPED_CAP = 8;
 
+// The efforts section's link to the full list. It reads as overflow when the briefing is capped, but
+// it is never conditional on overflow: the archived group only exists on that list, so a briefing
+// showing every live initiative still needs a way in.
+export function effortListLabel(more: number): string {
+    return more > 0 ? `+${more} more` : "All initiatives";
+}
+
 export interface BriefingModelInput {
     state: WorkState;
     agents: AgentVM[];

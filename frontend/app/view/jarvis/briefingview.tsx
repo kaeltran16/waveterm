@@ -15,6 +15,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import { BRIEFING_FIXTURES } from "./briefingfixtures";
 import {
     buildAttentionQueue,
+    effortListLabel,
     groupDelta,
     mergeActiveWork,
     normalizeBriefingNav,
@@ -414,14 +415,14 @@ export function BriefingView({ model }: { model: AgentsViewModel }) {
                                             }
                                         />
                                     ))}
-                                    {model_.effortMore > 0 ? (
-                                        <MoreLink
-                                            label={`+${model_.effortMore} more`}
-                                            onClick={() => selectSubject({ kind: "effort-list", id: "all" })}
-                                        />
-                                    ) : null}
                                 </div>
                             )}
+                            {/* outside the branch: archived initiatives live only on the list, so the
+                                way there cannot depend on this section having overflowed. */}
+                            <MoreLink
+                                label={effortListLabel(model_.effortMore)}
+                                onClick={() => selectSubject({ kind: "effort-list", id: "all" })}
+                            />
                         </section>
                         {/* two-column cockpit grid: Active work | Since last visit + Shipped */}
                         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">

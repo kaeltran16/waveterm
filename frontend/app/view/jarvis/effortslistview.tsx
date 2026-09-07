@@ -13,7 +13,7 @@ import { cn } from "@/util/util";
 import { useEffect, useState } from "react";
 import { stateRpcTimeoutMs } from "./briefingstore";
 import { partitionEfforts, type EffortCardModel } from "./effortmodel";
-import { deleteEffort, setEffortStatus } from "./effortstore";
+import { deleteEffort, unarchiveEffort } from "./effortstore";
 import { openORef } from "./openref";
 import { STAGE_GUTTER, STAGE_SCROLLER } from "./stagemeasure";
 
@@ -180,9 +180,7 @@ export function EffortsListView({ model }: { model: AgentsViewModel }) {
                                     </span>
                                     {archived.map((card) => (
                                         <EffortRow key={card.oref} card={card} onOpen={() => openRow(card.oref)}>
-                                            <RowAction
-                                                onClick={() => runAction(() => setEffortStatus(card.oref, "active"))}
-                                            >
+                                            <RowAction onClick={() => runAction(() => unarchiveEffort(card.oref))}>
                                                 unarchive
                                             </RowAction>
                                             {pendingDelete === card.oref ? (

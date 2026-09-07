@@ -72,7 +72,7 @@ type CommandEffortDeleteData struct {
 // EffortOp is one typed mutation. Op selects the behavior; the remaining fields are the op's
 // arguments (validation picks which are required per op).
 type EffortOp struct {
-	Op        string `json:"op"`                  // rename | setProject | setTicket | setStatus | link | addChunk | removeChunk | renameChunk | moveChunk | setChunkStatus | appendNote | setOwner | advance | reopen
+	Op        string `json:"op"`                  // rename | setProject | setTicket | setStatus | unarchive | link | addChunk | removeChunk | renameChunk | moveChunk | setChunkStatus | appendNote | setOwner | advance | reopen
 	Title     string `json:"title,omitempty"`     // rename
 	Project   string `json:"project,omitempty"`   // setProject ("" clears)
 	Ticket    string `json:"ticket,omitempty"`    // setTicket ("" clears)

@@ -138,6 +138,12 @@ export async function setEffortStatus(oref: string, status: string): Promise<voi
     await mutateEffort(oref, [{ op: "setStatus", status }]);
 }
 
+// not setStatus("active"): the server restores whatever the archive replaced, which is the only
+// place that knows — an initiative archived while paused or done comes back as it went in.
+export async function unarchiveEffort(oref: string): Promise<void> {
+    await mutateEffort(oref, [{ op: "unarchive" }]);
+}
+
 // hard delete: the record and its whole note trail go. Callers gate this behind an archived status
 // and a confirm, mirroring the CLI's own EC-NOT-ARCHIVED refusal.
 export async function deleteEffort(oref: string): Promise<void> {
