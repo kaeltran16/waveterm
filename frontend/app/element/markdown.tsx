@@ -453,37 +453,14 @@ const Markdown = ({
         [createContentBlockPlugin, { blocks: contentBlocksMap }],
     ];
 
-    const ScrollableMarkdown = () => {
-        return (
-            <OverlayScrollbarsComponent
-                ref={contentsOsRef}
-                className={cn("content", contentClassName)}
-                options={{ scrollbars: { autoHide: "leave" } }}
-            >
-                <ReactMarkdown
-                    remarkPlugins={remarkPlugins}
-                    rehypePlugins={rehypePlugins}
-                    components={markdownComponents}
-                >
-                    {transformedText}
-                </ReactMarkdown>
-            </OverlayScrollbarsComponent>
-        );
-    };
-
-    const NonScrollableMarkdown = () => {
-        return (
-            <div className={cn("content non-scrollable", contentClassName)}>
-                <ReactMarkdown
-                    remarkPlugins={remarkPlugins}
-                    rehypePlugins={rehypePlugins}
-                    components={markdownComponents}
-                >
-                    {transformedText}
-                </ReactMarkdown>
-            </div>
-        );
-    };
+    // Rendered inline, NOT as <ScrollableMarkdown/> components declared here: a component defined
+    // during render is a new type on every render, so React unmounts and remounts the whole subtree —
+    // which threw away the scroll position (and every child's state) whenever an ancestor re-rendered.
+    const rendered = (
+        <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={markdownComponents}>
+            {transformedText}
+        </ReactMarkdown>
+    );
 
     const mergedStyle = { ...style };
     if (fontSizeOverride != null) {
@@ -494,7 +471,17 @@ const Markdown = ({
     }
     return (
         <div className={clsx("markdown", className)} style={mergedStyle}>
-            {scrollable ? <ScrollableMarkdown /> : <NonScrollableMarkdown />}
+            {scrollable ? (
+                <OverlayScrollbarsComponent
+                    ref={contentsOsRef}
+                    className={cn("content", contentClassName)}
+                    options={{ scrollbars: { autoHide: "leave" } }}
+                >
+                    {rendered}
+                </OverlayScrollbarsComponent>
+            ) : (
+                <div className={cn("content non-scrollable", contentClassName)}>{rendered}</div>
+            )}
             {toc && (
                 <OverlayScrollbarsComponent className="toc mt-1" options={{ scrollbars: { autoHide: "leave" } }}>
                     <div className="toc-inner">

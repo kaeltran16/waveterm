@@ -42,6 +42,7 @@ import {
     lastCodeProjectAtom,
     refreshIndex,
     reloadFromDisk,
+    revalidateIndex,
     revertDraft,
     saveCurrent,
     selectProject,
@@ -94,6 +95,15 @@ export function CodeSurface({ model }: { model: AgentsViewModel }) {
             fireAndForget(checkStale);
         }
     }, [hasFocus]);
+
+    // Every surface but Agent unmounts on nav switch, so a mount here means "switched back to Code":
+    // re-read the file list and git status. A cold mount has nothing to revalidate — the effect above
+    // is already loading it — and the open file is covered by the focus check above.
+    useEffect(() => {
+        if (globalStore.get(codeIndexAtom) != null) {
+            fireAndForget(revalidateIndex);
+        }
+    }, []);
 
     return (
         <div className="relative flex h-full w-full flex-col">
