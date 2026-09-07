@@ -7,7 +7,6 @@ import {
     parseComposerCommand,
     resolveComposerDispatch,
     resolveRunCreationDecision,
-    runFooterFor,
     type ResolveComposerDispatchInput,
 } from "./composercommand";
 import type { EffectiveRoute } from "./route";
@@ -208,33 +207,6 @@ describe("resolveRunCreationDecision", () => {
                 route: { pin: route.pin, source: "settings" },
             })
         ).toEqual({ kind: "blocked", focusRoute: true, reason: "Choose an available route" });
-    });
-});
-
-describe("runFooterFor", () => {
-    it("orchestrator", () => {
-        expect(runFooterFor({ playbook: [], defaultmode: "orchestrator" })).toBe(
-            "→ adaptive lead · DAG when useful · set in ⚙"
-        );
-    });
-    it("pipeline with gate", () => {
-        expect(
-            runFooterFor({
-                playbook: [{ kind: "plan", state: "pending", gate: true }],
-                defaultmode: "pipeline",
-            })
-        ).toBe("→ pipeline run · stops at a review gate · set in ⚙");
-    });
-    it("pipeline no gate", () => {
-        expect(
-            runFooterFor({
-                playbook: [{ kind: "execute", state: "pending", gate: false }],
-                defaultmode: "pipeline",
-            })
-        ).toBe("→ pipeline run · no gate · set in ⚙");
-    });
-    it("says the strategy is unresolved rather than asserting a default", () => {
-        expect(runFooterFor(undefined)).toBe("→ resolving channel strategy…");
     });
 });
 

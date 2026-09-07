@@ -16,7 +16,6 @@ import {
     LAUNCH_COMMANDS,
     parseComposerCommand,
     resolveComposerDispatch,
-    runFooterFor,
     type LaunchMode,
     type RunShape,
 } from "./composercommand";
@@ -33,13 +32,12 @@ import { runtimeMeta } from "./runtimemeta";
 
 // Launch face: a plain goal input driven by typed @quick/@run/@ask commands (a bare goal defaults to
 // @run). Typing a leading `@` opens an autocomplete of the three; a mid-text `@` is left as-is. The
-// footer surfaces what the parsed mode will do — @run's strategy comes from the channel's ⚙ profile —
-// plus the visible harness picker (run-worker operation for runs, consult for ask).
+// footer surfaces the explicit per-launch selection (Quick by default), plus the visible harness
+// picker (run-worker operation for runs, consult for ask).
 export function LaunchComposer({
     value,
     onChange,
     onSubmit,
-    profile,
     channelName,
     pending,
     attach,
@@ -57,7 +55,6 @@ export function LaunchComposer({
     value: string;
     onChange: (next: string) => void;
     onSubmit: () => void;
-    profile: JarvisProfile | undefined;
     channelName: string;
     pending: boolean;
     attach: UseComposerAttachments;
@@ -156,7 +153,7 @@ export function LaunchComposer({
               ? `→ direct quick launch in #${channelName}`
               : "→ direct pipeline launch";
     const behavior = pending
-        ? runFooterFor(profile)
+        ? "→ quick run · one worker · no plan gate"
         : mode === "run" || mode === "quick"
           ? runBehavior
           : "→ no worker · answer lands in Consults";
