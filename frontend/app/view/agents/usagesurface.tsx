@@ -123,11 +123,11 @@ function MiniDonut({
                 <div className="whitespace-nowrap font-mono text-[9px] text-muted">
                     {reset ? "resets " + formatReset(reset, now) : has ? "live" : "no data"}
                 </div>
-                {projectedExhaustion != null ? (
-                    <div className="whitespace-nowrap font-mono text-[9px] text-warning">
-                        ~100% by {formatProjectedDate(projectedExhaustion)}
-                    </div>
-                ) : null}
+                {/* the projection row is always occupied: a donut that has one would otherwise sit a
+                    line higher than its neighbours, and the card would jump when it appears */}
+                <div className="whitespace-nowrap font-mono text-[9px] text-warning">
+                    {projectedExhaustion != null ? "~100% by " + formatProjectedDate(projectedExhaustion) : "\u00a0"}
+                </div>
             </div>
         </div>
     );
@@ -167,7 +167,10 @@ function LiveLimitCard({
                     {label}
                 </div>
             </div>
-            <div className="flex flex-1 justify-end gap-[10px]">
+            {/* equal columns rather than justify-end: the sub-labels are per-provider widths
+                ("resets 1h 15m" vs "live"), which lands each card's donuts at a different x. The
+                min-content floor keeps a narrow card overflowing rather than overlapping. */}
+            <div className="grid flex-1 grid-cols-[repeat(2,minmax(min-content,1fr))] gap-[10px]">
                 <MiniDonut title="5-hour" pct={d.fivehour.pct} reset={d.fivehour.reset} now={now} />
                 <MiniDonut
                     title="Weekly"
