@@ -16,7 +16,7 @@ vi.mock("@/app/store/wshclientapi", () => ({
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 
 import { globalStore } from "@/app/store/global";
-import { harnessPreferenceAtom, harnessesAtom, initHarnessPreference, loadHarnesses, setPreferredRoute } from "./harnessstore";
+import { harnessPreferenceAtom, harnessesAtom, initHarnessPreference, loadHarnesses, setPreferredHarness, setPreferredRoute } from "./harnessstore";
 
 describe("harnessstore model catalog freshness", () => {
     beforeEach(() => {
@@ -56,6 +56,21 @@ describe("harnessstore model catalog freshness", () => {
         expect(setConfig.mock.calls[0][1]["harness:preferredmodel"]).toBe("opencode/deepseek-v4-pro");
     });
 
+    it("keeps the pinned model when the harness picker re-picks the current runtime", () => {
+        globalStore.set(harnessesAtom, [
+            { runtime: "pi", label: "Pi", routecapabilities: [{ runtime: "pi", tier: "capable", resolvedmodel: "operator default" }] },
+            { runtime: "codex", label: "Codex", routecapabilities: [{ runtime: "codex", tier: "capable", resolvedmodel: "operator default" }] },
+        ] as HarnessInfo[]);
+        initHarnessPreference("pi", "capable", "opencode/deepseek-v4-pro");
+
+        setPreferredHarness("pi");
+        expect(globalStore.get(harnessPreferenceAtom).route).toEqual({ runtime: "pi", tier: "capable", model: "opencode/deepseek-v4-pro" });
+
+        // a different harness has a different id namespace, so the model cannot come along
+        setPreferredHarness("codex");
+        expect(globalStore.get(harnessPreferenceAtom).route).toEqual({ runtime: "codex", tier: "capable" });
+    });
+
     it("seeds the preference from a persisted model", () => {
         initHarnessPreference("pi", "capable", "opencode/deepseek-v4-pro");
         expect(globalStore.get(harnessPreferenceAtom).route).toEqual({
@@ -63,5 +78,27 @@ describe("harnessstore model catalog freshness", () => {
             tier: "capable",
             model: "opencode/deepseek-v4-pro",
         });
+    });
+});
+
+describe("harnessstore catalog load resilience", () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        globalStore.set(harnessesAtom, []);
+        refreshRouteCatalog.mockResolvedValue(undefined);
+    });
+
+    it("gives the catalog RPC more than the 5s default budget", async () => {
+        listHarnesses.mockResolvedValue({ harnesses: [] });
+        await loadHarnesses();
+        expect(listHarnesses.mock.calls[0][1]?.timeout).toBeGreaterThan(5000);
+    });
+
+    it("keeps the loaded catalog when a refresh fails", async () => {
+        const loaded = [{ runtime: "pi", label: "Pi" }] as HarnessInfo[];
+        globalStore.set(harnessesAtom, loaded);
+        listHarnesses.mockRejectedValue(new Error("EC-TIME: timeout"));
+        await loadHarnesses(true);
+        expect(globalStore.get(harnessesAtom)).toEqual(loaded);
     });
 });

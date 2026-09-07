@@ -4,7 +4,10 @@
 package cmd
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -28,10 +31,14 @@ var agentMemoryProjectCmd = &cobra.Command{
 	SilenceUsage:          true,
 }
 
-var agentMemoryProjectCwd string
+var (
+	agentMemoryProjectCwd    string
+	agentMemoryProjectInject bool
+)
 
 func init() {
 	agentMemoryProjectCmd.Flags().StringVar(&agentMemoryProjectCwd, "cwd", "", "")
+	agentMemoryProjectCmd.Flags().BoolVar(&agentMemoryProjectInject, "inject", false, "")
 	rootCmd.AddCommand(agentMemoryProjectCmd)
 }
 
@@ -48,5 +55,25 @@ func agentMemoryProjectRun(cmd *cobra.Command, args []string) error {
 	if setupRpcClient(nil, jwt) != nil {
 		return nil
 	}
-	return wshclient.MemoryProjectCommand(RpcClient, wshrpc.CommandMemoryProjectData{Cwd: agentMemoryProjectCwd}, &wshrpc.RpcOpts{Timeout: 15000})
+	if !agentMemoryProjectInject {
+		return wshclient.MemoryProjectCommand(RpcClient, wshrpc.CommandMemoryProjectData{Cwd: agentMemoryProjectCwd}, &wshrpc.RpcOpts{Timeout: 15000})
+	}
+	manifest, err := wshclient.MemoryProjectManifestCommand(RpcClient, wshrpc.CommandMemoryProjectData{Cwd: agentMemoryProjectCwd}, &wshrpc.RpcOpts{Timeout: 15000})
+	if err != nil || strings.TrimSpace(manifest) == "" {
+		return nil // fail-safe: a memory failure must never degrade session start
+	}
+	// claude code reads both additional_context and hookSpecificOutput without deduplication, so
+	// exactly one of them may be emitted
+	payload := map[string]any{
+		"hookSpecificOutput": map[string]any{
+			"hookEventName":     "SessionStart",
+			"additionalContext": manifest,
+		},
+	}
+	out, err := json.Marshal(payload)
+	if err != nil {
+		return nil
+	}
+	fmt.Println(string(out))
+	return nil
 }

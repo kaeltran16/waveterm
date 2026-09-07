@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wavetermdev/waveterm/pkg/harness"
 	"github.com/wavetermdev/waveterm/pkg/memroots"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 )
@@ -64,6 +65,42 @@ func renderFacts(label string, notes []NoteWithBody, targetRuntime string) strin
 	return strings.TrimRight(b.String(), "\n") + "\n"
 }
 
+// renderManifestFrom builds the injected manifest: one line per fact, bodies left on disk. Split
+// from RenderManifest so the rendering is testable without a home dir or a vault.
+func renderManifestFrom(label, sharedDir string, notes []NoteWithBody) string {
+	if len(notes) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Shared project memory: " + label + "\n")
+	b.WriteString("Facts recorded by past Claude, pi, and codex sessions on this project.\n")
+	b.WriteString("Read the full body of any fact from: " + filepath.Join(sharedDir, "<name>.md") + "\n\n")
+	for _, nw := range notes {
+		// an authored description is kept as written but still capped: it is often a full paragraph,
+		// and the manifest's whole value is being one scannable line per fact
+		desc := capLine(nw.Note.Description)
+		if desc == "" {
+			desc = synthDescription(nw.Body)
+		}
+		if desc == "" {
+			continue
+		}
+		b.WriteString("- " + nw.Note.ID + " — " + desc + "\n")
+	}
+	return b.String()
+}
+
+// RenderManifest renders cwd's shared-memory manifest for injection at session start. Empty cwd, a
+// missing shared dir, or no notes all render blank so the caller emits nothing at all.
+func RenderManifest(cwd string) string {
+	if cwd == "" {
+		return ""
+	}
+	sharedDir := SharedDirForCwd(cwd)
+	label := projectLabel(cwd, memroots.RegistryProjects())
+	return renderManifestFrom(label, sharedDir, readHubNotes(sharedDir))
+}
+
 const projectionEnd = "<!-- ARC-MEMORY:END -->"
 
 // applySteeringRegion returns existing with the ARC-MEMORY region set to body (for project label).
@@ -103,10 +140,15 @@ type steeringTarget struct {
 // makes searchable instead of ambient context. Global (home) files only — never repo-tracked files.
 func steeringTargets() []steeringTarget {
 	home := wavebase.GetHomeDir()
-	return []steeringTarget{
-		{runtime: "codex", path: filepath.Join(home, ".codex", "AGENTS.md")},
-		{runtime: "opencode", path: filepath.Join(home, ".config", "opencode", "AGENTS.md")},
+	var out []steeringTarget
+	for _, runtime := range []string{"codex", "opencode"} {
+		spec, ok := harness.Lookup(runtime)
+		if !ok {
+			continue
+		}
+		out = append(out, steeringTarget{runtime: runtime, path: spec.SteeringPath(home)})
 	}
+	return out
 }
 
 // piProjectsDir is the per-project projection store inside pi-memory's directory
@@ -189,16 +231,16 @@ func vaultNotesForProject(cwd, label string) []NoteWithBody {
 	return out
 }
 
-// exportToHub writes the vault notes into hubDir as source: vault notes, skipping claude-source
-// ones (echo rule: don't send claude its own facts back). Deduped by body hash against the hub.
-func exportToHub(hubDir string, notes []NoteWithBody) (int, int, error) {
-	if hubDir == "" {
+// exportToHub writes the vault notes into dir as source: vault notes, skipping claude-source
+// ones (echo rule: don't send claude its own facts back). Deduped by body hash against dir.
+func exportToHub(dir string, notes []NoteWithBody) (int, int, error) {
+	if dir == "" {
 		return 0, 0, nil
 	}
-	if err := os.MkdirAll(hubDir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return 0, 0, err
 	}
-	existing := existingHashes(hubDir)
+	existing := existingHashes(dir)
 	exported, skipped := 0, 0
 	for _, nw := range notes {
 		if nw.Note.Source == "claude" {
@@ -210,7 +252,7 @@ func exportToHub(hubDir string, notes []NoteWithBody) (int, int, error) {
 			skipped++
 			continue
 		}
-		wrote, werr := writeSourcedNote(hubDir, boundedSlug(nw.Note.ID, "note"), nw.Note.Type, nw.Note.Scope, "vault", h, nw.Body)
+		wrote, werr := writeSourcedNote(dir, boundedSlug(nw.Note.ID, "note"), nw.Note.Type, nw.Note.Scope, "vault", h, nw.Note.Description, nw.Body)
 		if werr != nil {
 			return exported, skipped, fmt.Errorf("exporting note: %w", werr)
 		}
@@ -251,6 +293,17 @@ func HubDirForCwd(cwd string) string {
 	return filepath.Join(wavebase.GetHomeDir(), ".claude", "projects", memroots.ProjectHash(cwd), "memory")
 }
 
+// SharedDirForCwd is the vault -> Claude export target: a sibling of the memory hub, deliberately
+// outside ClaudeHubDirs' */memory enumeration. Claude's memory tool authors into the hub and
+// maintains its own MEMORY.md index there; exporting into the same directory made harvest re-ingest
+// our own output and left Arc-written notes unindexed and invisible.
+func SharedDirForCwd(cwd string) string {
+	if cwd == "" {
+		return ""
+	}
+	return filepath.Join(wavebase.GetHomeDir(), ".claude", "projects", memroots.ProjectHash(cwd), "shared")
+}
+
 // Project renders the vault's memory for cwd's project into the steering files + the project hub.
 // This is the public entry point called by the MemoryProjectCommand RPC at agent launch (and the
 // manual button).
@@ -260,9 +313,11 @@ func Project(cwd string) error {
 	}
 	label := projectLabel(cwd, memroots.RegistryProjects())
 	notes := vaultNotesForProject(cwd, label)
-	hubDir := HubDirForCwd(cwd)
-	if _, _, err := exportToHub(hubDir, notes); err != nil {
-		return fmt.Errorf("exporting to hub: %w", err)
+	// self-healing migration: earlier builds exported into the hub itself. Best-effort — a failure to
+	// tidy the old namespace must not stop the projection that supersedes it.
+	_, _, _ = EvictExportedHubNotes(cwd)
+	if _, _, err := exportToHub(SharedDirForCwd(cwd), notes); err != nil {
+		return fmt.Errorf("exporting to shared dir: %w", err)
 	}
 	targets := append(steeringTargets(), piProjectionTarget(label))
 	return projectHubToTargets(label, notes, targets)

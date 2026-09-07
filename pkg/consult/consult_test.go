@@ -5,6 +5,7 @@ package consult
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -289,31 +290,17 @@ func TestSpecForTier_tiersAreDistinct(t *testing.T) {
 	}
 }
 
-func TestSpecForTier_piCheapSelectsFlash(t *testing.T) {
-	spec, ok := SpecForTier("pi", TierCheap)
-	if !ok {
-		t.Fatal("expected pi to resolve")
-	}
-	if !strings.Contains(strings.Join(spec.BaseArgs, " "), "--model "+PiCheapModel) {
-		t.Errorf("cheap tier must select --model %s, got %v", PiCheapModel, spec.BaseArgs)
-	}
-}
-
-func TestSpecForTier_piMidAndCapableSelectPro(t *testing.T) {
-	// adjacency, not substring: a bare --model check would also pass on the cheap tier's flag
-	for _, tier := range []Tier{TierMid, TierCapable} {
+// pi ids are provider-namespaced (provider/model), so there is no bare id a tier could pin that pi
+// can resolve on its own — a bare one is ambiguous across every authenticated provider. Tiered pi
+// calls therefore pass no --model at all and run on pi's own configured default.
+func TestSpecForTier_piNeverPinsAModel(t *testing.T) {
+	for _, tier := range []Tier{TierCheap, TierMid, TierCapable} {
 		spec, ok := SpecForTier("pi", tier)
 		if !ok {
 			t.Fatalf("pi: expected tier %s to resolve", tier)
 		}
-		found := false
-		for i, a := range spec.BaseArgs {
-			if a == "--model" && i+1 < len(spec.BaseArgs) && spec.BaseArgs[i+1] == PiMidModel {
-				found = true
-			}
-		}
-		if !found {
-			t.Errorf("%s tier must select --model %s, got %v", tier, PiMidModel, spec.BaseArgs)
+		if slices.Contains(spec.BaseArgs, "--model") {
+			t.Errorf("%s tier must not pin a model, got %v", tier, spec.BaseArgs)
 		}
 	}
 }
@@ -376,23 +363,6 @@ func TestCorpusModelsArePinnedNotAliases(t *testing.T) {
 		if !strings.HasPrefix(m, "claude-") {
 			t.Errorf("%q does not look like a pinned model id", m)
 		}
-	}
-}
-
-// The pi corpus selection must keep the same escalation threshold as claude's, pinning the
-// deepseek ids (flash under, pro at/over CorpusEscalationBytes). The wiring is the same
-// CorpusModel helper the openrouter path uses, so pinning the ids at the threshold is the test.
-func TestPiCorpusModel_escalatesAtTheThreshold(t *testing.T) {
-	if got := CorpusModel(PiCheapModel, PiMidModel, ""); got != PiCheapModel {
-		t.Errorf("empty corpus: got %q, want %q", got, PiCheapModel)
-	}
-	justUnder := strings.Repeat("x", CorpusEscalationBytes-1)
-	if got := CorpusModel(PiCheapModel, PiMidModel, justUnder); got != PiCheapModel {
-		t.Errorf("corpus one byte under the threshold must not escalate: got %q", got)
-	}
-	atThreshold := strings.Repeat("x", CorpusEscalationBytes)
-	if got := CorpusModel(PiCheapModel, PiMidModel, atThreshold); got != PiMidModel {
-		t.Errorf("corpus at the threshold must escalate: got %q, want %q", got, PiMidModel)
 	}
 }
 

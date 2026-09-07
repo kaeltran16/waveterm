@@ -5,6 +5,8 @@ import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { describe, expect, it } from "vitest";
 import { EFFORT_FIXTURES } from "./briefingfixtures";
 import {
+    buildAttentionQueue,
+    effortListLabel,
     groupDelta,
     mergeActiveWork,
     normalizeBriefingNav,
@@ -172,7 +174,7 @@ describe("briefing projection", () => {
         expect(m.delta[0].title).toBe("old work");
     });
 
-    it("builds the attention banner and removes current attention items from delta", () => {
+    it("removes current attention items from delta rather than showing both", () => {
         const active: ActiveWorkItem[] = [
             {
                 project: "/p/one",
@@ -195,9 +197,8 @@ describe("briefing projection", () => {
         const m = projectBriefing(
             input(workState([{ project: "waveterm", active, shipped: [], events: delta, delta }]))
         );
-        expect(m.attention?.count).toBe(1);
-        expect(m.delta).toHaveLength(0);
-        expect(m.activeRuns).toHaveLength(0); // attention is banner-only, never a row
+        expect(m.delta).toHaveLength(0); // the snapshot's attention item deduped the delta event
+        expect(m.activeRuns).toHaveLength(0); // attention is queue-only, never an active-work row
     });
 
     it("labels unscoped blockers and normalizes their target", () => {
@@ -270,11 +271,15 @@ describe("briefing projection", () => {
         expect(m2.efforts.some((e) => e.title === "effort 0")).toBe(false); // archived excluded
     });
 
-    it("folds blocked chunks into attention lines", () => {
+    it("folds blocked chunks into the queue", () => {
         const state = workState([{ project: "waveterm", active: [], shipped: [], events: [], delta: [] }]);
         state.efforts = EFFORT_FIXTURES;
         const m = projectBriefing(input(state));
-        expect(m.attentionLines).toContain("Scenario gate clearance — chunk blocked · Phase 5");
+        const q = buildAttentionQueue({ attention: [], efforts: m.efforts });
+        const row = q.find((r) => r.title === "Phase 5");
+        expect(row?.kind).toBe("chunk blocked");
+        expect(row?.detail).toBe("Scenario gate clearance");
+        expect(row?.nav).toEqual({ kind: "effort", oref: "effort:scenario-gate" });
     });
 
     it("caps delta rows at 10 and counts the overflow", () => {
@@ -431,5 +436,99 @@ describe("unified active work", () => {
             directAgents: [],
         });
         expect(rows.map((r) => r.oref)).toEqual(["run:a", "run:z"]);
+    });
+});
+
+describe("buildAttentionQueue", () => {
+    const item = (over: Partial<AttentionItem>): AttentionItem => ({
+        kind: "gate",
+        key: "gate:r1",
+        channelid: "ch-1",
+        channelname: "waveterm",
+        runid: "r1",
+        source: "ship the ledger",
+        text: "Approve before Jarvis proceeds.",
+        action: "Review",
+        phaseidx: 2,
+        waitingsince: T0 - HOUR,
+        ...over,
+    });
+
+    it("keeps the server's priority order rather than re-sorting on age", () => {
+        const q = buildAttentionQueue({
+            attention: [
+                item({ key: "gate:r1", kind: "gate", waitingsince: T0 - HOUR }),
+                item({ key: "ask:w1", kind: "ask", waitingsince: T0 - DAY }),
+            ],
+            efforts: [],
+        });
+        expect(q.map((r) => r.key)).toEqual(["gate:r1", "ask:w1"]);
+    });
+
+    it("writes a label for every kind the server can emit", () => {
+        const kinds = ["gate", "escalation", "ask", "dag-gate", "dag-blocked"];
+        const q = buildAttentionQueue({
+            attention: kinds.map((k, i) => item({ kind: k, key: k + i })),
+            efforts: [],
+        });
+        expect(q.map((r) => r.kind)).toEqual(["gate", "escalation", "ask", "dag gate", "dag blocked"]);
+    });
+
+    it("gives a dag-blocked row the error tone and the rest the asking tone", () => {
+        const q = buildAttentionQueue({
+            attention: [item({ kind: "dag-blocked", key: "d1" }), item({ kind: "ask", key: "a1" })],
+            efforts: [],
+        });
+        expect(q.map((r) => r.tone)).toEqual(["error", "asking"]);
+    });
+
+    it("drops the action and nav on a standalone item with no channel to land on", () => {
+        const q = buildAttentionQueue({
+            attention: [item({ channelid: "", channelname: "", runid: "" })],
+            efforts: [],
+        });
+        expect(q[0]!.action).toBeNull();
+        expect(q[0]!.nav).toBeNull();
+        expect(q[0]!.detail).toBe("ship the ledger"); // no "#channel" suffix to append
+    });
+
+    it("targets the run when the item names one, else the channel", () => {
+        const q = buildAttentionQueue({
+            attention: [item({ key: "with-run" }), item({ key: "no-run", runid: "" })],
+            efforts: [],
+        });
+        expect(q[0]!.nav).toEqual({ kind: "channel", channelId: "ch-1", runId: "r1" });
+        expect(q[1]!.nav).toEqual({ kind: "channel", channelId: "ch-1", runId: null });
+    });
+
+    it("carries the channel into the detail line and the age from waiting-since", () => {
+        const q = buildAttentionQueue({ attention: [item({})], efforts: [] });
+        expect(q[0]!.title).toBe("Approve before Jarvis proceeds.");
+        expect(q[0]!.detail).toBe("ship the ledger · #waveterm");
+        expect(q[0]!.ts).toBe(T0 - HOUR);
+    });
+
+    it("puts blocked chunks after the wire rows and leaves them ageless", () => {
+        const efforts = projectBriefing(
+            input({
+                projects: [{ project: "waveterm", active: [], shipped: [], events: [], delta: [] }],
+                efforts: EFFORT_FIXTURES,
+                sources: { runs: true, sessions: true, dossiers: true, efforts: true, attention: "volatile" },
+            })
+        ).efforts;
+        const q = buildAttentionQueue({ attention: [item({})], efforts });
+        expect(q.map((r) => r.kind)).toEqual(["gate", "chunk blocked"]);
+        expect(q[1]!.ts).toBeNull();
+    });
+});
+
+describe("effortListLabel", () => {
+    it("names the overflow when the briefing caps the list", () => {
+        expect(effortListLabel(3)).toBe("+3 more");
+    });
+
+    it("still offers a route to the full list when nothing overflows", () => {
+        // the archived group lives only on that list, so the link cannot be conditional on overflow
+        expect(effortListLabel(0)).toBe("All initiatives");
     });
 });

@@ -12,6 +12,7 @@ type MemoryCommands interface {
 	MemoryCreateCommand(ctx context.Context, data CommandMemoryCreateData) (*CommandMemoryCreateRtnData, error)
 	MemoryDeleteCommand(ctx context.Context, data CommandMemoryDeleteData) error
 	MemoryProjectCommand(ctx context.Context, data CommandMemoryProjectData) error
+	MemoryProjectManifestCommand(ctx context.Context, data CommandMemoryProjectData) (string, error)
 	MemoryProjectionStatusCommand(ctx context.Context) (*CommandMemoryProjectionStatusRtnData, error)
 	MemoryHarvestCommand(ctx context.Context, data CommandMemoryHarvestData) (*CommandMemoryHarvestRtnData, error)
 	MemoryLearnCommand(ctx context.Context, data CommandMemoryLearnData) (*CommandMemoryLearnRtnData, error)

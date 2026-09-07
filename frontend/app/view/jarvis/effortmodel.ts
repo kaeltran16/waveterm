@@ -87,3 +87,56 @@ export function effortDeltaRow(ev: { kind: string; title: string; detail?: strin
     if (!EFFORT_DELTA_KINDS.has(ev.kind)) return null;
     return { title: ev.title, meta: ev.detail ?? "" };
 }
+
+// The collapsed card's one-to-three informative lines, replacing the chip cloud: what is moving and
+// what is stuck. Chips showed every chunk's tone and said nothing about which one matters; these say
+// it in words. A card with neither an active nor a blocked chunk states that rather than rendering
+// nothing, so a stalled initiative is visibly stalled.
+export const STATUS_LINE_CAP = 3;
+export type EffortStatusLine = { mark: string; tone: ChunkTone; text: string; reading: string };
+
+export function effortStatusLines(card: EffortCardModel): EffortStatusLine[] {
+    const lines: EffortStatusLine[] = [];
+    if (card.activeChunk != null && card.activeChunk !== "") {
+        lines.push({ mark: "▶", tone: "active", text: card.activeChunk, reading: "active" });
+    }
+    // "in your queue" is a claim about the briefing above, and it holds: buildAttentionQueue folds
+    // every blocked chunk into that queue from the same blockedChunks list.
+    for (const label of card.blockedChunks) {
+        lines.push({ mark: "!", tone: "blocked", text: label, reading: "in your queue" });
+    }
+    if (lines.length === 0) {
+        return [{ mark: "⏸", tone: "deferred", text: "no chunk active", reading: card.countLine }];
+    }
+    if (lines.length > STATUS_LINE_CAP) {
+        const hidden = lines.length - (STATUS_LINE_CAP - 1);
+        return [
+            ...lines.slice(0, STATUS_LINE_CAP - 1),
+            { mark: "!", tone: "blocked", text: `+${hidden} more blocked`, reading: "in your queue" },
+        ];
+    }
+    return lines;
+}
+
+// the square that leads the collapsed header: blocked beats done beats moving, so the colour reads
+// as "does this need me" rather than "how far along is it" — the count and bar already say that.
+export function effortTone(card: EffortCardModel): "blocked" | "done" | "active" {
+    if (card.blockedChunks.length > 0) {
+        return "blocked";
+    }
+    return card.status === "done" ? "done" : "active";
+}
+
+// The efforts list splits archived rows into their own group so "show archived" is a render toggle
+// rather than a second fetch shape. Wire order is already newest-updated first; both groups keep it.
+export function partitionEfforts(efforts: EffortSummary[]): {
+    active: EffortCardModel[];
+    archived: EffortCardModel[];
+} {
+    const active: EffortCardModel[] = [];
+    const archived: EffortCardModel[] = [];
+    for (const e of efforts) {
+        (e.status === "archived" ? archived : active).push(buildEffortCard(e));
+    }
+    return { active, archived };
+}

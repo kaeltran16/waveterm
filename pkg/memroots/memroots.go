@@ -1,7 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// Package memroots is the single registry of durable-knowledge locations: the Wave Vault root, its
+// Package memroots is the single registry of Wave Vault locations: the Wave Vault root, its
 // memory collection (the one write target), and the project-label/scope derivation both scanners
 // share. Leaf package — pkg/memvault and pkg/wavevault both import it, neither imports the other.
 package memroots
@@ -29,6 +29,8 @@ const (
 	vaultSubpath  = ".waveterm/vault"
 	legacySubpath = ".waveterm/memory"
 	memoryColl    = "memory"
+	steeringColl  = "steering"
+	skillsColl    = "skills"
 )
 
 // VaultRoot resolves the Wave Vault root from config + home. memory:vaultpath is the single SoT
@@ -48,6 +50,24 @@ func VaultRoot() string {
 // MemoryRoot is the vault's memory collection — the single write target for durable notes.
 func MemoryRoot() string {
 	return filepath.Join(VaultRoot(), memoryColl)
+}
+
+func steeringDocIn(vaultRoot string) string {
+	return filepath.Join(vaultRoot, steeringColl, "AGENTS.md")
+}
+
+func skillsRootIn(vaultRoot string) string {
+	return filepath.Join(vaultRoot, skillsColl)
+}
+
+// SteeringDocPath is the canonical steering document, projected into every harness's steering file.
+func SteeringDocPath() string {
+	return steeringDocIn(VaultRoot())
+}
+
+// SkillsRoot is the canonical skills collection; each subdirectory is one skill tree.
+func SkillsRoot() string {
+	return skillsRootIn(VaultRoot())
 }
 
 // LegacyRoot is the pre-unification memory root that MigrateLegacyRoot retires.

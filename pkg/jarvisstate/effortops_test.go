@@ -266,3 +266,58 @@ func TestApplyOpsDetachWorkAbsentIsNoOp(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestApplyOpsUnarchiveRestoresPriorStatus(t *testing.T) {
+	e := mkEffort()
+	ops := []wshrpc.EffortOp{{Op: "setStatus", Status: "done"}, {Op: "setStatus", Status: "archived"}}
+	if err := ApplyEffortOps(e, ops, "", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "unarchive"}}, "", now); err != nil {
+		t.Fatal(err)
+	}
+	if e.Status != "done" {
+		t.Fatalf("status: %q, want done", e.Status)
+	}
+}
+
+func TestApplyOpsUnarchiveDefaultsToActive(t *testing.T) {
+	e := mkEffort()
+	if err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "setStatus", Status: "archived"}}, "", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "unarchive"}}, "", now); err != nil {
+		t.Fatal(err)
+	}
+	if e.Status != "active" {
+		t.Fatalf("status: %q, want active", e.Status)
+	}
+}
+
+func TestApplyOpsUnarchiveRefusesUnarchived(t *testing.T) {
+	e := mkEffort()
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "unarchive"}}, "", now)
+	expectErrCode(t, err, "EC-NOT-ARCHIVED")
+}
+
+func TestApplyOpsUnarchiveSurvivesRepeatCycles(t *testing.T) {
+	// paused -> archived -> unarchive -> archived -> unarchive must still land on paused: the second
+	// cycle's own restore event must not be read as the status the archive replaced.
+	e := mkEffort()
+	for _, s := range []string{"paused", "archived"} {
+		if err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "setStatus", Status: s}}, "", now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < 2; i++ {
+		if err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "unarchive"}}, "", now); err != nil {
+			t.Fatal(err)
+		}
+		if e.Status != "paused" {
+			t.Fatalf("cycle %d status: %q, want paused", i, e.Status)
+		}
+		if err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "setStatus", Status: "archived"}}, "", now); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

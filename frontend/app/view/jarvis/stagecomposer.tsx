@@ -201,7 +201,11 @@ function BriefingAsk({
                 <span className="flex-none rounded-[6px] border border-accent/40 bg-accentbg px-2 py-[3px] font-mono text-[10px] font-semibold text-accent-soft">
                     Answering…
                 </span>
-            ) : null}
+            ) : (
+                // the answer renders up in the briefing body, not here — say so, because a composer
+                // that swallows its own reply otherwise reads as having done nothing.
+                <span className="flex-none font-mono text-[9.5px] text-muted">answers land on this page</span>
+            )}
         </div>
     );
 }
@@ -216,7 +220,6 @@ export function StageComposer({
     run,
     recordId,
     recordObjective,
-    profile,
     route,
 }: {
     model: AgentsViewModel;
@@ -228,7 +231,6 @@ export function StageComposer({
     run: Run | undefined;
     recordId: string | null;
     recordObjective: string;
-    profile: JarvisProfile | undefined;
     route?: RoutePin;
 }) {
     // one draft store keyed by subject, serving all three faces: on a channel the key *is* the channel oid.
@@ -249,28 +251,20 @@ export function StageComposer({
     const [harnessOpenRequest, setHarnessOpenRequest] = useState(0);
     const [routeOpenRequest, setRouteOpenRequest] = useState(0);
     const [launchError, setLaunchError] = useState("");
-    const [shape, setShape] = useState<RunShape>(profile?.defaultmode === "orchestrator" ? "orchestrator" : "pipeline");
+    const [shape, setShape] = useState<RunShape>("quick");
     const [runRoute, setRunRoute] = useState<RoutePin | null>(route ?? pref.route);
     const [workerRoute, setWorkerRoute] = useState<RoutePin | null>(null);
     const [orchestration, setOrchestration] = useState<Orchestration>("engine");
-    const shapeTouched = useRef(false);
     const routeTouched = useRef(false);
     const channelIdentity = channel?.oid ?? null;
 
     useEffect(() => {
-        shapeTouched.current = false;
         routeTouched.current = false;
-        setShape("pipeline");
+        setShape("quick");
         setRunRoute(null);
         setWorkerRoute(null);
         setOrchestration("engine");
     }, [channelIdentity]);
-
-    useEffect(() => {
-        if (!shapeTouched.current && profile != null) {
-            setShape(profile.defaultmode === "orchestrator" ? "orchestrator" : "pipeline");
-        }
-    }, [channelIdentity, profile?.defaultmode]);
 
     useEffect(() => {
         if (!routeTouched.current && (route != null || pref.route != null)) {
@@ -423,10 +417,11 @@ export function StageComposer({
             try {
                 const created = await createRun(decision.channelId, decision.goal, decision.route, {
                     mode: decision.mode,
-                    ...(shape === "orchestrator" ? { orchestration } : {}),
-                    ...(shape === "orchestrator" && orchestration === "engine" && workerRoute ? { workerRoute } : {}),
+                    ...(decision.mode === "orchestrator" ? { orchestration } : {}),
+                    ...(decision.mode === "orchestrator" && orchestration === "engine" && workerRoute ? { workerRoute } : {}),
                 });
                 setActiveRunId(decision.channelId, created.id);
+                setShape("quick");
                 setDraft("");
                 attach.clear();
                 setComposingRun(decision.channelId, false);
@@ -558,15 +553,11 @@ export function StageComposer({
                                         : setDraft
                                 }
                                 onSubmit={sendOnChannel}
-                                profile={profile}
                                 channelName={channel.name ?? "channel"}
                                 pending={radarDraft != null}
                                 attach={attach}
                                 shape={shape}
-                                onShapeChange={(next) => {
-                                    shapeTouched.current = true;
-                                    setShape(next);
-                                }}
+                                onShapeChange={setShape}
                                 route={runRoute}
                                 onRouteChange={(next) => {
                                     routeTouched.current = true;

@@ -67,11 +67,15 @@ var effortCreateCmd = &cobra.Command{
 }
 
 var effortListCmd = &cobra.Command{
-	Use:     "list",
-	Short:   "list non-archived efforts (oid, title, done/total, active chunk)",
+	Use:     "list [--archived]",
+	Short:   "list efforts (oid, title, status, done/total, active chunk); archived are hidden unless asked for",
 	PreRunE: preRunSetupRpcClient,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		rtn, err := wshclient.EffortListCommand(RpcClient, wshrpc.CommandEffortListData{Project: mustFlagString(cmd, "project")}, nil)
+		archived, _ := cmd.Flags().GetBool("archived")
+		rtn, err := wshclient.EffortListCommand(RpcClient, wshrpc.CommandEffortListData{
+			Project:         mustFlagString(cmd, "project"),
+			IncludeArchived: archived,
+		}, nil)
 		if err != nil {
 			return err
 		}
@@ -79,7 +83,7 @@ var effortListCmd = &cobra.Command{
 			return jsonOut(rtn)
 		}
 		for _, s := range rtn.Efforts {
-			fmt.Printf("%s\t%s\t%d/%d\t%s\n", s.ORef, s.Title, s.Done, s.Total, s.ActiveChunk)
+			fmt.Printf("%s\t%s\t%s\t%d/%d\t%s\n", s.ORef, s.Title, s.Status, s.Done, s.Total, s.ActiveChunk)
 		}
 		return nil
 	},
@@ -147,6 +151,16 @@ var effortStatusCmd = &cobra.Command{
 	PreRunE: preRunSetupRpcClient,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return mutateOne(args[0], wshrpc.EffortOp{Op: "setStatus", Status: args[1]}, isJSON(cmd))
+	},
+}
+
+var effortUnarchiveCmd = &cobra.Command{
+	Use:     "unarchive <effort>",
+	Short:   "restore an archived effort to the status it held when it was archived",
+	Args:    cobra.ExactArgs(1),
+	PreRunE: preRunSetupRpcClient,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return mutateOne(args[0], wshrpc.EffortOp{Op: "unarchive"}, isJSON(cmd))
 	},
 }
 
@@ -411,6 +425,7 @@ func init() {
 	effortCreateCmd.Flags().String("parent", "", "parent effort oid")
 	effortCreateCmd.Flags().Bool("json", false, "JSON output")
 	effortListCmd.Flags().String("project", "", "filter by project")
+	effortListCmd.Flags().Bool("archived", false, "include archived efforts")
 	effortListCmd.Flags().Bool("json", false, "JSON output")
 	effortShowCmd.Flags().Bool("json", false, "JSON output")
 	effortLinkCmd.Flags().String("parent", "", "parent effort oid")
@@ -427,7 +442,7 @@ func init() {
 	effortChunkDetachCmd.Flags().String("agent", "", "agent tab id")
 
 	effortCmd.AddCommand(effortCreateCmd, effortListCmd, effortShowCmd, effortRenameCmd,
-		effortProjectCmd, effortTicketCmd, effortStatusCmd, effortLinkCmd, effortUnlinkCmd,
+		effortProjectCmd, effortTicketCmd, effortStatusCmd, effortUnarchiveCmd, effortLinkCmd, effortUnlinkCmd,
 		effortDeleteCmd, effortAdvanceCmd, effortReopenCmd, effortChunkCmd)
 	effortChunkCmd.AddCommand(effortChunkAddCmd, effortChunkRenameCmd, effortChunkMoveCmd,
 		effortChunkRemoveCmd, effortChunkStatusCmd, effortChunkNoteCmd, effortChunkOwnerCmd,

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { MOTION } from "@/app/element/motiontokens";
+import { ModalShell } from "@/app/modals/modalshell";
 import { getSettingsKeyAtom } from "@/app/store/global";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
@@ -9,7 +10,7 @@ import { cn, fireAndForget } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
 import { ChevronRight, Folder } from "lucide-react";
 import { motion, MotionConfig, useReducedMotion } from "motion/react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { AgentsViewModel, SurfaceKey } from "./agents";
 import {
     coerceFontSize,
@@ -27,7 +28,11 @@ import { RUNTIME_FLAGS, type Runtime } from "./launch";
 import { naFlagsAtom, naRememberFlagsAtom } from "./naflagsstore";
 import { ITEMS } from "./navrail";
 import { railVisibleAtom } from "./railstore";
-import { SETTINGS_SECTION_EMBEDDINGS, takePendingSettingsSection } from "./settingsstore";
+import {
+    SETTINGS_SECTION_EMBEDDINGS,
+    SETTINGS_SECTION_HARNESS_SYNC,
+    takePendingSettingsSection,
+} from "./settingsstore";
 import { SurfaceHeader } from "./surfacescaffold";
 import { ACCENT_SWATCHES, activePalette, colorOf, THEMES, type OverrideRole } from "./themes";
 import { themeOverridesAtom, themePresetAtom } from "./themestore";
@@ -86,6 +91,8 @@ export function SettingsSurface(_props: { model: AgentsViewModel }) {
                     <TerminalSection />
                     <SectionGap />
                     <MemorySection />
+                    <SectionGap />
+                    <HarnessSyncSection />
                     <SectionGap />
                     <div id={SETTINGS_SECTION_EMBEDDINGS}>
                         <EmbeddingsSection />
@@ -680,6 +687,164 @@ function MemorySection() {
                 </button>
             </div>
             {error ? <div className="mt-2 text-[12px] text-error">{error}</div> : null}
+        </div>
+    );
+}
+
+type HarnessSyncRow = AgentSyncHarness;
+
+// Steering state -> the token that carries it. Chips never hardcode a color: a raw hex opts out of
+// every runtime theme.
+const STEERING_TONE: Record<string, string> = {
+    current: "text-success",
+    stale: "text-warning",
+    absent: "text-muted",
+};
+
+function HarnessSyncSection() {
+    const [rows, setRows] = useState<HarnessSyncRow[]>([]);
+    const [steeringDoc, setSteeringDoc] = useState("");
+    const [content, setContent] = useState("");
+    const [baseMtime, setBaseMtime] = useState(0);
+    const [editing, setEditing] = useState(false);
+    const [draft, setDraft] = useState("");
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const preview = content.split("\n").slice(0, 3).join("\n");
+
+    const refresh = useCallback(() => {
+        void RpcApi.AgentSyncStatusCommand(TabRpcClient)
+            .then((r) => {
+                setRows(r.harnesses ?? []);
+                setSteeringDoc(r.steeringdoc ?? "");
+            })
+            .catch((e) => setError(String(e)));
+        void RpcApi.AgentSyncSteeringReadCommand(TabRpcClient)
+            .then((r) => {
+                setContent(r.content ?? "");
+                setBaseMtime(r.mtime ?? 0);
+            })
+            .catch(() => setContent(""));
+    }, []);
+
+    useEffect(refresh, [refresh]);
+
+    const openEditor = () => {
+        setDraft(content);
+        setError(null);
+        setEditing(true);
+    };
+
+    // save, then project immediately: an edit the harnesses have not received yet is the stale state
+    // this whole feature exists to remove.
+    const saveEditor = () => {
+        setBusy(true);
+        fireAndForget(async () => {
+            try {
+                const res = await RpcApi.AgentSyncSteeringWriteCommand(TabRpcClient, {
+                    content: draft,
+                    basemtime: baseMtime,
+                });
+                if (res.conflict) {
+                    setError("The canonical doc changed on disk. Reopen the editor to pick up the new version.");
+                    refresh();
+                    return;
+                }
+                await RpcApi.AgentSyncApplyCommand(TabRpcClient, { dryrun: false });
+                setEditing(false);
+                refresh();
+            } catch (e) {
+                setError(String(e));
+            } finally {
+                setBusy(false);
+            }
+        });
+    };
+
+    const syncNow = () => {
+        setBusy(true);
+        setError(null);
+        fireAndForget(async () => {
+            try {
+                await RpcApi.AgentSyncApplyCommand(TabRpcClient, { dryrun: false });
+                refresh();
+            } catch (e) {
+                setError(String(e));
+            } finally {
+                setBusy(false);
+            }
+        });
+    };
+
+    return (
+        <div id={SETTINGS_SECTION_HARNESS_SYNC}>
+            <SectionLabel>Harness sync</SectionLabel>
+            <div className="flex items-start justify-between gap-5">
+                <div className="min-w-0 flex-1">
+                    <div className="text-[14px] font-semibold text-primary">Canonical steering</div>
+                    <div className="mb-3 mt-0.5 text-[12.5px] text-muted">
+                        Projected into every harness&apos;s steering file.{" "}
+                        <span className="font-mono text-[12px]">{steeringDoc}</span>
+                    </div>
+                </div>
+                <button
+                    type="button"
+                    onClick={openEditor}
+                    className="shrink-0 rounded-[9px] border border-edge-mid bg-surface-raised px-[18px] py-2 text-[13px] font-semibold text-secondary transition-colors hover:border-edge-strong"
+                >
+                    Edit
+                </button>
+            </div>
+            {preview ? (
+                <pre className="mb-4 overflow-x-auto whitespace-pre-wrap rounded-[9px] border border-edge-faint bg-surface-raised p-3 font-mono text-[12px] text-secondary">
+                    {preview}
+                </pre>
+            ) : null}
+            <div className="mb-4">
+                {rows.map((h) => (
+                    <div
+                        key={h.runtime}
+                        data-harness-sync-row={h.runtime}
+                        className="flex items-center justify-between gap-5 border-t border-edge-faint py-2.5 first:border-t-0"
+                    >
+                        <div className="min-w-0 flex-1 text-[13.5px] font-semibold text-primary">{h.label}</div>
+                        {h.present ? (
+                            <div className="flex flex-none items-center gap-5 font-mono text-[12px]">
+                                <span className={STEERING_TONE[h.steering] ?? "text-muted"}>steering {h.steering}</span>
+                                <span className="text-muted">
+                                    {h.note ? h.note : `${h.skillslinked} linked`}
+                                    {h.skillsconflict > 0 ? ` · ${h.skillsconflict} conflict` : ""}
+                                </span>
+                            </div>
+                        ) : (
+                            <div className="flex-none font-mono text-[12px] text-muted">not present</div>
+                        )}
+                    </div>
+                ))}
+            </div>
+            <div className="flex justify-end">
+                <SaveButton label={busy ? "Syncing…" : "Sync now"} onClick={syncNow} disabled={busy} />
+            </div>
+            {error ? <div className="mt-2 text-[12px] text-error">{error}</div> : null}
+            <ModalShell open={editing} onClose={() => setEditing(false)} className="w-[720px] max-w-[92vw] p-5">
+                <div className="mb-3 text-[14px] font-semibold text-primary">Canonical steering</div>
+                <textarea
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    spellCheck={false}
+                    className="h-[52vh] w-full resize-none rounded-[9px] border border-edge-mid bg-surface-raised p-3 font-mono text-[12.5px] text-primary outline-none focus:border-accent-700"
+                />
+                <div className="mt-3 flex justify-end gap-2.5">
+                    <button
+                        type="button"
+                        onClick={() => setEditing(false)}
+                        className="rounded-[9px] border border-edge-mid bg-surface-raised px-[18px] py-2 text-[13px] font-semibold text-secondary transition-colors hover:border-edge-strong"
+                    >
+                        Cancel
+                    </button>
+                    <SaveButton label={busy ? "Saving…" : "Save and sync"} onClick={saveEditor} disabled={busy} />
+                </div>
+            </ModalShell>
         </div>
     );
 }
