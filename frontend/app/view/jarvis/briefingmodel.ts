@@ -66,10 +66,6 @@ export interface ShippedRow {
     completedTs: number;
     fresh: boolean;
 }
-export interface AttentionSummary {
-    count: number;
-}
-
 // one recency-sorted list across runs, blockers and direct agents; the kind badge tells the
 // story the old per-leg sub-headers told, so the section reads as one triage queue.
 export type ActiveWorkKind = "run" | "blocker" | "agent";
@@ -108,6 +104,75 @@ export function groupDelta(delta: DeltaRow[], nowTs: number): DeltaGroup[] {
         groups.find((g) => g.label === label)!.rows.push(row);
     }
     return groups.filter((g) => g.rows.length > 0);
+}
+
+// The needs-you queue: one actionable row per waiting thing, replacing the single count banner that
+// only ever opened the rail. Rows come from the live attention poll (attentionstore), not the
+// snapshot, so an ask raised after the snapshot still appears; the snapshot's own attention items
+// stay the delta-dedup key and nothing else.
+export type QueueTone = "asking" | "error";
+export type QueueNav = { kind: "channel"; channelId: string; runId: string | null } | { kind: "effort"; oref: string };
+export interface QueueRow {
+    key: string;
+    kind: string;
+    title: string;
+    detail: string;
+    ts: number | null;
+    action: string | null;
+    nav: QueueNav | null;
+    tone: QueueTone;
+}
+
+// dag-gate/dag-blocked are absent from the rail's map and fell through to the raw wire kind, which
+// already reads as a label; spelled out here so every kind the server can emit has a written form.
+const QUEUE_KIND_LABEL: Record<string, string> = {
+    gate: "gate",
+    escalation: "escalation",
+    ask: "ask",
+    "dag-gate": "dag gate",
+    "dag-blocked": "dag blocked",
+};
+
+export function buildAttentionQueue(input: { attention: AttentionItem[]; efforts: EffortCardModel[] }): QueueRow[] {
+    // wire order is the priority claim (gates, then escalations, then asks; oldest first inside a
+    // kind — pkg/jarvis/attention.go), so this preserves it rather than re-sorting on age.
+    const rows: QueueRow[] = (input.attention ?? []).map((a) => {
+        const channelId = a.channelid ?? "";
+        return {
+            key: a.key,
+            kind: QUEUE_KIND_LABEL[a.kind] ?? a.kind,
+            title: a.text,
+            detail: [a.source, channelId !== "" && a.channelname ? "#" + a.channelname : null]
+                .filter((s) => s != null && s !== "")
+                .join(" · "),
+            ts: a.waitingsince > 0 ? a.waitingsince : null,
+            // a standalone item names no channel, so there is no run body to land on; it renders as
+            // static info rather than a button that would navigate nowhere (NeedsRow's rule, kept).
+            action: channelId !== "" ? a.action : null,
+            nav:
+                channelId !== ""
+                    ? { kind: "channel", channelId, runId: a.runid != null && a.runid !== "" ? a.runid : null }
+                    : null,
+            tone: a.kind === "dag-blocked" ? "error" : "asking",
+        };
+    });
+    // a blocked chunk is attention the server's attention leg never sees; it has no waiting-since to
+    // interleave on, so it follows the wire rows rather than competing with them for priority.
+    for (const e of input.efforts) {
+        for (const label of e.blockedChunks) {
+            rows.push({
+                key: "chunk:" + e.oref + ":" + label,
+                kind: "chunk blocked",
+                title: label,
+                detail: e.title,
+                ts: null,
+                action: "Open",
+                nav: { kind: "effort", oref: e.oref },
+                tone: "asking",
+            });
+        }
+    }
+    return rows;
 }
 
 // needing-eyes first (blocked run / blocker / asking agent), recency within tier, identity last.
@@ -172,8 +237,6 @@ export interface SourceHealthSummary {
     attentionState: string;
 }
 export interface BriefingModel {
-    attention: AttentionSummary | null;
-    attentionLines: string[];
     activeRuns: RunRow[];
     blockers: BlockerRow[];
     directAgents: AgentRow[];
@@ -238,8 +301,9 @@ export function projectBriefing(input: BriefingModelInput): BriefingModel {
     const { state, agents, actualCursor, queryStartedAt } = input;
     const projects = state.projects ?? [];
 
+    // the snapshot's attention items are the delta-dedup key and nothing else — the rendered queue
+    // reads the live poll (buildAttentionQueue), so these are never projected into a row.
     const attentionItems = projects.flatMap((p) => p.active ?? []).filter((a) => a.kind === "attention");
-    const attention = attentionItems.length > 0 ? { count: attentionItems.length } : null;
 
     // active runs + blocked records
     const runItems = projects.flatMap((p) => p.active ?? []).filter((a) => a.kind === "run");
@@ -359,14 +423,7 @@ export function projectBriefing(input: BriefingModelInput): BriefingModel {
     const cappedShipped = shipped.slice(0, SHIPPED_CAP);
     const over = (n: number, cap: number) => Math.max(0, n - cap);
 
-    // a blocked chunk is attention: the banner must surface it even without a live attention item.
-    const attentionLines = effortCards.flatMap((card) =>
-        card.blockedChunks.map((label) => `${card.title} — chunk blocked · ${label}`)
-    );
-
     return {
-        attention,
-        attentionLines,
         activeRuns: cappedRuns,
         blockers: cappedBlockers,
         directAgents: cappedAgents,

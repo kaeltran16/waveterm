@@ -201,7 +201,11 @@ function BriefingAsk({
                 <span className="flex-none rounded-[6px] border border-accent/40 bg-accentbg px-2 py-[3px] font-mono text-[10px] font-semibold text-accent-soft">
                     Answering…
                 </span>
-            ) : null}
+            ) : (
+                // the answer renders up in the briefing body, not here — say so, because a composer
+                // that swallows its own reply otherwise reads as having done nothing.
+                <span className="flex-none font-mono text-[9.5px] text-muted">answers land on this page</span>
+            )}
         </div>
     );
 }

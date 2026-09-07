@@ -1,14 +1,18 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The effort card: a whole-card button that expands in place into the inline chunk tracker.
-// Resting state: title, tags, progress, tone chips, copy handle. Expanded: chunk rows with
-// marks/trails, advance / + chunk / note actions, reopen on done rows, chip-click scroll+highlight.
+// The effort card. Collapsed: a single header line (tone square, title, meta, count, bar) over one to
+// three status lines saying what is moving and what is stuck. Expanded: the inline chunk tracker with
+// marks/trails, advance / + chunk / note actions, reopen on done rows, and the CLI handle.
+//
+// The toggle is a button INSIDE the card, not a button wrapping it: the expanded body has buttons of
+// its own, and nesting those inside an outer button is invalid and cost a stopPropagation call on
+// every one of them.
 
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { useEffect, useRef, useState } from "react";
-import { CHUNK_CHIP_CLASSES, type ChunkChip, type ChunkTone, type EffortCardModel } from "./effortmodel";
+import { useState } from "react";
+import { CHUNK_CHIP_CLASSES, effortStatusLines, effortTone, type ChunkTone, type EffortCardModel } from "./effortmodel";
 import {
     addChunkOp,
     advanceChunk,
@@ -29,42 +33,6 @@ const MARKS: Record<ChunkTone, string | null> = {
     skipped: "–",
     pending: null,
 };
-
-function Tag({ children }: { children: React.ReactNode }) {
-    return (
-        <span className="flex-none rounded-full bg-surface-raised px-[6px] py-[1px] font-mono text-[9.5px] text-muted">
-            {children}
-        </span>
-    );
-}
-
-function Chip({ chip, onClick }: { chip: ChunkChip; onClick: () => void }) {
-    const mark = MARKS[chip.tone];
-    return (
-        <span
-            role="button"
-            tabIndex={0}
-            title={chip.label}
-            onClick={(e) => {
-                e.stopPropagation();
-                onClick();
-            }}
-            onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                    e.stopPropagation();
-                    onClick();
-                }
-            }}
-            className={cn(
-                "inline-flex cursor-pointer items-center gap-[3px] rounded-full border border-border px-[7px] py-[1px] font-mono text-[9.5px]",
-                CHUNK_CHIP_CLASSES[chip.tone]
-            )}
-        >
-            {mark != null ? <span className="text-xxxs leading-none">{mark}</span> : null}
-            {chip.label}
-        </span>
-    );
-}
 
 // the per-tone square that leads a chunk row; the active/blocked glows mark the states that need eyes.
 export function Mark({ tone }: { tone: ChunkTone }) {
@@ -92,57 +60,63 @@ export function Mark({ tone }: { tone: ChunkTone }) {
     );
 }
 
+const TONE_FILL: Record<"blocked" | "done" | "active", string> = {
+    blocked: "bg-asking",
+    done: "bg-success",
+    active: "bg-accent",
+};
+
+const LINE_FG: Record<ChunkTone, string> = {
+    done: "text-success",
+    active: "text-accent-soft",
+    blocked: "text-asking",
+    deferred: "text-muted",
+    skipped: "text-ink-faint",
+    pending: "text-muted",
+};
+
 const fmtDay = (ts: number): string => {
     const d = new Date(ts);
     return `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
 
+// a small bordered action, the shape every secondary control in the expanded footer takes.
+function FooterButton({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
+    return (
+        <button
+            type="button"
+            onClick={onClick}
+            className="cursor-pointer rounded-[6px] border border-border bg-surface-raised px-2.5 py-1 text-[11px] font-semibold text-secondary hover:border-edge-strong hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+            {children}
+        </button>
+    );
+}
+
 export function EffortCard({
     model,
     expanded,
     onToggle,
-    onChipClick,
     onOpenDetail,
 }: {
     model: EffortCardModel;
     expanded: boolean;
     onToggle: () => void;
-    onChipClick?: (label: string) => void;
     onOpenDetail?: () => void;
 }) {
     const oid = model.oref.replace(/^effort:/, "");
     const effort = useAtomValue(effortDetailAtom).get(model.oref);
     const detailError = useAtomValue(effortDetailErrorAtom).get(model.oref);
-    const [highlighted, setHighlighted] = useState<string | null>(null);
     const [addingChunk, setAddingChunk] = useState(false);
     const [noting, setNoting] = useState(false);
     const [chunkDraft, setChunkDraft] = useState("");
     const [noteDraft, setNoteDraft] = useState("");
     const [mutateError, setMutateError] = useState<string | null>(null);
-    const clearTimer = useRef<number | null>(null);
 
     const rows = effort != null ? effortChunkRows(effort) : [];
-
-    // a chip click may arrive while collapsed: the highlight lands once the expanded rows mount.
-    useEffect(() => {
-        if (!expanded || highlighted == null) {
-            return;
-        }
-        const idx = rows.findIndex((r) => r.label === highlighted);
-        if (idx < 0) {
-            return;
-        }
-        document.getElementById(`chunk-${model.oref}-${idx}`)?.scrollIntoView({ block: "nearest" });
-        if (clearTimer.current != null) {
-            window.clearTimeout(clearTimer.current);
-        }
-        clearTimer.current = window.setTimeout(() => setHighlighted(null), 1200);
-        return () => {
-            if (clearTimer.current != null) {
-                window.clearTimeout(clearTimer.current);
-            }
-        };
-    }, [expanded, highlighted, rows, model.oref]);
+    const lines = effortStatusLines(model);
+    const meta = [model.ticket, model.project, model.parentoid != null ? "parent" : null].filter(Boolean).join(" · ");
+    const progress = `${model.done}/${model.done + model.remaining}`;
 
     // one error surface for every mutate path; never silently swallow.
     const runMutation = async (fn: () => Promise<void>): Promise<void> => {
@@ -173,183 +147,119 @@ export function EffortCard({
         void runMutation(() => appendChunkNote(model.oref, model.activeChunk ?? null, text));
     };
 
-    const handleChipClick = (label: string): void => {
-        setHighlighted(label);
-        onChipClick?.(label);
-    };
-
     return (
-        <button
-            type="button"
-            onClick={onToggle}
-            aria-expanded={expanded}
-            className="cursor-pointer rounded-[10px] border border-border bg-surface px-[13px] py-[11px] text-left transition-colors duration-[140ms] hover:bg-surface-hover"
-        >
-            <span className="flex items-baseline gap-2">
-                <span className="truncate text-[13px] font-semibold text-primary">{model.title}</span>
-                {model.ticket != null && <Tag>{model.ticket}</Tag>}
-                {model.project != null && <Tag>{model.project}</Tag>}
-                {model.parentoid != null && <Tag>parent</Tag>}
-                <span className="ml-auto flex flex-none items-center gap-2">
-                    <span
-                        role="button"
-                        tabIndex={0}
-                        title="copy the CLI handle"
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            void navigator.clipboard.writeText("wsh effort show " + oid);
-                        }}
-                        onKeyDown={(e) => {
-                            if (e.key === "Enter" || e.key === " ") {
-                                e.stopPropagation();
-                                void navigator.clipboard.writeText("wsh effort show " + oid);
-                            }
-                        }}
-                        className="cursor-pointer rounded-full border border-dotted border-accent/40 px-[7px] py-[1px] font-mono text-[9.5px] text-accent-soft hover:border-accent/70"
-                    >
-                        wsh effort show {oid}
-                    </span>
-                    <span className="font-mono text-[10px] text-muted">
-                        {expanded ? (
+        <div className="rounded-[10px] border border-border bg-surface px-[13px] py-[11px]">
+            <button
+                type="button"
+                onClick={onToggle}
+                aria-expanded={expanded}
+                aria-label={(expanded ? "Collapse " : "Expand ") + model.title}
+                className="-mx-1.5 flex w-[calc(100%+0.75rem)] cursor-pointer items-center gap-2.5 rounded-[8px] px-1.5 py-1 text-left transition-colors duration-[140ms] hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+                <span className="w-[11px] flex-none font-mono text-[9.5px] text-muted">{expanded ? "▾" : "▸"}</span>
+                <span className={cn("h-[7px] w-[7px] flex-none rounded-[2px]", TONE_FILL[effortTone(model)])} />
+                <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-primary">{model.title}</span>
+                {meta !== "" ? <span className="flex-none font-mono text-[9.5px] text-muted">{meta}</span> : null}
+                <span className="flex-none font-mono text-[9.5px] text-muted">{progress}</span>
+                <ProgressBar pct={model.progressPct} className="w-[72px] flex-none" />
+            </button>
+
+            {expanded ? null : (
+                <div className="mt-2 flex flex-col gap-0.5">
+                    {lines.map((l) => (
+                        <div key={l.mark + l.text} className="flex min-w-0 items-center gap-2.5 pl-[21px]">
                             <span
-                                role="button"
-                                tabIndex={0}
-                                title="open the full record"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    onOpenDetail?.();
-                                }}
-                                onKeyDown={(e) => {
-                                    if (e.key === "Enter" || e.key === " ") {
-                                        e.stopPropagation();
-                                        onOpenDetail?.();
-                                    }
-                                }}
-                                className="cursor-pointer text-accent-soft hover:underline"
+                                className={cn(
+                                    "w-3 flex-none text-center font-mono text-[9.5px] font-bold",
+                                    LINE_FG[l.tone]
+                                )}
                             >
-                                details →
+                                {l.mark}
                             </span>
-                        ) : (
-                            model.countLine
-                        )}
-                    </span>
-                </span>
-            </span>
-            <ProgressBar pct={model.progressPct} className="mt-2" />
-            <span className="mt-2 flex flex-wrap gap-1">
-                {model.chips.map((c) => (
-                    <Chip key={c.label} chip={c} onClick={() => handleChipClick(c.label)} />
-                ))}
-                {model.chipOverflow > 0 && (
-                    <span className="inline-flex items-center rounded-full border border-dotted border-accent/40 px-[7px] py-[1px] font-mono text-[9.5px] text-accent-soft">
-                        +{model.chipOverflow}
-                    </span>
-                )}
-            </span>
+                            <span className="min-w-0 flex-1 truncate text-[12.5px] text-secondary">{l.text}</span>
+                            <span className="flex-none font-mono text-[9.5px] text-muted">{l.reading}</span>
+                        </div>
+                    ))}
+                </div>
+            )}
+
             {expanded ? (
-                <>
+                <div className="ml-4 mt-2 flex flex-col border-l border-border pl-3">
                     {effort == null ? (
                         detailError != null ? (
-                            <span className="mt-2 flex items-center gap-2 text-[11px] text-error">
+                            <span className="flex items-center gap-2 text-[11px] text-error">
                                 {detailError}
-                                <button
-                                    type="button"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        void loadEffortDetail(model.oref);
-                                    }}
-                                    className="cursor-pointer rounded-[4px] border border-border px-1.5 py-[1px] font-mono text-[9px] text-secondary hover:text-primary"
-                                >
-                                    retry
-                                </button>
+                                <FooterButton onClick={() => void loadEffortDetail(model.oref)}>retry</FooterButton>
                             </span>
                         ) : (
-                            <div className="mt-2 h-10 animate-pulse motion-reduce:animate-none rounded-[8px] bg-surface" />
+                            <div className="h-10 animate-pulse motion-reduce:animate-none rounded-[8px] bg-surface-raised" />
                         )
                     ) : (
                         <>
-                            <div className="mt-2 flex flex-col">
-                                {rows.map((r, i) => (
-                                    <div
-                                        key={r.label}
-                                        id={`chunk-${model.oref}-${i}`}
-                                        className={cn(
-                                            "group flex items-center gap-2.5 rounded-[7px] px-2 py-[5px]",
-                                            i > 0 && "border-t border-edge-faint",
-                                            highlighted === r.label && "bg-surface-selected"
-                                        )}
-                                        title={
-                                            r.trail.length > 0
-                                                ? r.trail.map((n) => `${fmtDay(n.ts)} ${n.text}`).join("\n")
-                                                : undefined
-                                        }
-                                    >
-                                        <Mark tone={r.tone} />
-                                        <span className="min-w-0 flex-1 truncate text-[12px] text-primary">
-                                            {r.label}
-                                        </span>
-                                        {r.latestNote != null && (
-                                            <span className="max-w-[30%] truncate text-right font-mono text-[10px] text-muted">
-                                                {r.latestNote}
-                                            </span>
-                                        )}
-                                        <span
-                                            className={cn(
-                                                "flex-none rounded-[4px] px-[5px] py-[1px] font-mono text-[9px] font-semibold uppercase",
-                                                CHUNK_CHIP_CLASSES[r.tone]
-                                            )}
-                                        >
-                                            {r.status}
-                                        </span>
-                                        {r.status === "done" && (
-                                            <button
-                                                type="button"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    void runMutation(() => reopenChunk(model.oref, r.label));
-                                                }}
-                                                className="hidden cursor-pointer rounded-[4px] border border-border px-1.5 py-[1px] font-mono text-[9px] text-muted group-hover:block hover:text-primary"
-                                            >
-                                                reopen
-                                            </button>
-                                        )}
-                                    </div>
-                                ))}
-                            </div>
-                            <div className="mt-2 flex flex-wrap items-center gap-2">
-                                <button
-                                    type="button"
-                                    disabled={model.activeChunk == null}
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        void runMutation(() => advanceChunk(model.oref));
-                                    }}
-                                    className="cursor-pointer rounded-[7px] bg-accent px-3 py-[5px] text-[11px] font-semibold text-background hover:bg-accenthover disabled:cursor-default disabled:opacity-40"
+                            {rows.map((r) => (
+                                <div
+                                    key={r.label}
+                                    className="group flex min-h-[30px] items-center gap-2.5 rounded-[7px] px-1.5 py-[2px] transition-colors duration-[140ms] hover:bg-surface-hover"
+                                    title={
+                                        r.trail.length > 0
+                                            ? r.trail.map((n) => `${fmtDay(n.ts)} ${n.text}`).join("\n")
+                                            : undefined
+                                    }
                                 >
-                                    Mark active chunk done
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
+                                    <Mark tone={r.tone} />
+                                    <span className="min-w-0 flex-1 truncate text-[12.5px] text-secondary">
+                                        {r.label}
+                                    </span>
+                                    {r.latestNote != null && (
+                                        <span className="max-w-[30%] truncate text-right font-mono text-[9.5px] text-muted">
+                                            {r.latestNote}
+                                        </span>
+                                    )}
+                                    <span
+                                        className={cn(
+                                            "flex-none rounded-[4px] px-1.5 py-[2px] font-mono text-[9.5px] font-semibold uppercase",
+                                            CHUNK_CHIP_CLASSES[r.tone]
+                                        )}
+                                    >
+                                        {r.status}
+                                    </span>
+                                    {r.status === "active" && (
+                                        <button
+                                            type="button"
+                                            onClick={() => void runMutation(() => advanceChunk(model.oref))}
+                                            className="flex-none cursor-pointer rounded-[6px] border border-accent/40 bg-surface-raised px-2.5 py-[3px] text-[11px] font-semibold text-accent-soft hover:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                                        >
+                                            Mark done
+                                        </button>
+                                    )}
+                                    {r.status === "done" && (
+                                        <button
+                                            type="button"
+                                            onClick={() => void runMutation(() => reopenChunk(model.oref, r.label))}
+                                            className="hidden flex-none cursor-pointer rounded-[6px] border border-border px-2 py-[3px] font-mono text-[9.5px] text-muted group-hover:block hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                                        >
+                                            reopen
+                                        </button>
+                                    )}
+                                </div>
+                            ))}
+                            <div className="flex flex-wrap items-center gap-2 px-1.5 pb-0.5 pt-[7px]">
+                                <FooterButton
+                                    onClick={() => {
                                         setAddingChunk(true);
                                         setNoting(false);
                                     }}
-                                    className="cursor-pointer rounded-[6px] border border-border px-2 py-[3px] text-[10px] text-secondary hover:border-accent hover:text-primary"
                                 >
                                     + chunk
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
+                                </FooterButton>
+                                <FooterButton
+                                    onClick={() => {
                                         setNoting(true);
                                         setAddingChunk(false);
                                     }}
-                                    className="cursor-pointer rounded-[6px] border border-border px-2 py-[3px] text-[10px] text-secondary hover:border-accent hover:text-primary"
                                 >
-                                    note
-                                </button>
+                                    Note
+                                </FooterButton>
                                 {addingChunk ? (
                                     <input
                                         autoFocus
@@ -390,15 +300,33 @@ export function EffortCard({
                                         className="w-64 rounded-[7px] border border-edge-mid bg-background px-2 py-1 text-[12px] text-primary outline-none focus:border-accent/60"
                                     />
                                 ) : null}
-                                <span className="ml-auto font-mono text-[9.5px] text-ink-faint">
-                                    hover a row for its trail · reopen on done rows
-                                </span>
+                                <button
+                                    type="button"
+                                    title="copy the CLI handle"
+                                    onClick={() => void navigator.clipboard.writeText("wsh effort show " + oid)}
+                                    className="cursor-pointer font-mono text-[9.5px] text-muted hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                                >
+                                    wsh effort show {oid}
+                                </button>
+                                <span className="flex-1" />
+                                {onOpenDetail != null ? (
+                                    <button
+                                        type="button"
+                                        onClick={onOpenDetail}
+                                        className="cursor-pointer font-mono text-[9.5px] font-semibold text-accent-soft hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                                    >
+                                        full record →
+                                    </button>
+                                ) : null}
                             </div>
+                            <span className="px-1.5 font-mono text-[9.5px] text-ink-faint">
+                                hover a row for its trail · reopen on done rows
+                            </span>
                         </>
                     )}
-                </>
+                </div>
             ) : null}
             {mutateError != null ? <span className="mt-2 block text-[11px] text-error">{mutateError}</span> : null}
-        </button>
+        </div>
     );
 }
