@@ -1,5 +1,59 @@
 import { describe, expect, it } from "vitest";
-import { displayAgeMs, sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, answerHint, hasAnswerableAsk, isQuiet, isRecentlyIdle, isAskStale, mergeOrder, nextAskId, askSentKey, usageLevel, formatTokens, formatReset, providerPlanUsage, liveWindowAgents, latestMessageText, recentActions, moveCursor, cycleId, groupTimeline, summarizeActions, detailExceedsInline, detailLineCount, aggregateEditBurst, isEditAction, partitionBackgrounded, focusedAskId, toggleSelection, liveProjectsForLaunch, taskProgress, mergePendingLaunches, pendingToVM, streamableTranscriptAgents, applyAgentOrder, deriveTerminalVMs, isNearBottom, STICK_THRESHOLD_PX, burstRenderMode, type AgentVM, type AgentState, type CardTask, type LiveAgentInput, type AgentAskQuestion, type AgentEntry, type AgentActionEntry, type PendingLaunch, conversationText } from "./agentsviewmodel";
+import {
+    agentVMFromInput,
+    aggregateEditBurst,
+    answerHint,
+    applyAgentOrder,
+    askingCount,
+    askSentKey,
+    buildAskAnswers,
+    burstRenderMode,
+    canSubmitAsk,
+    conversationText,
+    cycleId,
+    deriveTerminalVMs,
+    detailExceedsInline,
+    detailLineCount,
+    displayAgeMs,
+    focusedAskId,
+    formatAge,
+    formatReset,
+    formatTokens,
+    groupAgents,
+    groupTimeline,
+    hasAnswerableAsk,
+    isAskStale,
+    isEditAction,
+    isNearBottom,
+    isQuiet,
+    isRecentlyIdle,
+    latestMessageText,
+    liveProjectsForLaunch,
+    liveWindowAgents,
+    mergeOrder,
+    mergePendingLaunches,
+    moveCursor,
+    nextAskId,
+    partitionBackgrounded,
+    pendingToVM,
+    providerPlanUsage,
+    recentActions,
+    sortAgents,
+    STICK_THRESHOLD_PX,
+    streamableTranscriptAgents,
+    summarizeActions,
+    taskProgress,
+    toggleSelection,
+    usageLevel,
+    withAsk,
+    type AgentActionEntry,
+    type AgentAskQuestion,
+    type AgentEntry,
+    type AgentVM,
+    type CardTask,
+    type LiveAgentInput,
+    type PendingLaunch,
+} from "./agentsviewmodel";
 
 const mk = (id: string, state: AgentVM["state"], extra: Partial<AgentVM> = {}): AgentVM => ({
     id,
@@ -107,7 +161,12 @@ describe("askingCount", () => {
 
 describe("groupAgents", () => {
     it("splits into asking/working/idle, each sorted", () => {
-        const s = groupAgents([mk("a", "idle"), mk("b", "asking", { blockedMs: 1_000 }), mk("c", "working"), mk("d", "asking", { blockedMs: 9_000 })]);
+        const s = groupAgents([
+            mk("a", "idle"),
+            mk("b", "asking", { blockedMs: 1_000 }),
+            mk("c", "working"),
+            mk("d", "asking", { blockedMs: 9_000 }),
+        ]);
         expect(s.asking.map((a) => a.id)).toEqual(["d", "b"]);
         expect(s.working.map((a) => a.id)).toEqual(["c"]);
         expect(s.idle.map((a) => a.id)).toEqual(["a"]);
@@ -181,7 +240,13 @@ describe("agentVMFromInput", () => {
     });
 
     it("maps a waiting row to working, not asking (asking comes only from agent:ask via withAsk)", () => {
-        const input: LiveAgentInput = { id: "tab-2", name: "loom", status: "waiting", model: "claude-opus-4-8", ts: NOW - 240_000 };
+        const input: LiveAgentInput = {
+            id: "tab-2",
+            name: "loom",
+            status: "waiting",
+            model: "claude-opus-4-8",
+            ts: NOW - 240_000,
+        };
         const vm = agentVMFromInput(input, NOW);
         expect(vm.state).toBe("working");
         expect(vm.activeMs).toBe(240_000);
@@ -195,7 +260,10 @@ describe("agentVMFromInput", () => {
     });
 
     it("maps anything else to idle, with no age field, and tolerates a missing ts", () => {
-        const vm = agentVMFromInput({ id: "tab-3", name: "obsidian", status: "idle", detail: "stopped without asking" }, NOW);
+        const vm = agentVMFromInput(
+            { id: "tab-3", name: "obsidian", status: "idle", detail: "stopped without asking" },
+            NOW
+        );
         expect(vm.state).toBe("idle");
         expect(vm.activeMs).toBeUndefined();
         expect(vm.blockedMs).toBeUndefined();
@@ -215,7 +283,10 @@ describe("agentVMFromInput", () => {
     });
 
     it("carries the launch project name through to the vm (so grouping uses it, not the lossy transcript-path derivation)", () => {
-        const vm = agentVMFromInput({ id: "tab-w", name: "waveterm", status: "working", project: "waveterm", ts: NOW }, NOW);
+        const vm = agentVMFromInput(
+            { id: "tab-w", name: "waveterm", status: "working", project: "waveterm", ts: NOW },
+            NOW
+        );
         expect(vm.project).toBe("waveterm");
     });
 });
@@ -275,7 +346,10 @@ describe("withAsk", () => {
         expect(vm.ask?.questions[0].header).toBe("Safety");
         // multiselect (lowercase Go json tag) maps to multiSelect (camelCase)
         expect(vm.ask?.questions[0].multiSelect).toBe(false);
-        expect(vm.ask?.questions[0].options).toEqual([{ label: "Yes", description: undefined }, { label: "No", description: "risky" }]);
+        expect(vm.ask?.questions[0].options).toEqual([
+            { label: "Yes", description: undefined },
+            { label: "No", description: "risky" },
+        ]);
     });
 
     it("carries an empty questions array when questions is absent", () => {
@@ -302,10 +376,7 @@ describe("buildAskAnswers", () => {
     it("emits one answer item per question, indexes sorted ascending", () => {
         const questions = [q(false), q(true)];
         const selections = { 0: new Set([1]), 1: new Set([2, 0]) };
-        expect(buildAskAnswers(questions, selections)).toEqual([
-            { selectedindexes: [1] },
-            { selectedindexes: [0, 2] },
-        ]);
+        expect(buildAskAnswers(questions, selections)).toEqual([{ selectedindexes: [1] }, { selectedindexes: [0, 2] }]);
     });
 
     it("emits empty indexes for an unanswered question", () => {
@@ -341,7 +412,9 @@ describe("canSubmitAsk", () => {
 
 describe("hasAnswerableAsk", () => {
     it("true when the ask carries at least one question", () => {
-        expect(hasAnswerableAsk(mk("a", "asking", { ask: { questions: [{ question: "q", options: [{ label: "a" }] }] } }))).toBe(true);
+        expect(
+            hasAnswerableAsk(mk("a", "asking", { ask: { questions: [{ question: "q", options: [{ label: "a" }] }] } }))
+        ).toBe(true);
     });
     it("false for an asking agent with no structured ask (plain-text question)", () => {
         expect(hasAnswerableAsk(mk("a", "asking"))).toBe(false);
@@ -574,7 +647,12 @@ describe("providerPlanUsage", () => {
 
 describe("providerPlanUsage (no dedup)", () => {
     const mk = (id: string, agent: string, five: number): AgentVM => ({
-        id, name: id, task: "", state: "working", agent, usage: { fivehourpct: five },
+        id,
+        name: id,
+        task: "",
+        state: "working",
+        agent,
+        usage: { fivehourpct: five },
     });
     it("returns a row per agent with rate data (does not collapse same-provider agents)", () => {
         const rows = providerPlanUsage([mk("a", "claude", 10), mk("b", "claude", 20), mk("c", "codex", 30)]);
@@ -750,7 +828,13 @@ describe("groupTimeline command/compaction", () => {
         ];
         const items = groupTimeline(entries);
         expect(items.map((i) => i.kind)).toEqual(["action", "notification", "interrupted"]);
-        expect(items[1]).toEqual({ kind: "notification", summary: "worker finished", status: "completed", result: "report body", index: 1 });
+        expect(items[1]).toEqual({
+            kind: "notification",
+            summary: "worker finished",
+            status: "completed",
+            result: "report body",
+            index: 1,
+        });
         expect(items[2]).toEqual({ kind: "interrupted", index: 2 });
     });
 });
@@ -856,7 +940,13 @@ describe("taskProgress", () => {
 
 describe("pendingToVM", () => {
     it("maps a pending launch to a booting working VM with age from now-ts", () => {
-        const p: PendingLaunch = { tabId: "t1", blockId: "b1", name: "payments-api", project: "payments-api", ts: 1000 };
+        const p: PendingLaunch = {
+            tabId: "t1",
+            blockId: "b1",
+            name: "payments-api",
+            project: "payments-api",
+            ts: 1000,
+        };
         expect(pendingToVM(p, 5000)).toMatchObject({
             id: "t1",
             name: "payments-api",
@@ -904,7 +994,14 @@ describe("deriveTerminalVMs", () => {
         const rows: Row[] = [{ tabId: "t1", label: "SIEM", termBlockOref: "block:b1" }];
         const out = deriveTerminalVMs(rows, none);
         expect(out).toHaveLength(1);
-        expect(out[0]).toMatchObject({ id: "t1", name: "SIEM", blockId: "b1", kind: "terminal", agent: "terminal", state: "idle" });
+        expect(out[0]).toMatchObject({
+            id: "t1",
+            name: "SIEM",
+            blockId: "b1",
+            kind: "terminal",
+            agent: "terminal",
+            state: "idle",
+        });
     });
 
     it("skips rows that have an agent status (those are real agents)", () => {
@@ -1036,9 +1133,7 @@ describe("buildAskAnswers prose", () => {
     });
 
     it("lets typed text win over a chip", () => {
-        expect(buildAskAnswers([q()], { 0: new Set([1]) }, { 0: "  custom  " }, true)).toEqual([
-            { text: "custom" },
-        ]);
+        expect(buildAskAnswers([q()], { 0: new Set([1]) }, { 0: "  custom  " }, true)).toEqual([{ text: "custom" }]);
     });
 
     it("emits empty text for an unanswered prose question", () => {
