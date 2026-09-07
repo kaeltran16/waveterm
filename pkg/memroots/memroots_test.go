@@ -152,3 +152,15 @@ func TestMigrateVaultRootSwitch(t *testing.T) {
 	}
 }
 
+func TestVaultCollectionsAreSiblings(t *testing.T) {
+	root := filepath.Join("/home/u", ".waveterm", "vault")
+	if got, want := steeringDocIn(root), filepath.Join(root, "steering", "AGENTS.md"); got != want {
+		t.Errorf("steeringDocIn = %q, want %q", got, want)
+	}
+	if got, want := skillsRootIn(root), filepath.Join(root, "skills"); got != want {
+		t.Errorf("skillsRootIn = %q, want %q", got, want)
+	}
+	if skillsRootIn(root) == filepath.Join(root, memoryColl) {
+		t.Error("skills collection must not alias the memory collection")
+	}
+}

@@ -13,6 +13,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 )
@@ -30,13 +31,47 @@ type Spec struct {
 	Label            string
 	ConsultCapable   bool
 	RunWorkerCapable bool
+	// SteeringRel is the home-relative path of the harness's home-level steering file.
+	SteeringRel []string
+	// SkillsRel is the home-relative path of the harness's skills directory. nil when the harness
+	// has no fixed one: pi reads an explicit list of paths from its settings instead.
+	SkillsRel []string
 }
 
 var specs = []Spec{
-	{Runtime: "pi", Bin: "pi", Label: "Pi", ConsultCapable: true, RunWorkerCapable: true},
-	{Runtime: "claude", Bin: "claude", Label: "Claude Code", ConsultCapable: true, RunWorkerCapable: true},
-	{Runtime: "codex", Bin: "codex", Label: "Codex", ConsultCapable: true, RunWorkerCapable: true},
-	{Runtime: "opencode", Bin: "opencode", Label: "OpenCode", ConsultCapable: true, RunWorkerCapable: true},
+	{Runtime: "pi", Bin: "pi", Label: "Pi", ConsultCapable: true, RunWorkerCapable: true,
+		SteeringRel: []string{".pi", "agent", "AGENTS.md"}},
+	{Runtime: "claude", Bin: "claude", Label: "Claude Code", ConsultCapable: true, RunWorkerCapable: true,
+		SteeringRel: []string{".claude", "CLAUDE.md"}, SkillsRel: []string{".claude", "skills"}},
+	{Runtime: "codex", Bin: "codex", Label: "Codex", ConsultCapable: true, RunWorkerCapable: true,
+		SteeringRel: []string{".codex", "AGENTS.md"}, SkillsRel: []string{".codex", "skills"}},
+	{Runtime: "opencode", Bin: "opencode", Label: "OpenCode", ConsultCapable: true, RunWorkerCapable: true,
+		SteeringRel: []string{".config", "opencode", "AGENTS.md"}, SkillsRel: []string{".config", "opencode", "skills"}},
+}
+
+// SteeringPath is the harness's home-level steering file under home.
+func (s Spec) SteeringPath(home string) string {
+	if len(s.SteeringRel) == 0 {
+		return ""
+	}
+	return filepath.Join(append([]string{home}, s.SteeringRel...)...)
+}
+
+// SkillsPath is the harness's skills directory under home, or "" when it scans no fixed directory.
+func (s Spec) SkillsPath(home string) string {
+	if len(s.SkillsRel) == 0 {
+		return ""
+	}
+	return filepath.Join(append([]string{home}, s.SkillsRel...)...)
+}
+
+// ConfigRoot must already exist for a harness to be synced; Arc never creates one, so a harness the
+// user has never run is skipped rather than provisioned.
+func (s Spec) ConfigRoot(home string) string {
+	if len(s.SteeringRel) == 0 {
+		return ""
+	}
+	return filepath.Dir(s.SteeringPath(home))
 }
 
 func List() []Spec {

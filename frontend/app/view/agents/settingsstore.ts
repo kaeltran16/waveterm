@@ -11,6 +11,7 @@ import { atom, type PrimitiveAtom } from "jotai";
 // The dom id of the section, which is also the value carried through the atom — one string, so the
 // scroll target and the request cannot disagree.
 export const SETTINGS_SECTION_EMBEDDINGS = "settings-embeddings";
+export const SETTINGS_SECTION_HARNESS_SYNC = "settings-harness-sync";
 
 export const pendingSettingsSectionAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 

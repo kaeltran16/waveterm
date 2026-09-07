@@ -36,6 +36,36 @@ export class RpcApiType {
         return client.wshRpcCall("agentaskclear", data, opts);
     }
 
+    // command "agentsyncadopt" [call]
+    AgentSyncAdoptCommand(client: WshClient, data: CommandAgentSyncAdoptData, opts?: RpcOpts): Promise<CommandAgentSyncAdoptRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "agentsyncadopt", data, opts);
+        return client.wshRpcCall("agentsyncadopt", data, opts);
+    }
+
+    // command "agentsyncapply" [call]
+    AgentSyncApplyCommand(client: WshClient, data: CommandAgentSyncApplyData, opts?: RpcOpts): Promise<CommandAgentSyncApplyRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "agentsyncapply", data, opts);
+        return client.wshRpcCall("agentsyncapply", data, opts);
+    }
+
+    // command "agentsyncstatus" [call]
+    AgentSyncStatusCommand(client: WshClient, opts?: RpcOpts): Promise<CommandAgentSyncStatusRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "agentsyncstatus", null, opts);
+        return client.wshRpcCall("agentsyncstatus", null, opts);
+    }
+
+    // command "agentsyncsteeringread" [call]
+    AgentSyncSteeringReadCommand(client: WshClient, opts?: RpcOpts): Promise<CommandAgentSyncSteeringReadRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "agentsyncsteeringread", null, opts);
+        return client.wshRpcCall("agentsyncsteeringread", null, opts);
+    }
+
+    // command "agentsyncsteeringwrite" [call]
+    AgentSyncSteeringWriteCommand(client: WshClient, data: CommandAgentSyncSteeringWriteData, opts?: RpcOpts): Promise<CommandAgentSyncSteeringWriteRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "agentsyncsteeringwrite", data, opts);
+        return client.wshRpcCall("agentsyncsteeringwrite", data, opts);
+    }
+
     // command "answeragent" [call]
     AnswerAgentCommand(client: WshClient, data: CommandAnswerAgentData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "answeragent", data, opts);

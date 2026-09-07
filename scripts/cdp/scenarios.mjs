@@ -5086,7 +5086,44 @@ const routePickerFlat = {
     },
 };
 
+// --- harness config sync ------------------------------------------------------------------------
+// The Settings section renders one row per catalog harness, driven by AgentSyncStatusCommand. This
+// asserts the RPC reaches the surface at all; the reconciler's own behavior is unit-tested in Go.
+const harnessSync = {
+    name: "harness-sync",
+    surface: "settings",
+    async arrange() {
+        return {};
+    },
+    async assert(h) {
+        const steps = [];
+        await h.goto("settings");
+        await h.ev(
+            `(() => { document.getElementById("settings-harness-sync")?.scrollIntoView({ block: "start" }); return true; })()`
+        );
+        await h.ev("new Promise((r) => setTimeout(r, 400))");
+        const rows = await h.ev(
+            `(() => [...document.querySelectorAll('[data-harness-sync-row]')].map((n) => n.getAttribute('data-harness-sync-row')))()`
+        );
+        steps.push({
+            step: "settings -> harness sync section lists every catalog harness",
+            ok: Array.isArray(rows) && ["pi", "claude", "codex", "opencode"].every((r) => rows.includes(r)),
+            detail: `rows=${JSON.stringify(rows)}`,
+        });
+        const status = await h.rpc("agentsyncstatus", null);
+        steps.push({
+            step: "AgentSyncStatusCommand returns a row per harness",
+            ok: !!status && Array.isArray(status.harnesses) && status.harnesses.length === 4,
+            detail: JSON.stringify(status && status.harnesses ? status.harnesses.map((x) => x.runtime) : status),
+        });
+        await h.shot("cdp-shots/harness-sync.png");
+        return steps;
+    },
+    async teardown() {},
+};
+
 export const SCENARIOS = [
+    harnessSync,
     runsLifecycle,
     terminalTheme,
     tuiLeader,    tuiFullscreen,

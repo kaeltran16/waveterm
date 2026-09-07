@@ -97,6 +97,9 @@ export async function launchAgent(model: AgentsViewModel, opts: LaunchAgentOpts)
             }
         })();
     }
+    // steering and skills are launch-time too, for every runtime: a harness must never start against
+    // a stale region. fire-and-forget — a sync failure must not block the launch.
+    void RpcApi.AgentSyncApplyCommand(TabRpcClient, { dryrun: false }).catch(() => {});
     const agentPanel = runtimeCreatesAgentPanel(opts.runtime);
     await RpcApi.SetMetaCommand(TabRpcClient, {
         oref: WOS.makeORef("tab", tabId),

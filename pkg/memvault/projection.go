@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wavetermdev/waveterm/pkg/harness"
 	"github.com/wavetermdev/waveterm/pkg/memroots"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 )
@@ -103,10 +104,15 @@ type steeringTarget struct {
 // makes searchable instead of ambient context. Global (home) files only — never repo-tracked files.
 func steeringTargets() []steeringTarget {
 	home := wavebase.GetHomeDir()
-	return []steeringTarget{
-		{runtime: "codex", path: filepath.Join(home, ".codex", "AGENTS.md")},
-		{runtime: "opencode", path: filepath.Join(home, ".config", "opencode", "AGENTS.md")},
+	var out []steeringTarget
+	for _, runtime := range []string{"codex", "opencode"} {
+		spec, ok := harness.Lookup(runtime)
+		if !ok {
+			continue
+		}
+		out = append(out, steeringTarget{runtime: runtime, path: spec.SteeringPath(home)})
 	}
+	return out
 }
 
 // piProjectsDir is the per-project projection store inside pi-memory's directory
