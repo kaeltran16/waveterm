@@ -42,6 +42,34 @@ describe("rankPaths", () => {
         const ranked = rankPaths("m", ["z/m.ts", "a/m.ts"], 10);
         expect(ranked[0].path).toBe("a/m.ts");
     });
+
+    it("prefers the file itself over its test sibling on an exact basename stem", () => {
+        const paths = ["frontend/app/view/code/codefinder.test.ts", "frontend/app/view/code/codefinder.ts"];
+        expect(rankPaths("codefinder", paths, 10)[0].path).toBe("frontend/app/view/code/codefinder.ts");
+    });
+
+    it("prefers a basename that starts with the query over one that merely contains it", () => {
+        const paths = ["docs/2026-09-04-code-surface-scan.md", "frontend/app/view/code/codestore.ts"];
+        expect(rankPaths("code", paths, 10)[0].path).toBe("frontend/app/view/code/codestore.ts");
+    });
+
+    it("ands space-separated terms instead of matching the space literally", () => {
+        const paths = ["frontend/app/view/agents/usagestats.ts", "pkg/other/nothing.go"];
+        expect(rankPaths("usage stats", paths, 10).map((m) => m.path)).toEqual([
+            "frontend/app/view/agents/usagestats.ts",
+        ]);
+    });
+
+    it("lets space-separated terms match in any order across the path", () => {
+        const paths = ["pkg/wshrpc/wshserver/wshserver_git.go"];
+        expect(rankPaths("git wshserver", paths, 10).map((m) => m.path)).toEqual([
+            "pkg/wshrpc/wshserver/wshserver_git.go",
+        ]);
+    });
+
+    it("drops a path that matches only some of the terms", () => {
+        expect(rankPaths("code missing", ["frontend/app/view/code/codestore.ts"], 10)).toEqual([]);
+    });
 });
 
 describe("parseFinderQuery", () => {

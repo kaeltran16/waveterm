@@ -188,6 +188,9 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
             keys: "Ctrl:n",
             group: "Global",
             label: "New agent",
+            // yields to an open modal: unguarded it stacked New Agent on top of whatever was already
+            // open (the Code file finder, the palette) and pulled focus out of it
+            when: (ctx) => !ctx.modalOpen,
             run: () => globalStore.set(model.newAgentOpenAtom, true),
         },
         {
