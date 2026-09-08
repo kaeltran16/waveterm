@@ -9,6 +9,7 @@ import {
     dagModalAgentsContextAtom,
     dagModalStateAtom,
     openDagLive,
+    openDagTask,
     reduceDagModalState,
     setDagModalAgentsContext,
     type DagModalState,
@@ -53,6 +54,16 @@ describe("dag modal atom actions", () => {
         closeDagModal();
         expect(globalStore.get(selectedTaskIdAtom)).toBeNull();
         expect(globalStore.get(dagModalStateAtom)).toBeNull();
+    });
+
+    // The attention queue's "take me to it": landing on an unfocused graph the reader then has to
+    // search through is not navigation.
+    it("opens the live DAG with the queue's task already selected", () => {
+        globalStore.set(selectedTaskIdAtom, "t-old");
+        openDagTask("channel-1", "run-1", "dag:dag-1", "t-7");
+        expect(globalStore.get(dagModalStateAtom)).toMatchObject({ kind: "live", runId: "run-1" });
+        expect(globalStore.get(selectedTaskIdAtom)).toBe("t-7");
+        closeDagModal();
     });
 
     it("carries the agents context for worker navigation without touching selection", () => {

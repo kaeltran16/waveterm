@@ -1,7 +1,7 @@
 # Jarvis orchestrator reliability review
 
-Status: reliability findings 1-4 fixed and verified (2026-09-08); visibility findings 5-9 confirmed real at
-source but not implemented. Tracked as Wave effort `ade867bd` (project `waveterm`).
+Status: all nine findings fixed and verified (2026-09-08). Tracked as Wave effort `ade867bd` (project
+`waveterm`).
 
 ## Verification boundary
 
@@ -82,6 +82,8 @@ Findings 1-4 were implemented 2026-09-08, test-first, each regression test watch
 
 These are source-level observations and proposals, not a live visual audit. Frontend tests were not run for this visibility review. The current implementation already provides a health strip, next-step summary, worker activity, attention queue, and lifecycle timeline; improve these existing surfaces rather than introducing another dashboard or competing state store.
 
+All five were implemented 2026-09-08, test-first, in those existing surfaces. No new dashboard, no second state store, and no new backend field: the digest already carried every id, action set and blocking-task list they needed. The pure decisions live in `attentionqueue.ts`, `recoverysummary.ts` and `dagdigest.ts` with tests beside them; `dagoverview.tsx` renders them.
+
 ### 5. Make the attention queue actionable
 
 **Source:** `frontend/app/view/orchestrate/dagoverview.tsx` (`Queue`, `TaskRowSignal`).
@@ -89,6 +91,8 @@ These are source-level observations and proposals, not a live visual audit. Fron
 Queue entries are informational text, while human-action names appear as badges. Make each entry open the relevant task, question, or review. Identify whether the next action belongs to the human, lead, or worker, using authoritative state rather than inferred responsibility.
 
 **Verification:** each actionable exception navigates to the correct context; keyboard access works; unavailable actions are not presented as executable.
+
+**Fixed.** Membership is unchanged; the entry is now data (`attentionqueue.ts`) carrying the task's own label, the condition, the digest's `HumanActions` verbatim, and where the action happens. Rows are buttons: asks and failures open the worker (the answer and the transcript are there), merge and cleanup exceptions open the task in the graph through a new `openDagTask`, and a task with no child run never routes to a worker. A row the digest attributes no action to carries no action badge - responsibility is only ever read from the digest, never inferred. An ask no longer replaces the task label, which used to cost the reader the identity of the task being asked about. Tests: `attentionqueue.test.ts`, `dagmodalstate.test.ts`.
 
 ### 6. Explain the specific blocker
 
@@ -100,6 +104,8 @@ Distinguish work still executing from completed work awaiting integration. Reuse
 
 **Verification:** dependency, parallelism, gate, merge, and cleanup waits describe their actual cause without inventing an owner or action when evidence is unavailable.
 
+**Fixed, with no backend change - the digest already shipped what was needed.** `DagNextStep` carries `TaskIds` and `BlockingTaskIds` for every wait kind; `nextStepText` simply was not reading them. It now names the tasks, and distinguishes executing from awaiting-integration the only way the data supports: a dependency that is already `done` yet still blocks its successor is waiting to be merged, not to finish. It falls back to the generic phrasing when a step carries no ids, and to the raw task id when no label is known - never a name this UI invented - and summarises past two tasks so the line cannot outgrow its row. Tests: `dagdigest.test.ts`.
+
 ### 7. Make freshness visible and accurate
 
 **Source:** `frontend/app/view/orchestrate/dagdigest.ts` (`useDagDigest`).
@@ -110,6 +116,8 @@ Mark outdated results immediately. Show the last successful update and provide r
 
 **Regression tests:** a DAG version change hides outdated health/counts while loading; failed requests retain only explicitly stale facts; retry restores fresh status; out-of-order responses cannot replace newer results.
 
+**Fixed by making staleness derived rather than stored.** A stored flag can only flip when a request returns, which is precisely why the previous version's health and counts kept reading as current for the whole reload. `digestStale(digest, observedVersion)` compares the two versions, so the strip goes stale on the render where the version moves. The health strip now separates a refresh in flight ("Refreshing status") from one that failed ("Status update failed", plus a retry control) - the reader can wait out the first, but only the second is theirs to act on - and reports when the shown status was last confirmed current. Out-of-order responses were already guarded by `acceptDigest`'s request token. Tests: `dagdigest.test.ts`.
+
 ### 8. Preserve task identity beside worker activity
 
 **Source:** `frontend/app/view/orchestrate/dagoverview.tsx` (`WorkerRow`).
@@ -117,6 +125,8 @@ Mark outdated results immediately. Show the last successful update and provide r
 Dispatched rows render `StatusLine` instead of the explicit task label used by other rows. Keep the assignment label consistently visible, with worker/model/activity information underneath, so users do not have to infer which task an agent is executing.
 
 **Verification:** task identity remains readable across pending, dispatched, unavailable, and terminal worker states, including narrow layouts and long labels.
+
+**Fixed.** The task label is now the row's first line in every worker state, identical across pending, dispatched, unavailable and terminal; the worker's `StatusLine` moved underneath it, with activity below that. A dispatched row previously rendered the agent instead of the task, leaving the reader to infer the assignment. This is a render-only change with no pure decision to unit-test: it is covered by typecheck, lint and the CDP render check, not by an assertion.
 
 ### 9. Summarize recovery inline
 
@@ -126,6 +136,8 @@ Offer a compact per-task recovery summary, such as “Retried once · tool failu
 
 **Verification:** summaries agree with persisted events, identify partial history, and link to the relevant task/attempt details.
 
+**Fixed.** `recoverysummary.ts` derives the line from the run's own retained `task-retried` / `task-failed` rows, read through the timeline's existing detail parser - no second history store. It renders "Retried once - tool-error - now running", and expands by selecting the task, which is what the lifecycle rail's task filter already reads. Partial history is detected from the evidence itself: the attempt numbers the surviving rows carry are compared against how many rows survived, and a shortfall downgrades the claim to "Retried at least once - earlier history not retained". A terminal failure consumes an attempt without emitting a retry, so it is not miscounted as a gap; the engine's per-kind attempt reset can hide one, which under-claims rather than over-claims. Tests: `recoverysummary.test.ts`.
+
 ### Visibility priorities
 
 1. Actionable attention.
@@ -133,4 +145,6 @@ Offer a compact per-task recovery summary, such as “Retried once · tool failu
 3. Trustworthy freshness.
 4. Persistent task identity and inline recovery context.
 
-The reliability findings above are prerequisites for trustworthy visibility: missing terminal events and duplicate notifications undermine the UI regardless of presentation quality. These suggestions are recorded for consideration, not approved implementation scope.
+The reliability findings above are prerequisites for trustworthy visibility: missing terminal events and duplicate notifications undermine the UI regardless of presentation quality. They were fixed first, in that order.
+
+Verification for 5-9: `npx vitest run` (2650 passing, 90 of them in `view/orchestrate`), a clean repo typecheck, and `npx eslint frontend/app/view/orchestrate/`. The pure decisions were additionally exercised through the running dev app over CDP, so the copy and routing described above are what the shipped bundle produces, not only what the test transform produces. Finding 8 is the exception - a render-only change with no pure decision to assert.
