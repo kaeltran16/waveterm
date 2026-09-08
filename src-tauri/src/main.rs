@@ -214,6 +214,7 @@ fn main() {
                 let state = app.state::<InitState>();
                 let mut d = state.0.lock().unwrap();
                 d.auth_key = auth_key.clone();
+                d.app_version = app.package_info().version.to_string();
                 d.platform = "win32".to_string();
                 d.is_dev = cfg!(debug_assertions);
                 d.user_name = std::env::var("USERNAME").unwrap_or_default();

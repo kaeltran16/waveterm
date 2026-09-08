@@ -7,7 +7,7 @@
     "productName": "Wave",
     "description": "Open-Source AI-Native Terminal Built for Seamless Workflows",
     "license": "Apache-2.0",
-    "version": "0.14.5",
+    "version": "0.14.6",
     "homepage": "https://waveterm.dev",
     "private": true,
     "type": "module",
@@ -16,7 +16,7 @@
     ],
     "scripts": {
         "dev": "cargo tauri dev",
-        "build": "task tauri:sync-version && cargo tauri build",
+        "build": "task tauri:build",
         "cockpit:fixtures": "node scripts/gen-cockpit-fixtures.mjs",
         "check:pi-theme": "node scripts/validate-pi-theme.mjs",
         "coverage": "vitest run --coverage",

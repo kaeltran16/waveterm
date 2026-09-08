@@ -8,6 +8,8 @@ export type InitData = {
     wsEndpoint: string;
     webEndpoint: string;
     authKey: string;
+    // this shell's version (tauri.conf.json); `version` is the wavesrv it spawned
+    appVersion: string;
     version: string;
     buildTime: number;
     platform: string;

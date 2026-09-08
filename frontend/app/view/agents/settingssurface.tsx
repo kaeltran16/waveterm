@@ -1,6 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { formatBuildTime, versionInfoAtom } from "@/app/cockpit/versioninfo";
 import { MOTION } from "@/app/element/motiontokens";
 import { getSettingsKeyAtom } from "@/app/store/global";
 import { RpcApi } from "@/app/store/wshclientapi";
@@ -92,10 +93,46 @@ export function SettingsSurface(_props: { model: AgentsViewModel }) {
                     </div>
                     <SectionGap />
                     <HeadlessAISection />
+                    <SectionGap />
+                    <AboutSection />
                 </motion.div>
             </div>
         </MotionConfig>
     );
+}
+
+// App + backend version, so the pair is inspectable rather than only shouted about by the app-bar
+// pill when they disagree.
+function AboutSection() {
+    const version = useAtomValue(versionInfoAtom);
+    return (
+        <div>
+            <SectionLabel>About</SectionLabel>
+            <Row title="App version" desc="This shell — src-tauri/tauri.conf.json, synced from package.json.">
+                <Mono>{version.app}</Mono>
+            </Row>
+            <Row
+                title="Backend version"
+                desc={
+                    version.mismatch
+                        ? "Does not match the app — dist/bin is stale. Run `task build:backend` and restart."
+                        : "The wavesrv this app spawned."
+                }
+            >
+                <Mono warn={version.mismatch}>{version.server}</Mono>
+            </Row>
+            <Row title="Backend build time" desc="When the wavesrv binary was stamped.">
+                <Mono>{formatBuildTime(version.buildTime)}</Mono>
+            </Row>
+            <Row title="Platform" desc="Host the shell reported at boot.">
+                <Mono>{version.platform}</Mono>
+            </Row>
+        </div>
+    );
+}
+
+function Mono({ children, warn }: { children: React.ReactNode; warn?: boolean }) {
+    return <span className={cn("font-mono text-[13px]", warn ? "text-warning" : "text-primary")}>{children}</span>;
 }
 
 function SectionGap() {
