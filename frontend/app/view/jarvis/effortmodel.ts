@@ -118,6 +118,17 @@ export function stageOptions(rows: { stage: string }[]): string[] {
     return seen;
 }
 
+export type ChunkTrailView = { notes: EffortNote[]; hidden: number };
+
+// a done chunk's trail is history and reads as a wall; a live one's is the reason someone opened the
+// record. So only the settled rows fold, down to their newest note, and never for a lone note.
+export function chunkTrailView(row: { status: string; trail: EffortNote[] }, expanded: boolean): ChunkTrailView {
+    if (expanded || row.status !== "done" || row.trail.length <= 1) {
+        return { notes: row.trail, hidden: 0 };
+    }
+    return { notes: row.trail.slice(-1), hidden: row.trail.length - 1 };
+}
+
 const EFFORT_DELTA_KINDS = new Set(["effort-created", "chunk-done", "chunk-added", "chunk-status", "effort-status", "effort-note"]);
 
 // delta rows carry Title = effort title, Detail = "<label> · <stamp>" (Task 1 fold); the param is

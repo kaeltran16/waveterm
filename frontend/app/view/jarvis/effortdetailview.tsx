@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // The effort detail Stage subject: the full record — every chunk trail, owner, workref, and the
-// same edit ops the inline tracker has, at full width with no truncation.
+// same edit ops the inline tracker has, untruncated. A settled chunk's trail folds to its newest
+// note behind a count, which is the only thing here that isn't shown outright.
 
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { formatAge } from "@/app/view/agents/agentsviewmodel";
@@ -10,7 +11,7 @@ import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect, useState } from "react";
 import { Mark, REVEAL_ON_HOVER, StageHeader, StageTag } from "./effortcard";
-import { buildEffortCard, CHUNK_CHIP_CLASSES, groupChunksByStage, stageOptions } from "./effortmodel";
+import { buildEffortCard, CHUNK_CHIP_CLASSES, chunkTrailView, groupChunksByStage, stageOptions } from "./effortmodel";
 import {
     addChunkOp,
     advanceChunk,
@@ -59,6 +60,9 @@ function ChunkDetailRow({
     onReopen: () => void;
     onStage: (stage: string) => void;
 }) {
+    const [expanded, setExpanded] = useState(false);
+    const trail = chunkTrailView(row, expanded);
+    const earlier = row.trail.length - 1;
     return (
         <div
             className={cn(
@@ -104,13 +108,30 @@ function ChunkDetailRow({
                 </span>
             ) : null}
             {row.trail.length > 0 ? (
-                <span className="flex flex-col gap-0.5 pl-[22px]">
-                    {row.trail.map((n, j) => (
-                        <span key={j} className="font-mono text-[10.5px] text-muted">
-                            {fmtDay(n.ts)} {n.text}
-                        </span>
+                <div className="flex flex-col gap-2 pt-1 pl-[22px]">
+                    {trail.hidden > 0 || expanded ? (
+                        <button
+                            type="button"
+                            onClick={() => setExpanded(!expanded)}
+                            aria-expanded={expanded}
+                            className="w-fit cursor-pointer font-mono text-xxs text-muted hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                        >
+                            {`${expanded ? "▾" : "▸"} ${earlier} earlier ${earlier === 1 ? "note" : "notes"}`}
+                        </button>
+                    ) : null}
+                    {trail.notes.map((n, j) => (
+                        <div key={n.ts + ":" + j} className="flex gap-2.5">
+                            <span className="w-[34px] flex-none pt-[2px] font-mono text-xxs text-muted">
+                                {fmtDay(n.ts)}
+                            </span>
+                            {/* a measure cap, not a width: these notes run to paragraphs and the Stage is
+                                wide enough to set them 180 characters to the line without one. */}
+                            <span className="min-w-0 max-w-[72ch] whitespace-pre-wrap text-[12px] leading-[1.6] text-secondary">
+                                {n.text}
+                            </span>
+                        </div>
                     ))}
-                </span>
+                </div>
             ) : null}
         </div>
     );
