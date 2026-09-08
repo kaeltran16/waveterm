@@ -108,20 +108,15 @@ declare global {
         detail?: string;
     };
 
-    // wshrpc.AgentSyncCarriedLine
-    type AgentSyncCarriedLine = {
-        runtime: string;
-        line: string;
-    };
-
     // wshrpc.AgentSyncHarness
     type AgentSyncHarness = {
         runtime: string;
         label: string;
         present: boolean;
         steering: string;
-        skillslinked: number;
-        skillsconflict: number;
+        own: boolean;
+        skillsmanaged: number;
+        skillsunmanaged: number;
         note?: string;
     };
 
@@ -130,12 +125,7 @@ declare global {
         name: string;
         description?: string;
         states: {[key: string]: string};
-    };
-
-    // wshrpc.AgentSyncSkillCollision
-    type AgentSyncSkillCollision = {
-        name: string;
-        sources: string[];
+        deltas?: {[key: string]: string[]};
     };
 
     // wshrpc.AgentSyncSkillColumn
@@ -150,6 +140,10 @@ declare global {
         runtime: string;
         name: string;
         from: string;
+        seed: boolean;
+        keys?: string[];
+        files?: string[];
+        bodydiff: boolean;
     };
 
     // wshrpc.AgentTranscriptUpdate
@@ -392,19 +386,12 @@ declare global {
     // wshrpc.CommandAgentSyncAdoptData
     type CommandAgentSyncAdoptData = {
         apply?: boolean;
-        prefer?: {[key: string]: string};
-        acceptloss?: boolean;
     };
 
     // wshrpc.CommandAgentSyncAdoptRtnData
     type CommandAgentSyncAdoptRtnData = {
-        seedfrom?: string;
-        seedlines: number;
-        carried?: AgentSyncCarriedLine[];
         moves?: AgentSyncSkillMove[];
-        collisions?: AgentSyncSkillCollision[];
-        blocked: boolean;
-        reasons?: string[];
+        unresolved?: string[];
     };
 
     // wshrpc.CommandAgentSyncApplyData
@@ -417,18 +404,47 @@ declare global {
         actions: AgentSyncAction[];
     };
 
-    // wshrpc.CommandAgentSyncProjectionData
-    type CommandAgentSyncProjectionData = {
+    // wshrpc.CommandAgentSyncFoldData
+    type CommandAgentSyncFoldData = {
         runtime: string;
     };
 
-    // wshrpc.CommandAgentSyncProjectionRtnData
-    type CommandAgentSyncProjectionRtnData = {
+    // wshrpc.CommandAgentSyncFoldRtnData
+    type CommandAgentSyncFoldRtnData = {
+        runtime: string;
+        lines?: string[];
+        seeded: boolean;
+    };
+
+    // wshrpc.CommandAgentSyncHarnessReadData
+    type CommandAgentSyncHarnessReadData = {
+        runtime: string;
+    };
+
+    // wshrpc.CommandAgentSyncHarnessReadRtnData
+    type CommandAgentSyncHarnessReadRtnData = {
         runtime: string;
         path: string;
         present: boolean;
+        own: string;
+        shared: string;
+        memory: string;
         state: string;
-        body: string;
+        mtime: number;
+        carried: number;
+    };
+
+    // wshrpc.CommandAgentSyncHarnessWriteData
+    type CommandAgentSyncHarnessWriteData = {
+        runtime: string;
+        own: string;
+        basemtime: number;
+    };
+
+    // wshrpc.CommandAgentSyncHarnessWriteRtnData
+    type CommandAgentSyncHarnessWriteRtnData = {
+        mtime: number;
+        conflict: boolean;
     };
 
     // wshrpc.CommandAgentSyncSkillsRtnData

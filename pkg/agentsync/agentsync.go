@@ -31,11 +31,10 @@ func DefaultPaths() Paths {
 }
 
 const (
-	ActionSteeringWrite = "steering-write"
-	ActionLinkCreate    = "link-create"
-	ActionLinkRetarget  = "link-retarget"
-	ActionLinkRemove    = "link-remove"
-	ActionSkillConflict = "skill-conflict"
+	ActionSteeringWrite  = "steering-write"
+	ActionSkillWrite     = "skill-write"
+	ActionSkillRemove    = "skill-remove"
+	ActionSkillUnmanaged = "skill-unmanaged"
 )
 
 // Action is one change a sync run made, or would make under dryRun.
@@ -117,45 +116,134 @@ func WriteSteering(p Paths, content string, baseMtime int64) (WriteResult, error
 	return WriteResult{Mtime: st.ModTime().UnixMilli()}, nil
 }
 
-// Projection is what one harness's steering file currently holds, for the read-only preview beside
-// the canonical editor. Body is what is on disk, not what the canonical doc would render — the
-// difference is exactly what "stale" means.
-type Projection struct {
+// HarnessDoc is one harness's steering file split into the three zones the Steering tab shows: the
+// rules that harness holds of its own, the shared block Arc projects into it, and the memory
+// projection. Own is the only editable zone here — Shared is edited once in the vault, and Memory
+// belongs to pkg/memvault.
+type HarnessDoc struct {
 	Runtime string `json:"runtime"`
 	Path    string `json:"path"`
 	Present bool   `json:"present"`
+	Own     string `json:"own"`
+	Shared  string `json:"shared"`
+	Memory  string `json:"memory"`
 	State   string `json:"state"` // current | stale | absent
-	Body    string `json:"body"`
+	Mtime   int64  `json:"mtime"`
+	// Carried counts the lines in Own that the shared doc does not have — what a fold would move.
+	Carried int `json:"carried"`
 }
 
-// ProjectionFor reads one harness's steering file. State mirrors Status so the preview and the
-// harness rows can never disagree.
-func ProjectionFor(p Paths, runtime string) (Projection, error) {
+// ReadHarness reads one harness's steering file whole. Unlike a region-only read, an unsynced
+// harness still shows everything the user wrote in it.
+func ReadHarness(p Paths, runtime string) (HarnessDoc, error) {
 	spec, ok := harness.Lookup(runtime)
 	if !ok {
-		return Projection{}, fmt.Errorf("unknown harness runtime %q", runtime)
+		return HarnessDoc{}, fmt.Errorf("unknown harness runtime %q", runtime)
 	}
-	proj := Projection{Runtime: runtime, Path: spec.SteeringPath(p.Home), State: "absent"}
-	proj.Present = configRootExists(spec, p.Home)
-	if !proj.Present {
-		return proj, nil
+	doc := HarnessDoc{Runtime: runtime, Path: spec.SteeringPath(p.Home), State: "absent"}
+	doc.Present = configRootExists(spec, p.Home)
+	if !doc.Present {
+		return doc, nil
 	}
-	existing, err := os.ReadFile(proj.Path)
+	existing, err := os.ReadFile(doc.Path)
 	if err != nil && !os.IsNotExist(err) {
-		return proj, fmt.Errorf("reading %s: %w", proj.Path, err)
+		return doc, fmt.Errorf("reading %s: %w", doc.Path, err)
 	}
-	proj.Body = regionBody(string(existing))
-	canonical, err := os.ReadFile(p.SteeringDoc)
+	if st, statErr := os.Stat(doc.Path); statErr == nil {
+		doc.Mtime = st.ModTime().UnixMilli()
+	}
+	shared, err := os.ReadFile(p.SteeringDoc)
 	if err != nil && !os.IsNotExist(err) {
-		return proj, fmt.Errorf("reading canonical steering doc: %w", err)
+		return doc, fmt.Errorf("reading the shared steering doc: %w", err)
 	}
-	if !strings.Contains(string(existing), steeringBegin) || len(canonical) == 0 {
-		return proj, nil
+	doc.Own = blockBefore(string(existing))
+	doc.Shared = regionBody(string(existing))
+	doc.Memory = memoryRegion(string(existing))
+	doc.State = steeringState(string(existing), string(shared))
+	doc.Carried = len(carriedLines(doc.Own, string(shared)))
+	return doc, nil
+}
+
+// WriteHarnessOwn replaces a harness's own block, leaving every managed region byte-identical: an
+// edit to one harness must not re-render the steering region (that is the sync's job) or disturb the
+// memory region (that is pkg/memvault's). Same mtime guard as WriteSteering.
+func WriteHarnessOwn(p Paths, runtime, own string, baseMtime int64) (WriteResult, error) {
+	spec, ok := harness.Lookup(runtime)
+	if !ok {
+		return WriteResult{}, fmt.Errorf("unknown harness runtime %q", runtime)
 	}
-	if applyRegion(string(existing), string(canonical)) == string(existing) {
-		proj.State = "current"
-	} else {
-		proj.State = "stale"
+	if !configRootExists(spec, p.Home) {
+		return WriteResult{}, fmt.Errorf("%s has no config directory; Arc never creates one", spec.Label)
 	}
-	return proj, nil
+	target := spec.SteeringPath(p.Home)
+	existing, err := os.ReadFile(target)
+	if err != nil && !os.IsNotExist(err) {
+		return WriteResult{}, fmt.Errorf("reading %s: %w", target, err)
+	}
+	if st, statErr := os.Stat(target); statErr == nil && baseMtime != 0 && st.ModTime().UnixMilli() != baseMtime {
+		return WriteResult{Mtime: st.ModTime().UnixMilli(), Conflict: true}, nil
+	}
+	tail := strings.TrimPrefix(string(existing), blockBefore(string(existing)))
+	if err := os.WriteFile(target, []byte(joinOwn(own, tail)), 0o644); err != nil {
+		return WriteResult{}, fmt.Errorf("writing %s: %w", target, err)
+	}
+	st, err := os.Stat(target)
+	if err != nil {
+		return WriteResult{}, err
+	}
+	return WriteResult{Mtime: st.ModTime().UnixMilli()}, nil
+}
+
+// FoldResult is what one fold moved into the shared doc.
+type FoldResult struct {
+	Runtime string   `json:"runtime"`
+	Lines   []string `json:"lines"`
+	Seeded  bool     `json:"seeded"` // the shared doc was empty and took this harness's block verbatim
+}
+
+// FoldIntoShared moves a harness's own rules into the shared doc and clears them from the harness
+// file. This is the migration, run once per harness: the first fold seeds the shared doc verbatim,
+// each later one appends only the lines that harness holds and the doc does not, under a heading
+// naming where they came from so they can be re-filed in the editor.
+//
+// Order matters. The shared doc is written and projected into every harness BEFORE the source
+// harness's own block is cleared, so no rule is ever absent from the file it was serving.
+func FoldIntoShared(p Paths, runtime string) (FoldResult, error) {
+	doc, err := ReadHarness(p, runtime)
+	if err != nil {
+		return FoldResult{}, err
+	}
+	res := FoldResult{Runtime: runtime}
+	if !doc.Present {
+		return res, fmt.Errorf("harness %q is not installed", runtime)
+	}
+	sharedBytes, err := os.ReadFile(p.SteeringDoc)
+	if err != nil && !os.IsNotExist(err) {
+		return res, fmt.Errorf("reading the shared steering doc: %w", err)
+	}
+	shared := string(sharedBytes)
+	if strings.TrimSpace(doc.Own) != "" {
+		spec, _ := harness.Lookup(runtime)
+		res.Lines = carriedLines(doc.Own, shared)
+		switch {
+		case strings.TrimSpace(shared) == "":
+			// verbatim, not line-by-line: an empty doc should inherit the block's headings and
+			// spacing rather than a flattened list of its non-blank lines
+			shared = strings.TrimRight(doc.Own, "\n") + "\n"
+			res.Seeded = true
+		case len(res.Lines) > 0:
+			shared = strings.TrimRight(shared, "\n") + "\n\n## From " + spec.Label + "\n\n" +
+				strings.Join(res.Lines, "\n") + "\n"
+		}
+		if _, err := WriteSteering(p, shared, 0); err != nil {
+			return res, err
+		}
+	}
+	if _, err := projectSteering(p, false); err != nil {
+		return res, err
+	}
+	if _, err := WriteHarnessOwn(p, runtime, "", 0); err != nil {
+		return res, err
+	}
+	return res, nil
 }

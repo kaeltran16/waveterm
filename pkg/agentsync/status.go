@@ -14,13 +14,16 @@ import (
 
 // HarnessStatus is one row of the sync view.
 type HarnessStatus struct {
-	Runtime        string `json:"runtime"`
-	Label          string `json:"label"`
-	Present        bool   `json:"present"`
-	Steering       string `json:"steering"` // current | stale | absent
-	SkillsLinked   int    `json:"skillslinked"`
-	SkillsConflict int    `json:"skillsconflict"`
-	Note           string `json:"note,omitempty"`
+	Runtime  string `json:"runtime"`
+	Label    string `json:"label"`
+	Present  bool   `json:"present"`
+	Steering string `json:"steering"` // current | stale | absent
+	// Own reports rules this harness still holds outside the shared region — what a fold would move.
+	Own bool `json:"own"`
+	// SkillsManaged counts skill directories Arc wrote; SkillsUnmanaged counts the user's own.
+	SkillsManaged   int    `json:"skillsmanaged"`
+	SkillsUnmanaged int    `json:"skillsunmanaged"`
+	Note            string `json:"note,omitempty"`
 }
 
 func Status(p Paths) ([]HarnessStatus, error) {
@@ -28,25 +31,15 @@ func Status(p Paths) ([]HarnessStatus, error) {
 	if err != nil && !os.IsNotExist(err) {
 		return nil, err
 	}
-	canonicalSkillNames, err := canonicalSkills(p.SkillsRoot)
-	if err != nil {
-		return nil, err
-	}
 	specs := harness.List()
 	out := make([]HarnessStatus, 0, len(specs))
 	for _, spec := range specs {
 		st := HarnessStatus{Runtime: spec.Runtime, Label: spec.Label, Steering: "absent"}
 		st.Present = configRootExists(spec, p.Home)
-		if st.Present && len(canonicalBody) > 0 {
+		if st.Present {
 			existing, _ := os.ReadFile(spec.SteeringPath(p.Home))
-			switch {
-			case !strings.Contains(string(existing), steeringBegin):
-				st.Steering = "absent"
-			case applyRegion(string(existing), string(canonicalBody)) == string(existing):
-				st.Steering = "current"
-			default:
-				st.Steering = "stale"
-			}
+			st.Steering = steeringState(string(existing), string(canonicalBody))
+			st.Own = len(strings.TrimSpace(blockBefore(string(existing)))) > 0
 		}
 		if dir := spec.SkillsPath(p.Home); dir != "" && st.Present {
 			observed, err := observeSkills(dir)
@@ -54,13 +47,10 @@ func Status(p Paths) ([]HarnessStatus, error) {
 				return nil, err
 			}
 			for _, e := range observed {
-				if e.IsLink && withinRoot(e.Target, p.SkillsRoot) {
-					st.SkillsLinked++
-				}
-			}
-			for _, a := range planSkills(canonicalSkillNames, observed, p.SkillsRoot) {
-				if a.Kind == "conflict" {
-					st.SkillsConflict++
+				if e.Managed {
+					st.SkillsManaged++
+				} else {
+					st.SkillsUnmanaged++
 				}
 			}
 		}
@@ -90,6 +80,12 @@ func piSettingsSkills(configRoot string) []string {
 		return nil
 	}
 	return parsed.Skills
+}
+
+// sameTarget compares two configured paths case-insensitively: these live on Windows, where the
+// filesystem is, and the comparison only ever decides which sentence pi's note gets.
+func sameTarget(a, b string) bool {
+	return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
 }
 
 // piSkillsNote describes how pi reaches the synced skills, or warns that it does not. A "!" prefix

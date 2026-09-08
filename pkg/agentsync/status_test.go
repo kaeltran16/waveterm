@@ -43,14 +43,13 @@ func TestStatusReportsSteeringState(t *testing.T) {
 	}
 }
 
-func TestStatusCountsLinksAndConflicts(t *testing.T) {
+func TestStatusCountsManagedAndUnmanagedSkills(t *testing.T) {
 	p := testPaths(t, "canonical\n", ".codex")
 	seedSkill(t, p, "graphify")
 	seedSkill(t, p, "effort-tracking")
+	// the user's own directory under a canonical name: Arc writes neither it nor a rendered copy
 	occupied := filepath.Join(p.Home, ".codex", "skills", "graphify")
-	if err := os.MkdirAll(occupied, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	writeFile(t, filepath.Join(occupied, "SKILL.md"), "mine\n")
 	if _, err := Apply(p, false); err != nil {
 		t.Fatal(err)
 	}
@@ -62,8 +61,37 @@ func TestStatusCountsLinksAndConflicts(t *testing.T) {
 		if s.Runtime != "codex" {
 			continue
 		}
-		if s.SkillsLinked != 1 || s.SkillsConflict != 1 {
-			t.Fatalf("codex = %+v, want 1 linked and 1 conflict", s)
+		if s.SkillsManaged != 1 || s.SkillsUnmanaged != 1 {
+			t.Fatalf("codex = %+v, want 1 managed and 1 unmanaged", s)
+		}
+	}
+}
+
+func TestStatusReportsAHarnessHoldingItsOwnRules(t *testing.T) {
+	p := testPaths(t, "shared rules\n", ".codex")
+	writeFile(t, filepath.Join(p.Home, ".codex", "AGENTS.md"), "# Mine\n- a codex-only rule\n")
+	st, err := Status(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range st {
+		if s.Runtime != "codex" {
+			continue
+		}
+		if !s.Own {
+			t.Fatalf("codex = %+v, want Own set while it still holds unfolded rules", s)
+		}
+	}
+	if _, err := FoldIntoShared(p, "codex"); err != nil {
+		t.Fatal(err)
+	}
+	st, err = Status(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range st {
+		if s.Runtime == "codex" && s.Own {
+			t.Fatalf("codex = %+v, want Own cleared after the fold", s)
 		}
 	}
 }

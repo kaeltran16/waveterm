@@ -18,6 +18,9 @@ import { projectLabel } from "./projectlabel";
 import { RollingCount } from "./rollingcount";
 import {
     previewSync,
+    selectDocTab,
+    SHARED_TAB,
+    vaultDraftAtom,
     vaultHarnessesAtom,
     vaultSkillsAtom,
     vaultStatusAtom,
@@ -151,36 +154,45 @@ function MemoryStatus({ focusedCwd }: { focusedCwd: string | null }) {
 }
 
 // Steering and skills share one cluster: both are projections of the same vault into the same
-// harnesses, so drift is one number and the fix is one button.
+// harnesses, so drift is one number and the fix is one button. On a vault with no shared doc yet the
+// button would dry-run to nothing, so it says so rather than offering an empty sync.
 function SyncStatus() {
     const harnesses = useAtomValue(vaultHarnessesAtom);
     const skills = useAtomValue(vaultSkillsAtom);
     const busy = useAtomValue(vaultSyncBusyAtom);
-    // "stale" and "never projected" are different problems and read as different sentences: on a vault
-    // that has never synced, calling four untouched harnesses stale suggests something decayed.
-    const stale = harnesses.filter((h) => h.present && h.steering === "stale").length;
-    const unprojected = harnesses.filter((h) => h.present && h.steering === "absent").length;
-    const conflicts = harnesses.reduce((n, h) => n + h.skillsconflict, 0);
-    const pending = skills.filter((s) => Object.values(s.states ?? {}).includes("pending")).length;
-    const clean = stale + unprojected + conflicts + pending === 0;
+    const sharedEmpty = useAtomValue(vaultDraftAtom).trim() === "";
+    const present = harnesses.filter((h) => h.present);
+    const stale = present.filter((h) => h.steering === "stale").length;
+    const withOwn = present.filter((h) => h.own).length;
+    const unmanaged = harnesses.reduce((n, h) => n + h.skillsunmanaged, 0);
+    const pending = skills.filter((s) => Object.values(s.states ?? {}).includes("differs")).length;
+    const clean = stale + withOwn + unmanaged + pending === 0 && !sharedEmpty;
     const parts = [
-        stale > 0 && `${stale} stale`,
-        unprojected > 0 && `${unprojected} not projected`,
-        pending > 0 && `${pending} to link`,
-        conflicts > 0 && `${conflicts} conflict`,
+        sharedEmpty && "no shared doc yet",
+        stale > 0 && `${stale} out of date`,
+        withOwn > 0 && `${withOwn} holding own rules`,
+        pending > 0 && `${pending} to write`,
+        unmanaged > 0 && `${unmanaged} unmanaged`,
     ].filter(Boolean);
     return (
         <>
             <span className={cn("flex items-center gap-[7px] text-[11.5px]", clean ? "text-success" : "text-warning")}>
                 <span className={cn("h-[6px] w-[6px] rounded-full", clean ? "bg-success" : "bg-warning")} />
-                {clean ? "all harnesses current" : parts.join(" · ")}
+                {clean ? "every harness current" : parts.join(" · ")}
             </span>
             <button
-                onClick={() => fireAndForget(previewSync)}
+                onClick={() => {
+                    if (sharedEmpty) {
+                        globalStore.set(vaultTabAtom, "steering");
+                        selectDocTab(SHARED_TAB);
+                        return;
+                    }
+                    fireAndForget(previewSync);
+                }}
                 disabled={busy}
                 className="ml-[8px] rounded-[7px] border border-border px-[11px] py-[4px] text-[11px] font-semibold text-ink-mid hover:border-edge-strong hover:text-primary disabled:opacity-40"
             >
-                {busy ? "Working…" : "Sync harnesses"}
+                {busy ? "Working…" : sharedEmpty ? "Start the shared doc" : "Sync harnesses"}
             </button>
         </>
     );

@@ -5335,41 +5335,92 @@ const routePickerFlat = {
 // --- harness config sync ------------------------------------------------------------------------
 // The Settings section renders one row per catalog harness, driven by AgentSyncStatusCommand. This
 // asserts the RPC reaches the surface at all; the reconciler's own behavior is unit-tested in Go.
-const harnessSync = {
-    name: "harness-sync",
-    surface: "settings",
+// --- vault steering: the Steering tab shows each harness's real file, not just Arc's region ---
+// The regression this replaces: the tab previewed only the ARC-STEERING region, so a harness with no
+// region yet rendered as "(nothing projected here yet)" however much the user had written in it. The
+// assert is deliberately about the whole file being reachable, not about the own zone being non-empty:
+// after the rules are folded into Shared the own zone is empty ON PURPOSE, and an assert keyed to it
+// would start failing exactly when the feature had been used correctly.
+const vaultSteering = {
+    name: "vault-steering",
+    surface: "vault",
     async arrange() {
         return {};
     },
     async assert(h) {
         const steps = [];
-        await h.goto("settings");
-        await h.ev(
-            `(() => { document.getElementById("settings-harness-sync")?.scrollIntoView({ block: "start" }); return true; })()`
-        );
-        await h.ev("new Promise((r) => setTimeout(r, 400))");
-        const rows = await h.ev(
-            `(() => [...document.querySelectorAll('[data-harness-sync-row]')].map((n) => n.getAttribute('data-harness-sync-row')))()`
-        );
-        steps.push({
-            step: "settings -> harness sync section lists every catalog harness",
-            ok: Array.isArray(rows) && ["pi", "claude", "codex", "opencode"].every((r) => rows.includes(r)),
-            detail: `rows=${JSON.stringify(rows)}`,
-        });
+        await h.goto("vault");
+        await h.ev(`(() => { document.querySelector('[data-vault-tab="steering"]')?.click(); return true; })()`);
+        await h.ev("new Promise((r) => setTimeout(r, 600))");
+
         const status = await h.rpc("agentsyncstatus", null);
+        const present = (status?.harnesses ?? []).filter((x) => x.present).map((x) => x.runtime);
+        const tabs = await h.ev(
+            `(() => [...document.querySelectorAll('[data-vault-doc-tab]')].map((n) => n.getAttribute('data-vault-doc-tab')))()`
+        );
         steps.push({
-            step: "AgentSyncStatusCommand returns a row per harness",
-            ok: !!status && Array.isArray(status.harnesses) && status.harnesses.length === 4,
-            detail: JSON.stringify(status && status.harnesses ? status.harnesses.map((x) => x.runtime) : status),
+            step: "steering -> a Shared tab plus one tab per catalog harness",
+            ok:
+                Array.isArray(tabs) &&
+                tabs[0] === "shared" &&
+                ["pi", "claude", "codex", "opencode"].every((r) => tabs.includes(r)),
+            detail: `tabs=${JSON.stringify(tabs)}`,
         });
-        await h.shot("cdp-shots/harness-sync.png");
+        await h.shot("cdp-shots/vault-steering-shared.png");
+
+        for (const runtime of present) {
+            await h.ev(`(() => { document.querySelector('[data-vault-doc-tab="${runtime}"]')?.click(); return true; })()`);
+            await h.ev("new Promise((r) => setTimeout(r, 500))");
+            const doc = await h.rpc("agentsyncharnessread", { runtime });
+            // scoped to the steering pane, not the document: an unscoped textarea query picks up the
+            // Agent surface's hidden inputs, and an unscoped path search matches the footer's vault path
+            const shown = await h.ev(`(() => {
+                const tab = document.querySelector('[data-vault-doc-tab]');
+                let pane = tab; while (pane && !(pane.className || '').includes('overflow-hidden')) pane = pane.parentElement;
+                if (!pane) return null;
+                const ta = pane.querySelector('textarea');
+                return { own: ta ? ta.value.length : -1, text: pane.innerText || '' };
+            })()`);
+            const fileBytes = (doc?.own?.length ?? 0) + (doc?.shared?.length ?? 0) + (doc?.memory?.length ?? 0);
+            steps.push({
+                step: `${runtime} tab -> names its real file and puts that file's own zone in the editor`,
+                ok:
+                    !!shown &&
+                    fileBytes > 0 &&
+                    shown.own === (doc?.own?.length ?? 0) &&
+                    shown.text.includes(doc?.path ?? "\u0000"),
+                detail: `own=${shown?.own} backendOwn=${doc?.own?.length ?? 0} shared=${doc?.shared?.length ?? 0} memory=${doc?.memory?.length ?? 0} path=${doc?.path}`,
+            });
+            await h.shot(`cdp-shots/vault-steering-${runtime}.png`);
+        }
+
+        // the collection line and its button must agree: an empty shared doc cannot offer a sync that
+        // would dry-run to nothing, which is the contradiction the old line shipped with
+        await h.ev(`(() => { document.querySelector('[data-vault-doc-tab="shared"]')?.click(); return true; })()`);
+        await h.ev("new Promise((r) => setTimeout(r, 400))");
+        const line = await h.ev(`(() => {
+            const tab = document.querySelector('[data-vault-doc-tab]');
+            let pane = tab; while (pane && !(pane.className || '').includes('overflow-hidden')) pane = pane.parentElement;
+            const ta = pane && pane.querySelector('textarea');
+            const btn = [...document.querySelectorAll('button')].find((b) =>
+                ["Sync harnesses", "Start the shared doc"].includes((b.textContent || '').trim())
+            );
+            return { empty: ta ? ta.value.trim().length === 0 : null, label: btn ? (btn.textContent || '').trim() : null };
+        })()`);
+        steps.push({
+            step: "collection line agrees with its button (empty shared doc -> Start, otherwise Sync)",
+            ok:
+                line.empty !== null &&
+                line.label === (line.empty ? "Start the shared doc" : "Sync harnesses"),
+            detail: JSON.stringify(line),
+        });
         return steps;
     },
     async teardown() {},
 };
 
 export const SCENARIOS = [
-    harnessSync,
+    vaultSteering,
     runsLifecycle,
     terminalTheme,
     tuiLeader,    tuiFullscreen,

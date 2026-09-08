@@ -1,5 +1,11 @@
 # Harness config sync — design
 
+> **Superseded 2026-09-08** by `2026-09-08-harness-steering-skills-rework-design.md`.
+> Two premises here proved wrong in use: the steering UI showed only the generated region
+> (so an unsynced harness read as empty), and directory junctions cannot express a
+> per-harness variant, which blocked the one real skill collision on the tree. Kept for the
+> drift measurements and the marker mechanics, both of which the rework reuses.
+
 Date: 2026-09-07
 Status: design (approved in brainstorming; pending spec review)
 Builds on: `2026-07-01-memory-sync-engine-design.md` (the delimited-region projection precedent),

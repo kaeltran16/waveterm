@@ -28,16 +28,25 @@ var agentSyncStatusCmd = &cobra.Command{
 
 var agentSyncSyncCmd = &cobra.Command{
 	Use:          "sync",
-	Short:        "project the canonical steering doc and link canonical skills",
+	Short:        "project the shared steering doc and render canonical skills",
 	Args:         cobra.NoArgs,
 	PreRunE:      preRunSetupRpcClient,
 	RunE:         agentSyncSyncRun,
 	SilenceUsage: true,
 }
 
+var agentSyncFoldCmd = &cobra.Command{
+	Use:          "fold <runtime>",
+	Short:        "move one harness's own rules into the shared steering doc",
+	Args:         cobra.ExactArgs(1),
+	PreRunE:      preRunSetupRpcClient,
+	RunE:         agentSyncFoldRun,
+	SilenceUsage: true,
+}
+
 var agentSyncAdoptCmd = &cobra.Command{
 	Use:          "adopt",
-	Short:        "migrate hand-maintained steering blocks and skills into the vault",
+	Short:        "migrate hand-maintained skills into the vault",
 	Args:         cobra.NoArgs,
 	PreRunE:      preRunSetupRpcClient,
 	RunE:         agentSyncAdoptRun,
@@ -45,18 +54,14 @@ var agentSyncAdoptCmd = &cobra.Command{
 }
 
 var (
-	agentSyncDryRun     bool
-	agentSyncApply      bool
-	agentSyncPrefer     []string
-	agentSyncAcceptLoss bool
+	agentSyncDryRun bool
+	agentSyncApply  bool
 )
 
 func init() {
 	agentSyncSyncCmd.Flags().BoolVar(&agentSyncDryRun, "dry-run", false, "print the plan without writing")
 	agentSyncAdoptCmd.Flags().BoolVar(&agentSyncApply, "apply", false, "commit the migration (default is a dry run)")
-	agentSyncAdoptCmd.Flags().StringArrayVar(&agentSyncPrefer, "prefer", nil, "resolve a skill collision, as <runtime>:<skill>")
-	agentSyncAdoptCmd.Flags().BoolVar(&agentSyncAcceptLoss, "accept-loss", false, "accept dropping lines that exist only in a harness copy")
-	agentSyncCmd.AddCommand(agentSyncStatusCmd, agentSyncSyncCmd, agentSyncAdoptCmd)
+	agentSyncCmd.AddCommand(agentSyncStatusCmd, agentSyncSyncCmd, agentSyncFoldCmd, agentSyncAdoptCmd)
 	rootCmd.AddCommand(agentSyncCmd)
 }
 
@@ -65,15 +70,18 @@ func agentSyncStatusRun(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	WriteStdout("canonical steering: %s\ncanonical skills:   %s\n\n", res.SteeringDoc, res.SkillsRoot)
+	WriteStdout("shared steering: %s\ncanonical skills: %s\n\n", res.SteeringDoc, res.SkillsRoot)
 	for _, h := range res.Harnesses {
 		if !h.Present {
 			WriteStdout("%-12s not present\n", h.Label)
 			continue
 		}
-		line := fmt.Sprintf("%-12s steering %-8s skills %d linked", h.Label, h.Steering, h.SkillsLinked)
-		if h.SkillsConflict > 0 {
-			line += fmt.Sprintf(", %d conflict", h.SkillsConflict)
+		line := fmt.Sprintf("%-12s steering %-8s skills %d managed", h.Label, h.Steering, h.SkillsManaged)
+		if h.SkillsUnmanaged > 0 {
+			line += fmt.Sprintf(", %d unmanaged", h.SkillsUnmanaged)
+		}
+		if h.Own {
+			line += "  (holds rules of its own; fold them in)"
 		}
 		if h.Note != "" {
 			line += "  (" + h.Note + ")"
@@ -102,33 +110,41 @@ func agentSyncSyncRun(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func agentSyncAdoptRun(cmd *cobra.Command, args []string) error {
-	prefer := map[string]string{}
-	for _, p := range agentSyncPrefer {
-		runtime, skill, ok := strings.Cut(p, ":")
-		if !ok {
-			return fmt.Errorf("--prefer wants <runtime>:<skill>, got %q", p)
-		}
-		prefer[skill] = runtime
+func agentSyncFoldRun(cmd *cobra.Command, args []string) error {
+	res, err := wshclient.AgentSyncFoldCommand(RpcClient, wshrpc.CommandAgentSyncFoldData{Runtime: args[0]}, &wshrpc.RpcOpts{Timeout: 30000})
+	if err != nil {
+		return err
 	}
+	if res.Seeded {
+		WriteStdout("seeded the shared doc from %s\n", args[0])
+	}
+	if len(res.Lines) == 0 && !res.Seeded {
+		WriteStdout("nothing to fold: %s holds no line the shared doc lacks\n", args[0])
+		return nil
+	}
+	for _, l := range res.Lines {
+		WriteStdout("moved  %s\n", l)
+	}
+	return nil
+}
+
+func agentSyncAdoptRun(cmd *cobra.Command, args []string) error {
 	res, err := wshclient.AgentSyncAdoptCommand(RpcClient, wshrpc.CommandAgentSyncAdoptData{
-		Apply: agentSyncApply, Prefer: prefer, AcceptLoss: agentSyncAcceptLoss,
+		Apply: agentSyncApply,
 	}, &wshrpc.RpcOpts{Timeout: 60000})
 	if res != nil {
-		if res.SeedFrom != "" {
-			WriteStdout("seed: %s (%d lines)\n", res.SeedFrom, res.SeedLines)
-		}
-		for _, c := range res.Carried {
-			WriteStdout("carried  %-9s %s\n", c.Runtime, c.Line)
-		}
 		for _, m := range res.Moves {
-			WriteStdout("move     %-9s %s\n", m.Runtime, m.From)
+			switch {
+			case m.BodyDiff:
+				WriteStdout("conflict %-9s %s  (body differs; resolve by hand)\n", m.Runtime, m.From)
+			case m.Seed:
+				WriteStdout("seed     %-9s %s\n", m.Runtime, m.From)
+			default:
+				WriteStdout("delta    %-9s %s  (%s)\n", m.Runtime, m.From, strings.Join(append(m.Keys, m.Files...), ", "))
+			}
 		}
-		for _, c := range res.Collisions {
-			WriteStdout("collision %s: %s\n", c.Name, strings.Join(c.Sources, ", "))
-		}
-		for _, r := range res.Reasons {
-			WriteStdout("blocked: %s\n", r)
+		for _, n := range res.Unresolved {
+			WriteStdout("unresolved: %s\n", n)
 		}
 	}
 	return err
