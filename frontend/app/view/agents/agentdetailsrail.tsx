@@ -40,11 +40,20 @@ const GAUGE_FILL: Record<"ok" | "warn" | "hot", string> = {
 
 const RailFilesCap = 8; // a 296px rail can't show a large worktree; overflow folds into "+N more"
 
-function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
+// A 264px-wide rail can't always fit "label   value" on one line (a ticket-prefixed branch, a runtime
+// plus its age). shrink-0 stops the value from being squeezed into the leftover gap and broken
+// mid-token: it either sits beside the label or wraps whole onto its own full-width line. Only a value
+// wider than the rail itself ellipsizes, and then `title` carries the full text.
+function DetailRow({ label, value, title }: { label: string; value: React.ReactNode; title?: string }) {
     return (
-        <div className="flex items-baseline justify-between border-b border-edge-faint py-[5px] last:border-b-0">
-            <span className="text-[12.5px] text-muted">{label}</span>
-            <span className="font-mono text-[12px] font-medium text-secondary">{value}</span>
+        <div className="flex flex-wrap items-baseline gap-x-[12px] border-b border-edge-faint py-[5px] last:border-b-0">
+            <span className="shrink-0 text-[12.5px] text-muted">{label}</span>
+            <span
+                title={title}
+                className="ml-auto max-w-full shrink-0 truncate font-mono text-[12px] font-medium text-secondary"
+            >
+                {value}
+            </span>
         </div>
     );
 }
@@ -124,8 +133,8 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                                 </span>
                             }
                         />
-                        <DetailRow label="Project" value={project || "—"} />
-                        <DetailRow label="Branch" value={railState?.branch || "—"} />
+                        <DetailRow label="Project" value={project || "—"} title={project} />
+                        <DetailRow label="Branch" value={railState?.branch || "—"} title={railState?.branch} />
                         <DetailRow label="Model" value={agent.model ? prettyModel(agent.model) : "—"} />
                         {isClaude ? <DetailRow label="Cache expires" value={cacheCountdown} /> : null}
                     </div>
