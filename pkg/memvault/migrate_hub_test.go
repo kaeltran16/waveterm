@@ -6,6 +6,7 @@ package memvault
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -93,4 +94,76 @@ func TestVaultBackedHashesIncludesActiveVaultNotes(t *testing.T) {
 	if backed[factHash("never written anywhere")] {
 		t.Fatal("unknown fact must not be reported as vault-backed")
 	}
+}
+
+func TestEvictRepointsIndexLinks(t *testing.T) {
+	hub := t.TempDir()
+	shared := t.TempDir()
+	writeTestNote(t, hub, "safe-to-evict", "agent", "a fact arc exported")
+	writeTestNote(t, hub, "orphan-not-in-vault", "agent", "a fact only here")
+	writeTestNote(t, hub, "authored-by-claude", "", "a fact claude wrote")
+	index := "# Memory index\n\n" +
+		"- [Evicted](safe-to-evict.md) — hook one\n" +
+		"- [Orphan](orphan-not-in-vault.md) — hook two\n" +
+		"- [Authored](authored-by-claude.md) — hook three\n"
+	if err := os.WriteFile(filepath.Join(hub, "MEMORY.md"), []byte(index), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := evictExportedNotes(hub, shared, map[string]bool{factHash("a fact arc exported\n"): true}); err != nil {
+		t.Fatal(err)
+	}
+
+	got := readFileString(t, filepath.Join(hub, "MEMORY.md"))
+	if !strings.Contains(got, "](../shared/safe-to-evict.md)") {
+		t.Fatalf("moved note's link should point at shared/, got:\n%s", got)
+	}
+	if strings.Contains(got, "](safe-to-evict.md)") {
+		t.Fatalf("stale link to the moved note survived, got:\n%s", got)
+	}
+	// a note we deliberately left in the hub must keep its plain link
+	if !strings.Contains(got, "](orphan-not-in-vault.md)") {
+		t.Fatalf("link to a note still in the hub was rewritten, got:\n%s", got)
+	}
+	if !strings.Contains(got, "](authored-by-claude.md)") {
+		t.Fatalf("claude-authored link was rewritten, got:\n%s", got)
+	}
+	if !strings.Contains(got, "hook one") {
+		t.Fatalf("hook text should survive the rewrite, got:\n%s", got)
+	}
+}
+
+func TestRepointIndexLinksIsIdempotent(t *testing.T) {
+	hub := t.TempDir()
+	indexPath := filepath.Join(hub, "MEMORY.md")
+	if err := os.WriteFile(indexPath, []byte("- [X](x.md) — hook\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		if err := repointIndexLinks(hub, []string{"x.md"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, want := readFileString(t, indexPath), "- [X](../shared/x.md) — hook\n"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestRepointIndexLinksNoIndexIsNoop(t *testing.T) {
+	hub := t.TempDir()
+	if err := repointIndexLinks(hub, []string{"x.md"}); err != nil {
+		t.Fatalf("a hub with no index must not error: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(hub, "MEMORY.md")); !os.IsNotExist(err) {
+		t.Fatal("repoint must not create an index that was never there")
+	}
+}
+
+func readFileString(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
 }

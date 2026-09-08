@@ -6,6 +6,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -36,16 +37,42 @@ var (
 	agentMemoryProjectInject bool
 )
 
+// sessionStartEvent is the subset of the SessionStart hook stdin payload we use. The pi extension
+// passes --cwd instead; the Claude hook has no way to, so it supplies cwd on stdin like SessionEnd.
+type sessionStartEvent struct {
+	Cwd string `json:"cwd"`
+}
+
 func init() {
 	agentMemoryProjectCmd.Flags().StringVar(&agentMemoryProjectCwd, "cwd", "", "")
 	agentMemoryProjectCmd.Flags().BoolVar(&agentMemoryProjectInject, "inject", false, "")
 	rootCmd.AddCommand(agentMemoryProjectCmd)
 }
 
+// resolveProjectCwd picks the cwd to project. The pi extension passes --cwd; the Claude SessionStart
+// hook has no way to, so it supplies cwd on stdin exactly like SessionEnd does for agent-memory-hook.
+// stdin is only read on the --inject path: the pi path always passes the flag, and reading a
+// terminal's stdin there would hang the session start we are supposed to be speeding along.
+func resolveProjectCwd(flagCwd string, inject bool, stdin io.Reader) string {
+	if flagCwd != "" || !inject {
+		return flagCwd
+	}
+	raw, err := io.ReadAll(stdin)
+	if err != nil {
+		return ""
+	}
+	var ev sessionStartEvent
+	if json.Unmarshal(raw, &ev) != nil {
+		return ""
+	}
+	return ev.Cwd
+}
+
 // agentMemoryProjectRun always returns nil on setup failure: outside WaveTerm there is no server
 // to talk to, and a failed projection must never break the agent's turn.
 func agentMemoryProjectRun(cmd *cobra.Command, args []string) error {
-	if agentMemoryProjectCwd == "" {
+	cwd := resolveProjectCwd(agentMemoryProjectCwd, agentMemoryProjectInject, os.Stdin)
+	if cwd == "" {
 		return nil
 	}
 	jwt := os.Getenv(wshutil.WaveJwtTokenVarName)
@@ -56,9 +83,9 @@ func agentMemoryProjectRun(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 	if !agentMemoryProjectInject {
-		return wshclient.MemoryProjectCommand(RpcClient, wshrpc.CommandMemoryProjectData{Cwd: agentMemoryProjectCwd}, &wshrpc.RpcOpts{Timeout: 15000})
+		return wshclient.MemoryProjectCommand(RpcClient, wshrpc.CommandMemoryProjectData{Cwd: cwd}, &wshrpc.RpcOpts{Timeout: 15000})
 	}
-	manifest, err := wshclient.MemoryProjectManifestCommand(RpcClient, wshrpc.CommandMemoryProjectData{Cwd: agentMemoryProjectCwd}, &wshrpc.RpcOpts{Timeout: 15000})
+	manifest, err := wshclient.MemoryProjectManifestCommand(RpcClient, wshrpc.CommandMemoryProjectData{Cwd: cwd}, &wshrpc.RpcOpts{Timeout: 15000})
 	if err != nil || strings.TrimSpace(manifest) == "" {
 		return nil // fail-safe: a memory failure must never degrade session start
 	}
