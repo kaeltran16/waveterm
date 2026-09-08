@@ -207,7 +207,7 @@ func EffortSummaryOf(e *waveobj.Effort) wshrpc.EffortSummary {
 	}
 	for _, c := range e.Chunks {
 		s.Chunks = append(s.Chunks, wshrpc.EffortChunkSummary{
-			Label: c.Label, Status: c.Status, Owner: c.Owner, WorkRefs: c.WorkRefs,
+			Label: c.Label, Status: c.Status, Stage: c.Stage, Owner: c.Owner, WorkRefs: c.WorkRefs,
 		})
 		if c.Status == "done" {
 			s.Done++

@@ -5,7 +5,9 @@ import {
     effortDeltaRow,
     effortStatusLines,
     effortTone,
+    groupChunksByStage,
     partitionEfforts,
+    stageOptions,
 } from "./effortmodel";
 
 const base = {
@@ -164,5 +166,74 @@ describe("partitionEfforts", () => {
     it("projects each row through buildEffortCard", () => {
         const p = partitionEfforts([of("effort:a", "active")]);
         expect(p.active[0].countLine).toBe("2 of 7 · 1 skipped · active: Phase 3");
+    });
+});
+
+describe("groupChunksByStage", () => {
+    const row = (stage: string, status: string, label: string) => ({ stage, status, label });
+
+    it("groups consecutive chunks that share a stage", () => {
+        const groups = groupChunksByStage([
+            row("Evidence pipeline", "done", "S1"),
+            row("Evidence pipeline", "active", "S2"),
+            row("S6 weak-signal rollout", "done", "S6-P0"),
+            row("S6 weak-signal rollout", "pending", "S6-P1"),
+        ]);
+        expect(groups.map((g) => [g.stage, g.rows.length])).toEqual([
+            ["Evidence pipeline", 2],
+            ["S6 weak-signal rollout", 2],
+        ]);
+    });
+
+    it("keeps unstaged chunks in their own unlabelled run", () => {
+        const groups = groupChunksByStage([
+            row("", "done", "a"),
+            row("Rollout", "active", "b"),
+            row("", "pending", "c"),
+        ]);
+        expect(groups.map((g) => g.stage)).toEqual(["", "Rollout", ""]);
+    });
+
+    // chunk order is the plan's order; a global group-by would silently reorder it.
+    it("reprints a stage header rather than gathering scattered chunks", () => {
+        const groups = groupChunksByStage([row("A", "done", "1"), row("B", "active", "2"), row("A", "pending", "3")]);
+        expect(groups.map((g) => g.stage)).toEqual(["A", "B", "A"]);
+        expect(groups.flatMap((g) => g.rows.map((r) => r.label))).toEqual(["1", "2", "3"]);
+    });
+
+    it("counts done over the non-skipped denominator", () => {
+        const groups = groupChunksByStage([
+            row("A", "done", "1"),
+            row("A", "skipped", "2"),
+            row("A", "pending", "3"),
+            row("A", "blocked", "4"),
+        ]);
+        expect(groups[0].fraction).toBe("1 of 3");
+    });
+
+    it("reads an all-skipped stage as finished, not stuck", () => {
+        expect(groupChunksByStage([row("A", "skipped", "1"), row("A", "skipped", "2")])[0].fraction).toBe(
+            "all skipped"
+        );
+    });
+
+    it("returns no groups for no chunks", () => {
+        expect(groupChunksByStage([])).toEqual([]);
+    });
+});
+
+describe("stageOptions", () => {
+    it("lists each stage once, in first-seen order", () => {
+        expect(
+            stageOptions([{ stage: "Rollout" }, { stage: "Evidence" }, { stage: "Rollout" }, { stage: "Keying" }])
+        ).toEqual(["Rollout", "Evidence", "Keying"]);
+    });
+
+    it("omits unstaged chunks so the picker never offers a blank", () => {
+        expect(stageOptions([{ stage: "" }, { stage: "Rollout" }, { stage: "" }])).toEqual(["Rollout"]);
+    });
+
+    it("has nothing to offer on an effort with no stages", () => {
+        expect(stageOptions([{ stage: "" }, { stage: "" }])).toEqual([]);
     });
 });

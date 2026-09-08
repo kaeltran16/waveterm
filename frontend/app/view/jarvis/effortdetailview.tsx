@@ -9,8 +9,8 @@ import { formatAge } from "@/app/view/agents/agentsviewmodel";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect, useState } from "react";
-import { Mark } from "./effortcard";
-import { buildEffortCard, CHUNK_CHIP_CLASSES } from "./effortmodel";
+import { Mark, REVEAL_ON_HOVER, StageHeader, StageTag } from "./effortcard";
+import { buildEffortCard, CHUNK_CHIP_CLASSES, groupChunksByStage, stageOptions } from "./effortmodel";
 import {
     addChunkOp,
     advanceChunk,
@@ -20,6 +20,8 @@ import {
     effortSummaryOf,
     loadEffortDetail,
     reopenChunk,
+    setChunkStage,
+    type ChunkRowModel,
 } from "./effortstore";
 import { activeSubjectAtom } from "./jarvissubjectstore";
 import { ProgressBar } from "./progressbar";
@@ -38,6 +40,80 @@ function workrefLabel(ref: ChunkWorkRef, agents: { id: string; name: string }[])
         return name != null ? `${name} working here` : ref.oref;
     }
     return ref.oref;
+}
+
+// The full-record row: no truncation pressure here, so unlike the card's row it keeps the spelled-out
+// status chip alongside the mark.
+function ChunkDetailRow({
+    row,
+    agents,
+    divider,
+    options,
+    onReopen,
+    onStage,
+}: {
+    row: ChunkRowModel;
+    agents: { id: string; name: string }[];
+    divider: boolean;
+    options: string[];
+    onReopen: () => void;
+    onStage: (stage: string) => void;
+}) {
+    return (
+        <div
+            className={cn(
+                "group flex flex-col gap-0.5 rounded-[8px] px-2.5 py-2",
+                divider && "border-t border-edge-faint"
+            )}
+        >
+            <div className="flex items-center gap-2.5">
+                <Mark tone={row.tone} />
+                <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-primary">{row.label}</span>
+                <StageTag stage={row.stage} options={options} onCommit={onStage} />
+                {row.status === "done" ? (
+                    <button
+                        type="button"
+                        onClick={onReopen}
+                        className={cn(
+                            "cursor-pointer rounded-[4px] border border-border px-1.5 py-[1px] font-mono text-[9px] text-muted hover:text-primary",
+                            REVEAL_ON_HOVER
+                        )}
+                    >
+                        reopen
+                    </button>
+                ) : null}
+                <span
+                    className={cn(
+                        "flex-none rounded-[4px] px-[5px] py-[1px] font-mono text-[9px] font-semibold uppercase",
+                        CHUNK_CHIP_CLASSES[row.tone]
+                    )}
+                >
+                    {row.status}
+                </span>
+            </div>
+            {row.owner != null ? (
+                <span className="pl-[22px] font-mono text-[10px] text-muted">owner: {row.owner}</span>
+            ) : null}
+            {row.workrefs.length > 0 ? (
+                <span className="flex flex-col pl-[22px]">
+                    {row.workrefs.map((w) => (
+                        <span key={w.oref} title={w.oref} className="font-mono text-[10px] text-accent-soft">
+                            {workrefLabel(w, agents)} · {formatAge(Date.now() - w.ts)}
+                        </span>
+                    ))}
+                </span>
+            ) : null}
+            {row.trail.length > 0 ? (
+                <span className="flex flex-col gap-0.5 pl-[22px]">
+                    {row.trail.map((n, j) => (
+                        <span key={j} className="font-mono text-[10.5px] text-muted">
+                            {fmtDay(n.ts)} {n.text}
+                        </span>
+                    ))}
+                </span>
+            ) : null}
+        </div>
+    );
 }
 
 export function EffortDetailView({ model }: { model: AgentsViewModel }) {
@@ -89,6 +165,7 @@ export function EffortDetailView({ model }: { model: AgentsViewModel }) {
 
     const card = effort != null ? buildEffortCard(effortSummaryOf(effort)) : null;
     const rows = effort != null ? effortChunkRows(effort) : [];
+    const options = stageOptions(rows);
 
     const submitChunk = (): void => {
         const label = chunkDraft.trim();
@@ -162,66 +239,46 @@ export function EffortDetailView({ model }: { model: AgentsViewModel }) {
                             <ProgressBar pct={card.progressPct} className="mt-2" />
                         </div>
                         <div className="flex flex-col">
-                            {rows.map((r, i) => (
-                                <div
-                                    key={r.label}
-                                    className={cn(
-                                        "group flex flex-col gap-0.5 rounded-[8px] px-2.5 py-2",
-                                        i > 0 && "border-t border-edge-faint"
-                                    )}
-                                >
-                                    <div className="flex items-center gap-2.5">
-                                        <Mark tone={r.tone} />
-                                        <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-primary">
-                                            {r.label}
-                                        </span>
-                                        {r.status === "done" ? (
-                                            <button
-                                                type="button"
-                                                onClick={() =>
-                                                    void runMutation(() => reopenChunk("effort:" + effort.oid, r.label))
-                                                }
-                                                className="hidden cursor-pointer rounded-[4px] border border-border px-1.5 py-[1px] font-mono text-[9px] text-muted group-hover:block hover:text-primary"
-                                            >
-                                                reopen
-                                            </button>
-                                        ) : null}
-                                        <span
-                                            className={cn(
-                                                "flex-none rounded-[4px] px-[5px] py-[1px] font-mono text-[9px] font-semibold uppercase",
-                                                CHUNK_CHIP_CLASSES[r.tone]
-                                            )}
-                                        >
-                                            {r.status}
-                                        </span>
-                                    </div>
-                                    {r.owner != null ? (
-                                        <span className="pl-[22px] font-mono text-[10px] text-muted">
-                                            owner: {r.owner}
-                                        </span>
-                                    ) : null}
-                                    {r.workrefs.length > 0 ? (
-                                        <span className="flex flex-col pl-[22px]">
-                                            {r.workrefs.map((w) => (
-                                                <span
-                                                    key={w.oref}
-                                                    title={w.oref}
-                                                    className="font-mono text-[10px] text-accent-soft"
-                                                >
-                                                    {workrefLabel(w, agents)} · {formatAge(Date.now() - w.ts)}
-                                                </span>
-                                            ))}
-                                        </span>
-                                    ) : null}
-                                    {r.trail.length > 0 ? (
-                                        <span className="flex flex-col gap-0.5 pl-[22px]">
-                                            {r.trail.map((n, j) => (
-                                                <span key={j} className="font-mono text-[10.5px] text-muted">
-                                                    {fmtDay(n.ts)} {n.text}
-                                                </span>
-                                            ))}
-                                        </span>
-                                    ) : null}
+                            {groupChunksByStage(rows).map((g, gi) => (
+                                <div key={g.stage + ":" + gi} className="flex flex-col">
+                                    {/* every run gets a header: an unstaged one renders as "+ stage",
+                                        which both separates it and is the way to name it. */}
+                                    <StageHeader
+                                        stage={g.stage}
+                                        fraction={g.fraction}
+                                        options={options}
+                                        onCommit={(next) =>
+                                            void runMutation(() =>
+                                                setChunkStage(
+                                                    "effort:" + effort.oid,
+                                                    g.rows.map((r) => r.label),
+                                                    next
+                                                )
+                                            )
+                                        }
+                                    />
+                                    {g.rows.map((r, i) => (
+                                        <ChunkDetailRow
+                                            key={r.label}
+                                            row={r}
+                                            agents={agents}
+                                            divider={i > 0}
+                                            options={options}
+                                            onReopen={() =>
+                                                void runMutation(() => reopenChunk("effort:" + effort.oid, r.label))
+                                            }
+                                            // the run tail: this chunk down to the next stage boundary
+                                            onStage={(next) =>
+                                                void runMutation(() =>
+                                                    setChunkStage(
+                                                        "effort:" + effort.oid,
+                                                        g.rows.slice(i).map((x) => x.label),
+                                                        next
+                                                    )
+                                                )
+                                            }
+                                        />
+                                    ))}
                                 </div>
                             ))}
                         </div>

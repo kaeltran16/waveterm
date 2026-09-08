@@ -72,7 +72,7 @@ type CommandEffortDeleteData struct {
 // EffortOp is one typed mutation. Op selects the behavior; the remaining fields are the op's
 // arguments (validation picks which are required per op).
 type EffortOp struct {
-	Op        string `json:"op"`                  // rename | setProject | setTicket | setStatus | unarchive | link | addChunk | removeChunk | renameChunk | moveChunk | setChunkStatus | appendNote | setOwner | advance | reopen
+	Op        string `json:"op"`                  // rename | setProject | setTicket | setStatus | unarchive | link | addChunk | removeChunk | renameChunk | moveChunk | setChunkStatus | setChunkStage | appendNote | setOwner | advance | reopen
 	Title     string `json:"title,omitempty"`     // rename
 	Project   string `json:"project,omitempty"`   // setProject ("" clears)
 	Ticket    string `json:"ticket,omitempty"`    // setTicket ("" clears)
@@ -82,6 +82,7 @@ type EffortOp struct {
 	Label     string `json:"label,omitempty"`     // addChunk label / renameChunk new label
 	At        *int   `json:"at,omitempty"`        // addChunk insert position / moveChunk target (1-based)
 	Owner     string `json:"owner,omitempty"`     // addChunk / setOwner ("" clears)
+	Stage     string `json:"stage,omitempty"`     // addChunk / setChunkStage ("" clears)
 	Note      string `json:"note,omitempty"`      // appendNote text; also honored by setChunkStatus/advance/reopen as extra text
 	Kind      string `json:"kind,omitempty"`      // attachWork: "run" | "agent"
 	ORef      string `json:"oref,omitempty"`      // attachWork/detachWork: "run:<oid>" | "agent:<tabid>"
@@ -103,8 +104,9 @@ type EffortSummary struct {
 }
 
 type EffortChunkSummary struct {
-	Label    string                `json:"label"`
-	Status   string                `json:"status"`
-	Owner    string                `json:"owner,omitempty"`
+	Label    string                 `json:"label"`
+	Status   string                 `json:"status"`
+	Stage    string                 `json:"stage,omitempty"`
+	Owner    string                 `json:"owner,omitempty"`
 	WorkRefs []waveobj.ChunkWorkRef `json:"workrefs,omitempty"`
 }

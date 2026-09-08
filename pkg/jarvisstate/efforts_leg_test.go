@@ -67,3 +67,15 @@ func TestDeltaSkipsArchivedEffortEvents(t *testing.T) {
 		t.Fatalf("archived events leaked: %+v", evs)
 	}
 }
+
+func TestEffortSummaryCarriesStage(t *testing.T) {
+	e := &waveobj.Effort{Title: "t", Status: "active",
+		Chunks: []waveobj.EffortChunk{
+			{Label: "c1", Status: "done", Stage: "Evidence pipeline"},
+			{Label: "c2", Status: "active"},
+		}}
+	s := EffortSummaryOf(e)
+	if len(s.Chunks) != 2 || s.Chunks[0].Stage != "Evidence pipeline" || s.Chunks[1].Stage != "" {
+		t.Fatalf("chunks: %+v", s.Chunks)
+	}
+}

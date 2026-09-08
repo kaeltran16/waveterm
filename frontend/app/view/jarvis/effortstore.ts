@@ -19,6 +19,7 @@ export const effortDetailErrorAtom = atom<Map<string, string>>(new Map()) as Pri
 export type ChunkRowModel = {
     label: string;
     status: string;
+    stage: string;
     tone: ChunkTone;
     latestNote?: string;
     trail: EffortNote[];
@@ -33,6 +34,7 @@ export function effortChunkRows(effort: Effort): ChunkRowModel[] {
         return {
             label: c.label,
             status: c.status,
+            stage: c.stage ?? "",
             tone: chunkTone(c.status),
             latestNote: trail.length > 0 ? trail[trail.length - 1].text : undefined,
             trail,
@@ -55,7 +57,7 @@ export function effortSummaryOf(effort: Effort): EffortSummary {
         ticket: effort.ticket,
         status: effort.status,
         parentoid: effort.parentoid,
-        chunks: effort.chunks.map((c) => ({ label: c.label, status: c.status, owner: c.owner })),
+        chunks: effort.chunks.map((c) => ({ label: c.label, status: c.status, stage: c.stage, owner: c.owner })),
         done: effort.chunks.filter((c) => c.status === "done").length,
         total: effort.chunks.length,
         activechunk: active,
@@ -130,6 +132,15 @@ export async function reopenChunk(oref: string, chunk: string): Promise<void> {
 }
 export async function addChunkOp(oref: string, label: string): Promise<void> {
     await mutateEffort(oref, [{ op: "addChunk", label }]);
+}
+
+// One batch, so re-staging a whole run is atomic: the server validates every op before applying any,
+// and a run half-renamed would split into two groups on screen. Passing "" clears the stage.
+export async function setChunkStage(oref: string, chunks: string[], stage: string): Promise<void> {
+    await mutateEffort(
+        oref,
+        chunks.map((chunk) => ({ op: "setChunkStage", chunk, stage }))
+    );
 }
 export async function appendChunkNote(oref: string, chunk: string | null, text: string): Promise<void> {
     await mutateEffort(oref, [{ op: "appendNote", chunk: chunk ?? undefined, note: text }]);

@@ -76,6 +76,48 @@ export function buildEffortCard(e: EffortSummary): EffortCardModel {
     };
 }
 
+// A stage is a label on chunks, not a container: grouping is by CONSECUTIVE run, never a global
+// group-by. Chunk order is the plan's order, so gathering scattered same-stage chunks would silently
+// reorder the plan; a stage that reappears later simply prints its header again. Chunks with no
+// stage form their own unlabelled runs and render without a header.
+export type StageGroup<T> = { stage: string; rows: T[]; fraction: string };
+
+// the card's rule, kept: skipped chunks shrink the denominator, so a stage finished by skipping
+// reads as finished rather than stuck.
+function stageFraction(rows: { status: string }[]): string {
+    const skipped = rows.filter((r) => r.status === "skipped").length;
+    if (skipped === rows.length) {
+        return "all skipped";
+    }
+    return `${rows.filter((r) => r.status === "done").length} of ${rows.length - skipped}`;
+}
+
+export function groupChunksByStage<T extends { stage: string; status: string }>(rows: T[]): StageGroup<T>[] {
+    const groups: StageGroup<T>[] = [];
+    for (const row of rows) {
+        const last = groups[groups.length - 1];
+        if (last != null && last.stage === row.stage) {
+            last.rows.push(row);
+            continue;
+        }
+        groups.push({ stage: row.stage, rows: [row], fraction: "" });
+    }
+    return groups.map((g) => ({ ...g, fraction: stageFraction(g.rows) }));
+}
+
+// The datalist behind every stage editor: the stages already on this effort, in first-seen order.
+// Assigning a chunk to an existing stage is then a pick rather than a retype — which matters because
+// a typo does not error, it silently starts a second run under a near-identical name.
+export function stageOptions(rows: { stage: string }[]): string[] {
+    const seen: string[] = [];
+    for (const row of rows) {
+        if (row.stage !== "" && !seen.includes(row.stage)) {
+            seen.push(row.stage);
+        }
+    }
+    return seen;
+}
+
 const EFFORT_DELTA_KINDS = new Set(["effort-created", "chunk-done", "chunk-added", "chunk-status", "effort-status", "effort-note"]);
 
 // delta rows carry Title = effort title, Detail = "<label> · <stamp>" (Task 1 fold); the param is

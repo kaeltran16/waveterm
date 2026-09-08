@@ -142,7 +142,7 @@ func ApplyEffortOps(e *waveobj.Effort, ops []wshrpc.EffortOp, cmdNote string, no
 			if len(e.Chunks) == 1 {
 				return fmt.Errorf("EC-LAST-CHUNK: cannot remove the last chunk")
 			}
-		case "renameChunk", "moveChunk", "setChunkStatus", "setOwner":
+		case "renameChunk", "moveChunk", "setChunkStatus", "setChunkStage", "setOwner":
 			if _, err := ResolveChunkIndex(e, op.Chunk); err != nil {
 				return err
 			}
@@ -250,7 +250,7 @@ func ApplyEffortOps(e *waveobj.Effort, ops []wshrpc.EffortOp, cmdNote string, no
 			if op.At != nil {
 				idx = *op.At - 1
 			}
-			c := waveobj.EffortChunk{Label: op.Label, Status: "pending", Owner: op.Owner, UpdatedTs: now}
+			c := waveobj.EffortChunk{Label: op.Label, Status: "pending", Stage: strings.TrimSpace(op.Stage), Owner: op.Owner, UpdatedTs: now}
 			e.Chunks = append(e.Chunks[:idx], append([]waveobj.EffortChunk{c}, e.Chunks[idx:]...)...)
 			effortNote(e, "chunk added: "+op.Label+noteSuffix(cmdNote), now)
 			effortEvent(e, "chunk-added", op.Label, "", now)
@@ -287,6 +287,12 @@ func ApplyEffortOps(e *waveobj.Effort, ops []wshrpc.EffortOp, cmdNote string, no
 			idx, _ := ResolveChunkIndex(e, op.Chunk)
 			chunkNote(e, idx, note, now)
 			effortEvent(e, "effort-note", op.Chunk, note, now)
+		case "setChunkStage":
+			// trail-only, like rename/move/owner: a stage is a grouping label, so changing it moves
+			// nothing and completes nothing. The delta stays "what changed that matters".
+			idx, _ := ResolveChunkIndex(e, op.Chunk)
+			e.Chunks[idx].Stage = strings.TrimSpace(op.Stage)
+			chunkNote(e, idx, "stage set to "+orNone(e.Chunks[idx].Stage), now)
 		case "setOwner":
 			idx, _ := ResolveChunkIndex(e, op.Chunk)
 			e.Chunks[idx].Owner = op.Owner
