@@ -6,6 +6,9 @@ package memvault
 import (
 	"os"
 	"path/filepath"
+	"strings"
+
+	"github.com/wavetermdev/waveterm/pkg/memroots"
 )
 
 // vaultBackedHashes is every fact body the vault can still produce: active notes plus the archive.
@@ -28,6 +31,7 @@ func vaultBackedHashes(vaultDir string) map[string]bool {
 // place: a fact that exists nowhere else must not be destroyed by a namespace cleanup.
 func evictExportedNotes(hubDir, sharedDir string, backed map[string]bool) (int, int, error) {
 	moved, kept := 0, 0
+	var movedNames []string
 	for _, nw := range readHubNotes(hubDir) {
 		if nw.Note.Source == "" || nw.Note.Source == "claude" {
 			continue // authored by the memory tool; not ours to move
@@ -39,13 +43,42 @@ func evictExportedNotes(hubDir, sharedDir string, backed map[string]bool) (int, 
 		if err := os.MkdirAll(sharedDir, 0o755); err != nil {
 			return moved, kept, err
 		}
-		dst := filepath.Join(sharedDir, filepath.Base(nw.Note.Path))
-		if err := os.Rename(nw.Note.Path, dst); err != nil {
+		base := filepath.Base(nw.Note.Path)
+		if err := os.Rename(nw.Note.Path, filepath.Join(sharedDir, base)); err != nil {
 			return moved, kept, err
 		}
+		movedNames = append(movedNames, base)
 		moved++
 	}
+	if err := repointIndexLinks(hubDir, movedNames); err != nil {
+		return moved, kept, err
+	}
 	return moved, kept, nil
+}
+
+// repointIndexLinks rewrites the hub index's links for notes we just moved to shared/. The memory
+// tool hand-maintains MEMORY.md and has no idea a file left the directory, so a silent rename turns
+// its entry into a dead link -- which is the same class of bug the shared/ split was meant to end.
+// shared/ is a sibling of the hub, so the target is one level up. Missing index is a no-op.
+func repointIndexLinks(hubDir string, movedNames []string) error {
+	if hubDir == "" || len(movedNames) == 0 {
+		return nil
+	}
+	indexPath := filepath.Join(hubDir, memroots.IndexFile)
+	data, err := os.ReadFile(indexPath)
+	if err != nil {
+		return nil // no index to maintain
+	}
+	out := string(data)
+	for _, base := range movedNames {
+		// an already-repointed link reads "](../shared/x.md)" and no longer matches "](x.md)",
+		// so re-running over the same index is a no-op
+		out = strings.ReplaceAll(out, "]("+base+")", "](../shared/"+base+")")
+	}
+	if out == string(data) {
+		return nil
+	}
+	return os.WriteFile(indexPath, []byte(out), 0o644)
 }
 
 // EvictExportedHubNotes clears Arc's own output out of cwd's Claude memory hub. Called from Project
