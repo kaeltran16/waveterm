@@ -64,6 +64,13 @@ export function openDagLive(channelId: string, runId: string, dagOref: string): 
     dispatchDagModal({ type: "open-live", channelId, runId, dagOref });
 }
 
+// openDagTask opens the live DAG with one task already selected — the attention queue's "take me to
+// it". Selection is set after the open because opening resets it.
+export function openDagTask(channelId: string, runId: string, dagOref: string, taskId: string): void {
+    openDagLive(channelId, runId, dagOref);
+    globalStore.set(selectedTaskIdAtom, taskId);
+}
+
 export function closeDagModal(): void {
     resetSelection();
     dispatchDagModal({ type: "close" });
