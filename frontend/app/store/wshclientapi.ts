@@ -48,10 +48,22 @@ export class RpcApiType {
         return client.wshRpcCall("agentsyncapply", data, opts);
     }
 
-    // command "agentsyncprojection" [call]
-    AgentSyncProjectionCommand(client: WshClient, data: CommandAgentSyncProjectionData, opts?: RpcOpts): Promise<CommandAgentSyncProjectionRtnData> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "agentsyncprojection", data, opts);
-        return client.wshRpcCall("agentsyncprojection", data, opts);
+    // command "agentsyncfold" [call]
+    AgentSyncFoldCommand(client: WshClient, data: CommandAgentSyncFoldData, opts?: RpcOpts): Promise<CommandAgentSyncFoldRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "agentsyncfold", data, opts);
+        return client.wshRpcCall("agentsyncfold", data, opts);
+    }
+
+    // command "agentsyncharnessread" [call]
+    AgentSyncHarnessReadCommand(client: WshClient, data: CommandAgentSyncHarnessReadData, opts?: RpcOpts): Promise<CommandAgentSyncHarnessReadRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "agentsyncharnessread", data, opts);
+        return client.wshRpcCall("agentsyncharnessread", data, opts);
+    }
+
+    // command "agentsyncharnesswrite" [call]
+    AgentSyncHarnessWriteCommand(client: WshClient, data: CommandAgentSyncHarnessWriteData, opts?: RpcOpts): Promise<CommandAgentSyncHarnessWriteRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "agentsyncharnesswrite", data, opts);
+        return client.wshRpcCall("agentsyncharnesswrite", data, opts);
     }
 
     // command "agentsyncskills" [call]

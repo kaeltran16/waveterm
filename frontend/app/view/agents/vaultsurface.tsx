@@ -89,8 +89,8 @@ function Footer() {
         (tab === "memory"
             ? `${notes.length} notes · ${prune.length} to clean up · ${archived.length} archived`
             : tab === "steering"
-              ? `canonical steering · ${present} harness${present === 1 ? "" : "es"} installed`
-              : `${skills.length} canonical skills · ${harnesses.reduce((n, h) => n + h.skillsconflict, 0)} conflict`);
+              ? `shared steering · ${present} harness${present === 1 ? "" : "es"} installed`
+              : `${skills.length} skills · ${harnesses.reduce((n, h) => n + h.skillsunmanaged, 0)} unmanaged`);
     return (
         <div className="flex flex-none items-center gap-[12px] border-t border-edge-faint px-[24px] py-[7px] font-mono text-[10.5px] text-ink-faint">
             <span className="truncate">{left}</span>
@@ -157,8 +157,8 @@ export function VaultSurface({ model }: { model: AgentsViewModel }) {
         tab === "memory"
             ? `${notes.length} saved · ${pending.length} pending review`
             : tab === "steering"
-              ? "one canonical doc, projected into every installed harness"
-              : `${skills.length} canonical skills, linked outward`;
+              ? "one shared doc, plus what each harness holds of its own"
+              : `${skills.length} skills, written into every harness`;
 
     return (
         <MotionConfig reducedMotion="user">

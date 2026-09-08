@@ -53,9 +53,46 @@ func blockBefore(existing string) string {
 	return existing[:cut]
 }
 
+// memoryRegion is the ARC-MEMORY projection and everything after it. It belongs to pkg/memvault, not
+// to this package — the Steering tab shows it folded and read-only so a harness file reads as a whole
+// file rather than as the one zone Arc happens to own. Empty when the file carries no memory region.
+func memoryRegion(existing string) string {
+	if idx := strings.Index(existing, memoryBeginMarker); idx >= 0 {
+		return existing[idx:]
+	}
+	return ""
+}
+
+// steeringState reports the harness's region against the shared doc: current when a re-render would
+// change nothing, stale when it would, absent when there is no region to compare. Shared by Status
+// and ReadHarness so a harness row and its open document can never disagree.
+func steeringState(existing, shared string) string {
+	if !strings.Contains(existing, steeringBegin) || strings.TrimSpace(shared) == "" {
+		return "absent"
+	}
+	if applyRegion(existing, shared) == existing {
+		return "current"
+	}
+	return "stale"
+}
+
+// joinOwn puts a harness's own block back in front of its managed regions, with exactly one blank
+// line between them and no stray trailing blank when either side is empty.
+func joinOwn(own, tail string) string {
+	own = strings.TrimRight(own, "\n")
+	tail = strings.TrimLeft(tail, "\n")
+	switch {
+	case own == "":
+		return tail
+	case tail == "":
+		return own + "\n"
+	}
+	return own + "\n\n" + tail
+}
+
 // regionBody is the managed text inside the ARC-STEERING markers, or "" when the file carries no
-// complete region. The inverse of renderRegion, so a projection preview shows exactly what Arc owns
-// and nothing the user wrote around it.
+// complete region. The inverse of renderRegion, so the shared zone shows exactly what Arc owns and
+// nothing the user wrote around it.
 func regionBody(existing string) string {
 	start := strings.Index(existing, steeringBegin)
 	if start < 0 {
@@ -67,4 +104,25 @@ func regionBody(existing string) string {
 		return ""
 	}
 	return strings.Trim(rest[:end], "\n")
+}
+
+// carriedLines returns block's lines that are absent from shared, compared as a trimmed set so
+// reordering and whitespace never register as a difference. It is what a fold moves and what the
+// harness rows count as "rules of its own".
+func carriedLines(block, shared string) []string {
+	have := map[string]bool{}
+	for _, l := range strings.Split(shared, "\n") {
+		have[strings.TrimSpace(l)] = true
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, l := range strings.Split(block, "\n") {
+		t := strings.TrimSpace(l)
+		if t == "" || have[t] || seen[t] {
+			continue
+		}
+		seen[t] = true
+		out = append(out, t)
+	}
+	return out
 }

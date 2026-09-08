@@ -37,6 +37,7 @@ import {
     adoptSkills,
     applySync,
     closePlan,
+    foldIntoShared,
     noteTally,
     selectDocTab,
     vaultCursorAtom,
@@ -77,17 +78,16 @@ function MetaRow({ label, value, title }: { label: string; value: string; title?
 
 const PLAN_TONE: Record<string, string> = {
     "steering-write": "text-accent-soft",
-    "link-create": "text-accent-soft",
-    "link-retarget": "text-accent-soft",
-    "link-remove": "text-ink-mid",
-    "skill-conflict": "text-error",
+    "skill-write": "text-accent-soft",
+    "skill-remove": "text-ink-mid",
+    "skill-unmanaged": "text-warning",
 };
 
 function PlanCard() {
     const plan = useAtomValue(vaultPlanAtom);
     const busy = useAtomValue(vaultSyncBusyAtom);
     if (!plan) return null;
-    const conflicts = plan.filter((a) => a.kind === "skill-conflict").length;
+    const conflicts = plan.filter((a) => a.kind === "skill-unmanaged").length;
     const writes = plan.length - conflicts;
     return (
         <div className="overflow-hidden rounded-[9px] border border-accent/40 bg-surface-raised">
@@ -120,7 +120,7 @@ function PlanCard() {
             <div className="flex items-center gap-[8px] border-t border-edge-faint px-[12px] py-[10px]">
                 <span className="text-[10.5px] text-ink-mid">
                     {conflicts > 0
-                        ? `${conflicts} conflict${conflicts === 1 ? "" : "s"} stay unlinked until adopted.`
+                        ? `${conflicts} director${conflicts === 1 ? "y" : "ies"} you maintain stay untouched until adopted.`
                         : "Nothing blocked."}
                 </span>
                 <div className="flex-1" />
@@ -399,15 +399,24 @@ const HARNESS_TONE: Record<string, { dot: string; text: string }> = {
     absent: { dot: "bg-muted", text: "text-muted" },
 };
 
+const HARNESS_LABEL: Record<string, string> = {
+    current: "in sync",
+    stale: "out of date",
+    absent: "not written",
+};
+
 function HarnessMode() {
     const harnesses = useAtomValue(vaultHarnessesAtom);
     const docTab = useAtomValue(vaultDocTabAtom);
-    const current = harnesses.filter((h) => h.present && h.steering === "current").length;
+    const busy = useAtomValue(vaultSyncBusyAtom);
+    const present = harnesses.filter((h) => h.present);
+    const current = present.filter((h) => h.steering === "current").length;
+    const withOwn = present.filter((h) => h.own);
     return (
         <div className="flex flex-col gap-[18px]">
             <div className="flex flex-col gap-[8px]">
                 <SectionHead>
-                    Steering · {current} of {harnesses.length} current
+                    Shared doc · {current} of {present.length} in sync
                 </SectionHead>
                 {harnesses.map((h) => {
                     const state = h.present ? h.steering : "absent";
@@ -416,12 +425,14 @@ function HarnessMode() {
                         <button
                             key={h.runtime}
                             onClick={() => selectDocTab(h.runtime)}
+                            disabled={!h.present}
                             data-vault-harness-row={h.runtime}
                             className={cn(
                                 "flex w-full items-center gap-[9px] rounded-[9px] border px-[11px] py-[9px] text-left",
                                 docTab === h.runtime
                                     ? "border-accent/40 bg-accent/15"
-                                    : "border-edge-faint bg-background hover:border-edge-strong"
+                                    : "border-edge-faint bg-background hover:border-edge-strong",
+                                !h.present && "opacity-50"
                             )}
                         >
                             <span className={cn("h-[6px] w-[6px] flex-none rounded-full", tone.dot)} />
@@ -429,16 +440,37 @@ function HarnessMode() {
                                 {h.label}
                             </span>
                             <span className={cn("font-mono text-[10px]", tone.text)}>
-                                {h.present ? h.steering : "not installed"}
+                                {h.present ? (HARNESS_LABEL[state] ?? state) : "not installed"}
                             </span>
                         </button>
                     );
                 })}
             </div>
+            {withOwn.length > 0 && (
+                <div className="flex flex-col gap-[8px] rounded-[9px] border border-warning/30 bg-warning/10 px-[12px] py-[11px]">
+                    <span className="text-[11.5px] font-semibold text-warning">
+                        {withOwn.length} harness{withOwn.length === 1 ? "" : "es"} still hold rules of their own
+                    </span>
+                    <span className="text-[11.5px] leading-[1.5] text-ink-mid">
+                        Moving them into the shared doc is what makes them apply everywhere. Nothing is cleared from a
+                        harness before it lands there.
+                    </span>
+                    {withOwn.map((h) => (
+                        <button
+                            key={h.runtime}
+                            onClick={() => fireAndForget(() => foldIntoShared(h.runtime))}
+                            disabled={busy}
+                            className="rounded-[6px] border border-warning/40 py-[6px] text-[11.5px] font-semibold text-warning hover:bg-warning/15 disabled:opacity-40"
+                        >
+                            {busy ? "Moving…" : `Move ${h.label} into Shared`}
+                        </button>
+                    ))}
+                </div>
+            )}
             <div className="flex flex-col">
-                <MetaRow label="Region" value="ARC-STEERING" />
-                <MetaRow label="Direction" value="vault → harness" />
-                <MetaRow label="Skills linked" value={String(harnesses.reduce((n, h) => n + h.skillslinked, 0))} />
+                <MetaRow label="Direction" value="shared → harness" />
+                <MetaRow label="Per-harness" value="edit that harness's tab" />
+                <MetaRow label="Skills managed" value={String(harnesses.reduce((n, h) => n + h.skillsmanaged, 0))} />
             </div>
         </div>
     );
@@ -453,8 +485,10 @@ function SkillMode() {
     const root = useAtomValue(vaultSkillsRootAtom);
     const busy = useAtomValue(vaultSyncBusyAtom);
     const skill = skills.find((s) => s.name === selected);
-    if (!skill) return <div className="text-[12.5px] text-ink-mid">Select a skill to see where it is linked.</div>;
-    const conflicts = columns.filter((c) => skill.states?.[c.runtime] === "conflict");
+    if (!skill) return <div className="text-[12.5px] text-ink-mid">Select a skill to see where it goes.</div>;
+    const unmanaged = columns.filter((c) => skill.states?.[c.runtime] === "unmanaged");
+    const deltas = Object.entries(skill.deltas ?? {});
+    const labelFor = (runtime: string) => columns.find((c) => c.runtime === runtime)?.label ?? runtime;
     return (
         <div className="flex flex-col gap-[18px]">
             <div className="flex flex-col gap-[9px]">
@@ -464,14 +498,32 @@ function SkillMode() {
                     {root}/{skill.name}/SKILL.md
                 </span>
             </div>
-            {conflicts.length > 0 ? (
-                <div className="flex flex-col gap-[8px] rounded-[9px] border border-error/30 bg-error/10 px-[12px] py-[11px]">
-                    <span className="text-[11.5px] font-semibold text-error">
-                        {conflicts.map((c) => c.label).join(", ")} has a real directory here
+            {/* the whole reason junctions were dropped: one skill, different in one place per harness */}
+            {deltas.length > 0 && (
+                <div className="flex flex-col gap-[8px]">
+                    <SectionHead>Per-harness differences</SectionHead>
+                    {deltas.map(([runtime, items]) => (
+                        <div
+                            key={runtime}
+                            className="flex flex-col gap-[4px] rounded-[8px] border border-edge-faint bg-background px-[11px] py-[9px]"
+                        >
+                            <span className="font-mono text-[11.5px] font-medium text-ink-hi">{labelFor(runtime)}</span>
+                            <span className="font-mono text-[10.5px] leading-[1.6] text-ink-mid">
+                                {items.join(", ")}
+                            </span>
+                        </div>
+                    ))}
+                </div>
+            )}
+            {unmanaged.length > 0 ? (
+                <div className="flex flex-col gap-[8px] rounded-[9px] border border-warning/30 bg-warning/10 px-[12px] py-[11px]">
+                    <span className="text-[11.5px] font-semibold text-warning">
+                        {unmanaged.map((c) => c.label).join(", ")} keeps its own copy here
                     </span>
                     <span className="text-[11.5px] leading-[1.5] text-ink-mid">
-                        A hand-maintained copy is never overwritten. Adopt folds every such directory into the vault and
-                        replaces it with a link.
+                        A directory you maintain is never overwritten. Adopting folds it into the vault; a copy that
+                        differs only in a frontmatter key or an extra file becomes a per-harness difference rather than
+                        a conflict.
                     </span>
                     <button
                         onClick={() => fireAndForget(adoptSkills)}
@@ -483,7 +535,7 @@ function SkillMode() {
                 </div>
             ) : (
                 <div className="rounded-[9px] border border-edge-faint bg-background px-[12px] py-[11px] text-[11.5px] leading-[1.5] text-ink-mid">
-                    Linked from the vault into every harness that scans a skills directory. Removing it here unlinks it
+                    Written from the vault into every harness that scans a skills directory. Deleting it here removes it
                     everywhere on the next sync.
                 </div>
             )}

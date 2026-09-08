@@ -15,51 +15,279 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const (
+	skillFile = "SKILL.md"
+	// deltaDirName holds one canonical skill's per-harness overrides. Never copied to a harness.
+	deltaDirName = ".arc"
+	// managedMarkName is written into every skill directory Arc renders. Ownership is declared, not
+	// inferred: a directory without it is the user's and is never written or removed.
+	managedMarkName = ".arc-managed"
+)
+
 // ObservedEntry is one entry in a harness's skills directory as it exists on disk.
 type ObservedEntry struct {
-	Name   string
-	IsLink bool
-	Target string // resolved link target; empty when the entry is not a link
+	Name    string
+	Managed bool
 }
 
-// SkillAction is one reconcile step for a single skill name.
-type SkillAction struct {
-	Kind string // create | retarget | remove | conflict
-	Name string
+// ---- frontmatter ----
+
+// fmEntry is one top-level frontmatter key with its full source text, including any indented
+// continuation lines. Keeping the source text rather than a parsed value is what lets a multi-line
+// `description: |` block survive a merge verbatim — re-marshalling it would reflow it.
+type fmEntry struct {
+	key  string
+	text string
 }
 
-// planSkills reconciles one harness's skills directory against the canonical set. A real directory
-// is reported as a conflict and never touched — adoption resolves those. A link that points outside
-// the vault belongs to someone else (a plugin manager, the user) and is left alone entirely.
-// Order is stable: canonical order first, then orphan removals in observed order.
-func planSkills(canonical []string, observed []ObservedEntry, skillsRoot string) []SkillAction {
-	byName := make(map[string]ObservedEntry, len(observed))
-	for _, e := range observed {
-		byName[e.Name] = e
+// splitFrontmatter separates a leading YAML frontmatter block (without its fences) from the rest of
+// the document. ok is false when the file does not open with a fence, so it has none to merge into.
+func splitFrontmatter(data string) (block, rest string, ok bool) {
+	if !strings.HasPrefix(data, "---\n") {
+		return "", data, false
 	}
-	wanted := make(map[string]bool, len(canonical))
-	var out []SkillAction
-	for _, name := range canonical {
-		wanted[name] = true
-		e, present := byName[name]
-		switch {
-		case !present:
-			out = append(out, SkillAction{Kind: "create", Name: name})
-		case !e.IsLink:
-			out = append(out, SkillAction{Kind: "conflict", Name: name})
-		case !sameTarget(e.Target, filepath.Join(skillsRoot, name)):
-			out = append(out, SkillAction{Kind: "retarget", Name: name})
+	end := strings.Index(data[4:], "\n---")
+	if end < 0 {
+		return "", data, false
+	}
+	return data[4 : 4+end+1], strings.TrimPrefix(data[4+end+len("\n---"):], "\n"), true
+}
+
+// linesWithEnds splits into lines that keep their trailing newline, so reassembly is byte-exact.
+func linesWithEnds(s string) []string {
+	var out []string
+	for len(s) > 0 {
+		i := strings.IndexByte(s, '\n')
+		if i < 0 {
+			out = append(out, s)
+			break
 		}
+		out = append(out, s[:i+1])
+		s = s[i+1:]
 	}
-	for _, e := range observed {
-		if wanted[e.Name] || !e.IsLink {
+	return out
+}
+
+// parseFrontmatterEntries splits a frontmatter block into top-level keys. A line at column zero
+// holding a colon opens an entry; anything indented, blank, or a list item belongs to the entry above.
+func parseFrontmatterEntries(block string) []fmEntry {
+	var out []fmEntry
+	for _, line := range linesWithEnds(block) {
+		trimmed := strings.TrimRight(line, "\r\n")
+		key, _, hasColon := strings.Cut(trimmed, ":")
+		topLevel := trimmed != "" && !strings.HasPrefix(trimmed, " ") && !strings.HasPrefix(trimmed, "\t") &&
+			!strings.HasPrefix(trimmed, "#") && !strings.HasPrefix(trimmed, "-")
+		if topLevel && hasColon && key != "" {
+			out = append(out, fmEntry{key: key, text: ensureNewline(line)})
 			continue
 		}
-		if withinRoot(e.Target, skillsRoot) {
-			out = append(out, SkillAction{Kind: "remove", Name: e.Name})
+		if len(out) > 0 {
+			out[len(out)-1].text += ensureNewline(line)
 		}
 	}
 	return out
+}
+
+func ensureNewline(s string) string {
+	if strings.HasSuffix(s, "\n") {
+		return s
+	}
+	return s + "\n"
+}
+
+func entryText(entries []fmEntry) string {
+	var b strings.Builder
+	for _, e := range entries {
+		b.WriteString(e.text)
+	}
+	return b.String()
+}
+
+// mergeFrontmatter replaces each shared key an override names, in place so key order is preserved,
+// and appends any override key the shared block does not have.
+func mergeFrontmatter(block string, overrides []fmEntry) string {
+	byKey := make(map[string]fmEntry, len(overrides))
+	for _, o := range overrides {
+		byKey[o.key] = o
+	}
+	used := make(map[string]bool, len(overrides))
+	var b strings.Builder
+	for _, e := range parseFrontmatterEntries(block) {
+		if o, ok := byKey[e.key]; ok {
+			used[e.key] = true
+			b.WriteString(o.text)
+			continue
+		}
+		b.WriteString(e.text)
+	}
+	for _, o := range overrides {
+		if !used[o.key] {
+			b.WriteString(o.text)
+		}
+	}
+	return b.String()
+}
+
+// applyOverrides merges a runtime's frontmatter overrides into a SKILL.md. A file with no
+// frontmatter gains one rather than dropping the override silently.
+func applyOverrides(doc string, overrides []fmEntry) string {
+	if len(overrides) == 0 {
+		return doc
+	}
+	block, rest, ok := splitFrontmatter(doc)
+	if !ok {
+		return "---\n" + entryText(overrides) + "---\n" + doc
+	}
+	return "---\n" + mergeFrontmatter(block, overrides) + "---\n" + rest
+}
+
+// deltaOverrides reads <skill>/.arc/<runtime>.yaml — a frontmatter fragment, parsed as frontmatter
+// rather than as YAML so its lines splice in unchanged.
+func deltaOverrides(skillDir, runtime string) ([]fmEntry, error) {
+	data, err := os.ReadFile(filepath.Join(skillDir, deltaDirName, runtime+".yaml"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("reading the %s delta for %s: %w", runtime, filepath.Base(skillDir), err)
+	}
+	return parseFrontmatterEntries(string(data)), nil
+}
+
+// ---- rendering ----
+
+// collectTree reads dir into relative-path -> bytes, skipping any path skip reports. A missing
+// directory is an empty tree, not an error: most skills have no delta directory.
+func collectTree(dir string, skip func(rel string) bool) (map[string][]byte, error) {
+	out := map[string][]byte{}
+	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, relErr := filepath.Rel(dir, path)
+		if relErr != nil {
+			return relErr
+		}
+		if rel == "." {
+			return nil
+		}
+		if skip != nil && skip(rel) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		out[rel] = data
+		return nil
+	})
+	if err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("reading %s: %w", dir, err)
+	}
+	return out, nil
+}
+
+// renderSkill builds exactly the file set one harness should hold for a canonical skill: the shared
+// tree without .arc/, that runtime's frontmatter overrides merged into SKILL.md, and that runtime's
+// sidecar files overlaid. A skill with no delta renders identically for every harness.
+func renderSkill(skillsRoot, name, runtime string) (map[string][]byte, error) {
+	skillDir := filepath.Join(skillsRoot, name)
+	files, err := collectTree(skillDir, func(rel string) bool {
+		return rel == deltaDirName || strings.HasPrefix(rel, deltaDirName+string(filepath.Separator))
+	})
+	if err != nil {
+		return nil, err
+	}
+	overrides, err := deltaOverrides(skillDir, runtime)
+	if err != nil {
+		return nil, err
+	}
+	if md, ok := files[skillFile]; ok {
+		files[skillFile] = []byte(applyOverrides(string(md), overrides))
+	}
+	sidecars, err := collectTree(filepath.Join(skillDir, deltaDirName, runtime), nil)
+	if err != nil {
+		return nil, err
+	}
+	for rel, data := range sidecars {
+		files[rel] = data
+	}
+	return files, nil
+}
+
+// treeMatches reports whether dir already holds exactly want. The ownership mark is expected on disk
+// and never part of the render, so it is excluded from the comparison.
+func treeMatches(dir string, want map[string][]byte) bool {
+	have, err := collectTree(dir, func(rel string) bool { return rel == managedMarkName })
+	if err != nil || len(have) != len(want) {
+		return false
+	}
+	for rel, data := range want {
+		if !bytes.Equal(have[rel], data) {
+			return false
+		}
+	}
+	return true
+}
+
+// writeTree makes dir hold exactly want plus the ownership mark, removing files the render dropped.
+func writeTree(dir, source string, want map[string][]byte) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("creating %s: %w", dir, err)
+	}
+	have, err := collectTree(dir, func(rel string) bool { return rel == managedMarkName })
+	if err != nil {
+		return err
+	}
+	for rel := range have {
+		if _, keep := want[rel]; !keep {
+			if err := os.Remove(filepath.Join(dir, rel)); err != nil {
+				return fmt.Errorf("removing %s: %w", filepath.Join(dir, rel), err)
+			}
+		}
+	}
+	for rel, data := range want {
+		path := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return fmt.Errorf("creating %s: %w", filepath.Dir(path), err)
+		}
+		if bytes.Equal(have[rel], data) {
+			continue
+		}
+		if err := os.WriteFile(path, data, 0o644); err != nil {
+			return fmt.Errorf("writing %s: %w", path, err)
+		}
+	}
+	mark := []byte("canonical: " + source + "\n")
+	return os.WriteFile(filepath.Join(dir, managedMarkName), mark, 0o644)
+}
+
+// ---- reconcile ----
+
+// observeSkills reads a harness's skills directory one level deep, reporting which entries Arc owns.
+func observeSkills(dir string) ([]ObservedEntry, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("reading %s: %w", dir, err)
+	}
+	out := make([]ObservedEntry, 0, len(entries))
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		_, statErr := os.Stat(filepath.Join(dir, e.Name(), managedMarkName))
+		out = append(out, ObservedEntry{Name: e.Name(), Managed: statErr == nil})
+	}
+	return out, nil
 }
 
 // canonicalSkills lists the vault's skill directories, sorted for a deterministic plan.
@@ -81,35 +309,32 @@ func canonicalSkills(skillsRoot string) ([]string, error) {
 	return names, nil
 }
 
-// observeSkills reads a harness's skills directory without following links.
-func observeSkills(dir string) ([]ObservedEntry, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("reading %s: %w", dir, err)
+// skillState is what one harness holds for one canonical skill.
+const (
+	stateSynced    = "synced"
+	stateDiffers   = "differs"
+	stateUnmanaged = "unmanaged"
+	stateAbsent    = "absent"
+)
+
+// skillStateFor compares the rendered tree against what is on disk. An unmanaged directory is
+// reported and never opened — the user's copy is not Arc's to read a verdict from.
+func skillStateFor(dir string, observed map[string]ObservedEntry, name string, want map[string][]byte) string {
+	e, present := observed[name]
+	switch {
+	case !present:
+		return stateDiffers // nothing there yet; a sync would write it
+	case !e.Managed:
+		return stateUnmanaged
+	case treeMatches(filepath.Join(dir, name), want):
+		return stateSynced
 	}
-	out := make([]ObservedEntry, 0, len(entries))
-	for _, e := range entries {
-		path := filepath.Join(dir, e.Name())
-		entry := ObservedEntry{Name: e.Name(), IsLink: isLink(path)}
-		if entry.IsLink {
-			target, err := linkTarget(path)
-			if err != nil {
-				// an unreadable link is treated as foreign and left alone
-				continue
-			}
-			entry.Target = target
-		}
-		out = append(out, entry)
-	}
-	return out, nil
+	return stateDiffers
 }
 
-// reconcileSkills junctions every canonical skill into each present harness that scans a fixed
-// skills directory. The skills directory itself is created when missing: that is Arc's own target,
-// unlike the harness config root, which Arc never creates.
+// reconcileSkills renders every canonical skill into each present harness that scans a fixed skills
+// directory. The skills directory itself is created when missing: that is Arc's own target, unlike
+// the harness config root, which Arc never creates.
 func reconcileSkills(p Paths, dryRun bool) ([]Action, error) {
 	canonical, err := canonicalSkills(p.SkillsRoot)
 	if err != nil {
@@ -125,51 +350,49 @@ func reconcileSkills(p Paths, dryRun bool) ([]Action, error) {
 		if err != nil {
 			return actions, err
 		}
-		for _, a := range planSkills(canonical, observed, p.SkillsRoot) {
-			link := filepath.Join(dir, a.Name)
-			if a.Kind == "conflict" {
-				actions = append(actions, Action{Kind: ActionSkillConflict, Runtime: spec.Runtime, Path: link, Detail: "real directory; run adopt"})
+		byName := make(map[string]ObservedEntry, len(observed))
+		for _, e := range observed {
+			byName[e.Name] = e
+		}
+		wanted := make(map[string]bool, len(canonical))
+		for _, name := range canonical {
+			wanted[name] = true
+			want, err := renderSkill(p.SkillsRoot, name, spec.Runtime)
+			if err != nil {
+				return actions, err
+			}
+			target := filepath.Join(dir, name)
+			switch skillStateFor(dir, byName, name, want) {
+			case stateUnmanaged:
+				actions = append(actions, Action{Kind: ActionSkillUnmanaged, Runtime: spec.Runtime, Path: target,
+					Detail: "the user's own directory; adopt it to bring it into the vault"})
+			case stateSynced:
+			default:
+				actions = append(actions, Action{Kind: ActionSkillWrite, Runtime: spec.Runtime, Path: target})
+				if dryRun {
+					continue
+				}
+				if err := writeTree(target, filepath.Join(p.SkillsRoot, name), want); err != nil {
+					return actions, err
+				}
+			}
+		}
+		// a directory Arc wrote for a skill the vault no longer has. Plain files, so an ordinary
+		// recursive delete — the junction-era reparse-point hazard is gone with the junctions.
+		for _, e := range observed {
+			if wanted[e.Name] || !e.Managed {
 				continue
 			}
-			actions = append(actions, Action{Kind: actionKindFor(a.Kind), Runtime: spec.Runtime, Path: link})
+			actions = append(actions, Action{Kind: ActionSkillRemove, Runtime: spec.Runtime, Path: filepath.Join(dir, e.Name)})
 			if dryRun {
 				continue
 			}
-			if err := applySkillAction(a.Kind, dir, link, filepath.Join(p.SkillsRoot, a.Name)); err != nil {
-				return actions, err
+			if err := os.RemoveAll(filepath.Join(dir, e.Name)); err != nil {
+				return actions, fmt.Errorf("removing %s: %w", filepath.Join(dir, e.Name), err)
 			}
 		}
 	}
 	return actions, nil
-}
-
-func actionKindFor(kind string) string {
-	switch kind {
-	case "create":
-		return ActionLinkCreate
-	case "retarget":
-		return ActionLinkRetarget
-	default:
-		return ActionLinkRemove
-	}
-}
-
-func applySkillAction(kind, dir, link, target string) error {
-	switch kind {
-	case "create":
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return fmt.Errorf("creating %s: %w", dir, err)
-		}
-		return createLink(link, target)
-	case "retarget":
-		if err := removeLink(link); err != nil {
-			return err
-		}
-		return createLink(link, target)
-	case "remove":
-		return removeLink(link)
-	}
-	return nil
 }
 
 // Apply runs both projections. Steering first: a harness that starts mid-sync should see the rules
@@ -183,14 +406,17 @@ func Apply(p Paths, dryRun bool) ([]Action, error) {
 	return append(actions, skillActions...), err
 }
 
-// SkillRow is one canonical skill and how each harness currently sees it. The states are read-only:
-// this is the Vault surface's skills matrix, not a reconcile.
+// ---- the skills matrix ----
+
+// SkillRow is one canonical skill and how each harness currently holds it.
 type SkillRow struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
-	// States maps runtime -> linked | pending | conflict | absent. A harness with no fixed skills
+	// States maps runtime -> synced | differs | unmanaged | absent. A harness with no fixed skills
 	// directory (pi) never appears: it reads an explicit list of paths from its own settings.
 	States map[string]string `json:"states"`
+	// Deltas maps runtime -> what that harness overrides: frontmatter keys and sidecar paths.
+	Deltas map[string][]string `json:"deltas,omitempty"`
 }
 
 // skillFrontmatter is the SKILL.md header. Only the description is read; name comes from the
@@ -202,36 +428,61 @@ type skillFrontmatter struct {
 // skillDescription reads a skill's one-line description. A skill directory without a readable
 // SKILL.md is still a skill — the row renders with an empty description rather than failing the read.
 func skillDescription(skillsRoot, name string) string {
-	data, err := os.ReadFile(filepath.Join(skillsRoot, name, "SKILL.md"))
-	if err != nil || !bytes.HasPrefix(data, []byte("---\n")) {
+	data, err := os.ReadFile(filepath.Join(skillsRoot, name, skillFile))
+	if err != nil {
 		return ""
 	}
-	end := bytes.Index(data[4:], []byte("\n---"))
-	if end < 0 {
+	block, _, ok := splitFrontmatter(string(data))
+	if !ok {
 		return ""
 	}
 	var fm skillFrontmatter
-	if yaml.Unmarshal(data[4:4+end], &fm) != nil {
+	if yaml.Unmarshal([]byte(block), &fm) != nil {
 		return ""
 	}
 	return strings.TrimSpace(fm.Description)
 }
 
-// skillStateFor turns one planned action into the state the matrix shows. No action for a canonical
-// name means the link is already in place.
-func skillStateFor(kind string) string {
-	switch kind {
-	case "conflict":
-		return "conflict"
-	case "create", "retarget":
-		return "pending"
-	default:
-		return "linked"
+// skillDeltas describes what a skill's .arc directory overrides per runtime, for the rail.
+func skillDeltas(skillsRoot, name string) map[string][]string {
+	out := map[string][]string{}
+	deltaDir := filepath.Join(skillsRoot, name, deltaDirName)
+	entries, err := os.ReadDir(deltaDir)
+	if err != nil {
+		return nil
 	}
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".yaml") {
+			runtime := strings.TrimSuffix(e.Name(), ".yaml")
+			overrides, err := deltaOverrides(filepath.Join(skillsRoot, name), runtime)
+			if err != nil {
+				continue
+			}
+			for _, o := range overrides {
+				out[runtime] = append(out[runtime], o.key)
+			}
+			continue
+		}
+		if e.IsDir() {
+			files, err := collectTree(filepath.Join(deltaDir, e.Name()), nil)
+			if err != nil {
+				continue
+			}
+			for rel := range files {
+				out[e.Name()] = append(out[e.Name()], filepath.ToSlash(rel))
+			}
+		}
+	}
+	for rt := range out {
+		sort.Strings(out[rt])
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // SkillColumn is one harness that scans a fixed skills directory — a column of the skills matrix.
-// A harness without one (pi) never appears: it reads an explicit list of paths from its settings.
 type SkillColumn struct {
 	Runtime string `json:"runtime"`
 	Label   string `json:"label"`
@@ -251,7 +502,7 @@ func SkillColumns(p Paths) []SkillColumn {
 }
 
 // SkillRows reports every canonical skill against every harness that scans a fixed skills directory,
-// reusing the same plan the reconcile runs so the matrix cannot drift from what a sync would do.
+// reusing the same render the reconcile runs so the matrix cannot drift from what a sync would do.
 func SkillRows(p Paths) ([]SkillRow, error) {
 	canonical, err := canonicalSkills(p.SkillsRoot)
 	if err != nil {
@@ -263,6 +514,7 @@ func SkillRows(p Paths) ([]SkillRow, error) {
 			Name:        name,
 			Description: skillDescription(p.SkillsRoot, name),
 			States:      map[string]string{},
+			Deltas:      skillDeltas(p.SkillsRoot, name),
 		})
 	}
 	for _, spec := range harness.List() {
@@ -272,7 +524,7 @@ func SkillRows(p Paths) ([]SkillRow, error) {
 		}
 		if !configRootExists(spec, p.Home) {
 			for i := range rows {
-				rows[i].States[spec.Runtime] = "absent"
+				rows[i].States[spec.Runtime] = stateAbsent
 			}
 			continue
 		}
@@ -280,12 +532,16 @@ func SkillRows(p Paths) ([]SkillRow, error) {
 		if err != nil {
 			return nil, err
 		}
-		planned := map[string]string{}
-		for _, a := range planSkills(canonical, observed, p.SkillsRoot) {
-			planned[a.Name] = a.Kind
+		byName := make(map[string]ObservedEntry, len(observed))
+		for _, e := range observed {
+			byName[e.Name] = e
 		}
 		for i := range rows {
-			rows[i].States[spec.Runtime] = skillStateFor(planned[rows[i].Name])
+			want, err := renderSkill(p.SkillsRoot, rows[i].Name, spec.Runtime)
+			if err != nil {
+				return nil, err
+			}
+			rows[i].States[spec.Runtime] = skillStateFor(dir, byName, rows[i].Name, want)
 		}
 	}
 	return rows, nil

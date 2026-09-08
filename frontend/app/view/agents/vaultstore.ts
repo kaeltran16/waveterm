@@ -19,8 +19,9 @@ export type VaultTab = "memory" | "steering" | "skills";
 export type VaultFocus = "queue" | "saved";
 export type VaultUpkeep = "cleanup" | "archived" | null;
 export type VaultReader = { kind: "pending"; path: string } | { kind: "saved"; id: string } | null;
-// "canonical" is the vault's own document; anything else is a harness runtime's read-only projection.
+// "shared" is the one doc every harness gets; anything else is a harness runtime's own file.
 export type VaultDocTab = string;
+export const SHARED_TAB = "shared";
 
 // Same budget memstore uses: these are local filesystem reads behind an rpc with no default timeout,
 // so a stalled backend must reject rather than leave a pane on "Loading…" forever.
@@ -66,12 +67,20 @@ const vaultDocAtom = atom<{ content: string; mtime: number }>({ content: "", mti
 }>;
 export const vaultDraftAtom = atom<string>("") as PrimitiveAtom<string>;
 export const vaultDirtyAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
-export const vaultDocTabAtom = atom<VaultDocTab>("canonical") as PrimitiveAtom<VaultDocTab>;
-export const vaultProjectionAtom = atom<CommandAgentSyncProjectionRtnData | null>(
-    null
-) as PrimitiveAtom<CommandAgentSyncProjectionRtnData | null>;
+export const vaultDocTabAtom = atom<VaultDocTab>(SHARED_TAB) as PrimitiveAtom<VaultDocTab>;
 export const vaultSyncErrorAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 export const vaultSyncBusyAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
+
+// ---- one harness's file, as three zones ----
+
+// The open harness document, or null while it loads. Its own zone is editable; the shared and memory
+// zones are read-only here and are edited (or generated) elsewhere.
+export const vaultHarnessDocAtom = atom<CommandAgentSyncHarnessReadRtnData | null>(
+    null
+) as PrimitiveAtom<CommandAgentSyncHarnessReadRtnData | null>;
+export const vaultOwnDraftAtom = atom<string>("") as PrimitiveAtom<string>;
+export const vaultOwnDirtyAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
+export const vaultMemoryOpenAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
 
 export const vaultSkillsAtom = atom<AgentSyncSkill[]>([]) as PrimitiveAtom<AgentSyncSkill[]>;
 export const vaultSkillColumnsAtom = atom<AgentSyncSkillColumn[]>([]) as PrimitiveAtom<AgentSyncSkillColumn[]>;
@@ -119,18 +128,16 @@ export async function loadSkills(): Promise<void> {
     }
 }
 
-// Reads what one harness's steering file holds right now. "canonical" is the vault's own document
-// and has no projection to read.
-export async function loadProjection(runtime: string): Promise<void> {
-    if (runtime === "canonical") {
-        globalStore.set(vaultProjectionAtom, null);
-        return;
-    }
-    globalStore.set(vaultProjectionAtom, null);
+// Reads one harness's steering file whole. The shared doc has no harness file of its own.
+export async function loadHarnessDoc(runtime: string): Promise<void> {
+    globalStore.set(vaultHarnessDocAtom, null);
+    if (runtime === SHARED_TAB) return;
     try {
-        const r = await RpcApi.AgentSyncProjectionCommand(TabRpcClient, { runtime }, { timeout: SYNC_RPC_TIMEOUT_MS });
+        const r = await RpcApi.AgentSyncHarnessReadCommand(TabRpcClient, { runtime }, { timeout: SYNC_RPC_TIMEOUT_MS });
         if (globalStore.get(vaultDocTabAtom) !== runtime) return; // the tab moved on
-        globalStore.set(vaultProjectionAtom, r);
+        globalStore.set(vaultHarnessDocAtom, r);
+        globalStore.set(vaultOwnDraftAtom, r.own ?? "");
+        globalStore.set(vaultOwnDirtyAtom, false);
     } catch (e) {
         globalStore.set(vaultSyncErrorAtom, errText(e));
     }
@@ -138,7 +145,65 @@ export async function loadProjection(runtime: string): Promise<void> {
 
 export function selectDocTab(tab: VaultDocTab): void {
     globalStore.set(vaultDocTabAtom, tab);
-    void loadProjection(tab);
+    globalStore.set(vaultMemoryOpenAtom, false);
+    void loadHarnessDoc(tab);
+}
+
+// Saves the harness's own zone back to its real file. The managed regions are untouched by the
+// backend write, so this cannot desync the shared block.
+export async function saveHarnessOwn(): Promise<boolean> {
+    const doc = globalStore.get(vaultHarnessDocAtom);
+    if (!doc) return false;
+    globalStore.set(vaultSyncBusyAtom, true);
+    globalStore.set(vaultSyncErrorAtom, null);
+    try {
+        const res = await RpcApi.AgentSyncHarnessWriteCommand(TabRpcClient, {
+            runtime: doc.runtime,
+            own: globalStore.get(vaultOwnDraftAtom),
+            basemtime: doc.mtime ?? 0,
+        });
+        if (res.conflict) {
+            globalStore.set(
+                vaultSyncErrorAtom,
+                `${doc.path} changed on disk since you opened it. Reload the tab to pick up the new version before saving.`
+            );
+            return false;
+        }
+        globalStore.set(vaultOwnDirtyAtom, false);
+        globalStore.set(vaultStatusAtom, `Saved ${doc.path}`);
+        await Promise.all([loadSync(), loadHarnessDoc(doc.runtime)]);
+        return true;
+    } catch (e) {
+        globalStore.set(vaultSyncErrorAtom, errText(e));
+        return false;
+    } finally {
+        globalStore.set(vaultSyncBusyAtom, false);
+    }
+}
+
+// Moves one harness's own rules into the shared doc. The backend projects before it clears, so the
+// rules never leave the file they were serving.
+export async function foldIntoShared(runtime: string): Promise<void> {
+    globalStore.set(vaultSyncBusyAtom, true);
+    globalStore.set(vaultSyncErrorAtom, null);
+    try {
+        const r = await RpcApi.AgentSyncFoldCommand(TabRpcClient, { runtime }, { timeout: SYNC_RPC_TIMEOUT_MS });
+        const moved = (r.lines ?? []).length;
+        globalStore.set(
+            vaultStatusAtom,
+            r.seeded
+                ? `Shared doc seeded from ${runtime} — ${moved} line${moved === 1 ? "" : "s"}`
+                : moved
+                  ? `Moved ${moved} line${moved === 1 ? "" : "s"} into the shared doc`
+                  : "Nothing to move — every rule was already shared"
+        );
+        await loadSync();
+        if (globalStore.get(vaultDocTabAtom) === runtime) await loadHarnessDoc(runtime);
+    } catch (e) {
+        globalStore.set(vaultSyncErrorAtom, errText(e));
+    } finally {
+        globalStore.set(vaultSyncBusyAtom, false);
+    }
 }
 
 // Save, then project immediately: an edit the harnesses have not received yet is the stale state
@@ -154,13 +219,13 @@ export async function saveSteering(): Promise<boolean> {
         if (res.conflict) {
             globalStore.set(
                 vaultSyncErrorAtom,
-                "The canonical doc changed on disk since you opened it. Revert to pick up the new version before saving."
+                "The shared doc changed on disk since you opened it. Revert to pick up the new version before saving."
             );
             return false;
         }
         await RpcApi.AgentSyncApplyCommand(TabRpcClient, { dryrun: false });
         globalStore.set(vaultDirtyAtom, false);
-        globalStore.set(vaultStatusAtom, "Canonical doc saved and projected into every present harness");
+        globalStore.set(vaultStatusAtom, "Shared doc saved and written into every installed harness");
         await loadSync();
         return true;
     } catch (e) {
@@ -200,7 +265,7 @@ export async function applySync(): Promise<void> {
     globalStore.set(vaultSyncErrorAtom, null);
     try {
         const r = await RpcApi.AgentSyncApplyCommand(TabRpcClient, { dryrun: false });
-        const written = (r.actions ?? []).filter((a) => a.kind !== "skill-conflict").length;
+        const written = (r.actions ?? []).filter((a) => a.kind !== "skill-unmanaged").length;
         globalStore.set(vaultPlanAtom, null);
         globalStore.set(
             vaultStatusAtom,
@@ -208,7 +273,7 @@ export async function applySync(): Promise<void> {
         );
         await Promise.all([loadSync(), loadSkills()]);
         const tab = globalStore.get(vaultDocTabAtom);
-        if (tab !== "canonical") await loadProjection(tab);
+        if (tab !== SHARED_TAB) await loadHarnessDoc(tab);
     } catch (e) {
         globalStore.set(vaultSyncErrorAtom, errText(e));
     } finally {
@@ -216,19 +281,20 @@ export async function applySync(): Promise<void> {
     }
 }
 
-// Adoption folds a harness's hand-maintained skill directory into the vault and replaces it with a
-// link. Whole-vault, not per-skill: pkg/agentsync.Adopt plans every collision at once, and applying
-// half a plan is what leaves two sources of truth.
+// Adoption folds harness-local skill directories into the vault. Whole-vault, not per-skill: the
+// plan decides which copy seeds each name and which become deltas beside it, and applying half a
+// plan is what leaves two sources of truth.
 export async function adoptSkills(): Promise<CommandAgentSyncAdoptRtnData | null> {
     globalStore.set(vaultSyncBusyAtom, true);
     globalStore.set(vaultSyncErrorAtom, null);
     try {
         const r = await RpcApi.AgentSyncAdoptCommand(TabRpcClient, { apply: true });
-        if (r.blocked) {
-            globalStore.set(vaultSyncErrorAtom, (r.reasons ?? []).join(" · ") || "Adoption is blocked.");
-            return r;
-        }
-        globalStore.set(vaultStatusAtom, `Adopted ${(r.moves ?? []).length} skill directories into the vault`);
+        const moved = (r.moves ?? []).filter((m) => !m.bodydiff).length;
+        globalStore.set(
+            vaultStatusAtom,
+            `Adopted ${moved} skill director${moved === 1 ? "y" : "ies"} into the vault` +
+                ((r.unresolved ?? []).length ? ` · ${r.unresolved.length} left for you to reconcile` : "")
+        );
         await Promise.all([loadSync(), loadSkills()]);
         return r;
     } catch (e) {

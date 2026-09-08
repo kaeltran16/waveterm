@@ -4,6 +4,7 @@
 package agentsync
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,210 +14,166 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/harness"
 )
 
-// CarriedLine is a line a harness holds that the canonical document does not. Adoption refuses to
-// apply while any exists, because seeding from one harness would otherwise delete another's rules.
-type CarriedLine struct {
-	Runtime string `json:"runtime"`
-	Line    string `json:"line"`
-}
+// Adoption brings a harness's hand-maintained skill directories into the vault. Steering has no
+// adoption step any more — FoldIntoShared moves one harness's rules into the shared doc, one
+// harness at a time, with the result visible in the editor between steps.
 
-// SkillMove relocates one harness-local skill tree into the vault.
+// SkillMove is one harness-local skill tree folded into the vault.
 type SkillMove struct {
 	Runtime string `json:"runtime"`
 	Name    string `json:"name"`
 	From    string `json:"from"`
-}
-
-// SkillCollision is one skill name held by more than one harness. Never merged automatically.
-type SkillCollision struct {
-	Name    string   `json:"name"`
-	Sources []string `json:"sources"`
+	// Seed marks the copy that becomes the shared tree. Every later copy of the same name becomes a
+	// delta against it rather than a refusal.
+	Seed bool `json:"seed"`
+	// Keys and Files are what this copy overrides: frontmatter keys and sidecar file paths.
+	Keys  []string `json:"keys,omitempty"`
+	Files []string `json:"files,omitempty"`
+	// BodyDiff marks the one case adoption will not decide: two copies whose markdown bodies differ.
+	// The copy is left exactly where it is and the name is reported unresolved.
+	BodyDiff bool `json:"bodydiff"`
 }
 
 type AdoptPlan struct {
-	SeedFrom   string           `json:"seedfrom"`
-	SeedLines  int              `json:"seedlines"`
-	Carried    []CarriedLine    `json:"carried"`
-	Moves      []SkillMove      `json:"moves"`
-	Collisions []SkillCollision `json:"collisions"`
-	Blocked    bool             `json:"blocked"`
-	Reasons    []string         `json:"reasons,omitempty"`
+	Moves []SkillMove `json:"moves,omitempty"`
+	// Unresolved names skills whose copies differ in body text, left in place for a human.
+	Unresolved []string `json:"unresolved,omitempty"`
 }
 
-// carriedLines returns block's lines that are absent from canonical, compared as a trimmed set so
-// reordering and whitespace never register as a loss.
-func carriedLines(block, canonical string) []string {
-	have := map[string]bool{}
-	for _, l := range strings.Split(canonical, "\n") {
-		have[strings.TrimSpace(l)] = true
+// skillTextParts splits a SKILL.md into its frontmatter entries and its body.
+func skillTextParts(dir string) (map[string]fmEntry, string, error) {
+	data, err := os.ReadFile(filepath.Join(dir, skillFile))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return map[string]fmEntry{}, "", nil
+		}
+		return nil, "", fmt.Errorf("reading %s: %w", filepath.Join(dir, skillFile), err)
 	}
-	seen := map[string]bool{}
-	var out []string
-	for _, l := range strings.Split(block, "\n") {
-		t := strings.TrimSpace(l)
-		if t == "" || have[t] || seen[t] {
+	block, body, _ := splitFrontmatter(string(data))
+	entries := map[string]fmEntry{}
+	for _, e := range parseFrontmatterEntries(block) {
+		entries[e.key] = e
+	}
+	return entries, body, nil
+}
+
+// deltaAgainst compares one harness's copy of a skill against the tree that will be shared. Keys are
+// the frontmatter entries whose text differs; files are the sidecars the copy has that the shared
+// tree does not match. A differing body is not a delta — the format has nowhere to put one.
+func deltaAgainst(sharedDir, copyDir string) (keys []string, files []string, bodyDiff bool, err error) {
+	sharedFM, sharedBody, err := skillTextParts(sharedDir)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	copyFM, copyBody, err := skillTextParts(copyDir)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	for key, e := range copyFM {
+		if s, ok := sharedFM[key]; !ok || s.text != e.text {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	bodyDiff = strings.TrimSpace(sharedBody) != strings.TrimSpace(copyBody)
+
+	sharedFiles, err := collectTree(sharedDir, skipDelta)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	copyFiles, err := collectTree(copyDir, skipDelta)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	for rel, data := range copyFiles {
+		if rel == skillFile || rel == managedMarkName {
 			continue
 		}
-		seen[t] = true
-		out = append(out, t)
-	}
-	return out
-}
-
-// collisions reports every skill name claimed by more than one harness, sorted for stable output.
-func collisions(inventory map[string][]SkillMove) []SkillCollision {
-	holders := map[string][]string{}
-	for _, moves := range inventory {
-		for _, m := range moves {
-			holders[m.Name] = append(holders[m.Name], m.Runtime+":"+m.From)
+		if !bytes.Equal(sharedFiles[rel], data) {
+			files = append(files, rel)
 		}
 	}
-	var out []SkillCollision
-	for name, sources := range holders {
-		if len(sources) < 2 {
-			continue
-		}
-		sort.Strings(sources)
-		out = append(out, SkillCollision{Name: name, Sources: sources})
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out
+	sort.Strings(files)
+	return keys, files, bodyDiff, nil
 }
 
-// seedRuntime is the harness whose steering file seeds the canonical document when the vault has
-// none. Claude by decision: it is where the user authors these rules today.
-const seedRuntime = "claude"
+func skipDelta(rel string) bool {
+	return rel == deltaDirName || strings.HasPrefix(rel, deltaDirName+string(filepath.Separator))
+}
 
-// PlanAdopt reports what adoption would do, including everything that would block it.
+// PlanAdopt reports which harness-local skill directories would move into the vault and what each
+// contributes. Deterministic: harnesses in catalog order, skills sorted, so the first copy of a name
+// seeds the shared tree and later ones become deltas against it.
 func PlanAdopt(p Paths) (AdoptPlan, error) {
 	plan := AdoptPlan{}
-	canonical, err := os.ReadFile(p.SteeringDoc)
-	if err != nil && !os.IsNotExist(err) {
+	canonical, err := canonicalSkills(p.SkillsRoot)
+	if err != nil {
 		return plan, err
 	}
-	if len(canonical) == 0 {
-		spec, ok := harness.Lookup(seedRuntime)
-		if !ok {
-			return plan, fmt.Errorf("seed harness %q missing from the catalog", seedRuntime)
-		}
-		seed, readErr := os.ReadFile(spec.SteeringPath(p.Home))
-		if readErr != nil {
-			return plan, fmt.Errorf("no canonical doc and no %s steering file to seed from: %w", seedRuntime, readErr)
-		}
-		canonical = []byte(blockBefore(string(seed)))
-		plan.SeedFrom = spec.SteeringPath(p.Home)
+	// where the shared tree for a name lives, or will live once this plan is applied
+	sharedDir := map[string]string{}
+	for _, name := range canonical {
+		sharedDir[name] = filepath.Join(p.SkillsRoot, name)
 	}
-	plan.SeedLines = len(strings.Split(strings.TrimRight(string(canonical), "\n"), "\n"))
-
-	inventory := map[string][]SkillMove{}
+	unresolved := map[string]bool{}
 	for _, spec := range harness.List() {
-		if !configRootExists(spec, p.Home) {
-			continue
-		}
-		existing, _ := os.ReadFile(spec.SteeringPath(p.Home))
-		for _, line := range carriedLines(blockBefore(string(existing)), string(canonical)) {
-			plan.Carried = append(plan.Carried, CarriedLine{Runtime: spec.Runtime, Line: line})
-		}
 		dir := spec.SkillsPath(p.Home)
-		if dir == "" {
+		if dir == "" || !configRootExists(spec, p.Home) {
 			continue
 		}
 		observed, err := observeSkills(dir)
 		if err != nil {
 			return plan, err
 		}
+		sort.Slice(observed, func(i, j int) bool { return observed[i].Name < observed[j].Name })
 		for _, e := range observed {
-			if e.IsLink {
-				continue // already managed, or someone else's
+			if e.Managed {
+				continue // already Arc's
 			}
-			inventory[spec.Runtime] = append(inventory[spec.Runtime], SkillMove{Runtime: spec.Runtime, Name: e.Name, From: filepath.Join(dir, e.Name)})
+			from := filepath.Join(dir, e.Name)
+			move := SkillMove{Runtime: spec.Runtime, Name: e.Name, From: from}
+			if _, claimed := sharedDir[e.Name]; !claimed {
+				move.Seed = true
+				sharedDir[e.Name] = from
+				plan.Moves = append(plan.Moves, move)
+				continue
+			}
+			move.Keys, move.Files, move.BodyDiff, err = deltaAgainst(sharedDir[e.Name], from)
+			if err != nil {
+				return plan, err
+			}
+			if move.BodyDiff {
+				unresolved[e.Name] = true
+			}
+			plan.Moves = append(plan.Moves, move)
 		}
 	}
-	plan.Collisions = collisions(inventory)
-	for _, moves := range inventory {
-		plan.Moves = append(plan.Moves, moves...)
+	for name := range unresolved {
+		plan.Unresolved = append(plan.Unresolved, name)
 	}
-	sort.Slice(plan.Moves, func(i, j int) bool {
-		if plan.Moves[i].Name != plan.Moves[j].Name {
-			return plan.Moves[i].Name < plan.Moves[j].Name
-		}
-		return plan.Moves[i].Runtime < plan.Moves[j].Runtime
-	})
+	sort.Strings(plan.Unresolved)
 	return plan, nil
 }
 
-// Adopt migrates hand-maintained steering blocks and skills into the vault. It refuses rather than
-// guess: a rule only one harness holds, or a skill name two harnesses claim, must be resolved first.
-func Adopt(p Paths, apply bool, prefer map[string]string, acceptLoss bool) (AdoptPlan, error) {
+// Adopt applies the plan: each seed tree is moved into the vault, each later copy is reduced to a
+// delta beside it and removed, and the reconcile then renders every harness from the vault. A skill
+// whose copies differ in body text is skipped entirely — nothing is moved and nothing is deleted.
+func Adopt(p Paths, apply bool) (AdoptPlan, error) {
 	plan, err := PlanAdopt(p)
-	if err != nil {
+	if err != nil || !apply {
 		return plan, err
 	}
-	unresolved := plan.Collisions[:0:0]
-	for _, c := range plan.Collisions {
-		if prefer[c.Name] == "" {
-			unresolved = append(unresolved, c)
-		}
+	blocked := map[string]bool{}
+	for _, n := range plan.Unresolved {
+		blocked[n] = true
 	}
-	if len(plan.Carried) > 0 && !acceptLoss {
-		plan.Blocked = true
-		plan.Reasons = append(plan.Reasons, fmt.Sprintf("%d line(s) exist only in a harness copy; fold them into the canonical doc or pass accept-loss", len(plan.Carried)))
-	}
-	if len(unresolved) > 0 {
-		plan.Blocked = true
-		for _, c := range unresolved {
-			plan.Reasons = append(plan.Reasons, fmt.Sprintf("skill %q is held by %d harnesses; choose one with prefer", c.Name, len(c.Sources)))
-		}
-	}
-	if !apply || plan.Blocked {
-		if apply && plan.Blocked {
-			return plan, fmt.Errorf("adoption blocked: %s", strings.Join(plan.Reasons, "; "))
-		}
-		return plan, nil
-	}
-
-	if plan.SeedFrom != "" {
-		seed, err := os.ReadFile(plan.SeedFrom)
-		if err != nil {
-			return plan, err
-		}
-		if err := os.MkdirAll(filepath.Dir(p.SteeringDoc), 0o755); err != nil {
-			return plan, err
-		}
-		if err := os.WriteFile(p.SteeringDoc, []byte(blockBefore(string(seed))), 0o644); err != nil {
-			return plan, err
-		}
-	}
-	canonical, err := os.ReadFile(p.SteeringDoc)
-	if err != nil {
-		return plan, err
-	}
-	for _, spec := range harness.List() {
-		if !configRootExists(spec, p.Home) {
-			continue
-		}
-		target := spec.SteeringPath(p.Home)
-		existing, readErr := os.ReadFile(target)
-		if readErr != nil && !os.IsNotExist(readErr) {
-			return plan, readErr
-		}
-		if len(existing) > 0 {
-			if err := os.WriteFile(target+".bak", existing, 0o644); err != nil {
-				return plan, fmt.Errorf("backing up %s: %w", target, err)
-			}
-		}
-		stripped := strings.TrimPrefix(string(existing), blockBefore(string(existing)))
-		if err := os.WriteFile(target, []byte(applyRegion(stripped, string(canonical))), 0o644); err != nil {
-			return plan, err
-		}
-	}
-
 	if err := os.MkdirAll(p.SkillsRoot, 0o755); err != nil {
 		return plan, err
 	}
+	// seeds first: a delta cannot be written beside a shared tree that is not there yet
 	for _, m := range plan.Moves {
-		if winner, ok := prefer[m.Name]; ok && winner != m.Runtime {
-			continue // a losing copy stays where it is; the reconciler reports it as a conflict
+		if !m.Seed || blocked[m.Name] {
+			continue
 		}
 		dest := filepath.Join(p.SkillsRoot, m.Name)
 		if _, err := os.Stat(dest); err == nil {
@@ -225,16 +182,59 @@ func Adopt(p Paths, apply bool, prefer map[string]string, acceptLoss bool) (Adop
 		if err := os.Rename(m.From, dest); err != nil {
 			return plan, fmt.Errorf("moving %s into the vault: %w", m.From, err)
 		}
+		// the ownership mark belongs to a rendered copy, never to the canonical tree
+		_ = os.Remove(filepath.Join(dest, managedMarkName))
 	}
 	for _, m := range plan.Moves {
-		if winner, ok := prefer[m.Name]; ok && winner != m.Runtime {
-			if err := os.RemoveAll(m.From); err != nil {
-				return plan, fmt.Errorf("removing the losing copy %s: %w", m.From, err)
-			}
+		if m.Seed || blocked[m.Name] {
+			continue
+		}
+		if err := writeDelta(p, m); err != nil {
+			return plan, err
+		}
+		if err := os.RemoveAll(m.From); err != nil {
+			return plan, fmt.Errorf("removing the adopted copy %s: %w", m.From, err)
 		}
 	}
 	if _, err := Apply(p, false); err != nil {
 		return plan, err
 	}
 	return plan, nil
+}
+
+// writeDelta records one harness's overrides beside the shared skill: differing frontmatter keys as
+// a fragment, differing files as a sidecar tree.
+func writeDelta(p Paths, m SkillMove) error {
+	deltaRoot := filepath.Join(p.SkillsRoot, m.Name, deltaDirName)
+	if len(m.Keys) > 0 {
+		entries, _, err := skillTextParts(m.From)
+		if err != nil {
+			return err
+		}
+		var b strings.Builder
+		for _, key := range m.Keys {
+			b.WriteString(entries[key].text)
+		}
+		if err := os.MkdirAll(deltaRoot, 0o755); err != nil {
+			return err
+		}
+		path := filepath.Join(deltaRoot, m.Runtime+".yaml")
+		if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+			return fmt.Errorf("writing %s: %w", path, err)
+		}
+	}
+	for _, rel := range m.Files {
+		data, err := os.ReadFile(filepath.Join(m.From, rel))
+		if err != nil {
+			return err
+		}
+		dest := filepath.Join(deltaRoot, m.Runtime, rel)
+		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(dest, data, 0o644); err != nil {
+			return fmt.Errorf("writing %s: %w", dest, err)
+		}
+	}
+	return nil
 }

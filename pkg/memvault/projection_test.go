@@ -347,3 +347,75 @@ func TestRenderManifestEmptyCwd(t *testing.T) {
 		t.Fatalf("empty cwd must render blank, got %q", got)
 	}
 }
+
+func TestRemoveSteeringRegion(t *testing.T) {
+	// the region and the blank line separating it from the user's text both go
+	existing := "# My steering\n\nDo the thing.\n\n<!-- ARC-MEMORY:BEGIN project=krypton (generated -->\nfacts\n<!-- ARC-MEMORY:END -->\n"
+	out, removed := removeSteeringRegion(existing)
+	if !removed {
+		t.Fatal("region present but not reported removed")
+	}
+	if out != "# My steering\n\nDo the thing.\n" {
+		t.Fatalf("user content not preserved:\n%q", out)
+	}
+
+	// content AFTER the region survives, separated by exactly one blank line
+	withTail := "# Head\n\n<!-- ARC-MEMORY:BEGIN project=k (generated -->\nfacts\n<!-- ARC-MEMORY:END -->\n\n# Tail\n"
+	out, removed = removeSteeringRegion(withTail)
+	if !removed || out != "# Head\n\n# Tail\n" {
+		t.Fatalf("tail not rejoined: removed=%v out=%q", removed, out)
+	}
+
+	// CRLF (what these files actually are on Windows): the blank line must not survive as a stray CR
+	crlf := "# Head\r\n\r\n<!-- ARC-MEMORY:BEGIN project=k (generated -->\r\nfacts\r\n<!-- ARC-MEMORY:END -->\r\n"
+	out, removed = removeSteeringRegion(crlf)
+	if !removed || out != "# Head\r\n" {
+		t.Fatalf("CRLF region left residue: removed=%v out=%q", removed, out)
+	}
+
+	// no region -> byte-identical, and reported as such
+	plain := "# Just mine\n"
+	out, removed = removeSteeringRegion(plain)
+	if removed || out != plain {
+		t.Fatalf("no-op case altered the file: removed=%v out=%q", removed, out)
+	}
+}
+
+func TestPruneOrphanRegionsSkipsLiveTargets(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	region := "<!-- ARC-MEMORY:BEGIN project=krypton (generated -->\nfacts\n<!-- ARC-MEMORY:END -->\n"
+	write := func(path string) string {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("# mine\n\n"+region), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	codex := write(filepath.Join(home, ".codex", "AGENTS.md"))
+	pi := write(filepath.Join(home, ".pi", "agent", "AGENTS.md"))
+
+	// codex's steering file IS a target; pi's target is the per-project file, so its AGENTS.md is not
+	pruneOrphanRegions([]steeringTarget{
+		{runtime: "codex", path: codex},
+		{runtime: "pi", path: filepath.Join(home, ".pi", "agent", "memory", "projects", "krypton.md")},
+	})
+
+	if got, _ := os.ReadFile(codex); !strings.Contains(string(got), "ARC-MEMORY:BEGIN") {
+		t.Fatalf("stripped a live target's region:\n%s", got)
+	}
+	got, err := os.ReadFile(pi)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(got), "ARC-MEMORY") {
+		t.Fatalf("orphan region survived the prune:\n%s", got)
+	}
+	if string(got) != "# mine\n" {
+		t.Fatalf("prune damaged the user's own text: %q", got)
+	}
+}

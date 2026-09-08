@@ -4,7 +4,8 @@
 // The Vault's skills collection (Wave-vault-tab.dc.html): one row per canonical skill, one column per
 // harness that scans a fixed skills directory, so the drift between the vault and the harnesses reads
 // at a glance. A harness with no fixed directory (pi) gets no column — it reads an explicit list of
-// paths from its own settings, reported as a note under the table instead.
+// paths from its own settings, reported as a note under the table instead. A skill that differs for
+// one harness still reads as synced: the delta is part of what the vault holds, not drift from it.
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn } from "@/util/util";
@@ -14,16 +15,16 @@ import { vaultHarnessesAtom, vaultSelectedSkillAtom, vaultSkillColumnsAtom, vaul
 
 // Cell state -> tone. Never color alone: the cell also spells the state out.
 const STATE_TONE: Record<string, string> = {
-    linked: "text-success",
-    conflict: "text-error",
-    pending: "text-muted",
+    synced: "text-success",
+    unmanaged: "text-warning",
+    differs: "text-muted",
     absent: "text-ink-faint",
 };
 
 const STATE_LABEL: Record<string, string> = {
-    linked: "linked",
-    conflict: "conflict",
-    pending: "will link",
+    synced: "synced",
+    unmanaged: "yours",
+    differs: "will write",
     absent: "—",
 };
 

@@ -129,6 +129,35 @@ func applySteeringRegion(existing, label, body string) string {
 	return existing + region
 }
 
+// removeSteeringRegion strips an ARC-MEMORY region from existing, reporting whether one was there.
+// The inverse of applySteeringRegion: content outside the markers survives byte for byte, and the
+// blank line that separated the region from the text above it goes with it. The surrounding text is
+// the user's own, so its line terminator is carried through rather than normalized — these files are
+// CRLF on Windows, and rewriting them as LF is a whole-file diff nobody asked for.
+func removeSteeringRegion(existing string) (string, bool) {
+	startIdx := strings.Index(existing, "<!-- ARC-MEMORY:BEGIN")
+	if startIdx < 0 {
+		return existing, false
+	}
+	endIdx := strings.Index(existing[startIdx:], projectionEnd)
+	if endIdx < 0 {
+		return existing, false
+	}
+	eol := "\n"
+	if strings.HasSuffix(existing[:startIdx], "\r\n") {
+		eol = "\r\n"
+	}
+	head := strings.TrimRight(existing[:startIdx], "\r\n")
+	tail := strings.TrimLeft(existing[startIdx+endIdx+len(projectionEnd):], "\r\n")
+	if head != "" {
+		head += eol
+	}
+	if tail != "" {
+		head += eol + tail
+	}
+	return head, true
+}
+
 type steeringTarget struct {
 	runtime string // "codex" | "pi" | "opencode"
 	path    string
@@ -285,6 +314,35 @@ func projectHubToTargets(label string, notes []NoteWithBody, targets []steeringT
 	return nil
 }
 
+// pruneOrphanRegions strips the ARC-MEMORY region from every catalog steering file that is not
+// itself a projection target. pi's leg moved out of ~/.pi/agent/AGENTS.md and into a per-project
+// file under the pi-memory store (533a8283), but a region an earlier build wrote into AGENTS.md is
+// never rewritten and never removed — it just sits there going stale, in exactly the ambient
+// context the move existed to keep it out of. Best-effort, like the hub eviction above: failing to
+// tidy a superseded target must not stop the projection that superseded it.
+func pruneOrphanRegions(targets []steeringTarget) {
+	live := map[string]bool{}
+	for _, t := range targets {
+		live[filepath.Clean(t.path)] = true
+	}
+	home := wavebase.GetHomeDir()
+	for _, spec := range harness.List() {
+		path := spec.SteeringPath(home)
+		if path == "" || live[filepath.Clean(path)] {
+			continue
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		out, removed := removeSteeringRegion(string(data))
+		if !removed {
+			continue
+		}
+		_ = os.WriteFile(path, []byte(out), 0o644)
+	}
+}
+
 // HubDirForCwd returns the Claude per-project memory dir for a cwd, or "" for an empty cwd.
 func HubDirForCwd(cwd string) string {
 	if cwd == "" {
@@ -320,6 +378,7 @@ func Project(cwd string) error {
 		return fmt.Errorf("exporting to shared dir: %w", err)
 	}
 	targets := append(steeringTargets(), piProjectionTarget(label))
+	pruneOrphanRegions(targets)
 	return projectHubToTargets(label, notes, targets)
 }
 

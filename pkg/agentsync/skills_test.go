@@ -6,57 +6,109 @@ package agentsync
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
-
-func TestPlanSkillsCoversEveryObservedState(t *testing.T) {
-	root := filepath.Join("C:", "vault", "skills")
-	canonical := []string{"correct", "missing", "retarget-me", "occupied"}
-	observed := []ObservedEntry{
-		{Name: "correct", IsLink: true, Target: filepath.Join(root, "correct")},
-		{Name: "retarget-me", IsLink: true, Target: filepath.Join("C:", "old", "retarget-me")},
-		{Name: "occupied", IsLink: false},
-		{Name: "orphan", IsLink: true, Target: filepath.Join(root, "orphan")},
-		{Name: "not-ours", IsLink: true, Target: filepath.Join("C:", "somewhere", "not-ours")},
-	}
-	got := planSkills(canonical, observed, root)
-	want := []SkillAction{
-		{Kind: "create", Name: "missing"},
-		{Kind: "retarget", Name: "retarget-me"},
-		{Kind: "conflict", Name: "occupied"},
-		{Kind: "remove", Name: "orphan"},
-	}
-	if len(got) != len(want) {
-		t.Fatalf("plan = %+v, want %+v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("action %d = %+v, want %+v", i, got[i], want[i])
-		}
-	}
-}
-
-func TestPlanSkillsLeavesForeignLinksAlone(t *testing.T) {
-	root := filepath.Join("C:", "vault", "skills")
-	observed := []ObservedEntry{{Name: "plugin-skill", IsLink: true, Target: filepath.Join("C:", "plugins", "cache", "plugin-skill")}}
-	if got := planSkills(nil, observed, root); len(got) != 0 {
-		t.Fatalf("plan = %+v, want nothing: a link outside the vault is not ours", got)
-	}
-}
 
 // seedSkill creates a canonical skill tree in the vault.
 func seedSkill(t *testing.T, p Paths, name string) {
 	t.Helper()
-	dir := filepath.Join(p.SkillsRoot, name)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
+	writeFile(t, filepath.Join(p.SkillsRoot, name, skillFile), "---\nname: "+name+"\n---\nbody\n")
+}
+
+func TestSplitFrontmatterRoundTrips(t *testing.T) {
+	doc := "---\nname: x\ndescription: |\n  line one\n  line two\ntool: codex\n---\n# Body\n\ntext\n"
+	block, rest, ok := splitFrontmatter(doc)
+	if !ok {
+		t.Fatal("a fenced document must report frontmatter")
 	}
-	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: "+name+"\n---\nbody\n"), 0o644); err != nil {
-		t.Fatal(err)
+	if got := "---\n" + block + "---\n" + rest; got != doc {
+		t.Fatalf("round trip lost bytes:\n got %q\nwant %q", got, doc)
+	}
+	if _, _, ok := splitFrontmatter("# No fence\n"); ok {
+		t.Error("a document without a fence has no frontmatter")
+	}
+	if _, _, ok := splitFrontmatter("---\nunterminated: yes\n"); ok {
+		t.Error("an unterminated fence is not frontmatter")
 	}
 }
 
-func TestReconcileSkillsLinksIntoPresentHarnesses(t *testing.T) {
+func TestParseFrontmatterEntriesKeepsMultilineValues(t *testing.T) {
+	block := "name: x\ndescription: |\n  line one\n  line two\ntool: codex\n"
+	got := parseFrontmatterEntries(block)
+	if len(got) != 3 {
+		t.Fatalf("entries = %#v, want three top-level keys", got)
+	}
+	if got[1].key != "description" || got[1].text != "description: |\n  line one\n  line two\n" {
+		t.Fatalf("multi-line value not held verbatim: %q", got[1].text)
+	}
+	if entryText(got) != block {
+		t.Fatalf("entries do not reassemble to the block: %q", entryText(got))
+	}
+}
+
+func TestMergeFrontmatterReplacesInPlaceAndAppends(t *testing.T) {
+	block := "name: x\ndescription: |\n  keep me\ntool: codex\n"
+	got := mergeFrontmatter(block, parseFrontmatterEntries("tool: opencode\ncategory: orchestration\n"))
+	want := "name: x\ndescription: |\n  keep me\ntool: opencode\ncategory: orchestration\n"
+	if got != want {
+		t.Fatalf("merge =\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestApplyOverridesSynthesizesFrontmatterWhenAbsent(t *testing.T) {
+	got := applyOverrides("# Just a body\n", parseFrontmatterEntries("tool: codex\n"))
+	if got != "---\ntool: codex\n---\n# Just a body\n" {
+		t.Fatalf("overrides dropped on an unfenced doc: %q", got)
+	}
+}
+
+func TestRenderSkillAppliesDeltaAndNeverCopiesIt(t *testing.T) {
+	p := testPaths(t, "canonical\n", ".codex")
+	dir := filepath.Join(p.SkillsRoot, "orchestrator")
+	writeFile(t, filepath.Join(dir, skillFile), "---\nname: orchestrator\ntool: codex\n---\nshared body\n")
+	writeFile(t, filepath.Join(dir, deltaDirName, "opencode.yaml"), "tool: opencode\n")
+	writeFile(t, filepath.Join(dir, deltaDirName, "codex", "agents", "openai.yaml"), "display_name: Orchestrator\n")
+
+	codex, err := renderSkill(p.SkillsRoot, "orchestrator", "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(codex[skillFile]) != "---\nname: orchestrator\ntool: codex\n---\nshared body\n" {
+		t.Fatalf("codex SKILL.md = %q, want the shared text", codex[skillFile])
+	}
+	if string(codex[filepath.Join("agents", "openai.yaml")]) != "display_name: Orchestrator\n" {
+		t.Fatalf("codex sidecar missing: %#v", keysOf(codex))
+	}
+
+	opencode, err := renderSkill(p.SkillsRoot, "orchestrator", "opencode")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(opencode[skillFile]) != "---\nname: orchestrator\ntool: opencode\n---\nshared body\n" {
+		t.Fatalf("opencode SKILL.md = %q, want the overridden tool key", opencode[skillFile])
+	}
+	if _, ok := opencode[filepath.Join("agents", "openai.yaml")]; ok {
+		t.Error("codex's sidecar must not reach opencode")
+	}
+	for _, files := range []map[string][]byte{codex, opencode} {
+		for rel := range files {
+			if rel == deltaDirName || filepath.HasPrefix(rel, deltaDirName+string(filepath.Separator)) {
+				t.Errorf("the delta directory was copied to a harness: %q", rel)
+			}
+		}
+	}
+}
+
+func keysOf(m map[string][]byte) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
+func TestReconcileSkillsWritesRealFilesAndIsIdempotent(t *testing.T) {
 	p := testPaths(t, "canonical\n", ".codex", ".claude")
 	seedSkill(t, p, "graphify")
 	actions, err := reconcileSkills(p, false)
@@ -64,28 +116,15 @@ func TestReconcileSkillsLinksIntoPresentHarnesses(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(actions) != 2 {
-		t.Fatalf("actions = %+v, want one link per present harness", actions)
+		t.Fatalf("actions = %+v, want one write per present harness", actions)
 	}
 	for _, rel := range []string{filepath.Join(".codex", "skills", "graphify"), filepath.Join(".claude", "skills", "graphify")} {
-		link := filepath.Join(p.Home, rel)
-		if !isLink(link) {
-			t.Errorf("%s is not a link", rel)
+		if got := readFile(t, filepath.Join(p.Home, rel, skillFile)); got != "---\nname: graphify\n---\nbody\n" {
+			t.Errorf("%s SKILL.md = %q", rel, got)
 		}
-		if _, err := os.ReadFile(filepath.Join(link, "SKILL.md")); err != nil {
-			t.Errorf("reading through %s: %v", rel, err)
+		if _, err := os.Stat(filepath.Join(p.Home, rel, managedMarkName)); err != nil {
+			t.Errorf("%s carries no ownership mark: %v", rel, err)
 		}
-	}
-	// pi has no fixed skills dir, so nothing is created for it even when its config root exists
-	if _, err := os.Stat(filepath.Join(p.Home, ".pi", "agent", "skills")); !os.IsNotExist(err) {
-		t.Error("pi must not get a skills directory")
-	}
-}
-
-func TestReconcileSkillsIsIdempotentAndReportsConflicts(t *testing.T) {
-	p := testPaths(t, "canonical\n", ".codex")
-	seedSkill(t, p, "graphify")
-	if _, err := reconcileSkills(p, false); err != nil {
-		t.Fatal(err)
 	}
 	again, err := reconcileSkills(p, false)
 	if err != nil {
@@ -94,27 +133,78 @@ func TestReconcileSkillsIsIdempotentAndReportsConflicts(t *testing.T) {
 	if len(again) != 0 {
 		t.Fatalf("second reconcile = %+v, want no actions", again)
 	}
+	// pi has no fixed skills dir, so nothing is created for it even when its config root exists
+	if _, err := os.Stat(filepath.Join(p.Home, ".pi", "agent", "skills")); !os.IsNotExist(err) {
+		t.Error("pi must not get a skills directory")
+	}
+}
 
-	// a real directory occupying a canonical name is reported, never replaced
-	p2 := testPaths(t, "canonical\n", ".codex")
-	seedSkill(t, p2, "graphify")
-	occupied := filepath.Join(p2.Home, ".codex", "skills", "graphify")
-	if err := os.MkdirAll(occupied, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(occupied, "SKILL.md"), []byte("mine"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	acts, err := reconcileSkills(p2, false)
+func TestReconcileSkillsNeverTouchesAnUnmanagedDirectory(t *testing.T) {
+	p := testPaths(t, "canonical\n", ".codex")
+	seedSkill(t, p, "graphify")
+	occupied := filepath.Join(p.Home, ".codex", "skills", "graphify")
+	writeFile(t, filepath.Join(occupied, skillFile), "mine\n")
+
+	acts, err := reconcileSkills(p, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(acts) != 1 || acts[0].Kind != ActionSkillConflict {
-		t.Fatalf("actions = %+v, want a single conflict", acts)
+	if len(acts) != 1 || acts[0].Kind != ActionSkillUnmanaged {
+		t.Fatalf("actions = %+v, want a single unmanaged report", acts)
 	}
-	body, err := os.ReadFile(filepath.Join(occupied, "SKILL.md"))
-	if err != nil || string(body) != "mine" {
-		t.Fatalf("the user's directory was modified: %q %v", body, err)
+	if got := readFile(t, filepath.Join(occupied, skillFile)); got != "mine\n" {
+		t.Fatalf("the user's directory was modified: %q", got)
+	}
+}
+
+func TestReconcileSkillsRemovesOnlyWhatItWrote(t *testing.T) {
+	p := testPaths(t, "canonical\n", ".codex")
+	seedSkill(t, p, "graphify")
+	if _, err := reconcileSkills(p, false); err != nil {
+		t.Fatal(err)
+	}
+	// the user's own directory beside a managed one; dropping the canonical skill must not take it
+	mine := filepath.Join(p.Home, ".codex", "skills", "hand-written")
+	writeFile(t, filepath.Join(mine, skillFile), "mine\n")
+	if err := os.RemoveAll(filepath.Join(p.SkillsRoot, "graphify")); err != nil {
+		t.Fatal(err)
+	}
+	acts, err := reconcileSkills(p, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(acts) != 1 || acts[0].Kind != ActionSkillRemove {
+		t.Fatalf("actions = %+v, want a single removal", acts)
+	}
+	if _, err := os.Stat(filepath.Join(p.Home, ".codex", "skills", "graphify")); !os.IsNotExist(err) {
+		t.Error("the managed copy was not removed")
+	}
+	if got := readFile(t, filepath.Join(mine, skillFile)); got != "mine\n" {
+		t.Fatalf("an unmanaged directory was removed with it: %q", got)
+	}
+}
+
+func TestReconcileSkillsRewritesAnEditedCopy(t *testing.T) {
+	p := testPaths(t, "canonical\n", ".codex")
+	seedSkill(t, p, "graphify")
+	if _, err := reconcileSkills(p, false); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(p.Home, ".codex", "skills", "graphify")
+	writeFile(t, filepath.Join(target, skillFile), "edited away from canonical\n")
+	writeFile(t, filepath.Join(target, "stray.txt"), "not in the render\n")
+	acts, err := reconcileSkills(p, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(acts) != 1 || acts[0].Kind != ActionSkillWrite {
+		t.Fatalf("actions = %+v, want a single rewrite", acts)
+	}
+	if got := readFile(t, filepath.Join(target, skillFile)); got != "---\nname: graphify\n---\nbody\n" {
+		t.Fatalf("SKILL.md = %q, want the canonical text restored", got)
+	}
+	if _, err := os.Stat(filepath.Join(target, "stray.txt")); !os.IsNotExist(err) {
+		t.Error("a file the render does not contain must be removed from a managed copy")
 	}
 }
 
@@ -122,11 +212,8 @@ func TestSkillRowsReportsPerHarnessState(t *testing.T) {
 	p := testPaths(t, "canonical\n", ".codex", ".claude")
 	seedSkill(t, p, "graphify")
 	seedSkill(t, p, "effort-tracking")
-	// a real directory under one canonical name; the other stays unlinked until Apply runs
 	occupied := filepath.Join(p.Home, ".codex", "skills", "graphify")
-	if err := os.MkdirAll(occupied, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	writeFile(t, filepath.Join(occupied, skillFile), "mine\n")
 	if _, err := Apply(p, false); err != nil {
 		t.Fatal(err)
 	}
@@ -141,40 +228,58 @@ func TestSkillRowsReportsPerHarnessState(t *testing.T) {
 	if len(rows) != 2 {
 		t.Fatalf("rows = %+v, want one per canonical skill", rows)
 	}
-	if got := byName["graphify"].States["codex"]; got != "conflict" {
-		t.Errorf("graphify codex = %q, want conflict", got)
+	if got := byName["graphify"].States["codex"]; got != stateUnmanaged {
+		t.Errorf("graphify codex = %q, want unmanaged", got)
 	}
-	if got := byName["graphify"].States["claude"]; got != "linked" {
-		t.Errorf("graphify claude = %q, want linked", got)
+	if got := byName["graphify"].States["claude"]; got != stateSynced {
+		t.Errorf("graphify claude = %q, want synced", got)
 	}
-	if got := byName["effort-tracking"].States["codex"]; got != "linked" {
-		t.Errorf("effort-tracking codex = %q, want linked", got)
+	if got := byName["effort-tracking"].States["codex"]; got != stateSynced {
+		t.Errorf("effort-tracking codex = %q, want synced", got)
 	}
 	// opencode has no config root here, so it is not synced at all
-	if got := byName["graphify"].States["opencode"]; got != "absent" {
+	if got := byName["graphify"].States["opencode"]; got != stateAbsent {
 		t.Errorf("graphify opencode = %q, want absent", got)
 	}
 }
 
-func TestSkillRowsPendingBeforeApply(t *testing.T) {
+func TestSkillRowsDiffersBeforeTheFirstApply(t *testing.T) {
 	p := testPaths(t, "canonical\n", ".claude")
 	seedSkill(t, p, "graphify")
 	rows, err := SkillRows(p)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 1 || rows[0].States["claude"] != "pending" {
-		t.Fatalf("rows = %+v, want claude pending before the first Apply", rows)
+	if len(rows) != 1 || rows[0].States["claude"] != stateDiffers {
+		t.Fatalf("rows = %+v, want claude differing before the first Apply", rows)
+	}
+}
+
+func TestSkillRowsReportsDeltas(t *testing.T) {
+	p := testPaths(t, "canonical\n", ".claude")
+	dir := filepath.Join(p.SkillsRoot, "orchestrator")
+	writeFile(t, filepath.Join(dir, skillFile), "---\nname: orchestrator\n---\nbody\n")
+	writeFile(t, filepath.Join(dir, deltaDirName, "opencode.yaml"), "tool: opencode\n")
+	writeFile(t, filepath.Join(dir, deltaDirName, "codex", "agents", "openai.yaml"), "display_name: x\n")
+	rows, err := SkillRows(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("rows = %+v", rows)
+	}
+	if got := rows[0].Deltas["opencode"]; !reflect.DeepEqual(got, []string{"tool"}) {
+		t.Errorf("opencode delta = %#v, want the overridden key", got)
+	}
+	if got := rows[0].Deltas["codex"]; !reflect.DeepEqual(got, []string{"agents/openai.yaml"}) {
+		t.Errorf("codex delta = %#v, want the sidecar path", got)
 	}
 }
 
 func TestSkillRowsReadsDescriptionFromFrontmatter(t *testing.T) {
 	p := testPaths(t, "canonical\n", ".claude")
-	seedSkill(t, p, "graphify")
-	body := "---\nname: graphify\ndescription: turn any input into a knowledge graph\n---\n# Graphify\n"
-	if err := os.WriteFile(filepath.Join(p.SkillsRoot, "graphify", "SKILL.md"), []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeFile(t, filepath.Join(p.SkillsRoot, "graphify", skillFile),
+		"---\nname: graphify\ndescription: turn any input into a knowledge graph\n---\n# Graphify\n")
 	rows, err := SkillRows(p)
 	if err != nil {
 		t.Fatal(err)

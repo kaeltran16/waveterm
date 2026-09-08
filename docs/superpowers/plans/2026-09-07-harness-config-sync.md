@@ -1,5 +1,11 @@
 # Harness Config Sync Implementation Plan
 
+> **Superseded 2026-09-08** by `2026-09-08-harness-steering-skills-rework-design.md`.
+> Two premises here proved wrong in use: the steering UI showed only the generated region
+> (so an unsynced harness read as empty), and directory junctions cannot express a
+> per-harness variant, which blocked the one real skill collision on the tree. Kept for the
+> drift measurements and the marker mechanics, both of which the rework reuses.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make the Wave Vault the single source of truth for agent steering files and skills, projected outward into every installed harness.
