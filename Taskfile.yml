@@ -34,9 +34,34 @@ tasks:
             WAVETERM_NOCONFIRMQUIT: "1"
 
     tauri:sync-version:
-        desc: Write package.json's version into src-tauri/tauri.conf.json so the bundled installer and app.getVersion() agree (package.json stays the single source of truth).
+        desc: Write package.json's version into every file that carries a copy (src-tauri/tauri.conf.json, src-tauri/Cargo.toml) so the installer, the crate, and app.getVersion() agree (package.json stays the single source of truth).
         cmds:
             - node scripts/sync-tauri-version.mjs
+
+    check:version:
+        desc: Fail if any version site has drifted from package.json, without writing anything.
+        cmd: node scripts/sync-tauri-version.mjs --check
+
+    tauri:build:
+        desc: "Production build: bump the version, sync it everywhere, build the backend, and bundle the installer. BUMP=none|patch|minor|major (default patch) controls the bump."
+        aliases:
+            - build:app
+        cmds:
+            # The bump must run in its own `task` process. Task resolves the global VERSION var once
+            # per invocation, so bumping and building in one run would stamp the Go binaries and the
+            # wsh-<version> filenames with the pre-bump version.
+            - node version.cjs {{.BUMP | default "patch"}}
+            # a nested `task:` call would reuse this process and its stale VERSION, so shell out.
+            # That makes it a CLI invocation, which is why the callee cannot be marked internal.
+            - task tauri:build:post-bump
+
+    tauri:build:post-bump:
+        desc: The post-bump half of tauri:build. Call tauri:build instead — on its own this builds whatever version package.json currently holds, without bumping.
+        cmds:
+            - task: tauri:sync-version
+            - task: check:version
+            - task: build:backend
+            - cargo tauri build
 
     preview:
         desc: Run the standalone component preview server with HMR (no Electron, no backend).
@@ -141,6 +166,7 @@ tasks:
             - "pkg/**/*.go"
             - "pkg/**/*.json"
             - "pkg/**/*.sh"
+            - package.json
         generates:
             - dist/bin/wavesrv.*
 
@@ -159,6 +185,7 @@ tasks:
             - "pkg/**/*.go"
             - "pkg/**/*.json"
             - "pkg/**/*.sh"
+            - package.json
         generates:
             - dist/bin/wavesrv.x64.exe
 

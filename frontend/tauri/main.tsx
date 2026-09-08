@@ -3,6 +3,8 @@ import { createRoot } from "react-dom/client";
 import "./tailwind.css";
 import { bootWaveCore } from "@/app/boot/boot-core";
 import { CockpitRoot } from "@/app/cockpit/cockpit-root";
+import { deriveVersionInfo, versionInfoAtom } from "@/app/cockpit/versioninfo";
+import { globalStore } from "@/app/store/jotaiStore";
 import { hlog, installTauriApi, type InitData } from "./api";
 import { installChromeListeners } from "./chrome";
 import { resolveBootIds } from "./bootids";
@@ -18,6 +20,16 @@ async function boot() {
         installChromeListeners();
         loadFonts(); // register Hanken Grotesk + JetBrains Mono (fonts swap in on load)
         hlog("init: ws=" + init.wsEndpoint + " web=" + init.webEndpoint + " version=" + init.version);
+
+        const version = deriveVersionInfo(init.appVersion, init.version, init.buildTime, init.platform);
+        globalStore.set(versionInfoAtom, version);
+        if (version.mismatch) {
+            // not fatal: an old wavesrv boots fine and only fails once the frontend calls a command
+            // it doesn't have. Say so here and in the app bar so the cause isn't a mystery later.
+            hlog(
+                `VERSION MISMATCH: app ${version.app} vs wavesrv ${version.server} — dist/bin is stale, run \`task build:backend\``
+            );
+        }
         if (!init.webEndpoint) {
             // wavesrv never reported its endpoints; without this an empty endpoint builds
             // http:///wave/service, which the URL parser rewrites to host "wave" and the

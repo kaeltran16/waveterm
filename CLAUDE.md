@@ -26,7 +26,8 @@ The build is orchestrated by [Task](https://taskfile.dev) (`Taskfile.yml`), a `m
 | `task build:backend` | Builds `wavesrv` + `wsh` into `dist/bin/`. |
 | `task generate` | Regenerates TS + Go bindings from Go source. **Run after changing any wshrpc / waveobj / wconfig type.** |
 | `npm test` / `npx vitest` | Frontend unit tests (vitest). |
-| `npm run build` | Production build = `cargo tauri build`. Requires `task build:backend` first. |
+| `task tauri:build` (alias `build:app`, and what `npm run build` now runs) | Production build: patch-bumps the version, syncs it into every version site, builds the backend, then `cargo tauri build`. `BUMP=none\|minor\|major` overrides the bump. |
+| `task check:version` | Fail if `package.json`'s version has drifted from `src-tauri/tauri.conf.json` or `src-tauri/Cargo.toml`. `package.json` is the single source of truth; `scripts/sync-tauri-version.mjs` holds the list of sites. |
 | `task preview` | Standalone component preview server (no backend, no shell). |
 | `npm run cockpit:fixtures` | Regenerate the cockpit fixture data under `scripts/cockpit-fixtures/`. |
 
@@ -46,6 +47,7 @@ Other useful commands:
   go test ./pkg/...
   ```
   `task build:backend` sets this itself (`build:server:internal`) and needs no setup.
+- **Task resolves the global `VERSION` var once per `task` process.** Bumping the version and building in the same invocation stamps the Go binaries (and the `wsh-<version>-*` filenames) with the *pre-bump* version. That is why `tauri:build` shells out to `tauri:build:post-bump` instead of using a nested `task:` call — and why the callee can't be marked `internal`.
 - **Never hand-edit generated files.** Go is the source of truth for the wire protocol and object types; `task generate` produces `frontend/app/store/wshclientapi.ts` and the generated Go/TS type files. Edit the Go definitions, then regenerate.
 - **A new registered `waveobj` type needs a SQL migration** in `db/migrations-wstore/NNNNNN.{up,down}.sql`, or it fails at runtime with "no such table".
 - CGO backend builds use the **zig** compiler for cross/static linking (required dependency, see `Taskfile.yml` `build:server:*`).

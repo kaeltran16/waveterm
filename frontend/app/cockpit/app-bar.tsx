@@ -7,6 +7,9 @@ import { ProjectSwitcher } from "@/app/view/agents/projectswitcher";
 import { SpaceSwitcher } from "@/app/view/agents/spaceswitcher";
 import { formatChordString } from "@/util/keysym";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useAtomValue } from "jotai";
+import { TriangleAlert } from "lucide-react";
+import { versionInfoAtom } from "./versioninfo";
 
 // Handoff top app bar (46px). Replaces CockpitTitlebar + the old "+ New Agent" strip.
 // Windows adaptation (spec D1): functional min/max/close on the right; no mac traffic-lights.
@@ -46,6 +49,7 @@ export function CockpitAppBar({ model }: { model: AgentsViewModel }) {
             </div>
 
             <div className="flex h-full shrink-0 items-center gap-2.5">
+                <VersionMismatchPill />
                 <button
                     type="button"
                     onClick={() => globalStore.set(model.newAgentOpenAtom, true)}
@@ -79,5 +83,23 @@ export function CockpitAppBar({ model }: { model: AgentsViewModel }) {
                 </div>
             </div>
         </div>
+    );
+}
+
+// Renders only when the shell and the wavesrv it spawned were built from different versions — the
+// stale-dist/bin trap, whose only other symptom is an unrelated-looking route error much later.
+function VersionMismatchPill() {
+    const version = useAtomValue(versionInfoAtom);
+    if (!version.mismatch) {
+        return null;
+    }
+    return (
+        <span
+            title={`App ${version.app}, backend ${version.server}. dist/bin is stale — run \`task build:backend\` and restart.`}
+            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[8px] border border-warning/40 bg-warning/10 px-2 py-[5px] text-[11.5px] font-semibold text-warning"
+        >
+            <TriangleAlert size={12} />
+            {version.app} / {version.server}
+        </span>
     );
 }

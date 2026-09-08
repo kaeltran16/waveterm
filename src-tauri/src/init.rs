@@ -8,6 +8,10 @@ pub struct InitData {
     pub ws_endpoint: String,
     pub web_endpoint: String,
     pub auth_key: String,
+    // app_version is this shell's own version (tauri.conf.json, synced from package.json);
+    // version is the wavesrv it spawned, read off the ESTART line. They are stamped by separate
+    // build steps, so a stale dist/bin makes them disagree and the frontend says so.
+    pub app_version: String,
     pub version: String,
     pub build_time: i64,
     pub platform: String,

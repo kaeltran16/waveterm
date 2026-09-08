@@ -20,6 +20,7 @@ const INIT: InitData = {
     wsEndpoint: "127.0.0.1:1111",
     webEndpoint: "127.0.0.1:2222",
     authKey: "key-abc",
+    appVersion: "0.1.0",
     version: "0.1.0",
     buildTime: 1,
     platform: "win32",
