@@ -224,3 +224,92 @@ func TestAskCommandThreadsProse(t *testing.T) {
 		t.Fatalf("want prose pending ask, got %+v (ok=%v)", pending, ok)
 	}
 }
+
+// statusEvent builds an agent:status event the way it arrives over the RPC wire: Data is a raw JSON
+// map, not a typed struct, so the retire path has to decode rather than type-assert.
+func statusEvent(oref, state string, ts int64) *wps.WaveEvent {
+	return &wps.WaveEvent{
+		Event:  wps.Event_AgentStatus,
+		Scopes: []string{oref},
+		Data:   map[string]any{"oref": oref, "state": state, "ts": float64(ts)},
+	}
+}
+
+func setPendingAsk(t *testing.T, oref, askId string, ts int64) {
+	t.Helper()
+	agentask.GlobalRegistry = agentask.MakeRegistry()
+	agentask.GlobalRegistry.Set(oref, agentask.PendingAsk{
+		AskId:     askId,
+		BlockId:   uuid.NewString(),
+		Questions: askData(oref, false).Questions,
+		Ts:        ts,
+	})
+}
+
+func TestRetireAskOnResumeRetiresAfterWorking(t *testing.T) {
+	oref := waveobj.MakeORef("block", uuid.NewString()).String()
+	askTs := time.Now().UnixMilli()
+	setPendingAsk(t, oref, "ask-resumed", askTs)
+	waiter := agentask.GlobalRegistry.RegisterWaiter("ask-resumed")
+
+	retireAskOnResume(statusEvent(oref, baseds.AgentState_Working, askTs+askResumeGraceMs+1))
+
+	if _, ok := agentask.GlobalRegistry.Get(oref); ok {
+		t.Fatal("a resumed agent's ask must be claimed out of the registry")
+	}
+	select {
+	case res := <-waiter:
+		if !res.Cancelled {
+			t.Fatalf("waiter must be cancelled, got %#v", res)
+		}
+	default:
+		t.Fatal("blocked --wait caller was left hanging")
+	}
+	events := wps.Broker.ReadEventHistory(wps.Event_AgentAsk, oref, 1)
+	if len(events) != 1 {
+		t.Fatalf("want one cleared event, got %d", len(events))
+	}
+	got, ok := events[0].Data.(baseds.AgentAskData)
+	if !ok || !got.Cleared || got.AskId != "ask-resumed" {
+		t.Fatalf("clear event = %#v", events[0].Data)
+	}
+}
+
+func TestRetireAskOnResumeKeepsAsk(t *testing.T) {
+	askTs := time.Now().UnixMilli()
+	cases := []struct {
+		name  string
+		state string
+		ts    int64
+	}{
+		// a reporter's own working event can land beside the ask that follows it
+		{"working inside the grace window", baseds.AgentState_Working, askTs + askResumeGraceMs},
+		// a prose ask is raised at settle, so idle is its normal state, not proof of resuming
+		{"idle after the ask", baseds.AgentState_Idle, askTs + 60_000},
+		{"waiting after the ask", baseds.AgentState_Waiting, askTs + 60_000},
+		{"asking after the ask", baseds.AgentState_Asking, askTs + 60_000},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			oref := waveobj.MakeORef("block", uuid.NewString()).String()
+			setPendingAsk(t, oref, "ask-live", askTs)
+			retireAskOnResume(statusEvent(oref, tc.state, tc.ts))
+			if _, ok := agentask.GlobalRegistry.Get(oref); !ok {
+				t.Fatal("ask must stay pending")
+			}
+		})
+	}
+}
+
+func TestRetireAskOnResumeIgnoresOtherEvents(t *testing.T) {
+	oref := waveobj.MakeORef("block", uuid.NewString()).String()
+	askTs := time.Now().UnixMilli()
+	setPendingAsk(t, oref, "ask-live", askTs)
+	ev := statusEvent(oref, baseds.AgentState_Working, askTs+60_000)
+	ev.Event = wps.Event_BlockClose
+	retireAskOnResume(ev)
+	retireAskOnResume(nil)
+	if _, ok := agentask.GlobalRegistry.Get(oref); !ok {
+		t.Fatal("only agent:status events may retire an ask")
+	}
+}

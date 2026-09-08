@@ -184,6 +184,7 @@ func (ws *WshServer) EventPublishCommand(ctx context.Context, data wps.WaveEvent
 	}
 	if data.Event == wps.Event_AgentStatus {
 		PiTitleProviderInstance.NoteEvent(&data)
+		retireAskOnResume(&data)
 	}
 	wps.Broker.Publish(data)
 	return nil

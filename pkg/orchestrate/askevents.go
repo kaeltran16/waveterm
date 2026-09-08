@@ -15,6 +15,7 @@ import (
 const (
 	AskClearReasonDismissed   = "dismissed"    // a human dismissed the ask in the cockpit
 	AskClearReasonWaiterEnded = "waiter-ended" // the asking agent died before an answer arrived
+	AskClearReasonResumed     = "resumed"      // the agent moved on without the panel answer (rejected/interrupted in its own terminal)
 )
 
 // AskTarget names the dag child an ask belongs to. Lifecycle rows land on the dag's OWNING run, not
