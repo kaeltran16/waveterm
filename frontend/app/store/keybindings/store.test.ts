@@ -7,6 +7,7 @@ import { diffScopeAtom } from "@/app/view/agents/diffscopeatom";
 import { historyFiltersAtom } from "@/app/view/agents/githistorystore";
 import { NO_FILTERS } from "@/app/view/agents/historyquery";
 import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
+import { vaultFocusAtom, vaultReaderAtom, vaultTabAtom } from "@/app/view/agents/vaultstore";
 import { codeTreeFocusedAtom } from "@/app/view/code/codestore";
 import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
 import { graphPeekOpenAtom } from "@/app/view/jarvis/jarvisstore";
@@ -21,6 +22,7 @@ import {
     buildGlobalBindings,
     buildJarvisBindings,
     buildListNavBindings,
+    buildVaultBindings,
 } from "./bindings";
 import { listNavAtom } from "./listnav";
 import { bindingsAtom, registerBindings, unregisterBindings } from "./store";
@@ -39,7 +41,7 @@ const SURFACES: SurfaceKey[] = [
     "radar",
     "sessions",
     "files",
-    "memory",
+    "vault",
     "usage",
     "code",
     "settings",
@@ -166,6 +168,37 @@ describe("keybinding conflict invariant", () => {
         }
     });
 
+    // The Vault's triage keys are bare letters live only while the queue has the focus, so assert with
+    // that posture ON — inert bindings prove nothing. A list-nav controller is published for another
+    // surface at the same time, which is the state the shared j/k bindings have to stay inert in.
+    it("global + list-nav + vault triage keys (queue focused) do not conflict", () => {
+        const model = {} as any;
+        globalStore.set(listNavAtom, { surface: "jarvis", navigableIds: [], cursorId: undefined, setCursor() {} });
+        globalStore.set(vaultTabAtom, "memory");
+        globalStore.set(vaultFocusAtom, "queue");
+        globalStore.set(vaultReaderAtom, null);
+        try {
+            expect(() =>
+                assertNoConflicts([...buildGlobalBindings(model), ...buildListNavBindings(), ...buildVaultBindings()])
+            ).not.toThrow();
+        } finally {
+            globalStore.set(listNavAtom, null);
+        }
+    });
+
+    // Escape is claimed by surface:back-home on the Vault and by the reader while it is open. The two
+    // must never be live together, which only shows up with the reader actually open.
+    it("hands Escape to the Vault reader while it is open, without conflicting", () => {
+        const model = {} as any;
+        globalStore.set(listNavAtom, null);
+        globalStore.set(vaultReaderAtom, { kind: "pending", path: "p" });
+        try {
+            expect(() => assertNoConflicts([...buildGlobalBindings(model), ...buildVaultBindings()])).not.toThrow();
+        } finally {
+            globalStore.set(vaultReaderAtom, null);
+        }
+    });
+
     it("global + cockpit-grid documentation bindings do not conflict", () => {
         const model = {} as any;
         globalStore.set(listNavAtom, null);
@@ -289,6 +322,7 @@ describe("PREDICATE_ATOMS completeness (whenstate.ts)", () => {
             ...buildAgentBindings(model),
             ...buildFilesBindings(),
             ...buildCodeBindings(),
+            ...buildVaultBindings(),
         ];
 
         // Neutral so no `&&` chain (e.g. surface:back-home's, subagent:back's) short-circuits before

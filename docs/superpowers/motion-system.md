@@ -27,7 +27,7 @@ work: the north star, the shared primitives, the eight moments, and the guardrai
 
 | Artifact | Role |
 |---|---|
-| `frontend/app/element/motiontokens.ts` | Durations (`durMacro`/`durMicro`/`durExit`), `easeFluid`, variant presets (`cardVariants`, `reorderLift`, `composerReveal`, `popoverReveal`, `reflowProps`) + the `shouldFadeEntry` burst guard. **Import from here; do not inline motion values.** |
+| `frontend/app/element/motiontokens.ts` | Durations (`durMacro`/`durMicro`/`durExit`), `easeFluid`, variant presets (`cardVariants`, `reorderLift`, `composerReveal`, `paneReveal`, `popoverReveal`, `reflowProps`) + the `shouldFadeEntry` burst guard. **Import from here; do not inline motion values.** |
 | `frontend/app/element/popoverreveal.tsx` | Shared dropdown/popover reveal. Wraps the panel only; callers own positioning + backdrop. Adopted across all live cockpit popovers. |
 | `frontend/tailwindsetup.css` | CSS-only ambient loops: `@keyframes pulseDot`, `breatheGlow`, `settle`. Token-colored via `color-mix(... var(--color-*) ...)` — no raw hex. |
 | `frontend/app/element/motiontokens.test.ts` | Guards token values + the burst-guard helper. |
@@ -48,7 +48,8 @@ same vocabulary rather than inventing one.
 | 3 | Attention / "needs you" | CSS | `breatheGlow` (persistent, token-amber, until resolved) |
 | 4 | Completion settle | CSS | `settle` (one-shot soft scale on finish) |
 | 5 | Streaming text line | Framer | opacity-only fade + `shouldFadeEntry` burst guard |
-| 6 | Inline reveal (composer/panel) | Framer | `composerReveal` (height+opacity) |
+| 6 | Inline reveal (composer strip) | Framer | `composerReveal` (height+opacity, micro) |
+| 6b | Disclosure pane reveal | Framer | `paneReveal` (same signature, macro — micro reads as a snap over a few hundred px) |
 | 7 | Status pulse + micro | CSS | `pulseDot` (unified 1.6s) + kept hover/press |
 | 8 | Drag lift + drop | Framer | `reorderLift` (`whileDrag`) + `dragTransition` drop-settle |
 

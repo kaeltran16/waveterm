@@ -29,6 +29,7 @@ import { compareOnAtom } from "@/app/view/agents/comparestore";
 import { historyFiltersAtom } from "@/app/view/agents/githistorystore";
 import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
+import { vaultFocusAtom, vaultReaderAtom, vaultTabAtom } from "@/app/view/agents/vaultstore";
 import { codeFinderOpenAtom, codeTreeFocusedAtom } from "@/app/view/code/codestore";
 import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
 import { graphPeekOpenAtom } from "@/app/view/jarvis/jarvisstore";
@@ -52,6 +53,9 @@ export const PREDICATE_ATOMS: Atom<unknown>[] = [
     listNavAtom, // buildListNavBindings: active
     renamingRowAtom, // buildAgentBindings: subagent:back
     focusSubagentAtom, // buildAgentBindings: subagent:back, agent:back
+    vaultReaderAtom, // buildVaultBindings: inQueue/inReader, surface:back-home
+    vaultTabAtom, // buildVaultBindings: inQueue
+    vaultFocusAtom, // buildVaultBindings: inQueue
 ];
 
 for (const predicateAtom of PREDICATE_ATOMS) {

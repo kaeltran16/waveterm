@@ -7,7 +7,7 @@ import { ITEMS } from "./navrail";
 
 describe("radar navigation", () => {
     it("adds radar without dropping any existing surface", () => {
-        for (const key of ["cockpit", "agent", "jarvis", "sessions", "files", "memory", "usage"]) {
+        for (const key of ["cockpit", "agent", "jarvis", "sessions", "files", "vault", "usage"]) {
             expect(SURFACE_ORDER).toContain(key);
         }
         expect(SURFACE_ORDER).toContain("radar");

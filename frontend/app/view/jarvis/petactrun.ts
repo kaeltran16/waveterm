@@ -14,6 +14,7 @@ import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { confirmPruneAllSuperseded, memViewAtom, pendingMemoryFocusAtom } from "@/app/view/agents/memstore";
 import { approveGate, sendBackGate } from "@/app/view/agents/runactions";
 import { pendingSettingsSectionAtom, SETTINGS_SECTION_EMBEDDINGS } from "@/app/view/agents/settingsstore";
+import { vaultTabAtom } from "@/app/view/agents/vaultstore";
 import { askAboutSource } from "./jarvissubjectstore";
 import { openORef } from "./openref";
 import type { PetAct, PetOp, PetTarget } from "./petacts";
@@ -37,11 +38,13 @@ async function escort(model: AgentsViewModel, target: PetTarget): Promise<void> 
         return;
     }
     if (target.kind === "memory-upkeep") {
-        // list view, not merely the memory surface: CleanupQueue is not mounted in graph view, so a bare
-        // switch can land on a page where the queue does not exist
+        // the memory collection in list view, not merely the Vault surface: the upkeep panes live under
+        // the memory tab and are not mounted in graph view, so a bare switch can land where the queue
+        // does not exist
         globalStore.set(memViewAtom, "list");
+        globalStore.set(vaultTabAtom, "memory");
         globalStore.set(pendingMemoryFocusAtom, "upkeep");
-        globalStore.set(model.surfaceAtom, "memory");
+        globalStore.set(model.surfaceAtom, "vault");
         return;
     }
     globalStore.set(pendingSettingsSectionAtom, SETTINGS_SECTION_EMBEDDINGS);

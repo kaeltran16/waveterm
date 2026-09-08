@@ -22,7 +22,17 @@ import {
     historyScrollAtom,
 } from "@/app/view/agents/githistorystore";
 import { anyFilterActive } from "@/app/view/agents/historyquery";
+import { dismissPending, keepPending, memPendingAtom, memSearchAtom, selectPending } from "@/app/view/agents/memstore";
 import { resolveActiveRunId } from "@/app/view/agents/runmodel";
+import {
+    vaultCursorAtom,
+    vaultExpandedAtom,
+    vaultFocusAtom,
+    vaultReaderAtom,
+    vaultScopeAtom,
+    vaultTabAtom,
+} from "@/app/view/agents/vaultstore";
+import { filterQueue, moveCursor as moveQueueCursor } from "@/app/view/agents/vaulttriage";
 import {
     codeCursorAtom,
     codeFinderOpenAtom,
@@ -75,7 +85,7 @@ const GO_TARGETS: { letter: string; surface: SurfaceKey; label: string }[] = [
     { letter: "r", surface: "radar", label: "Radar" },
     { letter: "s", surface: "sessions", label: "Sessions" },
     { letter: "f", surface: "files", label: "Diff" },
-    { letter: "m", surface: "memory", label: "Memory" },
+    { letter: "v", surface: "vault", label: "Vault (memory, steering, skills)" },
     { letter: "u", surface: "usage", label: "Usage" },
     { letter: "b", surface: "code", label: "Code (browse source)" },
     { letter: ",", surface: "settings", label: "Settings" },
@@ -100,7 +110,7 @@ const ESC_HOME_SURFACES = new Set<SurfaceKey>([
     "radar",
     "sessions",
     "files",
-    "memory",
+    "vault",
     "usage",
     "code",
 ]);
@@ -295,7 +305,10 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
                 !(ctx.surface === "files" && anyFilterActive(globalStore.get(historyFiltersAtom))) &&
                 // the Code surface's file finder owns it for the same reason as compare — closing the
                 // overlay is what Escape means while it is open, and going home too would do both at once
-                !globalStore.get(codeFinderOpenAtom),
+                !globalStore.get(codeFinderOpenAtom) &&
+                // and the Vault's reader overlay: Escape closes the note you are reading and returns to
+                // the row it was opened from, which is what "back" means while it is up
+                globalStore.get(vaultReaderAtom) == null,
             run: () => globalStore.set(model.surfaceAtom, "cockpit"),
         },
     ];
@@ -1006,6 +1019,126 @@ export function buildCodeBindings(): Binding[] {
                 }
                 host.focus();
             },
+        },
+    ];
+}
+
+// The Vault's review-queue triage keys. The cursor indexes the VISIBLE queue (scope chip + search),
+// not the raw pending list, so a filtered pass moves through what is actually on screen. Every run()
+// reads live atoms, so the returned array never needs rebuilding.
+export function buildVaultBindings(): Binding[] {
+    const readerOpen = () => globalStore.get(vaultReaderAtom) != null;
+    // triage owns these keys only while the queue has the focus and nothing is overlaying it
+    const inQueue = (ctx: KeyContext) =>
+        ctx.surface === "vault" &&
+        !ctx.editable &&
+        !ctx.modalOpen &&
+        !readerOpen() &&
+        globalStore.get(vaultTabAtom) === "memory" &&
+        globalStore.get(vaultFocusAtom) === "queue";
+    const inReader = (ctx: KeyContext) => ctx.surface === "vault" && !ctx.editable && !ctx.modalOpen && readerOpen();
+
+    const visible = () =>
+        filterQueue(
+            globalStore.get(memPendingAtom).map((p) => ({
+                path: p.path,
+                scope: p.scope || "shared",
+                source: p.source,
+                title: p.title,
+                body: p.body,
+            })),
+            globalStore.get(vaultScopeAtom),
+            globalStore.get(memSearchAtom)
+        );
+    const current = () => {
+        const rows = visible();
+        return rows[Math.min(globalStore.get(vaultCursorAtom), Math.max(0, rows.length - 1))];
+    };
+    // moving the cursor also selects, so the rail follows the keyboard rather than the last click
+    const move = (delta: number) => {
+        const rows = visible();
+        const next = moveQueueCursor(rows.length, globalStore.get(vaultCursorAtom), delta);
+        globalStore.set(vaultCursorAtom, next);
+        const row = rows[next];
+        if (row) {
+            selectPending(row.path);
+            // keep an expanded row expanded as the cursor moves, matching the mockup's j/k feel
+            if (globalStore.get(vaultExpandedAtom) != null) {
+                globalStore.set(vaultExpandedAtom, row.path);
+            }
+        }
+    };
+    const resolve = (keep: boolean) => (): void | boolean => {
+        const row = current();
+        if (!row) return false;
+        void (keep ? keepPending(row.path) : dismissPending(row.path));
+    };
+
+    return [
+        {
+            id: "vault:queue-down",
+            keys: "j",
+            group: "Vault",
+            label: "Next candidate",
+            when: inQueue,
+            run: () => move(1),
+        },
+        {
+            id: "vault:queue-up",
+            keys: "k",
+            group: "Vault",
+            label: "Previous candidate",
+            when: inQueue,
+            run: () => move(-1),
+        },
+        {
+            id: "vault:queue-expand",
+            keys: "Space",
+            group: "Vault",
+            label: "Expand or collapse the candidate",
+            when: inQueue,
+            run: (): void | boolean => {
+                const row = current();
+                if (!row) return false;
+                globalStore.set(vaultExpandedAtom, globalStore.get(vaultExpandedAtom) === row.path ? null : row.path);
+                selectPending(row.path);
+            },
+        },
+        {
+            id: "vault:queue-keep",
+            keys: "Enter",
+            group: "Vault",
+            label: "Keep the candidate",
+            when: inQueue,
+            run: resolve(true),
+        },
+        {
+            id: "vault:queue-dismiss",
+            keys: "x",
+            group: "Vault",
+            label: "Dismiss the candidate",
+            when: inQueue,
+            run: resolve(false),
+        },
+        {
+            id: "vault:queue-read",
+            keys: "o",
+            group: "Vault",
+            label: "Read the whole candidate",
+            when: inQueue,
+            run: (): void | boolean => {
+                const row = current();
+                if (!row) return false;
+                globalStore.set(vaultReaderAtom, { kind: "pending", path: row.path });
+            },
+        },
+        {
+            id: "vault:reader-close",
+            keys: "Escape",
+            group: "Vault",
+            label: "Back from the reader",
+            when: inReader,
+            run: () => globalStore.set(vaultReaderAtom, null),
         },
     ];
 }

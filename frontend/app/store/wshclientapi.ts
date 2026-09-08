@@ -48,6 +48,18 @@ export class RpcApiType {
         return client.wshRpcCall("agentsyncapply", data, opts);
     }
 
+    // command "agentsyncprojection" [call]
+    AgentSyncProjectionCommand(client: WshClient, data: CommandAgentSyncProjectionData, opts?: RpcOpts): Promise<CommandAgentSyncProjectionRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "agentsyncprojection", data, opts);
+        return client.wshRpcCall("agentsyncprojection", data, opts);
+    }
+
+    // command "agentsyncskills" [call]
+    AgentSyncSkillsCommand(client: WshClient, opts?: RpcOpts): Promise<CommandAgentSyncSkillsRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "agentsyncskills", null, opts);
+        return client.wshRpcCall("agentsyncskills", null, opts);
+    }
+
     // command "agentsyncstatus" [call]
     AgentSyncStatusCommand(client: WshClient, opts?: RpcOpts): Promise<CommandAgentSyncStatusRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "agentsyncstatus", null, opts);

@@ -81,3 +81,30 @@ func (ws *WshServer) AgentSyncSteeringWriteCommand(ctx context.Context, data wsh
 	}
 	return &wshrpc.CommandAgentSyncSteeringWriteRtnData{Mtime: res.Mtime, Conflict: res.Conflict}, nil
 }
+
+func (ws *WshServer) AgentSyncSkillsCommand(ctx context.Context) (*wshrpc.CommandAgentSyncSkillsRtnData, error) {
+	p := agentsync.DefaultPaths()
+	rows, err := agentsync.SkillRows(p)
+	if err != nil {
+		return nil, fmt.Errorf("reading canonical skills: %w", err)
+	}
+	out := make([]wshrpc.AgentSyncSkill, len(rows))
+	for i, r := range rows {
+		out[i] = wshrpc.AgentSyncSkill{Name: r.Name, Description: r.Description, States: r.States}
+	}
+	cols := make([]wshrpc.AgentSyncSkillColumn, 0)
+	for _, c := range agentsync.SkillColumns(p) {
+		cols = append(cols, wshrpc.AgentSyncSkillColumn{Runtime: c.Runtime, Label: c.Label, Present: c.Present})
+	}
+	return &wshrpc.CommandAgentSyncSkillsRtnData{Skills: out, Columns: cols, SkillsRoot: p.SkillsRoot}, nil
+}
+
+func (ws *WshServer) AgentSyncProjectionCommand(ctx context.Context, data wshrpc.CommandAgentSyncProjectionData) (*wshrpc.CommandAgentSyncProjectionRtnData, error) {
+	proj, err := agentsync.ProjectionFor(agentsync.DefaultPaths(), data.Runtime)
+	if err != nil {
+		return nil, fmt.Errorf("reading harness projection: %w", err)
+	}
+	return &wshrpc.CommandAgentSyncProjectionRtnData{
+		Runtime: proj.Runtime, Path: proj.Path, Present: proj.Present, State: proj.State, Body: proj.Body,
+	}, nil
+}

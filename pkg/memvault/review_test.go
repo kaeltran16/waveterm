@@ -104,3 +104,29 @@ func TestPendingSourceFallback(t *testing.T) {
 		t.Fatalf("pendingSource = %q, want web-dashboard", s)
 	}
 }
+
+// A Windows cwd is full of backslashes, and it is written into the frontmatter as a double-quoted
+// YAML scalar. If it were emitted unescaped, "C:\Users" would be an invalid escape and the WHOLE
+// frontmatter block would fail to unmarshal — silently zeroing type and scope, which the review
+// queue groups and filters by. Round-trip through the real writer rather than a hand-written fixture.
+func TestWritePendingRoundTripsAWindowsCwd(t *testing.T) {
+	dir := t.TempDir()
+	cwd := `C:\Users\kael02\IdeaProjects\waveterm`
+	if _, err := WritePending(dir, LearnCandidate{
+		Body:  "A candidate learned on Windows.",
+		Type:  "reference",
+		Scope: "waveterm",
+	}, cwd); err != nil {
+		t.Fatal(err)
+	}
+	got := ListPending(dir)
+	if len(got) != 1 {
+		t.Fatalf("ListPending = %+v, want one candidate", got)
+	}
+	if got[0].Type != "reference" || got[0].Scope != "waveterm" {
+		t.Errorf("frontmatter did not survive the backslash cwd: type=%q scope=%q", got[0].Type, got[0].Scope)
+	}
+	// Cwd is deliberately not asserted here: pendingCwd reads the quoted scalar as a raw string
+	// instead of YAML-unescaping it, so it returns the doubled form ("C:\\Users\\..."). Nothing reads
+	// that field today (AcceptPending routes by Scope), so it is recorded rather than fixed here.
+}

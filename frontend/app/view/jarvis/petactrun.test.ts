@@ -42,6 +42,7 @@ vi.mock("./petsources", () => ({ loadIndexStatus: vi.fn(async () => true) }));
 
 import { memViewAtom, pendingMemoryFocusAtom } from "@/app/view/agents/memstore";
 import { pendingSettingsSectionAtom, SETTINGS_SECTION_EMBEDDINGS } from "@/app/view/agents/settingsstore";
+import { vaultTabAtom } from "@/app/view/agents/vaultstore";
 import { atom } from "jotai";
 import { runAct, sendErrand } from "./petactrun";
 import type { PetAct } from "./petacts";
@@ -72,10 +73,11 @@ describe("runAct — escorts", () => {
         expect(openORef).toHaveBeenCalledWith(model, "memnote:abc", undefined);
     });
 
-    it("routes the memory escort to the memory surface in list view, naming the section it wants", async () => {
+    it("routes the memory escort to the Vault's memory collection in list view, naming the section it wants", async () => {
         const act: PetAct = { id: "v", verb: "open", label: "Review 6", target: { kind: "memory-upkeep" } };
         await runAct(model, act);
-        expect(globalStore.get(model.surfaceAtom)).toBe("memory");
+        expect(globalStore.get(model.surfaceAtom)).toBe("vault");
+        expect(globalStore.get(vaultTabAtom)).toBe("memory");
         expect(globalStore.get(memViewAtom)).toBe("list");
         expect(globalStore.get(pendingMemoryFocusAtom)).toBe("upkeep");
         expect(openORef).not.toHaveBeenCalled();

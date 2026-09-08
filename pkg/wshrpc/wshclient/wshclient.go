@@ -46,6 +46,18 @@ func AgentSyncApplyCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentSyncApplyD
 	return resp, err
 }
 
+// command "agentsyncprojection", wshserver.AgentSyncProjectionCommand
+func AgentSyncProjectionCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentSyncProjectionData, opts *wshrpc.RpcOpts) (*wshrpc.CommandAgentSyncProjectionRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAgentSyncProjectionRtnData](w, "agentsyncprojection", data, opts)
+	return resp, err
+}
+
+// command "agentsyncskills", wshserver.AgentSyncSkillsCommand
+func AgentSyncSkillsCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandAgentSyncSkillsRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAgentSyncSkillsRtnData](w, "agentsyncskills", nil, opts)
+	return resp, err
+}
+
 // command "agentsyncstatus", wshserver.AgentSyncStatusCommand
 func AgentSyncStatusCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandAgentSyncStatusRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAgentSyncStatusRtnData](w, "agentsyncstatus", nil, opts)

@@ -117,3 +117,83 @@ func TestReconcileSkillsIsIdempotentAndReportsConflicts(t *testing.T) {
 		t.Fatalf("the user's directory was modified: %q %v", body, err)
 	}
 }
+
+func TestSkillRowsReportsPerHarnessState(t *testing.T) {
+	p := testPaths(t, "canonical\n", ".codex", ".claude")
+	seedSkill(t, p, "graphify")
+	seedSkill(t, p, "effort-tracking")
+	// a real directory under one canonical name; the other stays unlinked until Apply runs
+	occupied := filepath.Join(p.Home, ".codex", "skills", "graphify")
+	if err := os.MkdirAll(occupied, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Apply(p, false); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := SkillRows(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]SkillRow{}
+	for _, r := range rows {
+		byName[r.Name] = r
+	}
+	if len(rows) != 2 {
+		t.Fatalf("rows = %+v, want one per canonical skill", rows)
+	}
+	if got := byName["graphify"].States["codex"]; got != "conflict" {
+		t.Errorf("graphify codex = %q, want conflict", got)
+	}
+	if got := byName["graphify"].States["claude"]; got != "linked" {
+		t.Errorf("graphify claude = %q, want linked", got)
+	}
+	if got := byName["effort-tracking"].States["codex"]; got != "linked" {
+		t.Errorf("effort-tracking codex = %q, want linked", got)
+	}
+	// opencode has no config root here, so it is not synced at all
+	if got := byName["graphify"].States["opencode"]; got != "absent" {
+		t.Errorf("graphify opencode = %q, want absent", got)
+	}
+}
+
+func TestSkillRowsPendingBeforeApply(t *testing.T) {
+	p := testPaths(t, "canonical\n", ".claude")
+	seedSkill(t, p, "graphify")
+	rows, err := SkillRows(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].States["claude"] != "pending" {
+		t.Fatalf("rows = %+v, want claude pending before the first Apply", rows)
+	}
+}
+
+func TestSkillRowsReadsDescriptionFromFrontmatter(t *testing.T) {
+	p := testPaths(t, "canonical\n", ".claude")
+	seedSkill(t, p, "graphify")
+	body := "---\nname: graphify\ndescription: turn any input into a knowledge graph\n---\n# Graphify\n"
+	if err := os.WriteFile(filepath.Join(p.SkillsRoot, "graphify", "SKILL.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := SkillRows(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Description != "turn any input into a knowledge graph" {
+		t.Fatalf("rows = %+v, want the frontmatter description", rows)
+	}
+}
+
+func TestSkillRowsSurvivesAMissingSkillDoc(t *testing.T) {
+	p := testPaths(t, "canonical\n", ".claude")
+	if err := os.MkdirAll(filepath.Join(p.SkillsRoot, "bare"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := SkillRows(p)
+	if err != nil {
+		t.Fatalf("a skill directory without SKILL.md must not fail the read: %v", err)
+	}
+	if len(rows) != 1 || rows[0].Description != "" {
+		t.Fatalf("rows = %+v, want one row with an empty description", rows)
+	}
+}

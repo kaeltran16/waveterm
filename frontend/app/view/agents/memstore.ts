@@ -93,10 +93,10 @@ export const memSearchAtom = atom<string>("") as PrimitiveAtom<string>;
 
 // true = the next re-scan is mutation-driven and its list diff should animate (create/delete/harvest);
 // false = a search keystroke changed only the rendered subset, so the reflow stays instant. Written by
-// the mutation helpers below + the search box; read by MemorySurface into reflowProps.
+// the mutation helpers below + the search box; read by VaultSurface into reflowProps.
 export const memReflowAnimatedAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
 
-// Drawer open/closed (shared CollapsibleRail). Module-scope so it persists across MemorySurface
+// Drawer open/closed (shared CollapsibleRail). Module-scope so it persists across VaultSurface
 // remounts; default open because the detail view is the point of the tab.
 export const memRailOpenAtom = atom<boolean>(true) as PrimitiveAtom<boolean>;
 

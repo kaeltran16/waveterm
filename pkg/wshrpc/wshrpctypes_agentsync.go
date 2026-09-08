@@ -11,6 +11,8 @@ type AgentSyncCommands interface {
 	AgentSyncAdoptCommand(ctx context.Context, data CommandAgentSyncAdoptData) (*CommandAgentSyncAdoptRtnData, error)
 	AgentSyncSteeringReadCommand(ctx context.Context) (*CommandAgentSyncSteeringReadRtnData, error)
 	AgentSyncSteeringWriteCommand(ctx context.Context, data CommandAgentSyncSteeringWriteData) (*CommandAgentSyncSteeringWriteRtnData, error)
+	AgentSyncSkillsCommand(ctx context.Context) (*CommandAgentSyncSkillsRtnData, error)
+	AgentSyncProjectionCommand(ctx context.Context, data CommandAgentSyncProjectionData) (*CommandAgentSyncProjectionRtnData, error)
 }
 
 type AgentSyncHarness struct {
@@ -90,4 +92,37 @@ type CommandAgentSyncSteeringWriteData struct {
 type CommandAgentSyncSteeringWriteRtnData struct {
 	Mtime    int64 `json:"mtime"`
 	Conflict bool  `json:"conflict"`
+}
+
+// AgentSyncSkill is one canonical skill and its state in each harness that scans a skills directory.
+type AgentSyncSkill struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	// States maps runtime -> linked | pending | conflict | absent.
+	States map[string]string `json:"states"`
+}
+
+// AgentSyncSkillColumn is one column of the skills matrix: a harness with a fixed skills directory.
+type AgentSyncSkillColumn struct {
+	Runtime string `json:"runtime"`
+	Label   string `json:"label"`
+	Present bool   `json:"present"`
+}
+
+type CommandAgentSyncSkillsRtnData struct {
+	Skills     []AgentSyncSkill       `json:"skills"`
+	Columns    []AgentSyncSkillColumn `json:"columns"`
+	SkillsRoot string                 `json:"skillsroot"`
+}
+
+type CommandAgentSyncProjectionData struct {
+	Runtime string `json:"runtime"`
+}
+
+type CommandAgentSyncProjectionRtnData struct {
+	Runtime string `json:"runtime"`
+	Path    string `json:"path"`
+	Present bool   `json:"present"`
+	State   string `json:"state"`
+	Body    string `json:"body"`
 }

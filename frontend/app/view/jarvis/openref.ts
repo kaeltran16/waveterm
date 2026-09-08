@@ -14,6 +14,7 @@ import type { AgentsViewModel } from "../agents/agents";
 import { runAtom, selectChannel } from "../agents/channelsstore";
 import { selectNote } from "../agents/memstore";
 import { pendingRunFocusAtom } from "../agents/runactions";
+import { vaultFocusAtom, vaultTabAtom } from "../agents/vaultstore";
 import { selectSubject } from "./jarvissubjectstore";
 import { expandEffort } from "./effortstore";
 import { pendingDecisionAnchorAtom } from "./petstore";
@@ -79,7 +80,10 @@ export async function openORef(model: AgentsViewModel, oref: string, anchor?: st
     }
     if (plan.kind === "memnote") {
         await selectNote(plan.oid);
-        globalStore.set(model.surfaceAtom, "memory");
+        // the memory collection, not merely the Vault surface: the note detail is only reachable there
+        globalStore.set(vaultTabAtom, "memory");
+        globalStore.set(vaultFocusAtom, "saved");
+        globalStore.set(model.surfaceAtom, "vault");
         return;
     }
     if (plan.kind === "agent") {

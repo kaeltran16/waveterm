@@ -161,7 +161,7 @@ describe("list-nav bindings", () => {
         expect(j.when!(chanCtx)).toBe(true);
         expect(j.when!({ ...chanCtx, editable: true })).toBe(false);
         expect(j.when!({ ...chanCtx, modalOpen: true })).toBe(false);
-        expect(j.when!({ ...chanCtx, surface: "memory" })).toBe(false); // controller is for jarvis
+        expect(j.when!({ ...chanCtx, surface: "vault" })).toBe(false); // controller is for jarvis
         globalStore.set(listNavAtom, null);
     });
 

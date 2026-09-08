@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { MOTION, cardVariants, computeEntrances, easeFluidCss, initialEntranceState, modalBackdrop, modalPanel, popoverReveal, shouldFadeEntry, reflowProps } from "./motiontokens";
+import { MOTION, cardVariants, composerReveal, computeEntrances, easeFluidCss, initialEntranceState, modalBackdrop, modalPanel, paneReveal, popoverReveal, shouldFadeEntry, reflowProps } from "./motiontokens";
 
 describe("motiontokens", () => {
     it("uses the Fluid feel: macro ~360ms on the chosen ease curve", () => {
@@ -110,5 +110,19 @@ describe("reflowProps", () => {
         expect(rp.initial).toBe(false);
         expect(rp.exit).toBeUndefined();
         expect(rp.transition).toEqual({ duration: 0 });
+    });
+});
+
+describe("paneReveal", () => {
+    it("reveals height+opacity on the macro duration, unlike the micro composer strip", () => {
+        expect(paneReveal.initial).toEqual({ opacity: 0, height: 0 });
+        expect(paneReveal.animate).toMatchObject({ opacity: 1, height: "auto" });
+        // the whole point of the primitive: a pane-sized box needs the macro duration to read as motion
+        expect((paneReveal.animate as any).transition.duration).toBe(MOTION.durMacro);
+        expect((composerReveal.animate as any).transition.duration).toBe(MOTION.durMicro);
+    });
+
+    it("leaves a touch quicker than it arrives, like every other exit", () => {
+        expect((paneReveal.exit as any).transition.duration).toBe(MOTION.durExit);
     });
 });
