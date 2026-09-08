@@ -11,8 +11,15 @@
 
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { useState } from "react";
-import { CHUNK_CHIP_CLASSES, effortStatusLines, effortTone, type ChunkTone, type EffortCardModel } from "./effortmodel";
+import { useId, useState } from "react";
+import {
+    effortStatusLines,
+    effortTone,
+    groupChunksByStage,
+    stageOptions,
+    type ChunkTone,
+    type EffortCardModel,
+} from "./effortmodel";
 import {
     addChunkOp,
     advanceChunk,
@@ -22,9 +29,17 @@ import {
     effortDetailErrorAtom,
     loadEffortDetail,
     reopenChunk,
+    setChunkStage,
     setEffortStatus,
+    type ChunkRowModel,
 } from "./effortstore";
 import { ProgressBar } from "./progressbar";
+
+// Row controls reveal on hover but stay IN FLOW: `hidden` -> `group-hover:block` reflowed the row
+// (measured at 118.7px of label shrink), which reads as a jitter under the cursor. Opacity also
+// keeps them focusable — a display:none button cannot be tabbed to.
+export const REVEAL_ON_HOVER =
+    "opacity-0 transition-opacity duration-[140ms] group-hover:opacity-100 focus-visible:opacity-100";
 
 const MARKS: Record<ChunkTone, string | null> = {
     done: "✓",
@@ -51,8 +66,14 @@ export function Mark({ tone }: { tone: ChunkTone }) {
                     : "border-edge-strong";
     return (
         <span
+            role="img"
+            title={tone}
+            aria-label={tone}
             className={cn(
-                "flex h-[14px] w-[14px] flex-none items-center justify-center rounded-[4px] border text-xxxs leading-none",
+                "flex h-[14px] w-[14px] flex-none items-center justify-center rounded-[4px] border leading-none",
+                // U+25B6 fills its em box where the tick and dash do not, so at a shared size it
+                // overflows the square; one size per tone keeps Tailwind from having to pick.
+                tone === "active" ? "text-[7px]" : "text-xxxs",
                 cls
             )}
         >
@@ -94,6 +115,214 @@ function FooterButton({ children, onClick }: { children: React.ReactNode; onClic
     );
 }
 
+// The one stage editor, shared by the header and the per-row tag. The datalist turns "put this chunk
+// in a stage that already exists" into a pick; typing a fresh name starts a new run; empty clears.
+// No blur handler, matching the chunk/note inputs below: Enter commits, Escape cancels.
+function StageInput({
+    value,
+    options,
+    onCommit,
+    onCancel,
+}: {
+    value: string;
+    options: string[];
+    onCommit: (stage: string) => void;
+    onCancel: () => void;
+}) {
+    const [draft, setDraft] = useState(value);
+    const listId = useId();
+    return (
+        <>
+            <input
+                autoFocus
+                list={listId}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                    e.stopPropagation();
+                    if (e.key === "Enter") {
+                        onCommit(draft.trim());
+                    } else if (e.key === "Escape") {
+                        onCancel();
+                    }
+                }}
+                placeholder="stage name (empty clears)"
+                className="w-44 flex-none rounded-[7px] border border-edge-mid bg-background px-2 py-[2px] text-[12px] text-primary outline-none focus:border-accent/60"
+            />
+            <datalist id={listId}>
+                {options.map((o) => (
+                    <option key={o} value={o} />
+                ))}
+            </datalist>
+        </>
+    );
+}
+
+// The line above a run of chunks, wearing the cockpit's own group-header chrome (SectionHead in
+// briefingview.tsx): mono uppercase tracked label, count pill, hairline rule. Matching that idiom is
+// the whole point — a stage is the same kind of thing as an "Initiatives" or "Waiting on you" heading,
+// and the earlier bespoke "STAGE <Name>" version set the name SMALLER than the chunk labels beneath
+// it, so the header read as less important than its own children.
+//
+// Unstaged runs get a "+ stage" in the same slot: it names the whole run in one gesture, and it is
+// the only always-visible way in — without it stages are a CLI-only secret.
+//
+// A header is a divider, not a container: the rows under it stay in the same flat list, each keeping
+// its own status and its own right to block. It carries no progress bar on purpose — the initiative
+// header already owns one, and a second bar reads as a second denominator.
+export function StageHeader({
+    stage,
+    fraction,
+    options,
+    onCommit,
+}: {
+    stage: string;
+    fraction: string;
+    options: string[];
+    onCommit: (stage: string) => void;
+}) {
+    const [editing, setEditing] = useState(false);
+    // a commit that changes nothing would still stamp "stage set to X" on every chunk in the run.
+    const commit = (next: string): void => {
+        setEditing(false);
+        if (next !== stage) {
+            onCommit(next);
+        }
+    };
+    return (
+        <div className="flex items-center gap-2 px-1.5 pb-1 pt-[9px]">
+            {editing ? (
+                <StageInput value={stage} options={options} onCommit={commit} onCancel={() => setEditing(false)} />
+            ) : (
+                <button
+                    type="button"
+                    title={
+                        stage === ""
+                            ? "name this run of chunks as a stage"
+                            : "rename this stage — every chunk under it moves together; empty clears it"
+                    }
+                    onClick={() => setEditing(true)}
+                    className={cn(
+                        "min-w-0 cursor-pointer truncate font-mono text-[9.5px] font-bold uppercase tracking-[.12em] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                        stage === "" ? "text-muted hover:text-secondary" : "text-feed-label hover:text-secondary"
+                    )}
+                >
+                    {stage === "" ? "+ stage" : stage}
+                </button>
+            )}
+            {stage !== "" ? (
+                <span className="flex-none rounded-full border border-edge-faint bg-surface-raised px-2 py-[1px] font-mono text-[9.5px] font-semibold text-muted">
+                    {fraction}
+                </span>
+            ) : null}
+            <span className="h-px min-w-3 flex-1 bg-edge-faint" />
+        </div>
+    );
+}
+
+// The per-chunk stage control, hover-revealed like `reopen` so the row stays quiet. It means "a stage
+// STARTS here": it claims this chunk and the rest of its run, leaving the next run alone. That is what
+// makes repeated use subdivide a flat plan — each click trims the stage the previous click set,
+// so three clicks cut fourteen chunks into three stages instead of fourteen edits.
+//
+// The header is the other half: it renames the run it sits on, whole. Both write setChunkStage.
+export function StageTag({
+    stage,
+    options,
+    onCommit,
+}: {
+    stage: string;
+    options: string[];
+    onCommit: (stage: string) => void;
+}) {
+    const [editing, setEditing] = useState(false);
+    if (editing) {
+        return (
+            <StageInput
+                value={stage}
+                options={options}
+                onCommit={(next) => {
+                    setEditing(false);
+                    if (next !== stage) {
+                        onCommit(next);
+                    }
+                }}
+                onCancel={() => setEditing(false)}
+            />
+        );
+    }
+    return (
+        <button
+            type="button"
+            title={
+                stage === ""
+                    ? "start a stage here — claims this chunk and the rest of its run"
+                    : "stage: " + stage + " — start a different stage from here down"
+            }
+            onClick={() => setEditing(true)}
+            className={cn(
+                "flex-none cursor-pointer rounded-[6px] border border-border px-2 py-[3px] font-mono text-[9.5px] text-muted hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                REVEAL_ON_HOVER
+            )}
+        >
+            stage
+        </button>
+    );
+}
+
+// One chunk row. The uppercase status chip this row used to carry was redundant with the mark square
+// and cost the label the width it needed — these labels run past a hundred characters in practice.
+function ChunkRow({
+    row,
+    options,
+    onAdvance,
+    onReopen,
+    onStage,
+}: {
+    row: ChunkRowModel;
+    options: string[];
+    onAdvance: () => void;
+    onReopen: () => void;
+    onStage: (stage: string) => void;
+}) {
+    return (
+        <div
+            className="group flex min-h-[30px] items-center gap-2.5 rounded-[7px] px-1.5 py-[2px] transition-colors duration-[140ms] hover:bg-surface-hover"
+            title={row.trail.length > 0 ? row.trail.map((n) => `${fmtDay(n.ts)} ${n.text}`).join("\n") : undefined}
+        >
+            <Mark tone={row.tone} />
+            <span className="min-w-0 flex-1 truncate text-[12.5px] text-secondary">{row.label}</span>
+            {row.latestNote != null ? (
+                <span className="max-w-[30%] truncate text-right font-mono text-[9.5px] text-muted">
+                    {row.latestNote}
+                </span>
+            ) : null}
+            <StageTag stage={row.stage} options={options} onCommit={onStage} />
+            {row.status === "active" ? (
+                <button
+                    type="button"
+                    onClick={onAdvance}
+                    className="flex-none cursor-pointer rounded-[6px] border border-accent/40 bg-surface-raised px-2.5 py-[3px] text-[11px] font-semibold text-accent-soft hover:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                >
+                    Mark done
+                </button>
+            ) : null}
+            {row.status === "done" ? (
+                <button
+                    type="button"
+                    onClick={onReopen}
+                    className={cn(
+                        "flex-none cursor-pointer rounded-[6px] border border-border px-2 py-[3px] font-mono text-[9.5px] text-muted hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                        REVEAL_ON_HOVER
+                    )}
+                >
+                    reopen
+                </button>
+            ) : null}
+        </div>
+    );
+}
+
 export function EffortCard({
     model,
     expanded,
@@ -115,6 +344,7 @@ export function EffortCard({
     const [mutateError, setMutateError] = useState<string | null>(null);
 
     const rows = effort != null ? effortChunkRows(effort) : [];
+    const options = stageOptions(rows);
     const lines = effortStatusLines(model);
     const meta = [model.ticket, model.project, model.parentoid != null ? "parent" : null].filter(Boolean).join(" · ");
     const progress = `${model.done}/${model.done + model.remaining}`;
@@ -197,51 +427,41 @@ export function EffortCard({
                         )
                     ) : (
                         <>
-                            {rows.map((r) => (
-                                <div
-                                    key={r.label}
-                                    className="group flex min-h-[30px] items-center gap-2.5 rounded-[7px] px-1.5 py-[2px] transition-colors duration-[140ms] hover:bg-surface-hover"
-                                    title={
-                                        r.trail.length > 0
-                                            ? r.trail.map((n) => `${fmtDay(n.ts)} ${n.text}`).join("\n")
-                                            : undefined
-                                    }
-                                >
-                                    <Mark tone={r.tone} />
-                                    <span className="min-w-0 flex-1 truncate text-[12.5px] text-secondary">
-                                        {r.label}
-                                    </span>
-                                    {r.latestNote != null && (
-                                        <span className="max-w-[30%] truncate text-right font-mono text-[9.5px] text-muted">
-                                            {r.latestNote}
-                                        </span>
-                                    )}
-                                    <span
-                                        className={cn(
-                                            "flex-none rounded-[4px] px-1.5 py-[2px] font-mono text-[9.5px] font-semibold uppercase",
-                                            CHUNK_CHIP_CLASSES[r.tone]
-                                        )}
-                                    >
-                                        {r.status}
-                                    </span>
-                                    {r.status === "active" && (
-                                        <button
-                                            type="button"
-                                            onClick={() => void runMutation(() => advanceChunk(model.oref))}
-                                            className="flex-none cursor-pointer rounded-[6px] border border-accent/40 bg-surface-raised px-2.5 py-[3px] text-[11px] font-semibold text-accent-soft hover:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                                        >
-                                            Mark done
-                                        </button>
-                                    )}
-                                    {r.status === "done" && (
-                                        <button
-                                            type="button"
-                                            onClick={() => void runMutation(() => reopenChunk(model.oref, r.label))}
-                                            className="hidden flex-none cursor-pointer rounded-[6px] border border-border px-2 py-[3px] font-mono text-[9.5px] text-muted group-hover:block hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                                        >
-                                            reopen
-                                        </button>
-                                    )}
+                            {groupChunksByStage(rows).map((g, gi) => (
+                                <div key={g.stage + ":" + gi} className="flex flex-col">
+                                    <StageHeader
+                                        stage={g.stage}
+                                        fraction={g.fraction}
+                                        options={options}
+                                        onCommit={(next) =>
+                                            void runMutation(() =>
+                                                setChunkStage(
+                                                    model.oref,
+                                                    g.rows.map((r) => r.label),
+                                                    next
+                                                )
+                                            )
+                                        }
+                                    />
+                                    {g.rows.map((r, i) => (
+                                        <ChunkRow
+                                            key={r.label}
+                                            row={r}
+                                            options={options}
+                                            onAdvance={() => void runMutation(() => advanceChunk(model.oref))}
+                                            onReopen={() => void runMutation(() => reopenChunk(model.oref, r.label))}
+                                            // the run tail: this chunk down to the next stage boundary
+                                            onStage={(next) =>
+                                                void runMutation(() =>
+                                                    setChunkStage(
+                                                        model.oref,
+                                                        g.rows.slice(i).map((x) => x.label),
+                                                        next
+                                                    )
+                                                )
+                                            }
+                                        />
+                                    ))}
                                 </div>
                             ))}
                             <div className="flex flex-wrap items-center gap-2 px-1.5 pb-0.5 pt-[7px]">
@@ -327,7 +547,8 @@ export function EffortCard({
                                 ) : null}
                             </div>
                             <span className="px-1.5 font-mono text-[9.5px] text-ink-faint">
-                                hover a row for its trail · reopen on done rows
+                                hover a row for its trail · reopen on done rows · a stage header renames its run, a row
+                                starts one
                             </span>
                         </>
                     )}

@@ -6,6 +6,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -102,14 +103,7 @@ var effortShowCmd = &cobra.Command{
 		if isJSON(cmd) {
 			return jsonOut(rtn)
 		}
-		e := rtn.Effort
-		fmt.Printf("# %s (%s) — %d/%d\n", e.Title, e.Status, countDone(e), len(e.Chunks))
-		for i, c := range e.Chunks {
-			fmt.Printf("  %d. [%s] %s%s\n", i+1, c.Status, c.Label, ownerSuffix(c.Owner))
-			for _, n := range c.Notes {
-				fmt.Printf("      · %s: %s\n", timeStr(n.Ts), n.Text)
-			}
-		}
+		fmt.Print(formatEffortShow(rtn.Effort))
 		return nil
 	},
 }
@@ -226,12 +220,12 @@ var effortReopenCmd = &cobra.Command{
 }
 
 var effortChunkAddCmd = &cobra.Command{
-	Use:     "add <effort> \"<label>\" [--at N] [--owner X]",
+	Use:     "add <effort> \"<label>\" [--at N] [--owner X] [--stage S]",
 	Short:   "add a chunk (phase)",
 	Args:    cobra.ExactArgs(2),
 	PreRunE: preRunSetupRpcClient,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		op := wshrpc.EffortOp{Op: "addChunk", Label: args[1], Owner: mustFlagString(cmd, "owner")}
+		op := wshrpc.EffortOp{Op: "addChunk", Label: args[1], Owner: mustFlagString(cmd, "owner"), Stage: mustFlagString(cmd, "stage")}
 		if at, err := cmd.Flags().GetInt("at"); err == nil && at > 0 {
 			op.At = &at
 		}
@@ -298,6 +292,18 @@ var effortChunkNoteCmd = &cobra.Command{
 	PreRunE: preRunSetupRpcClient,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		op := wshrpc.EffortOp{Op: "appendNote", Note: mustFlagString(cmd, "note")}
+		chunkRef(&op, args[1])
+		return mutateOne(args[0], op, isJSON(cmd))
+	},
+}
+
+var effortChunkStageCmd = &cobra.Command{
+	Use:     "stage <effort> <chunk> <stage|\"\">",
+	Short:   "set or clear a chunk's stage (a grouping label; consecutive same-stage chunks render under one header)",
+	Args:    cobra.ExactArgs(3),
+	PreRunE: preRunSetupRpcClient,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		op := wshrpc.EffortOp{Op: "setChunkStage", Stage: args[2]}
 		chunkRef(&op, args[1])
 		return mutateOne(args[0], op, isJSON(cmd))
 	},
@@ -397,6 +403,28 @@ func parseAt(s string) (int, error) {
 	return at, nil
 }
 
+// formatEffortShow renders the human-readable detail block. Stage grouping is by consecutive run,
+// the same rule the card renders: a header prints when the stage changes, so a stage that reappears
+// later prints again rather than the chunks being reordered to gather them.
+func formatEffortShow(e *waveobj.Effort) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# %s (%s) — %d/%d\n", e.Title, e.Status, countDone(e), len(e.Chunks))
+	stage := ""
+	for i, c := range e.Chunks {
+		if c.Stage != stage {
+			stage = c.Stage
+			if stage != "" {
+				fmt.Fprintf(&b, "  -- %s --\n", stage)
+			}
+		}
+		fmt.Fprintf(&b, "  %d. [%s] %s%s\n", i+1, c.Status, c.Label, ownerSuffix(c.Owner))
+		for _, n := range c.Notes {
+			fmt.Fprintf(&b, "      · %s: %s\n", timeStr(n.Ts), n.Text)
+		}
+	}
+	return b.String()
+}
+
 func countDone(e *waveobj.Effort) int {
 	n := 0
 	for _, c := range e.Chunks {
@@ -433,6 +461,7 @@ func init() {
 	effortAdvanceCmd.Flags().String("note", "", "annotation")
 	effortChunkAddCmd.Flags().Int("at", 0, "1-based insert position")
 	effortChunkAddCmd.Flags().String("owner", "", "chunk owner")
+	effortChunkAddCmd.Flags().String("stage", "", "grouping label")
 	effortChunkStatusCmd.Flags().String("note", "", "annotation")
 	effortChunkNoteCmd.Flags().String("note", "", "annotation text (required)")
 	effortChunkNoteCmd.MarkFlagRequired("note")
@@ -446,6 +475,6 @@ func init() {
 		effortDeleteCmd, effortAdvanceCmd, effortReopenCmd, effortChunkCmd)
 	effortChunkCmd.AddCommand(effortChunkAddCmd, effortChunkRenameCmd, effortChunkMoveCmd,
 		effortChunkRemoveCmd, effortChunkStatusCmd, effortChunkNoteCmd, effortChunkOwnerCmd,
-		effortChunkAttachCmd, effortChunkDetachCmd)
+		effortChunkStageCmd, effortChunkAttachCmd, effortChunkDetachCmd)
 	rootCmd.AddCommand(effortCmd)
 }

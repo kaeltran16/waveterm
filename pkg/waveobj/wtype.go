@@ -435,8 +435,12 @@ type Effort struct {
 func (*Effort) GetOType() string { return OType_Effort }
 
 type EffortChunk struct {
-	Label     string         `json:"label"`  // unique within the effort; reference key
-	Status    string         `json:"status"` // pending | active | done | deferred | blocked | skipped
+	Label  string `json:"label"`  // unique within the effort; reference key
+	Status string `json:"status"` // pending | active | done | deferred | blocked | skipped
+	// Stage is a grouping label, not a container: consecutive chunks sharing one stage render under
+	// a single header. Every chunk keeps its own status and its own right to block, so nothing about
+	// counts, ordering or the attention queue changes when a stage is set.
+	Stage     string         `json:"stage,omitempty"`
 	Owner     string         `json:"owner,omitempty"`
 	WorkRefs  []ChunkWorkRef `json:"workrefs,omitempty"` // runs/agent sessions currently working this chunk (populated by Task 9+)
 	Notes     []EffortNote   `json:"notes,omitempty"`    // append-only trail

@@ -2106,6 +2106,7 @@ declare global {
     type EffortChunk = {
         label: string;
         status: string;
+        stage?: string;
         owner?: string;
         workrefs?: ChunkWorkRef[];
         notes?: EffortNote[];
@@ -2116,6 +2117,7 @@ declare global {
     type EffortChunkSummary = {
         label: string;
         status: string;
+        stage?: string;
         owner?: string;
         workrefs?: ChunkWorkRef[];
     };
@@ -2146,6 +2148,7 @@ declare global {
         label?: string;
         at?: number;
         owner?: string;
+        stage?: string;
         note?: string;
         kind?: string;
         oref?: string;

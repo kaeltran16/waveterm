@@ -321,3 +321,68 @@ func TestApplyOpsUnarchiveSurvivesRepeatCycles(t *testing.T) {
 		}
 	}
 }
+
+func TestApplyOpsSetChunkStage(t *testing.T) {
+	e := mkEffort()
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "setChunkStage", Chunk: "Phase 2", Stage: "  Evidence pipeline  "}}, "", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e.Chunks[1].Stage != "Evidence pipeline" {
+		t.Fatalf("stage: %q", e.Chunks[1].Stage)
+	}
+	if e.Chunks[0].Stage != "" || e.Chunks[2].Stage != "" {
+		t.Fatalf("stage leaked to siblings: %+v", e.Chunks)
+	}
+	notes := e.Chunks[1].Notes
+	if len(notes) != 1 || !strings.Contains(notes[0].Text, "Evidence pipeline") {
+		t.Fatalf("trail: %+v", notes)
+	}
+	// a stage is a grouping label: it moves nothing and completes nothing, so it stays out of the delta.
+	if len(e.Events) != 0 {
+		t.Fatalf("expected no delta events, got %+v", e.Events)
+	}
+}
+
+func TestApplyOpsSetChunkStageClears(t *testing.T) {
+	e := mkEffort()
+	e.Chunks[1].Stage = "Evidence pipeline"
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "setChunkStage", Chunk: "2", Stage: ""}}, "", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e.Chunks[1].Stage != "" {
+		t.Fatalf("stage: %q", e.Chunks[1].Stage)
+	}
+}
+
+func TestApplyOpsSetChunkStageUnknownChunk(t *testing.T) {
+	e := mkEffort()
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "setChunkStage", Chunk: "nope", Stage: "s"}}, "", now)
+	expectErrCode(t, err, "EC-UNKNOWN-CHUNK")
+}
+
+func TestApplyOpsAddChunkWithStage(t *testing.T) {
+	e := mkEffort()
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "addChunk", Label: "Phase 4", Stage: " Rollout "}}, "", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e.Chunks[3].Stage != "Rollout" {
+		t.Fatalf("stage: %q", e.Chunks[3].Stage)
+	}
+}
+
+// grouping is by consecutive run, so a reordered chunk must carry its stage to the new position —
+// otherwise moving a chunk would silently re-file it under whatever stage it landed next to.
+func TestApplyOpsMoveChunkCarriesStage(t *testing.T) {
+	e := mkEffort()
+	e.Chunks[2].Stage = "Rollout"
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "moveChunk", Chunk: "Phase 3", At: intPtr(1)}}, "", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e.Chunks[0].Label != "Phase 3" || e.Chunks[0].Stage != "Rollout" {
+		t.Fatalf("chunks: %+v", e.Chunks)
+	}
+}
