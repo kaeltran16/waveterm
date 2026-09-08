@@ -4,7 +4,7 @@
 import base64 from "base64-js";
 import clsx, { type ClassValue } from "clsx";
 import { Atom, atom, Getter, SetStateAction, Setter, useAtomValue } from "jotai";
-import { twMerge } from "tailwind-merge";
+import { extendTailwindMerge } from "tailwind-merge";
 import { debounce, throttle } from "throttle-debounce";
 const prevValueCache = new WeakMap<any, any>(); // stores a previous value for a deep equal comparison (used with the deepCompareReturnPrev function)
 
@@ -438,6 +438,14 @@ function escapeBytes(str: string): string {
         return ch;
     });
 }
+
+// tailwind-merge only knows Tailwind's stock size names, so it files this repo's custom font sizes
+// (@theme --text-* in tailwindsetup.css) under text-color instead. A color in the same cn() call then
+// wins the conflict and the size class is silently dropped — the element renders at the inherited
+// size. Registering them as font sizes is the fix for every call site at once.
+const twMerge = extendTailwindMerge({
+    extend: { classGroups: { "font-size": [{ text: ["xxxs", "xxs", "title", "default"] }] } },
+});
 
 function cn(...inputs: ClassValue[]) {
     return twMerge(clsx(inputs));
