@@ -14,7 +14,6 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
-	"github.com/wavetermdev/waveterm/pkg/wps"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
 
@@ -35,6 +34,14 @@ func (ws *WshServer) AskCommand(ctx context.Context, data wshrpc.CommandAskData)
 	// off its registry Ts while the frontend ages it off the event's, and two time.Now() calls would let
 	// those two disagree by the width of this function.
 	ts := time.Now().UnixMilli()
+	// the waiter is registered before the ask is published, not after: publishAgentAsk runs the
+	// Gatekeeper and any synchronous subscriber, either of which can answer or clear this ask before
+	// this function reaches the select. Registering afterwards loses that resolve, and the caller
+	// blocks on an ask nothing will ever resolve again.
+	var waiter <-chan agentask.WaitResult
+	if data.Wait {
+		waiter = agentask.GlobalRegistry.RegisterWaiter(askId)
+	}
 	agentask.GlobalRegistry.Set(data.ORef, agentask.PendingAsk{
 		AskId:     askId,
 		BlockId:   oref.OID,
@@ -59,9 +66,8 @@ func (ws *WshServer) AskCommand(ctx context.Context, data wshrpc.CommandAskData)
 	// wait mode (pi ask bridge): block until the human answers in the cockpit, or the
 	// caller dies. ctx.Done cleanup drops the pending ask and publishes the cleared
 	// event so the attention list never shows a stale ask for a dead agent.
-	ch := agentask.GlobalRegistry.RegisterWaiter(askId)
 	select {
-	case res := <-ch:
+	case res := <-waiter:
 		return wshrpc.AskRtnData{AskId: askId, Answers: res.Answers, Cancelled: res.Cancelled}, nil
 	case <-ctx.Done():
 		agentask.GlobalRegistry.RemoveWaiter(askId)
@@ -100,13 +106,7 @@ func (ws *WshServer) AgentAskClearCommand(ctx context.Context, oref string) erro
 }
 
 func publishAgentAsk(data baseds.AgentAskData) {
-	jarvis.OnAgentAsk(data) // Gatekeeper (server-side, non-blocking): auto-answer/escalate on enabled channels
-	wps.Broker.Publish(wps.WaveEvent{
-		Event:   wps.Event_AgentAsk,
-		Scopes:  []string{data.ORef},
-		Persist: 1,
-		Data:    data,
-	})
+	jarvis.PublishAgentAsk(data)
 }
 
 // forwardChildAsk routes a pending ask raised by a dag child's block to the dag + its owning run:
@@ -147,8 +147,13 @@ func recordAskTransition(oref, askId, kind, detail string) {
 }
 
 // RecordAskAnswered is agentask's answer-hook implementation, wired at server startup. It runs on
-// every delivered answer — cockpit, Gatekeeper, or dag lead — and records the one child-answered row
-// that closes the ask the child raised.
+// every delivered answer — cockpit, Gatekeeper, or dag lead — and both publishes the cleared event
+// that retires the ask card and the attention entry, and records the one child-answered row that
+// closes the ask the child raised. DeliverAnswer claims the ask out of the registry but publishes
+// nothing, so without this an answered question stayed on screen until it aged out. The publish goes
+// first: recordAskTransition walks block -> run -> dag against the store, and the dismissal must not
+// wait on it.
 func RecordAskAnswered(oref, askId string) {
+	publishAgentAsk(baseds.AgentAskData{ORef: oref, AskId: askId, Cleared: true})
 	recordAskTransition(oref, askId, waveobj.RunEventKindChildAnswered, "")
 }

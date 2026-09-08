@@ -13,6 +13,11 @@ import { atom, type PrimitiveAtom } from "jotai";
 
 export const attentionAtom = atom<AttentionItem[]>([]) as PrimitiveAtom<AttentionItem[]>;
 
+// loadAttention is now fired by events (ask cleared, block closed) as well as the poll, so two loads
+// can be in flight at once. Only the newest one may write: an in-flight poll that started before the
+// ask was answered would otherwise land after it and restore the count that was just cleared.
+let latestAttentionLoad = 0;
+
 // splitAttention keeps the two nav-rail badges disjoint by construction rather than by two derivations
 // agreeing: an item either names a channel or it does not.
 export function splitAttention(items: AttentionItem[]): {
@@ -30,9 +35,12 @@ export function splitAttention(items: AttentionItem[]): {
 // A failed poll leaves the last good list in place. Blanking the badge on one dropped request would
 // read as "nothing needs you", which is the exact lie this whole change exists to remove.
 export async function loadAttention(): Promise<void> {
+    const loadId = ++latestAttentionLoad;
     try {
         const rtn = await RpcApi.GetAttentionCommand(TabRpcClient);
-        globalStore.set(attentionAtom, rtn.items ?? []);
+        if (loadId === latestAttentionLoad) {
+            globalStore.set(attentionAtom, rtn.items ?? []);
+        }
     } catch {
         // keep the previous value
     }

@@ -15,6 +15,7 @@ import (
 	"sort"
 
 	"github.com/wavetermdev/waveterm/pkg/agentask"
+	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
@@ -274,8 +275,12 @@ func GatherAttention(ctx context.Context) ([]wshrpc.AttentionItem, error) {
 // GatherAttentionFromLedger builds the attention list from channel/run rows the caller already holds,
 // skipping the second full channels+runs read. Callers without them should use GatherAttention.
 func GatherAttentionFromLedger(ctx context.Context, chans []*waveobj.Channel, runsByChannel map[string][]*waveobj.Run) ([]wshrpc.AttentionItem, error) {
+	pendingAsks, err := livePendingAsks(ctx)
+	if err != nil {
+		return nil, err
+	}
 	in := AttentionInput{
-		PendingAsks:   agentask.GlobalRegistry.List(),
+		PendingAsks:   pendingAsks,
 		AskChannel:    map[string]string{},
 		AskWorker:     map[string]string{},
 		AskWorkerORef: map[string]string{},
@@ -315,4 +320,35 @@ func GatherAttentionFromLedger(ctx context.Context, chans []*waveobj.Channel, ru
 		}
 	}
 	return BuildAttention(in), nil
+}
+
+// livePendingAsks is the registry's pending asks minus the ones whose block is gone. Closing an
+// agent's terminal deletes the block but nothing tells the ask registry, so the ask outlived the
+// thing that raised it and the attention badge kept counting a question nobody could answer. Pruning
+// here rather than off the blockclose event also survives a missed event: every poll re-checks.
+// A pruned ask is retired for real — claimed, its --wait caller cancelled, and cleared to the
+// frontend — not just filtered out of this one response.
+func livePendingAsks(ctx context.Context) (map[string]agentask.PendingAsk, error) {
+	pendingAsks := agentask.GlobalRegistry.List()
+	for oref, pending := range pendingAsks {
+		parsed, err := waveobj.ParseORef(oref)
+		if err != nil || parsed.OType != waveobj.OType_Block {
+			continue
+		}
+		block, err := wstore.DBGet[*waveobj.Block](ctx, parsed.OID)
+		if err != nil {
+			return nil, fmt.Errorf("checking pending ask block %s: %w", parsed.OID, err)
+		}
+		if block != nil {
+			continue
+		}
+		delete(pendingAsks, oref)
+		claimed, ok := agentask.GlobalRegistry.Claim(oref, pending.AskId)
+		if !ok {
+			continue
+		}
+		agentask.GlobalRegistry.ResolveWaiter(claimed.AskId, agentask.WaitResult{Cancelled: true})
+		PublishAgentAsk(baseds.AgentAskData{ORef: oref, AskId: claimed.AskId, Cleared: true})
+	}
+	return pendingAsks, nil
 }
