@@ -2512,11 +2512,14 @@ const buildUsageFixture = () => {
         reportedcostusd: 0,
         msgs: 2,
     });
-    // OpenCode/OpenCode-Go/DeepSeek with UNKNOWN pricing and non-zero reported cost (coverage < 100%).
+    // OpenCode/OpenCode-Go with UNKNOWN pricing and non-zero reported cost (coverage < 100%). The model
+    // id is deliberately synthetic: this bucket exists to exercise priceFor()'s unknown-model path, and
+    // naming a real model here is what rotted the assertion last time — the bundled table gained a
+    // deepseek-v4-pro row, coverage silently became 100%, and step 11 started failing.
     buckets.push({
         harness: "opencode",
         provider: "opencode-go",
-        model: "deepseek-v4-pro",
+        model: "unpriced-test-model",
         day: dayAgo(3),
         input: 2000,
         output: 500,
@@ -2633,21 +2636,22 @@ const usageCharts = {
             JSON.stringify(palette)
         );
 
-        // ArcMeter sweep, scoped to the Usage surface's Provider limits: the rings (and their per-element
-        // --usage-arc) live only inside that section now that the app bar carries no usage control.
-        const arcs = await h.ev(`(() => {
-            const holder = [...document.querySelectorAll("div")]
-                .find((d) => (d.textContent || "").includes("Provider limits"));
-            if (!holder) return { found: false, count: 0, values: [] };
-            const els = [...holder.querySelectorAll("*")].filter(
-                (e) => e.style && e.style.getPropertyValue("--usage-arc")
-            );
-            return { found: true, count: els.length, values: els.slice(0, 6).map((e) => e.style.getPropertyValue("--usage-arc")) };
+        // Live limits render one Meter bar per window (the redesign traded the ArcMeter rings for bars),
+        // and the seeded claude snapshot is 62%/41% so both bars must have a non-zero width.
+        const limits = await h.ev(`(() => {
+            const cards = [...document.querySelectorAll("[data-usage-limit]")];
+            return cards.map((c) => {
+                const fill = c.querySelector("div[style*='width']");
+                return { kind: c.getAttribute("data-usage-limit"), width: fill ? fill.style.width : "" };
+            });
         })()`);
         rec(
-            "3. Provider-limits ArcMeter rings scope --usage-arc per element",
-            arcs.found && arcs.count >= 1,
-            JSON.stringify(arcs)
+            "3. Live limits render a 5-hour and a weekly bar with a real width",
+            limits.length === 2 &&
+                limits.some((l) => l.kind === "fivehour") &&
+                limits.some((l) => l.kind === "week") &&
+                limits.every((l) => /^[0-9.]+%$/.test(l.width) && parseFloat(l.width) > 0),
+            JSON.stringify(limits)
         );
 
         // hovering a column opens the visx tooltip (replacing the old native title attribute). React
@@ -2710,22 +2714,21 @@ const usageCharts = {
         }
         rec("6. All-time renders the brush strip under the chart", !!brush.brushStrip, JSON.stringify(brush));
 
-        const chipLabels = await h.ev(`(() => {
-            const chips = [...document.querySelectorAll("button")].filter(
-                (b) => ["All", "Claude Code", "Codex", "OpenCode", "Pi"].includes((b.textContent || "").trim())
-            );
-            return chips.map((b) => (b.textContent || "").trim());
-        })()`);
+        // The scope picker is now the master rail, keyed by data-usage-harness (a text query would match
+        // the detail pane's own copy of a provider name). Every seeded harness needs a row plus the
+        // pinned aggregate.
+        const railKeys = await h.ev(
+            `[...document.querySelectorAll("[data-usage-harness]")].map((b) => b.getAttribute("data-usage-harness"))`
+        );
         rec(
-            "7. harness filter chips include All, Claude Code, Codex, OpenCode, and Pi",
-            ["All", "Claude Code", "Codex", "OpenCode", "Pi"].every((l) => chipLabels.includes(l)),
-            JSON.stringify(chipLabels)
+            "7. the rail lists all, claude, codex, opencode, and pi",
+            ["all", "claude", "codex", "opencode", "pi"].every((k) => railKeys.includes(k)),
+            JSON.stringify(railKeys)
         );
 
-        // click the OpenCode chip, then assert only OpenCode history remains
+        // select the OpenCode rail row, then assert only OpenCode history remains
         const clickedOpenCode = await h.ev(`(() => {
-            const b = [...document.querySelectorAll("button")]
-                .find((x) => (x.textContent || "").trim() === "OpenCode");
+            const b = document.querySelector('[data-usage-harness="opencode"]');
             if (!b) return false;
             b.click();
             return true;
@@ -2736,7 +2739,7 @@ const usageCharts = {
             const body = document.body.textContent || "";
             return {
                 hasOpenaiModel: body.includes("openai/gpt-5.5"),
-                hasDeepseekModel: body.includes("opencode-go/deepseek-v4-pro"),
+                hasUnpricedModel: body.includes("opencode-go/unpriced-test-model"),
                 hasAnthropicHeading: h3s.includes("anthropic"),
                 hasReasoning: body.includes("Reasoning"),
                 hasReportedCostLabel: body.includes("Reported cost"),
@@ -2745,7 +2748,7 @@ const usageCharts = {
         })()`);
         rec(
             "8. selecting OpenCode leaves only OpenCode model cards and totals",
-            clickedOpenCode && openCodeState.hasOpenaiModel && openCodeState.hasDeepseekModel && !openCodeState.hasAnthropicHeading,
+            clickedOpenCode && openCodeState.hasOpenaiModel && openCodeState.hasUnpricedModel && !openCodeState.hasAnthropicHeading,
             JSON.stringify(openCodeState)
         );
         rec(
@@ -2759,38 +2762,57 @@ const usageCharts = {
             JSON.stringify({ reported: openCodeState.hasReportedCostLabel, estimated: openCodeState.hasEstimateLabel })
         );
 
-        // DeepSeek is intentionally unpriced, so the estimate's priced-token coverage must be below 100%
+        // one OpenCode bucket is intentionally unpriced, so priced-token coverage must be below 100%
         const coverage = await h.ev(`(() => {
-            const m = (document.body.textContent || "").match(/(\\d+)% of tokens priced/);
+            const owners = [...document.querySelectorAll("div")].filter(
+                (d) => /% of tokens priced/.test(d.textContent || "") && d.children.length === 0
+            );
+            const m = owners.length ? (owners[0].textContent || "").match(/(\\d+)% of tokens priced/) : null;
             return m ? Number(m[1]) : null;
         })()`);
-        rec("11. pricing coverage is below 100% because DeepSeek is unpriced", coverage != null && coverage < 100, `coverage=${coverage}%`);
+        rec(
+            "11. pricing coverage is below 100% because one model is unpriced",
+            coverage != null && coverage < 100,
+            `coverage=${coverage}%`
+        );
 
-        // provider limits must be unaffected by the harness filter
-        const limitsBefore = await h.ev(`(() => {
-            const holder = [...document.querySelectorAll("div")]
-                .find((d) => (d.textContent || "").includes("Provider limits"));
-            if (!holder) return -1;
-            return [...holder.querySelectorAll("*")].filter((e) => e.style && e.style.getPropertyValue("--usage-arc")).length;
+        // Master-detail INVERTS the old rule: limits are now scoped to the selection, so OpenCode (which
+        // publishes no quota) must show the no-reading note rather than borrowing Claude's bars, and the
+        // aggregate must bring the bars back. A scope switch changing the limits is the feature.
+        const limitsOpenCode = await h.ev(`(() => {
+            const d = document.querySelector("[data-usage-detail]");
+            return {
+                scope: d ? d.getAttribute("data-usage-detail") : null,
+                bars: document.querySelectorAll("[data-usage-limit]").length,
+                note: (d ? d.textContent || "" : "").includes("No quota reading"),
+            };
         })()`);
         await h.ev(`(() => {
-            const b = [...document.querySelectorAll("button")]
-                .find((x) => (x.textContent || "").trim() === "All");
+            const b = document.querySelector('[data-usage-harness="all"]');
             if (b) b.click();
         })()`);
         await settle(400);
-        const limitsAfter = await h.ev(`(() => {
-            const holder = [...document.querySelectorAll("div")]
-                .find((d) => (d.textContent || "").includes("Provider limits"));
-            if (!holder) return -1;
-            return [...holder.querySelectorAll("*")].filter((e) => e.style && e.style.getPropertyValue("--usage-arc")).length;
+        const limitsAll = await h.ev(`(() => {
+            const d = document.querySelector("[data-usage-detail]");
+            return {
+                scope: d ? d.getAttribute("data-usage-detail") : null,
+                bars: document.querySelectorAll("[data-usage-limit]").length,
+            };
         })()`);
-        rec("12. harness filters do not alter Provider limits", limitsBefore >= 1 && limitsBefore === limitsAfter, `rings ${limitsBefore} -> ${limitsAfter}`);
+        rec(
+            "12. live limits follow the selected scope",
+            limitsOpenCode.scope === "opencode" &&
+                limitsOpenCode.bars === 0 &&
+                limitsOpenCode.note &&
+                limitsAll.scope === "all" &&
+                limitsAll.bars === 2,
+            JSON.stringify({ limitsOpenCode, limitsAll })
+        );
 
-        // the harness filter lives in the long-lived view model, so it survives a surface switch
+        // the rail selection IS the harness filter, and it lives in the long-lived view model, so it
+        // survives the surface unmounting on a nav switch
         await h.ev(`(() => {
-            const b = [...document.querySelectorAll("button")]
-                .find((x) => (x.textContent || "").trim() === "OpenCode");
+            const b = document.querySelector('[data-usage-harness="opencode"]');
             if (b) b.click();
         })()`);
         await settle(400);
@@ -2798,11 +2820,18 @@ const usageCharts = {
         await h.goto("usage");
         await settle(600);
         const filterSurvived = await h.ev(`(() => {
-            const b = [...document.querySelectorAll("button")]
-                .find((x) => (x.textContent || "").trim() === "OpenCode");
-            return !!b && (b.className || "").includes("bg-accentbg");
+            const b = document.querySelector('[data-usage-harness="opencode"]');
+            const d = document.querySelector("[data-usage-detail]");
+            return {
+                pressed: b ? b.getAttribute("aria-pressed") : null,
+                scope: d ? d.getAttribute("data-usage-detail") : null,
+            };
         })()`);
-        rec("13. OpenCode filter survives a surface switch", filterSurvived === true, `selected=${filterSurvived}`);
+        rec(
+            "13. OpenCode selection survives a surface switch",
+            filterSurvived.pressed === "true" && filterSurvived.scope === "opencode",
+            JSON.stringify(filterSurvived)
+        );
 
         // the app bar must have no usage control at all, and its native window controls must remain
         const appBar = await h.ev(`(() => {
@@ -2827,7 +2856,7 @@ const usageCharts = {
         // DailyChart legend: each harness's swatch is a 9px span whose inline background resolves to its
         // runtime token, followed by its label span. OpenCode and Pi must both appear with local marks.
         await h.ev(`(() => {
-            const b = [...document.querySelectorAll("button")].find((x) => (x.textContent || "").trim() === "All");
+            const b = document.querySelector('[data-usage-harness="all"]');
             if (b) b.click();
         })()`);
         await settle(400);
@@ -2836,7 +2865,7 @@ const usageCharts = {
                 const bg = s.style && s.style.background ? s.style.background : "";
                 return bg.includes("--color-rt-opencode") || bg.includes("--color-rt-pi");
             });
-            const labels = swatches.map((s) => (s.nextElementSibling ? (s.nextElementSibling.textContent || "").trim() : ""));
+            const labels = swatches.map((s) => (s.parentElement ? (s.parentElement.textContent || "").trim() : ""));
             return { count: swatches.length, labels };
         })()`);
         rec(
@@ -2845,10 +2874,10 @@ const usageCharts = {
             JSON.stringify(legend)
         );
 
-        // click the Pi chip, then assert only Pi history remains and its provider/model stays distinct
-        // from Codex's openai bucket and OpenCode's opencode-go bucket.
+        // select the Pi rail row, then assert only Pi history remains and its provider/model stays
+        // distinct from Codex's openai bucket and OpenCode's opencode-go bucket.
         const clickedPi = await h.ev(`(() => {
-            const b = [...document.querySelectorAll("button")].find((x) => (x.textContent || "").trim() === "Pi");
+            const b = document.querySelector('[data-usage-harness="pi"]');
             if (!b) return false;
             b.click();
             return true;
