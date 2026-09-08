@@ -4,11 +4,15 @@
 package jarvis
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/agentask"
+	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wps"
 )
 
 func gatedRun(id, goal string, doneTs int64) *waveobj.Run {
@@ -85,6 +89,31 @@ func TestBuildAttentionDoesNotCountAnEscalatedAskTwice(t *testing.T) {
 	})
 	if len(items) != 1 || items[0].Kind != AttentionEscalation {
 		t.Fatalf("want one escalation, got %+v", items)
+	}
+}
+
+func TestGatherAttentionDropsAskForDeletedBlock(t *testing.T) {
+	oref := waveobj.MakeORef(waveobj.OType_Block, uuid.NewString()).String()
+	agentask.GlobalRegistry = agentask.MakeRegistry()
+	agentask.GlobalRegistry.Set(oref, agentask.PendingAsk{AskId: "orphan", Ts: 42})
+
+	items, err := GatherAttentionFromLedger(context.Background(), nil, map[string][]*waveobj.Run{})
+	if err != nil {
+		t.Fatalf("gather attention: %v", err)
+	}
+	events := wps.Broker.ReadEventHistory(wps.Event_AgentAsk, oref, 1)
+	if len(events) != 1 {
+		t.Fatalf("deleted block must publish one clear event, got %d", len(events))
+	}
+	cleared, ok := events[0].Data.(baseds.AgentAskData)
+	if !ok || !cleared.Cleared || cleared.AskId != "orphan" {
+		t.Fatalf("clear event = %#v", events[0].Data)
+	}
+	if len(items) != 0 {
+		t.Fatalf("deleted block must not remain in attention: %+v", items)
+	}
+	if _, ok := agentask.GlobalRegistry.Get(oref); ok {
+		t.Fatal("deleted block's pending ask must be claimed")
 	}
 }
 

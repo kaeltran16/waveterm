@@ -17,6 +17,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
+	"github.com/wavetermdev/waveterm/pkg/wps"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
@@ -28,7 +29,21 @@ var (
 // deliverFn is the delivery seam; tests stub it so no real ask actuator runs.
 var deliverFn = agentask.DeliverAnswer
 
-// OnAgentAsk is the server-side Gatekeeper entry point, called from publishAgentAsk for every ask
+// PublishAgentAsk is the single way an ask raise or clear reaches the rest of the system: the
+// Gatekeeper first, then the broker. It lives here rather than in wshserver because the attention
+// gather also clears asks (for blocks that no longer exist) and wshserver imports jarvis, not the
+// other way round.
+func PublishAgentAsk(data baseds.AgentAskData) {
+	OnAgentAsk(data)
+	wps.Broker.Publish(wps.WaveEvent{
+		Event:   wps.Event_AgentAsk,
+		Scopes:  []string{data.ORef},
+		Persist: 1,
+		Data:    data,
+	})
+}
+
+// OnAgentAsk is the server-side Gatekeeper entry point, called from PublishAgentAsk for every ask
 // and clear. It never blocks the publish path: real work runs in a goroutine. A Cleared event
 // cancels any in-flight classification for that AskId.
 func OnAgentAsk(data baseds.AgentAskData) {
