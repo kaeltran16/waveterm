@@ -195,6 +195,12 @@ func applyActionLocked(ctx context.Context, dagID, taskID, action string, target
 	default:
 		return fmt.Errorf("unknown dag action %q", action)
 	}
+	// the circuit-break's contract is "stop and ask a human", and this action is the answer — so the
+	// streak is spent. Without this the dispatch guard deadlocks: nothing spawns, so no fresh success
+	// can ever arrive to clear the counter that is stopping the spawns. Terminal task state still
+	// blocks the dag on its own, so this only forgives the counter, never a real failure.
+	g.Failures = 0
+	RecomputeDagStatus(g)
 	g.UpdatedTs = time.Now().UnixMilli()
 	if err := wstore.UpdateDag(ctx, dagID, func(cur *waveobj.TaskGroup) error {
 		*cur = *g

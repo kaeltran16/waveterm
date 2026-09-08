@@ -66,10 +66,19 @@ func depSatisfied(g *waveobj.TaskGroup, id string) bool {
 // NextToSpawn returns ready tasks the engine should spawn now: ready minus busy,
 // capped so busy+new <= Parallelism, ordered by id. stalled workers still hold their slot — the
 // stall flag does not stop the child process, so counting only Running would overshoot Parallelism.
+// The circuit-break is enforced here rather than only derived into the status: "blocked" that still
+// dispatches spends the whole DAG on the fault the human was supposed to be asked about. Already-
+// running workers are untouched — this stops new work, it does not kill work in flight. A human dag
+// action clears the streak (applyActionLocked), which is the only way back: with the guard in place
+// no fresh success can arrive to clear it on its own. ReadyTasks stays unguarded so the digest can
+// still report which tasks are being held back.
 func NextToSpawn(g *waveobj.TaskGroup) []string {
+	if g.Failures >= MaxConsecutiveFailures {
+		return nil
+	}
 	busy := 0
 	for i := range g.Tasks {
-		if g.Tasks[i].State == TaskState_Running || g.Tasks[i].State == TaskState_Stalled {
+		if taskActive(g.Tasks[i].State) {
 			busy++
 		}
 	}
@@ -137,9 +146,11 @@ func RetryTask(g *waveobj.TaskGroup, taskID string) error {
 		if g.Tasks[i].ID == taskID {
 			g.Tasks[i].State = TaskState_Pending
 			g.Tasks[i].RunID = ""
-			// failures is not reset here: retrying one task must not clear the dag-wide streak,
-			// or n failing tasks plus one retry would starve the circuit-break. a fresh success
-			// clears it via the tick accounting.
+			// failures is not reset here: the auto-retry path calls this too, and an auto-retry
+			// clearing the dag-wide streak would starve the circuit-break — n failing tasks plus
+			// one retry and it could never trip. Below the break a fresh success clears it via the
+			// tick accounting; once the break has armed, only a human dag action does
+			// (applyActionLocked), because the guard stops any success from arriving.
 			RecomputeDagStatus(g)
 			return nil
 		}

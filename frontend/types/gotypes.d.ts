@@ -3549,6 +3549,7 @@ declare global {
         tasks: TaskNode[];
         status: string;
         failures: number;
+        notifiedcondition?: string;
         workerroute?: RoutePin;
         mergerequired?: boolean;
         createdts: number;
