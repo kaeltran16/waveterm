@@ -352,6 +352,12 @@ type TaskGroup struct {
 	CreatedTs     int64       `json:"createdts"`
 	UpdatedTs     int64       `json:"updatedts"`
 	Meta          MetaMapType `json:"meta"`
+
+	// NotifiedCondition is the condition the lead was last woken about (the status, plus the gate task
+	// or blocking kind it is about). Engine bookkeeping: it is what keeps a re-entered Schedule from
+	// re-announcing a condition that has not changed. Kept in its own block so its name does not
+	// rewiden the alignment of every field above it.
+	NotifiedCondition string `json:"notifiedcondition,omitempty"`
 }
 
 func (*TaskGroup) GetOType() string {

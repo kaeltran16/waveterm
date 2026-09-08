@@ -24,6 +24,14 @@ const (
 	TaskState_BlockedMerge = "blocked-merge"
 )
 
+// taskActive reports whether a task still owns a live child process. Stalling is an observation the
+// liveness pass writes over a running task, not a transition off it — the child keeps running, keeps
+// its parallelism slot, and its exit is still the task's terminal event. Every accounting path that
+// asks "was this task in flight?" must accept both, or a task that went silent once is stranded.
+func taskActive(state string) bool {
+	return state == TaskState_Running || state == TaskState_Stalled
+}
+
 // Dag statuses (derived by RecomputeDagStatus; cancelled is a terminal override).
 const (
 	DagStatus_Running        = "running"
@@ -308,6 +316,43 @@ func RecomputeDagStatus(g *waveobj.TaskGroup) {
 	default:
 		g.Status = DagStatus_Running
 	}
+}
+
+// BlockingKind names what is holding a blocked dag: the failure classifier shared by its failed
+// tasks, or "mixed" when they disagree. Empty when nothing failed (the circuit-break tripped on the
+// streak alone, or the block is a merge).
+func BlockingKind(g *waveobj.TaskGroup) string {
+	out := ""
+	for i := range g.Tasks {
+		kind := g.Tasks[i].LastFailureKind
+		if g.Tasks[i].State != TaskState_Failed || kind == "" {
+			continue
+		}
+		if out == "" {
+			out = kind
+			continue
+		}
+		if out != kind {
+			return "mixed"
+		}
+	}
+	return out
+}
+
+// dagCondition is the lead-facing identity of what the dag is currently asking for: the status, plus
+// what is being asked about. Two different gates are two different questions for the human even
+// though the status does not move between them, and a second task failing a different way turns a
+// specific blocker into a mixed one — both must still be asked. What it deliberately excludes is the
+// failure count: a rising streak of the same kind is the same question, and re-announcing it is the
+// duplicate-notification bug itself.
+func dagCondition(g *waveobj.TaskGroup) string {
+	switch g.Status {
+	case DagStatus_AwaitingReview:
+		return g.Status + ":" + gatedTaskID(g)
+	case DagStatus_Blocked:
+		return g.Status + ":" + BlockingKind(g)
+	}
+	return g.Status
 }
 
 // DeriveTaskStates maps child run status onto tasks (only tasks with a RunID are touched).

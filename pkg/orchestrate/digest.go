@@ -335,6 +335,12 @@ func buildNext(g *waveobj.TaskGroup, askByTask map[string]wshrpc.DagAskItem) wsh
 	if ids := tasksInState(g, TaskState_Stalled); len(ids) > 0 {
 		return humanActionStep("retry/skip/escalate", ids, digestActionRetrySkipEscalate)
 	}
+	// the circuit-break halted dispatch with no individual task to point at (its failures were already
+	// retried or skipped). Ranked last of the human actions — a task in a bad state is the more useful
+	// thing to name — but ahead of every wait kind, because no engine move is coming.
+	if g.Failures >= MaxConsecutiveFailures {
+		return humanActionStep("retry/skip/escalate", ReadyTasks(g), digestActionRetrySkipEscalate)
+	}
 	// 2. merge-ready work that blocks successors (merge-required dags only)
 	if blocked := mergeReadyBlocking(g); len(blocked) > 0 {
 		return mergeReadyStep(mergeReadyIDs(g))
@@ -440,7 +446,7 @@ func mergeReadyIDs(g *waveobj.TaskGroup) []string {
 func busyTaskIDs(g *waveobj.TaskGroup) []string {
 	var ids []string
 	for i := range g.Tasks {
-		if g.Tasks[i].State == TaskState_Running || g.Tasks[i].State == TaskState_Stalled {
+		if taskActive(g.Tasks[i].State) {
 			ids = append(ids, g.Tasks[i].ID)
 		}
 	}
@@ -539,7 +545,7 @@ func taskIsParallelismCapped(g *waveobj.TaskGroup, t *waveobj.TaskNode) bool {
 	}
 	busy := 0
 	for i := range g.Tasks {
-		if g.Tasks[i].State == TaskState_Running || g.Tasks[i].State == TaskState_Stalled {
+		if taskActive(g.Tasks[i].State) {
 			busy++
 		}
 	}

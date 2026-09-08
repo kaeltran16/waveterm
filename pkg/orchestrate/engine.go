@@ -253,7 +253,7 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 	// and records the task-done lifecycle boundary (task id + child run id).
 	for i := range g.Tasks {
 		t := &g.Tasks[i]
-		if t.State == TaskState_Done && t.RunID != "" && prevStates[t.ID] == TaskState_Running {
+		if t.State == TaskState_Done && t.RunID != "" && taskActive(prevStates[t.ID]) {
 			taskID := t.ID
 			childRunID := t.RunID
 			afterCommit = append(afterCommit, func() {
@@ -275,7 +275,7 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 	// circuit-break at MaxConsecutiveFailures could never trip once any task had ever succeeded.
 	freshSuccess := false
 	for i := range g.Tasks {
-		if prevStates[g.Tasks[i].ID] != TaskState_Running || g.Tasks[i].State != TaskState_Done {
+		if !taskActive(prevStates[g.Tasks[i].ID]) || g.Tasks[i].State != TaskState_Done {
 			continue
 		}
 		freshSuccess = true
@@ -286,7 +286,7 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		g.Failures = 0
 	}
 	for i := range g.Tasks {
-		if g.Tasks[i].State == TaskState_Failed && prevStates[g.Tasks[i].ID] == TaskState_Running {
+		if g.Tasks[i].State == TaskState_Failed && taskActive(prevStates[g.Tasks[i].ID]) {
 			g.Failures++
 			// task-failed: record the terminal failure boundary (task id, child run id, failure
 			// classifier, attempt count) — emitted only after the persist lands.
@@ -371,9 +371,17 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		})
 	}
 	RecomputeDagStatus(g)
-	// status-transition notifications: gate-open / blocked / complete wake the lead.
-	switch g.Status {
-	case DagStatus_AwaitingReview:
+	// status notifications: gate-open / blocked / complete wake the lead, once per condition. The
+	// watchdog and every dag mutation re-enter Schedule, so emitting the standing status would refill
+	// the lifecycle log with identical rows and re-wake the lead about what it was already told. The
+	// gate cannot be compared against the status this tick started from: the mutation paths recompute
+	// and PERSIST the new status before calling Schedule, so the row already reads the new condition.
+	// What the lead was last told is its own fact, so the dag records it.
+	condition := dagCondition(g)
+	notify := condition != g.NotifiedCondition
+	g.NotifiedCondition = condition
+	switch {
+	case notify && g.Status == DagStatus_AwaitingReview:
 		gateTask := gatedTaskID(g)
 		detail := fmt.Sprintf("gate %s", gateTask)
 		afterCommit = append(afterCommit, func() {
@@ -381,29 +389,15 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 			notifyLeadBestEffort(ctx, g, DagEventGateOpen, detail, gateTask)
 			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindDagGateOpen, nil, map[string]any{"taskid": gateTask})
 		})
-	case DagStatus_Blocked:
+	case notify && g.Status == DagStatus_Blocked:
 		failures := g.Failures
-		blockingKind := ""
-		for i := range g.Tasks {
-			kind := g.Tasks[i].LastFailureKind
-			if g.Tasks[i].State != TaskState_Failed || kind == "" {
-				continue
-			}
-			if blockingKind == "" {
-				blockingKind = kind
-				continue
-			}
-			if blockingKind != kind {
-				blockingKind = "mixed"
-				break
-			}
-		}
+		blockingKind := BlockingKind(g)
 		afterCommit = append(afterCommit, func() {
 			publishDagEvent(DagEventBlocked, g, "")
 			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindDagBlocked, nil, map[string]any{"failures": failures, "kind": blockingKind})
 			notifyLeadBestEffort(ctx, g, DagEventBlocked, fmt.Sprintf("%d failures", failures), "")
 		})
-	case DagStatus_Done:
+	case notify && g.Status == DagStatus_Done:
 		afterCommit = append(afterCommit, func() {
 			publishDagEvent(DagEventComplete, g, "")
 			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindDagDone, nil, map[string]any{})
