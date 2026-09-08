@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/wavetermdev/waveterm/pkg/harness"
 	"github.com/wavetermdev/waveterm/pkg/memroots"
@@ -114,4 +115,47 @@ func WriteSteering(p Paths, content string, baseMtime int64) (WriteResult, error
 		return WriteResult{}, err
 	}
 	return WriteResult{Mtime: st.ModTime().UnixMilli()}, nil
+}
+
+// Projection is what one harness's steering file currently holds, for the read-only preview beside
+// the canonical editor. Body is what is on disk, not what the canonical doc would render — the
+// difference is exactly what "stale" means.
+type Projection struct {
+	Runtime string `json:"runtime"`
+	Path    string `json:"path"`
+	Present bool   `json:"present"`
+	State   string `json:"state"` // current | stale | absent
+	Body    string `json:"body"`
+}
+
+// ProjectionFor reads one harness's steering file. State mirrors Status so the preview and the
+// harness rows can never disagree.
+func ProjectionFor(p Paths, runtime string) (Projection, error) {
+	spec, ok := harness.Lookup(runtime)
+	if !ok {
+		return Projection{}, fmt.Errorf("unknown harness runtime %q", runtime)
+	}
+	proj := Projection{Runtime: runtime, Path: spec.SteeringPath(p.Home), State: "absent"}
+	proj.Present = configRootExists(spec, p.Home)
+	if !proj.Present {
+		return proj, nil
+	}
+	existing, err := os.ReadFile(proj.Path)
+	if err != nil && !os.IsNotExist(err) {
+		return proj, fmt.Errorf("reading %s: %w", proj.Path, err)
+	}
+	proj.Body = regionBody(string(existing))
+	canonical, err := os.ReadFile(p.SteeringDoc)
+	if err != nil && !os.IsNotExist(err) {
+		return proj, fmt.Errorf("reading canonical steering doc: %w", err)
+	}
+	if !strings.Contains(string(existing), steeringBegin) || len(canonical) == 0 {
+		return proj, nil
+	}
+	if applyRegion(string(existing), string(canonical)) == string(existing) {
+		proj.State = "current"
+	} else {
+		proj.State = "stale"
+	}
+	return proj, nil
 }

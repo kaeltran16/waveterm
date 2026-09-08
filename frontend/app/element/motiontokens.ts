@@ -48,6 +48,15 @@ export const composerReveal: Variants = {
     exit: { opacity: 0, height: 0, transition: { duration: MOTION.durMicro, ease: MOTION.easeFluid } },
 };
 
+// Pane reveal: composerReveal's signature on the macro duration. A composer strip is a few dozen
+// pixels, so durMicro reads as a reveal there; a disclosure pane is several hundred, and the same
+// 140ms on this ease covers ~90% of that distance in two frames — indistinguishable from a snap.
+export const paneReveal: Variants = {
+    initial: { opacity: 0, height: 0 },
+    animate: { opacity: 1, height: "auto", transition: { duration: MOTION.durMacro, ease: MOTION.easeFluid } },
+    exit: { opacity: 0, height: 0, transition: { duration: MOTION.durExit, ease: MOTION.easeFluid } },
+};
+
 // Popover / dropdown reveal. Opacity + scale only (never x/y — consistent with cardVariants); the
 // panel scales from its anchor corner via a per-site transform-origin. Snappy in and out — a dropdown
 // dismiss should not linger.

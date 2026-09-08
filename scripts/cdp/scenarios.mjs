@@ -262,7 +262,7 @@ const runsLifecycle = {
 // arrange needed; a populated-roster visual still relies on the manual inject-live-agents path.
 // Channels/Graph/Tasks merged into Jarvis and have no nav button left, so listing one here would make
 // h.goto throw before any step is recorded.
-const SMOKE_SURFACES = ["cockpit", "jarvis", "radar", "usage", "memory", "files", "settings", "code"];
+const SMOKE_SURFACES = ["cockpit", "jarvis", "radar", "usage", "vault", "files", "settings", "code"];
 
 const surfaceSmoke = {
     name: "surface-smoke",
@@ -647,20 +647,20 @@ const jarvisAsk = {
 
 // --- jarvis contextual entry: "Ask Jarvis" on a Memory detail attaches the source + pre-fills prompt ----
 // Memory data is loaded from the real memory store (reliably non-empty; see surface-smoke), so this needs
-// no channel/run setup. Open the memory surface (default List view), select the first note, click
+// no channel/run setup. Open the Vault's memory collection (default List view), select the first note, click
 // "Ask Jarvis", and assert the Jarvis surface shows the "This memory" attached chip + the suggested prompt.
 // This is the durable contextual-entry live check (Task 3); the builders themselves are unit-tested.
 const jarvisContextual = {
     name: "jarvis-contextual",
-    surface: "memory",
+    surface: "vault",
     async arrange() {
         return {};
     },
     async assert(h) {
         const steps = [];
-        await h.goto("memory");
+        await h.goto("vault");
         const selected = await h.ev(`(() => {
-            const rows = [...document.querySelectorAll('button')].filter((b) => (b.className || '').includes('rounded-[11px]'));
+            const rows = [...document.querySelectorAll('[data-vault-saved-row]')];
             if (rows.length === 0) return false;
             rows[0].click();
             return true;
@@ -702,9 +702,9 @@ const jarvisContextual = {
                 return group ? group.querySelectorAll('[data-jarvis-subject-kind]').length : -1;
             })()`);
         const before = await countThreads();
-        await h.goto("memory");
+        await h.goto("vault");
         await h.ev(`(() => {
-            const rows = [...document.querySelectorAll('button')].filter((b) => (b.className || '').includes('rounded-[11px]'));
+            const rows = [...document.querySelectorAll('[data-vault-saved-row]')];
             if (rows[0]) rows[0].click();
             return true;
         })()`);
@@ -736,7 +736,7 @@ const jarvisContextual = {
 // proves nothing (see docs/jarvis-second-brain-open-issues.md J1).
 // jarvis replaces channels here: the run body that carries a run's ambient chips (runbody AmbientTags) now
 // renders in the Stage.
-const AMBIENT_SURFACES = ["cockpit", "jarvis", "radar", "memory"];
+const AMBIENT_SURFACES = ["cockpit", "jarvis", "radar", "vault"];
 
 const jarvisAmbient = {
     name: "jarvis-ambient",
@@ -1185,7 +1185,7 @@ const jarvisProactive = {
         });
         await h.shot("cdp-shots/jarvis-proactive.png");
 
-        // click the card: a memory hit maps to memnote:<id>, so the Memory surface opens. The injected
+        // click the card: a memory hit maps to memnote:<id>, so the Vault surface opens. The injected
         // nodeId need not exist in the vault — selectNote opens the rail with the id selected even when
         // unresolvable (documented degradation, spec §3); this step verifies the navigation mechanics.
         const cardClicked = await (async () => {
@@ -1208,22 +1208,22 @@ const jarvisProactive = {
             ok: cardClicked,
             detail: JSON.stringify({ cardClicked }),
         });
-        // the Memory surface header renders a string unique to it ("What your agents remember"), absent
-        // anywhere else — unlike the rail label "Memory". Poll body text for it.
+        // the Vault's collection line is the stable marker: data-vault-tab exists only on that surface,
+        // and unlike a header string it does not move when the copy is reworded.
         let onMemory = false;
         for (let i = 0; i < 20; i++) {
             await h.ev("new Promise((r) => setTimeout(r, 500))");
             onMemory = await h.ev(
-                `(() => (document.body.innerText || '').includes('What your agents remember'))()`
+                `(() => document.querySelector('[data-vault-tab="memory"]') != null)()`
             );
             if (onMemory) break;
         }
         steps.push({
-            step: "clicking the card navigates to the Memory surface (memnote:<id>)",
+            step: "clicking the card navigates to the Vault surface (memnote:<id>)",
             ok: onMemory,
             detail: JSON.stringify({ onMemory }),
         });
-        // the click flipped the surface to Memory; come back through the nav rail — atom state survives a
+        // the click flipped the surface to the Vault; come back through the nav rail — atom state survives a
         // surface flip, so the channel stays selected and the card re-renders for the dismissal steps.
         await h.goto("jarvis");
         let reshown = { label: false, title: false, btn: false };

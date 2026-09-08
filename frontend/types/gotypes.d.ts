@@ -125,10 +125,24 @@ declare global {
         note?: string;
     };
 
+    // wshrpc.AgentSyncSkill
+    type AgentSyncSkill = {
+        name: string;
+        description?: string;
+        states: {[key: string]: string};
+    };
+
     // wshrpc.AgentSyncSkillCollision
     type AgentSyncSkillCollision = {
         name: string;
         sources: string[];
+    };
+
+    // wshrpc.AgentSyncSkillColumn
+    type AgentSyncSkillColumn = {
+        runtime: string;
+        label: string;
+        present: boolean;
     };
 
     // wshrpc.AgentSyncSkillMove
@@ -401,6 +415,27 @@ declare global {
     // wshrpc.CommandAgentSyncApplyRtnData
     type CommandAgentSyncApplyRtnData = {
         actions: AgentSyncAction[];
+    };
+
+    // wshrpc.CommandAgentSyncProjectionData
+    type CommandAgentSyncProjectionData = {
+        runtime: string;
+    };
+
+    // wshrpc.CommandAgentSyncProjectionRtnData
+    type CommandAgentSyncProjectionRtnData = {
+        runtime: string;
+        path: string;
+        present: boolean;
+        state: string;
+        body: string;
+    };
+
+    // wshrpc.CommandAgentSyncSkillsRtnData
+    type CommandAgentSyncSkillsRtnData = {
+        skills: AgentSyncSkill[];
+        columns: AgentSyncSkillColumn[];
+        skillsroot: string;
     };
 
     // wshrpc.CommandAgentSyncStatusRtnData

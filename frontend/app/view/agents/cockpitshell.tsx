@@ -15,7 +15,7 @@ import { CodeSurface } from "@/app/view/code/codesurface";
 import { CockpitSurface } from "./cockpitsurface";
 import { FilesSurface } from "./filessurface";
 import { JarvisSurface } from "@/app/view/jarvis/jarvissurface";
-import { MemorySurface } from "./memorysurface";
+import { VaultSurface } from "./vaultsurface";
 import { NavRail } from "./navrail";
 import { RadarSurface } from "./radarsurface";
 import { SessionsSurface } from "./sessionssurface";
@@ -125,8 +125,8 @@ export function CockpitShell({ model, tabId }: { model: AgentsViewModel; tabId: 
                             <SessionsSurface model={model} />
                         ) : surface === "usage" ? (
                             <UsageSurface model={model} />
-                        ) : surface === "memory" ? (
-                            <MemorySurface model={model} />
+                        ) : surface === "vault" ? (
+                            <VaultSurface model={model} />
                         ) : surface === "code" ? (
                             <CodeSurface model={model} />
                         ) : surface === "settings" ? (

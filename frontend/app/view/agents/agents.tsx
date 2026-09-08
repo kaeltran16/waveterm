@@ -36,7 +36,7 @@ export type SurfaceKey =
     | "radar"
     | "sessions"
     | "files"
-    | "memory"
+    | "vault"
     | "usage"
     | "code"
     | "settings";
@@ -50,7 +50,7 @@ export const SURFACE_ORDER: SurfaceKey[] = [
     "radar",
     "sessions",
     "files",
-    "memory",
+    "vault",
     "usage",
     "code",
 ];

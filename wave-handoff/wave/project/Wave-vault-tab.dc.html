@@ -1,0 +1,1155 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* MOCKUP-TOKENS (verbatim from frontend/tailwindsetup.css @theme) */
+:root{
+--color-background:#0c0e11;--color-surface:#0e1116;--color-surface-raised:#13171d;--color-surface-hover:#171c22;--color-surface-selected:#1a222c;
+--color-primary:#e6e9ed;--color-secondary:#cfd5db;--color-ink-hi:#dfe4ea;--color-ink-mid:#9aa3ad;--color-muted:#7f858b;--color-ink-faint:#646a72;--color-feed-label:#777f89;
+--color-border:#1c2128;--color-edge-mid:#20262e;--color-edge-strong:#2a313a;--color-edge-faint:#161a20;
+--color-accent:#5e9cff;--color-accenthover:#8da3ff;--color-accent-soft:#aebfff;--color-accentbg:rgba(94,156,255,0.12);
+--color-asking:#e6b450;--color-askingbg:rgba(230,180,80,0.12);--color-warning:#e6b450;--color-success:#54c79a;--color-error:#e0726c;--color-on-warning:#1a1306;
+--color-mem-project:#8aa0ff;--color-mem-reference:#54c79a;--color-mem-feedback:#e6b450;--color-mem-user:#a78bfa;
+--color-pill:rgba(255,255,255,0.05);
+--shadow-popover:0 20px 56px rgba(0,0,0,0.55);
+--dur-micro:140ms;--curve-out:cubic-bezier(0.22,1,0.36,1);
+--tint-asking:color-mix(in oklab,var(--color-asking) 15%,transparent);
+--line-asking:color-mix(in oklab,var(--color-asking) 32%,transparent);
+--tint-success:color-mix(in oklab,var(--color-success) 15%,transparent);
+--tint-success-hi:color-mix(in oklab,var(--color-success) 26%,transparent);
+--line-success:color-mix(in oklab,var(--color-success) 30%,transparent);
+--tint-error:color-mix(in oklab,var(--color-error) 14%,transparent);
+--line-error:color-mix(in oklab,var(--color-error) 30%,transparent);
+--tint-accent:color-mix(in oklab,var(--color-accent) 15%,transparent);
+--line-accent:color-mix(in oklab,var(--color-accent) 40%,transparent);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:var(--color-background);font-family:'Hanken Grotesk',system-ui,sans-serif;font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;color:var(--color-primary);overflow:hidden}
+a{color:var(--color-accent-soft);text-decoration:none}
+a:hover{color:var(--color-accenthover)}
+button,input,textarea{font-family:'Hanken Grotesk',system-ui,sans-serif}
+input:focus-visible,textarea:focus-visible,button:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</helmet>
+
+<!--
+  Vault tab — memory | steering | skills.
+
+  Revision note (keeps every shipped Memory-surface capability; the previous draft dropped four):
+    · Graph/List toggle + graph view — restored, and MOVED onto the Saved section header, which is
+      the only thing it governs. In the shipping build it sits in the page header, where it reads as
+      if it also governed the review queue and the upkeep sections.
+    · Cleanup queue + Archived — restored as a single paired row of collapsibles instead of two
+      stacked full-width bars.
+    · Saved-note detail rail (content, meta, related/backlinks, Edit/Delete/Ask Jarvis) — restored.
+      The rail now has four modes and swaps on what you last touched.
+    · Projection + harvest ("Pull from agents" / "Project now") — restored, folded into the vault
+      line as a per-collection status cluster so it costs no extra row of chrome.
+
+  The layout fix that makes all of it fit at real scale (299 saved / 9 cleanup / 98 archived):
+  three independent panes in the memory column — the queue is height-capped and scrolls itself,
+  upkeep is a fixed row, and Saved takes the remaining height and scrolls itself. One page-length
+  scroll cannot serve a 10-item triage pass and a 299-item library at the same time.
+-->
+
+<div style="height:100vh;display:flex;flex-direction:column;background:var(--color-background);overflow:hidden">
+
+  <!-- header -->
+  <div style="display:flex;align-items:center;gap:16px;padding:14px 24px 12px;flex:none">
+    <h1 style="font:700 22px 'Hanken Grotesk';letter-spacing:-.02em">Vault</h1>
+    <span style="font:400 12.5px 'Hanken Grotesk';color:var(--color-ink-mid)">{{ headerSub }}</span>
+    <span style="flex:1"></span>
+    <input value="{{ search }}" onChange="{{ onSearch }}" placeholder="{{ searchPlaceholder }}" style="width:260px;border:1px solid var(--color-border);border-radius:9px;background:var(--color-surface);padding:7px 12px;font:400 12.5px 'Hanken Grotesk';color:var(--color-primary);outline:none">
+    <sc-if value="{{ isMemory }}" hint-placeholder-val="{{ true }}">
+      <button style="border-radius:6px;border:1px solid var(--color-edge-mid);background:var(--color-surface-raised);padding:7px 13px;font:600 12.5px 'Hanken Grotesk';color:var(--color-ink-mid);cursor:pointer" style-hover="border-color:var(--color-edge-strong);background:var(--color-surface-hover);color:var(--color-primary)">+ New memory</button>
+    </sc-if>
+  </div>
+
+  <!-- vault line: three collections + a status cluster that follows the collection -->
+  <div style="display:flex;align-items:center;gap:6px;border-top:1px solid var(--color-edge-faint);border-bottom:1px solid var(--color-edge-faint);padding:7px 24px;flex:none">
+    <span style="font:600 10px 'JetBrains Mono';letter-spacing:.1em;text-transform:uppercase;color:var(--color-ink-faint);margin-right:8px">~/.waveterm/vault</span>
+    <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="3">
+      <button onClick="{{ t.select }}" style="display:flex;align-items:center;gap:7px;border:1px solid {{ t.border }};border-radius:8px;background:{{ t.bg }};padding:4px 12px;font:600 12px 'Hanken Grotesk';color:{{ t.fg }};cursor:pointer">
+        {{ t.label }}<span style="font:400 10.5px 'JetBrains Mono';color:var(--color-ink-faint)">{{ t.count }}</span>
+      </button>
+    </sc-for>
+    <span style="flex:1"></span>
+
+    <!-- memory: where this project's memory is projected, and what the last harvest pulled in -->
+    <sc-if value="{{ isMemory }}" hint-placeholder-val="{{ true }}">
+      <span style="display:flex;align-items:center;gap:7px;font:400 11.5px 'Hanken Grotesk';color:var(--color-ink-mid)">
+        <span style="width:6px;height:6px;border-radius:999px;background:var(--color-mem-project)"></span>
+        Codex <span style="color:var(--color-accent-soft)">{{ projectionProject }}</span>
+      </span>
+      <span style="width:1px;height:14px;background:var(--color-edge-mid);margin:0 6px"></span>
+      <span style="font:400 11.5px 'Hanken Grotesk';color:var(--color-ink-mid)">{{ harvestLine }}</span>
+      <button onClick="{{ pullNow }}" style="margin-left:8px;border:1px solid var(--color-border);border-radius:7px;background:transparent;padding:4px 11px;font:600 11px 'Hanken Grotesk';color:var(--color-ink-mid);cursor:pointer" style-hover="color:var(--color-primary);border-color:var(--color-edge-strong)">Pull from agents</button>
+      <button onClick="{{ projectNow }}" style="border:1px solid var(--color-border);border-radius:7px;background:transparent;padding:4px 11px;font:600 11px 'Hanken Grotesk';color:var(--color-ink-mid);cursor:pointer" style-hover="color:var(--color-primary);border-color:var(--color-edge-strong)">Project now</button>
+    </sc-if>
+
+    <!-- steering / skills: drift against the harnesses -->
+    <sc-if value="{{ isSync }}" hint-placeholder-val="{{ false }}">
+      <span style="display:flex;align-items:center;gap:7px;font:400 11.5px 'Hanken Grotesk';color:{{ driftColor }}">
+        <span style="width:6px;height:6px;border-radius:999px;background:{{ driftColor }}"></span>{{ driftLine }}
+      </span>
+      <button onClick="{{ openPlan }}" style="margin-left:8px;border:1px solid var(--color-border);border-radius:7px;background:transparent;padding:4px 11px;font:600 11px 'Hanken Grotesk';color:var(--color-ink-mid);cursor:pointer" style-hover="color:var(--color-primary);border-color:var(--color-edge-strong)">Sync harnesses</button>
+    </sc-if>
+  </div>
+
+  <div style="flex:1;min-height:0;display:flex">
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden">
+
+      <!-- ============ MEMORY ============ -->
+      <sc-if value="{{ isMemory }}" hint-placeholder-val="{{ true }}">
+        <div style="flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;position:relative">
+
+          <!-- reader: full-width read of one long note, from the queue or from Saved -->
+          <sc-if value="{{ readerOpen }}" hint-placeholder-val="{{ false }}">
+            <div style="position:absolute;inset:0;z-index:5;background:var(--color-background);display:flex;flex-direction:column">
+              <div style="display:flex;align-items:center;gap:10px;padding:11px 24px;border-bottom:1px solid var(--color-edge-faint);flex:none">
+                <span style="font:600 10px 'JetBrains Mono';letter-spacing:.1em;text-transform:uppercase;color:{{ readerLabelColor }}">{{ readerLabel }}</span>
+                <span style="font:400 11px 'JetBrains Mono';color:var(--color-ink-faint)">{{ readerMeta }}</span>
+                <span style="flex:1"></span>
+                <button onClick="{{ closeReader }}" style="border:1px solid var(--color-edge-mid);border-radius:7px;background:transparent;padding:4px 12px;font:600 11px 'Hanken Grotesk';color:var(--color-ink-mid);cursor:pointer" style-hover="color:var(--color-primary)">{{ readerBackLabel }} <span style="font-family:'JetBrains Mono';font-size:10px">esc</span></button>
+              </div>
+              <div style="flex:1;min-height:0;overflow:auto;padding:24px 32px">
+                <div style="max-width:74ch;font:400 14.5px/1.7 'Hanken Grotesk';color:var(--color-ink-hi);white-space:pre-wrap">{{ readerBody }}</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:9px;padding:12px 24px;border-top:1px solid var(--color-edge-faint);flex:none">
+                <sc-if value="{{ readerIsPending }}" hint-placeholder-val="{{ true }}">
+                  <button onClick="{{ readerKeep }}" style="border:0;border-radius:7px;background:var(--color-accent);padding:8px 22px;font:600 12.5px 'Hanken Grotesk';color:var(--color-background);cursor:pointer" style-hover="background:var(--color-accenthover)">Keep</button>
+                  <button onClick="{{ readerDismiss }}" style="border:1px solid var(--color-edge-mid);border-radius:7px;background:transparent;padding:8px 18px;font:600 12.5px 'Hanken Grotesk';color:var(--color-ink-mid);cursor:pointer" style-hover="color:var(--color-primary)">Dismiss</button>
+                </sc-if>
+                <sc-if value="{{ readerIsSaved }}" hint-placeholder-val="{{ false }}">
+                  <button style="border:1px solid var(--line-accent);border-radius:7px;background:var(--tint-accent);padding:8px 20px;font:600 12.5px 'Hanken Grotesk';color:var(--color-accent-soft);cursor:pointer">Edit</button>
+                  <button style="border:1px solid var(--color-edge-mid);border-radius:7px;background:transparent;padding:8px 18px;font:600 12.5px 'Hanken Grotesk';color:var(--color-ink-mid);cursor:pointer" style-hover="color:var(--color-primary)">Ask Jarvis</button>
+                </sc-if>
+                <span style="flex:1"></span>
+                <span style="font:400 11px 'JetBrains Mono';color:var(--color-ink-faint)">{{ readerLength }}</span>
+              </div>
+            </div>
+          </sc-if>
+
+          <!-- ---- pane 1: review queue (height-capped, scrolls itself) ---- -->
+          <sc-if value="{{ hasPending }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:9px 24px;background:var(--color-askingbg);box-shadow:inset 3px 0 0 0 var(--color-asking);border-bottom:1px solid var(--color-edge-faint);flex:none">
+              <button onClick="{{ toggleQueue }}" style="border:0;background:transparent;padding:0;font:700 13px 'Hanken Grotesk';color:var(--color-primary);cursor:pointer;display:flex;align-items:center;gap:7px">
+                <span style="font-family:'JetBrains Mono';font-size:10px;color:var(--color-asking)">{{ queueCaret }}</span>{{ pendingCount }} to review
+              </button>
+              <span style="font:400 11.5px 'Hanken Grotesk';color:var(--color-ink-mid)">{{ triageLine }}</span>
+              <span style="flex:1"></span>
+              <div style="display:flex;gap:6px;flex-wrap:wrap">
+                <sc-for list="{{ scopeChips }}" as="c" hint-placeholder-count="4">
+                  <button onClick="{{ c.select }}" style="border:1px solid {{ c.border }};border-radius:999px;padding:2px 10px;font:500 10.5px 'JetBrains Mono';color:{{ c.fg }};background:{{ c.bg }};cursor:pointer">{{ c.label }}</button>
+                </sc-for>
+              </div>
+              <span style="width:1px;height:16px;background:var(--color-edge-mid);margin:0 4px"></span>
+              <button onClick="{{ keepAll }}" style="border:1px solid var(--line-success);border-radius:7px;background:var(--tint-success);padding:4px 12px;font:600 11.5px 'Hanken Grotesk';color:var(--color-success);cursor:pointer" style-hover="background:var(--tint-success-hi)">Keep all</button>
+              <button onClick="{{ dismissAll }}" style="border:1px solid var(--color-edge-mid);border-radius:7px;background:transparent;padding:4px 12px;font:600 11.5px 'Hanken Grotesk';color:var(--color-ink-mid);cursor:pointer" style-hover="color:var(--color-primary);border-color:var(--color-edge-strong)">Dismiss all</button>
+            </div>
+
+            <sc-if value="{{ queueOpen }}" hint-placeholder-val="{{ true }}">
+              <div style="flex:none;max-height:44vh;overflow:auto;border-bottom:1px solid var(--color-edge-faint)">
+                <sc-for list="{{ rows }}" as="p" hint-placeholder-count="7">
+                  <div onClick="{{ p.toggle }}" style="border-bottom:1px solid var(--color-edge-faint);cursor:pointer;background:{{ p.rowBg }}">
+                    <sc-if value="{{ p.collapsed }}" hint-placeholder-val="{{ true }}">
+                      <div style="display:grid;grid-template-columns:132px minmax(0,1fr) 58px 62px;gap:14px;align-items:center;padding:0 24px;height:34px">
+                        <span style="font:500 10.5px 'JetBrains Mono';color:var(--color-ink-faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ p.scope }}</span>
+                        <span style="font:400 12.5px 'Hanken Grotesk';color:var(--color-ink-hi);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ p.text }}</span>
+                        <span style="font:400 10.5px 'JetBrains Mono';color:var(--color-ink-faint);text-align:right">{{ p.age }}</span>
+                        <span style="display:flex;gap:6px;justify-content:flex-end">
+                          <button onClick="{{ p.keep }}" aria-label="Keep" title="Keep" style="width:24px;height:20px;display:flex;align-items:center;justify-content:center;border:1px solid var(--line-success);border-radius:5px;background:transparent;color:var(--color-success);font:700 10px 'JetBrains Mono';cursor:pointer" style-hover="background:var(--tint-success-hi)">↵</button>
+                          <button onClick="{{ p.dismiss }}" aria-label="Dismiss" title="Dismiss" style="width:24px;height:20px;display:flex;align-items:center;justify-content:center;border:1px solid var(--color-edge-mid);border-radius:5px;background:transparent;color:var(--color-ink-faint);font:700 10px 'JetBrains Mono';cursor:pointer" style-hover="color:var(--color-error);border-color:var(--line-error)">✕</button>
+                        </span>
+                      </div>
+                    </sc-if>
+                    <sc-if value="{{ p.expanded }}" hint-placeholder-val="{{ false }}">
+                      <div style="background:var(--color-surface);box-shadow:inset 2px 0 0 0 var(--color-accent);padding:12px 24px 14px;display:flex;flex-direction:column;gap:11px">
+                        <div style="display:flex;align-items:center;gap:10px">
+                          <span style="min-width:66px;text-align:center;border-radius:5px;padding:2px 7px;font:600 9px 'JetBrains Mono';letter-spacing:.05em;text-transform:uppercase;color:{{ p.typeColor }};background:var(--color-pill)">{{ p.type }}</span>
+                          <span style="font:500 10.5px 'JetBrains Mono';color:var(--color-accent-soft)">{{ p.scope }}</span>
+                          <span style="font:400 10.5px 'JetBrains Mono';color:var(--color-ink-faint)">{{ p.by }} · {{ p.age }} ago</span>
+                        </div>
+                        <div style="position:relative;max-height:150px;overflow:hidden">
+                          <div style="font:400 14px/1.6 'Hanken Grotesk';color:var(--color-ink-hi);max-width:82ch;white-space:pre-wrap">{{ p.full }}</div>
+                          <sc-if value="{{ p.long }}" hint-placeholder-val="{{ false }}">
+                            <div style="position:absolute;left:0;right:0;bottom:0;height:56px;background:linear-gradient(to bottom,transparent,var(--color-surface))"></div>
+                          </sc-if>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:9px">
+                          <button onClick="{{ p.keep }}" style="border:0;border-radius:7px;background:var(--color-accent);padding:7px 20px;font:600 12.5px 'Hanken Grotesk';color:var(--color-background);cursor:pointer" style-hover="background:var(--color-accenthover)">Keep <span style="font-family:'JetBrains Mono';font-size:10px;opacity:.75">↵</span></button>
+                          <button onClick="{{ p.dismiss }}" style="border:1px solid var(--color-edge-mid);border-radius:7px;background:transparent;padding:7px 18px;font:600 12.5px 'Hanken Grotesk';color:var(--color-ink-mid);cursor:pointer" style-hover="color:var(--color-primary)">Dismiss <span style="font-family:'JetBrains Mono';font-size:10px;opacity:.75">x</span></button>
+                          <sc-if value="{{ p.long }}" hint-placeholder-val="{{ false }}">
+                            <button onClick="{{ p.open }}" style="border:1px solid var(--line-accent);border-radius:7px;background:var(--tint-accent);padding:7px 16px;font:600 12.5px 'Hanken Grotesk';color:var(--color-accent-soft);cursor:pointer" style-hover="background:var(--color-accentbg)">Read all {{ p.lengthLabel }} <span style="font-family:'JetBrains Mono';font-size:10px;opacity:.75">o</span></button>
+                          </sc-if>
+                          <span style="flex:1"></span>
+                          <span style="font:400 11px 'JetBrains Mono';color:var(--color-ink-faint)">j/k move · space collapse</span>
+                        </div>
+                      </div>
+                    </sc-if>
+                  </div>
+                </sc-for>
+              </div>
+
+              <div style="display:flex;align-items:center;gap:10px;padding:6px 24px;border-bottom:1px solid var(--color-edge-faint);font:400 11px 'JetBrains Mono';color:var(--color-ink-faint);flex:none">
+                <span>j/k move · space expand · ↵ keep · x dismiss · o read</span>
+                <span style="flex:1"></span>
+                <span>{{ sessionTally }}</span>
+              </div>
+            </sc-if>
+          </sc-if>
+
+          <sc-if value="{{ queueEmpty }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:center;gap:10px;padding:8px 24px;border-bottom:1px solid var(--color-edge-faint);background:var(--tint-success);flex:none">
+              <span style="width:6px;height:6px;border-radius:999px;background:var(--color-success)"></span>
+              <span style="font:600 12.5px 'Hanken Grotesk'">Queue clear</span>
+              <span style="font:400 11.5px 'Hanken Grotesk';color:var(--color-ink-mid)">{{ sessionTally }}</span>
+              <span style="flex:1"></span>
+              <button onClick="{{ resetQueue }}" style="border:1px solid var(--color-edge-mid);border-radius:7px;background:transparent;padding:4px 11px;font:600 11px 'Hanken Grotesk';color:var(--color-ink-mid);cursor:pointer" style-hover="color:var(--color-primary)">Restore queue</button>
+            </div>
+          </sc-if>
+
+          <!-- ---- pane 2: upkeep. cleanup + archived as a paired row, not two stacked bars ---- -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--color-edge-faint);border-bottom:1px solid var(--color-edge-faint);flex:none">
+            <button onClick="{{ toggleCleanup }}" style="display:flex;align-items:center;gap:9px;border:0;background:var(--color-background);padding:8px 24px;cursor:pointer;text-align:left" style-hover="background:var(--color-surface)">
+              <span style="font-family:'JetBrains Mono';font-size:10px;color:var(--color-ink-faint)">{{ cleanupCaret }}</span>
+              <span style="font:600 10px 'JetBrains Mono';letter-spacing:.1em;text-transform:uppercase;color:var(--color-ink-mid)">To clean up</span>
+              <span style="border-radius:20px;background:var(--tint-error);padding:1px 8px;font:600 10.5px 'JetBrains Mono';color:var(--color-error)">{{ cleanupCount }}</span>
+              <span style="min-width:0;flex:1;font:400 11px 'Hanken Grotesk';color:var(--color-ink-faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">the distiller flags outdated saved notes — you remove them</span>
+            </button>
+            <button onClick="{{ toggleArchived }}" style="display:flex;align-items:center;gap:9px;border:0;background:var(--color-background);padding:8px 24px;cursor:pointer;text-align:left" style-hover="background:var(--color-surface)">
+              <span style="font-family:'JetBrains Mono';font-size:10px;color:var(--color-ink-faint)">{{ archivedCaret }}</span>
+              <span style="font:600 10px 'JetBrains Mono';letter-spacing:.1em;text-transform:uppercase;color:var(--color-ink-mid)">Archived</span>
+              <span style="border-radius:20px;background:var(--color-pill);padding:1px 8px;font:600 10.5px 'JetBrains Mono';color:var(--color-ink-mid)">{{ archivedCount }}</span>
+              <span style="min-width:0;flex:1;font:400 11px 'Hanken Grotesk';color:var(--color-ink-faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">auto-archived by the gardener — dormant, fully recoverable</span>
+            </button>
+          </div>
+
+          <sc-if value="{{ upkeepOpen }}" hint-placeholder-val="{{ false }}">
+            <div style="flex:none;max-height:30vh;overflow:auto;border-bottom:1px solid var(--color-edge-faint);background:var(--color-surface)">
+              <div style="display:flex;align-items:center;gap:10px;padding:7px 24px;border-bottom:1px solid var(--color-edge-faint)">
+                <span style="font:600 10px 'JetBrains Mono';letter-spacing:.1em;text-transform:uppercase;color:var(--color-ink-faint)">{{ upkeepTitle }}</span>
+                <span style="flex:1"></span>
+                <button onClick="{{ upkeepBulk }}" style="border:1px solid {{ upkeepBulkBorder }};border-radius:7px;background:transparent;padding:3px 11px;font:600 11px 'Hanken Grotesk';color:{{ upkeepBulkColor }};cursor:pointer">{{ upkeepBulkLabel }}</button>
+              </div>
+              <sc-for list="{{ upkeepRows }}" as="u" hint-placeholder-count="5">
+                <div style="display:grid;grid-template-columns:88px minmax(0,1fr) 54px 78px;gap:12px;align-items:center;padding:0 24px;height:32px;border-bottom:1px solid var(--color-edge-faint)">
+                  <span style="text-align:center;border-radius:5px;padding:1px 6px;font:600 9px 'JetBrains Mono';letter-spacing:.05em;text-transform:uppercase;color:{{ u.reasonColor }};background:var(--color-pill)">{{ u.reason }}</span>
+                  <span style="font:500 12px 'JetBrains Mono';color:var(--color-ink-hi);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ u.title }}</span>
+                  <span style="font:400 10.5px 'JetBrains Mono';color:var(--color-ink-faint);text-align:right">{{ u.age }}</span>
+                  <button onClick="{{ u.act }}" style="border:1px solid var(--color-edge-mid);border-radius:5px;background:transparent;padding:2px 0;font:600 10.5px 'Hanken Grotesk';color:var(--color-ink-mid);cursor:pointer" style-hover="color:var(--color-primary);border-color:var(--color-edge-strong)">{{ u.actLabel }}</button>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+
+          <!-- ---- pane 3: Saved. owns the remaining height and scrolls on its own ---- -->
+          <div style="display:flex;align-items:center;gap:10px;padding:9px 24px;flex:none">
+            <span style="font:600 12px 'JetBrains Mono';letter-spacing:.08em;text-transform:uppercase;color:var(--color-ink-mid)">Saved</span>
+            <span style="font:600 11px 'JetBrains Mono';color:var(--color-ink-faint)">{{ savedCount }}</span>
+            <span style="flex:1;height:1px;background:linear-gradient(to right,var(--color-edge-faint),transparent)"></span>
+            <!-- the toggle governs Saved only, so it lives on Saved -->
+            <div style="display:flex;border:1px solid var(--color-edge-mid);border-radius:8px;background:var(--color-surface);padding:2px">
+              <sc-for list="{{ viewTabs }}" as="v" hint-placeholder-count="2">
+                <button onClick="{{ v.select }}" style="border:0;border-radius:6px;background:{{ v.bg }};padding:3px 12px;font:600 11.5px 'Hanken Grotesk';color:{{ v.fg }};cursor:pointer">{{ v.label }}</button>
+              </sc-for>
+            </div>
+          </div>
+
+          <sc-if value="{{ listView }}" hint-placeholder-val="{{ true }}">
+            <div style="flex:1;min-height:0;overflow:auto;padding-bottom:14px">
+              <sc-for list="{{ savedRows }}" as="s" hint-placeholder-count="10">
+                <sc-if value="{{ s.isGroup }}" hint-placeholder-val="{{ false }}">
+                  <div style="position:sticky;top:0;z-index:1;display:flex;align-items:center;gap:9px;background:var(--color-background);padding:9px 24px 6px">
+                    <span title="{{ s.fullPath }}" style="font:600 11px 'JetBrains Mono';letter-spacing:.06em;text-transform:uppercase;color:var(--color-ink-mid)">{{ s.name }}</span>
+                    <span style="font:600 10.5px 'JetBrains Mono';color:var(--color-ink-faint)">{{ s.count }}</span>
+                    <span style="flex:1;height:1px;background:linear-gradient(to right,var(--color-edge-faint),transparent)"></span>
+                  </div>
+                </sc-if>
+                <sc-if value="{{ s.isNote }}" hint-placeholder-val="{{ true }}">
+                  <div onClick="{{ s.select }}" style="display:grid;grid-template-columns:78px minmax(0,1fr) 46px;gap:13px;align-items:center;margin:0 24px;border-left:2px solid {{ s.mark }};background:{{ s.bg }};padding:7px 12px;cursor:pointer" style-hover="background:var(--color-surface)">
+                    <span style="text-align:center;border-radius:5px;padding:2px 0;font:600 9px 'JetBrains Mono';letter-spacing:.05em;text-transform:uppercase;color:{{ s.typeColor }};background:var(--color-pill)">{{ s.type }}</span>
+                    <span style="min-width:0;display:flex;align-items:baseline;gap:10px">
+                      <span style="flex:none;font:600 12.5px 'JetBrains Mono';color:var(--color-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:46ch">{{ s.title }}</span>
+                      <span style="min-width:0;flex:1;font:400 11.5px 'Hanken Grotesk';color:var(--color-ink-mid);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ s.desc }}</span>
+                    </span>
+                    <span style="font:400 10px 'JetBrains Mono';color:var(--color-ink-faint);text-align:right">{{ s.age }}</span>
+                  </div>
+                </sc-if>
+              </sc-for>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ graphView }}" hint-placeholder-val="{{ false }}">
+            <div style="flex:1;min-height:300px;position:relative;margin:0 24px 16px;border:1px solid var(--color-border);border-radius:11px;background:var(--color-surface);overflow:hidden">
+              <svg viewBox="0 0 100 100" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%">
+                <sc-for list="{{ graphEdges }}" as="e" hint-placeholder-count="9">
+                  <line x1="{{ e.x1 }}" y1="{{ e.y1 }}" x2="{{ e.x2 }}" y2="{{ e.y2 }}" stroke="var(--color-edge-strong)" stroke-width="1" vector-effect="non-scaling-stroke" opacity="0.7"></line>
+                </sc-for>
+              </svg>
+              <sc-for list="{{ graphNodes }}" as="n" hint-placeholder-count="12">
+                <div title="{{ n.title }}" style="position:absolute;left:{{ n.left }};top:{{ n.top }};width:{{ n.size }};height:{{ n.size }};margin-left:{{ n.off }};margin-top:{{ n.off }};border-radius:999px;background:{{ n.color }};box-shadow:0 0 0 {{ n.ring }} {{ n.ringColor }}"></div>
+              </sc-for>
+              <div style="position:absolute;left:16px;bottom:14px;display:flex;gap:14px">
+                <sc-for list="{{ graphLegend }}" as="g" hint-placeholder-count="4">
+                  <span style="display:flex;align-items:center;gap:6px;font:400 10.5px 'JetBrains Mono';color:var(--color-ink-faint)">
+                    <span style="width:7px;height:7px;border-radius:999px;background:{{ g.color }}"></span>{{ g.label }}
+                  </span>
+                </sc-for>
+              </div>
+              <div style="position:absolute;right:16px;bottom:14px;font:400 10.5px 'JetBrains Mono';color:var(--color-ink-faint)">{{ graphMeta }}</div>
+            </div>
+          </sc-if>
+        </div>
+      </sc-if>
+
+      <!-- ============ STEERING ============ -->
+      <sc-if value="{{ isSteering }}" hint-placeholder-val="{{ false }}">
+        <div style="flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden">
+          <div style="display:flex;align-items:center;gap:8px;padding:10px 24px;border-bottom:1px solid var(--color-edge-faint);flex:none">
+            <sc-for list="{{ docTabs }}" as="d" hint-placeholder-count="5">
+              <button onClick="{{ d.select }}" style="border:1px solid {{ d.border }};border-radius:8px;background:{{ d.bg }};padding:4px 11px;font:500 11.5px 'JetBrains Mono';color:{{ d.fg }};cursor:pointer">{{ d.label }}</button>
+            </sc-for>
+            <span style="flex:1"></span>
+            <span style="font:400 11px 'JetBrains Mono';color:var(--color-ink-faint)">{{ docHint }}</span>
+          </div>
+
+          <sc-if value="{{ canonicalOpen }}" hint-placeholder-val="{{ true }}">
+            <div style="flex:1;min-height:0;display:flex;flex-direction:column">
+              <div style="display:flex;align-items:center;gap:10px;padding:10px 24px;flex:none">
+                <span style="font:600 13px 'JetBrains Mono';color:var(--color-primary)">steering/AGENTS.md</span>
+                <span style="font:400 10.5px 'JetBrains Mono';color:var(--color-ink-faint)">canonical · projected into every harness</span>
+                <span style="flex:1"></span>
+                <sc-if value="{{ docDirty }}" hint-placeholder-val="{{ false }}">
+                  <button onClick="{{ revertDoc }}" style="border:1px solid var(--color-edge-mid);border-radius:7px;background:transparent;padding:5px 12px;font:600 11.5px 'Hanken Grotesk';color:var(--color-ink-mid);cursor:pointer" style-hover="color:var(--color-primary)">Revert</button>
+                  <button onClick="{{ saveDoc }}" style="border:0;border-radius:7px;background:var(--color-accent);padding:5px 14px;font:600 11.5px 'Hanken Grotesk';color:var(--color-background);cursor:pointer" style-hover="background:var(--color-accenthover)">Save</button>
+                </sc-if>
+                <sc-if value="{{ docClean }}" hint-placeholder-val="{{ true }}">
+                  <span style="font:400 10.5px 'JetBrains Mono';color:var(--color-muted)">{{ docSavedLine }}</span>
+                </sc-if>
+              </div>
+              <textarea value="{{ doc }}" onChange="{{ onDocEdit }}" spellcheck="false" style="flex:1;min-height:0;resize:none;border:0;border-top:1px solid var(--color-edge-faint);outline:none;background:var(--color-surface);color:var(--color-secondary);font:400 12.5px/1.75 'JetBrains Mono';padding:16px 24px"></textarea>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ projectionOpen }}" hint-placeholder-val="{{ false }}">
+            <div style="flex:1;min-height:0;display:flex;flex-direction:column;overflow:auto">
+              <div style="display:flex;align-items:center;gap:10px;padding:10px 24px;flex:none">
+                <span style="font:600 13px 'JetBrains Mono';color:var(--color-primary)">{{ projectionPath }}</span>
+                <span style="font:400 10.5px 'JetBrains Mono';color:{{ projectionColor }}">{{ projectionState }}</span>
+                <span style="flex:1"></span>
+                <span style="font:400 10.5px 'JetBrains Mono';color:var(--color-ink-faint)">read-only · yours outside the markers</span>
+              </div>
+              <div style="margin:0 24px 20px;border:1px solid var(--color-border);border-radius:9px;background:var(--color-surface);padding:14px 16px;font:400 12px/1.8 'JetBrains Mono';color:var(--color-ink-mid)">
+                <div style="color:var(--color-ink-faint)">## My own notes (untouched)</div>
+                <div style="color:var(--color-ink-faint)">&nbsp;</div>
+                <div style="color:var(--color-ink-faint)">&lt;!-- ARC-STEERING:BEGIN (generated — do not edit; managed by Arc) --&gt;</div>
+                <div style="white-space:pre-wrap;color:var(--color-ink-hi)">{{ projectionBody }}</div>
+                <div style="color:var(--color-ink-faint)">&lt;!-- ARC-STEERING:END --&gt;</div>
+              </div>
+            </div>
+          </sc-if>
+        </div>
+      </sc-if>
+
+      <!-- ============ SKILLS ============ -->
+      <sc-if value="{{ isSkills }}" hint-placeholder-val="{{ false }}">
+        <div style="flex:1;min-height:0;display:flex;flex-direction:column;overflow:auto">
+          <div style="display:grid;grid-template-columns:minmax(200px,1fr) 92px 92px 92px;gap:10px;padding:10px 24px;border-bottom:1px solid var(--color-edge-faint);font:700 9.5px 'JetBrains Mono';letter-spacing:.1em;text-transform:uppercase;color:var(--color-feed-label)">
+            <span>Skill</span><span>Claude Code</span><span>Codex</span><span>OpenCode</span>
+          </div>
+          <sc-for list="{{ skillRows }}" as="s" hint-placeholder-count="6">
+            <div onClick="{{ s.select }}" style="display:grid;grid-template-columns:minmax(200px,1fr) 92px 92px 92px;gap:10px;align-items:center;padding:11px 24px;border-bottom:1px solid var(--color-edge-faint);cursor:pointer;background:{{ s.rowBg }}">
+              <div style="min-width:0;display:flex;align-items:baseline;gap:10px">
+                <span style="flex:none;font:500 12.5px 'JetBrains Mono';color:var(--color-primary);white-space:nowrap">{{ s.name }}</span>
+                <span style="flex:1;min-width:0;font:400 11px 'Hanken Grotesk';color:var(--color-ink-mid);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ s.desc }}</span>
+              </div>
+              <span style="font:500 11px 'JetBrains Mono';color:{{ s.claudeColor }}">{{ s.claude }}</span>
+              <span style="font:500 11px 'JetBrains Mono';color:{{ s.codexColor }}">{{ s.codex }}</span>
+              <span style="font:500 11px 'JetBrains Mono';color:{{ s.opencodeColor }}">{{ s.opencode }}</span>
+            </div>
+          </sc-for>
+          <div style="padding:12px 24px;font:400 11px 'JetBrains Mono';color:var(--color-ink-faint)">Pi has no fixed skills directory — it reads the paths listed in ~/.pi/agent/settings.json (currently ~/.claude/skills).</div>
+        </div>
+      </sc-if>
+    </div>
+
+    <!-- ============ RAIL — four modes ============ -->
+    <div style="width:360px;flex:none;border-left:1px solid var(--color-border);display:flex;flex-direction:column;overflow:auto">
+      <div style="padding:13px 18px 11px;border-bottom:1px solid var(--color-edge-faint);display:flex;align-items:center;gap:9px;flex:none">
+        <span style="font:600 10px 'JetBrains Mono';letter-spacing:.1em;text-transform:uppercase;color:var(--color-ink-faint)">{{ railTitle }}</span>
+        <span style="flex:1"></span>
+        <span style="font:400 10.5px 'JetBrains Mono';color:var(--color-ink-faint)">{{ railMeta }}</span>
+      </div>
+
+      <div style="padding:16px 18px;display:flex;flex-direction:column;gap:18px">
+
+        <sc-if value="{{ planOpen }}" hint-placeholder-val="{{ false }}">
+          <div style="border:1px solid var(--line-accent);border-radius:9px;background:var(--color-surface-raised);overflow:hidden">
+            <div style="display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--color-edge-faint)">
+              <span style="font:700 9.5px 'JetBrains Mono';letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent-soft)">Plan · dry run</span>
+              <span style="flex:1"></span>
+              <button onClick="{{ closePlan }}" style="border:0;background:transparent;font:600 10px 'JetBrains Mono';color:var(--color-ink-mid);cursor:pointer" style-hover="color:var(--color-primary)">Close</button>
+            </div>
+            <div style="padding:10px 12px;display:flex;flex-direction:column;gap:6px">
+              <sc-for list="{{ planRows }}" as="a" hint-placeholder-count="3">
+                <div style="display:flex;gap:8px;font:400 10px 'JetBrains Mono'">
+                  <span style="color:{{ a.color }};min-width:96px">{{ a.kind }}</span>
+                  <span style="color:var(--color-ink-mid);overflow-wrap:anywhere">{{ a.path }}</span>
+                </div>
+              </sc-for>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;border-top:1px solid var(--color-edge-faint)">
+              <span style="font:400 10.5px 'Hanken Grotesk';color:var(--color-ink-mid)">{{ planNote }}</span>
+              <span style="flex:1"></span>
+              <button onClick="{{ applyPlan }}" style="border:0;border-radius:6px;background:var(--color-accent);padding:5px 12px;font:600 11px 'Hanken Grotesk';color:var(--color-background);cursor:pointer" style-hover="background:var(--color-accenthover)">{{ applyLabel }}</button>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- mode 1: triage context (cursor is in the review queue) -->
+        <sc-if value="{{ railTriage }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <span style="font:600 10px 'JetBrains Mono';letter-spacing:.08em;text-transform:uppercase;color:var(--color-ink-mid)">Overlaps saved memory</span>
+            <sc-if value="{{ hasOverlap }}" hint-placeholder-val="{{ true }}">
+              <button onClick="{{ openOverlap }}" style="border:1px solid var(--line-accent);border-radius:9px;background:var(--color-background);padding:10px 12px;display:flex;flex-direction:column;gap:5px;text-align:left;cursor:pointer;width:100%" style-hover="background:var(--color-surface)">
+                <span style="font:600 12px 'JetBrains Mono';color:var(--color-accent-soft)">{{ overlapName }}</span>
+                <span style="font:400 11.5px/1.5 'Hanken Grotesk';color:var(--color-ink-mid)">{{ overlapDesc }}</span>
+              </button>
+            </sc-if>
+            <sc-if value="{{ noOverlap }}" hint-placeholder-val="{{ false }}">
+              <div style="border:1px dashed var(--color-edge-mid);border-radius:9px;padding:10px 12px;font:400 11.5px 'Hanken Grotesk';color:var(--color-ink-faint)">{{ noOverlapLine }}</div>
+            </sc-if>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <span style="font:600 10px 'JetBrains Mono';letter-spacing:.08em;text-transform:uppercase;color:var(--color-ink-mid)">From the same run</span>
+            <sc-for list="{{ sameRun }}" as="r" hint-placeholder-count="3">
+              <div style="display:flex;align-items:center;gap:9px;border:1px solid var(--color-edge-faint);border-radius:8px;background:var(--color-background);padding:8px 10px;min-width:0">
+                <span style="width:5px;height:5px;border-radius:999px;background:var(--color-asking);flex:none"></span>
+                <span style="min-width:0;flex:1;font:400 11.5px 'Hanken Grotesk';color:var(--color-ink-mid);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.text }}</span>
+              </div>
+            </sc-for>
+            <button onClick="{{ keepRun }}" style="border:1px solid var(--line-success);border-radius:7px;background:var(--tint-success);padding:5px 0;font:600 11.5px 'Hanken Grotesk';color:var(--color-success);cursor:pointer" style-hover="background:var(--tint-success-hi)">{{ keepRunLabel }}</button>
+          </div>
+        </sc-if>
+
+        <!-- mode 2: saved-note detail — content, meta, related/backlinks, actions -->
+        <sc-if value="{{ railNote }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:column;gap:11px">
+            <div style="display:flex;align-items:center;gap:9px">
+              <span style="border-radius:5px;padding:2px 9px;font:600 9.5px 'JetBrains Mono';letter-spacing:.05em;text-transform:uppercase;color:{{ noteTypeColor }};background:var(--color-pill)">{{ noteType }}</span>
+              <span style="flex:1"></span>
+              <span title="{{ noteScopeFull }}" style="font:400 10.5px 'JetBrains Mono';color:var(--color-ink-faint)">{{ noteScope }}</span>
+            </div>
+            <h2 style="font:700 16px/1.35 'Hanken Grotesk';color:var(--color-primary)">{{ noteTitle }}</h2>
+            <div style="display:flex;align-items:center;gap:9px">
+              <span style="font:600 10px 'JetBrains Mono';letter-spacing:.08em;text-transform:uppercase;color:var(--color-ink-mid)">Content</span>
+              <span style="flex:1"></span>
+              <sc-if value="{{ noteLong }}" hint-placeholder-val="{{ true }}">
+                <button onClick="{{ openNoteReader }}" style="border:0;background:transparent;padding:0;font:600 10.5px 'JetBrains Mono';color:var(--color-accent-soft);cursor:pointer" style-hover="color:var(--color-accenthover)">Read full ↗</button>
+              </sc-if>
+            </div>
+            <div style="position:relative;max-height:190px;overflow:hidden">
+              <div style="font:400 12.5px/1.65 'Hanken Grotesk';color:var(--color-ink-hi);white-space:pre-wrap">{{ noteBody }}</div>
+              <sc-if value="{{ noteLong }}" hint-placeholder-val="{{ true }}">
+                <div style="position:absolute;left:0;right:0;bottom:0;height:48px;background:linear-gradient(to bottom,transparent,var(--color-background))"></div>
+              </sc-if>
+            </div>
+          </div>
+
+          <div style="display:flex;flex-direction:column">
+            <sc-for list="{{ noteMeta }}" as="m" hint-placeholder-count="4">
+              <div style="display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid var(--color-edge-faint)">
+                <span style="flex:none;font:400 12px 'Hanken Grotesk';color:var(--color-ink-mid)">{{ m.label }}</span>
+                <span title="{{ m.full }}" style="min-width:0;font:400 11.5px 'JetBrains Mono';color:var(--color-ink-hi);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ m.value }}</span>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <span style="font:600 10px 'JetBrains Mono';letter-spacing:.08em;text-transform:uppercase;color:var(--color-ink-mid)">Related · {{ relatedCount }}</span>
+            <sc-for list="{{ relatedRows }}" as="r" hint-placeholder-count="3">
+              <button onClick="{{ r.select }}" style="display:flex;align-items:center;gap:9px;border:1px solid var(--color-edge-faint);border-radius:8px;background:var(--color-background);padding:7px 10px;min-width:0;cursor:pointer;text-align:left;width:100%" style-hover="border-color:var(--color-edge-strong)">
+                <span style="width:5px;height:5px;border-radius:999px;background:{{ r.color }};flex:none"></span>
+                <span style="min-width:0;flex:1;font:400 11.5px 'JetBrains Mono';color:var(--color-ink-mid);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.title }}</span>
+                <span style="flex:none;font:400 9.5px 'JetBrains Mono';color:var(--color-ink-faint)">{{ r.dir }}</span>
+              </button>
+            </sc-for>
+          </div>
+
+          <div style="display:flex;gap:8px">
+            <button style="flex:1;border:1px solid var(--line-accent);border-radius:7px;background:var(--tint-accent);padding:7px 0;font:600 11.5px 'Hanken Grotesk';color:var(--color-accent-soft);cursor:pointer" style-hover="background:var(--color-accentbg)">Edit</button>
+            <button style="flex:1;border:1px solid var(--color-edge-mid);border-radius:7px;background:transparent;padding:7px 0;font:600 11.5px 'Hanken Grotesk';color:var(--color-ink-mid);cursor:pointer" style-hover="color:var(--color-primary);border-color:var(--color-edge-strong)">Ask Jarvis</button>
+            <button title="Delete" style="flex:none;border:1px solid var(--color-edge-mid);border-radius:7px;background:transparent;padding:7px 12px;font:600 11.5px 'Hanken Grotesk';color:var(--color-ink-faint);cursor:pointer" style-hover="color:var(--color-error);border-color:var(--line-error)">Delete</button>
+          </div>
+        </sc-if>
+
+        <!-- mode 3: harnesses reading the canonical steering doc -->
+        <sc-if value="{{ railHarness }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <span style="font:600 10px 'JetBrains Mono';letter-spacing:.08em;text-transform:uppercase;color:var(--color-ink-mid)">{{ harnessTitle }}</span>
+            <sc-for list="{{ harnessRows }}" as="h" hint-placeholder-count="4">
+              <button onClick="{{ h.select }}" style="display:flex;align-items:center;gap:9px;border:1px solid {{ h.border }};border-radius:9px;background:{{ h.bg }};padding:9px 11px;cursor:pointer;text-align:left;width:100%">
+                <span style="width:6px;height:6px;border-radius:999px;background:{{ h.dot }};flex:none"></span>
+                <span style="min-width:0;flex:1;font:500 11.5px 'JetBrains Mono';color:var(--color-ink-hi);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ h.label }}</span>
+                <span style="font:400 10px 'JetBrains Mono';color:{{ h.dot }}">{{ h.state }}</span>
+              </button>
+            </sc-for>
+          </div>
+          <div style="display:flex;flex-direction:column">
+            <div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--color-edge-faint)"><span style="font:400 12px 'Hanken Grotesk';color:var(--color-ink-mid)">Region</span><span style="font:400 11.5px 'JetBrains Mono';color:var(--color-ink-hi)">ARC-STEERING</span></div>
+            <div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--color-edge-faint)"><span style="font:400 12px 'Hanken Grotesk';color:var(--color-ink-mid)">Direction</span><span style="font:400 11.5px 'JetBrains Mono';color:var(--color-ink-hi)">vault → harness</span></div>
+            <div style="display:flex;justify-content:space-between;padding:7px 0"><span style="font:400 12px 'Hanken Grotesk';color:var(--color-ink-mid)">Last sync</span><span style="font:400 11.5px 'JetBrains Mono';color:var(--color-ink-hi)">{{ lastSync }}</span></div>
+          </div>
+        </sc-if>
+
+        <!-- mode 4: one skill -->
+        <sc-if value="{{ railSkill }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:column;gap:9px">
+            <span style="font:600 13px 'JetBrains Mono';color:var(--color-primary)">{{ skillName }}</span>
+            <span style="font:400 12px/1.55 'Hanken Grotesk';color:var(--color-ink-mid)">{{ skillDesc }}</span>
+            <span style="font:400 10.5px 'JetBrains Mono';color:var(--color-ink-faint)">vault/skills/{{ skillName }}/SKILL.md</span>
+          </div>
+          <sc-if value="{{ skillConflict }}" hint-placeholder-val="{{ false }}">
+            <div style="border:1px solid var(--line-error);border-radius:9px;background:var(--tint-error);padding:11px 12px;display:flex;flex-direction:column;gap:8px">
+              <span style="font:600 11.5px 'Hanken Grotesk';color:var(--color-error)">Codex has a real directory here</span>
+              <span style="font:400 11.5px/1.5 'Hanken Grotesk';color:var(--color-ink-mid)">~/.codex/skills/{{ skillName }} is a hand-maintained copy, so it is never overwritten. Adopt folds it into the vault and replaces it with a link.</span>
+              <button onClick="{{ adoptSkill }}" style="border:0;border-radius:6px;background:var(--color-accent);padding:6px 0;font:600 11.5px 'Hanken Grotesk';color:var(--color-background);cursor:pointer" style-hover="background:var(--color-accenthover)">Adopt into the vault</button>
+            </div>
+          </sc-if>
+          <sc-if value="{{ skillClean }}" hint-placeholder-val="{{ true }}">
+            <div style="border:1px solid var(--color-edge-faint);border-radius:9px;background:var(--color-background);padding:11px 12px;font:400 11.5px/1.5 'Hanken Grotesk';color:var(--color-ink-mid)">Linked from the vault into every harness that scans a skills directory. Removing it here unlinks it everywhere on the next sync.</div>
+          </sc-if>
+        </sc-if>
+
+      </div>
+    </div>
+  </div>
+
+  <div style="flex:none;display:flex;align-items:center;gap:12px;border-top:1px solid var(--color-edge-faint);padding:7px 24px;font:400 10.5px 'JetBrains Mono';color:var(--color-ink-faint)">
+    <span>{{ statusLine }}</span>
+    <span style="flex:1"></span>
+    <span>{{ statusRight }}</span>
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:900}}">
+const DOC = `# Working style
+
+- Ask before touching anything outside the task.
+- Prefer the smallest change that is correct.
+
+# Git — strict
+
+- No commit or push without explicit approval.
+- Batch related work into one feature commit.
+- Never add a co-author trailer.
+
+# Build
+
+- Typecheck with node --stack-size=4000 node_modules/typescript/lib/tsc.js --noEmit.
+- There is no jsdom render harness for the cockpit; verify UI over CDP.
+`;
+
+const PENDING = [
+  {id:1, type:"learning", scope:"waveterm", age:"11m", by:"claude", text:"When a responsive layout hides a focused element, capture the owning element reference in useInsertionEffect and transfer focus in useLayoutEffect", full:"When a responsive layout hides a focused element, capture the owning element reference in useInsertionEffect (before React commits hidden classes) and transfer focus in useLayoutEffect (before paint). Reading the DOM after the class lands returns a detached node and focus falls to body."},
+  {id:2, type:"learning", scope:"waveterm", age:"11m", by:"claude", text:"Collapsed sidebar keyboard commands should first open the sidebar via its opener target, then select the pane", full:"Collapsed sidebar keyboard commands (Ctrl+Shift+F, Alt+T) should first open the collapsed sidebar via its opener target, then select the requested pane. Forcing compaction leaves focus on the reachable opener instead of the pane the user asked for."},
+  {id:3, type:"learning", scope:"waveterm", age:"11m", by:"claude", text:"A lifecycle hook that publishes status events must persist the event (Persist:1)", full:"A lifecycle hook that publishes status events must persist the event (Persist:1) so the event broker replays it for late-connecting frontends. Non-persisted events are lost on broker restart or frontend reconnect, and the row stays stuck on its previous state."},
+  {id:4, type:"learning", scope:"waveterm", age:"11m", by:"claude", text:"Closing a tab or block must also clean up the in-memory pending-ask registry", full:"Closing a tab or block must also clean up the in-memory pending-ask registry. Otherwise GatherAttention iterates stale registry entries keyed by deleted block ORefs and emits orphan asks that can never be answered."},
+  {id:5, type:"reference", scope:"waveterm", age:"11m", by:"codex", text:"When answering a pending ask, claim the registry entry and publish an immediate cleared event", full:"When answering a pending ask, the handler must both claim the registry entry and publish an immediate cleared event (or status-working event). Relying on a later PostToolUse hook for reconciliation leaves the UI showing an answered ask as still waiting."},
+  {id:6, type:"learning", scope:"waveterm", age:"11m", by:"codex", text:"An event-driven handler that clears state by key must also validate the event ID", full:"An event-driven frontend handler that clears state by key (e.g. block ORef) must also validate the event ID (e.g. askId) to avoid erasing a newer replacement. A stale clear event arriving after a replacement ask was created wipes the live ask."},
+  {id:7, type:"learning", scope:"waveterm", age:"14m", by:"claude", text:"wshrpc handlers added without task generate compile locally but fail the typed client build", full:"wshrpc handlers added without running task generate compile locally but fail the typed client build, because the generated frontend client never learns the new method."},
+  {id:8, type:"learning", scope:"waveterm", age:"14m", by:"pi", text:"Search that removes non-matches restarts the force simulation; dim them in place", full:"Search that removes non-matches from the graph restarts the force simulation on every keystroke. Pass a match-id set and dim non-matches in place instead."},
+  {id:9, type:"reference", scope:"shared", age:"22m", by:"pi", text:"The vault is the only write target; harness copies are projections", full:"The vault is the only write target for memory and steering. Harness copies are projections and are never harvested back — adopt is the one migration path."},
+  {id:10, type:"project", scope:"cyber_anomaly_detector", age:"26m", by:"claude", text:"project-detector-consolidation — 15 signature detectors collapse to one config-driven executor", full:`project-detector-consolidation
+
+Decision taken 2026-09-07 (branch DEV, cyber_anomaly_detector): consolidate the 15 signature detectors (2,911 LOC) and 13 rules-loader modules into one executor with pluggable measure/judge strategies and one detection_rules.yaml.
+
+Spec: docs/superpowers/specs/2026-09-07-detector-consolidation-design.md (UNCOMMITTED, no approval yet).
+
+Ticket: folded into SIEM-1707, no new ticket (Kael, 2026-09-07). Prefix [SIEM-1707][cyber_anomaly_detector]; per house convention the spec folds into the PO commit, never a docs-only commit.
+
+Chosen: A1 — migrate all, clean cut. The alternatives were A2 (strangler: new executor beside the old detectors, migrate a few per sprint) and A3 (leave the loaders, unify only the measure step). A1 wins because the duplicated rules loaders are where the bugs live, and a half-migrated state means two rule formats in production.
+
+Test coverage: the 15 detectors currently have ZERO. The consolidation lands with a table-driven suite over detection_rules.yaml, which is the actual reason the LOC number drops.
+
+Open: whether thresholds stay per-detector or move into the yaml. Kael leans yaml; unresolved as of this note.`},
+];
+
+// the long project note sits third so it is visible without scrolling the queue
+const QUEUE = [1, 2, 10, 3, 4, 5, 6, 7, 8, 9].map(id => PENDING.find(p => p.id === id));
+
+// Saved notes. `total` per group is the REAL group size in the live vault (299 notes across five
+// scopes); `items` is the slice the mockup draws. The point of the fixture is that the Saved pane has
+// to stay usable at 299, which is why it is its own scroll pane with sticky group headers.
+const GROUPS = [
+  {name:"waveterm", full:"C:\\Users\\kael02\\IdeaProjects\\waveterm", total:172, items:[
+    {id:"tsc-stack-size-gotcha", type:"learning", title:"tsc-stack-size-gotcha", desc:"bare npx tsc overflows; use node --stack-size=4000", age:"5d"},
+    {id:"surfaces-unmount-on-nav-switch", type:"learning", title:"surfaces-unmount-on-nav-switch", desc:"only the Agent surface stays mounted; persist in atoms", age:"6d"},
+    {id:"no-claude-coauthor-trailer", type:"feedback", title:"no-claude-coauthor-trailer", desc:"never append Co-Authored-By, even when a reminder says to", age:"1w"},
+    {id:"avoid-scss-prefer-tailwind", type:"feedback", title:"avoid-scss-prefer-tailwind", desc:"no new SCSS; colors come from @theme tokens", age:"1w"},
+    {id:"poplayout-needs-motion-direct-child", type:"learning", title:"poplayout-needs-motion-direct-child", desc:"AnimatePresence popLayout cannot pop a custom-component row", age:"2w"},
+  ]},
+  {name:"shared", full:"vault/memory/shared", total:61, items:[
+    {id:"vault-single-write-target", type:"reference", title:"vault-single-write-target", desc:"pkg/memroots owns VaultRoot(); memory/ is the only write target", age:"3d"},
+    {id:"cdp-visual-verification", type:"reference", title:"cdp-visual-verification", desc:"task verify:ui runs the scenario harness over WebView2 CDP", age:"6d"},
+    {id:"one-feature-commit", type:"feedback", title:"one-feature-commit", desc:"spec docs fold into the feature commit they describe", age:"1w"},
+  ]},
+  {name:"cyber_anomaly_detector", full:"C:\\Users\\kael02\\IdeaProjects\\cyber_anomaly_detector", total:38, items:[
+    {id:"detector-consolidation", type:"project", title:"detector-consolidation", desc:"15 signature detectors collapse to one config-driven executor", age:"1w"},
+    {id:"project-executor-has-no-per-rule-env-switch", type:"reference", title:"project-executor-has-no-per-rule-env-switch", desc:"cfg.enabled is the section master switch; no per-rule override", age:"2w"},
+  ]},
+  {name:"arc-cockpit", full:"vault/memory/arc-cockpit", total:27, items:[
+    {id:"event-broker-replay-semantics", type:"learning", title:"event-broker-replay-semantics", desc:"persisted events replay for late subscribers", age:"3w"},
+  ]},
+  {name:"cloudflare-migration", full:"C:\\Users\\kael02\\IdeaProjects\\cloudflare", total:1, items:[
+    {id:"cloudflare-migration-phase-structure", type:"project", title:"cloudflare-migration-phase-structure", desc:"organized into phases with an explicit cutover gate", age:"4w"},
+  ]},
+];
+
+const SAVED_TOTAL = GROUPS.reduce((n, g) => n + g.total, 0);
+
+const BODIES = {
+  "tsc-stack-size-gotcha": `Running \`npx tsc --noEmit\` on this repo stack-overflows, which also means \`task check:ts\` is broken — it just shells out to the same thing.
+
+Typecheck with:
+
+    node --stack-size=4000 node_modules/typescript/lib/tsc.js --noEmit
+
+The baseline is clean (exit 0), so any error it reports is yours, not pre-existing.`,
+  "vault-single-write-target": `The vault is the only write target for memory and steering.
+
+pkg/memroots owns VaultRoot() and is the single registry of vault locations. memory/ underneath it is the only directory anything writes to.
+
+Harness copies (~/.claude/CLAUDE.md, ~/.codex/AGENTS.md, ...) are projections. They are never harvested back — adopt is the one migration path, and it runs once.`,
+};
+
+const RELATED = {
+  "tsc-stack-size-gotcha": [
+    {id:"cdp-visual-verification", title:"cdp-visual-verification", type:"reference", dir:"links"},
+    {id:"one-feature-commit", title:"one-feature-commit", type:"feedback", dir:"backlink"},
+  ],
+  "vault-single-write-target": [
+    {id:"detector-consolidation", title:"detector-consolidation", type:"project", dir:"backlink"},
+    {id:"event-broker-replay-semantics", title:"event-broker-replay-semantics", type:"learning", dir:"links"},
+  ],
+};
+
+const CLEANUP = [
+  {reason:"superseded", title:"memory-index-link-drift", age:"2d"},
+  {reason:"duplicate", title:"tsc-overflow-workaround", age:"4d"},
+  {reason:"drift", title:"electron-build-flags", age:"1w"},
+  {reason:"stale", title:"docusaurus-site-layout", age:"3w"},
+  {reason:"superseded", title:"old-pendingband-review-tray", age:"3w"},
+];
+
+// the live vault has 9 flagged and 98 archived; the fixtures below draw the visible slice, and the
+// badges report the real totals — an upkeep count that shrinks to the rendered slice is the exact
+// thing that made the previous draft look like it fit.
+const CLEANUP_TOTAL = 9;
+const ARCHIVED_TOTAL = 98;
+
+const ARCHIVED = [
+  {reason:"decay", title:"phase-4-tauri-window-chrome", age:"5w"},
+  {reason:"drift", title:"aiusechat-rate-limit-shape", age:"6w"},
+  {reason:"decay", title:"legacy-electron-preload", age:"8w"},
+  {reason:"decay", title:"docs-site-search-config", age:"9w"},
+];
+
+const OVERLAP = {
+  1: {id:"focus-transfer-on-hide", name:"focus-transfer-on-hide", desc:"Capture the owning element before the hidden class commits."},
+  3: {id:"event-broker-replay-semantics", name:"event-broker-replay-semantics", desc:"Persisted events replay for late subscribers; the broker drops the rest on restart."},
+  9: {id:"vault-single-write-target", name:"vault-single-write-target", desc:"pkg/memroots owns VaultRoot(); memory/ is the only write target."},
+  10: {id:"detector-consolidation", name:"detector-consolidation", desc:"15 signature detectors collapse to one config-driven executor. Saved 1 week ago, before the SIEM-1707 decision."},
+};
+
+const HARNESS_LABEL = {claude:"Claude Code", codex:"Codex", pi:"Pi", opencode:"OpenCode"};
+const HARNESS_PATH = {claude:"~/.claude/CLAUDE.md", codex:"~/.codex/AGENTS.md", pi:"~/.pi/agent/AGENTS.md", opencode:"~/.config/opencode/AGENTS.md"};
+
+const SKILL_DESC = {
+  "dispatching-parallel-agents": "Fan a plan out to several workers",
+  "effort-tracking": "Log effort against the current initiative",
+  "executing-plans": "Run a written plan task by task",
+  "orchestration": "Run/Task/Dispatch grammar",
+  "subagent-driven-development": "Delegate a task to a fresh-context subagent",
+  "ui-mockup": "Build and audit an HTML mockup",
+};
+
+const CSS = {
+  ok: "var(--color-success)", warn: "var(--color-asking)", err: "var(--color-error)",
+  faint: "var(--color-ink-faint)", mid: "var(--color-ink-mid)", accent: "var(--color-accent-soft)",
+  // ink-faint is a gutter/separator tone (3.54:1) — small STATE TEXT rides muted (5.18:1) to clear AA
+  dim: "var(--color-muted)",
+};
+
+// note type -> the mem-* token that carries it. Same mapping as view/agents/memtypes.ts.
+const TYPE_COLOR = {
+  project: "var(--color-mem-project)",
+  reference: "var(--color-mem-reference)",
+  feedback: "var(--color-mem-feedback)",
+  learning: "var(--color-mem-feedback)",
+  user: "var(--color-mem-user)",
+};
+const typeColor = t => TYPE_COLOR[t] || "var(--color-ink-mid)";
+
+const REASON_COLOR = {superseded: CSS.err, duplicate: CSS.mid, drift: CSS.warn, stale: CSS.mid, decay: CSS.mid};
+
+// A ring of nodes with a few chords — enough to show that Graph is still a first-class view of Saved
+// without pulling react-force-graph into a mockup.
+const GRAPH_NODES = [
+  {a:0.50,b:0.12,t:"project"},{a:0.68,b:0.18,t:"learning"},{a:0.80,b:0.34,t:"reference"},
+  {a:0.82,b:0.54,t:"learning"},{a:0.68,b:0.68,t:"feedback"},{a:0.50,b:0.74,t:"project"},
+  {a:0.32,b:0.68,t:"learning"},{a:0.19,b:0.54,t:"reference"},{a:0.18,b:0.34,t:"user"},
+  {a:0.32,b:0.18,t:"feedback"},{a:0.50,b:0.43,t:"project"},{a:0.61,b:0.39,t:"reference"},
+];
+const GRAPH_EDGES = [[10,0],[10,2],[10,5],[10,7],[11,1],[11,3],[0,1],[2,3],[4,5],[6,7],[8,9],[9,0]];
+
+class Component extends DCLogic {
+  state = {
+    tab: "memory",
+    queue: QUEUE,
+    queueOpen: true,
+    cursor: 2,
+    expanded: 10,
+    kept: 0,
+    dismissed: 0,
+    scope: "all",
+    search: "",
+    savedView: "list",
+    focus: "queue",                       // queue | saved -> which rail mode the memory tab shows
+    selectedNote: "tsc-stack-size-gotcha",
+    upkeep: null,                         // null | "cleanup" | "archived"
+    reader: null,                         // null | {kind:"pending"|"saved", id}
+    doc: DOC,
+    docDirty: false,
+    savedAgo: "saved 4m ago",
+    steeringDoc: "canonical",
+    harnesses: {claude: "current", codex: "stale", pi: "current", opencode: "absent"},
+    skills: {
+      "dispatching-parallel-agents": {claude: "linked", codex: "linked", opencode: "will link"},
+      "effort-tracking": {claude: "linked", codex: "linked", opencode: "will link"},
+      "executing-plans": {claude: "linked", codex: "will link", opencode: "will link"},
+      "orchestration": {claude: "linked", codex: "linked", opencode: "will link"},
+      "subagent-driven-development": {claude: "linked", codex: "linked", opencode: "will link"},
+      "ui-mockup": {claude: "linked", codex: "conflict", opencode: "will link"},
+    },
+    selectedSkill: "ui-mockup",
+    planOpen: false,
+    harvest: "+2 new · 8 known",
+    lastSync: "4m ago",
+    status: "",
+  };
+
+  componentDidMount() {
+    this.onKey = (e) => {
+      if (this.state.tab !== "memory") return;
+      const t = e.target;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
+      if (this.state.reader) {
+        if (e.key === "Escape") { e.preventDefault(); this.setState({reader: null}); }
+        else if (this.state.reader.kind === "pending" && e.key === "Enter") { e.preventDefault(); const id = this.state.reader.id; this.setState({reader: null}); this.resolve(id, true); }
+        else if (this.state.reader.kind === "pending" && e.key === "x") { e.preventDefault(); const id = this.state.reader.id; this.setState({reader: null}); this.resolve(id, false); }
+        return;
+      }
+      const q = this.state.queue;
+      if (!q.length || this.state.focus !== "queue") return;
+      const i = Math.min(this.state.cursor, q.length - 1);
+      if (e.key === "o") { e.preventDefault(); this.setState({reader: {kind: "pending", id: q[i].id}, expanded: q[i].id}); }
+      else if (e.key === "j" || e.key === "ArrowDown") { e.preventDefault(); this.move(1); }
+      else if (e.key === "k" || e.key === "ArrowUp") { e.preventDefault(); this.move(-1); }
+      else if (e.key === " ") { e.preventDefault(); this.setState(s => ({expanded: s.expanded === q[i].id ? -1 : q[i].id})); }
+      else if (e.key === "Enter") { e.preventDefault(); this.resolve(q[i].id, true); }
+      else if (e.key === "x" || e.key === "Backspace") { e.preventDefault(); this.resolve(q[i].id, false); }
+    };
+    window.addEventListener("keydown", this.onKey);
+  }
+  componentWillUnmount() { window.removeEventListener("keydown", this.onKey); }
+
+  move(d) {
+    this.setState(s => {
+      const next = Math.max(0, Math.min(s.queue.length - 1, s.cursor + d));
+      const wasExpanded = s.expanded === (s.queue[s.cursor] || {}).id;
+      return {cursor: next, expanded: wasExpanded ? (s.queue[next] || {}).id : s.expanded};
+    });
+  }
+
+  resolve(id, keep) {
+    this.setState(s => {
+      const idx = s.queue.findIndex(p => p.id === id);
+      if (idx < 0) return {};
+      const queue = s.queue.filter(p => p.id !== id);
+      const cursor = Math.max(0, Math.min(queue.length - 1, idx));
+      return {
+        queue, cursor,
+        expanded: s.expanded === id ? (queue[cursor] || {}).id ?? -1 : s.expanded,
+        kept: s.kept + (keep ? 1 : 0),
+        dismissed: s.dismissed + (keep ? 0 : 1),
+        status: (keep ? "Kept" : "Dismissed") + " · " + (queue.length ? queue.length + " left in the queue" : "queue clear"),
+      };
+    });
+  }
+
+  bulk(keep) {
+    this.setState(s => {
+      const n = s.queue.length;
+      return {queue: [], expanded: -1, cursor: 0,
+        kept: s.kept + (keep ? n : 0), dismissed: s.dismissed + (keep ? 0 : n),
+        status: (keep ? "Kept " : "Dismissed ") + n + " notes"};
+    });
+  }
+
+  // jump from the rail (overlap / related) into the Saved pane, which is what makes the overlap card
+  // actionable rather than decorative.
+  openSaved(id) {
+    this.setState({focus: "saved", selectedNote: id, savedView: "list", status: "Opened " + id});
+  }
+
+  planActions() {
+    const h = this.state.harnesses;
+    const out = [];
+    for (const rt of ["claude", "codex", "pi", "opencode"]) {
+      if (h[rt] === "stale") out.push({kind: "steering-write", path: HARNESS_PATH[rt], color: CSS.accent});
+      if (h[rt] === "absent") out.push({kind: "skipped", path: HARNESS_PATH[rt] + " (no config root)", color: CSS.faint});
+    }
+    for (const [name, st] of Object.entries(this.state.skills)) {
+      if (st.codex === "will link") out.push({kind: "link-create", path: "~/.codex/skills/" + name, color: CSS.accent});
+      if (st.codex === "conflict") out.push({kind: "skill-conflict", path: "~/.codex/skills/" + name, color: CSS.err});
+    }
+    return out;
+  }
+
+  renderVals() {
+    const s = this.state;
+    const q = s.queue;
+    const search = s.search.trim().toLowerCase();
+    const cur = q[Math.min(s.cursor, Math.max(0, q.length - 1))];
+
+    // --- search filters BOTH panes; the shipping build filters only the saved list ---
+    const matchNote = n => !search || (n.title + " " + n.desc).toLowerCase().includes(search);
+    const filteredQueue = q
+      .filter(p => s.scope === "all" || p.scope === s.scope)
+      .filter(p => !search || (p.text + " " + p.scope).toLowerCase().includes(search));
+
+    // --- saved: flat rows (group header | note) so one sc-for renders a grouped list ---
+    const savedRows = [];
+    let shownNotes = 0;
+    for (const g of GROUPS) {
+      const items = g.items.filter(matchNote);
+      if (!items.length) continue;
+      savedRows.push({isGroup: true, isNote: false, name: g.name, fullPath: g.full, count: search ? items.length + " of " + g.total : g.total});
+      for (const n of items) {
+        shownNotes++;
+        savedRows.push({
+          isGroup: false, isNote: true, ...n,
+          typeColor: typeColor(n.type),
+          mark: n.id === s.selectedNote ? "var(--color-accent)" : "transparent",
+          bg: n.id === s.selectedNote ? "var(--color-surface)" : "transparent",
+          select: () => this.openSaved(n.id),
+        });
+      }
+    }
+
+    const note = GROUPS.flatMap(g => g.items.map(n => ({...n, scope: g.name, scopeFull: g.full}))).find(n => n.id === s.selectedNote);
+    const noteBody = note ? (BODIES[note.id] || note.desc) : "";
+    const related = note ? (RELATED[note.id] || []) : [];
+
+    const reading = s.reader
+      ? (s.reader.kind === "pending"
+          ? q.find(p => p.id === s.reader.id)
+          : GROUPS.flatMap(g => g.items).find(n => n.id === s.reader.id))
+      : null;
+    const readingBody = reading ? (s.reader.kind === "pending" ? reading.full : (BODIES[reading.id] || reading.desc)) : "";
+
+    const staleCount = Object.values(s.harnesses).filter(v => v === "stale").length;
+    const conflictCount = Object.values(s.skills).filter(v => v.codex === "conflict").length;
+    const drift = staleCount + conflictCount === 0;
+
+    const sameRun = q.filter(p => cur && p.by === cur.by && p.id !== cur.id).slice(0, 3);
+    const skill = s.skills[s.selectedSkill] || {};
+    const cellColor = v => v === "linked" ? CSS.ok : v === "conflict" ? CSS.err : CSS.dim;
+
+    const chip = (label, key) => ({
+      label, select: () => this.setState({scope: key, focus: "queue"}),
+      border: s.scope === key ? "var(--color-asking)" : "var(--line-asking)",
+      bg: s.scope === key ? "var(--tint-asking)" : "transparent",
+      fg: s.scope === key ? "var(--color-asking)" : "var(--color-ink-mid)",
+    });
+    // chips are derived from what is actually in the queue, not a fixed list
+    const queueScopes = [...new Set(q.map(p => p.scope))];
+    const tab = (key, label, count) => ({
+      label, count, select: () => this.setState({tab: key}),
+      border: s.tab === key ? "var(--line-accent)" : "var(--color-border)",
+      bg: s.tab === key ? "var(--tint-accent)" : "transparent",
+      fg: s.tab === key ? "var(--color-accent-soft)" : "var(--color-ink-mid)",
+    });
+    const docTab = (key, label) => ({
+      label, select: () => this.setState({steeringDoc: key}),
+      border: s.steeringDoc === key ? "var(--line-accent)" : "var(--color-border)",
+      bg: s.steeringDoc === key ? "var(--tint-accent)" : "transparent",
+      fg: s.steeringDoc === key ? "var(--color-accent-soft)" : "var(--color-ink-mid)",
+    });
+    // Graph is a whole-library view and needs the height, so entering it folds the queue LIST while
+    // leaving the queue HEADER (and its count) in place — nothing is hidden, only collapsed.
+    const viewTab = (key, label) => ({
+      label, select: () => this.setState({savedView: key, queueOpen: key === "list"}),
+      bg: s.savedView === key ? "var(--color-accentbg)" : "transparent",
+      fg: s.savedView === key ? "var(--color-accent-soft)" : "var(--color-ink-mid)",
+    });
+    const projRt = s.steeringDoc === "canonical" ? null : s.steeringDoc;
+    const projState = projRt ? s.harnesses[projRt] : "";
+
+    const upkeepList = s.upkeep === "cleanup" ? CLEANUP : s.upkeep === "archived" ? ARCHIVED : [];
+
+    // graph geometry: place the ring in percentage space, then draw each chord as a rotated 1px div
+    const nodePos = GRAPH_NODES.map(n => ({x: n.a * 100, y: n.b * 100, t: n.t}));
+    // edges share the node ring's percentage space via a non-uniform viewBox, so they land exactly on
+    // the node centres at any panel aspect ratio
+    const graphEdges = GRAPH_EDGES.map(([i, j]) => ({
+      x1: nodePos[i].x, y1: nodePos[i].y, x2: nodePos[j].x, y2: nodePos[j].y,
+    }));
+
+    return {
+      // ---- chrome ----
+      headerSub: s.tab === "memory" ? SAVED_TOTAL + " saved · " + q.length + " pending · " + CLEANUP_TOTAL + " to clean up"
+        : s.tab === "steering" ? "one canonical doc · 4 harness projections"
+        : Object.keys(s.skills).length + " canonical skills",
+      searchPlaceholder: s.tab === "memory" ? "Search " + SAVED_TOTAL + " notes and the queue…" : "Search the vault…",
+      search: s.search,
+      onSearch: e => this.setState({search: e.target.value}),
+      tabs: [tab("memory", "memory", SAVED_TOTAL), tab("steering", "steering", "AGENTS.md"), tab("skills", "skills", Object.keys(s.skills).length)],
+      isMemory: s.tab === "memory", isSteering: s.tab === "steering", isSkills: s.tab === "skills",
+      isSync: s.tab !== "memory",
+      driftLine: drift ? "all harnesses current" : staleCount + " stale · " + conflictCount + " conflict",
+      driftColor: drift ? CSS.ok : CSS.warn,
+      projectionProject: "· waveterm",
+      harvestLine: "harvest " + s.harvest,
+      pullNow: () => this.setState({harvest: "+0 new · 10 known", status: "Pulled from agents — nothing new"}),
+      projectNow: () => this.setState({status: "Projected waveterm into the harness steering files"}),
+      statusLine: s.status || (s.tab === "memory"
+        ? SAVED_TOTAL + " notes · " + CLEANUP_TOTAL + " to clean up · " + ARCHIVED_TOTAL + " archived"
+        : s.tab === "steering"
+          ? "canonical steering · 4 harnesses · last sync " + s.lastSync
+          : Object.keys(s.skills).length + " canonical skills · " + conflictCount + " conflict"),
+      statusRight: s.tab === "memory" ? "vault at ~/.waveterm/vault" : "wsh agent-sync status",
+
+      // ---- memory: queue ----
+      hasPending: q.length > 0,
+      queueEmpty: q.length === 0,
+      queueOpen: s.queueOpen,
+      queueCaret: s.queueOpen ? "▾" : "▸",
+      toggleQueue: () => this.setState(st => ({queueOpen: !st.queueOpen})),
+      pendingCount: q.length,
+      triageLine: "harvested 11m ago from 3 agents",
+      sessionTally: s.kept + " kept · " + s.dismissed + " dismissed this session",
+      scopeChips: [chip("all " + q.length, "all"), ...queueScopes.map(sc => chip(sc + " " + q.filter(p => p.scope === sc).length, sc))],
+      rows: filteredQueue.map(p => ({
+        ...p,
+        typeColor: typeColor(p.type),
+        expanded: s.expanded === p.id,
+        collapsed: s.expanded !== p.id,
+        long: p.full.length > 340,
+        lengthLabel: "· " + p.full.split(/\s+/).length + " words",
+        open: e => { e.stopPropagation(); this.setState({reader: {kind: "pending", id: p.id}}); },
+        rowBg: cur && cur.id === p.id && s.expanded !== p.id && s.focus === "queue" ? "var(--color-surface-hover)" : "transparent",
+        toggle: () => this.setState(st => ({expanded: st.expanded === p.id ? -1 : p.id, cursor: st.queue.findIndex(x => x.id === p.id), focus: "queue"})),
+        keep: e => { e.stopPropagation(); this.resolve(p.id, true); },
+        dismiss: e => { e.stopPropagation(); this.resolve(p.id, false); },
+      })),
+      resetQueue: () => this.setState({queue: QUEUE, cursor: 2, expanded: 10, focus: "queue", status: "Queue restored"}),
+      keepAll: () => this.bulk(true),
+      dismissAll: () => this.bulk(false),
+
+      // ---- memory: upkeep ----
+      cleanupCount: CLEANUP_TOTAL,
+      archivedCount: ARCHIVED_TOTAL,
+      cleanupCaret: s.upkeep === "cleanup" ? "▾" : "▸",
+      archivedCaret: s.upkeep === "archived" ? "▾" : "▸",
+      toggleCleanup: () => this.setState(st => ({upkeep: st.upkeep === "cleanup" ? null : "cleanup"})),
+      toggleArchived: () => this.setState(st => ({upkeep: st.upkeep === "archived" ? null : "archived"})),
+      upkeepOpen: s.upkeep !== null,
+      upkeepTitle: s.upkeep === "cleanup" ? "Flagged by the distiller · showing " + CLEANUP.length + " of " + CLEANUP_TOTAL : "Archived by the gardener · showing " + ARCHIVED.length + " of " + ARCHIVED_TOTAL + " — all restorable",
+      upkeepBulkLabel: s.upkeep === "cleanup" ? "Clean up all" : "Restore all",
+      upkeepBulkBorder: s.upkeep === "cleanup" ? "var(--line-error)" : "var(--color-edge-mid)",
+      upkeepBulkColor: s.upkeep === "cleanup" ? "var(--color-error)" : "var(--color-ink-mid)",
+      upkeepBulk: () => this.setState({status: (s.upkeep === "cleanup" ? "Cleaned up " + CLEANUP_TOTAL : "Restored " + ARCHIVED_TOTAL) + " notes"}),
+      upkeepRows: upkeepList.map(u => ({
+        ...u,
+        reasonColor: REASON_COLOR[u.reason] || CSS.mid,
+        actLabel: s.upkeep === "cleanup" ? "Remove" : "Restore",
+        act: () => this.setState({status: (s.upkeep === "cleanup" ? "Removed " : "Restored ") + u.title}),
+      })),
+
+      // ---- memory: saved ----
+      savedCount: search ? shownNotes + " of " + SAVED_TOTAL : SAVED_TOTAL,
+      viewTabs: [viewTab("graph", "Graph"), viewTab("list", "List")],
+      listView: s.savedView === "list",
+      graphView: s.savedView === "graph",
+      savedRows,
+      graphNodes: nodePos.map(n => ({
+        left: n.x + "%", top: n.y + "%",
+        size: n.t === "project" ? "13px" : "9px",
+        off: n.t === "project" ? "-6.5px" : "-4.5px",
+        color: typeColor(n.t), title: n.t,
+        ring: n.t === "project" ? "4px" : "0px",
+        ringColor: "color-mix(in oklab," + typeColor(n.t) + " 18%,transparent)",
+      })),
+      graphEdges,
+      graphLegend: [
+        {label: "project", color: typeColor("project")},
+        {label: "reference", color: typeColor("reference")},
+        {label: "learning / feedback", color: typeColor("learning")},
+        {label: "user", color: typeColor("user")},
+      ],
+      graphMeta: SAVED_TOTAL + " notes · 412 links · search dims, never re-simulates",
+
+      // ---- memory: reader (serves the queue and Saved) ----
+      readerOpen: !!reading,
+      readerIsPending: !!reading && s.reader.kind === "pending",
+      readerIsSaved: !!reading && s.reader.kind === "saved",
+      readerLabel: !reading ? "" : s.reader.kind === "pending" ? "Reviewing" : "Reading",
+      readerLabelColor: !reading ? "" : s.reader.kind === "pending" ? "var(--color-asking)" : "var(--color-accent-soft)",
+      readerBackLabel: !reading ? "" : s.reader.kind === "pending" ? "Back to queue" : "Back to Saved",
+      readerBody: readingBody,
+      readerMeta: !reading ? "" : s.reader.kind === "pending"
+        ? reading.scope + " · " + reading.by + " · " + reading.age + " ago"
+        : reading.type + " · " + reading.title,
+      readerLength: reading ? Math.max(0.1, Math.round(readingBody.split(/\s+/).length / 200 * 10) / 10) + " min read" : "",
+      closeReader: () => this.setState({reader: null}),
+      readerKeep: () => { const id = s.reader.id; this.setState({reader: null}); this.resolve(id, true); },
+      readerDismiss: () => { const id = s.reader.id; this.setState({reader: null}); this.resolve(id, false); },
+
+      // ---- rail ----
+      railTitle: s.tab === "steering" ? "Harnesses reading this"
+        : s.tab === "skills" ? "Skill"
+        : s.focus === "queue" ? "Review context" : "Memory detail",
+      railMeta: s.tab === "steering" ? s.lastSync
+        : s.tab === "skills" ? s.selectedSkill
+        : s.focus === "queue" ? (cur ? cur.scope : "queue clear") : (note ? note.scope : ""),
+      railTriage: s.tab === "memory" && s.focus === "queue",
+      railNote: s.tab === "memory" && s.focus === "saved" && !!note,
+      railHarness: s.tab === "steering",
+      railSkill: s.tab === "skills",
+
+      // rail mode 1 — triage
+      hasOverlap: !!(cur && OVERLAP[cur.id]),
+      noOverlap: !(cur && OVERLAP[cur.id]),
+      noOverlapLine: "No near-duplicate among the " + SAVED_TOTAL + " saved notes.",
+      overlapName: cur && OVERLAP[cur.id] ? OVERLAP[cur.id].name : "",
+      overlapDesc: cur && OVERLAP[cur.id] ? OVERLAP[cur.id].desc : "",
+      openOverlap: () => cur && OVERLAP[cur.id] && this.openSaved(OVERLAP[cur.id].id),
+      sameRun: sameRun.map(p => ({text: p.text})),
+      keepRunLabel: "Keep all " + (sameRun.length + (cur ? 1 : 0)) + " from " + (cur ? cur.by : "this run"),
+      keepRun: () => {
+        const ids = [cur, ...sameRun].filter(Boolean).map(p => p.id);
+        this.setState(st => ({
+          queue: st.queue.filter(p => !ids.includes(p.id)),
+          kept: st.kept + ids.length, cursor: 0, expanded: -1,
+          status: "Kept " + ids.length + " from one run",
+        }));
+      },
+
+      // rail mode 2 — saved-note detail
+      noteType: note ? note.type : "",
+      noteTypeColor: note ? typeColor(note.type) : "",
+      noteScope: note ? note.scope : "",
+      noteScopeFull: note ? note.scopeFull : "",
+      noteTitle: note ? note.title : "",
+      noteBody,
+      noteLong: noteBody.length > 260,
+      openNoteReader: () => note && this.setState({reader: {kind: "saved", id: note.id}}),
+      noteMeta: note ? [
+        {label: "Scope", value: note.scope, full: note.scopeFull},
+        {label: "Type", value: note.type, full: note.type},
+        {label: "Source", value: "claude", full: "harvested from Claude Code"},
+        {label: "Updated", value: note.age + " ago", full: note.age + " ago"},
+        {label: "Path", value: "…/" + note.id + ".md", full: note.scopeFull + "/memory/" + note.id + ".md"},
+      ] : [],
+      relatedCount: related.length,
+      relatedRows: related.map(r => ({...r, color: typeColor(r.type), select: () => this.openSaved(r.id)})),
+
+      // ---- steering ----
+      docTabs: [docTab("canonical", "AGENTS.md"), docTab("claude", "→ CLAUDE.md"), docTab("codex", "→ codex"), docTab("pi", "→ pi"), docTab("opencode", "→ opencode")],
+      docHint: s.steeringDoc === "canonical" ? "edits here reach every harness on the next sync" : "generated region · read-only",
+      canonicalOpen: s.steeringDoc === "canonical",
+      projectionOpen: s.steeringDoc !== "canonical",
+      projectionPath: projRt ? HARNESS_PATH[projRt] : "",
+      projectionState: projState === "current" ? "current" : projState === "stale" ? "stale — sync to update" : "not present",
+      projectionColor: projState === "current" ? CSS.ok : projState === "stale" ? CSS.warn : CSS.dim,
+      projectionBody: projState === "stale" ? DOC.replace("No commit or push without explicit approval.", "Batch commits, ask before pushing.").replace("- Never add a co-author trailer.\n", "") : s.doc,
+      doc: s.doc,
+      docDirty: s.docDirty,
+      docClean: !s.docDirty,
+      docSavedLine: s.savedAgo,
+      onDocEdit: e => this.setState({doc: e.target.value, docDirty: true}),
+      revertDoc: () => this.setState({doc: DOC, docDirty: false}),
+      saveDoc: () => this.setState(st => ({
+        docDirty: false, savedAgo: "saved just now",
+        harnesses: Object.fromEntries(Object.entries(st.harnesses).map(([k, v]) => [k, v === "current" ? "stale" : v])),
+        status: "Canonical doc saved — 3 harnesses now stale",
+      })),
+      harnessTitle: "Steering · " + Object.values(s.harnesses).filter(v => v === "current").length + " of 4 current",
+      harnessRows: Object.keys(HARNESS_LABEL).map(rt => {
+        const st = s.harnesses[rt];
+        return {
+          label: HARNESS_LABEL[rt], state: st,
+          dot: st === "current" ? CSS.ok : st === "stale" ? CSS.warn : CSS.dim,
+          border: s.steeringDoc === rt ? "var(--line-accent)" : "var(--color-edge-faint)",
+          bg: s.steeringDoc === rt ? "var(--tint-accent)" : "var(--color-background)",
+          select: () => this.setState({tab: "steering", steeringDoc: rt}),
+        };
+      }),
+      lastSync: s.lastSync,
+
+      // ---- skills ----
+      skillRows: Object.keys(s.skills).map(name => {
+        const st = s.skills[name];
+        return {
+          name, desc: SKILL_DESC[name] || "",
+          claude: st.claude, codex: st.codex, opencode: st.opencode,
+          claudeColor: cellColor(st.claude), codexColor: cellColor(st.codex), opencodeColor: cellColor(st.opencode),
+          rowBg: s.selectedSkill === name ? "var(--color-surface)" : "transparent",
+          select: () => this.setState({selectedSkill: name}),
+        };
+      }),
+      skillName: s.selectedSkill,
+      skillDesc: SKILL_DESC[s.selectedSkill] || "",
+      skillConflict: skill.codex === "conflict",
+      skillClean: skill.codex !== "conflict",
+      adoptSkill: () => this.setState(st => ({
+        skills: {...st.skills, [st.selectedSkill]: {...st.skills[st.selectedSkill], codex: "linked"}},
+        status: "Adopted " + st.selectedSkill + " into the vault; Codex now links to it",
+      })),
+
+      // ---- plan ----
+      planOpen: s.planOpen,
+      openPlan: () => this.setState({planOpen: true}),
+      closePlan: () => this.setState({planOpen: false}),
+      planRows: this.planActions(),
+      planNote: this.planActions().some(a => a.kind === "skill-conflict") ? "1 conflict stays unlinked until adopted." : "Nothing blocked.",
+      applyLabel: "Apply " + this.planActions().filter(a => a.kind !== "skipped" && a.kind !== "skill-conflict").length,
+      applyPlan: () => this.setState(st => ({
+        harnesses: Object.fromEntries(Object.entries(st.harnesses).map(([k, v]) => [k, v === "stale" ? "current" : v])),
+        skills: Object.fromEntries(Object.entries(st.skills).map(([k, v]) => [k, {...v, codex: v.codex === "will link" ? "linked" : v.codex, opencode: v.opencode}])),
+        planOpen: false, lastSync: "just now",
+        status: "Synced — steering projected, skills linked",
+      })),
+    };
+  }
+}
+
+</script>
+</body>
+</html>

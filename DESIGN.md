@@ -430,9 +430,10 @@ first, always. The mockup is the design proposal; it must be seen and approved b
 code is written.
 
 - Start from `docs/prototype/mockup-template.html`: it carries the `@theme` tokens as CSS
-  vars (regenerate with `task mockup:kit` after any `@theme` change — never hand-edit the
-  token block), the shared recipes (card/panel, row, chips, badges, sec-head, buttons,
-  progress, skeleton), and the audit checklist.
+  vars, the shared recipes (card/panel, row, chips, badges, sec-head, buttons, progress,
+  skeleton), and the audit checklist. The token block is a mirror, not a source —
+  `frontend/tailwindsetup.css` stays authoritative, so check the block against it rather
+  than trusting it after an `@theme` change.
 - Run the checklist (top of the template) before presenting: tokens only, contrast floor,
   status never color alone, focus-visible, reduced motion, correct card recipe, single
   accent CTA, micro-scale motion only.

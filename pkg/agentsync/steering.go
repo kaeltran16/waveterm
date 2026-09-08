@@ -52,3 +52,19 @@ func blockBefore(existing string) string {
 	}
 	return existing[:cut]
 }
+
+// regionBody is the managed text inside the ARC-STEERING markers, or "" when the file carries no
+// complete region. The inverse of renderRegion, so a projection preview shows exactly what Arc owns
+// and nothing the user wrote around it.
+func regionBody(existing string) string {
+	start := strings.Index(existing, steeringBegin)
+	if start < 0 {
+		return ""
+	}
+	rest := existing[start+len(steeringBegin):]
+	end := strings.Index(rest, steeringEnd)
+	if end < 0 {
+		return ""
+	}
+	return strings.Trim(rest[:end], "\n")
+}
