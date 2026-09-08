@@ -13,7 +13,9 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/orchestrate"
+	"github.com/wavetermdev/waveterm/pkg/util/utilfn"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wps"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
 
@@ -103,6 +105,43 @@ func (ws *WshServer) AgentAskClearCommand(ctx context.Context, oref string) erro
 	agentask.GlobalRegistry.Drop(oref)
 	publishAgentAsk(baseds.AgentAskData{ORef: oref, AskId: askId, Cleared: true})
 	return nil
+}
+
+// askResumeGraceMs is how far after an ask a working status has to land before it counts as the agent
+// having moved on. It mirrors the frontend's ASK_STALE_GRACE_MS: a reporter's own working events can
+// land in the same instant as the ask that follows them, and those must not retire it.
+const askResumeGraceMs = 2000
+
+// retireAskOnResume drops a pending ask whose agent has demonstrably resumed work. PostToolUse ->
+// `wsh ask --clear` is the only other retirement path for a live block, and it never fires when the
+// AskUserQuestion tool is rejected or interrupted in the agent's own terminal — so the question stayed
+// pending forever, holding its card and its attention count. A working status materially after the ask
+// is proof the agent is no longer blocked on it: nothing else can run while the ask tool holds the turn.
+// Only `working` counts (idle would kill a prose ask raised at settle, which is idle by construction).
+func retireAskOnResume(ev *wps.WaveEvent) {
+	if ev == nil || ev.Event != wps.Event_AgentStatus {
+		return
+	}
+	// events arrive over the RPC wire with Data as a raw JSON map, so decode rather than assert.
+	var data baseds.AgentStatusData
+	if err := utilfn.ReUnmarshal(&data, ev.Data); err != nil {
+		return
+	}
+	if data.ORef == "" || data.State != baseds.AgentState_Working {
+		return
+	}
+	pending, ok := agentask.GlobalRegistry.Get(data.ORef)
+	if !ok || data.Ts-pending.Ts <= askResumeGraceMs {
+		return
+	}
+	claimed, ok := agentask.GlobalRegistry.Claim(data.ORef, pending.AskId)
+	if !ok {
+		return
+	}
+	// a blocked --wait caller is cancelled, not left hanging on a question the human answered elsewhere.
+	agentask.GlobalRegistry.ResolveWaiter(claimed.AskId, agentask.WaitResult{Cancelled: true})
+	publishAgentAsk(baseds.AgentAskData{ORef: data.ORef, AskId: claimed.AskId, Cleared: true})
+	recordAskTransition(data.ORef, claimed.AskId, waveobj.RunEventKindChildAskCleared, orchestrate.AskClearReasonResumed)
 }
 
 func publishAgentAsk(data baseds.AgentAskData) {
