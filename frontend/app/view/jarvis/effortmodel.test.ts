@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
     buildEffortCard,
     chunkTone,
+    chunkTrailView,
     effortDeltaRow,
     effortStatusLines,
     effortTone,
@@ -235,5 +236,32 @@ describe("stageOptions", () => {
 
     it("has nothing to offer on an effort with no stages", () => {
         expect(stageOptions([{ stage: "" }, { stage: "" }])).toEqual([]);
+    });
+});
+
+describe("chunkTrailView", () => {
+    const trail = [
+        { ts: 1, text: "found the gap" },
+        { ts: 2, text: "wrote it into the spec" },
+        { ts: 3, text: "closed" },
+    ];
+
+    it("folds a done chunk down to its newest note", () => {
+        expect(chunkTrailView({ status: "done", trail }, false)).toEqual({ notes: [trail[2]], hidden: 2 });
+    });
+
+    it("keeps a live chunk's whole trail", () => {
+        expect(chunkTrailView({ status: "active", trail }, false)).toEqual({ notes: trail, hidden: 0 });
+    });
+
+    it("offers nothing to expand when a done chunk has one note", () => {
+        expect(chunkTrailView({ status: "done", trail: trail.slice(0, 1) }, false)).toEqual({
+            notes: [trail[0]],
+            hidden: 0,
+        });
+    });
+
+    it("shows everything once expanded", () => {
+        expect(chunkTrailView({ status: "done", trail }, true)).toEqual({ notes: trail, hidden: 0 });
     });
 });
