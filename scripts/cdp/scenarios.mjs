@@ -4946,6 +4946,37 @@ const codeMarkdown = {
         });
         await h.shot("cdp-shots/code-markdown-preview.png");
 
+        await h.ev(`document.querySelector('[data-code-column-tab="files"]')?.click()`);
+        await sleep(100);
+        const filesSelected = await h.ev(
+            `document.querySelector('[data-code-column-tab="files"]')?.getAttribute('aria-pressed') === 'true'`
+        );
+        await h.ev(`(() => {
+            window.__codeMarkdownNodes = [
+                document.querySelector('.markdown .heading'),
+                document.querySelector('.markdown .paragraph'),
+            ];
+            document.querySelector('[data-code-column-tab="changed"]')?.click();
+        })()`);
+        await sleep(100);
+        const stableRender = await h.ev(`(() => {
+            const before = window.__codeMarkdownNodes;
+            delete window.__codeMarkdownNodes;
+            return {
+                changedSelected: document.querySelector('[data-code-column-tab="changed"]')?.getAttribute('aria-pressed') === 'true',
+                nodesPreserved: Array.isArray(before)
+                    && before[0] != null
+                    && before[1] != null
+                    && before[0] === document.querySelector('.markdown .heading')
+                    && before[1] === document.querySelector('.markdown .paragraph'),
+            };
+        })()`);
+        steps.push({
+            step: "unrelated Code pane updates preserve the rendered document nodes",
+            ok: filesSelected === true && stableRender?.changedSelected === true && stableRender?.nodesPreserved === true,
+            detail: JSON.stringify({ filesSelected, ...stableRender }),
+        });
+
         const toSource = await h.ev(`(() => {
             const b = document.querySelector('[data-code-view-mode="source"]');
             if (!b) return false;

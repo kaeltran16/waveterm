@@ -14,7 +14,7 @@ import { boundNumber, useAtomValueSafe, cn } from "@/util/util";
 import clsx from "clsx";
 import { Atom } from "jotai";
 import { OverlayScrollbarsComponent, OverlayScrollbarsComponentRef } from "overlayscrollbars-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown, { Components } from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import rehypeRaw from "rehype-raw";
@@ -306,7 +306,7 @@ type MarkdownProps = {
     fixedFontSizeOverride?: number;
 };
 
-const Markdown = ({
+const Markdown = memo(function Markdown({
     text,
     textAtom,
     showTocAtom,
@@ -319,7 +319,7 @@ const Markdown = ({
     scrollable = true,
     rehype = true,
     onClickExecute,
-}: MarkdownProps) => {
+}: MarkdownProps) {
     const textAtomValue = useAtomValueSafe<string>(textAtom);
     const tocRef = useRef<TocItem[]>([]);
     const showToc = useAtomValueSafe(showTocAtom) ?? false;
@@ -492,6 +492,6 @@ const Markdown = ({
             )}
         </div>
     );
-};
+});
 
 export { Markdown };
