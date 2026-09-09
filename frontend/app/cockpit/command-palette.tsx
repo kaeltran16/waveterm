@@ -3,8 +3,10 @@
 
 // Command palette overlay — Ctrl+P everywhere except the Code surface, which leads with its file
 // finder and hands off here on a leading '>'. Fuzzy-searches live agents, resumable sessions,
-// and cockpit commands, and dispatches the selected item's action. Hand-rolled to match
-// the NewAgentModal overlay pattern (jotai visibility atom + fixed overlay from cockpit-root).
+// cockpit commands, and the jarvis entities (records, threads, initiatives — archived included, see
+// palette-entities.ts), and dispatches the selected item's action. This is the ONE palette: a new
+// findable kind is a new entry source here, never a second overlay or a second shortcut. Hand-rolled to
+// match the NewAgentModal overlay pattern (jotai visibility atom + fixed overlay from cockpit-root).
 
 import { launchAgent } from "@/app/cockpit/cockpit-actions";
 import { ModalShell } from "@/app/modals/modalshell";
@@ -23,10 +25,14 @@ import { formatChord } from "@/util/keysym";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { startConversation, submitJarvisQuery } from "@/app/view/jarvis/jarvisstore";
+import { buildBriefIndex, rankBriefRows, type BriefRow } from "@/app/view/jarvis/briefpalette";
+import { persistedSummariesAtom, startConversation, submitJarvisQuery } from "@/app/view/jarvis/jarvisstore";
 import { selectSubject } from "@/app/view/jarvis/jarvissubjectstore";
+import { openORef } from "@/app/view/jarvis/openref";
+import { taskListAtom } from "@/app/view/jarvis/tasksstore";
 import { buildAskItems } from "./palette-ask";
 import { buildCommandItems, buildExtraItems, postCloseContext } from "./palette-commands";
+import { loadPaletteEntities, mergeRanked, paletteEffortsAtom } from "./palette-entities";
 import { buildFocusItems } from "./palette-focus";
 import {
     assembleDefaultGroups,
@@ -50,6 +56,7 @@ interface PaletteItem {
     subtitle?: string;
     hint?: string; // right-aligned (session age)
     chord?: string; // keybinding chord for derived command rows
+    archived?: boolean; // renders the archived pill and greys the title (record/thread/effort rows)
     run: () => void;
     // launch group only (rich fast-dispatch row):
     glyph?: string; // monospace badge glyph
@@ -67,6 +74,9 @@ const GROUP_LABELS: Record<Exclude<GroupKind, RichGroupKind>, string> = {
     agent: "Agents",
     session: "Sessions",
     channel: "Channels",
+    record: "Records",
+    thread: "Threads",
+    effort: "Initiatives", // the user-facing word for an effort (briefpalette's BRIEF_KIND_LABELS)
 };
 
 // Positions index the string that was matched, and item.search is not what a row displays — for an
@@ -107,6 +117,9 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     const channels = useAtomValue(channelsAtom);
     const spaces = useAtomValue(spacesAtom);
     const activeSpace = useAtomValue(activeSpaceAtom);
+    const records = useAtomValue(taskListAtom);
+    const threads = useAtomValue(persistedSummariesAtom);
+    const efforts = useAtomValue(paletteEffortsAtom);
     const surface = useAtomValue(model.surfaceAtom);
     const bindings = useAtomValue(bindingsAtom);
     const mru = useAtomValue(paletteMruAtom);
@@ -139,6 +152,9 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         }
         if (open) {
             loadSpaces();
+            // records / threads / initiatives: re-read per open (as loadSpaces does) so archiving one in
+            // the Jarvis surface is reflected the next time the palette is asked to find it.
+            loadPaletteEntities();
         }
     }, [open]);
 
@@ -343,6 +359,52 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         [spaces, activeSpace, model]
     );
 
+    // Selection navigates through the seams that already exist. A record and an initiative are addressable
+    // orefs, so openORef routes them (and flips the surface itself); a thread has no oref route — it is
+    // only ever a Stage subject, which is the same seam the Ask Jarvis row above uses. Sessions are not
+    // sourced here (see BRIEF_GROUP_KINDS), so "thread" is the only remaining kind.
+    const openBriefRow = (row: BriefRow) => {
+        if (row.kind === "record") {
+            fireAndForget(() => openORef(model, `task:${row.id}`));
+            return;
+        }
+        if (row.kind === "effort") {
+            fireAndForget(() => openORef(model, row.id)); // an effort row's id is already an oref
+            return;
+        }
+        selectSubject({ kind: "conversation", id: row.id });
+        globalStore.set(model.surfaceAtom, "jarvis");
+    };
+
+    // Records, threads and initiatives — the entity kinds the palette could not reach at all, archived
+    // ones included. briefpalette owns the index and the ranking (it flags archived rows and sinks them
+    // below every live one), so this only maps its rows onto palette rows. Its order is used as given:
+    // re-ranking here would undo the archived-last guarantee.
+    const briefIndex = useMemo(
+        () => buildBriefIndex({ records: records ?? [], threads: threads ?? [], efforts: efforts ?? [] }),
+        [records, threads, efforts]
+    );
+    const briefItems = useMemo<PaletteItem[]>(() => {
+        const now = Date.now();
+        // Deliberately uncapped here. rankBriefRows sorts archived rows last across the WHOLE index, so any
+        // cap applied before the rows are split into their three groups eats the archived tail first — the
+        // exact rows this feature exists to surface. capGroups caps per group and reports the overflow,
+        // which is the only place a cap can be applied without starving one kind to feed another.
+        return rankBriefRows(briefIndex, query, briefIndex.length).rows.map((r) => ({
+            key: r.key,
+            kind: r.kind, // BriefKind is a subset of GroupKind
+            search: r.search,
+            title: r.title,
+            subtitle: r.meta || undefined,
+            hint: r.ts > 0 ? formatAge(now - r.ts) : undefined,
+            archived: r.archived,
+            run: () => {
+                openBriefRow(r);
+                close();
+            },
+        }));
+    }, [briefIndex, query, model]);
+
     // A sigil scope narrows to one group; default keeps today's launch-lead + ranked kinds.
     let groups: PaletteGroup<PaletteItem>[];
     if (parsed.scope === "channel") {
@@ -354,7 +416,10 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         }
     } else if (parsed.scope === "default") {
         const pool = sortByMru([...focusItems, ...items], mru);
-        const ranked = rankPaletteItems(pool, query);
+        // mergeRanked interleaves by score without re-ranking either side, so the brief rows keep
+        // briefpalette's order (archived last) while the merged head is still the best match overall —
+        // which is what decides the leading group and the relevance floor below.
+        const ranked = mergeRanked(query, rankPaletteItems(pool, query), briefItems);
         const askPalItems: PaletteItem[] = askItems.map((ai) => ({
             key: ai.key,
             kind: "ask-jarvis" as const,
@@ -371,7 +436,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
             ranked,
             launchItems,
             askItems: askPalItems,
-            recent: recentItems(pool, mru, MAX_RECENT),
+            recent: recentItems([...pool, ...briefItems], mru, MAX_RECENT),
         });
     } else {
         const kind = parsed.scope; // "command" | "agent" | "session"
@@ -574,7 +639,11 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                                                     <span
                                                         className={cn(
                                                             "block truncate text-[13px]",
-                                                            active ? "text-primary" : "text-secondary"
+                                                            active
+                                                                ? "text-primary"
+                                                                : it.archived
+                                                                  ? "text-muted"
+                                                                  : "text-secondary"
                                                         )}
                                                     >
                                                         <Highlighted text={it.title} query={highlightQuery} />
@@ -585,6 +654,14 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                                                         </span>
                                                     ) : null}
                                                 </span>
+                                                {/* archiving takes something out of what surfaces at you, not
+                                                    out of what you can find — so the row is shown, marked, and
+                                                    already ranked below every live one */}
+                                                {it.archived ? (
+                                                    <span className="shrink-0 rounded-[5px] border border-edge-mid px-[6px] py-0.5 font-mono text-[10px] uppercase tracking-[0.08em] text-muted">
+                                                        archived
+                                                    </span>
+                                                ) : null}
                                                 {it.chord ? (
                                                     <span className="flex shrink-0 items-center gap-1">
                                                         {formatChord(it.chord).map((k, i) => (

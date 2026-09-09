@@ -23,6 +23,9 @@ function freshnessClass(f: GroundingCard["freshness"]): string {
             return "text-warning";
         case "unavailable":
             return "text-error";
+        // not a health reading, so not on the success/warning/error scale at all
+        case "unverified":
+            return "text-muted";
     }
 }
 

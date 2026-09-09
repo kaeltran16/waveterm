@@ -26,6 +26,8 @@ export function freshnessLabel(f: Freshness): string {
             return "Stale";
         case "unavailable":
             return "Unavailable";
+        case "unverified":
+            return "Unverified";
     }
 }
 
