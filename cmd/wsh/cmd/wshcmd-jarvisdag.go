@@ -223,6 +223,12 @@ var dagWaitCmd = &cobra.Command{
 				return err
 			}
 			if rtn.Group == nil {
+				// a sent-back plan is a wake, not an error: the dag the lead was waiting on was
+				// discarded on purpose, and the notes are the whole point of returning here.
+				if rtn.PlanFeedback != "" {
+					fmt.Printf("woke: plan-sent-back\n%s\n", rtn.PlanFeedback)
+					return nil
+				}
 				return fmt.Errorf("no dag for this run — submit one first")
 			}
 			if ret, reason := waitDecision(rtn.Digest); ret {
@@ -246,6 +252,9 @@ func dagStatusLines(rtn *wshrpc.CommandDagStatusRtnData, now int64) []string {
 	g := rtn.Group
 	d := rtn.Digest
 	if g == nil {
+		if rtn.PlanFeedback != "" {
+			return []string{"plan sent back — submit a revised dag", rtn.PlanFeedback}
+		}
 		return []string{"dag status unavailable"}
 	}
 	line := fmt.Sprintf("dag %s  status=%s  tasks=%d/%d  failures=%d  parallelism=%d",

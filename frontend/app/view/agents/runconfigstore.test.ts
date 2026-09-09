@@ -1,0 +1,157 @@
+// Copyright 2026, Command Line Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+import { globalStore } from "@/app/store/jotaiStore";
+import { beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_PARALLELISM, MAX_PARALLELISM } from "./runconfig";
+import {
+    forgetConfiguredChannel,
+    orchestrationAtom,
+    parallelismAtom,
+    requestRouteOpen,
+    resetRunConfig,
+    resetRunConfigForChannel,
+    routeOpenRequestAtom,
+    routeTouchedAtom,
+    runRouteAtom,
+    runShapeAtom,
+    setParallelism,
+    setRunRoute,
+    stepParallelism,
+    workerRouteAtom,
+} from "./runconfigstore";
+
+const pin = (model: string): RoutePin => ({ runtime: "claude", tier: "capable", model }) as RoutePin;
+
+beforeEach(() => {
+    forgetConfiguredChannel();
+    resetRunConfig();
+});
+
+describe("resetRunConfig", () => {
+    it("returns every control to its launch default", () => {
+        globalStore.set(runShapeAtom, "orchestrator");
+        globalStore.set(orchestrationAtom, "adaptive");
+        globalStore.set(workerRouteAtom, pin("opus"));
+        setRunRoute(pin("sonnet"));
+        setParallelism(7);
+
+        resetRunConfig();
+
+        expect(globalStore.get(runShapeAtom)).toBe("quick");
+        expect(globalStore.get(orchestrationAtom)).toBe("engine");
+        expect(globalStore.get(runRouteAtom)).toBeNull();
+        expect(globalStore.get(workerRouteAtom)).toBeNull();
+        expect(globalStore.get(parallelismAtom)).toBe(DEFAULT_PARALLELISM);
+    });
+
+    // carrying "orchestrator, adaptive, 6 wide" onto the next channel would arm a dispatch the user
+    // configured somewhere else — the reset is what makes the config per-channel
+    it("clears the manual-route flag so the next channel's preference flows in again", () => {
+        setRunRoute(pin("opus"));
+        expect(globalStore.get(routeTouchedAtom)).toBe(true);
+
+        resetRunConfig();
+
+        expect(globalStore.get(routeTouchedAtom)).toBe(false);
+    });
+});
+
+describe("setRunRoute", () => {
+    // the composer re-applies the channel's preferred route whenever it changes, guarded only by this
+    // flag; setting the atom without it would let a preference tick replace the user's own pick
+    it("marks the route as manually chosen in the same write", () => {
+        expect(globalStore.get(routeTouchedAtom)).toBe(false);
+
+        setRunRoute(pin("opus"));
+
+        expect(globalStore.get(runRouteAtom)).toEqual(pin("opus"));
+        expect(globalStore.get(routeTouchedAtom)).toBe(true);
+    });
+
+    it("counts clearing the route back to inherited as a manual choice too", () => {
+        setRunRoute(null);
+        expect(globalStore.get(routeTouchedAtom)).toBe(true);
+    });
+});
+
+describe("setParallelism", () => {
+    it("stores only widths the engine accepts", () => {
+        setParallelism(MAX_PARALLELISM + 5);
+        expect(globalStore.get(parallelismAtom)).toBe(MAX_PARALLELISM);
+
+        setParallelism(0);
+        expect(globalStore.get(parallelismAtom)).toBe(1);
+    });
+});
+
+describe("stepParallelism", () => {
+    // clicks batch: a stepper that computed `par + 1` from its render closure re-read the same stale
+    // value for every click in the batch, so a fast double-click advanced one step. Measured over CDP
+    // before the fix — twelve clicks moved 4 -> 5.
+    it("accumulates every click in a batch", () => {
+        expect(globalStore.get(parallelismAtom)).toBe(DEFAULT_PARALLELISM);
+
+        stepParallelism(1);
+        stepParallelism(1);
+        stepParallelism(1);
+
+        expect(globalStore.get(parallelismAtom)).toBe(DEFAULT_PARALLELISM + 3);
+    });
+
+    it("holds at the ceiling and the floor rather than running past them", () => {
+        for (let i = 0; i < 20; i++) {
+            stepParallelism(1);
+        }
+        expect(globalStore.get(parallelismAtom)).toBe(MAX_PARALLELISM);
+
+        for (let i = 0; i < 20; i++) {
+            stepParallelism(-1);
+        }
+        expect(globalStore.get(parallelismAtom)).toBe(1);
+    });
+});
+
+describe("requests", () => {
+    it("bumps the route-open counter for a repeated blocked launch", () => {
+        const before = globalStore.get(routeOpenRequestAtom);
+        requestRouteOpen();
+        expect(globalStore.get(routeOpenRequestAtom)).toBe(before + 1);
+    });
+});
+
+describe("resetRunConfigForChannel", () => {
+    // every surface but Agent unmounts on switch, so the composer's mount effect fires again on the
+    // same channel. A mount-keyed reset would throw away a configured-but-unlaunched run for the cost
+    // of a glance at Usage — the whole reason the config moved to module-level atoms.
+    it("survives a remount on the same channel", () => {
+        resetRunConfigForChannel("ch-1");
+        globalStore.set(runShapeAtom, "orchestrator");
+        setParallelism(6);
+
+        resetRunConfigForChannel("ch-1");
+
+        expect(globalStore.get(runShapeAtom)).toBe("orchestrator");
+        expect(globalStore.get(parallelismAtom)).toBe(6);
+    });
+
+    it("clears the configuration when the channel actually changes", () => {
+        resetRunConfigForChannel("ch-1");
+        globalStore.set(runShapeAtom, "orchestrator");
+        setParallelism(6);
+
+        resetRunConfigForChannel("ch-2");
+
+        expect(globalStore.get(runShapeAtom)).toBe("quick");
+        expect(globalStore.get(parallelismAtom)).toBe(DEFAULT_PARALLELISM);
+    });
+
+    it("treats leaving a channel for a non-channel subject as a change", () => {
+        resetRunConfigForChannel("ch-1");
+        globalStore.set(runShapeAtom, "orchestrator");
+
+        resetRunConfigForChannel(null);
+
+        expect(globalStore.get(runShapeAtom)).toBe("quick");
+    });
+});

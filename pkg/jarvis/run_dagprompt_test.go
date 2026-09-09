@@ -8,7 +8,7 @@ import (
 // Empty orchestration throughout this file is deliberate: these two guard the legacy runtime fork a
 // pre-2026-09 run is still built under, so they must keep passing the shape those runs stored.
 func TestBuildOrchestratePromptPiPublishesTypedTasksAutonomously(t *testing.T) {
-	p := BuildOrchestratePrompt("ship auth", nil, "pi", "")
+	p := BuildOrchestratePrompt("ship auth", nil, "pi", "", 0)
 	for _, want := range []string{
 		"wsh jarvis dag import-tasks",
 		"wsh jarvis dag status",
@@ -31,7 +31,7 @@ func TestBuildOrchestratePromptPiPublishesTypedTasksAutonomously(t *testing.T) {
 }
 
 func TestBuildOrchestratePromptClaudeRetainsAdaptiveTriage(t *testing.T) {
-	p := BuildOrchestratePrompt("ship auth", nil, "claude", "")
+	p := BuildOrchestratePrompt("ship auth", nil, "claude", "", 0)
 	for _, want := range []string{"wsh jarvis triage", "quick", "plan", "Goal: ship auth"} {
 		if !strings.Contains(p, want) {
 			t.Errorf("claude prompt missing %q", want)

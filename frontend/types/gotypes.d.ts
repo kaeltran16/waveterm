@@ -647,6 +647,7 @@ declare global {
         model?: string;
         workerroute?: RoutePin;
         orchestration?: string;
+        parallelism?: number;
         playbookid?: string;
         mode?: string;
         plangate?: boolean;
@@ -687,6 +688,7 @@ declare global {
         tier?: string;
         model?: string;
         runtime?: string;
+        notes?: string;
     };
 
     // wshrpc.CommandDagAnswerData
@@ -719,6 +721,7 @@ declare global {
     type CommandDagStatusRtnData = {
         group: TaskGroup;
         digest: DagStatusDigest;
+        planfeedback?: string;
     };
 
     // wshrpc.CommandDagSubmitData
@@ -3121,6 +3124,8 @@ declare global {
         dagoref?: string;
         workerroute?: RoutePin;
         orchestration?: string;
+        parallelism?: number;
+        planfeedback?: string;
     };
 
     // waveobj.RunEffortRef
@@ -3607,6 +3612,8 @@ declare global {
         mergerequired?: boolean;
         createdts: number;
         updatedts: number;
+        plangate?: boolean;
+        planapprovedts?: number;
         notifiedcondition?: string;
     };
 

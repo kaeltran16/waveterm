@@ -9,12 +9,12 @@ export function DagGraphHeader({ group }: { group: TaskGroup }) {
     const tone =
         status === "done" || status === "awaiting-review"
             ? "border-success/50 bg-success/10 text-success"
-            : status === "blocked"
+            : status === "blocked" || status === "awaiting-plan"
               ? "border-warning/60 bg-warning/10 text-warning"
               : status === "cancelled"
                 ? "border-edge-mid bg-surface-raised text-muted"
                 : "border-accent/50 bg-accent/10 text-accent-soft";
-    const label = status.replace("-", " ");
+    const label = status.split("-").join(" ");
     return (
         <div className="flex items-center gap-3 border-b border-border bg-background px-4 py-2.5">
             <button
@@ -36,7 +36,9 @@ export function DagGraphHeader({ group }: { group: TaskGroup }) {
             <span className={`rounded-[5px] border px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide ${tone}`}>
                 {label}
             </span>
-            {group.status === "running" || group.status === "awaiting-review" ? (
+            {/* awaiting-plan is cancellable too: abandoning a run at its gate is a normal answer, and the
+                alternative would be approving work you do not want in order to be allowed to stop it */}
+            {group.status === "running" || group.status === "awaiting-review" || group.status === "awaiting-plan" ? (
                 <button
                     type="button"
                     onClick={() =>

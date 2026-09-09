@@ -23,7 +23,7 @@ import { useAtomValue } from "jotai";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { openDagLive } from "../orchestrate/dagmodalstate";
-import { DagOverview } from "../orchestrate/dagoverview";
+import { PlanGateCard } from "../orchestrate/plangatecard";
 import type { AgentsViewModel } from "./agents";
 import { streamableTranscriptAgents, type AgentVM } from "./agentsviewmodel";
 import { AmbientTags } from "./ambientviews";
@@ -395,17 +395,13 @@ export function OrchestratorBody({
                     onSteerClose={onSteerClose}
                     hideSteer={hideSteer}
                 />
-                {run.dagoref ? (
-                    <DagOverview
-                        channelId={channel.oid}
-                        runId={run.id}
-                        dagOref={"dag:" + run.dagoref}
-                        model={model}
-                        agents={agents}
-                    />
-                ) : null}
                 <RunTimeline channel={channel} run={run} />
                 <CancelSurvivorsCard model={model} channelId={channel.oid} run={run} agents={agents} />
+                {/* the plan gate outranks the worker rows below it: while it is up there are no workers,
+                    and it is the only thing on this surface waiting on the reader */}
+                {run.dagoref ? (
+                    <PlanGateCard channelId={channel.oid} run={run} dagOref={"dag:" + run.dagoref} />
+                ) : null}
                 {thread.showGate ? <ReviewGateCard channelId={channel.oid} run={run} gateIdx={idx} /> : null}
                 {thread.showAsk && thread.askAgent && thread.askKind ? (
                     <AskCard model={model} agent={thread.askAgent} kind={thread.askKind} />

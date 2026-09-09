@@ -34,12 +34,29 @@ func taskActive(state string) bool {
 
 // Dag statuses (derived by RecomputeDagStatus; cancelled is a terminal override).
 const (
+	DagStatus_AwaitingPlan   = "awaiting-plan"
 	DagStatus_Running        = "running"
 	DagStatus_AwaitingReview = "awaiting-review"
 	DagStatus_Blocked        = "blocked"
 	DagStatus_Done           = "done"
 	DagStatus_Cancelled      = "cancelled"
 )
+
+// PlanGatePending reports whether the human still has to approve this plan. Every dispatch and every
+// derived status reads this rather than the status string, so the gate cannot be released by a
+// recompute — only by an approval writing PlanApprovedTs.
+func PlanGatePending(g *waveobj.TaskGroup) bool {
+	return g != nil && g.PlanGate && g.PlanApprovedTs == 0
+}
+
+// GatePlan marks a freshly built group as waiting on the human. Called at submit rather than inside
+// NewTaskGroup because whether a plan is gated is a property of the run that owns it (top-level or
+// child), not of the tasks being validated.
+func GatePlan(g *waveobj.TaskGroup) {
+	g.PlanGate = true
+	g.PlanApprovedTs = 0
+	RecomputeDagStatus(g)
+}
 
 // MaxConsecutiveFailures is the circuit-break: the DAG blocks with a "stop and ask" flag.
 const MaxConsecutiveFailures = 3
@@ -276,6 +293,13 @@ func SameDagProposal(a, b *waveobj.TaskGroup) bool {
 // Order matters: cancelled (terminal override) -> done -> blocked -> awaiting-review -> running.
 func RecomputeDagStatus(g *waveobj.TaskGroup) {
 	if g.Status == DagStatus_Cancelled {
+		return
+	}
+	// an unapproved plan has no task that has run, so deriving from task state would report it as an
+	// ordinary running dag that simply has not dispatched yet — which is what the reader is trying to
+	// tell apart from a dag that is waiting on them. Below cancelled so a cancelled gate stays cancelled.
+	if PlanGatePending(g) {
+		g.Status = DagStatus_AwaitingPlan
 		return
 	}
 	cancelled := false

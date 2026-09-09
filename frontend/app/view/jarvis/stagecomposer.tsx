@@ -18,17 +18,26 @@ import {
     parseComposerCommand,
     resolveComposerDispatch,
     resolveRunCreationDecision,
-    type RunShape,
 } from "@/app/view/agents/composercommand";
 import { harnessRuntimeIds } from "@/app/view/agents/harnesspicker";
 import { harnessPreferenceAtom, harnessesAtom } from "@/app/view/agents/harnessstore";
-import { type Orchestration } from "@/app/view/agents/orchestratorpicker";
 import { resolveEffectiveRoute, routeForRuntime } from "@/app/view/agents/route";
 import { createRun, pendingRunDraftAtom, resolveChannelLaunchRoute } from "@/app/view/agents/runactions";
+import {
+    orchestrationAtom,
+    parallelismAtom,
+    requestRouteOpen,
+    resetRunConfigForChannel,
+    routeTouchedAtom,
+    runRouteAtom,
+    runShapeAtom,
+    workerRouteAtom,
+} from "@/app/view/agents/runconfigstore";
 import { currentPhaseIndex } from "@/app/view/agents/runmodel";
+import { globalStore } from "@/app/store/jotaiStore";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue, useSetAtom } from "jotai";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { askAcrossWork, briefingAskStateAtom, briefingStateAtom } from "./briefingstore";
 import { resolveComposerTarget } from "./composertarget";
 import type { ScopeChip } from "./jarviscontract";
@@ -249,28 +258,35 @@ export function StageComposer({
     const harnesses = useAtomValue(harnessesAtom);
     const runtimeIds = harnessRuntimeIds(harnesses);
     const [harnessOpenRequest, setHarnessOpenRequest] = useState(0);
-    const [routeOpenRequest, setRouteOpenRequest] = useState(0);
     const [launchError, setLaunchError] = useState("");
-    const [shape, setShape] = useState<RunShape>("quick");
-    const [runRoute, setRunRoute] = useState<RoutePin | null>(route ?? pref.route);
-    const [workerRoute, setWorkerRoute] = useState<RoutePin | null>(null);
-    const [orchestration, setOrchestration] = useState<Orchestration>("engine");
-    const routeTouched = useRef(false);
+    // The run configuration is the launcher's (view/agents/runlauncher.tsx); this face reads it to dispatch.
+    const shape = useAtomValue(runShapeAtom);
+    const runRoute = useAtomValue(runRouteAtom);
+    const workerRoute = useAtomValue(workerRouteAtom);
+    const orchestration = useAtomValue(orchestrationAtom);
+    const parallelism = useAtomValue(parallelismAtom);
+    const routeTouched = useAtomValue(routeTouchedAtom);
     const channelIdentity = channel?.oid ?? null;
 
     useEffect(() => {
-        routeTouched.current = false;
-        setShape("quick");
-        setRunRoute(null);
-        setWorkerRoute(null);
-        setOrchestration("engine");
+        resetRunConfigForChannel(channelIdentity);
     }, [channelIdentity]);
 
     useEffect(() => {
-        if (!routeTouched.current && (route != null || pref.route != null)) {
-            setRunRoute(route ?? pref.route);
+        if (!routeTouched && (route != null || pref.route != null)) {
+            globalStore.set(runRouteAtom, route ?? pref.route);
         }
-    }, [channelIdentity, route, pref.route]);
+    }, [channelIdentity, route, pref.route, routeTouched]);
+
+    // A blocked launch opens the route picker, which lives in the launcher — so the launcher has to be on
+    // the Stage for the request to be visible. Composing is what puts it there, and it is the truthful
+    // state anyway: the launch did not happen, so the run is still being composed.
+    const focusRoute = () => {
+        if (channelIdentity != null) {
+            setComposingRun(channelIdentity, true);
+        }
+        requestRouteOpen();
+    };
 
     const briefingAskState = useAtomValue(briefingAskStateAtom);
     const briefingSnapshot = useAtomValue(briefingStateAtom).snapshot;
@@ -396,7 +412,7 @@ export function StageComposer({
                 try {
                     selectedRoute = await resolveChannelLaunchRoute(channel.oid);
                 } catch {
-                    setRouteOpenRequest((n) => n + 1);
+                    focusRoute();
                     return;
                 }
             }
@@ -409,7 +425,7 @@ export function StageComposer({
             });
             if (decision.kind === "blocked") {
                 if (decision.focusRoute) {
-                    setRouteOpenRequest((n) => n + 1);
+                    focusRoute();
                 }
                 return;
             }
@@ -419,9 +435,10 @@ export function StageComposer({
                     mode: decision.mode,
                     ...(decision.mode === "orchestrator" ? { orchestration } : {}),
                     ...(decision.mode === "orchestrator" && orchestration === "engine" && workerRoute ? { workerRoute } : {}),
+                    ...(decision.mode === "orchestrator" && orchestration === "engine" ? { parallelism } : {}),
                 });
                 setActiveRunId(decision.channelId, created.id);
-                setShape("quick");
+                globalStore.set(runShapeAtom, "quick");
                 setDraft("");
                 attach.clear();
                 setComposingRun(decision.channelId, false);
@@ -556,19 +573,7 @@ export function StageComposer({
                                 channelName={channel.name ?? "channel"}
                                 pending={radarDraft != null}
                                 attach={attach}
-                                shape={shape}
-                                onShapeChange={setShape}
-                                route={runRoute}
-                                onRouteChange={(next) => {
-                                    routeTouched.current = true;
-                                    setRunRoute(next);
-                                }}
                                 harnessOpenRequest={harnessOpenRequest}
-                                routeOpenRequest={routeOpenRequest}
-                                workerRoute={workerRoute}
-                                onWorkerRouteChange={setWorkerRoute}
-                                orchestration={orchestration}
-                                onOrchestrationChange={setOrchestration}
                             />
                         </>
                     )

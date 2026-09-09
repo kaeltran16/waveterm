@@ -45,6 +45,9 @@ const RUN_GROUP_KINDS = new Set([
     "lead-control-sent",
     "lead-control-failed",
     "lead-control-acknowledged",
+    "dag-plan-gated",
+    "dag-plan-approved",
+    "dag-plan-sent-back",
 ]);
 
 export function buildRunTimeline(run: Run, events: RunEvent[]): { groups: RunTimelineGroup[]; preview: RunEvent[] } {
@@ -108,6 +111,9 @@ const KIND_TITLE: Record<string, string> = {
     "lead-control-sent": "Lead notified",
     "lead-control-failed": "Lead notify failed",
     "lead-control-acknowledged": "Lead acknowledged",
+    "dag-plan-gated": "Plan awaiting your approval",
+    "dag-plan-approved": "Plan approved",
+    "dag-plan-sent-back": "Plan sent back",
 };
 
 // KIND_TONE stays inside the EXISTING status/phase tone utilities (the same token classes
@@ -121,6 +127,7 @@ const KIND_TONE: Record<string, string> = {
     "child-done": "text-success",
     "evidence-sealed": "text-success",
     "gate-approved": "text-success",
+    "dag-plan-approved": "text-success",
     "task-spawned": "text-success",
     "dag-done": "text-success",
     "task-done": "text-success",
@@ -131,7 +138,9 @@ const KIND_TONE: Record<string, string> = {
     "phase-held": "text-asking",
     "child-ask": "text-asking",
     "dag-gate-open": "text-asking",
+    "dag-plan-gated": "text-asking",
     "gate-sent-back": "text-warning",
+    "dag-plan-sent-back": "text-warning",
     triage: "text-warning",
     "task-stalled": "text-warning",
     "dag-blocked": "text-warning",

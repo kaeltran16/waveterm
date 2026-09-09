@@ -23,6 +23,20 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
+// mustApprovePlan clears a submitted plan's gate and returns the scheduled group. Every top-level
+// submit now stops at the gate, so a test about what happens *after* dispatch has to pass through it.
+func mustApprovePlan(t *testing.T, ctx context.Context, ws *WshServer, channelId, runId string) *waveobj.TaskGroup {
+	t.Helper()
+	if err := ws.DagActionCommand(ctx, wshrpc.CommandDagActionData{ChannelId: channelId, RunId: runId, Action: "approve-plan"}); err != nil {
+		t.Fatalf("approve-plan: %v", err)
+	}
+	rtn, err := ws.DagStatusCommand(ctx, wshrpc.CommandDagStatusData{ChannelId: channelId, RunId: runId})
+	if err != nil {
+		t.Fatalf("status after approve-plan: %v", err)
+	}
+	return rtn.Group
+}
+
 func TestDagSubmitAndAction(t *testing.T) {
 	ctx := context.Background()
 	oldSpawn := jarvis.SpawnRunWorker
@@ -57,11 +71,26 @@ func TestDagSubmitAndAction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// a top-level plan waits for the human before anything spawns
+	if g.Status != orchestrate.DagStatus_AwaitingPlan {
+		t.Fatalf("want awaiting-plan, got %s", g.Status)
+	}
+	if g.Tasks[0].State != orchestrate.TaskState_Pending || g.Tasks[0].RunID != "" {
+		t.Fatalf("a gated plan must not dispatch: got %+v", g.Tasks[0])
+	}
+	if err := ws.DagActionCommand(ctx, wshrpc.CommandDagActionData{ChannelId: ch.OID, RunId: run.ID, Action: "approve-plan"}); err != nil {
+		t.Fatalf("approve-plan: %v", err)
+	}
+	approved, err := ws.DagStatusCommand(ctx, wshrpc.CommandDagStatusData{ChannelId: ch.OID, RunId: run.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	g = approved.Group
 	if g.Status != "running" {
 		t.Fatalf("want running, got %s", g.Status)
 	}
 	if g.Tasks[0].State != orchestrate.TaskState_Running || g.Tasks[0].RunID == "" {
-		t.Fatalf("submit must schedule the first step: t-0 running with child run, got %+v", g.Tasks[0])
+		t.Fatalf("approval must schedule the first step: t-0 running with child run, got %+v", g.Tasks[0])
 	}
 	// approve on a non-gate task errors (targeted actions must not silently no-op):
 	if err := ws.DagActionCommand(ctx, wshrpc.CommandDagActionData{ChannelId: ch.OID, RunId: run.ID, TaskId: "t-0", Action: "approve"}); err == nil {
@@ -217,7 +246,8 @@ func TestDagSubmitDeferredRun(t *testing.T) {
 	if got.DagORef != g.OID {
 		t.Fatalf("dagoref not linked")
 	}
-	wantEvents := []string{waveobj.RunEventKindCreated, waveobj.RunEventKindPhaseStarted + "@0", waveobj.RunEventKindTaskSpawned}
+	// the plan is published and gated, so the lifecycle stops at the gate — no task-spawned yet
+	wantEvents := []string{waveobj.RunEventKindCreated, waveobj.RunEventKindPhaseStarted + "@0", waveobj.RunEventKindDagPlanGated}
 	if gotEvents := mustSeq(t, ch.OID, rtn.Run.ID); !reflect.DeepEqual(gotEvents, wantEvents) {
 		t.Fatalf("deferred lifecycle events = %v, want %v", gotEvents, wantEvents)
 	}
@@ -607,6 +637,7 @@ func TestDagMergeTargetsChildWorktree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	g = mustApprovePlan(t, ctx, ws, ch.OID, run.ID)
 
 	// child commits feature work in its own worktree
 	key := orchestrate.TaskWorktreeKey(run.ID, "t-0")
@@ -716,6 +747,7 @@ func TestDagMergeContinueFinishesBlockedMerge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	g = mustApprovePlan(t, ctx, ws, ch.OID, run.ID)
 
 	// child edits base.txt in its worktree; the project main diverges on the same file so the
 	// eventual squash merge conflicts
@@ -852,6 +884,7 @@ func TestDagMergeCleanupFailurePersistsDebt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	g = mustApprovePlan(t, ctx, ws, ch.OID, run.ID)
 	key := orchestrate.TaskWorktreeKey(run.ID, "t-0")
 	wtPath := filepath.Join(projectDir, ".waveterm", "worktrees", key)
 	if _, err := os.Stat(wtPath); err != nil {

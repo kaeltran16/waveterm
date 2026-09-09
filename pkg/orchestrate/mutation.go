@@ -245,6 +245,77 @@ func MarkBlockedMerge(ctx context.Context, dagID, childRunID string) error {
 	})
 }
 
+// ApprovePlan releases a plan-gated dag and lets the engine dispatch. Idempotent: the gate card and
+// the DAG modal can both send it, and a second approval must not read as an error to whichever lost
+// the race. A cancelled dag is refused rather than silently approved.
+func ApprovePlan(ctx context.Context, dagID string, ts int64) error {
+	err := withDagMutation(dagID, func() error {
+		g, err := wstore.GetDag(ctx, dagID)
+		if err != nil {
+			return fmt.Errorf("loading dag: %w", err)
+		}
+		if g.Status == DagStatus_Cancelled {
+			return fmt.Errorf("dag %s is cancelled", dagID)
+		}
+		if !PlanGatePending(g) {
+			return nil
+		}
+		g.PlanApprovedTs = ts
+		g.UpdatedTs = ts
+		RecomputeDagStatus(g)
+		if err := wstore.UpdateDag(ctx, dagID, func(cur *waveobj.TaskGroup) error {
+			*cur = *g
+			return nil
+		}); err != nil {
+			return err
+		}
+		wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, g.OID))
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	return Schedule(ctx, dagID)
+}
+
+// DiscardPlan throws away a rejected plan: the group row is deleted and unlinked from its run, which
+// is what lets the lead submit a revised one — CreateDagForRun refuses a run that already holds a
+// dag, and that invariant has to keep holding for every plan that was ever scheduled. Only a plan
+// still waiting at its gate qualifies: nothing has been dispatched, so there is no child run, no
+// worktree and no history to lose. The human's notes ride along on the run for the lead to read.
+func DiscardPlan(ctx context.Context, dagID, feedback string) error {
+	var channelID, runID string
+	if err := withDagMutation(dagID, func() error {
+		return withMutationTx(ctx, func(tx *wstore.TxWrap) error {
+			txCtx := tx.Context()
+			g, err := wstore.GetDag(txCtx, dagID)
+			if err != nil {
+				return fmt.Errorf("loading dag: %w", err)
+			}
+			if !PlanGatePending(g) {
+				// covers both "already approved" and "never gated" (a child's plan): either way the
+				// engine owns it, and what can still be sent back is one task, not the decomposition
+				return fmt.Errorf("dag %s is not waiting at a plan gate; send back a task, not the plan", dagID)
+			}
+			channelID, runID = g.ChannelId, g.RunID
+			if err := wstore.UpdateRun(txCtx, g.ChannelId, g.RunID, func(r *waveobj.Run) error {
+				r.DagORef = ""
+				r.PlanFeedback = feedback
+				r.Status = jarvis.RunStatus_Planning
+				return nil
+			}); err != nil {
+				return fmt.Errorf("unlinking dag from run: %w", err)
+			}
+			return wstore.DBDelete(txCtx, waveobj.OType_Dag, dagID)
+		})
+	}); err != nil {
+		return err
+	}
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Run, runID))
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, channelID))
+	return nil
+}
+
 func Cancel(ctx context.Context, dagID string) error {
 	return withDagMutation(dagID, func() error {
 		return cancelLocked(ctx, dagID)

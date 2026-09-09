@@ -17,6 +17,7 @@ import {
     channelOverrideAtom,
 } from "@/app/view/agents/runactions";
 import { RunBody } from "@/app/view/agents/runbody";
+import { RunLauncher } from "@/app/view/agents/runlauncher";
 import { liveWorkers } from "@/app/view/agents/runmodel";
 import { SurfaceEmptyState } from "@/app/view/agents/surfacescaffold";
 import { buildChannelsAskBindings, buildJarvisBindings } from "@/app/store/keybindings/bindings";
@@ -225,9 +226,11 @@ export function Stage({ model }: { model: AgentsViewModel }) {
                 snapshotTimeMs={subject.kind === "briefing" ? (briefingSnapshot?.queryStartedAt ?? null) : null}
                 onRefresh={subject.kind === "briefing" ? refreshBriefing : null}
             />
-            {/* absent rather than empty: the band speaks about "this run", and a draft has none yet;
-                Briefing has neither a run nor a record band. */}
-            {composing || comp.recordBand === "none" ? null : (
+            {/* absent rather than empty: the "attributed" band speaks about "this run", and neither a
+                draft nor a channel whose first run does not exist yet has one — both of those show the
+                launcher below instead. The "subject" and "mentions" bands are about a record or a thread
+                and never have a run, so the guard is on the attributed case alone. Briefing has neither. */}
+            {composing || comp.recordBand === "none" || (comp.recordBand === "attributed" && run == null) ? null : (
                 <RecordBand
                     kind={subject.kind}
                     tags={tags}
@@ -244,11 +247,10 @@ export function Stage({ model }: { model: AgentsViewModel }) {
                     run != null && channel != null ? (
                         <RunBody model={model} channel={channel} agents={agents} run={run} />
                     ) : (
-                        <SurfaceEmptyState
-                            className={STAGE_GUTTER}
-                            title={`Start a run in #${channel?.name ?? "channel"}`}
-                            body="Give Jarvis a goal below. @quick spawns one worker, @run kicks off the channel's full strategy, and @ask is a one-shot consult."
-                        />
+                        // no run to read means one is being set up, so the slot holds the launcher rather
+                        // than an empty state pointing at controls elsewhere. It sits directly above the
+                        // goal box that consumes it, and that composer's Run ⏎ is the launch.
+                        <RunLauncher channelName={channel?.name ?? "channel"} />
                     )
                 ) : comp.thread === "record" ? (
                     <RecordThread detail={detail} model={model} />

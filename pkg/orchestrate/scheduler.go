@@ -73,6 +73,12 @@ func depSatisfied(g *waveobj.TaskGroup, id string) bool {
 // no fresh success can arrive to clear it on its own. ReadyTasks stays unguarded so the digest can
 // still report which tasks are being held back.
 func NextToSpawn(g *waveobj.TaskGroup) []string {
+	// the plan gate lives here with the other dispatch guards, not at the submit call site: Schedule
+	// is reached from the watchdog, from every terminal child, and from every human dag action, and a
+	// guard at one entry point would let the next one spawn workers the human never approved.
+	if PlanGatePending(g) {
+		return nil
+	}
 	if g.Failures >= MaxConsecutiveFailures {
 		return nil
 	}

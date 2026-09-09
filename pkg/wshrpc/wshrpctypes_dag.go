@@ -50,10 +50,11 @@ type CommandDagActionData struct {
 	ChannelId string `json:"channelid"`
 	RunId     string `json:"runid"`
 	TaskId    string `json:"taskid"`
-	Action    string `json:"action"` // approve | sendback | retry | skip | escalate | cancel
+	Action    string `json:"action"`            // approve | sendback | retry | skip | escalate | cancel | approve-plan | sendback-plan
 	Tier      string `json:"tier,omitempty"`    // legacy escalate target tier
 	Model     string `json:"model,omitempty"`   // escalate target model (exact id); wins over Tier
 	Runtime   string `json:"runtime,omitempty"` // escalate target runtime; empty = task's current runtime
+	Notes     string `json:"notes,omitempty"`   // sendback-plan: what the human wants changed, delivered to the lead
 }
 
 type CommandDagMergeData struct {
@@ -96,6 +97,9 @@ type CommandDagAnswerData struct {
 type CommandDagStatusRtnData struct {
 	Group  *waveobj.TaskGroup `json:"group"`
 	Digest DagStatusDigest    `json:"digest"`
+	// PlanFeedback is set, with a nil Group, when the human sent this run's plan back: the dag it
+	// describes no longer exists, and what the lead needs is the reason, not a status.
+	PlanFeedback string `json:"planfeedback,omitempty"`
 }
 
 type DagStatusDigest struct {

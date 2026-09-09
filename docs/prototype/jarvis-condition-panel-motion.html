@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<!--
+  Mockup kit — copy this file to start any UI mockup/prototype in this repo.
+  Prototype first, always: UI changes get a validated high-fidelity mockup before code.
+
+  AUDIT CHECKLIST — run this before presenting the mockup:
+  1. every color from the generated :root tokens below (no hand-added hex; regenerate
+     after @theme changes with `task mockup:kit`)
+  2. contrast floor: text >= 4.5:1, non-text >= 3:1; ink ramp steps ink-faint < muted < ink-mid < secondary
+  3. status never color alone — pair amber/green/red with an icon, label, or dot
+  4. focus-visible ring on every interactive element (keyboard first)
+  5. reduced motion respected (prefers-reduced-motion)
+  6. card recipe: briefing-surface cards = bg-surface + border-border + 10px;
+     generic panels = bg-surface-raised + edge-mid + 6px (see .card vs .panel)
+  7. accent only for the single most important action per screen
+  8. motion only from the micro scale: 140ms cubic-bezier(0.22,1,0.36,1)
+  9. no new design vocabulary per surface — reuse these recipes and the tokens
+
+  Workflow: copy -> build with the recipes -> self-audit -> serve (python -m http.server
+  8766 in docs/prototype/) -> present. See pi/skills/ui-mockup for the full workflow.
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jarvis condition panel motion</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  /* MOCKUP-TOKENS:START */
+:root {
+    --color-background: #0c0e11;
+    --color-surface: #0e1116;
+    --color-surface-raised: #13171d;
+    --color-surface-hover: #171c22;
+    --color-surface-code: #0b0d10;
+    --color-surface-selected: #1a222c;
+    --color-panel: rgba(19, 23, 29, 0.6);
+    --color-modalbg: #13171d;
+    --color-lane: #12161b;
+    --color-foreground: #e6e9ed;
+    --color-white: #e6e9ed;
+    --color-primary: #e6e9ed;
+    --color-secondary: #cfd5db;
+    --color-muted-foreground: #c3cad1;
+    --color-ink-hi: #dfe4ea;
+    --color-ink-mid: #9aa3ad;
+    --color-muted: #7f858b;
+    --color-ink-faint: #646a72;
+    --color-border: #1c2128;
+    --color-edge-mid: #20262e;
+    --color-edge-strong: #2a313a;
+    --color-edge-faint: #161a20;
+    --color-accent-50: #e8ecff;
+    --color-accent-100: #cdd6ff;
+    --color-accent-200: #aebfff;
+    --color-accent-300: #8da3ff;
+    --color-accent-400: #5e9cff;
+    --color-accent-500: #5f74e0;
+    --color-accent-600: #4f61c4;
+    --color-accent-700: #3f4ea0;
+    --color-accent-800: #2f3b7a;
+    --color-accent-900: #232c5c;
+    --color-accent: #5e9cff;
+    --color-accenthover: #8da3ff;
+    --color-accent-soft: #aebfff;
+    --color-accentbg: rgba(94, 156, 255, 0.12);
+    --color-skill: #c58cff;
+    --color-skill-soft: #dcc0ff;
+    --color-error: #e0726c;
+    --color-warning: #e6b450;
+    --color-asking: #e6b450;
+    --color-success: #54c79a;
+    --color-cacheread: #5b6675;
+    --color-on-warning: #1a1306;
+    --color-provider-claude: #d97757;
+    --color-provider-codex: #96aacd;
+    --color-provider-opencode: #a78bfa;
+    --color-provider-pi: #ececec;
+    --color-success-soft: #bfe6d6;
+    --color-error-soft: #f0a9a4;
+    --color-warning-soft: #f0d79f;
+    --color-feed-label: #777f89;
+    --color-feed-summary: #9aa3ad;
+    --color-feed-time: #4f565f;
+    --color-feed-glyph: #454c55;
+    --color-working: #54c79a;
+    --color-avatar-1: #7c95ff;
+    --color-avatar-2: #54c79a;
+    --color-avatar-3: #e0726c;
+    --color-avatar-4: #e6b450;
+    --color-avatar-5: #c98fe6;
+    --color-avatar-6: #9aa3ad;
+    --color-conn-1: #53b4ea;
+    --color-conn-2: #aa67ff;
+    --color-conn-3: #fda7fd;
+    --color-conn-4: #ef476f;
+    --color-conn-5: #497bf8;
+    --color-conn-6: #ffa24e;
+    --color-conn-7: #dbde52;
+    --color-conn-8: #58c142;
+    --color-graphlane-1: #7c95ff;
+    --color-graphlane-2: #54c79a;
+    --color-graphlane-3: #e6b450;
+    --color-graphlane-4: #c9a4ff;
+    --color-graphlane-5: #e0726c;
+    --color-graphlane-6: #5cc8d8;
+    --color-graphlane-fold: #6b7178;
+    --color-rt-claude: #d97757;
+    --color-rt-claude-soft: rgba(217, 119, 87, 0.13);
+    --color-rt-claude-line: rgba(217, 119, 87, 0.34);
+    --color-rt-codex: #ececec;
+    --color-rt-codex-soft: rgba(236, 236, 236, 0.13);
+    --color-rt-codex-line: rgba(236, 236, 236, 0.32);
+    --color-rt-opencode: #a78bfa;
+    --color-rt-opencode-soft: rgba(167, 139, 250, 0.13);
+    --color-rt-opencode-line: rgba(167, 139, 250, 0.34);
+    --color-rt-pi: #ececec;
+    --color-rt-pi-soft: rgba(236, 236, 236, 0.13);
+    --color-rt-pi-line: rgba(236, 236, 236, 0.32);
+    --color-rt-terminal: #9aa3ad;
+    --color-rt-terminal-soft: rgba(154, 163, 173, 0.1);
+    --color-rt-terminal-line: rgba(154, 163, 173, 0.28);
+    --color-mem-project: #8aa0ff;
+    --color-mem-reference: #54c79a;
+    --color-mem-feedback: #e6b450;
+    --color-mem-user: #a78bfa;
+    --color-graph-task: #8aa0ff;
+    --color-graph-decision: #54c79a;
+    --color-graph-memory: #a78bfa;
+    --color-graph-run: #e6b450;
+    --color-graph-semantic: #d98cff;
+    --color-hover: rgba(255, 255, 255, 0.1);
+    --color-hoverbg: rgba(255, 255, 255, 0.2);
+    --color-highlightbg: rgba(255, 255, 255, 0.2);
+    --color-syntax-keyword: #aebfff;
+    --color-syntax-string: #7fd6ab;
+    --color-syntax-number: #e6b450;
+    --color-syntax-comment: #6b7178;
+    --color-syntax-punct: #8b939d;
+    --color-syntax-ident: #cdd3da;
+}
+/* MOCKUP-TOKENS:END */
+
+  :root {
+    --dur-micro: 140ms;
+    --curve-out: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { background: var(--color-background); }
+  body {
+    font-family: 'Hanken Grotesk', system-ui, -apple-system, sans-serif;
+    background: var(--color-background);
+    color: var(--color-primary);
+    font-size: 14px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+    padding: 16px 24px 48px;
+  }
+  .stage { max-width: 1080px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+
+  /* ── recipes (reuse, don't invent) ───────────────────────────────────── */
+
+  /* section header: label + count pill + hairline + optional action */
+  .sec-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .sec-head .label {
+    font-family: 'JetBrains Mono', monospace; font-size: 9.5px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.12em; color: var(--color-feed-label);
+  }
+  .sec-head .count {
+    font-family: 'JetBrains Mono', monospace; font-size: 9.5px; font-weight: 600; color: var(--color-muted);
+    background: var(--color-surface-raised); border: 1px solid var(--color-edge-faint); border-radius: 999px; padding: 1px 8px;
+  }
+  .sec-head .rule { flex: 1; height: 1px; background: var(--color-edge-faint); }
+  .sec-head .action {
+    font-family: 'JetBrains Mono', monospace; font-size: 10.5px; font-weight: 600; color: var(--color-accent-soft);
+    background: var(--color-accentbg); border: 1px solid rgba(94, 156, 255, 0.4); border-radius: 7px; padding: 4px 10px; cursor: pointer;
+    transition: all var(--dur-micro) var(--curve-out);
+  }
+  .sec-head .action:hover { border-color: rgba(94, 156, 255, 0.6); background: rgba(94, 156, 255, 0.18); }
+
+  /* cards: .card = briefing-surface convention, .panel = generic DESIGN.md recipe */
+  .card { border: 1px solid var(--color-border); background: var(--color-surface); border-radius: 10px; }
+  .panel { border: 1px solid var(--color-edge-mid); background: var(--color-surface-raised); border-radius: 6px; }
+
+  /* row: clickable list row with hover + focus ring */
+  .row {
+    display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+    border-radius: 8px; padding: 7px 10px; cursor: pointer;
+    border: 1px solid transparent; background: transparent;
+    transition: background var(--dur-micro) var(--curve-out);
+  }
+  .row:hover { background: var(--color-surface-hover); }
+  .row:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+  .row .main { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+  .row .name { font-size: 12.5px; font-weight: 500; color: var(--color-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .meta { font-family: 'JetBrains Mono', monospace; font-size: 9.5px; color: var(--color-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .age { font-family: 'JetBrains Mono', monospace; font-size: 9.5px; color: var(--color-ink-faint); flex: none; }
+
+  /* kind badges + status chips: always labeled, never color alone */
+  .badge, .chip {
+    flex: none; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; font-weight: 600;
+    text-transform: uppercase; border-radius: 4px; padding: 2px 6px;
+  }
+  .badge { font-size: 8.5px; letter-spacing: 0.06em; }
+  .badge-run { color: var(--color-ink-mid); background: var(--color-surface-raised); border: 1px solid var(--color-edge-faint); }
+  .badge-agent { color: var(--color-accent-soft); background: var(--color-accentbg); border: 1px solid rgba(94, 156, 255, 0.25); }
+  .badge-blocked { color: var(--color-asking); background: rgba(230, 180, 80, 0.15); border: 1px solid rgba(230, 180, 80, 0.3); }
+  .chip-blocked { color: var(--color-asking); background: var(--color-askingbg); }
+  .chip-done, .chip-new { color: var(--color-success); background: var(--color-successbg); }
+  .chip-running { color: var(--color-secondary); background: var(--color-surface-raised); }
+  .chip-asking { color: var(--color-asking); background: var(--color-askingbg); }
+
+  /* status dot: pulse pair for live states (motion-reduce aware) */
+  .status-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--color-asking); flex: none; animation: pulseDot 1.6s infinite; }
+  @keyframes pulseDot { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+  @media (prefers-reduced-motion: reduce) {
+    .status-dot { animation: none; }
+    .row, .sec-head .action, .more { transition: none; }
+  }
+
+  /* buttons (DESIGN.md): primary = accent, secondary = raised + edge-mid, ghost = text */
+  .btn-primary {
+    font-family: 'JetBrains Mono', monospace; font-size: 10.5px; font-weight: 600;
+    color: var(--color-background); background: var(--color-accent); border: none; border-radius: 7px;
+    padding: 6px 12px; cursor: pointer; transition: background var(--dur-micro) var(--curve-out);
+  }
+  .btn-primary:hover { background: var(--color-accenthover); }
+  .btn-primary:focus-visible, .btn-secondary:focus-visible, .btn-ghost:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+  .btn-secondary {
+    font-family: 'JetBrains Mono', monospace; font-size: 10.5px; font-weight: 600; color: var(--color-muted);
+    background: var(--color-surface-raised); border: 1px solid var(--color-edge-mid); border-radius: 7px;
+    padding: 6px 12px; cursor: pointer; transition: all var(--dur-micro) var(--curve-out);
+  }
+  .btn-secondary:hover { color: var(--color-primary); border-color: var(--color-edge-strong); background: var(--color-surface-hover); }
+  .btn-ghost {
+    font-family: 'JetBrains Mono', monospace; font-size: 10.5px; font-weight: 600; color: var(--color-muted);
+    background: none; border: none; border-radius: 7px; padding: 4px 10px; cursor: pointer;
+    transition: background var(--dur-micro) var(--curve-out);
+  }
+  .btn-ghost:hover { background: var(--color-surface-hover); color: var(--color-primary); }
+
+  /* more-link, group label, tags, progress track, skeleton */
+  .more {
+    width: fit-content; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; font-weight: 600;
+    color: var(--color-accent-soft); background: none; border: none; border-radius: 7px; padding: 4px 10px;
+    cursor: pointer; transition: background var(--dur-micro) var(--curve-out);
+  }
+  .more:hover { background: var(--color-surface-hover); }
+  .group-label {
+    font-family: 'JetBrains Mono', monospace; font-size: 9.5px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.12em; color: var(--color-feed-label); padding: 2px 10px;
+  }
+  .tag { font-family: 'JetBrains Mono', monospace; font-size: 9.5px; color: var(--color-muted); background: var(--color-surface); border: 1px solid var(--color-edge-faint); border-radius: 999px; padding: 1px 8px; }
+  .track { flex: 1; height: 4px; border-radius: 999px; background: var(--color-surface); overflow: hidden; }
+  .track .fill { height: 100%; border-radius: 999px; background: var(--color-accent); }
+  .track .fill.amber { background: var(--color-asking); }
+  .skeleton { border-radius: 10px; background: var(--color-surface); animation: pulseDot 1.6s infinite; }
+  @media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }
+  .demo-head { display: flex; align-items: end; justify-content: space-between; gap: 16px; }
+  .demo-head h1 { font-size: 18px; line-height: 1.2; }
+  .demo-head p { margin-top: 5px; color: var(--color-muted); font-size: 12px; }
+  .workspace {
+    position: relative; min-height: 680px; overflow: hidden; border: 1px solid var(--color-border);
+    border-radius: 12px; background: var(--color-surface); box-shadow: 0 20px 56px var(--color-background);
+  }
+  .workspace-grid { display: grid; grid-template-columns: 72px 1fr; height: 680px; }
+  .rail { border-right: 1px solid var(--color-border); background: var(--color-background); padding: 16px 11px; }
+  .rail-mark { width: 34px; height: 5px; margin: 0 auto 18px; border-radius: 999px; background: var(--color-accent); }
+  .rail-line { width: 32px; height: 6px; margin: 12px auto; border-radius: 999px; background: var(--color-edge-mid); }
+  .canvas { padding: 30px; color: var(--color-muted); }
+  .canvas-title { width: 210px; height: 10px; border-radius: 999px; background: var(--color-edge-mid); }
+  .canvas-line { width: min(520px, 70%); height: 7px; margin-top: 15px; border-radius: 999px; background: var(--color-edge-faint); }
+  .canvas-line.short { width: min(330px, 48%); }
+  .peek {
+    position: absolute; right: 16px; bottom: 84px; display: flex; width: min(420px, calc(100% - 32px));
+    max-height: calc(100% - 100px); flex-direction: column; overflow: hidden; border: 1px solid var(--color-border);
+    border-radius: 12px; background: var(--color-surface-raised); box-shadow: 0 20px 56px var(--color-background);
+    opacity: 1; transform: scale(1); transform-origin: bottom right;
+    transition: opacity var(--dur-micro) var(--curve-out), transform var(--dur-micro) var(--curve-out);
+  }
+  .peek.closed { pointer-events: none; opacity: 0; transform: scale(.96); }
+  .peek-header { border-bottom: 1px solid var(--color-border); }
+  .title-row { display: flex; min-height: 44px; align-items: center; gap: 8px; padding: 0 8px 0 14px; }
+  .title-row h2 { font-size: 14px; }
+  .pass { flex: 1; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; color: var(--color-ink-faint); }
+  .icon-btn, .quiet-btn, .primary-btn, .composer button, .pet {
+    cursor: pointer; border-radius: 7px; transition: color var(--dur-micro) var(--curve-out), background var(--dur-micro) var(--curve-out), border-color var(--dur-micro) var(--curve-out), transform var(--dur-micro) var(--curve-out);
+  }
+  .icon-btn:focus-visible, .quiet-btn:focus-visible, .primary-btn:focus-visible, .composer button:focus-visible, .pet:focus-visible, .drawer-toggle:focus-visible {
+    outline: 2px solid var(--color-accent); outline-offset: 1px;
+  }
+  .quiet-btn { height: 28px; padding: 0 8px; border: 0; background: transparent; color: var(--color-muted); font: 500 11px 'Hanken Grotesk', sans-serif; }
+  .quiet-btn:hover, .icon-btn:hover { background: var(--color-surface-hover); color: var(--color-primary); }
+  .icon-btn { display: grid; width: 28px; height: 28px; place-items: center; border: 1px solid var(--color-border); background: transparent; color: var(--color-muted); }
+  .condition { display: flex; min-height: 34px; align-items: center; gap: 8px; padding: 0 12px 9px; color: var(--color-secondary); font-size: 11.5px; }
+  .condition-dot { width: 6px; height: 6px; flex: none; border-radius: 999px; background: var(--color-warning); }
+  .condition-label { flex: 1; }
+  .readout { font: 9.5px 'JetBrains Mono', monospace; color: var(--color-ink-faint); }
+  .queue { min-height: 0; overflow-y: auto; }
+  .queue-row { display: grid; grid-template-columns: 3px minmax(0, 1fr); gap: 10px; padding: 6px 8px 6px 11px; border-bottom: 1px solid var(--color-border); }
+  .queue-row:hover { background: var(--color-surface-hover); }
+  .bar { min-height: 34px; border-radius: 6px; background: var(--color-warning); }
+  .row-main { min-width: 0; }
+  .row-top { display: flex; min-height: 24px; align-items: center; gap: 8px; }
+  .source { min-width: 0; flex: 1; overflow: hidden; color: var(--color-primary); font-size: 12px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+  .age { font: 9.5px 'JetBrains Mono', monospace; color: var(--color-ink-faint); }
+  .primary-btn { height: 24px; padding: 0 10px; border: 0; background: var(--color-accent); color: var(--color-background); font-size: 10.5px; font-weight: 700; }
+  .primary-btn:hover { background: var(--color-accenthover); }
+  .more-btn { display: grid; width: 24px; height: 24px; place-items: center; border: 1px solid var(--color-border); border-radius: 6px; background: transparent; color: var(--color-muted); cursor: pointer; }
+  .more-btn:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+  .disclosure-icon { display: inline-block; transition: transform var(--dur-micro) var(--curve-out); }
+  [aria-expanded="true"] .disclosure-icon { transform: rotate(90deg); }
+  .detail { padding: 1px 4px 2px 0; color: var(--color-ink-mid); font-size: 11px; }
+  .reveal { display: grid; grid-template-rows: 0fr; opacity: 0; transform: scale(.98); transform-origin: top; transition: grid-template-rows var(--dur-micro) var(--curve-out), opacity var(--dur-micro) var(--curve-out), transform var(--dur-micro) var(--curve-out); }
+  .reveal.open { grid-template-rows: 1fr; opacity: 1; transform: scale(1); }
+  .reveal-inner { min-height: 0; overflow: hidden; }
+  .action-strip { display: flex; gap: 6px; padding: 4px 0 6px; }
+  .action-strip .quiet-btn { height: 22px; border: 1px solid var(--color-edge-mid); color: var(--color-accent-soft); }
+  .outcome { padding: 2px 4px 6px 0; font: 10.5px 'JetBrains Mono', monospace; color: var(--color-success); }
+  .drawer { border-top: 1px solid var(--color-border); }
+  .drawer-toggle { display: flex; width: 100%; min-height: 30px; align-items: center; gap: 8px; padding: 0 12px; border: 0; background: transparent; color: var(--color-muted); cursor: pointer; text-align: left; }
+  .drawer-toggle:hover { background: var(--color-surface-hover); }
+  .drawer-label { font: 700 9.5px 'JetBrains Mono', monospace; letter-spacing: .09em; text-transform: uppercase; }
+  .drawer-summary { min-width: 0; flex: 1; overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+  .updates { border-top: 1px solid var(--color-border); }
+  .update { padding: 8px 12px 10px; color: var(--color-secondary); font-size: 11.5px; }
+  .update + .update { border-top: 1px solid var(--color-border); }
+  .update-meta { margin-top: 4px; font: 9.5px 'JetBrains Mono', monospace; color: var(--color-ink-faint); }
+  .composer { display: flex; gap: 7px; padding: 8px 10px 10px; border-top: 1px solid var(--color-border); }
+  .composer input { min-width: 0; flex: 1; border: 1px solid var(--color-edge-mid); border-radius: 7px; background: var(--color-surface); padding: 7px 9px; color: var(--color-primary); font: 11.5px 'Hanken Grotesk', sans-serif; }
+  .composer input:focus { border-color: var(--color-accent); outline: none; }
+  .composer button { border: 1px solid var(--color-edge-mid); background: var(--color-surface-raised); padding: 0 10px; color: var(--color-muted); }
+  .pet { position: absolute; right: 18px; bottom: 18px; display: grid; width: 52px; height: 52px; place-items: center; border: 1px solid var(--color-accent-700); border-radius: 999px; background: var(--color-background); color: var(--color-accent-soft); box-shadow: 0 0 0 5px var(--color-accentbg); }
+  .pet:hover { color: var(--color-primary); transform: scale(1.03); }
+  .pet-core { width: 18px; height: 18px; border: 2px solid currentColor; transform: rotate(45deg); }
+  @media (prefers-reduced-motion: reduce) {
+    .peek, .reveal, .disclosure-icon, .icon-btn, .quiet-btn, .primary-btn, .composer button, .pet { transition: none; }
+  }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="demo-head">
+    <div>
+      <h1>Jarvis condition panel motion</h1>
+      <p>Subtle utility motion: disclosures and results reveal without moving the surrounding interface.</p>
+    </div>
+    <button id="replay" class="btn-secondary" type="button">Replay panel</button>
+  </div>
+
+  <main class="workspace" aria-label="Jarvis popup motion prototype">
+    <div class="workspace-grid" aria-hidden="true">
+      <aside class="rail"><div class="rail-mark"></div><div class="rail-line"></div><div class="rail-line"></div><div class="rail-line"></div></aside>
+      <section class="canvas"><div class="canvas-title"></div><div class="canvas-line"></div><div class="canvas-line short"></div></section>
+    </div>
+
+    <section id="peek" class="peek" role="dialog" aria-modal="true" aria-labelledby="peek-title">
+      <header class="peek-header">
+        <div class="title-row">
+          <h2 id="peek-title">Jarvis</h2>
+          <span class="pass">· pass 2m ago</span>
+          <button class="quiet-btn" type="button">Open full view</button>
+          <button id="close" class="icon-btn" type="button" aria-label="Close Jarvis panel">×</button>
+        </div>
+        <div class="condition">
+          <span class="condition-dot"></span><span class="condition-label">Rate limit clears in 18 minutes</span><span class="readout">no action</span>
+        </div>
+      </header>
+
+      <div class="queue">
+        <article class="queue-row">
+          <span class="bar"></span>
+          <div class="row-main">
+            <div class="row-top">
+              <span class="source">Wave frontend</span><span class="age">4m</span>
+              <button id="approve" class="primary-btn" type="button">Approve</button>
+              <button id="more" class="more-btn" type="button" aria-expanded="false" aria-controls="more-actions" aria-label="More on Wave frontend"><span class="disclosure-icon">›</span></button>
+            </div>
+            <p class="detail">The agent needs approval to update the Jarvis interaction layer.</p>
+            <div id="more-actions" class="reveal" aria-hidden="true" inert><div class="reveal-inner"><div class="action-strip"><button class="quiet-btn" type="button">Open run</button><button class="quiet-btn" type="button">Send back</button></div></div></div>
+            <div id="outcome" class="reveal" aria-hidden="true" aria-live="polite" inert><div class="reveal-inner"><p class="outcome">Approved. The agent can continue.</p></div></div>
+          </div>
+        </article>
+      </div>
+
+      <div class="drawer">
+        <button id="updates-toggle" class="drawer-toggle" type="button" aria-expanded="false" aria-controls="updates">
+          <span class="drawer-label">Since you looked</span><span class="drawer-summary">Two checks completed successfully</span><span class="disclosure-icon">›</span>
+        </button>
+        <div id="updates" class="reveal" aria-hidden="true" inert><div class="reveal-inner updates"><div class="update">Typecheck completed without errors.<div class="update-meta">ledger · 1m</div></div><div class="update">Motion tokens were verified against the cockpit system.<div class="update-meta">notice · now</div></div></div></div>
+      </div>
+
+      <form class="composer">
+        <input aria-label="Ask Jarvis" placeholder="Ask Jarvis anything…">
+        <button type="submit">Send</button>
+      </form>
+    </section>
+    <button id="pet" class="pet" type="button" aria-label="Jarvis condition"><span class="pet-core"></span></button>
+  </main>
+</div>
+<script>
+  const peek = document.querySelector('#peek');
+  const setReveal = (reveal, open) => {
+    reveal.classList.toggle('open', open);
+    reveal.setAttribute('aria-hidden', String(!open));
+    reveal.toggleAttribute('inert', !open);
+  };
+  const toggleReveal = (button, reveal) => {
+    const open = button.getAttribute('aria-expanded') !== 'true';
+    button.setAttribute('aria-expanded', String(open));
+    setReveal(reveal, open);
+  };
+  document.querySelector('#more').addEventListener('click', (event) => toggleReveal(event.currentTarget, document.querySelector('#more-actions')));
+  document.querySelector('#updates-toggle').addEventListener('click', (event) => toggleReveal(event.currentTarget, document.querySelector('#updates')));
+  document.querySelector('#approve').addEventListener('click', (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    button.textContent = 'Approving ▍';
+    setTimeout(() => {
+      button.textContent = 'Approved';
+      setReveal(document.querySelector('#outcome'), true);
+    }, 650);
+  });
+  document.querySelector('#close').addEventListener('click', () => peek.classList.add('closed'));
+  document.querySelector('#pet').addEventListener('click', () => peek.classList.toggle('closed'));
+  document.querySelector('#replay').addEventListener('click', () => {
+    peek.classList.add('closed');
+    setTimeout(() => peek.classList.remove('closed'), 180);
+  });
+  document.querySelector('.composer').addEventListener('submit', (event) => event.preventDefault());
+</script>
+</body>
+</html>
