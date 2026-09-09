@@ -16,6 +16,7 @@ describe("freshnessLabel", () => {
         expect(freshnessLabel("fresh")).toBe("Fresh");
         expect(freshnessLabel("stale")).toBe("Stale");
         expect(freshnessLabel("unavailable")).toBe("Unavailable");
+        expect(freshnessLabel("unverified")).toBe("Unverified");
     });
 });
 

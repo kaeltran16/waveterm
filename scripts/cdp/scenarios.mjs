@@ -2095,6 +2095,148 @@ const setRail = (open) => async (h) => {
     return {};
 };
 
+// --- brief surface: the Brief lands beside the three panes, never on top of them ------------------
+// The Brief replaces two of the three panes at once, so it lives behind a dev-only composition toggle
+// until the retirement step. Two things are worth a scenario. First, that the toggle actually isolates:
+// three-pane must still be the default and must still emit the region every other jarvis-* scenario
+// selects against, or this work silently breaks fourteen of them. Second, that the Brief's queue row
+// offers no control it cannot honour — the row's action is named, not offered, because the run body
+// that resolves a gate is not reachable from the Brief yet, and a bordered chip there reads as a button.
+//
+// composition is persisted, so teardown restores it; a leaked "brief" would strand every later scenario
+// on a surface that emits none of the selectors they use.
+const resetComposition = async (h) => {
+    await h.ev(`localStorage.setItem('jarvis.composition', ${JSON.stringify(JSON.stringify("three-pane"))})`);
+    await h.ev("location.reload()");
+    await h.ev("new Promise((r) => setTimeout(r, 2500))");
+    return {};
+};
+
+const briefSurface = {
+    name: "brief-surface",
+    surface: "jarvis",
+    arrange: resetComposition,
+    async assert(h) {
+        const steps = [];
+        await h.goto("jarvis");
+
+        const dflt = await h.ev(`(() => ({
+            surface: !!document.querySelector('[data-jarvis-region="surface"]'),
+            brief: !!document.querySelector('[data-jarvis-region="brief"]'),
+            toggles: [...document.querySelectorAll('[data-jarvis-composition]')].map((b) => b.dataset.jarvisComposition),
+        }))()`);
+        steps.push({
+            step: "1. three-pane is the default and still emits the region other scenarios select",
+            ok: dflt.surface === true && dflt.brief === false && dflt.toggles.length === 2,
+            detail: JSON.stringify(dflt),
+        });
+
+        const switched = await h.ev(`(() => {
+            const b = document.querySelector('[data-jarvis-composition="brief"]');
+            if (!b) return false;
+            b.click();
+            return true;
+        })()`);
+        await h.ev("new Promise((r) => setTimeout(r, 600))");
+        const regions = await h.ev(
+            `[...document.querySelectorAll('[data-jarvis-brief-region]')].map((s) => s.dataset.jarvisBriefRegion)`
+        );
+        steps.push({
+            step: "2. the toggle swaps composition and the Brief renders its four regions",
+            ok:
+                switched === true &&
+                ["waiting", "initiatives", "sessions", "behind"].every((r) => regions.includes(r)) &&
+                (await h.ev(`!document.querySelector('[data-jarvis-region="surface"]')`)) === true,
+            detail: JSON.stringify(regions),
+        });
+
+        // the fixture seam bypasses the rpc, so this asserts rendering without waiting on FetchWorkState
+        // (which walks transcript scans over ~/.claude and is documented at ~14s warm).
+        await h.ev(`document.querySelector('[data-briefing-fixture="normal"]')?.click()`);
+        await h.ev("new Promise((r) => setTimeout(r, 900))");
+        const rows = await h.ev(`(() => {
+            const m = {};
+            document.querySelectorAll('[data-jarvis-brief-row]').forEach((r) => {
+                const k = r.dataset.jarvisBriefRow;
+                m[k] = (m[k] || 0) + 1;
+            });
+            return m;
+        })()`);
+        steps.push({
+            step: "3. a seeded fixture populates every region",
+            ok: Object.keys(rows).length >= 4 && Object.values(rows).every((n) => n > 0),
+            detail: JSON.stringify(rows),
+        });
+
+        const inert = await h.ev(`document.querySelectorAll('[data-jarvis-brief-row="queue"] button').length`);
+        steps.push({
+            step: "4. the queue row offers no control it cannot honour",
+            ok: inert === 0,
+            detail: `buttons=${inert}`,
+        });
+
+        const fleet = await h.ev(
+            `(document.querySelector('[data-jarvis-brief-band="fleet"]') || {}).innerText ?? null`
+        );
+        steps.push({
+            step: "5. the header fleet line is derived, not hardcoded",
+            ok: typeof fleet === "string" && fleet.trim() !== "" && !/\$2\.41/.test(fleet),
+            detail: JSON.stringify(fleet),
+        });
+
+        // j/k is the surface's only list navigation once the subjects column is gone (meta spec 4a
+        // item 9). The cursor has to cross region boundaries, because the four regions are one column.
+        const cursorNow = `(() => {
+            const el = document.querySelector('[data-jarvis-brief-cursor="true"]');
+            if (!el) return null;
+            return {
+                row: el.dataset.jarvisBriefRow,
+                text: (el.innerText || "").replace(/\\s+/g, " ").trim().slice(0, 32),
+                n: document.querySelectorAll('[data-jarvis-brief-cursor="true"]').length,
+            };
+        })()`;
+        const press = async (key) => {
+            await h.ev(
+                `document.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(key)}, bubbles: true }))`
+            );
+            await h.ev("new Promise((r) => setTimeout(r, 150))");
+        };
+        const trail = [await h.ev(cursorNow)];
+        await press("j");
+        trail.push(await h.ev(cursorNow));
+        await press("j");
+        trail.push(await h.ev(cursorNow));
+        await press("k");
+        trail.push(await h.ev(cursorNow));
+        const text = trail.map((t) => (t == null ? null : t.text));
+        steps.push({
+            step: "6. j/k walk the cursor down the column and back, one cursor at a time",
+            ok:
+                trail.every((t) => t != null && t.n === 1) &&
+                trail[0].row === "queue" && // the cursor starts on the first row of "Waiting on you"
+                text[0] !== text[1] &&
+                text[1] !== text[2] &&
+                text[3] === text[1], // k returns to the row j came from
+            detail: JSON.stringify(trail.map((t) => (t == null ? null : `${t.row}/${t.text}`))),
+        });
+
+        await h.shot("cdp-shots/brief-surface.png");
+
+        await h.ev(`document.querySelector('[data-jarvis-composition="three-pane"]')?.click()`);
+        await h.ev("new Promise((r) => setTimeout(r, 600))");
+        steps.push({
+            step: "7. toggling back restores the three-pane composition",
+            ok: (await h.ev(`!!document.querySelector('[data-jarvis-region="surface"]')`)) === true,
+            detail: "",
+        });
+        return steps;
+    },
+    async teardown(h) {
+        await resetComposition(h);
+        await h.goto("cockpit");
+    },
+};
+
 const jarvisCollapseOrder = {
     name: "jarvis-collapse-order",
     surface: "jarvis",
@@ -5465,6 +5607,7 @@ export const SCENARIOS = [
     jarvisAvatar,
     jarvisStates,
     jarvisBriefing,
+    briefSurface,
     jarvisFleet,
     jarvisAsk,
     jarvisContextual,

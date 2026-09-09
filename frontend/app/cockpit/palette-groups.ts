@@ -18,7 +18,12 @@ export type GroupKind =
     | "command"
     | "agent"
     | "session"
-    | "channel";
+    | "channel"
+    // the jarvis entity kinds the palette also sources (see palette-entities.ts). Named to match
+    // briefpalette's BriefKind so its rows drop straight in — BriefKind is a subset of this union.
+    | "record"
+    | "thread"
+    | "effort";
 
 export interface GroupableItem {
     key: string;
@@ -31,8 +36,10 @@ export interface PaletteGroup<T> {
     items: T[];
 }
 
-// Ranked kinds, in the order they are shown below any lead group.
-export const GROUP_ORDER: GroupKind[] = ["focus-task", "command", "agent", "session"];
+// Ranked kinds, in the order they are shown below any lead group. The jarvis entity kinds come last
+// because they are the widest lists; a query that actually names one of them floats it to the lead
+// anyway (leadKind below), so this order only decides what follows.
+export const GROUP_ORDER: GroupKind[] = ["focus-task", "command", "agent", "session", "record", "thread", "effort"];
 
 // Groups whose rows render as rich fast-dispatch cards rather than plain list rows. A type predicate,
 // not a plain boolean: the renderer's other branch indexes a Record keyed on the *plain* kinds, and

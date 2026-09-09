@@ -7,9 +7,10 @@
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { useAtomValue } from "jotai";
 import { useEffect, useRef, useState } from "react";
+import { BriefSurface } from "./briefsurface";
 import { JarvisFixtureBar } from "./jarvisfixturebar";
 import { layoutFor, RAIL_NARROW_PX, RAIL_WIDE_PX } from "./jarvislayout";
-import { profileRailOpenAtom, stageRailOpenAtom } from "./jarvisstore";
+import { jarvisCompositionAtom, profileRailOpenAtom, stageRailOpenAtom } from "./jarvisstore";
 import { activeSubjectAtom } from "./jarvissubjectstore";
 import { Stage } from "./stage";
 import { composeStage } from "./stagecompose";
@@ -47,18 +48,28 @@ export function JarvisSurface({ model }: { model: AgentsViewModel }) {
     const railPx = railOpen || profileOpen ? RAIL_WIDE_PX : RAIL_NARROW_PX;
     const layout = layoutFor(surfaceWidth, railPx);
 
+    // the Brief lands beside the three panes, not on top of them, so that neither composition is ever
+    // half-built. Only the dev fixture bar can select it, and that bar folds away in production.
+    const composition = useAtomValue(jarvisCompositionAtom);
+
     return (
         <div className="absolute inset-0 flex flex-col bg-background">
             {/* dev-only, compiled out of production: the fixture states the CDP harness renders */}
             <JarvisFixtureBar />
-            {/* relative so an overlaid rail positions against the surface row, not an ancestor */}
-            <div ref={rowRef} data-jarvis-region="surface" className="relative flex min-h-0 flex-1">
-                <SubjectsColumn model={model} widthPx={layout.subjectsPx} icons={layout.subjectsIcons} />
-                <Stage model={model} />
-                {/* always mounted, comp or not: the rail carries Needs you, which must not wait on the
-                    user selecting a subject. Its other sections are subject-derived and stay absent. */}
-                <StageRail model={model} comp={comp} overlay={layout.railOverlay} />
-            </div>
+            {composition === "brief" ? (
+                <div className="relative flex min-h-0 flex-1">
+                    <BriefSurface model={model} />
+                </div>
+            ) : (
+                /* relative so an overlaid rail positions against the surface row, not an ancestor */
+                <div ref={rowRef} data-jarvis-region="surface" className="relative flex min-h-0 flex-1">
+                    <SubjectsColumn model={model} widthPx={layout.subjectsPx} icons={layout.subjectsIcons} />
+                    <Stage model={model} />
+                    {/* always mounted, comp or not: the rail carries Needs you, which must not wait on the
+                        user selecting a subject. Its other sections are subject-derived and stay absent. */}
+                    <StageRail model={model} comp={comp} overlay={layout.railOverlay} />
+                </div>
+            )}
         </div>
     );
 }

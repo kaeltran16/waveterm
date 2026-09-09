@@ -7,9 +7,9 @@
 // backend behind the same reads.
 
 import { globalStore } from "@/app/store/global";
+import * as WOS from "@/app/store/wos";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import * as WOS from "@/app/store/wos";
 import { fireAndForget } from "@/util/util";
 import { atom, type PrimitiveAtom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
@@ -52,6 +52,15 @@ const NO_CONVERSATION: JarvisConversation = {
 // persisted.
 export const profileRailOpenAtom = atom(false);
 
+// Which composition the surface renders. The Brief replaces two of the three panes at once, so it lands
+// BESIDE them behind this switch rather than on top of them: a half-built Brief can never be the only
+// Jarvis surface. Only the dev fixture bar writes it, and that bar is compiled out of production, so
+// "three-pane" is the sole reachable value in a real build until the retirement step deletes the switch.
+// Persisted rather than session-scoped so a CDP scenario can arrange it the way it already arranges
+// jarvis.stagerail.open.
+export type JarvisComposition = "three-pane" | "brief";
+export const jarvisCompositionAtom = atomWithStorage<JarvisComposition>("jarvis.composition", "three-pane");
+
 // The merged surface's one context rail. Open by default, unlike the two rails it replaces: it now carries
 // Needs you, which is the surface's attention channel and must not start hidden behind a 44px strip.
 export const stageRailOpenAtom = atomWithStorage("jarvis.stagerail.open", true);
@@ -67,9 +76,9 @@ export const graphPeekOpenAtom = atom(false);
 export const conversationsByIdAtom = atom<Record<string, JarvisConversation>>({});
 // null until the first list lands, so the boot-time subject restore can tell "no threads" from "not yet".
 // Cast per this repo's convention: atom<T | null>(null) infers a read-only Atom under the pinned jotai.
-export const persistedSummariesAtom = atom<JarvisConversationSummary[] | null>(
-    null
-) as PrimitiveAtom<JarvisConversationSummary[] | null>;
+export const persistedSummariesAtom = atom<JarvisConversationSummary[] | null>(null) as PrimitiveAtom<
+    JarvisConversationSummary[] | null
+>;
 
 // null => show the dev/CDP fixture selected by activeFixtureAtom; a string => show that real conversation.
 // Cast per this repo's convention: atom<T | null>(null) infers a read-only Atom under the pinned jotai.
@@ -137,10 +146,7 @@ export function loadJarvisConversations(): void {
         const result = await RpcApi.ListJarvisConversationsCommand(TabRpcClient);
         const summaries = result?.conversations ?? [];
         globalStore.set(persistedSummariesAtom, summaries);
-        globalStore.set(
-            sourceConversationAtom,
-            rehydrateSourceMap(summaries, globalStore.get(sourceConversationAtom))
-        );
+        globalStore.set(sourceConversationAtom, rehydrateSourceMap(summaries, globalStore.get(sourceConversationAtom)));
     });
 }
 
@@ -315,7 +321,11 @@ export function submitJarvisQuery(convId: string, text: string): void {
             for await (const chunk of gen) {
                 if (chunk == null) continue;
                 if (chunk.kind === "step" && chunk.step) {
-                    steps = upsertStep(steps, { id: chunk.step.id, label: chunk.step.label, status: chunk.step.status as WorkingStep["status"] });
+                    steps = upsertStep(steps, {
+                        id: chunk.step.id,
+                        label: chunk.step.label,
+                        status: chunk.step.status as WorkingStep["status"],
+                    });
                     patchAnswer(convId, answerIdx, { workingSteps: steps });
                 } else if (chunk.kind === "grounding" && chunk.grounding) {
                     cards.push(mapWireCard(chunk.grounding));

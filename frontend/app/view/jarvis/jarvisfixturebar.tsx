@@ -5,17 +5,20 @@
 // human and the CDP verify:ui harness can render every surface state without a backend. Compiled out of
 // production builds (import.meta.env.DEV is statically false there). Remove when Plan 2 lands real data.
 
-import { cn } from "@/util/util";
 import { globalStore } from "@/app/store/jotaiStore";
+import { cn } from "@/util/util";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { activeFixtureAtom, stageRailOpenAtom } from "./jarvisstore";
-import { FIXTURE_STATES } from "./jarvisfixtures";
 import { BRIEFING_FIXTURES, setBriefingAskFixtureForDev, type BriefingFixtureName } from "./briefingfixtures";
 import { briefingFixtureAtom } from "./briefingstore";
+import { FIXTURE_STATES } from "./jarvisfixtures";
+import { activeFixtureAtom, jarvisCompositionAtom, stageRailOpenAtom, type JarvisComposition } from "./jarvisstore";
 import { selectSubject } from "./jarvissubjectstore";
+
+const COMPOSITIONS: JarvisComposition[] = ["three-pane", "brief"];
 
 export function JarvisFixtureBar() {
     if (!import.meta.env.DEV) return null;
+    const [composition, setComposition] = useAtom(jarvisCompositionAtom);
     const [active, setActive] = useAtom(activeFixtureAtom);
     const setRailOpen = useSetAtom(stageRailOpenAtom);
     const briefingActive = useAtomValue(briefingFixtureAtom);
@@ -24,6 +27,23 @@ export function JarvisFixtureBar() {
             data-testid="jarvis-fixture-bar"
             className="flex flex-wrap items-center gap-1 border-b border-dashed border-edge-mid bg-surface px-4 py-1.5"
         >
+            <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-muted">surface</span>
+            {COMPOSITIONS.map((c) => (
+                <button
+                    key={c}
+                    type="button"
+                    data-jarvis-composition={c}
+                    aria-pressed={composition === c}
+                    onClick={() => setComposition(c)}
+                    className={cn(
+                        "cursor-pointer rounded-[6px] px-2 py-0.5 text-[11px]",
+                        composition === c ? "bg-accentbg text-accent-soft" : "text-ink-mid hover:bg-surface-hover"
+                    )}
+                >
+                    {c}
+                </button>
+            ))}
+            <span className="mx-1 h-3 w-px bg-edge-mid" />
             <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-muted">fixture</span>
             {FIXTURE_STATES.map((s) => (
                 <button
@@ -58,7 +78,9 @@ export function JarvisFixtureBar() {
                         }}
                         className={cn(
                             "cursor-pointer rounded-[6px] px-2 py-0.5 text-[11px]",
-                            briefingActive === s ? "bg-accentbg text-accent-soft" : "text-ink-mid hover:bg-surface-hover"
+                            briefingActive === s
+                                ? "bg-accentbg text-accent-soft"
+                                : "text-ink-mid hover:bg-surface-hover"
                         )}
                     >
                         {s}
