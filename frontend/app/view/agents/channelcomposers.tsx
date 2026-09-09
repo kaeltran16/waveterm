@@ -21,19 +21,17 @@ import {
 } from "./composercommand";
 import { HarnessPicker, harnessRuntimeIds } from "./harnesspicker";
 import { harnessPreferenceAtom, harnessesAtom } from "./harnessstore";
-import {
-    ORCHESTRATION_OPTIONS,
-    orchestratorBehaviorFace,
-    orchestratorPickerState,
-    type Orchestration,
-} from "./orchestratorpicker";
-import { RoutePicker } from "./routepicker";
+import { orchestratorBehaviorFace } from "./orchestratorpicker";
+import { orchestrationAtom, runRouteAtom, runShapeAtom, workerRouteAtom } from "./runconfigstore";
 import { runtimeMeta } from "./runtimemeta";
 
 // Launch face: a plain goal input driven by typed @quick/@run/@ask commands (a bare goal defaults to
-// @run). Typing a leading `@` opens an autocomplete of the three; a mid-text `@` is left as-is. The
-// footer surfaces the explicit per-launch selection (Quick by default), plus the visible harness
-// picker (run-worker operation for runs, consult for ask).
+// @run). Typing a leading `@` opens an autocomplete of the three; a mid-text `@` is left as-is.
+//
+// The shape, the machine and the two routes belong to the launcher above this box (runlauncher.tsx) —
+// they were a chip strip here, three groups and two dropdowns competing for one wrapping 10px row. This
+// face reads them rather than owning them, and its footer states what they add up to, so the goal box
+// still says what pressing Run ⏎ will do once the launcher has scrolled out of view.
 export function LaunchComposer({
     value,
     onChange,
@@ -41,16 +39,7 @@ export function LaunchComposer({
     channelName,
     pending,
     attach,
-    shape,
-    onShapeChange,
-    orchestration,
-    onOrchestrationChange,
-    route,
-    onRouteChange,
     harnessOpenRequest = 0,
-    routeOpenRequest = 0,
-    workerRoute,
-    onWorkerRouteChange,
 }: {
     value: string;
     onChange: (next: string) => void;
@@ -58,17 +47,12 @@ export function LaunchComposer({
     channelName: string;
     pending: boolean;
     attach: UseComposerAttachments;
-    shape: RunShape;
-    onShapeChange: (shape: RunShape) => void;
-    orchestration: Orchestration;
-    onOrchestrationChange: (next: Orchestration) => void;
-    route: RoutePin | null;
-    onRouteChange: (route: RoutePin | null) => void;
     harnessOpenRequest?: number;
-    routeOpenRequest?: number;
-    workerRoute?: RoutePin | null;
-    onWorkerRouteChange?: (route: RoutePin | null) => void;
 }) {
+    const shape = useAtomValue(runShapeAtom);
+    const orchestration = useAtomValue(orchestrationAtom);
+    const route = useAtomValue(runRouteAtom);
+    const workerRoute = useAtomValue(workerRouteAtom);
     const taRef = useRef<HTMLTextAreaElement>(null);
     const pendingCaret = useRef<number | null>(null);
     const [sugg, setSugg] = useState<{ query: string; start: number } | null>(null);
@@ -167,13 +151,6 @@ export function LaunchComposer({
     const footer = mode === "ask" ? askFooter : behavior;
     const sendLabel = mode === "ask" ? "Ask" : "Run ⏎";
     const sendDisabled = blocked || (!value.trim() && attach.readyCount === 0) || attach.uploading || pref.saving;
-    const tight = orchestratorPickerState({
-        shape: selectedShape,
-        mode,
-        pending,
-        hasWorkerCallback: onWorkerRouteChange != null,
-        orchestration,
-    });
 
     return (
         <ComposerShell
@@ -230,98 +207,13 @@ export function LaunchComposer({
                 />
             }
             footerLeft={
-                <div className="flex flex-col gap-1.5">
-                    <div className="flex flex-wrap items-center gap-2">
-                        {mode !== "ask" && !pending ? (
-                            <div className="flex items-center gap-1 rounded-[7px] border border-border bg-surface px-1 py-0.5">
-                                {(["pipeline", "orchestrator", "quick"] as RunShape[]).map((option) => (
-                                    <button
-                                        key={option}
-                                        type="button"
-                                        aria-pressed={selectedShape === option}
-                                        disabled={mode === "quick"}
-                                        onClick={() => onShapeChange(option)}
-                                        className={
-                                            "rounded-[5px] px-1.5 py-0.5 font-mono text-[10px] font-semibold capitalize " +
-                                            (selectedShape === option
-                                                ? "bg-accentbg text-accent-soft"
-                                                : "text-muted hover:text-secondary")
-                                        }
-                                    >
-                                        {option}
-                                    </button>
-                                ))}
-                            </div>
-                        ) : null}
-                        {selectedShape === "orchestrator" && mode !== "ask" && !pending ? (
-                            <div className="flex items-center gap-1 rounded-[7px] border border-border bg-surface px-1 py-0.5">
-                                {ORCHESTRATION_OPTIONS.map((option) => (
-                                    <button
-                                        key={option}
-                                        type="button"
-                                        aria-pressed={orchestration === option}
-                                        onClick={() => onOrchestrationChange(option)}
-                                        title={
-                                            option === "engine"
-                                                ? "Publish a DAG the engine schedules into managed worktrees"
-                                                : "Let the lead dispatch its own subagents"
-                                        }
-                                        className={
-                                            "rounded-[5px] px-1.5 py-0.5 font-mono text-[10px] font-semibold capitalize " +
-                                            (orchestration === option
-                                                ? "bg-accentbg text-accent-soft"
-                                                : "text-muted hover:text-secondary")
-                                        }
-                                    >
-                                        {option}
-                                    </button>
-                                ))}
-                            </div>
-                        ) : null}
-                        {tight.showTightRow ? (
-                            <div className="flex items-center gap-1.5 rounded-[7px] border border-edge-mid bg-surface px-2 py-1">
-                                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                                    <span className="font-mono text-[7.5px] font-bold uppercase tracking-[.1em] text-muted">Lead</span>
-                                    <RoutePicker
-                                        value={route}
-                                        onChange={onRouteChange}
-                                        placement="top-start"
-                                        openRequest={routeOpenRequest}
-                                        title="Lead model"
-                                        size="compact"
-                                    />
-                                </div>
-                                <span className="pt-3 text-[11px] text-muted">→</span>
-                                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                                    <span className="font-mono text-[7.5px] font-bold uppercase tracking-[.1em] text-muted">Workers</span>
-                                    <RoutePicker
-                                        value={workerRoute ?? null}
-                                        onChange={onWorkerRouteChange!}
-                                        placement="top-start"
-                                        title="Workers model"
-                                        size="compact"
-                                        inheritedLabel="Same as lead"
-                                    />
-                                </div>
-                            </div>
-                        ) : (
-                            <>
-                                {mode !== "ask" && !pending ? (
-                                    <RoutePicker
-                                        value={route}
-                                        onChange={onRouteChange}
-                                        placement="top-start"
-                                        openRequest={routeOpenRequest}
-                                        title="Run route"
-                                    />
-                                ) : null}
-                                {mode === "ask" ? (
-                                    <HarnessPicker operation="consult" placement="top-start" openRequest={harnessOpenRequest} />
-                                ) : null}
-                            </>
-                        )}
-                        <span className="font-mono text-[11px] text-ink-mid">{footer}</span>
-                    </div>
+                <div className="flex flex-wrap items-center gap-2">
+                    {/* ask is a one-shot consult, not a run: it has no shape, no workers and nothing in
+                        the launcher, so its harness stays here where the choice is made. */}
+                    {mode === "ask" ? (
+                        <HarnessPicker operation="consult" placement="top-start" openRequest={harnessOpenRequest} />
+                    ) : null}
+                    <span className="font-mono text-[11px] text-ink-mid">{footer}</span>
                 </div>
             }
             footerRight={<AttachButton testId="composer-attachment" onFiles={attach.add} />}

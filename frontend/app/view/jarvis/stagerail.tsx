@@ -20,6 +20,7 @@ import { fleetCounts } from "@/app/view/agents/jarviscards";
 import { buildFleetSnapshot, fleetCostUsd, type WorkerState } from "@/app/view/agents/jarvisderive";
 import { RAIL_ICON } from "@/app/view/agents/railicons";
 import { createRun, pendingRunFocusAtom, resolveChannelLaunchRoute } from "@/app/view/agents/runactions";
+import { runRailSection } from "@/app/view/agents/runrail";
 import { spaceScopeAtom } from "@/app/view/agents/spacestore";
 import { fireAndForget } from "@/util/util";
 import { useAtomValue, useSetAtom } from "jotai";
@@ -181,6 +182,22 @@ export function StageRail({
             ),
         },
     ];
+
+    // Run sits directly under Needs you: what the live run is doing is the working context for everything
+    // else on the Stage, and it must not be pushed below Consults. It cannot be first: CollapsibleRail
+    // draws sections[0].icon as the collapsed strip's only glyph, and that stays the Needs-you bell.
+    //
+    // stageRunAtom already resolves to null while a run is being composed, so the section drops out on
+    // "+ New run" without this having to read composingRun itself.
+    const runSection = runRailSection({
+        model,
+        agents,
+        channelId: comp?.composerTarget === "worker-or-jarvis" ? (channelForDerive?.oid ?? null) : null,
+        run: stageRun,
+    });
+    if (runSection != null) {
+        sections.push(runSection);
+    }
 
     if (comp?.composerTarget === "worker-or-jarvis" && channelForDerive != null) {
         sections.push({

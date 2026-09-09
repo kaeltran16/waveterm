@@ -292,8 +292,17 @@ type Run struct {
 	// Orchestration selects which machine an orchestrator lead drives: "engine" publishes a TaskGroup
 	// that pkg/orchestrate schedules; "adaptive" dispatches the lead's own subagents with no TaskGroup.
 	// Empty preserves the pre-2026-09 fork, where runtime alone decided (pi engine, others adaptive).
-	Orchestration string      `json:"orchestration,omitempty"`
-	Meta          MetaMapType `json:"meta"`
+	Orchestration string `json:"orchestration,omitempty"`
+	// Parallelism is how many DAG children the engine may run at once, chosen by the user in the Run
+	// rail before launch. It is a resource dial (N concurrent worktrees and token streams), not a
+	// planning decision, so DagSubmit prefers it over the width the lead asks for. 0 = unset: the lead's
+	// own width stands, which is what every pre-rail run has.
+	Parallelism int `json:"parallelism,omitempty"`
+	// PlanFeedback is what the human wrote when they sent this run's gated plan back. The lead reads
+	// it through `wsh jarvis dag wait` and redrafts; the next accepted submission clears it, so a
+	// redraft is never answered with the notes that produced it.
+	PlanFeedback string      `json:"planfeedback,omitempty"`
+	Meta         MetaMapType `json:"meta"`
 }
 
 func (*Run) GetOType() string {
@@ -321,7 +330,7 @@ type TaskNode struct {
 	// LastFailureKind is the classifier output for the latest failed attempt.
 	LastFailureKind string `json:"lastfailurekind,omitempty"`
 	// Escalations is the judged-hop count; one is the terminal cap for this phase.
-	Escalations int `json:"escalations,omitempty"`
+	Escalations    int    `json:"escalations,omitempty"`
 	CleanupPending bool   `json:"cleanuppending,omitempty"`
 	CleanupError   string `json:"cleanuperror,omitempty"`
 }
@@ -345,13 +354,21 @@ type TaskGroup struct {
 	Title         string      `json:"title,omitempty"`
 	Parallelism   int         `json:"parallelism"`
 	Tasks         []TaskNode  `json:"tasks"`
-	Status        string      `json:"status"`   // running|awaiting-review|blocked|done|cancelled (derived)
-	Failures      int         `json:"failures"` // consecutive task failures; circuit-break at 3
-	WorkerRoute *RoutePin `json:"workerroute,omitempty"` // default worker route (nil = inherit owner); task RunSpec wins
+	Status        string      `json:"status"`                // awaiting-plan|running|awaiting-review|blocked|done|cancelled (derived)
+	Failures      int         `json:"failures"`              // consecutive task failures; circuit-break at 3
+	WorkerRoute   *RoutePin   `json:"workerroute,omitempty"` // default worker route (nil = inherit owner); task RunSpec wins
 	MergeRequired bool        `json:"mergerequired,omitempty"`
 	CreatedTs     int64       `json:"createdts"`
 	UpdatedTs     int64       `json:"updatedts"`
 	Meta          MetaMapType `json:"meta"`
+
+	// PlanGate is set when the human must read this plan and approve it before any worker spawns.
+	// Every top-level engine plan carries it; a child's does not, because a child that halted for
+	// human review would strand a fan-out nobody is watching (childRunPlan strips phase gates for the
+	// same reason). PlanApprovedTs is when they approved: the pair, not the status, is what holds
+	// dispatch, so a status recomputed from task state can never release the gate by accident.
+	PlanGate       bool  `json:"plangate,omitempty"`
+	PlanApprovedTs int64 `json:"planapprovedts,omitempty"`
 
 	// NotifiedCondition is the condition the lead was last woken about (the status, plus the gate task
 	// or blocking kind it is about). Engine bookkeeping: it is what keeps a re-entered Schedule from

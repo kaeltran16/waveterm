@@ -405,13 +405,13 @@ func ResolveOrchestration(orchestration, runtime string) string {
 // orchestration choice, not the runtime: "engine" publishes a TaskGroup that pkg/orchestrate
 // schedules into managed worktrees, "adaptive" leaves fan-out to the lead's own subagents. Runtime
 // still selects how an engine lead publishes and how it is woken, because those differ per harness.
-func BuildOrchestratePrompt(goal string, principles waveobj.PrincipleList, runtime, orchestration string) string {
+func BuildOrchestratePrompt(goal string, principles waveobj.PrincipleList, runtime, orchestration string, parallelism int) string {
 	var b strings.Builder
 	if rendered := RenderPrinciples(principles); rendered != "" {
 		fmt.Fprintf(&b, "Work by these principles, and propagate them into every subagent you dispatch:\n%s\n\n", rendered)
 	}
 	if ResolveOrchestration(orchestration, runtime) == Orchestration_Engine {
-		buildEngineOrchestratePrompt(&b, goal, runtime)
+		buildEngineOrchestratePrompt(&b, goal, runtime, parallelism)
 	} else {
 		buildAdaptiveOrchestratePrompt(&b, goal)
 	}
@@ -437,16 +437,27 @@ func buildAdaptiveOrchestratePrompt(b *strings.Builder, goal string) {
 // limits are stated up front because discovering them at submit time costs a blocking escalation —
 // and the two-phase import a lead naturally proposes as the remedy is exactly what CreateDagForRun
 // rejects.
-func buildEngineOrchestratePrompt(b *strings.Builder, goal, runtime string) {
+func buildEngineOrchestratePrompt(b *strings.Builder, goal, runtime string, parallelism int) {
 	b.WriteString("You are the lead orchestrator for this goal, driving the Arc orchestration engine.\n")
 	b.WriteString("Size up the goal: if it is a small well-understood change, run `wsh jarvis triage quick \"<reason>\"` and do it directly. Otherwise run `wsh jarvis triage plan \"<reason>\"`, plan it with the superpowers:writing-plans approach, and publish that plan as a DAG.\n")
 	fmt.Fprintf(b, "Two hard limits shape the plan, so respect them while planning instead of discovering them at submit time: a DAG holds at most %d tasks, and one orchestrator run holds exactly one DAG for its whole lifetime — a second, different submission is rejected as a dag conflict, so a multi-phase import is not available. Compress the plan to fit.\n", MaxDagTasks)
+	if parallelism > 0 {
+		// the human set this in the Run rail and DagSubmit enforces it, so the lead plans to it rather
+		// than proposing a width that gets replaced under it
+		fmt.Fprintf(b, "The human has set this run's parallelism to %d, and that is the width the engine will use — submit that number and shape the plan's layers around it.\n", parallelism)
+	}
 	b.WriteString("Each task description must include the task-specific goal, relevant evidence and constraints, expected verification, and pinned decisions, so the child never has to rediscover the broad goal.\n")
+	// the gate is stated up front because it changes what submitting means: the lead is publishing a
+	// proposal, not starting work, and a lead that does not know this reads the pause after submit as
+	// the engine failing to dispatch. How a rejection *arrives* is per-runtime, so it stays inside the
+	// fork below — pi is push-delivered and never runs the wait loop.
+	b.WriteString("Your submitted plan is a proposal: the human reads the task list and approves it before any worker spawns, so write task labels and descriptions to be read by them. A sent-back plan is discarded — revise it and submit again.\n")
 	if runtime == "pi" {
-		b.WriteString("Create pi-tasks records and run `wsh jarvis dag import-tasks`; the engine validates and schedules ready children automatically and wakes you with control events; respond to control events as they arrive — do not babysit.\n")
+		b.WriteString("Create pi-tasks records and run `wsh jarvis dag import-tasks`; the engine validates and schedules ready children automatically and wakes you with control events; respond to control events as they arrive — do not babysit. If the human sends the plan back you are told directly, with their notes.\n")
 	} else {
 		b.WriteString("Write the DAG as JSON to a file and submit it with `wsh jarvis dag submit --file <path>`. The JSON is an object with `title`, `parallelism` (1-8), and `tasks`, each task `{\"id\": \"t-1\", \"label\": \"...\", \"description\": \"...\", \"deps\": [\"t-0\"]}`.\n")
 		b.WriteString("Then loop: run `wsh jarvis dag wait`, do exactly what it reports, and wait again. Stop when it reports a line beginning `woke: terminal:`. Acting on a reported action is what lets the next wait block — an action you leave untaken makes wait return immediately.\n")
+		b.WriteString("While the plan sits at the gate, wait reports nothing to do and simply blocks; a sent-back plan returns `woke: plan-sent-back` followed by the human's notes.\n")
 	}
 	b.WriteString("Use `wsh jarvis dag status` for detail at any time.\n")
 	b.WriteString("If a genuinely consequential or ambiguous decision comes up — one where a wrong assumption would waste real work — use the AskUserQuestion tool to ask the human; it renders an answerable question in the cockpit and blocks until they reply. Never pose such a question in prose.\n")

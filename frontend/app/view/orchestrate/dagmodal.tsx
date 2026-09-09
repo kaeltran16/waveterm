@@ -81,9 +81,7 @@ export function DagModal() {
                                     <h2 id={DAG_MODAL_HEADING_ID} className="text-title font-bold text-primary">
                                         Route DAG
                                     </h2>
-                                    <p className="font-mono text-xxs uppercase tracking-[.1em] text-muted">
-                                        {state.channelId} · {state.runId}
-                                    </p>
+                                    <ModalSubtitle channelId={state.channelId} runId={state.runId} />
                                 </div>
                                 <button
                                     type="button"
@@ -102,6 +100,18 @@ export function DagModal() {
                 ) : null}
             </AnimatePresence>
         </MotionConfig>
+    );
+}
+
+// ModalSubtitle names which run this graph belongs to. The channel is shown by name and the run by its
+// short prefix, because the pair of raw uuids this replaced identified the graph to the database and to
+// nobody else — and the channel name is the half a reader actually recognises.
+function ModalSubtitle({ channelId, runId }: { channelId: string; runId: string }) {
+    const [channel] = useWaveObjectValue<Channel>(`channel:${channelId}`);
+    return (
+        <p className="font-mono text-xxs uppercase tracking-[.1em] text-muted">
+            {channel?.name ? `#${channel.name}` : channelId} · {runId.slice(0, 13)}
+        </p>
     );
 }
 

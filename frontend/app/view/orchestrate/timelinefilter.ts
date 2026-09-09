@@ -26,6 +26,7 @@ export function timelineLayout(windowWidth: number): TimelineLayout {
 export const ATTENTION_KINDS = new Set<string>([
     "child-ask",
     "dag-gate-open",
+    "dag-plan-gated",
     "phase-held",
     "task-failed",
     "task-stalled",

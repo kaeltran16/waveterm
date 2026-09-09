@@ -28,6 +28,7 @@ type CommandCreateRunData struct {
 	Model         string                  `json:"model,omitempty"`         // exact model id; empty = tier. wins over tier
 	WorkerRoute   *waveobj.RoutePin       `json:"workerroute,omitempty"`   // B1b default worker route (nil = inherit lead)
 	Orchestration string                  `json:"orchestration,omitempty"` // engine | adaptive (empty = legacy runtime fork)
+	Parallelism   int                     `json:"parallelism,omitempty"`   // engine width the user picked in the Run rail; 0 = let the lead choose
 	PlaybookId    string                  `json:"playbookid,omitempty"`
 	Mode          string                  `json:"mode,omitempty"`        // quick | pipeline | orchestrator (empty = resolved profile default)
 	PlanGate      *bool                   `json:"plangate,omitempty"`    // orchestrator plan gate; nil = resolved profile default

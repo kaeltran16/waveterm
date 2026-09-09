@@ -248,6 +248,11 @@ func hasUnsatDep(g *waveobj.TaskGroup, t *waveobj.TaskNode) bool {
 // gate, terminal failure, blocked merge, failed cleanup, blocked dag, terminal-with-debt) -> stalled ->
 // healthy -> done/cancelled.
 func buildHealth(g *waveobj.TaskGroup, askByTask map[string]wshrpc.DagAskItem, staleGate map[string]bool) string {
+	// an unapproved plan is the whole dag waiting on one person, ahead of every per-task condition
+	// (there are none yet — nothing has been dispatched).
+	if PlanGatePending(g) {
+		return "needs-you"
+	}
 	if g.Status == DagStatus_Blocked {
 		return "needs-you"
 	}
@@ -316,6 +321,13 @@ func depChainReachesMergeReady(g *waveobj.TaskGroup, t *waveobj.TaskNode, mergeR
 // buildNext derives the highest-priority current condition per spec §5.3 ordering. TaskIds are always
 // in dag order; Actions are the complete valid set for the selected condition (never reconstructed).
 func buildNext(g *waveobj.TaskGroup, askByTask map[string]wshrpc.DagAskItem) wshrpc.DagNextStep {
+	// 0. the plan itself is unapproved. Ranked above every task condition because none of them exist
+	// yet, and above the wait kinds because without it a gated dag reports "dependency-wait" — true of
+	// its later layers, and a complete misread of why nothing is moving. Carries no Actions: the
+	// approval is the human's, and the lead must keep waiting rather than wake for it.
+	if PlanGatePending(g) {
+		return wshrpc.DagNextStep{Kind: "plan-gate"}
+	}
 	// 1. required human action, ordered: answer -> approve/sendback -> resolve-merge -> retry-cleanup -> retry/skip/escalate
 	if ids := tasksWithAsk(g, askByTask); len(ids) > 0 {
 		return humanActionStep("answer", ids, digestActionAnswer)

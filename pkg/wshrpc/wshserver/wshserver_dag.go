@@ -73,9 +73,25 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 		workerRoute = run.WorkerRoute
 	}
 	mergeRequired := orchestrate.IsGitRepo(run.ProjectPath)
-	proposed, err := orchestrate.NewTaskGroup(data.RunId, data.ChannelId, data.Title, data.Parallelism, mergeRequired, data.Tasks, time.Now().UnixMilli(), workerRoute)
+	// The width is the human's dial, not the lead's: N concurrent children are N live worktrees and N
+	// token streams, a cost the human pays. Their choice (Run rail, stored on the run) therefore wins
+	// over whatever the lead submits. The prompt already told the lead this number, so a lead that
+	// followed it sees no change; one that ignored it does not get to overspend.
+	parallelism := data.Parallelism
+	if run.Parallelism > 0 {
+		parallelism = run.Parallelism
+	}
+	proposed, err := orchestrate.NewTaskGroup(data.RunId, data.ChannelId, data.Title, parallelism, mergeRequired, data.Tasks, time.Now().UnixMilli(), workerRoute)
 	if err != nil {
 		return nil, err
+	}
+	// Every top-level plan is read by the human before a single worker spawns: the decomposition is
+	// the run's most consequential decision and the cheapest point to correct it, and once children
+	// are live the correction costs N worktrees. A child's plan is not gated — its parent's already
+	// was, and a child halting for review would strand a fan-out nobody is watching.
+	planGate := run.ParentLeadORef == ""
+	if planGate {
+		orchestrate.GatePlan(&proposed)
 	}
 	stored, created, err := wstore.CreateDagForRun(ctx, data.ChannelId, data.RunId, &proposed, func(run *waveobj.Run) error {
 		if run.Mode != jarvis.RunMode_Orchestrator {
@@ -88,6 +104,9 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 			return fmt.Errorf("dag run %s is %s, want planning or executing", run.ID, run.Status)
 		}
 		run.Status = jarvis.RunStatus_Executing
+		// the notes that produced this draft are answered by it; leaving them would re-wake the lead
+		// on the next `dag wait` with feedback it has already acted on.
+		run.PlanFeedback = ""
 		return nil
 	})
 	if err != nil {
@@ -100,10 +119,18 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 	} else {
 		zero := 0
 		appendRunEvent(ctx, data.ChannelId, data.RunId, waveobj.RunEventKindPhaseStarted, &zero, map[string]any{})
+		if orchestrate.PlanGatePending(stored) {
+			appendRunEvent(ctx, data.ChannelId, data.RunId, waveobj.RunEventKindDagPlanGated, nil, map[string]any{
+				"tasks": len(stored.Tasks), "parallelism": stored.Parallelism,
+			})
+		}
 	}
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, stored.OID))
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Run, data.RunId))
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
+	// Schedule is still called on a gated plan: it is the tick that derives and publishes, and its
+	// dispatch guard (NextToSpawn) is what holds the workers. Skipping it here would only mean the
+	// first thing the reader sees is a group nothing has looked at.
 	if serr := orchestrate.Schedule(ctx, stored.OID); serr != nil {
 		log.Printf("dag submit schedule error: %v", serr)
 	}
@@ -140,6 +167,11 @@ func (ws *WshServer) DagStatusCommand(ctx context.Context, data wshrpc.CommandDa
 		return nil, fmt.Errorf("loading run: %w", err)
 	}
 	if run.DagORef == "" {
+		// a sent-back plan leaves the run with no dag on purpose. The lead is polling here, and what
+		// it needs is the reason it has nothing to wait on, not "run has no dag".
+		if run.PlanFeedback != "" {
+			return &wshrpc.CommandDagStatusRtnData{PlanFeedback: run.PlanFeedback}, nil
+		}
 		return nil, fmt.Errorf("run has no dag")
 	}
 	g, err := wstore.GetDag(ctx, run.DagORef)
@@ -254,11 +286,53 @@ func (ws *WshServer) DagActionCommand(ctx context.Context, data wshrpc.CommandDa
 	if run.DagORef == "" {
 		return fmt.Errorf("run has no dag")
 	}
-	if data.Action == "cancel" {
+	switch data.Action {
+	case "cancel":
 		return orchestrate.Cancel(ctx, run.DagORef)
+	case "approve-plan":
+		if err := orchestrate.ApprovePlan(ctx, run.DagORef, time.Now().UnixMilli()); err != nil {
+			return err
+		}
+		appendRunEvent(ctx, data.ChannelId, data.RunId, waveobj.RunEventKindDagPlanApproved, nil, map[string]any{})
+		return nil
+	case "sendback-plan":
+		if err := orchestrate.DiscardPlan(ctx, run.DagORef, strings.TrimSpace(data.Notes)); err != nil {
+			return err
+		}
+		appendRunEvent(ctx, data.ChannelId, data.RunId, waveobj.RunEventKindDagPlanSentBack, nil, map[string]any{
+			"notes": strings.TrimSpace(data.Notes),
+		})
+		// the lead is blocked in `dag wait`; steering it is what makes the redraft immediate rather
+		// than waiting out the poll's timeout. Best effort — the wait loop reads the same feedback.
+		steerRunLead(ctx, leadORef(run), planSendBackLine(strings.TrimSpace(data.Notes)))
+		return nil
 	}
 	target := waveobj.RoutePin{Runtime: data.Runtime, Tier: data.Tier, Model: data.Model}
 	return orchestrate.ApplyAction(ctx, run.DagORef, data.TaskId, data.Action, target)
+}
+
+// leadORef is the tab oref of the worker driving the run's running phase, or "" when there is none.
+// An orchestrator run has exactly one phase, so this is the lead. Empty is a normal answer (the lead
+// exited, or the run is deferred) and steerRunLead treats it as a no-op.
+func leadORef(run *waveobj.Run) string {
+	for i := range run.Phases {
+		p := &run.Phases[i]
+		if p.State == jarvis.PhaseState_Running && len(p.WorkerOrefs) > 0 {
+			return p.WorkerOrefs[0]
+		}
+	}
+	return ""
+}
+
+// planSendBackLine is what a lead reads when its plan is rejected. It names the one recovery — submit
+// a revised dag — because the group it was waiting on no longer exists, and a lead told only "sent
+// back" tends to poll a dag that is gone.
+func planSendBackLine(notes string) string {
+	line := "Your plan was sent back. The submitted dag has been discarded; revise it and run `wsh jarvis dag submit` again."
+	if notes != "" {
+		line += " What to change: " + strings.ReplaceAll(notes, "\n", " ")
+	}
+	return line + "\r"
 }
 
 // taskBlockOrefs lists the worker block orefs of a run's phases (the blocks the ask registry keys

@@ -324,7 +324,7 @@ func TestBuildOrchestratePromptAdaptive(t *testing.T) {
 	principles := waveobj.PrincipleList{{ID: "clean", Text: "be clean"}}
 	// explicit adaptive, and the legacy empty-on-claude that must resolve to it
 	for _, orch := range []string{Orchestration_Adaptive, ""} {
-		p := BuildOrchestratePrompt("do X", principles, "claude", orch)
+		p := BuildOrchestratePrompt("do X", principles, "claude", orch, 0)
 		for _, want := range []string{"do X", "be clean", "wsh jarvis triage", "wsh jarvis complete", "subagent", "AskUserQuestion", "prose"} {
 			if !strings.Contains(p, want) {
 				t.Fatalf("orch=%q prompt missing %q:\n%s", orch, want, p)
@@ -342,7 +342,7 @@ func TestBuildOrchestratePromptAdaptive(t *testing.T) {
 func TestBuildOrchestratePromptEngine(t *testing.T) {
 	principles := waveobj.PrincipleList{{ID: "clean", Text: "be clean"}}
 
-	claude := BuildOrchestratePrompt("do X", principles, "claude", Orchestration_Engine)
+	claude := BuildOrchestratePrompt("do X", principles, "claude", Orchestration_Engine, 0)
 	for _, want := range []string{
 		"do X", "be clean", "dag submit --file", "wsh jarvis dag wait", "terminal:",
 		"wsh jarvis dag merge", "AskUserQuestion", "16 tasks", "one DAG", "wsh jarvis complete",
@@ -356,7 +356,7 @@ func TestBuildOrchestratePromptEngine(t *testing.T) {
 	}
 
 	// pi keeps push delivery: control events, never the wait loop.
-	pi := BuildOrchestratePrompt("do X", principles, "pi", Orchestration_Engine)
+	pi := BuildOrchestratePrompt("do X", principles, "pi", Orchestration_Engine, 0)
 	for _, want := range []string{"import-tasks", "control events", "16 tasks", "wsh jarvis dag merge"} {
 		if !strings.Contains(pi, want) {
 			t.Fatalf("pi engine prompt missing %q:\n%s", want, pi)
@@ -372,7 +372,7 @@ func TestBuildOrchestratePromptEngine(t *testing.T) {
 // and never the bare word `merge`.
 func TestBuildOrchestratePromptUsesDigestMergeVocabulary(t *testing.T) {
 	for _, runtime := range []string{"claude", "pi"} {
-		p := BuildOrchestratePrompt("do X", nil, runtime, Orchestration_Engine)
+		p := BuildOrchestratePrompt("do X", nil, runtime, Orchestration_Engine, 0)
 		for _, want := range []string{"`merge-ready`", "`resolve-merge`"} {
 			if !strings.Contains(p, want) {
 				t.Fatalf("%s engine prompt missing the digest's merge vocabulary %s:\n%s", runtime, want, p)
@@ -550,5 +550,26 @@ func TestFailPhaseDerivesBlocked(t *testing.T) {
 	// a duplicate exit report must not fail an already-failed phase again
 	if _, err := FailPhase(failed, idx, 3000); err == nil {
 		t.Fatal("failing a non-running phase must error rather than double-write")
+	}
+}
+
+// The Run rail's width reaches the lead as an instruction, not a suggestion: DagSubmit replaces
+// whatever width the lead submits with the run's, so a lead that was never told the number would plan
+// layers around a width it does not get. 0 means the human did not set one and the lead still chooses.
+func TestBuildOrchestratePromptStatesTheHumansParallelism(t *testing.T) {
+	withWidth := BuildOrchestratePrompt("do X", nil, "claude", Orchestration_Engine, 5)
+	if !strings.Contains(withWidth, "parallelism to 5") {
+		t.Fatalf("engine prompt must state the human's width:\n%s", withWidth)
+	}
+
+	unset := BuildOrchestratePrompt("do X", nil, "claude", Orchestration_Engine, 0)
+	if strings.Contains(unset, "The human has set this run's parallelism") {
+		t.Fatalf("an unset width must leave the choice to the lead:\n%s", unset)
+	}
+
+	// adaptive has no TaskGroup and no scheduler slots, so a width there would describe nothing
+	adaptive := BuildOrchestratePrompt("do X", nil, "claude", Orchestration_Adaptive, 5)
+	if strings.Contains(adaptive, "parallelism") {
+		t.Fatalf("adaptive prompt must not claim a width it cannot honour:\n%s", adaptive)
 	}
 }

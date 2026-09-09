@@ -52,6 +52,12 @@ const (
 	RunEventKindLeadControlSent         = "lead-control-sent"
 	RunEventKindLeadControlFailed       = "lead-control-failed"
 	RunEventKindLeadControlAcknowledged = "lead-control-acknowledged"
+
+	// the plan gate: a published dag waiting on the human, and the two ways out of it. Distinct from
+	// the gate-* kinds, which are a *task* gate inside an already-approved plan.
+	RunEventKindDagPlanGated    = "dag-plan-gated"
+	RunEventKindDagPlanApproved = "dag-plan-approved"
+	RunEventKindDagPlanSentBack = "dag-plan-sent-back"
 )
 
 // Detail payload keys per kind (values are built as map[string]any by writers):

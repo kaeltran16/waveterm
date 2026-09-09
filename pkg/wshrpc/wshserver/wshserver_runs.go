@@ -334,6 +334,14 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 	run.Model = cap.Model
 	run.WorkerRoute = data.WorkerRoute
 	run.Orchestration = data.Orchestration // prompt-shaping only; DagSubmit stays open to either choice
+	// out-of-band widths are rejected rather than clamped: a caller asking for 40 workers has a wrong
+	// model of the engine, and silently running 8 would hide that.
+	if data.Parallelism != 0 {
+		if data.Parallelism < 1 || data.Parallelism > orchestrate.MaxParallelism {
+			return nil, fmt.Errorf("parallelism must be an integer from 1 through %d", orchestrate.MaxParallelism)
+		}
+		run.Parallelism = data.Parallelism
+	}
 	// capture the repo baseline so the evidence diff survives the worker committing its changes;
 	// non-fatal — an unborn/absent repo just leaves BaseCommit "" and the diff falls back to HEAD.
 	if head, herr := gitinfo.HeadCommit(ctx, ch.ProjectPath); herr == nil {
