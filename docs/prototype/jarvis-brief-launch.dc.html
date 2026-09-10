@@ -1,0 +1,2494 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+--bg:#0c0e11;--surface:#0e1116;--raised:#13171d;--hover:#171c22;
+--ink:#e6e9ed;--ink2:#cfd5db;--ink3:#9aa3ad;--mute:#7f858b;--faint:#646a72;--label:#777f89;
+--border:#1c2128;--edge:#20262e;--edge2:#2a313a;--hair:#161a20;
+--accent:#5e9cff;--accent2:#8da3ff;--soft:#aebfff;--accentbg:rgba(94,156,255,0.12);
+--warn:#e6b450;--warnbg:rgba(230,180,80,0.12);--ok:#54c79a;--err:#e0726c;
+--tw:color-mix(in oklab,#e6b450 15%,transparent);--lw:color-mix(in oklab,#e6b450 32%,transparent);
+--ts:color-mix(in oklab,#54c79a 15%,transparent);--te:color-mix(in oklab,#e0726c 14%,transparent);
+--la:color-mix(in oklab,#5e9cff 40%,transparent);--ta:color-mix(in oklab,#5e9cff 15%,transparent);
+--dur:140ms;--curve:cubic-bezier(0.22,1,0.36,1);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:#0c0e11;font-family:'Hanken Grotesk',system-ui,sans-serif;font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;color:#e6e9ed;overflow:hidden}
+a{color:#aebfff;text-decoration:none}a:hover{color:#8da3ff}
+button,input{font-family:'Hanken Grotesk',system-ui,sans-serif}
+input{outline:none}
+@keyframes pulseDot{0%,100%{opacity:1}50%{opacity:.35}}
+@keyframes blink{0%,49%{opacity:1}50%,100%{opacity:0}}
+@keyframes riseIn{from{opacity:1;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes slideIn{from{opacity:1;transform:translateX(24px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</helmet>
+
+<div style="position:relative;height:100vh;display:flex;flex-direction:column;background:var(--bg);overflow:hidden">
+
+  <header style="flex:none;display:flex;align-items:center;gap:10px;height:54px;padding:0 22px;border-bottom:1px solid var(--hair);background:var(--surface)">
+    <span style="font:600 12px 'JetBrains Mono';color:var(--soft)">◈</span>
+    <span style="font:700 15px 'Hanken Grotesk';letter-spacing:-.01em">Jarvis</span>
+    <span style="min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font:400 10.5px 'JetBrains Mono';color:var(--mute)">all work · 3 projects</span>
+    <div style="flex:1"></div>
+    <span style="flex:none;display:flex;align-items:center;gap:7px;border:1px solid {{ waitLine }};background:{{ waitBg }};border-radius:6px;padding:3px 9px;font:700 9.5px 'JetBrains Mono';letter-spacing:.06em;text-transform:uppercase;color:{{ waitFg }}"><span style="width:5px;height:5px;border-radius:999px;background:{{ waitFg }};animation:pulseDot 1.6s infinite"></span>{{ waitText }}</span>
+    <button onClick="{{ onOpenAutonomy }}" aria-label="Change how much Jarvis decides alone" style="flex:none;border:1px solid var(--border);background:var(--bg);border-radius:6px;padding:3px 8px;cursor:pointer;font:600 10px 'JetBrains Mono';color:var(--soft);transition:border-color var(--dur) var(--curve)" style-hover="border-color:var(--accent)" style-focus="outline:2px solid var(--accent);outline-offset:1px">{{ tierChip }}</button>
+    <span style="flex:none;font:400 10px 'JetBrains Mono';color:var(--mute)">{{ fleet }}</span>
+    <button onClick="{{ openPalette }}" style="flex:none;border:1px solid var(--border);background:transparent;border-radius:6px;padding:4px 9px;cursor:pointer;font:600 10px 'JetBrains Mono';color:var(--mute);transition:all var(--dur) var(--curve)" style-hover="color:var(--ink);border-color:var(--edge2)" style-focus="outline:2px solid var(--accent);outline-offset:1px">⌘K  find anything</button>
+    <button onClick="{{ onOpenGraph }}" aria-label="Open the map" style="flex:none;border:1px solid var(--border);background:transparent;border-radius:6px;padding:4px 9px;cursor:pointer;font:600 10px 'JetBrains Mono';color:var(--mute);transition:all var(--dur) var(--curve)" style-hover="color:var(--ink);border-color:var(--edge2)" style-focus="outline:2px solid var(--accent);outline-offset:1px">⇧G  the map</button>
+    <span style="flex:none;width:1px;height:18px;background:var(--edge)"></span>
+    <button onClick="{{ onNewInitiative }}" aria-label="Create an initiative" style="flex:none;display:flex;align-items:center;gap:7px;border:1px solid var(--edge2);background:transparent;border-radius:6px;padding:5px 10px;cursor:pointer;font:600 11px 'Hanken Grotesk';color:var(--ink2);transition:all var(--dur) var(--curve)" style-hover="border-color:var(--la);color:var(--ink)" style-focus="outline:2px solid var(--accent);outline-offset:1px">+ Initiative<span style="font:700 9px 'JetBrains Mono';color:var(--faint)">⇧N</span></button>
+    <button onClick="{{ onNewRun }}" aria-label="Start a new run" style="flex:none;display:flex;align-items:center;gap:7px;border:0;background:var(--accent);border-radius:6px;padding:6px 12px;cursor:pointer;font:600 11.5px 'Hanken Grotesk';color:#0c0e11;transition:background var(--dur) var(--curve)" style-hover="background:var(--accent2)" style-focus="outline:2px solid var(--accent);outline-offset:2px">+ New run<span style="font:700 9px 'JetBrains Mono';opacity:.55">N</span></button>
+  </header>
+
+  <main style="flex:1;min-height:0;overflow-y:auto;padding:20px 22px 10px;display:flex;flex-direction:column;gap:26px;filter:{{ groundDim }};transition:filter var(--dur) var(--curve)">
+
+    <section style="display:flex;flex-direction:column;gap:9px">
+      <div style="display:flex;align-items:center;gap:9px">
+        <span style="width:6px;height:6px;border-radius:999px;background:{{ waitFg }};flex:none;animation:pulseDot 1.6s infinite"></span>
+        <span style="font:700 9.5px 'JetBrains Mono';letter-spacing:.13em;text-transform:uppercase;color:{{ waitFg }}">Waiting on you</span>
+        <span style="flex:1;height:1px;background:var(--hair)"></span>
+        <span style="font:400 10px 'JetBrains Mono';color:var(--faint)">oldest first · gates before asks</span>
+      </div>
+
+      <sc-if value="{{ queueEmpty }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;align-items:center;gap:11px;border:1px dashed var(--edge);border-radius:10px;background:var(--surface);padding:15px 17px">
+          <span style="font:700 12px 'JetBrains Mono';color:var(--ok)">✓</span>
+          <span style="font:400 13px 'Hanken Grotesk';color:var(--ink2)">Nothing is waiting on you. Four routine asks answered this morning; I will bring the next gate here.</span>
+        </div>
+      </sc-if>
+
+      <sc-for list="{{ queue }}" as="q" hint-placeholder-count="3">
+        <div style="display:grid;grid-template-columns:3px minmax(0,1fr);gap:13px;border:1px solid var(--border);border-radius:10px;background:var(--surface);padding:13px 15px 13px 12px">
+          <span style="align-self:stretch;border-radius:2px;background:{{ q.bar }}"></span>
+          <div style="min-width:0;display:flex;flex-direction:column;gap:8px">
+            <div style="display:flex;align-items:flex-start;gap:13px;min-width:0;flex-wrap:wrap">
+              <div style="min-width:220px;flex:1;display:flex;flex-direction:column;gap:3px">
+                <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+                  <span style="font:700 9.5px 'JetBrains Mono';letter-spacing:.1em;text-transform:uppercase;color:{{ q.kindFg }}">{{ q.kind }}</span>
+                  <span style="font:600 15px 'Hanken Grotesk'">{{ q.title }}</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                  <button onClick="{{ q.onOwner }}" style="border:0;background:transparent;padding:0;cursor:pointer;font:600 10.5px 'JetBrains Mono';color:var(--soft);transition:color var(--dur) var(--curve)" style-hover="color:var(--accent2)" style-focus="outline:2px solid var(--accent);outline-offset:2px">{{ q.owner }}</button>
+                  <span style="font:400 10.5px 'JetBrains Mono';color:var(--mute)">{{ q.meta }}</span>
+                </div>
+              </div>
+              <div style="flex:none;display:flex;gap:7px">
+                <button onClick="{{ q.onPrimary }}" style="border:0;border-radius:6px;background:var(--accent);color:#0c0e11;font:600 12px 'Hanken Grotesk';padding:7px 15px;cursor:pointer;transition:background var(--dur) var(--curve)" style-hover="background:var(--accent2)" style-focus="outline:2px solid var(--accent);outline-offset:2px">{{ q.primary }}</button>
+                <button onClick="{{ q.onSecondary }}" style="border:1px solid var(--edge);border-radius:6px;background:var(--bg);color:var(--ink2);font:600 12px 'Hanken Grotesk';padding:7px 13px;cursor:pointer;transition:all var(--dur) var(--curve)" style-hover="border-color:var(--edge2);color:var(--ink)" style-focus="outline:2px solid var(--accent);outline-offset:1px">{{ q.secondary }}</button>
+                <button onClick="{{ q.onLook }}" style="border:1px solid var(--border);border-radius:6px;background:transparent;color:var(--mute);font:600 12px 'Hanken Grotesk';padding:7px 12px;cursor:pointer;transition:all var(--dur) var(--curve)" style-hover="border-color:var(--edge2);color:var(--ink2)" style-focus="outline:2px solid var(--accent);outline-offset:1px">Look in</button>
+              </div>
+            </div>
+
+            <span style="font:400 13px/1.55 'Hanken Grotesk';color:var(--ink2);text-wrap:pretty">{{ q.body }}</span>
+
+            <sc-if value="{{ q.hasCites }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;gap:7px;flex-wrap:wrap">
+                <sc-for list="{{ q.cites }}" as="c" hint-placeholder-count="2">
+                  <span style="position:relative;display:flex;align-items:center;border:1px solid {{ c.line }};border-radius:6px;background:var(--bg);transition:border-color var(--dur) var(--curve)">
+                    <button onClick="{{ c.onOpen }}" style="display:flex;align-items:center;gap:7px;border:0;background:transparent;border-radius:6px 0 0 6px;padding:5px 4px 5px 10px;cursor:pointer;font:500 10px 'JetBrains Mono';color:var(--mute);text-decoration:{{ c.strike }}" style-hover="color:var(--ink2)" style-focus="outline:2px solid var(--accent);outline-offset:1px"><span style="color:{{ c.nFg }};font-weight:700">{{ c.n }}</span>{{ c.text }}<span style="color:{{ c.freshFg }}">{{ c.fresh }}</span></button>
+                    <button onClick="{{ c.onCorrect }}" aria-label="Is this the right reference?" style="flex:none;border:0;border-left:1px solid var(--border);background:transparent;border-radius:0 6px 6px 0;padding:5px 7px;cursor:pointer;font:700 10px 'JetBrains Mono';color:var(--faint)" style-hover="color:var(--ink2)" style-focus="outline:2px solid var(--accent);outline-offset:1px">⋯</button>
+                    <sc-if value="{{ c.popOpen }}" hint-placeholder-val="{{ false }}">
+                      <div style="position:absolute;top:29px;left:0;z-index:15;width:274px;border:1px solid var(--edge2);border-radius:9px;background:var(--raised);box-shadow:0 16px 38px rgba(0,0,0,.55);padding:9px 10px;display:flex;flex-direction:column;gap:7px">
+                        <span style="font:400 10.5px/1.5 'JetBrains Mono';color:var(--mute);text-wrap:pretty">{{ c.popNote }}</span>
+                        <div style="display:flex;gap:6px;flex-wrap:wrap">
+                          <sc-for list="{{ c.acts }}" as="a" hint-placeholder-count="2">
+                            <button onClick="{{ a.onPick }}" style="border:1px solid {{ a.line }};border-radius:6px;background:{{ a.bg }};padding:4px 10px;cursor:pointer;font:600 10px 'JetBrains Mono';color:{{ a.fg }};transition:all var(--dur) var(--curve)" style-hover="border-color:var(--accent)" style-focus="outline:2px solid var(--accent);outline-offset:1px">{{ a.label }}</button>
+                          </sc-for>
+                        </div>
+                      </div>
+                    </sc-if>
+                  </span>
+                </sc-for>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ q.hasFail }}" hint-placeholder-val="{{ false }}">
+              <span style="display:flex;align-items:flex-start;gap:8px;border-radius:6px;background:var(--te);padding:7px 10px;font:400 11px/1.5 'JetBrains Mono';color:var(--err);text-wrap:pretty"><span style="font-weight:700">✕</span>{{ q.fail }}</span>
+            </sc-if>
+
+            <sc-if value="{{ q.answering }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;align-items:center;gap:9px;border:1px solid var(--la);border-radius:8px;background:var(--bg);padding:8px 10px">
+                <input value="{{ answerText }}" onChange="{{ onAnswerChange }}" onKeyDown="{{ onAnswerKey }}" placeholder="Type your answer, ⏎ to send" aria-label="Answer the worker" style="flex:1;min-width:0;height:28px;border:0;background:transparent;color:var(--ink);font:400 13px 'Hanken Grotesk'">
+                <span style="flex:none;font:400 9.5px 'JetBrains Mono';color:var(--faint)">{{ answerHint }}</span>
+                <button onClick="{{ q.onSendAnswer }}" style="flex:none;border:0;border-radius:6px;background:var(--accent);color:#0c0e11;font:600 11.5px 'Hanken Grotesk';padding:6px 13px;cursor:pointer" style-hover="background:var(--accent2)" style-focus="outline:2px solid var(--accent);outline-offset:2px">Send ⏎</button>
+              </div>
+            </sc-if>
+          </div>
+        </div>
+      </sc-for>
+    </section>
+
+    <section style="display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;align-items:center;gap:9px">
+        <span style="font:700 9.5px 'JetBrains Mono';letter-spacing:.13em;text-transform:uppercase;color:var(--label)">Initiatives</span>
+        <span style="font:600 9.5px 'JetBrains Mono';color:var(--mute);border:1px solid var(--border);border-radius:999px;padding:1px 8px">{{ initCount }}</span>
+        <span style="flex:1;height:1px;background:var(--hair)"></span>
+        <span style="font:400 10px 'JetBrains Mono';color:var(--faint)">{{ initMeta }}</span>
+
+      </div>
+
+      <sc-for list="{{ initiatives }}" as="i" hint-placeholder-count="4">
+        <div style="border:1px solid {{ i.line }};border-radius:10px;background:var(--surface);overflow:hidden">
+          <div style="display:flex;align-items:center;gap:2px;padding:0 12px 0 4px">
+            <button onClick="{{ i.onToggle }}" aria-expanded="{{ i.isOpen }}" aria-label="{{ i.toggleLabel }}" style="flex:none;width:26px;height:34px;border:0;background:transparent;cursor:pointer;font:400 10px 'JetBrains Mono';color:var(--mute);transition:color var(--dur) var(--curve)" style-hover="color:var(--ink)" style-focus="outline:2px solid var(--accent);outline-offset:-2px">{{ i.chev }}</button>
+            <button onClick="{{ i.onOpen }}" style="flex:1;min-width:0;display:flex;align-items:center;gap:11px;border:0;background:transparent;padding:11px 8px;cursor:pointer;text-align:left;border-radius:7px;transition:background var(--dur) var(--curve)" style-hover="background:var(--hover)" style-focus="outline:2px solid var(--accent);outline-offset:-2px">
+              <span style="flex:none;font:700 11px 'JetBrains Mono';color:{{ i.markFg }}">✦</span>
+              <span style="min-width:0;flex:1;font:600 13.5px 'Hanken Grotesk';color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ i.name }}</span>
+              <span style="flex:none;font:400 10px 'JetBrains Mono';color:var(--mute)">{{ i.chunkLine }}</span>
+              <span style="flex:none;width:76px;height:3px;border-radius:999px;background:var(--raised);overflow:hidden"><span style="display:block;height:100%;border-radius:999px;width:{{ i.pct }};background:{{ i.barFg }};transition:width 320ms var(--curve)"></span></span>
+              <span style="flex:none;min-width:118px;text-align:right;font:600 9.5px 'JetBrains Mono';color:{{ i.stateFg }}">{{ i.state }}</span>
+            </button>
+          </div>
+
+          <sc-if value="{{ i.isOpen }}" hint-placeholder-val="{{ false }}">
+            <div style="border-top:1px solid var(--hair);padding:8px 12px 11px 40px;display:flex;flex-direction:column;gap:2px">
+              <div style="display:flex;align-items:center;gap:9px;padding:3px 8px 5px">
+                <span style="font:700 9px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--faint)">Sessions</span>
+                <span style="font:400 9.5px 'JetBrains Mono';color:var(--faint)">{{ i.sessionMeta }}</span>
+              </div>
+              <sc-for list="{{ i.sessions }}" as="s" hint-placeholder-count="2">
+                <button onClick="{{ s.onOpen }}" style="display:flex;align-items:center;gap:11px;width:100%;border:0;border-radius:7px;background:{{ s.bg }};padding:7px 8px;cursor:pointer;text-align:left;min-width:0;transition:background var(--dur) var(--curve)" style-hover="background:var(--hover)" style-focus="outline:2px solid var(--accent);outline-offset:-2px">
+                  <span style="flex:none;width:12px;text-align:center;font:700 10px 'JetBrains Mono';color:{{ s.markFg }}">{{ s.mark }}</span>
+                  <span style="min-width:0;flex:1;font:400 12.5px 'Hanken Grotesk';color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ s.name }}</span>
+                  <span style="flex:none;border:1px solid var(--border);border-radius:5px;padding:1px 7px;font:500 9.5px 'JetBrains Mono';color:var(--mute)">{{ s.route }}</span>
+                  <span style="flex:none;font:400 10px 'JetBrains Mono';color:var(--mute)">{{ s.reading }}</span>
+                  <span style="flex:none;min-width:64px;text-align:right;font:600 9.5px 'JetBrains Mono';color:{{ s.stateFg }}">{{ s.state }}</span>
+                </button>
+              </sc-for>
+              <sc-if value="{{ i.noSessions }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex;align-items:center;gap:10px;padding:6px 8px">
+                  <span style="font:400 12.5px 'Hanken Grotesk';color:var(--mute)">No session has run against this yet.</span>
+                  <button onClick="{{ i.onStart }}" style="border:1px solid var(--edge);border-radius:6px;background:var(--bg);color:var(--ink2);font:600 11px 'Hanken Grotesk';padding:4px 11px;cursor:pointer;transition:all var(--dur) var(--curve)" style-hover="border-color:var(--edge2);color:var(--ink)" style-focus="outline:2px solid var(--accent);outline-offset:1px">Start one on the first chunk</button>
+                </div>
+              </sc-if>
+            </div>
+          </sc-if>
+        </div>
+      </sc-for>
+    </section>
+
+    <section style="display:flex;flex-direction:column;gap:4px">
+      <div style="display:flex;align-items:center;gap:9px;margin-bottom:3px">
+        <span style="font:700 9.5px 'JetBrains Mono';letter-spacing:.13em;text-transform:uppercase;color:var(--label)">Sessions</span>
+        <span style="flex:1;height:1px;background:var(--hair)"></span>
+        <span style="font:400 10px 'JetBrains Mono';color:var(--faint)">{{ looseMeta }}</span>
+      </div>
+      <sc-for list="{{ loose }}" as="f" hint-placeholder-count="2">
+        <button onClick="{{ f.onOpen }}" style="display:flex;align-items:center;gap:12px;width:100%;border:0;border-bottom:1px solid var(--hair);border-radius:7px;background:{{ f.bg }};padding:9px 10px;cursor:pointer;text-align:left;min-width:0;transition:background var(--dur) var(--curve)" style-hover="background:var(--hover)" style-focus="outline:2px solid var(--accent);outline-offset:-2px">
+          <span style="flex:none;width:12px;text-align:center;font:700 10px 'JetBrains Mono';color:{{ f.markFg }}">{{ f.mark }}</span>
+          <span style="min-width:0;flex:1;font:500 13px 'Hanken Grotesk';color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ f.name }}</span>
+          <span style="flex:none;border:1px solid var(--border);border-radius:5px;padding:1px 7px;font:500 9.5px 'JetBrains Mono';color:var(--mute)">{{ f.route }}</span>
+          <span style="flex:none;font:400 10px 'JetBrains Mono';color:var(--mute)">{{ f.reading }}</span>
+          <span style="flex:none;min-width:96px;text-align:right;font:600 9.5px 'JetBrains Mono';color:{{ f.stateFg }}">{{ f.state }}</span>
+        </button>
+      </sc-for>
+      <sc-if value="{{ looseEmpty }}" hint-placeholder-val="{{ false }}">
+        <button onClick="{{ onNewRun }}" aria-label="Start a new run" style="display:flex;align-items:center;justify-content:center;gap:10px;width:100%;border:1px dashed var(--edge2);border-radius:8px;background:transparent;padding:15px 10px;cursor:pointer;font:500 12px 'Hanken Grotesk';color:var(--mute);transition:all var(--dur) var(--curve)" style-hover="border-color:var(--la);color:var(--ink2)" style-focus="outline:2px solid var(--accent);outline-offset:-2px">Nothing is running on its own<span style="font:600 10px 'JetBrains Mono';color:var(--soft)">Start a run · n</span></button>
+      </sc-if>
+      <span style="align-self:flex-start;font:500 10.5px 'JetBrains Mono';color:var(--soft);padding:6px 10px">{{ looseMore }}</span>
+    </section>
+
+    <section style="display:flex;flex-direction:column;gap:5px;padding-bottom:6px">
+      <div style="display:flex;align-items:center;gap:9px;margin-bottom:3px">
+        <span style="font:700 9.5px 'JetBrains Mono';letter-spacing:.13em;text-transform:uppercase;color:var(--label)">Behind you</span>
+        <span style="flex:1;height:1px;background:var(--hair)"></span>
+        <span style="font:400 10px 'JetBrains Mono';color:var(--faint)">{{ pastMeta }}</span>
+      </div>
+      <sc-for list="{{ past }}" as="p" hint-placeholder-count="4">
+        <div style="display:flex;gap:13px;align-items:baseline;padding:4px 10px;min-width:0;animation:{{ p.anim }}">
+          <span style="flex:none;width:46px;font:400 10px 'JetBrains Mono';color:var(--faint)">{{ p.at }}</span>
+          <span style="min-width:0;flex:1;font:400 12.5px 'Hanken Grotesk';color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span style="color:{{ p.verbFg }}">{{ p.verb }}</span> · {{ p.what }}</span>
+        </div>
+      </sc-for>
+      <span style="align-self:flex-start;font:500 10.5px 'JetBrains Mono';color:var(--soft);padding:6px 10px">5 more →</span>
+    </section>
+  </main>
+
+  <!-- the composer is a collapsed thread: asking grows it upward into the conversation over the
+       Brief, esc collapses it back to one line. One control at two heights, not two widgets. -->
+  <footer style="position:relative;flex:none;padding:11px 22px 18px;border-top:1px solid var(--hair);background:var(--surface);z-index:24">
+    <sc-if value="{{ askOpen }}" hint-placeholder-val="{{ false }}">
+      <div style="position:absolute;bottom:100%;left:0;right:0;max-height:54vh;display:flex;flex-direction:column;border-top:1px solid var(--edge2);background:var(--surface);box-shadow:0 -22px 50px rgba(0,0,0,.5);animation:riseIn 180ms var(--curve)">
+        <div style="flex:none;display:flex;align-items:center;gap:10px;padding:10px 22px 9px;border-bottom:1px solid var(--border);min-width:0">
+          <span style="flex:none;font:700 9.5px 'JetBrains Mono';letter-spacing:.11em;text-transform:uppercase;color:var(--soft)">Thread</span>
+          <span style="min-width:0;font:600 13px 'Hanken Grotesk';white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ askTitle }}</span>
+          <span style="flex:none;font:400 10px 'JetBrains Mono';color:var(--mute)">{{ askMeta }}</span>
+          <sc-if value="{{ askAttached }}" hint-placeholder-val="{{ false }}">
+            <span style="flex:none;display:flex;align-items:center;gap:7px;border:1px solid var(--la);border-radius:5px;background:var(--accentbg);padding:2px 4px 2px 8px;font:600 9.5px 'JetBrains Mono';color:var(--soft)">{{ askAttachedLabel }}<button onClick="{{ onDetachSource }}" aria-label="Ask across all work instead" style="border:0;border-radius:4px;background:transparent;cursor:pointer;padding:1px 4px;font:600 10px 'JetBrains Mono';color:var(--mute)" style-hover="color:var(--ink)" style-focus="outline:2px solid var(--accent);outline-offset:1px">✕</button></span>
+          </sc-if>
+          <div style="flex:1"></div>
+          <button onClick="{{ close }}" style="flex:none;border:0;background:transparent;cursor:pointer;font:500 10.5px 'JetBrains Mono';color:var(--mute)" style-hover="color:var(--ink)" style-focus="outline:2px solid var(--accent);outline-offset:1px">esc collapses</button>
+        </div>
+        <div style="flex:1;min-height:0;overflow-y:auto;padding:14px 22px 16px;display:flex;flex-direction:column;gap:14px">
+          <sc-if value="{{ askEmpty }}" hint-placeholder-val="{{ false }}">
+            <span style="font:400 12.5px/1.6 'Hanken Grotesk';color:var(--mute);text-wrap:pretty">{{ askEmptyLine }}</span>
+          </sc-if>
+          <sc-for list="{{ askTurns }}" as="t" hint-placeholder-count="2">
+            <div style="display:flex;flex-direction:column;gap:6px;min-width:0">
+              <div style="display:flex;align-items:center;gap:9px">
+                <span style="font:700 9px 'JetBrains Mono';letter-spacing:.11em;text-transform:uppercase;color:{{ t.whoFg }}">{{ t.who }}</span>
+                <span style="font:400 9.5px 'JetBrains Mono';color:var(--faint)">{{ t.at }}</span>
+              </div>
+              <span style="font:400 13px/1.6 'Hanken Grotesk';color:var(--ink2);text-wrap:pretty">{{ t.text }}</span>
+              <sc-if value="{{ t.hasRefs }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex;gap:7px;flex-wrap:wrap">
+                  <sc-for list="{{ t.refs }}" as="r" hint-placeholder-count="2">
+                    <button onClick="{{ r.onOpen }}" style="display:flex;align-items:center;gap:7px;border:1px solid var(--border);border-radius:6px;background:var(--bg);padding:4px 9px;cursor:pointer;font:500 10px 'JetBrains Mono';color:var(--mute)" style-hover="border-color:var(--edge2)" style-focus="outline:2px solid var(--accent);outline-offset:1px"><span style="color:var(--soft);font-weight:700">{{ r.n }}</span>{{ r.text }}</button>
+                  </sc-for>
+                </div>
+              </sc-if>
+            </div>
+          </sc-for>
+          <sc-if value="{{ askThinking }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:center;gap:9px">
+              <span style="font:700 9px 'JetBrains Mono';letter-spacing:.11em;text-transform:uppercase;color:var(--soft)">Jarvis</span>
+              <span style="font:400 12px 'JetBrains Mono';color:var(--faint)">reading across your work</span>
+              <span style="display:inline-block;width:1.5px;height:13px;background:var(--soft);animation:blink 1.1s step-end infinite"></span>
+            </div>
+          </sc-if>
+        </div>
+        <!-- a thread's only link to your records is what it cited, so the set is derived and deduped:
+             this is the thread's attribution, and it stays pinned while the turns scroll. -->
+        <sc-if value="{{ askDrewShow }}" hint-placeholder-val="{{ true }}">
+          <div style="flex:none;display:flex;align-items:center;gap:9px;padding:9px 22px 10px;border-top:1px solid var(--border);background:var(--raised);min-width:0;flex-wrap:wrap">
+            <span style="flex:none;font:700 9px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--faint)">Drew on</span>
+            <sc-for list="{{ askDrew }}" as="d" hint-placeholder-count="2">
+              <button onClick="{{ d.onOpen }}" style="border:1px solid var(--border);border-radius:6px;background:var(--bg);padding:4px 9px;cursor:pointer;font:500 10px 'JetBrains Mono';color:var(--mute);transition:border-color var(--dur) var(--curve)" style-hover="border-color:var(--edge2);color:var(--ink2)" style-focus="outline:2px solid var(--accent);outline-offset:1px">{{ d.text }}</button>
+            </sc-for>
+            <div style="flex:1"></div>
+            <span style="flex:none;font:400 9.5px 'JetBrains Mono';color:var(--faint)">{{ askDrewMeta }}</span>
+          </div>
+        </sc-if>
+      </div>
+    </sc-if>
+
+    <!-- threads only matter at the moment you are about to ask, so they arrive with the caret rather
+         than sitting on the surface as a chip nobody reads. -->
+    <sc-if value="{{ recentOpen }}" hint-placeholder-val="{{ false }}">
+      <div style="position:absolute;bottom:100%;left:22px;right:22px;z-index:25;margin-bottom:-9px;padding-bottom:15px;border:1px solid var(--edge2);border-bottom:0;border-radius:9px 9px 0 0;background:var(--raised);box-shadow:0 -16px 38px rgba(0,0,0,.45);display:flex;flex-direction:column;animation:riseIn 140ms var(--curve)">
+        <div style="display:flex;align-items:center;gap:9px;padding:9px 15px 6px">
+          <span style="font:700 9px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--faint)">Still working these out</span>
+          <span style="flex:1;height:1px;background:var(--hair)"></span>
+          <span style="font:400 9.5px 'JetBrains Mono';color:var(--faint)">{{ recentMeta }}</span>
+        </div>
+        <sc-for list="{{ histRows }}" as="h" hint-placeholder-count="2">
+          <button onClick="{{ h.onOpen }}" style="display:flex;align-items:center;gap:12px;width:100%;border:0;border-radius:7px;background:{{ h.bg }};padding:8px 15px;cursor:pointer;text-align:left;min-width:0;transition:background var(--dur) var(--curve)" style-hover="background:var(--hover)" style-focus="outline:2px solid var(--accent);outline-offset:-2px">
+            <span style="flex:none;font:700 10px 'JetBrains Mono';color:var(--soft)">↩</span>
+            <span style="min-width:0;flex:1;font:500 12.5px 'Hanken Grotesk';color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ h.title }}</span>
+            <span style="flex:none;font:400 10px 'JetBrains Mono';color:var(--faint)">{{ h.when }}</span>
+            <span style="flex:none;font:400 10px 'JetBrains Mono';color:var(--mute)">{{ h.turns }}</span>
+          </button>
+        </sc-for>
+        <span style="padding:5px 15px 2px;font:400 9.5px/1.5 'JetBrains Mono';color:var(--faint);text-wrap:pretty">one-shot lookups are not listed — ⌘K finds every thread. Typing starts a new one.</span>
+      </div>
+    </sc-if>
+
+    <div style="position:relative;border:1px solid {{ composerLine }};background:var(--raised);border-radius:9px;padding:12px 15px;transition:border-color var(--dur) var(--curve)">
+      <div style="display:flex;align-items:center;gap:2px">
+        <input value="{{ draft }}" onChange="{{ onDraftChange }}" onKeyDown="{{ onDraftKey }}" onFocus="{{ onDraftFocus }}" onBlur="{{ onDraftBlur }}" placeholder="{{ composerHint }}" aria-label="Ask across your work" style="flex:1;min-width:0;height:24px;border:0;background:transparent;color:var(--ink);font:400 13.5px 'Hanken Grotesk'">
+        <span style="display:inline-block;width:1.5px;height:16px;background:var(--ink);animation:blink 1.1s step-end infinite;opacity:{{ caretOn }}"></span>
+      </div>
+      <div style="margin-top:10px;display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+        <span style="border:1px solid var(--border);border-radius:5px;padding:2px 8px;font:600 9.5px 'JetBrains Mono';color:var(--soft)">{{ composerScope }}</span>
+        <sc-if value="{{ showAlt }}" hint-placeholder-val="{{ false }}">
+          <span style="border:1px solid var(--border);border-radius:5px;padding:2px 8px;font:600 9.5px 'JetBrains Mono';color:var(--mute)">{{ composerAlt }}</span>
+        </sc-if>
+        <div style="flex:1"></div>
+        <button onClick="{{ onSend }}" style="border:1px solid var(--edge2);border-radius:6px;background:transparent;color:var(--soft);font:600 12px 'Hanken Grotesk';padding:6px 14px;cursor:pointer;transition:all var(--dur) var(--curve)" style-hover="border-color:var(--la);color:var(--ink)" style-focus="outline:2px solid var(--accent);outline-offset:2px">{{ composerAction }}</button>
+      </div>
+    </div>
+  </footer>
+
+  <sc-if value="{{ sheetOpen }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute;inset:0;display:flex;justify-content:flex-end;z-index:20">
+      <button onClick="{{ close }}" aria-label="Close" style="flex:1;border:0;background:rgba(8,9,11,.5);cursor:pointer"></button>
+      <div style="width:{{ sheetWidth }};flex:none;border-left:1px solid var(--edge2);background:var(--surface);box-shadow:-24px 0 60px rgba(0,0,0,.5);display:flex;flex-direction:column;animation:slideIn 200ms var(--curve);transition:width 200ms var(--curve)">
+        <div style="flex:none;display:flex;align-items:center;gap:10px;padding:13px 20px 9px;min-width:0">
+          <span style="flex:none;font:700 9.5px 'JetBrains Mono';letter-spacing:.11em;text-transform:uppercase;color:var(--soft)">{{ sheetKind }}</span>
+          <span style="min-width:0;font:600 14.5px 'Hanken Grotesk';white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ sheetTitle }}</span>
+          <div style="flex:1"></div>
+          <button onClick="{{ toggleWide }}" style="flex:none;border:1px solid var(--edge);background:var(--bg);border-radius:6px;padding:4px 10px;cursor:pointer;font:600 10px 'JetBrains Mono';color:var(--ink2);transition:all var(--dur) var(--curve)" style-hover="border-color:var(--edge2)" style-focus="outline:2px solid var(--accent);outline-offset:1px">{{ wideLabel }}</button>
+          <button onClick="{{ close }}" style="flex:none;border:0;background:transparent;cursor:pointer;font:500 10.5px 'JetBrains Mono';color:var(--mute)" style-hover="color:var(--ink)" style-focus="outline:2px solid var(--accent);outline-offset:1px">esc</button>
+        </div>
+        <div style="flex:none;display:flex;align-items:center;gap:9px;padding:0 20px 11px;border-bottom:1px solid var(--border);min-width:0;flex-wrap:wrap">
+          <sc-if value="{{ hasParent }}" hint-placeholder-val="{{ false }}">
+            <button onClick="{{ onOpenParent }}" style="border:1px solid var(--border);background:var(--bg);border-radius:6px;padding:3px 9px;cursor:pointer;font:600 10px 'JetBrains Mono';color:var(--soft);transition:border-color var(--dur) var(--curve)" style-hover="border-color:var(--accent)" style-focus="outline:2px solid var(--accent);outline-offset:1px">✦ {{ parentName }}</button>
+          </sc-if>
+          <span style="font:400 10px 'JetBrains Mono';color:var(--mute)">{{ sheetMeta }}</span>
+          <div style="flex:1"></div>
+          <span style="border:1px solid var(--border);border-radius:6px;padding:3px 8px;font:600 10px 'JetBrains Mono';color:var(--ink2)">{{ sheetRoute }}</span>
+          <span style="border:1px solid var(--border);border-radius:6px;padding:3px 8px;font:600 10px 'JetBrains Mono';color:var(--soft)">{{ sheetAuto }}</span>
+        </div>
+
+        <div style="flex:1;min-height:0;overflow-y:auto;padding:15px 20px;display:flex;flex-direction:column;gap:16px">
+
+          <sc-if value="{{ isInitiative }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;flex-direction:column;gap:7px">
+              <div style="display:flex;align-items:center;gap:9px">
+                <span style="font:700 9px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--faint)">Chunk ledger</span>
+                <span style="flex:1;height:1px;background:var(--hair)"></span>
+                <span style="font:400 9.5px 'JetBrains Mono';color:var(--faint)">{{ sheetProgress }}</span>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:2px">
+                <sc-for list="{{ sheetChunks }}" as="c" hint-placeholder-count="4">
+                  <div style="display:flex;align-items:center;gap:11px;padding:6px 7px;border-radius:7px;min-width:0;transition:background var(--dur) var(--curve)" style-hover="background:var(--hover)">
+                    <span style="flex:none;width:15px;height:15px;display:flex;align-items:center;justify-content:center;border-radius:4px;border:1px solid {{ c.line }};background:{{ c.bg }};color:{{ c.fg }};font:700 8.5px 'JetBrains Mono'">{{ c.mark }}</span>
+                    <span style="min-width:0;flex:1;font:400 12.5px 'Hanken Grotesk';color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.label }}</span>
+                    <span style="flex:none;font:400 10px 'JetBrains Mono';color:var(--mute)">{{ c.note }}</span>
+                    <span style="flex:none;min-width:58px;text-align:right;font:600 9.5px 'JetBrains Mono';text-transform:uppercase;color:{{ c.fg }}">{{ c.status }}</span>
+                    <sc-if value="{{ c.canRun }}" hint-placeholder-val="{{ false }}">
+                      <button onClick="{{ c.onRun }}" style="flex:none;border:1px solid var(--edge);border-radius:6px;background:var(--bg);color:var(--ink2);font:600 10.5px 'Hanken Grotesk';padding:3px 10px;cursor:pointer;transition:all var(--dur) var(--curve)" style-hover="border-color:var(--accent);color:var(--ink)" style-focus="outline:2px solid var(--accent);outline-offset:1px">Run this chunk</button>
+                    </sc-if>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="display:flex;gap:8px;padding:4px 7px 0">
+                <button style="border:1px solid var(--edge);border-radius:6px;background:var(--bg);color:var(--ink2);font:600 11px 'Hanken Grotesk';padding:5px 11px;cursor:pointer;transition:all var(--dur) var(--curve)" style-hover="border-color:var(--edge2);color:var(--ink)" style-focus="outline:2px solid var(--accent);outline-offset:1px">+ chunk</button>
+                <button style="border:1px solid var(--edge);border-radius:6px;background:var(--bg);color:var(--ink2);font:600 11px 'Hanken Grotesk';padding:5px 11px;cursor:pointer;transition:all var(--dur) var(--curve)" style-hover="border-color:var(--edge2);color:var(--ink)" style-focus="outline:2px solid var(--accent);outline-offset:1px">Reorder</button>
+              </div>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:7px">
+              <div style="display:flex;align-items:center;gap:9px">
+                <span style="font:700 9px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--faint)">Sessions</span>
+                <span style="flex:1;height:1px;background:var(--hair)"></span>
+                <span style="font:400 9.5px 'JetBrains Mono';color:var(--faint)">{{ sheetSessionMeta }}</span>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:2px">
+                <sc-for list="{{ sheetSessions }}" as="s" hint-placeholder-count="3">
+                  <button onClick="{{ s.onOpen }}" style="display:flex;align-items:center;gap:11px;width:100%;border:0;border-radius:7px;background:transparent;padding:7px 7px;cursor:pointer;text-align:left;min-width:0;transition:background var(--dur) var(--curve)" style-hover="background:var(--hover)" style-focus="outline:2px solid var(--accent);outline-offset:-2px">
+                    <span style="flex:none;width:12px;text-align:center;font:700 10px 'JetBrains Mono';color:{{ s.markFg }}">{{ s.mark }}</span>
+                    <span style="min-width:0;flex:1;font:400 12.5px 'Hanken Grotesk';color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ s.name }}</span>
+                    <span style="flex:none;font:400 10px 'JetBrains Mono';color:var(--mute)">{{ s.reading }}</span>
+                    <span style="flex:none;min-width:64px;text-align:right;font:600 9.5px 'JetBrains Mono';color:{{ s.stateFg }}">{{ s.state }}</span>
+                  </button>
+                </sc-for>
+              </div>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:7px">
+              <div style="display:flex;align-items:center;gap:9px">
+                <span style="font:700 9px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--faint)">Decisions on this initiative</span>
+                <span style="flex:1;height:1px;background:var(--hair)"></span>
+              </div>
+              <sc-for list="{{ sheetDecisions }}" as="d" hint-placeholder-count="2">
+                <div style="display:flex;gap:12px;align-items:baseline;padding:2px 7px;min-width:0">
+                  <span style="flex:none;width:56px;font:400 10px 'JetBrains Mono';color:var(--faint)">{{ d.at }}</span>
+                  <span style="min-width:0;flex:1;font:400 12.5px/1.5 'Hanken Grotesk';color:var(--ink3);text-wrap:pretty">{{ d.text }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ isSession }}" hint-placeholder-val="{{ true }}">
+            <sc-if value="{{ showLiveCfg }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;flex-direction:column;gap:9px;border:1px solid var(--border);border-radius:9px;background:var(--bg);padding:11px 12px">
+                <div style="display:flex;align-items:center;gap:9px">
+                  <span style="font:700 9px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--faint)">Running settings</span>
+                  <span style="flex:1;height:1px;background:var(--hair)"></span>
+                  <span style="font:400 9.5px 'JetBrains Mono';color:var(--faint)">applies to the next task, not the ones already out</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+                  <div style="display:flex;align-items:center;gap:8px">
+                    <span style="font:700 9px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--faint)">At once</span>
+                    <button onClick="{{ onParDown }}" aria-label="Fewer at once" style="width:24px;height:24px;border:1px solid var(--edge);border-radius:6px;background:var(--surface);color:var(--ink2);font:600 12px 'JetBrains Mono';cursor:pointer;transition:all var(--dur) var(--curve)" style-hover="border-color:var(--edge2)" style-focus="outline:2px solid var(--accent);outline-offset:1px">−</button>
+                    <span style="min-width:18px;text-align:center;font:600 12.5px 'JetBrains Mono';color:var(--ink)">{{ livePar }}</span>
+                    <button onClick="{{ onParUp }}" aria-label="More at once" style="width:24px;height:24px;border:1px solid var(--edge);border-radius:6px;background:var(--surface);color:var(--ink2);font:600 12px 'JetBrains Mono';cursor:pointer;transition:all var(--dur) var(--curve)" style-hover="border-color:var(--edge2)" style-focus="outline:2px solid var(--accent);outline-offset:1px">+</button>
+                    <span style="font:400 9.5px 'JetBrains Mono';color:var(--faint)">{{ liveParNote }}</span>
+                  </div>
+                  <button onClick="{{ onCycleWorker }}" style="display:flex;align-items:center;gap:8px;border:1px solid var(--edge);border-radius:6px;background:var(--surface);padding:4px 10px;cursor:pointer;transition:all var(--dur) var(--curve)" style-hover="border-color:var(--edge2)" style-focus="outline:2px solid var(--accent);outline-offset:1px">
+                    <span style="font:700 9px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--faint)">Workers</span>
+                    <span style="font:600 10.5px 'JetBrains Mono';color:var(--soft)">{{ liveWorker }}</span>
+                  </button>
+                  <button onClick="{{ onToggleGate }}" aria-pressed="{{ liveGate }}" style="display:flex;align-items:center;gap:9px;border:0;background:transparent;padding:0;cursor:pointer" style-focus="outline:2px solid var(--accent);outline-offset:2px">
+                    <span style="width:30px;height:17px;border-radius:999px;background:{{ liveGateTrack }};position:relative;transition:background var(--dur) var(--curve)"><span style="position:absolute;top:2px;left:{{ liveGateKnob }};width:13px;height:13px;border-radius:999px;background:var(--bg);transition:left var(--dur) var(--curve)"></span></span>
+                    <span style="font:600 10.5px 'JetBrains Mono';color:var(--ink2)">{{ liveGateLabel }}</span>
+                  </button>
+                </div>
+                <sc-if value="{{ liveDrifted }}" hint-placeholder-val="{{ false }}">
+                  <div style="display:flex;align-items:center;gap:11px;border-top:1px solid var(--hair);padding-top:9px">
+                    <span style="min-width:0;flex:1;font:400 11px/1.5 'JetBrains Mono';color:var(--warn);text-wrap:pretty">{{ liveDriftNote }}</span>
+                    <button onClick="{{ onSaveToProfile }}" style="flex:none;border:1px solid var(--border);background:var(--surface);border-radius:6px;padding:4px 10px;cursor:pointer;font:600 10px 'JetBrains Mono';color:var(--soft);transition:border-color var(--dur) var(--curve)" style-hover="border-color:var(--accent)" style-focus="outline:2px solid var(--accent);outline-offset:1px">{{ saveProfileLabel }}</button>
+                  </div>
+                </sc-if>
+              </div>
+            </sc-if>
+            <sc-if value="{{ hasAdvances }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;align-items:center;gap:11px;border:1px solid var(--border);border-radius:8px;background:var(--bg);padding:9px 11px;min-width:0">
+                <span style="flex:none;font:700 9px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--faint)">Advances</span>
+                <span style="min-width:0;flex:1;font:400 12.5px 'Hanken Grotesk';color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ advancesLabel }}</span>
+                <span style="flex:none;font:600 9.5px 'JetBrains Mono';text-transform:uppercase;color:{{ advancesFg }}">{{ advancesStatus }}</span>
+              </div>
+            </sc-if>
+            <div style="display:flex;flex-direction:column;gap:7px">
+              <div style="display:flex;align-items:center;gap:9px">
+                <span style="font:700 9px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--faint)">What it touched</span>
+                <span style="flex:1;height:1px;background:var(--hair)"></span>
+                <button onClick="{{ onOpenPicker }}" style="border:1px solid var(--border);background:var(--bg);border-radius:6px;padding:3px 9px;cursor:pointer;font:600 9.5px 'JetBrains Mono';color:var(--soft);transition:border-color var(--dur) var(--curve)" style-hover="border-color:var(--accent)" style-focus="outline:2px solid var(--accent);outline-offset:1px">+ attach a record</button>
+              </div>
+              <sc-for list="{{ sheetEdges }}" as="e" hint-placeholder-count="2">
+                <div style="display:flex;align-items:center;gap:10px;border:1px solid {{ e.line }};border-radius:7px;background:var(--bg);padding:7px 10px;min-width:0">
+                  <span style="flex:none;font:700 9px 'JetBrains Mono';letter-spacing:.08em;text-transform:uppercase;color:var(--faint);width:52px">{{ e.kind }}</span>
+                  <span style="min-width:0;flex:1;font:500 12px 'Hanken Grotesk';color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-decoration:{{ e.strike }}">{{ e.title }}</span>
+                  <span style="flex:none;font:600 9.5px 'JetBrains Mono';color:{{ e.stateFg }}">{{ e.stateLabel }}</span>
+                  <button onClick="{{ e.onToggle }}" style="flex:none;border:1px solid var(--border);background:var(--surface);border-radius:6px;padding:3px 9px;cursor:pointer;font:600 9.5px 'JetBrains Mono';color:var(--ink2);transition:border-color var(--dur) var(--curve)" style-hover="border-color:var(--accent)" style-focus="outline:2px solid var(--accent);outline-offset:1px">{{ e.action }}</button>
+                </div>
+              </sc-for>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:9px">
+              <sc-for list="{{ sheetStream }}" as="s" hint-placeholder-count="4">
+                <div style="display:flex;gap:12px;align-items:baseline;min-width:0">
+                  <span style="flex:none;width:44px;font:400 10px 'JetBrains Mono';color:var(--faint)">{{ s.at }}</span>
+                  <span style="min-width:0;flex:1;font:400 12.5px/1.55 'Hanken Grotesk';color:var(--ink3);text-wrap:pretty">{{ s.text }}</span>
+                </div>
+              </sc-for>
+              <div style="display:flex;gap:12px;align-items:baseline"><span style="flex:none;width:44px"></span><span style="display:inline-block;width:1.5px;height:15px;background:var(--soft);animation:blink 1.1s step-end infinite;opacity:{{ liveCaret }}"></span></div>
+            </div>
+          </sc-if>
+        </div>
+
+        <div style="flex:none;padding:11px 20px 15px;border-top:1px solid var(--border)">
+          <span style="display:block;font:400 11px/1.5 'JetBrains Mono';color:var(--faint);text-wrap:pretty">{{ sheetFoot }}</span>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ recOpen }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:44px;z-index:30">
+      <button onClick="{{ close }}" aria-label="Close the record" style="position:absolute;inset:0;border:0;background:rgba(8,9,11,.62);cursor:pointer"></button>
+      <div style="position:relative;width:640px;max-width:100%;border:1px solid var(--edge2);border-radius:12px;background:var(--surface);box-shadow:0 24px 60px rgba(0,0,0,.55);overflow:hidden;display:flex;flex-direction:column;animation:riseIn 180ms var(--curve)">
+        <div style="display:flex;align-items:center;gap:10px;padding:13px 17px;border-bottom:1px solid var(--border);min-width:0">
+          <span style="flex:none;font:700 9.5px 'JetBrains Mono';letter-spacing:.11em;text-transform:uppercase;color:var(--soft)">{{ recKind }}</span>
+          <span style="min-width:0;font:600 13.5px 'Hanken Grotesk';white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ recTitle }}</span>
+          <div style="flex:1"></div>
+          <span style="flex:none;font:600 9.5px 'JetBrains Mono';color:var(--ok)">{{ recFresh }}</span>
+          <sc-if value="{{ recHasStatus }}" hint-placeholder-val="{{ true }}">
+            <button onClick="{{ onStatusToggle }}" aria-label="Change what this record does" style="flex:none;border:1px solid var(--edge2);border-radius:6px;background:var(--raised);padding:3px 9px;cursor:pointer;font:600 10px 'JetBrains Mono';color:{{ recStatusFg }};transition:border-color var(--dur) var(--curve)" style-hover="border-color:var(--la)" style-focus="outline:2px solid var(--accent);outline-offset:1px">{{ recStatusLabel }}</button>
+          </sc-if>
+          <button onClick="{{ close }}" style="flex:none;border:0;background:transparent;cursor:pointer;font:500 10.5px 'JetBrains Mono';color:var(--mute)" style-hover="color:var(--ink)" style-focus="outline:2px solid var(--accent);outline-offset:1px">esc</button>
+        </div>
+        <sc-if value="{{ statusOpen }}" hint-placeholder-val="{{ false }}">
+          <div style="flex:none;border-bottom:1px solid var(--border);background:var(--raised);padding:7px 9px;display:flex;flex-direction:column;gap:1px;animation:riseIn 130ms var(--curve)">
+            <sc-for list="{{ recStatusRows }}" as="s" hint-placeholder-count="4">
+              <button onClick="{{ s.onPick }}" style="display:flex;align-items:baseline;gap:10px;width:100%;border:0;border-radius:6px;background:{{ s.bg }};padding:7px 10px;cursor:pointer;text-align:left;min-width:0;transition:background var(--dur) var(--curve)" style-hover="background:var(--hover)" style-focus="outline:2px solid var(--accent);outline-offset:-2px">
+                <span style="flex:none;width:8px;font:700 9px 'JetBrains Mono';color:{{ s.fg }}">{{ s.mark }}</span>
+                <span style="flex:none;width:58px;font:600 11px 'JetBrains Mono';color:{{ s.fg }}">{{ s.label }}</span>
+                <span style="min-width:0;flex:1;font:400 11.5px/1.45 'Hanken Grotesk';color:var(--mute);text-wrap:pretty">{{ s.note }}</span>
+              </button>
+            </sc-for>
+          </div>
+        </sc-if>
+        <div style="padding:15px 17px;display:flex;flex-direction:column;gap:12px">
+          <p style="font:400 13px/1.6 'Hanken Grotesk';color:var(--ink2);text-wrap:pretty">{{ recBody }}</p>
+
+          <!-- the record's own runs: attribution read from the record's side. Everywhere else in the
+               brief a session names the record it advanced; here the record names the sessions. -->
+          <sc-if value="{{ recRunsShow }}" hint-placeholder-val="{{ true }}">
+            <div style="border:1px solid var(--border);border-radius:9px;background:var(--bg);overflow:hidden">
+              <div style="display:flex;align-items:center;gap:9px;padding:8px 12px;border-bottom:1px solid var(--hair)">
+                <span style="font:700 9px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--faint)">Fleet · on this record</span>
+                <span style="flex:1;height:1px;background:var(--hair)"></span>
+                <span style="font:500 9.5px 'JetBrains Mono';color:var(--mute)">{{ recFleetMeta }}</span>
+              </div>
+              <sc-for list="{{ recRuns }}" as="r" hint-placeholder-count="3">
+                <button onClick="{{ r.onOpen }}" style="display:flex;align-items:center;gap:10px;width:100%;border:0;background:transparent;padding:7px 12px;cursor:pointer;text-align:left;min-width:0;transition:background var(--dur) var(--curve)" style-hover="background:var(--hover)" style-focus="outline:2px solid var(--accent);outline-offset:-2px">
+                  <span style="flex:none;width:9px;font:700 10px 'JetBrains Mono';color:{{ r.markFg }}">{{ r.mark }}</span>
+                  <span style="min-width:0;flex:1;font:500 12px 'Hanken Grotesk';color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.name }}</span>
+                  <span style="flex:none;font:400 9.5px 'JetBrains Mono';color:var(--faint);white-space:nowrap">{{ r.meta }}</span>
+                  <span style="flex:none;font:600 9.5px 'JetBrains Mono';color:{{ r.stateFg }};white-space:nowrap">{{ r.state }}</span>
+                </button>
+              </sc-for>
+              <sc-if value="{{ recRunsEmpty }}" hint-placeholder-val="{{ false }}">
+                <div style="padding:9px 12px;font:400 11px 'JetBrains Mono';color:var(--faint)">no session has ever been attributed to this record</div>
+              </sc-if>
+            </div>
+          </sc-if>
+
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <button onClick="{{ onRecGraph }}" style="border:1px solid var(--edge);border-radius:6px;background:transparent;padding:5px 11px;cursor:pointer;font:500 11px 'JetBrains Mono';color:var(--ink3);transition:all var(--dur) var(--curve)" style-hover="border-color:var(--la);color:var(--ink)" style-focus="outline:2px solid var(--accent);outline-offset:1px">Where it sits on the map</button>
+            <span style="border:1px solid var(--edge);border-radius:6px;padding:5px 11px;font:500 11px 'JetBrains Mono';color:var(--ink3)">{{ recLog }}</span>
+            <div style="flex:1"></div>
+            <button onClick="{{ onRecVault }}" style="border:1px solid var(--border);border-radius:6px;background:var(--bg);padding:5px 11px;cursor:pointer;font:600 11px 'JetBrains Mono';color:var(--soft);transition:border-color var(--dur) var(--curve)" style-hover="border-color:var(--accent)" style-focus="outline:2px solid var(--accent);outline-offset:1px">Open in Vault →</button>
+          </div>
+          <sc-if value="{{ recShowAbsence }}" hint-placeholder-val="{{ true }}">
+            <span style="align-self:flex-start;border:1px dashed var(--edge2);border-radius:6px;padding:3px 9px;font:400 9.5px 'JetBrains Mono';color:var(--faint)">Record · you cannot message one. Ask in the composer and Jarvis reads it.</span>
+          </sc-if>
+          <span style="font:400 11px/1.5 'JetBrains Mono';color:var(--faint);text-wrap:pretty">what runs against it and what you set it to are brief business, so they are here. Its full history, its decision log and every past correction live on the Vault surface.</span>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ planOpen }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute;inset:0;display:flex;justify-content:flex-end;z-index:25">
+      <button onClick="{{ close }}" aria-label="Close the plan" style="flex:1;border:0;background:rgba(8,9,11,.5);cursor:pointer"></button>
+      <div style="width:min(780px, 72%);flex:none;border-left:1px solid var(--edge2);background:var(--surface);box-shadow:-24px 0 60px rgba(0,0,0,.5);display:flex;flex-direction:column;animation:slideIn 200ms var(--curve)">
+
+        <div style="flex:none;display:flex;align-items:center;gap:10px;padding:15px 24px 11px;min-width:0">
+          <span style="flex:none;font:700 9.5px 'JetBrains Mono';letter-spacing:.11em;text-transform:uppercase;color:var(--soft)">{{ planKind }}</span>
+          <div style="flex:1"></div>
+          <button onClick="{{ close }}" style="flex:none;border:0;background:transparent;cursor:pointer;font:500 10.5px 'JetBrains Mono';color:var(--mute)" style-hover="color:var(--ink)" style-focus="outline:2px solid var(--accent);outline-offset:1px">esc</button>
+        </div>
+
+        <div style="flex:1;min-height:0;overflow-y:auto;padding:0 24px 20px;display:flex;flex-direction:column;gap:20px">
+
+          <sc-if value="{{ planIsReady }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <h2 style="font:700 22px 'Hanken Grotesk';letter-spacing:-.01em;text-wrap:pretty">{{ planTitle }}</h2>
+              <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+                <sc-if value="{{ planHasOwner }}" hint-placeholder-val="{{ true }}">
+                  <button onClick="{{ onOpenPlanOwner }}" style="border:0;background:transparent;padding:0;cursor:pointer;font:600 10.5px 'JetBrains Mono';color:var(--soft)" style-hover="color:var(--accent2)" style-focus="outline:2px solid var(--accent);outline-offset:2px">{{ planOwner }}</button>
+                </sc-if>
+                <span style="font:400 10.5px 'JetBrains Mono';color:var(--mute)">{{ planMeta }}</span>
+              </div>
+              <p style="font:400 13.5px/1.6 'Hanken Grotesk';color:var(--ink2);text-wrap:pretty;max-width:64ch">{{ planBody }}</p>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ planShowList }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;flex-direction:column;gap:9px">
+            <div style="display:flex;align-items:center;gap:9px">
+              <span style="font:700 9px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--faint)">{{ planListLabel }}</span>
+              <span style="flex:1;height:1px;background:var(--hair)"></span>
+              <span style="font:400 9.5px 'JetBrains Mono';color:var(--faint)">{{ planListMeta }}</span>
+            </div>
+            <sc-for list="{{ planPhases }}" as="ph" hint-placeholder-count="3">
+              <div style="display:flex;flex-direction:column;gap:1px">
+                <div style="display:flex;align-items:center;gap:9px;padding:5px 8px 3px">
+                  <span style="font:700 9px 'JetBrains Mono';letter-spacing:.1em;text-transform:uppercase;color:var(--label)">{{ ph.name }}</span>
+                  <span style="font:400 9.5px 'JetBrains Mono';color:var(--faint)">{{ ph.meta }}</span>
+                </div>
+                <sc-for list="{{ ph.tasks }}" as="t" hint-placeholder-count="3">
+                  <div style="display:flex;align-items:center;gap:12px;padding:7px 8px;border-radius:7px;min-width:0;transition:background var(--dur) var(--curve)" style-hover="background:var(--hover)">
+                    <span style="flex:none;width:22px;font:400 10px 'JetBrains Mono';color:var(--faint)">{{ t.n }}</span>
+                    <span style="min-width:0;flex:1;font:400 13px 'Hanken Grotesk';color:var(--ink2);text-wrap:pretty">{{ t.name }}</span>
+                    <span style="flex:none;min-width:78px;text-align:right;font:600 9.5px 'JetBrains Mono';color:{{ t.readyFg }}">{{ t.readyLabel }}</span>
+                    <button onClick="{{ t.onDrop }}" aria-label="{{ t.dropLabel }}" style="flex:none;width:22px;height:22px;border:1px solid var(--border);border-radius:5px;background:transparent;color:var(--mute);font:600 11px 'JetBrains Mono';cursor:pointer;transition:all var(--dur) var(--curve)" style-hover="border-color:var(--err);color:var(--err)" style-focus="outline:2px solid var(--accent);outline-offset:1px">×</button>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-for>
+            <button onClick="{{ onAddTask }}" style="align-self:flex-start;border:1px dashed var(--edge);border-radius:7px;background:transparent;padding:6px 12px;cursor:pointer;font:600 11px 'Hanken Grotesk';color:var(--mute);transition:all var(--dur) var(--curve)" style-hover="border-color:var(--edge2);color:var(--ink2)" style-focus="outline:2px solid var(--accent);outline-offset:1px">{{ addTaskLabel }}</button>
+          </div>
+          </sc-if>
+
+          <div style="display:flex;flex-direction:column;gap:9px">
+            <div style="display:flex;align-items:center;gap:9px">
+              <span style="font:700 9px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--faint)">How it will run</span>
+              <span style="flex:1;height:1px;background:var(--hair)"></span>
+              <button onClick="{{ onOpenPlanProfile }}" style="border:1px solid var(--border);background:var(--bg);border-radius:6px;padding:4px 10px;cursor:pointer;font:600 10px 'JetBrains Mono';color:var(--soft);transition:border-color var(--dur) var(--curve)" style-hover="border-color:var(--accent)" style-focus="outline:2px solid var(--accent);outline-offset:1px">{{ planProfileChip }}</button>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px 18px">
+              <sc-for list="{{ planSettings }}" as="s" hint-placeholder-count="5">
+                <div style="display:flex;align-items:baseline;gap:10px;padding:6px 8px;min-width:0">
+                  <span style="flex:none;width:82px;font:700 9px 'JetBrains Mono';letter-spacing:.1em;text-transform:uppercase;color:var(--faint)">{{ s.label }}</span>
+                  <span style="min-width:0;flex:1;font:600 12px 'JetBrains Mono';color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ s.value }}</span>
+                </div>
+              </sc-for>
+            </div>
+            <p style="font:400 12.5px/1.55 'Hanken Grotesk';color:var(--ink3);text-wrap:pretty;max-width:66ch">{{ planConsequence }}</p>
+          </div>
+        </div>
+
+        <div style="flex:none;display:flex;align-items:center;gap:10px;padding:13px 24px 17px;border-top:1px solid var(--border);background:var(--bg);flex-wrap:wrap">
+          <button onClick="{{ onPlanApprove }}" style="border:0;border-radius:7px;background:var(--accent);color:#0c0e11;font:600 12.5px 'Hanken Grotesk';padding:8px 17px;cursor:pointer;transition:background var(--dur) var(--curve)" style-hover="background:var(--accent2)" style-focus="outline:2px solid var(--accent);outline-offset:2px">{{ planPrimary }}</button>
+          <button onClick="{{ onPlanSecondary }}" style="border:1px solid var(--edge);border-radius:7px;background:var(--surface);color:var(--ink2);font:600 12.5px 'Hanken Grotesk';padding:8px 15px;cursor:pointer;transition:all var(--dur) var(--curve)" style-hover="border-color:var(--edge2);color:var(--ink)" style-focus="outline:2px solid var(--accent);outline-offset:1px">{{ planSecondary }}</button>
+          <div style="flex:1"></div>
+          <span style="font:400 10.5px 'JetBrains Mono';color:var(--faint)">{{ planFoot }}</span>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ launchOpen }}" hint-placeholder-val="{{ true }}">
+    <div style="position:absolute;inset:0;display:flex;align-items:flex-start;justify-content:center;padding:58px 44px;z-index:35">
+      <button onClick="{{ close }}" aria-label="Discard this run" style="position:absolute;inset:0;border:0;background:rgba(8,9,11,.62);cursor:pointer"></button>
+      <div style="position:relative;width:600px;max-width:100%;border:1px solid var(--edge2);border-radius:12px;background:var(--surface);box-shadow:0 24px 60px rgba(0,0,0,.55);overflow:hidden;display:flex;flex-direction:column;animation:riseIn 180ms var(--curve)">
+
+        <div style="flex:none;display:flex;align-items:center;gap:10px;padding:13px 17px;border-bottom:1px solid var(--border);min-width:0">
+          <span style="flex:none;font:700 9.5px 'JetBrains Mono';letter-spacing:.11em;text-transform:uppercase;color:var(--soft)">New run</span>
+          <span style="min-width:0;font:400 10px 'JetBrains Mono';color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ launchNote }}</span>
+          <div style="flex:1"></div>
+          <button onClick="{{ close }}" style="flex:none;border:0;background:transparent;cursor:pointer;font:500 10.5px 'JetBrains Mono';color:var(--mute)" style-hover="color:var(--ink)" style-focus="outline:2px solid var(--accent);outline-offset:1px">esc</button>
+        </div>
+
+        <div style="padding:15px 17px;display:flex;flex-direction:column;gap:13px">
+          <textarea value="{{ goal }}" onChange="{{ onGoalChange }}" onKeyDown="{{ onGoalKey }}" placeholder="What do you want done?" aria-label="The goal for this run" style="width:100%;min-height:74px;resize:none;border:1px solid {{ goalLine }};border-radius:9px;background:var(--bg);color:var(--ink);font:400 14px/1.55 'Hanken Grotesk';padding:11px 12px;transition:border-color var(--dur) var(--curve)" style-focus="border-color:var(--accent)"></textarea>
+
+          <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+            <span style="font:700 9px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--faint)">Project</span>
+            <div style="position:relative">
+              <button onClick="{{ onToggleProject }}" aria-expanded="{{ projectOpen }}" aria-label="Choose the project" style="display:flex;align-items:center;gap:7px;border:1px solid var(--edge);border-radius:6px;background:var(--surface);color:var(--ink2);cursor:pointer;transition:all var(--dur) var(--curve);padding:4px 10px;font:600 11px 'JetBrains Mono';color:var(--soft)" style-hover="border-color:var(--edge2)" style-focus="outline:2px solid var(--accent);outline-offset:1px">{{ projectLabel }}<span style="color:var(--mute)">{{ projectChev }}</span></button>
+              <sc-if value="{{ projectOpen }}" hint-placeholder-val="{{ false }}">
+                <div style="position:absolute;top:calc(100% + 5px);left:0;z-index:3;min-width:214px;border:1px solid var(--edge2);border-radius:8px;background:var(--raised);box-shadow:0 14px 34px rgba(0,0,0,.5);padding:4px;display:flex;flex-direction:column;gap:1px">
+                  <sc-for list="{{ projects }}" as="p" hint-placeholder-count="3">
+                    <button onClick="{{ p.onPick }}" style="display:flex;align-items:center;gap:10px;border:0;border-radius:6px;background:{{ p.bg }};padding:6px 9px;cursor:pointer;text-align:left;min-width:0;transition:background var(--dur) var(--curve)" style-hover="background:var(--hover)" style-focus="outline:2px solid var(--accent);outline-offset:-2px">
+                      <span style="min-width:0;flex:1;font:600 11.5px 'JetBrains Mono';color:{{ p.fg }};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ p.name }}</span>
+                      <span style="flex:none;font:400 9.5px 'JetBrains Mono';color:{{ p.noteFg }}">{{ p.note }}</span>
+                    </button>
+                  </sc-for>
+                </div>
+              </sc-if>
+            </div>
+            <span style="font:700 9px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--faint)">Route</span>
+            <button onClick="{{ onCycleRoute }}" aria-label="Cycle the route" style="border:1px solid var(--edge);border-radius:6px;background:var(--surface);color:var(--ink2);cursor:pointer;transition:all var(--dur) var(--curve);padding:4px 10px;font:600 11px 'JetBrains Mono';color:var(--soft)" style-hover="border-color:var(--edge2)" style-focus="outline:2px solid var(--accent);outline-offset:1px">{{ routeLabel }}</button>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+            <span style="font:700 9px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--faint)">Shape</span>
+            <sc-for list="{{ shapes }}" as="s" hint-placeholder-count="3">
+              <button onClick="{{ s.onPick }}" aria-pressed="{{ s.on }}" style="border:1px solid {{ s.line }};background:{{ s.bg }};border-radius:7px;padding:5px 12px;cursor:pointer;font:600 11.5px 'Hanken Grotesk';color:{{ s.fg }};transition:all var(--dur) var(--curve)" style-hover="border-color:var(--edge2)" style-focus="outline:2px solid var(--accent);outline-offset:1px">{{ s.label }}</button>
+            </sc-for>
+            <span style="font:400 9.5px 'JetBrains Mono';color:var(--faint)">{{ shapeDefaultNote }}</span>
+          </div>
+
+          <span style="font:400 12.5px/1.55 'Hanken Grotesk';color:var(--ink3);text-wrap:pretty">{{ launchConsequence }}</span>
+
+          <sc-if value="{{ showOrch }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;flex-direction:column;gap:10px;border:1px solid var(--border);border-radius:9px;background:var(--bg);padding:11px 12px">
+              <div style="display:flex;align-items:center;gap:9px">
+                <span style="font:700 9px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--faint)">How it will run</span>
+                <span style="flex:1;height:1px;background:var(--hair)"></span>
+                <button onClick="{{ onOpenLaunchProfile }}" style="border:1px solid var(--border);background:var(--surface);border-radius:6px;padding:3px 9px;cursor:pointer;font:600 10px 'JetBrains Mono';color:var(--soft);transition:border-color var(--dur) var(--curve)" style-hover="border-color:var(--accent)" style-focus="outline:2px solid var(--accent);outline-offset:1px">{{ launchProfileChip }}</button>
+              </div>
+              <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+                <div style="display:flex;align-items:center;gap:7px">
+                  <span style="font:700 9px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--faint)">Machine</span>
+                  <sc-for list="{{ machines }}" as="m" hint-placeholder-count="2">
+                    <button onClick="{{ m.onPick }}" aria-pressed="{{ m.on }}" style="border:1px solid {{ m.line }};background:{{ m.bg }};border-radius:6px;padding:3px 10px;cursor:pointer;font:600 10.5px 'JetBrains Mono';color:{{ m.fg }};transition:all var(--dur) var(--curve)" style-focus="outline:2px solid var(--accent);outline-offset:1px">{{ m.label }}</button>
+                  </sc-for>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px">
+                  <span style="font:700 9px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--faint)">At once</span>
+                  <button onClick="{{ onLxParDown }}" aria-label="Fewer at once" style="width:24px;height:24px;border:1px solid var(--edge);border-radius:6px;background:var(--surface);color:var(--ink2);cursor:pointer;transition:all var(--dur) var(--curve);font:600 12px 'JetBrains Mono'" style-hover="border-color:var(--edge2)" style-focus="outline:2px solid var(--accent);outline-offset:1px">&minus;</button>
+                  <span style="min-width:18px;text-align:center;font:600 12.5px 'JetBrains Mono';color:var(--ink)">{{ lxPar }}</span>
+                  <button onClick="{{ onLxParUp }}" aria-label="More at once" style="width:24px;height:24px;border:1px solid var(--edge);border-radius:6px;background:var(--surface);color:var(--ink2);cursor:pointer;transition:all var(--dur) var(--curve);font:600 12px 'JetBrains Mono'" style-hover="border-color:var(--edge2)" style-focus="outline:2px solid var(--accent);outline-offset:1px">+</button>
+                  <span style="font:400 9.5px 'JetBrains Mono';color:var(--faint)">{{ lxParNote }}</span>
+                </div>
+                <button onClick="{{ onCycleLxWorker }}" style="display:flex;align-items:center;gap:8px;border:1px solid var(--edge);border-radius:6px;background:var(--surface);color:var(--ink2);cursor:pointer;transition:all var(--dur) var(--curve);padding:4px 10px" style-hover="border-color:var(--edge2)" style-focus="outline:2px solid var(--accent);outline-offset:1px">
+                  <span style="font:700 9px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--faint)">Workers</span>
+                  <span style="font:600 10.5px 'JetBrains Mono';color:var(--soft)">{{ lxWorker }}</span>
+                </button>
+                <button onClick="{{ onToggleLxGate }}" aria-pressed="{{ lxGate }}" style="display:flex;align-items:center;gap:9px;border:0;background:transparent;padding:0;cursor:pointer" style-focus="outline:2px solid var(--accent);outline-offset:2px">
+                  <span style="width:30px;height:17px;border-radius:999px;background:{{ lxGateTrack }};position:relative;transition:background var(--dur) var(--curve)"><span style="position:absolute;top:2px;left:{{ lxGateKnob }};width:13px;height:13px;border-radius:999px;background:var(--bg);transition:left var(--dur) var(--curve)"></span></span>
+                  <span style="font:600 10.5px 'JetBrains Mono';color:var(--ink2)">{{ lxGateLabel }}</span>
+                </button>
+              </div>
+              <span style="font:400 11px/1.5 'JetBrains Mono';color:var(--faint);text-wrap:pretty">{{ lxDrift }}</span>
+            </div>
+          </sc-if>
+        </div>
+
+        <div style="flex:none;display:flex;align-items:center;gap:10px;padding:12px 17px 15px;border-top:1px solid var(--border);background:var(--bg);flex-wrap:wrap">
+          <button onClick="{{ onLaunchRun }}" style="border:0;border-radius:7px;background:{{ runBg }};color:{{ runFg }};font:600 12.5px 'Hanken Grotesk';padding:8px 17px;cursor:{{ runCursor }};transition:background var(--dur) var(--curve)" style-hover="background:{{ runHover }}" style-focus="outline:2px solid var(--accent);outline-offset:2px">{{ runLabel }}</button>
+          <button onClick="{{ onLaunchSave }}" style="border:1px solid var(--edge);border-radius:7px;background:var(--surface);color:var(--ink2);font:600 12.5px 'Hanken Grotesk';padding:8px 15px;cursor:pointer;transition:all var(--dur) var(--curve)" style-hover="border-color:var(--edge2);color:var(--ink)" style-focus="outline:2px solid var(--accent);outline-offset:1px">Save without running</button>
+          <div style="flex:1"></div>
+          <span style="font:400 10.5px 'JetBrains Mono';color:var(--faint)">{{ launchFoot }}</span>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ initOpen }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute;inset:0;display:flex;align-items:flex-start;justify-content:center;padding:58px 44px;z-index:35">
+      <button onClick="{{ close }}" aria-label="Discard this initiative" style="position:absolute;inset:0;border:0;background:rgba(8,9,11,.62);cursor:pointer"></button>
+      <div style="position:relative;width:560px;max-width:100%;border:1px solid var(--edge2);border-radius:12px;background:var(--surface);box-shadow:0 24px 60px rgba(0,0,0,.55);overflow:hidden;display:flex;flex-direction:column;animation:riseIn 180ms var(--curve)">
+        <div style="flex:none;display:flex;align-items:center;gap:10px;padding:13px 17px;border-bottom:1px solid var(--border)">
+          <span style="flex:none;font:700 9.5px 'JetBrains Mono';letter-spacing:.11em;text-transform:uppercase;color:var(--soft)">New initiative</span>
+          <span style="font:400 10px 'JetBrains Mono';color:var(--mute)">a ledger you write · nothing runs</span>
+          <div style="flex:1"></div>
+          <button onClick="{{ close }}" style="flex:none;border:0;background:transparent;cursor:pointer;font:500 10.5px 'JetBrains Mono';color:var(--mute)" style-hover="color:var(--ink)" style-focus="outline:2px solid var(--accent);outline-offset:1px">esc</button>
+        </div>
+        <div style="padding:15px 17px;display:flex;flex-direction:column;gap:12px">
+          <input value="{{ initName }}" onChange="{{ onInitNameChange }}" placeholder="What is this initiative?" aria-label="Name this initiative" style="width:100%;border:0;border-bottom:1px solid var(--edge);background:transparent;color:var(--ink);font:700 20px 'Hanken Grotesk';letter-spacing:-.01em;padding:0 0 9px" style-focus="border-color:var(--accent)">
+          <div style="display:flex;align-items:center;gap:9px">
+            <span style="font:700 9px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--faint)">Project</span>
+            <div style="position:relative">
+              <button onClick="{{ onToggleProject }}" aria-expanded="{{ projectOpen }}" aria-label="Choose the project" style="display:flex;align-items:center;gap:7px;border:1px solid var(--edge);border-radius:6px;background:var(--surface);color:var(--ink2);cursor:pointer;transition:all var(--dur) var(--curve);padding:4px 10px;font:600 11px 'JetBrains Mono';color:var(--soft)" style-hover="border-color:var(--edge2)" style-focus="outline:2px solid var(--accent);outline-offset:1px">{{ projectLabel }}<span style="color:var(--mute)">{{ projectChev }}</span></button>
+              <sc-if value="{{ projectOpen }}" hint-placeholder-val="{{ false }}">
+                <div style="position:absolute;top:calc(100% + 5px);left:0;z-index:3;min-width:214px;border:1px solid var(--edge2);border-radius:8px;background:var(--raised);box-shadow:0 14px 34px rgba(0,0,0,.5);padding:4px;display:flex;flex-direction:column;gap:1px">
+                  <sc-for list="{{ projects }}" as="p" hint-placeholder-count="3">
+                    <button onClick="{{ p.onPick }}" style="display:flex;align-items:center;gap:10px;border:0;border-radius:6px;background:{{ p.bg }};padding:6px 9px;cursor:pointer;text-align:left;min-width:0" style-hover="background:var(--hover)" style-focus="outline:2px solid var(--accent);outline-offset:-2px">
+                      <span style="min-width:0;flex:1;font:600 11.5px 'JetBrains Mono';color:{{ p.fg }}">{{ p.name }}</span>
+                      <span style="flex:none;font:400 9.5px 'JetBrains Mono';color:{{ p.noteFg }}">{{ p.note }}</span>
+                    </button>
+                  </sc-for>
+                </div>
+              </sc-if>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:2px">
+            <div style="display:flex;align-items:center;gap:9px;padding:2px 0 4px">
+              <span style="font:700 9px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--faint)">Chunks</span>
+              <span style="flex:1;height:1px;background:var(--hair)"></span>
+              <span style="font:400 9.5px 'JetBrains Mono';color:var(--faint)">{{ initChunkMeta }}</span>
+            </div>
+            <sc-for list="{{ initChunkRows }}" as="c" hint-placeholder-count="3">
+              <div style="display:flex;align-items:center;gap:11px;padding:3px 0">
+                <span style="flex:none;width:22px;font:400 10px 'JetBrains Mono';color:var(--faint)">{{ c.n }}</span>
+                <input value="{{ c.label }}" onChange="{{ c.onLabel }}" placeholder="{{ c.placeholder }}" aria-label="{{ c.aria }}" style="min-width:0;flex:1;height:30px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--ink2);font:400 12.5px 'Hanken Grotesk';padding:0 10px;transition:border-color var(--dur) var(--curve)" style-focus="border-color:var(--accent)">
+                <button onClick="{{ c.onDrop }}" aria-label="{{ c.dropLabel }}" style="flex:none;width:22px;height:22px;border:1px solid var(--border);border-radius:5px;background:transparent;color:var(--mute);font:600 11px 'JetBrains Mono';cursor:pointer;transition:all var(--dur) var(--curve)" style-hover="border-color:var(--err);color:var(--err)" style-focus="outline:2px solid var(--accent);outline-offset:1px">&times;</button>
+              </div>
+            </sc-for>
+            <button onClick="{{ onAddInitChunk }}" style="align-self:flex-start;margin-top:5px;border:1px dashed var(--edge);border-radius:7px;background:transparent;padding:5px 12px;cursor:pointer;font:600 11px 'Hanken Grotesk';color:var(--mute);transition:all var(--dur) var(--curve)" style-hover="border-color:var(--edge2);color:var(--ink2)" style-focus="outline:2px solid var(--accent);outline-offset:1px">+ chunk</button>
+          </div>
+        </div>
+        <div style="flex:none;display:flex;align-items:center;gap:10px;padding:12px 17px 15px;border-top:1px solid var(--border);background:var(--bg);flex-wrap:wrap">
+          <button onClick="{{ onInitCreate }}" style="border:0;border-radius:7px;background:{{ initBg }};color:{{ initFg }};font:600 12.5px 'Hanken Grotesk';padding:8px 17px;cursor:{{ initCursor }}" style-focus="outline:2px solid var(--accent);outline-offset:2px">Create</button>
+          <button onClick="{{ onInitCreateRun }}" style="border:1px solid var(--edge);border-radius:7px;background:var(--surface);color:var(--ink2);font:600 12.5px 'Hanken Grotesk';padding:8px 15px;cursor:pointer;transition:all var(--dur) var(--curve)" style-hover="border-color:var(--edge2);color:var(--ink)" style-focus="outline:2px solid var(--accent);outline-offset:1px">Create and run chunk 01</button>
+          <div style="flex:1"></div>
+          <span style="font:400 10.5px 'JetBrains Mono';color:var(--faint)">esc discards</span>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ profOpen }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:44px;z-index:30">
+      <button onClick="{{ close }}" aria-label="Close the profile" style="position:absolute;inset:0;border:0;background:rgba(8,9,11,.62);cursor:pointer"></button>
+      <div style="position:relative;width:620px;max-width:100%;border:1px solid var(--edge2);border-radius:12px;background:var(--surface);box-shadow:0 24px 60px rgba(0,0,0,.55);overflow:hidden;display:flex;flex-direction:column;animation:riseIn 180ms var(--curve)">
+        <div style="display:flex;align-items:center;gap:10px;padding:13px 17px;border-bottom:1px solid var(--border);min-width:0">
+          <span style="flex:none;font:700 9.5px 'JetBrains Mono';letter-spacing:.11em;text-transform:uppercase;color:var(--soft)">Project profile</span>
+          <span style="min-width:0;font:600 13.5px 'Hanken Grotesk'">{{ profName }}</span>
+          <div style="flex:1"></div>
+          <button onClick="{{ close }}" style="flex:none;border:0;background:transparent;cursor:pointer;font:500 10.5px 'JetBrains Mono';color:var(--mute)" style-hover="color:var(--ink)" style-focus="outline:2px solid var(--accent);outline-offset:1px">esc</button>
+        </div>
+        <div style="padding:15px 17px;display:flex;flex-direction:column;gap:13px">
+          <p style="font:400 13px/1.6 'Hanken Grotesk';color:var(--ink2);text-wrap:pretty">{{ profNote }}</p>
+          <div style="display:flex;flex-direction:column;gap:1px">
+            <sc-for list="{{ profRows }}" as="r" hint-placeholder-count="5">
+              <div style="display:flex;align-items:center;gap:12px;padding:7px 8px;border-radius:6px;min-width:0;transition:background var(--dur) var(--curve)" style-hover="background:var(--hover)">
+                <span style="flex:none;width:96px;font:700 9px 'JetBrains Mono';letter-spacing:.1em;text-transform:uppercase;color:var(--faint)">{{ r.label }}</span>
+                <span style="min-width:0;flex:1;font:600 12.5px 'JetBrains Mono';color:var(--ink)">{{ r.value }}</span>
+                <span style="flex:none;font:400 11px 'Hanken Grotesk';color:var(--mute)">{{ r.note }}</span>
+              </div>
+            </sc-for>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:7px;border-top:1px solid var(--border);padding-top:12px">
+            <div style="display:flex;align-items:center;gap:9px">
+              <span style="font:700 9px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--faint)">Standing rules</span>
+              <span style="flex:1;height:1px;background:var(--hair)"></span>
+              <span style="font:400 9.5px 'JetBrains Mono';color:var(--faint)">{{ principleMeta }}</span>
+            </div>
+            <sc-for list="{{ principles }}" as="p" hint-placeholder-count="2">
+              <div style="display:flex;align-items:flex-start;gap:10px;border-radius:6px;padding:5px 7px;min-width:0;transition:background var(--dur) var(--curve)" style-hover="background:var(--hover)">
+                <span style="flex:none;font:700 10px 'JetBrains Mono';color:var(--soft);line-height:1.6">·</span>
+                <span style="min-width:0;flex:1;font:400 12.5px/1.6 'Hanken Grotesk';color:var(--ink2);text-wrap:pretty">{{ p.text }}</span>
+                <button onClick="{{ p.onDrop }}" aria-label="Drop this rule" style="flex:none;border:0;background:transparent;padding:2px 4px;cursor:pointer;font:600 10px 'JetBrains Mono';color:var(--faint)" style-hover="color:var(--err)" style-focus="outline:2px solid var(--accent);outline-offset:1px">✕</button>
+              </div>
+            </sc-for>
+            <div style="display:flex;align-items:center;gap:9px;border:1px solid {{ principleLine }};border-radius:7px;background:var(--bg);padding:6px 10px">
+              <input value="{{ newPrinciple }}" onChange="{{ onPrincipleChange }}" onKeyDown="{{ onPrincipleKey }}" placeholder="Add a rule every session in this project inherits" aria-label="Add a standing rule" style="flex:1;min-width:0;height:24px;border:0;background:transparent;color:var(--ink);font:400 12.5px 'Hanken Grotesk'">
+              <button onClick="{{ onAddPrinciple }}" style="flex:none;border:1px solid var(--border);background:var(--surface);border-radius:6px;padding:3px 10px;cursor:pointer;font:600 9.5px 'JetBrains Mono';color:var(--soft)" style-hover="border-color:var(--accent)" style-focus="outline:2px solid var(--accent);outline-offset:1px">add ⏎</button>
+            </div>
+          </div>
+          <span style="font:400 11px/1.5 'JetBrains Mono';color:var(--faint);text-wrap:pretty">set once here, inherited by every session in this project — a session can deviate while it runs without changing this</span>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ autoOpen }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:44px;z-index:30">
+      <button onClick="{{ close }}" aria-label="Close" style="position:absolute;inset:0;border:0;background:rgba(8,9,11,.62);cursor:pointer"></button>
+      <div style="position:relative;width:560px;max-width:100%;border:1px solid var(--edge2);border-radius:12px;background:var(--surface);box-shadow:0 24px 60px rgba(0,0,0,.55);overflow:hidden;display:flex;flex-direction:column;animation:riseIn 180ms var(--curve)">
+        <div style="display:flex;align-items:center;gap:10px;padding:13px 17px;border-bottom:1px solid var(--border)">
+          <span style="flex:none;font:700 9.5px 'JetBrains Mono';letter-spacing:.11em;text-transform:uppercase;color:var(--soft)">How much Jarvis decides</span>
+          <div style="flex:1"></div>
+          <button onClick="{{ close }}" style="border:0;background:transparent;cursor:pointer;font:500 10.5px 'JetBrains Mono';color:var(--mute)" style-hover="color:var(--ink)" style-focus="outline:2px solid var(--accent);outline-offset:1px">esc</button>
+        </div>
+        <div style="padding:15px 17px;display:flex;flex-direction:column;gap:11px">
+          <p style="font:400 12.5px/1.6 'Hanken Grotesk';color:var(--ink2);text-wrap:pretty">Each level keeps everything below it. Picking one is picking how far up the stack you go, not choosing between three behaviours.</p>
+          <div style="display:flex;flex-direction:column;gap:0">
+            <sc-for list="{{ tiers }}" as="t" hint-placeholder-count="3">
+              <button onClick="{{ t.onPick }}" style="display:flex;align-items:flex-start;gap:11px;width:100%;border:1px solid {{ t.line }};border-left-width:3px;border-radius:8px;background:{{ t.bg }};padding:10px 12px;margin-left:{{ t.indent }};cursor:pointer;text-align:left;min-width:0;transition:all var(--dur) var(--curve)" style-hover="border-color:var(--accent)" style-focus="outline:2px solid var(--accent);outline-offset:1px">
+                <span style="flex:none;width:13px;text-align:center;font:700 11px 'JetBrains Mono';color:{{ t.markFg }}">{{ t.mark }}</span>
+                <span style="min-width:0;flex:1;display:flex;flex-direction:column;gap:3px">
+                  <span style="font:600 13px 'Hanken Grotesk';color:{{ t.fg }}">{{ t.name }}</span>
+                  <span style="font:400 11.5px/1.55 'Hanken Grotesk';color:var(--mute);text-wrap:pretty">{{ t.adds }}</span>
+                </span>
+                <span style="flex:none;font:600 9.5px 'JetBrains Mono';color:{{ t.stateFg }}">{{ t.state }}</span>
+              </button>
+            </sc-for>
+          </div>
+          <span style="font:400 11px/1.5 'JetBrains Mono';color:var(--faint);text-wrap:pretty">{{ tierFoot }}</span>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ pickerOpen }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute;inset:0;display:flex;align-items:flex-start;justify-content:center;padding:78px 44px;z-index:32">
+      <button onClick="{{ close }}" aria-label="Close" style="position:absolute;inset:0;border:0;background:rgba(8,9,11,.62);cursor:pointer"></button>
+      <div style="position:relative;width:560px;max-width:100%;border:1px solid var(--edge2);border-radius:12px;background:var(--surface);box-shadow:0 24px 60px rgba(0,0,0,.55);overflow:hidden;display:flex;flex-direction:column;animation:riseIn 160ms var(--curve)">
+        <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border)">
+          <span style="flex:none;font:700 9.5px 'JetBrains Mono';letter-spacing:.11em;text-transform:uppercase;color:var(--soft)">Attach a record</span>
+          <span style="min-width:0;font:400 11px 'JetBrains Mono';color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ pickerFor }}</span>
+          <div style="flex:1"></div>
+          <button onClick="{{ close }}" style="border:0;background:transparent;cursor:pointer;font:500 10.5px 'JetBrains Mono';color:var(--mute)" style-hover="color:var(--ink)" style-focus="outline:2px solid var(--accent);outline-offset:1px">esc</button>
+        </div>
+        <div style="padding:9px 10px;display:flex;flex-direction:column;gap:2px;max-height:340px;overflow-y:auto">
+          <sc-for list="{{ pickerRows }}" as="p" hint-placeholder-count="4">
+            <button onClick="{{ p.onPick }}" style="display:flex;align-items:center;gap:11px;width:100%;border:0;border-radius:7px;background:{{ p.bg }};padding:8px 9px;cursor:pointer;text-align:left;min-width:0;transition:background var(--dur) var(--curve)" style-hover="background:var(--hover)" style-focus="outline:2px solid var(--accent);outline-offset:-2px">
+              <span style="flex:none;width:56px;font:700 9px 'JetBrains Mono';letter-spacing:.08em;text-transform:uppercase;color:var(--faint)">{{ p.kind }}</span>
+              <span style="min-width:0;flex:1;font:500 12.5px 'Hanken Grotesk';color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ p.title }}</span>
+              <span style="flex:none;font:600 9.5px 'JetBrains Mono';color:{{ p.tagFg }}">{{ p.tag }}</span>
+            </button>
+          </sc-for>
+        </div>
+        <div style="padding:9px 16px 13px;border-top:1px solid var(--border)">
+          <span style="font:400 11px/1.5 'JetBrains Mono';color:var(--faint);text-wrap:pretty">attaching is a correction you make, not a guess Jarvis made — it is marked as yours in the ledger.</span>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ graphOpen }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:36px;z-index:31">
+      <button onClick="{{ close }}" aria-label="Close the map" style="position:absolute;inset:0;border:0;background:rgba(8,9,11,.72);cursor:pointer"></button>
+      <div style="position:relative;width:860px;max-width:100%;border:1px solid var(--edge2);border-radius:12px;background:var(--surface);box-shadow:0 24px 60px rgba(0,0,0,.55);overflow:hidden;display:flex;flex-direction:column;animation:riseIn 180ms var(--curve)">
+        <div style="display:flex;align-items:center;gap:10px;padding:12px 17px;border-bottom:1px solid var(--border);flex-wrap:wrap">
+          <span style="flex:none;font:700 9.5px 'JetBrains Mono';letter-spacing:.11em;text-transform:uppercase;color:var(--soft)">The map</span>
+          <span style="font:400 11px 'JetBrains Mono';color:var(--mute)">{{ graphMeta }}</span>
+          <div style="flex:1"></div>
+          <sc-for list="{{ graphLegend }}" as="l" hint-placeholder-count="4">
+            <span style="display:flex;align-items:center;gap:6px;font:500 9.5px 'JetBrains Mono';color:var(--mute)"><span style="width:7px;height:7px;border-radius:999px;background:{{ l.fg }}"></span>{{ l.label }}</span>
+          </sc-for>
+          <span style="width:1px;height:14px;background:var(--edge);margin:0 3px"></span>
+          <button onClick="{{ close }}" style="border:0;background:transparent;cursor:pointer;font:500 10.5px 'JetBrains Mono';color:var(--mute)" style-hover="color:var(--ink)" style-focus="outline:2px solid var(--accent);outline-offset:1px">esc</button>
+        </div>
+        <div style="position:relative;height:392px;background:var(--bg);overflow:hidden">
+          <sc-for list="{{ graphEdges }}" as="g" hint-placeholder-count="6">
+            <span style="position:absolute;left:{{ g.left }};top:{{ g.top }};width:{{ g.width }};height:1px;background:{{ g.fg }};opacity:{{ g.op }};transform:rotate({{ g.rot }});transform-origin:0 0;transition:opacity var(--dur) var(--curve)"></span>
+          </sc-for>
+          <sc-for list="{{ graphNodes }}" as="n" hint-placeholder-count="7">
+            <button onClick="{{ n.onFocus }}" style="position:absolute;left:{{ n.left }};top:{{ n.top }};transform:translate(-50%,-50%);display:flex;align-items:center;gap:7px;border:1px solid {{ n.line }};border-radius:999px;background:{{ n.bg }};padding:5px 11px;cursor:pointer;font:600 10.5px 'JetBrains Mono';color:{{ n.fg }};opacity:{{ n.op }};white-space:nowrap;transition:all var(--dur) var(--curve)" style-hover="border-color:var(--accent)" style-focus="outline:2px solid var(--accent);outline-offset:2px"><span style="width:6px;height:6px;border-radius:999px;background:{{ n.dot }}"></span>{{ n.label }}</button>
+          </sc-for>
+        </div>
+        <div style="padding:11px 17px 14px;border-top:1px solid var(--border);display:flex;align-items:center;gap:12px;min-width:0">
+          <span style="min-width:0;flex:1;font:400 11.5px/1.55 'JetBrains Mono';color:var(--faint);text-wrap:pretty">{{ graphFoot }}</span>
+          <button onClick="{{ onOpenFocused }}" style="flex:none;border:1px solid var(--border);background:var(--bg);border-radius:6px;padding:5px 11px;cursor:pointer;font:600 10px 'JetBrains Mono';color:var(--soft)" style-hover="border-color:var(--accent)" style-focus="outline:2px solid var(--accent);outline-offset:1px">Open it</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ paletteOpen }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute;inset:0;display:flex;align-items:flex-start;justify-content:center;padding:70px 44px;z-index:40">
+      <button onClick="{{ close }}" aria-label="Close search" style="position:absolute;inset:0;border:0;background:rgba(8,9,11,.66);cursor:pointer"></button>
+      <div style="position:relative;width:640px;max-width:100%;border:1px solid var(--edge2);border-radius:12px;background:var(--surface);box-shadow:0 24px 60px rgba(0,0,0,.55);overflow:hidden;display:flex;flex-direction:column;animation:riseIn 160ms var(--curve)">
+        <div style="display:flex;align-items:center;gap:11px;padding:13px 16px;border-bottom:1px solid var(--border)">
+          <span style="font:600 12px 'JetBrains Mono';color:var(--faint)">⌕</span>
+          <input value="{{ query }}" onChange="{{ onQueryChange }}" onKeyDown="{{ onQueryKey }}" placeholder="Initiatives, sessions, records, finished work" aria-label="Search everything" style="flex:1;min-width:0;height:26px;border:0;background:transparent;color:var(--ink);font:400 13.5px 'Hanken Grotesk'">
+          <span style="font:500 10px 'JetBrains Mono';color:var(--faint)">esc</span>
+        </div>
+        <div style="max-height:340px;overflow-y:auto;padding:9px 8px">
+          <sc-for list="{{ results }}" as="r" hint-placeholder-count="5">
+            <button onClick="{{ r.onOpen }}" style="display:flex;align-items:center;gap:11px;width:100%;border:0;border-radius:7px;background:transparent;padding:8px 9px;cursor:pointer;text-align:left;min-width:0;transition:background var(--dur) var(--curve)" style-hover="background:var(--hover)" style-focus="outline:2px solid var(--accent);outline-offset:-2px">
+              <span style="flex:none;font:700 9px 'JetBrains Mono';letter-spacing:.08em;text-transform:uppercase;color:var(--faint);width:64px">{{ r.kind }}</span>
+              <span style="min-width:0;flex:1;font:500 12.5px 'Hanken Grotesk';color:{{ r.fg }};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.title }}</span>
+              <span style="flex:none;font:400 10px 'JetBrains Mono';color:var(--mute)">{{ r.meta }}</span>
+            </button>
+          </sc-for>
+          <sc-if value="{{ noResults }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:14px 10px;font:400 12.5px 'Hanken Grotesk';color:var(--mute)">Nothing matches “{{ query }}”.</div>
+          </sc-if>
+        </div>
+        <div style="border-top:1px solid var(--border);padding:11px 16px;font:400 11px/1.5 'JetBrains Mono';color:var(--faint);text-wrap:pretty">records, threads and finished sessions live only here — archived ones too, greyed and sorted last. Nothing unbounded sits on the brief.</div>
+      </div>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1280,&quot;height&quot;:900}}">
+const OK = "var(--ok)", WARN = "var(--warn)", ERR = "var(--err)", SOFT = "var(--soft)", MUTE = "var(--mute)", ACC = "var(--accent)", FAINT = "var(--faint)";
+const WORKER_LABELS = { sonnet: "sonnet", opus: "opus-4.6", lead: "same as lead" };
+const NEXT_WORKER = { sonnet: "opus", opus: "lead", lead: "sonnet" };
+
+// the launcher's own vocabulary. PROJECTS is ordered most-recent-first, so the head of the
+// list is both the default and the answer to "which project" for anyone who never opens it.
+const PROJECTS = [
+  { name: "wave-term", note: "last used" },
+  { name: "usage-svc", note: "2 live" },
+  { name: "arc-site", note: "quiet 6d" },
+];
+const RUNTIMES = ["claude \u00b7 sonnet", "claude \u00b7 opus-4.6", "codex", "pi"];
+// Quick is first because it is the default: one worker, no plan, no gate. Anything heavier is
+// a step the human takes on purpose, not a fork they are asked to resolve before typing.
+const SHAPES = [
+  { key: "quick", label: "Quick" },
+  { key: "pipeline", label: "Pipeline" },
+  { key: "orchestrator", label: "Orchestrator" },
+];
+const MACHINES = [
+  { key: "engine", label: "engine" },
+  { key: "adaptive", label: "adaptive" },
+];
+// The tiers accumulate — delegator keeps gatekeeper, gatekeeper keeps concierge. Three separate
+// switches would say they are alternatives, which is not what the backend does.
+const TIERS = [
+  { key: "concierge", name: "Concierge", adds: "Brings things to you and never acts. Every gate, every ask, every failure lands in your queue.", foot: "everything reaches you." },
+  { key: "gatekeeper", name: "Gatekeeper", adds: "Also holds work at plan gates on its own, so nothing dispatches while you are away.", foot: "it holds, but still asks you every question." },
+  { key: "delegator", name: "Delegator", adds: "Also answers routine asks itself, and only brings you the ones it has no standing rule for.", foot: "routine asks are answered without you and logged in Behind you." },
+];
+
+// A small slice of the vault web: the wikilink map plus the runs attributed to the focused task.
+// Positions are fixed so the map reads the same every time rather than settling differently per open.
+const GRAPH_NODES = [
+  { id: "attention", kind: "task", label: "Attention reliability", x: 300, y: 118, sheet: "attention" },
+  { id: "harness", kind: "task", label: "Harness sync", x: 108, y: 250, sheet: "harness" },
+  { id: "ledger", kind: "decision", label: "ledger stays append-only", x: 528, y: 74, rec: "attention" },
+  { id: "squash", kind: "decision", label: "squash before merge", x: 556, y: 188, rec: "squash" },
+  { id: "vault", kind: "memory", label: "vault path layout", x: 196, y: 344, rec: "vault" },
+  { id: "poller", kind: "run", label: "poller rewrite", x: 172, y: 60, sheet: "s-drift" },
+  { id: "backfill", kind: "run", label: "backfill asks", x: 404, y: 258, sheet: "s-drift" },
+];
+const GRAPH_LINKS = [
+  ["attention", "ledger"], ["attention", "squash"], ["attention", "poller"],
+  ["attention", "backfill"], ["harness", "vault"], ["harness", "attention"], ["backfill", "vault"],
+];
+const GRAPH_KIND = {
+  task: { dot: ACC, fg: "var(--ink)", line: "var(--la)" },
+  decision: { dot: WARN, fg: "var(--ink2)", line: "var(--lw)" },
+  memory: { dot: OK, fg: "var(--ink2)", line: "color-mix(in oklab,#54c79a 40%,transparent)" },
+  run: { dot: SOFT, fg: "var(--ink2)", line: "var(--border)" },
+};
+
+const SEED_THREADS = [
+  {
+    id: "harnessstall",
+    title: "why did harness sync stall?",
+    meta: "all projects · asked 14h ago · 4 turns",
+    turns: [
+      { who: "you", at: "21:52", text: "why did harness sync stall?" },
+      { who: "jarvis", at: "21:52", text: "Two chunks in, a worker read the pre-migration vault path and failed. Nothing has run against Harness sync since 21:40 because the adopt stage resolves that path at plan time, so every retry resolves it the same wrong way.",
+        refs: [{ n: "[1]", text: "record · vault path layout change", key: "vault" }] },
+      { who: "you", at: "21:55", text: "has anything else read that path?" },
+      { who: "jarvis", at: "21:55", text: "One other run touched it and passed — the backfill run resolved the path after the layout change, not before. That is the only difference between them.",
+        refs: [{ n: "[2]", text: "record · attention polling", key: "attention" }] },
+    ],
+  },
+  {
+    id: "quotashape",
+    title: "should the quota bars read the rollup or the raw rows?",
+    meta: "usage-svc · asked 09-06 · 4 turns",
+    archived: true,
+    turns: [
+      { who: "you", at: "09-06", text: "should the quota bars read the rollup or the raw rows?" },
+      { who: "jarvis", at: "09-06", text: "The rollup. The raw rows are per-request and the bars are per-provider per-day, so reading raw means re-aggregating three million rows on every render.",
+        refs: [{ n: "[1]", text: "record · attention polling", key: "attention" }] },
+      { who: "you", at: "09-06", text: "settled then — rollup." },
+      { who: "jarvis", at: "09-06", text: "Recorded. The quota session reads the rollup table and its evidence says so." },
+    ],
+  },
+];
+
+// Arriving from somewhere else. Five buttons on other surfaces (a run body, a run completion, a radar
+// finding, the vault rail and reader) already say "Ask Jarvis" and hand over a source object plus a
+// suggested prompt. The brief has to catch that, or those buttons land you on a queue that has nothing
+// to do with what you clicked. Mirrors contextualentry.tsx's CHIP_LABEL + suggestedPrompt.
+const SOURCES = {
+  run: {
+    chip: "This session", title: "task 7 · rebase and squash", prompt: "What changed in this session and why?",
+    answer: "Four commits rebased onto main with no conflicts, confined to attention.go and its two tests. It stopped short of merging because this project's profile gates merges to main — that gate is the first thing in your queue.",
+    refs: [{ n: "[1]", text: "session · task 7 · rebase and squash", key: "squash" }],
+  },
+  radar: {
+    chip: "This finding", title: "attention poller can drop an ask across a restart", prompt: "Explain this Radar finding.",
+    answer: "Same cause as the gate you are holding. The poller trusted an in-memory queue, so an ask raised during a restart was never re-read. Two sessions have already corrected it and the second is what the workers read now, which is why the finding is stale rather than open.",
+    refs: [{ n: "[1]", text: "record · attention polling", key: "attention" }],
+  },
+  memory: {
+    chip: "This memory", title: "vault path layout change", prompt: "Recall decisions related to this.",
+    answer: "memroots moved out of /memroots/v1 when the vault gained per-project scoping. One session is still failing on the old path because the adopt stage resolves it at plan time, so every retry resolves it the same wrong way.",
+    refs: [{ n: "[1]", text: "record · vault path layout change", key: "vault" }],
+  },
+};
+// ?from= on the url stands in for the other surface, the same way #empty stands in for a quiet morning
+const SRC_KEY = typeof location !== "undefined" ? (location.hash.match(/from=(\w+)/) || [])[1] : null;
+const SRC = SRC_KEY && SOURCES[SRC_KEY] ? { key: SRC_KEY, ...SOURCES[SRC_KEY] } : null;
+// one thread per source object, reused rather than re-created — asking about the same run twice must
+// not leave two identical threads, the second carrying none of the first's answers
+const SRC_THREAD = SRC
+  ? { id: "src-" + SRC.key, title: SRC.title, meta: "attached · arrived just now", source: SRC, turns: [] }
+  : null;
+
+// the references a session already carries before you touch anything; shared so the evidence band
+// and the picker cannot disagree about what is attached.
+const SEEDED_EDGES = ["squash", "attention"];
+const doneMark = { mark: "✓", status: "done", fg: OK, bg: "var(--ts)", line: "color-mix(in oklab,#54c79a 40%,transparent)" };
+const activeMark = { mark: "▶", status: "active", fg: SOFT, bg: "transparent", line: "var(--la)" };
+const blockMark = { mark: "!", status: "blocked", fg: WARN, bg: "transparent", line: "var(--lw)" };
+const queueMark = { mark: "⏸", status: "queued", fg: MUTE, bg: "transparent", line: "var(--edge2)" };
+const skipMark = { mark: "⤼", status: "skipped", fg: MUTE, bg: "transparent", line: "var(--edge2)" };
+
+const PROFILES = {
+  "wave-term": { shape: "orchestrator", machine: "engine", par: 3, worker: "sonnet", gate: true,
+    note: "Every session in wave-term starts here. Merges to main are gated because the routing path lives in this repo; three at a time is the ready width the DAG usually has." },
+  "usage-svc": { shape: "quick", machine: "engine", par: 1, worker: "sonnet", gate: false,
+    note: "usage-svc work is small and serial, so sessions run as one worker with no plan gate. Raise the width here if the backfills start taking a whole morning." },
+};
+
+// `owner` is the attribution edge, not decoration: a record's own band is derived by asking which
+// sessions point back at it, the same direction jarvis reads it. A record with no owner has no runs
+// and says so rather than drawing an empty band.
+const RECORDS = {
+  attention: {
+    kind: "Record", title: "Attention polling never misses an ask", fresh: "Fresh · 22m", log: "Decision log · 3",
+    owner: "attention", status: "active",
+    body: "The poller re-reads the attention table on every tick rather than trusting the in-memory queue, so an ask raised during a restart still surfaces. Two sessions corrected this; the second is what the current workers read.",
+  },
+  squash: {
+    kind: "Session", title: "dag task 7 · rebase and squash", fresh: "Fresh · 3m", log: "Evidence · 2 test runs",
+    body: "Rebased four commits onto main with no conflicts. The diff is confined to attention.go, attention_test.go and poller_test.go; both test files pass. The worker handed back to the lead rather than merging, because the route profile gates merges to main.",
+  },
+  vault: {
+    kind: "Record", title: "Vault path layout change", fresh: "Fresh · 14h", log: "Decision log · 1",
+    owner: "harness", status: "active",
+    body: "memroots moved out of /memroots/v1 when the vault gained per-project scoping. The adopt stage resolves the path at plan time, so any plan drawn before the change points at a path that no longer exists.",
+  },
+  fastpath: {
+    kind: "Record", title: "In-memory attention fast path", fresh: "Archived · 09-04", log: "Decision log · 2",
+    owner: "attention", status: "archived",
+    body: "The fast path served asks out of the in-memory queue, which is why one raised during a restart could vanish. It was dropped in the follow-up chunk. The record is kept because two plans still cite it as the reason the poller now reads the table on every tick.",
+  },
+};
+
+// The four statuses a record can be set to (jarvisdossier.SetStatus). Archive is last and reads
+// differently because it is the one that takes the record out of what surfaces at you.
+// `label` is the action you are picking, `chip` the state you end up in — the header says Archived,
+// the button says Archive.
+const REC_STATUS = [
+  { key: "active", label: "Active", chip: "Active", fg: OK, note: "surfaces in the brief and in what jarvis reads" },
+  { key: "paused", label: "Pause", chip: "Paused", fg: WARN, note: "still read, but nothing new gets attributed to it" },
+  { key: "completed", label: "Done", chip: "Done", fg: MUTE, note: "settled. read on demand, never surfaced at you" },
+  { key: "archived", label: "Archive", chip: "Archived", fg: MUTE, note: "out of every read except a direct citation. Reversible." },
+];
+
+class Component extends DCLogic {
+  state = {
+    resolved: {},
+    answering: null,
+    answerText: "",
+    retries: 0,
+    // arriving with a source object skips the launcher: you clicked "Ask Jarvis" on a thing, so the
+    // thing is what you land in, not the morning queue
+    peek: SRC ? "ask" : "launch",
+    sheet: null,
+    open: { harness: false, attention: false, rollup: false, triage: false },
+    wide: false,
+    query: "",
+    draft: SRC ? SRC.prompt : "",
+    extra: [],
+    extraLoose: [],
+    newPlans: [],
+    planDispatched: false,
+    liveCfg: {},
+    profiles: {},
+    planId: null,
+    dropped: {},
+    added: {},
+    draftName: "",
+    project: PROJECTS[0].name,
+    projectOpen: false,
+    goal: "backfill the asks dropped before the poller fix",
+    shape: "quick",
+    routeIdx: 0,
+    lxMachine: "engine",
+    lxPar: PROFILES[PROJECTS[0].name].par,
+    lxWorker: PROFILES[PROJECTS[0].name].worker,
+    lxGate: PROFILES[PROJECTS[0].name].gate,
+    initName: "",
+    initChunks: ["", "", ""],
+    newInits: [],
+    noLoose: typeof location !== "undefined" && location.hash === "#empty",
+    // the stage bands that survive as drawer contents: attribution correction, the record picker,
+    // the autonomy tier, principles, the vault graph, and a thread's turns.
+    tier: "delegator",
+    edgePop: null,
+    edgeState: {},
+    edgeConfirming: null,
+    recStatus: {},
+    statusOpen: false,
+    attached: [],
+    principles: [
+      "never squash a chunk that another chunk is still reading",
+      "ask before touching anything under /memroots",
+    ],
+    newPrinciple: "",
+    graphFocus: "attention",
+    threads: SRC_THREAD ? [SRC_THREAD, ...SEED_THREADS] : SEED_THREADS,
+    threadId: SRC_THREAD ? SRC_THREAD.id : null,
+    composerFocused: false,
+    askThinking: false,
+  };
+
+  DRAFT = {
+    id: "draft", profile: "wave-term", chunk: "new work",
+    tasks: [
+      { phase: "chunks", name: "inventory what the change touches" },
+      { phase: "chunks", name: "make the change behind a flag" },
+      { phase: "chunks", name: "migrate the callers" },
+      { phase: "chunks", name: "remove the flag and the old path" },
+    ],
+  };
+
+  profile(name) {
+    return this.state.profiles[name] || PROFILES[name] || PROFILES["wave-term"];
+  }
+  setLive(id, patch) {
+    this.setState((s) => ({ liveCfg: { ...s.liveCfg, [id]: { ...(s.liveCfg[id] || {}), ...patch } } }));
+  }
+
+  planItem(p) {
+    const prof = this.profile(p.profile);
+    const kept = this.planTasks(p);
+    let started = 0;
+    kept.forEach((t) => { if (t.phase === kept[0].phase && started < prof.par) started += 1; });
+    return {
+      ...p,
+      kind: "Plan", kindFg: SOFT, bar: ACC, cites: [],
+      meta: p.meta,
+      body: kept.length + " tasks in " + this.phaseNames(kept).length + " phases, nothing dispatched. " + started + " would start now on " + (WORKER_LABELS[prof.worker] || prof.worker) + ".",
+      primary: "Open the plan", secondary: "Send back",
+      onPrimary: () => this.setState({ peek: "plan", planId: p.id }),
+      onSecondary: () => this.resolve(p.id, "Plan sent back", p.chunk + " · lead asked to redraw", MUTE),
+    };
+  }
+
+  planSheet(pool) {
+    const id = this.state.planId;
+    const draft = id === "draft";
+    const p = draft ? this.DRAFT : pool.filter((x) => x.id === id)[0];
+    if (!p) return { planOpen: false, planIsDraft: false, planIsReady: false, planPhases: [], planSettings: [] };
+    const prof = this.profile(p.profile);
+    const kept = this.planTasks(p);
+    const phaseNames = this.phaseNames(kept);
+    let started = 0;
+    const rows = kept.map((t, idx) => {
+      const runs = !draft && t.phase === kept[0].phase && started < prof.par;
+      if (runs) started += 1;
+      return {
+        n: String(idx + 1).padStart(2, "0"), name: t.name, phase: t.phase,
+        readyLabel: draft ? (idx === 0 ? "runs first" : "after") : runs ? "starts now" : "queued",
+        readyFg: draft ? (idx === 0 ? OK : FAINT) : runs ? OK : FAINT,
+        dropLabel: "Drop " + t.name,
+        onDrop: () => this.setState((s) => ({ dropped: { ...s.dropped, [p.id]: [...(s.dropped[p.id] || []), idx] } })),
+      };
+    });
+    const named = this.state.draftName.trim();
+    const mode = this.state.draftMode || "run";
+    const asPlan = mode === "plan";
+    return {
+      modeIsRun: draft && !asPlan,
+      modeIsPlan: draft && asPlan,
+      onPickRun: () => this.setState({ draftMode: "run" }),
+      onPickPlan: () => this.setState({ draftMode: "plan" }),
+      planShowList: !draft || asPlan,
+      planOpen: this.state.peek === "plan",
+      planIsDraft: draft,
+      planIsReady: !draft,
+      planKind: draft ? "New work · nothing runs until you say so" : "Plan · drawn by the lead, nothing dispatched",
+      planIsRun: draft && !asPlan,
+      planTitle: p.title,
+      planOwner: p.owner,
+      planHasOwner: !draft && !!p.ownerId,
+      onOpenPlanOwner: () => this.openSheet(p.ownerId),
+      planMeta: p.meta,
+      planBody: p.body,
+      draftName: this.state.draftName,
+      onDraftNameChange: (e) => this.setState({ draftName: e.target.value }),
+      draftHint: asPlan
+        ? (named
+          ? "Jarvis drafted chunks from that. Edit them, then create the initiative — the first chunk runs on wave-term's profile, the rest wait."
+          : "Name it and Jarvis drafts chunks. Pick this only when the work is big enough to need a ledger.")
+        : (named
+          ? "One session on wave-term's profile. No chunks, no initiative — it runs, it lands, it closes."
+          : "Say what you want done and it runs as a single session. Most work starts here."),
+      planListLabel: draft ? "Drafted chunks" : "Tasks",
+      planListMeta: draft
+        ? kept.length + " chunks · edit before anything runs"
+        : kept.length + " tasks in " + phaseNames.length + " phases",
+      planPhases: phaseNames.map((n) => ({
+        name: draft ? "the plan" : n,
+        meta: draft ? "in order" : rows.filter((r) => r.phase === n).length + " tasks",
+        tasks: rows.filter((r) => r.phase === n),
+      })),
+      addTaskLabel: draft ? "+ chunk" : "+ task",
+      onAddTask: () => this.setState((s) => ({
+        added: { ...s.added, [p.id]: [...(s.added[p.id] || []), { phase: kept.length ? kept[kept.length - 1].phase : "verify", name: draft ? "new chunk" : "new task" }] },
+      })),
+      planProfileChip: p.profile + " profile ↗",
+      onOpenPlanProfile: () => this.setState({ peek: "profile", prof: p.profile }),
+      planSettings: [
+        { label: "Shape", value: prof.shape },
+        { label: "Machine", value: prof.machine },
+        { label: "At once", value: String(prof.par) },
+        { label: "Workers", value: WORKER_LABELS[prof.worker] || prof.worker },
+        { label: "Phase gates", value: prof.gate ? "on" : "off" },
+      ],
+      planConsequence: draft
+        ? (asPlan
+          ? "The first chunk dispatches on wave-term's profile; the rest sit in the ledger until you or Jarvis run them. Nothing here is a setting — change how sessions run in the profile, or on a session while it runs."
+          : "It dispatches on wave-term's profile and appears under Sessions. It answers to no initiative; if it grows into one later, you can lift it into a ledger then.")
+        : started + " of " + kept.length + " tasks start now, " + (kept.length - started) + " queue behind them" +
+          (prof.gate ? ", and each phase stops for you before the next dispatches." : ", running to the end unless something breaks.") +
+          " These values come from the profile, not from this plan — a session can still deviate once it is running.",
+      planPrimary: draft ? (named ? (asPlan ? "Create and run the first chunk" : "Start the session") : "Name it first") : "Approve & dispatch",
+      planSecondary: draft ? (asPlan ? "Create without running" : "Save without running") : "Send back",
+      planFoot: draft ? "esc discards the draft" : "approving is the launch — there is nothing else to set",
+      onPlanApprove: () => {
+        if (draft) {
+          if (!named) return;
+          this.setState({ peek: null, draftName: "" });
+          if (!asPlan) {
+            this.addLoose(named, true);
+            this.logged("Session started", named + " · wave-term · on its own", ACC);
+            return;
+          }
+          this.logged("Initiative created", named + " · " + kept.length + " chunks · first one running", ACC);
+          return;
+        }
+        if (p.id === "p-backfill") this.setState({ planDispatched: true });
+        if (p.looseKey) this.patchLoose(p.looseKey, { state: "running", stateFg: OK, mark: "▶", markFg: SOFT });
+        this.setState({ peek: null });
+        this.resolve(p.id, "Plan dispatched", p.chunk + " · " + started + " of " + kept.length + " tasks on " + (WORKER_LABELS[prof.worker] || prof.worker), ACC);
+      },
+      onPlanSecondary: () => {
+        if (draft) {
+          if (!named) { this.setState({ peek: null, draftName: "" }); return; }
+          this.setState({ peek: null, draftName: "" });
+          if (!asPlan) {
+            this.addLoose(named, false);
+            this.logged("Session saved", named + " · wave-term · not running", MUTE);
+            return;
+          }
+          this.logged("Initiative created", named + " · " + kept.length + " chunks · nothing running", MUTE);
+          return;
+        }
+        this.setState({ peek: null });
+        if (p.looseKey) this.patchLoose(p.looseKey, { state: "redrawing", stateFg: WARN, mark: "◷", markFg: WARN });
+        this.resolve(p.id, "Plan sent back", p.chunk + " · lead asked to redraw", MUTE);
+      },
+    };
+  }
+
+  planTasks(p) {
+    const dropped = this.state.dropped[p.id] || [];
+    const added = this.state.added[p.id] || [];
+    return [...p.tasks, ...added].filter((t, i) => dropped.indexOf(i) < 0);
+  }
+  phaseNames(tasks) {
+    return tasks.map((t) => t.phase).filter((n, i, a) => a.indexOf(n) === i);
+  }
+
+  componentDidMount() {
+    this._key = (e) => {
+      if (e.key === "Escape") this.setState({ peek: null, answering: null, threadId: null, statusOpen: false });
+      if (e.key.toLowerCase() === "k" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        this.setState({ peek: "palette", query: "" });
+      }
+      // "n" is the whole entry gesture: no surface to cross, no mode to pick. Guarded on the
+      // focused element so it stays typable inside the composer and every field in a modal.
+      const tag = (e.target && e.target.tagName) || "";
+      if (e.key.toLowerCase() === "g" && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && tag !== "INPUT" && tag !== "TEXTAREA") {
+        e.preventDefault();
+        this.setState((s) => ({ peek: s.peek === "graph" ? null : "graph" }));
+      }
+      if (e.key.toLowerCase() === "n" && !e.metaKey && !e.ctrlKey && !e.altKey && tag !== "INPUT" && tag !== "TEXTAREA") {
+        e.preventDefault();
+        if (e.shiftKey) this.setState({ peek: "initiative", projectOpen: false, initName: "" });
+        else this.setState({ peek: "launch" });
+      }
+    };
+    window.addEventListener("keydown", this._key);
+  }
+  componentWillUnmount() { window.removeEventListener("keydown", this._key); }
+
+  clock() {
+    const d = new Date();
+    return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+  }
+  addLoose(name, o) {
+    const opt = o && typeof o === "object" ? o : {};
+    const live = !!opt.live;
+    const row = {
+      key: opt.key || "u" + Date.now(),
+      name,
+      route: opt.route || "quick · sonnet",
+      reading: opt.project || "wave-term",
+      state: opt.state || (live ? "running" : "not started"),
+      stateFg: opt.stateFg || (live ? OK : MUTE),
+      mark: opt.mark || (live ? "▶" : "·"),
+      markFg: opt.markFg || (live ? SOFT : MUTE),
+      bg: "transparent", onOpen: () => this.openSheet("s-drift"),
+    };
+    this.setState((s) => ({ extraLoose: [row, ...s.extraLoose] }));
+  }
+  patchLoose(key, patch) {
+    this.setState((s) => ({ extraLoose: s.extraLoose.map((r) => (r.key === key ? { ...r, ...patch } : r)) }));
+  }
+
+  // One evidence chip, plus the correction it can take. Which controls a chip gets is decided by the
+  // edge's own state, not by where it is drawn — the same three states the record band and the record
+  // thread both read today, so the queue card and a sheet cannot disagree about one reference.
+  citeVM(qid, c) {
+    const id = qid + ":" + c.key;
+    const st = this.state.edgeState[id] || "guess";
+    const popOpen = this.state.edgePop === id;
+    const confirming = this.state.edgeConfirming === id;
+    const set = (next, verb, what, fg) => () => {
+      this.setState((s) => ({ edgeState: { ...s.edgeState, [id]: next }, edgePop: null, edgeConfirming: null }));
+      this.logged(verb, what, fg);
+    };
+    const btn = (label, onPick, tone) => ({
+      label, onPick,
+      line: tone === "danger" ? "var(--lw)" : "var(--border)",
+      bg: tone === "danger" ? "var(--tw)" : "var(--bg)",
+      fg: tone === "danger" ? "var(--warn)" : "var(--ink2)",
+    });
+    let note, acts;
+    if (st === "detached") {
+      note = "Detached — this run is no longer attributed to " + c.text + ".";
+      acts = [btn("↺ Put it back", set("guess", "Reference restored", c.text, MUTE))];
+    } else if (st === "confirmed") {
+      // a confirmed edge is one the worker itself wrote at dispatch, so detaching overrides the
+      // machine rather than correcting a guess — it asks first.
+      note = confirming
+        ? "The worker wrote this reference itself. Detaching overrides it, it is not a correction."
+        : "Confirmed. You said this run really did touch " + c.text + ".";
+      acts = confirming
+        ? [btn("Yes, detach", set("detached", "Reference detached", c.text + " · overrode the worker", WARN), "danger"),
+           btn("Keep it", () => this.setState({ edgeConfirming: null }))]
+        : [btn("✕ Detach", () => this.setState({ edgeConfirming: id }), "danger")];
+    } else {
+      note = "Jarvis guessed this run touched " + c.text + ". Was it right?";
+      acts = [btn("✓ Confirm", set("confirmed", "Reference confirmed", c.text, OK)),
+              btn("✕ Detach", set("detached", "Reference detached", c.text, MUTE), "danger")];
+    }
+    return {
+      ...c,
+      line: st === "confirmed" ? "var(--la)" : popOpen ? "var(--edge2)" : "var(--border)",
+      nFg: st === "detached" ? "var(--faint)" : "var(--soft)",
+      freshFg: st === "detached" ? "var(--faint)" : "var(--ok)",
+      strike: st === "detached" ? "line-through" : "none",
+      popOpen, popNote: note, acts,
+      onOpen: () => this.openRec(c.key),
+      onCorrect: () => this.setState((s) => ({ edgePop: s.edgePop === id ? null : id, edgeConfirming: null })),
+    };
+  }
+
+  addPrinciple() {
+    const text = this.state.newPrinciple.trim();
+    if (!text) return;
+    this.setState((s) => ({ principles: [...s.principles, text], newPrinciple: "" }));
+    this.logged("Standing rule added", text + " · every session in " + this.state.project + " inherits it", ACC);
+  }
+
+  // the session drawer's evidence band: the same three edge states the queue chip uses, so a reference
+  // corrected in one place reads corrected in the other.
+  sheetEdges() {
+    return [...SEEDED_EDGES, ...this.state.attached].map((k) => {
+      const id = "sheet:" + k;
+      const st = this.state.edgeState[id] || (this.state.attached.includes(k) ? "yours" : "guess");
+      const label = { guess: "guessed", confirmed: "confirmed", detached: "detached", yours: "you attached it" }[st];
+      const fg = { guess: "var(--faint)", confirmed: "var(--ok)", detached: "var(--faint)", yours: "var(--soft)" }[st];
+      const next = st === "detached" ? "guess" : "detached";
+      return {
+        kind: RECORDS[k].kind, title: RECORDS[k].title,
+        line: st === "confirmed" ? "var(--la)" : "var(--border)",
+        strike: st === "detached" ? "line-through" : "none",
+        stateLabel: label, stateFg: fg,
+        action: st === "detached" ? "put back" : "detach",
+        onToggle: () => {
+          this.setState((s) => ({ edgeState: { ...s.edgeState, [id]: next } }));
+          this.logged(next === "detached" ? "Reference detached" : "Reference restored", RECORDS[k].title, next === "detached" ? MUTE : OK);
+        },
+      };
+    });
+  }
+
+  // node + edge geometry for the map. Everything one hop from the focused node stays lit; the rest
+  // dims, which is the "bloom on focus" the graph does today, drawn without a physics tick.
+  graphVals() {
+    const focus = this.state.graphFocus;
+    const near = new Set([focus]);
+    GRAPH_LINKS.forEach(([a, b]) => { if (a === focus) near.add(b); if (b === focus) near.add(a); });
+    const at = (id) => GRAPH_NODES.find((n) => n.id === id);
+    return {
+      graphNodes: GRAPH_NODES.map((n) => {
+        const k = GRAPH_KIND[n.kind];
+        return {
+          label: n.label, left: n.x + "px", top: n.y + "px", dot: k.dot, fg: k.fg,
+          line: n.id === focus ? "var(--accent)" : k.line,
+          bg: n.id === focus ? "var(--accentbg)" : "var(--surface)",
+          op: near.has(n.id) ? "1" : "0.32",
+          onFocus: () => this.setState({ graphFocus: n.id }),
+        };
+      }),
+      graphEdges: GRAPH_LINKS.map(([a, b]) => {
+        const p = at(a), q = at(b);
+        const dx = q.x - p.x, dy = q.y - p.y;
+        return {
+          left: p.x + "px", top: p.y + "px",
+          width: Math.round(Math.sqrt(dx * dx + dy * dy)) + "px",
+          rot: Math.round((Math.atan2(dy, dx) * 180) / Math.PI) + "deg",
+          fg: a === focus || b === focus ? "var(--la)" : "var(--edge)",
+          op: a === focus || b === focus ? "1" : "0.4",
+        };
+      }),
+      graphFoot: (() => {
+        const n = at(focus);
+        const links = GRAPH_LINKS.filter(([a, b]) => a === focus || b === focus).length;
+        return n.label + " · " + n.kind + " · " + links + " edges — everything one hop away stays lit, the rest dims.";
+      })(),
+    };
+  }
+  logged(verb, what, verbFg) {
+    this.setState((s) => ({ extra: [{ at: this.clock(), verb, what, verbFg: verbFg || MUTE, anim: "riseIn 240ms var(--curve)" }, ...s.extra] }));
+  }
+  resolve(id, verb, what, verbFg) {
+    this.setState((s) => ({ resolved: { ...s.resolved, [id]: true }, answering: null, answerText: "" }));
+    this.logged(verb, what, verbFg);
+  }
+  openSheet(id) { this.setState({ peek: "sheet", sheet: id }); }
+
+  // Nothing here previews a plan. A quick run has none, and an orchestrator's plan is drawn by
+  // the lead after dispatch and reviewed at the gate in the queue — where the task list and its
+  // ready width are real rather than guessed.
+  launch(run) {
+    const goal = this.state.goal.trim();
+    if (!goal) return;
+    const { shape, project, routeIdx, lxMachine, lxPar, lxWorker } = this.state;
+    const model = RUNTIMES[routeIdx].split(" · ").pop();
+    const route = shape === "orchestrator" ? "orchestrator · " + lxMachine + " · " + lxPar + " at once" : shape + " · " + model;
+    const key = "u" + Date.now();
+    this.setState({ peek: null, projectOpen: false, goal: "" });
+    if (!run) {
+      this.addLoose(goal, { key, project, route });
+      this.logged("Run saved", goal + " · " + project + " · not running", MUTE);
+      return;
+    }
+    if (shape !== "orchestrator") {
+      this.addLoose(goal, { key, live: true, project, route });
+      this.logged("Run started", goal + " · " + project + " · " + route, ACC);
+      return;
+    }
+    // an orchestrator is not running yet — a lead is writing a list. The row says so, and stays
+    // saying so until the plan lands in the queue, which is the only thing that needs the human.
+    this.addLoose(goal, { key, live: true, project, route, state: "drafting the plan", stateFg: WARN, mark: "◷", markFg: WARN });
+    this.logged("Lead drafting", goal + " · " + project + " · its plan will land in your queue", ACC);
+    setTimeout(() => {
+      this.patchLoose(key, { state: "plan in your queue", stateFg: WARN });
+      this.setState((s) => ({
+        newPlans: [
+          ...s.newPlans,
+          {
+            id: key, looseKey: key,
+            title: "Plan ready — " + goal,
+            owner: "unattached run", ownerId: null,
+            chunk: goal, profile: project,
+            meta: "lead " + (WORKER_LABELS[lxWorker] || lxWorker) + " drew it · 6 tasks · just now · nothing dispatched",
+            tasks: [
+              { phase: "survey", name: "map what this change touches" },
+              { phase: "survey", name: "list the call sites" },
+              { phase: "change", name: "make the change behind a flag" },
+              { phase: "change", name: "migrate the callers" },
+              { phase: "verify", name: "replay the affected tests" },
+              { phase: "verify", name: "seal the evidence" },
+            ],
+          },
+        ],
+      }));
+      this.logged("Plan ready", goal + " · " + project + " · 6 tasks, nothing dispatched", WARN);
+    }, 3500);
+  }
+
+  launchVals() {
+    const s = this.state;
+    const named = s.goal.trim().length > 0;
+    const prof = this.profile(s.project);
+    const shape = SHAPES.filter((x) => x.key === s.shape)[0];
+    const orch = s.shape === "orchestrator";
+    const drifted = orch && (s.lxPar !== prof.par || s.lxWorker !== prof.worker || s.lxGate !== prof.gate);
+    const consequence = {
+      quick: "One worker, no plan, no gate. It starts the moment you press Run — the only thing that reaches your queue is a question it cannot answer itself.",
+      pipeline: "The phases in " + s.project + "'s playbook, one worker at a time. Each phase reports before the next dispatches.",
+      orchestrator: "A lead drafts the plan first and nothing dispatches until you approve it. The task list and its ready width appear in your queue, not here.",
+    }[s.shape];
+    return {
+      launchOpen: s.peek === "launch",
+      launchNote: named ? s.project + " · " + shape.label.toLowerCase() + " · " + RUNTIMES[s.routeIdx] : "say what you want done",
+      goal: s.goal,
+      goalLine: named ? "var(--la)" : "var(--edge)",
+      onGoalChange: (e) => this.setState({ goal: e.target.value }),
+      onGoalKey: (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) this.launch(true); },
+
+      projectLabel: s.project,
+      projectChev: s.projectOpen ? "▴" : "▾",
+      projectOpen: s.projectOpen,
+      onToggleProject: () => this.setState((p) => ({ projectOpen: !p.projectOpen })),
+      projects: PROJECTS.map((p) => ({
+        name: p.name,
+        note: p.name === s.project ? "current" : p.note,
+        noteFg: p.name === s.project ? "var(--soft)" : "var(--faint)",
+        fg: p.name === s.project ? "var(--soft)" : "var(--ink2)",
+        bg: p.name === s.project ? "var(--accentbg)" : "transparent",
+        // re-seed the orchestrator controls from the project you just chose, so switching project
+        // does not read as drift before you have touched a single control
+        onPick: () => {
+          const np = this.profile(p.name);
+          this.setState({ project: p.name, projectOpen: false, lxPar: np.par, lxWorker: np.worker, lxGate: np.gate });
+        },
+      })),
+      routeLabel: RUNTIMES[s.routeIdx],
+      onCycleRoute: () => this.setState((p) => ({ routeIdx: (p.routeIdx + 1) % RUNTIMES.length })),
+
+      shapes: SHAPES.map((x) => ({
+        label: x.label,
+        on: x.key === s.shape,
+        line: x.key === s.shape ? "var(--la)" : "var(--border)",
+        bg: x.key === s.shape ? "var(--accentbg)" : "transparent",
+        fg: x.key === s.shape ? "var(--ink)" : "var(--mute)",
+        onPick: () => this.setState({ shape: x.key }),
+      })),
+      shapeDefaultNote: s.shape === "quick" ? "the default" : "you chose this",
+      launchConsequence: consequence,
+
+      showOrch: orch,
+      launchProfileChip: s.project + " profile ↗",
+      onOpenLaunchProfile: () => this.setState({ peek: "profile", prof: s.project }),
+      machines: MACHINES.map((m) => ({
+        label: m.label,
+        on: m.key === s.lxMachine,
+        line: m.key === s.lxMachine ? "var(--la)" : "var(--border)",
+        bg: m.key === s.lxMachine ? "var(--accentbg)" : "transparent",
+        fg: m.key === s.lxMachine ? "var(--ink)" : "var(--mute)",
+        onPick: () => this.setState({ lxMachine: m.key }),
+      })),
+      lxPar: s.lxPar,
+      lxParNote: "concurrent children · 16 max",
+      onLxParDown: () => this.setState((p) => ({ lxPar: Math.max(1, p.lxPar - 1) })),
+      onLxParUp: () => this.setState((p) => ({ lxPar: Math.min(16, p.lxPar + 1) })),
+      lxWorker: WORKER_LABELS[s.lxWorker],
+      onCycleLxWorker: () => this.setState((p) => ({ lxWorker: NEXT_WORKER[p.lxWorker] })),
+      onToggleLxGate: () => this.setState((p) => ({ lxGate: !p.lxGate })),
+      lxGate: s.lxGate,
+      lxGateTrack: s.lxGate ? ACC : "var(--edge2)",
+      lxGateKnob: s.lxGate ? "15px" : "2px",
+      lxGateLabel: s.lxGate ? "Gate each phase" : "No phase gates",
+      lxDrift: drifted
+        ? "this run only — " + s.project + "'s profile says " + prof.par + " at once, " + WORKER_LABELS[prof.worker] + ", gates " + (prof.gate ? "on" : "off")
+        : "these came from the " + s.project + " profile; changing them here changes this run only",
+
+      runLabel: named ? "Run ⏎" : "Say what you want done",
+      runBg: named ? "var(--accent)" : "var(--raised)",
+      runHover: named ? "var(--accent2)" : "var(--raised)",
+      runFg: named ? "#0c0e11" : "var(--faint)",
+      runCursor: named ? "pointer" : "default",
+      onLaunchRun: () => this.launch(true),
+      onLaunchSave: () => this.launch(false),
+      launchFoot: named ? "⌘⏎ runs it · esc discards" : "esc discards",
+    };
+  }
+
+  initVals() {
+    const s = this.state;
+    const named = s.initName.trim().length > 0;
+    const filled = s.initChunks.filter((c) => c.trim().length > 0);
+    const create = (runFirst) => {
+      if (!named) return;
+      const chunks = filled;
+      const key = "i" + Date.now();
+      const runs = runFirst && chunks.length > 0;
+      this.setState((p) => ({
+        peek: null, projectOpen: false, initName: "", initChunks: ["", "", ""],
+        newInits: [{ key, name: s.initName.trim(), project: s.project, chunks, runFirst: runs }, ...p.newInits],
+        open: { ...p.open, [key]: true },
+      }));
+      this.logged(
+        "Initiative created",
+        s.initName.trim() + " · " + s.project + " · " + chunks.length + " chunks · " + (runs ? "first one running" : "nothing running"),
+        runs ? ACC : MUTE
+      );
+    };
+    return {
+      initOpen: s.peek === "initiative",
+      initName: s.initName,
+      onInitNameChange: (e) => this.setState({ initName: e.target.value }),
+      initChunkMeta: filled.length + " named · you write these, not a draft",
+      initChunkRows: s.initChunks.map((c, i) => ({
+        n: String(i + 1).padStart(2, "0"),
+        label: c,
+        placeholder: i === 0 ? "the first thing that has to land" : "and then…",
+        aria: "Chunk " + (i + 1) + " label",
+        dropLabel: "Remove chunk " + (i + 1),
+        onLabel: (e) => this.setState((p) => ({ initChunks: p.initChunks.map((x, j) => (j === i ? e.target.value : x)) })),
+        onDrop: () => this.setState((p) => ({ initChunks: p.initChunks.filter((_, j) => j !== i) })),
+      })),
+      onAddInitChunk: () => this.setState((p) => ({ initChunks: [...p.initChunks, ""] })),
+      initBg: named ? "var(--accent)" : "var(--raised)",
+      initFg: named ? "#0c0e11" : "var(--faint)",
+      initCursor: named ? "pointer" : "default",
+      onInitCreate: () => create(false),
+      onInitCreateRun: () => create(true),
+    };
+  }
+  openRec(key) { this.setState({ peek: "record", rec: key, statusOpen: false }); }
+
+  // A thread has no attribution edge of its own — its link to a record is whatever it cited. So the
+  // set is derived from the answers, deduped: a record cited in three turns is one thing the thread
+  // drew on, not three. This is also what would scope the thread if you asked it inside a project.
+  drewVals(thread) {
+    const seen = new Set();
+    const drew = [];
+    let cited = 0;
+    for (const t of thread.turns) {
+      if (t.who !== "jarvis") continue;
+      for (const r of t.refs || []) {
+        cited += 1;
+        if (seen.has(r.key)) continue;
+        seen.add(r.key);
+        drew.push({ text: r.text, onOpen: () => this.openRec(r.key) });
+      }
+    }
+    return {
+      askDrewShow: drew.length > 0,
+      askDrew: drew,
+      // the dedupe is only worth saying when it did something
+      askDrewMeta: drew.length + (drew.length === 1 ? " record" : " records")
+        + (cited > drew.length ? " across " + cited + " citations" : ""),
+    };
+  }
+
+  // Everything the record peek draws that is not its prose. The peek answers what is true of this
+  // record right now — what is running against it, and what you have set it to. Its history, its
+  // decision log and every past mutation are Vault's, and the foot says so.
+  recVals(rec, key, sessions) {
+    const status = this.state.recStatus[key] || rec.status || null;
+    const sdef = REC_STATUS.find((s) => s.key === status) || null;
+    const isRecord = rec.kind === "Record";
+    // a record's own runs, derived the direction jarvis reads the edge: which sessions point back here.
+    // Nothing is seeded — a record with no attribution has no band and says so.
+    const ids = rec.owner ? Object.keys(sessions).filter((k) => sessions[k].parent === rec.owner) : [];
+    // the parts have to partition, or a session that is both live and holding gets counted twice and
+    // the line sums to more sessions than the band lists. Waiting wins: it is the one you can act on.
+    const waiting = (k) => sessions[k].state === "held at gate" || sessions[k].state === "blocked";
+    const waitN = ids.filter(waiting).length;
+    const liveN = ids.filter((k) => sessions[k].live && !waiting(k)).length;
+    const sealedN = ids.filter((k) => sessions[k].state === "done").length;
+    // every part is omitted rather than defaulted — a "0 live" would assert a fleet that is not there
+    const parts = [];
+    if (waitN > 0) parts.push(waitN + " waiting on you");
+    if (liveN > 0) parts.push(liveN + " live");
+    if (sealedN > 0) parts.push(sealedN + " sealed");
+
+    return {
+      recKind: rec.kind, recTitle: rec.title, recFresh: rec.fresh, recBody: rec.body, recLog: rec.log,
+      recHasStatus: sdef !== null,
+      recStatusLabel: sdef ? sdef.chip + " ▾" : "",
+      recStatusFg: sdef ? sdef.fg : MUTE,
+      statusOpen: this.state.statusOpen,
+      onStatusToggle: () => this.setState((s) => ({ statusOpen: !s.statusOpen })),
+      recStatusRows: REC_STATUS.map((s) => ({
+        label: s.label, note: s.note,
+        fg: s.key === status ? s.fg : "var(--ink2)",
+        bg: s.key === status ? "var(--accentbg)" : "transparent",
+        mark: s.key === status ? "●" : "",
+        onPick: () => {
+          this.setState((st) => ({ recStatus: { ...st.recStatus, [key]: s.key }, statusOpen: false }));
+          this.logged(
+            s.key === "archived" ? "Record archived" : "Record set " + s.chip.toLowerCase(),
+            rec.title + (s.key === "archived" ? " · it stays citable, it stops surfacing" : " · " + s.note),
+            s.key === "archived" ? MUTE : s.fg
+          );
+        },
+      })),
+      // the record kind's structural absence, said out loud rather than left as a missing control
+      recShowAbsence: isRecord,
+      recRunsShow: isRecord,
+      recRunsEmpty: isRecord && ids.length === 0,
+      recFleetMeta: parts.length > 0 ? parts.join(" · ") : "nothing running",
+      recRuns: ids.map((k) => {
+        const s = sessions[k];
+        return {
+          mark: s.mark, markFg: s.markFg, name: s.name,
+          meta: s.route + " · " + s.reading,
+          state: s.state, stateFg: s.stateFg,
+          onOpen: () => this.openSheet(k),
+        };
+      }),
+      onRecGraph: () => {
+        const hit = GRAPH_NODES.find((n) => n.rec === key);
+        this.setState({ peek: "graph", graphFocus: hit ? hit.id : "attention" });
+      },
+      onRecVault: () => {
+        this.setState({ peek: null, statusOpen: false });
+        this.logged("Opened in Vault", rec.title + " · its history and decision log live on the Vault surface", MUTE);
+      },
+    };
+  }
+
+  data() {
+    const gateDone = !!this.state.resolved.gate;
+    const skipped = !!this.state.resolved.blocked;
+    const askDone = !!this.state.resolved.ask;
+    const planned = !!this.state.planDispatched;
+
+    const sessions = {
+      "s-squash": {
+        kind: "Session", name: "task 7 · rebase and squash", parent: "attention", project: "wave-term",
+        meta: gateDone ? "wave-term · merged · 9 of 9 tasks" : "wave-term · lead opus-4.6 · 7 of 9 tasks",
+        route: "orchestrator · engine", auto: gateDone ? "auto · gate cleared" : "gated at merge",
+        reading: gateDone ? "9 of 9 tasks" : "7 of 9 tasks",
+        state: gateDone ? "soaking" : "held at gate", stateFg: gateDone ? OK : WARN, mark: "▶", markFg: SOFT, live: true,
+        advances: gateDone ? "rebase and squash task 7" : "rebase and squash task 7",
+        advancesStatus: gateDone ? "done" : "blocked on you", advancesFg: gateDone ? OK : WARN,
+        stream: gateDone
+          ? [
+              { at: "08:11", text: "lead · diff touches attention.go and its two tests only — asking for the merge gate" },
+              { at: this.clock(), text: "you · approved the squash-merge" },
+              { at: this.clock(), text: "lead · merged to main, dispatching tasks 8 and 9" },
+              { at: this.clock(), text: "worker · restart soak started, 40 cycles queued" },
+            ]
+          : [
+              { at: "08:02", text: "worker · rebased 4 commits onto main, no conflicts" },
+              { at: "08:09", text: "worker · attention_test.go and poller_test.go both pass" },
+              { at: "08:11", text: "lead · diff touches attention.go and its two tests only — asking for the merge gate" },
+              { at: "08:12", text: "lead · holding. tasks 8 and 9 stay queued until this lands" },
+            ],
+      },
+      "s-poller": {
+        kind: "Session", name: "poller rewrite", parent: "attention", project: "wave-term",
+        meta: "wave-term · finished 09-04 · evidence sealed", route: "orchestrator · engine", auto: "auto",
+        reading: "landed 09-04", state: "done", stateFg: OK, mark: "✓", markFg: OK, live: false,
+        advances: "poll the attention table on every tick", advancesStatus: "done", advancesFg: OK,
+        stream: [
+          { at: "09-04", text: "worker · replaced the in-memory queue read with a table read per tick" },
+          { at: "09-04", text: "worker · 41 scenarios pass, evidence sealed" },
+          { at: "09-04", text: "lead · closed. the fast path is gone in a follow-up chunk" },
+        ],
+      },
+      "s-fastpath": {
+        kind: "Session", name: "drop the in-memory fast path", parent: "attention", project: "wave-term",
+        meta: "wave-term · finished 07:40 today", route: "quick · sonnet", auto: "auto",
+        reading: "landed 07:40", state: "done", stateFg: OK, mark: "✓", markFg: OK, live: false,
+        advances: "drop the in-memory queue fast path", advancesStatus: "done", advancesFg: OK,
+        stream: [
+          { at: "07:22", text: "worker · removed the fast path and its two call sites" },
+          { at: "07:40", text: "worker · tests pass, handing back" },
+        ],
+      },
+      "s-adopt": {
+        kind: "Session", name: "adopt catalog harnesses", parent: "harness", project: "wave-term",
+        meta: "wave-term · finished 09-06", route: "orchestrator · engine", auto: "auto",
+        reading: "landed 09-06", state: "done", stateFg: OK, mark: "✓", markFg: OK, live: false,
+        advances: "adopt catalog harnesses", advancesStatus: "done", advancesFg: OK,
+        stream: [
+          { at: "09-06", text: "worker · wrote the ARC-STEERING block to 4 harnesses" },
+          { at: "09-06", text: "lead · 6 skills adopted, 1 conflict left for the next session" },
+        ],
+      },
+      "s-memroots": {
+        kind: "Session", name: "migrate memroots to the new vault path", parent: "harness", project: "wave-term",
+        meta: skipped ? "wave-term · abandoned · stage skipped" : "wave-term · failed 21:40 · " + (3 + this.state.retries) + " attempts",
+        route: "orchestrator · engine", auto: "—",
+        reading: skipped ? "skipped" : "failed 21:40",
+        state: skipped ? "skipped" : "blocked", stateFg: skipped ? MUTE : ERR, mark: skipped ? "⤼" : "!", markFg: skipped ? MUTE : ERR, live: false,
+        advances: "migrate memroots to the new vault path", advancesStatus: skipped ? "skipped" : "blocked", advancesFg: skipped ? MUTE : ERR,
+        stream: [
+          { at: "21:38", text: "worker · adopt stage resolving /memroots/v1" },
+          { at: "21:40", text: "worker · path not found. the vault gained per-project scoping this week" },
+          { at: "21:40", text: "lead · two chunks after this read the same path, holding both" },
+          ...(this.state.retries > 0 ? [{ at: this.clock(), text: "worker · retried " + this.state.retries + "× — same path, same failure. the plan resolves it at plan time." }] : []),
+          ...(skipped ? [{ at: this.clock(), text: "you · skipped the stage. lead moved to the manifest chunk." }] : []),
+        ],
+      },
+      "s-manifest": {
+        kind: "Session", name: "re-point the skills manifest", parent: "harness", project: "wave-term",
+        meta: "wave-term · started just now", route: "quick · sonnet", auto: "auto",
+        reading: "just dispatched", state: "starting", stateFg: OK, mark: "▶", markFg: SOFT, live: true,
+        advances: "re-point the skills manifest", advancesStatus: "active", advancesFg: SOFT,
+        stream: [
+          { at: this.clock(), text: "lead · re-pointing the manifest at the scoped vault path instead" },
+          { at: this.clock(), text: "worker · reading the skills manifest" },
+        ],
+      },
+      "s-backfill": {
+        kind: "Session", name: "backfill provider usage rows", parent: "rollup", project: "usage-svc",
+        meta: askDone ? "usage-svc · 1 worker · unblocked" : "usage-svc · 1 worker · holding on your answer",
+        route: "quick · sonnet", auto: "auto",
+        reading: "1.2M of 3.4M rows", state: askDone ? "running" : "asking", stateFg: askDone ? OK : WARN, mark: "▶", markFg: askDone ? SOFT : WARN, live: true,
+        advances: "provider usage backfill", advancesStatus: "active", advancesFg: SOFT,
+        stream: [
+          { at: "07:31", text: "worker · reading the provider usage schema" },
+          { at: "07:48", text: "worker · batching 5k rows per write, no lock contention" },
+          { at: "08:10", text: "worker · which staging DB should the seed script hit? holding the run open." },
+          ...(askDone ? [{ at: this.clock(), text: "worker · target confirmed, resuming the backfill" }] : []),
+        ],
+      },
+      "s-quota": {
+        kind: "Session", name: "per-provider quota bars", parent: "rollup", project: "usage-svc",
+        meta: "usage-svc · pi · 2h in", route: "orchestrator · engine", auto: "auto",
+        reading: "4 of 6 providers", state: "running", stateFg: OK, mark: "▶", markFg: SOFT, live: true,
+        advances: "per-provider quota bars", advancesStatus: "active", advancesFg: SOFT,
+        stream: [
+          { at: "06:20", text: "worker · quota bars render from the rollup table, not the raw rows" },
+          { at: "07:55", text: "worker · 4 providers wired, 2 to go" },
+        ],
+      },
+      "s-asks": {
+        kind: "Session", name: "backfill asks missed before the fix", parent: "attention", project: "wave-term",
+        meta: "wave-term · orchestrator · dispatched from the plan", route: "orchestrator · engine", auto: "gated per phase",
+        reading: "survey phase", state: "running", stateFg: OK, mark: "▶", markFg: SOFT, live: true,
+        advances: "backfill asks missed before the fix", advancesStatus: "active", advancesFg: SOFT,
+        stream: [
+          { at: this.clock(), text: "you · approved the plan · 9 tasks, survey phase first" },
+          { at: this.clock(), text: "lead · dispatched the survey phase to its ready width" },
+          { at: this.clock(), text: "worker · listing restart windows in the last 30 days" },
+        ],
+      },
+      "s-drift": {
+        kind: "Session", name: "Steering doc drift triage", parent: null, project: "wave-term",
+        meta: "wave-term · quick · 6h in", route: "quick · sonnet", auto: "auto",
+        reading: "one-off · wave-term", state: "running", stateFg: OK, mark: "▶", markFg: SOFT, live: true,
+        advances: "", advancesStatus: "", advancesFg: MUTE,
+        stream: [
+          { at: "02:14", text: "worker · two harnesses disagree on the steering block" },
+          { at: "05:50", text: "worker · diffed both, neither matches the catalog copy" },
+        ],
+      },
+    };
+
+    const initiatives = {
+      attention: {
+        kind: "Initiative", name: "Attention reliability", project: "wave-term",
+        meta: gateDone ? "wave-term · 3 sessions · 4 of 7 chunks" : "wave-term · 3 sessions · 3 of 7 chunks",
+        route: "engine profile", auto: gateDone ? "auto" : "gated at merge",
+        progress: gateDone ? "4 of 7 chunks" : "3 of 7 chunks",
+        pct: gateDone ? "57%" : "43%",
+        state: gateDone ? "1 session soaking" : "held at your gate", stateFg: gateDone ? OK : WARN,
+        sessionIds: planned ? ["s-asks", "s-squash", "s-fastpath", "s-poller"] : ["s-squash", "s-fastpath", "s-poller"],
+        chunks: [
+          { ...doneMark, label: "poll the attention table on every tick", note: "s · poller rewrite" },
+          { ...doneMark, label: "drop the in-memory queue fast path", note: "s · fast path" },
+          gateDone
+            ? { ...doneMark, label: "rebase and squash task 7", note: "merged just now" }
+            : { ...activeMark, label: "rebase and squash task 7", note: "in your queue" },
+          gateDone
+            ? { ...activeMark, label: "restart soak, 40 cycles", note: "dispatched" }
+            : { ...queueMark, label: "restart soak, 40 cycles", note: "after the merge" },
+          planned
+            ? { ...activeMark, label: "backfill asks missed before the fix", note: "s · 9 tasks" }
+            : { ...queueMark, label: "backfill asks missed before the fix", note: "plan in your queue" },
+          { ...queueMark, label: "alert when the poll interval slips", note: "" },
+          { ...queueMark, label: "document the ledger contract", note: "" },
+        ],
+        decisions: [
+          { at: "07:54", text: "Keep the attention ledger append-only — a compacting writer would lose the restart window that started this initiative." },
+          { at: "09-03", text: "Gate merges to main on this initiative even under Delegator, because it touches the routing path." },
+        ],
+      },
+      harness: {
+        kind: "Initiative", name: "Harness sync", project: "wave-term",
+        meta: skipped ? "wave-term · 3 sessions · 8 of 11 chunks · 1 skipped" : "wave-term · 2 sessions · 8 of 11 chunks",
+        route: "engine profile", auto: "—",
+        progress: skipped ? "8 of 11 chunks · 1 skipped" : "8 of 11 chunks",
+        pct: "72%",
+        state: skipped ? "1 session running" : "stalled 14h · no session", stateFg: skipped ? OK : WARN,
+        sessionIds: skipped ? ["s-manifest", "s-memroots", "s-adopt"] : ["s-memroots", "s-adopt"],
+        chunks: [
+          { ...doneMark, label: "adopt catalog harnesses", note: "s · adopt · 09-06" },
+          skipped
+            ? { ...skipMark, label: "migrate memroots to the new vault path", note: "skipped by you" }
+            : { ...blockMark, label: "migrate memroots to the new vault path", note: "in your queue" },
+          skipped
+            ? { ...activeMark, label: "re-point the skills manifest", note: "s · manifest" }
+            : { ...queueMark, label: "re-point the skills manifest", note: "depends on memroots" },
+          { ...queueMark, label: "verify on two harnesses", note: skipped ? "after the manifest" : "depends on memroots" },
+        ],
+        decisions: [
+          { at: "09-06", text: "Adopt from the catalog rather than per-harness copies, so a skill correction lands once." },
+        ],
+      },
+      rollup: {
+        kind: "Initiative", name: "Usage rollup v2", project: "usage-svc",
+        meta: "usage-svc · 2 sessions · 3 of 6 chunks · 1 skipped",
+        route: "usage-svc profile", auto: "auto",
+        progress: "3 of 6 chunks · 1 skipped", pct: "50%",
+        state: "2 sessions running", stateFg: OK,
+        sessionIds: ["s-backfill", "s-quota"],
+        chunks: [
+          { ...doneMark, label: "provider usage schema", note: "landed 09-04" },
+          { ...activeMark, label: "per-provider quota bars", note: "s · quota bars" },
+          { ...activeMark, label: "provider usage backfill", note: "s · backfill" },
+          { ...skipMark, label: "legacy rollup shim", note: "not needed after the schema change" },
+          { ...queueMark, label: "cost attribution by session", note: "" },
+          { ...queueMark, label: "quota alerts", note: "" },
+        ],
+        decisions: [
+          { at: "09-04", text: "Roll up nightly rather than on read — the quota bars do not need per-request accuracy." },
+        ],
+      },
+      triage: {
+        kind: "Initiative", name: "Memory triage pass", project: "wave-term",
+        meta: "wave-term · no sessions yet · 0 of 4 chunks",
+        route: "engine profile", auto: "—",
+        progress: "0 of 4 chunks", pct: "0%",
+        state: "never started", stateFg: MUTE,
+        sessionIds: [],
+        chunks: [
+          { ...queueMark, label: "inventory the memroots by last read", note: "first chunk" },
+          { ...queueMark, label: "propose a drop list", note: "" },
+          { ...queueMark, label: "archive what survives triage", note: "" },
+          { ...queueMark, label: "re-embed the survivors", note: "" },
+        ],
+        decisions: [],
+      },
+    };
+
+    // initiatives the user created this session, merged in as first-class rows rather than a log line
+    const madeSessions = {};
+    const madeInits = {};
+    this.state.newInits.forEach((ni) => {
+      const sid = "s-" + ni.key;
+      if (ni.runFirst) {
+        madeSessions[sid] = {
+          kind: "Session", name: ni.chunks[0], parent: ni.key, project: ni.project,
+          meta: ni.project + " · started just now", route: "quick · sonnet", auto: "auto",
+          reading: "just dispatched", state: "starting", stateFg: OK, mark: "▶", markFg: SOFT, live: true,
+          advances: ni.chunks[0], advancesStatus: "active", advancesFg: SOFT,
+          stream: [{ at: this.clock(), text: "worker · picked up " + ni.chunks[0] }],
+        };
+      }
+      madeInits[ni.key] = {
+        kind: "Initiative", name: ni.name, project: ni.project,
+        meta: ni.project + " · " + (ni.runFirst ? "1 session" : "no sessions yet") + " · 0 of " + ni.chunks.length + " chunks",
+        route: ni.project + " profile", auto: ni.runFirst ? "auto" : "—",
+        progress: "0 of " + ni.chunks.length + " chunks", pct: "0%",
+        state: ni.runFirst ? "1 session running" : "never started", stateFg: ni.runFirst ? OK : MUTE,
+        sessionIds: ni.runFirst ? [sid] : [],
+        chunks: ni.chunks.map((label, i) =>
+          i === 0 && ni.runFirst
+            ? { ...activeMark, label, note: "s · just dispatched" }
+            : { ...queueMark, label, note: i === 0 ? "first chunk" : "" }
+        ),
+        decisions: [],
+      };
+    });
+    return {
+      sessions: { ...sessions, ...madeSessions },
+      initiatives: { ...initiatives, ...madeInits },
+      gateDone, skipped, askDone,
+    };
+  }
+
+  renderVals() {
+    const { resolved, answering, retries, peek } = this.state;
+    const { sessions, initiatives, gateDone, skipped } = this.data();
+    const rec = RECORDS[this.state.rec || "attention"];
+    const thread = this.state.threads.find((t) => t.id === this.state.threadId) || this.state.threads[0];
+    // a thread you carried past the first answer is one you were working something out in — unless
+    // you archived it, which is how you say it is settled
+    const unfinished = this.state.threads.filter((t) => t.turns.length > 2 && t.archived !== true).slice(0, 3);
+
+    const planDefsRaw = [
+      {
+        id: "p-backfill",
+        title: "Plan ready — backfill asks missed before the fix",
+        owner: "✦ Attention reliability", ownerId: "attention",
+        chunk: "backfill asks missed before the fix", profile: "wave-term",
+        meta: "lead opus-4.6 drew it · 9 tasks · 2m ago · nothing dispatched",
+        body: "You asked for the asks dropped before the poller fix to be backfilled. The lead drew nine tasks in three phases and is holding for the settings — these only mean something now that the tasks exist.",
+        tasks: [
+          { phase: "survey", name: "list restart windows in the last 30 days" },
+          { phase: "survey", name: "diff the attention table against the run ledger" },
+          { phase: "survey", name: "classify the gaps by cause" },
+          { phase: "backfill", name: "re-raise asks still open" },
+          { phase: "backfill", name: "close asks whose session already ended" },
+          { phase: "backfill", name: "attribute each re-raise to its session" },
+          { phase: "verify", name: "replay the 41 e2e scenarios" },
+          { phase: "verify", name: "check no duplicate asks were created" },
+          { phase: "verify", name: "seal the evidence" },
+        ],
+      },
+      ...this.state.newPlans,
+    ].filter((p) => !resolved[p.id]);
+    const planDefs = planDefsRaw.map((p) => this.planItem(p));
+
+    const queueDefs = [
+      {
+        id: "gate", kind: "Gate", kindFg: WARN, bar: WARN,
+        title: "Squash-merge chunk 7 into main?",
+        owner: "✦ Attention reliability", ownerId: "attention",
+        meta: "session · task 7 rebase · waiting 41m",
+        body: "Nine tasks planned, seven done, none stalled. The diff touches attention.go and its two tests only [1]; the record it is attributed to is still active [2]. The restart-soak chunk dispatches the moment this lands.",
+        primary: "Approve", secondary: "Send back", look: "s-squash",
+        cites: [
+          { n: "[1]", text: "session · task 7 · rebase and squash", fresh: "Fresh · 3m", key: "squash" },
+          { n: "[2]", text: "record · attention polling", fresh: "Fresh · 22m", key: "attention" },
+        ],
+        onPrimary: () => this.resolve("gate", "Gate approved", "squash chunk 7 · restart soak dispatched", OK),
+        onSecondary: () => this.resolve("gate", "Sent back", "squash chunk 7 · lead asked to split the diff", MUTE),
+      },
+      {
+        id: "ask", kind: "Ask", kindFg: WARN, bar: WARN,
+        title: "Which staging DB should the seed script hit?",
+        owner: "✦ Usage rollup v2", ownerId: "rollup",
+        meta: "session · backfill · waiting 12m · run held open",
+        body: "I answered four routine asks myself this morning. This one picks a target I have no standing rule for, so I am holding it.",
+        primary: answering === "ask" ? "Answering…" : "Answer", secondary: "Let Jarvis decide", look: "s-backfill",
+        cites: [],
+        onPrimary: () => this.setState({ answering: "ask" }),
+        onSecondary: () => this.resolve("ask", "Answered by Jarvis", "staging DB · picked usage-svc-staging-2", MUTE),
+        onSendAnswer: () => this.resolve("ask", "You answered", "staging DB · " + (this.state.answerText.trim() || "usage-svc-staging-2"), ACC),
+      },
+      {
+        id: "blocked", kind: "Blocked", kindFg: ERR, bar: ERR,
+        title: "migrate memroots to the new vault path",
+        owner: "✦ Harness sync", ownerId: "harness",
+        meta: "chunk · " + (3 + retries) + " failures · stalls the whole initiative",
+        body: "Two chunks after it read the same path, so nothing has run against Harness sync since 21:40. Retrying will fail the same way until the include path is fixed or the stage is skipped.",
+        primary: "Skip the stage", secondary: retries > 0 ? "Retry again" : "Retry anyway", look: "s-memroots",
+        fail: retries > 0
+          ? "retry " + (retries + 3) + " failed the same way — the plan resolves /memroots/v1 at plan time, so no retry can see the new path. skip the stage or redraw the plan."
+          : "vault path /memroots/v1 not found after the layout change — the adopt stage resolves it at plan time, not at run time",
+        cites: [{ n: "[3]", text: "record · vault path layout change", fresh: "Fresh · 14h", key: "vault" }],
+        onPrimary: () => this.resolve("blocked", "Stage skipped", "memroots migration · manifest session dispatched", OK),
+        onSecondary: () => {
+          this.setState((s) => ({ retries: s.retries + 1 }));
+          this.logged("Retry failed", "memroots migration · same stage, same path", ERR);
+        },
+      },
+    ];
+
+    const queue = [queueDefs[0], ...planDefs, ...queueDefs.slice(1)]
+      .filter((q) => !resolved[q.id])
+      .map((q) => ({
+        ...q,
+        hasCites: q.cites.length > 0,
+        hasFail: !!q.fail,
+        isPlan: !!q.isPlan,
+        answering: answering === q.id,
+        onLook: () => (q.look ? this.openSheet(q.look) : this.openSheet(q.ownerId)),
+        onOwner: () => (q.ownerId ? this.openSheet(q.ownerId) : this.setState({ peek: "palette", query: "" })),
+        cites: q.cites.map((c) => this.citeVM(q.id, c)),
+      }));
+
+    const sheetId = this.state.sheet;
+    const sessionRow = (id) => {
+      const s = sessions[id];
+      return {
+        name: s.name, reading: s.reading, route: s.route, state: s.state, stateFg: s.stateFg, mark: s.mark, markFg: s.markFg,
+        onOpen: () => this.openSheet(id),
+        bg: peek === "sheet" && sheetId === id ? "var(--accentbg)" : "transparent",
+      };
+    };
+
+    const initOrder = [...this.state.newInits.map((n) => n.key), "attention", "harness", "rollup", "triage"];
+    const initRows = initOrder.map((k) => {
+      const i = initiatives[k];
+      const isOpen = !!this.state.open[k];
+      const liveCount = i.sessionIds.filter((id) => sessions[id].live).length;
+      return {
+        name: i.name,
+        chunkLine: i.progress,
+        pct: i.pct,
+        state: i.state,
+        stateFg: i.stateFg,
+        barFg: i.stateFg === WARN ? WARN : i.stateFg === MUTE ? "var(--edge2)" : ACC,
+        markFg: i.stateFg === MUTE ? MUTE : i.stateFg === WARN ? WARN : SOFT,
+        line: peek === "sheet" && sheetId === k ? "var(--la)" : "var(--border)",
+        isOpen,
+        chev: isOpen ? "▾" : "▸",
+        toggleLabel: (isOpen ? "Collapse " : "Expand ") + i.name + " sessions",
+        onToggle: () => this.setState((s) => ({ open: { ...s.open, [k]: !s.open[k] } })),
+        onOpen: () => this.openSheet(k),
+        sessions: i.sessionIds.map(sessionRow),
+        noSessions: i.sessionIds.length === 0,
+        sessionMeta: i.sessionIds.length === 0 ? "none yet" : i.sessionIds.length + " total · " + (liveCount || "none") + " live",
+        onStart: () => {
+          this.setState((s) => ({ open: { ...s.open, [k]: true } }));
+          this.logged("Session dispatched", i.name + " · " + i.chunks[0].label, ACC);
+        },
+      };
+    });
+
+    const looseIds = ["s-drift"];
+    // #empty on the url drops the seeded rows so the empty state is reachable in the mockup
+    const loose = this.state.noLoose ? [...this.state.extraLoose] : [...looseIds.map(sessionRow), ...this.state.extraLoose];
+
+    const past = [
+      ...this.state.extra,
+      { at: "08:12", verb: "Session completed", what: "poller rewrite follow-up · evidence sealed", verbFg: MUTE, anim: "none" },
+      { at: "07:54", verb: "Decision recorded", what: "keep the attention ledger append-only", verbFg: MUTE, anim: "none" },
+      { at: "07:40", verb: "Chunk done", what: "drop the in-memory fast path · Attention reliability", verbFg: MUTE, anim: "none" },
+      { at: "21:40", verb: "Chunk blocked", what: "memroots migration · Harness sync", verbFg: MUTE, anim: "none" },
+    ];
+
+    const searchable = [
+      ...initOrder.map((k) => ({ kind: "Initiative", title: initiatives[k].name, meta: initiatives[k].progress, open: () => this.openSheet(k) })),
+      ...Object.keys(sessions).map((k) => ({ kind: "Session", title: sessions[k].name, meta: sessions[k].reading, open: () => this.openSheet(k) })),
+      // archived is searchable, marked, and sorted last — archiving takes a record out of what
+      // surfaces at you, not out of what you can find. It is the only place archived work is reachable.
+      ...Object.keys(RECORDS).map((k) => {
+        const arch = (this.state.recStatus[k] || RECORDS[k].status) === "archived";
+        return {
+          kind: RECORDS[k].kind, title: RECORDS[k].title, archived: arch,
+          meta: arch ? "archived · still cited" : RECORDS[k].fresh,
+          open: () => this.openRec(k),
+        };
+      }),
+      ...this.state.threads.map((t) => ({
+        kind: "Thread", title: t.title, archived: t.archived === true,
+        meta: (t.archived === true ? "archived · " : "") + t.turns.length + " turns · " + t.meta.split(" · ")[1],
+        open: () => this.setState({ peek: "ask", threadId: t.id }),
+      })),
+      { kind: "Map", title: "The map — tasks, decisions, memory, runs", meta: "⇧G", open: () => this.setState({ peek: "graph" }) },
+      ...PROJECTS.map((p) => ({
+        kind: "Profile", title: p.name + " profile", meta: "shape, workers, gates and standing rules",
+        open: () => this.setState({ peek: "profile", prof: p.name }),
+      })),
+      { kind: "Done", title: "feat(dev): worktree junction sharing + CDP port override", meta: "shipped 4h", open: () => this.openRec("squash") },
+    ];
+    const q = this.state.query.trim().toLowerCase();
+    const results = (q ? searchable.filter((r) => (r.title + " " + r.kind + " " + r.meta).toLowerCase().includes(q)) : searchable)
+      .sort((a, b) => (a.archived === true ? 1 : 0) - (b.archived === true ? 1 : 0))
+      .slice(0, 8)
+      .map((r) => ({ ...r, onOpen: r.open, fg: r.archived === true ? "var(--mute)" : "var(--ink2)" }));
+
+    const isInit = !!initiatives[sheetId];
+    const cur = isInit ? initiatives[sheetId] : sessions[sheetId] || sessions["s-squash"];
+    const parent = !isInit && cur.parent ? initiatives[cur.parent] : null;
+    const liveProfName = cur.project || "wave-term";
+    const base = this.profile(liveProfName);
+    const live = { par: base.par, worker: base.worker, gate: base.gate, ...(this.state.liveCfg[sheetId] || {}) };
+    const drifted = live.par !== base.par || live.worker !== base.worker || live.gate !== base.gate;
+    const baseLine = base.par + " at once, " + WORKER_LABELS[base.worker] + ", gates " + (base.gate ? "on" : "off");
+    const waiting = queue.length;
+    const liveTotal = Object.keys(sessions).filter((k) => sessions[k].live).length - (skipped ? 0 : 1);
+
+    return {
+      waitText: waiting === 0 ? "all clear" : waiting + " waiting",
+      waitFg: waiting === 0 ? OK : WARN,
+      waitBg: waiting === 0 ? "var(--ts)" : "var(--warnbg)",
+      waitLine: waiting === 0 ? "color-mix(in oklab,#54c79a 32%,transparent)" : "var(--lw)",
+      fleet: liveTotal + " sessions live · $2.41",
+      groundDim: peek ? "brightness(.72)" : "none",
+
+      queue,
+      queueEmpty: queue.length === 0,
+      answerText: this.state.answerText,
+      answerHint: this.state.answerText.trim() ? "↵ sends and closes the ask" : "the worker is holding its session open",
+      onAnswerChange: (e) => this.setState({ answerText: e.target.value }),
+      onAnswerKey: (e) => {
+        if (e.key === "Enter") this.resolve("ask", "You answered", "staging DB · " + (this.state.answerText.trim() || "usage-svc-staging-2"), ACC);
+      },
+
+      initiatives: initRows,
+      initCount: initOrder.length,
+      initMeta: (gateDone ? "" : "1 held at your gate · ") + (skipped ? "all moving" : "1 stalled") + " · 1 never started",
+
+      onNewInit: () => this.setState({ peek: "plan", planId: "draft", draftName: "" }),
+      onNewWork: () => this.setState({ peek: "plan", planId: "draft", draftName: "", draftMode: "plan" }),
+
+      loose,
+      looseMeta: "run on their own",
+      onNewSession: () => this.setState({ peek: "plan", planId: "draft", draftName: "", draftMode: "run" }),
+      looseEmpty: loose.length === 0,
+      looseMore: loose.length === 0 ? "" : "2 finished sessions →",
+
+      past,
+      pastMeta: past.length + " events · since 14h ago",
+
+      draft: this.state.draft,
+      caretOn: this.state.draft ? 0 : 1,
+      composerLine: this.state.draft ? "var(--la)" : "var(--edge)",
+      composerHint: peek === "sheet"
+        ? (isInit ? "Ask about " + cur.name : "Message the lead of this session")
+        // an attached thread opens with nothing in it, so its first ask is not a follow-up
+        : peek === "ask" && thread.turns.length === 0 ? "Ask about " + thread.title
+        : peek === "ask" ? "Ask a follow-up in this thread"
+        : "Ask across your work",
+      composerScope: peek === "sheet"
+        ? (isInit ? "grounded in this initiative" : "scoped to this session")
+        : peek === "ask" && thread.source ? "grounded in " + thread.source.chip.toLowerCase()
+        : "grounded in all work",
+      composerAlt: peek === "sheet" && !isInit ? "⇧⏎ standing rule for " + cur.project : "",
+      showAlt: peek === "sheet" && !isInit,
+      onDraftChange: (e) => this.setState({ draft: e.target.value }),
+      onDraftKey: (e) => { if (e.key === "Enter") this.send(); },
+      composerAction: peek === "sheet" ? "Send ⏎" : peek === "ask" && thread.turns.length > 0 ? "Follow up ⏎" : "Ask ⏎",
+      onSend: () => this.send(),
+
+      sheetOpen: peek === "sheet",
+      isInitiative: isInit,
+      isSession: !isInit,
+      sheetKind: cur.kind,
+      sheetTitle: cur.name,
+      sheetMeta: cur.meta,
+      sheetRoute: cur.route,
+      sheetAuto: cur.auto,
+      sheetProgress: isInit ? cur.progress : "",
+      sheetChunks: isInit
+        ? cur.chunks.map((c) => ({
+            ...c,
+            canRun: c.status === "queued",
+            onRun: () => this.logged("Session dispatched", c.label + " · " + cur.name + " · " + cur.route, ACC),
+          }))
+        : [],
+      sheetSessions: isInit ? cur.sessionIds.map(sessionRow) : [],
+      sheetSessionMeta: isInit ? (cur.sessionIds.length === 0 ? "none yet" : cur.sessionIds.length + " total, newest first") : "",
+      sheetDecisions: isInit ? cur.decisions : [],
+      sheetStream: isInit ? [] : cur.stream,
+      hasAdvances: !isInit && !!cur.advances,
+      advancesLabel: isInit ? "" : cur.advances,
+      advancesStatus: isInit ? "" : cur.advancesStatus,
+      advancesFg: isInit ? MUTE : cur.advancesFg,
+      liveCaret: !isInit && cur.live ? 1 : 0,
+      hasParent: !!parent,
+      parentName: parent ? parent.name : "",
+      onOpenParent: () => this.openSheet(cur.parent),
+      sheetFoot: isInit
+        ? "chunks are the initiative's plan and outlive any one session — a session is dispatched against a chunk and ends; the chunk stays until it lands"
+        : parent
+          ? "one session, one transcript. the chunk it advances lives on the initiative above, which is where the plan is edited"
+          : "one session, one transcript. it belongs to no initiative and does not need one — it ends when the work lands",
+      sheetWidth: this.state.wide ? "100%" : "min(680px, 64%)",
+      wideLabel: this.state.wide ? "narrow ⇥" : "widen ⇤",
+      toggleWide: () => this.setState((s) => ({ wide: !s.wide })),
+
+      showLiveCfg: !isInit && cur.live && cur.route.indexOf("engine") >= 0,
+      livePar: live.par,
+      liveParNote: "concurrent children · 16 max",
+      onParDown: () => this.setLive(sheetId, { par: Math.max(1, live.par - 1) }),
+      onParUp: () => this.setLive(sheetId, { par: Math.min(16, live.par + 1) }),
+      liveWorker: WORKER_LABELS[live.worker],
+      onCycleWorker: () => this.setLive(sheetId, { worker: NEXT_WORKER[live.worker] }),
+      // was inert in the original: the markup binds onToggleGate and nothing returned it
+      onToggleGate: () => this.setLive(sheetId, { gate: !live.gate }),
+      liveGate: live.gate,
+      liveGateTrack: live.gate ? ACC : "var(--edge2)",
+      liveGateKnob: live.gate ? "15px" : "2px",
+      liveGateLabel: live.gate ? "Gate each phase" : "No phase gates",
+      liveDrifted: drifted,
+      liveDriftNote: "This session no longer matches the " + liveProfName + " profile (" + baseLine + ").",
+      saveProfileLabel: "Save to " + liveProfName,
+      onSaveToProfile: () => {
+        this.setState((s) => ({ profiles: { ...s.profiles, [liveProfName]: { ...base, ...live } } }));
+        this.logged("Profile updated", liveProfName + " · " + live.par + " at once, workers on " + WORKER_LABELS[live.worker], ACC);
+      },
+
+      ...this.planSheet(planDefsRaw),
+      ...this.launchVals(),
+      ...this.initVals(),
+
+      onNewRun: () => this.setState({ peek: "launch", projectOpen: false }),
+      onNewInitiative: () => this.setState({ peek: "initiative", projectOpen: false, initName: "" }),
+      tierChip: (TIERS.find((t) => t.key === this.state.tier).name) + " · " + (this.state.tier === "delegator" ? "answers routine asks" : this.state.tier === "gatekeeper" ? "holds every gate" : "asks you everything"),
+      onOpenAutonomy: () => this.setState({ peek: "autonomy" }),
+      onOpenPicker: () => this.setState({ peek: "picker" }),
+
+      profOpen: peek === "profile",
+      profName: this.state.prof || "wave-term",
+      profNote: (this.profile(this.state.prof || "wave-term")).note,
+      profRows: (() => {
+        const p = this.profile(this.state.prof || "wave-term");
+        return [
+          { label: "Shape", value: p.shape, note: p.shape === "quick" ? "one worker, no phases" : "a lead plans, then work fans out" },
+          { label: "Machine", value: p.machine, note: p.machine === "engine" ? "DAG into managed worktrees" : "lead dispatches its own subagents" },
+          { label: "At once", value: String(p.par), note: "concurrent children, 16 max" },
+          { label: "Workers", value: WORKER_LABELS[p.worker] || p.worker, note: "lead stays on the project's lead model" },
+          { label: "Phase gates", value: p.gate ? "on" : "off", note: p.gate ? "each phase stops for you" : "runs to the end" },
+        ];
+      })(),
+
+      principles: this.state.principles.map((text, i) => ({
+        text,
+        onDrop: () => this.setState((s) => ({ principles: s.principles.filter((_, j) => j !== i) })),
+      })),
+      principleMeta: this.state.principles.length + " in force",
+      principleLine: this.state.newPrinciple.trim() ? "var(--la)" : "var(--edge)",
+      newPrinciple: this.state.newPrinciple,
+      onPrincipleChange: (e) => this.setState({ newPrinciple: e.target.value }),
+      onPrincipleKey: (e) => { if (e.key === "Enter") this.addPrinciple(); },
+      onAddPrinciple: () => this.addPrinciple(),
+
+      // the autonomy tier. Nested, never three alternatives: picking delegator keeps everything
+      // gatekeeper and concierge do, which is why the rows stack and indent instead of forming a radio.
+      autoOpen: peek === "autonomy",
+      tiers: TIERS.map((t, i) => {
+        const at = TIERS.findIndex((x) => x.key === this.state.tier);
+        const on = i <= at;
+        return {
+          name: t.name, adds: t.adds, indent: i * 14 + "px",
+          mark: on ? "◉" : "○", markFg: on ? "var(--accent)" : "var(--faint)",
+          line: i === at ? "var(--la)" : on ? "var(--border)" : "var(--hair)",
+          bg: i === at ? "var(--accentbg)" : "transparent",
+          fg: on ? "var(--ink)" : "var(--mute)",
+          state: i === at ? "current" : on ? "included" : "",
+          stateFg: i === at ? "var(--soft)" : "var(--faint)",
+          onPick: () => {
+            this.setState({ tier: t.key, peek: null });
+            this.logged("Autonomy changed", t.name + " · " + t.adds, ACC);
+          },
+        };
+      }),
+      tierFoot: "changing this changes what lands in your queue, not what runs — " + TIERS.find((t) => t.key === this.state.tier).foot,
+
+      pickerOpen: peek === "picker",
+      pickerFor: cur.name,
+      pickerRows: Object.keys(RECORDS).map((k) => {
+        const attached = SEEDED_EDGES.includes(k) || this.state.attached.includes(k);
+        return {
+          kind: RECORDS[k].kind, title: RECORDS[k].title,
+          tag: attached ? "attached" : "", tagFg: "var(--ok)",
+          bg: attached ? "var(--accentbg)" : "transparent",
+          onPick: () => {
+            if (attached) return this.setState({ peek: "sheet" });
+            this.setState((s) => ({ attached: [...s.attached, k], peek: "sheet" }));
+            this.logged("Record attached", RECORDS[k].title + " · you attached it, not Jarvis", ACC);
+          },
+        };
+      }),
+      sheetEdges: this.sheetEdges(),
+
+      graphOpen: peek === "graph",
+      graphMeta: GRAPH_NODES.length + " nodes · " + GRAPH_LINKS.length + " edges · focused on one task",
+      graphLegend: [
+        { label: "task", fg: "var(--accent)" }, { label: "decision", fg: "var(--warn)" },
+        { label: "memory", fg: "var(--ok)" }, { label: "run", fg: "var(--soft)" },
+      ],
+      ...this.graphVals(),
+      onOpenFocused: () => {
+        const n = GRAPH_NODES.find((g) => g.id === this.state.graphFocus);
+        if (n && n.rec) return this.openRec(n.rec);
+        this.setState({ peek: "sheet", sheet: n && n.sheet ? n.sheet : "attention" });
+      },
+
+      askOpen: peek === "ask",
+      askTitle: thread.title,
+      askMeta: thread.meta,
+      askThinking: this.state.askThinking,
+      askTurns: thread.turns.map((t) => ({
+        ...t,
+        whoFg: t.who === "you" ? "var(--faint)" : "var(--soft)",
+        hasRefs: (t.refs || []).length > 0,
+        refs: (t.refs || []).map((r) => ({ ...r, onOpen: () => this.openRec(r.key) })),
+      })),
+      ...this.drewVals(thread),
+      // an attached thread has to say so before you type, not after you send: the whole point of the
+      // scope chip is that a keystroke never lands somewhere you did not choose
+      askAttached: !!thread.source,
+      askAttachedLabel: thread.source ? thread.source.chip : "",
+      askEmpty: thread.turns.length === 0,
+      askEmptyLine: thread.source
+        ? "Jarvis reads " + thread.source.title + " first, then everything it links to. Ask, or drop the attachment to ask across all work."
+        : "",
+      onDetachSource: () => this.setState((s) => ({
+        threads: s.threads.map((t) => (t.id === thread.id ? { ...t, source: null, meta: "all projects · detached" } : t)),
+      })),
+      // revealed by the caret, never while a thread is already expanded — you are in one already.
+      // Only threads you kept going: one question and one answer is a lookup, not something you
+      // left off in the middle of. Everything else is in the palette.
+      recentOpen: this.state.composerFocused && peek !== "ask" && unfinished.length > 0,
+      recentMeta: unfinished.length + " of " + this.state.threads.length,
+      histRows: unfinished.map((t) => ({
+        title: t.title,
+        when: t.meta.split(" · ")[1],
+        turns: t.turns.length + " turns",
+        bg: t.id === this.state.threadId ? "var(--accentbg)" : "transparent",
+        onOpen: () => this.setState({ peek: "ask", threadId: t.id, composerFocused: false }),
+      })),
+      onDraftFocus: () => this.setState({ composerFocused: true }),
+      // the blur has to outlive the click on a row, or picking a thread dismisses the list first
+      onDraftBlur: () => setTimeout(() => this.setState({ composerFocused: false }), 180),
+      onOpenGraph: () => this.setState({ peek: "graph" }),
+
+      recOpen: peek === "record",
+      ...this.recVals(rec, this.state.rec || "attention", sessions),
+
+      paletteOpen: peek === "palette",
+      query: this.state.query,
+      results,
+      noResults: results.length === 0,
+      onQueryChange: (e) => this.setState({ query: e.target.value }),
+      onQueryKey: (e) => { if (e.key === "Enter" && results.length) results[0].onOpen(); },
+
+      openPalette: () => this.setState({ peek: "palette", query: "" }),
+      close: () => this.setState({ peek: null, projectOpen: false, threadId: null, statusOpen: false }),
+    };
+  }
+
+  send() {
+    const text = this.state.draft.trim();
+    if (!text) return;
+    // inside a work sheet the composer is talking to that run's lead, not asking the vault
+    if (this.state.peek === "sheet") {
+      this.setState({ draft: "" });
+      this.logged("You messaged the lead", text, ACC);
+      return;
+    }
+    const at = this.clock();
+    const id = this.state.threadId || "t" + Date.now();
+    const fresh = !this.state.threadId;
+    // an attached thread arrives already open with nothing in it, so its first ask is a first ask even
+    // though the thread already exists
+    const prior = this.state.threads.find((t) => t.id === id);
+    const opening = prior && prior.source && prior.turns.length === 0 ? prior.source : null;
+    this.setState((s) => ({
+      draft: "", peek: "ask", threadId: id, composerFocused: false, askThinking: true,
+      threads: fresh
+        ? [{ id, title: text, meta: "all projects · just now", turns: [{ who: "you", at, text }] }, ...s.threads]
+        : s.threads.map((t) => (t.id === id ? { ...t, turns: [...t.turns, { who: "you", at, text }] } : t)),
+    }));
+    if (fresh) this.logged("You asked", text, ACC);
+    // the answer arrives into the thread, not into the log — the log records that you asked,
+    // the thread holds what came back.
+    setTimeout(() => {
+      this.setState((s) => ({
+        askThinking: false,
+        threads: s.threads.map((t) =>
+          t.id !== id ? t : {
+            ...t,
+            // an attached thread is not "all projects" — the meta must not contradict the chip
+            meta: (t.source ? "attached" : "all projects") + " · just now · " + (t.turns.length + 1) + " turns",
+            turns: [...t.turns, opening ? {
+              who: "jarvis", at: this.clock(), text: opening.answer, refs: opening.refs,
+            } : fresh ? {
+              who: "jarvis", at: this.clock(),
+              text: "Two of the four things in your queue trace back to the same change. The merge gate and the blocked chunk both read a path that moved, which is why one is holding and the other keeps failing the same way.",
+              refs: [
+                { n: "[1]", text: "record · vault path layout change", key: "vault" },
+                { n: "[2]", text: "record · attention polling", key: "attention" },
+              ],
+            } : {
+              who: "jarvis", at: this.clock(),
+              text: "The blocked chunk, because it is the one stalling a whole initiative — the merge gate is holding one session, but Harness sync has had nothing running against it since 21:40. Fixing the path unblocks both.",
+              refs: [{ n: "[3]", text: "record · vault path layout change", key: "vault" }],
+            }],
+          }
+        ),
+      }));
+    }, 1400);
+  }
+}
+</script>
+</body>
+</html>
