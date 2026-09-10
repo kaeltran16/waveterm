@@ -11,21 +11,27 @@
 // with whatever the projection's caps hid stated separately as "+N more" — so no line here can claim
 // more work than the surface is showing.
 //
-// The record peek and the palette land separately, so the mockup's row actions (Answer / Look in / open
-// the sheet) render as stated state rather than controls that would navigate nowhere. The composer and
-// the thread it grows into are here.
+// The record peek is here (BriefPeek, opened by a record oref) and the palette extends the app's own. The
+// mockup's remaining row actions — Answer / Look in / open the sheet — still render as stated state rather
+// than controls that would navigate nowhere: the session and initiative sheets land with B4 and B5. The
+// composer and the thread it grows into are here.
 //
 // One presentation rule runs through the whole file and decides every border below: a bordered chip is
 // the control recipe, a borderless one is a label. Dressing something inert as a control and camouflaging
 // a real control among labels are the same lie, so neither happens here.
 
+import { globalStore } from "@/app/store/jotaiStore";
+import { buildJarvisGraphBindings } from "@/app/store/keybindings/bindings";
 import { useSurfaceListNav, type ListNavController } from "@/app/store/keybindings/listnav";
+import { useKeybindings } from "@/app/store/keybindings/store";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { formatAge } from "@/app/view/agents/agentsviewmodel";
+import { ambientProviderAtom, ensureAmbient } from "@/app/view/agents/ambientstore";
 import { attentionAtom } from "@/app/view/agents/attentionstore";
 import { cn } from "@/util/util";
-import { atom, useAtom, useAtomValue, type ExtractAtomValue } from "jotai";
-import { Fragment, useEffect, useMemo, type ReactNode } from "react";
+import { atom, useAtom, useAtomValue } from "jotai";
+import { AnimatePresence } from "motion/react";
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { resolveComposerLabels, type BriefComposeState } from "./briefcompose";
 import { drewOn, type DrewRow } from "./briefdrew";
 import { briefFleet } from "./brieffleet";
@@ -34,7 +40,6 @@ import {
     buildAttentionQueue,
     groupDelta,
     mergeActiveWork,
-    normalizeBriefingNav,
     projectBriefing,
     SEVEN_DAYS_MS,
     type ActiveWorkRow,
@@ -43,26 +48,50 @@ import {
 import {
     ackBriefingVisit,
     askAcrossWork,
+    briefDraftAtom,
     briefingAnswerAtom,
     briefingAskStateAtom,
     briefingFixtureAtom,
     briefingStateAtom,
+    briefRestoreConsumedAtom,
+    briefScopeAtom,
+    briefThreadAtom,
+    clearBriefThread,
+    hydrateBriefThread,
     loadBriefing,
     refreshBriefing,
+    type BriefExchange,
+    type BriefingAnswer,
 } from "./briefingstore";
 import { briefNavIds, resolveBriefCursor } from "./briefnav";
+import { BriefPeek } from "./briefpeekview";
+import { briefRestorePlan } from "./briefrestore";
+import { openJarvisWithSource } from "./contextualentry";
 import type { EffortCardModel } from "./effortmodel";
+import { peekFocus, type PeekFocus } from "./graphfocus";
+import { GraphPeek } from "./graphpeek";
 import {
     isAnswerTurn,
     type Freshness,
-    type GroundingCard,
     type JarvisConversation,
     type JarvisTurn,
-    type SourceType,
+    type SourceRef,
     type Terminal,
 } from "./jarviscontract";
+import {
+    briefGraphRecordAtom,
+    briefPeekRecordAtom,
+    conversationsByIdAtom,
+    graphPeekOpenAtom,
+    loadJarvisConversations,
+    persistedSummariesAtom,
+    selectConversation,
+} from "./jarvisstore";
+import { persistedSubjectAtom } from "./jarvissubjectstore";
+import { mentionedDossierIds } from "./mentions";
 import { openORef, orefNavPlan } from "./openref";
-import { freshnessLabel } from "./recallderive";
+import { ageLabel, freshnessLabel } from "./recallderive";
+import { loadTaskList, taskListAtom } from "./tasksstore";
 
 const REGIONS = {
     waiting: {
@@ -328,66 +357,33 @@ function PastRow({
 // JarvisConversation, so the turns accumulate here and Escape discards them — there is nothing on the
 // wire to resume a collapsed one from, and the thread list deliberately does not carry one-shot lookups.
 
-// module scope, not useState: this surface unmounts on every nav switch, and a half-typed question or an
-// open thread must survive a glance at another surface.
-const briefDraftAtom = atom("");
-const briefThreadAtom = atom<BriefExchange[]>([]);
-// same reason: a j/k cursor that reset on every glance at another surface would be worse than none.
+// module scope, not useState: a j/k cursor that reset on every glance at another surface would be worse
+// than none. Composer state lives in briefingstore so contextual entry can seed it before this mounts.
 const briefCursorAtom = atom<string | undefined>(undefined);
-
-type BriefAnswer = NonNullable<ExtractAtomValue<typeof briefingAnswerAtom>>;
-
-interface BriefExchange {
-    key: string;
-    ts: number;
-    turn: JarvisTurn;
-    // the answer object this turn was built from. A reply is matched to its question by identity rather
-    // than by "an answer arrived", which would otherwise attach a superseded or foreign answer to a
-    // question whose own ask failed.
-    answer?: BriefAnswer;
-}
 
 const COMPOSER_CHIP = "flex-none font-mono text-[9.5px] font-semibold";
 const TURN_WHO = "flex-none font-mono text-[9px] font-bold uppercase tracking-[.11em]";
 const BAND_LABEL = "flex-none font-mono text-[9px] font-bold uppercase tracking-[.12em] text-ink-faint";
 
-function userTurn(text: string): JarvisTurn {
-    return { role: "user", text, attachments: [] };
+function userTurn(text: string, attachments: SourceRef[]): JarvisTurn {
+    return { role: "user", text, attachments };
 }
 
-function answerTurn(a: BriefAnswer): JarvisTurn {
+function answerTurn(a: BriefingAnswer): JarvisTurn {
     return {
         role: "jarvis",
         workingSteps: [],
         segments: [{ text: a.answer }],
-        grounding: askGrounding(a.sources),
+        // the ask now returns the same grounding card the conversation path builds, carrying a real
+        // project, age and freshness reading. This was a local re-derivation over a wire shape that
+        // carried none of the three, which is what forced every citation here to read "unverified".
+        grounding: a.grounding,
         terminal: a.terminal as Terminal,
     };
 }
 
 function turnProse(turn: JarvisTurn): string {
     return turn.role === "user" ? turn.text : turn.segments.map((s) => ("text" in s ? s.text : "")).join("");
-}
-
-// The all-work ask returns {oref, sourcetype, title} and no reading of the source: no project, no age,
-// no freshness. So this path states the two things it can actually derive and nothing more — an oref with
-// no route is a source the thread cannot show you, which is what "unavailable" means, and a routable one
-// was never checked for staleness, which is "unverified". Calling the latter "fresh" would assert a check
-// nobody ran. Nothing below prints an age, because none was reported.
-function askGrounding(sources: JarvisConvoSourceRef[]): GroundingCard[] {
-    return (sources ?? []).map((s, i) => {
-        const target = normalizeBriefingNav(s.oref) ?? "";
-        const reachable = target !== "" && orefNavPlan(target).kind !== "unsupported";
-        return {
-            n: i + 1,
-            sourceType: s.sourcetype as SourceType,
-            title: s.title,
-            project: "",
-            ageMs: 0,
-            freshness: reachable ? "unverified" : "unavailable",
-            navTarget: target,
-        };
-    });
 }
 
 // invariant 7: a thread resting on something stale or gone has to say so, as a word. groundingrail.tsx is
@@ -482,6 +478,9 @@ function DrewChip({ row, model }: { row: DrewRow; model: AgentsViewModel }) {
             <span className="flex-none text-ink-faint">{row.sourceType}</span>
             <span className="min-w-0 truncate">{row.title}</span>
             {row.citations > 1 ? <span className="flex-none text-ink-faint">×{row.citations}</span> : null}
+            {/* the age is the reading's own timestamp, so it sits beside the word rather than under the
+                title: "20d ago · Stale" is one observation, and the age alone was never the claim. */}
+            <span className="flex-none text-ink-faint">{ageLabel(row.ageMs)}</span>
             <span className={cn("flex-none font-semibold", freshnessFg(row.freshness))}>
                 {freshnessLabel(row.freshness)}
             </span>
@@ -521,6 +520,7 @@ function DrewBand({ conversation, model }: { conversation: JarvisConversation; m
 function BriefComposer({ model }: { model: AgentsViewModel }) {
     const [draft, setDraft] = useAtom(briefDraftAtom);
     const [thread, setThread] = useAtom(briefThreadAtom);
+    const scope = useAtomValue(briefScopeAtom);
     const askState = useAtomValue(briefingAskStateAtom);
     const answer = useAtomValue(briefingAnswerAtom);
 
@@ -540,17 +540,20 @@ function BriefComposer({ model }: { model: AgentsViewModel }) {
     }, [answer, askState, awaitingReply, alreadyThreaded, setThread]);
 
     const asked = thread.filter((e) => e.turn.role === "user").length;
-    const title = thread.length > 0 ? turnProse(thread[0].turn) : "";
+    const title = thread.length > 0 ? turnProse(thread[0].turn) : (scope.attached[0]?.title ?? "");
+    const sourceChip = scope.chips.find((chip) => chip.active)?.label;
     // `sheet` is briefcompose's third shape and belongs to the record/session peek sub-project; no state
     // on this surface can produce it, so the Brief resolves launch or thread and nothing else.
     const state: BriefComposeState =
-        thread.length === 0 ? { peek: "launch" } : { peek: "thread", title, turnCount: thread.length };
+        thread.length === 0 && sourceChip == null
+            ? { peek: "launch" }
+            : { peek: "thread", title, turnCount: thread.length, sourceChip };
     const labels = resolveComposerLabels(state);
     const conversation: JarvisConversation = {
         id: "brief-ask",
         title,
         turns: thread.map((e) => e.turn),
-        scope: { mode: "all", chips: [], attached: [] },
+        scope,
     };
     const answered = thread.some((e) => isAnswerTurn(e.turn));
     // held only while this thread's own question is still out — a second one would supersede the first ask
@@ -565,8 +568,14 @@ function BriefComposer({ model }: { model: AgentsViewModel }) {
         }
         const text = draft.trim();
         setDraft("");
-        setThread((t) => [...t, { key: `q${t.length}:${Date.now()}`, ts: Date.now(), turn: userTurn(text) }]);
-        askAcrossWork(text);
+        setThread((t) => [
+            ...t,
+            { key: `q${t.length}:${Date.now()}`, ts: Date.now(), turn: userTurn(text, scope.attached) },
+        ]);
+        askAcrossWork(
+            text,
+            scope.attached.map((ref) => ref.oref)
+        );
     };
 
     // local to the input, never a window listener: the Brief adds no global chord of its own.
@@ -578,7 +587,7 @@ function BriefComposer({ model }: { model: AgentsViewModel }) {
         }
         if (e.key === "Escape" && thread.length > 0) {
             e.preventDefault();
-            setThread([]);
+            clearBriefThread();
         }
     };
 
@@ -598,7 +607,7 @@ function BriefComposer({ model }: { model: AgentsViewModel }) {
                         <span className="flex-1" />
                         <button
                             type="button"
-                            onClick={() => setThread([])}
+                            onClick={clearBriefThread}
                             className="flex-none cursor-pointer rounded-[6px] border border-border bg-surface-raised px-2 py-0.5 font-mono text-[10px] font-semibold text-muted hover:border-edge-strong hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                         >
                             Collapse · esc
@@ -676,6 +685,74 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         loadBriefing();
     }, []);
 
+    // The lists the Brief's boot restore validates against. Loaded here rather than inherited: in the Brief
+    // composition the Subjects column does not mount, and that column is what loads both of these today.
+    useEffect(() => {
+        loadTaskList();
+        loadJarvisConversations();
+    }, []);
+
+    // Boot restore, Brief edition. A subject stored by the three-pane composition has no Stage to land on
+    // here, so it lands on the peek or in the composer instead (briefrestore.ts). One-shot: this surface
+    // unmounts on every nav switch, and a restore that re-ran would re-open a peek the user had closed.
+    const storedSubject = useAtomValue(persistedSubjectAtom);
+    const dossiers = useAtomValue(taskListAtom);
+    const summaries = useAtomValue(persistedSummariesAtom);
+    const conversations = useAtomValue(conversationsByIdAtom);
+    const [restoreConsumed, consumeRestore] = useAtom(briefRestoreConsumedAtom);
+    // the conversation half of the restore, held between the decision and its turns arriving
+    const [restoreConversationId, setRestoreConversationId] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (restoreConsumed) {
+            return;
+        }
+        const plan = briefRestorePlan(storedSubject, {
+            // the Brief has no use for the channel list: a channel defers before the decision is reached
+            channels: null,
+            dossiers: dossiers?.map((d) => d.id) ?? null,
+            conversations: summaries == null ? null : summaries.map((s) => s.id),
+        });
+        if (plan.action === "wait") {
+            return;
+        }
+        consumeRestore(true);
+        if (plan.action === "record") {
+            globalStore.set(briefPeekRecordAtom, plan.id);
+            return;
+        }
+        if (plan.action === "conversation") {
+            setRestoreConversationId(plan.id);
+            selectConversation(plan.id);
+            return;
+        }
+        // a channel keeps its stored subject: B5 owns that destination, and a no-op launch costs less than
+        // forgetting a restore target the user never asked to forget
+        if (plan.action === "defer-channel") {
+            return;
+        }
+        globalStore.set(persistedSubjectAtom, null);
+    }, [storedSubject, dossiers, summaries, restoreConsumed, consumeRestore]);
+
+    useEffect(() => {
+        if (restoreConversationId == null) {
+            return;
+        }
+        const convo = conversations[restoreConversationId];
+        // the summary is where the turns' one available timestamp comes from; without it there is no honest
+        // age to print, and the thread was deleted between the decision and its load anyway
+        const summary = summaries?.find((s) => s.id === restoreConversationId);
+        if (convo == null || summary == null) {
+            return;
+        }
+        setRestoreConversationId(null);
+        // a thread the user started while this was loading is theirs, not the restore's to discard
+        if (globalStore.get(briefThreadAtom).length > 0 || globalStore.get(briefDraftAtom) !== "") {
+            return;
+        }
+        hydrateBriefThread(convo, summary.updatedts);
+    }, [restoreConversationId, conversations, summaries]);
+
     // dwell, not load: a glance-and-close must leave the delta unseen so it repeats on the next visit.
     const snapshotComplete = snapshot?.complete === true;
     const queryStartedAt = snapshot?.queryStartedAt;
@@ -748,6 +825,47 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     }, [cursor]);
 
     const fleet = briefFleet(agents);
+
+    // The Brief mounts no Stage, so it registers the one binding both compositions share and nothing else:
+    // the Stage's d and n act on panes this surface does not have. (bindings.ts)
+    const graphBindings = useMemo(() => buildJarvisGraphBindings(), []);
+    useKeybindings(graphBindings);
+
+    // Where the graph peek opens. The Brief has no Stage subject, so the derivation starts from what the
+    // Brief itself is about: the record the peek's map button named, else the thread's attached sources,
+    // else the records its answers cited. peekFocus already implements that order, so this names no second
+    // one. tagsFor is real rather than empty because an attached RUN source resolves to a record only
+    // through the ambient attribution map, and an empty one would silently focus nothing.
+    const graphRecord = useAtomValue(briefGraphRecordAtom);
+    const graphOpen = useAtomValue(graphPeekOpenAtom);
+    const scope = useAtomValue(briefScopeAtom);
+    const thread = useAtomValue(briefThreadAtom);
+    const ambient = useAtomValue(ambientProviderAtom);
+    useEffect(() => ensureAmbient(), []);
+    const graphFocus = useMemo<PeekFocus>(
+        () =>
+            graphRecord != null
+                ? { dossierId: graphRecord, runORef: null }
+                : peekFocus({
+                      subject: null,
+                      runORef: null,
+                      attachedORefs: scope.attached.map((a) => a.oref),
+                      mentionedDossierIds: mentionedDossierIds({
+                          id: "brief-ask",
+                          title: "",
+                          turns: thread.map((e) => e.turn),
+                          scope,
+                      }),
+                      tagsFor: (oref) => ambient.tagsFor({ oref }),
+                  }),
+        [graphRecord, scope, thread, ambient]
+    );
+    // closing clears the explicit record too: leaving it set would re-centre every later open on a record
+    // the user has moved on from
+    const closeBriefGraph = () => {
+        globalStore.set(graphPeekOpenAtom, false);
+        globalStore.set(briefGraphRecordAtom, null);
+    };
     const projectCount = snapshot?.state.projects?.length ?? 0;
     const stalled = efforts.filter((e) => e.blockedChunks.length > 0).length;
     const pastRows = deltaGroups.reduce((n, g) => n + g.rows.length, 0) + shipped.length;
@@ -928,6 +1046,27 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                 ) : null}
             </div>
             <BriefComposer model={model} />
+            {/* the Brief's destination for a record oref: openref.ts's task arm sets the atom this reads.
+                Mounted here rather than beside the surface switch because it is the Brief's own overlay —
+                the three-pane composition opens a record on the Stage instead. */}
+            <BriefPeek model={model} />
+            {/* The same overlay the Stage mounts, with the Brief's own exits. canOpenRuns is false: runs
+                have no Stage-sheet destination until B5, and a control that navigates nowhere is worse than
+                its absence. A graph-selected record closes into the record peek; an Ask closes into the
+                attached Brief thread. */}
+            <AnimatePresence>
+                {graphOpen ? (
+                    <GraphPeek
+                        key="brief-graph-peek"
+                        model={model}
+                        focus={graphFocus}
+                        canOpenRuns={false}
+                        onOpenRecord={(id) => globalStore.set(briefPeekRecordAtom, id)}
+                        onAskAbout={(ref) => openJarvisWithSource(model, ref)}
+                        onClose={closeBriefGraph}
+                    />
+                ) : null}
+            </AnimatePresence>
         </div>
     );
 }

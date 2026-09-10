@@ -23,6 +23,7 @@ import {
     buildFilesBindings,
     buildGlobalBindings,
     buildJarvisBindings,
+    buildJarvisGraphBindings,
     buildListNavBindings,
     closeTargetForDoubleCtrlC,
 } from "./bindings";
@@ -194,6 +195,19 @@ describe("list-nav bindings", () => {
 describe("jarvis surface bindings", () => {
     const jarvisCtx: KeyContext = { surface: "jarvis", editable: false, modalOpen: false, leader: null };
     const byId = (id: string) => buildJarvisBindings().find((b) => b.id === id)!;
+
+    // The Brief mounts no Stage, so it registers only the graph shortcut (buildJarvisGraphBindings).
+    // Sharing one builder rather than re-declaring the key is what keeps the chord from drifting apart
+    // between the two compositions.
+    it("exposes the graph shortcut on its own, without the Stage-only keys", () => {
+        const graphOnly = buildJarvisGraphBindings();
+        expect(graphOnly.map((b) => b.id)).toEqual(["jarvis:graph-peek"]);
+        const shared = graphOnly[0];
+        const fromFull = byId("jarvis:graph-peek");
+        expect(shared.keys).toBe(fromFull.keys);
+        // the Stage's d and n act on panes the Brief does not have
+        expect(graphOnly.some((b) => b.id === "jarvis:toggle-rail" || b.id === "jarvis:new-thread")).toBe(false);
+    });
 
     // the click-through bindings (+ Channel, the record band) and composer focus act on rendered DOM, so
     // only their guards are asserted here — this suite runs in node, and the surface has no render harness

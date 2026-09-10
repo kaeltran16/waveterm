@@ -61,6 +61,12 @@ export const profileRailOpenAtom = atom(false);
 export type JarvisComposition = "three-pane" | "brief";
 export const jarvisCompositionAtom = atomWithStorage<JarvisComposition>("jarvis.composition", "three-pane");
 
+// The record the Brief's peek is open on, or null. Module-level rather than surface state because the
+// Jarvis surface unmounts when you navigate away from it, and a peek opened from an oref must survive the
+// surface flip that oref triggers. It lives beside the composition atom because the two are read together:
+// a record oref opens the peek in the Brief and a Stage subject in the three-pane.
+export const briefPeekRecordAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
+
 // The merged surface's one context rail. Open by default, unlike the two rails it replaces: it now carries
 // Needs you, which is the surface's attention channel and must not start hidden behind a 44px strip.
 export const stageRailOpenAtom = atomWithStorage("jarvis.stagerail.open", true);
@@ -68,6 +74,12 @@ export const stageRailOpenAtom = atomWithStorage("jarvis.stagerail.open", true);
 // The graph peek overlay. Session-scoped, not persisted: a peek is a momentary look at one object's
 // neighbourhood, so reopening the app on top of one would be reopening a destination it is not.
 export const graphPeekOpenAtom = atom(false);
+
+// The record the Brief's graph peek was opened to focus, or null. Separate from the peek's `record` atom
+// because a map button names an object to centre on, and the graph's other routes (an attached source, a
+// cited record) derive their focus from state that is already there. Cleared with the peek, so the next
+// unaddressed open falls back to deriving focus rather than re-centring on a record the user has left.
+export const briefGraphRecordAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 
 // --- real conversations (Plan 2) -------------------------------------------------------------------
 // Writable source of truth for real recall conversations, keyed by id. Mirrors channelsstore's

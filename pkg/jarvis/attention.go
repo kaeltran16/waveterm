@@ -12,7 +12,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"sort"
+	"strings"
 
 	"github.com/wavetermdev/waveterm/pkg/agentask"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
@@ -29,6 +31,20 @@ const (
 	// engine's client (orchestrate imports jarvis for run status — importing it back would cycle).
 	AttentionDagGate    = "dag-gate"
 	AttentionDagBlocked = "dag-blocked"
+	AttentionPlanGate   = "plan-gate"
+	// radar triage is the only kind that names no channel: a scan belongs to a project, not a
+	// conversation, so its row addresses the report through ORef instead.
+	AttentionRadarTriage = "radar-triage"
+)
+
+// mirrors orchestrate.TaskState_Done and the two RadarReport/RadarFinding vocabularies, spelled here
+// for the same reason as the dag statuses above.
+const (
+	taskStateDone        = "done"
+	radarStatusCompleted = "completed"
+	radarStatusPartial   = "partial"
+	radarGroupNew        = "new"
+	radarGroupRecurring  = "recurring"
 )
 
 // AttentionChannel is one channel's contribution: its identity plus the rows the builder reads.
@@ -51,6 +67,9 @@ type AttentionInput struct {
 	AskWorker     map[string]string
 	AskWorkerORef map[string]string
 	Dags          []*waveobj.TaskGroup // engine-owned task DAGs (awaiting-review/blocked surface items)
+	// Radar is every scan report, newest-first, as GetRadarReports returns them. radarTriageItems
+	// depends on that order to pick the current report per project, so a caller must not re-sort it.
+	Radar []*waveobj.RadarReport
 }
 
 // reviewGateIdx ports frontend runmodel.reviewGate: the gated phase awaiting approval, or -1. The engine
@@ -150,20 +169,31 @@ func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
 	}
 
 	for _, g := range in.Dags {
+		// the field pair, not g.Status: orchestrate/dag.go:48 requires every reader of this gate to read
+		// PlanGate+PlanApprovedTs so that a status recomputed from task state can never release it. That
+		// is also why this is checked BEFORE the status switch — a group whose stored status has drifted
+		// must not report a review gate for a plan nobody has approved yet.
+		if g.PlanGate && g.PlanApprovedTs == 0 {
+			gates = append(gates, wshrpc.AttentionItem{
+				Kind:        AttentionPlanGate,
+				Key:         "plan-gate:" + g.ID,
+				ChannelId:   g.ChannelId,
+				ChannelName: channelNameFor(in.Channels, g.ChannelId),
+				RunId:       g.RunID,
+				Source:      dagSource(in.Channels, g),
+				Text:        "Approve the plan before any worker starts.",
+				Action:      "Review",
+				// nothing records when the plan was handed over. UpdatedTs is the closest honest proxy
+				// and it bumps when a sent-back plan is redrafted, which is the behaviour you want: the
+				// wait restarts when the plan changes. CreatedTs would age a redraft as the original.
+				WaitingSince: g.UpdatedTs,
+			})
+			continue
+		}
 		// statuses mirror orchestrate.DagStatus_AwaitingReview / DagStatus_Blocked (see AttentionDagGate).
 		switch g.Status {
 		case "awaiting-review":
-			gates = append(gates, wshrpc.AttentionItem{
-				Kind:         AttentionDagGate,
-				Key:          "dag-gate:" + g.ID,
-				ChannelId:    g.ChannelId,
-				ChannelName:  channelNameFor(in.Channels, g.ChannelId),
-				RunId:        g.RunID,
-				Source:       dagSource(in.Channels, g),
-				Text:         "Approve the gate before the DAG proceeds.",
-				Action:       "Review",
-				WaitingSince: g.UpdatedTs,
-			})
+			gates = append(gates, dagGateItems(in, g)...)
 		case "blocked":
 			gates = append(gates, wshrpc.AttentionItem{
 				Kind:         AttentionDagBlocked,
@@ -200,7 +230,7 @@ func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
 			ChannelName:  ch.Name,
 			RunId:        runIdForWorker(ch.Runs, in.AskWorkerORef[oref]),
 			Source:       name,
-			Text:         "Waiting on your reply",
+			Text:         askText(p.Questions),
 			Action:       "Answer",
 			WaitingSince: p.Ts,
 		})
@@ -208,7 +238,8 @@ func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
 
 	// Kind is the priority claim — a gate blocks a whole pipeline, an ask blocks one worker. Age only
 	// breaks ties inside a kind. Key is the final tiebreak so map iteration cannot reorder equal items.
-	for _, group := range [][]wshrpc.AttentionItem{gates, escalations, asks} {
+	triage := radarTriageItems(in.Radar)
+	for _, group := range [][]wshrpc.AttentionItem{gates, escalations, asks, triage} {
 		g := group
 		sort.SliceStable(g, func(i, j int) bool {
 			if g[i].WaitingSince != g[j].WaitingSince {
@@ -218,11 +249,148 @@ func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
 		})
 	}
 
-	out := make([]wshrpc.AttentionItem, 0, len(gates)+len(escalations)+len(asks))
+	out := make([]wshrpc.AttentionItem, 0, len(gates)+len(escalations)+len(asks)+len(triage))
 	out = append(out, gates...)
 	out = append(out, escalations...)
 	out = append(out, asks...)
+	// triage is last because it is the weakest claim in the list: an untriaged finding blocks nothing
+	// that is running, where every kind above it is holding a worker or a pipeline in place.
+	out = append(out, triage...)
 	return out
+}
+
+// dagGateItems is one row per task the engine is holding, not one per group: a dag with three gated
+// tasks used to render a single row and the human could not tell which task was waiting. The predicate
+// is orchestrate's own (control.go:196, digest.go:198, scheduler.go:13).
+func dagGateItems(in AttentionInput, g *waveobj.TaskGroup) []wshrpc.AttentionItem {
+	var out []wshrpc.AttentionItem
+	for _, t := range g.Tasks {
+		if !t.Gate || t.State != taskStateDone || t.Released {
+			continue
+		}
+		label := t.Label
+		if label == "" {
+			label = t.ID
+		}
+		// LastActivity is the newest observed child transcript write, so on a finished task it
+		// approximates when that task stopped. Unlike the group's UpdatedTs it differs per task, which
+		// is what makes oldest-first inside the kind order the rows by how long each has really waited.
+		since := t.LastActivity
+		if since <= 0 {
+			since = g.UpdatedTs
+		}
+		out = append(out, wshrpc.AttentionItem{
+			Kind:         AttentionDagGate,
+			Key:          "dag-gate:" + g.ID + ":" + t.ID,
+			ChannelId:    g.ChannelId,
+			ChannelName:  channelNameFor(in.Channels, g.ChannelId),
+			RunId:        g.RunID,
+			Source:       dagSource(in.Channels, g),
+			Text:         fmt.Sprintf("Approve %s before the DAG proceeds.", label),
+			Action:       "Review",
+			WaitingSince: since,
+		})
+	}
+	if len(out) == 0 {
+		// the engine says it is holding this dag but no task matches. Rather than drop a gate the human
+		// still has to clear, degrade to the group-level row this function replaced.
+		out = append(out, wshrpc.AttentionItem{
+			Kind:         AttentionDagGate,
+			Key:          "dag-gate:" + g.ID,
+			ChannelId:    g.ChannelId,
+			ChannelName:  channelNameFor(in.Channels, g.ChannelId),
+			RunId:        g.RunID,
+			Source:       dagSource(in.Channels, g),
+			Text:         "Approve the gate before the DAG proceeds.",
+			Action:       "Review",
+			WaitingSince: g.UpdatedTs,
+		})
+	}
+	return out
+}
+
+// radarTriageItems is ONE row per project, never one per finding: a scan routinely produces dozens,
+// and the Brief's invariant is that nothing unbounded sits on the surface. Only the current report for
+// a path counts — scan reconciliation carries an older report's live findings forward into the newer
+// one, so counting both would report the same risk twice.
+func radarTriageItems(reports []*waveobj.RadarReport) []wshrpc.AttentionItem {
+	var out []wshrpc.AttentionItem
+	claimed := map[string]bool{}
+	for _, r := range reports {
+		if r == nil || claimed[r.ProjectPath] {
+			continue
+		}
+		// a scan still collecting has nothing settled to triage, and failed/cancelled has nothing
+		// trustworthy. Both are skipped WITHOUT claiming the path, because the findings of the last
+		// completed scan are still untriaged and a rescan in flight does not answer them.
+		if r.Status != radarStatusCompleted && r.Status != radarStatusPartial {
+			continue
+		}
+		claimed[r.ProjectPath] = true
+		n := 0
+		for _, f := range r.Findings {
+			// nolonger, dismissed and suppressed are already-decided states; a disposition IS the
+			// decision. What is left is what nobody has ruled on.
+			if f.Disposition == nil && (f.Group == radarGroupNew || f.Group == radarGroupRecurring) {
+				n++
+			}
+		}
+		if n == 0 {
+			continue
+		}
+		text := fmt.Sprintf("%d findings need triage.", n)
+		if n == 1 {
+			text = "1 finding needs triage."
+		}
+		source := r.ProjectName
+		if source == "" {
+			source = r.ProjectPath
+		}
+		out = append(out, wshrpc.AttentionItem{
+			Kind:         AttentionRadarTriage,
+			Key:          "radar:" + r.OID,
+			Source:       source,
+			Text:         text,
+			Action:       "Triage",
+			ORef:         waveobj.MakeORef(waveobj.OType_RadarReport, r.OID).String(),
+			WaitingSince: r.CompletedTs,
+		})
+	}
+	return out
+}
+
+// askQuestionMax bounds the ask row's text. Every other row carries one short sentence, and an agent's
+// question can run to a paragraph — a row that wraps to five lines pushes the rest of the queue off the
+// screen, which is the opposite of what this list is for.
+const askQuestionMax = 140
+
+// askFallbackText is what the row said for every ask before it carried the question. Kept as the
+// degraded reading: a malformed ask should still produce a row you can act on.
+const askFallbackText = "Waiting on your reply"
+
+// askText is the agent's own question. The registry has carried it all along (PendingAsk.Questions),
+// and printing a fixed literal instead meant a queue of three asks said the same thing three times,
+// so the human had to open each one to find out which was worth answering.
+func askText(qs []baseds.AgentAskQuestion) string {
+	if len(qs) == 0 {
+		return askFallbackText
+	}
+	// Fields+Join rather than a newline replace: a question is composed for a terminal picker and can
+	// carry hard-wrapped lines and runs of padding, all of which have to collapse for a one-line row.
+	q := strings.Join(strings.Fields(qs[0].Question), " ")
+	if q == "" {
+		return askFallbackText
+	}
+	if r := []rune(q); len(r) > askQuestionMax {
+		// runes, not bytes: a byte slice would cut a multi-byte character in half and emit invalid UTF-8.
+		q = string(r[:askQuestionMax]) + "…"
+	}
+	if len(qs) > 1 {
+		// a multi-question ask is one picker sequence, so say the first question is not all of it —
+		// otherwise the row understates what answering actually costs.
+		q = fmt.Sprintf("%s (+%d more)", q, len(qs)-1)
+	}
+	return q
 }
 
 // dagSource is the attention source line for a dag item: its title, else the owning run's goal.
@@ -319,15 +487,28 @@ func GatherAttentionFromLedger(ctx context.Context, chans []*waveobj.Channel, ru
 			}
 		}
 	}
+	// read whole because a triage count comes off a report's findings. A failed read degrades to no
+	// triage rows rather than failing the list — same posture as the non-loadable dag above, since a
+	// queue missing one kind is still worth showing — but it is logged, not swallowed.
+	if reports, rerr := wstore.GetRadarReports(ctx, ""); rerr != nil {
+		log.Printf("jarvis attention: radar reports unreadable, triage rows omitted: %v", rerr)
+	} else {
+		in.Radar = reports
+	}
 	return BuildAttention(in), nil
 }
 
-// livePendingAsks is the registry's pending asks minus the ones whose block is gone. Closing an
+// livePendingAsks is the registry's pending asks minus the ones whose agent is gone. Closing an
 // agent's terminal deletes the block but nothing tells the ask registry, so the ask outlived the
 // thing that raised it and the attention badge kept counting a question nobody could answer. Pruning
 // here rather than off the blockclose event also survives a missed event: every poll re-checks.
 // A pruned ask is retired for real — claimed, its --wait caller cancelled, and cleared to the
 // frontend — not just filtered out of this one response.
+//
+// Two ways to be gone, and the second only started mattering once asks became durable: the block
+// object is deleted, or the block is job-backed and its job manager has stopped. A restored ask has
+// no other retirement path — the daemon that would have sent a clear is the thing that died — so
+// without the second check a job that ended between two boots would hold its row forever.
 func livePendingAsks(ctx context.Context) (map[string]agentask.PendingAsk, error) {
 	pendingAsks := agentask.GlobalRegistry.List()
 	for oref, pending := range pendingAsks {
@@ -340,7 +521,13 @@ func livePendingAsks(ctx context.Context) (map[string]agentask.PendingAsk, error
 			return nil, fmt.Errorf("checking pending ask block %s: %w", parsed.OID, err)
 		}
 		if block != nil {
-			continue
+			gone, gerr := agentask.DurableAgentGone(ctx, parsed.OID)
+			if gerr != nil {
+				return nil, fmt.Errorf("checking pending ask agent %s: %w", parsed.OID, gerr)
+			}
+			if !gone {
+				continue
+			}
 		}
 		delete(pendingAsks, oref)
 		claimed, ok := agentask.GlobalRegistry.Claim(oref, pending.AskId)

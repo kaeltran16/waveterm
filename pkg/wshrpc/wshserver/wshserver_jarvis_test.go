@@ -5,6 +5,7 @@ package wshserver
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/jarvisrecall"
@@ -225,6 +226,29 @@ func TestJarvisStatusCommandReturnsSections(t *testing.T) {
 	}
 }
 
+func TestJarvisAskScopeCarriesAttachedORefs(t *testing.T) {
+	attachments := []string{"task:task-a", "run:run-b"}
+
+	project := jarvisAskScope(wshrpc.CommandJarvisAskData{
+		Cwd:           `C:\work\wave`,
+		AttachedORefs: attachments,
+	})
+	if project.Mode != "project" || project.ProjectPath != `C:\work\wave` {
+		t.Fatalf("project scope = %#v", project)
+	}
+	if !slices.Equal(attachments, project.AttachedORefs) {
+		t.Fatalf("project attached orefs = %#v", project.AttachedORefs)
+	}
+
+	all := jarvisAskScope(wshrpc.CommandJarvisAskData{AttachedORefs: attachments})
+	if all.Mode != "all" || all.ProjectPath != "" {
+		t.Fatalf("all scope = %#v", all)
+	}
+	if !slices.Equal(attachments, all.AttachedORefs) {
+		t.Fatalf("all attached orefs = %#v", all.AttachedORefs)
+	}
+}
+
 func TestJarvisAskCommandAttachesLedgerFacts(t *testing.T) {
 	ctx := context.Background()
 	ws := &WshServer{}
@@ -251,14 +275,19 @@ func TestJarvisAskCommandAttachesLedgerFacts(t *testing.T) {
 	if rtn.Answer != "the ask bridge is executing [1]" {
 		t.Fatalf("answer=%q want the stub synthesize output", rtn.Answer)
 	}
-	var foundLedger bool
-	for _, s := range rtn.Sources {
-		if s.SourceType == "status" && s.ORef == "run:r-ask-1" {
-			foundLedger = true
+	var ledger *waveobj.JarvisConvoGroundingCard
+	for i, c := range rtn.Grounding {
+		if c.SourceType == "status" && c.NavTarget == "run:r-ask-1" {
+			ledger = &rtn.Grounding[i]
 		}
 	}
-	if !foundLedger {
-		t.Fatalf("sources=%+v want the ledger fact from FetchWorkState", rtn.Sources)
+	if ledger == nil {
+		t.Fatalf("grounding=%+v want the ledger fact from FetchWorkState", rtn.Grounding)
+	}
+	// the handler must hand the band a reading, not just a routable ref — that gap is what forced the
+	// "Drew on" band to label every ask citation unverified
+	if ledger.Freshness == "" || ledger.N == 0 {
+		t.Fatalf("ledger card carries no reading: %+v", *ledger)
 	}
 }
 

@@ -2237,6 +2237,122 @@ const briefSurface = {
     },
 };
 
+// --- brief-peek: a record oref lands in the Brief's peek, not on a Stage that is not there ------
+// The only in-app path from the Brief to a record is the palette's Records group (B1's palette
+// extension), because nothing on the Brief itself names a record: the Behind-you rows are static and the
+// queue's rows address channels, runs and scan reports. So this drives that path. A profile with zero
+// records fails step 2 with that stated in the detail rather than passing vacuously — read it as an
+// environment gap, not a regression.
+const briefPeek = {
+    name: "brief-peek",
+    surface: "jarvis",
+    arrange: resetComposition,
+    async assert(h) {
+        const steps = [];
+        await h.goto("jarvis");
+        await h.ev(`document.querySelector('[data-jarvis-composition="brief"]')?.click()`);
+        await h.ev("new Promise((r) => setTimeout(r, 700))");
+        steps.push({
+            step: "1. the Brief is showing and no peek is open yet",
+            ok:
+                (await h.ev(`!!document.querySelector('[data-jarvis-region="brief"]')`)) === true &&
+                (await h.ev(`!document.querySelector('[data-jarvis-brief-band="peek"]')`)) === true,
+            detail: "",
+        });
+
+        // Ctrl+SHIFT+P: 1b577a4a moved the palette off Ctrl+P (which is now the file finder). The entity
+        // sources load lazily on open, hence the settle before the group is looked for.
+        await h.ev(
+            `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', code: 'KeyP', ctrlKey: true, shiftKey: true, bubbles: true }))`
+        );
+        await h.ev("new Promise((r) => setTimeout(r, 1200))");
+        const picked = await h.ev(`(() => {
+            // scoped to the Records group's own container rather than a document-wide button query: the
+            // palette renders several groups and the first button on the page is the app bar's search.
+            const headers = [...document.querySelectorAll("div")].filter(
+                (d) => (d.textContent || "").trim().toLowerCase() === "records"
+            );
+            if (headers.length === 0) return { ok: false, why: "no Records group in this profile" };
+            const group = headers[0].parentElement;
+            const row = group ? group.querySelector("button[data-idx]") : null;
+            if (!row) return { ok: false, why: "Records group rendered no row" };
+            const label = (row.innerText || "").replace(/\\s+/g, " ").trim().slice(0, 40);
+            row.click();
+            return { ok: true, why: label };
+        })()`);
+        await h.ev("new Promise((r) => setTimeout(r, 900))");
+        const peek = await h.ev(`(() => {
+            const band = document.querySelector('[data-jarvis-brief-band="peek"]');
+            if (!band) return null;
+            const text = (band.innerText || "").replace(/\\s+/g, " ").trim();
+            return {
+                text: text.slice(0, 400),
+                fleet: text.includes("Fleet"),
+                // the two sentences that state the meta spec's read/write line
+                absence: text.includes("cannot message one"),
+                footer: text.includes("Vault surface"),
+                // updated, never a freshness word: a record carries no freshness reading
+                updated: /updated .+ ago|never updated/.test(text),
+                fresh: /\\bFresh\\b/.test(text),
+                statusToggle: !!band.querySelector("[data-jarvis-peek-status-toggle]"),
+            };
+        })()`);
+        steps.push({
+            step: "2. a record row in the palette opens the peek, with its fleet band and both sentences",
+            ok:
+                picked.ok === true &&
+                peek != null &&
+                peek.fleet === true &&
+                peek.absence === true &&
+                peek.footer === true &&
+                peek.updated === true &&
+                peek.fresh === false &&
+                peek.statusToggle === true,
+            detail: JSON.stringify({ picked, peek }),
+        });
+
+        const picker = await h.ev(`(() => {
+            const toggle = document.querySelector("[data-jarvis-peek-status-toggle]");
+            if (!toggle) return null;
+            toggle.click();
+            return true;
+        })()`);
+        await h.ev("new Promise((r) => setTimeout(r, 300))");
+        const rows = await h.ev(`(() => {
+            const all = [...document.querySelectorAll("[data-jarvis-peek-status]")];
+            return all.map((el) => ({ status: el.dataset.jarvisPeekStatus, control: el.tagName === "BUTTON" }));
+        })()`);
+        steps.push({
+            step: "3. the status picker offers only legal transitions, and the current status is a label",
+            ok:
+                picker === true &&
+                rows.length >= 2 &&
+                rows.filter((r) => !r.control).length === 1 &&
+                rows.every((r) => ["active", "paused", "completed", "archived"].includes(r.status)),
+            detail: JSON.stringify(rows),
+        });
+
+        await h.shot("cdp-shots/brief-peek.png");
+
+        await h.ev(
+            `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }))`
+        );
+        await h.ev("new Promise((r) => setTimeout(r, 400))");
+        steps.push({
+            step: "4. Escape closes the peek and leaves the Brief behind it",
+            ok:
+                (await h.ev(`!document.querySelector('[data-jarvis-brief-band="peek"]')`)) === true &&
+                (await h.ev(`!!document.querySelector('[data-jarvis-region="brief"]')`)) === true,
+            detail: "",
+        });
+        return steps;
+    },
+    async teardown(h) {
+        await resetComposition(h);
+        await h.goto("cockpit");
+    },
+};
+
 const jarvisCollapseOrder = {
     name: "jarvis-collapse-order",
     surface: "jarvis",
@@ -5592,8 +5708,490 @@ const vaultSteering = {
     async teardown() {},
 };
 
+// --- vault-records: the split ledger, and the one surface that reads a record read-only ----------------
+// Four things this owns that no unit test can: that the ledger renders against a real dossier list, that the
+// index survives a selection at desktop width, that archived work is reachable through the search box rather
+// than dropped from the projection, and that the narrow window really is two views with a Back rather than
+// two panes compressed. The status-is-not-a-button check is the cross-surface one: Vault must not grow a
+// second status writer beside the Brief peek.
+//
+// A profile with no dossiers fails step 2 with that stated, not vacuously: an empty ledger renders no rows,
+// and every assertion below would then be about nothing.
+const vaultRecords = {
+    name: "vault-records",
+    surface: "vault",
+    async arrange() {
+        return {};
+    },
+    async assert(h) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
+
+        const listed = await h.rpc("listtaskdossiers", null);
+        const dossiers = listed?.dossiers ?? [];
+        await h.goto("vault");
+        await settle(600);
+
+        // 1, read from the tab itself: a count on the collection line that disagrees with the list behind it
+        // is the failure this catches.
+        const tabLine = await h.ev(`(() => {
+            const tab = document.querySelector('[data-vault-tab="records"]');
+            return tab ? { text: (tab.innerText || '').replace(/\\s+/g, ' ').trim() } : null;
+        })()`);
+        rec(
+            "1. the records collection tab is offered with the all-status count",
+            tabLine != null && tabLine.text.includes("records") && tabLine.text.includes(String(dossiers.length)),
+            JSON.stringify({ tabLine, dossiers: dossiers.length })
+        );
+
+        await h.ev(`(() => { document.querySelector('[data-vault-tab="records"]')?.click(); return true; })()`);
+        await settle(700);
+
+        const ledger = await h.ev(`(() => {
+            const list = document.querySelector('[data-vault-record-list]');
+            const groups = [...document.querySelectorAll('[data-vault-record-group]')].map((g) => ({
+                status: g.dataset.vaultRecordGroup,
+                label: (g.innerText || '').replace(/\\s+/g, ' ').trim(),
+            }));
+            const rows = [...document.querySelectorAll('[data-vault-record-row]')].length;
+            return { list: !!list, groups, rows };
+        })()`);
+        if (ledger.rows === 0) {
+            rec("2. the ledger groups every status that has rows", false, "Vault Records requires at least one dossier");
+            return steps;
+        }
+        const groupStatuses = ledger.groups.map((g) => g.status);
+        const order = ["active", "paused", "completed", "archived"];
+        rec(
+            "2. the ledger groups every status that has rows, in ledger order",
+            ledger.list === true &&
+                groupStatuses.length > 0 &&
+                groupStatuses.every((s) => order.includes(s)) &&
+                [...groupStatuses].sort((a, b) => order.indexOf(a) - order.indexOf(b)).join() === groupStatuses.join(),
+            JSON.stringify(ledger)
+        );
+        await h.shot("cdp-shots/vault-records-ledger.png");
+
+        // 3. desktop width: index and record side by side, and the selection does not cost the list.
+        await h.ev(`(() => { document.querySelector('[data-vault-record-row]')?.click(); return true; })()`);
+        await settle(700);
+        const selected = await h.ev(`(() => {
+            const list = document.querySelector('[data-vault-record-list]');
+            const pane = document.querySelector('[data-vault-record-pane]');
+            const row = document.querySelector('[data-vault-record-row]');
+            const status = document.querySelector('[data-record-status]');
+            return {
+                listWidth: list ? Math.round(list.getBoundingClientRect().width) : 0,
+                pane: pane ? pane.dataset.vaultRecordPane : null,
+                objective: row ? (row.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 60) : '',
+                status: status ? status.dataset.recordStatus : null,
+                detail: (document.querySelector('[data-record-timeline]') ? 'timeline' : '') + (status ? ' status' : ''),
+            };
+        })()`);
+        rec(
+            "3. selecting a row keeps the index visible at desktop width and renders that record",
+            selected.listWidth > 0 && selected.status != null && selected.detail.includes("timeline") && selected.objective !== "",
+            JSON.stringify(selected)
+        );
+
+        // 4. archived work is browsable, not hidden. Searched by its own objective so the assertion is about
+        // the projection surviving the filter rather than about the word "archived" appearing somewhere.
+        const archived = dossiers.find((d) => d.status === "archived");
+        if (archived == null) {
+            rec("4. an archived record is reachable through search", false, "no archived dossier in this profile — seed one before reading this as a pass");
+        } else {
+            await h.ev(`(() => {
+                const input = document.querySelector('input[placeholder="Search records…"]');
+                if (!input) return false;
+                const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                setter.call(input, ${JSON.stringify(archived.objective)});
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                return true;
+            })()`);
+            await settle(600);
+            const filtered = await h.ev(`(() => {
+                const rows = [...document.querySelectorAll('[data-vault-record-row]')];
+                const groups = [...document.querySelectorAll('[data-vault-record-group]')].map((g) => g.dataset.vaultRecordGroup);
+                const statuses = [...document.querySelectorAll('[data-vault-record-status]')].map((s) => s.dataset.vaultRecordStatus);
+                return { rows: rows.length, groups, statuses };
+            })()`);
+            rec(
+                "4. an archived record is reachable through search and still reads archived",
+                filtered.rows === 1 && filtered.groups.join() === "archived" && filtered.statuses.join() === "archived",
+                JSON.stringify({ archived: archived.objective, filtered })
+            );
+            // clear the filter so the narrow check below starts from the full ledger
+            await h.ev(`(() => {
+                const input = document.querySelector('input[placeholder="Search records…"]');
+                const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                setter.call(input, '');
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                return true;
+            })()`);
+            await settle(500);
+        }
+
+        // 5. the cross-surface invariant: reading a record must not open a second status writer.
+        const readOnly = await h.ev(`(() => {
+            const status = document.querySelector('[data-record-status]');
+            const add = [...document.querySelectorAll('button')].find((b) => /add decision/i.test(b.innerText || ''));
+            return {
+                statusTag: status ? status.tagName : null,
+                add: !!add,
+                // the Stage's transition controls read "→ completed" and would be a second writer
+                transitions: [...document.querySelectorAll('button')].filter((b) => /^→ /.test((b.innerText || '').trim())).length,
+            };
+        })()`);
+        rec(
+            "5. Vault shows status read-only while Add decision is present",
+            readOnly.statusTag != null && readOnly.statusTag !== "BUTTON" && readOnly.add === true && readOnly.transitions === 0,
+            JSON.stringify(readOnly)
+        );
+
+        // 6. narrow: one pane at a time with a Back. The threshold is a CSS media query (vaultrecords.tsx),
+        // so this is the only place the live width actually decides what is rendered.
+        await h.cdp("Emulation.setDeviceMetricsOverride", { width: 800, height: 1000, deviceScaleFactor: 1, mobile: false });
+        await settle(500);
+        const narrowList = await h.ev(`(() => {
+            const list = document.querySelector('[data-vault-record-list]');
+            const back = document.querySelector('[data-vault-record-back]');
+            return { list: list ? Math.round(list.getBoundingClientRect().width) : 0, back: back ? Math.round(back.getBoundingClientRect().width) : 0 };
+        })()`);
+        await h.ev(`(() => { document.querySelector('[data-vault-record-row]')?.click(); return true; })()`);
+        await settle(600);
+        const narrowDetail = await h.ev(`(() => {
+            const list = document.querySelector('[data-vault-record-list]');
+            const back = document.querySelector('[data-vault-record-back]');
+            const status = document.querySelector('[data-record-status]');
+            return {
+                listWidth: list ? Math.round(list.getBoundingClientRect().width) : 0,
+                back: back ? Math.round(back.getBoundingClientRect().width) : 0,
+                detail: status ? status.dataset.recordStatus : null,
+            };
+        })()`);
+        await h.ev(`(() => { document.querySelector('[data-vault-record-back]')?.click(); return true; })()`);
+        await settle(600);
+        const narrowBack = await h.ev(`(() => {
+            const list = document.querySelector('[data-vault-record-list]');
+            return { listWidth: list ? Math.round(list.getBoundingClientRect().width) : 0 };
+        })()`);
+        rec(
+            "6. at a narrow width the row opens the record alone and Back returns to the index",
+            narrowList.list === 0 &&
+                narrowDetail.listWidth === 0 &&
+                narrowDetail.back > 0 &&
+                narrowDetail.detail != null &&
+                narrowBack.listWidth > 0,
+            JSON.stringify({ narrowList, narrowDetail, narrowBack })
+        );
+        // no viewport teardown: verify.mjs re-applies VERIFY_VIEWPORT after every scenario.
+        return steps;
+    },
+    async teardown() {},
+};
+
+// --- brief-contextual-map: the Brief's two contextual entries, and its honest graph exits --------------
+// In the Brief composition a source's "Ask Jarvis" primes one attached stateless thread rather than creating
+// a persisted conversation, and the graph peek mounts with the Brief's own exits: a record closes into the
+// peek, an Ask closes into the attached thread, and a run offers no control at all because B5 has not given
+// runs a Stage sheet yet. The request payload that carries the attached oref is unit-tested
+// (briefingstore.test.ts); this owns what the user can see of it.
+const briefContextualMap = {
+    name: "brief-contextual-map",
+    surface: "vault",
+    async arrange() {
+        return {};
+    },
+    async assert(h) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
+
+        // arrange: brief composition, reloaded so the surface mounts in it
+        await h.ev(`localStorage.setItem('jarvis.composition', ${JSON.stringify(JSON.stringify("brief"))})`);
+        await h.ev("location.reload()");
+        await settle(2600);
+
+        // 1. contextual entry into the Brief: one active chip and the suggested prompt, no Stage thread.
+        await h.goto("vault");
+        await settle(500);
+        const asked = await h.ev(`(() => {
+            const rows = [...document.querySelectorAll('[data-vault-saved-row]')];
+            if (rows.length === 0) return false;
+            rows[0].click();
+            return true;
+        })()`);
+        await settle(400);
+        const clicked = await h.ev(`(() => {
+            const b = [...document.querySelectorAll('button')].find((x) => (x.innerText || '').trim() === 'Ask Jarvis');
+            if (!b) return false;
+            b.click();
+            return true;
+        })()`);
+        await settle(700);
+        const primed = await h.ev(`(() => {
+            const input = document.querySelector('[data-jarvis-brief-composer="input"]');
+            const scope = document.querySelector('[data-jarvis-brief-composer="scope"]');
+            const chips = [...document.querySelectorAll('[data-jarvis-brief-band="composer"] [data-jarvis-brief-composer]')].length;
+            return {
+                brief: !!document.querySelector('[data-jarvis-region="brief"]'),
+                surface: !!document.querySelector('[data-jarvis-region="surface"]'),
+                draft: input ? input.value : null,
+                scope: scope ? (scope.innerText || '').trim() : null,
+                threadRows: document.querySelectorAll('[data-jarvis-brief-row="turn"]').length,
+                composerHooks: chips,
+            };
+        })()`);
+        rec(
+            "1. Ask Jarvis from the Vault primes one attached Brief thread with the suggested prompt",
+            asked === true &&
+                clicked === true &&
+                primed.brief === true &&
+                primed.surface === false &&
+                primed.threadRows === 0 &&
+                typeof primed.draft === "string" &&
+                primed.draft.length > 0 &&
+                primed.scope != null &&
+                primed.scope.length > 0,
+            JSON.stringify(primed)
+        );
+        await h.shot("cdp-shots/brief-contextual-map-primed.png");
+
+        // 2. Shift+G mounts the graph peek in Brief mode. The Stage-only keys must stay absent: the Brief
+        //    has no rail to toggle and no Stage thread to start.
+        await h.ev(
+            `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'G', code: 'KeyG', shiftKey: true, bubbles: true }))`
+        );
+        await settle(900);
+        const peek = await h.ev(`(() => {
+            const el = document.querySelector('[data-jarvis-graph-peek]');
+            if (!el) return null;
+            const text = el.innerText || '';
+            return {
+                text: text.slice(0, 200),
+                actions: [...el.querySelectorAll('button')].map((b) => (b.innerText || '').trim()),
+            };
+        })()`);
+        rec(
+            "2. Shift+G opens the graph peek over the Brief",
+            peek != null && peek.text.includes("Graph peek"),
+            JSON.stringify(peek)
+        );
+
+        // 3. THE B3 rule for this overlay: no dead run control in Brief mode, while the Ask exit that does
+        //    work is present on a selected task node.
+        const runControl = await h.ev(`(() => {
+            const el = document.querySelector('[data-jarvis-graph-peek]');
+            if (!el) return null;
+            const runs = [...el.querySelectorAll('button')].filter((b) => /open run/i.test(b.innerText || '')).length;
+            const ask = [...el.querySelectorAll('button')].filter((b) => /ask jarvis about this node/i.test(b.innerText || '')).length;
+            return { runs, ask };
+        })()`);
+        rec(
+            "3. the Brief's graph renders Ask but no Open run control",
+            runControl != null && runControl.runs === 0,
+            JSON.stringify(runControl)
+        );
+
+        // 4. a task node closes into the record peek rather than onto a Stage that is not there. Reached
+        //    through the record peek's own map button, which is the one route that names a record to focus.
+        await h.ev(
+            `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }))`
+        );
+        await settle(500);
+        const closed = await h.ev(`document.querySelector('[data-jarvis-graph-peek]') == null`);
+        rec("4a. Escape closes the graph peek and leaves the Brief", closed === true, "");
+
+        const listed = await h.rpc("listtaskdossiers", null);
+        if ((listed?.dossiers ?? []).length === 0) {
+            rec("4b. a task node closes into the record peek", false, "Vault Records requires at least one dossier");
+            return steps;
+        }
+        // the palette is the only in-app route from the Brief to a record (see brief-peek for the full
+        // explanation): nothing on the Brief itself names one.
+        await h.ev(
+            `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', code: 'KeyP', ctrlKey: true, shiftKey: true, bubbles: true }))`
+        );
+        await settle(1200);
+        await h.ev(`(() => {
+            const headers = [...document.querySelectorAll('div')].filter(
+                (d) => (d.textContent || '').trim().toLowerCase() === 'records'
+            );
+            const group = headers[0] ? headers[0].parentElement : null;
+            const row = group ? group.querySelector('button[data-idx]') : null;
+            if (row) row.click();
+            return true;
+        })()`);
+        await settle(900);
+        const mapClicked = await h.ev(`(() => {
+            const b = document.querySelector('[data-jarvis-peek-open-graph]');
+            if (!b) return false;
+            b.click();
+            return true;
+        })()`);
+        await settle(1200);
+        const focused = await h.ev(`(() => {
+            const el = document.querySelector('[data-jarvis-graph-peek]');
+            if (!el) return null;
+            const open = [...el.querySelectorAll('button')].filter((b) => /^open record$/i.test((b.innerText || '').trim()));
+            const runs = [...el.querySelectorAll('button')].filter((b) => /open run/i.test(b.innerText || '')).length;
+            return { open: open.length, runs };
+        })()`);
+        rec(
+            "4b. the record peek's map button focuses its task node, with no run control and one Open record",
+            mapClicked === true && focused != null && focused.open === 1 && focused.runs === 0,
+            JSON.stringify({ mapClicked, focused })
+        );
+
+        const backToPeek = await h.ev(`(() => {
+            const el = document.querySelector('[data-jarvis-graph-peek]');
+            if (!el) return false;
+            const b = [...el.querySelectorAll('button')].find((x) => /^open record$/i.test((x.innerText || '').trim()));
+            if (!b) return false;
+            b.click();
+            return true;
+        })()`);
+        await settle(900);
+        const landed = await h.ev(`(() => ({
+            peek: !!document.querySelector('[data-jarvis-brief-band="peek"]'),
+            graph: !!document.querySelector('[data-jarvis-graph-peek]'),
+        }))()`);
+        rec(
+            "4c. Open record closes the graph into the Brief's record peek",
+            backToPeek === true && landed.peek === true && landed.graph === false,
+            JSON.stringify({ backToPeek, landed })
+        );
+        return steps;
+    },
+    async teardown(h) {
+        // composition is persisted, and a leaked "brief" strands every scenario that selects the Stage
+        await resetComposition(h);
+        await h.goto("cockpit");
+    },
+};
+
+// --- brief-restore: the stored subject, landed three different ways -------------------------------
+// The three-pane composition restores a stored subject onto the Stage. The Brief has no Stage, so the same
+// stored value means three different things (briefrestore.ts): a dossier opens the record peek, a
+// conversation hydrates the thread, and a channel defers because B5 owns its destination. Each case needs
+// its own reload, because the restore is once per frontend load by design.
+const briefRestore = {
+    name: "brief-restore",
+    surface: "jarvis",
+    async arrange() {
+        return {};
+    },
+    async assert(h) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
+        await h.ev(`localStorage.setItem('jarvis.composition', ${JSON.stringify(JSON.stringify("brief"))})`);
+
+        // a fresh load is what makes the restore one-shot, so each case reloads
+        const withStored = async (stored) => {
+            await h.ev(`localStorage.setItem('jarvis.subject.last', ${JSON.stringify(JSON.stringify(stored))})`);
+            await h.ev("location.reload()");
+            await settle(2800);
+            await h.goto("jarvis");
+            await settle(900);
+        };
+
+        // 1. a dossier opens the record peek, exactly once
+        const listed = await h.rpc("listtaskdossiers", null);
+        const dossier = (listed?.dossiers ?? [])[0];
+        if (dossier == null) {
+            rec("1. a stored dossier restores to the record peek", false, "Vault Records requires at least one dossier");
+        } else {
+            await withStored({ kind: "dossier", id: dossier.id });
+            const opened = await h.ev(`(() => {
+                const band = document.querySelector('[data-jarvis-brief-band="peek"]');
+                return band ? { text: (band.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 200) } : null;
+            })()`);
+            await h.ev(
+                `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }))`
+            );
+            await settle(500);
+            // re-enter the surface: the restore must not run a second time, or closing a peek would be
+            // undone by the next nav switch
+            await h.goto("cockpit");
+            await settle(400);
+            await h.goto("jarvis");
+            await settle(900);
+            const reopened = await h.ev(`!!document.querySelector('[data-jarvis-brief-band="peek"]')`);
+            rec(
+                "1. a stored dossier restores to the record peek once and does not reopen",
+                opened != null && opened.text.includes(dossier.objective.slice(0, 24)) && reopened === false,
+                JSON.stringify({ objective: dossier.objective.slice(0, 40), opened, reopened })
+            );
+        }
+
+        // 2. a conversation hydrates its turns and attached scope without submitting a new ask
+        const convos = await h.rpc("listjarvisconversations", null);
+        const convo = (convos?.conversations ?? [])[0];
+        if (convo == null) {
+            rec("2. a stored conversation hydrates the Brief thread", false, "no persisted conversation in this profile — seed one before reading this as a pass");
+        } else {
+            await withStored({ kind: "conversation", id: convo.id });
+            const hydrated = await h.ev(`(() => {
+                const thread = document.querySelector('[data-jarvis-brief-thread]');
+                const rows = [...document.querySelectorAll('[data-jarvis-brief-row="turn"]')];
+                const text = document.body.innerText || '';
+                return {
+                    thread: !!thread,
+                    turns: rows.length,
+                    // the in-flight marker is the one visible trace a submitted ask leaves
+                    pending: text.includes('reading across your work'),
+                    draft: (document.querySelector('[data-jarvis-brief-composer="input"]') || {}).value || '',
+                };
+            })()`);
+            rec(
+                "2. a stored conversation hydrates its turns without submitting a new ask",
+                hydrated.thread === true && hydrated.turns > 0 && hydrated.pending === false && hydrated.draft === "",
+                JSON.stringify({ id: convo.id, ...hydrated })
+            );
+            await h.shot("cdp-shots/brief-restore-thread.png");
+        }
+
+        // 3. a channel stays stored: the Brief has no destination for one until B5, and forgetting it would
+        //    discard a restore target the user never asked to forget
+        const chans = await h.rpc("getchannels", null);
+        const channel = (chans?.channels ?? [])[0];
+        if (channel == null) {
+            rec("3. a stored channel stays stored", false, "no channel in this profile — seed one before reading this as a pass");
+        } else {
+            await withStored({ kind: "channel", id: channel.oid });
+            const after = await h.ev(`(() => ({
+                stored: localStorage.getItem('jarvis.subject.last'),
+                brief: !!document.querySelector('[data-jarvis-region="brief"]'),
+                peek: !!document.querySelector('[data-jarvis-brief-band="peek"]'),
+            }))()`);
+            let stored = null;
+            try {
+                stored = JSON.parse(after.stored ?? "null");
+            } catch {
+                stored = null;
+            }
+            rec(
+                "3. a stored channel is left stored and fabricates no Brief destination",
+                after.brief === true && after.peek === false && stored?.kind === "channel" && stored?.id === channel.oid,
+                JSON.stringify({ channel: channel.oid, ...after })
+            );
+        }
+        return steps;
+    },
+    async teardown(h) {
+        await h.ev(`localStorage.removeItem('jarvis.subject.last')`);
+        await resetComposition(h);
+        await h.goto("cockpit");
+    },
+};
+
 export const SCENARIOS = [
     vaultSteering,
+    vaultRecords,
+    briefContextualMap,
+    briefRestore,
     runsLifecycle,
     terminalTheme,
     tuiLeader,    tuiFullscreen,
@@ -5608,6 +6206,7 @@ export const SCENARIOS = [
     jarvisStates,
     jarvisBriefing,
     briefSurface,
+    briefPeek,
     jarvisFleet,
     jarvisAsk,
     jarvisContextual,

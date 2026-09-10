@@ -59,10 +59,12 @@ func jarvisAskRun(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 	fmt.Println(rtn.Answer)
-	if len(rtn.Sources) > 0 {
+	if len(rtn.Grounding) > 0 {
 		fmt.Println("\nSources:")
-		for _, s := range rtn.Sources {
-			fmt.Printf("  [%s] %s\n", s.ORef, s.Title)
+		for _, c := range rtn.Grounding {
+			// the freshness rides along now that the answer carries one: a CLI reader deciding whether to
+			// trust a cited source needs the same reading the cockpit's band shows.
+			fmt.Printf("  [%d] %s · %s (%s)\n", c.N, c.NavTarget, c.Title, c.Freshness)
 		}
 	}
 	return nil

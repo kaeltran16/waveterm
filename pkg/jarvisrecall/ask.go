@@ -113,10 +113,16 @@ type LedgerFact struct {
 type AskLedgerFn func(ctx context.Context, kind string, windowMs int64) ([]LedgerFact, error)
 
 // AskResult is the stateless answer: prose plus the sources it was grounded on.
+//
+// Grounding carries the same card the conversation path builds, not the bare {oref, sourcetype, title}
+// this used to return. Ask holds each candidate's project, timestamp and freshness the whole way
+// through and used to discard all three on the way out, which left the only live feed of the "Drew on"
+// band unable to report a reading — so the band had to call every citation unverified. Reusing the one
+// card type is also what keeps a second, lossier definition of a source off the wire.
 type AskResult struct {
-	Answer   string
-	Sources  []waveobj.JarvisConvoSourceRef
-	Terminal string
+	Answer    string
+	Grounding []waveobj.JarvisConvoGroundingCard
+	Terminal  string
 }
 
 // Ask is the stateless, non-durable ask: classify → attach ledger facts (when routed) → prose
@@ -153,9 +159,8 @@ func Ask(ctx context.Context, scope ScopeArgs, prompt string, ledgerFn AskLedger
 	} else {
 		terminal = selectTerminal(len(cands), countCitations(prose, len(cands)))
 	}
-	sources := make([]waveobj.JarvisConvoSourceRef, 0, len(cands))
-	for _, c := range cands {
-		sources = append(sources, waveobj.JarvisConvoSourceRef{ORef: c.navTarget, SourceType: c.sourceType, Title: c.title})
-	}
-	return AskResult{Answer: prose, Sources: sources, Terminal: terminal}, runErr
+	// buildCards is the conversation path's own card builder, so an ask's citation and a thread's
+	// citation are the same object measured the same way — including AgeMs, which is taken now rather
+	// than at retrieval because the synthesis above can run for tens of seconds.
+	return AskResult{Answer: prose, Grounding: buildCards(cands, time.Now().UnixMilli()), Terminal: terminal}, runErr
 }

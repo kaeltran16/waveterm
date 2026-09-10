@@ -10,7 +10,10 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type Atom, type PrimitiveAtom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import { BRIEFING_FIXTURES, type BriefingFixtureName } from "./briefingfixtures";
-import { SEVEN_DAYS_MS } from "./briefingmodel";
+import { normalizeBriefingNav, SEVEN_DAYS_MS } from "./briefingmodel";
+import type { GroundingCard, JarvisAnswerTurn, JarvisConversation, JarvisScope, JarvisTurn } from "./jarviscontract";
+import { isAnswerTurn } from "./jarviscontract";
+import { mapWireCard } from "./recallderive";
 
 export interface BriefingSnapshot {
     state: WorkState;
@@ -151,24 +154,100 @@ export function consumeBriefingLanding(): void {
 // --- inline all-work ask (stateless; launch-local; never a JarvisConversation) --------------------
 export type BriefingAskState = "idle" | "pending" | "answered" | "error";
 export const briefingAskStateAtom = atom<BriefingAskState>("idle") as PrimitiveAtom<BriefingAskState>;
-export const briefingAnswerAtom = atom<{
-    answer: string;
-    sources: JarvisConvoSourceRef[];
-    terminal: string;
-} | null>(null) as PrimitiveAtom<{ answer: string; sources: JarvisConvoSourceRef[]; terminal: string } | null>;
+// grounding is mapped to the view-model card here rather than in each consumer, so the three-pane chip
+// list and the Brief's "Drew on" band read one interpretation of the wire — including which freshness
+// values this build understands.
+export type BriefingAnswer = { answer: string; grounding: GroundingCard[]; terminal: string };
+export const briefingAnswerAtom = atom<BriefingAnswer | null>(null) as PrimitiveAtom<BriefingAnswer | null>;
+
+export interface BriefExchange {
+    key: string;
+    ts: number;
+    turn: JarvisTurn;
+    answer?: BriefingAnswer;
+}
+
+const ALL_WORK_SCOPE: JarvisScope = { mode: "all", chips: [], attached: [] };
+export const briefDraftAtom = atom("");
+export const briefThreadAtom = atom<BriefExchange[]>([]);
+export const briefScopeAtom = atom<JarvisScope>(ALL_WORK_SCOPE);
 
 let askGeneration = 0;
-export async function askAcrossWorkAsync(prompt: string): Promise<void> {
+
+export function clearBriefThread(): void {
+    ++askGeneration;
+    globalStore.set(briefDraftAtom, "");
+    globalStore.set(briefThreadAtom, []);
+    globalStore.set(briefScopeAtom, ALL_WORK_SCOPE);
+    globalStore.set(briefingAskStateAtom, "idle");
+    globalStore.set(briefingAnswerAtom, null);
+}
+
+export function primeBriefThread(scope: JarvisScope, draft: string): void {
+    clearBriefThread();
+    globalStore.set(briefScopeAtom, scope);
+    globalStore.set(briefDraftAtom, draft);
+}
+
+// The once-per-launch guard on the Brief's subject restore. Session-scoped, beside the thread it restores:
+// the Brief unmounts on every nav switch, so a restore keyed to the surface would re-run — and re-open a
+// peek the user had already closed — every time they came back.
+export const briefRestoreConsumedAtom = atom(false) as PrimitiveAtom<boolean>;
+
+// Re-opens a stored conversation as the Brief's own thread. No ask is submitted: the turns are already
+// written, and re-asking would both cost a synthesis and answer a question the user already has an answer
+// to. `updatedTs` is the summary's own reading and is the only time this data carries — stamping each turn
+// with "now" would print a two-day-old answer as fresh in the age label beside it.
+export function hydrateBriefThread(conversation: JarvisConversation, updatedTs: number): void {
+    clearBriefThread();
+    globalStore.set(briefScopeAtom, conversation.scope);
+    globalStore.set(
+        briefThreadAtom,
+        conversation.turns.map((turn, i) => {
+            const exchange: BriefExchange = { key: `h${i}`, ts: updatedTs, turn };
+            if (isAnswerTurn(turn)) {
+                // DrewBand and the per-turn citation chips read the TURN, so grounding and freshness survive
+                // hydration on their own. This identity exists so the composer's "an answer becomes a turn
+                // only once" guard sees a hydrated exchange as already answered.
+                exchange.answer = briefingAnswerFromTurn(turn);
+            }
+            return exchange;
+        })
+    );
+}
+
+function briefingAnswerFromTurn(turn: JarvisAnswerTurn): BriefingAnswer {
+    return {
+        answer: turn.segments.map((s) => ("text" in s ? s.text : "")).join(""),
+        grounding: turn.grounding,
+        terminal: turn.terminal,
+    };
+}
+
+export async function askAcrossWorkAsync(prompt: string, attachedORefs: string[] = []): Promise<void> {
     const gen = ++askGeneration;
     globalStore.set(briefingAskStateAtom, "pending");
     try {
         // cwd:"" is the shipped all-project scope; the raised timeout matches the CLI — the handler
         // runs a relevance judge and a TierMid synthesis synchronously.
-        const rtn = await RpcApi.JarvisAskCommand(TabRpcClient, { prompt, cwd: "" }, { timeout: 180_000 });
+        const rtn = await RpcApi.JarvisAskCommand(
+            TabRpcClient,
+            { prompt, cwd: "", attachedorefs: attachedORefs },
+            { timeout: 180_000 }
+        );
         if (gen !== askGeneration) {
             return;
         }
-        globalStore.set(briefingAnswerAtom, { answer: rtn.answer, sources: rtn.sources ?? [], terminal: rtn.terminal });
+        globalStore.set(briefingAnswerAtom, {
+            answer: rtn.answer,
+            // navTarget is normalized here so the atom holds nav-ready targets and no consumer has to
+            // remember to do it — the ledger cites dossiers as vault: orefs, which only route as task:.
+            grounding: (rtn.grounding ?? []).map((c) => {
+                const card = mapWireCard(c);
+                return { ...card, navTarget: normalizeBriefingNav(card.navTarget) ?? "" };
+            }),
+            terminal: rtn.terminal,
+        });
         globalStore.set(briefingAskStateAtom, "answered");
     } catch (e) {
         if (gen !== askGeneration) {
@@ -179,6 +258,6 @@ export async function askAcrossWorkAsync(prompt: string): Promise<void> {
     }
 }
 
-export function askAcrossWork(prompt: string): void {
-    void askAcrossWorkAsync(prompt);
+export function askAcrossWork(prompt: string, attachedORefs: string[] = []): void {
+    void askAcrossWorkAsync(prompt, attachedORefs);
 }

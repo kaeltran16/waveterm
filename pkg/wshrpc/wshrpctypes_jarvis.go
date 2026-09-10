@@ -520,14 +520,17 @@ type CommandJarvisStatusRtnData struct {
 
 // CommandJarvisAskData is one stateless ask. Cwd resolves the project scope ("" = all projects).
 type CommandJarvisAskData struct {
-	Prompt string `json:"prompt"`
-	Cwd    string `json:"cwd,omitempty"`
+	Prompt        string   `json:"prompt"`
+	Cwd           string   `json:"cwd,omitempty"`
+	AttachedORefs []string `json:"attachedorefs,omitempty"`
 }
 
 type CommandJarvisAskRtnData struct {
-	Answer   string                         `json:"answer"`
-	Sources  []waveobj.JarvisConvoSourceRef `json:"sources,omitempty"`
-	Terminal string                         `json:"terminal"`
+	Answer string `json:"answer"`
+	// the full grounding card, not a bare source ref: the "Drew on" band's freshness reading has no other
+	// live feed, and jarvisrecall already computes project/age/freshness per candidate (see AskResult).
+	Grounding []waveobj.JarvisConvoGroundingCard `json:"grounding,omitempty"`
+	Terminal  string                             `json:"terminal"`
 }
 
 // CommandJarvisCtxData is the run-context resolve request. BlockORef is the block whose owner run is

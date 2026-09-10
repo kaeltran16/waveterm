@@ -30,6 +30,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { ConversationView } from "./conversationview";
 import { BriefingView } from "./briefingview";
 import { briefingStateAtom, refreshBriefing } from "./briefingstore";
+import { openJarvisWithSource } from "./contextualentry";
 import { EffortDetailView } from "./effortdetailview";
 import { EffortsListView } from "./effortslistview";
 import { peekFocus } from "./graphfocus";
@@ -296,7 +297,12 @@ export function Stage({ model }: { model: AgentsViewModel }) {
                             tagsFor: (oref) => ambient.tagsFor({ oref }),
                         })}
                         onClose={() => setGraphOpen(false)}
-                        onOpenSubject={(next) => selectSubject(next)}
+                        canOpenRuns
+                        // a record opens on the Stage, where the three-pane composition shows it; an ask
+                        // continues the source's own thread. Both are the same routes the graph's other
+                        // entries use, so the overlay names an exit rather than performing a second one.
+                        onOpenRecord={(dossierId) => selectSubject({ kind: "dossier", id: dossierId })}
+                        onAskAbout={(ref) => openJarvisWithSource(model, ref)}
                     />
                 ) : null}
             </AnimatePresence>

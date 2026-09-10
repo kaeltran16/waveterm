@@ -8,7 +8,7 @@ vi.mock("@/app/store/wshclientapi", () => ({ RpcApi: { GetDossierCommand: (...a:
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 
 import { globalStore } from "@/app/store/jotaiStore";
-import { recordDetailAtom, reloadRecordDetail } from "./jarvissubjectstore";
+import { recordDetailAtom, recordDetailErrorAtom, reloadRecordDetail } from "./jarvissubjectstore";
 
 const detail = (id: string, status: string): DossierDetail =>
     ({ id, status, objective: "o", decisions: [] }) as unknown as DossierDetail;
@@ -39,5 +39,20 @@ describe("record detail cache", () => {
         getDossier.mockResolvedValue(detail("task-b", "paused"));
         await reloadRecordDetail("task-b");
         expect(Object.keys(globalStore.get(recordDetailAtom)).sort()).toEqual(["task-a", "task-b"]);
+    });
+
+    it("retains cached detail and reports a keyed error until a successful recovery", async () => {
+        getDossier.mockResolvedValueOnce(detail("task-a", "active"));
+        await reloadRecordDetail("task-a");
+
+        getDossier.mockRejectedValueOnce(new Error("vault unavailable"));
+        await expect(reloadRecordDetail("task-a")).rejects.toThrow("vault unavailable");
+        expect(globalStore.get(recordDetailAtom)["task-a"].status).toBe("active");
+        expect(globalStore.get(recordDetailErrorAtom)["task-a"]).toContain("vault unavailable");
+
+        getDossier.mockResolvedValueOnce(detail("task-a", "completed"));
+        await reloadRecordDetail("task-a");
+        expect(globalStore.get(recordDetailAtom)["task-a"].status).toBe("completed");
+        expect(globalStore.get(recordDetailErrorAtom)["task-a"]).toBeUndefined();
     });
 });

@@ -14,7 +14,7 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
 
-export type VaultTab = "memory" | "steering" | "skills";
+export type VaultTab = "memory" | "steering" | "skills" | "records";
 // Which pane the keyboard is driving, and therefore which mode the rail shows.
 export type VaultFocus = "queue" | "saved";
 export type VaultUpkeep = "cleanup" | "archived" | null;
@@ -30,6 +30,8 @@ const SYNC_RPC_TIMEOUT_MS = 5000;
 // ---- collection ----
 
 export const vaultTabAtom = atom<VaultTab>("memory") as PrimitiveAtom<VaultTab>;
+export const vaultRecordIdAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
+export const vaultRecordPaneAtom = atom<"list" | "detail">("list") as PrimitiveAtom<"list" | "detail">;
 
 // ---- memory: review queue ----
 

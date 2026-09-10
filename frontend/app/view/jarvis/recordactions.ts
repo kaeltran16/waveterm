@@ -27,26 +27,31 @@ export async function afterRecordWrite(dossierId: string): Promise<void> {
 
 // A write that fails must say so rather than leaving the UI asserting a change that did not happen.
 // tasksErrorAtom is the surface's existing channel for that.
-async function write(dossierId: string, op: () => Promise<void>): Promise<void> {
+async function write(dossierId: string, op: () => Promise<void>): Promise<boolean> {
     try {
         await op();
         await afterRecordWrite(dossierId);
+        return true;
     } catch (e) {
         globalStore.set(tasksErrorAtom, String(e));
+        return false;
     }
 }
 
-export function appendDecision(dossierId: string, summary: string, rationale: string, links: string[]): void {
-    fireAndForget(() =>
-        write(dossierId, async () => {
-            await RpcApi.AppendDossierDecisionCommand(TabRpcClient, {
-                dossierid: dossierId,
-                summary,
-                rationale,
-                links,
-            });
-        })
-    );
+export function appendDecision(
+    dossierId: string,
+    summary: string,
+    rationale: string,
+    links: string[]
+): Promise<boolean> {
+    return write(dossierId, async () => {
+        await RpcApi.AppendDossierDecisionCommand(TabRpcClient, {
+            dossierid: dossierId,
+            summary,
+            rationale,
+            links,
+        });
+    });
 }
 
 export function setDossierStatus(dossierId: string, status: string): void {

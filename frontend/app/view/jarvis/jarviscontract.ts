@@ -16,10 +16,12 @@ export type SourceType =
     | "session"
     | "task";
 
-// "unverified" is the absence of a reading, not a reading. The all-work ask returns citations carrying
-// no age and no freshness at all; reporting those as "fresh" would fabricate a check nobody ran, which
-// is the precise thing invariant 7 exists to prevent. Only that path emits it — the recall path always
-// carries a real reading from the wire.
+// "unverified" is the absence of a reading, not a reading. It was added because the all-work ask
+// returned citations with no age and no freshness at all, and calling those "fresh" would fabricate a
+// check nobody ran — the precise thing invariant 7 exists to prevent. That path now carries a real
+// reading (JarvisAskCommand returns the full grounding card), so nothing fabricates one; what still
+// reaches "unverified" is a freshness string this build cannot interpret, which is the same absence by
+// a different route. See recallderive.wireFreshness — every wire reading enters through it.
 export type Freshness = "fresh" | "stale" | "unavailable" | "unverified";
 // "weak" and "notfound" are statements about the corpus; "error" is a statement about the request — it
 // never reached an answer. Collapsing the two made a dead backend read as "I looked and found little".

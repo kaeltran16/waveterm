@@ -21,6 +21,7 @@ export function loadTaskList(): void {
         try {
             const rtn = await RpcApi.ListTaskDossiersCommand(TabRpcClient);
             globalStore.set(taskListAtom, rtn?.dossiers ?? []);
+            globalStore.set(tasksErrorAtom, null);
         } catch (e) {
             globalStore.set(tasksErrorAtom, String(e));
         }

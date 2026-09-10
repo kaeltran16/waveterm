@@ -623,6 +623,10 @@ func main() {
 	go startupActivityUpdate(firstLaunch)             // must be after startConfigWatcher()
 	orchestrate.StartWatchdog(context.Background())   // dag advance + stall detection tick
 	agentask.AnswerHook = wshserver.RecordAskAnswered // one ask lifecycle row per delivered answer, whichever surface delivered it
+	if err := agentask.InitDurablePendingAsks(context.Background()); err != nil {
+		// a queue that lost its restored asks is still a working queue, so this does not stop startup
+		log.Printf("error restoring pending asks: %v\n", err)
+	}
 	blocklogger.InitBlockLogger()
 	jobcontroller.InitJobController()
 	blockcontroller.InitBlockController()

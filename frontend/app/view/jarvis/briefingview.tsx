@@ -18,7 +18,6 @@ import {
     effortListLabel,
     groupDelta,
     mergeActiveWork,
-    normalizeBriefingNav,
     projectBriefing,
     SEVEN_DAYS_MS,
     type ActiveWorkRow,
@@ -256,6 +255,12 @@ export function BriefingView({ model }: { model: AgentsViewModel }) {
         }
         if (row.nav.kind === "effort") {
             selectSubject({ kind: "effort", id: row.nav.oref.replace(/^effort:/, "") });
+            return;
+        }
+        // triage leaves the Jarvis surface entirely, which is why it goes through openORef rather than
+        // selectSubject: a scan report is not a subject on this Stage.
+        if (row.nav.kind === "radar") {
+            void openORef(model, row.nav.oref);
             return;
         }
         if (row.nav.runId != null) {
@@ -596,18 +601,18 @@ export function BriefingView({ model }: { model: AgentsViewModel }) {
                                         <p className="whitespace-pre-wrap text-[13px] leading-[1.5] text-primary">
                                             {answer.answer}
                                         </p>
-                                        {answer.sources.length > 0 ? (
+                                        {answer.grounding.length > 0 ? (
                                             <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-                                                {answer.sources.map((s, i) => {
-                                                    const normalized = normalizeBriefingNav(s.oref);
+                                                {answer.grounding.map((s, i) => {
+                                                    // already nav-normalized by the store
                                                     const navigable =
-                                                        normalized != null &&
-                                                        orefNavPlan(normalized).kind !== "unsupported";
+                                                        s.navTarget !== "" &&
+                                                        orefNavPlan(s.navTarget).kind !== "unsupported";
                                                     return navigable ? (
                                                         <button
                                                             key={i}
                                                             type="button"
-                                                            onClick={() => void openORef(model, normalized!)}
+                                                            onClick={() => void openORef(model, s.navTarget)}
                                                             className="cursor-pointer rounded-[6px] border border-border bg-surface-raised px-2 py-0.5 text-[10.5px] font-semibold text-accent-soft hover:border-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                                                         >
                                                             [{i + 1}] {s.title}
