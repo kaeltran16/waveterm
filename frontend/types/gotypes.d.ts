@@ -1787,6 +1787,15 @@ declare global {
         note?: string;
     };
 
+    // wshrpc.CommandSetRunSettingsData
+    type CommandSetRunSettingsData = {
+        channelid: string;
+        runid: string;
+        parallelism?: number;
+        workerroute?: RoutePin;
+        plangate?: boolean;
+    };
+
     // wshrpc.CommandStartJobData
     type CommandStartJobData = {
         cmd: string;
@@ -2491,6 +2500,9 @@ declare global {
         principles?: Principle[];
         defaultmode?: string;
         defaultplangate?: boolean;
+        machine?: string;
+        parallelism?: number;
+        workerroute?: RoutePin;
     };
 
     // wshrpc.JarvisWorkingStep
@@ -2905,6 +2917,9 @@ declare global {
         route?: RoutePin;
         defaultmode?: string;
         defaultplangate?: boolean;
+        machine?: string;
+        parallelism?: number;
+        workerroute?: RoutePin;
     };
 
     // wconfig.ProjectKeywords
@@ -3127,6 +3142,7 @@ declare global {
         workerroute?: RoutePin;
         orchestration?: string;
         parallelism?: number;
+        plangatepending?: boolean;
         planfeedback?: string;
     };
 

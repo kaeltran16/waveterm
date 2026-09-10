@@ -22,7 +22,7 @@ import {
     setChannelProfile,
     setGlobalProfile,
 } from "../agents/runactions";
-import { globalProfileIsDirty, isDirty, principlePatchIsEmpty, reduceGlobalPrinciples } from "./profilemodel";
+import { globalProfileIsDirty, isDirty, profileOverrideIsEmpty, reduceGlobalPrinciples } from "./profilemodel";
 import { RoutePicker } from "../agents/routepicker";
 import { PrinciplesEditor } from "./principleseditor";
 import { graphPeekOpenAtom, profileRailOpenAtom } from "./jarvisstore";
@@ -45,16 +45,6 @@ function movePhase(phases: RunPhase[], i: number, dir: -1 | 1): RunPhase[] {
     const next = [...phases];
     [next[i], next[j]] = [next[j], next[i]];
     return next;
-}
-
-function overrideIsEmpty(o: ProfileOverride): boolean {
-    return (
-        o.playbook == null &&
-        principlePatchIsEmpty(o.principles) &&
-        o.defaultmode == null &&
-        o.defaultplangate == null &&
-        o.route == null
-    );
 }
 
 function Badge({ source }: { source: "global" | "project" }) {
@@ -385,6 +375,7 @@ function DefaultsSection({
                     onChange={(e) => setDraft((d) => ({ ...d, defaultmode: e.target.value }))}
                     className="rounded-sm border border-edge-mid bg-background px-1.5 py-1 text-[11px] text-primary"
                 >
+                    <option value="quick">quick</option>
                     <option value="pipeline">pipeline</option>
                     <option value="orchestrator">orchestrator</option>
                 </select>
@@ -473,7 +464,7 @@ export function ProfilePanel({ channelId }: { channelId: string }) {
                         return;
                     }
                     await setChannelProfile(channelId, draft);
-                    setLoaded((l) => (l ? { ...l, override: overrideIsEmpty(draft) ? {} : draft } : l));
+                    setLoaded((l) => (l ? { ...l, override: profileOverrideIsEmpty(draft) ? {} : draft } : l));
                 }
                 if (channelId) {
                     await refreshResolvedProfile(channelId);

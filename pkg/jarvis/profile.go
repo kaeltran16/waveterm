@@ -230,6 +230,15 @@ func ResolveProfileWithDiagnostics(global waveobj.JarvisProfile, override *waveo
 		if override.DefaultPlanGate != nil {
 			out.DefaultPlanGate = override.DefaultPlanGate
 		}
+		if override.Machine != nil {
+			out.Machine = *override.Machine
+		}
+		if override.Parallelism != nil {
+			out.Parallelism = *override.Parallelism
+		}
+		if override.WorkerRoute != nil {
+			out.WorkerRoute = override.WorkerRoute
+		}
 	}
 	principles, diagnostics := ResolvePrinciples(global.Principles, patch)
 	out.Principles = principles
@@ -239,6 +248,21 @@ func ResolveProfileWithDiagnostics(global waveobj.JarvisProfile, override *waveo
 func ResolveProfile(global waveobj.JarvisProfile, override *waveobj.ProfileOverride) waveobj.JarvisProfile {
 	resolved, _ := ResolveProfileWithDiagnostics(global, override)
 	return resolved
+}
+
+// ProfileOverrideIsEmpty is the single emptiness rule for a channel override: every section absent, or
+// a semantically empty one. Empty clears the stored meta rather than persisting a no-op override, and it
+// lives here so the write path and every reader cannot drift on what "no override" means.
+func ProfileOverrideIsEmpty(o *waveobj.ProfileOverride) bool {
+	if o == nil {
+		return true
+	}
+	patch := o.Principles
+	if patch != nil && patch.IsEmpty() {
+		patch = nil
+	}
+	return o.Playbook == nil && patch == nil && o.Route == nil && o.DefaultMode == nil &&
+		o.DefaultPlanGate == nil && o.Machine == nil && o.Parallelism == nil && o.WorkerRoute == nil
 }
 
 func RenderPrinciples(items waveobj.PrincipleList) string {

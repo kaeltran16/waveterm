@@ -132,6 +132,30 @@ export function isDirty(a: ProfileOverride, b: ProfileOverride): boolean {
     return JSON.stringify(normalizeOverride(a)) !== JSON.stringify(normalizeOverride(b));
 }
 
+// The frontend mirror of jarvis.ProfileOverrideIsEmpty: every section absent, or a semantically empty one.
+// One rule, so no editor can reach a different answer about whether a channel has a profile at all.
+export function profileOverrideIsEmpty(o: ProfileOverride | null | undefined): boolean {
+    if (o == null) {
+        return true;
+    }
+    return (
+        o.playbook == null &&
+        cleanPatch(o.principles) == null &&
+        o.route == null &&
+        o.defaultmode == null &&
+        o.defaultplangate == null &&
+        o.machine == null &&
+        o.parallelism == null &&
+        o.workerroute == null
+    );
+}
+
+// A future-run row's reset affordance: it exists exactly where the project overrides the global, and it is
+// inert for the whole save — a reset mutates the draft, and the draft is what the in-flight write carries.
+export function resetActionState(inherited: boolean, saving: boolean): { show: boolean; disabled: boolean } {
+    return { show: !inherited, disabled: saving };
+}
+
 // True when the principle patch carries no additions, replacements, or disables.
 export function principlePatchIsEmpty(patch: PrinciplePatch | null | undefined): boolean {
     return cleanPatch(patch) == null;

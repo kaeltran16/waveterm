@@ -1446,6 +1446,12 @@ export class RpcApiType {
         return client.wshRpcCall("setrtinfo", data, opts);
     }
 
+    // command "setrunsettings" [call]
+    SetRunSettingsCommand(client: WshClient, data: CommandSetRunSettingsData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "setrunsettings", data, opts);
+        return client.wshRpcCall("setrunsettings", data, opts);
+    }
+
     // command "setsecrets" [call]
     SetSecretsCommand(client: WshClient, data: {[key: string]: string}, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "setsecrets", data, opts);

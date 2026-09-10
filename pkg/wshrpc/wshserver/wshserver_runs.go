@@ -246,7 +246,10 @@ func stopRunWorkers(ctx context.Context, run *waveobj.Run) {
 }
 
 // top-level launches opt into heavier modes explicitly; saved profiles still supply custom playbooks
-// and principles, but must not silently turn an ordinary goal into an orchestrator or pipeline.
+// and principles, but must not silently turn an ordinary goal into an orchestrator or pipeline. The
+// profile's defaultmode reaches a launch through the launcher's own hydrated control (which sends its
+// choice explicitly), not through this fallback — TestResolveRunPlanDefaultsToQuickRegardlessOfProfile
+// pins that.
 // legacy gate fields remain readable for RPC compatibility but do not affect orchestrator creation.
 func resolveRunPlan(resolved waveobj.JarvisProfile, reqMode string, reqPlanGate *bool) (string, []waveobj.RunPhase) {
 	mode := reqMode
@@ -310,21 +313,33 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 	if _, err := validateHarness(cap.Runtime, harness.OperationRunWorker); err != nil {
 		return nil, err
 	}
-	if data.WorkerRoute != nil {
-		if _, err := runroute.Resolve(*data.WorkerRoute); err != nil {
-			return nil, fmt.Errorf("workerRoute %w", err)
-		}
-		if _, err := validateHarness(data.WorkerRoute.Runtime, harness.OperationRunWorker); err != nil {
-			return nil, fmt.Errorf("workerRoute %w", err)
-		}
-	}
 	ch, err := wstore.DBMustGet[*waveobj.Channel](ctx, data.ChannelId)
 	if err != nil {
 		return nil, fmt.Errorf("loading channel: %w", err)
 	}
 	global := jarvis.LoadGlobalProfile()
 	resolved := jarvis.ResolveProfile(global, jarvis.OverrideFromMeta(ch))
+	// Shape first, then machine: the engine dials exist only on an engine launch, so a profile's stored
+	// worker route (which can name a harness this machine does not have) must not be hydrated onto a quick,
+	// pipeline or adaptive run and refuse it.
 	mode, playbook := resolveRunPlan(resolved, data.Mode, data.PlanGate)
+	orchestration := data.Orchestration
+	if orchestration == "" && mode == jarvis.RunMode_Orchestrator {
+		orchestration = resolved.Machine
+	}
+	engineLaunch := mode == jarvis.RunMode_Orchestrator &&
+		jarvis.ResolveOrchestration(orchestration, cap.Runtime) == jarvis.Orchestration_Engine
+	if engineLaunch {
+		if data.Parallelism == 0 {
+			data.Parallelism = resolved.Parallelism
+		}
+		if data.WorkerRoute == nil {
+			data.WorkerRoute = resolved.WorkerRoute
+		}
+	}
+	if err := validateWorkerRoute(data.WorkerRoute, true); err != nil {
+		return nil, err
+	}
 	run := jarvis.NewRun(data.Goal, data.WorkspaceId, ch.ProjectPath, resolved.Principles, mode, playbook, time.Now().UnixMilli())
 	if data.DeferStart {
 		run.Status = jarvis.RunStatus_Planning
@@ -333,15 +348,23 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 	run.Tier = cap.Tier
 	run.Model = cap.Model
 	run.WorkerRoute = data.WorkerRoute
-	run.Orchestration = data.Orchestration // prompt-shaping only; DagSubmit stays open to either choice
+	run.Orchestration = orchestration // prompt-shaping only; DagSubmit stays open to either choice
+	// The plan gate is a launch decision the profile already states, and DagSubmit reads it off the run as
+	// its pending choice. Carrying it here is what makes a saved gate default affect the next engine plan.
+	if engineLaunch {
+		switch {
+		case data.PlanGate != nil:
+			run.PlanGatePending = data.PlanGate
+		case resolved.DefaultPlanGate != nil:
+			run.PlanGatePending = resolved.DefaultPlanGate
+		}
+	}
 	// out-of-band widths are rejected rather than clamped: a caller asking for 40 workers has a wrong
 	// model of the engine, and silently running 8 would hide that.
-	if data.Parallelism != 0 {
-		if data.Parallelism < 1 || data.Parallelism > orchestrate.MaxParallelism {
-			return nil, fmt.Errorf("parallelism must be an integer from 1 through %d", orchestrate.MaxParallelism)
-		}
-		run.Parallelism = data.Parallelism
+	if err := validateParallelism(data.Parallelism, true); err != nil {
+		return nil, err
 	}
+	run.Parallelism = data.Parallelism
 	// capture the repo baseline so the evidence diff survives the worker committing its changes;
 	// non-fatal — an unborn/absent repo just leaves BaseCommit "" and the diff falls back to HEAD.
 	if head, herr := gitinfo.HeadCommit(ctx, ch.ProjectPath); herr == nil {

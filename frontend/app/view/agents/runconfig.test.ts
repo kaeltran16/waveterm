@@ -10,6 +10,7 @@ import {
     SHAPE_CARDS,
     clampParallelism,
     machineNote,
+    profileRunDefaults,
     runLauncherFace,
 } from "./runconfig";
 
@@ -103,5 +104,46 @@ describe("runLauncherFace", () => {
             expect(face.showParallelism).toBe(false);
             expect(face.showWorkerRoute).toBe(false);
         }
+    });
+});
+
+// The launcher is hydrating from a channel profile, not deciding for it: every field the profile does not
+// state comes back as "no opinion" so the launcher's own default stands rather than being silently replaced.
+describe("profileRunDefaults", () => {
+    it("maps a saved profile onto the launcher's controls", () => {
+        const route = { runtime: "pi", tier: "capable" } as RoutePin;
+        const got = profileRunDefaults({
+            playbook: [],
+            defaultmode: "orchestrator",
+            machine: "engine",
+            parallelism: 5,
+            workerroute: route,
+        } as JarvisProfile);
+        expect(got).toEqual({ shape: "orchestrator", orchestration: "engine", parallelism: 5, workerRoute: route });
+    });
+
+    it("has no opinion where the profile is silent", () => {
+        expect(profileRunDefaults({ playbook: [] } as JarvisProfile)).toEqual({
+            shape: null,
+            orchestration: null,
+            parallelism: null,
+            workerRoute: null,
+        });
+        expect(profileRunDefaults(null)).toEqual({
+            shape: null,
+            orchestration: null,
+            parallelism: null,
+            workerRoute: null,
+        });
+    });
+
+    it("maps the pipeline default and the adaptive machine", () => {
+        const got = profileRunDefaults({ playbook: [], defaultmode: "pipeline", machine: "adaptive" } as JarvisProfile);
+        expect(got.shape).toBe("pipeline");
+        expect(got.orchestration).toBe("adaptive");
+    });
+
+    it("ignores a nonsensical stored width rather than clamping it into a dispatch", () => {
+        expect(profileRunDefaults({ playbook: [], parallelism: 0 } as JarvisProfile).parallelism).toBeNull();
     });
 });

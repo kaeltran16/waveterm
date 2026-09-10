@@ -19,6 +19,9 @@ type PrinciplesEditorProps = {
     patch: PrinciplePatch | undefined;
     diagnostics: PrincipleDiagnostic[];
     onChange: (patch: PrinciplePatch | undefined) => void;
+    // a form fieldset, so an in-flight save makes the whole editor inert without threading a flag through
+    // every row action.
+    disabled?: boolean;
 };
 
 const badgeBase = "rounded-[4px] px-1.5 py-px font-mono text-[9px] font-semibold uppercase tracking-[.08em]";
@@ -104,14 +107,23 @@ function ActiveRow({ row, dispatch }: { row: PrincipleRow; dispatch: (a: Princip
     );
 }
 
-export function PrinciplesEditor({ global, patch, diagnostics, onChange }: PrinciplesEditorProps) {
+export function PrinciplesEditor({
+    global,
+    patch,
+    diagnostics,
+    onChange,
+    disabled = false,
+}: PrinciplesEditorProps) {
     const dispatch = (action: PrinciplePatchAction) => onChange(reducePrinciplePatch(patch, action));
     const rows = principleRows(global, patch, diagnostics);
     const active = rows.filter((r) => r.kind === "inherited" || r.kind === "modified" || r.kind === "project");
-    const disabled = rows.filter((r) => r.kind === "disabled");
+    const disabledRows = rows.filter((r) => r.kind === "disabled");
     const stale = rows.filter((r) => r.kind === "stale");
     return (
-        <div className="flex flex-col gap-2">
+        <fieldset
+            disabled={disabled}
+            className="m-0 flex min-w-0 flex-col gap-2 border-0 p-0 disabled:opacity-60"
+        >
             {active.map((row) => (
                 <ActiveRow key={row.id} row={row} dispatch={dispatch} />
             ))}
@@ -122,13 +134,13 @@ export function PrinciplesEditor({ global, patch, diagnostics, onChange }: Princ
             >
                 + add principle
             </button>
-            {disabled.length > 0 ? (
+            {disabledRows.length > 0 ? (
                 <details className="rounded border border-edge-mid bg-surface">
                     <summary className="cursor-pointer px-2 py-1 text-[11px] text-secondary">
-                        Disabled · {disabled.length}
+                        Disabled · {disabledRows.length}
                     </summary>
                     <div className="flex flex-col gap-1 px-2 pb-2">
-                        {disabled.map((row) => (
+                        {disabledRows.map((row) => (
                             <div key={row.id} className="flex items-center gap-2">
                                 <span className="flex-1 text-[11px] text-muted line-through">{row.text}</span>
                                 <button
@@ -163,6 +175,6 @@ export function PrinciplesEditor({ global, patch, diagnostics, onChange }: Princ
                     </button>
                 </div>
             ))}
-        </div>
+        </fieldset>
     );
 }

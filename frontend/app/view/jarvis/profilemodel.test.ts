@@ -4,8 +4,10 @@ import {
     DIAGNOSTIC_MISSING_REPLACEMENT,
     isDirty,
     principleRows,
+    profileOverrideIsEmpty,
     reduceGlobalPrinciples,
     reducePrinciplePatch,
+    resetActionState,
     sectionSource,
 } from "./profilemodel";
 
@@ -145,5 +147,41 @@ describe("reduceGlobalPrinciples", () => {
     });
     it("move out of bounds is a no-op", () => {
         expect(reduceGlobalPrinciples(base, { type: "move", id: "a", dir: -1 })).toEqual(base);
+    });
+});
+
+// The frontend mirror of jarvis.ProfileOverrideIsEmpty: reaching it must mean every section is absent, so
+// an override that carries only engine defaults is never mistaken for a cleared one.
+describe("profileOverrideIsEmpty", () => {
+    const cases: Array<[string, ProfileOverride | null | undefined, boolean]> = [
+        ["nil", null, true],
+        ["bare", {}, true],
+        ["empty patch", { principles: {} }, true],
+        ["machine", { machine: "engine" }, false],
+        ["parallelism", { parallelism: 3 }, false],
+        ["worker route", { workerroute: { runtime: "pi", tier: "capable" } }, false],
+        ["default plan gate", { defaultplangate: false }, false],
+        ["lead route", { route: { runtime: "pi", tier: "capable" } }, false],
+        ["default mode", { defaultmode: "orchestrator" }, false],
+        ["playbook", { playbook: [] }, false],
+        ["patch with a disable", { principles: { disabled: ["a"] } }, false],
+    ];
+    for (const [name, override, want] of cases) {
+        it(`${name} -> ${want}`, () => {
+            expect(profileOverrideIsEmpty(override)).toBe(want);
+        });
+    }
+});
+
+// Every row of the future-run defaults: reset drops the section's override from the draft. Dropping a key
+// while the draft is being written would mutate what is in flight, so the save's duration disables it.
+describe("resetActionState", () => {
+    it("offers a reset only where the project overrides the global", () => {
+        expect(resetActionState(false, false)).toEqual({ show: true, disabled: false });
+        expect(resetActionState(true, false).show).toBe(false);
+    });
+
+    it("disables every row's reset for the whole save", () => {
+        expect(resetActionState(false, true)).toEqual({ show: true, disabled: true });
     });
 });

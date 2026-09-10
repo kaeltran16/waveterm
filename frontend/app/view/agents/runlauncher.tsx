@@ -12,7 +12,6 @@
 //
 // Which sections a given shape actually has is decided by runconfig.runLauncherFace; this file renders.
 
-import { globalStore } from "@/app/store/jotaiStore";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { ORCHESTRATION_OPTIONS, type Orchestration } from "./orchestratorpicker";
@@ -24,7 +23,10 @@ import {
     routeOpenRequestAtom,
     runRouteAtom,
     runShapeAtom,
+    setOrchestration,
     setRunRoute,
+    setRunShape,
+    setWorkerRoute,
     stepParallelism,
     workerRouteAtom,
 } from "./runconfigstore";
@@ -60,7 +62,7 @@ function ShapeCards() {
                         key={card.id}
                         type="button"
                         aria-pressed={shape === card.id}
-                        onClick={() => globalStore.set(runShapeAtom, card.id)}
+                        onClick={() => setRunShape(card.id)}
                         className={cn(
                             "flex cursor-pointer flex-col gap-1 rounded-[9px] border px-3 py-2.5 text-left",
                             pickTone(shape === card.id)
@@ -85,7 +87,7 @@ function MachineCards() {
                         key={option}
                         type="button"
                         aria-pressed={orchestration === option}
-                        onClick={() => globalStore.set(orchestrationAtom, option)}
+                        onClick={() => setOrchestration(option)}
                         className={cn(
                             "cursor-pointer rounded-[7px] border px-3 py-1.5 font-mono text-[11.5px] font-semibold capitalize",
                             pickTone(orchestration === option)
@@ -155,7 +157,7 @@ function RoutingSection({ showWorkerRoute }: { showWorkerRoute: boolean }) {
                 {showWorkerRoute ? (
                     <RoutePicker
                         value={workerRoute}
-                        onChange={(next) => globalStore.set(workerRouteAtom, next)}
+                        onChange={setWorkerRoute}
                         placement="bottom-start"
                         title="Workers model"
                         inheritedLabel="Same as lead"

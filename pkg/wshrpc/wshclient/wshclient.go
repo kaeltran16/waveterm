@@ -1439,6 +1439,12 @@ func SetRTInfoCommand(w *wshutil.WshRpc, data wshrpc.CommandSetRTInfoData, opts 
 	return err
 }
 
+// command "setrunsettings", wshserver.SetRunSettingsCommand
+func SetRunSettingsCommand(w *wshutil.WshRpc, data wshrpc.CommandSetRunSettingsData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "setrunsettings", data, opts)
+	return err
+}
+
 // command "setsecrets", wshserver.SetSecretsCommand
 func SetSecretsCommand(w *wshutil.WshRpc, data map[string]*string, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "setsecrets", data, opts)

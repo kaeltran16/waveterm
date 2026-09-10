@@ -272,3 +272,61 @@ func TestSaveGlobalProfileRejectsBlankPhaseKind(t *testing.T) {
 		t.Fatal("expected validation error for blank phase kind")
 	}
 }
+
+func intPtr(n int) *int { return &n }
+
+// Future-run engine defaults resolve section-by-section like every other profile section: an absent
+// override field inherits the global value, a present one replaces it.
+func TestResolveProfileAppliesEngineDefaults(t *testing.T) {
+	globalRoute := &waveobj.RoutePin{Runtime: "pi", Tier: "capable"}
+	global := waveobj.JarvisProfile{Machine: Orchestration_Engine, Parallelism: 2, WorkerRoute: globalRoute}
+	overrideRoute := &waveobj.RoutePin{Runtime: "claude", Tier: "strong"}
+	got := ResolveProfile(global, &waveobj.ProfileOverride{
+		Machine:     strPtr(Orchestration_Adaptive),
+		Parallelism: intPtr(6),
+		WorkerRoute: overrideRoute,
+	})
+	if got.Machine != Orchestration_Adaptive {
+		t.Errorf("machine = %q, want the override's", got.Machine)
+	}
+	if got.Parallelism != 6 {
+		t.Errorf("parallelism = %d, want the override's 6", got.Parallelism)
+	}
+	if got.WorkerRoute == nil || *got.WorkerRoute != *overrideRoute {
+		t.Errorf("worker route = %+v, want the override's", got.WorkerRoute)
+	}
+}
+
+func TestResolveProfileInheritsEngineDefaults(t *testing.T) {
+	globalRoute := &waveobj.RoutePin{Runtime: "pi", Tier: "capable"}
+	global := waveobj.JarvisProfile{Machine: Orchestration_Engine, Parallelism: 2, WorkerRoute: globalRoute}
+	got := ResolveProfile(global, &waveobj.ProfileOverride{DefaultMode: strPtr(RunMode_Orchestrator)})
+	if got.Machine != Orchestration_Engine || got.Parallelism != 2 {
+		t.Errorf("engine defaults not inherited: %+v", got)
+	}
+	if got.WorkerRoute == nil || *got.WorkerRoute != *globalRoute {
+		t.Errorf("worker route not inherited: %+v", got.WorkerRoute)
+	}
+}
+
+// An override that carries only the new engine sections is not empty: it must store rather than be
+// mistaken for a cleared profile.
+func TestProfileOverrideIsEmptyUnderstandsEngineDefaults(t *testing.T) {
+	cases := []struct {
+		name     string
+		override *waveobj.ProfileOverride
+		want     bool
+	}{
+		{"nil", nil, true},
+		{"bare", &waveobj.ProfileOverride{}, true},
+		{"machine", &waveobj.ProfileOverride{Machine: strPtr(Orchestration_Engine)}, false},
+		{"parallelism", &waveobj.ProfileOverride{Parallelism: intPtr(3)}, false},
+		{"workerroute", &waveobj.ProfileOverride{WorkerRoute: &waveobj.RoutePin{Runtime: "pi", Tier: "capable"}}, false},
+		{"empty patch is empty", &waveobj.ProfileOverride{Principles: &waveobj.PrinciplePatch{}}, true},
+	}
+	for _, tc := range cases {
+		if got := ProfileOverrideIsEmpty(tc.override); got != tc.want {
+			t.Errorf("%s: ProfileOverrideIsEmpty = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}

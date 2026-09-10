@@ -90,6 +90,11 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 	// are live the correction costs N worktrees. A child's plan is not gated — its parent's already
 	// was, and a child halting for review would strand a fan-out nobody is watching.
 	planGate := run.ParentLeadORef == ""
+	// the session sheet can decide the gate before the plan exists; the run carries that pending choice
+	// and it wins here, because submitting is exactly the moment the choice becomes the group's.
+	if run.PlanGatePending != nil {
+		planGate = *run.PlanGatePending
+	}
 	if planGate {
 		orchestrate.GatePlan(&proposed)
 	}

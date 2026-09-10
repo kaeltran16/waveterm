@@ -186,6 +186,9 @@ func (ws *WshServer) SetChannelProfileCommand(ctx context.Context, data wshrpc.C
 			return fmt.Errorf("validating route: %w", err)
 		}
 	}
+	if err := validateEngineDefaults(data.Override); err != nil {
+		return fmt.Errorf("validating engine defaults: %w", err)
+	}
 	if data.Override != nil && data.Override.Principles != nil {
 		global := jarvis.LoadGlobalProfile()
 		// a legacy string arriving from an old client becomes a structured patch before validation/storage.
@@ -198,8 +201,7 @@ func (ws *WshServer) SetChannelProfileCommand(ctx context.Context, data wshrpc.C
 		}
 		data.Override.Principles = patch
 	}
-	empty := data.Override == nil || (data.Override.Playbook == nil && data.Override.Principles == nil &&
-		data.Override.Route == nil && data.Override.DefaultMode == nil && data.Override.DefaultPlanGate == nil)
+	empty := jarvis.ProfileOverrideIsEmpty(data.Override)
 	err := wstore.DBUpdateFn(ctx, data.ChannelId, func(ch *waveobj.Channel) {
 		if ch.Meta == nil {
 			ch.Meta = make(waveobj.MetaMapType)
