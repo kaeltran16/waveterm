@@ -23,7 +23,21 @@ type PendingAsk struct {
 	Ts int64
 	// Prose mirrors CommandAskData.Prose: delivery types text instead of picker keystrokes.
 	Prose bool
+	// Wait records that a `wsh ask --wait` caller is blocked on this ask, which is what makes it
+	// undurable: the delivery is an in-memory channel, so a restored copy could only be a question
+	// nobody is listening to. DurableHook's implementation reads this to decide what to persist.
+	Wait bool
 }
+
+// DurableHook mirrors every registry mutation to durable storage: pending != nil is an upsert,
+// pending == nil is a forget. It is a package-level indirection rather than a store import so that
+// this package's tests exercise the in-memory semantics without a database — nil (the default) keeps
+// the registry purely in memory, and DurableHook is wired at server startup.
+//
+// It is called while the registry lock is held, so the implementation must not call back into the
+// registry, and must treat its own failures as its own to log: the in-memory map is authoritative for
+// this process, and a failed disk write must never fail the ask it describes.
+var DurableHook func(oref string, pending *PendingAsk)
 
 type Registry struct {
 	lock    sync.Mutex
@@ -42,6 +56,9 @@ func (r *Registry) Set(oref string, p PendingAsk) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 	r.pending[oref] = p
+	if DurableHook != nil {
+		DurableHook(oref, &p)
+	}
 }
 
 func (r *Registry) Get(oref string) (PendingAsk, bool) {
@@ -67,6 +84,12 @@ func (r *Registry) Drop(oref string) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 	delete(r.pending, oref)
+	// unconditionally, even when nothing was pending: a clear can legitimately arrive with no entry in
+	// memory (a repeat PostToolUse clear, or the first clear after a restart that did not restore the
+	// ask) and the stored row still has to go.
+	if DurableHook != nil {
+		DurableHook(oref, nil)
+	}
 }
 
 // Claim atomically removes and returns the pending ask for oref, making "who delivers it" a single
@@ -84,5 +107,8 @@ func (r *Registry) Claim(oref, askid string) (PendingAsk, bool) {
 		return PendingAsk{}, false
 	}
 	delete(r.pending, oref)
+	if DurableHook != nil {
+		DurableHook(oref, nil)
+	}
 	return p, true
 }

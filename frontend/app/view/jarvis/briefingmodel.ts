@@ -118,7 +118,13 @@ export function groupDelta(delta: DeltaRow[], nowTs: number): DeltaGroup[] {
 // snapshot, so an ask raised after the snapshot still appears; the snapshot's own attention items
 // stay the delta-dedup key and nothing else.
 export type QueueTone = "asking" | "error";
-export type QueueNav = { kind: "channel"; channelId: string; runId: string | null } | { kind: "effort"; oref: string };
+export type QueueNav =
+    | { kind: "channel"; channelId: string; runId: string | null }
+    | { kind: "effort"; oref: string }
+    // radar triage names no channel — a scan belongs to a project — so it is the one row addressed by
+    // the oref the server sent. The full oref is carried, matching the effort variant: the consumer
+    // strips the otype, so the model never has to know which surface answers for it.
+    | { kind: "radar"; oref: string };
 export interface QueueRow {
     key: string;
     kind: string;
@@ -138,6 +144,8 @@ const QUEUE_KIND_LABEL: Record<string, string> = {
     ask: "ask",
     "dag-gate": "dag gate",
     "dag-blocked": "dag blocked",
+    "plan-gate": "plan gate",
+    "radar-triage": "triage",
 };
 
 export function buildAttentionQueue(input: { attention: AttentionItem[]; efforts: EffortCardModel[] }): QueueRow[] {
@@ -145,6 +153,10 @@ export function buildAttentionQueue(input: { attention: AttentionItem[]; efforts
     // kind — pkg/jarvis/attention.go), so this preserves it rather than re-sorting on age.
     const rows: QueueRow[] = (input.attention ?? []).map((a) => {
         const channelId = a.channelid ?? "";
+        // a triage row's only destination is its report. If the kind arrived without one it falls
+        // through to the channel rule below and ends up static — inventing a target would be worse than
+        // saying nothing, which is the same rule the no-channel case has always followed.
+        const radarORef = a.kind === "radar-triage" && a.oref != null && a.oref !== "" ? a.oref : null;
         return {
             key: a.key,
             kind: QUEUE_KIND_LABEL[a.kind] ?? a.kind,
@@ -155,11 +167,13 @@ export function buildAttentionQueue(input: { attention: AttentionItem[]; efforts
             ts: a.waitingsince > 0 ? a.waitingsince : null,
             // a standalone item names no channel, so there is no run body to land on; it renders as
             // static info rather than a button that would navigate nowhere (NeedsRow's rule, kept).
-            action: channelId !== "" ? a.action : null,
+            action: channelId !== "" || radarORef != null ? a.action : null,
             nav:
-                channelId !== ""
-                    ? { kind: "channel", channelId, runId: a.runid != null && a.runid !== "" ? a.runid : null }
-                    : null,
+                radarORef != null
+                    ? { kind: "radar", oref: radarORef }
+                    : channelId !== ""
+                      ? { kind: "channel", channelId, runId: a.runid != null && a.runid !== "" ? a.runid : null }
+                      : null,
             tone: a.kind === "dag-blocked" ? "error" : "asking",
         };
     });

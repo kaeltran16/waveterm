@@ -968,11 +968,17 @@ func (ws *WshServer) JarvisStatusCommand(ctx context.Context, data wshrpc.Comman
 // ledger closure maps a routed kind to the matching FetchWorkState derivation, so the recall
 // package stays ledger-agnostic. Note: this runs two model calls (judge + synthesize) inside the
 // handler — the CLI must pass a raised RpcOpts.Timeout (the 5s default would EC-TIME).
-func (ws *WshServer) JarvisAskCommand(ctx context.Context, data wshrpc.CommandJarvisAskData) (*wshrpc.CommandJarvisAskRtnData, error) {
-	scope := jarvisrecall.ScopeArgs{Mode: "all"}
+func jarvisAskScope(data wshrpc.CommandJarvisAskData) jarvisrecall.ScopeArgs {
+	scope := jarvisrecall.ScopeArgs{Mode: "all", AttachedORefs: data.AttachedORefs}
 	if data.Cwd != "" {
-		scope = jarvisrecall.ScopeArgs{Mode: "project", ProjectPath: data.Cwd}
+		scope.Mode = "project"
+		scope.ProjectPath = data.Cwd
 	}
+	return scope
+}
+
+func (ws *WshServer) JarvisAskCommand(ctx context.Context, data wshrpc.CommandJarvisAskData) (*wshrpc.CommandJarvisAskRtnData, error) {
+	scope := jarvisAskScope(data)
 	ledgerFn := func(ctx context.Context, kind string, windowMs int64) ([]jarvisrecall.LedgerFact, error) {
 		state, err := jarvisstate.FetchWorkState(ctx, scope.ProjectPath, windowMs)
 		if err != nil {
@@ -1001,7 +1007,7 @@ func (ws *WshServer) JarvisAskCommand(ctx context.Context, data wshrpc.CommandJa
 	if err != nil {
 		return nil, err
 	}
-	return &wshrpc.CommandJarvisAskRtnData{Answer: res.Answer, Sources: res.Sources, Terminal: res.Terminal}, nil
+	return &wshrpc.CommandJarvisAskRtnData{Answer: res.Answer, Grounding: res.Grounding, Terminal: res.Terminal}, nil
 }
 
 // JarvisRunEventsCommand lists a run's lifecycle events newest-first, for the run-card timeline.

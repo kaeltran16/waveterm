@@ -10,7 +10,9 @@ import { globalStore } from "@/app/store/global";
 import * as WOS from "@/app/store/wos";
 import type { AgentsViewModel } from "../agents/agents";
 import type { MemNote } from "../agents/memtypes";
+import { primeBriefThread } from "./briefingstore";
 import type { JarvisScope, SourceRef, SourceType } from "./jarviscontract";
+import { jarvisCompositionAtom } from "./jarvisstore";
 import { conversationForSource, selectSubject, setJarvisDraft } from "./jarvissubjectstore";
 
 export function sourceRefForRun(run: Run): SourceRef {
@@ -21,6 +23,19 @@ export function sourceRefForRadar(finding: RadarFinding): SourceRef {
 }
 export function sourceRefForMemory(note: MemNote): SourceRef {
     return { oref: `memory:${note.id}`, sourceType: "memory", title: note.title };
+}
+// A graph node's id is a bare id for a vault node and already a full oref for a run —
+// ResolveDossierEdges emits RunORef, so the run's id IS its address. Prefixing blindly would produce
+// "run:run:…" and send the ask after a source that does not exist.
+export function sourceRefForGraphNode(node: GraphNode): SourceRef {
+    return {
+        oref: node.kind === "run" ? node.id : `${node.kind}:${node.id}`,
+        // the cast is the graph peek's own existing mapping, unchanged: `kind` drives the citation icon,
+        // and routing reads the oref, so an unmapped kind costs a generic badge rather than a wrong
+        // destination. Narrowing it here would be a second copy of the SourceType vocabulary.
+        sourceType: node.kind as SourceType,
+        title: node.label,
+    };
 }
 
 const CHIP_LABEL: Partial<Record<SourceType, string>> = {
@@ -51,6 +66,11 @@ export function suggestedPrompt(t: SourceType): string {
 }
 
 export function openJarvisWithSource(model: AgentsViewModel, ref: SourceRef): void {
+    if (globalStore.get(jarvisCompositionAtom) === "brief") {
+        primeBriefThread(attachedScope(ref), suggestedPrompt(ref.sourceType));
+        globalStore.set(model.surfaceAtom, "jarvis");
+        return;
+    }
     // one thread per source object, reused rather than re-created: asking about the same Run twice used to
     // leave two identical rows in the Threads group, and the second one carried none of the first's answers.
     const id = conversationForSource(ref.oref, attachedScope(ref));

@@ -13,10 +13,12 @@ import * as WOS from "@/app/store/wos";
 import type { AgentsViewModel } from "../agents/agents";
 import { runAtom, selectChannel } from "../agents/channelsstore";
 import { selectNote } from "../agents/memstore";
+import { selectReport } from "../agents/radarstore";
 import { pendingRunFocusAtom } from "../agents/runactions";
-import { vaultFocusAtom, vaultTabAtom } from "../agents/vaultstore";
-import { selectSubject } from "./jarvissubjectstore";
+import { vaultFocusAtom, vaultRecordIdAtom, vaultRecordPaneAtom, vaultTabAtom } from "../agents/vaultstore";
 import { expandEffort } from "./effortstore";
+import { briefPeekRecordAtom, jarvisCompositionAtom } from "./jarvisstore";
+import { loadRecordDetail, selectSubject } from "./jarvissubjectstore";
 import { pendingDecisionAnchorAtom } from "./petstore";
 
 export type OrefNav =
@@ -26,6 +28,7 @@ export type OrefNav =
     | { kind: "agent"; oid: string }
     | { kind: "memnote"; oid: string }
     | { kind: "effort"; oid: string }
+    | { kind: "radarreport"; oid: string }
     | { kind: "unsupported"; otype: string };
 
 // pure + total: classify an oref into a nav plan. Malformed input or an unroutable otype => unsupported.
@@ -41,7 +44,8 @@ export function orefNavPlan(oref: string): OrefNav {
         otype === "task" ||
         otype === "agent" ||
         otype === "memnote" ||
-        otype === "effort"
+        otype === "effort" ||
+        otype === "radarreport"
     ) {
         return { kind: otype, oid };
     }
@@ -72,9 +76,15 @@ export async function openORef(model: AgentsViewModel, oref: string, anchor?: st
         return;
     }
     // a record has a surface for the first time: it is a subject on the merged Stage, not a separate tab.
+    // In the Brief there is no Stage, so the destination is the peek instead — the same one-branch shape
+    // the radarreport route uses rather than a second router, and the arm B5 deletes when the panes go.
     if (plan.kind === "task") {
         globalStore.set(pendingDecisionAnchorAtom, anchor ?? null);
-        selectSubject({ kind: "dossier", id: plan.oid });
+        if (globalStore.get(jarvisCompositionAtom) === "brief") {
+            globalStore.set(briefPeekRecordAtom, plan.oid);
+        } else {
+            selectSubject({ kind: "dossier", id: plan.oid });
+        }
         globalStore.set(model.surfaceAtom, "jarvis");
         return;
     }
@@ -89,6 +99,15 @@ export async function openORef(model: AgentsViewModel, oref: string, anchor?: st
     if (plan.kind === "agent") {
         model.openTerminal(plan.oid);
     }
+    // a scan report is not a grounding source, which is what the rest of this module routes — but it is
+    // an oref that has to open in its own surface, and a second router for one otype would be worse.
+    // selectReport, not radarSelectedIdAtom: that atom holds the selected FINDING, and pinning the
+    // report is what lets an in-flight scan keep streaming into the surface once it lands.
+    if (plan.kind === "radarreport") {
+        await selectReport(plan.oid);
+        globalStore.set(model.surfaceAtom, "radar");
+        return;
+    }
     // an effort address opens the briefing with that effort expanded (spec UI §1): the subjects
     // column and delta rows point here, and the detail subject is the expanded card's own "details".
     if (plan.kind === "effort") {
@@ -96,4 +115,20 @@ export async function openORef(model: AgentsViewModel, oref: string, anchor?: st
         await expandEffort("effort:" + plan.oid);
         globalStore.set(model.surfaceAtom, "jarvis");
     }
+}
+
+// The Vault's record landing, reached only from the Brief peek's own control. Deliberately not folded into
+// the `task:` arm above: that arm means "show me this record", which in the Brief is the peek, and widening
+// it would move every palette and citation click off the peek. This one means "go to where this record
+// lives", and it exists as its own named route for exactly that reason.
+//
+// Selection and pane are set BEFORE the surface flips so the Vault mounts on the record rather than on an
+// empty index, and the peek is cleared so the modal does not reappear over the surface the user asked for.
+export function openRecordInVault(model: AgentsViewModel, dossierId: string): void {
+    globalStore.set(vaultRecordIdAtom, dossierId);
+    globalStore.set(vaultRecordPaneAtom, "detail");
+    loadRecordDetail(dossierId);
+    globalStore.set(briefPeekRecordAtom, null);
+    globalStore.set(vaultTabAtom, "records");
+    globalStore.set(model.surfaceAtom, "vault");
 }

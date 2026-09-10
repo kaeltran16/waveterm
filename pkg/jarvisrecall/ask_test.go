@@ -8,6 +8,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/jarvisembed"
 	"github.com/wavetermdev/waveterm/pkg/wavevault"
@@ -78,8 +79,41 @@ func TestAskAttachesLedgerFactsForStatus(t *testing.T) {
 	if !strings.Contains(res.Answer, "executing") || res.Terminal != "answered" {
 		t.Fatalf("res=%+v want synthesize output + answered terminal", res)
 	}
-	if len(res.Sources) != 1 || res.Sources[0].ORef != "run:r1" || res.Sources[0].SourceType != "status" {
-		t.Fatalf("sources=%+v want the ledger fact", res.Sources)
+	if len(res.Grounding) != 1 || res.Grounding[0].NavTarget != "run:r1" || res.Grounding[0].SourceType != "status" {
+		t.Fatalf("grounding=%+v want the ledger fact", res.Grounding)
+	}
+}
+
+// the ask used to flatten its candidates to {oref, sourcetype, title} on the way out, which left the
+// "Drew on" band with no reading to report. Every field the band prints has to survive.
+func TestAskGroundingCarriesTheReadingNotJustTheRef(t *testing.T) {
+	askFixture(t)
+	ledgerFn := func(_ context.Context, _ string, _ int64) ([]LedgerFact, error) {
+		return []LedgerFact{{SourceType: "status", Title: "the ask bridge", NavTarget: "run:r1", Ts: time.Now().UnixMilli() - 90_000}}, nil
+	}
+	restoreJ := SetJudgeForTest(func(_ context.Context, _, _ string) (string, error) { return "1", nil })
+	defer restoreJ()
+	restoreS := SetSynthesizeForTest(func(_ context.Context, _, _ string, _ func(string)) (string, error) {
+		return "executing [1]", nil
+	})
+	defer SetSynthesizeForTest(restoreS)
+	res, err := Ask(context.Background(), ScopeArgs{Mode: "all"}, "what is the status of the ask bridge", ledgerFn)
+	if err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	if len(res.Grounding) != 1 {
+		t.Fatalf("grounding=%+v want one card", res.Grounding)
+	}
+	card := res.Grounding[0]
+	if card.N != 1 {
+		t.Errorf("card N=%d want the citation index the prose cites", card.N)
+	}
+	if card.Freshness == "" {
+		t.Errorf("card carries no freshness reading: %+v", card)
+	}
+	// AgeMs is taken at return, not at retrieval: the synthesis between them can run for tens of seconds
+	if card.AgeMs < 90_000 {
+		t.Errorf("card AgeMs=%d want at least the fact's own age", card.AgeMs)
 	}
 }
 
@@ -157,7 +191,7 @@ func TestAskJudgeErrorKeepsAll(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Ask: %v", err)
 	}
-	if res.Answer != "answer [1]" || len(res.Sources) != 2 {
+	if res.Answer != "answer [1]" || len(res.Grounding) != 2 {
 		t.Fatalf("res=%+v want answer with both ledger facts kept", res)
 	}
 }

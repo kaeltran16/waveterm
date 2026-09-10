@@ -407,11 +407,32 @@ export function buildChannelsAskBindings(
 // drifts; the button only exists when the band can open, so clicking it is exactly the mouse's contract.
 // Every DOM-reaching run() returns false when its control is absent, so the key passes through rather
 // than pretending to have acted.
+// The one Jarvis binding both compositions share. The Brief mounts no Stage, so it registers this set and
+// nothing else — but the chord has to be the same key in both, and a second declaration is how the two
+// copies drift apart. `when` is the surface-and-not-typing guard only: the toggle stays live while its own
+// overlay is open, which is how Esc-less closing works.
+// The jarvis surface's guard. Module-level rather than a local `on` inside buildJarvisBindings, because the
+// graph chord has to be reachable in BOTH compositions and a second copy of this predicate is how the two
+// become different chords wearing the same keys.
+const onJarvis = (ctx: KeyContext) => ctx.surface === "jarvis" && !ctx.editable && !ctx.modalOpen;
+
+export function buildJarvisGraphBindings(): Binding[] {
+    return [
+        {
+            id: "jarvis:graph-peek",
+            keys: "Shift:g",
+            group: "Jarvis",
+            label: "Graph peek (Esc closes)",
+            when: onJarvis,
+            run: () => globalStore.set(graphPeekOpenAtom, (v) => !v),
+        },
+    ];
+}
+
 export function buildJarvisBindings(): Binding[] {
-    const on = (ctx: KeyContext) => ctx.surface === "jarvis" && !ctx.editable && !ctx.modalOpen;
     // the peek is an overlay over the whole Stage: acting behind it would change a surface the user cannot
     // see. Only its own toggle stays live (the peek also closes on Escape, which it owns while open).
-    const onStage = (ctx: KeyContext) => on(ctx) && !globalStore.get(graphPeekOpenAtom);
+    const onStage = (ctx: KeyContext) => onJarvis(ctx) && !globalStore.get(graphPeekOpenAtom);
 
     const clickThrough = (selector: string): boolean | void => {
         const el = document.querySelector<HTMLElement>(selector);
@@ -454,14 +475,6 @@ export function buildJarvisBindings(): Binding[] {
             run: () => globalStore.set(stageRailOpenAtom, (v) => !v),
         },
         {
-            id: "jarvis:graph-peek",
-            keys: "Shift:g",
-            group: "Jarvis",
-            label: "Graph peek (Esc closes)",
-            when: on,
-            run: () => globalStore.set(graphPeekOpenAtom, (v) => !v),
-        },
-        {
             id: "jarvis:new-thread",
             keys: "n",
             group: "Jarvis",
@@ -469,6 +482,7 @@ export function buildJarvisBindings(): Binding[] {
             when: onStage,
             run: () => void startJarvisThread(),
         },
+        ...buildJarvisGraphBindings(),
         {
             id: "jarvis:new-channel",
             keys: "c",

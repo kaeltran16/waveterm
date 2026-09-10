@@ -117,6 +117,10 @@ type AttentionItem struct {
 	Action       string `json:"action"`   // Review | Decide | Answer
 	PhaseIdx     int    `json:"phaseidx"` // gate items only: the phase AdvanceRun must address to approve or send back
 	WaitingSince int64  `json:"waitingsince"`
+	// ORef addresses the object an item is about when it is not reachable through a channel. Today only
+	// radar triage sets it; channel-backed items leave it empty because ChannelId+RunId already address
+	// them, and the frontend's rule is that an item naming no destination renders static.
+	ORef string `json:"oref,omitempty"`
 }
 
 type CommandGetAttentionRtnData struct {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AnswerSegment, GroundingCard, JarvisAnswerTurn } from "./jarviscontract";
-import { ageLabel, citedNs, freshnessLabel, groundingByN, mapConvoRecord, mapWireCard, parseCitations } from "./recallderive";
+import { ageLabel, citedNs, freshnessLabel, groundingByN, mapConvoRecord, mapWireCard, parseCitations, wireFreshness } from "./recallderive";
 
 describe("ageLabel", () => {
     it("renders coarse relative ages", () => {
@@ -17,6 +17,37 @@ describe("freshnessLabel", () => {
         expect(freshnessLabel("stale")).toBe("Stale");
         expect(freshnessLabel("unavailable")).toBe("Unavailable");
         expect(freshnessLabel("unverified")).toBe("Unverified");
+    });
+});
+
+describe("wireFreshness", () => {
+    it("keeps every reading this build understands", () => {
+        expect(wireFreshness("fresh")).toBe("fresh");
+        expect(wireFreshness("stale")).toBe("stale");
+        expect(wireFreshness("unavailable")).toBe("unavailable");
+        expect(wireFreshness("unverified")).toBe("unverified");
+    });
+
+    // an uninterpretable reading IS the absence of a reading, and it must not be cast through: briefdrew's
+    // severity order would score it undefined and rank it as the mildest reading there is.
+    it("degrades anything else to unverified", () => {
+        expect(wireFreshness("drifted")).toBe("unverified");
+        expect(wireFreshness("")).toBe("unverified");
+        expect(wireFreshness("Fresh")).toBe("unverified");
+    });
+
+    it("is what mapWireCard reads the wire freshness through", () => {
+        const card = mapWireCard({
+            n: 1,
+            sourcetype: "run",
+            title: "a",
+            project: "p",
+            agems: 7,
+            freshness: "not-a-reading",
+            navtarget: "run:1",
+        });
+        expect(card.freshness).toBe("unverified");
+        expect(card.ageMs).toBe(7);
     });
 });
 

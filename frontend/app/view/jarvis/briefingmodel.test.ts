@@ -466,12 +466,20 @@ describe("buildAttentionQueue", () => {
     });
 
     it("writes a label for every kind the server can emit", () => {
-        const kinds = ["gate", "escalation", "ask", "dag-gate", "dag-blocked"];
+        const kinds = ["gate", "escalation", "ask", "dag-gate", "dag-blocked", "plan-gate", "radar-triage"];
         const q = buildAttentionQueue({
             attention: kinds.map((k, i) => item({ kind: k, key: k + i })),
             efforts: [],
         });
-        expect(q.map((r) => r.kind)).toEqual(["gate", "escalation", "ask", "dag gate", "dag blocked"]);
+        expect(q.map((r) => r.kind)).toEqual([
+            "gate",
+            "escalation",
+            "ask",
+            "dag gate",
+            "dag blocked",
+            "plan gate",
+            "triage",
+        ]);
     });
 
     it("gives a dag-blocked row the error tone and the rest the asking tone", () => {
@@ -506,6 +514,78 @@ describe("buildAttentionQueue", () => {
         expect(q[0]!.title).toBe("Approve before Jarvis proceeds.");
         expect(q[0]!.detail).toBe("ship the ledger · #waveterm");
         expect(q[0]!.ts).toBe(T0 - HOUR);
+    });
+
+    it("lands a plan gate on its channel like any other gate", () => {
+        const q = buildAttentionQueue({
+            attention: [
+                item({ kind: "plan-gate", key: "plan-gate:d1", text: "Approve the plan before any worker starts." }),
+            ],
+            efforts: [],
+        });
+        expect(q[0]!.kind).toBe("plan gate");
+        expect(q[0]!.nav).toEqual({ kind: "channel", channelId: "ch-1", runId: "r1" });
+        expect(q[0]!.tone).toBe("asking"); // a held plan is waiting, not failing
+    });
+
+    // the server un-rolled dag gates to one row per task; two tasks of one group must stay two rows.
+    it("keeps two gated tasks of the same dag apart", () => {
+        const q = buildAttentionQueue({
+            attention: [
+                item({ kind: "dag-gate", key: "dag-gate:d1:t-0", text: "Approve scaffold before the DAG proceeds." }),
+                item({ kind: "dag-gate", key: "dag-gate:d1:t-1", text: "Approve migrate before the DAG proceeds." }),
+            ],
+            efforts: [],
+        });
+        expect(q.map((r) => r.key)).toEqual(["dag-gate:d1:t-0", "dag-gate:d1:t-1"]);
+        expect(new Set(q.map((r) => r.title)).size).toBe(2);
+    });
+
+    it("addresses a triage row by its report rather than a channel", () => {
+        const q = buildAttentionQueue({
+            attention: [
+                item({
+                    kind: "radar-triage",
+                    key: "radar:r-1",
+                    channelid: "",
+                    channelname: "",
+                    runid: "",
+                    source: "arc",
+                    text: "4 findings need triage.",
+                    action: "Triage",
+                    oref: "radarreport:r-1",
+                }),
+            ],
+            efforts: [],
+        });
+        expect(q[0]!.nav).toEqual({ kind: "radar", oref: "radarreport:r-1" });
+        // the no-channel rule used to strip the action off any row without a channel, which would have
+        // left the one row that DOES have a destination looking inert.
+        expect(q[0]!.action).toBe("Triage");
+        expect(q[0]!.detail).toBe("arc");
+    });
+
+    it("degrades a triage row with no report to static rather than inventing a target", () => {
+        const q = buildAttentionQueue({
+            attention: [item({ kind: "radar-triage", key: "radar:r-1", channelid: "", channelname: "", runid: "" })],
+            efforts: [],
+        });
+        expect(q[0]!.nav).toBeNull();
+        expect(q[0]!.action).toBeNull();
+    });
+
+    // a channel-backed item must not be re-routed just because a stray oref rode along.
+    it("prefers the channel for any kind that is not triage", () => {
+        const q = buildAttentionQueue({
+            attention: [item({ kind: "gate", oref: "radarreport:r-1" })],
+            efforts: [],
+        });
+        expect(q[0]!.nav).toEqual({ kind: "channel", channelId: "ch-1", runId: "r1" });
+    });
+
+    it("still falls through to the raw wire kind for a kind it has never seen", () => {
+        const q = buildAttentionQueue({ attention: [item({ kind: "some-future-kind", key: "f1" })], efforts: [] });
+        expect(q[0]!.kind).toBe("some-future-kind");
     });
 
     it("puts blocked chunks after the wire rows and leaves them ageless", () => {

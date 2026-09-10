@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const getDossier = vi.fn();
 const resolveScope = vi.fn();
 const resolveAmbient = vi.fn();
+const appendDecisionRpc = vi.fn();
 const detachCmd = vi.fn();
 const listDetached = vi.fn();
 vi.mock("@/app/store/wshclientapi", () => ({
@@ -13,6 +14,7 @@ vi.mock("@/app/store/wshclientapi", () => ({
         GetDossierCommand: (...a: unknown[]) => getDossier(...a),
         ResolveSpaceScopeCommand: (...a: unknown[]) => resolveScope(...a),
         ResolveAmbientCommand: (...a: unknown[]) => resolveAmbient(...a),
+        AppendDossierDecisionCommand: (...a: unknown[]) => appendDecisionRpc(...a),
         DetachDossierEdgeCommand: (...a: unknown[]) => detachCmd(...a),
         ListDetachedEdgesCommand: (...a: unknown[]) => listDetached(...a),
     },
@@ -23,7 +25,8 @@ vi.mock("@/app/store/wos", () => ({ loadAndPinWaveObject: vi.fn().mockResolvedVa
 import { globalStore } from "@/app/store/jotaiStore";
 import { graphBloomAtom } from "./jarvisgraphstore";
 import { recordDetailAtom, recordRunsAtom, recordScopeAtom } from "./jarvissubjectstore";
-import { afterRecordWrite, detachedEdgesAtom, detachEdge } from "./recordactions";
+import { afterRecordWrite, appendDecision, detachedEdgesAtom, detachEdge } from "./recordactions";
+import { tasksErrorAtom } from "./tasksstore";
 
 describe("afterRecordWrite", () => {
     beforeEach(() => {
@@ -55,6 +58,36 @@ describe("afterRecordWrite", () => {
     it("re-reads the whole-vault ambient map", async () => {
         await afterRecordWrite("task-a");
         expect(resolveAmbient).toHaveBeenCalled();
+    });
+});
+
+describe("appendDecision", () => {
+    beforeEach(() => {
+        appendDecisionRpc.mockReset();
+        getDossier.mockReset().mockResolvedValue({ id: "task-a", status: "active", decisions: [] });
+        resolveScope.mockReset().mockResolvedValue({ runorefs: [], channeloids: [], tabids: [] });
+        resolveAmbient.mockReset().mockResolvedValue({ tasks: [], edges: [], decisions: [] });
+        globalStore.set(tasksErrorAtom, null);
+    });
+
+    it("reports a failed decision write and keeps the record cache intact", async () => {
+        const cached = { id: "task-a", status: "active", decisions: [] } as unknown as DossierDetail;
+        globalStore.set(recordDetailAtom, { "task-a": cached });
+        appendDecisionRpc.mockRejectedValue(new Error("disk full"));
+
+        await expect(appendDecision("task-a", "summary", "why", [])).resolves.toBe(false);
+
+        expect(globalStore.get(tasksErrorAtom)).toContain("disk full");
+        expect(globalStore.get(recordDetailAtom)["task-a"]).toBe(cached);
+    });
+
+    it("reports success only after refreshing the record", async () => {
+        appendDecisionRpc.mockResolvedValue({ decisionid: "d1" });
+        getDossier.mockResolvedValue({ id: "task-a", status: "completed", decisions: [] });
+
+        await expect(appendDecision("task-a", "summary", "why", [])).resolves.toBe(true);
+
+        expect(globalStore.get(recordDetailAtom)["task-a"].status).toBe("completed");
     });
 });
 

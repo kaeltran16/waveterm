@@ -53,11 +53,17 @@ function DecisionCardRow({ card }: { card: DecisionCard }) {
 function AppendForm({ dossierId, onDone }: { dossierId: string; onDone: () => void }) {
     const [summary, setSummary] = useState("");
     const [rationale, setRationale] = useState("");
+    const [busy, setBusy] = useState(false);
     const err = validateDecisionDraft(summary, rationale);
+    // a failed write keeps the form open with both fields intact: closing on failure would discard what the
+    // user wrote and assert a decision that is not in the log. tasksErrorAtom carries the reason.
     const submit = () => {
-        if (err != null) return;
-        appendDecision(dossierId, summary.trim(), rationale.trim(), []);
-        onDone();
+        if (err != null || busy) return;
+        setBusy(true);
+        void appendDecision(dossierId, summary.trim(), rationale.trim(), []).then((ok) => {
+            setBusy(false);
+            if (ok) onDone();
+        });
     };
     return (
         <div className="rounded-lg border border-accent/30 bg-surface px-3.5 py-3">
@@ -85,13 +91,13 @@ function AppendForm({ dossierId, onDone }: { dossierId: string; onDone: () => vo
                 <button
                     type="button"
                     onClick={submit}
-                    disabled={err != null}
+                    disabled={err != null || busy}
                     className={cn(
                         "cursor-pointer rounded bg-accent px-3 py-1.5 text-[12.5px] font-bold text-background hover:bg-accenthover",
-                        err != null && "cursor-not-allowed opacity-50"
+                        (err != null || busy) && "cursor-not-allowed opacity-50"
                     )}
                 >
-                    Add decision
+                    {busy ? "Adding…" : "Add decision"}
                 </button>
             </div>
         </div>

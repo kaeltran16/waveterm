@@ -11,8 +11,9 @@ import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
+import { sourceRefForGraphNode } from "./contextualentry";
 import type { PeekFocus } from "./graphfocus";
-import type { SourceType } from "./jarviscontract";
+import type { SourceRef } from "./jarviscontract";
 import { JarvisGraph } from "./jarvisgraph";
 import { attributionStyle, mergeGraph } from "./jarvisgraphderive";
 import {
@@ -26,7 +27,6 @@ import {
     selectBloomedRun,
     selectNode,
 } from "./jarvisgraphstore";
-import { conversationForSource, type ActiveSubject } from "./jarvissubjectstore";
 import { openORef } from "./openref";
 
 const KIND_TONE: Record<string, string> = {
@@ -39,11 +39,6 @@ const KIND_TONE: Record<string, string> = {
 // enough matches to choose from without the panel becoming its own scrolling list; the overflow is
 // reported rather than dropped silently.
 const MAX_MATCHES = 12;
-
-// a run node's id is already its oref (ResolveDossierEdges emits RunORef); vault nodes carry a bare id.
-function nodeORef(node: GraphNode): string {
-    return node.kind === "run" ? node.id : `${node.kind}:${node.id}`;
-}
 
 function ActionButton({
     label,
@@ -74,12 +69,18 @@ export function GraphPeek({
     model,
     focus,
     onClose,
-    onOpenSubject,
+    onOpenRecord,
+    onAskAbout,
+    canOpenRuns = true,
 }: {
     model: AgentsViewModel;
     focus: PeekFocus;
     onClose: () => void;
-    onOpenSubject: (subject: ActiveSubject) => void;
+    onOpenRecord: (dossierId: string) => void;
+    onAskAbout: (ref: SourceRef) => void;
+    // false in the Brief: runs have no Stage-sheet destination until B5, and a control that navigates
+    // nowhere is worse than its absence
+    canOpenRuns?: boolean;
 }) {
     const base = useAtomValue(graphBaseAtom);
     const blooms = useAtomValue(graphBloomAtom);
@@ -138,16 +139,11 @@ export function GraphPeek({
         onClose();
     };
 
-    // one thread per node, like every other "ask about this object" entry — asking about the same node
-    // twice continues its thread instead of leaving a second identical row in the Threads group.
+    // one thread per node, like every other "ask about this object" entry. The dedup lives in the caller's
+    // route (openJarvisWithSource), which keys a thread per oref, so both compositions get it from one place
+    // rather than this overlay carrying a second copy of the rule.
     const askAbout = (n: GraphNode) => {
-        const oref = nodeORef(n);
-        const id = conversationForSource(oref, {
-            mode: "object",
-            chips: [{ label: n.label, active: true }],
-            attached: [{ oref, sourceType: n.kind as SourceType, title: n.label }],
-        });
-        onOpenSubject({ kind: "conversation", id });
+        onAskAbout(sourceRefForGraphNode(n));
         onClose();
     };
 
@@ -157,6 +153,7 @@ export function GraphPeek({
             initial="initial"
             animate="animate"
             exit="exit"
+            data-jarvis-graph-peek
             className="absolute inset-0 z-20 flex flex-col bg-background/95 backdrop-blur-[3px]"
         >
             <div className="flex h-11 flex-none items-center gap-2.5 border-b border-border bg-surface px-4">
@@ -299,7 +296,7 @@ export function GraphPeek({
                                 <span className="font-mono text-[9.5px] font-bold uppercase tracking-[.12em] text-muted">
                                     Leave the graph by opening something
                                 </span>
-                                {node.kind === "run" ? (
+                                {node.kind === "run" && canOpenRuns ? (
                                     <ActionButton label="Open run on the Stage" primary onClick={() => openRun(node.id)} />
                                 ) : null}
                                 {node.kind === "task" ? (
@@ -307,7 +304,7 @@ export function GraphPeek({
                                         label="Open record"
                                         primary
                                         onClick={() => {
-                                            onOpenSubject({ kind: "dossier", id: node.id });
+                                            onOpenRecord(node.id);
                                             onClose();
                                         }}
                                     />

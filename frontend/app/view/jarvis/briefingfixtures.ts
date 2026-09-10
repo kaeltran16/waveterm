@@ -241,9 +241,27 @@ export function setBriefingAskFixtureForDev(): void {
     globalStore.set(briefingAskStateAtom, "answered");
     globalStore.set(briefingAnswerAtom, {
         answer: "Two runs are moving: the briefing itself is executing and the usage charts are blocked. The memory recentralization shipped yesterday [1].",
-        sources: [
-            { oref: "run:r-briefing-shipped", sourcetype: "shipped", title: "Memory recentralization" },
-            { oref: "memory:m-briefing-1", sourcetype: "memory", title: "vault scoping note" },
+        // one routable-and-fresh, one gardener-flagged stale, so the Drew band's two readings are both
+        // visible in the fixture rather than only the happy one
+        grounding: [
+            {
+                n: 1,
+                sourceType: "run",
+                title: "Memory recentralization",
+                project: "waveterm",
+                ageMs: 26 * 60 * 60 * 1000,
+                freshness: "fresh",
+                navTarget: "run:r-briefing-shipped",
+            },
+            {
+                n: 2,
+                sourceType: "memory",
+                title: "vault scoping note",
+                project: "waveterm",
+                ageMs: 41 * 24 * 60 * 60 * 1000,
+                freshness: "stale",
+                navTarget: "memory:m-briefing-1",
+            },
         ],
         terminal: "answered",
     });

@@ -13,9 +13,11 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useCallback, useEffect, useState } from "react";
+import { taskListAtom } from "../jarvis/tasksstore";
 import { harvestMemory, memNotesAtom, memPendingAtom } from "./memstore";
 import { projectLabel } from "./projectlabel";
 import { RollingCount } from "./rollingcount";
+import { recordStatusCounts } from "./vaultrecordsmodel";
 import {
     previewSync,
     selectDocTab,
@@ -156,6 +158,29 @@ function MemoryStatus({ focusedCwd }: { focusedCwd: string | null }) {
 // Steering and skills share one cluster: both are projections of the same vault into the same
 // harnesses, so drift is one number and the fix is one button. On a vault with no shared doc yet the
 // button would dry-run to nothing, so it says so rather than offering an empty sync.
+// Records' cluster: the same states the index groups by, counted, so the collection line answers "what is in
+// here" before the tab is opened. Text, not dots — the index already carries a per-row dot, and a second
+// copy of the same status-to-tone map here would be a second place to keep the vocabulary in step.
+function RecordStatus() {
+    const records = useAtomValue(taskListAtom);
+    const counts = recordStatusCounts(records ?? []);
+    if (records == null) {
+        return <span className="text-[11.5px] text-ink-faint">loading records…</span>;
+    }
+    if (counts.length === 0) {
+        return <span className="text-[11.5px] text-ink-faint">no records yet</span>;
+    }
+    return (
+        <span className="flex items-center gap-[12px] text-[11.5px] text-ink-mid">
+            {counts.map((c) => (
+                <span key={c.status}>
+                    {c.count} {c.status}
+                </span>
+            ))}
+        </span>
+    );
+}
+
 function SyncStatus() {
     const harnesses = useAtomValue(vaultHarnessesAtom);
     const skills = useAtomValue(vaultSkillsAtom);
@@ -203,6 +228,7 @@ export function VaultLine({ focusedCwd }: { focusedCwd: string | null }) {
     const notes = useAtomValue(memNotesAtom);
     const pending = useAtomValue(memPendingAtom);
     const skills = useAtomValue(vaultSkillsAtom);
+    const records = useAtomValue(taskListAtom);
     const steeringPath = useAtomValue(vaultSteeringPathAtom);
     // the vault root is the steering doc's grandparent (vault/steering/AGENTS.md)
     const root = steeringPath ? steeringPath.replace(/[\\/]steering[\\/][^\\/]+$/, "") : "";
@@ -217,8 +243,15 @@ export function VaultLine({ focusedCwd }: { focusedCwd: string | null }) {
             <CollectionTab tab="memory" label="memory" count={notes.length + pending.length} />
             <CollectionTab tab="steering" label="steering" count="AGENTS.md" />
             <CollectionTab tab="skills" label="skills" count={skills.length} />
+            <CollectionTab tab="records" label="records" count={records?.length ?? 0} />
             <div className="flex-1" />
-            {tab === "memory" ? <MemoryStatus focusedCwd={focusedCwd} /> : <SyncStatus />}
+            {tab === "memory" ? (
+                <MemoryStatus focusedCwd={focusedCwd} />
+            ) : tab === "records" ? (
+                <RecordStatus />
+            ) : (
+                <SyncStatus />
+            )}
         </div>
     );
 }

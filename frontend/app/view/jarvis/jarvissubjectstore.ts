@@ -197,6 +197,25 @@ export const recordDetailAtom = atom<Record<string, DossierDetail>>({}) as Primi
     Record<string, DossierDetail>
 >;
 
+// The last detail-read failure per dossier, kept BESIDE the cache rather than in place of it: a failed
+// refresh must leave the last good record on screen and still say it is stale, because Vault Records can
+// be showing a record whose re-read is failing. Keyed, so one broken record does not warn on every other.
+export const recordDetailErrorAtom = atom<Record<string, string>>({}) as PrimitiveAtom<Record<string, string>>;
+
+function setRecordDetailError(dossierId: string, error: string | null): void {
+    const prev = globalStore.get(recordDetailErrorAtom);
+    if (error != null) {
+        globalStore.set(recordDetailErrorAtom, { ...prev, [dossierId]: error });
+        return;
+    }
+    if (prev[dossierId] == null) {
+        return;
+    }
+    const next = { ...prev };
+    delete next[dossierId];
+    globalStore.set(recordDetailErrorAtom, next);
+}
+
 export function toggleRecordBand(subjectId: string): void {
     const prev = globalStore.get(recordBandOpenAtom);
     globalStore.set(recordBandOpenAtom, { ...prev, [subjectId]: !prev[subjectId] });
@@ -330,9 +349,17 @@ export function loadRecordDetail(dossierId: string): void {
     fireAndForget(() => reloadRecordDetail(dossierId));
 }
 
-// The unguarded read. Returns a promise so a write can await the refreshed detail before the UI settles.
+// The unguarded read. Returns a promise so a write can await the refreshed detail before the UI settles,
+// and rethrows on failure so the write can report it. The cache is never dropped before the read lands.
 export async function reloadRecordDetail(dossierId: string): Promise<void> {
-    const detail = await RpcApi.GetDossierCommand(TabRpcClient, { dossierid: dossierId });
+    let detail: DossierDetail;
+    try {
+        detail = await RpcApi.GetDossierCommand(TabRpcClient, { dossierid: dossierId });
+    } catch (e) {
+        setRecordDetailError(dossierId, String(e));
+        throw e;
+    }
+    setRecordDetailError(dossierId, null);
     if (detail == null) {
         return;
     }

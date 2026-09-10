@@ -72,9 +72,20 @@ export function mapWireCard(w: JarvisConvoGroundingCard): GroundingCard {
         title: w.title,
         project: w.project,
         ageMs: w.agems,
-        freshness: w.freshness as Freshness,
+        freshness: wireFreshness(w.freshness),
         navTarget: w.navtarget,
     };
+}
+
+// Freshness is a plain string on the wire, so a value this build does not know reaches here intact. It
+// must not be cast through: SEVERITY in briefdrew.ts would score it undefined, every comparison against
+// it would answer false, and a reading nobody can interpret would silently rank as the mildest one.
+// "unverified" is the honest landing place — the absence of a reading, which is exactly what an
+// uninterpretable one is.
+const FRESHNESS_VALUES: readonly Freshness[] = ["fresh", "stale", "unavailable", "unverified"];
+
+export function wireFreshness(f: string): Freshness {
+    return FRESHNESS_VALUES.includes(f as Freshness) ? (f as Freshness) : "unverified";
 }
 
 export function mapConvoRecord(record: JarvisConvo): JarvisConversation {

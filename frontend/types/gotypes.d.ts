@@ -204,6 +204,7 @@ declare global {
         action: string;
         phaseidx: number;
         waitingsince: number;
+        oref?: string;
     };
 
     // wshrpc.BackgroundAgentData
@@ -1244,12 +1245,13 @@ declare global {
     type CommandJarvisAskData = {
         prompt: string;
         cwd?: string;
+        attachedorefs?: string[];
     };
 
     // wshrpc.CommandJarvisAskRtnData
     type CommandJarvisAskRtnData = {
         answer: string;
-        sources?: JarvisConvoSourceRef[];
+        grounding?: JarvisConvoGroundingCard[];
         terminal: string;
     };
 
