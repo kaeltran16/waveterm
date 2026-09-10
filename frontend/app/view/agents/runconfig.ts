@@ -43,6 +43,29 @@ export function machineNote(orchestration: Orchestration): string {
         : "The lead dispatches its own subagents as it goes.";
 }
 
+// What a channel's saved profile says about the launcher. Every field is nullable because a profile that is
+// silent about one must leave the launcher's own default standing rather than silently replacing it — the
+// same "no opinion" rule the lead route already follows.
+export interface ProfileRunDefaults {
+    shape: RunShape | null;
+    orchestration: Orchestration | null;
+    parallelism: number | null;
+    workerRoute: RoutePin | null;
+}
+
+export function profileRunDefaults(profile: JarvisProfile | null | undefined): ProfileRunDefaults {
+    const mode = profile?.defaultmode ?? "";
+    const machine = profile?.machine ?? "";
+    const width = profile?.parallelism ?? 0;
+    return {
+        shape: mode === "quick" || mode === "pipeline" || mode === "orchestrator" ? mode : null,
+        orchestration: machine === "engine" || machine === "adaptive" ? machine : null,
+        // a width only counts when it is a width; anything else is the profile saying nothing
+        parallelism: width > 0 ? clampParallelism(width) : null,
+        workerRoute: profile?.workerroute ?? null,
+    };
+}
+
 export interface RunLauncherFace {
     showMachine: boolean;
     showParallelism: boolean;

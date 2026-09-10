@@ -298,6 +298,10 @@ type Run struct {
 	// planning decision, so DagSubmit prefers it over the width the lead asks for. 0 = unset: the lead's
 	// own width stands, which is what every pre-rail run has.
 	Parallelism int `json:"parallelism,omitempty"`
+	// PlanGatePending is the human's prospective choice for the DAG's plan gate, made in the session
+	// sheet before the DAG exists. DagSubmit consumes it at submission; once a group exists the group's
+	// own PlanGate is the only authority and this is never read again, so there is no second live truth.
+	PlanGatePending *bool `json:"plangatepending,omitempty"`
 	// PlanFeedback is what the human wrote when they sent this run's gated plan back. The lead reads
 	// it through `wsh jarvis dag wait` and redrafts; the next accepted submission clears it, so a
 	// redraft is never answered with the notes that produced it.
@@ -491,6 +495,15 @@ type JarvisProfile struct {
 	Principles      PrincipleList `json:"principles,omitempty"`
 	DefaultMode     string        `json:"defaultmode,omitempty"`     // pipeline | orchestrator (empty = pipeline)
 	DefaultPlanGate *bool         `json:"defaultplangate,omitempty"` // nil = on
+	// Machine is the orchestration machine a new run defaults to: engine (publishes a TaskGroup) or
+	// adaptive (the lead dispatches its own subagents). It is the launch form of Run.Orchestration, and
+	// empty is the pre-2026-09 fold where the runtime alone decided.
+	Machine string `json:"machine,omitempty"`
+	// Parallelism is the engine width a new run defaults to. 0 = let the lead choose, which is what
+	// every profile written before this field has.
+	Parallelism int `json:"parallelism,omitempty"`
+	// WorkerRoute is the default route for engine children of a new run (nil = inherit the lead).
+	WorkerRoute *RoutePin `json:"workerroute,omitempty"`
 }
 
 // ProfileOverride is a channel's per-project override, stored as JSON on channel meta. Pointer fields:
@@ -501,6 +514,9 @@ type ProfileOverride struct {
 	Route           *RoutePin       `json:"route,omitempty"`
 	DefaultMode     *string         `json:"defaultmode,omitempty"`
 	DefaultPlanGate *bool           `json:"defaultplangate,omitempty"`
+	Machine         *string         `json:"machine,omitempty"`
+	Parallelism     *int            `json:"parallelism,omitempty"`
+	WorkerRoute     *RoutePin       `json:"workerroute,omitempty"`
 }
 
 type Channel struct {

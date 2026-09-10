@@ -22,8 +22,15 @@ import {
 import { harnessRuntimeIds } from "@/app/view/agents/harnesspicker";
 import { harnessPreferenceAtom, harnessesAtom } from "@/app/view/agents/harnessstore";
 import { resolveEffectiveRoute, routeForRuntime } from "@/app/view/agents/route";
-import { createRun, pendingRunDraftAtom, resolveChannelLaunchRoute } from "@/app/view/agents/runactions";
 import {
+    createRun,
+    pendingRunDraftAtom,
+    resolveChannelLaunchRoute,
+    resolvedProfileAtom,
+} from "@/app/view/agents/runactions";
+import {
+    endRunConfigDraft,
+    hydrateRunConfigFromProfile,
     orchestrationAtom,
     parallelismAtom,
     requestRouteOpen,
@@ -267,10 +274,22 @@ export function StageComposer({
     const parallelism = useAtomValue(parallelismAtom);
     const routeTouched = useAtomValue(routeTouchedAtom);
     const channelIdentity = channel?.oid ?? null;
+    const resolvedProfiles = useAtomValue(resolvedProfileAtom);
 
     useEffect(() => {
         resetRunConfigForChannel(channelIdentity);
     }, [channelIdentity]);
+
+    // The channel's saved profile is the launcher's starting point: it decides the shape, the machine, the
+    // width and the worker route a run would launch with, and it re-applies whenever the resolved profile
+    // changes (a save, a first load, a switch back). It never touches a configuration the user has edited
+    // by hand — see hydrateRunConfigFromProfile.
+    useEffect(() => {
+        if (channelIdentity == null) {
+            return;
+        }
+        hydrateRunConfigFromProfile(resolvedProfiles[channelIdentity]);
+    }, [channelIdentity, resolvedProfiles]);
 
     useEffect(() => {
         if (!routeTouched && (route != null || pref.route != null)) {
@@ -368,6 +387,7 @@ export function StageComposer({
             }
             attach.clear();
             setRadarDraft(null);
+            endRunConfigDraft(resolvedProfiles[channel.oid]);
             // this dispatch also ends any draft run open on the channel — otherwise its row stays in the
             // Subjects column, selected, holding the Stage off the run this just created.
             setComposingRun(channel.oid, false);
@@ -438,7 +458,8 @@ export function StageComposer({
                     ...(decision.mode === "orchestrator" && orchestration === "engine" ? { parallelism } : {}),
                 });
                 setActiveRunId(decision.channelId, created.id);
-                globalStore.set(runShapeAtom, "quick");
+                // the launch consumed this draft: the next one starts from the channel's saved defaults
+                endRunConfigDraft(resolvedProfiles[decision.channelId]);
                 setDraft("");
                 attach.clear();
                 setComposingRun(decision.channelId, false);
@@ -537,7 +558,10 @@ export function StageComposer({
                                     </span>
                                     <button
                                         type="button"
-                                        onClick={() => setRadarDraft(null)}
+                                        onClick={() => {
+                                            setRadarDraft(null);
+                                            endRunConfigDraft(resolvedProfiles[channel.oid]);
+                                        }}
                                         className="cursor-pointer font-mono text-[10px] text-muted hover:text-secondary"
                                     >
                                         Discard
@@ -554,7 +578,10 @@ export function StageComposer({
                                     </span>
                                     <button
                                         type="button"
-                                        onClick={() => setComposingRun(channel.oid, false)}
+                                        onClick={() => {
+                                            setComposingRun(channel.oid, false);
+                                            endRunConfigDraft(resolvedProfiles[channel.oid]);
+                                        }}
                                         className="cursor-pointer font-mono text-[10px] text-muted hover:text-secondary"
                                     >
                                         Cancel

@@ -31,6 +31,7 @@ export function RoutePicker({
     openRequest = 0,
     title,
     size = "default",
+    disabled = false,
 }: {
     value: RoutePin | null;
     onChange: (route: RoutePin | null) => void;
@@ -40,6 +41,7 @@ export function RoutePicker({
     openRequest?: number;
     title?: string;
     size?: "default" | "compact";
+    disabled?: boolean;
 }): JSX.Element {
     const harnesses = useAtomValue(harnessesAtom);
     const [open, setOpen] = useState(false);
@@ -124,10 +126,11 @@ export function RoutePicker({
                 {...getReferenceProps()}
                 type="button"
                 data-testid="route-picker"
+                disabled={disabled}
                 aria-expanded={open}
                 aria-label={pickerTitleFor(title)}
                 className={cn(
-                    "flex cursor-pointer items-center gap-1.5 rounded-[6px] border bg-surface text-left font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                    "flex cursor-pointer items-center gap-1.5 rounded-[6px] border bg-surface text-left font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-default disabled:opacity-40",
                     size === "compact"
                         ? "max-w-[200px] px-2 py-[3px] text-[10.5px]"
                         : "max-w-[300px] px-2.5 py-1 text-[11px]",

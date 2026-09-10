@@ -17,6 +17,7 @@ type RunCommands interface {
 	SealRunEvidenceCommand(ctx context.Context, data CommandSealRunEvidenceData) error                                // derive+seal a done run's evidence if absent (idempotent backfill)
 	ReportRunPhaseCommand(ctx context.Context, data CommandReportRunPhaseData) error                                  // lead self-reports hold/complete; resolves run/phase from its own oref
 	CreateChildRunCommand(ctx context.Context, data CommandCreateChildRunData) (*CommandCreateChildRunRtnData, error) // orchestrator lead spawns a hands-off child run for one backlog unit; parent resolved from the caller's oref
+	SetRunSettingsCommand(ctx context.Context, data CommandSetRunSettingsData) error                                   // change a live engine run's scheduler settings (pending on the Run before a DAG exists, live on its TaskGroup after)
 }
 
 type CommandCreateRunData struct {
@@ -88,4 +89,17 @@ type CommandCreateChildRunData struct {
 
 type CommandCreateChildRunRtnData struct {
 	RunId string `json:"runid"`
+}
+
+// CommandSetRunSettingsData is the session sheet's prospective engine configuration. Parallelism is a
+// pointer because omission is how a caller says "leave the width alone": a supplied value is always a real
+// width and must be inside 1..orchestrate.MaxParallelism. PlanGate nil leaves the gate untouched. The
+// launched shape, machine and lead route are absent on purpose: they are immutable after launch, so there
+// is nothing to send.
+type CommandSetRunSettingsData struct {
+	ChannelId   string            `json:"channelid"`
+	RunId       string            `json:"runid"`
+	Parallelism *int              `json:"parallelism,omitempty"`
+	WorkerRoute *waveobj.RoutePin `json:"workerroute,omitempty"`
+	PlanGate    *bool             `json:"plangate,omitempty"`
 }

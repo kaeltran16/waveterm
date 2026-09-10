@@ -257,6 +257,20 @@ function getWaveObjectLoadingAtom(oref: string): Atom<boolean> {
     return cachedAtom;
 }
 
+// The load flag's sibling. A failed fetch clears `loading` and stores a null value, so a reader that only
+// sees loading/value cannot tell "still reading" from "could not read" and treats the failure as pending.
+function getWaveObjectErrorAtom(oref: string): Atom<boolean> {
+    const cacheKey = oref + ":error";
+    let cachedAtom = waveObjectDerivedAtomCache.get(cacheKey) as Atom<boolean>;
+    if (cachedAtom != null) {
+        return cachedAtom;
+    }
+    const wov = getWaveObjectValue(oref);
+    cachedAtom = atom((get) => get(wov.dataAtom).error);
+    waveObjectDerivedAtomCache.set(cacheKey, cachedAtom);
+    return cachedAtom;
+}
+
 function isWaveObjectNullAtom(oref: string): Atom<boolean> {
     const cacheKey = oref + ":isnull";
     let cachedAtom = waveObjectDerivedAtomCache.get(cacheKey) as Atom<boolean>;
@@ -338,6 +352,7 @@ export {
     callBackendService,
     getObjectValue,
     getWaveObjectAtom,
+    getWaveObjectErrorAtom,
     getWaveObjectLoadingAtom,
     getWaveObjectValue,
     isWaveObjectNullAtom,

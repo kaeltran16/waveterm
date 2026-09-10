@@ -65,6 +65,8 @@ import {
 } from "./briefingstore";
 import { briefNavIds, resolveBriefCursor } from "./briefnav";
 import { BriefPeek } from "./briefpeekview";
+import { BriefProfileModal } from "./briefprofileview";
+import { BriefRunSheet } from "./briefrunsheet";
 import { briefRestorePlan } from "./briefrestore";
 import { openJarvisWithSource } from "./contextualentry";
 import type { EffortCardModel } from "./effortmodel";
@@ -285,17 +287,22 @@ function sessionMark(row: ActiveWorkRow): { glyph: string; fg: string } {
     return { glyph: "·", fg: "text-muted" };
 }
 
-function SessionRow({ row, focused }: { row: ActiveWorkRow; focused: boolean }) {
+// A run row is the one session row with a destination: B4's session sheet. A blocker or a direct agent
+// has no sheet yet, so it stays a row rather than becoming a control that opens nothing (the same rule the
+// wait queue follows for its channel-less items).
+function SessionRow({
+    row,
+    focused,
+    onOpen,
+}: {
+    row: ActiveWorkRow;
+    focused: boolean;
+    onOpen?: () => void;
+}) {
     const mark = sessionMark(row);
-    return (
-        <div
-            data-jarvis-brief-row="session"
-            {...cursorAttrs(focused)}
-            className={cn(
-                "flex items-center gap-3 rounded-[7px] border-b border-edge-faint px-2.5 py-[9px]",
-                focused && CURSOR_RING
-            )}
-        >
+    const openable = row.kind === "run" && onOpen != null;
+    const face = (
+        <>
             <span aria-hidden className={cn("w-3 flex-none text-center font-mono text-[10px] font-bold", mark.fg)}>
                 {mark.glyph}
             </span>
@@ -310,6 +317,30 @@ function SessionRow({ row, focused }: { row: ActiveWorkRow; focused: boolean }) 
             <span className={cn("min-w-24 flex-none text-right font-mono text-[9.5px] font-semibold", mark.fg)}>
                 {row.chip?.label ?? row.kind}
             </span>
+        </>
+    );
+    const base = "flex items-center gap-3 rounded-[7px] border-b border-edge-faint px-2.5 py-[9px]";
+    if (openable) {
+        return (
+            <button
+                type="button"
+                aria-label={`Open session sheet for ${row.name}`}
+                onClick={onOpen}
+                data-jarvis-brief-row="session"
+                {...cursorAttrs(focused)}
+                className={cn(
+                    base,
+                    "w-full cursor-pointer text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                    focused && CURSOR_RING
+                )}
+            >
+                {face}
+            </button>
+        );
+    }
+    return (
+        <div data-jarvis-brief-row="session" {...cursorAttrs(focused)} className={cn(base, focused && CURSOR_RING)}>
+            {face}
         </div>
     );
 }
@@ -826,6 +857,11 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
 
     const fleet = briefFleet(agents);
 
+    // The session sheet and the profile modal are Brief-local state: the three-pane composition reaches
+    // both through the Stage rail, and until B5 retires it neither composition can own a shared atom.
+    const [sheetRunId, setSheetRunId] = useState<string | null>(null);
+    const [profileOpen, setProfileOpen] = useState(false);
+
     // The Brief mounts no Stage, so it registers the one binding both compositions share and nothing else:
     // the Stage's d and n act on panes this surface does not have. (bindings.ts)
     const graphBindings = useMemo(() => buildJarvisGraphBindings(), []);
@@ -910,6 +946,15 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                 <span data-jarvis-brief-band="fleet" className="flex-none font-mono text-[10px] text-muted">
                     {fleet.line}
                 </span>
+                {/* A real control with the control recipe's border: invariant 4 forbids camouflaging it among
+                    the status chips above, which are borderless labels. */}
+                <button
+                    type="button"
+                    onClick={() => setProfileOpen(true)}
+                    className="flex-none cursor-pointer rounded-[6px] border border-border px-2.5 py-[3px] font-mono text-[9.5px] font-bold uppercase tracking-[.06em] text-secondary hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                >
+                    Profile
+                </button>
             </header>
             {staleSnapshot ? (
                 <div
@@ -988,7 +1033,16 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                         <Region id="sessions" empty={sessions.length === 0} gap="gap-1" meta="run on their own">
                             <div className="flex flex-col gap-1">
                                 {sessions.map((r) => (
-                                    <SessionRow key={r.key} row={r} focused={cursor === `sessions:${r.key}`} />
+                                    <SessionRow
+                                        key={r.key}
+                                        row={r}
+                                        focused={cursor === `sessions:${r.key}`}
+                                        onOpen={
+                                            r.kind === "run"
+                                                ? () => setSheetRunId(r.oref.replace(/^run:/, ""))
+                                                : undefined
+                                        }
+                                    />
                                 ))}
                                 <MoreLine n={model_.activeMore} />
                             </div>
@@ -1067,6 +1121,10 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                     />
                 ) : null}
             </AnimatePresence>
+            {/* B4's two Brief-only surfaces. The sheet owns only the run summary and the running-settings
+                panel; B5 re-homes RunBody into this shell rather than a copy of it. */}
+            <BriefRunSheet runId={sheetRunId} onClose={() => setSheetRunId(null)} />
+            <BriefProfileModal open={profileOpen} onClose={() => setProfileOpen(false)} />
         </div>
     );
 }
