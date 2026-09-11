@@ -12,7 +12,6 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { fireAndForget } from "@/util/util";
 import { atom, type PrimitiveAtom } from "jotai";
-import { atomWithStorage } from "jotai/utils";
 import type {
     AnswerSegment,
     GroundingCard,
@@ -23,53 +22,20 @@ import type {
     Terminal,
     WorkingStep,
 } from "./jarviscontract";
-import { FIXTURES, FIXTURE_STATES, type FixtureState } from "./jarvisfixtures";
 import { sourceConversationAtom } from "./jarvissubjectstore";
 import { terminalAfterStreamFailure } from "./jarvisturnderive";
 import { mapConvoRecord, mapWireCard, parseCitations } from "./recallderive";
 
-// DEV-ONLY fixtures. A fabricated thread carrying fabricated citations and freshness badges is
-// indistinguishable from a real one, so the fixture *data* is gated exactly like the fixture bar that
-// drives it. import.meta.env.DEV is statically false in a production build, so every branch below folds
-// away and jarvisfixtures.ts leaves the bundle.
-const DEV_FIXTURES = import.meta.env.DEV;
-
-// which fixture the surface renders, or null for none. Only the dev fixture bar (and CDP through it) ever
-// sets this: null is the ordinary state, and it must mean "no conversation", not "the empty fixture" —
-// conflating the two is what leaked fixture scope chips onto records that had never been asked anything.
-export const activeFixtureAtom = atom<FixtureState | null>(null) as PrimitiveAtom<FixtureState | null>;
-
-// what the Stage shows when nothing is selected. A real value rather than null so every consumer can read
-// .scope/.turns without a guard.
-const NO_CONVERSATION: JarvisConversation = {
-    id: "",
-    title: "New conversation",
-    turns: [],
-    scope: { mode: "all", chips: [], attached: [] },
-};
-
-// The channel profile drawer (the ⚙), opened from the context rail's icon slot. Session-scoped, not
-// persisted.
-export const profileRailOpenAtom = atom(false);
-
-// Which composition the surface renders. The Brief replaces two of the three panes at once, so it lands
-// BESIDE them behind this switch rather than on top of them: a half-built Brief can never be the only
-// Jarvis surface. Only the dev fixture bar writes it, and that bar is compiled out of production, so
-// "three-pane" is the sole reachable value in a real build until the retirement step deletes the switch.
-// Persisted rather than session-scoped so a CDP scenario can arrange it the way it already arranges
-// jarvis.stagerail.open.
-export type JarvisComposition = "three-pane" | "brief";
-export const jarvisCompositionAtom = atomWithStorage<JarvisComposition>("jarvis.composition", "three-pane");
-
 // The record the Brief's peek is open on, or null. Module-level rather than surface state because the
 // Jarvis surface unmounts when you navigate away from it, and a peek opened from an oref must survive the
-// surface flip that oref triggers. It lives beside the composition atom because the two are read together:
-// a record oref opens the peek in the Brief and a Stage subject in the three-pane.
+// surface flip that oref triggers.
 export const briefPeekRecordAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 
-// The merged surface's one context rail. Open by default, unlike the two rails it replaces: it now carries
-// Needs you, which is the surface's attention channel and must not start hidden behind a 44px strip.
-export const stageRailOpenAtom = atomWithStorage("jarvis.stagerail.open", true);
+// Whether the Brief's detail sheet is showing. The subject it draws is the surface's active subject, not a
+// second copy of it here: keeping the target in two atoms is how a sheet and the thing it claims to show
+// end up naming different objects. Session-scoped, because the subject is what is persisted and a closed
+// sheet clears it — so what reopens on the next launch is the subject that was left open, not this flag.
+export const briefSheetOpenAtom = atom(false);
 
 // The graph peek overlay. Session-scoped, not persisted: a peek is a momentary look at one object's
 // neighbourhood, so reopening the app on top of one would be reopening a destination it is not.
@@ -96,34 +62,7 @@ export const persistedSummariesAtom = atom<JarvisConversationSummary[] | null>(n
 // Cast per this repo's convention: atom<T | null>(null) infers a read-only Atom under the pinned jotai.
 export const activeConversationIdAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 
-// read-only: the conversation currently shown. Real conversation wins; else a dev fixture if the fixture
-// bar has explicitly selected one; else the empty conversation.
-export const activeConversationAtom = atom<JarvisConversation>((get) => {
-    const id = get(activeConversationIdAtom);
-    if (id != null) {
-        const conv = get(conversationsByIdAtom)[id];
-        if (conv) return conv;
-    }
-    const fixture = DEV_FIXTURES ? get(activeFixtureAtom) : null;
-    return fixture != null ? FIXTURES[fixture] : NO_CONVERSATION;
-});
-
-// read-only: the history-rail list — real conversations first (newest-first by insertion), then the dev
-// fixtures (excluding the "narrow" alias), which exist only in a dev build.
-export const conversationsAtom = atom<JarvisConversation[]>((get) => {
-    const byId = get(conversationsByIdAtom);
-    const real = Object.values(byId).reverse();
-    const liveIds = new Set(Object.keys(byId));
-    const persisted = (get(persistedSummariesAtom) ?? [])
-        .filter((summary) => !liveIds.has(summary.id))
-        .map(summaryToRailConversation);
-    if (!DEV_FIXTURES) {
-        return [...real, ...persisted];
-    }
-    const fixtures = FIXTURE_STATES.filter((s) => s !== "narrow").map((s) => FIXTURES[s]);
-    return [...real, ...persisted, ...fixtures];
-});
-
+// read-only: the history-rail list — real conversations first (newest-first by insertion).
 // --- module accessors + mutators (module scope: survive unmount) -----------------------------------
 export function summaryToRailConversation(summary: JarvisConversationSummary): JarvisConversation {
     return {
@@ -221,16 +160,11 @@ export function startConversation(scope: JarvisScope): string {
     return id;
 }
 
-// selectConversation activates a history-rail row: a real conversation by id, or (for a dev fixture row)
-// falls back to the fixture selector and clears the real-active id.
+// selectConversation activates a row: a real conversation by id, loading it if this session has not seen
+// it yet.
 export function selectConversation(id: string): void {
     if (globalStore.get(conversationsByIdAtom)[id]) {
         globalStore.set(activeConversationIdAtom, id);
-        return;
-    }
-    if (DEV_FIXTURES && (FIXTURE_STATES as string[]).includes(id)) {
-        globalStore.set(activeFixtureAtom, id as FixtureState);
-        globalStore.set(activeConversationIdAtom, null);
         return;
     }
     globalStore.set(activeConversationIdAtom, id);

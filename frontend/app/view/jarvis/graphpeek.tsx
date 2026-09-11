@@ -297,7 +297,7 @@ export function GraphPeek({
                                     Leave the graph by opening something
                                 </span>
                                 {node.kind === "run" && canOpenRuns ? (
-                                    <ActionButton label="Open run on the Stage" primary onClick={() => openRun(node.id)} />
+                                    <ActionButton label="Open run" primary onClick={() => openRun(node.id)} />
                                 ) : null}
                                 {node.kind === "task" ? (
                                     <ActionButton

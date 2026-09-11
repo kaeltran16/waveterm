@@ -138,6 +138,26 @@ export interface QueueRow {
 
 // dag-gate/dag-blocked are absent from the rail's map and fell through to the raw wire kind, which
 // already reads as a label; spelled out here so every kind the server can emit has a written form.
+// A queue row is the one region whose destination is not implied by what it is, and without this it has
+// none: the decision a row waits on (a plan gate, an escalation, a released task) is resolved by the run
+// body, so a row that cannot open its run cannot be acted on at all. A run is addressed through its channel
+// because that is what a subject is — the run id rides along so the sheet lands on THAT run rather than on
+// whatever the channel last showed. A triage row and a blocked chunk name no channel, and both already have
+// a surface of their own, so they route by oref through the same router everything else uses.
+export type QueueOpenTarget =
+    | { kind: "channel"; channelId: string; runId: string | null }
+    | { kind: "oref"; oref: string };
+
+export function queueOpenTarget(nav: QueueNav | null): QueueOpenTarget | null {
+    if (nav == null) {
+        return null;
+    }
+    if (nav.kind === "channel") {
+        return { kind: "channel", channelId: nav.channelId, runId: nav.runId };
+    }
+    return nav.oref === "" ? null : { kind: "oref", oref: nav.oref };
+}
+
 const QUEUE_KIND_LABEL: Record<string, string> = {
     gate: "gate",
     escalation: "escalation",

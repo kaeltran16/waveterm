@@ -666,15 +666,19 @@ it the stored value arrives one render *after* the first read, so the restore wo
 
 ## 15. Dev fixtures
 
-`jarvisfixturebar.tsx` renders a row of buttons (`empty` `active` `grounded` `working` `weak` `notfound`
-`stale` `contextual` `narrow`) that swap the rendered conversation without a backend. The CDP harness drives
-these (`task verify:ui -- jarvis-states`).
+`jarvisfixturebar.tsx` renders a DEV-only row of buttons (`normal` `attention` `empty` `partial` `failed`,
+plus `ask`) that seed a Briefing state without a backend. The CDP harness drives these
+(`data-briefing-fixture`), which is how `brief-surface` walks the loaded, empty and stale states.
 
-The bar **and the fixture data** are gated on `import.meta.env.DEV`, so `jarvisfixtures.ts` leaves the
-production bundle: a fabricated thread carrying fabricated citations and freshness badges is
-indistinguishable from a real one, so it must not exist in a shipped build at all. `activeFixtureAtom` is
-`FixtureState | null`, default `null` — "no conversation" is its own state, not the `empty` fixture, which
-is what used to leak fixture scope chips onto records nobody had asked anything about.
+The bar and the fixture data are gated on `import.meta.env.DEV`, so `briefingfixtures.ts` leaves the
+production bundle: a fabricated Brief is indistinguishable from a real one, so it must not exist in a
+shipped build at all. `briefingFixtureAtom` defaults to `null` — "no fixture" is its own state, not the
+`empty` fixture.
+
+The earlier conversation fixtures (`jarvisfixtures.ts`, nine fabricated threads with the `jarvis-states`
+scenario) went with the Stage: their only reader was `activeConversationAtom`, whose only renderer was the
+Stage's ConversationView. What they protected — that every surface state renders something rather than an
+empty region — is asserted against the Brief instead.
 
 ---
 

@@ -7,6 +7,73 @@ where it would plug in, and how to pick it back up. Append new entries at the to
 > append-only rationale log — append the full deferral here, then mirror a one-line row there. Entries
 > marked RESOLVED/DECLINED below are kept for the reasoning, not as pending work.
 
+## Jarvis Brief — what retiring the three-pane composition left without a mount (2026-09-10)
+
+Deferred by B5 of the Jarvis Brief initiative (`docs/superpowers/specs/2026-09-09-jarvis-brief-meta-spec.md`),
+which deleted the Subjects column, the Stage and the context rail. These are the capabilities those panes
+were the **only** mount for, and that B5's approved scope did not re-home.
+
+- **What was deferred:**
+  - **Subject browsing.** The column was the only place to list, filter, group and collapse channels,
+    records and threads — `toggleSubjectGroup`, plus the whole grouping model in the deleted `subjects.ts`.
+    The Brief's regions cover the work that is *running*; the archive is not browsable there.
+  - **Channel lifecycle.** `renameChannel`, `deleteChannel`, `archiveChannel`, `setChannelNotes` — all of
+    them were the column's per-row menu. Creating a channel was re-homed (see below), managing one was not,
+    so a channel can now be created and never renamed or removed.
+  - **Thread lifecycle.** `archiveJarvisConversation`, `deleteJarvisConversation` — the same menu.
+  - **The autonomy ladder.** `AutonomyLadder` (`autonomyladderview.tsx`) was mounted by the Stage header and
+    edits the channel's tier and mode through `setChannelTier`. Remote approval policy is unreachable now.
+  - **Initiative lifecycle and the effort card.** `EffortCreateForm`, `EffortCard`, `expandEffort`,
+    `toggleEffort`, `unarchiveEffort`, `deleteEffort`. The Brief's Initiatives rows are read-only and its
+    sheet shows an initiative's chunks — so an initiative can be inspected and never created, archived or
+    deleted.
+  - **Ask-mode consult results** (`ConsultsSection`) and **resume / proactive cards** (`ResumeCard`,
+    `ProactiveCard`, `ambientSection`). These are §4a items 11 and 12, decided as drops rather than
+    re-homes; naming the functions here is what makes the loss concrete.
+  - **The rail's fleet roster and per-worker dismiss** (`FleetRoster`, `dismissWorker`, `runRailSection`).
+    The Brief's header keeps a derived fleet *line*; the per-worker roster with its dismiss is gone.
+  - **Per-answer cancel and retry** (`cancelJarvisQuery`, `retryJarvisQuery`). The Brief's composer holds
+    while its own question is out and leaves a failed one retryable, but there is no control to abandon an
+    ask already in flight.
+  - **The Stage's turn renderers** (`JarvisAnswer`, `JarvisWorkingSteps`). The Brief's thread renders its
+    own turns and citations through `briefdrew.ts`, so these are largely superseded — recorded because
+    "largely" is not "entirely": the Stage's answer view carried grounding chips inline.
+  - **The stage-rail shell as a container**, and with it the `d` chord.
+  - **Creating a persisted thread from an ask.** Found by CDP, not by the export sweep: the `n` chord still
+    creates a thread (`startJarvisThread`), but the compose path that used to submit INTO it was the Stage's
+    composer, and it is gone. The Brief's composer asks through `askAcrossWork`, which is stateless on
+    purpose ("launch-local; never a JarvisConversation", `briefingstore.ts`), so `n` now opens a thread that
+    nothing can fill and a Brief ask leaves nothing to reopen. Persisted conversations are still readable —
+    `brief-restore` hydrates one into the Brief's thread — they can no longer be created with content. The
+    fix is a decision, not a port: either the Brief's composer asks into its subject's conversation when it
+    has one, or the `n` chord stops offering a thread the surface cannot use.
+- **Why:** the retirement is a deletion, and a single deletion cannot re-home the mounts it does not know it
+  owns. B5's approved scope named five re-homes (the run body, the launcher and its goal row, the record
+  band, the initiative detail, and B4's profile modal) and these ten were not among them. They were found
+  afterwards by sweeping every `export function` in `app/` for one with no production consumer left once the
+  panes were gone — which is also the reason the list is trustworthy: it is mechanical, not recalled.
+- **What already exists:** every item is shipped and unit-tested; **nothing was deleted**, and the modules
+  named above are all still in the tree. They are *orphaned*, not removed, deliberately: a deferred
+  capability's implementation is the expensive half of re-homing it, and the precedent is the 2026-07-31
+  entry's `gitinfo.RevertFile` / `GitRevertCommand`, kept for exactly this reason. What B5 did remove is the
+  dead code that was genuinely finished with: the column, the rail, the Stage, their exclusive views, the
+  `jarvisComposition` toggle and the `jarvis.stagerail.open` / `jarvis.composition` keys.
+- **Where it plugs in:** the Brief's header already hosts `+ Channel` (`newchannelcontrol.tsx`), so a channel
+  menu belongs beside it; initiative creation and archive belong on the Initiatives region's row or in its
+  sheet; the consult and resume/proactive feeds need a home or a stated non-home (they are the two items the
+  meta spec left open); the autonomy ladder belonged to the Stage header and could sit in the sheet header,
+  since the sheet is now what draws a channel.
+- **How to pick it back up:** decide per capability whether it belongs in the Brief at all, then re-home the
+  existing control rather than rebuilding it — the call sites to restore are the exported functions named
+  above, and `git log` on any of them shows the mount that was removed. The two that are load-bearing rather
+  than nice-to-have are **channel lifecycle** and **initiative creation**: without the first a channel cannot
+  be renamed or removed at all, and without the second no initiative can be started. Do not start from this
+  entry alone — read B5's chunk note in the effort tracker for the re-homes it *did* make, so a second pass
+  does not undo one of them. One item above is also a **verification** gap rather than only a product one:
+  the detach/restore round trip against a record (`recordbandview.tsx`'s `EdgeControls`, still mounted inside
+  the run sheet) lost its scenario with the column, so re-authoring that round trip against the sheet is
+  owed independently of what is decided about the other ten.
+
 ## Diff surface — repository actions split out of the parity work (2026-09-04)
 
 Deferred by the two-spec split agreed during brainstorming on 2026-09-04. The Diff surface's

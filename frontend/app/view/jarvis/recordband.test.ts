@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
 import type { AmbientTag } from "@/app/view/agents/ambient";
-import { edgeLabel, edgeLineStyle, recordBandCase, type BandInput } from "./recordband";
+import { describe, expect, it } from "vitest";
+import { edgeLabel, edgeLineStyle, recordBandCase } from "./recordband";
 
 function tag(taskId: string, state: string, bucket: string): AmbientTag {
     return { taskId, label: taskId.toUpperCase(), state, bucket };
@@ -8,19 +8,19 @@ function tag(taskId: string, state: string, bucket: string): AmbientTag {
 
 describe("recordBandCase", () => {
     it("states the absence when a run has no attributed record", () => {
-        expect(recordBandCase({ kind: "channel", tags: [], mentionedIds: [] })).toEqual({ case: "none" });
+        expect(recordBandCase({ kind: "channel", tags: [] })).toEqual({ case: "none" });
     });
 
     it("returns the single edge when there is exactly one", () => {
         const t = tag("task-418", "confirmed", "strong");
-        expect(recordBandCase({ kind: "channel", tags: [t], mentionedIds: [] })).toEqual({ case: "one", edge: t });
+        expect(recordBandCase({ kind: "channel", tags: [t] })).toEqual({ case: "one", edge: t });
     });
 
     it("promotes the strongest edge to primary and keeps the rest as others", () => {
         const weak = tag("task-377", "informing", "weak");
         const strong = tag("task-418", "confirmed", "strong");
         const medium = tag("task-402", "informing", "medium");
-        const band = recordBandCase({ kind: "channel", tags: [weak, strong, medium], mentionedIds: [] });
+        const band = recordBandCase({ kind: "channel", tags: [weak, strong, medium] });
         expect(band).toMatchObject({ case: "several" });
         if (band.case !== "several") throw new Error("expected several");
         expect(band.primary.taskId).toBe("task-418");
@@ -30,31 +30,14 @@ describe("recordBandCase", () => {
     it("prefers a confirmed edge over an informing one of the same bucket", () => {
         const informing = tag("task-a", "informing", "strong");
         const confirmed = tag("task-b", "confirmed", "strong");
-        const band = recordBandCase({ kind: "channel", tags: [informing, confirmed], mentionedIds: [] });
+        const band = recordBandCase({ kind: "channel", tags: [informing, confirmed] });
         if (band.case !== "several") throw new Error("expected several");
         expect(band.primary.taskId).toBe("task-b");
     });
 
     it("makes a dossier subject its own band, ignoring any tags", () => {
-        expect(recordBandCase({ kind: "dossier", tags: [tag("x", "confirmed", "strong")], mentionedIds: [] })).toEqual({
+        expect(recordBandCase({ kind: "dossier", tags: [tag("x", "confirmed", "strong")] })).toEqual({
             case: "subject",
-        });
-    });
-
-    it("gives a conversation its mentioned ids, never an attribution case", () => {
-        expect(
-            recordBandCase({ kind: "conversation", tags: [tag("x", "confirmed", "strong")], mentionedIds: ["task-418"] })
-        ).toEqual({ case: "mentions", ids: ["task-418"] });
-    });
-
-    it("gives a conversation that cited no record an empty mentions band, not none", () => {
-        expect(recordBandCase({ kind: "conversation", tags: [], mentionedIds: [] })).toEqual({ case: "mentions", ids: [] });
-    });
-
-    it("defaults a missing mentioned-id list to empty rather than handing the band an undefined", () => {
-        expect(recordBandCase({ kind: "conversation", tags: [] } as unknown as BandInput)).toEqual({
-            case: "mentions",
-            ids: [],
         });
     });
 });

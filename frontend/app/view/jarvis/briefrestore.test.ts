@@ -32,12 +32,19 @@ describe("briefRestorePlan", () => {
         expect(briefRestorePlan({ kind: "dossier", id: "gone" }, LOADED)).toEqual({ action: "clear" });
     });
 
-    // B5 owns the channel destination, so the Brief defers rather than clearing: clearing would discard a
-    // restore target the user never asked to forget, and there is nothing here that can act on the answer.
-    it("defers a stored channel without consulting a list it cannot use", () => {
-        expect(briefRestorePlan({ kind: "channel", id: "ch1" }, LOADED)).toEqual({ action: "defer-channel" });
+    // B5 gave the channel somewhere to land, so a stored channel is now decided like every other kind:
+    // it waits on the channel list the way a dossier waits on the dossier list.
+    it("sends a stored channel to its own sheet", () => {
+        expect(briefRestorePlan({ kind: "channel", id: "c1" }, LOADED)).toEqual({ action: "channel", id: "c1" });
+    });
+
+    it("waits on the channel list before deciding a stored channel", () => {
         expect(briefRestorePlan({ kind: "channel", id: "c1" }, { ...LOADED, channels: null })).toEqual({
-            action: "defer-channel",
+            action: "wait",
         });
+    });
+
+    it("clears a stored channel the loaded list no longer holds", () => {
+        expect(briefRestorePlan({ kind: "channel", id: "gone" }, LOADED)).toEqual({ action: "clear" });
     });
 });

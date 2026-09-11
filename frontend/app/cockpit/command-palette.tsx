@@ -21,15 +21,17 @@ import { createRun, resolveChannelLaunchRoute } from "@/app/view/agents/runactio
 import { loadSessionsArchive, sessionsArchiveAtom } from "@/app/view/agents/sessionsarchivestore";
 import { activeSpaceAtom, enterSpace, exitSpace, loadSpaces, spacesAtom } from "@/app/view/agents/spacestore";
 import { themeOverridesAtom, themePresetAtom } from "@/app/view/agents/themestore";
+import { askBriefThread } from "@/app/view/jarvis/briefingstore";
+import { buildBriefIndex, rankBriefRows, type BriefRow } from "@/app/view/jarvis/briefpalette";
+import { persistedSummariesAtom } from "@/app/view/jarvis/jarvisstore";
+import { selectSubject } from "@/app/view/jarvis/jarvissubjectstore";
+import { openChannelSheet, openORef } from "@/app/view/jarvis/openref";
+import { taskListAtom } from "@/app/view/jarvis/tasksstore";
 import { formatChord } from "@/util/keysym";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { buildBriefIndex, rankBriefRows, type BriefRow } from "@/app/view/jarvis/briefpalette";
-import { persistedSummariesAtom, startConversation, submitJarvisQuery } from "@/app/view/jarvis/jarvisstore";
-import { selectSubject } from "@/app/view/jarvis/jarvissubjectstore";
-import { openORef } from "@/app/view/jarvis/openref";
-import { taskListAtom } from "@/app/view/jarvis/tasksstore";
+import { runPaletteAction } from "./palette-action";
 import { buildAskItems } from "./palette-ask";
 import { buildCommandItems, buildExtraItems, postCloseContext } from "./palette-commands";
 import { loadPaletteEntities, mergeRanked, paletteEffortsAtom } from "./palette-entities";
@@ -46,7 +48,6 @@ import { buildLaunchItems, type LaunchDeps } from "./palette-launch";
 import { fuzzyMatch, highlightRuns, rankPaletteItems } from "./palette-match";
 import { MAX_RECENT, nextMru, paletteMruAtom, recentItems, sortByMru } from "./palette-mru";
 import { parseScope, resolveChannelToken } from "./palette-scope";
-import { runPaletteAction } from "./palette-action";
 
 interface PaletteItem {
     key: string;
@@ -299,18 +300,10 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     // Reuses jarvisstore's module-scope streaming so the answer keeps arriving after the palette closes.
     const askDeps = {
         ask: (question: string) => {
-            const scope = {
-                mode: "all" as const,
-                chips: [
-                    { label: "This project", active: false },
-                    { label: "All Wave", active: true },
-                ],
-                attached: [],
-            };
-            const id = startConversation(scope);
-            submitJarvisQuery(id, question);
-            // the merged surface renders the active subject, so the new thread has to become one
-            selectSubject({ kind: "conversation", id });
+            // B5: the Brief is the only composition, so this no longer mints a persisted conversation and
+            // makes it the Stage subject — nothing renders that, and the typed question was being lost.
+            // It asks the Brief's own thread, which is where an all-work question is answered.
+            askBriefThread(question);
             globalStore.set(model.surfaceAtom, "jarvis");
             close();
         },
@@ -327,7 +320,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                 title: `#${c.name}`,
                 subtitle: c.projectpath ? c.projectpath.split(/[\\/]/).pop() : undefined,
                 run: () => {
-                    selectSubject({ kind: "channel", id: c.oid });
+                    void openChannelSheet(c.oid, null);
                     globalStore.set(model.surfaceAtom, "jarvis");
                     close();
                 },
@@ -459,8 +452,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     const selClamped = flat.length === 0 ? 0 : Math.min(sel, flat.length - 1);
     const flatIndex = new Map(flat.map((it, i) => [it.key, i]));
     const selected = flat[selClamped];
-    const selFooter =
-        selected?.kind === "launch" || selected?.kind === "ask-jarvis" ? selected.footer : undefined;
+    const selFooter = selected?.kind === "launch" || selected?.kind === "ask-jarvis" ? selected.footer : undefined;
 
     // Arrow-keying past the visible rows used to move the selection out of view — the scroll container
     // was never told to follow it.
@@ -497,223 +489,232 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         <ModalShell open={open} onClose={close} className="flex flex-col w-[min(640px,93vw)] max-h-[70vh]">
             {open ? (
                 <>
-                <div className="flex shrink-0 items-center gap-[11px] border-b border-border px-4 py-[13px]">
-                    <svg
-                        width="15"
-                        height="15"
-                        viewBox="0 0 13 13"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        className="shrink-0 text-muted"
-                    >
-                        <circle cx="5.5" cy="5.5" r="4" />
-                        <path d="M9 9l3 3" strokeLinecap="round" />
-                    </svg>
-                    <input
-                        ref={inputRef}
-                        value={query}
-                        onChange={(e) => {
-                            setQuery(e.target.value);
-                            setLaunchError(undefined);
-                            setSel(0);
-                        }}
-                        onKeyDown={onKeyDown}
-                        placeholder="Search, or type &gt; @ # / to scope…"
-                        className="flex-1 bg-transparent text-[14px] text-primary outline-none placeholder:text-muted"
-                    />
-                    <span className="shrink-0 rounded-[5px] border border-edge-mid px-[7px] py-0.5 font-mono text-[10.5px] text-muted">
-                        esc
-                    </span>
-                </div>
-                {launchError ? (
-                    <div role="alert" className="border-b border-error/30 bg-error/10 px-4 py-2 font-mono text-[11px] text-error-soft">
-                        Launch failed: {launchError}
+                    <div className="flex shrink-0 items-center gap-[11px] border-b border-border px-4 py-[13px]">
+                        <svg
+                            width="15"
+                            height="15"
+                            viewBox="0 0 13 13"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.5"
+                            className="shrink-0 text-muted"
+                        >
+                            <circle cx="5.5" cy="5.5" r="4" />
+                            <path d="M9 9l3 3" strokeLinecap="round" />
+                        </svg>
+                        <input
+                            ref={inputRef}
+                            value={query}
+                            onChange={(e) => {
+                                setQuery(e.target.value);
+                                setLaunchError(undefined);
+                                setSel(0);
+                            }}
+                            onKeyDown={onKeyDown}
+                            placeholder="Search, or type &gt; @ # / to scope…"
+                            className="flex-1 bg-transparent text-[14px] text-primary outline-none placeholder:text-muted"
+                        />
+                        <span className="shrink-0 rounded-[5px] border border-edge-mid px-[7px] py-0.5 font-mono text-[10.5px] text-muted">
+                            esc
+                        </span>
                     </div>
-                ) : null}
-                <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto py-2">
-                    {flat.length === 0 ? (
-                        <div className="px-4 py-8 text-center text-[13px] text-muted">{emptyMessage}</div>
-                    ) : (
-                        capped.map((g) =>
-                            isRichGroup(g.kind) ? (
-                                <div
-                                    key={g.kind}
-                                    className="relative mx-0.5 mb-2 mt-1 rounded-[10px] bg-accent/5 px-1 pb-1"
-                                >
-                                    {/* accent rail marks the one group that acts on your typed goal — the
+                    {launchError ? (
+                        <div
+                            role="alert"
+                            className="border-b border-error/30 bg-error/10 px-4 py-2 font-mono text-[11px] text-error-soft"
+                        >
+                            Launch failed: {launchError}
+                        </div>
+                    ) : null}
+                    <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto py-2">
+                        {flat.length === 0 ? (
+                            <div className="px-4 py-8 text-center text-[13px] text-muted">{emptyMessage}</div>
+                        ) : (
+                            capped.map((g) =>
+                                isRichGroup(g.kind) ? (
+                                    <div
+                                        key={g.kind}
+                                        className="relative mx-0.5 mb-2 mt-1 rounded-[10px] bg-accent/5 px-1 pb-1"
+                                    >
+                                        {/* accent rail marks the one group that acts on your typed goal — the
                                         trailing act-on block stays quiet so it does not compete with the
                                         row Enter will actually run */}
-                                    {g.kind === "act-on" ? null : (
-                                        <div className="absolute bottom-2 left-0 top-2 w-0.5 rounded-full bg-accent/80" />
-                                    )}
-                                    <div className="px-3 pb-1 pt-2 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-accent-soft">
-                                        {g.kind === "launch" ? (
-                                            <>
-                                                Launch in{" "}
-                                                <span className="text-accent-100">#{targetChannel?.name}</span>
-                                            </>
-                                        ) : g.kind === "act-on" ? (
-                                            <>
-                                                Act on <span className="text-accent-100">“{query.trim()}”</span>
-                                            </>
-                                        ) : (
-                                            "Ask Jarvis"
+                                        {g.kind === "act-on" ? null : (
+                                            <div className="absolute bottom-2 left-0 top-2 w-0.5 rounded-full bg-accent/80" />
                                         )}
-                                    </div>
-                                    {g.items.map((it) => {
-                                        const myIdx = flatIndex.get(it.key)!;
-                                        const active = myIdx === selClamped;
-                                        return (
-                                            <button
-                                                key={it.key}
-                                                type="button"
-                                                data-idx={myIdx}
-                                                onMouseMove={() => setSel(myIdx)}
-                                                onClick={() => fire(it)}
-                                                className={cn(
-                                                    "flex w-full cursor-pointer items-center gap-[11px] rounded-[9px] px-3 py-[7px] text-left transition-colors duration-[140ms]",
-                                                    active ? "bg-accentbg" : "hover:bg-surface-hover"
-                                                )}
-                                            >
-                                                <span
+                                        <div className="px-3 pb-1 pt-2 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-accent-soft">
+                                            {g.kind === "launch" ? (
+                                                <>
+                                                    Launch in{" "}
+                                                    <span className="text-accent-100">#{targetChannel?.name}</span>
+                                                </>
+                                            ) : g.kind === "act-on" ? (
+                                                <>
+                                                    Act on <span className="text-accent-100">“{query.trim()}”</span>
+                                                </>
+                                            ) : (
+                                                "Ask Jarvis"
+                                            )}
+                                        </div>
+                                        {g.items.map((it) => {
+                                            const myIdx = flatIndex.get(it.key)!;
+                                            const active = myIdx === selClamped;
+                                            return (
+                                                <button
+                                                    key={it.key}
+                                                    type="button"
+                                                    data-idx={myIdx}
+                                                    onMouseMove={() => setSel(myIdx)}
+                                                    onClick={() => fire(it)}
                                                     className={cn(
-                                                        "flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-md border font-mono text-[13px]",
-                                                        active
-                                                            ? "border-accent-700 bg-accentbg text-accent-soft"
-                                                            : "border-edge-mid text-muted"
+                                                        "flex w-full cursor-pointer items-center gap-[11px] rounded-[9px] px-3 py-[7px] text-left transition-colors duration-[140ms]",
+                                                        active ? "bg-accentbg" : "hover:bg-surface-hover"
                                                     )}
                                                 >
-                                                    {it.glyph}
-                                                </span>
-                                                <span className="min-w-0 flex-1">
-                                                    <span className="block text-[13px] leading-tight">
+                                                    <span
+                                                        className={cn(
+                                                            "flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-md border font-mono text-[13px]",
+                                                            active
+                                                                ? "border-accent-700 bg-accentbg text-accent-soft"
+                                                                : "border-edge-mid text-muted"
+                                                        )}
+                                                    >
+                                                        {it.glyph}
+                                                    </span>
+                                                    <span className="min-w-0 flex-1">
+                                                        <span className="block text-[13px] leading-tight">
+                                                            <span
+                                                                className={cn(
+                                                                    "font-medium",
+                                                                    active ? "text-primary" : "text-secondary"
+                                                                )}
+                                                            >
+                                                                {it.mode}
+                                                            </span>
+                                                            {it.suffix ? (
+                                                                <span
+                                                                    className={
+                                                                        active ? "text-accent-soft" : "text-muted"
+                                                                    }
+                                                                >
+                                                                    {it.suffix}
+                                                                </span>
+                                                            ) : null}
+                                                        </span>
+                                                        <span className="mt-0.5 block truncate font-mono text-[10.5px] text-muted">
+                                                            {it.desc}
+                                                        </span>
+                                                    </span>
+                                                    {active ? (
+                                                        <span className="shrink-0 font-mono text-[11px] text-accent-soft">
+                                                            ⏎
+                                                        </span>
+                                                    ) : null}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                ) : (
+                                    <div key={g.kind}>
+                                        <div className="px-4 pb-1 pt-2 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">
+                                            {GROUP_LABELS[g.kind]}
+                                        </div>
+                                        {g.items.map((it) => {
+                                            const myIdx = flatIndex.get(it.key)!;
+                                            const active = myIdx === selClamped;
+                                            return (
+                                                <button
+                                                    key={it.key}
+                                                    type="button"
+                                                    data-idx={myIdx}
+                                                    onMouseMove={() => setSel(myIdx)}
+                                                    onClick={() => fire(it)}
+                                                    className={cn(
+                                                        "flex w-full cursor-pointer items-center gap-3 px-4 py-[7px] text-left transition-colors duration-[140ms]",
+                                                        active ? "bg-accentbg" : "hover:bg-surface-hover"
+                                                    )}
+                                                >
+                                                    <span className="min-w-0 flex-1">
                                                         <span
                                                             className={cn(
-                                                                "font-medium",
-                                                                active ? "text-primary" : "text-secondary"
+                                                                "block truncate text-[13px]",
+                                                                active
+                                                                    ? "text-primary"
+                                                                    : it.archived
+                                                                      ? "text-muted"
+                                                                      : "text-secondary"
                                                             )}
                                                         >
-                                                            {it.mode}
+                                                            <Highlighted text={it.title} query={highlightQuery} />
                                                         </span>
-                                                        {it.suffix ? (
-                                                            <span className={active ? "text-accent-soft" : "text-muted"}>
-                                                                {it.suffix}
+                                                        {it.subtitle ? (
+                                                            <span className="block truncate font-mono text-[10.5px] text-muted">
+                                                                {it.subtitle}
                                                             </span>
                                                         ) : null}
                                                     </span>
-                                                    <span className="mt-0.5 block truncate font-mono text-[10.5px] text-muted">
-                                                        {it.desc}
-                                                    </span>
-                                                </span>
-                                                {active ? (
-                                                    <span className="shrink-0 font-mono text-[11px] text-accent-soft">
-                                                        ⏎
-                                                    </span>
-                                                ) : null}
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                            ) : (
-                                <div key={g.kind}>
-                                    <div className="px-4 pb-1 pt-2 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">
-                                        {GROUP_LABELS[g.kind]}
-                                    </div>
-                                    {g.items.map((it) => {
-                                        const myIdx = flatIndex.get(it.key)!;
-                                        const active = myIdx === selClamped;
-                                        return (
-                                            <button
-                                                key={it.key}
-                                                type="button"
-                                                data-idx={myIdx}
-                                                onMouseMove={() => setSel(myIdx)}
-                                                onClick={() => fire(it)}
-                                                className={cn(
-                                                    "flex w-full cursor-pointer items-center gap-3 px-4 py-[7px] text-left transition-colors duration-[140ms]",
-                                                    active ? "bg-accentbg" : "hover:bg-surface-hover"
-                                                )}
-                                            >
-                                                <span className="min-w-0 flex-1">
-                                                    <span
-                                                        className={cn(
-                                                            "block truncate text-[13px]",
-                                                            active
-                                                                ? "text-primary"
-                                                                : it.archived
-                                                                  ? "text-muted"
-                                                                  : "text-secondary"
-                                                        )}
-                                                    >
-                                                        <Highlighted text={it.title} query={highlightQuery} />
-                                                    </span>
-                                                    {it.subtitle ? (
-                                                        <span className="block truncate font-mono text-[10.5px] text-muted">
-                                                            {it.subtitle}
-                                                        </span>
-                                                    ) : null}
-                                                </span>
-                                                {/* archiving takes something out of what surfaces at you, not
+                                                    {/* archiving takes something out of what surfaces at you, not
                                                     out of what you can find — so the row is shown, marked, and
                                                     already ranked below every live one */}
-                                                {it.archived ? (
-                                                    <span className="shrink-0 rounded-[5px] border border-edge-mid px-[6px] py-0.5 font-mono text-[10px] uppercase tracking-[0.08em] text-muted">
-                                                        archived
-                                                    </span>
-                                                ) : null}
-                                                {it.chord ? (
-                                                    <span className="flex shrink-0 items-center gap-1">
-                                                        {formatChord(it.chord).map((k, i) => (
-                                                            <span
-                                                                key={i}
-                                                                className="rounded-[5px] border border-edge-mid px-[6px] py-0.5 font-mono text-[10.5px] text-muted"
-                                                            >
-                                                                {k}
-                                                            </span>
-                                                        ))}
-                                                    </span>
-                                                ) : null}
-                                                {it.hint ? (
-                                                    <span className="shrink-0 font-mono text-[10.5px] text-muted">
-                                                        {it.hint}
-                                                    </span>
-                                                ) : null}
-                                                {active ? (
-                                                    <span className="shrink-0 font-mono text-[11px] text-accent-soft">
-                                                        ⏎
-                                                    </span>
-                                                ) : null}
-                                            </button>
-                                        );
-                                    })}
-                                    {g.overflow > 0 ? (
-                                        <div className="px-4 pb-1 pt-0.5 font-mono text-[10.5px] text-muted">
-                                            +{g.overflow} more — keep typing
-                                        </div>
-                                    ) : null}
-                                </div>
+                                                    {it.archived ? (
+                                                        <span className="shrink-0 rounded-[5px] border border-edge-mid px-[6px] py-0.5 font-mono text-[10px] uppercase tracking-[0.08em] text-muted">
+                                                            archived
+                                                        </span>
+                                                    ) : null}
+                                                    {it.chord ? (
+                                                        <span className="flex shrink-0 items-center gap-1">
+                                                            {formatChord(it.chord).map((k, i) => (
+                                                                <span
+                                                                    key={i}
+                                                                    className="rounded-[5px] border border-edge-mid px-[6px] py-0.5 font-mono text-[10.5px] text-muted"
+                                                                >
+                                                                    {k}
+                                                                </span>
+                                                            ))}
+                                                        </span>
+                                                    ) : null}
+                                                    {it.hint ? (
+                                                        <span className="shrink-0 font-mono text-[10.5px] text-muted">
+                                                            {it.hint}
+                                                        </span>
+                                                    ) : null}
+                                                    {active ? (
+                                                        <span className="shrink-0 font-mono text-[11px] text-accent-soft">
+                                                            ⏎
+                                                        </span>
+                                                    ) : null}
+                                                </button>
+                                            );
+                                        })}
+                                        {g.overflow > 0 ? (
+                                            <div className="px-4 pb-1 pt-0.5 font-mono text-[10.5px] text-muted">
+                                                +{g.overflow} more — keep typing
+                                            </div>
+                                        ) : null}
+                                    </div>
+                                )
                             )
-                        )
-                    )}
-                </div>
-                {flat.length > 0 ? (
-                    <div className="flex shrink-0 items-center gap-3 border-t border-border px-4 py-[9px]">
-                        {selFooter ? (
-                            <>
-                                <span className="shrink-0 font-mono text-[11px] text-accent-soft">⏎</span>
-                                <span className="min-w-0 flex-1 truncate text-[12px] text-secondary">{selFooter}</span>
-                            </>
-                        ) : (
-                            <span className="font-mono text-[10.5px] text-muted">
-                                <span className="text-secondary">{">"}</span> commands{"  "}
-                                <span className="text-secondary">@</span> agents{"  "}
-                                <span className="text-secondary">#</span> channels{"  "}
-                                <span className="text-secondary">/</span> sessions
-                            </span>
                         )}
                     </div>
-                ) : null}
+                    {flat.length > 0 ? (
+                        <div className="flex shrink-0 items-center gap-3 border-t border-border px-4 py-[9px]">
+                            {selFooter ? (
+                                <>
+                                    <span className="shrink-0 font-mono text-[11px] text-accent-soft">⏎</span>
+                                    <span className="min-w-0 flex-1 truncate text-[12px] text-secondary">
+                                        {selFooter}
+                                    </span>
+                                </>
+                            ) : (
+                                <span className="font-mono text-[10.5px] text-muted">
+                                    <span className="text-secondary">{">"}</span> commands{"  "}
+                                    <span className="text-secondary">@</span> agents{"  "}
+                                    <span className="text-secondary">#</span> channels{"  "}
+                                    <span className="text-secondary">/</span> sessions
+                                </span>
+                            )}
+                        </div>
+                    ) : null}
                 </>
             ) : null}
         </ModalShell>

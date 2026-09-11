@@ -12,13 +12,11 @@ export type BandCase =
     | { case: "none" }
     | { case: "one"; edge: AmbientTag }
     | { case: "several"; primary: AmbientTag; others: AmbientTag[] }
-    | { case: "subject" }
-    | { case: "mentions"; ids: string[] };
+    | { case: "subject" };
 
 export interface BandInput {
     kind: SubjectKind;
     tags: AmbientTag[];
-    mentionedIds: string[];
 }
 
 const BUCKET_RANK: Record<string, number> = { strong: 3, medium: 2, weak: 1 };
@@ -53,9 +51,6 @@ export function edgeLabel(tag: AmbientTag): string {
 export function recordBandCase(input: BandInput): BandCase {
     if (input.kind === "dossier") {
         return { case: "subject" };
-    }
-    if (input.kind === "conversation") {
-        return { case: "mentions", ids: input.mentionedIds ?? [] };
     }
     const tags = input.tags ?? [];
     if (tags.length === 0) {
