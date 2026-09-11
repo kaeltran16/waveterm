@@ -25,7 +25,9 @@ export interface RailGitState {
 
 // First persisted FE pref in frontend/app: rail is global + off by default (localStorage key
 // "agent.rail.visible"). Keep persisted prefs to this one atom for now.
-export const railVisibleAtom = atomWithStorage("agent.rail.visible", false);
+export const DEFAULT_RAIL_VISIBLE = false;
+
+export const railVisibleAtom = atomWithStorage("agent.rail.visible", DEFAULT_RAIL_VISIBLE);
 
 // Terminal-fullscreen toggle for the Agent surface: when on, the AgentTree (and the rail) are
 // hidden so the focused agent's live terminal fills the surface. Session-scoped UI, not persisted.

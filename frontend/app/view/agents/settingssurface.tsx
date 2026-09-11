@@ -1,37 +1,56 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
+//
+// Settings as a place you navigate: the section index on the left (grouped, with a changed-count and a
+// search that reaches rows it does not render), one section at a time on the right. settingsmodel.ts
+// owns which rows exist and what they say; this file owns the controls and where each value lives.
+//
+// One commit model throughout — every control writes as you change it, text fields on blur or Enter.
+// There are no Save buttons; a per-row Revert and a per-section Reset replace them.
 
 import { formatBuildTime, versionInfoAtom } from "@/app/cockpit/versioninfo";
 import { MOTION } from "@/app/element/motiontokens";
-import { getSettingsKeyAtom } from "@/app/store/global";
+import { atoms, getSettingsKeyAtom } from "@/app/store/global";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { cn, fireAndForget } from "@/util/util";
-import { useAtom, useAtomValue } from "jotai";
-import { ChevronRight, Folder } from "lucide-react";
+import { atom, useAtom, useAtomValue } from "jotai";
+import { Folder, Search } from "lucide-react";
 import { motion, MotionConfig, useReducedMotion } from "motion/react";
-import { useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AgentsViewModel, SurfaceKey } from "./agents";
 import {
     coerceFontSize,
     coerceScrollback,
+    DEFAULT_STARTUP_SURFACE,
     startupSurfaceAtom,
     startupSurfaceOptions,
     vaultPathError,
 } from "./cockpitprefsstore";
-import { DEFAULT_TERM_FONT, MONO_FONTS, SANS_FONTS, stackOf } from "./fonts";
+import { DEFAULT_MONO, DEFAULT_SANS, DEFAULT_TERM_FONT, MONO_FONTS, SANS_FONTS, stackOf } from "./fonts";
 import { fontMonoAtom, fontSansAtom } from "./fontstore";
 import { harnessPickerItems } from "./harnesspicker";
 import { harnessPreferenceAtom, setPreferredRoute } from "./harnessstore";
 import { RUNTIME_FLAGS, type Runtime } from "./launch";
-import { naFlagsAtom, naRememberFlagsAtom } from "./naflagsstore";
+import { DEFAULT_REMEMBER_FLAGS, naFlagsAtom, naRememberFlagsAtom } from "./naflagsstore";
 import { ITEMS } from "./navrail";
-import { railVisibleAtom } from "./railstore";
+import { DEFAULT_RAIL_VISIBLE, railVisibleAtom } from "./railstore";
 import { RoutePicker } from "./routepicker";
-import { SETTINGS_SECTION_EMBEDDINGS, takePendingSettingsSection } from "./settingsstore";
+import {
+    changedCount,
+    countLabel,
+    filterSections,
+    flagRowId,
+    groupSections,
+    resolveSelection,
+    settingsSections,
+    type SettingRowDef,
+    type SettingSectionDef,
+} from "./settingsmodel";
+import { takePendingSettingsSection } from "./settingsstore";
 import { SurfaceHeader } from "./surfacescaffold";
 import { ACCENT_SWATCHES, activePalette, colorOf, THEMES, type OverrideRole } from "./themes";
-import { themeOverridesAtom, themePresetAtom } from "./themestore";
+import { DEFAULT_THEME_PRESET, themeOverridesAtom, themePresetAtom } from "./themestore";
 
 const LABEL: Record<SurfaceKey, string> = Object.fromEntries(ITEMS.map((i) => [i.key, i.label])) as Record<
     SurfaceKey,
@@ -41,119 +60,437 @@ const LABEL: Record<SurfaceKey, string> = Object.fromEntries(ITEMS.map((i) => [i
 // Runtimes the flag editor lists. Terminal stays out (it isn't an agent); pi is included even though
 // its catalog is empty so its no-flags state renders in the editor instead of the row vanishing.
 const FLAG_RUNTIMES: { id: Runtime; name: string }[] = [
-    { id: "claude", name: "Claude Code" },
+    { id: "claude", name: "Claude" },
     { id: "codex", name: "Codex" },
     { id: "opencode", name: "OpenCode" },
     { id: "pi", name: "Pi" },
 ];
 
-export function SettingsSurface(_props: { model: AgentsViewModel }) {
-    const reduce = useReducedMotion();
-    // Deep-link landing. The sections are a flat scroll with no routes and embeddings is the last of seven,
-    // so a bare surface switch lands at the top of a long page — an escort in name only.
-    useEffect(() => {
-        const want = takePendingSettingsSection();
-        if (want == null) {
+const OVERRIDE_ROLES: OverrideRole[] = ["accent", "success", "warning", "error"];
+
+// The settings as they ship, before the user's settings.json merges over them. The only way the surface
+// can say which rows were changed and what Revert restores. Null against a backend older than the field:
+// an empty map would read as "every set key was changed", so the marks stay off instead of lying.
+const defaultSettingsAtom = atom(
+    (get) => (get(atoms.fullConfigAtom)?.defaultsettings ?? null) as Record<string, unknown> | null
+);
+
+// SetConfigCommand's data param is a typed settings map; a dynamic-key patch needs the cast. A null
+// value deletes the key from settings.json (wconfig.SetBaseConfigValue), which is how Revert works —
+// dropping the override lets the shipped default take over again.
+function writeConfig(patch: Record<string, unknown>) {
+    void RpcApi.SetConfigCommand(TabRpcClient, patch as Parameters<typeof RpcApi.SetConfigCommand>[1]);
+}
+
+// Every value here is a scalar, so identity is enough; the ?? folds an absent key and an explicit null
+// together, since both mean "not set".
+function sameValue(a: unknown, b: unknown): boolean {
+    return (a ?? null) === (b ?? null);
+}
+
+type LocalBinding = { changed: boolean; revert: () => void };
+
+// Which rows differ from their default, and how to put each one back. Lives at the surface rather than
+// inside the section components because the left pane counts changed rows for sections it never renders.
+function useRowBindings(sections: SettingSectionDef[], flagRuntime: Runtime) {
+    const settings = (useAtomValue(atoms.settingsAtom) ?? {}) as unknown as Record<string, unknown>;
+    const defaults = useAtomValue(defaultSettingsAtom);
+    const [preset, setPreset] = useAtom(themePresetAtom);
+    const [overrides, setOverrides] = useAtom(themeOverridesAtom);
+    const [sans, setSans] = useAtom(fontSansAtom);
+    const [mono, setMono] = useAtom(fontMonoAtom);
+    const [startup, setStartup] = useAtom(startupSurfaceAtom);
+    const [rail, setRail] = useAtom(railVisibleAtom);
+    const [flags, setFlags] = useAtom(naFlagsAtom);
+    const [remember, setRemember] = useAtom(naRememberFlagsAtom);
+
+    const local: Record<string, LocalBinding> = {
+        "appearance.theme": {
+            changed: preset !== DEFAULT_THEME_PRESET,
+            revert: () => setPreset(DEFAULT_THEME_PRESET),
+        },
+        "fonts.sans": { changed: sans !== DEFAULT_SANS, revert: () => setSans(DEFAULT_SANS) },
+        "fonts.mono": { changed: mono !== DEFAULT_MONO, revert: () => setMono(DEFAULT_MONO) },
+        "general.startup": {
+            changed: startup !== DEFAULT_STARTUP_SURFACE,
+            revert: () => setStartup(DEFAULT_STARTUP_SURFACE),
+        },
+        "general.rail": { changed: rail !== DEFAULT_RAIL_VISIBLE, revert: () => setRail(DEFAULT_RAIL_VISIBLE) },
+        "newagent.remember": {
+            changed: remember !== DEFAULT_REMEMBER_FLAGS,
+            revert: () => setRemember(DEFAULT_REMEMBER_FLAGS),
+        },
+    };
+    for (const role of OVERRIDE_ROLES) {
+        local[`appearance.${role}`] = {
+            changed: overrides[role] != null,
+            revert: () =>
+                setOverrides((prev) => {
+                    const next = { ...prev };
+                    delete next[role];
+                    return next;
+                }),
+        };
+    }
+    for (const f of RUNTIME_FLAGS[flagRuntime]) {
+        local[flagRowId(flagRuntime, f.id)] = {
+            changed: !!flags[flagRuntime]?.[f.id],
+            revert: () => setFlags((prev) => ({ ...prev, [flagRuntime]: { ...prev[flagRuntime], [f.id]: false } })),
+        };
+    }
+
+    const defs = new Map<string, SettingRowDef>();
+    const changed = new Set<string>();
+    for (const section of sections) {
+        for (const row of section.rows) {
+            defs.set(row.id, row);
+            const isChanged = row.config
+                ? defaults != null && !sameValue(settings[row.key], defaults[row.key])
+                : !!local[row.id]?.changed;
+            if (isChanged) {
+                changed.add(row.id);
+            }
+        }
+    }
+
+    const revert = (id: string) => {
+        const def = defs.get(id);
+        if (def?.config) {
+            writeConfig({ [def.key]: null });
             return;
         }
-        document.getElementById(want)?.scrollIntoView({ block: "start", behavior: "smooth" });
+        local[id]?.revert();
+    };
+
+    // One config write for the whole section, so reverting Terminal doesn't queue five settings.json
+    // rewrites back to back.
+    const resetSection = (section: SettingSectionDef) => {
+        const patch: Record<string, unknown> = {};
+        for (const row of section.rows) {
+            if (!changed.has(row.id)) {
+                continue;
+            }
+            if (row.config) {
+                patch[row.key] = null;
+            } else {
+                local[row.id]?.revert();
+            }
+        }
+        if (Object.keys(patch).length > 0) {
+            writeConfig(patch);
+        }
+    };
+
+    return { defs, changed, revert, resetSection };
+}
+
+type RowCtxValue = {
+    defs: Map<string, SettingRowDef>;
+    // Row ids the active search left standing, or null when there is no search.
+    visible: Set<string> | null;
+    changed: ReadonlySet<string>;
+    revert: (id: string) => void;
+};
+
+const RowCtx = createContext<RowCtxValue>({
+    defs: new Map(),
+    visible: null,
+    changed: new Set(),
+    revert: () => {},
+});
+
+export function SettingsSurface(_props: { model: AgentsViewModel }) {
+    const reduce = useReducedMotion();
+    const [query, setQuery] = useState("");
+    const [flagRuntime, setFlagRuntime] = useState<Runtime>("claude");
+    const [wanted, setWanted] = useState<string>("appearance");
+
+    const sections = useMemo(() => settingsSections(flagRuntime), [flagRuntime]);
+    const visibleSections = useMemo(() => filterSections(sections, query), [sections, query]);
+    const selected = resolveSelection(visibleSections, wanted);
+    const bindings = useRowBindings(sections, flagRuntime);
+
+    // Deep-link landing (petactrun sends the user to Embeddings to add a key).
+    useEffect(() => {
+        const want = takePendingSettingsSection();
+        if (want != null) {
+            setWanted(want);
+        }
     }, []);
+
+    const section = sections.find((s) => s.id === selected) ?? null;
+    const filtered = visibleSections.find((s) => s.id === selected) ?? null;
+    const ctx: RowCtxValue = {
+        defs: bindings.defs,
+        visible: query.trim() === "" || filtered == null ? null : new Set(filtered.rows.map((r) => r.id)),
+        changed: bindings.changed,
+        revert: bindings.revert,
+    };
+    const sectionChanged = section != null ? changedCount(section, bindings.changed) : 0;
+
     return (
         <MotionConfig reducedMotion="user">
-            <div className="flex h-full flex-col overflow-y-auto bg-background px-10 py-9">
-                <motion.div
-                    className="mx-auto w-full max-w-[720px]"
-                    initial={reduce ? false : { opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ duration: MOTION.durMacro, ease: MOTION.easeFluid }}
-                >
-                    <div className="mb-9 -mx-[28px]">
-                        <SurfaceHeader
-                            title="Settings"
-                            subtitle="Cockpit preferences, appearance, and New Agent defaults."
-                            border={false}
-                        />
-                    </div>
-                    <AppearanceSection />
-                    <SectionGap />
-                    <FontsSection />
-                    <SectionGap />
-                    <GeneralSection />
-                    <SectionGap />
-                    <NewAgentDefaultsSection />
-                    <SectionGap />
-                    <RunRouteSection />
-                    <SectionGap />
-                    <TerminalSection />
-                    <SectionGap />
-                    <MemorySection />
-                    <SectionGap />
-                    <div id={SETTINGS_SECTION_EMBEDDINGS}>
-                        <EmbeddingsSection />
-                    </div>
-                    <SectionGap />
-                    <HeadlessAISection />
-                    <SectionGap />
-                    <AboutSection />
-                </motion.div>
+            <div className="flex h-full min-h-0 bg-background">
+                <SectionIndex
+                    groups={groupSections(visibleSections)}
+                    selected={selected}
+                    onSelect={setWanted}
+                    query={query}
+                    onQuery={setQuery}
+                    changed={bindings.changed}
+                />
+                <div className="flex min-w-0 flex-1 flex-col">
+                    {section == null ? (
+                        <div className="flex h-full items-center justify-center text-[13px] text-muted">
+                            No setting matches that.
+                        </div>
+                    ) : (
+                        <>
+                            <div className="flex flex-none items-start justify-between gap-5 border-b border-edge-faint px-[28px] pb-4 pt-5">
+                                <div className="min-w-0">
+                                    <div className="text-[19px] font-bold tracking-[-0.01em] text-primary">
+                                        {section.name}
+                                    </div>
+                                    <div className="mt-[5px] max-w-[520px] text-[12.5px] leading-[1.5] text-secondary">
+                                        {section.blurb}
+                                    </div>
+                                </div>
+                                {sectionChanged > 0 ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => bindings.resetSection(section)}
+                                        className="flex-none cursor-pointer rounded border border-edge-mid px-[13px] py-[7px] text-[12px] font-semibold text-secondary transition-colors hover:border-edge-strong hover:text-primary"
+                                    >
+                                        Reset section
+                                    </button>
+                                ) : null}
+                            </div>
+                            <motion.div
+                                key={section.id}
+                                initial={reduce ? false : { opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
+                                className="min-w-0 flex-1 overflow-y-auto px-[28px] pb-12 pt-2"
+                            >
+                                <RowCtx.Provider value={ctx}>
+                                    <SectionBody id={section.id} runtime={flagRuntime} onRuntime={setFlagRuntime} />
+                                </RowCtx.Provider>
+                            </motion.div>
+                        </>
+                    )}
+                </div>
             </div>
         </MotionConfig>
     );
 }
 
-// App + backend version, so the pair is inspectable rather than only shouted about by the app-bar
-// pill when they disagree.
-function AboutSection() {
-    const version = useAtomValue(versionInfoAtom);
+function SectionIndex({
+    groups,
+    selected,
+    onSelect,
+    query,
+    onQuery,
+    changed,
+}: {
+    groups: { label: string; sections: SettingSectionDef[] }[];
+    selected: string | null;
+    onSelect: (id: string) => void;
+    query: string;
+    onQuery: (q: string) => void;
+    changed: ReadonlySet<string>;
+}) {
     return (
-        <div>
-            <SectionLabel>About</SectionLabel>
-            <Row title="App version" desc="This shell — src-tauri/tauri.conf.json, synced from package.json.">
-                <Mono>{version.app}</Mono>
-            </Row>
-            <Row
-                title="Backend version"
-                desc={
-                    version.mismatch
-                        ? "Does not match the app — dist/bin is stale. Run `task build:backend` and restart."
-                        : "The wavesrv this app spawned."
-                }
-            >
-                <Mono warn={version.mismatch}>{version.server}</Mono>
-            </Row>
-            <Row title="Backend build time" desc="When the wavesrv binary was stamped.">
-                <Mono>{formatBuildTime(version.buildTime)}</Mono>
-            </Row>
-            <Row title="Platform" desc="Host the shell reported at boot.">
-                <Mono>{version.platform}</Mono>
-            </Row>
+        <div className="flex w-[340px] flex-none flex-col border-r border-border">
+            <div className="flex-none border-b border-border">
+                <SurfaceHeader
+                    title="Settings"
+                    subtitle="Cockpit preferences, appearance, and agent defaults."
+                    border={false}
+                />
+                <div className="mx-[28px] mb-4 flex items-center gap-2 rounded border border-border bg-surface-raised px-2.5 py-1.5">
+                    <Search size={12} className="flex-none text-muted" />
+                    <input
+                        type="text"
+                        value={query}
+                        onChange={(e) => onQuery(e.target.value)}
+                        placeholder="Search settings"
+                        spellCheck={false}
+                        className="min-w-0 flex-1 border-0 bg-transparent text-[12px] text-primary outline-none placeholder:text-muted"
+                    />
+                </div>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-10 pt-3">
+                {groups.map((g) => (
+                    <div key={g.label} className="mb-3.5">
+                        <div className="flex items-center gap-2.5 px-1 pb-2">
+                            <span className="font-mono text-[9.5px] font-bold uppercase tracking-[0.13em] text-accent-soft">
+                                {g.label}
+                            </span>
+                            <span className="h-px flex-1 bg-edge-faint" />
+                            <span className="font-mono text-[10px] text-muted">{g.sections.length}</span>
+                        </div>
+                        <div className="flex flex-col gap-[7px]">
+                            {g.sections.map((s) => {
+                                const on = s.id === selected;
+                                const n = changedCount(s, changed);
+                                return (
+                                    <button
+                                        key={s.id}
+                                        type="button"
+                                        data-section={s.id}
+                                        onClick={() => onSelect(s.id)}
+                                        className={cn(
+                                            "flex w-full cursor-pointer flex-col gap-[7px] rounded-[11px] border px-3 py-[11px] text-left transition-colors",
+                                            on
+                                                ? "border-accent bg-surface-hover"
+                                                : "border-border hover:border-edge-strong"
+                                        )}
+                                    >
+                                        <span className="flex items-center gap-2.5">
+                                            <span
+                                                className={cn(
+                                                    "min-w-0 flex-1 truncate text-[13px] font-semibold",
+                                                    on ? "text-primary" : "text-secondary"
+                                                )}
+                                            >
+                                                {s.name}
+                                            </span>
+                                            {n > 0 ? (
+                                                <span
+                                                    className={cn(
+                                                        "flex-none rounded-sm px-1.5 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-[0.06em]",
+                                                        on
+                                                            ? "bg-accentbg text-accent"
+                                                            : "bg-accentbg/70 text-accent-soft"
+                                                    )}
+                                                >
+                                                    {n} changed
+                                                </span>
+                                            ) : null}
+                                        </span>
+                                        <span className="font-mono text-[10px] text-muted">
+                                            {countLabel(s.rows.length)}
+                                        </span>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+                ))}
+            </div>
+            <div className="flex flex-none flex-col gap-1.5 border-t border-edge-faint px-4 py-[11px]">
+                <Legend scope="synced" text="synced — settings.json" />
+                <Legend scope="local" text="this machine only" />
+            </div>
         </div>
     );
 }
 
-function Mono({ children, warn }: { children: React.ReactNode; warn?: boolean }) {
-    return <span className={cn("font-mono text-[13px]", warn ? "text-warning" : "text-primary")}>{children}</span>;
-}
-
-function SectionGap() {
-    return <div className="h-[34px]" />;
-}
-
-function SectionLabel({ children }: { children: React.ReactNode }) {
+function Legend({ scope, text }: { scope: "synced" | "local"; text: string }) {
     return (
-        <div className="mb-4 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted">{children}</div>
+        <div className="flex items-center gap-[7px] font-mono text-[10px] text-muted">
+            <ScopeDot scope={scope} />
+            {text}
+        </div>
     );
 }
 
-function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
+function ScopeDot({ scope }: { scope: "synced" | "local" }) {
+    return (
+        <span
+            className={cn("h-1.5 w-1.5 flex-none rounded-[2px]", scope === "synced" ? "bg-success" : "bg-ink-faint")}
+        />
+    );
+}
+
+// Labeled settings row. `stacked` drops the control onto its own full-width line for the controls that
+// cannot sit in a right-hand slot (the theme grid, the flag list, the runtime radios).
+function SettingRow({ id, stacked, children }: { id: string; stacked?: boolean; children?: ReactNode }) {
+    const ctx = useContext(RowCtx);
+    const def = ctx.defs.get(id);
+    if (def == null || (ctx.visible != null && !ctx.visible.has(id))) {
+        return null;
+    }
+    const changed = ctx.changed.has(id);
+    const header = (
+        <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+                <span className="text-[13.5px] font-semibold text-primary">{def.title}</span>
+                {changed ? (
+                    <span className="flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.06em] text-accent">
+                        <span className="h-[5px] w-[5px] rounded-full bg-accent" />
+                        changed
+                    </span>
+                ) : null}
+            </div>
+            <div className="mt-[3px] max-w-[440px] text-[12px] leading-[1.5] text-muted">{def.desc}</div>
+            <div className="mt-1.5 flex items-center gap-[7px] font-mono text-[10px] text-muted">
+                {def.scope != null ? <ScopeDot scope={def.scope} /> : null}
+                {def.key}
+            </div>
+        </div>
+    );
+    const revert = changed ? (
+        <button
+            type="button"
+            onClick={() => ctx.revert(id)}
+            className="flex-none cursor-pointer text-[11.5px] font-semibold text-muted transition-colors hover:text-primary"
+        >
+            Revert
+        </button>
+    ) : null;
+
+    if (stacked) {
+        return (
+            <div className="border-b border-edge-faint py-[15px]">
+                <div className="flex items-start justify-between gap-6">
+                    {header}
+                    {revert}
+                </div>
+                <div className="mt-3">{children}</div>
+            </div>
+        );
+    }
+    return (
+        <div className="flex items-center justify-between gap-6 border-b border-edge-faint py-[15px]">
+            {header}
+            <div className="flex flex-none items-center gap-2.5">
+                {children}
+                {revert}
+            </div>
+        </div>
+    );
+}
+
+function Note({ tone = "warning", children }: { tone?: "warning" | "error"; children: ReactNode }) {
+    return (
+        <div
+            className={cn(
+                "mt-4 flex items-start gap-2.5 rounded-[10px] border px-3.5 py-3 text-[12.5px] leading-[1.55]",
+                tone === "warning"
+                    ? "border-warning/35 bg-warning/[0.08] text-warning-soft"
+                    : "border-error/40 bg-error/[0.08] text-error"
+            )}
+        >
+            {children}
+        </div>
+    );
+}
+
+function Mono({ children, warn }: { children: ReactNode; warn?: boolean }) {
+    return <span className={cn("font-mono text-[12.5px]", warn ? "text-warning" : "text-secondary")}>{children}</span>;
+}
+
+function Toggle({ on, onToggle, label }: { on: boolean; onToggle: () => void; label: string }) {
     return (
         <button
             type="button"
             role="switch"
             aria-checked={on}
+            aria-label={label}
             onClick={onToggle}
             className={cn(
-                "relative mt-0.5 h-[23px] w-[42px] shrink-0 cursor-pointer rounded-full transition-colors",
+                "relative h-[23px] w-[42px] shrink-0 cursor-pointer rounded-full transition-colors",
                 on ? "bg-accent" : "bg-surface-selected"
             )}
         >
@@ -164,32 +501,6 @@ function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
                 )}
             />
         </button>
-    );
-}
-
-function CheckIcon() {
-    return (
-        <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.4">
-            <path d="M3.5 8.5 7 12l6-7.5" />
-        </svg>
-    );
-}
-
-function Swatch({ color }: { color: string }) {
-    return <span className="h-[13px] w-[13px] rounded-[4px]" style={{ background: color }} />;
-}
-
-// Labeled settings row: title + description left, control right. Rows stack directly on the page
-// (flat, no card — matching the design); the first row drops its top divider.
-function Row({ title, desc, children }: { title: string; desc: string; children: React.ReactNode }) {
-    return (
-        <div className="flex items-center justify-between gap-5 border-t border-edge-faint py-3 first:border-t-0">
-            <div className="min-w-0 flex-1">
-                <div className="mb-0.5 text-[14px] font-semibold text-primary">{title}</div>
-                <div className="text-[12.5px] text-muted">{desc}</div>
-            </div>
-            <div className="flex flex-none items-center">{children}</div>
-        </div>
     );
 }
 
@@ -204,14 +515,14 @@ function Segmented<T extends string>({
     onChange: (id: T) => void;
 }) {
     return (
-        <div className="flex overflow-hidden rounded-[9px] border border-edge-mid bg-surface-raised">
+        <div className="flex overflow-hidden rounded border border-edge-mid bg-surface-raised">
             {options.map((o, i) => (
                 <button
                     key={o.id}
                     type="button"
                     onClick={() => onChange(o.id)}
                     className={cn(
-                        "cursor-pointer whitespace-nowrap px-3 py-[7px] text-[12.5px] font-semibold transition-colors",
+                        "cursor-pointer whitespace-nowrap px-3 py-[6px] text-[11.5px] font-semibold transition-colors",
                         i > 0 && "border-l border-border",
                         value === o.id ? "bg-accentbg text-accent" : "text-secondary hover:text-primary"
                     )}
@@ -226,21 +537,21 @@ function Segmented<T extends string>({
 // +/- stepper. onStep receives -1 or 1; the caller applies its own step size.
 function Stepper({ value, onStep, ariaLabel }: { value: number; onStep: (dir: -1 | 1) => void; ariaLabel: string }) {
     return (
-        <div className="flex items-center overflow-hidden rounded-[9px] border border-edge-mid bg-surface-raised">
+        <div className="flex items-center overflow-hidden rounded border border-edge-mid bg-surface-raised">
             <button
                 type="button"
                 aria-label={`Decrease ${ariaLabel}`}
                 onClick={() => onStep(-1)}
-                className="h-[34px] w-[34px] cursor-pointer border-r border-border text-[17px] font-semibold text-secondary hover:bg-surface-hover"
+                className="h-[28px] w-[28px] cursor-pointer border-r border-border text-[15px] font-semibold text-secondary hover:bg-surface-hover"
             >
                 −
             </button>
-            <div className="min-w-[56px] px-2 text-center font-mono text-[13px] text-primary">{value}</div>
+            <div className="min-w-[52px] px-2 text-center font-mono text-[12px] text-primary">{value}</div>
             <button
                 type="button"
                 aria-label={`Increase ${ariaLabel}`}
                 onClick={() => onStep(1)}
-                className="h-[34px] w-[34px] cursor-pointer border-l border-border text-[17px] font-semibold text-secondary hover:bg-surface-hover"
+                className="h-[28px] w-[28px] cursor-pointer border-l border-border text-[15px] font-semibold text-secondary hover:bg-surface-hover"
             >
                 +
             </button>
@@ -248,90 +559,166 @@ function Stepper({ value, onStep, ariaLabel }: { value: number; onStep: (dir: -1
     );
 }
 
-// Fonts section: Interface (--font-sans) and Code (--font-mono) are cockpit CSS-var overrides; Terminal
-// is the backend term:fontfamily config key. Flat rows with dividers (no card), matching the design.
-function FontsSection() {
-    const [sans, setSans] = useAtom(fontSansAtom);
-    const [mono, setMono] = useAtom(fontMonoAtom);
-    const termFontStack = (useAtomValue(getSettingsKeyAtom("term:fontfamily")) as string) ?? "";
-    // terminal font is stored as the full stack string; match it back to a catalog id for the control.
-    const termFontId = MONO_FONTS.find((f) => f.stack === termFontStack)?.id ?? DEFAULT_TERM_FONT;
-    const setTermFont = (id: string) =>
-        void RpcApi.SetConfigCommand(TabRpcClient, { "term:fontfamily": stackOf(MONO_FONTS, id) });
-    const sansOpts = SANS_FONTS.map((f) => ({ id: f.id, label: f.label }));
-    const monoOpts = MONO_FONTS.map((f) => ({ id: f.id, label: f.label }));
+// A text field that commits on blur or Enter and abandons on Escape — the page's one commit model,
+// minus a settings.json write per keystroke. The stored value only overwrites the draft when it moves
+// on its own (a Revert, or another window's write), so committing never flashes the old text back.
+function CommitText({
+    value,
+    placeholder,
+    disabled,
+    width = "w-[300px]",
+    onCommit,
+    children,
+}: {
+    value: string;
+    placeholder: string;
+    disabled?: boolean;
+    width?: string;
+    onCommit: (v: string) => void;
+    children?: ReactNode;
+}) {
+    const [draft, setDraft] = useState(value);
+    const external = useRef(value);
+    useEffect(() => {
+        if (value !== external.current) {
+            external.current = value;
+            setDraft(value);
+        }
+    }, [value]);
+    const commit = () => {
+        const next = draft.trim();
+        external.current = next;
+        if (next !== value) {
+            onCommit(next);
+        }
+    };
     return (
-        <div>
-            <SectionLabel>Fonts</SectionLabel>
-            <div>
-                <Row title="Interface font" desc="App-wide UI text — nav, panels, labels.">
-                    <Segmented options={sansOpts} value={sans} onChange={setSans} />
-                </Row>
-                <Row title="Code font" desc="Inline code, diffs, and file trees.">
-                    <Segmented options={monoOpts} value={mono} onChange={setMono} />
-                </Row>
-                <Row title="Terminal font" desc="Monospace face inside agent terminals.">
-                    <Segmented options={monoOpts} value={termFontId} onChange={setTermFont} />
-                </Row>
-            </div>
+        <div className={cn("relative", width)}>
+            <input
+                type="text"
+                value={draft}
+                placeholder={placeholder}
+                disabled={disabled}
+                spellCheck={false}
+                onChange={(e) => setDraft(e.target.value)}
+                onBlur={commit}
+                onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                        commit();
+                        e.currentTarget.blur();
+                    } else if (e.key === "Escape") {
+                        setDraft(value);
+                        e.currentTarget.blur();
+                    }
+                }}
+                className={cn(
+                    "w-full rounded border border-edge-mid bg-surface-raised py-[6px] pl-2.5 font-mono text-[12px] text-primary outline-none focus:border-accent-700",
+                    children != null ? "pr-9" : "pr-2.5",
+                    disabled && "cursor-not-allowed opacity-40"
+                )}
+            />
+            {children}
         </div>
     );
+}
+
+// Write-only key field. There is nothing to sync down from, so it keeps its own draft and clears only
+// once the key actually lands — a failed write leaves what you pasted in place.
+function SecretInput({ placeholder, onCommit }: { placeholder: string; onCommit: (v: string) => Promise<boolean> }) {
+    const [draft, setDraft] = useState("");
+    const commit = () => {
+        const v = draft.trim();
+        if (v === "") {
+            return;
+        }
+        fireAndForget(async () => {
+            if (await onCommit(v)) {
+                setDraft("");
+            }
+        });
+    };
+    return (
+        <input
+            type="password"
+            value={draft}
+            placeholder={placeholder}
+            spellCheck={false}
+            autoComplete="off"
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                    commit();
+                    e.currentTarget.blur();
+                } else if (e.key === "Escape") {
+                    setDraft("");
+                    e.currentTarget.blur();
+                }
+            }}
+            className="w-[300px] rounded border border-edge-mid bg-surface-raised px-2.5 py-[6px] font-mono text-[12px] text-primary outline-none focus:border-accent-700"
+        />
+    );
+}
+
+function SectionBody({ id, runtime, onRuntime }: { id: string; runtime: Runtime; onRuntime: (r: Runtime) => void }) {
+    switch (id) {
+        case "appearance":
+            return <AppearanceSection />;
+        case "fonts":
+            return <FontsSection />;
+        case "general":
+            return <GeneralSection />;
+        case "newagent":
+            return <NewAgentSection runtime={runtime} onRuntime={onRuntime} />;
+        case "run":
+            return <RunRouteSection />;
+        case "terminal":
+            return <TerminalSection />;
+        case "memory":
+            return <MemorySection />;
+        case "embeddings":
+            return <EmbeddingsSection />;
+        case "headless":
+            return <HeadlessAISection />;
+        case "about":
+            return <AboutSection />;
+        default:
+            return null;
+    }
 }
 
 function AppearanceSection() {
     const [preset, setPreset] = useAtom(themePresetAtom);
     const [overrides, setOverrides] = useAtom(themeOverridesAtom);
     const palette = activePalette(preset);
-    const isCustom = Object.keys(overrides).length > 0;
-    const activeName = THEMES.find((t) => t.id === preset)?.name ?? "Midnight";
     const setOverride = (role: OverrideRole, hex: string) => setOverrides((prev) => ({ ...prev, [role]: hex }));
-    const selectPreset = (id: string) => {
-        setPreset(id);
-        setOverrides({});
-    };
     const accent = colorOf(palette, overrides, "accent");
-    const statusRoles: { role: OverrideRole; label: string; desc: string }[] = [
-        { role: "success", label: "Working / accept", desc: "Live agents, accepted diffs" },
-        { role: "warning", label: "Asking / attention", desc: "Awaiting your reply" },
-        { role: "error", label: "Blocked / reject", desc: "Errors, discarded changes" },
-    ];
+    const statusRoles: OverrideRole[] = ["success", "warning", "error"];
     return (
         <div>
-            <SectionLabel>Appearance</SectionLabel>
-            <div className="mb-[22px]">
-                <div className="text-[14px] font-semibold text-primary">Theme</div>
-                <div className="mb-3.5 mt-0.5 text-[12.5px] text-muted">
-                    Base palette for every surface.{" "}
-                    <span className="font-semibold text-accent">
-                        {isCustom ? `Custom · based on ${activeName}` : activeName}
-                    </span>
-                </div>
-                <div data-theme-presets className="grid grid-cols-4 gap-2.5">
+            <SettingRow id="appearance.theme" stacked>
+                <div data-theme-presets className="grid grid-cols-3 gap-2.5">
                     {THEMES.map((t) => {
                         const on = t.id === preset;
                         return (
                             <button
                                 key={t.id}
                                 type="button"
-                                onClick={() => selectPreset(t.id)}
+                                onClick={() => setPreset(t.id)}
                                 className={cn(
                                     "flex cursor-pointer items-center gap-2.5 rounded-[11px] border p-[10px] text-left transition-colors",
                                     on ? "border-accent-700 bg-surface-hover" : "border-border hover:border-edge-strong"
                                 )}
                             >
-                                <div className="flex flex-none flex-col gap-[3px]">
-                                    <div className="flex gap-[3px]">
-                                        <Swatch color={t.palette.bg} />
-                                        <Swatch color={t.palette.surface} />
-                                    </div>
-                                    <div className="flex gap-[3px]">
-                                        <Swatch color={t.palette.accent} />
-                                        <Swatch color={t.palette.success} />
-                                    </div>
+                                <div className="grid flex-none grid-cols-2 gap-[3px]">
+                                    <Swatch color={t.palette.bg} />
+                                    <Swatch color={t.palette.surface} />
+                                    <Swatch color={t.palette.accent} />
+                                    <Swatch color={t.palette.success} />
                                 </div>
                                 <span
                                     className={cn(
-                                        "min-w-0 flex-1 truncate text-[12px] font-semibold",
+                                        "min-w-0 flex-1 truncate text-[12.5px] font-semibold",
                                         on ? "text-primary" : "text-secondary"
                                     )}
                                 >
@@ -341,89 +728,92 @@ function AppearanceSection() {
                         );
                     })}
                 </div>
-            </div>
+            </SettingRow>
 
-            <div className="rounded-[14px] border border-border bg-surface p-[18px]">
-                <div className="mb-4 flex items-center justify-between">
-                    <div>
-                        <div className="text-[13.5px] font-semibold text-primary">Custom colors</div>
-                        <div className="text-[12px] text-muted">
-                            Override any role. Tints and gradients recompute automatically.
-                        </div>
-                    </div>
-                    {isCustom ? (
+            <SettingRow id="appearance.accent">
+                <div className="flex items-center gap-[7px]">
+                    {ACCENT_SWATCHES.map((hex) => (
                         <button
+                            key={hex}
                             type="button"
-                            onClick={() => setOverrides({})}
-                            className="cursor-pointer rounded border border-edge-mid px-[11px] py-1.5 text-[12px] font-semibold text-secondary hover:border-edge-strong hover:text-primary"
-                        >
-                            Reset to preset
-                        </button>
-                    ) : null}
+                            title={hex}
+                            onClick={() => setOverride("accent", hex)}
+                            className="h-[22px] w-[22px] cursor-pointer rounded-sm border-2 p-0"
+                            style={{
+                                background: hex,
+                                borderColor:
+                                    hex.toLowerCase() === accent.toLowerCase() ? "var(--color-primary)" : "transparent",
+                            }}
+                        />
+                    ))}
+                    <label
+                        title="Custom hex"
+                        className="relative flex h-[22px] w-[22px] flex-none cursor-pointer items-center justify-center overflow-hidden rounded-sm border border-edge-mid"
+                    >
+                        <span className="pointer-events-none absolute font-mono text-[12px] font-bold text-muted">
+                            +
+                        </span>
+                        <input
+                            type="color"
+                            value={accent}
+                            onChange={(e) => setOverride("accent", e.target.value)}
+                            className="h-[36px] w-[36px] cursor-pointer opacity-0"
+                        />
+                    </label>
                 </div>
+            </SettingRow>
 
-                <div className="flex items-center gap-3.5 border-t border-edge-faint py-[11px]">
-                    <div className="min-w-0 flex-1">
-                        <div className="text-[12.5px] font-semibold text-primary">Accent</div>
-                        <div className="text-[11.5px] text-muted">Primary actions, active nav, links</div>
-                    </div>
-                    <div className="flex flex-none items-center gap-[7px]">
-                        {ACCENT_SWATCHES.map((hex) => (
-                            <button
-                                key={hex}
-                                type="button"
-                                title={hex}
-                                onClick={() => setOverride("accent", hex)}
-                                className="h-[22px] w-[22px] cursor-pointer rounded-sm border-2 p-0"
-                                style={{
-                                    background: hex,
-                                    borderColor:
-                                        hex.toLowerCase() === accent.toLowerCase()
-                                            ? "var(--color-primary)"
-                                            : "transparent",
-                                }}
-                            />
-                        ))}
-                        <label
-                            title="Custom hex"
-                            className="relative flex h-[22px] w-[22px] flex-none cursor-pointer items-center justify-center overflow-hidden rounded-sm border border-edge-mid"
-                        >
-                            <span className="pointer-events-none absolute font-mono text-[12px] font-bold text-muted">
-                                +
-                            </span>
-                            <input
-                                type="color"
-                                value={accent}
-                                onChange={(e) => setOverride("accent", e.target.value)}
-                                className="h-[36px] w-[36px] cursor-pointer opacity-0"
-                            />
-                        </label>
-                    </div>
-                </div>
-
-                {statusRoles.map((r) => {
-                    const hex = colorOf(palette, overrides, r.role);
-                    return (
-                        <div key={r.role} className="flex items-center gap-3.5 border-t border-edge-faint py-[11px]">
-                            <div className="min-w-0 flex-1">
-                                <div className="text-[12.5px] font-semibold text-primary">{r.label}</div>
-                                <div className="text-[11.5px] text-muted">{r.desc}</div>
-                            </div>
-                            <div className="flex flex-none items-center gap-[9px]">
-                                <span className="font-mono text-[11px] text-muted">{hex}</span>
-                                <label className="block h-[24px] w-[34px] cursor-pointer overflow-hidden rounded-[7px] border border-edge-mid">
-                                    <input
-                                        type="color"
-                                        value={hex}
-                                        onChange={(e) => setOverride(r.role, e.target.value)}
-                                        className="m-[-5px] h-[34px] w-[44px] cursor-pointer"
-                                    />
-                                </label>
-                            </div>
+            {statusRoles.map((role) => {
+                const hex = colorOf(palette, overrides, role);
+                return (
+                    <SettingRow key={role} id={`appearance.${role}`}>
+                        <div className="flex items-center gap-[9px]">
+                            <span className="font-mono text-[11px] text-muted">{hex}</span>
+                            <label className="block h-[24px] w-[34px] cursor-pointer overflow-hidden rounded border border-edge-mid">
+                                <input
+                                    type="color"
+                                    value={hex}
+                                    onChange={(e) => setOverride(role, e.target.value)}
+                                    className="m-[-5px] h-[34px] w-[44px] cursor-pointer"
+                                />
+                            </label>
                         </div>
-                    );
-                })}
-            </div>
+                    </SettingRow>
+                );
+            })}
+        </div>
+    );
+}
+
+function Swatch({ color }: { color: string }) {
+    return <span className="h-[13px] w-[13px] rounded-[4px]" style={{ background: color }} />;
+}
+
+// Interface (--font-sans) and Code (--font-mono) are cockpit CSS-var overrides; Terminal is the backend
+// term:fontfamily config key.
+function FontsSection() {
+    const [sans, setSans] = useAtom(fontSansAtom);
+    const [mono, setMono] = useAtom(fontMonoAtom);
+    const termFontStack = (useAtomValue(getSettingsKeyAtom("term:fontfamily")) as string) ?? "";
+    // terminal font is stored as the full stack string; match it back to a catalog id for the control.
+    const termFontId = MONO_FONTS.find((f) => f.stack === termFontStack)?.id ?? DEFAULT_TERM_FONT;
+    const sansOpts = SANS_FONTS.map((f) => ({ id: f.id, label: f.label }));
+    const monoOpts = MONO_FONTS.map((f) => ({ id: f.id, label: f.label }));
+    return (
+        <div>
+            <SettingRow id="fonts.sans">
+                <Segmented options={sansOpts} value={sans} onChange={setSans} />
+            </SettingRow>
+            <SettingRow id="fonts.mono">
+                <Segmented options={monoOpts} value={mono} onChange={setMono} />
+            </SettingRow>
+            <SettingRow id="fonts.term">
+                <Segmented
+                    options={monoOpts}
+                    value={termFontId}
+                    onChange={(id) => writeConfig({ "term:fontfamily": stackOf(MONO_FONTS, id) })}
+                />
+            </SettingRow>
         </div>
     );
 }
@@ -434,14 +824,11 @@ function GeneralSection() {
     const options = startupSurfaceOptions();
     return (
         <div>
-            <SectionLabel>General</SectionLabel>
-            <div className="mb-5 border-b border-edge-faint pb-5">
-                <div className="mb-3">
-                    <div className="text-[14px] font-semibold text-primary">Startup surface</div>
-                    <div className="mt-0.5 text-[12.5px] text-muted">Which surface opens when the app launches.</div>
-                </div>
+            {/* stacked: the startup choices are a full-width grid — as a right-hand segmented group they
+                would push the row past the pane on a narrow window. */}
+            <SettingRow id="general.startup" stacked>
                 <div
-                    className="grid overflow-hidden rounded-[9px] border border-edge-mid bg-surface-raised"
+                    className="grid overflow-hidden rounded border border-edge-mid bg-surface-raised"
                     style={{ gridTemplateColumns: `repeat(${options.length}, 1fr)` }}
                 >
                     {options.map((k, i) => (
@@ -450,7 +837,7 @@ function GeneralSection() {
                             type="button"
                             onClick={() => setStartup(k)}
                             className={cn(
-                                "cursor-pointer whitespace-nowrap px-2 py-[9px] text-[12.5px] font-semibold transition-colors",
+                                "cursor-pointer whitespace-nowrap px-2 py-[8px] text-[12px] font-semibold transition-colors",
                                 i > 0 && "border-l border-border",
                                 startup === k ? "bg-accentbg text-accent" : "text-secondary hover:text-primary"
                             )}
@@ -459,107 +846,51 @@ function GeneralSection() {
                         </button>
                     ))}
                 </div>
-            </div>
-            <div className="flex items-start justify-between gap-5">
-                <div className="min-w-0 flex-1">
-                    <div className="text-[14px] font-semibold text-primary">Show details rail by default</div>
-                    <div className="text-[12.5px] text-muted">The per-agent git/details rail on the Agent surface.</div>
-                </div>
-                <Toggle on={railVisible} onToggle={() => setRailVisible((v) => !v)} />
-            </div>
+            </SettingRow>
+            <SettingRow id="general.rail">
+                <Toggle
+                    on={railVisible}
+                    onToggle={() => setRailVisible((v) => !v)}
+                    label="Show details rail by default"
+                />
+            </SettingRow>
         </div>
     );
 }
 
-function NewAgentDefaultsSection() {
+function NewAgentSection({ runtime, onRuntime }: { runtime: Runtime; onRuntime: (r: Runtime) => void }) {
     const [flags, setFlags] = useAtom(naFlagsAtom);
     const [remember, setRemember] = useAtom(naRememberFlagsAtom);
-    const [runtime, setRuntime] = useState<Runtime>("claude");
     const catalog = RUNTIME_FLAGS[runtime];
     const runtimeFlags = flags[runtime] ?? {};
     const setFlag = (id: string, on: boolean) =>
         setFlags((prev) => ({ ...prev, [runtime]: { ...prev[runtime], [id]: on } }));
     return (
         <div>
-            <SectionLabel>New Agent Defaults</SectionLabel>
-            <div className="mb-[18px] flex items-start justify-between gap-5">
-                <div className="min-w-0 flex-1">
-                    <div className="text-[14px] font-semibold text-primary">Remember flags</div>
-                    <div className="text-[12.5px] text-muted">
-                        Reuse the enabled flags for every new agent (instead of clearing after launch).
-                    </div>
+            <SettingRow id="newagent.remember">
+                <Toggle on={remember} onToggle={() => setRemember((v) => !v)} label="Remember flags" />
+            </SettingRow>
+            <SettingRow id="newagent.runtime">
+                <Segmented
+                    options={FLAG_RUNTIMES.map((r) => ({ id: r.id, label: r.name }))}
+                    value={runtime}
+                    onChange={onRuntime}
+                />
+            </SettingRow>
+            {catalog.length === 0 ? (
+                <div className="py-4 text-[12px] text-muted">
+                    {FLAG_RUNTIMES.find((r) => r.id === runtime)?.name} takes no launch flags.
                 </div>
-                <Toggle on={remember} onToggle={() => setRemember((v) => !v)} />
-            </div>
-            <div className="mb-4 flex gap-[7px]">
-                {FLAG_RUNTIMES.map((r) => (
-                    <button
-                        key={r.id}
-                        type="button"
-                        onClick={() => setRuntime(r.id)}
-                        className={cn(
-                            "cursor-pointer rounded border px-3.5 py-[7px] text-[12.5px] font-semibold transition-colors",
-                            runtime === r.id
-                                ? "border-accent-700 bg-accentbg text-accent"
-                                : "border-edge-mid bg-surface-raised text-secondary hover:border-edge-strong"
-                        )}
-                    >
-                        {r.name}
-                    </button>
-                ))}
-            </div>
-            <motion.div
-                key={runtime}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
-                className="rounded-[14px] border border-border bg-surface px-4 py-1.5"
-            >
-                {catalog.length === 0 ? (
-                    <div className="py-3 text-[12px] text-muted">No launch flags available</div>
-                ) : (
-                    catalog.map((f, i) => {
-                        const on = !!runtimeFlags[f.id];
-                        return (
-                            <button
-                                key={f.id}
-                                type="button"
-                                onClick={() => setFlag(f.id, !on)}
-                                className={cn(
-                                    "flex w-full cursor-pointer items-center gap-3 py-3 text-left",
-                                    i > 0 && "border-t border-edge-faint"
-                                )}
-                            >
-                                <span
-                                    className={cn(
-                                        "flex h-[17px] w-[17px] flex-none items-center justify-center rounded-[5px] border-[1.5px] text-background",
-                                        on ? "border-accent bg-accent" : "border-edge-strong"
-                                    )}
-                                >
-                                    {on ? <CheckIcon /> : null}
-                                </span>
-                                <span
-                                    className={cn(
-                                        "flex-none font-mono text-[12.5px] font-semibold",
-                                        on ? "text-accent" : "text-primary"
-                                    )}
-                                >
-                                    {f.flag}
-                                </span>
-                                <span className="flex-1" />
-                                <span
-                                    className={cn(
-                                        "text-right text-[12px] font-medium",
-                                        on ? "text-accent-soft" : "text-muted"
-                                    )}
-                                >
-                                    {f.desc}
-                                </span>
-                            </button>
-                        );
-                    })
-                )}
-            </motion.div>
+            ) : (
+                catalog.map((f) => {
+                    const on = !!runtimeFlags[f.id];
+                    return (
+                        <SettingRow key={f.id} id={flagRowId(runtime, f.id)}>
+                            <Toggle on={on} onToggle={() => setFlag(f.id, !on)} label={f.flag} />
+                        </SettingRow>
+                    );
+                })
+            )}
         </div>
     );
 }
@@ -568,11 +899,14 @@ function RunRouteSection() {
     const preference = useAtomValue(harnessPreferenceAtom);
     return (
         <div>
-            <SectionLabel>Run defaults</SectionLabel>
-            <Row title="Run route" desc="Backend-authoritative harness, tier, and resolved model for new runs.">
-                <RoutePicker value={preference.route} canInherit={false} onChange={(route) => route && setPreferredRoute(route)} />
-            </Row>
-            {preference.error ? <div className="mt-2 text-[12px] text-error">{preference.error}</div> : null}
+            <SettingRow id="run.route">
+                <RoutePicker
+                    value={preference.route}
+                    canInherit={false}
+                    onChange={(route) => route && setPreferredRoute(route)}
+                />
+            </SettingRow>
+            {preference.error ? <Note tone="error">{preference.error}</Note> : null}
         </div>
     );
 }
@@ -584,139 +918,108 @@ function TerminalSection() {
     const cursorBlink = (useAtomValue(getSettingsKeyAtom("term:cursorblink")) as boolean) ?? false;
     const copyOnSelect = (useAtomValue(getSettingsKeyAtom("term:copyonselect")) as boolean) ?? false;
 
-    // SetConfigCommand's data param is a typed settings map; a dynamic-key patch needs the cast.
-    const write = (patch: Record<string, unknown>) =>
-        void RpcApi.SetConfigCommand(TabRpcClient, patch as Parameters<typeof RpcApi.SetConfigCommand>[1]);
-
     const cursor = cursorRaw === "bar" || cursorRaw === "underline" ? cursorRaw : "block";
 
     const stepFontSize = (dir: -1 | 1) => {
         const next = coerceFontSize(String(fontSize + dir));
-        if (next != null && next !== fontSize) write({ "term:fontsize": next });
+        if (next != null && next !== fontSize) writeConfig({ "term:fontsize": next });
     };
     const stepScrollback = (dir: -1 | 1) => {
         const next = coerceScrollback(String(Math.max(100, scrollback + dir * 250)));
-        if (next != null && next !== scrollback) write({ "term:scrollback": next });
+        if (next != null && next !== scrollback) writeConfig({ "term:scrollback": next });
     };
 
     return (
         <div>
-            <SectionLabel>Terminal</SectionLabel>
-            <div>
-                <Row title="Font size" desc="Default font size for agent terminals (px).">
-                    <Stepper value={fontSize} onStep={stepFontSize} ariaLabel="font size" />
-                </Row>
-                <Row title="Cursor style" desc="Shape of the terminal caret.">
-                    <Segmented
-                        options={[
-                            { id: "block", label: "Block" },
-                            { id: "bar", label: "Bar" },
-                            { id: "underline", label: "Underline" },
-                        ]}
-                        value={cursor}
-                        onChange={(v) => write({ "term:cursor": v })}
-                    />
-                </Row>
-                <Row title="Cursor blink" desc="Pulse the caret when the terminal is focused.">
-                    <Toggle on={cursorBlink} onToggle={() => write({ "term:cursorblink": !cursorBlink })} />
-                </Row>
-                <Row title="Scrollback" desc="Lines of history kept per terminal.">
-                    <Stepper value={scrollback} onStep={stepScrollback} ariaLabel="scrollback" />
-                </Row>
-                <Row title="Copy on select" desc="Copy highlighted text to the clipboard automatically.">
-                    <Toggle on={copyOnSelect} onToggle={() => write({ "term:copyonselect": !copyOnSelect })} />
-                </Row>
-            </div>
+            <SettingRow id="terminal.fontsize">
+                <Stepper value={fontSize} onStep={stepFontSize} ariaLabel="font size" />
+            </SettingRow>
+            <SettingRow id="terminal.cursor">
+                <Segmented
+                    options={[
+                        { id: "block", label: "Block" },
+                        { id: "bar", label: "Bar" },
+                        { id: "underline", label: "Underline" },
+                    ]}
+                    value={cursor}
+                    onChange={(v) => writeConfig({ "term:cursor": v })}
+                />
+            </SettingRow>
+            <SettingRow id="terminal.cursorblink">
+                <Toggle
+                    on={cursorBlink}
+                    onToggle={() => writeConfig({ "term:cursorblink": !cursorBlink })}
+                    label="Cursor blink"
+                />
+            </SettingRow>
+            <SettingRow id="terminal.scrollback">
+                <Stepper value={scrollback} onStep={stepScrollback} ariaLabel="scrollback" />
+            </SettingRow>
+            <SettingRow id="terminal.copyonselect">
+                <Toggle
+                    on={copyOnSelect}
+                    onToggle={() => writeConfig({ "term:copyonselect": !copyOnSelect })}
+                    label="Copy on select"
+                />
+            </SettingRow>
         </div>
     );
 }
 
 function MemorySection() {
-    const stored = useAtomValue(getSettingsKeyAtom("memory:vaultpath"));
-    const [draft, setDraft] = useState<string>(stored ?? "");
-    const [saved, setSaved] = useState(false);
+    const stored = (useAtomValue(getSettingsKeyAtom("memory:vaultpath")) as string) ?? "";
     const [error, setError] = useState<string | null>(null);
-    const dirty = draft !== (stored ?? "");
-    const showSaved = saved && !dirty;
     // validate before persisting: an empty path clears the override (falls back to the default vault),
     // otherwise the folder must exist and be a directory. reuses FileInfoCommand (bare local path, ~
     // expanded by the backend) instead of a dedicated RPC — mirrors the New Project picker's stat check.
-    const commit = async () => {
-        const path = draft.trim();
-        setError(null);
-        if (path !== "") {
-            try {
-                const info = await RpcApi.FileInfoCommand(TabRpcClient, { info: { path } });
-                const err = vaultPathError(info);
-                if (err) {
-                    setError(err);
+    const commit = (path: string) =>
+        fireAndForget(async () => {
+            setError(null);
+            if (path !== "") {
+                try {
+                    const info = await RpcApi.FileInfoCommand(TabRpcClient, { info: { path } });
+                    const err = vaultPathError(info);
+                    if (err) {
+                        setError(err);
+                        return;
+                    }
+                } catch (e) {
+                    setError(String(e));
                     return;
                 }
-            } catch (e) {
-                setError(String(e));
-                return;
             }
-        }
-        await RpcApi.SetConfigCommand(TabRpcClient, { "memory:vaultpath": path });
-        setSaved(true);
-    };
+            writeConfig({ "memory:vaultpath": path });
+        });
     // native OS folder picker (Tauri dialog plugin), mirroring newprojectmodal's browse. dynamic import
-    // keeps non-Tauri contexts (preview, vitest) clean. populates the draft; Save still commits.
-    const browse = async () => {
-        try {
-            const { open } = await import("@tauri-apps/plugin-dialog");
-            const picked = await open({ directory: true, multiple: false, title: "Select vault folder" });
-            if (typeof picked === "string" && picked) {
-                setDraft(picked);
-                setSaved(false);
-                setError(null);
+    // keeps non-Tauri contexts (preview, vitest) clean.
+    const browse = () =>
+        fireAndForget(async () => {
+            try {
+                const { open } = await import("@tauri-apps/plugin-dialog");
+                const picked = await open({ directory: true, multiple: false, title: "Select vault folder" });
+                if (typeof picked === "string" && picked) {
+                    commit(picked);
+                }
+            } catch (e) {
+                console.error("vault folder picker failed", e);
             }
-        } catch (e) {
-            console.error("vault folder picker failed", e);
-        }
-    };
+        });
     return (
         <div>
-            <SectionLabel>Memory</SectionLabel>
-            <div className="text-[14px] font-semibold text-primary">Vault path</div>
-            <div className="mb-3 mt-0.5 text-[12.5px] text-muted">Folder the Memory surface reads and writes.</div>
-            <div className="flex gap-2.5">
-                <div className="relative min-w-0 flex-1">
-                    <input
-                        type="text"
-                        value={draft}
-                        placeholder="~/vault"
-                        onChange={(e) => {
-                            setDraft(e.target.value);
-                            setSaved(false);
-                            setError(null);
-                        }}
-                        className="w-full rounded-[9px] border border-edge-mid bg-surface-raised py-2.5 pl-3.5 pr-10 font-mono text-[13px] text-primary outline-none focus:border-accent-700"
-                    />
+            <SettingRow id="memory.vaultpath">
+                <CommitText value={stored} placeholder="~/vault" onCommit={commit}>
                     <button
                         type="button"
-                        onClick={() => void browse()}
+                        onClick={browse}
                         title="Browse for folder"
                         aria-label="Browse for folder"
-                        className="absolute right-1.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-sm text-muted transition-colors hover:bg-surface-hover hover:text-primary"
+                        className="absolute right-1 top-1/2 flex h-6 w-6 -translate-y-1/2 cursor-pointer items-center justify-center rounded-sm text-muted transition-colors hover:bg-surface-hover hover:text-primary"
                     >
-                        <Folder size={15} />
+                        <Folder size={14} />
                     </button>
-                </div>
-                <button
-                    type="button"
-                    onClick={() => void commit()}
-                    className={cn(
-                        "shrink-0 rounded-[9px] border px-[18px] text-[13px] font-semibold transition-colors",
-                        showSaved
-                            ? "border-success/40 bg-success/[0.14] text-success-soft animate-[settle_0.5s_ease-out] motion-reduce:animate-none"
-                            : "border-edge-mid bg-surface-raised text-secondary hover:border-edge-strong"
-                    )}
-                >
-                    {showSaved ? "Saved ✓" : "Save"}
-                </button>
-            </div>
-            {error ? <div className="mt-2 text-[12px] text-error">{error}</div> : null}
+                </CommitText>
+            </SettingRow>
+            {error ? <Note tone="error">{error}</Note> : null}
         </div>
     );
 }
@@ -724,108 +1027,6 @@ function MemorySection() {
 // The secret the embedding provider reads (pkg/jarvisembed/embed.go). Never read back into the UI.
 // Underscore, not colon: SetSecret validates against the shell env-var charset and rejects colons.
 const EMBED_SECRET_NAME = "jarvis_embedapikey";
-
-function SaveButton({ label, onClick, disabled }: { label: string; onClick: () => void; disabled?: boolean }) {
-    return (
-        <button
-            type="button"
-            onClick={onClick}
-            disabled={disabled}
-            className={cn(
-                "shrink-0 rounded-[9px] border px-[18px] py-2.5 text-[13px] font-semibold transition-colors",
-                disabled
-                    ? "cursor-not-allowed opacity-40"
-                    : label === "Saved ✓"
-                      ? "border-success/40 bg-success/[0.14] text-success-soft animate-[settle_0.5s_ease-out] motion-reduce:animate-none"
-                      : "border-edge-mid bg-surface-raised text-secondary hover:border-edge-strong"
-            )}
-        >
-            {label}
-        </button>
-    );
-}
-
-function TextInput({
-    value,
-    placeholder,
-    password,
-    disabled,
-    onChange,
-}: {
-    value: string;
-    placeholder: string;
-    password?: boolean;
-    disabled?: boolean;
-    onChange: (v: string) => void;
-}) {
-    return (
-        <input
-            type={password ? "password" : "text"}
-            value={value}
-            placeholder={placeholder}
-            spellCheck={false}
-            disabled={disabled}
-            autoComplete={password ? "off" : undefined}
-            onChange={(e) => onChange(e.target.value)}
-            className={cn(
-                "min-w-0 flex-1 rounded-[9px] border border-edge-mid bg-surface-raised px-3.5 py-2.5 font-mono text-[13px] text-primary outline-none focus:border-accent-700",
-                disabled && "cursor-not-allowed opacity-40"
-            )}
-        />
-    );
-}
-
-// One text-valued config key with its own draft/Save state, mirroring MemorySection's field (which keeps
-// its own copy — it carries a folder picker and a stat check this has no use for).
-function ConfigField({
-    title,
-    desc,
-    placeholder,
-    stored,
-    onSave,
-    disabled,
-}: {
-    title: string;
-    desc: string;
-    placeholder: string;
-    stored: string;
-    onSave: (value: string) => void;
-    disabled?: boolean;
-}) {
-    const [draft, setDraft] = useState(stored);
-    const [saved, setSaved] = useState(false);
-    const showSaved = saved && draft === stored;
-    return (
-        <div className="border-t border-edge-faint py-3.5 first:border-t-0">
-            <div className={cn("text-[14px] font-semibold", disabled ? "text-muted" : "text-primary")}>{title}</div>
-            <div className="mb-2.5 mt-0.5 text-[12.5px] text-muted">{desc}</div>
-            <div className="flex gap-2.5">
-                <TextInput
-                    value={draft}
-                    placeholder={placeholder}
-                    disabled={disabled}
-                    onChange={(v) => {
-                        setDraft(v);
-                        setSaved(false);
-                    }}
-                />
-                {disabled ? (
-                    <span className="self-center font-mono text-[11px] tracking-[0.02em] text-ink-faint">
-                        openrouter only
-                    </span>
-                ) : (
-                    <SaveButton
-                        label={showSaved ? "Saved ✓" : "Save"}
-                        onClick={() => {
-                            onSave(draft.trim());
-                            setSaved(true);
-                        }}
-                    />
-                )}
-            </div>
-        </div>
-    );
-}
 
 // Embeddings (BYOK) — the opt-in semantic lane behind jarvisembed. Config goes through the ordinary
 // settings-write path; the key goes to the OS secret store via SetSecrets, write-only in both directions
@@ -835,9 +1036,7 @@ function EmbeddingsSection() {
     const baseURL = (useAtomValue(getSettingsKeyAtom("jarvis:embedbaseurl")) as string) ?? "";
     const model = (useAtomValue(getSettingsKeyAtom("jarvis:embedmodel")) as string) ?? "";
 
-    const [keyDraft, setKeyDraft] = useState("");
     const [hasKey, setHasKey] = useState(false);
-    const [keySaved, setKeySaved] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
@@ -851,25 +1050,16 @@ function EmbeddingsSection() {
         });
     }, []);
 
-    const write = (patch: Record<string, unknown>) =>
-        void RpcApi.SetConfigCommand(TabRpcClient, patch as Parameters<typeof RpcApi.SetConfigCommand>[1]);
-
-    const saveKey = () => {
-        const key = keyDraft.trim();
-        if (key === "") {
-            return;
+    const saveKey = async (key: string): Promise<boolean> => {
+        setError(null);
+        try {
+            await RpcApi.SetSecretsCommand(TabRpcClient, { [EMBED_SECRET_NAME]: key });
+            setHasKey(true);
+            return true;
+        } catch (e) {
+            setError(String(e));
+            return false;
         }
-        fireAndForget(async () => {
-            setError(null);
-            try {
-                await RpcApi.SetSecretsCommand(TabRpcClient, { [EMBED_SECRET_NAME]: key });
-                setKeyDraft(""); // write-only: the key is never held in the input after it lands
-                setHasKey(true);
-                setKeySaved(true);
-            } catch (e) {
-                setError(String(e));
-            }
-        });
     };
 
     // A null value deletes the secret (wshserver_secrets takes map[string]*string). The generated client
@@ -883,8 +1073,6 @@ function EmbeddingsSection() {
                     string
                 >);
                 setHasKey(false);
-                setKeyDraft("");
-                setKeySaved(false);
             } catch (e) {
                 setError(String(e));
             }
@@ -897,68 +1085,49 @@ function EmbeddingsSection() {
 
     return (
         <div>
-            <SectionLabel>Embeddings</SectionLabel>
-            <div className="mb-4 rounded-[11px] border border-border bg-surface px-4 py-3 text-[12.5px] leading-[1.6] text-muted">
-                Semantic recall calls an OpenAI-compatible{" "}
-                <span className="font-mono text-[11.5px] text-secondary">/embeddings</span> endpoint that you supply and
-                pay for — Wave never proxies it. For a local setup, point the base URL at a local server. Off by
-                default: with it off, recall behaves exactly as it does today.
-            </div>
-            <div>
-                <Row title="Enable semantic recall" desc="Index the vault and match on meaning, not just wording.">
-                    <Toggle on={enabled} onToggle={() => write({ "jarvis:embedenabled": !enabled })} />
-                </Row>
-                <ConfigField
-                    title="Base URL"
-                    desc="Root of the OpenAI-compatible API, without the /embeddings suffix."
+            <SettingRow id="embeddings.enabled">
+                <Toggle
+                    on={enabled}
+                    onToggle={() => writeConfig({ "jarvis:embedenabled": !enabled })}
+                    label="Enable semantic recall"
+                />
+            </SettingRow>
+            <SettingRow id="embeddings.baseurl">
+                <CommitText
+                    value={baseURL}
                     placeholder="https://api.openai.com/v1"
-                    stored={baseURL}
-                    onSave={(v) => write({ "jarvis:embedbaseurl": v })}
+                    onCommit={(v) => writeConfig({ "jarvis:embedbaseurl": v })}
                 />
-                <ConfigField
-                    title="Model"
-                    desc="Embedding model id. Changing it re-indexes the vault on the next query."
+            </SettingRow>
+            <SettingRow id="embeddings.model">
+                <CommitText
+                    value={model}
                     placeholder="text-embedding-3-small"
-                    stored={model}
-                    onSave={(v) => write({ "jarvis:embedmodel": v })}
+                    onCommit={(v) => writeConfig({ "jarvis:embedmodel": v })}
                 />
-                <div className="border-t border-edge-faint py-3.5">
-                    <div className="text-[14px] font-semibold text-primary">API key</div>
-                    <div className="mb-2.5 mt-0.5 text-[12.5px] text-muted">
-                        Stored in the OS secret store, never in settings and never shown again.{" "}
-                        <span className={cn("font-semibold", hasKey ? "text-success-soft" : "text-muted")}>
-                            {hasKey ? "A key is stored." : "No key stored."}
-                        </span>
-                    </div>
-                    <div className="flex gap-2.5">
-                        <TextInput
-                            value={keyDraft}
-                            placeholder={hasKey ? "••••••••  (enter a new key to replace)" : "sk-…"}
-                            password
-                            onChange={(v) => {
-                                setKeyDraft(v);
-                                setKeySaved(false);
-                            }}
-                        />
-                        <SaveButton label={keySaved ? "Saved ✓" : "Save"} onClick={saveKey} />
-                        {hasKey ? (
-                            <button
-                                type="button"
-                                onClick={clearKey}
-                                className="shrink-0 rounded-[9px] border border-edge-mid bg-surface-raised px-[18px] py-2.5 text-[13px] font-semibold text-secondary transition-colors hover:border-error/50 hover:text-error"
-                            >
-                                Clear
-                            </button>
-                        ) : null}
-                    </div>
-                </div>
-            </div>
+            </SettingRow>
+            <SettingRow id="embeddings.apikey">
+                <span className={cn("text-[12px] font-semibold", hasKey ? "text-success-soft" : "text-muted")}>
+                    {hasKey ? "A key is stored." : "No key stored."}
+                </span>
+                <SecretInput
+                    placeholder={hasKey ? "••••••••  (enter a new key to replace)" : "sk-…"}
+                    onCommit={saveKey}
+                />
+                {hasKey ? (
+                    <button
+                        type="button"
+                        onClick={clearKey}
+                        className="flex-none cursor-pointer rounded border border-edge-mid px-3 py-[6px] text-[12px] font-semibold text-secondary transition-colors hover:border-error/50 hover:text-error"
+                    >
+                        Clear
+                    </button>
+                ) : null}
+            </SettingRow>
             {enabled && missing.length > 0 ? (
-                <div className="mt-3 text-[12px] text-warning">
-                    Enabled, but still needs {missing.join(", ")} — semantic recall stays off until then.
-                </div>
+                <Note>Enabled, but still needs {missing.join(", ")} — semantic recall stays off until then.</Note>
             ) : null}
-            {error ? <div className="mt-2 text-[12px] text-error">{error}</div> : null}
+            {error ? <Note tone="error">{error}</Note> : null}
         </div>
     );
 }
@@ -971,7 +1140,6 @@ function HeadlessAISection() {
 
     const [hasKey, setHasKey] = useState(false);
     const [harnesses, setHarnesses] = useState<HarnessInfo[]>([]);
-    const [open, setOpen] = useState(false);
     useEffect(() => {
         fireAndForget(async () => {
             try {
@@ -990,9 +1158,6 @@ function HeadlessAISection() {
             }
         });
     }, []);
-
-    const write = (patch: Record<string, unknown>) =>
-        void RpcApi.SetConfigCommand(TabRpcClient, patch as Parameters<typeof RpcApi.SetConfigCommand>[1]);
 
     // empty setting means openrouter (the backend default); only openrouter reads the model keys.
     const isOpenRouter = runtime === "" || runtime === "openrouter";
@@ -1017,166 +1182,136 @@ function HeadlessAISection() {
             notInstalled: h.unavailableReason === "not-installed",
         })),
     ];
-    const runtimeRow = options.find((o) => o.id === effectiveRuntime) ?? options[0];
-    const summary = runtimeRow.isDefault
-        ? hasKey
-            ? "OpenRouter · key stored"
-            : "OpenRouter · key missing"
-        : `${runtimeRow.label} · ${runtimeRow.notInstalled ? "not installed" : "installed"}`;
+
+    const modelRow = (id: string, value: string, placeholder: string, key: string) => (
+        <SettingRow id={id}>
+            {!isOpenRouter ? (
+                <span className="font-mono text-[10.5px] tracking-[0.02em] text-ink-faint">openrouter only</span>
+            ) : null}
+            <CommitText
+                value={value}
+                placeholder={placeholder}
+                disabled={!isOpenRouter}
+                onCommit={(v) => writeConfig({ [key]: v })}
+            />
+        </SettingRow>
+    );
 
     return (
         <div>
-            <button
-                type="button"
-                onClick={() => setOpen(!open)}
-                aria-expanded={open}
-                className="flex w-full cursor-pointer items-center gap-1.5 text-left"
-            >
-                <ChevronRight
-                    size={13}
-                    className={cn("shrink-0 text-muted transition-transform duration-150", open && "rotate-90")}
-                />
-                <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted">
-                    Headless AI
-                </span>
-                <span className="ml-auto truncate text-[11.5px] text-muted">{summary}</span>
-            </button>
-            {open ? (
-                <>
-                    <div className="mb-4 mt-3 rounded-[11px] border border-border bg-surface px-4 py-3 text-[12.5px] leading-[1.6] text-muted">
-                        Runtime for background AI features (gatekeeper, decompose, continuity, proactive, recall,
-                        volunteer, distill, gardener, radar, pi auto-titles). OpenRouter is the API-backed default and
-                        uses the{" "}
-                        <span className={cn("font-semibold", hasKey ? "text-success-soft" : "text-warning")}>
-                            {hasKey ? "stored" : "missing"}
-                        </span>{" "}
-                        OpenRouter key from the secret store (same key as Embeddings); harness runtimes execute their
-                        local CLI. Model IDs use the full{" "}
-                        <code className="font-mono text-[11.5px] text-secondary">provider/model</code> format.
-                    </div>
-                    <div className="text-[14px] font-semibold text-primary">Runtime</div>
-                    <div className="mb-2.5 mt-0.5 text-[12.5px] text-muted">
-                        Which engine powers background AI features. Uninstalled harnesses stay visible but disabled —
-                        install them to enable.
-                    </div>
-                    <div role="radiogroup" aria-label="headless runtime" className="flex flex-col gap-1.5">
-                        {options.map((o) => {
-                            const on = o.id === effectiveRuntime;
-                            return (
-                                <button
-                                    key={o.id}
-                                    type="button"
-                                    role="radio"
-                                    aria-checked={on}
-                                    disabled={!o.selectable}
-                                    onClick={() => write({ "headless:runtime": o.id })}
+            {/* stacked: the runtime list carries an install/key status per option, which does not fit a
+                right-hand control slot. */}
+            <SettingRow id="headless.runtime" stacked>
+                <div role="radiogroup" aria-label="headless runtime" className="flex flex-col gap-1.5">
+                    {options.map((o) => {
+                        const on = o.id === effectiveRuntime;
+                        return (
+                            <button
+                                key={o.id}
+                                type="button"
+                                role="radio"
+                                aria-checked={on}
+                                disabled={!o.selectable}
+                                onClick={() => writeConfig({ "headless:runtime": o.id })}
+                                className={cn(
+                                    "flex w-full cursor-pointer items-center gap-2.5 rounded-[11px] border p-[10px] text-left transition-colors",
+                                    on
+                                        ? "border-accent-700 bg-surface-hover"
+                                        : "border-border hover:border-edge-strong",
+                                    !o.selectable && "cursor-not-allowed opacity-55 hover:border-border"
+                                )}
+                            >
+                                <span
                                     className={cn(
-                                        "flex w-full cursor-pointer items-center gap-2.5 rounded-[11px] border p-[10px] text-left transition-colors",
-                                        on
-                                            ? "border-accent-700 bg-surface-hover"
-                                            : "border-border hover:border-edge-strong",
-                                        !o.selectable && "cursor-not-allowed opacity-55 hover:border-border"
+                                        "flex h-4 w-4 flex-none items-center justify-center rounded-full border-2 transition-colors",
+                                        on ? "border-accent" : "border-edge-strong"
+                                    )}
+                                >
+                                    {on ? <span className="h-2 w-2 rounded-full bg-accent" /> : null}
+                                </span>
+                                <span
+                                    className={cn(
+                                        "min-w-0 flex-1 truncate text-[13px] font-semibold",
+                                        on ? "text-primary" : "text-secondary"
+                                    )}
+                                >
+                                    {o.label}
+                                </span>
+                                <span className="font-mono text-[10.5px] font-normal tracking-[0.02em] text-ink-faint">
+                                    {o.mono}
+                                </span>
+                                <span
+                                    className={cn(
+                                        "flex flex-none items-center gap-1.5 text-[11px] font-semibold",
+                                        o.isDefault
+                                            ? hasKey
+                                                ? "text-accent-soft"
+                                                : "text-warning-soft"
+                                            : o.notInstalled
+                                              ? "text-muted"
+                                              : "text-success-soft"
                                     )}
                                 >
                                     <span
                                         className={cn(
-                                            "flex h-4 w-4 flex-none items-center justify-center rounded-full border-2 transition-colors",
-                                            on ? "border-accent" : "border-edge-strong"
-                                        )}
-                                    >
-                                        {on ? <span className="h-2 w-2 rounded-full bg-accent" /> : null}
-                                    </span>
-                                    <span
-                                        className={cn(
-                                            "min-w-0 flex-1 truncate text-[13px] font-semibold",
-                                            on ? "text-primary" : "text-secondary"
-                                        )}
-                                    >
-                                        {o.label}
-                                    </span>
-                                    <span className="font-mono text-[10.5px] font-normal tracking-[0.02em] text-ink-faint">
-                                        {o.mono}
-                                    </span>
-                                    <span
-                                        className={cn(
-                                            "flex flex-none items-center gap-1.5 text-[11px] font-semibold",
+                                            "h-1.5 w-1.5 rounded-full",
                                             o.isDefault
                                                 ? hasKey
-                                                    ? "text-accent-soft"
-                                                    : "text-warning-soft"
+                                                    ? "bg-accent"
+                                                    : "bg-warning"
                                                 : o.notInstalled
-                                                  ? "text-muted"
-                                                  : "text-success-soft"
+                                                  ? "bg-ink-faint"
+                                                  : "bg-success"
                                         )}
-                                    >
-                                        <span
-                                            className={cn(
-                                                "h-1.5 w-1.5 rounded-full",
-                                                o.isDefault
-                                                    ? hasKey
-                                                        ? "bg-accent"
-                                                        : "bg-warning"
-                                                    : o.notInstalled
-                                                      ? "bg-ink-faint"
-                                                      : "bg-success"
-                                            )}
-                                        />
-                                        {o.isDefault
-                                            ? hasKey
-                                                ? "default · key stored"
-                                                : "default · key missing"
-                                            : o.notInstalled
-                                              ? "not installed"
-                                              : "installed"}
-                                    </span>
-                                </button>
-                            );
-                        })}
-                    </div>
-                    <div className="mt-5">
-                        <div className="flex items-baseline justify-between gap-3">
-                            <div className="text-[14px] font-semibold text-primary">Models</div>
-                            {!isOpenRouter ? (
-                                <span className="flex-none rounded-[6px] border border-border bg-pill px-2 py-0.5 font-mono text-[10.5px] text-ink-faint">
-                                    openrouter only
+                                    />
+                                    {o.isDefault
+                                        ? hasKey
+                                            ? "default · key stored"
+                                            : "default · key missing"
+                                        : o.notInstalled
+                                          ? "not installed"
+                                          : "installed"}
                                 </span>
-                            ) : null}
-                        </div>
-                        <div className="mb-2.5 mt-0.5 text-[12.5px] text-muted">
-                            OpenRouter model IDs for mechanical, synthesis, and large-corpus tasks — only applies while
-                            the runtime is openrouter.
-                        </div>
-                        <ConfigField
-                            title="Cheap model"
-                            desc="For mechanical tasks: gatekeeper, decompose, continuity, proactive."
-                            placeholder="deepseek/deepseek-v4-flash"
-                            stored={cheapModel}
-                            disabled={!isOpenRouter}
-                            onSave={(v) => write({ "headless:openroutercheapmodel": v })}
-                        />
-                        <ConfigField
-                            title="Mid model"
-                            desc="For synthesis and conversation: recall, radar, Jarvis."
-                            placeholder="deepseek/deepseek-v4-pro"
-                            stored={midModel}
-                            disabled={!isOpenRouter}
-                            onSave={(v) => write({ "headless:openroutermidmodel": v })}
-                        />
-                        <ConfigField
-                            title="Long-context model"
-                            desc="For large-corpus tasks: distillation, gardener when corpus > 400KB."
-                            placeholder="deepseek/deepseek-v4-pro"
-                            stored={longModel}
-                            disabled={!isOpenRouter}
-                            onSave={(v) => write({ "headless:openrouterlongmodel": v })}
-                        />
-                    </div>
-                    {isOpenRouter && !hasKey ? (
-                        <div className="mt-3 text-[12px] text-warning">
-                            API key not set — background AI features are disabled until the key is configured.
-                        </div>
-                    ) : null}
-                </>
+                            </button>
+                        );
+                    })}
+                </div>
+            </SettingRow>
+            {modelRow("headless.cheap", cheapModel, "deepseek/deepseek-v4-flash", "headless:openroutercheapmodel")}
+            {modelRow("headless.mid", midModel, "deepseek/deepseek-v4-pro", "headless:openroutermidmodel")}
+            {modelRow("headless.long", longModel, "deepseek/deepseek-v4-pro", "headless:openrouterlongmodel")}
+            {isOpenRouter && !hasKey ? (
+                <Note>
+                    OpenRouter key not set — background AI features stay off until a key is stored (same key as
+                    Embeddings).
+                </Note>
+            ) : null}
+        </div>
+    );
+}
+
+// App + backend version, so the pair is inspectable rather than only shouted about by the app-bar
+// pill when they disagree.
+function AboutSection() {
+    const version = useAtomValue(versionInfoAtom);
+    return (
+        <div>
+            <SettingRow id="about.app">
+                <Mono>{version.app}</Mono>
+            </SettingRow>
+            <SettingRow id="about.server">
+                <Mono warn={version.mismatch}>{version.server}</Mono>
+            </SettingRow>
+            <SettingRow id="about.buildtime">
+                <Mono>{formatBuildTime(version.buildTime)}</Mono>
+            </SettingRow>
+            <SettingRow id="about.platform">
+                <Mono>{version.platform}</Mono>
+            </SettingRow>
+            {version.mismatch ? (
+                <Note>
+                    The backend does not match the app — dist/bin is stale. Run `task build:backend` and restart.
+                </Note>
             ) : null}
         </div>
     );

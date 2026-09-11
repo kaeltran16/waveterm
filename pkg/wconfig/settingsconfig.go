@@ -364,20 +364,24 @@ type TermThemeType struct {
 }
 
 type FullConfigType struct {
-	Settings       SettingsType                    `json:"settings" merge:"meta"`
-	MimeTypes      map[string]MimeTypeConfigType   `json:"mimetypes"`
-	DefaultWidgets map[string]WidgetConfigType     `json:"defaultwidgets"`
-	Widgets        map[string]WidgetConfigType     `json:"widgets"`
-	Presets        map[string]waveobj.MetaMapType  `json:"presets"`
-	Backgrounds    map[string]BackgroundConfigType `json:"backgrounds"`
-	TermThemes     map[string]TermThemeType        `json:"termthemes"`
-	Connections    map[string]ConnKeywords         `json:"connections"`
-	Projects       map[string]ProjectKeywords      `json:"projects"`
-	Bookmarks      map[string]WebBookmark          `json:"bookmarks"`
-	WaveAIModes    map[string]AIModeConfigType     `json:"waveai"`
-	ConfigErrors   []ConfigError                   `json:"configerrors" configfile:"-"`
-	Version        string                          `json:"version" configfile:"-"`
-	BuildTime      string                          `json:"buildtime" configfile:"-"`
+	Settings SettingsType `json:"settings" merge:"meta"`
+	// Settings as they ship, with no home-directory overrides applied. Settings is the merge of this and
+	// the user's settings.json, so on its own it cannot say which keys the user actually changed — the
+	// Settings surface diffs the two to mark changed rows and to know what value Revert writes back.
+	DefaultSettings SettingsType                    `json:"defaultsettings" configfile:"-"`
+	MimeTypes       map[string]MimeTypeConfigType   `json:"mimetypes"`
+	DefaultWidgets  map[string]WidgetConfigType     `json:"defaultwidgets"`
+	Widgets         map[string]WidgetConfigType     `json:"widgets"`
+	Presets         map[string]waveobj.MetaMapType  `json:"presets"`
+	Backgrounds     map[string]BackgroundConfigType `json:"backgrounds"`
+	TermThemes      map[string]TermThemeType        `json:"termthemes"`
+	Connections     map[string]ConnKeywords         `json:"connections"`
+	Projects        map[string]ProjectKeywords      `json:"projects"`
+	Bookmarks       map[string]WebBookmark          `json:"bookmarks"`
+	WaveAIModes     map[string]AIModeConfigType     `json:"waveai"`
+	ConfigErrors    []ConfigError                   `json:"configerrors" configfile:"-"`
+	Version         string                          `json:"version" configfile:"-"`
+	BuildTime       string                          `json:"buildtime" configfile:"-"`
 }
 
 type ProjectKeywords struct {
@@ -708,9 +712,22 @@ func ReadFullConfig() FullConfigType {
 			utilfn.ReUnmarshal(fieldPtr, configPart)
 		}
 	}
+	fullConfig.DefaultSettings = readDefaultSettings()
 	fullConfig.Version = wavebase.WaveVersion
 	fullConfig.BuildTime = wavebase.BuildTime
 	return fullConfig
+}
+
+// The settings part read from the embedded defaults alone. readConfigPart always folds the home
+// directory in on top, which is exactly what this must not do.
+func readDefaultSettings() SettingsType {
+	// simpleMerge=false matches the `merge:"meta"` tag on FullConfigType.Settings.
+	configPart, _ := readConfigPartForFS(defaultconfig.ConfigFS, "defaults:", "settings", false)
+	var rtn SettingsType
+	if configPart != nil {
+		utilfn.ReUnmarshal(&rtn, configPart)
+	}
+	return rtn
 }
 
 func GetConfigSubdirs() []string {

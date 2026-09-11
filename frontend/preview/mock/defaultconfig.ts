@@ -11,6 +11,8 @@ import widgetsJson from "../../../pkg/wconfig/defaultconfig/widgets.json";
 
 export const DefaultFullConfig: FullConfigType = {
     settings: settingsJson as SettingsType,
+    // the preview has no home-directory overrides, so the merged settings are the defaults
+    defaultsettings: settingsJson as SettingsType,
     mimetypes: mimetypesJson as unknown as { [key: string]: MimeTypeConfigType },
     defaultwidgets: widgetsJson as unknown as { [key: string]: WidgetConfigType },
     widgets: {},

@@ -4211,6 +4211,11 @@ const routePickerFlat = {
             await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", key, code: key, windowsVirtualKeyCode });
         };
         await h.goto("settings");
+        // the two-pane Settings surface renders one section at a time; the route picker lives in Run defaults
+        await h.ev(
+            `(() => { const b = document.querySelector('[data-section="run"]'); if (b) b.click(); return true; })()`
+        );
+        await settle(200);
         const pickerPresent = await h.ev(`(() => !!document.querySelector('[data-testid="route-picker"]'))()`);
         await h.ev(
             `(() => { document.querySelector('[data-testid="route-picker"]')?.scrollIntoView({ block: "center" }); return true; })()`

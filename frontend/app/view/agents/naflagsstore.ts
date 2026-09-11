@@ -19,4 +19,6 @@ export const naFlagsAtom = atomWithStorage<Partial<Record<Runtime, Record<string
 );
 
 // When on, the enabled flags carry over to the next New Agent open; when off, they clear after launch.
-export const naRememberFlagsAtom = atomWithStorage<boolean>("agent.launch.remember", true);
+export const DEFAULT_REMEMBER_FLAGS = true;
+
+export const naRememberFlagsAtom = atomWithStorage<boolean>("agent.launch.remember", DEFAULT_REMEMBER_FLAGS);

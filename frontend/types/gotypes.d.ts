@@ -2389,6 +2389,7 @@ declare global {
     // wconfig.FullConfigType
     type FullConfigType = {
         settings: SettingsType;
+        defaultsettings: SettingsType;
         mimetypes: {[key: string]: MimeTypeConfigType};
         defaultwidgets: {[key: string]: WidgetConfigType};
         widgets: {[key: string]: WidgetConfigType};
