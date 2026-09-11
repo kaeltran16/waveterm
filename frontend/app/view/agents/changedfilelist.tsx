@@ -61,6 +61,7 @@ function FileRow({
 }) {
     return (
         <button
+            data-changed-file-row={change.path}
             onClick={onSelect}
             style={{ paddingLeft: ROW_PAD_PX + depth * INDENT_PX }}
             title={change.path}
