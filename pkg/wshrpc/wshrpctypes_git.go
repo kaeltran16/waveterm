@@ -22,6 +22,7 @@ type GitCommands interface {
 	GitListFilesCommand(ctx context.Context, data CommandGitListFilesData) (*CommandGitListFilesRtnData, error)
 	GitGrepCommand(ctx context.Context, data CommandGitGrepData) (*CommandGitGrepRtnData, error)
 	GitFileAtRefCommand(ctx context.Context, data CommandGitFileAtRefData) (*CommandGitFileAtRefRtnData, error)
+	GitFetchCommand(ctx context.Context, data CommandGitFetchData) (*CommandGitFetchRtnData, error)
 }
 
 type CommandGitHistoryData struct {
@@ -169,4 +170,21 @@ type CommandGitFileAtRefRtnData struct {
 	TooLarge bool   `json:"toolarge,omitempty"`
 	Size     int64  `json:"size,omitempty"`
 	IsRepo   bool   `json:"isrepo"`
+}
+
+type CommandGitFetchData struct {
+	Cwd string `json:"cwd"`
+	// "" defaults to origin.
+	Remote string `json:"remote,omitempty"`
+}
+
+// A fetch can take far longer than the default RPC budget, and the budget the client sends binds the
+// server's context too — so a caller must raise opts.timeout past gitinfo's own fetchTimeout or the
+// read is cancelled underneath it.
+type CommandGitFetchRtnData struct {
+	FetchedAt int64 `json:"fetchedat"`
+	// A missing remote or a credential prompt is a state the surface draws, not an RPC error: the
+	// shipped GitFailure panel renders git's own stderr out of this.
+	Failure *gitinfo.GitFailure `json:"failure,omitempty"`
+	IsRepo  bool                `json:"isrepo"`
 }
