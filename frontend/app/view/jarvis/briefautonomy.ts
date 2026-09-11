@@ -10,6 +10,7 @@
 
 import { partitionChannels } from "@/app/view/agents/channelderive";
 import { tierFromMeta, type JarvisTier } from "@/app/view/agents/channelmessages";
+import { channelProjectLabel, dedupeByProject } from "@/app/view/agents/projectlabel";
 import { LADDER } from "./autonomyladder";
 
 export interface ChannelAutonomy {
@@ -35,14 +36,17 @@ function tierLabel(tier: JarvisTier): string {
 
 /** Pure: the per-project autonomy rows behind the chip. Archived channels are not work you have a
  *  policy over, so they are excluded; name order keeps the picker stable across refreshes. */
-export function channelAutonomy(channels: Channel[] | null | undefined): ChannelAutonomy[] {
-    const active = partitionChannels(channels ?? []).active;
+export function channelAutonomy(
+    channels: Channel[] | null | undefined,
+    projects: Record<string, ProjectKeywords>
+): ChannelAutonomy[] {
+    const active = dedupeByProject(partitionChannels(channels ?? []).active);
     return active
         .map((c) => {
             const meta = c.meta as Record<string, unknown> | undefined;
             return {
                 channelId: c.oid,
-                name: c.name ?? c.oid,
+                name: channelProjectLabel(c, projects),
                 tier: tierFromMeta(meta),
                 mode: typeof meta?.["delegator:mode"] === "string" ? (meta["delegator:mode"] as string) : "",
             };
