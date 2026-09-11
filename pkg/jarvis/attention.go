@@ -41,6 +41,7 @@ const (
 // for the same reason as the dag statuses above.
 const (
 	taskStateDone        = "done"
+	taskStateSkipped     = "skipped"
 	radarStatusCompleted = "completed"
 	radarStatusPartial   = "partial"
 	radarGroupNew        = "new"
@@ -94,21 +95,136 @@ func reviewGateIdx(run *waveobj.Run) int {
 	return -1
 }
 
-// runIdForWorker finds the run whose phases claim this worker tab oref.
-func runIdForWorker(runs []*waveobj.Run, workerORef string) string {
+// runForWorker finds the run whose phases claim this worker tab oref.
+func runForWorker(runs []*waveobj.Run, workerORef string) *waveobj.Run {
 	if workerORef == "" {
-		return ""
+		return nil
 	}
 	for _, r := range runs {
 		for _, p := range r.Phases {
 			for _, wo := range p.WorkerOrefs {
 				if wo == workerORef {
-					return r.ID
+					return r
 				}
 			}
 		}
 	}
-	return ""
+	return nil
+}
+
+func runID(run *waveobj.Run) string {
+	if run == nil {
+		return ""
+	}
+	return run.ID
+}
+
+// findRun locates a run by id across every channel in the input: a dag names its owning run id but not
+// which channel holds the row for it.
+func findRun(channels []AttentionChannel, id string) *waveobj.Run {
+	if id == "" {
+		return nil
+	}
+	for _, ch := range channels {
+		for _, r := range ch.Runs {
+			if r.ID == id {
+				return r
+			}
+		}
+	}
+	return nil
+}
+
+// attribution is the initiative a waiting thing belongs to, read off the owning run's EffortRef. Both
+// halves or neither: a chunk label with no effort oid names something the Brief cannot resolve, and the
+// oid is what the frontend joins the title from, so the pair travels together.
+func attribution(run *waveobj.Run) (effortOID string, chunkLabel string) {
+	if run == nil || run.EffortRef == nil || run.EffortRef.EffortOID == "" {
+		return "", ""
+	}
+	return run.EffortRef.EffortOID, run.EffortRef.ChunkLabel
+}
+
+// plural is a count plus its noun, singular at one. Every why-line is counts, and "1 tasks planned" on
+// a surface whose whole promise is that the numbers are derived reads as a bug in the number.
+func plural(n int, noun string) string {
+	if n == 1 {
+		return fmt.Sprintf("1 %s", noun)
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
+}
+
+// phaseLabel is a phase's written name. A custom phase's kind says nothing, so it is named by the skill
+// it runs when it has one.
+func phaseLabel(p waveobj.RunPhase) string {
+	if p.Kind == "custom" && p.Skill != "" {
+		return p.Skill
+	}
+	if p.Kind == "" {
+		return "phase"
+	}
+	return p.Kind
+}
+
+func donePhases(run *waveobj.Run) int {
+	n := 0
+	for _, p := range run.Phases {
+		if p.State == "done" {
+			n++
+		}
+	}
+	return n
+}
+
+// gateWhy is the sentence Text cannot carry: how much of the run is already behind this gate, and what
+// specifically does not start until it clears. Assembled from phase states, so it cannot disagree with
+// the run it describes — nothing in a why-line is generated prose.
+func gateWhy(run *waveobj.Run, idx int) string {
+	done, total := donePhases(run), len(run.Phases)
+	cur := run.Phases[idx]
+	if cur.State == "running" && cur.Held {
+		return fmt.Sprintf("The lead paused itself in the %s phase — %d of %d done. It resumes only when you approve.",
+			phaseLabel(cur), done, total)
+	}
+	if idx+1 < total {
+		return fmt.Sprintf("The %s phase finished — %d of %d done. The %s phase starts only when you approve.",
+			phaseLabel(cur), done, total, phaseLabel(run.Phases[idx+1]))
+	}
+	return fmt.Sprintf("The %s phase finished — %d of %d done. The run seals only when you approve.",
+		phaseLabel(cur), done, total)
+}
+
+// attentionCiteMax bounds a row's citation list. The Brief's rule is that nothing unbounded sits on the
+// surface, and an execute phase can record dozens of artifacts.
+const attentionCiteMax = 4
+
+// gateCites are the artifacts the gated phase recorded — the concrete things approving it accepts. The
+// remainder is counted rather than dropped: a silently truncated list would understate what the approval
+// covers.
+func gateCites(p waveobj.RunPhase) []string {
+	var out []string
+	for _, a := range p.Artifacts {
+		if a = strings.TrimSpace(a); a != "" {
+			out = append(out, a)
+		}
+	}
+	if len(out) > attentionCiteMax {
+		rest := len(out) - attentionCiteMax
+		out = append(out[:attentionCiteMax:attentionCiteMax], fmt.Sprintf("+%d more", rest))
+	}
+	return out
+}
+
+// doneTasks counts the group's finished tasks. Skipped counts as finished — the human decided it, and a
+// denominator that kept counting it would report the group as less complete than it is.
+func doneTasks(g *waveobj.TaskGroup) int {
+	n := 0
+	for _, t := range g.Tasks {
+		if t.State == taskStateDone || t.State == taskStateSkipped {
+			n++
+		}
+	}
+	return n
 }
 
 func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
@@ -122,6 +238,7 @@ func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
 			if idx < 0 {
 				continue
 			}
+			effortOID, chunkLabel := attribution(run)
 			gates = append(gates, wshrpc.AttentionItem{
 				Kind:         AttentionGate,
 				Key:          "gate:" + run.ID,
@@ -133,6 +250,10 @@ func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
 				Action:       "Review",
 				PhaseIdx:     idx,
 				WaitingSince: run.Phases[idx].DoneTs,
+				EffortOID:    effortOID,
+				ChunkLabel:   chunkLabel,
+				Why:          gateWhy(run, idx),
+				Cites:        gateCites(run.Phases[idx]),
 			})
 		}
 
@@ -154,16 +275,21 @@ func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
 			if name == "" {
 				name = "worker"
 			}
+			workerRun := runForWorker(ch.Runs, card.WorkerORef)
+			escEffort, escChunk := attribution(workerRun)
 			escalations = append(escalations, wshrpc.AttentionItem{
 				Kind:         AttentionEscalation,
 				Key:          "esc:" + m.ID,
 				ChannelId:    ch.OID,
 				ChannelName:  ch.Name,
-				RunId:        runIdForWorker(ch.Runs, card.WorkerORef),
+				RunId:        runID(workerRun),
 				Source:       name,
 				Text:         card.Question,
 				Action:       "Decide",
 				WaitingSince: m.Ts,
+				EffortOID:    escEffort,
+				ChunkLabel:   escChunk,
+				Why:          fmt.Sprintf("Jarvis escalated this instead of answering it; %s is paused until it is decided.", name),
 			})
 		}
 	}
@@ -174,6 +300,7 @@ func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
 		// is also why this is checked BEFORE the status switch — a group whose stored status has drifted
 		// must not report a review gate for a plan nobody has approved yet.
 		if g.PlanGate && g.PlanApprovedTs == 0 {
+			planEffort, planChunk := attribution(findRun(in.Channels, g.RunID))
 			gates = append(gates, wshrpc.AttentionItem{
 				Kind:        AttentionPlanGate,
 				Key:         "plan-gate:" + g.ID,
@@ -187,6 +314,9 @@ func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
 				// and it bumps when a sent-back plan is redrafted, which is the behaviour you want: the
 				// wait restarts when the plan changes. CreatedTs would age a redraft as the original.
 				WaitingSince: g.UpdatedTs,
+				EffortOID:    planEffort,
+				ChunkLabel:   planChunk,
+				Why:          fmt.Sprintf("%s planned, none dispatched. Approving is what spawns the first worker.", plural(len(g.Tasks), "task")),
 			})
 			continue
 		}
@@ -195,6 +325,7 @@ func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
 		case "awaiting-review":
 			gates = append(gates, dagGateItems(in, g)...)
 		case "blocked":
+			blockedEffort, blockedChunk := attribution(findRun(in.Channels, g.RunID))
 			gates = append(gates, wshrpc.AttentionItem{
 				Kind:         AttentionDagBlocked,
 				Key:          "dag-blocked:" + g.ID,
@@ -205,6 +336,10 @@ func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
 				Text:         fmt.Sprintf("%d consecutive failures — decide retry/skip.", g.Failures),
 				Action:       "Review",
 				WaitingSince: g.UpdatedTs,
+				EffortOID:    blockedEffort,
+				ChunkLabel:   blockedChunk,
+				Why: fmt.Sprintf("%d of %d tasks done. The group stays stopped until you retry or skip.",
+					doneTasks(g), len(g.Tasks)),
 			})
 		}
 	}
@@ -223,16 +358,21 @@ func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
 		if name == "" {
 			name = "worker"
 		}
+		askRun := runForWorker(ch.Runs, in.AskWorkerORef[oref])
+		askEffort, askChunk := attribution(askRun)
 		asks = append(asks, wshrpc.AttentionItem{
 			Kind:         AttentionAsk,
 			Key:          "ask:" + oref,
 			ChannelId:    ch.OID,
 			ChannelName:  ch.Name,
-			RunId:        runIdForWorker(ch.Runs, in.AskWorkerORef[oref]),
+			RunId:        runID(askRun),
 			Source:       name,
 			Text:         askText(p.Questions),
 			Action:       "Answer",
 			WaitingSince: p.Ts,
+			EffortOID:    askEffort,
+			ChunkLabel:   askChunk,
+			Why:          fmt.Sprintf("%s is paused until you answer.", name),
 		})
 	}
 
@@ -264,6 +404,8 @@ func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
 // is orchestrate's own (control.go:196, digest.go:198, scheduler.go:13).
 func dagGateItems(in AttentionInput, g *waveobj.TaskGroup) []wshrpc.AttentionItem {
 	var out []wshrpc.AttentionItem
+	effortOID, chunkLabel := attribution(findRun(in.Channels, g.RunID))
+	done := doneTasks(g)
 	for _, t := range g.Tasks {
 		if !t.Gate || t.State != taskStateDone || t.Released {
 			continue
@@ -289,6 +431,10 @@ func dagGateItems(in AttentionInput, g *waveobj.TaskGroup) []wshrpc.AttentionIte
 			Text:         fmt.Sprintf("Approve %s before the DAG proceeds.", label),
 			Action:       "Review",
 			WaitingSince: since,
+			EffortOID:    effortOID,
+			ChunkLabel:   chunkLabel,
+			Why: fmt.Sprintf("%d of %d tasks done. Everything downstream stays queued until this one is released.",
+				done, len(g.Tasks)),
 		})
 	}
 	if len(out) == 0 {
@@ -304,6 +450,10 @@ func dagGateItems(in AttentionInput, g *waveobj.TaskGroup) []wshrpc.AttentionIte
 			Text:         "Approve the gate before the DAG proceeds.",
 			Action:       "Review",
 			WaitingSince: g.UpdatedTs,
+			EffortOID:    effortOID,
+			ChunkLabel:   chunkLabel,
+			Why: fmt.Sprintf("%d of %d tasks done. Everything downstream stays queued until the gate is released.",
+				done, len(g.Tasks)),
 		})
 	}
 	return out
@@ -327,14 +477,21 @@ func radarTriageItems(reports []*waveobj.RadarReport) []wshrpc.AttentionItem {
 			continue
 		}
 		claimed[r.ProjectPath] = true
-		n := 0
+		fresh, recurring := 0, 0
 		for _, f := range r.Findings {
 			// nolonger, dismissed and suppressed are already-decided states; a disposition IS the
 			// decision. What is left is what nobody has ruled on.
-			if f.Disposition == nil && (f.Group == radarGroupNew || f.Group == radarGroupRecurring) {
-				n++
+			if f.Disposition != nil {
+				continue
+			}
+			switch f.Group {
+			case radarGroupNew:
+				fresh++
+			case radarGroupRecurring:
+				recurring++
 			}
 		}
+		n := fresh + recurring
 		if n == 0 {
 			continue
 		}
@@ -354,6 +511,9 @@ func radarTriageItems(reports []*waveobj.RadarReport) []wshrpc.AttentionItem {
 			Action:       "Triage",
 			ORef:         waveobj.MakeORef(waveobj.OType_RadarReport, r.OID).String(),
 			WaitingSince: r.CompletedTs,
+			// the split is what the total cannot say: a recurring finding has already survived one scan
+			// without anyone ruling on it, which is a different claim on your time than a new one.
+			Why: fmt.Sprintf("%d new and %d recurring, none of them ruled on yet.", fresh, recurring),
 		})
 	}
 	return out

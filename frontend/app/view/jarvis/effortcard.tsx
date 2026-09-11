@@ -11,7 +11,7 @@
 
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import {
     effortStatusLines,
     effortTone,
@@ -342,6 +342,17 @@ export function EffortCard({
     const [chunkDraft, setChunkDraft] = useState("");
     const [noteDraft, setNoteDraft] = useState("");
     const [mutateError, setMutateError] = useState<string | null>(null);
+
+    // Re-read whenever the briefing reports this effort newer than what is cached: the rows are the
+    // only half of the card that does not come off the summary, so without this they drift behind the
+    // header's own count the moment anything ticks the effort from outside the app.
+    useEffect(() => {
+        if (!expanded) {
+            return;
+        }
+        // the error is already recorded in effortDetailErrorAtom, which this card renders
+        void loadEffortDetail(model.oref, model.updatedts).catch(() => {});
+    }, [expanded, model.oref, model.updatedts]);
 
     const rows = effort != null ? effortChunkRows(effort) : [];
     const options = stageOptions(rows);

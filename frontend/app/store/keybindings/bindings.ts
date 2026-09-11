@@ -546,6 +546,14 @@ export function buildJarvisBindings(): Binding[] {
             run: () => clickThrough("[data-jarvis-new-channel]"),
         },
         {
+            id: "jarvis:new-initiative",
+            keys: "Shift:n",
+            group: "Jarvis",
+            label: "New initiative",
+            when: onStage,
+            run: () => clickThrough("[data-jarvis-new-initiative]"),
+        },
+        {
             id: "jarvis:record-band",
             keys: "e",
             group: "Jarvis",

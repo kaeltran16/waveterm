@@ -1,15 +1,20 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The channel's autonomy control. The header carries a fixed-width chip naming the current tier; the three
-// nested rungs, their blurbs and the Delegator-only dispatch mode live in the popover it opens.
+// The autonomy control: how much Jarvis decides without you. The Brief's header carries the chip; the
+// three nested rungs, their blurbs and the Delegator-only dispatch mode live in the popover it opens.
 //
 // Why a chip. The rungs used to sit in the header with the dispatch strip beside them, rendered only at
 // Delegator — so selecting that tier grew the group ~140px and slid all three rungs left, out from under
-// the cursor that had just clicked one (this is JC12's cause, measured at a 0px title). The chip's box is
-// identical at every tier and every mode, so the shift is gone by construction rather than absorbed by a
-// reserved gap. It also brings the control to the header's own scale: 27px tall, like the Graph button
-// beside it, where the group was 41px in a 43px band.
+// the cursor that had just clicked one (this is JC12's cause, measured at a 0px title). Everything that
+// changes size now lives inside a popover anchored to the chip's right edge, so nothing moves under the
+// pointer. It also brings the control to the header's own scale: 27px tall, like the buttons beside it,
+// where the group was 41px in a 43px band.
+//
+// It lost its mount when B5 retired the three-pane composition and has been unreachable since — the tier
+// is the remote-approval policy, so there was no way to see or change what Jarvis answers on your behalf.
+// This is the re-home, and it is where a one-per-channel setting meets an all-work surface: the chip
+// states briefautonomy's summary across projects, and the popover edits one project at a time.
 
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import type { JarvisTier } from "@/app/view/agents/channelmessages";
@@ -17,7 +22,7 @@ import { setChannelTier } from "@/app/view/agents/channelsstore";
 import { cn, fireAndForget } from "@/util/util";
 import { autoUpdate, offset, useClick, useDismiss, useFloating, useInteractions } from "@floating-ui/react";
 import { useAtom } from "jotai";
-import { useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
     autonomyPanelOpenAtom,
     chipParts,
@@ -27,6 +32,7 @@ import {
     rungState,
     showsDispatchMode,
 } from "./autonomyladder";
+import { autonomySummary, channelAutonomy } from "./briefautonomy";
 
 // The ladder itself, at whatever width its host wants: 3px in the chip's glyph, 4px in a panel row. Bars
 // fill up to `tier`, so a row passed its own tier says what that tier includes — which makes the current
@@ -45,12 +51,22 @@ function RungBars({ tier, width }: { tier: JarvisTier; width: number }) {
     );
 }
 
-export function AutonomyLadder({ channelId, tier, mode }: { channelId: string; tier: JarvisTier; mode: string }) {
+export function AutonomyLadder({ channels }: { channels: Channel[] | null }) {
     // one source for "is it open": the atom, because the keybinding layer reads the same state to hand
     // Escape to the panel (see autonomyladder.ts). Reset on unmount, or leaving the surface with the panel
     // open would keep Escape hostage on every other deep surface.
     const [open, setOpen] = useAtom(autonomyPanelOpenAtom);
     useEffect(() => () => setOpen(false), [setOpen]);
+    const rows = useMemo(() => channelAutonomy(channels), [channels]);
+    // the project the panel is editing. Not an atom: the panel closes with the surface, and a remembered
+    // project that had been archived meanwhile would edit nothing — falling back to the first row is the
+    // same rule the profile modal follows.
+    const [pickedId, setPickedId] = useState("");
+    const summary = autonomySummary(rows);
+    const current = rows.find((r) => r.channelId === pickedId) ?? rows[0];
+    const tier = current?.tier ?? "concierge";
+    const mode = current?.mode ?? "";
+    const channelId = current?.channelId ?? "";
     const setTier = (next: JarvisTier) => fireAndForget(() => setChannelTier(channelId, next, mode));
     const setMode = (next: string) => fireAndForget(() => setChannelTier(channelId, tier, next));
     const face = chipParts(tier, mode);
@@ -64,6 +80,11 @@ export function AutonomyLadder({ channelId, tier, mode }: { channelId: string; t
         whileElementsMounted: autoUpdate,
     });
     const { getReferenceProps, getFloatingProps } = useInteractions([useClick(context), useDismiss(context)]);
+    // no projects, no policy: a chip naming a tier over nothing is the header's version of an inert
+    // control. Below the hooks, not above them — every hook this component has must run on every render.
+    if (summary == null) {
+        return null;
+    }
     return (
         <div className="relative flex-none">
             <button
@@ -72,25 +93,14 @@ export function AutonomyLadder({ channelId, tier, mode }: { channelId: string; t
                 type="button"
                 data-jarvis-autonomy="chip"
                 aria-expanded={open}
-                title="Autonomy — how much Jarvis decides on this channel"
-                // min-w holds the widest state, measured over CDP at 164px for "Delegator · fanout" (against
-                // 107 at Concierge): a chip that sizes to its tier would put back the shift this replaced.
+                title="Autonomy — how much Jarvis decides without you, per project"
                 className={cn(
-                    "flex min-w-[164px] cursor-pointer items-center gap-2 rounded-[7px] border bg-surface px-2.5 py-1 text-[11px] font-semibold",
+                    "flex flex-none cursor-pointer items-center gap-2 rounded-[7px] border bg-surface px-2.5 py-1 text-[11px] font-semibold",
                     open ? "border-accent-700 text-primary" : "border-border text-secondary hover:text-primary"
                 )}
             >
-                <RungBars tier={tier} width={3} />
-                <span className="flex-1 whitespace-nowrap text-left">{face.label}</span>
-                {/* capped, not just sized: the mode is a free string off channel meta, so a value longer
-                    than the three canonical ones would grow the chip and put the shift back. 52px is the
-                    measured width of "· report" / "· manage" / "· fanout" (51px flat), so the canonical
-                    modes never clip and anything longer does. */}
-                {face.mode != null ? (
-                    <span className="max-w-[52px] flex-none truncate font-mono text-[10.5px] font-normal text-muted">
-                        · {face.mode}
-                    </span>
-                ) : null}
+                <RungBars tier={summary.tier} width={3} />
+                <span className="flex-1 whitespace-nowrap text-left">{summary.label}</span>
                 <span className={cn("flex-none font-mono text-[10px] text-muted", open && "rotate-180")}>▾</span>
             </button>
             {/* rendered unconditionally and driven by `open` — a `{open ? … : null}` caller defeats
@@ -102,9 +112,35 @@ export function AutonomyLadder({ channelId, tier, mode }: { channelId: string; t
                     className="w-[300px] rounded-[11px] border border-border bg-surface p-[5px] shadow-popover-md"
                 >
                     <div data-jarvis-autonomy="panel">
-                        <div className="px-[9px] pb-1.5 pt-1 font-mono text-[9px] font-semibold uppercase tracking-[.09em] text-muted">
-                            Autonomy
+                        <div className="flex items-baseline gap-2 px-[9px] pb-1.5 pt-1">
+                            <span className="flex-none font-mono text-[9px] font-semibold uppercase tracking-[.09em] text-muted">
+                                Autonomy
+                            </span>
+                            {/* the backend tier is per-channel, so the panel has to say which project it is
+                                changing — the chip above it is a summary and cannot. */}
+                            <span className="min-w-0 flex-1 truncate text-right font-mono text-[10px] text-muted">
+                                {face.label}
+                                {face.mode != null ? ` · ${face.mode}` : ""}
+                            </span>
                         </div>
+                        {rows.length > 1 ? (
+                            <label className="flex items-center gap-2 px-[9px] pb-2">
+                                <span className="flex-none font-mono text-[9px] font-semibold uppercase tracking-[.09em] text-muted">
+                                    project
+                                </span>
+                                <select
+                                    value={channelId}
+                                    onChange={(e) => setPickedId(e.target.value)}
+                                    className="min-w-0 flex-1 rounded-[5px] border border-edge-mid bg-background px-1.5 py-1 text-[11.5px] text-primary outline-none focus:border-accent/60"
+                                >
+                                    {rows.map((r) => (
+                                        <option key={r.channelId} value={r.channelId}>
+                                            {r.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
+                        ) : null}
                         {LADDER.map((rung) => {
                             const active = rung.tier === tier;
                             return (

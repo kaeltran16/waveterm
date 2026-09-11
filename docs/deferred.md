@@ -39,6 +39,21 @@ were the **only** mount for, and that B5's approved scope did not re-home.
     own turns and citations through `briefdrew.ts`, so these are largely superseded — recorded because
     "largely" is not "entirely": the Stage's answer view carried grounding chips inline.
   - **The stage-rail shell as a container**, and with it the `d` chord.
+  - **The composer's `@`-command vocabulary.** Missed by the sweep entirely (see the correction under *Why*).
+    `LaunchComposer` and `TalkComposer` (`agents/channelcomposers.tsx`) lost their only importer when B5
+    deleted `stagecomposer.tsx`, and with them the curated `@quick` / `@run` / `@ask` vocabulary in
+    `agents/composercommand.ts` — `LAUNCH_COMMANDS`, `parseComposerCommand`, `resolveComposerDispatch` are
+    now reachable only from that unmounted file and their own test, and the module's only surviving live
+    imports are `import type { RunShape }` in `runconfig.ts` / `runconfigstore.ts`. The Brief did re-home the
+    *launcher* — `RunLauncher` plus `briefsheet.tsx`'s own `ChannelLaunch` goal row — but the goal row is a
+    plain textarea, so a run's mode is now picked only from the launcher's controls and the one-shot `@ask`
+    consult has no typed form at all. `TalkComposer` is also the "merged surface composer Talk face" that
+    `runbody.tsx:10` names as the reason inline steering was removed.
+  - **The profile drawer's playbook and global-profile sections.** Not an orphaned module — a capability lost
+    *inside* a replacement, which is the second thing the sweep cannot see. `profilepanel.tsx` was deleted and
+    `briefprofileview.tsx` succeeded it carrying only the per-channel scalar defaults and a principles patch,
+    so the playbook editor (`ProfileOverride.playbook`) and the global profile editor had no mount, while
+    every export they used still looked consumed — by `profilemodel.test.ts`.
   - **Creating a persisted thread from an ask.** Found by CDP, not by the export sweep: the `n` chord still
     creates a thread (`startJarvisThread`), but the compose path that used to submit INTO it was the Stage's
     composer, and it is gone. The Brief's composer asks through `askAcrossWork`, which is stateless on
@@ -49,15 +64,28 @@ were the **only** mount for, and that B5's approved scope did not re-home.
     has one, or the `n` chord stops offering a thread the surface cannot use.
 - **Why:** the retirement is a deletion, and a single deletion cannot re-home the mounts it does not know it
   owns. B5's approved scope named five re-homes (the run body, the launcher and its goal row, the record
-  band, the initiative detail, and B4's profile modal) and these ten were not among them. They were found
-  afterwards by sweeping every `export function` in `app/` for one with no production consumer left once the
-  panes were gone — which is also the reason the list is trustworthy: it is mechanical, not recalled.
+  band, the initiative detail, and B4's profile modal) and these thirteen were not among them. Ten were found
+  afterwards by sweeping `app/` for exported functions with no production consumer left once the panes were
+  gone. **Corrected 2026-09-11: that sweep is not exhaustive and must not be cited as if it were.** Re-run at
+  module level it confirms the orphans it did name (`autonomyladderview`, `effortcreateform`, `jarvisturn`,
+  `proactiveviews`, `resumeviews`, `runrail` all had no importer; `radardevmock` and `sessionsmotion` were
+  already test-only before B1) — but it misses losses of three kinds. (a) It missed
+  `agents/channelcomposers.tsx` outright, which is a plain gap, not a structural one: the file is orphaned by
+  exactly the criterion the sweep claims to apply. (b) It is structurally blind to a capability that dies
+  *inside* a file that has a successor — the exports keep a consumer, so nothing reads as orphaned, and a
+  test file counts as a consumer to a grep. (c) It is single-level: an export whose only consumer is itself
+  unmounted still reads as live, which is how `steerWorker` survived — the sweep had already failed to notice
+  that its one caller was `channelcomposers.tsx`. All three are now in the list above. The list is still worth
+  trusting for what it names; it was never a proof that nothing else was lost.
 - **What already exists:** every item is shipped and unit-tested; **nothing was deleted**, and the modules
-  named above are all still in the tree. They are *orphaned*, not removed, deliberately: a deferred
-  capability's implementation is the expensive half of re-homing it, and the precedent is the 2026-07-31
-  entry's `gitinfo.RevertFile` / `GitRevertCommand`, kept for exactly this reason. What B5 did remove is the
-  dead code that was genuinely finished with: the column, the rail, the Stage, their exclusive views, the
-  `jarvisComposition` toggle and the `jarvis.stagerail.open` / `jarvis.composition` keys.
+  named above are all still in the tree — with one exception, the profile drawer's two sections, whose host
+  `profilepanel.tsx` *was* deleted — recover it with
+  `git show fb9034bb^:frontend/app/view/jarvis/profilepanel.tsx`. That deletion is what made them invisible
+  to the sweep, and is why they cost a rebuild rather than a re-mount. The rest are *orphaned*, not removed,
+  deliberately: a deferred capability's implementation is the expensive half of re-homing it, and the precedent is the
+  2026-07-31 entry's `gitinfo.RevertFile` / `GitRevertCommand`, kept for exactly this reason. What B5 did
+  remove is the dead code that was genuinely finished with: the column, the rail, the Stage, their exclusive
+  views, the `jarvisComposition` toggle and the `jarvis.stagerail.open` / `jarvis.composition` keys.
 - **Where it plugs in:** the Brief's header already hosts `+ Channel` (`newchannelcontrol.tsx`), so a channel
   menu belongs beside it; initiative creation and archive belong on the Initiatives region's row or in its
   sheet; the consult and resume/proactive feeds need a home or a stated non-home (they are the two items the
@@ -72,7 +100,38 @@ were the **only** mount for, and that B5's approved scope did not re-home.
   does not undo one of them. One item above is also a **verification** gap rather than only a product one:
   the detach/restore round trip against a record (`recordbandview.tsx`'s `EdgeControls`, still mounted inside
   the run sheet) lost its scenario with the column, so re-authoring that round trip against the sheet is
-  owed independently of what is decided about the other ten.
+  owed independently of what is decided about the thirteen above.
+
+**2026-09-11 update — what the review-fix pass re-homed.** The Brief review findings tracker
+(`effort:732863fa-1374-4ab2-9753-1220fc885f34`, F1–F9) closed four of the items above by moving the existing
+control, not rebuilding it. Re-verified by a fresh module sweep on 2026-09-11:
+
+- **The autonomy ladder — re-homed (F7).** `autonomyladderview.tsx` is imported again, by `briefsurface.tsx`:
+  it renders the header's tier chip, whose face is derived across active projects by a new `briefautonomy.ts`
+  (there is no global tier in the backend — `gatekeeper:enabled` / `delegator:*` are per-channel meta — so the
+  chip states "Mixed · N of M <tier>" when projects disagree), and its popover edits one project's rungs.
+- **Initiative creation — re-homed (F7).** `EffortCreateForm` is mounted by a new `newinitiativecontrol.tsx`
+  beside `+ Channel`, with a `Shift+N` binding. **The rest of the effort card is still orphaned**: `EffortCard`,
+  `expandEffort`, `toggleEffort`, `unarchiveEffort` and `deleteEffort` have no consumer outside their own
+  modules, so an initiative can now be started and inspected but still not archived, unarchived or deleted.
+  Reading one did get a way in — F6 made the Initiatives region's row a button that opens the effort sheet.
+- **The playbook and global-profile sections — re-homed (F4).** `BriefProfileModal` now opens on a
+  project/global scope toggle: project scope gained the playbook section the deleted `profilepanel.tsx` owned,
+  and global scope edits the `JarvisProfile` every project inherits. This matters beyond tidiness —
+  `resolveRunPlan` (`wshserver_runs.go:254`) composes every pipeline run from the resolved profile's phases,
+  so between B5 and F4 a custom playbook could only be set over the RPC.
+- **Steering a running worker — re-homed (F3).** `steerWorker` had zero reachable callers (`runbody.tsx`
+  hardcodes `hideSteer`, and its named replacement — the Talk face — was the orphaned `TalkComposer`). The
+  sheet composer now resolves its target through a new `briefcomposertarget.ts` and routes to `steerWorker`
+  when the drawn session's current phase has a live lead with a writable block. The *component*
+  `TalkComposer` stays orphaned; only the capability came back.
+
+**Still deferred and unchanged:** subject browsing, channel lifecycle, thread lifecycle, per-answer cancel and
+retry, the consult and resume/proactive feeds, the rail's fleet roster and `dismissWorker`, the Stage's turn
+renderers, the `@quick`/`@run`/`@ask` vocabulary, and the persisted-thread-from-an-ask decision. Of the two
+items called load-bearing above, initiative creation is closed and **channel lifecycle is not** — a channel
+still cannot be renamed, archived or removed anywhere in the cockpit. The record detach/restore verification
+gap is also still owed.
 
 ## Diff surface — repository actions split out of the parity work (2026-09-04)
 

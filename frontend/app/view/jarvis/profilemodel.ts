@@ -227,3 +227,37 @@ export function reduceGlobalPrinciples(list: Principle[], action: GlobalPrincipl
 export function globalProfileIsDirty(a: JarvisProfile, b: JarvisProfile): boolean {
     return JSON.stringify(a) !== JSON.stringify(b);
 }
+
+// The kinds a playbook phase can be authored as. Deliberately not Go's full PhaseKind set: the profile
+// playbook only ever composes a pipeline run — resolveRunPlan builds quick and orchestrator runs from their
+// own fixed playbooks — so an "orchestrate" phase authored here would never be dispatched.
+export const PHASE_KINDS = ["brainstorm", "plan", "execute", "custom"] as const;
+
+export type PlaybookAction =
+    | { type: "add" }
+    | { type: "update"; index: number; phase: RunPhase }
+    | { type: "remove"; index: number }
+    | { type: "move"; index: number; dir: -1 | 1 };
+
+// Pure and index-addressed, because a phase carries no id — two "custom" phases are distinguishable only
+// by position. An out-of-range index returns the list unchanged rather than throwing, so a click that
+// lands after the list has shrunk cannot corrupt the draft.
+export function reducePlaybook(phases: RunPhase[], action: PlaybookAction): RunPhase[] {
+    switch (action.type) {
+        case "add":
+            return [...phases, { kind: "custom", state: "pending" }];
+        case "update":
+            return phases.map((p, i) => (i === action.index ? action.phase : p));
+        case "remove":
+            return phases.filter((_, i) => i !== action.index);
+        case "move": {
+            const j = action.index + action.dir;
+            if (action.index < 0 || action.index >= phases.length || j < 0 || j >= phases.length) {
+                return phases;
+            }
+            const next = [...phases];
+            [next[action.index], next[j]] = [next[j], next[action.index]];
+            return next;
+        }
+    }
+}
