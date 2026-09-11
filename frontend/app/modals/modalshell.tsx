@@ -6,11 +6,28 @@
 // listener, focus (modalfocus.ts), and the optional backdrop-click dismiss. Reduced-motion drops the
 // scale, keeps the fade.
 
-import { modalBackdrop, modalPanel } from "@/app/element/motiontokens";
+import { modalBackdrop, modalPanel, sheetPanel } from "@/app/element/motiontokens";
 import { takeModalFocus } from "@/app/modals/modalfocus";
+import { isTopModal, registerModal } from "@/app/modals/modalstack";
 import { cn } from "@/util/util";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
+
+export type ModalVariant = "dialog" | "sheet";
+
+// One named composition per shape rather than four independent override props whose combinations
+// nobody would test. Two of these differences are behavior, not styling: a sheet is `absolute` at
+// z-20 so it stays scoped to the surface that owns it, leaving the app bar reachable and surfaces
+// switchable while it is open. A fixed z-70 detail sheet would cover the cockpit chrome.
+const BACKDROP: Record<ModalVariant, string> = {
+    dialog: "fixed inset-0 z-[70] flex justify-center bg-black/60 backdrop-blur-sm",
+    sheet: "absolute inset-0 z-20 flex items-stretch justify-end bg-background/40",
+};
+
+const PANEL: Record<ModalVariant, string> = {
+    dialog: "overflow-hidden rounded-[14px] border border-edge-strong bg-modalbg shadow-popover outline-none",
+    sheet: "overflow-hidden rounded-none border-l border-edge-faint bg-surface shadow-popover outline-none",
+};
 
 interface ModalShellProps {
     open: boolean;
@@ -20,6 +37,7 @@ interface ModalShellProps {
     align?: "top" | "center"; // vertical placement; default "top" (topClass offset). "center" for alerts.
     topClass?: string; // backdrop top offset when align="top"; default pt-[11vh]
     dismissOnBackdrop?: boolean; // default true
+    variant?: ModalVariant; // "dialog" (centered, default) or "sheet" (right-pinned, surface-scoped)
     children: ReactNode;
 }
 
@@ -31,9 +49,20 @@ export function ModalShell({
     align = "top",
     topClass = "pt-[11vh]",
     dismissOnBackdrop = true,
+    variant = "dialog",
     children,
 }: ModalShellProps) {
     const panelRef = useRef<HTMLDivElement>(null);
+    const shellId = useId();
+    // registered in its own effect, before the key listener below, so a shell that opens in the same
+    // commit as another is already in the stack when that listener first runs
+    useEffect(() => {
+        if (!open) {
+            return;
+        }
+        return registerModal(shellId);
+    }, [open, shellId]);
+
     // runs after the children's own effects and after React has applied any child autoFocus, so a modal
     // with a text field keeps it — this only claims focus when nothing inside the panel took it.
     useEffect(() => {
@@ -48,6 +77,11 @@ export function ModalShell({
             return;
         }
         const onKey = (e: KeyboardEvent) => {
+            // only the topmost open shell owns the keyboard. Without this, every mounted shell's
+            // listener fires and Escape over a stacked pair dismisses both at once.
+            if (!isTopModal(shellId)) {
+                return;
+            }
             if (e.key === "Escape") {
                 onClose();
             } else if (onSubmit && e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
@@ -57,7 +91,7 @@ export function ModalShell({
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
-    }, [open, onClose, onSubmit]);
+    }, [open, onClose, onSubmit, shellId]);
 
     return (
         <MotionConfig reducedMotion="user">
@@ -70,8 +104,10 @@ export function ModalShell({
                         animate="animate"
                         exit="exit"
                         className={cn(
-                            "fixed inset-0 z-[70] flex justify-center bg-black/60 backdrop-blur-sm",
-                            align === "center" ? "items-center p-10" : cn("items-start", topClass)
+                            BACKDROP[variant],
+                            // align/topClass position a centered dialog; a sheet is pinned by the map above
+                            variant === "dialog" &&
+                                (align === "center" ? "items-center p-10" : cn("items-start", topClass))
                         )}
                         onMouseDown={
                             dismissOnBackdrop
@@ -85,15 +121,12 @@ export function ModalShell({
                     >
                         <motion.div
                             ref={panelRef}
-                            variants={modalPanel}
+                            variants={variant === "sheet" ? sheetPanel : modalPanel}
                             role="dialog"
                             aria-modal="true"
                             tabIndex={-1} // focus target for a dialog with no field of its own (alerts, the cheatsheet)
                             onMouseDown={(e) => e.stopPropagation()}
-                            className={cn(
-                                "overflow-hidden rounded-[14px] border border-edge-strong bg-modalbg shadow-popover outline-none",
-                                className
-                            )}
+                            className={cn(PANEL[variant], className)}
                         >
                             {children}
                         </motion.div>
