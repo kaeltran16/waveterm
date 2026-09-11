@@ -9,7 +9,7 @@ import { AgentsViewModel, SURFACE_ORDER, type SurfaceKey } from "@/app/view/agen
 import { answerDigitTarget, canSubmitAsk, moveCursor, type AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
 import { sideJumpTarget, type CompareRow } from "@/app/view/agents/comparerows";
-import { compareOnAtom, compareSelectionAtom, leaveCompare } from "@/app/view/agents/comparestore";
+import { compareOnAtom, compareSelectionAtom, leaveCompare, swapCompareRefs } from "@/app/view/agents/comparestore";
 import { historyCollapsedAtom } from "@/app/view/agents/difflayout";
 import { gotoChange } from "@/app/view/agents/diffnav";
 import { splitViewAtom } from "@/app/view/agents/diffpane";
@@ -799,6 +799,20 @@ export function buildFilesBindings(): Binding[] {
             label: "Split / unified",
             when: on,
             run: () => globalStore.set(splitViewAtom, !globalStore.get(splitViewAtom)),
+        },
+        {
+            id: "files:swap-refs",
+            keys: "Shift:s",
+            group: "Diff",
+            label: "Swap compare refs",
+            when: inCompare,
+            run: () => {
+                const cwd = globalStore.get(filesStateAtom)?.cwd;
+                if (!cwd) {
+                    return false; // no repository resolved yet — nothing to re-read
+                }
+                void swapCompareRefs(cwd);
+            },
         },
         {
             // Shift+N/Shift+P, not vim's ]c/[c: "[" and "]" already cycle surfaces globally, and

@@ -18,6 +18,29 @@ export function NotARepoPanel() {
     );
 }
 
+// A git command that failed WITHOUT invalidating what is on screen — a fetch, so far. The panel above
+// takes over the surface because a failed read leaves nothing to show; a failed fetch leaves the
+// comparison intact and merely not freshened, and blanking the screen would throw that away. Same
+// words from git, a strip instead of a takeover.
+export function GitFailureNotice({ failure, onDismiss }: { failure: GitFailure; onDismiss: () => void }) {
+    return (
+        <div
+            data-git-failure-notice
+            className="mx-[18px] mb-[10px] flex flex-none items-center gap-[9px] rounded-[8px] border border-error/25 bg-error/12 px-[11px] py-[7px]"
+        >
+            <span className="flex-none font-mono text-xxxs font-bold uppercase tracking-[0.1em] text-error">
+                {failure.command}
+            </span>
+            <span className="min-w-0 flex-1 select-text truncate font-mono text-[11.5px] text-ink-mid">
+                {failure.stderr || (failure.exitcode < 0 ? "no exit code" : `exit ${failure.exitcode}`)}
+            </span>
+            <button onClick={onDismiss} className="flex-none text-[11px] text-ink-faint hover:text-foreground">
+                ✕
+            </button>
+        </div>
+    );
+}
+
 export function GitFailurePanel({ failure, onRetry }: { failure: GitFailure; onRetry: () => void }) {
     // -1 means the failure was not an exit status at all (git missing, a timeout, a dropped socket).
     // Showing "no exit code" beats printing -1 as though git had returned it.

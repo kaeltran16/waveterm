@@ -19,7 +19,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSyncMonacoTheme } from "@/app/monaco/monacotheme";
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import type { AgentsViewModel } from "./agents";
-import type { AgentVM } from "./agentsviewmodel";
+import { formatAge, type AgentVM } from "./agentsviewmodel";
 import { DiffPane } from "./diffpane";
 import type { CompareForm, DiffSelection } from "./diffcontent";
 import { clearDiffPair, loadDiffPair } from "./diffcontentstore";
@@ -47,12 +47,16 @@ import {
     compareSelectedFileAtom,
     compareSelectionAtom,
     compareSidesAtom,
+    dismissFetchFailure,
     enterCompare,
+    fetchStateAtom,
     leaveCompare,
+    runFetch,
     selectCompareFile,
     selectCompareRow,
     setCompareForm,
     setCompareRefs,
+    swapCompareRefs,
 } from "./comparestore";
 import { RefPicker } from "./refpicker";
 import {
@@ -79,7 +83,7 @@ import {
     selectedFileAtom,
     setHistoryOpts,
 } from "./githistorystore";
-import { GitFailurePanel, NotARepoPanel } from "./gitstatepanels";
+import { GitFailureNotice, GitFailurePanel, NotARepoPanel } from "./gitstatepanels";
 import { HistoryFilterRow } from "./historyfilterrow";
 import { HistoryPane } from "./historypane";
 import { RESTORE_DISMISS_MS, countLabel } from "./historyquery";
@@ -196,6 +200,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
     const loadError = useAtomValue(filesErrorAtom);
     const historyRows = useAtomValue(historyRowsAtom);
     const historyFailure = useAtomValue(historyFailureAtom);
+    const fetchState = useAtomValue(fetchStateAtom);
     const historyFiltered = useAtomValue(historyFilteredAtom);
     const historyFilters = useAtomValue(historyFiltersAtom);
     const historyScroll = useAtomValue(historyScrollAtom);
@@ -533,7 +538,33 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                     }
                                 }}
                                 onCancel={() => setPickerOpen(false)}
+                                onSwap={() => state?.cwd && fireAndForget(() => swapCompareRefs(state.cwd!))}
                             />
+                        ) : null}
+                        {compareOn ? (
+                            <div className="flex items-center gap-[7px]">
+                                <button
+                                    onClick={() => state?.cwd && fireAndForget(() => runFetch(state.cwd!))}
+                                    disabled={fetchState.running}
+                                    title="Update remote-tracking refs"
+                                    className={cn(
+                                        "flex-none rounded border border-border px-[9px] py-[5px] font-mono text-[11px]",
+                                        fetchState.running
+                                            ? "text-ink-faint opacity-50"
+                                            : "text-ink-mid hover:text-foreground"
+                                    )}
+                                >
+                                    {fetchState.running ? "↻ Fetching…" : "↻ Fetch"}
+                                </button>
+                                {/* A remote-tracking ref is only as fresh as the last fetch, so the
+                                    clock is part of reading the comparison. Absent until one has
+                                    happened — "just now" on an unfetched session would be a lie. */}
+                                {fetchState.at > 0 ? (
+                                    <span className="font-mono text-[10.5px] text-ink-faint">
+                                        fetched {formatAge(Date.now() - fetchState.at * 1000)} ago
+                                    </span>
+                                ) : null}
+                            </div>
                         ) : null}
                     </div>
                     {scope ? (
@@ -565,6 +596,10 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                             ✕
                         </button>
                     </div>
+                ) : null}
+
+                {fetchState.failure ? (
+                    <GitFailureNotice failure={fetchState.failure} onDismiss={() => dismissFetchFailure()} />
                 ) : null}
 
                 {/* nothing to filter in the two failure states, and compare has its own column */}

@@ -92,7 +92,9 @@ function clearCompareState(): void {
 // you can still type a ref by hand, which is the whole reason the fields accept free text.
 export async function loadCompareRefsMeta(cwd: string): Promise<string> {
     try {
-        const rtn = await RpcApi.ListBranchesCommand(TabRpcClient, { projectpath: cwd });
+        // remote-tracking refs too: an origin/* ref is the review base most of the time, and the
+        // backend's default branch now prefers the remote one (T2)
+        const rtn = await RpcApi.ListBranchesCommand(TabRpcClient, { projectpath: cwd, includeremotes: true });
         globalStore.set(compareBranchesAtom, rtn.branches ?? []);
         return rtn.default ?? "";
     } catch {
@@ -187,6 +189,67 @@ export async function setCompareForm(cwd: string, form: CompareForm): Promise<vo
     }
     globalStore.set(diffScopeAtom, { ...scope, range: { ...scope.range, form } });
     await setCompareRefs(cwd, scope.range.base, scope.range.head);
+}
+
+// Swapping is a different comparison, not a redraw: both the divergence and the aggregate invert, so
+// it goes through the same path a typed pair does.
+export async function swapCompareRefs(cwd: string): Promise<void> {
+    const refs = globalStore.get(compareRefsAtom);
+    if (refs == null || !refs.base || !refs.head) {
+        return;
+    }
+    await setCompareRefs(cwd, refs.head, refs.base);
+}
+
+export interface FetchState {
+    running: boolean;
+    at: number; // unix seconds of the last successful fetch; 0 = never in this session
+    failure: GitFailure | null;
+}
+
+export const fetchStateAtom = atom<FetchState>({
+    running: false,
+    at: 0,
+    failure: null,
+}) as PrimitiveAtom<FetchState>;
+
+// The one network call this surface makes. A remote-tracking ref is only as fresh as the last fetch,
+// so comparing against origin/main without one silently compares against yesterday's origin/main.
+//
+// The budget is raised on purpose: the client's timeout binds the SERVER's context, so at the 5s
+// default a merely-slow fetch would be cancelled underneath a git process that is still running.
+// 60s sits just outside gitinfo's own 55s fetchTimeout, so git's answer arrives first and a real
+// timeout is reported by the side that knows what it was doing.
+export async function runFetch(cwd: string): Promise<void> {
+    globalStore.set(fetchStateAtom, { ...globalStore.get(fetchStateAtom), running: true, failure: null });
+    try {
+        const r = await RpcApi.GitFetchCommand(TabRpcClient, { cwd }, { timeout: 60000 });
+        // a failed fetch reports no time; the previous one still happened, so the clock keeps reading it
+        const prevAt = globalStore.get(fetchStateAtom).at;
+        globalStore.set(fetchStateAtom, { running: false, at: r.fetchedat || prevAt, failure: r.failure ?? null });
+        if (r.failure != null) {
+            return;
+        }
+        // The refs moved, so what the picker suggests and what the comparison means both moved with
+        // them. Re-reading is the point of having fetched.
+        await loadCompareRefsMeta(cwd);
+        const refs = globalStore.get(compareRefsAtom);
+        if (refs != null) {
+            await setCompareRefs(cwd, refs.base, refs.head);
+        }
+    } catch {
+        // An RPC-level failure has no stderr to show, so say the one thing that is known rather than
+        // leaving the button spinning.
+        globalStore.set(fetchStateAtom, {
+            running: false,
+            at: globalStore.get(fetchStateAtom).at,
+            failure: { command: "git fetch", exitcode: -1, stderr: "the fetch did not complete" },
+        });
+    }
+}
+
+export function dismissFetchFailure(): void {
+    globalStore.set(fetchStateAtom, { ...globalStore.get(fetchStateAtom), failure: null });
 }
 
 export async function selectCompareRow(cwd: string, rowId: string): Promise<void> {
