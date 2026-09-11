@@ -42,12 +42,15 @@ export interface ThreeBloomSettings {
     radius: number;
 }
 
-// Threshold is deliberately low. The two registers that report a fault (drifting, cannot-see) are the two
-// that render faintest, and a bloom that only lifts bright pixels lifts everything EXCEPT them — which is
-// the same contrast collapse the mood table was already fixed for once.
+// The prototype's numbers at this size, and they have to be: the old settings (strength 1.8, threshold
+// 0.05) were tuned for a form of ~890 faint hairlines, where a low threshold and a strong lift were what
+// made the thing visible at all. This form is heavier line work over additive fills, and under that bloom
+// every register blew out into a featureless blob — the exact failure the new form exists to fix.
+// Threshold now sits above the dim body line work so only the lit core, the front arcs and the marker
+// rim bloom, which is what gives the form its depth instead of erasing it.
 // Radius is kept short for the same reason SPHERE_FRACTION leaves margin: a blur whose tail reaches the
 // framebuffer border clamps there, and the clamp is a visible soft-edged square around the avatar.
-export const DEFAULT_THREE_BLOOM: ThreeBloomSettings = { strength: 1.8, threshold: 0.05, radius: 0.4 };
+export const DEFAULT_THREE_BLOOM: ThreeBloomSettings = { strength: 0.35, threshold: 0.4, radius: 0.2 };
 
 function channels(colour: string): [number, number, number] {
     const hex = colour.trim().replace("#", "");
