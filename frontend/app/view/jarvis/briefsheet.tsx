@@ -230,7 +230,7 @@ function ChannelRun({ model, channel, run }: { model: AgentsViewModel; channel: 
 
 // The skeleton is only honest while the channel is still being read. A peek's attributed run can name a
 // channel that no longer exists, and this sheet is the only place that run is shown — so a read that FAILED
-// has to say so rather than sit under "Reading this channel…", which is what the two states looked like
+// has to say so rather than sit under "Reading this project…", which is what the two states looked like
 // when they shared one branch.
 function SheetChannelPending({ channelId }: { channelId: string }) {
     const errored = useAtomValue(WOS.getWaveObjectErrorAtom(WOS.makeORef("channel", channelId)));

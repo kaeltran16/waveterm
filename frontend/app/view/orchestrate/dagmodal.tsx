@@ -5,6 +5,8 @@ import { modalBackdrop, modalPanel } from "@/app/element/motiontokens";
 import { focusTrapTarget, takeModalFocus } from "@/app/modals/modalfocus";
 import { useWaveObjectValue } from "@/app/store/wos";
 import { harnessesAtom } from "../agents/harnessstore";
+import { channelProjectLabel } from "../agents/projectlabel";
+import { projectsAtom } from "../agents/projectsstore";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { useAtomValue } from "jotai";
 import { useEffect, useRef, useState, type JSX } from "react";
@@ -103,14 +105,15 @@ export function DagModal() {
     );
 }
 
-// ModalSubtitle names which run this graph belongs to. The channel is shown by name and the run by its
-// short prefix, because the pair of raw uuids this replaced identified the graph to the database and to
-// nobody else — and the channel name is the half a reader actually recognises.
+// ModalSubtitle names which run this graph belongs to: the project it runs in, and the run by its short
+// prefix — because the pair of raw uuids this replaced identified the graph to the database and to nobody
+// else, and the project is the half a reader actually recognises.
 function ModalSubtitle({ channelId, runId }: { channelId: string; runId: string }) {
     const [channel] = useWaveObjectValue<Channel>(`channel:${channelId}`);
+    const projects = useAtomValue(projectsAtom);
     return (
         <p className="font-mono text-xxs uppercase tracking-[.1em] text-muted">
-            {channel?.name ? `#${channel.name}` : channelId} · {runId.slice(0, 13)}
+            {channelProjectLabel(channel, projects) || channelId} · {runId.slice(0, 13)}
         </p>
     );
 }
