@@ -200,7 +200,9 @@ export function PetView({ model }: { model: AgentsViewModel }) {
         // deps here do (memgraph.tsx, jarvisgraph.tsx). The 2D fallback draws the same scene meanwhile,
         // which is why the avatar is never blank waiting for it.
         let gl: AvatarThree | null = null;
-        let bloom = { strength: 0.85, threshold: 0.12, radius: 0.75 };
+        // only used for the frames between the first draw and three resolving; kept equal to
+        // DEFAULT_THREE_BLOOM so the avatar does not visibly re-light once the module lands
+        let bloom = { strength: 0.35, threshold: 0.4, radius: 0.2 };
         let dropped = false;
         void import("./avatarthree").then((mod) => {
             if (dropped) {
