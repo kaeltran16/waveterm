@@ -4,30 +4,31 @@
 
 // Diff surface (Wave-git-review.dc.html): three panes on one time axis — commit history with a lane
 // gutter (historypane), the selected commit's metadata + files (commitpane), and that file's diff
-// (CenterPane, below). Uncommitted work is row zero of the history, not a separate mode. Read-only.
+// (diffpane). Uncommitted work is row zero of the history, not a separate mode. Read-only.
 
 import { getApi } from "@/app/store/global";
 import { globalStore } from "@/app/store/jotaiStore";
 import { joinRepoPath } from "@/util/paths";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { MotionConfig, motion } from "motion/react";
+import { MotionConfig } from "motion/react";
 import { buildFilesBindings } from "@/app/store/keybindings/bindings";
 import { useSurfaceListNav, type ListNavController } from "@/app/store/keybindings/listnav";
 import { useKeybindings } from "@/app/store/keybindings/store";
-import { useEffect, useMemo, useState } from "react";
-import { MOTION } from "@/app/element/motiontokens";
-import { PopoverReveal } from "@/app/element/popoverreveal";
-import { SkeletonLine } from "@/app/element/skeleton";
-import { openInCode } from "@/app/view/code/codestore";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useSyncMonacoTheme } from "@/app/monaco/monacotheme";
 import type { AgentsViewModel } from "./agents";
-import type { AgentVM } from "./agentsviewmodel";
-import { firstChangedLine, type DiffLine, type FileView } from "./gitdiff";
-import { StatusDot } from "./statusdot";
+import { formatAge } from "./agentsviewmodel";
+import { DiffPane } from "./diffpane";
+import type { CompareForm, DiffSelection } from "./diffcontent";
+import { clearDiffPair, loadDiffPair } from "./diffcontentstore";
+import { defaultFocusId, focusFollowAgent, sourceFor, type FilesSource } from "./diffsource";
 import { filesErrorAtom, filesStateAtom, loadFilesForScope, startChangesPoll, type FilesProject } from "./filesstore";
 import { availableRanges, historyOptsFor, rangeKey, scopeKey, summaryLine } from "./diffscope";
 import { agentDiffScope, projectDiffScope } from "./agentdiffnav";
 import { setDiffRange } from "./diffscopeatom";
+import { historyCollapsedAtom, resolveCollapsed } from "./difflayout";
+import { HistoryRail } from "./historyrail";
 import { peekSessionStart } from "./agentsessionstore";
 import { RangeStrip } from "./rangestrip";
 import { projectsAtom } from "./projectsstore";
@@ -39,23 +40,26 @@ import {
     compareActiveChangesAtom,
     compareAggregateAtom,
     compareBranchesAtom,
-    compareDiffAtom,
     compareErrorAtom,
     compareOnAtom,
     compareRefsAtom,
     compareSelectedFileAtom,
     compareSelectionAtom,
     compareSidesAtom,
+    dismissFetchFailure,
     enterCompare,
+    fetchStateAtom,
     leaveCompare,
+    runFetch,
     selectCompareFile,
     selectCompareRow,
+    setCompareForm,
     setCompareRefs,
+    swapCompareRefs,
 } from "./comparestore";
 import { RefPicker } from "./refpicker";
 import {
     activeChangesAtom,
-    activeDiffAtom,
     dismissRestoreNotice,
     graphOnAtom,
     historyAppendAtom,
@@ -68,6 +72,7 @@ import {
     loadHistory,
     loadMoreHistory,
     noteSurfaceLeft,
+    refreshHistoryIfMoved,
     resetHistory,
     restoreNoticeAtom,
     retryHistory,
@@ -77,260 +82,13 @@ import {
     selectedFileAtom,
     setHistoryOpts,
 } from "./githistorystore";
-import { GitFailurePanel, NotARepoPanel } from "./gitstatepanels";
+import { GitFailureNotice, GitFailurePanel, NotARepoPanel } from "./gitstatepanels";
 import { HistoryFilterRow } from "./historyfilterrow";
 import { HistoryPane } from "./historypane";
 import { RESTORE_DISMISS_MS, countLabel } from "./historyquery";
 import { WORKING_TREE } from "./historyrows";
+import { SourcePicker } from "./sourcepicker";
 import { SurfaceEmptyState, SurfaceError } from "./surfacescaffold";
-
-// The Files surface can be scoped either to a running agent's worktree or to a registered project.
-export type FilesSource = { kind: "agent"; id: string } | { kind: "project"; name: string };
-
-// In-tab source selector: picks whose worktree the Files surface shows. Agents (with a state dot)
-// write the shared focusIdAtom so a diff can be inspected without bouncing back to the Agent tab;
-// registered projects (folder glyph) resolve straight from their registry path — no agent needed.
-function SourcePicker({
-    agents,
-    projects,
-    source,
-    currentLabel,
-    onPickAgent,
-    onPickProject,
-}: {
-    agents: AgentVM[];
-    projects: FilesProject[];
-    source: FilesSource | null;
-    // The stored scope's own label. A run is neither an agent nor a registered project, so without
-    // this the picker would read "Select a source" while a run's diff is on screen.
-    currentLabel?: string;
-    onPickAgent: (id: string) => void;
-    onPickProject: (p: FilesProject) => void;
-}) {
-    const [open, setOpen] = useState(false);
-    const currentAgent = source?.kind === "agent" ? agents.find((a) => a.id === source.id) : undefined;
-    const currentProject = source?.kind === "project" ? projects.find((p) => p.name === source.name) : undefined;
-    const hasAny = agents.length > 0 || projects.length > 0;
-    const fallback = hasAny ? "Select a source" : "No agents or projects";
-    const label = currentAgent?.name ?? currentProject?.name ?? currentLabel ?? fallback;
-    return (
-        <div className="relative">
-            <button
-                data-files-source-picker
-                onClick={() => setOpen((v) => !v)}
-                disabled={!hasAny}
-                className="flex w-full items-center gap-[8px] rounded-[9px] border border-border px-[10px] py-[7px] hover:border-edge-strong disabled:cursor-default disabled:opacity-60"
-            >
-                {currentAgent ? (
-                    <StatusDot state={currentAgent.state} className="!h-[7px] !w-[7px]" />
-                ) : currentProject ? (
-                    <span className="flex-none text-[11px] text-ink-faint">▪</span>
-                ) : null}
-                <span className="min-w-0 flex-1 truncate text-left font-mono text-[12px] text-ink-mid">{label}</span>
-                {hasAny ? <span className="flex-none text-[10px] text-ink-faint">▾</span> : null}
-            </button>
-            {open && hasAny ? <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} /> : null}
-            <PopoverReveal
-                open={open && hasAny}
-                origin="top"
-                className="absolute left-0 right-0 top-full z-20 mt-1 max-h-[280px] overflow-y-auto rounded border border-border bg-modalbg py-1 shadow-popover"
-            >
-                        {agents.length > 0 ? (
-                            <div className="px-[10px] pb-[3px] pt-[5px] font-mono text-[9.5px] uppercase tracking-[0.08em] text-ink-faint">
-                                Agents
-                            </div>
-                        ) : null}
-                        {agents.map((a) => (
-                            <button
-                                key={a.id}
-                                onClick={() => {
-                                    onPickAgent(a.id);
-                                    setOpen(false);
-                                }}
-                                className={cn(
-                                    "flex w-full items-center gap-[8px] px-[10px] py-[7px] text-left hover:bg-surface-hover",
-                                    source?.kind === "agent" && a.id === source.id ? "text-foreground" : "text-ink-mid"
-                                )}
-                            >
-                                <StatusDot state={a.state} className="!h-[7px] !w-[7px]" />
-                                <span className="min-w-0 flex-1 truncate font-mono text-[12px]">{a.name}</span>
-                            </button>
-                        ))}
-                        {projects.length > 0 ? (
-                            <div className="px-[10px] pb-[3px] pt-[7px] font-mono text-[9.5px] uppercase tracking-[0.08em] text-ink-faint">
-                                Projects
-                            </div>
-                        ) : null}
-                        {projects.map((p) => (
-                            <button
-                                key={p.name}
-                                // agent names and project names can collide, and this dropdown renders
-                                // both — a scenario needs to click a project by name, not by text match
-                                data-files-source-option={p.name}
-                                title={p.path}
-                                onClick={() => {
-                                    onPickProject(p);
-                                    setOpen(false);
-                                }}
-                                className={cn(
-                                    "flex w-full items-center gap-[8px] px-[10px] py-[7px] text-left hover:bg-surface-hover",
-                                    source?.kind === "project" && p.name === source.name ? "text-foreground" : "text-ink-mid"
-                                )}
-                            >
-                                <span className="flex-none text-[11px] text-ink-faint">▪</span>
-                                <span className="min-w-0 flex-1 truncate font-mono text-[12px]">{p.name}</span>
-                            </button>
-                        ))}
-            </PopoverReveal>
-        </div>
-    );
-}
-
-function EmptyCenter({ msg }: { msg: string }) {
-    return <div className="flex h-full items-center justify-center text-[13px] text-muted">{msg}</div>;
-}
-
-// A file can legitimately have changed and still have no diff text: git sends one sentence for a
-// binary file, and a pure rename or a mode change has no content to show at all. Both used to render
-// as an empty scroll area under a "+0 −0" bar, which reads as a broken pane rather than an answer.
-function NoTextDiff({ view }: { view: FileView }) {
-    return (
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-[7px] px-[20px] text-center">
-            <span className="text-[13px] text-muted">
-                {view.binary
-                    ? "Binary file — git reports a change but has no text diff to show."
-                    : view.renamedFrom
-                      ? "Renamed. Nothing inside the file changed."
-                      : "Nothing inside this file changed."}
-            </span>
-            {view.renamedFrom ? (
-                <span className="font-mono text-[11.5px] text-ink-faint">from {view.renamedFrom}</span>
-            ) : null}
-        </div>
-    );
-}
-
-function DiffSkeleton() {
-    return (
-        <div className="flex min-h-0 flex-1 flex-col">
-            <div className="flex flex-none items-center gap-[14px] border-b border-edge-faint px-[20px] py-[8px]">
-                <SkeletonLine className="h-[11px] w-[34px]" />
-                <SkeletonLine className="h-[11px] w-[34px]" />
-                <SkeletonLine className="h-[11px] w-[92px]" />
-            </div>
-            <div className="flex-1 overflow-hidden px-[20px] py-[14px]">
-                {Array.from({ length: 12 }).map((_, i) => (
-                    <div key={i} className="mb-[10px] flex gap-[10px]">
-                        <SkeletonLine className="h-[12px] w-[30px]" />
-                        <SkeletonLine className="h-[12px] w-[30px]" />
-                        <SkeletonLine className="h-[12px] w-[72%]" />
-                    </div>
-                ))}
-            </div>
-        </div>
-    );
-}
-
-function DiffRow({ line }: { line: DiffLine }) {
-    if (line.kind === "hunk") {
-        return <div className="bg-surface px-[20px] py-[2px] font-mono text-[11px] text-ink-mid">{line.text}</div>;
-    }
-    const tint =
-        line.kind === "add"
-            ? "color-mix(in srgb, var(--color-success) 12%, transparent)"
-            : line.kind === "del"
-              ? "color-mix(in srgb, var(--color-error) 12%, transparent)"
-              : undefined;
-    const textColor = line.kind === "add" ? "text-success" : line.kind === "del" ? "text-error" : "text-foreground";
-    return (
-        <div className="flex min-w-max" style={tint ? { background: tint } : undefined}>
-            <span className="w-[42px] flex-none select-none px-[8px] text-right text-ink-faint">{line.gOld}</span>
-            <span className="w-[42px] flex-none select-none px-[8px] text-right text-ink-faint">{line.gNew}</span>
-            <span className={cn("w-[16px] flex-none text-center", textColor)}>{line.sign}</span>
-            <span className={cn("whitespace-pre pr-[28px]", textColor)}>{line.text}</span>
-        </div>
-    );
-}
-
-function CenterPane({
-    path,
-    view,
-    editorCwd,
-    repoCwd,
-    model,
-}: {
-    path: string | null;
-    view: FileView | null;
-    editorCwd: string | null;
-    repoCwd: string | null;
-    model: AgentsViewModel;
-}) {
-    return (
-        <motion.div
-            key={path ?? "__empty__"}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
-            className="flex min-h-0 min-w-0 flex-1 flex-col"
-        >
-            {!path ? (
-                <EmptyCenter msg="Select a file to view its changes" />
-            ) : (
-                <>
-                    <div className="flex flex-none items-center gap-[11px] border-b border-border px-[20px] py-[13px]">
-                        <span className="min-w-0 truncate font-mono text-[13px] font-semibold">{path}</span>
-                        <div className="flex-1" />
-                        <span className="flex-none font-mono text-[11px] text-ink-mid">Read-only</span>
-                        {repoCwd && (
-                            <button
-                                onClick={() =>
-                                    fireAndForget(() =>
-                                        openInCode(model, {
-                                            projectPath: repoCwd,
-                                            rel: path,
-                                            line: view != null ? firstChangedLine(view) : undefined,
-                                        })
-                                    )
-                                }
-                                className="flex-none rounded border border-border px-[11px] py-[6px] text-[12px] text-ink-mid hover:text-foreground"
-                            >
-                                Open in Code
-                            </button>
-                        )}
-                        {editorCwd && (
-                            <button
-                                onClick={() => getApi().openExternal(joinRepoPath(editorCwd, path))}
-                                className="flex-none rounded border border-border px-[11px] py-[6px] text-[12px] text-ink-mid hover:text-foreground"
-                            >
-                                Open in editor ↗
-                            </button>
-                        )}
-                    </div>
-                    {view == null ? (
-                        <DiffSkeleton />
-                    ) : view.lines.length === 0 ? (
-                        <NoTextDiff view={view} />
-                    ) : (
-                        <>
-                            {view.isDiff && (
-                                <div className="flex flex-none items-center gap-[14px] border-b border-edge-faint px-[20px] py-[8px] font-mono text-[11px] font-bold">
-                                    <span className="text-success">+{view.adds}</span>
-                                    <span className="text-error">−{view.dels}</span>
-                                    <span className="font-medium text-ink-mid">{view.hunkLabel}</span>
-                                </div>
-                            )}
-                            <div className="min-h-0 flex-1 overflow-auto py-[8px] font-mono text-[12.5px] leading-[1.75]">
-                                {view.lines.map((l, i) => (
-                                    <DiffRow key={i} line={l} />
-                                ))}
-                            </div>
-                        </>
-                    )}
-                </>
-            )}
-        </motion.div>
-    );
-}
 
 export function FilesSurface({ model }: { model: AgentsViewModel }) {
     const focusId = useAtomValue(model.focusIdAtom);
@@ -340,6 +98,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
     const loadError = useAtomValue(filesErrorAtom);
     const historyRows = useAtomValue(historyRowsAtom);
     const historyFailure = useAtomValue(historyFailureAtom);
+    const fetchState = useAtomValue(fetchStateAtom);
     const historyFiltered = useAtomValue(historyFilteredAtom);
     const historyFilters = useAtomValue(historyFiltersAtom);
     const historyScroll = useAtomValue(historyScrollAtom);
@@ -350,7 +109,6 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
     const selectedFile = useAtomValue(selectedFileAtom);
     const graphOn = useAtomValue(graphOnAtom);
     const activeChanges = useAtomValue(activeChangesAtom);
-    const activeDiff = useAtomValue(activeDiffAtom);
     const compareOn = useAtomValue(compareOnAtom);
     const compareRefs = useAtomValue(compareRefsAtom);
     const compareSides = useAtomValue(compareSidesAtom);
@@ -360,9 +118,15 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
     const compareError = useAtomValue(compareErrorAtom);
     const compareBranches = useAtomValue(compareBranchesAtom);
     const compareChanges = useAtomValue(compareActiveChangesAtom);
-    const compareDiff = useAtomValue(compareDiffAtom);
     // the ref picker's own open/closed state: `c` and a click on the chip open it, Enter/Escape close it
     const [pickerOpen, setPickerOpen] = useState(false);
+
+    // The history column folds to a rail below a width threshold. Measured on the surface root rather
+    // than the window: the surface does not own the whole window, and the rail's whole purpose is to
+    // leave the diff pane something to render in.
+    const surfaceRef = useRef<HTMLDivElement>(null);
+    const [surfaceWidth, setSurfaceWidth] = useState(0);
+    const collapsed = resolveCollapsed(useAtomValue(historyCollapsedAtom), surfaceWidth);
 
     // registered projects (name -> path) as a sorted, path-bearing list for the picker
     const projects: FilesProject[] = Object.entries(registry ?? {})
@@ -391,14 +155,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
     const scope = useAtomValue(model.diffScopeAtom);
     const origin = scope?.repo.origin;
     const agent = origin?.kind === "agent" ? agents.find((a) => a.id === origin.id) : undefined;
-    const source: FilesSource | null =
-        origin?.kind === "project"
-            ? { kind: "project", name: origin.name }
-            : origin?.kind === "agent"
-              ? { kind: "agent", id: origin.id }
-              : focusId
-                ? { kind: "agent", id: focusId }
-                : null;
+    const source: FilesSource | null = sourceFor(scope, focusId);
 
     const pickAgent = (id: string) => {
         const a = agents.find((x) => x.id === id);
@@ -423,31 +180,19 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
         leaveCompare();
     };
 
-    // Follows the focused agent only while the stored repository IS an agent — pinning a project or
-    // arriving from a run stops focus changes from moving the surface. This is the old
-    // run-beats-project-beats-agent precedence, stated once, as data.
+    // Both rules live in diffsource.ts: whether focus may move the surface, and what to show when
+    // nothing has been picked yet. The effects are the only part that has to be an effect.
     useEffect(() => {
-        if (scope != null && scope.repo.origin.kind !== "agent") {
-            return;
+        const a = focusFollowAgent(scope, focusId, agents);
+        if (a != null) {
+            globalStore.set(model.diffScopeAtom, agentDiffScope(a.id, a.name));
         }
-        if (!focusId) {
-            return;
-        }
-        if (scope?.repo.origin.kind === "agent" && scope.repo.origin.id === focusId) {
-            return;
-        }
-        const a = agents.find((x) => x.id === focusId);
-        if (a == null) {
-            return;
-        }
-        globalStore.set(model.diffScopeAtom, agentDiffScope(a.id, a.name));
     }, [focusId, scope, agents]);
 
-    // Default to the first agent when nothing is scoped, so opening Files is immediately useful
-    // instead of a dead "select a source" screen.
     useEffect(() => {
-        if (scope == null && !focusId && agents.length > 0) {
-            globalStore.set(model.focusIdAtom, agents[0].id);
+        const id = defaultFocusId(scope, focusId, agents);
+        if (id != null) {
+            globalStore.set(model.focusIdAtom, id);
         }
     }, [scope, focusId, agents]);
 
@@ -457,6 +202,17 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
 
     // Keeps the change list from going stale while this surface is on screen; stops the moment it isn't.
     useEffect(() => startChangesPoll(), []);
+
+    useEffect(() => {
+        const el = surfaceRef.current;
+        if (el == null) {
+            return;
+        }
+        const ro = new ResizeObserver(() => setSurfaceWidth(el.clientWidth));
+        ro.observe(el);
+        setSurfaceWidth(el.clientWidth);
+        return () => ro.disconnect();
+    }, []);
 
     useEffect(() => {
         if (restoreMsg == null) {
@@ -509,11 +265,34 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
         setHistoryOpts(historyOptsFor(scope.range, state.ref));
     }, [scope && rangeKey(scope.range), state?.ref]);
 
+    // A commit landing under the open surface — an agent committing in the worktree this is scoped to,
+    // or a commit made in another window — has to reach the commit column. The change-list poll above
+    // is the only thing reading the repository on a timer, so HEAD rides along with it and this keys on
+    // the sha: one log re-read per actual commit, nothing at all on a quiet tick. The store decides
+    // whether the sha really moved, so the first value after a load is not a second read.
+    useEffect(() => {
+        refreshHistoryIfMoved(state?.head ?? "");
+    }, [state?.head]);
+
+    // Which range form the comparison is asking about. The scope is the one place that says so, which
+    // is what keeps the file list and the diff pane from answering two different questions.
+    const compareForm: CompareForm = scope?.range.kind === "compare" ? scope.range.form : "mergebase";
+
+    // What the diff pane is showing. The header's +/- come from the row that is already loaded, so
+    // opening a file costs no extra read.
+    const shownPath = compareOn ? compareFile : selectedFile;
+    const shownChanges = compareOn ? compareChanges : activeChanges;
+    const selectedChange = shownChanges?.files.find((f) => f.path === shownPath) ?? null;
+    // The working-tree side is live — an agent editing under this surface must not leave a stale diff
+    // on screen. The change poll replaces filesStateAtom on every tick, so its identity IS the tick;
+    // a commit or a comparison is immutable and stays out of the dep so it is read exactly once.
+    const liveTick = !compareOn && selectedCommit === WORKING_TREE ? state : null;
+
     // publish the visible column's rows for global j/k list-nav. cursor == selection: moving selects,
     // which loads that row's files and first diff. Must run before the early return (hooks rules).
     const navIds = compareOn ? compareNavIds(compareRows) : (historyRows ?? []).map((r) => r.hash);
     const navCursor = compareOn ? compareSelection : (selectedCommit ?? undefined);
-    const navFile = compareOn ? compareFile : selectedFile;
+    const navFile = shownPath;
     const listNav = useMemo<ListNavController | null>(
         () =>
             state?.cwd && navIds.length > 0
@@ -539,6 +318,47 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
     const filesBindings = useMemo(() => buildFilesBindings(), []);
     useKeybindings(filesBindings);
 
+    // the diff pane is Monaco, which reads the same theme tokens the Code surface syncs
+    useSyncMonacoTheme();
+
+    // One place decides which two refs the pane reads; the three selection states differ only in
+    // what they name, which is diffcontent.ts's whole job.
+    useEffect(() => {
+        const cwd = state?.cwd;
+        if (!cwd || !shownPath) {
+            clearDiffPair();
+            return;
+        }
+        // In compare mode only the aggregate row means "the whole comparison"; a commit row there is
+        // still one commit against its parent, exactly as in history.
+        const sel: DiffSelection = compareOn
+            ? compareSelection === AGGREGATE
+                ? {
+                      kind: "compare",
+                      base: compareRefs?.base ?? "",
+                      head: compareRefs?.head ?? "",
+                      mergeBase: compareSides?.mergeBase ?? "",
+                      form: compareForm,
+                  }
+                : { kind: "commit", hash: compareSelection ?? "" }
+            : selectedCommit === WORKING_TREE
+              ? { kind: "worktree", anchorRef: state?.ref ?? "" }
+              : { kind: "commit", hash: selectedCommit ?? "" };
+        fireAndForget(() => loadDiffPair(cwd, shownPath, sel));
+    }, [
+        state?.cwd,
+        state?.ref,
+        shownPath,
+        compareOn,
+        compareRefs?.base,
+        compareRefs?.head,
+        compareSides?.mergeBase,
+        compareSelection,
+        compareForm,
+        selectedCommit,
+        liveTick,
+    ]);
+
     if (agents.length === 0 && projects.length === 0) {
         return (
             <SurfaceEmptyState
@@ -552,10 +372,15 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
 
     return (
         <MotionConfig reducedMotion="user">
-            <div className="absolute inset-0 flex min-h-0 flex-col">
+            <div ref={surfaceRef} className="absolute inset-0 flex min-h-0 flex-col">
                 {/* subject bar: which repository, and which range within it */}
                 <div className="flex-none px-[18px] pt-[14px]">
-                    <div className="flex items-center gap-[14px] pb-[6px]">
+                    {/* wraps because compare adds two controls to this row: at the shipped 1000x700 the
+                        ref picker's editing form plus Fetch need 901px of an 886px row, and a nowrap flex
+                        pays for that by squeezing the source picker from its 210px to 155px and pushing
+                        Fetch off the window edge. Wrapping costs a second line only at the width that
+                        cannot hold one. */}
+                    <div className="flex flex-wrap items-center gap-x-[14px] gap-y-[8px] pb-[6px]">
                         <h1 className="flex-none text-[16px] font-bold">Diff</h1>
                         <div className="w-[210px] rounded-[9px] border border-edge-mid bg-surface">
                             <SourcePicker
@@ -597,7 +422,33 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                     }
                                 }}
                                 onCancel={() => setPickerOpen(false)}
+                                onSwap={() => state?.cwd && fireAndForget(() => swapCompareRefs(state.cwd!))}
                             />
+                        ) : null}
+                        {compareOn ? (
+                            <div className="flex items-center gap-[7px]">
+                                <button
+                                    onClick={() => state?.cwd && fireAndForget(() => runFetch(state.cwd!))}
+                                    disabled={fetchState.running}
+                                    title="Update remote-tracking refs"
+                                    className={cn(
+                                        "flex-none rounded border border-border px-[9px] py-[5px] font-mono text-[11px]",
+                                        fetchState.running
+                                            ? "text-ink-faint opacity-50"
+                                            : "text-ink-mid hover:text-foreground"
+                                    )}
+                                >
+                                    {fetchState.running ? "↻ Fetching…" : "↻ Fetch"}
+                                </button>
+                                {/* A remote-tracking ref is only as fresh as the last fetch, so the
+                                    clock is part of reading the comparison. Absent until one has
+                                    happened — "just now" on an unfetched session would be a lie. */}
+                                {fetchState.at > 0 ? (
+                                    <span className="font-mono text-[10.5px] text-ink-faint">
+                                        fetched {formatAge(Date.now() - fetchState.at * 1000)} ago
+                                    </span>
+                                ) : null}
+                            </div>
                         ) : null}
                     </div>
                     {scope ? (
@@ -631,6 +482,10 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                     </div>
                 ) : null}
 
+                {fetchState.failure ? (
+                    <GitFailureNotice failure={fetchState.failure} onDismiss={() => dismissFetchFailure()} />
+                ) : null}
+
                 {/* nothing to filter in the two failure states, and compare has its own column */}
                 {!compareOn && historyFailure == null && state?.isRepo !== false ? <HistoryFilterRow /> : null}
 
@@ -645,37 +500,78 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                     <NotARepoPanel />
                 ) : (
                     <div className="flex min-h-0 flex-1 border-t border-edge-faint">
-                        <div className="flex w-[460px] flex-none flex-col border-r border-edge-faint">
-                            {compareOn ? (
-                                <CompareColumn
-                                    rows={compareRows}
-                                    selected={compareSelection}
-                                    mergeBase={compareSides?.mergeBase ?? ""}
-                                    error={compareError}
-                                    loading={compareSides == null && compareError == null}
-                                    onSelect={(id) =>
-                                        state?.cwd && fireAndForget(() => selectCompareRow(state.cwd!, id))
+                        <div
+                            className={cn(
+                                "flex flex-none flex-col border-r border-edge-faint",
+                                collapsed ? "w-[44px]" : "w-[460px]"
+                            )}
+                        >
+                            {collapsed ? (
+                                <HistoryRail
+                                    // a compare commit row IS a HistoryRow, so the rail takes it directly
+                                    rows={
+                                        compareOn
+                                            ? (compareRows.filter((r) => r.kind === "commit") as CompareCommitRow[])
+                                            : (historyRows ?? [])
                                     }
+                                    selected={compareOn ? compareSelection : selectedCommit}
+                                    onSelect={(hash) =>
+                                        state?.cwd &&
+                                        fireAndForget(() =>
+                                            compareOn
+                                                ? selectCompareRow(state.cwd!, hash)
+                                                : selectCommit(state.cwd!, hash)
+                                        )
+                                    }
+                                    onExpand={() => globalStore.set(historyCollapsedAtom, false)}
                                 />
                             ) : (
-                                <HistoryPane
-                                    rows={historyRows ?? []}
-                                    selected={selectedCommit}
-                                    // a filtered set mostly lacks its own parents, so lane assignment would
-                                    // sprawl to the fold limit and draw edges to commits that are not there
-                                    graphOn={graphOn && !historyFiltered}
-                                    loading={historyRows == null}
-                                    countLabel={countLabel(historyFilters, historyRows?.length ?? 0, historyRows == null)}
-                                    filtered={historyFiltered}
-                                    initialScroll={historyScroll}
-                                    hasMore={historyHasMore}
-                                    appendState={historyAppend}
-                                    onSelect={(hash) =>
-                                        state?.cwd && fireAndForget(() => selectCommit(state.cwd!, hash))
-                                    }
-                                    onScroll={(top) => globalStore.set(historyScrollAtom, top)}
-                                    onLoadMore={() => fireAndForget(() => loadMoreHistory())}
-                                />
+                                <>
+                                    {/* mirrors the rail's expand affordance, so toggling shifts no rows */}
+                                    <button
+                                        onClick={() => globalStore.set(historyCollapsedAtom, true)}
+                                        title="Collapse history"
+                                        className="flex-none border-b border-edge-faint py-[6px] text-[11px] text-ink-faint hover:text-foreground"
+                                    >
+                                        ‹
+                                    </button>
+                                    {compareOn ? (
+                                        <CompareColumn
+                                            rows={compareRows}
+                                            selected={compareSelection}
+                                            mergeBase={compareSides?.mergeBase ?? ""}
+                                            error={compareError}
+                                            loading={compareSides == null && compareError == null}
+                                            onSelect={(id) =>
+                                                state?.cwd && fireAndForget(() => selectCompareRow(state.cwd!, id))
+                                            }
+                                        />
+                                    ) : (
+                                        <HistoryPane
+                                            rows={historyRows ?? []}
+                                            selected={selectedCommit}
+                                            // a filtered set mostly lacks its own parents, so lane assignment
+                                            // would sprawl to the fold limit and draw edges to commits that
+                                            // are not there
+                                            graphOn={graphOn && !historyFiltered}
+                                            loading={historyRows == null}
+                                            countLabel={countLabel(
+                                                historyFilters,
+                                                historyRows?.length ?? 0,
+                                                historyRows == null
+                                            )}
+                                            filtered={historyFiltered}
+                                            initialScroll={historyScroll}
+                                            hasMore={historyHasMore}
+                                            appendState={historyAppend}
+                                            onSelect={(hash) =>
+                                                state?.cwd && fireAndForget(() => selectCommit(state.cwd!, hash))
+                                            }
+                                            onScroll={(top) => globalStore.set(historyScrollAtom, top)}
+                                            onLoadMore={() => fireAndForget(() => loadMoreHistory())}
+                                        />
+                                    )}
+                                </>
                             )}
                         </div>
                         <div className="flex w-[300px] flex-none flex-col border-r border-edge-faint bg-surface">
@@ -684,10 +580,12 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                     <AggregatePane
                                         base={compareRefs?.base ?? ""}
                                         head={compareRefs?.head ?? ""}
+                                        form={compareForm}
                                         changes={compareChanges}
                                         selectedFile={compareFile}
-                                        onSelectFile={(path) =>
-                                            state?.cwd && fireAndForget(() => selectCompareFile(state.cwd!, path))
+                                        onSelectFile={(path) => selectCompareFile(path)}
+                                        onSetForm={(f) =>
+                                            state?.cwd && fireAndForget(() => setCompareForm(state.cwd!, f))
                                         }
                                     />
                                 ) : (
@@ -700,9 +598,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                         }
                                         changes={compareChanges}
                                         selectedFile={compareFile}
-                                        onSelectFile={(path) =>
-                                            state?.cwd && fireAndForget(() => selectCompareFile(state.cwd!, path))
-                                        }
+                                        onSelectFile={(path) => selectCompareFile(path)}
                                     />
                                 )
                             ) : (
@@ -711,17 +607,16 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                     changes={activeChanges}
                                     selectedFile={selectedFile}
                                     onSelectFile={(path) =>
-                                        state?.cwd &&
-                                        selectedCommit != null &&
-                                        fireAndForget(() => selectCommitFile(state.cwd!, selectedCommit, path))
+                                        selectedCommit != null && selectCommitFile(selectedCommit, path)
                                     }
                                 />
                             )}
                         </div>
                         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-                            <CenterPane
-                                path={compareOn ? compareFile : selectedFile}
-                                view={compareOn ? compareDiff : activeDiff}
+                            <DiffPane
+                                path={shownPath}
+                                adds={selectedChange?.adds ?? 0}
+                                dels={selectedChange?.dels ?? 0}
                                 // "Open in editor" only makes sense for a path that exists in the working tree
                                 editorCwd={!compareOn && selectedCommit === WORKING_TREE ? (state?.cwd ?? null) : null}
                                 // "Open in Code" wants only the repository: the Code surface always shows the

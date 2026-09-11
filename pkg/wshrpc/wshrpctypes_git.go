@@ -22,6 +22,7 @@ type GitCommands interface {
 	GitListFilesCommand(ctx context.Context, data CommandGitListFilesData) (*CommandGitListFilesRtnData, error)
 	GitGrepCommand(ctx context.Context, data CommandGitGrepData) (*CommandGitGrepRtnData, error)
 	GitFileAtRefCommand(ctx context.Context, data CommandGitFileAtRefData) (*CommandGitFileAtRefRtnData, error)
+	GitFetchCommand(ctx context.Context, data CommandGitFetchData) (*CommandGitFetchRtnData, error)
 }
 
 type CommandGitHistoryData struct {
@@ -78,12 +79,20 @@ type CommandGitCommitDiffData struct {
 
 type CommandGitCommitDiffRtnData struct {
 	Diff string `json:"diff"`
+	// The patch exceeded the server-side cap and was not sent. Size says how big it was, so the pane
+	// can name the number instead of rendering an empty scroll area that reads as "no changes".
+	TooLarge bool  `json:"toolarge,omitempty"`
+	Size     int64 `json:"size,omitempty"`
 }
 
 type CommandGitCompareChangesData struct {
 	Cwd  string `json:"cwd"`
 	Base string `json:"base"`
 	Head string `json:"head"`
+	// Tips selects the two-dot range form: the full difference between the two tips, with base's
+	// own commits folded in as reverse changes. Default false is the three-dot form, which is the
+	// only one whose file list matches the N-ahead commit list beside it.
+	Tips bool `json:"tips,omitempty"`
 }
 
 // Mirrors CommandGitCommitChangesRtnData: an aggregate is a change set like any other, so one
@@ -99,10 +108,17 @@ type CommandGitCompareDiffData struct {
 	Base string `json:"base"`
 	Head string `json:"head"`
 	Path string `json:"path"`
+	// Must match the Tips the file list was built with, or the pane and the list beside it read
+	// different ranges and a file the list calls deleted opens as unchanged.
+	Tips bool `json:"tips,omitempty"`
 }
 
 type CommandGitCompareDiffRtnData struct {
 	Diff string `json:"diff"`
+	// The patch exceeded the server-side cap and was not sent. Size says how big it was, so the pane
+	// can name the number instead of rendering an empty scroll area that reads as "no changes".
+	TooLarge bool  `json:"toolarge,omitempty"`
+	Size     int64 `json:"size,omitempty"`
 }
 
 type CommandGitListFilesData struct {
@@ -154,4 +170,21 @@ type CommandGitFileAtRefRtnData struct {
 	TooLarge bool   `json:"toolarge,omitempty"`
 	Size     int64  `json:"size,omitempty"`
 	IsRepo   bool   `json:"isrepo"`
+}
+
+type CommandGitFetchData struct {
+	Cwd string `json:"cwd"`
+	// "" defaults to origin.
+	Remote string `json:"remote,omitempty"`
+}
+
+// A fetch can take far longer than the default RPC budget, and the budget the client sends binds the
+// server's context too — so a caller must raise opts.timeout past gitinfo's own fetchTimeout or the
+// read is cancelled underneath it.
+type CommandGitFetchRtnData struct {
+	FetchedAt int64 `json:"fetchedat"`
+	// A missing remote or a credential prompt is a state the surface draws, not an RPC error: the
+	// shipped GitFailure panel renders git's own stderr out of this.
+	Failure *gitinfo.GitFailure `json:"failure,omitempty"`
+	IsRepo  bool                `json:"isrepo"`
 }

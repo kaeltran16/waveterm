@@ -123,6 +123,77 @@ func TestGetChanges(t *testing.T) {
 	}
 }
 
+// The Diff surface polls the change list while it is on screen, and that poll is the only thing
+// reading the repository on a timer. HEAD rides along with it so a commit landing under the open
+// surface is noticed without a second RPC and without re-reading the log every tick.
+func TestGetChangesReportsHead(t *testing.T) {
+	ctx := context.Background()
+	dir := repoWithChange(t)
+	ch, err := GetChanges(ctx, dir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := HeadCommit(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ch.Head != want {
+		t.Fatalf("Head = %q, want %q", ch.Head, want)
+	}
+	// the case the poll exists for: committing must move the value the surface compares against
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-m", "second")
+	after, err := GetChanges(ctx, dir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Head == ch.Head {
+		t.Fatalf("Head did not move after a commit: still %q", after.Head)
+	}
+}
+
+// Ref mode returns through a different branch of GetChanges, and an agent-scoped surface polls in
+// exactly that mode — so the field has to be populated on both paths or the poll silently stops
+// working for every scope but "live".
+func TestGetChangesReportsHeadInRefMode(t *testing.T) {
+	ctx := context.Background()
+	dir, base := repoCommittedOnBase(t)
+	ch, err := GetChanges(ctx, dir, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := HeadCommit(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ch.Head != want {
+		t.Fatalf("Head = %q, want %q", ch.Head, want)
+	}
+	if ch.Head == base {
+		t.Fatalf("Head = base %q, but two commits were made on top of it", base)
+	}
+}
+
+// A repository with no commits yet: `rev-parse HEAD` fails there, and that must not fail the read.
+// The change list is still the whole point — every file in it is untracked.
+func TestGetChangesEmptyRepoHasNoHead(t *testing.T) {
+	dir := initRepo(t)
+	writeFile(t, dir, "a.txt", "one\n")
+	ch, err := GetChanges(context.Background(), dir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ch.IsRepo {
+		t.Fatal("expected IsRepo true")
+	}
+	if ch.Head != "" {
+		t.Fatalf("Head = %q, want empty for a repo with no commits", ch.Head)
+	}
+	if !strings.Contains(ch.StatusZ, "a.txt") {
+		t.Fatalf("statusz missing the untracked file: %q", ch.StatusZ)
+	}
+}
+
 // repoCommittedOnBase makes a repo with an initial commit, records that SHA as the base, then commits
 // a modification and a new file on top. Returns (dir, baseSHA). No uncommitted changes remain.
 func repoCommittedOnBase(t *testing.T) (string, string) {
@@ -531,7 +602,7 @@ func TestCreateWorktreeNotARepo(t *testing.T) {
 
 func TestListBranches(t *testing.T) {
 	dir := repoWithChange(t)
-	branches, err := ListBranches(context.Background(), dir)
+	branches, err := ListBranches(context.Background(), dir, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -547,7 +618,7 @@ func TestListBranchesMultiple(t *testing.T) {
 	dir := repoWithChange(t)
 	git(t, dir, "branch", "feat/x")
 	git(t, dir, "branch", "feat/y")
-	branches, err := ListBranches(context.Background(), dir)
+	branches, err := ListBranches(context.Background(), dir, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -566,12 +637,81 @@ func TestListBranchesMultiple(t *testing.T) {
 }
 
 func TestListBranchesNotARepo(t *testing.T) {
-	branches, err := ListBranches(context.Background(), t.TempDir())
+	branches, err := ListBranches(context.Background(), t.TempDir(), false)
 	if err != nil {
 		t.Fatalf("expected nil error for non-repo, got %v", err)
 	}
 	if len(branches) != 0 {
 		t.Fatalf("expected no branches, got %+v", branches)
+	}
+}
+
+// A remote-tracking ref written by hand: enough for ref listing, and hermetic — no network, no
+// second repository to clone from.
+func repoWithRemote(t *testing.T) string {
+	t.Helper()
+	dir := repoWithChange(t)
+	git(t, dir, "update-ref", "refs/remotes/origin/main", "HEAD")
+	git(t, dir, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+	return dir
+}
+
+// The New Agent launcher is the caller that must not see remotes: a worktree cannot be created on a
+// remote-tracking ref, so offering one would produce a branch named "origin/main".
+func TestListBranchesLocalOnlyByDefault(t *testing.T) {
+	dir := repoWithRemote(t)
+	got, err := ListBranches(context.Background(), dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range got {
+		if b.Remote {
+			t.Fatalf("got remote branch %q with includeRemotes=false", b.Name)
+		}
+	}
+	if len(got) != 1 || got[0].Name != "main" {
+		t.Errorf("got %+v, want just local main", got)
+	}
+}
+
+func TestListBranchesIncludesRemotesAndSkipsOriginHead(t *testing.T) {
+	dir := repoWithRemote(t)
+	got, err := ListBranches(context.Background(), dir, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	remote := map[string]bool{}
+	for _, b := range got {
+		names = append(names, b.Name)
+		remote[b.Name] = b.Remote
+	}
+	if len(names) != 2 {
+		t.Fatalf("got %v, want local main and origin/main only", names)
+	}
+	if !remote["origin/main"] {
+		t.Errorf("origin/main not tagged Remote: %+v", got)
+	}
+	if remote["main"] {
+		t.Errorf("local main tagged Remote: %+v", got)
+	}
+	for _, n := range names {
+		if n == "origin/HEAD" {
+			t.Error("origin/HEAD is a symbolic ref, not a comparison target — it must be filtered")
+		}
+	}
+}
+
+// The compare picker lists remotes now, so the default base can be the remote ref itself rather than
+// a local branch that may be behind it.
+func TestDefaultBranchPrefersRemote(t *testing.T) {
+	dir := repoWithRemote(t)
+	got, err := DefaultBranch(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "origin/main" {
+		t.Errorf("got %q, want origin/main — the picker can show remotes now", got)
 	}
 }
 
@@ -1091,7 +1231,7 @@ func TestCommitDiffOnAPureRenameReportsTheRename(t *testing.T) {
 // Same defect, same fix, in the compare column's aggregate row.
 func TestCompareDiffOnAPureRenameReportsTheRename(t *testing.T) {
 	dir := repoWithRename(t)
-	d, err := CompareDiff(context.Background(), dir, "main", "renamed", "new.txt")
+	d, err := CompareDiff(context.Background(), dir, "main", "renamed", "new.txt", false)
 	if err != nil {
 		t.Fatalf("CompareDiff: %v", err)
 	}
@@ -1139,7 +1279,7 @@ func TestCommitChangesNotARepo(t *testing.T) {
 // Under the two-dot form it would appear as a deletion, which is the regression this guards.
 func TestCompareChangesUsesMergeBaseAnchor(t *testing.T) {
 	dir := repoDiverged(t)
-	ch, err := CompareChanges(context.Background(), dir, "main", "feature")
+	ch, err := CompareChanges(context.Background(), dir, "main", "feature", false)
 	if err != nil {
 		t.Fatalf("CompareChanges: %v", err)
 	}
@@ -1161,7 +1301,7 @@ func TestCompareChangesUsesMergeBaseAnchor(t *testing.T) {
 
 func TestCompareChangesEmptyWhenRefsAgree(t *testing.T) {
 	dir := repoDiverged(t)
-	ch, err := CompareChanges(context.Background(), dir, "main", "main")
+	ch, err := CompareChanges(context.Background(), dir, "main", "main", false)
 	if err != nil {
 		t.Fatalf("CompareChanges: %v", err)
 	}
@@ -1174,7 +1314,7 @@ func TestCompareChangesEmptyWhenRefsAgree(t *testing.T) {
 }
 
 func TestCompareChangesNotARepo(t *testing.T) {
-	ch, err := CompareChanges(context.Background(), t.TempDir(), "main", "feature")
+	ch, err := CompareChanges(context.Background(), t.TempDir(), "main", "feature", false)
 	if err != nil {
 		t.Fatalf("CompareChanges on a non-repo should not error: %v", err)
 	}
@@ -1185,7 +1325,7 @@ func TestCompareChangesNotARepo(t *testing.T) {
 
 func TestCompareDiffOnePathBetweenRefs(t *testing.T) {
 	dir := repoDiverged(t)
-	d, err := CompareDiff(context.Background(), dir, "main", "feature", "f1.txt")
+	d, err := CompareDiff(context.Background(), dir, "main", "feature", "f1.txt", false)
 	if err != nil {
 		t.Fatalf("CompareDiff: %v", err)
 	}
@@ -1204,7 +1344,7 @@ func TestCompareDiffOnePathBetweenRefs(t *testing.T) {
 // that failed instead of showing a blank pane that reads as "no differences".
 func TestCompareDiffErrorsOnUnresolvableRef(t *testing.T) {
 	dir := repoDiverged(t)
-	if _, err := CompareDiff(context.Background(), dir, "main", "no-such-ref", "f1.txt"); err == nil {
+	if _, err := CompareDiff(context.Background(), dir, "main", "no-such-ref", "f1.txt", false); err == nil {
 		t.Fatal("expected an error for an unresolvable ref")
 	}
 }
@@ -1218,8 +1358,8 @@ func TestDefaultBranchFromOriginHead(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DefaultBranch: %v", err)
 	}
-	if got != "trunk" {
-		t.Errorf("DefaultBranch = %q, want %q (the origin/ prefix stripped)", got, "trunk")
+	if got != "origin/trunk" {
+		t.Errorf("DefaultBranch = %q, want %q (the remote ref itself, not the local name)", got, "origin/trunk")
 	}
 }
 
@@ -1619,5 +1759,225 @@ func TestFileAtRefNotARepo(t *testing.T) {
 	}
 	if got.IsRepo {
 		t.Errorf("IsRepo = true, want false")
+	}
+}
+
+// Fetching from a real remote is not hermetic, so what is tested is the failure shape: a fetch that
+// cannot run must come back as data carrying git's own words, not as an RPC error.
+func TestFetchFailureCarriesStderr(t *testing.T) {
+	dir := repoWithChange(t)
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-m", "second")
+
+	got, err := Fetch(context.Background(), dir, "nosuchremote")
+	if err != nil {
+		t.Fatalf("a git failure belongs in the result, not the error: %v", err)
+	}
+	if got.Failure == nil {
+		t.Fatal("want a Failure describing the fetch that did not run")
+	}
+	if got.Failure.Stderr == "" {
+		t.Error("want git's stderr verbatim so the panel can name the cause")
+	}
+	if !strings.Contains(got.Failure.Command, "fetch") {
+		t.Errorf("command = %q, want the fetch invocation", got.Failure.Command)
+	}
+}
+
+func TestFetchNotARepo(t *testing.T) {
+	got, err := Fetch(context.Background(), t.TempDir(), "origin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.IsRepo {
+		t.Errorf("got %+v, want IsRepo false", got)
+	}
+}
+
+// A remote name is user-supplied text reaching an exec argv. git has no "--" terminator for fetch,
+// so a name beginning with a dash would be read as an option instead of a remote; it is refused as a
+// failure rather than handed to git to interpret.
+func TestFetchRefusesAnOptionShapedRemote(t *testing.T) {
+	dir := repoWithChange(t)
+	got, err := Fetch(context.Background(), dir, "--upload-pack=whatever")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Failure == nil {
+		t.Fatal("want a Failure: an option-shaped remote must not reach git")
+	}
+	if got.FetchedAt != 0 {
+		t.Error("nothing was fetched, so the freshness clock must not advance")
+	}
+}
+
+// The two forms only diverge when both sides have commits of their own: three-dot hides base's, two-
+// dot shows them inverted. Anything less than a genuine divergence tests nothing.
+func TestCompareChangesTipsIncludesBaseSideChanges(t *testing.T) {
+	dir := t.TempDir()
+	git(t, dir, "init", "-b", "main")
+	writeFile(t, dir, "a.txt", "one\n")
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-m", "init")
+
+	git(t, dir, "checkout", "-b", "feature")
+	writeFile(t, dir, "feat.txt", "f\n")
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-m", "feature work")
+
+	git(t, dir, "checkout", "main")
+	writeFile(t, dir, "onmain.txt", "m\n")
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-m", "main moved on")
+
+	mergeBase, err := CompareChanges(context.Background(), dir, "main", "feature", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(mergeBase.StatusZ, "onmain.txt") {
+		t.Error("three-dot must not include the base side's own commits")
+	}
+	if !strings.Contains(mergeBase.StatusZ, "feat.txt") {
+		t.Error("three-dot must include what head introduced")
+	}
+
+	tips, err := CompareChanges(context.Background(), dir, "main", "feature", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(tips.StatusZ, "onmain.txt") {
+		t.Error("two-dot must include the base side's changes — that is the whole point of it")
+	}
+	if !strings.Contains(tips.StatusZ, "feat.txt") {
+		t.Error("two-dot must still include head's changes")
+	}
+}
+
+// The file list and the diff pane beside it must read the same range, or a file the list says was
+// deleted opens as unchanged.
+func TestCompareDiffTipsMatchesTheTipsFileList(t *testing.T) {
+	dir := t.TempDir()
+	git(t, dir, "init", "-b", "main")
+	writeFile(t, dir, "a.txt", "one\n")
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-m", "init")
+
+	git(t, dir, "checkout", "-b", "feature")
+	writeFile(t, dir, "feat.txt", "f\n")
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-m", "feature work")
+
+	git(t, dir, "checkout", "main")
+	writeFile(t, dir, "onmain.txt", "m\n")
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-m", "main moved on")
+
+	mergeBase, err := CompareDiff(context.Background(), dir, "main", "feature", "onmain.txt", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mergeBase.Diff != "" {
+		t.Errorf("three-dot sees nothing at onmain.txt, got:\n%s", mergeBase.Diff)
+	}
+
+	tips, err := CompareDiff(context.Background(), dir, "main", "feature", "onmain.txt", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(tips.Diff, "onmain.txt") {
+		t.Errorf("two-dot must show base's file as a reverse change, got:\n%s", tips.Diff)
+	}
+}
+
+// Roughly 2.8MB of plausible text — the shape of a regenerated lockfile, which is the case the diff
+// cap exists for. Built once for the whole run rather than per test; three of the four tests below
+// write it.
+var hugeBody = strings.Repeat(strings.Repeat("x", 45)+"\n", 60000)
+
+func repoWithAHugeCommit(t *testing.T) string {
+	t.Helper()
+	dir := initRepo(t)
+	writeFile(t, dir, "small.txt", "one\n")
+	commitAll(t, dir)
+	writeFile(t, dir, "huge.txt", hugeBody)
+	commitAll(t, dir)
+	return dir
+}
+
+func TestCommitDiffCapsAnOversizedPatch(t *testing.T) {
+	dir := repoWithAHugeCommit(t)
+	d, err := CommitDiff(context.Background(), dir, "HEAD", "huge.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !d.TooLarge {
+		t.Fatalf("want TooLarge for a %d-byte patch", d.Size)
+	}
+	if d.Diff != "" {
+		t.Error("a refused patch must not be shipped anyway")
+	}
+	if d.Size <= maxDiffBytes {
+		t.Errorf("Size = %d, want the real size so the pane can name it", d.Size)
+	}
+}
+
+func TestCompareDiffCapsAnOversizedPatch(t *testing.T) {
+	dir := initRepo(t)
+	writeFile(t, dir, "small.txt", "one\n")
+	commitAll(t, dir)
+	git(t, dir, "checkout", "-b", "feature")
+	writeFile(t, dir, "huge.txt", hugeBody)
+	commitAll(t, dir)
+
+	d, err := CompareDiff(context.Background(), dir, "master", "feature", "huge.txt", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !d.TooLarge || d.Diff != "" {
+		t.Fatalf("want a refused patch, got TooLarge=%v len(Diff)=%d", d.TooLarge, len(d.Diff))
+	}
+}
+
+// The working tree is the surface's default view, so leaving this reader uncapped would leave the
+// most-used path unbounded. Its untracked branch reads the file directly rather than through git,
+// which is a second construction site and so a second chance to miss the cap.
+func TestGetDiffCapsAnOversizedUntrackedFile(t *testing.T) {
+	dir := initRepo(t)
+	writeFile(t, dir, "small.txt", "one\n")
+	commitAll(t, dir)
+	writeFile(t, dir, "huge.txt", hugeBody)
+
+	d, err := GetDiff(context.Background(), dir, "huge.txt", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !d.TooLarge || d.Content != "" {
+		t.Fatalf("want a refused read, got TooLarge=%v len(Content)=%d", d.TooLarge, len(d.Content))
+	}
+	if !d.Untracked {
+		t.Error("the file is still untracked — refusing to ship it does not change what it is")
+	}
+}
+
+// The cap must not change what an ordinary diff looks like, and Size is reported either way so the
+// pane never has to guess.
+func TestDiffUnderTheCapIsUntouchedAndSized(t *testing.T) {
+	dir := initRepo(t)
+	writeFile(t, dir, "a.txt", "one\ntwo\n")
+	commitAll(t, dir)
+	writeFile(t, dir, "a.txt", "one\nCHANGED\n")
+
+	d, err := GetDiff(context.Background(), dir, "a.txt", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.TooLarge {
+		t.Fatal("a two-line diff is not too large")
+	}
+	if !strings.Contains(d.Diff, "CHANGED") {
+		t.Errorf("diff lost its content: %q", d.Diff)
+	}
+	if d.Size != int64(len(d.Diff)) {
+		t.Errorf("Size = %d, want %d", d.Size, len(d.Diff))
 	}
 }

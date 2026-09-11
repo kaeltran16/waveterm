@@ -9,13 +9,17 @@ import { AgentsViewModel, SURFACE_ORDER, type SurfaceKey } from "@/app/view/agen
 import { answerDigitTarget, canSubmitAsk, moveCursor, type AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
 import { sideJumpTarget, type CompareRow } from "@/app/view/agents/comparerows";
-import { compareOnAtom, compareSelectionAtom, leaveCompare } from "@/app/view/agents/comparestore";
+import { compareOnAtom, compareSelectionAtom, leaveCompare, swapCompareRefs } from "@/app/view/agents/comparestore";
+import { historyCollapsedAtom } from "@/app/view/agents/difflayout";
+import { gotoChange } from "@/app/view/agents/diffnav";
+import { ignoreWsAtom, splitViewAtom } from "@/app/view/agents/diffoptions";
 import { filesStateAtom, reloadChanges } from "@/app/view/agents/filesstore";
 import {
     clearHistoryFilters,
     graphOnAtom,
     historyFiltersAtom,
     historyScrollAtom,
+    refreshHistory,
 } from "@/app/view/agents/githistorystore";
 import { anyFilterActive } from "@/app/view/agents/historyquery";
 import { dismissPending, keepPending, memPendingAtom, memSearchAtom, selectPending } from "@/app/view/agents/memstore";
@@ -795,6 +799,71 @@ export function buildFilesBindings(): Binding[] {
             run: () => globalStore.set(graphOnAtom, !globalStore.get(graphOnAtom)),
         },
         {
+            // Shift:d, not bare "d" — bare letters on this surface sit next to the g leader and "/"
+            // and would shadow future chords.
+            id: "files:toggle-split",
+            keys: "Shift:d",
+            group: "Diff",
+            label: "Split / unified",
+            when: on,
+            run: () => globalStore.set(splitViewAtom, !globalStore.get(splitViewAtom)),
+        },
+        {
+            id: "files:toggle-whitespace",
+            keys: "Shift:w",
+            group: "Diff",
+            label: "Ignore whitespace",
+            when: on,
+            run: () => globalStore.set(ignoreWsAtom, !globalStore.get(ignoreWsAtom)),
+        },
+        {
+            id: "files:swap-refs",
+            keys: "Shift:s",
+            group: "Diff",
+            label: "Swap compare refs",
+            when: inCompare,
+            run: () => {
+                const cwd = globalStore.get(filesStateAtom)?.cwd;
+                if (!cwd) {
+                    return false; // no repository resolved yet — nothing to re-read
+                }
+                void swapCompareRefs(cwd);
+            },
+        },
+        {
+            // Shift+N/Shift+P, not vim's ]c/[c: "[" and "]" already cycle surfaces globally, and
+            // claiming either as a leader here would cost that on this surface. Monaco is asked where
+            // the next hunk is rather than told — it computed the diff that is on screen.
+            id: "files:next-change",
+            keys: "Shift:n",
+            group: "Diff",
+            label: "Next change",
+            when: on,
+            // no editor mounted (nothing selected, a binary file, still loading) — decline the key
+            run: () => gotoChange("next"),
+        },
+        {
+            id: "files:prev-change",
+            keys: "Shift:p",
+            group: "Diff",
+            label: "Previous change",
+            when: on,
+            run: () => gotoChange("previous"),
+        },
+        {
+            id: "files:toggle-history",
+            keys: "Shift:h",
+            group: "Diff",
+            label: "Collapse / expand history",
+            when: on,
+            run: () => {
+                const cur = globalStore.get(historyCollapsedAtom);
+                // from "follow the width", an explicit toggle means "collapse it" — that is the
+                // state the user can see and is reacting to
+                globalStore.set(historyCollapsedAtom, cur == null ? true : !cur);
+            },
+        },
+        {
             // Escape's order on this surface: clear filters, else leave compare, else go home. The
             // three guards are mutually exclusive by construction (this one requires filters active
             // and compare off), which is what keeps assertNoConflicts passing.
@@ -839,10 +908,13 @@ export function buildFilesBindings(): Binding[] {
             id: "files:refresh",
             keys: "r",
             group: "Diff",
-            label: "Refresh changes",
+            // Both columns, which is why this is no longer "Refresh changes": the change list polls
+            // itself, so the reason to press r is usually the half that does not — the commit column.
+            label: "Refresh",
             when: on,
             run: () => {
                 void reloadChanges(globalStore.get(filesStateAtom)?.cwd ?? null);
+                refreshHistory();
             },
         },
         {

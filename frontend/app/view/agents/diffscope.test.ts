@@ -8,9 +8,11 @@ import {
     historyKey,
     historyOptsFor,
     originCwd,
+    rangeKey,
     rangeSummary,
     scopeKey,
     summaryLine,
+    type DiffRange,
     type DiffScope,
 } from "./diffscope";
 import type { GitChanges } from "./gitstatus";
@@ -143,18 +145,18 @@ describe("historyOptsFor", () => {
 describe("compare range", () => {
     it("carries the range it interrupted so leaving restores it", () => {
         const interrupted = { kind: "session", agentId: "a1" } as const;
-        const compare = { kind: "compare", base: "main", head: "feat", from: interrupted } as const;
+        const compare = { kind: "compare", base: "main", head: "feat", form: "mergebase", from: interrupted } as const;
         expect(compare.from).toEqual(interrupted);
     });
 
     it("is a distinct scope identity per ref pair", () => {
         const a: DiffScope = {
             ...agentScope,
-            range: { kind: "compare", base: "main", head: "feat", from: { kind: "working" } },
+            range: { kind: "compare", base: "main", head: "feat", form: "mergebase", from: { kind: "working" } },
         };
         const b: DiffScope = {
             ...agentScope,
-            range: { kind: "compare", base: "main", head: "other", from: { kind: "working" } },
+            range: { kind: "compare", base: "main", head: "other", form: "mergebase", from: { kind: "working" } },
         };
         expect(scopeKey(a)).not.toBe(scopeKey(b));
     });
@@ -201,10 +203,10 @@ describe("rangeSummary", () => {
     it("names both refs while comparing", () => {
         expect(
             rangeSummary(
-                { kind: "compare", base: "main", head: "feat", from: { kind: "working" } },
+                { kind: "compare", base: "main", head: "feat", form: "mergebase", from: { kind: "working" } },
                 { branch: "feat", ref: "", files: 4, adds: 51, dels: 9 }
             )
-        ).toBe("main … feat · 4 files · +51 −9");
+        ).toBe("main … feat · since merge base · 4 files · +51 −9");
     });
 });
 
@@ -225,13 +227,19 @@ describe("summaryLine", () => {
     it("reports the compared refs' counts while comparing, not the working tree's", () => {
         expect(
             summaryLine({
-                range: { kind: "compare", base: "main", head: "feat/memory-redesign", from: { kind: "working" } },
+                range: {
+                    kind: "compare",
+                    base: "main",
+                    head: "feat/memory-redesign",
+                    form: "mergebase",
+                    from: { kind: "working" },
+                },
                 branch: "main",
                 ref: "",
                 changes: working,
                 compareChanges: compared,
             })
-        ).toBe("main … feat/memory-redesign · 1827 files · +288262 −177129");
+        ).toBe("main … feat/memory-redesign · since merge base · 1827 files · +288262 −177129");
     });
 
     it("reports the working tree's counts outside compare", () => {
@@ -249,12 +257,33 @@ describe("summaryLine", () => {
     it("reads zero while the compare load is still in flight", () => {
         expect(
             summaryLine({
-                range: { kind: "compare", base: "main", head: "feat", from: { kind: "working" } },
+                range: { kind: "compare", base: "main", head: "feat", form: "mergebase", from: { kind: "working" } },
                 branch: "main",
                 ref: "",
                 changes: working,
                 compareChanges: null,
             })
-        ).toBe("main … feat · 0 files · +0 −0");
+        ).toBe("main … feat · since merge base · 0 files · +0 −0");
+    });
+});
+
+describe("compare range form", () => {
+    const mergebase: DiffRange = {
+        kind: "compare",
+        base: "main",
+        head: "feature",
+        form: "mergebase",
+        from: { kind: "working" },
+    };
+
+    // the key is what drops stale reads, so two forms of the same pair must not share one
+    it("distinguishes the two forms in rangeKey", () => {
+        expect(rangeKey(mergebase)).not.toBe(rangeKey({ ...mergebase, form: "tips" }));
+    });
+
+    it("names the active form in the summary line", () => {
+        const facts = { branch: "feature", ref: "", files: 3, adds: 10, dels: 2 };
+        expect(rangeSummary(mergebase, facts)).toContain("since merge base");
+        expect(rangeSummary({ ...mergebase, form: "tips" }, facts)).toContain("tip to tip");
     });
 });

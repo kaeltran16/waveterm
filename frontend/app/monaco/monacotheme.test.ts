@@ -17,6 +17,8 @@ const CHROME: MonacoChrome = {
     foreground: "#e2e8f0",
     selection: "#1a222c",
     lineHighlight: "#171c22",
+    added: "#54c79a",
+    removed: "#e0726c",
 };
 
 describe("monacoThemeFromTokens", () => {
@@ -61,6 +63,38 @@ describe("monacoThemeFromTokens", () => {
         const t = monacoThemeFromTokens(TOKENS, { ...CHROME, selection: null, lineHighlight: null }, true);
         expect(t.colors["editor.selectionBackground"]).toBeUndefined();
         expect(t.colors["editor.lineHighlightBackground"]).toBeUndefined();
+    });
+
+    it("paints the diff bands from the cockpit's add/remove roles, not vs-dark's olive", () => {
+        const t = monacoThemeFromTokens(TOKENS, CHROME, true);
+        expect(t.colors["diffEditor.insertedLineBackground"]).toMatch(/^#54c79a[0-9a-f]{2}$/);
+        expect(t.colors["diffEditor.insertedTextBackground"]).toMatch(/^#54c79a[0-9a-f]{2}$/);
+        expect(t.colors["diffEditor.removedLineBackground"]).toMatch(/^#e0726c[0-9a-f]{2}$/);
+        expect(t.colors["diffEditor.removedTextBackground"]).toMatch(/^#e0726c[0-9a-f]{2}$/);
+    });
+
+    it("keeps the line wash fainter than the word highlight, and both translucent", () => {
+        const t = monacoThemeFromTokens(TOKENS, CHROME, true);
+        const alpha = (key: string) => parseInt(t.colors[key].slice(-2), 16);
+        for (const side of ["inserted", "removed"]) {
+            const line = alpha(`diffEditor.${side}LineBackground`);
+            const text = alpha(`diffEditor.${side}TextBackground`);
+            expect(line).toBeLessThan(text);
+            // monaco requires these stay see-through or they hide the decorations underneath
+            expect(text).toBeLessThan(255);
+        }
+    });
+
+    it("drops the diff colors that are null so the base theme's values inherit", () => {
+        const t = monacoThemeFromTokens(TOKENS, { ...CHROME, added: null, removed: null }, true);
+        for (const key of [
+            "diffEditor.insertedLineBackground",
+            "diffEditor.insertedTextBackground",
+            "diffEditor.removedLineBackground",
+            "diffEditor.removedTextBackground",
+        ]) {
+            expect(t.colors[key]).toBeUndefined();
+        }
     });
 
     it("keeps the editor background transparent on dark and opaque on light", () => {

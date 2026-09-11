@@ -27,10 +27,16 @@ export interface MonacoChrome {
     foreground: string | null;
     selection: string | null;
     lineHighlight: string | null;
+    added: string | null;
+    removed: string | null;
 }
 
 const SELECTION_ALPHA = 0.5;
 const LINE_HIGHLIGHT_ALPHA = 0.35;
+// the diff editor paints the whole changed line, then the changed words again on top, so the line
+// wash has to stay faint enough that the two stack without drowning the code
+const DIFF_LINE_ALPHA = 0.14;
+const DIFF_TEXT_ALPHA = 0.3;
 
 // token family -> cockpit role. "storage"/"control" read as keyword-family declarations
 // (let/const/type), "delimiter" joins "punctuation" (braces, brackets, separators).
@@ -77,6 +83,16 @@ export function monacoThemeFromTokens(
     if (chrome.lineHighlight != null) {
         colors["editor.lineHighlightBackground"] = colord(chrome.lineHighlight).alpha(LINE_HIGHLIGHT_ALPHA).toHex();
     }
+    // without these the diff pane keeps vs-dark's olive #9ccc2c and pure red, which neither match the
+    // +N/-N counts the change list prints beside them nor follow a theme switch
+    if (chrome.added != null) {
+        colors["diffEditor.insertedLineBackground"] = colord(chrome.added).alpha(DIFF_LINE_ALPHA).toHex();
+        colors["diffEditor.insertedTextBackground"] = colord(chrome.added).alpha(DIFF_TEXT_ALPHA).toHex();
+    }
+    if (chrome.removed != null) {
+        colors["diffEditor.removedLineBackground"] = colord(chrome.removed).alpha(DIFF_LINE_ALPHA).toHex();
+        colors["diffEditor.removedTextBackground"] = colord(chrome.removed).alpha(DIFF_TEXT_ALPHA).toHex();
+    }
     return { base: dark ? "vs-dark" : "vs", inherit: true, rules, colors };
 }
 
@@ -103,6 +119,8 @@ export function readChromeRoles(root: HTMLElement): MonacoChrome {
         foreground: cssVar(root, "--color-foreground"),
         selection: cssVar(root, "--color-surface-selected"),
         lineHighlight: cssVar(root, "--color-surface-hover"),
+        added: cssVar(root, "--color-success"),
+        removed: cssVar(root, "--color-error"),
     };
 }
 
@@ -120,6 +138,8 @@ export function useSyncMonacoTheme(): void {
             foreground: vars["--color-foreground"],
             selection: vars["--color-surface-selected"],
             lineHighlight: vars["--color-surface-hover"],
+            added: vars["--color-success"],
+            removed: vars["--color-error"],
         };
         const tokens = readSyntaxTokens(document.documentElement);
         let cancelled = false;

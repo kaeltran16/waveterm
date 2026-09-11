@@ -27,9 +27,13 @@ import { filesStateAtom, requestFileLink } from "./filesstore";
 import {
     historyCommitsAtom,
     historyFailureAtom,
+    historyHasMoreAtom,
     historyRowsAtom,
     historyScrollAtom,
     loadHistory,
+    loadMoreHistory,
+    refreshHistory,
+    refreshHistoryIfMoved,
     resetHistory,
     selectedCommitAtom,
     selectedFileAtom,
@@ -77,6 +81,7 @@ beforeEach(() => {
         isRepo: true,
         changes: RUN_CHANGES as any,
         ref: "base000",
+        head: "aaa1111",
     });
 });
 
@@ -148,6 +153,7 @@ describe("loadHistory selection settling", () => {
             isRepo: true,
             changes: RUN_CHANGES as any,
             ref: "base000",
+            head: "aaa1111",
         });
         await loadHistory(CWD, RUN_OPTS, RUN);
         await settle();
@@ -269,5 +275,127 @@ describe("range changes do not re-read git", () => {
         await loadHistory("/other", {});
 
         expect(globalStore.get(historyScrollAtom)).toBe(0);
+    });
+});
+
+// The Diff surface polls the change list every 10s while it is on screen, but nothing re-read the
+// commit column: loadHistory fires from an effect keyed on cwd/isRepo/ref/scope, and the poll writes
+// a filesStateAtom whose primitives never change. An agent committing in the watched worktree left
+// the column silently stale, and no key on the surface could force it.
+describe("refreshing the commit column", () => {
+    const loadedHeadIs = async (head: string) => {
+        gitHistory.mockResolvedValue({ isrepo: true, head, commits: [commit(head, "tip commit")] });
+        await loadHistory(CWD, {});
+        await settle();
+        gitHistory.mockClear();
+    };
+
+    it("does nothing when HEAD has not moved — a quiet tick must cost no git call", async () => {
+        await loadedHeadIs("aaa1111");
+        refreshHistoryIfMoved("aaa1111");
+        await settle();
+        expect(gitHistory).not.toHaveBeenCalled();
+    });
+
+    it("re-reads the log when HEAD moved", async () => {
+        await loadedHeadIs("aaa1111");
+        gitHistory.mockResolvedValue({
+            isrepo: true,
+            head: "ccc3333",
+            commits: [commit("ccc3333", "just landed"), commit("aaa1111", "tip commit")],
+        });
+
+        refreshHistoryIfMoved("ccc3333");
+        await settle();
+
+        expect(gitHistory).toHaveBeenCalledTimes(1);
+        expect((globalStore.get(historyRowsAtom) ?? []).some((r) => r.hash === "ccc3333")).toBe(true);
+    });
+
+    it("keeps the reader's place — scroll offset and selected commit survive the refresh", async () => {
+        await loadedHeadIs("aaa1111");
+        globalStore.set(historyScrollAtom, 420);
+        globalStore.set(selectedCommitAtom, "aaa1111");
+        gitHistory.mockResolvedValue({
+            isrepo: true,
+            head: "ccc3333",
+            commits: [commit("ccc3333", "just landed"), commit("aaa1111", "tip commit")],
+        });
+
+        refreshHistoryIfMoved("ccc3333");
+        await settle();
+
+        expect(globalStore.get(historyScrollAtom)).toBe(420);
+        expect(globalStore.get(selectedCommitAtom)).toBe("aaa1111");
+    });
+
+    // The reader may have paged several times. Re-reading only the first page would delete rows from
+    // under a scrolled-down list, so the refresh asks for what is loaded, not for one page.
+    it("re-reads every page already loaded, not just the first", async () => {
+        gitHistory.mockResolvedValue({
+            isrepo: true,
+            head: "aaa1111",
+            commits: Array.from({ length: 50 }, (_, i) => commit(`c${i}`, `commit ${i}`)),
+        });
+        await loadHistory(CWD, {});
+        await settle();
+        await loadMoreHistory();
+        await settle();
+        expect(globalStore.get(historyCommitsAtom)).toHaveLength(100);
+        gitHistory.mockClear();
+        gitHistory.mockResolvedValue({
+            isrepo: true,
+            head: "ddd4444",
+            commits: Array.from({ length: 100 }, (_, i) => commit(`d${i}`, `commit ${i}`)),
+        });
+
+        refreshHistoryIfMoved("ddd4444");
+        await settle();
+
+        expect(gitHistory.mock.calls[0][1].limit).toBe(100);
+        expect(globalStore.get(historyCommitsAtom)).toHaveLength(100);
+        // 100 returned for a 100 limit is a full page, so there may well be more behind it
+        expect(globalStore.get(historyHasMoreAtom)).toBe(true);
+    });
+
+    // hasMorePages compared against the page constant, so a refresh that asked for 100 and got 73
+    // would have claimed another page existed and left a footer that loads nothing forever.
+    it("does not claim another page when a larger read comes back short", async () => {
+        gitHistory.mockResolvedValue({
+            isrepo: true,
+            head: "aaa1111",
+            commits: Array.from({ length: 50 }, (_, i) => commit(`c${i}`, `commit ${i}`)),
+        });
+        await loadHistory(CWD, {});
+        await settle();
+        await loadMoreHistory();
+        await settle();
+        gitHistory.mockResolvedValue({
+            isrepo: true,
+            head: "ddd4444",
+            commits: Array.from({ length: 73 }, (_, i) => commit(`d${i}`, `commit ${i}`)),
+        });
+
+        refreshHistoryIfMoved("ddd4444");
+        await settle();
+
+        expect(globalStore.get(historyHasMoreAtom)).toBe(false);
+    });
+
+    it("stays quiet before anything is loaded — the surface's own load owns the first read", async () => {
+        resetHistory();
+        gitHistory.mockClear();
+        refreshHistoryIfMoved("aaa1111");
+        await settle();
+        expect(gitHistory).not.toHaveBeenCalled();
+    });
+
+    // `r` is a decision, not a tick: it re-reads whether or not HEAD moved, because the reason to
+    // press it is that you do not trust what is on screen.
+    it("refreshHistory re-reads even when HEAD is unchanged", async () => {
+        await loadedHeadIs("aaa1111");
+        refreshHistory();
+        await settle();
+        expect(gitHistory).toHaveBeenCalledTimes(1);
     });
 });

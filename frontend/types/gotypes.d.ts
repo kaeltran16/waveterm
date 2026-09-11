@@ -315,6 +315,7 @@ declare global {
     type BranchInfo = {
         name: string;
         age: string;
+        remote?: boolean;
     };
 
     // wshrpc.CaptureEffortsStatus
@@ -1093,6 +1094,7 @@ declare global {
         numstat: string;
         isrepo: boolean;
         ref?: string;
+        head?: string;
     };
 
     // wshrpc.CommandGitCommitChangesData
@@ -1118,6 +1120,8 @@ declare global {
     // wshrpc.CommandGitCommitDiffRtnData
     type CommandGitCommitDiffRtnData = {
         diff: string;
+        toolarge?: boolean;
+        size?: number;
     };
 
     // wshrpc.CommandGitCompareChangesData
@@ -1125,6 +1129,7 @@ declare global {
         cwd: string;
         base: string;
         head: string;
+        tips?: boolean;
     };
 
     // wshrpc.CommandGitCompareChangesRtnData
@@ -1140,11 +1145,14 @@ declare global {
         base: string;
         head: string;
         path: string;
+        tips?: boolean;
     };
 
     // wshrpc.CommandGitCompareDiffRtnData
     type CommandGitCompareDiffRtnData = {
         diff: string;
+        toolarge?: boolean;
+        size?: number;
     };
 
     // wshrpc.CommandGitDiffData
@@ -1159,6 +1167,8 @@ declare global {
         diff: string;
         content: string;
         untracked: boolean;
+        toolarge?: boolean;
+        size?: number;
     };
 
     // wshrpc.CommandGitDivergenceData
@@ -1173,6 +1183,19 @@ declare global {
         ahead: HistoryCommit[];
         behind: HistoryCommit[];
         mergebase: string;
+        isrepo: boolean;
+    };
+
+    // wshrpc.CommandGitFetchData
+    type CommandGitFetchData = {
+        cwd: string;
+        remote?: string;
+    };
+
+    // wshrpc.CommandGitFetchRtnData
+    type CommandGitFetchRtnData = {
+        fetchedat: number;
+        failure?: GitFailure;
         isrepo: boolean;
     };
 
@@ -1390,6 +1413,7 @@ declare global {
     // wshrpc.CommandListBranchesData
     type CommandListBranchesData = {
         projectpath: string;
+        includeremotes?: boolean;
     };
 
     // wshrpc.CommandListBranchesRtnData

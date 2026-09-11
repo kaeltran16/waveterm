@@ -13,7 +13,6 @@ import { atom, type PrimitiveAtom } from "jotai";
 import { resolveCwd } from "./agentcwdresolve";
 import { ensureSessionStart } from "./agentsessionstore";
 import { originCwd, scopeKey, type DiffOrigin, type DiffRange, type DiffScope } from "./diffscope";
-import { parseUnifiedDiff, plainFileView, type FileView } from "./gitdiff";
 import { parseGitChanges, type GitChanges } from "./gitstatus";
 
 export interface FilesState {
@@ -22,6 +21,11 @@ export interface FilesState {
     isRepo: boolean;
     changes: GitChanges | null;
     ref: string; // base commit to diff against; "" = live working-tree-vs-HEAD
+    // The commit HEAD points at when this read was taken, "" in a repository with no commits. It costs
+    // nothing (GetChanges already resolves HEAD) and it is what lets the Diff surface notice a commit
+    // landing under it: the poll below re-reads the change list on a timer, and the surface compares
+    // this against the sha its commit column was built from.
+    head: string;
 }
 
 // A registered project the Diff surface can scope to, resolved from the config registry (name -> path).
@@ -32,7 +36,6 @@ export interface FilesProject {
 
 export const filesStateAtom = atom<FilesState | null>(null) as PrimitiveAtom<FilesState | null>;
 export const filesSelectedPathAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
-export const filesDiffAtom = atom<FileView | null>(null) as PrimitiveAtom<FileView | null>;
 // true = the git load failed (distinct from "not a repo" — a failed RPC used to masquerade as isRepo:false).
 export const filesErrorAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
 
@@ -40,7 +43,7 @@ export const filesErrorAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
 // either the repository or the range cancels the in-flight load.
 const current = { token: "" };
 
-const EMPTY: FilesState = { cwd: null, branch: "", isRepo: false, changes: null, ref: "" };
+const EMPTY: FilesState = { cwd: null, branch: "", isRepo: false, changes: null, ref: "", head: "" };
 
 // How to anchor the diff: an explicit base commit (runs), or a session-start unix-seconds timestamp
 // (interactive agents) that the backend resolves to the session-start commit and echoes back so
@@ -75,7 +78,7 @@ async function loadChangesForCwd(token: string, cwd: string | null, opts: LoadOp
         // diffs so they match the list. Otherwise use the ref we sent ("" = live).
         const ref = opts.sessionStartTs ? (ch.ref ?? "") : (opts.ref ?? "");
         const changes = ch.isrepo ? parseGitChanges(ch.statusz, ch.numstat) : null;
-        globalStore.set(filesStateAtom, { cwd, branch: ch.branch, isRepo: ch.isrepo, changes, ref });
+        globalStore.set(filesStateAtom, { cwd, branch: ch.branch, isRepo: ch.isrepo, changes, ref, head: ch.head ?? "" });
         globalStore.set(filesErrorAtom, false);
         if (isInitial) {
             // Deliberately always the first file: a deep link is claimed by the history store, which owns
@@ -83,17 +86,11 @@ async function loadChangesForCwd(token: string, cwd: string | null, opts: LoadOp
             // the history load pick another, so the pane showed whichever RPC landed last.
             const first = changes?.files[0]?.path;
             if (first) {
-                void selectFile(cwd, first);
-            }
-        } else {
-            // Refresh: never move the selection out from under the user. Just resync the open file's
-            // diff in place, and only if it's still in the change set — a file that dropped out (reverted,
-            // committed elsewhere) keeps showing its last-known diff rather than going blank.
-            const selected = globalStore.get(filesSelectedPathAtom);
-            if (selected && changes?.files.some((f) => f.path === selected)) {
-                void selectFile(cwd, selected);
+                selectFile(first);
             }
         }
+        // A refresh deliberately does nothing to the selection: never move it out from under the user.
+        // The open file's content is re-read by the surface, which keys off this state's identity.
     } catch {
         if (current.token === token) {
             // a failed git RPC is an error, not a clean "not a repo" — flag it so the surface says so.
@@ -129,7 +126,6 @@ function beginLoad(token: string): void {
     current.token = token;
     globalStore.set(filesStateAtom, null);
     globalStore.set(filesSelectedPathAtom, null);
-    globalStore.set(filesDiffAtom, null);
     globalStore.set(filesErrorAtom, false);
 }
 
@@ -218,19 +214,8 @@ export function consumeFileLink(scope: string, available: string[]): string | un
     return path;
 }
 
-export async function selectFile(cwd: string, path: string): Promise<void> {
+// Selection only. The diff pane reads the file's two sides itself (diffcontentstore), keyed off this
+// path and the state's ref, so there is no patch to fetch here — and so no cwd is needed.
+export function selectFile(path: string): void {
     globalStore.set(filesSelectedPathAtom, path);
-    globalStore.set(filesDiffAtom, null);
-    const ref = globalStore.get(filesStateAtom)?.ref ?? "";
-    try {
-        const d = await RpcApi.GitDiffCommand(TabRpcClient, { cwd, path, ref });
-        if (globalStore.get(filesSelectedPathAtom) !== path) {
-            return; // selection moved on
-        }
-        globalStore.set(filesDiffAtom, d.untracked ? plainFileView(d.content) : parseUnifiedDiff(d.diff));
-    } catch {
-        if (globalStore.get(filesSelectedPathAtom) === path) {
-            globalStore.set(filesDiffAtom, null);
-        }
-    }
 }

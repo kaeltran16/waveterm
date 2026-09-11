@@ -17,9 +17,9 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
 import { AGGREGATE } from "./comparerows";
+import type { CompareForm } from "./diffcontent";
 import type { DiffRange } from "./diffscope";
 import { diffScopeAtom } from "./diffscopeatom";
-import { parseUnifiedDiff, type FileView } from "./gitdiff";
 import { parseGitChanges, type GitChanges } from "./gitstatus";
 
 export interface CompareRefs {
@@ -45,9 +45,6 @@ export const compareSelectedFileAtom = atom<string | null>(null) as PrimitiveAto
 // A failed compare read, phrased with the refs in it so the column can name what did not resolve.
 export const compareErrorAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 export const compareBranchesAtom = atom<BranchInfo[]>([]) as PrimitiveAtom<BranchInfo[]>;
-// The open file's diff. One atom for both selection states — the aggregate and a commit each write it
-// from their own command, so there is nothing for a derived atom to choose between.
-export const compareDiffAtom = atom<FileView | null>(null) as PrimitiveAtom<FileView | null>;
 
 const commitChangesAtom = atom<GitChanges | null>(null) as PrimitiveAtom<GitChanges | null>;
 
@@ -57,6 +54,13 @@ export const compareActiveChangesAtom = atom<GitChanges | null>((get) =>
 );
 
 const current = { token: "" };
+
+// The scope is the single source of truth for which form is active; this reads it rather than
+// carrying a second copy that could disagree with the range strip.
+function activeForm(): CompareForm {
+    const r = globalStore.get(diffScopeAtom)?.range;
+    return r?.kind === "compare" ? r.form : "mergebase";
+}
 
 // Which repository the remembered pair in compareRefsAtom was picked in. That atom survives
 // clearCompareState on purpose, but the pair is only an offer for the repo it came from — carried
@@ -80,7 +84,6 @@ function clearCompareState(): void {
     globalStore.set(compareSelectionAtom, AGGREGATE);
     globalStore.set(compareSelectedFileAtom, null);
     globalStore.set(commitChangesAtom, null);
-    globalStore.set(compareDiffAtom, null);
     globalStore.set(compareErrorAtom, null);
     // compareRefsAtom survives on purpose: re-entering compare should offer the pair you last used.
 }
@@ -89,7 +92,9 @@ function clearCompareState(): void {
 // you can still type a ref by hand, which is the whole reason the fields accept free text.
 export async function loadCompareRefsMeta(cwd: string): Promise<string> {
     try {
-        const rtn = await RpcApi.ListBranchesCommand(TabRpcClient, { projectpath: cwd });
+        // remote-tracking refs too: an origin/* ref is the review base most of the time, and the
+        // backend's default branch now prefers the remote one (T2)
+        const rtn = await RpcApi.ListBranchesCommand(TabRpcClient, { projectpath: cwd, includeremotes: true });
         globalStore.set(compareBranchesAtom, rtn.branches ?? []);
         return rtn.default ?? "";
     } catch {
@@ -116,7 +121,7 @@ export async function enterCompare(cwd: string, currentBranch: string): Promise<
     const prev = remembered.cwd === cwd ? globalStore.get(compareRefsAtom) : null;
     const base = prev?.base || def;
     const head = prev?.head || currentBranch;
-    globalStore.set(diffScopeAtom, { ...scope, range: { kind: "compare", base, head, from } });
+    globalStore.set(diffScopeAtom, { ...scope, range: { kind: "compare", base, head, form: "mergebase", from } });
     await setCompareRefs(cwd, base, head);
 }
 
@@ -128,14 +133,14 @@ export async function setCompareRefs(cwd: string, base: string, head: string): P
     if (scope?.range.kind === "compare") {
         globalStore.set(diffScopeAtom, { ...scope, range: { ...scope.range, base, head } });
     }
-    const token = `${cwd}|${base}|${head}`;
+    const form = activeForm();
+    const token = `${cwd}|${base}|${head}|${form}`;
     current.token = token;
     globalStore.set(compareSidesAtom, null);
     globalStore.set(compareAggregateAtom, null);
     globalStore.set(compareSelectionAtom, AGGREGATE);
     globalStore.set(compareSelectedFileAtom, null);
     globalStore.set(commitChangesAtom, null);
-    globalStore.set(compareDiffAtom, null);
     globalStore.set(compareErrorAtom, null);
     if (!base || !head) {
         globalStore.set(compareErrorAtom, "Pick two refs to compare.");
@@ -144,7 +149,9 @@ export async function setCompareRefs(cwd: string, base: string, head: string): P
     try {
         const [div, agg] = await Promise.all([
             RpcApi.GitDivergenceCommand(TabRpcClient, { cwd, base, head }),
-            RpcApi.GitCompareChangesCommand(TabRpcClient, { cwd, base, head }),
+            // the wire takes a bool because git has exactly two range separators; the union stays
+            // the vocabulary everywhere above it
+            RpcApi.GitCompareChangesCommand(TabRpcClient, { cwd, base, head, tips: form === "tips" }),
         ]);
         if (current.token !== token) {
             return;
@@ -162,7 +169,7 @@ export async function setCompareRefs(cwd: string, base: string, head: string): P
         globalStore.set(compareAggregateAtom, changes);
         const first = changes.files[0]?.path;
         if (first) {
-            void selectCompareFile(cwd, first);
+            selectCompareFile(first);
         }
     } catch {
         if (current.token === token) {
@@ -173,14 +180,85 @@ export async function setCompareRefs(cwd: string, base: string, head: string): P
     }
 }
 
+// A form change is a different question about the same two refs, so it re-reads the aggregate and the
+// open file but leaves the commit columns alone — divergence does not depend on the form.
+export async function setCompareForm(cwd: string, form: CompareForm): Promise<void> {
+    const scope = globalStore.get(diffScopeAtom);
+    if (scope == null || scope.range.kind !== "compare" || scope.range.form === form) {
+        return;
+    }
+    globalStore.set(diffScopeAtom, { ...scope, range: { ...scope.range, form } });
+    await setCompareRefs(cwd, scope.range.base, scope.range.head);
+}
+
+// Swapping is a different comparison, not a redraw: both the divergence and the aggregate invert, so
+// it goes through the same path a typed pair does.
+export async function swapCompareRefs(cwd: string): Promise<void> {
+    const refs = globalStore.get(compareRefsAtom);
+    if (refs == null || !refs.base || !refs.head) {
+        return;
+    }
+    await setCompareRefs(cwd, refs.head, refs.base);
+}
+
+export interface FetchState {
+    running: boolean;
+    at: number; // unix seconds of the last successful fetch; 0 = never in this session
+    failure: GitFailure | null;
+}
+
+export const fetchStateAtom = atom<FetchState>({
+    running: false,
+    at: 0,
+    failure: null,
+}) as PrimitiveAtom<FetchState>;
+
+// The one network call this surface makes. A remote-tracking ref is only as fresh as the last fetch,
+// so comparing against origin/main without one silently compares against yesterday's origin/main.
+//
+// The budget is raised on purpose: the client's timeout binds the SERVER's context, so at the 5s
+// default a merely-slow fetch would be cancelled underneath a git process that is still running.
+// 60s sits just outside gitinfo's own 55s fetchTimeout, so git's answer arrives first and a real
+// timeout is reported by the side that knows what it was doing.
+export async function runFetch(cwd: string): Promise<void> {
+    globalStore.set(fetchStateAtom, { ...globalStore.get(fetchStateAtom), running: true, failure: null });
+    try {
+        const r = await RpcApi.GitFetchCommand(TabRpcClient, { cwd }, { timeout: 60000 });
+        // a failed fetch reports no time; the previous one still happened, so the clock keeps reading it
+        const prevAt = globalStore.get(fetchStateAtom).at;
+        globalStore.set(fetchStateAtom, { running: false, at: r.fetchedat || prevAt, failure: r.failure ?? null });
+        if (r.failure != null) {
+            return;
+        }
+        // The refs moved, so what the picker suggests and what the comparison means both moved with
+        // them. Re-reading is the point of having fetched.
+        await loadCompareRefsMeta(cwd);
+        const refs = globalStore.get(compareRefsAtom);
+        if (refs != null) {
+            await setCompareRefs(cwd, refs.base, refs.head);
+        }
+    } catch {
+        // An RPC-level failure has no stderr to show, so say the one thing that is known rather than
+        // leaving the button spinning.
+        globalStore.set(fetchStateAtom, {
+            running: false,
+            at: globalStore.get(fetchStateAtom).at,
+            failure: { command: "git fetch", exitcode: -1, stderr: "the fetch did not complete" },
+        });
+    }
+}
+
+export function dismissFetchFailure(): void {
+    globalStore.set(fetchStateAtom, { ...globalStore.get(fetchStateAtom), failure: null });
+}
+
 export async function selectCompareRow(cwd: string, rowId: string): Promise<void> {
     globalStore.set(compareSelectionAtom, rowId);
     globalStore.set(compareSelectedFileAtom, null);
-    globalStore.set(compareDiffAtom, null);
     if (rowId === AGGREGATE) {
         const first = globalStore.get(compareAggregateAtom)?.files[0]?.path;
         if (first) {
-            void selectCompareFile(cwd, first);
+            selectCompareFile(first);
         }
         return;
     }
@@ -194,7 +272,7 @@ export async function selectCompareRow(cwd: string, rowId: string): Promise<void
         globalStore.set(commitChangesAtom, changes);
         const first = changes?.files[0]?.path;
         if (first) {
-            void selectCompareFile(cwd, first);
+            selectCompareFile(first);
         }
     } catch {
         if (globalStore.get(compareSelectionAtom) === rowId) {
@@ -203,38 +281,8 @@ export async function selectCompareRow(cwd: string, rowId: string): Promise<void
     }
 }
 
-export async function selectCompareFile(cwd: string, path: string): Promise<void> {
+// Selection only. Which two refs the aggregate row and a commit row mean is the pane's question now
+// (diffcontent.ts), and it reads the same compareSelectionAtom this writes.
+export function selectCompareFile(path: string): void {
     globalStore.set(compareSelectedFileAtom, path);
-    globalStore.set(compareDiffAtom, null);
-    const selection = globalStore.get(compareSelectionAtom);
-    const refs = globalStore.get(compareRefsAtom);
-    const moved = () =>
-        globalStore.get(compareSelectedFileAtom) !== path || globalStore.get(compareSelectionAtom) !== selection;
-    try {
-        if (selection === AGGREGATE) {
-            if (refs == null) {
-                return;
-            }
-            const d = await RpcApi.GitCompareDiffCommand(TabRpcClient, {
-                cwd,
-                base: refs.base,
-                head: refs.head,
-                path,
-            });
-            if (moved()) {
-                return;
-            }
-            globalStore.set(compareDiffAtom, parseUnifiedDiff(d.diff));
-            return;
-        }
-        const d = await RpcApi.GitCommitDiffCommand(TabRpcClient, { cwd, hash: selection, path });
-        if (moved()) {
-            return;
-        }
-        globalStore.set(compareDiffAtom, parseUnifiedDiff(d.diff));
-    } catch {
-        if (!moved()) {
-            globalStore.set(compareDiffAtom, null);
-        }
-    }
 }

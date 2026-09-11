@@ -14,8 +14,7 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
 import { historyKey, type LoadHistoryOpts } from "./diffscope";
-import { consumeFileLink, filesDiffAtom, filesStateAtom, selectFile } from "./filesstore";
-import { parseUnifiedDiff, type FileView } from "./gitdiff";
+import { consumeFileLink, filesStateAtom, selectFile } from "./filesstore";
 import { parseGitChanges, type GitChanges } from "./gitstatus";
 import {
     FILTER_DEBOUNCE_MS,
@@ -47,7 +46,6 @@ export const selectedFileAtom = atom<string | null>(null) as PrimitiveAtom<strin
 export const graphOnAtom = atom<boolean>(true) as PrimitiveAtom<boolean>;
 
 const commitChangesAtom = atom<GitChanges | null>(null) as PrimitiveAtom<GitChanges | null>;
-const commitDiffAtom = atom<FileView | null>(null) as PrimitiveAtom<FileView | null>;
 // The scope's anchor/labels, held so the debounced filter reload can reissue the same scoped read.
 const historyOptsAtom = atom<LoadHistoryOpts>({}) as PrimitiveAtom<LoadHistoryOpts>;
 // When the current page was read. Relative ages are computed against this rather than a live clock,
@@ -85,9 +83,6 @@ export const historyRowsAtom = atom<HistoryRow[] | null>((get) => {
 export const activeChangesAtom = atom<GitChanges | null>((get) =>
     get(selectedCommitAtom) === WORKING_TREE ? (get(filesStateAtom)?.changes ?? null) : get(commitChangesAtom)
 );
-export const activeDiffAtom = atom<FileView | null>((get) =>
-    get(selectedCommitAtom) === WORKING_TREE ? get(filesDiffAtom) : get(commitDiffAtom)
-);
 
 const current = { token: "" };
 let filterTimer: ReturnType<typeof setTimeout> | null = null;
@@ -123,7 +118,6 @@ export function resetHistory(): void {
     globalStore.set(selectedCommitAtom, null);
     globalStore.set(selectedFileAtom, null);
     globalStore.set(commitChangesAtom, null);
-    globalStore.set(commitDiffAtom, null);
 }
 
 // Deliberately excludes the anchor: GitHistoryCommand takes cwd, limit and filters, so two loads that
@@ -142,7 +136,15 @@ function synthFailure(command: string, e: unknown): GitFailure {
 // pending file deep link — from a sealed run's evidence card, or from an agent's changed-file rail.
 // Deliberately not part of opts: opts is stored for the filter reload to reissue, and a one-shot link
 // must not be.
-export async function loadHistory(cwd: string | null, opts: LoadHistoryOpts = {}, scope?: string): Promise<void> {
+export async function loadHistory(
+    cwd: string | null,
+    opts: LoadHistoryOpts = {},
+    scope?: string,
+    // How many commits to ask git for. One page by default; a background refresh passes the number
+    // already loaded, so a list the reader has paged down through comes back the same length instead
+    // of losing rows from under them.
+    limit: number = HISTORY_PAGE_SIZE
+): Promise<void> {
     if (!cwd) {
         resetHistory();
         return;
@@ -166,7 +168,7 @@ export async function loadHistory(cwd: string | null, opts: LoadHistoryOpts = {}
     try {
         const h = await RpcApi.GitHistoryCommand(TabRpcClient, {
             cwd,
-            limit: HISTORY_PAGE_SIZE,
+            limit,
             ...toHistoryQuery(filters),
         });
         if (current.token !== token) {
@@ -187,7 +189,7 @@ export async function loadHistory(cwd: string | null, opts: LoadHistoryOpts = {}
         globalStore.set(historyNowAtom, Date.now());
         globalStore.set(historyHeadAtom, h.head);
         globalStore.set(historyCommitsAtom, page);
-        globalStore.set(historyHasMoreAtom, hasMorePages(page.length));
+        globalStore.set(historyHasMoreAtom, hasMorePages(page.length, limit));
         settleSelection(cwd, scope);
         announceRestore();
     } catch (e) {
@@ -212,7 +214,7 @@ function settleSelection(cwd: string, scope?: string): void {
     const linked = scope ? consumeFileLink(scope, files.map((f) => f.path)) : undefined;
     if (linked) {
         globalStore.set(selectedCommitAtom, WORKING_TREE);
-        void selectCommitFile(cwd, WORKING_TREE, linked);
+        selectCommitFile(WORKING_TREE, linked);
         return;
     }
     const prev = globalStore.get(selectedCommitAtom);
@@ -298,6 +300,37 @@ export async function loadMoreHistory(): Promise<void> {
     }
 }
 
+// A refresh of the list already on screen, as against reloadFirstPage's "start over". Two things
+// differ and both matter to someone mid-read: the scroll offset is left alone (loadHistory keeps it
+// whenever the token is unchanged, which it is here), and the read asks for every commit already
+// loaded rather than one page, so a reader who has paged down does not watch rows disappear.
+function reloadInPlace(): void {
+    const cwd = globalStore.get(filesStateAtom)?.cwd ?? null;
+    const loaded = globalStore.get(historyCommitsAtom)?.length ?? 0;
+    void loadHistory(cwd, globalStore.get(historyOptsAtom), undefined, Math.max(loaded, HISTORY_PAGE_SIZE));
+}
+
+// Pressing r. A decision rather than a tick: it re-reads whether or not HEAD moved, because the
+// reason to press it is not trusting what is on screen.
+export function refreshHistory(): void {
+    reloadInPlace();
+}
+
+// The change-list poll's path. HEAD rides along with that read (CommandGitChangesRtnData.head), so a
+// commit landing under the open surface is noticed without polling the log: compare the sha this
+// column was built from and re-read only when it differs. Before the first load there is nothing to
+// refresh — the surface's own load effect owns that read, and jumping in front of it would fire two
+// reads for every mount.
+export function refreshHistoryIfMoved(head: string): void {
+    if (!head || globalStore.get(historyCommitsAtom) == null) {
+        return;
+    }
+    if (head === globalStore.get(historyHeadAtom)) {
+        return;
+    }
+    reloadInPlace();
+}
+
 function reloadFirstPage(): void {
     const cwd = globalStore.get(filesStateAtom)?.cwd ?? null;
     globalStore.set(historyScrollAtom, 0);
@@ -333,14 +366,13 @@ export function retryHistory(): void {
 export async function selectCommit(cwd: string, hash: string): Promise<void> {
     globalStore.set(selectedCommitAtom, hash);
     globalStore.set(selectedFileAtom, null);
-    globalStore.set(commitDiffAtom, null);
     if (hash === WORKING_TREE) {
         // the working tree's file list is already loaded by filesstore for the active scope; just pick
         // its first file so pane 3 is never blank
         const first = globalStore.get(filesStateAtom)?.changes?.files[0]?.path;
         if (first) {
             globalStore.set(selectedFileAtom, first);
-            void selectFile(cwd, first);
+            selectFile(first);
         }
         return;
     }
@@ -354,7 +386,7 @@ export async function selectCommit(cwd: string, hash: string): Promise<void> {
         globalStore.set(commitChangesAtom, changes);
         const first = changes?.files[0]?.path;
         if (first) {
-            void selectCommitFile(cwd, hash, first);
+            selectCommitFile(hash, first);
         }
     } catch {
         if (globalStore.get(selectedCommitAtom) === hash) {
@@ -363,22 +395,12 @@ export async function selectCommit(cwd: string, hash: string): Promise<void> {
     }
 }
 
-export async function selectCommitFile(cwd: string, hash: string, path: string): Promise<void> {
+// Selection only. The pane reads the commit and its parent itself (diffcontentstore), so there is no
+// patch to fetch here; the working-tree row still routes through filesstore because that row's
+// selection lives there.
+export function selectCommitFile(hash: string, path: string): void {
     globalStore.set(selectedFileAtom, path);
     if (hash === WORKING_TREE) {
-        void selectFile(cwd, path);
-        return;
-    }
-    globalStore.set(commitDiffAtom, null);
-    try {
-        const d = await RpcApi.GitCommitDiffCommand(TabRpcClient, { cwd, hash, path });
-        if (globalStore.get(selectedFileAtom) !== path || globalStore.get(selectedCommitAtom) !== hash) {
-            return; // selection moved on
-        }
-        globalStore.set(commitDiffAtom, parseUnifiedDiff(d.diff));
-    } catch {
-        if (globalStore.get(selectedFileAtom) === path) {
-            globalStore.set(commitDiffAtom, null);
-        }
+        selectFile(path);
     }
 }

@@ -49,11 +49,11 @@ func (ws *WshServer) GitCommitDiffCommand(ctx context.Context, data wshrpc.Comma
 	if err != nil {
 		return nil, err
 	}
-	return &wshrpc.CommandGitCommitDiffRtnData{Diff: d.Diff}, nil
+	return &wshrpc.CommandGitCommitDiffRtnData{Diff: d.Diff, TooLarge: d.TooLarge, Size: d.Size}, nil
 }
 
 func (ws *WshServer) GitCompareChangesCommand(ctx context.Context, data wshrpc.CommandGitCompareChangesData) (*wshrpc.CommandGitCompareChangesRtnData, error) {
-	ch, err := gitinfo.CompareChanges(ctx, data.Cwd, data.Base, data.Head)
+	ch, err := gitinfo.CompareChanges(ctx, data.Cwd, data.Base, data.Head, data.Tips)
 	if err != nil {
 		return nil, err
 	}
@@ -61,11 +61,11 @@ func (ws *WshServer) GitCompareChangesCommand(ctx context.Context, data wshrpc.C
 }
 
 func (ws *WshServer) GitCompareDiffCommand(ctx context.Context, data wshrpc.CommandGitCompareDiffData) (*wshrpc.CommandGitCompareDiffRtnData, error) {
-	d, err := gitinfo.CompareDiff(ctx, data.Cwd, data.Base, data.Head, data.Path)
+	d, err := gitinfo.CompareDiff(ctx, data.Cwd, data.Base, data.Head, data.Path, data.Tips)
 	if err != nil {
 		return nil, err
 	}
-	return &wshrpc.CommandGitCompareDiffRtnData{Diff: d.Diff}, nil
+	return &wshrpc.CommandGitCompareDiffRtnData{Diff: d.Diff, TooLarge: d.TooLarge, Size: d.Size}, nil
 }
 
 func (ws *WshServer) GitListFilesCommand(ctx context.Context, data wshrpc.CommandGitListFilesData) (*wshrpc.CommandGitListFilesRtnData, error) {
@@ -97,4 +97,12 @@ func (ws *WshServer) GitFileAtRefCommand(ctx context.Context, data wshrpc.Comman
 		Content: fc.Content, Binary: fc.Binary, Missing: fc.Missing,
 		TooLarge: fc.TooLarge, Size: fc.Size, IsRepo: fc.IsRepo,
 	}, nil
+}
+
+func (ws *WshServer) GitFetchCommand(ctx context.Context, data wshrpc.CommandGitFetchData) (*wshrpc.CommandGitFetchRtnData, error) {
+	r, err := gitinfo.Fetch(ctx, data.Cwd, data.Remote)
+	if err != nil {
+		return nil, err
+	}
+	return &wshrpc.CommandGitFetchRtnData{FetchedAt: r.FetchedAt, Failure: r.Failure, IsRepo: r.IsRepo}, nil
 }
