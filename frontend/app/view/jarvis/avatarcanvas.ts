@@ -1,7 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The fallback renderer: the avatar's scene drawn with plain canvas strokes.
+// The fallback renderer: the avatar's scene drawn with plain canvas strokes and fills.
 //
 // Used when WebGL 2 is unavailable, when its context is lost, or when a shader fails to build. It consumes
 // the same avatarscene.ts output as the WebGL renderer, which is what makes a lost context survivable
@@ -14,7 +14,7 @@ import type { AvatarScene, SceneTone } from "./avatarscene";
 
 export interface SceneColours {
     body: string;
-    /** the body colour lightened, for the pulse head and the major ticks */
+    /** the body colour lightened, for the lit core and the front arcs */
     hot: string;
     marker: string | null;
 }
@@ -56,7 +56,7 @@ function lighten(colour: string, k: number): string {
 /**
  * Crossfades two theme tones, returning hex rather than rgb() on purpose: `lighten` derives the "hot"
  * tone from whatever this returns, and it only parses hex. An rgb() string here would silently flatten
- * the pulse head and the major ticks into the body tone for the length of every transition.
+ * the lit core and the front arcs into the body tone for the length of every transition.
  *
  * A tone that cannot be parsed is not blended at all — it snaps at the halfway point. Better a hard
  * switch than a frame of mid-grey, which is what channel-wise nonsense would produce.
@@ -133,18 +133,30 @@ export function drawSceneToCanvas(
         ctx.fillRect(0, 0, size, size);
     }
 
-    ctx.lineWidth = Math.max(0.6, size * 0.003);
+    // Fills first: they are what the strokes sit on. This renderer composites normally rather than
+    // additively, so unlike the WebGL one it genuinely paints over — a band drawn after its own rim arc
+    // would erase it.
+    for (const f of scene.fills) {
+        if (f.points.length < 3) {
+            continue;
+        }
+        ctx.fillStyle = withAlpha(toneColour(f.tone, colours), f.alpha);
+        ctx.beginPath();
+        ctx.moveTo(f.points[0][0], f.points[0][1]);
+        for (let i = 1; i < f.points.length; i++) {
+            ctx.lineTo(f.points[i][0], f.points[i][1]);
+        }
+        ctx.closePath();
+        ctx.fill();
+    }
     for (const s of scene.segments) {
+        // css px: petview puts the dpr scale on the context itself, so this matches the weight the scene
+        // authored and the weight the WebGL renderer draws
+        ctx.lineWidth = s.width;
         ctx.strokeStyle = withAlpha(toneColour(s.tone, colours), s.alpha);
         ctx.beginPath();
         ctx.moveTo(s.ax, s.ay);
         ctx.lineTo(s.bx, s.by);
         ctx.stroke();
-    }
-    for (const p of scene.points) {
-        ctx.fillStyle = withAlpha(toneColour(p.tone, colours), p.alpha);
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.size * 0.5, 0, Math.PI * 2);
-        ctx.fill();
     }
 }
