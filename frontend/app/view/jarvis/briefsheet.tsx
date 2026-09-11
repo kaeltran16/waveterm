@@ -27,6 +27,8 @@ import { ambientProviderAtom, ensureAmbient } from "@/app/view/agents/ambientsto
 import { resolveTargetChannel } from "@/app/view/agents/channelderive";
 import { activeChannelAtom, channelsAtom } from "@/app/view/agents/channelsstore";
 import { harnessPreferenceAtom } from "@/app/view/agents/harnessstore";
+import { channelProjectLabel } from "@/app/view/agents/projectlabel";
+import { projectsAtom } from "@/app/view/agents/projectsstore";
 import {
     channelOverrideAtom,
     createRun,
@@ -89,6 +91,7 @@ function ChannelLaunch({ channel }: { channel: Channel }) {
     const pendingDraft = useAtomValue(pendingRunDraftAtom);
     const setPendingDraft = useSetAtom(pendingRunDraftAtom);
     const channels = useAtomValue(channelsAtom);
+    const projects = useAtomValue(projectsAtom);
     const [goal, setGoal] = useState("");
     const [error, setError] = useState<string | null>(null);
     const [launching, setLaunching] = useState(false);
@@ -152,7 +155,7 @@ function ChannelLaunch({ channel }: { channel: Channel }) {
     return (
         <div className="flex flex-none flex-col gap-1.5 border-t border-edge-faint px-4 py-3">
             <span className="font-mono text-[9.5px] font-bold uppercase tracking-[.13em] text-feed-label">
-                run this in #{channel.name}
+                run this in {channelProjectLabel(channel, projects)}
             </span>
             <div className="flex items-center gap-2">
                 <input
@@ -240,14 +243,14 @@ function SheetChannelPending({ channelId }: { channelId: string }) {
     if (errored || gone) {
         return (
             <div data-jarvis-brief-sheet-state="unavailable" className="flex min-h-0 flex-1 flex-col gap-2 p-4">
-                <span className="text-[12px] text-secondary">This session's channel is no longer available.</span>
+                <span className="text-[12px] text-secondary">This run's project is no longer available.</span>
             </div>
         );
     }
     return (
         <div data-jarvis-brief-sheet-state="loading" className="flex min-h-0 flex-1 flex-col gap-2 p-4">
             <span className="h-8 animate-pulse rounded-[8px] bg-surface-raised motion-reduce:animate-none" />
-            <span className="text-[12px] text-secondary">Reading this channel…</span>
+            <span className="text-[12px] text-secondary">Reading this project…</span>
         </div>
     );
 }
@@ -262,6 +265,7 @@ export function BriefSheet({ model }: { model: AgentsViewModel }) {
     const recordDetails = useAtomValue(recordDetailAtom);
     const bandsOpen = useAtomValue(recordBandOpenAtom);
     const effortCache = useAtomValue(effortDetailAtom);
+    const projects = useAtomValue(projectsAtom);
 
     useEffect(() => ensureAmbient(), []);
 
@@ -296,7 +300,7 @@ export function BriefSheet({ model }: { model: AgentsViewModel }) {
     };
     const title =
         face.kind === "channel"
-            ? (channel?.name ?? "")
+            ? channelProjectLabel(channel, projects)
             : (effortCache.get("effort:" + face.effortId)?.title ?? "Initiative");
 
     return (
@@ -309,7 +313,7 @@ export function BriefSheet({ model }: { model: AgentsViewModel }) {
             />
             <SheetShell
                 face={face.kind}
-                label={face.kind === "effort" ? "initiative" : "session"}
+                label={face.kind === "effort" ? "initiative" : "project"}
                 title={title}
                 onClose={close}
             >
@@ -330,7 +334,7 @@ export function BriefSheet({ model }: { model: AgentsViewModel }) {
                         <ChannelRun model={model} channel={channel} run={run} />
                     ) : (
                         <div className="flex min-h-0 flex-1 flex-col">
-                            <RunLauncher channelName={channel.name ?? face.channelId} />
+                            <RunLauncher projectName={channelProjectLabel(channel, projects)} />
                             <ChannelLaunch channel={channel} />
                         </div>
                     )
