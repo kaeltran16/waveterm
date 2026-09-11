@@ -19,7 +19,7 @@ import { atom, type PrimitiveAtom } from "jotai";
 import { AGGREGATE } from "./comparerows";
 import type { DiffRange } from "./diffscope";
 import { diffScopeAtom } from "./diffscopeatom";
-import { parseUnifiedDiff, type FileView } from "./gitdiff";
+import { diffFileView, type FileView } from "./gitdiff";
 import { parseGitChanges, type GitChanges } from "./gitstatus";
 
 export interface CompareRefs {
@@ -224,14 +224,14 @@ export async function selectCompareFile(cwd: string, path: string): Promise<void
             if (moved()) {
                 return;
             }
-            globalStore.set(compareDiffAtom, parseUnifiedDiff(d.diff));
+            globalStore.set(compareDiffAtom, diffFileView(d));
             return;
         }
         const d = await RpcApi.GitCommitDiffCommand(TabRpcClient, { cwd, hash: selection, path });
         if (moved()) {
             return;
         }
-        globalStore.set(compareDiffAtom, parseUnifiedDiff(d.diff));
+        globalStore.set(compareDiffAtom, diffFileView(d));
     } catch {
         if (!moved()) {
             globalStore.set(compareDiffAtom, null);

@@ -1,6 +1,6 @@
 // frontend/app/view/agents/gitdiff.test.ts
 import { describe, expect, it } from "vitest";
-import { firstChangedLine, parseUnifiedDiff, plainFileView } from "./gitdiff";
+import { diffFileView, firstChangedLine, parseUnifiedDiff, plainFileView } from "./gitdiff";
 
 const DIFF = [
     "diff --git a/src/x.ts b/src/x.ts",
@@ -186,5 +186,39 @@ describe("firstChangedLine", () => {
 
     it("returns undefined when there is nothing to land on", () => {
         expect(firstChangedLine(parseUnifiedDiff(""))).toBeUndefined();
+    });
+});
+
+describe("diffFileView", () => {
+    it("parses an ordinary patch", () => {
+        const v = diffFileView({ diff: DIFF });
+        expect(v.lines.length).toBeGreaterThan(0);
+        expect(v.tooLarge).toBeUndefined();
+    });
+
+    it("renders an untracked file as wholly added", () => {
+        const v = diffFileView({ content: "one\ntwo\n", untracked: true });
+        expect(v.adds).toBe(2);
+        expect(v.hunkLabel).toBe("New file");
+    });
+
+    // The failure this guards: a refused patch arrives as an empty diff string, and an empty diff
+    // parses into zero lines — which the pane draws as "nothing inside this file changed". The
+    // reader would be told the opposite of the truth.
+    it("reports a refused patch as too large, not as no changes", () => {
+        const v = diffFileView({ diff: "", toolarge: true, size: 5_000_000 });
+        expect(v.tooLarge).toBe(5_000_000);
+        expect(v.lines).toHaveLength(0);
+    });
+
+    it("does not confuse a genuinely empty diff with a refused one", () => {
+        const v = diffFileView({ diff: "" });
+        expect(v.tooLarge).toBeUndefined();
+        expect(v.lines).toHaveLength(0);
+    });
+
+    // toolarge without a size is still an answer; the pane just cannot name the number.
+    it("survives a missing size", () => {
+        expect(diffFileView({ toolarge: true }).tooLarge).toBe(0);
     });
 });

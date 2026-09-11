@@ -66,13 +66,13 @@ func (ws *WshServer) CreateWorktreeCommand(ctx context.Context, data wshrpc.Comm
 }
 
 func (ws *WshServer) ListBranchesCommand(ctx context.Context, data wshrpc.CommandListBranchesData) (wshrpc.CommandListBranchesRtnData, error) {
-	branches, err := gitinfo.ListBranches(ctx, data.ProjectPath)
+	branches, err := gitinfo.ListBranches(ctx, data.ProjectPath, data.IncludeRemotes)
 	if err != nil {
 		return wshrpc.CommandListBranchesRtnData{}, err
 	}
 	rtn := wshrpc.CommandListBranchesRtnData{Branches: make([]wshrpc.BranchInfo, 0, len(branches))}
 	for _, b := range branches {
-		rtn.Branches = append(rtn.Branches, wshrpc.BranchInfo{Name: b.Name, Age: b.Age})
+		rtn.Branches = append(rtn.Branches, wshrpc.BranchInfo{Name: b.Name, Age: b.Age, Remote: b.Remote})
 	}
 	// A repo with no resolvable default is not an error here — DefaultBranch returns "" and the
 	// picker's base field just opens empty.
@@ -98,7 +98,7 @@ func (ws *WshServer) GitDiffCommand(ctx context.Context, data wshrpc.CommandGitD
 	if err != nil {
 		return nil, fmt.Errorf("git diff: %w", err)
 	}
-	return &wshrpc.CommandGitDiffRtnData{Diff: d.Diff, Content: d.Content, Untracked: d.Untracked}, nil
+	return &wshrpc.CommandGitDiffRtnData{Diff: d.Diff, Content: d.Content, Untracked: d.Untracked, TooLarge: d.TooLarge, Size: d.Size}, nil
 }
 
 func (ws *WshServer) GitRevertCommand(ctx context.Context, data wshrpc.CommandGitRevertData) error {

@@ -40,6 +40,31 @@ type Diff struct {
 	Diff      string
 	Content   string
 	Untracked bool
+	// TooLarge means the patch was produced and then refused: Diff and Content are empty and Size
+	// says how big it was. A silently truncated patch reads as a complete one, which is the whole
+	// reason this is a flag rather than a cut-off string.
+	TooLarge bool
+	Size     int64 // bytes of the patch (or of the untracked file's content)
+}
+
+// maxDiffBytes caps one file's patch. A regenerated lockfile is megabytes of unified diff, every
+// byte of which is pushed over the RPC and then rendered a DOM row per line; nothing in row 40,000
+// tells the reader what row 200 did not. It matches the Code surface's MAX_VIEW_BYTES so that a file
+// that surface will open is a file this one will diff.
+const maxDiffBytes = 2 * 1024 * 1024
+
+// cappedDiff refuses a patch too large to be worth shipping. What it bounds is the wire and the DOM,
+// not the read: git has no cheap way to answer "how big would this diff be", so the patch exists
+// before it can be measured.
+func cappedDiff(d *Diff) *Diff {
+	size := int64(len(d.Diff) + len(d.Content))
+	d.Size = size
+	if size > maxDiffBytes {
+		d.Diff = ""
+		d.Content = ""
+		d.TooLarge = true
+	}
+	return d
 }
 
 func run(ctx context.Context, cwd string, args ...string) (string, error) {
@@ -334,7 +359,7 @@ func GetDiff(ctx context.Context, cwd, path, ref string) (*Diff, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &Diff{Content: string(content), Untracked: true}, nil
+		return cappedDiff(&Diff{Content: string(content), Untracked: true}), nil
 	}
 	base := ref
 	if base == "" {
@@ -344,26 +369,35 @@ func GetDiff(ctx context.Context, cwd, path, ref string) (*Diff, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Diff{Diff: diff}, nil
+	return cappedDiff(&Diff{Diff: diff}), nil
 }
 
 type BranchInfo struct {
-	Name string
-	Age  string // relative committer date, e.g. "2 hours ago"
+	Name   string
+	Age    string // relative committer date, e.g. "2 hours ago"
+	Remote bool
 }
 
-// ListBranches returns the local branches of the repo at repoPath, most-recently-committed first.
-// It returns an empty slice (no error) when repoPath is not a git repository, so the caller can
-// degrade to free-text input without surfacing an error.
-func ListBranches(ctx context.Context, repoPath string) ([]BranchInfo, error) {
+// ListBranches returns the branches of the repo at repoPath, most-recently-committed first.
+// includeRemotes adds refs/remotes, which the compare ref picker wants and the New Agent launcher
+// does not: a worktree cannot be created on a remote-tracking ref. origin/HEAD is filtered because
+// it is a symbolic alias, not a branch anyone compares against. Returns an empty slice (no error)
+// when repoPath is not a git repository, so the caller can degrade to free-text input.
+func ListBranches(ctx context.Context, repoPath string, includeRemotes bool) ([]BranchInfo, error) {
 	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
 	defer cancel()
 	inside, err := run(ctx, repoPath, "rev-parse", "--is-inside-work-tree")
 	if err != nil || strings.TrimSpace(inside) != "true" {
 		return nil, nil
 	}
-	out, err := run(ctx, repoPath, "for-each-ref", "--sort=-committerdate",
-		"--format=%(refname:short)\t%(committerdate:relative)", "refs/heads")
+	// the full refname is asked for alongside the short one because that is what distinguishes a
+	// remote from a local branch and what identifies origin/HEAD — %(refname:short) flattens both away.
+	args := []string{"for-each-ref", "--sort=-committerdate",
+		"--format=%(refname:short)\t%(committerdate:relative)\t%(refname)", "refs/heads"}
+	if includeRemotes {
+		args = append(args, "refs/remotes")
+	}
+	out, err := run(ctx, repoPath, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -373,8 +407,19 @@ func ListBranches(ctx context.Context, repoPath string) ([]BranchInfo, error) {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		name, age, _ := strings.Cut(line, "\t")
-		branches = append(branches, BranchInfo{Name: name, Age: age})
+		fields := strings.Split(line, "\t")
+		if len(fields) < 3 {
+			continue
+		}
+		name, age, full := fields[0], fields[1], fields[2]
+		if strings.HasSuffix(full, "/HEAD") {
+			continue
+		}
+		branches = append(branches, BranchInfo{
+			Name:   name,
+			Age:    age,
+			Remote: strings.HasPrefix(full, "refs/remotes/"),
+		})
 	}
 	return branches, nil
 }
@@ -725,7 +770,7 @@ func CommitDiff(ctx context.Context, cwd, hash, path string) (*Diff, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Diff{Diff: diff}, nil
+	return cappedDiff(&Diff{Diff: diff}), nil
 }
 
 // renameSource returns the path a rename moved from, or "" when this path is a genuine addition. It
@@ -788,20 +833,34 @@ func pathDiff(ctx context.Context, cwd, path string, revs ...string) (string, er
 	return paired, nil
 }
 
+// rangeSep picks the range form. Two dots is the full tip-to-tip difference; three dots is anchored
+// at the merge base.
+func rangeSep(tips bool) string {
+	if tips {
+		return ".."
+	}
+	return "..."
+}
+
 // CompareChanges returns the per-file changes head introduces relative to base, anchored at their
 // merge base (three-dot). The two-dot form would fold in the base side's own commits inverted — their
 // additions appearing as deletions — so the file list would match neither side of the compare column.
 // Never consults the working tree. Paths are cwd-relative (--relative), matching the rest of the
 // package, so parseGitChanges on the frontend handles this shape unchanged. IsRepo=false when cwd is
 // not a repo; a git failure errors so the caller can name the ref that did not resolve.
-func CompareChanges(ctx context.Context, cwd, base, head string) (*Changes, error) {
+//
+// tips selects the two-dot form instead: the full difference between the two tips, base's own
+// commits included as reverse changes. It answers "has base moved under me", which the merge-base
+// form cannot, and it deliberately does not correspond to either commit column — the pane header
+// names the active form so the two can never be confused.
+func CompareChanges(ctx context.Context, cwd, base, head string, tips bool) (*Changes, error) {
 	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
 	defer cancel()
 	inside, err := run(ctx, cwd, "rev-parse", "--is-inside-work-tree")
 	if err != nil || strings.TrimSpace(inside) != "true" {
 		return &Changes{IsRepo: false}, nil
 	}
-	spec := base + "..." + head
+	spec := base + rangeSep(tips) + head
 	nameStatus, err := run(ctx, cwd, "diff", "--name-status", "-z", "--relative", spec)
 	if err != nil {
 		return nil, err
@@ -813,17 +872,19 @@ func CompareChanges(ctx context.Context, cwd, base, head string) (*Changes, erro
 	return &Changes{StatusZ: nameStatusToStatusZ(nameStatus), Numstat: numstat, IsRepo: true}, nil
 }
 
-// CompareDiff returns one file's unified diff between base and head, anchored at their merge base so
-// it agrees with CompareChanges. The Diff shape is shared with GetDiff and CommitDiff so the frontend
-// parses all three the same way; Untracked is never set, because a two-ref diff has no working tree.
-func CompareDiff(ctx context.Context, cwd, base, head, path string) (*Diff, error) {
+// CompareDiff returns one file's unified diff between base and head. tips selects the same form
+// CompareChanges took, and must: the file list and the pane beside it reading different ranges is how
+// a file the list calls deleted opens as unchanged. The Diff shape is shared with GetDiff and
+// CommitDiff so the frontend parses all three the same way; Untracked is never set, because a two-ref
+// diff has no working tree.
+func CompareDiff(ctx context.Context, cwd, base, head, path string, tips bool) (*Diff, error) {
 	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
 	defer cancel()
-	diff, err := pathDiff(ctx, cwd, path, base+"..."+head)
+	diff, err := pathDiff(ctx, cwd, path, base+rangeSep(tips)+head)
 	if err != nil {
 		return nil, err
 	}
-	return &Diff{Diff: diff}, nil
+	return cappedDiff(&Diff{Diff: diff}), nil
 }
 
 // FileContent is one file's content at one ref. Binary, Missing and TooLarge are states a caller
@@ -873,20 +934,20 @@ func FileAtRef(ctx context.Context, cwd, ref, path string, maxBytes int64) (*Fil
 	return &FileContent{IsRepo: true, Content: out, Size: size}, nil
 }
 
-// DefaultBranch resolves the repo's default branch as a *local* branch name: origin/HEAD when the
-// remote publishes it, else a probe of main then master. Returns "" (not an error) when none resolve,
-// so the compare ref picker opens with an empty base field instead of an error the user cannot act on
-// — the same degrade-quietly contract ListBranches uses for a non-repo.
+// DefaultBranch resolves the repo's default branch as the ref the compare picker should open on:
+// origin/<name> when the remote publishes origin/HEAD, else a probe of local main then master.
+// Returns "" (not an error) when none resolve, so the base field just opens empty — the same
+// degrade-quietly contract ListBranches uses for a non-repo.
 //
-// Local-name-only is deliberate: the picker's suggestions come from ListBranches, which reads
-// refs/heads, so returning "origin/main" would offer a base the suggestion list cannot show. The cost
-// is that a stale local main overstates divergence; the deferred Fetch control is the answer to that.
+// Remote-first is deliberate: the picker lists refs/remotes now, so a remote-tracking ref is
+// offerable, and comparing against origin/main rather than a possibly-stale local main is what
+// makes the default answer the review question correctly.
 func DefaultBranch(ctx context.Context, cwd string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
 	defer cancel()
 	if out, err := run(ctx, cwd, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"); err == nil {
 		if name := strings.TrimSpace(out); name != "" {
-			return strings.TrimPrefix(name, "origin/"), nil
+			return name, nil
 		}
 	}
 	for _, probe := range []string{"main", "master"} {
@@ -895,6 +956,47 @@ func DefaultBranch(ctx context.Context, cwd string) (string, error) {
 		}
 	}
 	return "", nil
+}
+
+// A fetch talks to the network, so it gets its own budget: gitTimeout (10s) is a normal duration
+// for one, not a symptom. The client raises its RPC timeout to match.
+const fetchTimeout = 55 * time.Second
+
+// FetchResult reports whether remote-tracking refs were updated. A git failure is data, not an
+// error: a missing remote or a credential prompt is something the surface renders through the
+// shipped GitFailure panel, with git's own stderr in it.
+type FetchResult struct {
+	FetchedAt int64       `json:"fetchedat"` // unix seconds, for the freshness clock
+	Failure   *GitFailure `json:"failure,omitempty"`
+	IsRepo    bool        `json:"isrepo"`
+}
+
+// Fetch updates remote-tracking refs. Never touches the working tree or any local branch, which is
+// what keeps the Diff surface read-only from the repository's point of view.
+func Fetch(ctx context.Context, cwd, remote string) (*FetchResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
+	defer cancel()
+	inside, err := run(ctx, cwd, "rev-parse", "--is-inside-work-tree")
+	if err != nil || strings.TrimSpace(inside) != "true" {
+		return &FetchResult{IsRepo: false}, nil
+	}
+	if remote == "" {
+		remote = "origin"
+	}
+	// git fetch has no "--" terminator, so a remote name beginning with a dash would be parsed as an
+	// option — and fetch has options that run commands (--upload-pack). The name arrives from the
+	// surface, so it is refused here rather than trusted.
+	if strings.HasPrefix(remote, "-") {
+		return &FetchResult{IsRepo: true, Failure: &GitFailure{
+			Command: "git fetch --prune " + remote,
+			Stderr:  fmt.Sprintf("refusing to fetch from %q: a remote name cannot begin with '-'", remote),
+		}}, nil
+	}
+	args := []string{"fetch", "--prune", remote}
+	if _, err := runErr(ctx, cwd, args...); err != nil {
+		return &FetchResult{IsRepo: true, Failure: failureOf(args, err)}, nil
+	}
+	return &FetchResult{IsRepo: true, FetchedAt: time.Now().Unix()}, nil
 }
 
 // GitFailure describes a git invocation that failed, in the shape the Diff surface's failure panel

@@ -15,7 +15,7 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
 import { historyKey, type LoadHistoryOpts } from "./diffscope";
 import { consumeFileLink, filesDiffAtom, filesStateAtom, selectFile } from "./filesstore";
-import { parseUnifiedDiff, type FileView } from "./gitdiff";
+import { diffFileView, type FileView } from "./gitdiff";
 import { parseGitChanges, type GitChanges } from "./gitstatus";
 import {
     FILTER_DEBOUNCE_MS,
@@ -414,7 +414,7 @@ export async function selectCommitFile(cwd: string, hash: string, path: string):
         if (globalStore.get(selectedFileAtom) !== path || globalStore.get(selectedCommitAtom) !== hash) {
             return; // selection moved on
         }
-        globalStore.set(commitDiffAtom, parseUnifiedDiff(d.diff));
+        globalStore.set(commitDiffAtom, diffFileView(d));
     } catch {
         if (globalStore.get(selectedFileAtom) === path) {
             globalStore.set(commitDiffAtom, null);
