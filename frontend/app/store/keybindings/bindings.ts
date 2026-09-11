@@ -16,6 +16,7 @@ import {
     graphOnAtom,
     historyFiltersAtom,
     historyScrollAtom,
+    refreshHistory,
 } from "@/app/view/agents/githistorystore";
 import { anyFilterActive } from "@/app/view/agents/historyquery";
 import { dismissPending, keepPending, memPendingAtom, memSearchAtom, selectPending } from "@/app/view/agents/memstore";
@@ -831,10 +832,13 @@ export function buildFilesBindings(): Binding[] {
             id: "files:refresh",
             keys: "r",
             group: "Diff",
-            label: "Refresh changes",
+            // Both columns, which is why this is no longer "Refresh changes": the change list polls
+            // itself, so the reason to press r is usually the half that does not — the commit column.
+            label: "Refresh",
             when: on,
             run: () => {
                 void reloadChanges(globalStore.get(filesStateAtom)?.cwd ?? null);
+                refreshHistory();
             },
         },
         {

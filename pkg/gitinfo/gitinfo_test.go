@@ -123,6 +123,77 @@ func TestGetChanges(t *testing.T) {
 	}
 }
 
+// The Diff surface polls the change list while it is on screen, and that poll is the only thing
+// reading the repository on a timer. HEAD rides along with it so a commit landing under the open
+// surface is noticed without a second RPC and without re-reading the log every tick.
+func TestGetChangesReportsHead(t *testing.T) {
+	ctx := context.Background()
+	dir := repoWithChange(t)
+	ch, err := GetChanges(ctx, dir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := HeadCommit(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ch.Head != want {
+		t.Fatalf("Head = %q, want %q", ch.Head, want)
+	}
+	// the case the poll exists for: committing must move the value the surface compares against
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-m", "second")
+	after, err := GetChanges(ctx, dir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Head == ch.Head {
+		t.Fatalf("Head did not move after a commit: still %q", after.Head)
+	}
+}
+
+// Ref mode returns through a different branch of GetChanges, and an agent-scoped surface polls in
+// exactly that mode — so the field has to be populated on both paths or the poll silently stops
+// working for every scope but "live".
+func TestGetChangesReportsHeadInRefMode(t *testing.T) {
+	ctx := context.Background()
+	dir, base := repoCommittedOnBase(t)
+	ch, err := GetChanges(ctx, dir, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := HeadCommit(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ch.Head != want {
+		t.Fatalf("Head = %q, want %q", ch.Head, want)
+	}
+	if ch.Head == base {
+		t.Fatalf("Head = base %q, but two commits were made on top of it", base)
+	}
+}
+
+// A repository with no commits yet: `rev-parse HEAD` fails there, and that must not fail the read.
+// The change list is still the whole point — every file in it is untracked.
+func TestGetChangesEmptyRepoHasNoHead(t *testing.T) {
+	dir := initRepo(t)
+	writeFile(t, dir, "a.txt", "one\n")
+	ch, err := GetChanges(context.Background(), dir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ch.IsRepo {
+		t.Fatal("expected IsRepo true")
+	}
+	if ch.Head != "" {
+		t.Fatalf("Head = %q, want empty for a repo with no commits", ch.Head)
+	}
+	if !strings.Contains(ch.StatusZ, "a.txt") {
+		t.Fatalf("statusz missing the untracked file: %q", ch.StatusZ)
+	}
+}
+
 // repoCommittedOnBase makes a repo with an initial commit, records that SHA as the base, then commits
 // a modification and a new file on top. Returns (dir, baseSHA). No uncommitted changes remain.
 func repoCommittedOnBase(t *testing.T) (string, string) {

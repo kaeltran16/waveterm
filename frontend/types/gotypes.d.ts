@@ -1089,6 +1089,7 @@ declare global {
         numstat: string;
         isrepo: boolean;
         ref?: string;
+        head?: string;
     };
 
     // wshrpc.CommandGitCommitChangesData
