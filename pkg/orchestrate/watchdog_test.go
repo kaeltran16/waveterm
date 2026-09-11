@@ -427,54 +427,67 @@ func TestSafeTickSurvivesPanic(t *testing.T) {
 
 // A child that never writes a first token has no transcript mtime to age, so before the first-token
 // deadline existed it could never stall: the whole stall path is gated on LastActivity > 0. This is
-// the hang case specifically - a child that DIED is caught in seconds by the worker-exit hook.
-func TestScheduleOnceFlagsFirstTokenTimeout(t *testing.T) {
+// the hang case specifically - a child that DIED is caught in seconds by the worker-exit hook. The
+// deadline is armed per runtime: pi writes its transcript per event, so silence past it is real,
+// while a claude child routinely commits correct work having written no transcript at all.
+func TestScheduleOnceFirstTokenDeadlineIsPerRuntime(t *testing.T) {
 	allowWorkerHarnessForTest(t)
 	ctx := context.Background()
 
-	// no sessions anywhere: the probe is tracked (pi child, resolvable cwd) but finds nothing
+	// no sessions anywhere: the probe is tracked (liveness-capable runtime, resolvable cwd) but finds nothing
 	oldRoot := sessionsRootFor
 	sessionsRootFor = func(string) string { return t.TempDir() }
 	defer func() { sessionsRootFor = oldRoot }()
 
-	ch, err := wstore.CreateChannel(ctx, "first-token", t.TempDir())
-	if err != nil {
-		t.Fatal(err)
+	cases := []struct {
+		name    string
+		runtime string
+		want    string
+	}{
+		{name: "pi child stalls", runtime: "pi", want: TaskState_Stalled},
+		{name: "claude child keeps running", runtime: "claude", want: TaskState_Running},
 	}
-	owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
-	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
-		t.Fatal(err)
-	}
-	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 1, false, []waveobj.TaskNode{{ID: "t-0", Label: "a"}}, 1, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := wstore.AppendDag(ctx, &g); err != nil {
-		t.Fatal(err)
-	}
-	spawnedTs := time.Now().Add(-FirstTokenDeadline - time.Minute).UnixMilli()
-	child := jarvis.NewRun("child", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), spawnedTs)
-	child.ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
-	child.Runtime = "pi"
-	child.DagORef = g.OID
-	if err := wstore.AppendRun(ctx, ch.OID, child); err != nil {
-		t.Fatal(err)
-	}
-	g.Tasks[0].RunID = child.ID
-	g.Tasks[0].State = TaskState_Running
-	g.Tasks[0].LastActivity = 0 // never observed writing anything
-	if err := wstore.UpdateDag(ctx, g.OID, func(cur *waveobj.TaskGroup) error {
-		*cur = g
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ch, err := wstore.CreateChannel(ctx, "first-token-"+tc.runtime, t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+			if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
+				t.Fatal(err)
+			}
+			g, err := NewTaskGroup(owner.ID, ch.OID, "g", 1, false, []waveobj.TaskNode{{ID: "t-0", Label: "a"}}, 1, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := wstore.AppendDag(ctx, &g); err != nil {
+				t.Fatal(err)
+			}
+			spawnedTs := time.Now().Add(-FirstTokenDeadline - time.Minute).UnixMilli()
+			child := jarvis.NewRun("child", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), spawnedTs)
+			child.Runtime = tc.runtime
+			child.DagORef = g.OID
+			if err := wstore.AppendRun(ctx, ch.OID, child); err != nil {
+				t.Fatal(err)
+			}
+			g.Tasks[0].RunID = child.ID
+			g.Tasks[0].State = TaskState_Running
+			g.Tasks[0].LastActivity = 0 // never observed writing anything
+			if err := wstore.UpdateDag(ctx, g.OID, func(cur *waveobj.TaskGroup) error {
+				*cur = g
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
 
-	if err := ScheduleOnce(ctx, &g); err != nil {
-		t.Fatal(err)
-	}
-	if g.Tasks[0].State != TaskState_Stalled {
-		t.Fatalf("child silent past the first-token deadline must flag stalled, got %s", g.Tasks[0].State)
+			if err := ScheduleOnce(ctx, &g); err != nil {
+				t.Fatal(err)
+			}
+			if g.Tasks[0].State != tc.want {
+				t.Fatalf("%s child silent past the first-token deadline: want %s, got %s", tc.runtime, tc.want, g.Tasks[0].State)
+			}
+		})
 	}
 }
 

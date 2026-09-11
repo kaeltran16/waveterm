@@ -31,7 +31,8 @@ const StallThreshold = 15 * time.Minute
 // treats it as dead. It is separate from StallThreshold because the two measure different things:
 // StallThreshold ages a transcript that stopped growing, and a child that never wrote one has no
 // such clock. Shorter, because "no first token yet" resolves within seconds in the healthy case —
-// the pathological one is a provider hang, where every extra minute is wasted wall time.
+// the pathological one is a provider hang, where every extra minute is wasted wall time. Armed only
+// for the runtimes in firstTokenRuntimes.
 const FirstTokenDeadline = 5 * time.Minute
 
 // spawnTs is when a child run started working: the earliest StartedTs across its phases. It is the
@@ -61,6 +62,27 @@ var sessionsRootFor = agentsessions.SessionRoot
 // progresses is unverified; a frozen mtime there would stall healthy children, which is exactly the
 // failure this scan exists to prevent.
 var livenessRuntimes = map[string]bool{"claude": true, "codex": true, "pi": true}
+
+// firstTokenRuntimes are the runtimes whose transcript is written per event, which is the only thing
+// that makes "has written nothing yet" mean hung. claude is deliberately absent: in the 2026-09-05
+// live run all four children wrote no transcript at all for their entire successful lifetime, two of
+// them past this deadline while committing correct work, so arming it there is a per-task coin flip
+// that retries and discards a finished worktree. codex is unverified and stays out until measured.
+// The StallThreshold path is unaffected — it needs a transcript to exist before it can age one.
+var firstTokenRuntimes = map[string]bool{"pi": true}
+
+// firstTokenArmed reports whether a child may be judged by the first-token deadline, resolving an
+// empty runtime the same way lastActivityForRun does.
+func firstTokenArmed(run *waveobj.Run) bool {
+	if run == nil {
+		return false
+	}
+	runtime := run.Runtime
+	if runtime == "" {
+		runtime = defaultWorkerRuntime
+	}
+	return firstTokenRuntimes[runtime]
+}
 
 // defaultWorkerRuntime mirrors runroute.NormalizeLegacy's default: a child run persisted before the
 // route carried a runtime ran claude.

@@ -140,7 +140,9 @@ reader does not assume more coverage than exists.
   is derived from phases everywhere else. Separately, a child that *hangs* before its first token
   leaves no exit to hook, so the engine sweep ages it from its spawn time against
   `FirstTokenDeadline` (5 min); before this the stall path was gated on `LastActivity > 0` and a
-  child that never wrote anything could not stall at all.
+  child that never wrote anything could not stall at all. **Narrowed 2026-09-11:** the deadline is
+  armed per runtime (`firstTokenRuntimes`) and only `pi` qualifies — a claude child commits correct
+  work having written no transcript at all, so ageing it there was a coin flip, not a stall.
 - **F15 (R12) — resolved.** `import-tasks --parallelism`, defaulting to
   `orchestrate.DefaultParallelism` — the dag's ready width, capped at `MaxParallelism`. The `submit`
   JSON path still requires an explicit width; it was never the path that pinned a literal.
