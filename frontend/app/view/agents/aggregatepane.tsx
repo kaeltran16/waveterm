@@ -37,10 +37,12 @@ export function AggregatePane({
                 <div className="mb-[8px] font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-muted">
                     Aggregate diff
                 </div>
+                {/* base first, the order `git diff base...head` reads in and the order the ref chip and
+                    the range summary print — this pane was the last place still naming it backwards */}
                 <div className="flex flex-wrap items-center gap-[8px] font-mono text-[12px] text-ink-mid">
-                    <span className={SIDE_TEXT.head}>{head}</span>
-                    <span className="text-ink-faint">→</span>
                     <span className={SIDE_TEXT.base}>{base}</span>
+                    <span className="text-ink-faint">→</span>
+                    <span className={SIDE_TEXT.head}>{head}</span>
                 </div>
                 {/* The chips name the range separator: three dots is what head introduced since the
                     merge base, two is the full difference between the tips. The file list and the
