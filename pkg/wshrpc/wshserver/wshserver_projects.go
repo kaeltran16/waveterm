@@ -90,7 +90,7 @@ func (ws *WshServer) GitChangesCommand(ctx context.Context, data wshrpc.CommandG
 	if err != nil {
 		return nil, fmt.Errorf("git changes: %w", err)
 	}
-	return &wshrpc.CommandGitChangesRtnData{Branch: ch.Branch, StatusZ: ch.StatusZ, Numstat: ch.Numstat, IsRepo: ch.IsRepo, Ref: ref}, nil
+	return &wshrpc.CommandGitChangesRtnData{Branch: ch.Branch, StatusZ: ch.StatusZ, Numstat: ch.Numstat, IsRepo: ch.IsRepo, Ref: ref, Head: ch.Head}, nil
 }
 
 func (ws *WshServer) GitDiffCommand(ctx context.Context, data wshrpc.CommandGitDiffData) (*wshrpc.CommandGitDiffRtnData, error) {

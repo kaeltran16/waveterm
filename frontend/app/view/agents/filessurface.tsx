@@ -68,6 +68,7 @@ import {
     loadHistory,
     loadMoreHistory,
     noteSurfaceLeft,
+    refreshHistoryIfMoved,
     resetHistory,
     restoreNoticeAtom,
     retryHistory,
@@ -508,6 +509,15 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
         }
         setHistoryOpts(historyOptsFor(scope.range, state.ref));
     }, [scope && rangeKey(scope.range), state?.ref]);
+
+    // A commit landing under the open surface — an agent committing in the worktree this is scoped to,
+    // or a commit made in another window — has to reach the commit column. The change-list poll above
+    // is the only thing reading the repository on a timer, so HEAD rides along with it and this keys on
+    // the sha: one log re-read per actual commit, nothing at all on a quiet tick. The store decides
+    // whether the sha really moved, so the first value after a load is not a second read.
+    useEffect(() => {
+        refreshHistoryIfMoved(state?.head ?? "");
+    }, [state?.head]);
 
     // publish the visible column's rows for global j/k list-nav. cursor == selection: moving selects,
     // which loads that row's files and first diff. Must run before the early return (hooks rules).

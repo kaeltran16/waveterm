@@ -29,6 +29,11 @@ type Changes struct {
 	StatusZ string
 	Numstat string
 	IsRepo  bool
+	// The commit HEAD points at, or "" in a repository with no commits yet. Carried here rather than
+	// asked for separately because the Diff surface polls this read on a timer: a commit landing under
+	// the open surface has to be noticeable, and comparing one sha is what lets the surface re-read the
+	// log only when the log has actually changed.
+	Head string
 }
 
 type Diff struct {
@@ -51,6 +56,14 @@ func GetChanges(ctx context.Context, cwd, ref string) (*Changes, error) {
 		return &Changes{IsRepo: false}, nil
 	}
 	branch, _ := run(ctx, cwd, "rev-parse", "--abbrev-ref", "HEAD")
+	// A repository with no commits has no HEAD, which is not a failure of this read — every file there
+	// is untracked and the change list is still the answer. The error has to be checked rather than
+	// discarded: rev-parse echoes the unresolved argument ("HEAD") on stdout before exiting non-zero,
+	// so ignoring it stores the literal string as if it were a sha.
+	head := ""
+	if out, herr := run(ctx, cwd, "rev-parse", "HEAD"); herr == nil {
+		head = strings.TrimSpace(out)
+	}
 	// cwd's path within the repo (e.g. "services/foo/"), empty when cwd is the repo root. When cwd is
 	// a subdirectory — a microservice inside a monorepo — this scopes the surface to cwd's subtree and
 	// makes every path cwd-relative, so a path fed back into GetDiff/RevertFile as a `git -C cwd`
@@ -74,7 +87,7 @@ func GetChanges(ctx context.Context, cwd, ref string) (*Changes, error) {
 		// git diff omits untracked files (nothing in HEAD/index to diff), so a new file would show +0.
 		// Append synthetic numstat rows for untracked files so their added lines count in the totals.
 		numstat += untrackedNumstat(cwd, statusZ)
-		return &Changes{Branch: strings.TrimSpace(branch), StatusZ: statusZ, Numstat: numstat, IsRepo: true}, nil
+		return &Changes{Branch: strings.TrimSpace(branch), StatusZ: statusZ, Numstat: numstat, IsRepo: true, Head: head}, nil
 	}
 	// ref mode: tracked changes come from the base diff (committed + uncommitted); untracked files
 	// are not in the base, so their ?? rows are carried over from status verbatim.
@@ -83,7 +96,7 @@ func GetChanges(ctx context.Context, cwd, ref string) (*Changes, error) {
 	untrackedZ := untrackedEntriesZ(statusZ)
 	numstat, _ := run(ctx, cwd, "diff", "--numstat", "--relative", ref)
 	numstat += untrackedNumstat(cwd, untrackedZ)
-	return &Changes{Branch: strings.TrimSpace(branch), StatusZ: trackedZ + untrackedZ, Numstat: numstat, IsRepo: true}, nil
+	return &Changes{Branch: strings.TrimSpace(branch), StatusZ: trackedZ + untrackedZ, Numstat: numstat, IsRepo: true, Head: head}, nil
 }
 
 // GetRangeChanges computes the per-file changes introduced by the commit range base..end — the commits

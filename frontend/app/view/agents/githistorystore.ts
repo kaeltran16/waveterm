@@ -142,7 +142,15 @@ function synthFailure(command: string, e: unknown): GitFailure {
 // pending file deep link — from a sealed run's evidence card, or from an agent's changed-file rail.
 // Deliberately not part of opts: opts is stored for the filter reload to reissue, and a one-shot link
 // must not be.
-export async function loadHistory(cwd: string | null, opts: LoadHistoryOpts = {}, scope?: string): Promise<void> {
+export async function loadHistory(
+    cwd: string | null,
+    opts: LoadHistoryOpts = {},
+    scope?: string,
+    // How many commits to ask git for. One page by default; a background refresh passes the number
+    // already loaded, so a list the reader has paged down through comes back the same length instead
+    // of losing rows from under them.
+    limit: number = HISTORY_PAGE_SIZE
+): Promise<void> {
     if (!cwd) {
         resetHistory();
         return;
@@ -166,7 +174,7 @@ export async function loadHistory(cwd: string | null, opts: LoadHistoryOpts = {}
     try {
         const h = await RpcApi.GitHistoryCommand(TabRpcClient, {
             cwd,
-            limit: HISTORY_PAGE_SIZE,
+            limit,
             ...toHistoryQuery(filters),
         });
         if (current.token !== token) {
@@ -187,7 +195,7 @@ export async function loadHistory(cwd: string | null, opts: LoadHistoryOpts = {}
         globalStore.set(historyNowAtom, Date.now());
         globalStore.set(historyHeadAtom, h.head);
         globalStore.set(historyCommitsAtom, page);
-        globalStore.set(historyHasMoreAtom, hasMorePages(page.length));
+        globalStore.set(historyHasMoreAtom, hasMorePages(page.length, limit));
         settleSelection(cwd, scope);
         announceRestore();
     } catch (e) {
@@ -296,6 +304,37 @@ export async function loadMoreHistory(): Promise<void> {
             globalStore.set(historyAppendAtom, "failed");
         }
     }
+}
+
+// A refresh of the list already on screen, as against reloadFirstPage's "start over". Two things
+// differ and both matter to someone mid-read: the scroll offset is left alone (loadHistory keeps it
+// whenever the token is unchanged, which it is here), and the read asks for every commit already
+// loaded rather than one page, so a reader who has paged down does not watch rows disappear.
+function reloadInPlace(): void {
+    const cwd = globalStore.get(filesStateAtom)?.cwd ?? null;
+    const loaded = globalStore.get(historyCommitsAtom)?.length ?? 0;
+    void loadHistory(cwd, globalStore.get(historyOptsAtom), undefined, Math.max(loaded, HISTORY_PAGE_SIZE));
+}
+
+// Pressing r. A decision rather than a tick: it re-reads whether or not HEAD moved, because the
+// reason to press it is not trusting what is on screen.
+export function refreshHistory(): void {
+    reloadInPlace();
+}
+
+// The change-list poll's path. HEAD rides along with that read (CommandGitChangesRtnData.head), so a
+// commit landing under the open surface is noticed without polling the log: compare the sha this
+// column was built from and re-read only when it differs. Before the first load there is nothing to
+// refresh — the surface's own load effect owns that read, and jumping in front of it would fire two
+// reads for every mount.
+export function refreshHistoryIfMoved(head: string): void {
+    if (!head || globalStore.get(historyCommitsAtom) == null) {
+        return;
+    }
+    if (head === globalStore.get(historyHeadAtom)) {
+        return;
+    }
+    reloadInPlace();
 }
 
 function reloadFirstPage(): void {

@@ -22,6 +22,11 @@ export interface FilesState {
     isRepo: boolean;
     changes: GitChanges | null;
     ref: string; // base commit to diff against; "" = live working-tree-vs-HEAD
+    // The commit HEAD points at when this read was taken, "" in a repository with no commits. It costs
+    // nothing (GetChanges already resolves HEAD) and it is what lets the Diff surface notice a commit
+    // landing under it: the poll below re-reads the change list on a timer, and the surface compares
+    // this against the sha its commit column was built from.
+    head: string;
 }
 
 // A registered project the Diff surface can scope to, resolved from the config registry (name -> path).
@@ -40,7 +45,7 @@ export const filesErrorAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
 // either the repository or the range cancels the in-flight load.
 const current = { token: "" };
 
-const EMPTY: FilesState = { cwd: null, branch: "", isRepo: false, changes: null, ref: "" };
+const EMPTY: FilesState = { cwd: null, branch: "", isRepo: false, changes: null, ref: "", head: "" };
 
 // How to anchor the diff: an explicit base commit (runs), or a session-start unix-seconds timestamp
 // (interactive agents) that the backend resolves to the session-start commit and echoes back so
@@ -75,7 +80,7 @@ async function loadChangesForCwd(token: string, cwd: string | null, opts: LoadOp
         // diffs so they match the list. Otherwise use the ref we sent ("" = live).
         const ref = opts.sessionStartTs ? (ch.ref ?? "") : (opts.ref ?? "");
         const changes = ch.isrepo ? parseGitChanges(ch.statusz, ch.numstat) : null;
-        globalStore.set(filesStateAtom, { cwd, branch: ch.branch, isRepo: ch.isrepo, changes, ref });
+        globalStore.set(filesStateAtom, { cwd, branch: ch.branch, isRepo: ch.isrepo, changes, ref, head: ch.head ?? "" });
         globalStore.set(filesErrorAtom, false);
         if (isInitial) {
             // Deliberately always the first file: a deep link is claimed by the history store, which owns

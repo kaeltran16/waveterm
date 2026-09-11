@@ -63,6 +63,11 @@ type CommandGitChangesRtnData struct {
 	// Ref is the commit the changes were diffed against ("" = live working-tree-vs-HEAD). The frontend
 	// threads this into GitDiff so per-file diffs use the same base the list did.
 	Ref string `json:"ref,omitempty"`
+	// Head is the commit HEAD points at, "" in a repository with no commits. The Diff surface polls
+	// this command while it is on screen and compares Head against the sha its commit column was
+	// built from, so a commit landing under the surface costs one log re-read and a quiet tick costs
+	// nothing.
+	Head string `json:"head,omitempty"`
 }
 
 type CommandGitDiffData struct {
