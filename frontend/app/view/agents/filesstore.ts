@@ -13,7 +13,7 @@ import { atom, type PrimitiveAtom } from "jotai";
 import { resolveCwd } from "./agentcwdresolve";
 import { ensureSessionStart } from "./agentsessionstore";
 import { originCwd, scopeKey, type DiffOrigin, type DiffRange, type DiffScope } from "./diffscope";
-import { parseUnifiedDiff, plainFileView, type FileView } from "./gitdiff";
+import { diffFileView, type FileView } from "./gitdiff";
 import { parseGitChanges, type GitChanges } from "./gitstatus";
 
 export interface FilesState {
@@ -232,7 +232,7 @@ export async function selectFile(cwd: string, path: string): Promise<void> {
         if (globalStore.get(filesSelectedPathAtom) !== path) {
             return; // selection moved on
         }
-        globalStore.set(filesDiffAtom, d.untracked ? plainFileView(d.content) : parseUnifiedDiff(d.diff));
+        globalStore.set(filesDiffAtom, diffFileView(d));
     } catch {
         if (globalStore.get(filesSelectedPathAtom) === path) {
             globalStore.set(filesDiffAtom, null);

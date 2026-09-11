@@ -29,6 +29,7 @@ import { availableRanges, historyOptsFor, rangeKey, scopeKey, summaryLine } from
 import { agentDiffScope, projectDiffScope } from "./agentdiffnav";
 import { setDiffRange } from "./diffscopeatom";
 import { peekSessionStart } from "./agentsessionstore";
+import { fmtBytes } from "./runcompletion";
 import { RangeStrip } from "./rangestrip";
 import { projectsAtom } from "./projectsstore";
 import { CommitPane } from "./commitpane";
@@ -194,15 +195,19 @@ function EmptyCenter({ msg }: { msg: string }) {
 // A file can legitimately have changed and still have no diff text: git sends one sentence for a
 // binary file, and a pure rename or a mode change has no content to show at all. Both used to render
 // as an empty scroll area under a "+0 −0" bar, which reads as a broken pane rather than an answer.
+// A patch refused by the server's size cap lands here too, and must say so — it is the one case where
+// "nothing inside this file changed" would be the opposite of the truth.
 function NoTextDiff({ view }: { view: FileView }) {
     return (
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-[7px] px-[20px] text-center">
             <span className="text-[13px] text-muted">
-                {view.binary
-                    ? "Binary file — git reports a change but has no text diff to show."
-                    : view.renamedFrom
-                      ? "Renamed. Nothing inside the file changed."
-                      : "Nothing inside this file changed."}
+                {view.tooLarge != null
+                    ? `Diff too large to display — ${fmtBytes(view.tooLarge)} of patch.`
+                    : view.binary
+                      ? "Binary file — git reports a change but has no text diff to show."
+                      : view.renamedFrom
+                        ? "Renamed. Nothing inside the file changed."
+                        : "Nothing inside this file changed."}
             </span>
             {view.renamedFrom ? (
                 <span className="font-mono text-[11.5px] text-ink-faint">from {view.renamedFrom}</span>

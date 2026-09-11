@@ -35,12 +35,17 @@ type CommandCreateWorktreeRtnData struct {
 
 type CommandListBranchesData struct {
 	ProjectPath string `json:"projectpath"`
+	// The compare ref picker wants remote-tracking refs; the New Agent launcher must not offer
+	// them, because a worktree cannot be created on one. Default false keeps that caller correct
+	// without it having to know this field exists.
+	IncludeRemotes bool `json:"includeremotes,omitempty"`
 }
 
 type CommandListBranchesRtnData struct {
 	Branches []BranchInfo `json:"branches"`
-	// The repo's default branch as a local name, for the compare ref picker's base field. Additive:
-	// the New Agent launcher calls this command for its worktree-branch suggestions and ignores it.
+	// The repo's default branch for the compare ref picker's base field — origin/<name> when the
+	// remote publishes one, else a local main/master. Additive: the New Agent launcher calls this
+	// command for its worktree-branch suggestions and ignores it.
 	// "" when the repo publishes no origin/HEAD and has neither main nor master.
 	Default string `json:"default,omitempty"`
 }
@@ -80,6 +85,10 @@ type CommandGitDiffRtnData struct {
 	Diff      string `json:"diff"`
 	Content   string `json:"content"`
 	Untracked bool   `json:"untracked"`
+	// The patch exceeded the server-side cap and was not sent. Size says how big it was, so the pane
+	// can name the number instead of rendering an empty scroll area that reads as "no changes".
+	TooLarge bool  `json:"toolarge,omitempty"`
+	Size     int64 `json:"size,omitempty"`
 }
 
 type CommandGitRevertData struct {

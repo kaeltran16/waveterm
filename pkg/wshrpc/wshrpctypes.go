@@ -241,6 +241,8 @@ type ConnConfigRequest struct {
 type BranchInfo struct {
 	Name string `json:"name"`
 	Age  string `json:"age"`
+	// True for a refs/remotes ref. The picker groups on this; the New Agent launcher never sees one.
+	Remote bool `json:"remote,omitempty"`
 }
 
 type WebSelectorOpts struct {
