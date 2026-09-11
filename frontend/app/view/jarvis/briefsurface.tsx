@@ -115,7 +115,7 @@ import {
 } from "./jarvisstore";
 import { activeSubjectAtom, persistedSubjectAtom, setActiveRunId, stageRunAtom } from "./jarvissubjectstore";
 import { mentionedDossierIds } from "./mentions";
-import { NewChannelControl } from "./newchannelcontrol";
+import { NewRunControl } from "./newruncontrol";
 import { NewInitiativeControl } from "./newinitiativecontrol";
 import { openChannelSheet, openORef, openQueueTarget, openRunSheet, orefNavPlan } from "./openref";
 import { reducePrinciplePatch } from "./profilemodel";
@@ -1215,7 +1215,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                     Profile
                 </button>
                 <NewInitiativeControl />
-                <NewChannelControl model={model} />
+                <NewRunControl model={model} />
             </header>
             {staleSnapshot ? (
                 <div
