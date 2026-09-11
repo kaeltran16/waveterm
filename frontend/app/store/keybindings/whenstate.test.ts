@@ -41,7 +41,7 @@ describe("whenVersionAtom", () => {
         // which any per-call-site bump would miss.
         globalStore.set(diffScopeAtom, {
             repo: { origin: { kind: "agent", id: "a1" }, label: "a1" },
-            range: { kind: "compare", base: "main", head: "feat", from: { kind: "working" } },
+            range: { kind: "compare", base: "main", head: "feat", form: "mergebase", from: { kind: "working" } },
         });
         expect(globalStore.get(whenVersionAtom)).toBeGreaterThan(before);
     });
@@ -49,7 +49,7 @@ describe("whenVersionAtom", () => {
     it("bumps when compareOnAtom flips off", () => {
         globalStore.set(diffScopeAtom, {
             repo: { origin: { kind: "agent", id: "a1" }, label: "a1" },
-            range: { kind: "compare", base: "main", head: "feat", from: { kind: "working" } },
+            range: { kind: "compare", base: "main", head: "feat", form: "mergebase", from: { kind: "working" } },
         });
         const before = globalStore.get(whenVersionAtom);
         globalStore.set(diffScopeAtom, {
