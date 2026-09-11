@@ -14,37 +14,17 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { openInCode } from "@/app/view/code/codestore";
 import { joinRepoPath } from "@/util/paths";
 import { cn, fireAndForget } from "@/util/util";
-import { atom, useAtomValue } from "jotai";
-import type * as MonacoTypes from "monaco-editor";
+import { useAtomValue } from "jotai";
 import { motion } from "motion/react";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { firstDifferingLine } from "./diffcontent";
 import { diffPairAtom } from "./diffcontentstore";
 import { clearDiffNav, setDiffNav } from "./diffnav";
+import { ignoreWsAtom, paneOptions, SPLIT_MIN_PX, splitViewAtom } from "./diffoptions";
 import { fmtBytes } from "./runcompletion";
 
 const MonacoDiffViewer = lazy(() => import("@/app/monaco/monaco-react").then((m) => ({ default: m.MonacoDiffViewer })));
-
-// below this the two editors are narrower than most lines in this repo, so the toggle is offered
-// disabled rather than producing a view nobody can read
-export const SPLIT_MIN_PX = 900;
-
-export const splitViewAtom = atom<boolean>(false);
-
-function paneOptions(split: boolean): MonacoTypes.editor.IDiffEditorOptions {
-    return {
-        readOnly: true,
-        originalEditable: false,
-        renderSideBySide: split,
-        scrollBeyondLastLine: false,
-        minimap: { enabled: false },
-        fontSize: 12.5,
-        fontFamily: "var(--font-mono)",
-        smoothScrolling: true,
-        scrollbar: { useShadows: false, verticalScrollbarSize: 6, horizontalScrollbarSize: 6 },
-    };
-}
 
 function Centered({ msg }: { msg: string }) {
     return (
@@ -84,6 +64,7 @@ export function DiffPane({
 }) {
     const pair = useAtomValue(diffPairAtom);
     const split = useAtomValue(splitViewAtom);
+    const ignoreWs = useAtomValue(ignoreWsAtom);
     const hostRef = useRef<HTMLDivElement>(null);
     const [width, setWidth] = useState(0);
 
@@ -99,7 +80,7 @@ export function DiffPane({
     }, []);
 
     const splitAvailable = width >= SPLIT_MIN_PX;
-    const options = useMemo(() => paneOptions(split && splitAvailable), [split, splitAvailable]);
+    const options = useMemo(() => paneOptions(split && splitAvailable, ignoreWs), [split, splitAvailable, ignoreWs]);
 
     const body = () => {
         if (!path) {
@@ -159,6 +140,20 @@ export function DiffPane({
                         )}
                     >
                         {split && splitAvailable ? "split" : "unified"}
+                    </button>
+                    <button
+                        onClick={() => globalStore.set(ignoreWsAtom, !ignoreWs)}
+                        title={
+                            ignoreWs
+                                ? "Showing the change without whitespace-only lines"
+                                : "Ignore whitespace-only changes"
+                        }
+                        className={cn(
+                            "flex-none rounded border border-border px-[11px] py-[6px] font-mono text-[11px]",
+                            ignoreWs ? "text-ink-hi" : "text-ink-mid hover:text-foreground"
+                        )}
+                    >
+                        {ignoreWs ? "ws ignored" : "ws shown"}
                     </button>
                     {repoCwd && (
                         <button
