@@ -31,6 +31,8 @@ import { attentionAtom } from "@/app/view/agents/attentionstore";
 import { steerWorker } from "@/app/view/agents/channelactions";
 import { resolveTargetChannel } from "@/app/view/agents/channelderive";
 import { activeChannelAtom, activeChannelRunsAtom, channelsAtom, loadChannels } from "@/app/view/agents/channelsstore";
+import { channelProjectLabel } from "@/app/view/agents/projectlabel";
+import { projectsAtom } from "@/app/view/agents/projectsstore";
 import {
     getJarvisProfile,
     pendingRunDraftAtom,
@@ -115,8 +117,8 @@ import {
 } from "./jarvisstore";
 import { activeSubjectAtom, persistedSubjectAtom, setActiveRunId, stageRunAtom } from "./jarvissubjectstore";
 import { mentionedDossierIds } from "./mentions";
-import { NewRunControl } from "./newruncontrol";
 import { NewInitiativeControl } from "./newinitiativecontrol";
+import { NewRunControl } from "./newruncontrol";
 import { openChannelSheet, openORef, openQueueTarget, openRunSheet, orefNavPlan } from "./openref";
 import { reducePrinciplePatch } from "./profilemodel";
 import { ageLabel, freshnessLabel } from "./recallderive";
@@ -638,6 +640,7 @@ function BriefComposer({ model }: { model: AgentsViewModel }) {
     const sheetRun = useAtomValue(stageRunAtom);
     const sheetOpen = useAtomValue(briefSheetOpenAtom);
     const channel = useAtomValue(activeChannelAtom);
+    const projects = useAtomValue(projectsAtom);
     const effortCache = useAtomValue(effortDetailAtom);
     // a send that left Jarvis has no thread to land in, so its outcome is said here or nowhere
     const [status, setStatus] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
@@ -666,7 +669,7 @@ function BriefComposer({ model }: { model: AgentsViewModel }) {
         face,
         run: sheetRun,
         agents,
-        channelName: channel?.name,
+        projectName: channelProjectLabel(channel, projects),
         effortTitle: face.kind === "effort" ? effortCache.get(`effort:${face.effortId}`)?.title : undefined,
     });
     // `sheet` is briefcompose's third shape: an open drawer is a narrower context than the thread behind
@@ -674,7 +677,12 @@ function BriefComposer({ model }: { model: AgentsViewModel }) {
     // resolves to the Brief, and then these labels must not claim otherwise.
     const state: BriefComposeState =
         target.audience === "worker"
-            ? { peek: "sheet", kind: "session", name: target.sessionName, project: channel?.name ?? "" }
+            ? {
+                  peek: "sheet",
+                  kind: "session",
+                  name: target.sessionName,
+                  project: channelProjectLabel(channel, projects),
+              }
             : target.audience === "initiative"
               ? { peek: "sheet", kind: "initiative", name: target.name }
               : thread.length === 0 && sourceChip == null
