@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { drawSceneToCanvas, resolveTone, type SceneColours } from "./avatarcanvas";
+import { blendTones, drawSceneToCanvas, resolveTone, type SceneColours } from "./avatarcanvas";
 import { buildAvatarScene, type AvatarScene, type SceneInput } from "./avatarscene";
 import type { PetExpression } from "./petcondition";
 
@@ -15,6 +15,8 @@ function sceneOf(over: Partial<SceneInput> = {}): AvatarScene {
         breath: 0,
         utterance: 0,
         quiet: false,
+        ripple: null,
+        jolt: 0,
         rings: 3,
         ringTicks: 72,
         nodes: 16,
@@ -96,5 +98,56 @@ describe("drawSceneToCanvas", () => {
         const ctx = stubCtx();
         const empty = sceneOf({ rings: 0, shell: false, nodes: 0 });
         expect(() => drawSceneToCanvas(ctx, empty, 112, COLOURS)).not.toThrow();
+    });
+});
+
+describe("blendTones", () => {
+    it("returns the endpoints at the ends of the mix", () => {
+        expect(blendTones("#000000", "#ffffff", 0)).toBe("#000000");
+        expect(blendTones("#000000", "#ffffff", 1)).toBe("#ffffff");
+    });
+
+    it("interpolates each channel independently", () => {
+        expect(blendTones("#000000", "#ffffff", 0.5)).toBe("#808080");
+        expect(blendTones("#ff0000", "#0000ff", 0.5)).toBe("#800080");
+    });
+
+    it("returns hex, because the hot tone is derived from whatever this produces", () => {
+        // lighten() parses hex only. An rgb() string here would silently flatten the pulse head and the
+        // major ticks into the body tone for the length of every register transition.
+        expect(blendTones("#e0726c", "#5e9cff", 0.4)).toMatch(/^#[0-9a-f]{6}$/);
+    });
+
+    it("expands three-digit hex", () => {
+        expect(blendTones("#000", "#fff", 1)).toBe("#ffffff");
+    });
+
+    it("snaps at the halfway point rather than blending something it cannot parse", () => {
+        expect(blendTones("not-a-colour", "#ffffff", 0.2)).toBe("not-a-colour");
+        expect(blendTones("not-a-colour", "#ffffff", 0.8)).toBe("#ffffff");
+    });
+
+    it("clamps a mix outside 0..1 and treats a non-finite one as finished", () => {
+        expect(blendTones("#000000", "#ffffff", -2)).toBe("#000000");
+        expect(blendTones("#000000", "#ffffff", 5)).toBe("#ffffff");
+        expect(blendTones("#000000", "#ffffff", Number.NaN)).toBe("#ffffff");
+    });
+});
+
+describe("resolveTone — crossfade", () => {
+    it("blends the two tones while a register change is in flight", () => {
+        const read = (name: string) => (name === "--color-a" ? "#000000" : "#ffffff");
+        const settled = { ...sceneOf(), toneVar: "--color-b", toneFromVar: null, toneMix: 1 };
+        expect(resolveTone(settled, read).body).toBe("#ffffff");
+
+        const midway = { ...sceneOf(), toneVar: "--color-b", toneFromVar: "--color-a", toneMix: 0.5 };
+        expect(resolveTone(midway, read).body).toBe("#808080");
+    });
+
+    it("still lightens the hot tone mid-crossfade", () => {
+        const read = () => "#000000";
+        const midway = { ...sceneOf(), toneVar: "--color-b", toneFromVar: "--color-a", toneMix: 0.5 };
+        const colours = resolveTone(midway, read);
+        expect(colours.hot).not.toBe(colours.body);
     });
 });
