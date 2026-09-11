@@ -7,10 +7,11 @@
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { atom, type PrimitiveAtom } from "jotai";
+import { SECTION_EMBEDDINGS } from "./settingsmodel";
 
-// The dom id of the section, which is also the value carried through the atom — one string, so the
-// scroll target and the request cannot disagree.
-export const SETTINGS_SECTION_EMBEDDINGS = "settings-embeddings";
+// The section id from the registry, so a deep link selects a section in the two-pane layout rather
+// than naming a scroll target that has to be kept in sync separately.
+export const SETTINGS_SECTION_EMBEDDINGS = SECTION_EMBEDDINGS;
 
 export const pendingSettingsSectionAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 

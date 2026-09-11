@@ -8,7 +8,9 @@ import { atomWithStorage } from "jotai/utils";
 import { SURFACE_ORDER, type SurfaceKey } from "./agents";
 
 // Which surface opens on launch. Defaults to the cockpit overview (matches prior hardcoded behavior).
-export const startupSurfaceAtom = atomWithStorage<SurfaceKey>("cockpit.startup.surface", "cockpit");
+export const DEFAULT_STARTUP_SURFACE: SurfaceKey = "cockpit";
+
+export const startupSurfaceAtom = atomWithStorage<SurfaceKey>("cockpit.startup.surface", DEFAULT_STARTUP_SURFACE);
 
 // A persisted "activity" (the retired surface) coerces to "sessions" — its successor. Callers that seed
 // surfaceAtom from the stored value must route through this so a stale key never renders a blank surface.

@@ -10,8 +10,11 @@ import { useLayoutEffect } from "react";
 
 import { activePalette, applyThemeVars, buildThemeVars, type OverrideRole } from "./themes";
 
-// The selected preset id (see THEMES). Defaults to "midnight" == today's palette.
-export const themePresetAtom = atomWithStorage<string>("cockpit.theme.preset", "midnight");
+// The selected preset id (see THEMES). Defaults to "midnight" == today's palette. Exported so the
+// Settings surface can mark the row changed and revert it without restating the literal.
+export const DEFAULT_THEME_PRESET = "midnight";
+
+export const themePresetAtom = atomWithStorage<string>("cockpit.theme.preset", DEFAULT_THEME_PRESET);
 
 // Per-role color overrides on top of the preset. Keyed by OverrideRole. Cleared when a preset is picked.
 export const themeOverridesAtom = atomWithStorage<Partial<Record<OverrideRole, string>>>(
