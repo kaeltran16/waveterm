@@ -22,14 +22,10 @@ export interface LaunchDeps {
     consult: (runtime: string, goal: string) => void; // Ask: one-shot, no worker
 }
 
-// Empty goal or no channel -> []. Otherwise the 4 launch rows, Quick first (preselected by the caller).
-export function buildLaunchItems(
-    query: string,
-    channelName: string | undefined,
-    deps: LaunchDeps
-): LaunchItem[] {
+// Empty goal or no project -> []. Otherwise the 4 launch rows, Quick first (preselected by the caller).
+export function buildLaunchItems(query: string, projectName: string | undefined, deps: LaunchDeps): LaunchItem[] {
     const goal = query.trim();
-    if (!goal || !channelName) {
+    if (!goal || !projectName) {
         return [];
     }
     return [
@@ -39,7 +35,7 @@ export function buildLaunchItems(
             mode: "Quick · claude",
             suffix: "",
             desc: "one worker · no phases",
-            footer: `Spawns a Quick worker on “${goal}” in #${channelName}`,
+            footer: `Spawns a Quick worker on “${goal}” in #${projectName}`,
             run: () => deps.quick(goal),
         },
         {
@@ -48,7 +44,7 @@ export function buildLaunchItems(
             mode: "Run",
             suffix: " · quick",
             desc: "one worker · no plan gate",
-            footer: `Starts a quick run on “${goal}” in #${channelName}`,
+            footer: `Starts a quick run on “${goal}” in #${projectName}`,
             run: () => deps.run(goal),
         },
         {
