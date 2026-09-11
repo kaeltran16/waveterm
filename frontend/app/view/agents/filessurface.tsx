@@ -17,13 +17,12 @@ import { useSurfaceListNav, type ListNavController } from "@/app/store/keybindin
 import { useKeybindings } from "@/app/store/keybindings/store";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSyncMonacoTheme } from "@/app/monaco/monacotheme";
-import { PopoverReveal } from "@/app/element/popoverreveal";
 import type { AgentsViewModel } from "./agents";
-import { formatAge, type AgentVM } from "./agentsviewmodel";
+import { formatAge } from "./agentsviewmodel";
 import { DiffPane } from "./diffpane";
 import type { CompareForm, DiffSelection } from "./diffcontent";
 import { clearDiffPair, loadDiffPair } from "./diffcontentstore";
-import { StatusDot } from "./statusdot";
+import { defaultFocusId, focusFollowAgent, sourceFor, type FilesSource } from "./diffsource";
 import { filesErrorAtom, filesStateAtom, loadFilesForScope, startChangesPoll, type FilesProject } from "./filesstore";
 import { availableRanges, historyOptsFor, rangeKey, scopeKey, summaryLine } from "./diffscope";
 import { agentDiffScope, projectDiffScope } from "./agentdiffnav";
@@ -88,109 +87,8 @@ import { HistoryFilterRow } from "./historyfilterrow";
 import { HistoryPane } from "./historypane";
 import { RESTORE_DISMISS_MS, countLabel } from "./historyquery";
 import { WORKING_TREE } from "./historyrows";
+import { SourcePicker } from "./sourcepicker";
 import { SurfaceEmptyState, SurfaceError } from "./surfacescaffold";
-
-// The Files surface can be scoped either to a running agent's worktree or to a registered project.
-export type FilesSource = { kind: "agent"; id: string } | { kind: "project"; name: string };
-
-// In-tab source selector: picks whose worktree the Files surface shows. Agents (with a state dot)
-// write the shared focusIdAtom so a diff can be inspected without bouncing back to the Agent tab;
-// registered projects (folder glyph) resolve straight from their registry path — no agent needed.
-function SourcePicker({
-    agents,
-    projects,
-    source,
-    currentLabel,
-    onPickAgent,
-    onPickProject,
-}: {
-    agents: AgentVM[];
-    projects: FilesProject[];
-    source: FilesSource | null;
-    // The stored scope's own label. A run is neither an agent nor a registered project, so without
-    // this the picker would read "Select a source" while a run's diff is on screen.
-    currentLabel?: string;
-    onPickAgent: (id: string) => void;
-    onPickProject: (p: FilesProject) => void;
-}) {
-    const [open, setOpen] = useState(false);
-    const currentAgent = source?.kind === "agent" ? agents.find((a) => a.id === source.id) : undefined;
-    const currentProject = source?.kind === "project" ? projects.find((p) => p.name === source.name) : undefined;
-    const hasAny = agents.length > 0 || projects.length > 0;
-    const fallback = hasAny ? "Select a source" : "No agents or projects";
-    const label = currentAgent?.name ?? currentProject?.name ?? currentLabel ?? fallback;
-    return (
-        <div className="relative">
-            <button
-                data-files-source-picker
-                onClick={() => setOpen((v) => !v)}
-                disabled={!hasAny}
-                className="flex w-full items-center gap-[8px] rounded-[9px] border border-border px-[10px] py-[7px] hover:border-edge-strong disabled:cursor-default disabled:opacity-60"
-            >
-                {currentAgent ? (
-                    <StatusDot state={currentAgent.state} className="!h-[7px] !w-[7px]" />
-                ) : currentProject ? (
-                    <span className="flex-none text-[11px] text-ink-faint">▪</span>
-                ) : null}
-                <span className="min-w-0 flex-1 truncate text-left font-mono text-[12px] text-ink-mid">{label}</span>
-                {hasAny ? <span className="flex-none text-[10px] text-ink-faint">▾</span> : null}
-            </button>
-            {open && hasAny ? <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} /> : null}
-            <PopoverReveal
-                open={open && hasAny}
-                origin="top"
-                className="absolute left-0 right-0 top-full z-20 mt-1 max-h-[280px] overflow-y-auto rounded border border-border bg-modalbg py-1 shadow-popover"
-            >
-                        {agents.length > 0 ? (
-                            <div className="px-[10px] pb-[3px] pt-[5px] font-mono text-[9.5px] uppercase tracking-[0.08em] text-ink-faint">
-                                Agents
-                            </div>
-                        ) : null}
-                        {agents.map((a) => (
-                            <button
-                                key={a.id}
-                                onClick={() => {
-                                    onPickAgent(a.id);
-                                    setOpen(false);
-                                }}
-                                className={cn(
-                                    "flex w-full items-center gap-[8px] px-[10px] py-[7px] text-left hover:bg-surface-hover",
-                                    source?.kind === "agent" && a.id === source.id ? "text-foreground" : "text-ink-mid"
-                                )}
-                            >
-                                <StatusDot state={a.state} className="!h-[7px] !w-[7px]" />
-                                <span className="min-w-0 flex-1 truncate font-mono text-[12px]">{a.name}</span>
-                            </button>
-                        ))}
-                        {projects.length > 0 ? (
-                            <div className="px-[10px] pb-[3px] pt-[7px] font-mono text-[9.5px] uppercase tracking-[0.08em] text-ink-faint">
-                                Projects
-                            </div>
-                        ) : null}
-                        {projects.map((p) => (
-                            <button
-                                key={p.name}
-                                // agent names and project names can collide, and this dropdown renders
-                                // both — a scenario needs to click a project by name, not by text match
-                                data-files-source-option={p.name}
-                                title={p.path}
-                                onClick={() => {
-                                    onPickProject(p);
-                                    setOpen(false);
-                                }}
-                                className={cn(
-                                    "flex w-full items-center gap-[8px] px-[10px] py-[7px] text-left hover:bg-surface-hover",
-                                    source?.kind === "project" && p.name === source.name ? "text-foreground" : "text-ink-mid"
-                                )}
-                            >
-                                <span className="flex-none text-[11px] text-ink-faint">▪</span>
-                                <span className="min-w-0 flex-1 truncate font-mono text-[12px]">{p.name}</span>
-                            </button>
-                        ))}
-            </PopoverReveal>
-        </div>
-    );
-}
 
 export function FilesSurface({ model }: { model: AgentsViewModel }) {
     const focusId = useAtomValue(model.focusIdAtom);
@@ -257,14 +155,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
     const scope = useAtomValue(model.diffScopeAtom);
     const origin = scope?.repo.origin;
     const agent = origin?.kind === "agent" ? agents.find((a) => a.id === origin.id) : undefined;
-    const source: FilesSource | null =
-        origin?.kind === "project"
-            ? { kind: "project", name: origin.name }
-            : origin?.kind === "agent"
-              ? { kind: "agent", id: origin.id }
-              : focusId
-                ? { kind: "agent", id: focusId }
-                : null;
+    const source: FilesSource | null = sourceFor(scope, focusId);
 
     const pickAgent = (id: string) => {
         const a = agents.find((x) => x.id === id);
@@ -289,31 +180,19 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
         leaveCompare();
     };
 
-    // Follows the focused agent only while the stored repository IS an agent — pinning a project or
-    // arriving from a run stops focus changes from moving the surface. This is the old
-    // run-beats-project-beats-agent precedence, stated once, as data.
+    // Both rules live in diffsource.ts: whether focus may move the surface, and what to show when
+    // nothing has been picked yet. The effects are the only part that has to be an effect.
     useEffect(() => {
-        if (scope != null && scope.repo.origin.kind !== "agent") {
-            return;
+        const a = focusFollowAgent(scope, focusId, agents);
+        if (a != null) {
+            globalStore.set(model.diffScopeAtom, agentDiffScope(a.id, a.name));
         }
-        if (!focusId) {
-            return;
-        }
-        if (scope?.repo.origin.kind === "agent" && scope.repo.origin.id === focusId) {
-            return;
-        }
-        const a = agents.find((x) => x.id === focusId);
-        if (a == null) {
-            return;
-        }
-        globalStore.set(model.diffScopeAtom, agentDiffScope(a.id, a.name));
     }, [focusId, scope, agents]);
 
-    // Default to the first agent when nothing is scoped, so opening Files is immediately useful
-    // instead of a dead "select a source" screen.
     useEffect(() => {
-        if (scope == null && !focusId && agents.length > 0) {
-            globalStore.set(model.focusIdAtom, agents[0].id);
+        const id = defaultFocusId(scope, focusId, agents);
+        if (id != null) {
+            globalStore.set(model.focusIdAtom, id);
         }
     }, [scope, focusId, agents]);
 
