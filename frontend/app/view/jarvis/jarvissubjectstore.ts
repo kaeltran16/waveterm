@@ -1,8 +1,9 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// Which subject the Stage is showing. Module-scope so it survives the surface unmount on nav switch, and
-// so the per-kind stores below it stay the single source of truth for their own detail.
+// Which subject the surface is showing — the sheet draws it. Module-scope so it survives the surface
+// unmount on nav switch, and so the per-kind stores below it stay the single source of truth for their own
+// detail.
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
@@ -17,7 +18,6 @@ import { loadEffortDetail } from "./effortstore";
 import type { JarvisScope, SourceType } from "./jarviscontract";
 import {
     getConversation,
-    profileRailOpenAtom,
     pruneEmptyConversation,
     selectConversation,
     startConversation,
@@ -41,9 +41,6 @@ export const activeSubjectAtom = atom<ActiveSubject | null>(null) as PrimitiveAt
 export const persistedSubjectAtom = atomWithStorage<ActiveSubject | null>("jarvis.subject.last", null, undefined, {
     getOnInit: true,
 });
-
-// the Subjects column's filter text. A module atom, not useState: the column unmounts with the surface.
-export const subjectFilterAtom = atom<string>("");
 
 // A record's attributed runs, keyed by dossier id. Resolved once per selection through the same
 // ResolveSpaceScope read a Space uses, and consumed by both the record's thread and the rail's
@@ -79,6 +76,14 @@ function pruneOnLeave(next: ActiveSubject): void {
     }
 }
 
+// Deselect everything: the sheet's Close, and the only way the persisted subject is ever forgotten. Both
+// halves move together on purpose — leaving the stored one behind would reopen on the next launch the very
+// subject the user just dismissed.
+export function clearSubject(): void {
+    globalStore.set(activeSubjectAtom, null);
+    globalStore.set(persistedSubjectAtom, null);
+}
+
 export function selectSubject(subject: ActiveSubject): void {
     pruneOnLeave(subject);
     // leaving a channel drops a run selection that has gone cold, so coming back to it lands on live
@@ -96,19 +101,16 @@ export function selectSubject(subject: ActiveSubject): void {
         }
     }
     globalStore.set(activeSubjectAtom, subject);
-    // Briefing is a synthetic subject: selecting it must not overwrite the last meaningful subject,
-    // which is what the next launch restores. Effort subjects are navigations from the briefing, not
-    // restore targets — the restore machinery has no effort list to validate a stored id against.
-    if (subject.kind !== "briefing" && subject.kind !== "effort" && subject.kind !== "effort-list") {
+    // Briefing is a synthetic subject: selecting it must not overwrite the last meaningful subject, which
+    // is what the next launch restores. Effort subjects are navigations, not restore targets — nothing
+    // persists a list of them to validate a stored id against.
+    if (subject.kind !== "briefing" && subject.kind !== "effort") {
         globalStore.set(persistedSubjectAtom, subject);
     }
     if (subject.kind === "channel") {
         fireAndForget(() => selectChannel(subject.id));
         return;
     }
-    // the ⚙ drawer is channel-only and the Stage header drops its trigger off-channel, so leaving it open
-    // strands it: no control closes it, and its forceCollapsed keeps "Needs you" hidden the whole time.
-    globalStore.set(profileRailOpenAtom, false);
     if (subject.kind === "briefing") {
         return;
     }
@@ -116,9 +118,6 @@ export function selectSubject(subject: ActiveSubject): void {
         // warm the detail cache so the Stage header can name the effort while the view mounts.
         fireAndForget(() => loadEffortDetail("effort:" + subject.id));
         return;
-    }
-    if (subject.kind === "effort-list") {
-        return; // the list view fetches on mount; nothing to pre-warm.
     }
     if (subject.kind === "dossier") {
         loadRecordDetail(subject.id);

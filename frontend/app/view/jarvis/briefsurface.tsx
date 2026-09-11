@@ -21,15 +21,20 @@
 // a real control among labels are the same lie, so neither happens here.
 
 import { globalStore } from "@/app/store/jotaiStore";
-import { buildJarvisGraphBindings } from "@/app/store/keybindings/bindings";
+import { buildJarvisBindings } from "@/app/store/keybindings/bindings";
 import { useSurfaceListNav, type ListNavController } from "@/app/store/keybindings/listnav";
 import { useKeybindings } from "@/app/store/keybindings/store";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { formatAge } from "@/app/view/agents/agentsviewmodel";
 import { ambientProviderAtom, ensureAmbient } from "@/app/view/agents/ambientstore";
 import { attentionAtom } from "@/app/view/agents/attentionstore";
-import { cn } from "@/util/util";
-import { atom, useAtom, useAtomValue } from "jotai";
+import { resolveTargetChannel } from "@/app/view/agents/channelderive";
+import { activeChannelRunsAtom, channelsAtom, loadChannels } from "@/app/view/agents/channelsstore";
+import { pendingRunDraftAtom, pendingRunFocusAtom } from "@/app/view/agents/runactions";
+import { DagModal } from "@/app/view/orchestrate/dagmodal";
+import { setDagModalAgentsContext } from "@/app/view/orchestrate/dagmodalstate";
+import { cn, fireAndForget } from "@/util/util";
+import { atom, useAtom, useAtomValue, useSetAtom } from "jotai";
 import { AnimatePresence } from "motion/react";
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { resolveComposerLabels, type BriefComposeState } from "./briefcompose";
@@ -41,6 +46,7 @@ import {
     groupDelta,
     mergeActiveWork,
     projectBriefing,
+    queueOpenTarget,
     SEVEN_DAYS_MS,
     type ActiveWorkRow,
     type QueueRow,
@@ -66,8 +72,8 @@ import {
 import { briefNavIds, resolveBriefCursor } from "./briefnav";
 import { BriefPeek } from "./briefpeekview";
 import { BriefProfileModal } from "./briefprofileview";
-import { BriefRunSheet } from "./briefrunsheet";
 import { briefRestorePlan } from "./briefrestore";
+import { BriefSheet } from "./briefsheet";
 import { openJarvisWithSource } from "./contextualentry";
 import type { EffortCardModel } from "./effortmodel";
 import { peekFocus, type PeekFocus } from "./graphfocus";
@@ -89,9 +95,10 @@ import {
     persistedSummariesAtom,
     selectConversation,
 } from "./jarvisstore";
-import { persistedSubjectAtom } from "./jarvissubjectstore";
+import { activeSubjectAtom, persistedSubjectAtom, setActiveRunId } from "./jarvissubjectstore";
 import { mentionedDossierIds } from "./mentions";
-import { openORef, orefNavPlan } from "./openref";
+import { NewChannelControl } from "./newchannelcontrol";
+import { openChannelSheet, openORef, openQueueTarget, openRunSheet, orefNavPlan } from "./openref";
 import { ageLabel, freshnessLabel } from "./recallderive";
 import { loadTaskList, taskListAtom } from "./tasksstore";
 
@@ -185,18 +192,13 @@ function MoreLine({ n }: { n: number }) {
     );
 }
 
-function QueueRowView({ row, focused }: { row: QueueRow; focused: boolean }) {
+function QueueRowView({ row, focused, onOpen }: { row: QueueRow; focused: boolean; onOpen?: () => void }) {
     const err = row.tone === "error";
     const hasMeta = row.detail !== "" || row.ts != null;
-    return (
-        <div
-            data-jarvis-brief-row="queue"
-            {...cursorAttrs(focused)}
-            className={cn(
-                "grid grid-cols-[3px_minmax(0,1fr)] gap-[13px] rounded-[10px] border border-border bg-surface py-[13px] pl-3 pr-[15px]",
-                focused && CURSOR_RING
-            )}
-        >
+    const base =
+        "grid grid-cols-[3px_minmax(0,1fr)] gap-[13px] rounded-[10px] border border-border bg-surface py-[13px] pl-3 pr-[15px]";
+    const face = (
+        <>
             <span className={cn("self-stretch rounded-[2px]", err ? "bg-error" : "bg-asking")} />
             <div className="flex min-w-0 flex-col gap-2">
                 <div className="flex min-w-0 flex-wrap items-center gap-[9px]">
@@ -210,11 +212,14 @@ function QueueRowView({ row, focused }: { row: QueueRow; focused: boolean }) {
                     </span>
                     <span className="min-w-[220px] flex-1 text-[15px] font-semibold text-ink-hi">{row.title}</span>
                     {row.action != null ? (
-                        // the run body still resolves the gate and the Brief cannot reach it yet, so the
-                        // decision this row waits on is named rather than offered as a dead control.
-                        // Deliberately borderless: a bordered chip here is the button recipe, and dressing
-                        // something inert as a control is the same lie as camouflaging a real one.
-                        <span className="flex-none font-mono text-[10px] font-semibold uppercase tracking-wide text-ink-faint">
+                        // The action word names what the row is waiting on; the row opens the run body that
+                        // resolves it. So the word stays a label rather than becoming a second control: a
+                        // bordered chip beside an already-clickable row is two affordances for one action,
+                        // and the one that only names the decision would be the one that looks pressable.
+                        <span
+                            data-jarvis-brief-action
+                            className="flex-none font-mono text-[10px] font-semibold uppercase tracking-wide text-ink-faint"
+                        >
                             {row.action}
                         </span>
                     ) : null}
@@ -228,7 +233,32 @@ function QueueRowView({ row, focused }: { row: QueueRow; focused: boolean }) {
                     </div>
                 ) : null}
             </div>
-        </div>
+        </>
+    );
+    // A standalone item names nothing to open, so it stays static info rather than a control that
+    // navigates nowhere (the rule this region has always followed for a channel-less row).
+    if (onOpen == null) {
+        return (
+            <div data-jarvis-brief-row="queue" {...cursorAttrs(focused)} className={cn(base, focused && CURSOR_RING)}>
+                {face}
+            </div>
+        );
+    }
+    return (
+        <button
+            type="button"
+            aria-label={`Open ${row.title}`}
+            onClick={onOpen}
+            data-jarvis-brief-row="queue"
+            {...cursorAttrs(focused)}
+            className={cn(
+                base,
+                "w-full cursor-pointer text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                focused && CURSOR_RING
+            )}
+        >
+            {face}
+        </button>
     );
 }
 
@@ -290,15 +320,7 @@ function sessionMark(row: ActiveWorkRow): { glyph: string; fg: string } {
 // A run row is the one session row with a destination: B4's session sheet. A blocker or a direct agent
 // has no sheet yet, so it stays a row rather than becoming a control that opens nothing (the same rule the
 // wait queue follows for its channel-less items).
-function SessionRow({
-    row,
-    focused,
-    onOpen,
-}: {
-    row: ActiveWorkRow;
-    focused: boolean;
-    onOpen?: () => void;
-}) {
+function SessionRow({ row, focused, onOpen }: { row: ActiveWorkRow; focused: boolean; onOpen?: () => void }) {
     const mark = sessionMark(row);
     const openable = row.kind === "run" && onOpen != null;
     const face = (
@@ -721,7 +743,55 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     useEffect(() => {
         loadTaskList();
         loadJarvisConversations();
+        // channels, because a Radar draft names a project and the landing has to resolve it to a channel
+        loadChannels();
     }, []);
+
+    // Two landings moved off the Stage with the panes it drew: a "Open run" focus request and a Radar
+    // draft. Both are one-shot — `landed` bounds them to a single attempt, because a target that never
+    // appears (channel load failed, run gone) must not re-fire on every subject change and yank the user
+    // back to it.
+    const subject = useAtomValue(activeSubjectAtom);
+    const pendingFocus = useAtomValue(pendingRunFocusAtom);
+    const setPendingFocus = useSetAtom(pendingRunFocusAtom);
+    const pendingDraft = useAtomValue(pendingRunDraftAtom);
+    const setPendingDraft = useSetAtom(pendingRunDraftAtom);
+    const channels = useAtomValue(channelsAtom);
+    const landingRuns = useAtomValue(activeChannelRunsAtom);
+
+    // Radar / graph peek / task correlation asking to show a run: put its channel on the subject, then
+    // select the run once that channel's runs have loaded. Landing on the channel is the useful part.
+    useEffect(() => {
+        if (pendingFocus == null) {
+            return;
+        }
+        if (subject?.kind !== "channel" || subject.id !== pendingFocus.channelId) {
+            if (pendingFocus.landed) {
+                setPendingFocus(null);
+                return;
+            }
+            void openChannelSheet(pendingFocus.channelId, null);
+            setPendingFocus({ ...pendingFocus, landed: true });
+            return;
+        }
+        if (landingRuns.some((r) => r.id === pendingFocus.runId)) {
+            setActiveRunId(pendingFocus.channelId, pendingFocus.runId);
+            setPendingFocus(null);
+        }
+    }, [pendingFocus, subject, landingRuns, setPendingFocus]);
+
+    // Radar "Start investigation": put its project's channel on the subject, so the sheet opens on that
+    // channel's launcher holding the draft rather than dropping it on the queue.
+    useEffect(() => {
+        if (pendingDraft == null || pendingDraft.landed) {
+            return;
+        }
+        const target = resolveTargetChannel(channels ?? [], pendingDraft.projectPath);
+        if (target != null) {
+            void openChannelSheet(target.oid, null);
+        }
+        setPendingDraft({ ...pendingDraft, landed: true });
+    }, [pendingDraft, channels, setPendingDraft]);
 
     // Boot restore, Brief edition. A subject stored by the three-pane composition has no Stage to land on
     // here, so it lands on the peek or in the composer instead (briefrestore.ts). One-shot: this surface
@@ -739,8 +809,9 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
             return;
         }
         const plan = briefRestorePlan(storedSubject, {
-            // the Brief has no use for the channel list: a channel defers before the decision is reached
-            channels: null,
+            // channels included: a stored channel now lands on its own sheet, so the restore has to be able
+            // to tell "that channel is gone" from "the list has not arrived"
+            channels: channels?.map((c) => c.oid) ?? null,
             dossiers: dossiers?.map((d) => d.id) ?? null,
             conversations: summaries == null ? null : summaries.map((s) => s.id),
         });
@@ -757,13 +828,12 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
             selectConversation(plan.id);
             return;
         }
-        // a channel keeps its stored subject: B5 owns that destination, and a no-op launch costs less than
-        // forgetting a restore target the user never asked to forget
-        if (plan.action === "defer-channel") {
+        if (plan.action === "channel") {
+            void openChannelSheet(plan.id, null);
             return;
         }
         globalStore.set(persistedSubjectAtom, null);
-    }, [storedSubject, dossiers, summaries, restoreConsumed, consumeRestore]);
+    }, [storedSubject, dossiers, summaries, channels, restoreConsumed, consumeRestore]);
 
     useEffect(() => {
         if (restoreConversationId == null) {
@@ -796,6 +866,10 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     }, [snapshotComplete, queryStartedAt]);
 
     const agents = fixture != null ? BRIEFING_FIXTURES[fixture].agents : liveAgents;
+    // the plan-gate modal reads the roster out of this atom, and the Stage was its only writer
+    useEffect(() => {
+        setDagModalAgentsContext(model, agents);
+    }, [model, agents]);
     const model_ = useMemo(() => {
         if (snapshot == null) {
             return null;
@@ -857,15 +931,14 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
 
     const fleet = briefFleet(agents);
 
-    // The session sheet and the profile modal are Brief-local state: the three-pane composition reaches
-    // both through the Stage rail, and until B5 retires it neither composition can own a shared atom.
-    const [sheetRunId, setSheetRunId] = useState<string | null>(null);
+    // The profile modal is Brief-local state. The detail sheet is not: it draws the surface's active
+    // subject, so what is open lives in the subject store and this surface only reports it.
     const [profileOpen, setProfileOpen] = useState(false);
 
-    // The Brief mounts no Stage, so it registers the one binding both compositions share and nothing else:
-    // the Stage's d and n act on panes this surface does not have. (bindings.ts)
-    const graphBindings = useMemo(() => buildJarvisGraphBindings(), []);
-    useKeybindings(graphBindings);
+    // The surface's own keys: new thread, the run switcher, the record band, the composer's i/Escape, and
+    // the graph peek. The Stage used to register these for a composition that no longer exists.
+    const jarvisBindings = useMemo(() => buildJarvisBindings(), []);
+    useKeybindings(jarvisBindings);
 
     // Where the graph peek opens. The Brief has no Stage subject, so the derivation starts from what the
     // Brief itself is about: the record the peek's map button named, else the thread's attached sources,
@@ -955,6 +1028,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                 >
                     Profile
                 </button>
+                <NewChannelControl model={model} />
             </header>
             {staleSnapshot ? (
                 <div
@@ -1007,9 +1081,17 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                             meta="oldest first · gates before asks"
                         >
                             <div className="flex flex-col gap-[9px]">
-                                {queue.map((q) => (
-                                    <QueueRowView key={q.key} row={q} focused={cursor === `waiting:${q.key}`} />
-                                ))}
+                                {queue.map((q) => {
+                                    const target = queueOpenTarget(q.nav);
+                                    return (
+                                        <QueueRowView
+                                            key={q.key}
+                                            row={q}
+                                            focused={cursor === `waiting:${q.key}`}
+                                            onOpen={target == null ? undefined : () => openQueueTarget(model, target)}
+                                        />
+                                    );
+                                })}
                             </div>
                         </Region>
                         <Region
@@ -1039,7 +1121,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                         focused={cursor === `sessions:${r.key}`}
                                         onOpen={
                                             r.kind === "run"
-                                                ? () => setSheetRunId(r.oref.replace(/^run:/, ""))
+                                                ? () => fireAndForget(() => openRunSheet(r.oref.replace(/^run:/, "")))
                                                 : undefined
                                         }
                                     />
@@ -1104,27 +1186,29 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                 Mounted here rather than beside the surface switch because it is the Brief's own overlay —
                 the three-pane composition opens a record on the Stage instead. */}
             <BriefPeek model={model} />
-            {/* The same overlay the Stage mounts, with the Brief's own exits. canOpenRuns is false: runs
-                have no Stage-sheet destination until B5, and a control that navigates nowhere is worse than
-                its absence. A graph-selected record closes into the record peek; an Ask closes into the
-                attached Brief thread. */}
+            {/* The same overlay the Stage used to mount, with the Brief's own exits. canOpenRuns is true
+                now that a run has a destination: openORef's run arm opens the channel's detail sheet, which
+                is where the run body and its gate live. A graph-selected record closes into the record
+                peek; an Ask closes into the attached Brief thread. */}
             <AnimatePresence>
                 {graphOpen ? (
                     <GraphPeek
                         key="brief-graph-peek"
                         model={model}
                         focus={graphFocus}
-                        canOpenRuns={false}
+                        canOpenRuns
                         onOpenRecord={(id) => globalStore.set(briefPeekRecordAtom, id)}
                         onAskAbout={(ref) => openJarvisWithSource(model, ref)}
                         onClose={closeBriefGraph}
                     />
                 ) : null}
             </AnimatePresence>
-            {/* B4's two Brief-only surfaces. The sheet owns only the run summary and the running-settings
-                panel; B5 re-homes RunBody into this shell rather than a copy of it. */}
-            <BriefRunSheet runId={sheetRunId} onClose={() => setSheetRunId(null)} />
+            {/* B4's detail sheet, now drawing the surface's active subject: a channel's run body (or its
+                launcher), or an initiative's chunk detail. */}
+            <BriefSheet model={model} />
             <BriefProfileModal open={profileOpen} onClose={() => setProfileOpen(false)} />
+            {/* the plan-gate modal, mounted here because the Stage was the surface that hosted it */}
+            <DagModal />
         </div>
     );
 }

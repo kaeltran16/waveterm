@@ -6,6 +6,7 @@
 // carries each edge's state, confidence and line style.
 
 import { composerReveal } from "@/app/element/motiontokens";
+import { globalStore } from "@/app/store/jotaiStore";
 import type { AmbientTag } from "@/app/view/agents/ambient";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
@@ -13,7 +14,7 @@ import { Lock } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { EdgeControls } from "./edgecontrolsview";
-import { selectSubject } from "./jarvissubjectstore";
+import { briefPeekRecordAtom } from "./jarvisstore";
 import { acceptEdge, detachedEdgesAtom, loadDetachedEdges } from "./recordactions";
 import { edgeLabel, edgeLineStyle, recordBandCase } from "./recordband";
 import { RecordPicker } from "./recordpicker";
@@ -49,7 +50,6 @@ function EdgeChip({ tag }: { tag: AmbientTag }) {
 export function RecordBand({
     kind,
     tags,
-    mentionedIds,
     detail,
     runORef,
     open,
@@ -57,14 +57,13 @@ export function RecordBand({
 }: {
     kind: SubjectKind;
     tags: AmbientTag[];
-    mentionedIds: string[];
     detail: DossierDetail | null;
     // the run every edge on this band is an edge *of*. null off a channel, or before a run resolves.
     runORef: string | null;
     open: boolean;
     onToggle: () => void;
 }) {
-    const band = recordBandCase({ kind, tags, mentionedIds });
+    const band = recordBandCase({ kind, tags });
     // a dossier subject IS the record, so its panel is always open and has no collapse affordance.
     const expandable = band.case === "one" || band.case === "several";
     const showPanel = band.case === "subject" || (expandable && open);
@@ -136,25 +135,6 @@ export function RecordBand({
                     <div className="flex-1" />
                     <span className="flex-none text-[11px] font-semibold text-muted">
                         {open ? "Collapse" : "Expand"}
-                    </span>
-                </>
-            ) : band.case === "mentions" ? (
-                <>
-                    <span className="flex-none font-mono text-[9.5px] font-bold uppercase tracking-[.12em] text-muted">
-                        Mentioned here
-                    </span>
-                    {band.ids.map((id) => (
-                        <span
-                            key={id}
-                            className="flex-none rounded-[5px] border border-dashed border-accent/40 px-1.5 py-px font-mono text-[11px] text-accent-soft"
-                        >
-                            {id}
-                        </span>
-                    ))}
-                    <span className="min-w-0 truncate font-mono text-[11px] text-muted">
-                        {band.ids.length === 0
-                            ? "this thread has cited no record"
-                            : "derived from this thread's citations — a conversation carries no attribution of its own"}
                     </span>
                 </>
             ) : (
@@ -236,13 +216,13 @@ export function RecordBand({
                                     >
                                         <button
                                             type="button"
-                                            onClick={() => selectSubject({ kind: "dossier", id: e.taskId })}
+                                            // the Brief's peek is the surface's one record destination, so the
+                                            // band sends its edges there rather than being told where to send them.
+                                            onClick={() => globalStore.set(briefPeekRecordAtom, e.taskId)}
                                             className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
                                         >
                                             <EdgeChip tag={e} />
-                                            <span className="font-mono text-[10.5px] text-muted">
-                                                open this record
-                                            </span>
+                                            <span className="font-mono text-[10.5px] text-muted">open this record</span>
                                         </button>
                                         {runORef != null ? (
                                             <EdgeControls

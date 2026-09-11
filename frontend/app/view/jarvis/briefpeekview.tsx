@@ -97,6 +97,7 @@ function RunRowView({ row, model }: { row: PeekRunRow; model: AgentsViewModel })
         <button
             type="button"
             data-jarvis-peek-row="run"
+            data-jarvis-peek-run={row.runId}
             onClick={() => void openORef(model, "run:" + row.runId)}
             className="flex w-full min-w-0 cursor-pointer items-center gap-2.5 px-3 py-[7px] text-left hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >

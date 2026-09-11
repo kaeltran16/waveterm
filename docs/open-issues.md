@@ -82,6 +82,28 @@ end to end; a landed merge stamps `Merged` (marker from `5a863daa`), which clean
 **G6 remains** (low, deferred as design): lead control notifications are fire-and-forget with no
 delivery ack.
 
+### Jarvis Brief B5 — the retired panes' orphaned mounts (deferred 2026-09-10)
+
+B5 deleted the Subjects column, the Stage and the context rail. Five capabilities were re-homed into the
+Brief's detail sheet — the run body, the launcher and its goal row, the record band, the initiative detail,
+and B4's profile modal. Ten were not re-homed, and their implementations are still in the tree, orphaned but
+**not deleted**: re-homing one is moving an existing control, not rebuilding it. The list was found by
+sweeping every exported function in `app/` for one with no production consumer left, so it is mechanical
+rather than recalled. Full rationale: `docs/deferred.md`, 2026-09-10.
+
+| Capability | Orphaned implementation | Load-bearing? |
+|---|---|---|
+| Channel lifecycle — rename / delete / archive / notes | `renameChannel`, `deleteChannel`, `archiveChannel`, `setChannelNotes` (`agents/channelsstore.ts`) | **yes** — a channel can now be created and never managed |
+| Initiative lifecycle and the effort card | `EffortCreateForm`, `EffortCard`, `expandEffort`, `toggleEffort`, `unarchiveEffort`, `deleteEffort` | **yes** — no initiative can be started |
+| Autonomy ladder — tier and mode | `AutonomyLadder` (`jarvis/autonomyladderview.tsx`) | yes — this is the remote approval policy |
+| Subject browsing, grouping, filtering | `toggleSubjectGroup`; the grouping model went with `subjects.ts` | no — the Brief's regions cover running work |
+| Thread lifecycle — archive / delete | `archiveJarvisConversation`, `deleteJarvisConversation` | no |
+| Per-answer cancel and retry | `cancelJarvisQuery`, `retryJarvisQuery` | no |
+| Ask-mode consult results (§4a item 11) | `ConsultsSection`, deleted with the rail | deliberate drop |
+| Resume / proactive cards (§4a item 12) | `ResumeCard`, `ProactiveCard` | deliberate drop |
+| Rail fleet roster and per-worker dismiss | `FleetRoster`, `dismissWorker`, `runRailSection` | no — the header keeps a derived fleet line |
+| Stage turn renderers | `JarvisAnswer`, `JarvisWorkingSteps` (`jarvis/jarvisturn.tsx`) | largely superseded by `briefdrew.ts` |
+
 ---
 
 ## 2 · Actionable smalls

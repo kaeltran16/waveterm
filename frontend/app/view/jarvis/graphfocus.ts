@@ -33,7 +33,7 @@ const NOTHING: PeekFocus = { dossierId: null, runORef: null };
 // the record the band would call primary for this run. Deliberately the band's own ranking rather than a
 // second one: the peek and the band describe the same run, and two rankings would eventually disagree.
 function primaryRecord(tags: AmbientTag[]): string | null {
-    const band = recordBandCase({ kind: "channel", tags, mentionedIds: [] });
+    const band = recordBandCase({ kind: "channel", tags });
     if (band.case === "one") {
         return band.edge.taskId;
     }

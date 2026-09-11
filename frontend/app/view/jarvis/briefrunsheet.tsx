@@ -1,9 +1,9 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The session sheet: the right-side surface a run row opens. B4 owns its shell, the run summary, the
-// unavailable/error states and the running-settings panel. It deliberately does not own the Stage body —
-// B5 re-homes RunBody into this shell, and duplicating it here would give one run two live renderers.
+// The sheet's shell and its run-settings face. B5 moved "which subject is drawn" out to briefsheet.tsx,
+// because the sheet draws the active subject rather than a run id; what stays here is everything that is
+// specific to a run — the summary, the unavailable/error states, and the running-settings panel.
 //
 // Two rules decide what is a control and what is a fact. Shape, machine and the lead route are immutable
 // after launch, so they are printed, not offered. Parallelism, the worker route and an unreleased plan
@@ -53,36 +53,36 @@ function Fact({ label, value }: { label: string; value: string }) {
     );
 }
 
-function SheetShell({ goal, onClose, children }: { goal: string; onClose: () => void; children: ReactNode }) {
+// The one panel both faces use. `face` is what the sheet is drawing, and it is on the element rather than
+// inferred from the subject so a check can tell a sheet that never opened from one that opened empty.
+export function SheetShell({
+    face,
+    label,
+    title,
+    onClose,
+    children,
+}: {
+    face: string;
+    label: string;
+    title: string;
+    onClose: () => void;
+    children: ReactNode;
+}) {
     return (
         <aside
-            data-jarvis-brief-sheet="run"
-            aria-label="Run session"
-            className="absolute inset-y-0 right-0 flex w-[420px] max-w-[92vw] flex-col border-l border-edge-faint bg-surface shadow-xl"
+            data-jarvis-brief-sheet={face}
+            aria-label="Detail sheet"
+            className="absolute inset-y-0 right-0 flex w-[640px] max-w-[92vw] flex-col border-l border-edge-faint bg-surface shadow-xl"
         >
             <header className="flex flex-none items-center gap-2.5 border-b border-edge-faint px-4 py-3">
-                <span className={cn(LABEL, "text-accent-soft")}>session</span>
-                <span className="min-w-0 flex-1 truncate text-[13.5px] font-semibold text-ink-hi">{goal}</span>
-                <button type="button" aria-label="Close session sheet" onClick={onClose} className={BTN}>
+                <span className={cn(LABEL, "text-accent-soft")}>{label}</span>
+                <span className="min-w-0 flex-1 truncate text-[13.5px] font-semibold text-ink-hi">{title}</span>
+                <button type="button" aria-label="Close detail sheet" onClick={onClose} className={BTN}>
                     Close
                 </button>
             </header>
-            <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">{children}</div>
+            {children}
         </aside>
-    );
-}
-
-function SheetUnavailable() {
-    return (
-        <div
-            data-jarvis-brief-sheet-state="unavailable"
-            className="flex flex-col gap-1.5 rounded-[10px] border border-dashed border-edge-strong px-3.5 py-3"
-        >
-            <span className="text-[13px] font-semibold text-ink-hi">This run is no longer available.</span>
-            <span className="text-[12px] text-secondary">
-                It was deleted or cancelled since the Brief was loaded, so there are no settings to change.
-            </span>
-        </div>
     );
 }
 
@@ -91,18 +91,14 @@ function runRuntimeView(run: Run): string {
     return [run.runtime || "claude", run.model || run.tier || "capable"].filter((p) => p !== "").join(" · ");
 }
 
-function LoadedSheet({
-    runId,
+function LoadedSettings({
     run,
     group,
     groupRead,
-    onClose,
 }: {
-    runId: string;
     run: Run;
     group: TaskGroup | null;
     groupRead: LinkedGroupRead;
-    onClose: () => void;
 }) {
     const [draft, setDraft] = useState<RunSettingsDraft | null>(null);
     const [baseline, setBaseline] = useState<RunSettingsDraft | null>(null);
@@ -110,6 +106,7 @@ function LoadedSheet({
     const [error, setError] = useState<string | null>(null);
     const [notice, setNotice] = useState<string | null>(null);
 
+    const runId = run.id;
     const channelId = run.channeloid ?? "";
     const state = runSettingsPanelState(run, group, groupRead);
     // every effective mutable input, keyed: a status tick changes the object but not this, so it cannot
@@ -184,7 +181,7 @@ function LoadedSheet({
     const machine = run.orchestration || (run.runtime === "pi" ? "engine" : "adaptive");
 
     return (
-        <SheetShell goal={run.goal ?? "Run"} onClose={onClose}>
+        <>
             <section className="flex flex-col gap-1.5">
                 <span className={LABEL}>launched as</span>
                 <Fact label="shape" value={run.mode || "quick"} />
@@ -299,68 +296,26 @@ function LoadedSheet({
                     </div>
                 </section>
             ) : null}
-        </SheetShell>
+        </>
     );
 }
 
 // Mounted only when the run actually links a dag, so the WOS subscription below always names a real object.
 // The read state is carried whole — loading, arrived, failed, gone — because a failed or deleted group is not
 // a group that is still loading.
-function LinkedDagSheet({
-    runId,
-    run,
-    dagId,
-    onClose,
-}: {
-    runId: string;
-    run: Run;
-    dagId: string;
-    onClose: () => void;
-}) {
+function LinkedRunSettings({ run, dagId }: { run: Run; dagId: string }) {
     const oref = WOS.makeORef("dag", dagId);
     const [group, loading] = useDagGroup(oref);
     const errored = useAtomValue(WOS.getWaveObjectErrorAtom(oref));
     const groupRead: LinkedGroupRead = loading ? "loading" : group != null ? "ready" : errored ? "error" : "missing";
-    return <LoadedSheet runId={runId} run={run} group={group ?? null} groupRead={groupRead} onClose={onClose} />;
+    return <LoadedSettings run={run} group={group ?? null} groupRead={groupRead} />;
 }
 
-function BriefRunSheetBody({ runId, onClose }: { runId: string; onClose: () => void }) {
-    const runOref = WOS.makeORef("run", runId);
-    const run = useAtomValue(WOS.getWaveObjectAtom<Run>(runOref));
-    const runLoading = useAtomValue(WOS.getWaveObjectLoadingAtom(runOref));
-    if (run == null) {
-        return (
-            <SheetShell goal="Run" onClose={onClose}>
-                {runLoading ? (
-                    <div
-                        data-jarvis-brief-sheet-state="loading"
-                        className="h-16 animate-pulse rounded-[10px] bg-surface-raised motion-reduce:animate-none"
-                    />
-                ) : (
-                    <SheetUnavailable />
-                )}
-            </SheetShell>
-        );
-    }
+// The run-settings face for whichever run the sheet is showing. The linked/unlinked split is a component
+// boundary rather than a hook inside a branch: useDagGroup has to be called unconditionally.
+export function RunSettingsPanel({ run }: { run: Run }) {
     if ((run.dagoref ?? "") !== "") {
-        return <LinkedDagSheet runId={runId} run={run} dagId={run.dagoref} onClose={onClose} />;
+        return <LinkedRunSettings run={run} dagId={run.dagoref} />;
     }
-    return <LoadedSheet runId={runId} run={run} group={null} groupRead="ready" onClose={onClose} />;
-}
-
-export function BriefRunSheet({ runId, onClose }: { runId: string | null; onClose: () => void }) {
-    if (runId == null) {
-        return null;
-    }
-    return (
-        <div className="absolute inset-0 z-20">
-            <button
-                type="button"
-                aria-label="Close session sheet"
-                onClick={onClose}
-                className="absolute inset-0 cursor-default bg-background/40"
-            />
-            <BriefRunSheetBody key={runId} runId={runId} onClose={onClose} />
-        </div>
-    );
+    return <LoadedSettings run={run} group={null} groupRead="ready" />;
 }

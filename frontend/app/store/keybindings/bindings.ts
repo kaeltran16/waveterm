@@ -1,16 +1,12 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { cheatsheetOpenAtom } from "@/app/cockpit/shortcuts-cheatsheet";
 import { launchPiTab } from "@/app/cockpit/cockpit-actions";
+import { cheatsheetOpenAtom } from "@/app/cockpit/shortcuts-cheatsheet";
 import { globalStore } from "@/app/store/jotaiStore";
 import { confirmCloseSession } from "@/app/view/agents/agentactions";
 import { AgentsViewModel, SURFACE_ORDER, type SurfaceKey } from "@/app/view/agents/agents";
 import { answerDigitTarget, canSubmitAsk, moveCursor, type AgentVM } from "@/app/view/agents/agentsviewmodel";
-import type { MutableRefObject } from "react";
-import { railVisibleAtom, terminalFullscreenAtom } from "@/app/view/agents/railstore";
-import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
-import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
 import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
 import { sideJumpTarget, type CompareRow } from "@/app/view/agents/comparerows";
 import { compareOnAtom, compareSelectionAtom, leaveCompare } from "@/app/view/agents/comparestore";
@@ -23,7 +19,10 @@ import {
 } from "@/app/view/agents/githistorystore";
 import { anyFilterActive } from "@/app/view/agents/historyquery";
 import { dismissPending, keepPending, memPendingAtom, memSearchAtom, selectPending } from "@/app/view/agents/memstore";
+import { railVisibleAtom, terminalFullscreenAtom } from "@/app/view/agents/railstore";
+import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
 import { resolveActiveRunId } from "@/app/view/agents/runmodel";
+import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
 import {
     vaultCursorAtom,
     vaultExpandedAtom,
@@ -33,6 +32,7 @@ import {
     vaultTabAtom,
 } from "@/app/view/agents/vaultstore";
 import { filterQueue, moveCursor as moveQueueCursor } from "@/app/view/agents/vaulttriage";
+import { codeSearchModeAtom } from "@/app/view/code/codesearchstore";
 import {
     codeCursorAtom,
     codeFinderOpenAtom,
@@ -49,12 +49,18 @@ import {
     startRename,
     toggleDir,
 } from "@/app/view/code/codestore";
-import { codeSearchModeAtom } from "@/app/view/code/codesearchstore";
 import { treeKeyAction, type TreeKey } from "@/app/view/code/codetreekeys";
 import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
-import { graphPeekOpenAtom, stageRailOpenAtom } from "@/app/view/jarvis/jarvisstore";
+import { briefPeekRecordAtom, graphPeekOpenAtom } from "@/app/view/jarvis/jarvisstore";
+import {
+    activeRunIdAtom,
+    activeSubjectAtom,
+    setActiveRunId,
+    startJarvisThread,
+} from "@/app/view/jarvis/jarvissubjectstore";
 import { petPeekOpenAtom } from "@/app/view/jarvis/petstore";
-import { activeRunIdAtom, activeSubjectAtom, setActiveRunId, startJarvisThread } from "@/app/view/jarvis/jarvissubjectstore";
+import { dagModalStateAtom } from "@/app/view/orchestrate/dagmodalstate";
+import type { MutableRefObject } from "react";
 import { listNavAtom } from "./listnav";
 import type { Binding, KeyContext } from "./types";
 
@@ -105,15 +111,7 @@ const navigateStrict = (ctx: KeyContext) => !ctx.editable && !ctx.modalOpen;
 
 // Deep (non-home) surfaces whose Escape returns to the Cockpit. Excludes cockpit (already home), agent
 // (owns Escape via buildAgentBindings: exit fullscreen / back), and settings.
-const ESC_HOME_SURFACES = new Set<SurfaceKey>([
-    "jarvis",
-    "radar",
-    "sessions",
-    "files",
-    "vault",
-    "usage",
-    "code",
-]);
+const ESC_HOME_SURFACES = new Set<SurfaceKey>(["jarvis", "radar", "sessions", "files", "vault", "usage", "code"]);
 
 // Spec §5 (agent-tab-fixes): the second Ctrl+C closes the *focused* session — agent or plain
 // terminal alike (the UI labels both "terminal": "Close terminal — ends the agent"). Returns null
@@ -160,8 +158,22 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
     return [
         ...surfaceChords,
         ...goBindings,
-        { id: "surface:next", keys: "]", group: "Navigation", label: "Next surface", when: navigate, run: () => cycleSurface(1) },
-        { id: "surface:prev", keys: "[", group: "Navigation", label: "Previous surface", when: navigate, run: () => cycleSurface(-1) },
+        {
+            id: "surface:next",
+            keys: "]",
+            group: "Navigation",
+            label: "Next surface",
+            when: navigate,
+            run: () => cycleSurface(1),
+        },
+        {
+            id: "surface:prev",
+            keys: "[",
+            group: "Navigation",
+            label: "Previous surface",
+            when: navigate,
+            run: () => cycleSurface(-1),
+        },
         {
             // One chord for both palettes, dispatched on surface: Code leads with its file finder
             // (VS Code's Ctrl+P), every other surface opens the command palette. Typing '>' in the
@@ -308,7 +320,13 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
                 !globalStore.get(codeFinderOpenAtom) &&
                 // and the Vault's reader overlay: Escape closes the note you are reading and returns to
                 // the row it was opened from, which is what "back" means while it is up
-                globalStore.get(vaultReaderAtom) == null,
+                globalStore.get(vaultReaderAtom) == null &&
+                // the Brief's record peek is a ModalShell and the Brief is where every record destination
+                // now lands: without this, one press closed the peek AND left the surface — and the peek's
+                // own state was never cleared, so coming back showed it open again
+                globalStore.get(briefPeekRecordAtom) == null &&
+                // the DAG modal takes Escape itself too, and the Brief mounts it as well as Channels
+                globalStore.get(dagModalStateAtom) == null,
             run: () => globalStore.set(model.surfaceAtom, "cockpit"),
         },
     ];
@@ -342,11 +360,51 @@ export function buildListNavBindings(): Binding[] {
         c.activate();
     };
     return [
-        { id: "list:next-j", keys: "j", group: "Navigation", label: "Next item", when: active, paletteHidden: true, run: () => move(1) },
-        { id: "list:prev-k", keys: "k", group: "Navigation", label: "Previous item", when: active, paletteHidden: true, run: () => move(-1) },
-        { id: "list:next", keys: "ArrowDown", group: "Navigation", label: "Next item", when: active, paletteHidden: true, run: () => move(1) },
-        { id: "list:prev", keys: "ArrowUp", group: "Navigation", label: "Previous item", when: active, paletteHidden: true, run: () => move(-1) },
-        { id: "list:activate", keys: "Enter", group: "Navigation", label: "Open / activate item", when: active, paletteHidden: true, run: activate },
+        {
+            id: "list:next-j",
+            keys: "j",
+            group: "Navigation",
+            label: "Next item",
+            when: active,
+            paletteHidden: true,
+            run: () => move(1),
+        },
+        {
+            id: "list:prev-k",
+            keys: "k",
+            group: "Navigation",
+            label: "Previous item",
+            when: active,
+            paletteHidden: true,
+            run: () => move(-1),
+        },
+        {
+            id: "list:next",
+            keys: "ArrowDown",
+            group: "Navigation",
+            label: "Next item",
+            when: active,
+            paletteHidden: true,
+            run: () => move(1),
+        },
+        {
+            id: "list:prev",
+            keys: "ArrowUp",
+            group: "Navigation",
+            label: "Previous item",
+            when: active,
+            paletteHidden: true,
+            run: () => move(-1),
+        },
+        {
+            id: "list:activate",
+            keys: "Enter",
+            group: "Navigation",
+            label: "Open / activate item",
+            when: active,
+            paletteHidden: true,
+            run: activate,
+        },
     ];
 }
 
@@ -395,7 +453,15 @@ export function buildChannelsAskBindings(
     }));
     return [
         ...digits,
-        { id: "channels:submit", keys: "Enter", group: "Jarvis", label: "Submit answer", paletteHidden: true, when: ready, run: submit },
+        {
+            id: "channels:submit",
+            keys: "Enter",
+            group: "Jarvis",
+            label: "Submit answer",
+            paletteHidden: true,
+            when: ready,
+            run: submit,
+        },
     ];
 }
 
@@ -407,13 +473,9 @@ export function buildChannelsAskBindings(
 // drifts; the button only exists when the band can open, so clicking it is exactly the mouse's contract.
 // Every DOM-reaching run() returns false when its control is absent, so the key passes through rather
 // than pretending to have acted.
-// The one Jarvis binding both compositions share. The Brief mounts no Stage, so it registers this set and
-// nothing else — but the chord has to be the same key in both, and a second declaration is how the two
-// copies drift apart. `when` is the surface-and-not-typing guard only: the toggle stays live while its own
-// overlay is open, which is how Esc-less closing works.
 // The jarvis surface's guard. Module-level rather than a local `on` inside buildJarvisBindings, because the
-// graph chord has to be reachable in BOTH compositions and a second copy of this predicate is how the two
-// become different chords wearing the same keys.
+// graph chord and the surface's own keys are registered from different call sites and a second copy of this
+// predicate is how the two become different chords wearing the same keys.
 const onJarvis = (ctx: KeyContext) => ctx.surface === "jarvis" && !ctx.editable && !ctx.modalOpen;
 
 export function buildJarvisGraphBindings(): Binding[] {
@@ -466,14 +528,6 @@ export function buildJarvisBindings(): Binding[] {
     };
 
     return [
-        {
-            id: "jarvis:toggle-rail",
-            keys: "d",
-            group: "Jarvis",
-            label: "Toggle the context rail",
-            when: onStage,
-            run: () => globalStore.set(stageRailOpenAtom, (v) => !v),
-        },
         {
             id: "jarvis:new-thread",
             keys: "n",
@@ -633,8 +687,22 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
                 }
             },
         },
-        { id: "agent:prev", keys: "ArrowLeft", group: "Agent", label: "Previous agent", when: agentNav, run: () => step(-1) },
-        { id: "agent:next", keys: "ArrowRight", group: "Agent", label: "Next agent", when: agentNav, run: () => step(1) },
+        {
+            id: "agent:prev",
+            keys: "ArrowLeft",
+            group: "Agent",
+            label: "Previous agent",
+            when: agentNav,
+            run: () => step(-1),
+        },
+        {
+            id: "agent:next",
+            keys: "ArrowRight",
+            group: "Agent",
+            label: "Next agent",
+            when: agentNav,
+            run: () => step(1),
+        },
         { id: "agent:prev-k", keys: "k", group: "Agent", label: "Previous agent", when: agentNav, run: () => step(-1) },
         { id: "agent:next-j", keys: "j", group: "Agent", label: "Next agent", when: agentNav, run: () => step(1) },
         {

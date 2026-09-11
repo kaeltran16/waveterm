@@ -83,7 +83,11 @@ export async function loadBriefingAsync(): Promise<void> {
         error: null,
     });
     try {
-        const rtn = await RpcApi.JarvisStateCommand(TabRpcClient, { project: "", sincems: fetchSince }, { timeout: stateRpcTimeoutMs });
+        const rtn = await RpcApi.JarvisStateCommand(
+            TabRpcClient,
+            { project: "", sincems: fetchSince },
+            { timeout: stateRpcTimeoutMs }
+        );
         if (gen !== loadGeneration) {
             return; // superseded
         }
@@ -187,6 +191,17 @@ export function primeBriefThread(scope: JarvisScope, draft: string): void {
     clearBriefThread();
     globalStore.set(briefScopeAtom, scope);
     globalStore.set(briefDraftAtom, draft);
+}
+
+// Ask the Brief's one thread a question from OUTSIDE the surface — the palette's Ask Jarvis row, whose
+// contract is "ask and watch the answer arrive" rather than "pre-fill a box". The exchange is assembled
+// here rather than by the caller because the Brief's thread is a store value, and a caller that built its
+// own would be a second definition of what a turn is.
+export function askBriefThread(question: string): void {
+    primeBriefThread(ALL_WORK_SCOPE, "");
+    const turn: JarvisTurn = { role: "user", text: question, attachments: [] };
+    globalStore.set(briefThreadAtom, [{ key: `q0:${Date.now()}`, ts: Date.now(), turn }]);
+    askAcrossWork(question);
 }
 
 // The once-per-launch guard on the Brief's subject restore. Session-scoped, beside the thread it restores:

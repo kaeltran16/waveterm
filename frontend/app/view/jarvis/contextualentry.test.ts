@@ -11,8 +11,8 @@ import {
     sourceRefForRadar,
     sourceRefForRun,
 } from "./contextualentry";
-import { activeConversationIdAtom, conversationsByIdAtom, jarvisCompositionAtom } from "./jarvisstore";
-import { activeSubjectAtom, jarvisDraftAtom, sourceConversationAtom } from "./jarvissubjectstore";
+import { activeConversationIdAtom, conversationsByIdAtom } from "./jarvisstore";
+import { jarvisDraftAtom, sourceConversationAtom } from "./jarvissubjectstore";
 
 // starts off-jarvis so the assertion that the surface moved is about the call, not the initial state.
 // "cockpit" rather than a made-up key: a real SurfaceKey is what the atom is typed for.
@@ -20,9 +20,7 @@ const model = { surfaceAtom: atom<SurfaceKey>("cockpit") } as unknown as AgentsV
 
 describe("contextual-entry SourceRef builders", () => {
     beforeEach(() => {
-        globalStore.set(jarvisCompositionAtom, "three-pane");
         globalStore.set(model.surfaceAtom, "cockpit");
-        globalStore.set(activeSubjectAtom, null);
         globalStore.set(activeConversationIdAtom, null);
         globalStore.set(conversationsByIdAtom, {});
         globalStore.set(jarvisDraftAtom, {});
@@ -60,20 +58,14 @@ describe("contextual-entry SourceRef builders", () => {
         expect(scope.chips.some((c) => c.active)).toBe(true);
     });
 
-    it("primes the stateless Brief thread in brief composition", () => {
-        globalStore.set(jarvisCompositionAtom, "brief");
+    // the Brief is the only composition now, so this is the whole of openJarvisWithSource's behavior: one
+    // attached stateless thread, primed with the source's suggested prompt.
+    it("primes an attached stateless thread from the source", () => {
         const ref = sourceRefForRun({ id: "r1", goal: "ship it" } as any);
         openJarvisWithSource(model, ref);
         expect(globalStore.get(briefScopeAtom).attached[0].oref).toBe("run:r1");
         expect(globalStore.get(briefDraftAtom)).toBe("What changed in this Run and why?");
         expect(globalStore.get(briefThreadAtom)).toEqual([]);
         expect(globalStore.get(model.surfaceAtom)).toBe("jarvis");
-    });
-
-    it("keeps the persisted conversation path in three-pane composition", () => {
-        openJarvisWithSource(model, sourceRefForRun({ id: "r1", goal: "ship it" } as any));
-        expect(globalStore.get(activeSubjectAtom)?.kind).toBe("conversation");
-        expect(globalStore.get(briefThreadAtom)).toEqual([]);
-        expect(globalStore.get(briefScopeAtom)).toEqual({ mode: "all", chips: [], attached: [] });
     });
 });

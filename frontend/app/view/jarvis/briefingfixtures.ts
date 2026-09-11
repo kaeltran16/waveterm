@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // DEV-only briefing fixtures: five load states a human and the CDP verify:ui harness can render
-// without a backend (mirrors jarvisfixtures.ts). The `load` states are real WorkState shapes — the
-// projection and the view must not special-case them — and the timestamps hang off a fixed `now` so
-// the shots are deterministic. Compiled out of production builds (only reachable through the
-// briefingFixtureAtom seam, which import.meta.env.DEV gates).
+// without a backend. The `load` states are real WorkState shapes — the projection and the view must not
+// special-case them — and the timestamps hang off a fixed `now` so the shots are deterministic. Compiled
+// out of production builds (only reachable through the briefingFixtureAtom seam, which import.meta.env.DEV
+// gates).
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { briefingAnswerAtom, briefingAskStateAtom, type BriefingLoadState } from "./briefingstore";

@@ -12,8 +12,6 @@ import type { AgentsViewModel } from "../agents/agents";
 import type { MemNote } from "../agents/memtypes";
 import { primeBriefThread } from "./briefingstore";
 import type { JarvisScope, SourceRef, SourceType } from "./jarviscontract";
-import { jarvisCompositionAtom } from "./jarvisstore";
-import { conversationForSource, selectSubject, setJarvisDraft } from "./jarvissubjectstore";
 
 export function sourceRefForRun(run: Run): SourceRef {
     return { oref: WOS.makeORef("run", run.id) ?? `run:${run.id}`, sourceType: "run", title: run.goal };
@@ -66,19 +64,9 @@ export function suggestedPrompt(t: SourceType): string {
 }
 
 export function openJarvisWithSource(model: AgentsViewModel, ref: SourceRef): void {
-    if (globalStore.get(jarvisCompositionAtom) === "brief") {
-        primeBriefThread(attachedScope(ref), suggestedPrompt(ref.sourceType));
-        globalStore.set(model.surfaceAtom, "jarvis");
-        return;
-    }
-    // one thread per source object, reused rather than re-created: asking about the same Run twice used to
-    // leave two identical rows in the Threads group, and the second one carried none of the first's answers.
-    const id = conversationForSource(ref.oref, attachedScope(ref));
-    // the suggested prompt belongs to *this* thread: drafts are keyed by subject, so priming the box means
-    // priming that key, not a shared one another subject would inherit.
-    setJarvisDraft(id, suggestedPrompt(ref.sourceType));
-    // the merged surface shows whatever the active *subject* is, so the new thread has to become one
-    selectSubject({ kind: "conversation", id });
+    // one attached stateless thread, re-primed from this source: the Brief's thread is not a persisted
+    // conversation, so there is no per-source thread to reuse — priming replaces whatever was asked before.
+    primeBriefThread(attachedScope(ref), suggestedPrompt(ref.sourceType));
     globalStore.set(model.surfaceAtom, "jarvis");
 }
 

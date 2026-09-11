@@ -12,9 +12,10 @@ import { graphOnAtom, historyFiltersAtom, historyScrollAtom } from "@/app/view/a
 import { NO_FILTERS } from "@/app/view/agents/historyquery";
 import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
 import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
-import { graphPeekOpenAtom, stageRailOpenAtom } from "@/app/view/jarvis/jarvisstore";
+import { graphPeekOpenAtom, briefPeekRecordAtom } from "@/app/view/jarvis/jarvisstore";
 import { activeRunIdAtom, activeSubjectAtom } from "@/app/view/jarvis/jarvissubjectstore";
 import { petPeekOpenAtom } from "@/app/view/jarvis/petstore";
+import { dagModalStateAtom } from "@/app/view/orchestrate/dagmodalstate";
 import { codeFinderOpenAtom, codeTreeFocusedAtom } from "@/app/view/code/codestore";
 import { codeSearchModeAtom } from "@/app/view/code/codesearchstore";
 import {
@@ -147,6 +148,30 @@ describe("Escape back to the Cockpit", () => {
         globalStore.set(petPeekOpenAtom, false);
         expect(b.when!(ctx("usage"))).toBe(true);
     });
+
+    // The Brief mounts two overlays that take Escape themselves and were missing from this list, so one
+    // press both closed the overlay and left the surface — and because the overlay's owner state was never
+    // cleared, returning to the Brief showed it open again. The peek is the Brief's only record
+    // destination, and the DAG modal is reachable from its run sheet.
+    it("yields to the Brief's record peek and DAG modal", () => {
+        const b = backHome();
+        globalStore.set(graphPeekOpenAtom, false);
+        globalStore.set(autonomyPanelOpenAtom, false);
+        globalStore.set(petPeekOpenAtom, false);
+        globalStore.set(briefPeekRecordAtom, "task-a");
+        expect(b.when!(ctx("jarvis"))).toBe(false);
+        globalStore.set(briefPeekRecordAtom, null);
+        globalStore.set(dagModalStateAtom, {
+            kind: "live",
+            channelId: "ch-1",
+            runId: "run-1",
+            dagOref: "dag:run-1",
+            error: "",
+        });
+        expect(b.when!(ctx("jarvis"))).toBe(false);
+        globalStore.set(dagModalStateAtom, null);
+        expect(b.when!(ctx("jarvis"))).toBe(true);
+    });
 });
 
 describe("list-nav bindings", () => {
@@ -212,17 +237,6 @@ describe("jarvis surface bindings", () => {
     // the click-through bindings (+ Channel, the record band) and composer focus act on rendered DOM, so
     // only their guards are asserted here — this suite runs in node, and the surface has no render harness
     // (see docs: surface behaviour is checked over CDP, not jsdom).
-
-    it("toggles the context rail with d", () => {
-        globalStore.set(stageRailOpenAtom, true);
-        const d = byId("jarvis:toggle-rail");
-        expect(d.keys).toBe("d");
-        d.run(jarvisCtx);
-        expect(globalStore.get(stageRailOpenAtom)).toBe(false);
-        d.run(jarvisCtx);
-        expect(globalStore.get(stageRailOpenAtom)).toBe(true);
-    });
-
     it("toggles the graph peek with Shift:g — distinct from the g leader, and live while the peek is open", () => {
         globalStore.set(graphPeekOpenAtom, false);
         const g = byId("jarvis:graph-peek");
@@ -234,13 +248,13 @@ describe("jarvis surface bindings", () => {
         expect(globalStore.get(graphPeekOpenAtom)).toBe(false);
     });
 
-    it("suppresses the Stage keys while the graph peek owns the surface", () => {
+    it("suppresses the surface keys while the graph peek owns the surface", () => {
         globalStore.set(graphPeekOpenAtom, true);
-        for (const id of ["jarvis:toggle-rail", "jarvis:new-thread", "jarvis:record-band", "jarvis:next-run"]) {
+        for (const id of ["jarvis:new-thread", "jarvis:record-band", "jarvis:next-run"]) {
             expect(byId(id).when!(jarvisCtx)).toBe(false);
         }
         globalStore.set(graphPeekOpenAtom, false);
-        expect(byId("jarvis:toggle-rail").when!(jarvisCtx)).toBe(true);
+        expect(byId("jarvis:new-thread").when!(jarvisCtx)).toBe(true);
     });
 
     it("guards every key on the surface, the typing state and modals", () => {

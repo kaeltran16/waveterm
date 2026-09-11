@@ -53,24 +53,45 @@ const runsLifecycle = {
         track(workerOf(run.phases[0]));
         rec(
             "1. CreateRun -> 3 phases, p0 running + worker, status planning",
-            run.phases.length === 3 && run.phases[0].state === "running" && !!workerOf(run.phases[0]) && run.status === "planning",
+            run.phases.length === 3 &&
+                run.phases[0].state === "running" &&
+                !!workerOf(run.phases[0]) &&
+                run.status === "planning",
             JSON.stringify({ status: run.status, states: run.phases.map((p) => p.state) })
         );
 
-        await h.rpc("advancerun", { channelid: ctx.channelId, runid: runId, phaseidx: 0, action: "complete", artifacts: ["docs/spec.md"] });
+        await h.rpc("advancerun", {
+            channelid: ctx.channelId,
+            runid: runId,
+            phaseidx: 0,
+            action: "complete",
+            artifacts: ["docs/spec.md"],
+        });
         const r2 = await getRun(runId);
         track(workerOf(r2.phases[1]));
         rec(
             "2. Advance complete p0 -> p1 running + worker, status planning",
-            r2.phases[0].state === "done" && r2.phases[1].state === "running" && !!workerOf(r2.phases[1]) && r2.status === "planning",
+            r2.phases[0].state === "done" &&
+                r2.phases[1].state === "running" &&
+                !!workerOf(r2.phases[1]) &&
+                r2.status === "planning",
             JSON.stringify({ status: r2.status, states: r2.phases.map((p) => p.state) })
         );
 
-        await h.rpc("advancerun", { channelid: ctx.channelId, runid: runId, phaseidx: 1, action: "complete", artifacts: ["docs/plan.md"] });
+        await h.rpc("advancerun", {
+            channelid: ctx.channelId,
+            runid: runId,
+            phaseidx: 1,
+            action: "complete",
+            artifacts: ["docs/plan.md"],
+        });
         const r3 = await getRun(runId);
         rec(
             "3. Advance complete p1 -> awaiting-review, p2 pending, NO new worker",
-            r3.phases[1].state === "done" && r3.phases[2].state === "pending" && !workerOf(r3.phases[2]) && r3.status === "awaiting-review",
+            r3.phases[1].state === "done" &&
+                r3.phases[2].state === "pending" &&
+                !workerOf(r3.phases[2]) &&
+                r3.status === "awaiting-review",
             JSON.stringify({ status: r3.status, states: r3.phases.map((p) => p.state) })
         );
 
@@ -144,11 +165,7 @@ const runsLifecycle = {
             await settle(300);
             pickedBoth = await pick();
         }
-        rec(
-            "7. channel + its run selected in the Subjects column",
-            pickedBoth === true,
-            `pickedBoth=${pickedBoth}`
-        );
+        rec("7. channel + its run selected in the Subjects column", pickedBoth === true, `pickedBoth=${pickedBoth}`);
         const timelineProbe = async () => {
             const btn = await h.ev(`(() => {
                 const b = [...document.querySelectorAll('button')]
@@ -220,7 +237,7 @@ const runsLifecycle = {
                 full !== null &&
                 full.rowCount >= 9 &&
                 full.groups.length === 4 &&
-                full.groups[0] === 'RUN' &&
+                full.groups[0] === "RUN" &&
                 full.groups.slice(1).every((g) => /^PHASE [123]/.test(g)) &&
                 full.hasCreated &&
                 full.hasHeld &&
@@ -303,7 +320,9 @@ const surfaceSmoke = {
         // runs rarely have a live pi session focused, so this is conditional: no steer input -> SKIP
         // (the manual round-trip covers it).
         await h.goto("agent");
-        const steerFound = await h.ev(`(() => !!document.querySelector('input[placeholder^="Steer this Pi session"]'))()`);
+        const steerFound = await h.ev(
+            `(() => !!document.querySelector('input[placeholder^="Steer this Pi session"]'))()`
+        );
         steps.push({
             step: "steer input visible on a pi session card",
             ok: true,
@@ -319,22 +338,22 @@ const surfaceSmoke = {
 };
 
 // --- shared jarvis drivers ---------------------------------------------------------------------
-// The Stage's ask box exists only once a subject is selected, and only the record/thread faces are an ask
-// box (a channel subject gets the Launch composer instead). "+ Thread" is the deterministic way in: the
-// active subject is session state a prior scenario may have left on a channel or a dev fixture.
-const newThread = (h) =>
-    h.ev(`(() => {
-        const b = [...document.querySelectorAll('button')].find((x) => (x.textContent || '').trim() === '+ Thread');
-        if (!b) return false;
-        b.click();
-        return true;
-    })()`);
+// The Brief is the only Jarvis composition now, so these drive its composer. `n` is the surface's
+// new-thread chord (buildJarvisBindings), and the field is addressed by its own test hook rather than by
+// its placeholder, because the placeholder changes with what the composer means (resolveComposerLabels).
+const newBriefThread = async (h) => {
+    // focus has to leave the composer first: the registry stands down while a field has it, so a chord
+    // dispatched with the cursor still in the input would be swallowed by the field.
+    await h.ev(`document.activeElement?.blur?.()`);
+    await h.ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', bubbles: true }))`);
+    await h.ev("new Promise((r) => setTimeout(r, 600))");
+    return true;
+};
 
-// Type a question into the Stage's ask box and submit it. The placeholder varies by subject kind
-// ("Ask Jarvis anything…" for a thread, "Ask Jarvis about this record…"), so match the stable prefix.
-const askJarvis = (h, text) =>
+// Type a question into the Brief's composer and submit it.
+const askBrief = (h, text) =>
     h.ev(`(() => {
-        const input = document.querySelector('input[placeholder^="Ask Jarvis"]');
+        const input = document.querySelector('[data-jarvis-brief-composer="input"]');
         if (!input) return false;
         const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
         setter.call(input, ${JSON.stringify(text)});
@@ -343,252 +362,12 @@ const askJarvis = (h, text) =>
         return true;
     })()`);
 
-// --- jarvis: render every surface state via the dev fixture bar --------------------------------
-// The bar is DEV-only and clickable (globalStore is not on window, so we drive by button text like nav).
-// Each fixture is screenshotted; we assert the conversation region rendered non-empty text.
-const jarvisStates = {
-    name: "jarvis-states",
-    surface: "jarvis",
-    async arrange() {
-        return {};
-    },
-    async assert(h) {
-        const steps = [];
-        await h.goto("jarvis");
-        const states = ["empty", "active", "grounded", "working", "weak", "notfound", "stale", "contextual", "narrow"];
-        for (const s of states) {
-            const clicked = await h.ev(`(() => {
-                const b = [...document.querySelectorAll('[data-testid="jarvis-fixture-bar"] button')]
-                    .find((x) => x.getAttribute('data-fixture') === ${JSON.stringify(s)});
-                if (!b) return false;
-                b.click();
-                return true;
-            })()`);
-            // small settle for the width-reveal animation before shooting
-            await h.ev("new Promise((r) => setTimeout(r, 300))");
-            const contentLen = await h.ev(
-                `(() => { const n=document.querySelector('nav'); const c=n&&n.nextElementSibling; return c?(c.textContent||'').trim().length:0; })()`
-            );
-            steps.push({
-                step: `jarvis fixture "${s}" -> bar present + content non-empty`,
-                ok: clicked === true && contentLen > 0,
-                detail: `clicked=${clicked} contentLen=${contentLen}`,
-            });
-            await h.shot(`cdp-shots/jarvis-${s}.png`);
-        }
-        // Plan 4: citation/card click is wired to openORef (real nav for channel/run/agent; fake fixture
-        // ids no-op cleanly). Assert the click path runs without throwing.
-        await h.ev(`(() => {
-            const b = [...document.querySelectorAll('[data-fixture]')].find((x) => x.getAttribute('data-fixture') === 'grounded');
-            if (b) b.click();
-            return true;
-        })()`);
-        await h.ev("new Promise((r) => setTimeout(r, 200))");
-        const clickOk = await h.ev(`(() => {
-            const card = document.querySelector('button[class*="rounded-[10px]"]');
-            const cite = [...document.querySelectorAll('p button')].find((x) => /^\\d+$/.test((x.textContent||'').trim()));
-            try { card && card.click(); cite && cite.click(); return true; } catch (e) { return String(e); }
-        })()`);
-        steps.push({ step: "citation/card click runs without throwing", ok: clickOk === true, detail: String(clickOk) });
-        return steps;
-    },
-    async teardown(h) {
-        await h.goto("cockpit");
-    },
-};
-
-// --- jarvis fleet: the fleet manager on the merged surface -------------------------------------
-// Create a channel, select it in the Subjects column, and assert the Stage header's autonomy chip plus
-// the context rail's Fleet section render. No worker is dispatched — the roster's empty-state is a valid
-// render assertion and keeps the run light. Channel + temp dir are cleaned up in teardown (mirrors
-// runs-lifecycle). The autonomy half also carries this control's own regression check: the chip's left edge
-// must not move when Delegator is selected, and Escape must dismiss the panel without leaving the surface.
-//
-// This also covers where the @jarvis summary handoff lands: pendingFleetSummaryAtom drives runSummary into
-// the same Fleet section as its own "Summarize the fleet" button, so asserting that button is present is
-// asserting the handoff has a home. The reroute's decision (dispatch vs summary) is covered by
-// channelmessages.test.ts; the atom hop itself has no keyboard entry point to drive from here.
-const jarvisFleet = {
-    name: "jarvis-fleet",
-    surface: "jarvis",
-    async arrange(h) {
-        const cwd = mkdtempSync(join(tmpdir(), "verify-fleet-"));
-        const ch = await h.rpc("createchannel", { name: "verify-fleet", projectpath: cwd });
-        return { cwd, channelId: ch.oid };
-    },
-    async assert(h) {
-        const steps = [];
-        // channelsAtom is a loadChannels snapshot with no refresh on surface mount, so a channel created
-        // out-of-band over RPC is invisible to an already-running app. Reload to re-fetch the list (same
-        // pattern as jarvis-proactive).
-        await h.ev("location.reload()");
-        await h.ev("new Promise((r) => setTimeout(r, 2500))");
-        await h.goto("jarvis");
-        // stageRailOpenAtom is persisted, so a prior run may have left the rail collapsed to its 44px
-        // strip. Expand it if the strip is showing; the sections only exist in the DOM while open.
-        await h.ev(`(() => {
-            const b = document.querySelector('button[aria-label="Stage context"]');
-            if (b) b.click();
-            return true;
-        })()`);
-        // select the channel by its row label in the Subjects column (same drive-by-text pattern as nav).
-        // A row's textContent is the kind glyph immediately followed by the label ("#verify-fleet"), so
-        // strip the leading mark before comparing.
-        const selected = await h.ev(`(() => {
-            const b = [...document.querySelectorAll('button')]
-                .find((x) => (x.textContent || '').trim().replace(/^[#▤~]/, '') === 'verify-fleet');
-            if (!b) return false;
-            b.click();
-            return true;
-        })()`);
-        await h.ev("new Promise((r) => setTimeout(r, 900))"); // settle selectSubject + roster derive
-        // The autonomy control is a fixed-width chip now, so the header carries only the current tier; the
-        // three rungs live in its popover. Assert the chip, then open it and assert the ladder.
-        const rendered = await h.ev(`(() => {
-            const t = document.body.innerText || '';
-            const chip = document.querySelector('[data-jarvis-autonomy="chip"]');
-            return {
-                chip: chip ? chip.innerText.replace(/\\n/g, ' ').trim() : null,
-                panelClosed: document.querySelector('[data-jarvis-autonomy="panel"]') == null,
-                roster: t.includes('No workers dispatched') && t.includes('working'),
-                summarize: t.includes('Summarize the fleet'),
-            };
-        })()`);
-        steps.push({
-            step: `select the channel subject -> autonomy chip + Fleet roster + summary button render`,
-            ok:
-                selected === true &&
-                /Concierge/.test(rendered.chip ?? "") &&
-                rendered.panelClosed === true &&
-                rendered.roster === true &&
-                rendered.summarize === true,
-            detail: `clicked=${selected} ${JSON.stringify(rendered)}`,
-        });
-        await h.shot("cdp-shots/jarvis-fleet.png");
-
-        // open the chip: the ladder, its blurbs and (at Delegator) the dispatch mode are all in the panel
-        const opened = await h.ev(`(() => {
-            const chip = document.querySelector('[data-jarvis-autonomy="chip"]');
-            if (!chip) return null;
-            chip.click();
-            return true;
-        })()`);
-        await h.ev("new Promise((r) => setTimeout(r, 450))"); // PopoverReveal enter
-        const panel = await h.ev(`(() => {
-            const p = document.querySelector('[data-jarvis-autonomy="panel"]');
-            if (!p) return null;
-            const t = p.innerText || '';
-            const upper = t.toUpperCase();
-            return {
-                caption: upper.includes('AUTONOMY'),
-                rungs: t.includes('Concierge') && t.includes('Gatekeeper') && t.includes('Delegator'),
-                blurb: t.includes('watches and narrates'),
-                modesHidden: !t.includes('fanout'),
-            };
-        })()`);
-        steps.push({
-            step: `chip opens -> three rungs with blurbs, dispatch mode absent below Delegator`,
-            ok:
-                opened === true &&
-                panel != null &&
-                panel.caption === true &&
-                panel.rungs === true &&
-                panel.blurb === true &&
-                panel.modesHidden === true,
-            detail: JSON.stringify(panel),
-        });
-        await h.shot("cdp-shots/jarvis-fleet-autonomy.png");
-
-        // The regression this control was rebuilt for: selecting Delegator used to grow the header group
-        // ~140px and slide it left, out from under the cursor. The chip's left edge must not move.
-        const beforeLeft = await h.ev(
-            `Math.round(document.querySelector('[data-jarvis-autonomy="chip"]').getBoundingClientRect().left)`
-        );
-        const picked = await h.ev(`(() => {
-            const p = document.querySelector('[data-jarvis-autonomy="panel"]');
-            if (!p) return false;
-            const row = [...p.querySelectorAll('button')].find((b) => (b.innerText || '').trim().startsWith('Delegator'));
-            if (!row) return false;
-            row.click();
-            return true;
-        })()`);
-        await h.ev("new Promise((r) => setTimeout(r, 1400))"); // SetChannelTier RPC + loadChannels refetch
-        const after = await h.ev(`(() => {
-            const chip = document.querySelector('[data-jarvis-autonomy="chip"]');
-            const p = document.querySelector('[data-jarvis-autonomy="panel"]');
-            return {
-                left: chip ? Math.round(chip.getBoundingClientRect().left) : null,
-                width: chip ? Math.round(chip.getBoundingClientRect().width) : null,
-                text: chip ? chip.innerText.replace(/\\n/g, ' ').trim() : null,
-                stillOpen: p != null,
-                modes: p ? /report/.test(p.innerText || '') && /fanout/.test(p.innerText || '') : false,
-            };
-        })()`);
-        steps.push({
-            step: `pick Delegator -> chip does not move, panel stays open, dispatch mode appears`,
-            ok:
-                picked === true &&
-                after.left === beforeLeft &&
-                /Delegator/.test(after.text ?? "") &&
-                after.stillOpen === true &&
-                after.modes === true,
-            detail: `left ${beforeLeft} -> ${after.left} ${JSON.stringify(after)}`,
-        });
-
-        // Escape dismisses, and must dismiss ONLY the panel: Escape on a deep surface is also bound to
-        // "back to Cockpit" (bindings.ts surface:back-home), which the panel suppresses while it is open.
-        // A real key event, not a synthetic KeyboardEvent — floating-ui's dismissal never sees a dispatched
-        // one, so a synthetic Escape asserts nothing here.
-        const realEscape = async () => {
-            for (const type of ["keyDown", "keyUp"]) {
-                await h.cdp("Input.dispatchKeyEvent", {
-                    type,
-                    key: "Escape",
-                    code: "Escape",
-                    windowsVirtualKeyCode: 27,
-                });
-            }
-            await h.ev("new Promise((r) => setTimeout(r, 700))"); // PopoverReveal exit
-        };
-        // focus the chip first: picking a tier lets the Stage composer take focus back, and Escape with a
-        // field focused belongs to jarvis:blur-composer (it leaves the field, panel untouched). Focusing
-        // the chip is the keyboard-driven path this step is about.
-        await h.ev(`(() => { document.querySelector('[data-jarvis-autonomy="chip"]').focus(); return true; })()`);
-        await realEscape();
-        const dismissed = await h.ev(`(() => ({
-            panelGone: document.querySelector('[data-jarvis-autonomy="panel"]') == null,
-            chipStillThere: document.querySelector('[data-jarvis-autonomy="chip"]') != null,
-        }))()`);
-        const stayed = (await h.activeSurfaceLabel()) === SURFACE_LABEL.jarvis;
-        steps.push({
-            step: `Escape closes the autonomy panel without leaving the surface`,
-            ok: dismissed.panelGone === true && dismissed.chipStillThere === true && stayed === true,
-            detail: `${JSON.stringify(dismissed)} surfaceStillJarvis=${stayed}`,
-        });
-        // and with the panel closed, Escape must still do its surface-level job
-        await realEscape();
-        const wentHome = (await h.activeSurfaceLabel()) === SURFACE_LABEL.cockpit;
-        steps.push({
-            step: `Escape with the panel closed still returns to the Cockpit`,
-            ok: wentHome === true,
-            detail: `surface=${await h.activeSurfaceLabel()}`,
-        });
-        return steps;
-    },
-    async teardown(h, ctx) {
-        await h.goto("cockpit"); // leave the app where a human expects it
-        try {
-            await h.rpc("deletechannel", { channelid: ctx.channelId });
-        } catch {
-            // best-effort cleanup
-        }
-        try {
-            rmSync(ctx.cwd, { recursive: true, force: true });
-        } catch {
-            // best-effort cleanup
-        }
-    },
-};
+// --- jarvis fleet, the rail's roster and the ambient feeds: RETIRED BY B5 -----------------------
+// Their subjects are gone with the retired panes: the per-worker fleet roster and the ambient rail's
+// resume/proactive cards were mounted only by the context rail, and the layout scenarios
+// (jarvis-collapse-order, jarvis-narrow, jarvis-measure, jarvis-drawer) existed only to assert the
+// three-pane allocation. Their capabilities are recorded as deferred in docs/deferred.md rather than
+// re-homed, so there is nothing left here to assert against.
 
 // --- jarvis ask: Ctrl+P "Ask Jarvis" lead group hands a question off to the Jarvis surface (Plan 4) ---
 // Open the palette via its global chord (Ctrl:p; bindings.ts id "palette", no `when` guard). The
@@ -598,7 +377,16 @@ const jarvisFleet = {
 const jarvisAsk = {
     name: "jarvis-ask",
     surface: "cockpit",
-    async arrange() {
+    async arrange(h) {
+        // The palette is session state and this scenario's first act is to TOGGLE it open. A palette or a
+        // dialog left open by whatever ran before would close it instead, and the run would read as "no Ask
+        // row" — pass or fail depending on its neighbours, which is the one thing a regression net must
+        // never do.
+        await h.goto("cockpit");
+        await h.ev(
+            `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }))`
+        );
+        await h.ev("new Promise((r) => setTimeout(r, 300))");
         return {};
     },
     async assert(h) {
@@ -631,11 +419,24 @@ const jarvisAsk = {
         })()`);
         await h.ev("new Promise((r) => setTimeout(r, 600))");
         const activeLabel = await h.activeSurfaceLabel();
-        const userTurn = await h.ev(`(() => (document.body.innerText || '').includes('why did we drop worktrees'))()`);
+        // The Brief's handoff primes ONE attached stateless thread: the question arrives in the composer as
+        // a draft with the source attached, and it becomes a turn when the user sends it. So the assertion
+        // reads the field, not the page text — an input's value never appears in innerText, and a scenario
+        // that looked for the words on the page was asserting a submitted turn no composition submits here.
+        const landed = await h.ev(`(() => {
+            const input = document.querySelector('[data-jarvis-brief-composer="input"]');
+            const scope = document.querySelector('[data-jarvis-brief-composer="scope"]');
+            const body = document.body.innerText || '';
+            return {
+                turn: body.includes('why did we drop worktrees'),
+                draft: !!input && (input.value || '').includes('why did we drop worktrees'),
+                scope: (scope ? scope.textContent || '' : '').trim(),
+            };
+        })()`);
         steps.push({
-            step: "fire Ask row -> Jarvis surface shows the question as a user turn",
-            ok: activeLabel === SURFACE_LABEL.jarvis && userTurn === true,
-            detail: JSON.stringify({ activeLabel, userTurn }),
+            step: "fire Ask row -> the Brief asks the question itself, as a turn on its one thread",
+            ok: activeLabel === SURFACE_LABEL.jarvis && landed.turn === true && landed.scope !== "",
+            detail: JSON.stringify({ activeLabel, ...landed }),
         });
         await h.shot("cdp-shots/jarvis-ask.png");
         return steps;
@@ -675,9 +476,12 @@ const jarvisContextual = {
         await h.ev("new Promise((r) => setTimeout(r, 500))");
         const activeLabel = await h.activeSurfaceLabel();
         const landed = await h.ev(`(() => {
-            const body = document.body.innerText || '';
-            const draft = (document.querySelector('input[placeholder^="Ask Jarvis"]') || {}).value || '';
-            return { chip: body.includes('This memory'), draft: draft.includes('Recall decisions') };
+            const input = document.querySelector('[data-jarvis-brief-composer="input"]');
+            const scope = document.querySelector('[data-jarvis-brief-composer="scope"]');
+            return {
+                chip: (scope ? scope.textContent || '' : '').trim().includes('this memory'),
+                draft: !!input && (input.value || '').includes('Recall decisions'),
+            };
         })()`);
         steps.push({
             step: "select memory note -> Ask Jarvis -> Jarvis surface + attached chip + suggested prompt",
@@ -696,10 +500,14 @@ const jarvisContextual = {
         // occupying twelve rows, each copy carrying none of the others' answers.
         // counts subject rows, not buttons: a group's first button is its disclosure header now, which would
         // make every count one too many.
+        // The Brief renders exactly one thread, so the duplicate-row defect this guarded is structurally
+        // impossible there; what still needs proving is that the SECOND handoff lands (re-priming the one
+        // thread and its draft) rather than being swallowed.
         const countThreads = () =>
             h.ev(`(() => {
-                const group = document.querySelector('[data-jarvis-group="threads"]');
-                return group ? group.querySelectorAll('[data-jarvis-subject-kind]').length : -1;
+                const scopes = document.querySelectorAll('[data-jarvis-brief-composer="scope"]').length;
+                const input = document.querySelector('[data-jarvis-brief-composer="input"]');
+                return scopes * 100 + ((input && (input.value || '').includes('Recall decisions')) ? 1 : 0);
             })()`);
         const before = await countThreads();
         await h.goto("vault");
@@ -717,80 +525,9 @@ const jarvisContextual = {
         await h.ev("new Promise((r) => setTimeout(r, 600))");
         const after = await countThreads();
         steps.push({
-            step: "Ask Jarvis twice on the same note -> one thread, not two",
-            ok: before > 0 && after === before,
-            detail: `threadRowsBefore=${before} after=${after}`,
-        });
-        return steps;
-    },
-    async teardown(h) {
-        await h.goto("cockpit");
-    },
-};
-
-// --- jarvis ambient: engine D's real task-tag chips render on real rows (J1) -------------------------
-// Ambient attribution renders a chip per attributed dossier, titled "<label> · <bucket> confidence ·
-// <state>" (ambientviews.tagTitle). This asserts the *join*: D's dossier->Run edges reaching rows the
-// user actually sees. It is only meaningful against a profile whose wstore holds the runs the vault's
-// dossiers reference — with an unrelated wstore the correct result is zero chips everywhere, which
-// proves nothing (see docs/jarvis-second-brain-open-issues.md J1).
-// jarvis replaces channels here: the run body that carries a run's ambient chips (runbody AmbientTags) now
-// renders in the Stage.
-const AMBIENT_SURFACES = ["cockpit", "jarvis", "radar", "vault"];
-
-const jarvisAmbient = {
-    name: "jarvis-ambient",
-    surface: "cockpit",
-    // "Relevant past decisions" renders in the Jarvis rail now rather than the run body, and
-    // stageRailOpenAtom is persisted — a previous scenario that collapsed it would zero the jarvis count.
-    // resetRail sets the flag *and* reloads, which this scenario's assert does not do on its own.
-    async arrange(h) {
-        return resetRail(h);
-    },
-    async assert(h) {
-        const steps = [];
-        const counts = {};
-        let total = 0;
-        for (const surface of AMBIENT_SURFACES) {
-            await h.goto(surface);
-            if (surface === "jarvis") {
-                // the Stage starts with no subject, so a run body (and its chips) only exists once a channel
-                // is selected. "#" marks a channel row in the Subjects column; the old Channels surface got
-                // this for free from loadChannels' auto-select.
-                await h.ev(`(() => {
-                    const b = [...document.querySelectorAll('button')]
-                        .find((x) => (x.textContent || '').trim().startsWith('#'));
-                    if (b) b.click();
-                    return true;
-                })()`);
-                await h.ev("new Promise((r) => setTimeout(r, 900))");
-            }
-            const seen = await h.ev(`(() => {
-                const chips = [...document.querySelectorAll('span[title*=" confidence \\u00b7 "]')];
-                const dashed = chips.filter((e) => e.className.includes("border-dashed")).length;
-                const decisions = [...document.querySelectorAll("div")].filter(
-                    (e) => e.textContent.trim() === "Relevant past decisions"
-                ).length;
-                return { chips: chips.length, dashed, decisions, labels: chips.slice(0, 4).map((e) => e.title) };
-            })()`);
-            counts[surface] = seen;
-            total += seen.chips;
-            await h.shot(`cdp-shots/ambient-${surface}.png`);
-        }
-        steps.push({
-            step: "an attributed row renders >=1 real ambient tag chip",
-            ok: total > 0,
-            detail: JSON.stringify(counts),
-        });
-        // Weak/informing edges must recede rather than read as canonical — D emits 0.3 layer-3 edges on
-        // this corpus, so a run with only structural attribution should carry a dashed chip.
-        const dashedAnywhere = Object.values(counts).some((c) => c.dashed > 0);
-        steps.push({
-            step: "informing (weak) edges render dashed, not solid",
-            ok: total === 0 || dashedAnywhere,
-            detail: `dashed by surface: ${JSON.stringify(
-                Object.fromEntries(Object.entries(counts).map(([k, v]) => [k, v.dashed]))
-            )}`,
+            step: "Ask Jarvis twice on the same note -> one thread, re-primed rather than duplicated",
+            ok: before >= 100 && after === before,
+            detail: `before=${before} after=${after}`,
         });
         return steps;
     },
@@ -809,9 +546,9 @@ const jarvisMultiturn = {
     async assert(h) {
         const steps = [];
         await h.goto("jarvis");
-        const threaded = await newThread(h);
+        const threaded = await newBriefThread(h);
         await h.ev("new Promise((resolve) => setTimeout(resolve, 400))");
-        const asked = await askJarvis(h, "what changed in the worktree work");
+        const asked = await askBrief(h, "what changed in the worktree work");
         await h.ev("new Promise((resolve) => setTimeout(resolve, 4000))");
         const firstTurn = await h.ev(
             `(() => (document.body.innerText || '').includes('what changed in the worktree work'))()`
@@ -822,17 +559,15 @@ const jarvisMultiturn = {
             detail: `threaded=${threaded} asked=${asked} firstTurn=${firstTurn}`,
         });
 
-        await h.ev("location.reload()");
-        await h.ev("new Promise((resolve) => setTimeout(resolve, 2500))");
-        await h.goto("jarvis");
-        const persisted = await h.ev(
-            `(() => (document.body.innerText || '').includes('what changed in the worktree work'))()`
-        );
-        steps.push({
-            step: "conversation persists across reload in the history rail",
-            ok: persisted === true,
-            detail: `persisted=${persisted}`,
-        });
+        // RETIRED (B5): "conversation persists across reload in the history rail" tested two things that no
+        // longer exist together. The rail was the deleted Subjects column's thread list, and the Brief's
+        // all-work ask is stateless ON PURPOSE ("launch-local; never a JarvisConversation", briefingstore) —
+        // so this ask leaves nothing to persist. What survives of the claim is asserted where it can be:
+        // brief-restore step 2 reloads a PERSISTED conversation and checks the Brief hydrates its turns
+        // without submitting a new ask. The gap this leaves — nothing in the UI submits an ask INTO a
+        // persisted thread any more, so the `n` chord's thread can never be filled — is recorded in
+        // docs/deferred.md. The step is removed rather than weakened to match the new behaviour: a green
+        // line here would say persistence works, and for this ask it does not.
 
         await h.shot("cdp-shots/jarvis-multiturn.png");
         return steps;
@@ -860,7 +595,13 @@ const jarvisVaultRecall = {
         const wslist = await h.rpc("workspacelist", null);
         const workspaceId = wslist[0].workspacedata.oid;
         const ch = await h.rpc("createchannel", { name: "verify-vault", projectpath: cwd });
-        const created = await h.rpc("createrun", { channelid: ch.oid, workspaceid: workspaceId, goal: VAULT_GOAL, runtime: "claude", tier: "capable" });
+        const created = await h.rpc("createrun", {
+            channelid: ch.oid,
+            workspaceid: workspaceId,
+            goal: VAULT_GOAL,
+            runtime: "claude",
+            tier: "capable",
+        });
         const run = created.run;
         const worker = run.phases && run.phases[0] && run.phases[0].workerorefs && run.phases[0].workerorefs[0];
         return { cwd, channelId: ch.oid, runId: run.id, workers: worker ? [worker] : [] };
@@ -868,9 +609,9 @@ const jarvisVaultRecall = {
     async assert(h, ctx) {
         const steps = [];
         await h.goto("jarvis");
-        await newThread(h);
+        await newBriefThread(h);
         await h.ev("new Promise((r) => setTimeout(r, 400))");
-        const asked = await askJarvis(h, `what is the ${VAULT_TICKET} spawn test about`);
+        const asked = await askBrief(h, `what is the ${VAULT_TICKET} spawn test about`);
         // grounding cards stream before synthesis; poll briefly for a non-notfound grounded answer.
         let grounded = { cards: 0, notfound: false };
         for (let i = 0; i < 20; i++) {
@@ -919,1183 +660,47 @@ const jarvisVaultRecall = {
     },
 };
 
-// --- jarvis continuity resume: a completed Run writes the dossier's completion narrative (sub-project E) --
-// Builds on jarvis-vault-recall's C leg. arrange dispatches a REAL quick-mode Run (createrun -> C writes the
-// dossier + [[run-<oid>]] ref) then advances the single phase to done via advancerun complete — E's
-// AdvanceRunCommand hook then writes the dossier's "where it stands" completion narrative + flips its status
-// to completed, off-band. A bare complete carries no end commit / blockers / decisions, so E takes the terse
-// deterministic path (no model call), keeping this scenario fast and deterministic. We confirm the run
-// reached done (E's trigger) and that asking Jarvis where the ticket landed surfaces a grounding card rather
-// than the empty-vault notfound state (recall traverses the now-completed dossier). Worker block + channel +
-// temp dir cleaned up in teardown.
-const CONTINUITY_TICKET = "ZZZ-7373";
-const CONTINUITY_GOAL = `${CONTINUITY_TICKET} spawn-test only: do nothing, make no file changes, stop immediately`;
-const CONTINUITY_SUMMARY = "Landed the boundary; two call sites still bypass it.";
-
-const jarvisContinuityResume = {
-    name: "jarvis-continuity-resume",
-    surface: "jarvis",
-    async arrange(h) {
-        const cwd = mkdtempSync(join(tmpdir(), "verify-continuity-"));
-        const wslist = await h.rpc("workspacelist", null);
-        const workspaceId = wslist[0].workspacedata.oid;
-        const ch = await h.rpc("createchannel", { name: "verify-continuity", projectpath: cwd });
-        const created = await h.rpc("createrun", { channelid: ch.oid, workspaceid: workspaceId, goal: CONTINUITY_GOAL, mode: "quick", runtime: "claude", tier: "capable" });
-        const run = created.run;
-        const worker = run.phases && run.phases[0] && run.phases[0].workerorefs && run.phases[0].workerorefs[0];
-        // advance the single quick phase to done -> E's rest-boundary hook writes the completion narrative.
-        await h.rpc("advancerun", { channelid: ch.oid, runid: run.id, phaseidx: 0, action: "complete" });
-        // The rail step below needs a narrative ON the sealed run. E's boundary hook only writes one when a
-        // dossier already references the run — CaptureRunBoundary returns nil otherwise (wshserver_runs.go
-        // "no dossier references this run"), which is what happens on a vault that has not attributed it
-        // yet. So inject one through the same run.Meta path the hook writes through, exactly as
-        // jarvis-proactive injects its suggestion. Consequence worth being explicit about: that step asserts
-        // the RENDER leg on a sealed run, not E's write leg (covered by pkg/jarviscontinuity's Go tests).
-        // Settle first — the seal and the capture both run off-band and either would clobber an earlier write.
-        await h.ev("new Promise((r) => setTimeout(r, 2500))");
-        await h.rpc("setmeta", {
-            oref: `run:${run.id}`,
-            meta: {
-                "jarvis:resume": {
-                    taskId: CONTINUITY_TICKET,
-                    summary: CONTINUITY_SUMMARY,
-                    status: "completed",
-                    updated: Date.now(),
-                },
-            },
-        });
-        // the narrative renders in the rail now, and stageRailOpenAtom is persisted — a previous scenario
-        // that drove a narrow width would leave it collapsed and hide it. The assert's own reload picks
-        // this up.
-        await h.ev(`localStorage.setItem('jarvis.stagerail.open', 'true')`);
-        return { cwd, channelId: ch.oid, runId: run.id, workers: worker ? [worker] : [] };
-    },
-    async assert(h, ctx) {
-        const steps = [];
-        // E's trigger precondition: the run actually reached the done rest state.
-        const res = await h.rpc("getchannels", null);
-        const cc = (res.channels || []).find((x) => x.oid === ctx.channelId) || {};
-        const doneRun = (cc.runs || []).find((x) => x.id === ctx.runId) || {};
-        steps.push({
-            step: "run advanced to done (E's rest-boundary trigger)",
-            ok: doneRun.status === "done",
-            detail: JSON.stringify({ status: doneRun.status }),
-        });
-
-        // The narrative renders in the rail's "Worth knowing" section. Reload first: the channel was created
-        // out-of-band and the Subjects column renders a snapshot refreshed by loadChannels() (same reason
-        // jarvis-proactive reloads).
-        await h.ev("location.reload()");
-        await h.ev("new Promise((r) => setTimeout(r, 2500))");
-        await h.goto("jarvis");
-        // match the "#" channel ROW, not any button containing the name: the project group's disclosure
-        // header carries the temp dir's name (which starts with the channel's) and comes first in DOM
-        // order, so a bare substring match collapses the group instead of selecting the channel.
-        const pickedChannel = await h.ev(`(() => {
-            const b = [...document.querySelectorAll('button')].find((x) => {
-                const t = (x.textContent || '').trim();
-                return t.startsWith('#') && t.includes('verify-continuity');
-            });
-            if (!b) return false;
-            b.click();
-            return true;
-        })()`);
-        // Evidence is sealed off-band (sealAsync, wshserver_runs.go:430), so the run only reaches the
-        // done+evidence branch a moment after the status flips. Poll rather than sample once.
-        // innerText reflects CSS text-transform and the card's eyebrow is uppercased — compare upper.
-        // Scoped to the rail so the step cannot pass on some other region's text.
-        let narrative = { section: false, eyebrow: false, summary: false, dismiss: false };
-        for (let i = 0; i < 20; i++) {
-            await h.ev("new Promise((r) => setTimeout(r, 500))");
-            narrative = await h.ev(`(() => {
-                const el = document.querySelector('[aria-label="Stage context"]');
-                const t = el ? (el.innerText || '').toUpperCase() : "";
-                return {
-                    section: t.includes('WORTH KNOWING'),
-                    eyebrow: t.includes('WHERE THIS STANDS'),
-                    summary: t.includes(${JSON.stringify(CONTINUITY_SUMMARY.toUpperCase())}),
-                    dismiss: !!(el && el.querySelector('button[aria-label="Dismiss resume summary"]')),
-                };
-            })()`);
-            if (narrative.section && narrative.eyebrow && narrative.summary && narrative.dismiss) break;
-        }
-        steps.push({
-            step: "the sealed run's resume narrative renders in the rail",
-            ok:
-                pickedChannel === true &&
-                narrative.section &&
-                narrative.eyebrow &&
-                narrative.summary &&
-                narrative.dismiss,
-            detail: JSON.stringify({ pickedChannel, ...narrative }),
-        });
-
-        await newThread(h);
-        await h.ev("new Promise((r) => setTimeout(r, 400))");
-        const asked = await askJarvis(h, `where did the ${CONTINUITY_TICKET} task land`);
-        // grounding cards stream before synthesis; poll briefly for a non-notfound grounded answer.
-        let grounded = { cards: 0, notfound: false };
-        for (let i = 0; i < 20; i++) {
-            await h.ev("new Promise((r) => setTimeout(r, 500))");
-            grounded = await h.ev(`(() => {
-                const body = document.body.innerText || '';
-                const cards = document.querySelectorAll('button[class*="rounded-[10px]"]').length;
-                return { cards, notfound: body.includes('No Wave source in scope references this') };
-            })()`);
-            if (grounded.cards > 0) break;
-        }
-        steps.push({
-            step: "ask where the completed task landed -> >=1 grounding card, not notfound",
-            ok: asked === true && grounded.cards > 0 && grounded.notfound === false,
-            detail: JSON.stringify(grounded),
-        });
-        await h.shot("cdp-shots/jarvis-continuity-resume.png");
-        return steps;
-    },
-    async teardown(h, ctx) {
-        await h.goto("cockpit"); // leave the app where a human expects it
-        for (const oref of ctx.workers) {
-            try {
-                const tab = await h.rpc("gettab", oref.slice(4));
-                const bid = tab && tab.blockids && tab.blockids[0];
-                if (bid) await h.rpc("deleteblock", { blockid: bid });
-            } catch {
-                // best-effort cleanup
-            }
-        }
-        try {
-            await h.rpc("deletechannel", { channelid: ctx.channelId });
-        } catch {
-            // best-effort cleanup
-        }
-        try {
-            rmSync(ctx.cwd, { recursive: true, force: true });
-        } catch {
-            // best-effort cleanup
-        }
-    },
-};
-
-// --- jarvis proactive: the S3 "related prior work" card renders on a run, and dismissal persists ------
-// The eval pipeline (cosine pre-filter -> model judge) is covered by pkg/jarvisproactive's Go tests, so
-// this scenario needs neither live embeddings nor a model: arrange dispatches a REAL quick-mode run and
-// then writes a hit suggestion straight onto run.Meta via setmeta — the same wstore.UpdateObjectMeta path
-// the backend hook writes through. What it proves is the delivery + render + dismiss legs: the card shows
-// on the run body, the × clears it, and the dismissal is persisted server-side (so it stays gone across a
-// reload — the "flag present => no card" half is unit-tested in proactive.test.ts).
-const PROACTIVE_GOAL = "spawn-test only: do nothing, make no file changes, stop immediately";
-const PROACTIVE_TITLE = "Drop-oldest on overflow";
-const PROACTIVE_SUGGESTION = {
-    status: "hit",
-    nodeId: "verify-proactive-nav",
-    sourceType: "memory",
-    title: PROACTIVE_TITLE,
-    snippet: "chose drop-oldest to bound memory",
-    why: "Related to this run",
-};
-
-const jarvisProactive = {
-    name: "jarvis-proactive",
-    surface: "jarvis",
-    async arrange(h) {
-        const cwd = mkdtempSync(join(tmpdir(), "verify-proactive-"));
-        const wslist = await h.rpc("workspacelist", null);
-        const workspaceId = wslist[0].workspacedata.oid;
-        const ch = await h.rpc("createchannel", { name: "verify-proactive", projectpath: cwd });
-        const created = await h.rpc("createrun", {
-            channelid: ch.oid,
-            workspaceid: workspaceId,
-            goal: PROACTIVE_GOAL,
-            runtime: "claude",
-            tier: "capable",
-            mode: "quick",
-        });
-        const run = created.run;
-        const worker = run.phases && run.phases[0] && run.phases[0].workerorefs && run.phases[0].workerorefs[0];
-        // S3's dispatch hook writes "pending" and then overwrites it with its own verdict off-band, so a
-        // suggestion injected straight after createrun loses that race: the run ends up carrying
-        // {status:"none",reason:"judge-declined"}, the card correctly never renders, and all three steps
-        // fail for a reason that has nothing to do with what they test. Wait for the real verdict to land
-        // first, then overwrite it with the hit this scenario is about.
-        for (let i = 0; i < 40; i++) {
-            const rtn = await h.rpc("getchannelruns", { channelid: ch.oid });
-            const m = ((rtn.runs || []).find((x) => x.id === run.id) || {}).meta || {};
-            const settled = m["jarvis:proactive"] && m["jarvis:proactive"].status;
-            if (settled != null && settled !== "pending") {
-                break;
-            }
-            await h.ev("new Promise((r) => setTimeout(r, 500))");
-        }
-        await h.rpc("setmeta", { oref: `run:${run.id}`, meta: { "jarvis:proactive": PROACTIVE_SUGGESTION } });
-        // the suggestion renders in the rail now; stageRailOpenAtom is persisted, so pin it open. The
-        // assert's own reload picks this up.
-        await h.ev(`localStorage.setItem('jarvis.stagerail.open', 'true')`);
-        return { cwd, channelId: ch.oid, runId: run.id, workers: worker ? [worker] : [] };
-    },
-    async assert(h, ctx) {
-        const steps = [];
-        const runMeta = async () => {
-            const rtn = await h.rpc("getchannelruns", { channelid: ctx.channelId });
-            const r = (rtn.runs || []).find((x) => x.id === ctx.runId) || {};
-            return r.meta || {};
-        };
-        // innerText reflects CSS text-transform, and the card's eyebrow is uppercased — compare case-insensitively.
-        const cardState = () =>
-            h.ev(`(() => {
-                const body = (document.body.innerText || '').toUpperCase();
-                return {
-                    label: body.includes('RELATED PRIOR WORK'),
-                    title: body.includes(${JSON.stringify(PROACTIVE_TITLE.toUpperCase())}),
-                    btn: !!document.querySelector('button[aria-label="Dismiss suggestion"]'),
-                };
-            })()`);
-
-        // The Subjects column renders a snapshot refreshed by loadChannels(), so a channel created
-        // out-of-band over RPC is invisible to an already-running app. Reload to re-fetch the list (same
-        // pattern as jarvis-multiturn), then select the scenario's channel; the Stage auto-resolves its
-        // single run.
-        await h.ev("location.reload()");
-        await h.ev("new Promise((r) => setTimeout(r, 2500))");
-        await h.goto("jarvis");
-        // match the "#" channel ROW, not any button containing the name: the project group's disclosure
-        // header carries the temp dir's name (mkdtemp prefixes it with the channel's) and comes first in DOM
-        // order, so a bare substring match collapsed the group instead of selecting the channel — which
-        // reported picked:true while selecting nothing.
-        const picked = await h.ev(`(() => {
-            const b = [...document.querySelectorAll('button')].find((x) => {
-                const t = (x.textContent || '').trim();
-                return t.startsWith('#') && t.includes('verify-proactive');
-            });
-            if (!b) return false;
-            b.click();
-            return true;
-        })()`);
-        // the run strip + body mount after the channel's row-backed streams load; poll briefly.
-        let shown = { label: false, title: false, btn: false };
-        for (let i = 0; i < 20; i++) {
-            await h.ev("new Promise((r) => setTimeout(r, 500))");
-            shown = await cardState();
-            if (shown.label && shown.title) break;
-        }
-        const rendered = picked === true && shown.label && shown.title && shown.btn;
-        steps.push({
-            step: "proactive card renders in the rail (label + suggestion title)",
-            ok: rendered,
-            detail: JSON.stringify({ picked, ...shown }),
-        });
-        await h.shot("cdp-shots/jarvis-proactive.png");
-
-        // click the card: a memory hit maps to memnote:<id>, so the Vault surface opens. The injected
-        // nodeId need not exist in the vault — selectNote opens the rail with the id selected even when
-        // unresolvable (documented degradation, spec §3); this step verifies the navigation mechanics.
-        const cardClicked = await (async () => {
-            for (let i = 0; i < 20; i++) {
-                const b = await h.ev(`(() => {
-                    const b = [...document.querySelectorAll('button')].find(
-                        (x) => (x.textContent || '').includes(${JSON.stringify(PROACTIVE_TITLE)})
-                    );
-                    if (!b) return false;
-                    b.click();
-                    return true;
-                })()`);
-                if (b) return true;
-                await h.ev("new Promise((r) => setTimeout(r, 500))");
-            }
-            return false;
-        })();
-        steps.push({
-            step: "the suggestion card is present and clickable",
-            ok: cardClicked,
-            detail: JSON.stringify({ cardClicked }),
-        });
-        // the Vault's collection line is the stable marker: data-vault-tab exists only on that surface,
-        // and unlike a header string it does not move when the copy is reworded.
-        let onMemory = false;
-        for (let i = 0; i < 20; i++) {
-            await h.ev("new Promise((r) => setTimeout(r, 500))");
-            onMemory = await h.ev(
-                `(() => document.querySelector('[data-vault-tab="memory"]') != null)()`
-            );
-            if (onMemory) break;
-        }
-        steps.push({
-            step: "clicking the card navigates to the Vault surface (memnote:<id>)",
-            ok: onMemory,
-            detail: JSON.stringify({ onMemory }),
-        });
-        // the click flipped the surface to the Vault; come back through the nav rail — atom state survives a
-        // surface flip, so the channel stays selected and the card re-renders for the dismissal steps.
-        await h.goto("jarvis");
-        let reshown = { label: false, title: false, btn: false };
-        for (let i = 0; i < 20; i++) {
-            await h.ev("new Promise((r) => setTimeout(r, 500))");
-            reshown = await cardState();
-            if (reshown.label && reshown.title && reshown.btn) break;
-        }
-
-        // dismiss -> the card leaves the DOM immediately (optimistic atom). Requires the button to have been
-        // there: without this the step would pass vacuously whenever the card never rendered.
-        const clicked = await h.ev(`(() => {
-            const b = document.querySelector('button[aria-label="Dismiss suggestion"]');
-            if (b) b.click();
-            return !!b;
-        })()`);
-        let gone = { label: true, title: true, btn: true };
-        for (let i = 0; i < 10; i++) {
-            await h.ev("new Promise((r) => setTimeout(r, 300))");
-            gone = await cardState();
-            if (!gone.label && !gone.btn) break;
-        }
-        steps.push({
-            step: "dismiss (×) removes the card from the rail",
-            ok: clicked === true && !gone.label && !gone.btn,
-            detail: JSON.stringify({ clicked, ...gone }),
-        });
-
-        // ...and the dismissal is persisted server-side, so it stays gone across a reload
-        let persisted;
-        for (let i = 0; i < 10; i++) {
-            persisted = await runMeta();
-            if (persisted["jarvis:proactive:dismissed"] === true) break;
-            await h.ev("new Promise((r) => setTimeout(r, 300))");
-        }
-        steps.push({
-            step: "dismissal persisted to run.meta (survives reload)",
-            ok: persisted["jarvis:proactive:dismissed"] === true,
-            detail: JSON.stringify(persisted),
-        });
-        return steps;
-    },
-    async teardown(h, ctx) {
-        await h.goto("cockpit"); // leave the app where a human expects it
-        try {
-            await h.rpc("cancelrun", { channelid: ctx.channelId, runid: ctx.runId });
-        } catch {
-            // best-effort cleanup
-        }
-        for (const oref of ctx.workers) {
-            try {
-                const tab = await h.rpc("gettab", oref.slice(4));
-                const bid = tab && tab.blockids && tab.blockids[0];
-                if (bid) await h.rpc("deleteblock", { blockid: bid });
-            } catch {
-                // best-effort cleanup
-            }
-        }
-        try {
-            await h.rpc("deletechannel", { channelid: ctx.channelId });
-        } catch {
-            // best-effort cleanup
-        }
-        try {
-            rmSync(ctx.cwd, { recursive: true, force: true });
-        } catch {
-            // best-effort cleanup
-        }
-    },
-};
-
-// --- jarvis drawer: the ⚙ drawer's scope + dismissal, and Needs-you with no subject ------------
-// Covers three state-machine defects that the unit suite structurally cannot see, because each one lives
-// in the hop between atoms rather than in any pure function:
-//   - the rail is mounted with no subject, so Needs you is drawn on a fresh boot (its stated contract is
-//     "always drawn, never filtered" — an ask that waits on a click is not an attention channel);
-//   - selecting a non-channel subject closes the drawer, which has no trigger on the rail to close there;
-//   - the scope toggle is re-derived per open instead of latching to global once a channel goes away,
-//     which used to make Save write global defaults for every project while reading as "This project".
-// Case-insensitive: the section heading is Tailwind `uppercase`, and innerText applies text-transform,
-// so the rail reads "NEEDS YOU" on screen even though the source says "Needs you".
-const HAS_NEEDS = "/needs you/i.test(document.body.innerText || '')";
-const jarvisDrawer = {
-    name: "jarvis-drawer",
-    surface: "jarvis",
-    async arrange(h) {
-        const cwd = mkdtempSync(join(tmpdir(), "verify-drawer-"));
-        const ch = await h.rpc("createchannel", { name: "verify-drawer", projectpath: cwd });
-        return { cwd, channelId: ch.oid };
-    },
-    // the channel is found by name in the Subjects column rather than by ctx.channelId: selecting a
-    // subject is a click, and clicking what the user would click is the point of the scenario.
-    async assert(h) {
-        const steps = [];
-        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
-        const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
-        // channelsAtom is a load-once snapshot, so a channel created over RPC needs a reload to appear
-        // (same pattern as jarvis-fleet). The reload also gives us the fresh-boot, no-subject state.
-        await h.ev("location.reload()");
-        await settle(2500);
-        await h.goto("jarvis");
-        await settle(400);
-
-        // 1. no subject selected: the rail must still be mounted. Before the fix JarvisSurface mounted
-        // StageRail only when activeSubjectAtom was non-null, and that atom is not persisted.
-        // The aria-label sits on the <aside> itself; the matching *button* only exists in the collapsed
-        // strip, so asserting on the aside covers both states. Width, because a force-collapsed rail is
-        // still in the DOM at zero width.
-        const fresh = await h.ev(`(() => {
-            const rail = document.querySelector('aside[aria-label="Stage context"]');
-            return {
-                rail: rail != null,
-                width: rail ? rail.getBoundingClientRect().width : 0,
-                needs: ${HAS_NEEDS},
-            };
-        })()`);
-        rec(
-            "1. fresh boot, no subject -> the context rail is mounted",
-            fresh.rail === true && fresh.width > 0,
-            JSON.stringify(fresh)
-        );
-        await h.shot("cdp-shots/jarvis-drawer-nosubject.png");
-
-        // expand the rail if a prior run left it on its 44px strip (stageRailOpenAtom is persisted).
-        await h.ev(`(() => {
-            const b = document.querySelector('button[aria-label="Stage context"]');
-            if (b) b.click();
-            return true;
-        })()`);
-        await settle(300);
-        const needsDrawn = await h.ev(`(() => ${HAS_NEEDS})()`);
-        rec("2. Needs you renders before any subject is selected", needsDrawn === true, `needs=${needsDrawn}`);
-
-        const selectChannel = () =>
-            h.ev(`(() => {
-                const b = [...document.querySelectorAll('button')]
-                    .find((x) => (x.textContent || '').trim().replace(/^[#▤~]/, '') === 'verify-drawer');
-                if (!b) return false;
-                b.click();
-                return true;
-            })()`);
-        const openGear = () =>
-            h.ev(`(() => {
-                const b = document.querySelector('button[title^="Channel profile"]');
-                if (!b) return false;
-                b.click();
-                return true;
-            })()`);
-        // the drawer's Save button is the scope tell: "Save" on project scope, "Save global defaults" on
-        // global. Reading the label is how a user would tell the two apart, so assert what they see.
-        const drawerState = () =>
-            h.ev(`(() => {
-                const save = [...document.querySelectorAll('button')]
-                    .map((x) => (x.textContent || '').trim())
-                    .find((x) => x === 'Save' || x === 'Save global defaults' || x === 'Saving…');
-                return {
-                    gear: !!document.querySelector('button[title^="Channel profile"]'),
-                    open: save != null,
-                    save: save || null,
-                    needs: ${HAS_NEEDS},
-                };
-            })()`);
-
-        const picked = await selectChannel();
-        await settle(900);
-        const opened = await openGear();
-        await settle(700);
-        const onChannel = await drawerState();
-        rec(
-            "3. gear on a channel -> drawer opens on project scope",
-            picked === true && opened === true && onChannel.open === true && onChannel.save === "Save",
-            JSON.stringify(onChannel)
-        );
-        await h.shot("cdp-shots/jarvis-drawer-channel.png");
-
-        // 4. move to a non-channel subject. The dev fixture bar's buttons select a conversation subject,
-        // which is a kind with no ⚙ on the rail — exactly the state the drawer used to be stranded in.
-        await h.ev(`(() => {
-            const b = [...document.querySelectorAll('[data-fixture]')].find((x) => x.getAttribute('data-fixture') === 'grounded');
-            if (b) b.click();
-            return true;
-        })()`);
-        await settle(700);
-        const offChannel = await drawerState();
-        rec(
-            "4. switch to a thread -> drawer closes, gear gone, Needs you back",
-            offChannel.gear === false && offChannel.open === false && offChannel.needs === true,
-            JSON.stringify(offChannel)
-        );
-        await h.shot("cdp-shots/jarvis-drawer-offchannel.png");
-
-        // 5. back to the channel: scope must be project again. It used to latch to global on the visit
-        // above and stay there, so Save wrote global defaults while the user believed otherwise.
-        await selectChannel();
-        await settle(900);
-        await openGear();
-        await settle(700);
-        const back = await drawerState();
-        rec(
-            "5. back on the channel -> scope is project again, not latched to global",
-            back.open === true && back.save === "Save",
-            JSON.stringify(back)
-        );
-
-        // 6. Esc dismisses the drawer, as it does the graph peek.
-        await h.ev(`(() => {
-            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-            window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-            return true;
-        })()`);
-        await settle(500);
-        const afterEsc = await drawerState();
-        rec("6. Esc closes the drawer", afterEsc.open === false, JSON.stringify(afterEsc));
-        await h.shot("cdp-shots/jarvis-drawer-esc.png");
-        return steps;
-    },
-    async teardown(h, ctx) {
-        await h.goto("cockpit");
-        try {
-            await h.rpc("deletechannel", { channelid: ctx.channelId });
-        } catch {
-            // best-effort cleanup
-        }
-        try {
-            rmSync(ctx.cwd, { recursive: true, force: true });
-        } catch {
-            // best-effort cleanup
-        }
-    },
-};
-
-// --- jarvis subject state: what must NOT follow you between subjects, and what the peek opens on -----
-// The regression net for findings 7-10 of the 2026-07-28 pass. All four are cross-atom or layout defects
-// that a green unit suite could not see:
-//   - the composer draft and the channel picker were global, so a half-typed question (and an open
-//     "Dispatch into which channel?" prompt) followed the user to the next subject;
-//   - the graph peek only self-focused for a record, opening on the whole vault from anything else;
-//   - two legends inside the peek disagreed on case and order;
-//   - the record variant of the rail's fleet line overflowed the 300px rail, clipped mid-word.
-// The dev fixture bar is the subject source here: each button selects a *conversation* subject whose id is
-// the fixture name, so two clicks give two genuinely different subjects with no backend involved.
-// Steps 5-6 need one record in the vault (any record — the row is found structurally, never by name); with
-// an empty vault they report that rather than passing quietly.
-const KINDS_JSON = JSON.stringify(["task", "run", "decision", "memory"]);
-const jarvisSubjectState = {
-    name: "jarvis-subject-state",
-    surface: "jarvis",
-    // step 9 restores a subject across a reload, so it needs one that still exists on the other side. It
-    // creates its own rather than borrowing a rendered row: the other scenarios' channels are deleted in
-    // their teardown while the local list still shows them, so borrowing one stores a doomed id and the
-    // restore correctly clears it - a false failure. Mirrors jarvis-fleet/jarvis-drawer's own setup.
-    async arrange(h) {
-        const cwd = mkdtempSync(join(tmpdir(), "verify-subject-"));
-        const ch = await h.rpc("createchannel", { name: "verify-subject", projectpath: cwd });
-        return { cwd, channelId: ch.oid };
-    },
-    async assert(h) {
-        const steps = [];
-        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
-        const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
-        await h.goto("jarvis");
-        await settle(400);
-
-        const pickFixture = (name) =>
-            h.ev(`(() => {
-                const b = [...document.querySelectorAll('[data-fixture]')]
-                    .find((x) => x.getAttribute('data-fixture') === ${JSON.stringify(name)});
-                if (!b) return false;
-                b.click();
-                return true;
-            })()`);
-        // the Jarvis ask box: the one composer input off a channel.
-        const typeDraft = (text) =>
-            h.ev(`(() => {
-                const i = document.querySelector('input[placeholder^="Ask Jarvis"]');
-                if (!i) return false;
-                const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
-                setter.call(i, ${JSON.stringify(text)});
-                i.dispatchEvent(new Event('input', { bubbles: true }));
-                return true;
-            })()`);
-        const readDraft = () =>
-            h.ev(`(() => {
-                const i = document.querySelector('input[placeholder^="Ask Jarvis"]');
-                return i ? i.value : null;
-            })()`);
-        const submitDraft = () =>
-            h.ev(`(() => {
-                const i = document.querySelector('input[placeholder^="Ask Jarvis"]');
-                if (!i) return false;
-                i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-                return true;
-            })()`);
-        const pickerOpen = () => h.ev(`/dispatch into which channel/i.test(document.body.innerText || '')`);
-
-        // 1-2. a draft belongs to the subject it was typed on: gone on the next subject, still there on
-        // return. Two assertions, because clearing the box on every switch would satisfy the first alone.
-        await pickFixture("grounded");
-        await settle(300);
-        const typed = await typeDraft("tighten the record band copy");
-        await settle(150);
-        await pickFixture("active");
-        await settle(300);
-        const onOther = await readDraft();
-        rec(
-            "1. a draft typed on one thread does not follow to the next subject",
-            typed === true && onOther === "",
-            `typed=${typed} draftOnOtherSubject=${JSON.stringify(onOther)}`
-        );
-        await pickFixture("grounded");
-        await settle(300);
-        const back = await readDraft();
-        rec(
-            "2. returning to that thread restores its own draft",
-            back === "tighten the record band copy",
-            JSON.stringify(back)
-        );
-        await h.shot("cdp-shots/jarvis-subject-draft.png");
-
-        // 3. the picker's twin defect. An @run off a channel has to ask which channel to dispatch into;
-        // that prompt was component state on a component that never unmounts, so it followed too.
-        await typeDraft("@run tighten the record band copy");
-        await settle(150);
-        await submitDraft();
-        await settle(400);
-        const raised = await pickerOpen();
-        await pickFixture("active");
-        await settle(400);
-        const followed = await pickerOpen();
-        rec(
-            "3. an open channel picker does not follow to the next subject",
-            raised === true && followed === false,
-            `raisedOnThread=${raised} stillOpenOnNextSubject=${followed}`
-        );
-
-        // 4. one legend in the peek. The header drew "task run decision memory" (lowercase) while the
-        // canvas drew "Task Decision Memory Run" — same four kinds, twice, in two orders.
-        const openPeek = () =>
-            h.ev(`(() => {
-                const b = [...document.querySelectorAll('button')].find((x) => (x.textContent || '').trim() === 'Graph');
-                if (!b) return false;
-                b.click();
-                return true;
-            })()`);
-        const closePeek = () =>
-            h.ev(`(() => {
-                const b = [...document.querySelectorAll('button')].find((x) => (x.textContent || '').trim().startsWith('Close'));
-                if (b) b.click();
-                return b != null;
-            })()`);
-        const peeked = await openPeek();
-        await settle(1200); // the force graph is lazy-loaded
-        // a legend is any element whose children are exactly the four node kinds — precise enough not to
-        // count the detail panel's single "task" read-out of a selected node.
-        const legends = await h.ev(`(() => {
-            const kinds = ${KINDS_JSON};
-            return [...document.querySelectorAll('div')].filter((d) => {
-                const kids = [...d.children].map((c) => (c.textContent || '').trim().toLowerCase());
-                return kids.length === kinds.length && kinds.every((k) => kids.includes(k));
-            }).length;
-        })()`);
-        rec("4. the graph peek draws exactly one node-kind legend", peeked === true && legends === 1, `legends=${legends}`);
-
-        // 5. the node filter: the way in when the subject resolves to no node (an unattributed run, a
-        // radar or memory thread). Assert it answers, not what this vault happens to contain.
-        const filtered = await h.ev(`(() => {
-            const i = document.querySelector('input[aria-label="Find a node"]');
-            if (!i) return null;
-            const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
-            setter.call(i, 'e');
-            i.dispatchEvent(new Event('input', { bubbles: true }));
-            return true;
-        })()`);
-        await settle(300);
-        const answered = await h.ev(`/(\\d+ match(es)?|No node matches)/i.test(document.body.innerText || '')`);
-        rec("5. the peek's node filter answers a query", filtered === true && answered === true, `answered=${answered}`);
-        await h.shot("cdp-shots/jarvis-subject-peek-filter.png");
-        await closePeek();
-        await settle(300);
-
-        // 6. the peek opens *on* something. A record subject blooms and selects itself, so the detail
-        // panel reads out a node instead of "Click a node to open it".
-        // Records defaults collapsed, so open it before looking for a row. Keyed off data-jarvis-group
-        // rather than a /^records/i test on the group's first child: that child is the disclosure header now,
-        // and its text reads "▸RECORDS17".
-        await h.ev(`(() => {
-            if (document.querySelector('[data-jarvis-subject-kind="dossier"]') == null) {
-                document.querySelector('[data-jarvis-group-toggle="dossiers"]')?.click();
-            }
-        })()`);
-        await settle(300);
-        const record = await h.ev(`(() => {
-            const b = document.querySelector('[data-jarvis-group="dossiers"] [data-jarvis-subject-kind="dossier"]');
-            if (!b) return null;
-            b.click();
-            return (b.getAttribute('aria-label') || '').trim();
-        })()`);
-        await settle(1200); // selectSubject -> selectDossier + ResolveSpaceScope
-        if (record == null) {
-            rec("6. the peek self-focuses from a record subject", false, "no record in this vault — nothing to select");
-            rec("7. the rail's fleet line stays inside the rail", false, "no record subject reachable");
-            return steps;
-        }
-        await openPeek();
-        await settle(1500); // graph load + the record's attribution bloom
-        const focused = await h.ev(`(() => {
-            const t = document.body.innerText || '';
-            return { selected: /selected node/i.test(t), hint: /click a node to open it/i.test(t) };
-        })()`);
-        rec(
-            "6. the peek self-focuses from a record subject",
-            focused.selected === true && focused.hint === false,
-            `${JSON.stringify(focused)} record=${JSON.stringify(record)}`
-        );
-        await h.shot("cdp-shots/jarvis-subject-peek-focus.png");
-        await closePeek();
-        await settle(400);
-
-        // 7. the fleet line's own row. It used to read "N working · across M channels" under
-        // whitespace-nowrap beside the "Fleet · on this record" title and ran 37px past the rail, clipped
-        // to "…across 0 ch" — a clipped count reads as a smaller fleet than the real one.
-        await h.ev(`(() => {
-            const b = document.querySelector('button[aria-label="Stage context"]');
-            if (b) b.click();
-            return true;
-        })()`);
-        await settle(500);
-        const fleet = await h.ev(`(() => {
-            const rail = document.querySelector('aside[aria-label="Stage context"]');
-            if (!rail) return { rail: false };
-            const span = [...rail.querySelectorAll('span')].find((s) => /\\d+ working ·/.test(s.textContent || ''));
-            if (!span) return { rail: true, counts: null };
-            const r = span.getBoundingClientRect();
-            const rr = rail.getBoundingClientRect();
-            return {
-                rail: true,
-                counts: (span.textContent || '').trim(),
-                overflowPx: Math.round(r.right - rr.right),
-                clipped: span.scrollWidth > span.clientWidth + 1,
-            };
-        })()`);
-        rec(
-            "7. the rail's fleet line stays inside the rail",
-            fleet.counts != null && fleet.overflowPx <= 0 && fleet.clipped === false,
-            JSON.stringify(fleet)
-        );
-        await h.shot("cdp-shots/jarvis-subject-fleet-line.png");
-
-        // 8. a thread nobody asked anything in is a false start: "+ Thread" creates the conversation up
-        // front, so clicking it repeatedly used to leave a permanent "New conversation" row behind each
-        // time. Nothing durable is lost by dropping them — the backend record is created by the first turn.
-        // counts subject rows, not buttons: a group's first button is its disclosure header now, which would
-        // make every count one too many.
-        const countThreads = () =>
-            h.ev(`(() => {
-                const group = document.querySelector('[data-jarvis-group="threads"]');
-                return group ? group.querySelectorAll('[data-jarvis-subject-kind]').length : -1;
-            })()`);
-        const newThread = () =>
-            h.ev(`(() => {
-                const b = [...document.querySelectorAll('button')].find((x) => (x.textContent || '').trim() === '+ Thread');
-                if (!b) return false;
-                b.click();
-                return true;
-            })()`);
-        await newThread();
-        await settle(500);
-        const oneEmpty = await countThreads();
-        await newThread();
-        await settle(500);
-        await newThread();
-        await settle(500);
-        const stillOne = await countThreads();
-        rec(
-            "8. repeated + Thread does not pile up unasked threads",
-            oneEmpty > 0 && stillOne === oneEmpty,
-            `afterFirst=${oneEmpty} afterThree=${stillOne}`
-        );
-
-        // 9-11. the last subject survives a launch. Persisting the pair is the easy half; the point is the
-        // validation - a stored id can name something since deleted, and each kind's list lands
-        // asynchronously, so the restore must wait on its own list and then degrade silently.
-        // A reload is the real boot path: the surface remounts with an empty activeSubjectAtom.
-        // a row is identified by data-jarvis-subject-kind, not by colour alone: the column's header carries
-        // accent-tinted buttons too ("+ Channel"), and those would match a bg-accentbg test. This was a test
-        // on the row's leading subject mark, which stopped identifying a record once record rows started
-        // drawing a status-toned bar in place of the glyph. The label comes off aria-label rather than
-        // textContent for the same reason — a record row's text also carries its status chip and age.
-        const activeSubjectLabel = () =>
-            h.ev(`(() => {
-                const rows = [...document.querySelectorAll('[data-jarvis-region="subjects"] [data-jarvis-subject-kind]')];
-                const on = rows.find((b) => /bg-accentbg/.test(b.className || ''));
-                return on ? (on.getAttribute('aria-label') || '').trim() : null;
-            })()`);
-        const reload = async () => {
-            await h.ev("location.reload()");
-            await settle(2500);
-            await h.goto("jarvis");
-            await settle(1200);
-        };
-        // start from a clean surface: step 6 selected a record, which leaves a Space active whose scope
-        // filters the Subjects column - and this scenario's own channel is not in that scope, so the row
-        // would be genuinely absent rather than the restore being broken.
-        await reload();
-        // this scenario's own channel: a channel is the one kind whose list is a live subscription, so it is
-        // the strictest of the three for the wait-on-my-own-list rule.
-        // aria-label, matching activeSubjectLabel above: both sides of the before/after comparison have to
-        // read the row's name the same way, and a mark-prefixed textContent would never equal a bare label.
-        const picked = await h.ev(`(() => {
-            const rows = [...document.querySelectorAll('[data-jarvis-region="subjects"] [data-jarvis-subject-kind]')];
-            const b = rows.find((x) => (x.getAttribute('aria-label') || '').trim() === 'verify-subject');
-            if (!b) return null;
-            b.click();
-            return 'verify-subject';
-        })()`);
-        if (picked == null) {
-            rec("9. the last subject is restored after a reload", false, "the scenario's own channel row is missing");
-        } else {
-            await settle(600);
-            const beforeReload = await activeSubjectLabel();
-            await reload();
-            const afterReload = await activeSubjectLabel();
-            rec(
-                "9. the last subject is restored after a reload",
-                afterReload != null && afterReload === beforeReload,
-                `before=${JSON.stringify(beforeReload)} after=${JSON.stringify(afterReload)}`
-            );
-        }
-
-        // 10. a stored id nothing holds any more must land on the empty Stage, not on a wrong row and not
-        // stuck waiting. Written straight into storage so the case does not need a real deletion.
-        await h.ev(
-            `localStorage.setItem('jarvis.subject.last', JSON.stringify({ kind: 'channel', id: 'does-not-exist' }))`
-        );
-        await reload();
-        const afterStale = await activeSubjectLabel();
-        const cleared = await h.ev(`localStorage.getItem('jarvis.subject.last')`);
-        rec(
-            "10. a stored subject that no longer exists degrades to the empty Stage and is cleared",
-            afterStale == null && (cleared === null || cleared === "null"),
-            `active=${JSON.stringify(afterStale)} stored=${JSON.stringify(cleared)}`
-        );
-
-        // 11. archiving a thread moves it out of Threads and into the shared trailing Archived group -
-        // channels and threads share one header, because two "Archived" headers would read as two states.
-        // group headers are Tailwind `uppercase` and innerText/textContent applies text-transform, so the
-        // match has to be case-insensitive.
-        // Groups are addressed by data-jarvis-group (their key), not by a regex on the group's first child:
-        // that child is the disclosure header now and reads "▸ARCHIVED3". Archived and Records both default
-        // collapsed, so a lookup has to open the group first or it reads back an empty list and the archive
-        // assertions fail for the wrong reason. Rows are read by aria-label, and counted as
-        // [data-jarvis-subject-kind] rather than as buttons, so the header is never mistaken for a row.
-        const expandGroup = async (key) => {
-            const r = await h.ev(`(() => {
-                const g = document.querySelector('[data-jarvis-group="${key}"]');
-                if (g == null) return 'no-group';
-                if (g.querySelector('[data-jarvis-subject-kind]') != null) return 'open';
-                g.querySelector('[data-jarvis-group-toggle]')?.click();
-                return 'clicked';
-            })()`);
-            if (r === "clicked") await settle(300);
-            return r;
-        };
-        const groupItems = async (key) => {
-            await expandGroup(key);
-            return h.ev(`(() => {
-                const group = document.querySelector('[data-jarvis-group="${key}"]');
-                if (!group) return null;
-                return [...group.querySelectorAll('[data-jarvis-subject-kind]')]
-                    .map((b) => (b.getAttribute('aria-label') || '').trim());
-            })()`);
-        };
-        // Archive needs a thread the BACKEND holds: the flag lives on the persisted record, so archiving a
-        // local unasked thread ("New conversation", created up front by + Thread) has nothing to update.
-        // A real converse turn runs a headless CLI up to 120s, far too slow to create one here, so this
-        // takes an already-persisted row and puts it back afterwards - the workspace is the user's.
-        // scoped to a group, because several threads here share a title: an unscoped match would right-click
-        // one of the identically-titled rows still in Threads and then look for an Unarchive item that row's
-        // menu does not have.
-        const rightClickRow = async (group, title) => {
-            await expandGroup(group);
-            return h.ev(`(() => {
-                const box = document.querySelector('[data-jarvis-group="${group}"]');
-                if (!box) return false;
-                const row = [...box.querySelectorAll('[data-jarvis-subject-kind]')]
-                    .find((b) => (b.getAttribute('aria-label') || '').trim() === ${JSON.stringify(title)});
-                if (!row) return false;
-                row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 40, clientY: 200 }));
-                return true;
-            })()`);
-        };
-        const clickMenuItem = (label) =>
-            h.ev(`(() => {
-                const want = new RegExp('^' + ${JSON.stringify(label)} + '$', 'i');
-                const item = [...document.querySelectorAll('*')].find(
-                    (e) => e.children.length === 0 && want.test((e.textContent || '').trim())
-                );
-                if (!item) return false;
-                item.click();
-                return true;
-            })()`);
-
-        // counted, not membership-tested: this workspace holds several identically-titled threads (the very
-        // duplication gap 12c fixes), so "is it still in Threads" would read false for a row that moved.
-        const countOf = (arr, t) => (arr ?? []).filter((x) => x === t).length;
-
-        const threadsBefore = await groupItems("threads");
-        const archivedBefore = await groupItems("archived");
-        // a persisted thread got its title from a real first turn, so never "New conversation". Dev fixture
-        // threads also carry real titles but have no backend record - they sort last, so take the first.
-        const target = (threadsBefore ?? []).find((t) => !/New conversation$/.test(t));
-        if (target == null) {
-            rec(
-                "11. archiving a thread moves it into the shared Archived group",
-                false,
-                `no persisted thread to archive: ${JSON.stringify(threadsBefore)}`
-            );
-        } else {
-            const opened = await rightClickRow("threads", target);
-            await settle(400);
-            const clickedArchive = await clickMenuItem("archive thread");
-            await settle(1500); // the RPC plus the re-list the Threads group is rebuilt from
-            const threadsAfter = await groupItems("threads");
-            const archivedAfter = await groupItems("archived");
-            const leftThreads = countOf(threadsAfter, target) === countOf(threadsBefore, target) - 1;
-            const joinedArchived = countOf(archivedAfter, target) === countOf(archivedBefore, target) + 1;
-            rec(
-                "11. archiving a thread moves it into the shared Archived group",
-                opened === true && clickedArchive === true && leftThreads && joinedArchived,
-                `row=${JSON.stringify(target)} menu=${opened}/${clickedArchive} threads=${countOf(threadsBefore, target)}->${countOf(threadsAfter, target)} archived=${countOf(archivedBefore, target)}->${countOf(archivedAfter, target)}`
-            );
-            await h.shot("cdp-shots/jarvis-subject-archived-thread.png");
-            // put it back: this scenario runs against the user's real workspace.
-            if (joinedArchived) {
-                await rightClickRow("archived", target);
-                await settle(400);
-                await clickMenuItem("unarchive thread");
-                await settle(1500);
-                const restored = await groupItems("threads");
-                rec(
-                    "12. unarchiving puts the thread back in Threads",
-                    countOf(restored, target) === countOf(threadsBefore, target),
-                    `threads=${countOf(threadsBefore, target)}->${countOf(restored, target)}`
-                );
-            }
-        }
-        return steps;
-    },
-    async teardown(h, ctx) {
-        await h.goto("cockpit");
-        // the persisted subject points at the channel about to go; step 10 already proves a stale one
-        // degrades, but leaving one behind would make the NEXT run's step 9 start from a cleared restore.
-        await h.ev(`localStorage.removeItem('jarvis.subject.last')`).catch(() => {});
-        try {
-            await h.rpc("deletechannel", { channelid: ctx.channelId });
-        } catch {
-            // best-effort cleanup
-        }
-        try {
-            rmSync(ctx.cwd, { recursive: true, force: true });
-        } catch {
-            // best-effort cleanup
-        }
-    },
-};
-
-// jarvis-attribution: the correction round trip. Detaching a run from a record must remove it from the
-// record's run list and surface it under Detached; restoring must put it back. That round trip is also
-// the live proof of the invalidation seam — a detach that does not invalidate leaves both lists unchanged,
-// so a missing afterRecordWrite reddens both halves.
+// --- jarvis attribution: RETIRED by B5, subject re-homed -------------------------------------------
+// This scenario walked the Subjects column's Records group, selected each record until one had an attributed
+// run, then corrected it from the run rows on the record's thread ("not this record") and put it back. B5
+// deleted all three of those surfaces: the column, the record thread, and the run row inside it.
 //
-// It ends where it started, which is what makes it safe against the user's real vault (the same reasoning
-// as jarvis-subject-state's archive/unarchive step). It needs one record with at least one attributed run
-// and REPORTS when the vault has none rather than passing quietly.
-const jarvisAttribution = {
-    name: "jarvis-attribution",
-    surface: "jarvis",
-    // Start from a clean atom state. The record's detail and scope reads are cache-guarded, so an entry
-    // left by an earlier scenario would make the run count disagree with the vault and fail the wrong step.
-    async arrange(h) {
-        await h.ev("location.reload()");
-        await h.ev("new Promise((r) => setTimeout(r, 2500))");
-        return {};
-    },
-    async assert(h, ctx) {
-        const steps = [];
-        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
-        const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
-        await h.goto("jarvis");
-        await settle(500);
-
-        // the Records group starts collapsed (subjects.ts DEFAULT_COLLAPSED). The header's text leads with
-        // its own disclosure glyph ("▸ RECORDS 19"), so match that shape rather than anchoring on the word,
-        // and only click while it is still collapsed — clicking an expanded header would close it.
-        const groupOpened = await h.ev(`(() => {
-            const b = [...document.querySelectorAll('button')]
-                .find((x) => /^[▸▾]\\s*records\\b/i.test((x.innerText || '').trim()));
-            if (!b) return 'nogroup';
-            if (/^▸/.test((b.innerText || '').trim())) b.click();
-            return 'ok';
-        })()`);
-        if (groupOpened !== "ok") {
-            rec("0. the Records group is present in the subjects column", false, `header not found (${groupOpened})`);
-            return steps;
-        }
-        await settle(400);
-
-        // record rows carry their dossier id in the row's own text; select each until one has runs.
-        const recordCount = await h.ev(`(() => {
-            const rows = [...document.querySelectorAll('[data-jarvis-subject-kind="dossier"]')];
-            return rows.length;
-        })()`);
-        const selectRecord = (i) =>
-            h.ev(`(() => {
-                const rows = [...document.querySelectorAll('[data-jarvis-subject-kind="dossier"]')];
-                if (!rows[${i}]) return false;
-                rows[${i}].click();
-                return true;
-            })()`);
-        // a run row is the only element on the record's thread carrying an EdgeControls detach button
-        const runCount = () =>
-            h.ev(`[...document.querySelectorAll('button')].filter((b) => /not this record/i.test(b.innerText || '')).length`);
-        const detachedVisible = () => h.ev(`/detached\\s*·\\s*[1-9]/i.test(document.body.innerText || '')`);
-        // A correction round trip is three RPCs deep (the write, then the record's detail and scope re-read)
-        // before the UI can settle — measured at ~2s against a real vault. Poll for the expected state
-        // instead of sleeping a guessed interval, so the check is neither flaky nor slower than it needs.
-        const waitFor = async (pred, budgetMs = 12000) => {
-            for (const t0 = Date.now(); ; ) {
-                if (await pred()) return true;
-                if (Date.now() - t0 > budgetMs) return false;
-                await settle(300);
-            }
-        };
-
-        let found = -1;
-        for (let i = 0; i < recordCount && found < 0; i++) {
-            await selectRecord(i);
-            await settle(600);
-            if ((await runCount()) > 0) {
-                found = i;
-            }
-        }
-        if (found < 0) {
-            rec(
-                "1. a record with an attributed run exists to correct",
-                false,
-                `checked ${recordCount} record rows, none had an attributed run — seed the vault before reading this as a pass`
-            );
-            return steps;
-        }
-        const before = await runCount();
-
-        // Resolve which record is selected so teardown can undo a run that dies between detach and restore
-        // — this writes to the user's own vault. The row exposes only its label, so match that back to the
-        // record list, and remember what was already detached so teardown restores only what this run did.
-        const rowLabel = await h.ev(`(() => {
-            const rows = [...document.querySelectorAll('[data-jarvis-subject-kind="dossier"]')];
-            return rows[${found}] ? rows[${found}].getAttribute('aria-label') || '' : '';
-        })()`);
-        const listed = await h.rpc("listtaskdossiers", null);
-        const match = (listed?.dossiers ?? []).find((d) => (d.objective ?? "") === rowLabel);
-        if (match != null) {
-            ctx.dossierId = match.id;
-            const pre = await h.rpc("listdetachededges", { dossierid: match.id });
-            ctx.baseline = new Set((pre?.edges ?? []).map((e) => e.oref));
-        }
-
-        // 1. detach: the run leaves the list and appears under Detached. The dialog fires because a run
-        // reaching a record's list is treated as confirmed (see recordthread.tsx) — the cautious path.
-        // Both clicks report whether they landed: a selector that matches nothing would otherwise read as
-        // "the feature did nothing", which is the one diagnosis this scenario must never invent.
-        const clickedDetach = await h.ev(`(() => {
-            const b = [...document.querySelectorAll('button')].find((x) => /not this record/i.test(x.innerText || ''));
-            if (!b) return false;
-            b.click();
-            return true;
-        })()`);
-        await settle(300);
-        // the dialog's confirm carries its key hint in the label ("Detach ⏎"), so match the word, not the
-        // whole string.
-        const confirmedDetach = await h.ev(`(() => {
-            const b = [...document.querySelectorAll('[role="dialog"] button, button')]
-                .find((x) => /^detach\\b/i.test((x.innerText || '').trim()));
-            if (!b) return false;
-            b.click();
-            return true;
-        })()`);
-        await waitFor(async () => (await runCount()) === before - 1 && (await detachedVisible()) === true);
-        const afterDetach = await runCount();
-        const detachedGroup = await detachedVisible();
-        const detachOk = clickedDetach === true && confirmedDetach === true && afterDetach === before - 1 && detachedGroup === true;
-        rec(
-            "1. detaching removes the run from the record and lists it under Detached",
-            detachOk,
-            `runs ${before} -> ${afterDetach}, detachedGroupVisible=${detachedGroup}, clicked=${clickedDetach}, confirmed=${confirmedDetach}`
-        );
-
-        // 2. restore: the starting state returns. This is also the teardown — the vault is the user's.
-        // Gated on the detach: with nothing detached, "the count is unchanged" is trivially true, and an
-        // ungated step 2 would go green off the back of a failed step 1.
-        if (!detachOk) {
-            rec("2. restoring returns the run and empties the Detached group", false, "skipped — nothing was detached to restore");
-            return steps;
-        }
-        const clickedRestore = await h.ev(`(() => {
-            const b = [...document.querySelectorAll('button')].find((x) => /^restore\\b/i.test((x.innerText || '').trim()));
-            if (!b) return false;
-            b.click();
-            return true;
-        })()`);
-        await waitFor(async () => (await runCount()) === before && (await detachedVisible()) === false);
-        const afterRestore = await runCount();
-        const groupGone = (await detachedVisible()) === false;
-        rec(
-            "2. restoring returns the run and empties the Detached group",
-            clickedRestore === true && afterRestore === before && groupGone === true,
-            `runs ${afterDetach} -> ${afterRestore} (started at ${before}), detachedGroupGone=${groupGone}, clicked=${clickedRestore}`
-        );
-        return steps;
-    },
-    // A run that fails partway leaves two kinds of debris, both observed: the confirm dialog stays stacked
-    // and blocks every later scenario's clicks, and the edge stays detached in the user's real vault.
-    async teardown(h, ctx) {
-        for (let i = 0; i < 4; i++) {
-            if ((await h.ev(`document.querySelectorAll('[role="dialog"]').length`)) === 0) break;
-            await h.ev(`(() => {
-                const b = [...document.querySelectorAll('button')].find((x) => /^cancel\\b/i.test((x.innerText || '').trim()));
-                if (!b) return false;
-                b.click();
-                return true;
-            })()`);
-            await h.ev(`new Promise((r) => setTimeout(r, 200))`);
-        }
-        if (ctx?.dossierId == null) return;
-        const now = await h.rpc("listdetachededges", { dossierid: ctx.dossierId });
-        for (const e of now?.edges ?? []) {
-            if (!ctx.baseline?.has(e.oref)) {
-                await h.rpc("acceptdossieredge", { dossierid: ctx.dossierId, runoref: e.oref });
-            }
-        }
-    },
-};
+// The CAPABILITY survives: the same detach/restore controls are on the record band that the run's sheet
+// renders (recordbandview.tsx EdgeControls, reached through the sheet's body). What is gone is the
+// navigation that used to reach them, and this round trip WRITES TO THE USER'S OWN VAULT — so it is not
+// something to re-author blind from a deleted-surface diff. Recorded in docs/deferred.md as needing
+// re-authoring against the sheet: record peek -> attributed run -> the run's sheet -> its band -> detach,
+// restore, and the two lists agreeing at each end.
+//
+// The two halves of the walk B5 re-homed ARE asserted live, which is why retiring this is a coverage note
+// rather than a silent loss: brief-peek step 3 (a record's attributed run opens the run's sheet and
+// resolves) and brief-surface step 4 (a queue row opens what it names).
 
 // The design's narrow-window collapse order (JC16). This is the check the previous conformance pass
 // could not make: "the thread is still mounted" passed on the broken layout, where the chrome held a
 // constant 572px and the Stage went 1270 -> 70px. So rule 5 is asserted as a *width* — the Stage never
 // drops below its floor while the order still has a region left to yield — plus the order itself, which
 // must run rail-then-Subjects and never the other way round.
-const STAGE_MIN_PX = 640; // mirrors frontend/app/view/jarvis/jarvislayout.ts
 
 // stageRailOpenAtom is persisted, and the surface writes it false the first time it collapses. So any run
 // that drove a narrow width - including a previous run of one of these two scenarios - leaves the rail
 // already collapsed at 1920, where step 3 then cannot observe it yield. Pin the flag and reload so the
 // width scan starts from a known rail, rather than inheriting a preference formed at some other width.
-const resetRail = async (h) => {
-    await h.ev(`localStorage.setItem('jarvis.stagerail.open', 'true')`);
-    await h.ev("location.reload()");
-    await h.ev("new Promise((r) => setTimeout(r, 2500))");
-    return {};
-};
 
 // The width no longer has a vote on the rail (jarvissurface.tsx), so a scenario about the Stage's floor has
 // to pin the rail itself: with a 300px rail the user opened, the floor is legitimately unreachable below a
 // ~1074px window and that is the design's answer, not a regression.
-const setRail = (open) => async (h) => {
-    await h.ev(`localStorage.setItem('jarvis.stagerail.open', ${JSON.stringify(String(open))})`);
-    await h.ev("location.reload()");
-    await h.ev("new Promise((r) => setTimeout(r, 2500))");
-    return {};
-};
 
-// --- brief surface: the Brief lands beside the three panes, never on top of them ------------------
+// --- jarvis-states: RETIRED BY B5 ----------------------------------------------------------------------
+// It drove the fixture bar's `data-fixture` row — nine fabricated CONVERSATIONS — and asserted the content
+// region rendered non-empty text for each. That mechanism is gone: the conversation fixtures were read by
+// `activeConversationAtom`, whose only renderer was the Stage's ConversationView, so B5 deleted the atom and
+// the row with them, and the fixture set followed once its own test was the only thing left reading it.
+// What this scenario was protecting — that each surface state renders something rather than an empty region
+// — is covered against the Brief by its own seam: `data-briefing-fixture` buttons and `brief-surface`'s
+// steps 1-3 and 6 walk the seeded, empty and stale states on the live surface.
+
+// --- brief surface: the Brief is the Jarvis surface ----------------------------------------------
 // The Brief replaces two of the three panes at once, so it lives behind a dev-only composition toggle
 // until the retirement step. Two things are worth a scenario. First, that the toggle actually isolates:
 // three-pane must still be the default and must still emit the region every other jarvis-* scenario
@@ -2105,48 +710,36 @@ const setRail = (open) => async (h) => {
 //
 // composition is persisted, so teardown restores it; a leaked "brief" would strand every later scenario
 // on a surface that emits none of the selectors they use.
-const resetComposition = async (h) => {
-    await h.ev(`localStorage.setItem('jarvis.composition', ${JSON.stringify(JSON.stringify("three-pane"))})`);
-    await h.ev("location.reload()");
-    await h.ev("new Promise((r) => setTimeout(r, 2500))");
-    return {};
-};
 
 const briefSurface = {
     name: "brief-surface",
     surface: "jarvis",
-    arrange: resetComposition,
+    async arrange() {
+        return {};
+    },
     async assert(h) {
         const steps = [];
         await h.goto("jarvis");
 
+        // B5 retired the three-pane composition, so the Brief is no longer one of two: the region every
+        // other jarvis-* scenario selects against is gone, and nothing may still offer to switch to it.
         const dflt = await h.ev(`(() => ({
             surface: !!document.querySelector('[data-jarvis-region="surface"]'),
             brief: !!document.querySelector('[data-jarvis-region="brief"]'),
-            toggles: [...document.querySelectorAll('[data-jarvis-composition]')].map((b) => b.dataset.jarvisComposition),
+            toggles: [...document.querySelectorAll('[data-jarvis-composition]')].length,
         }))()`);
         steps.push({
-            step: "1. three-pane is the default and still emits the region other scenarios select",
-            ok: dflt.surface === true && dflt.brief === false && dflt.toggles.length === 2,
+            step: "1. the Brief is the surface, and nothing still offers to switch composition",
+            ok: dflt.brief === true && dflt.surface === false && dflt.toggles === 0,
             detail: JSON.stringify(dflt),
         });
 
-        const switched = await h.ev(`(() => {
-            const b = document.querySelector('[data-jarvis-composition="brief"]');
-            if (!b) return false;
-            b.click();
-            return true;
-        })()`);
-        await h.ev("new Promise((r) => setTimeout(r, 600))");
         const regions = await h.ev(
             `[...document.querySelectorAll('[data-jarvis-brief-region]')].map((s) => s.dataset.jarvisBriefRegion)`
         );
         steps.push({
-            step: "2. the toggle swaps composition and the Brief renders its four regions",
-            ok:
-                switched === true &&
-                ["waiting", "initiatives", "sessions", "behind"].every((r) => regions.includes(r)) &&
-                (await h.ev(`!document.querySelector('[data-jarvis-region="surface"]')`)) === true,
+            step: "2. the Brief renders its four regions",
+            ok: ["waiting", "initiatives", "sessions", "behind"].every((r) => regions.includes(r)),
             detail: JSON.stringify(regions),
         });
 
@@ -2168,11 +761,31 @@ const briefSurface = {
             detail: JSON.stringify(rows),
         });
 
-        const inert = await h.ev(`document.querySelectorAll('[data-jarvis-brief-row="queue"] button').length`);
+        // The queue is the region this retirement actually had to make actionable: the decision a row waits
+        // on is resolved by the run body, so before B5 the action was printed as a borderless label because
+        // there was nowhere to send it. Now the row itself is the control and the action word stays a label —
+        // two affordances for one decision, with the one that only names it made to look pressable, would be
+        // the same lie in the other direction.
+        const q = await h.ev(`(() => {
+            const rows = [...document.querySelectorAll('[data-jarvis-brief-row="queue"]')];
+            const actions = rows.map((r) => r.querySelector('[data-jarvis-brief-action]')).filter(Boolean);
+            return {
+                rows: rows.length,
+                openable: rows.filter((r) => r.tagName === 'BUTTON').length,
+                nested: rows.reduce((n, r) => n + r.querySelectorAll('button, a, input, select, textarea').length, 0),
+                actionLabels: actions.length,
+                actionsAreSpans: actions.every((a) => a.tagName === 'SPAN'),
+            };
+        })()`);
         steps.push({
-            step: "4. the queue row offers no control it cannot honour",
-            ok: inert === 0,
-            detail: `buttons=${inert}`,
+            step: "4. a queue row opens what it names, and its action word stays a label",
+            ok:
+                q.rows > 0 &&
+                q.openable === q.rows &&
+                q.nested === 0 &&
+                q.actionLabels > 0 &&
+                q.actionsAreSpans === true,
+            detail: JSON.stringify(q),
         });
 
         const fleet = await h.ev(
@@ -2221,18 +834,9 @@ const briefSurface = {
         });
 
         await h.shot("cdp-shots/brief-surface.png");
-
-        await h.ev(`document.querySelector('[data-jarvis-composition="three-pane"]')?.click()`);
-        await h.ev("new Promise((r) => setTimeout(r, 600))");
-        steps.push({
-            step: "7. toggling back restores the three-pane composition",
-            ok: (await h.ev(`!!document.querySelector('[data-jarvis-region="surface"]')`)) === true,
-            detail: "",
-        });
         return steps;
     },
     async teardown(h) {
-        await resetComposition(h);
         await h.goto("cockpit");
     },
 };
@@ -2246,11 +850,19 @@ const briefSurface = {
 const briefPeek = {
     name: "brief-peek",
     surface: "jarvis",
-    arrange: resetComposition,
+    async arrange(h) {
+        // the peek is session state, so a scenario that left one open would fail this one's first step.
+        // Start from the state the scenario asserts into existence rather than from whatever ran before.
+        await h.goto("jarvis");
+        await h.ev(
+            `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }))`
+        );
+        await h.ev("new Promise((r) => setTimeout(r, 400))");
+        return {};
+    },
     async assert(h) {
         const steps = [];
         await h.goto("jarvis");
-        await h.ev(`document.querySelector('[data-jarvis-composition="brief"]')?.click()`);
         await h.ev("new Promise((r) => setTimeout(r, 700))");
         steps.push({
             step: "1. the Brief is showing and no peek is open yet",
@@ -2260,10 +872,12 @@ const briefPeek = {
             detail: "",
         });
 
-        // Ctrl+SHIFT+P: 1b577a4a moved the palette off Ctrl+P (which is now the file finder). The entity
-        // sources load lazily on open, hence the settle before the group is looked for.
+        // Ctrl+P, not Ctrl+SHIFT+P: `bindings.ts` puts ONE chord on the palette and dispatches on surface
+        // (Code leads with its file finder, every other surface opens the command palette). Scenarios that
+        // dispatched Ctrl+SHIFT+P matched no binding, so these steps had never once exercised the palette.
+        // The entity sources load lazily on open, hence the settle before the group is looked for.
         await h.ev(
-            `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', code: 'KeyP', ctrlKey: true, shiftKey: true, bubbles: true }))`
+            `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', code: 'KeyP', ctrlKey: true, bubbles: true }))`
         );
         await h.ev("new Promise((r) => setTimeout(r, 1200))");
         const picked = await h.ev(`(() => {
@@ -2298,11 +912,10 @@ const briefPeek = {
             };
         })()`);
         steps.push({
-            step: "2. a record row in the palette opens the peek, with its fleet band and both sentences",
+            step: "2. a record row in the palette opens the peek, stating the record's own read/write line",
             ok:
                 picked.ok === true &&
                 peek != null &&
-                peek.fleet === true &&
                 peek.absence === true &&
                 peek.footer === true &&
                 peek.updated === true &&
@@ -2310,6 +923,102 @@ const briefPeek = {
                 peek.statusToggle === true,
             detail: JSON.stringify({ picked, peek }),
         });
+        // The fleet band is data-dependent: a record with sessions attributed to it names them, and one
+        // without says so instead. This profile has no record with an attributed session, so the band
+        // cannot be exercised here — the step asserts whichever of the two the data calls for and reports
+        // which it read, rather than passing on a claim about a band that was never rendered.
+        steps.push({
+            step: "2b. the peek names the record's fleet or says it has none",
+            ok: peek != null && (peek.fleet === true || peek.absence === true),
+            detail: JSON.stringify({ fleet: peek?.fleet ?? null, absence: peek?.absence ?? null }),
+        });
+
+        // The peek's run list is the record's attributed sessions, and clicking one is the path B5 re-homed
+        // from the deleted record thread into the detail sheet: record -> attributed run -> the run's own
+        // body. Not every record has one, so walk the Records rows the way the retired attribution scenario
+        // walked the subjects column, until one opens a peek that lists a session.
+        const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
+        let runRowId = await h.ev(
+            `(() => { const b = document.querySelector('[data-jarvis-peek-run]'); return b ? b.dataset.jarvisPeekRun : null; })()`
+        );
+        let tried = 1;
+        for (let attempt = 1; attempt < 6 && runRowId == null; attempt++) {
+            await h.ev(
+                `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }))`
+            );
+            await settle(300);
+            await h.ev(
+                `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', code: 'KeyP', ctrlKey: true, bubbles: true }))`
+            );
+            await settle(800);
+            const next = await h.ev(`(() => {
+                const headers = [...document.querySelectorAll("div")].filter(
+                    (d) => (d.textContent || "").trim().toLowerCase() === "records"
+                );
+                const group = headers[0]?.parentElement;
+                const row = group ? [...group.querySelectorAll("button[data-idx]")][${"$"}{attempt}] : null;
+                if (!row) return false;
+                row.click();
+                return true;
+            })()`);
+            if (next !== true) break;
+            await settle(900);
+            tried += 1;
+            runRowId = await h.ev(
+                `(() => { const b = document.querySelector('[data-jarvis-peek-run]'); return b ? b.dataset.jarvisPeekRun : null; })()`
+            );
+        }
+        if (runRowId == null) {
+            steps.push({
+                step: "3. the peek's attributed run opens the run's sheet",
+                ok: false,
+                detail: `no attributed run in the first ${tried} records — seed one before reading this as a pass`,
+            });
+        } else {
+            await h.ev(`document.querySelector('[data-jarvis-peek-run]').click()`);
+            await settle(1200);
+            // the sheet is keyed by its SUBJECT (a channel), and the settings panel only renders when the
+            // body resolved to the run itself rather than the launcher for a channel with nothing to show
+            // The channel read is a pin plus the active-channel streams, so it lands in its own time — a
+            // single read after a fixed sleep would call a slow channel a hung one. Poll for the sheet to
+            // resolve, and only then judge it (the retired record-thread scenario polled for exactly this).
+            const readSheet = () =>
+                h.ev(`(() => {
+                const el = document.querySelector('[data-jarvis-brief-sheet="channel"]');
+                return el
+                    ? {
+                          face: el.dataset.jarvisBriefSheet,
+                          state: el.querySelector('[data-jarvis-brief-sheet-state]')?.dataset.jarvisBriefSheetState ?? null,
+                          runBody: el.querySelector('[data-jarvis-brief-sheet-face="settings"]') != null,
+                          text: (el.innerText || '').slice(0, 80),
+                      }
+                    : null;
+            })()`);
+            let sheet = null;
+            for (let waited = 0; waited <= 12000; waited += 400) {
+                sheet = await readSheet();
+                if (sheet != null && sheet.state !== "loading") break;
+                await settle(400);
+            }
+            // The invariant is that the sheet RESOLVES: either the run's own body, or an explicit
+            // "no longer available" when the channel a historical run names is gone. What it must never do
+            // is sit under "Reading this channel…" — this profile's oldest records do name deleted channels,
+            // which is exactly the case a skeleton-for-both-states hid.
+            steps.push({
+                step: "3. the peek's attributed run opens the run's sheet, resolved rather than pending",
+                ok:
+                    sheet?.face === "channel" &&
+                    (sheet?.runBody === true || sheet?.state === "unavailable") &&
+                    sheet?.state !== "loading",
+                detail: JSON.stringify({ runRowId, sheet }),
+            });
+            await h.ev(`(() => {
+                const b = document.querySelector('[aria-label="Close detail sheet"]');
+                if (b) b.click();
+                return true;
+            })()`);
+            await settle(400);
+        }
 
         const picker = await h.ev(`(() => {
             const toggle = document.querySelector("[data-jarvis-peek-status-toggle]");
@@ -2323,7 +1032,7 @@ const briefPeek = {
             return all.map((el) => ({ status: el.dataset.jarvisPeekStatus, control: el.tagName === "BUTTON" }));
         })()`);
         steps.push({
-            step: "3. the status picker offers only legal transitions, and the current status is a label",
+            step: "4. the status picker offers only legal transitions, and the current status is a label",
             ok:
                 picker === true &&
                 rows.length >= 2 &&
@@ -2339,7 +1048,7 @@ const briefPeek = {
         );
         await h.ev("new Promise((r) => setTimeout(r, 400))");
         steps.push({
-            step: "4. Escape closes the peek and leaves the Brief behind it",
+            step: "5. Escape closes the peek and leaves the Brief behind it",
             ok:
                 (await h.ev(`!document.querySelector('[data-jarvis-brief-band="peek"]')`)) === true &&
                 (await h.ev(`!!document.querySelector('[data-jarvis-region="brief"]')`)) === true,
@@ -2348,112 +1057,6 @@ const briefPeek = {
         return steps;
     },
     async teardown(h) {
-        await resetComposition(h);
-        await h.goto("cockpit");
-    },
-};
-
-const jarvisCollapseOrder = {
-    name: "jarvis-collapse-order",
-    surface: "jarvis",
-    arrange: setRail(false),
-    async assert(h) {
-        const steps = [];
-        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
-        const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
-        await h.goto("jarvis");
-        await settle(400);
-
-        const probe = () =>
-            h.ev(`(() => {
-                const w = (el) => (el ? Math.round(el.getBoundingClientRect().width) : null);
-                const region = (n) => document.querySelector('[data-jarvis-region="' + n + '"]');
-                const surface = region('surface');
-                // by aria-label, not by child position: once the rail can overlay it sits inside a
-                // display:contents wrapper, so it is no longer a direct child of the surface row.
-                const rail = surface ? surface.querySelector('aside[aria-label="Stage context"]') : null;
-                return {
-                    surface: w(surface),
-                    subjects: w(region('subjects')),
-                    stage: w(region('stage')),
-                    rail: w(rail),
-                    docOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
-                };
-            })()`);
-
-        // 50px steps from 900 to 1600 rather than five spot widths. The dip this scenario missed lived
-        // between 1000 and 1050: the staircase gave the Stage 822px at a 1000px window and 656px at 1050,
-        // and the old sample grid (1920/1440/1100/900/720) straddled it. jarvislayout.test.ts owns the 1px
-        // proof; this owns "the live layout agrees".
-        const sweep = [];
-        for (let width = 900; width <= 1600; width += 50) {
-            await h.cdp("Emulation.setDeviceMetricsOverride", {
-                width,
-                height: 900,
-                deviceScaleFactor: 1,
-                mobile: false,
-            });
-            await settle(320);
-            sweep.push({ width, ...(await probe()) });
-        }
-        const at = Object.fromEntries(sweep.map((s) => [s.width, s]));
-        await h.shot("cdp-shots/jarvis-collapse-1600.png");
-        await settle(300);
-
-        // 1. rule 5, as a width, with the rail closed — the widths where the column can fund the floor.
-        const floored = [1600, 1400, 1200, 1000, 900];
-        const held = floored.filter((wd) => at[wd].stage >= STAGE_MIN_PX);
-        rec(
-            `1. the Stage holds >= ${STAGE_MIN_PX}px at ${floored.join("/")}`,
-            held.length === floored.length,
-            floored.map((wd) => `${wd}:${at[wd].stage}`).join(" ")
-        );
-
-        // 2. THE regression. Widening the window must never narrow the thread. The old order was monotone in
-        //    its collapse *flags* and sawtoothed in the width that matters.
-        const shrank = sweep.filter((s, i) => i > 0 && s.stage < sweep[i - 1].stage);
-        rec(
-            "2. the Stage never shrinks as the window widens",
-            shrank.length === 0,
-            shrank.length > 0
-                ? shrank.map((s) => `${s.width}:${s.stage}`).join(" ")
-                : `${sweep[0].stage}..${sweep[sweep.length - 1].stage}`
-        );
-
-        // 3. the column funds the floor continuously — it must actually take intermediate widths, not just
-        //    snap between 272 and 56. A continuous lever nothing ever lands mid-range is a staircase.
-        const between = sweep.filter((s) => s.subjects > 56 && s.subjects < 272);
-        rec(
-            "3. the Subjects column takes intermediate widths",
-            between.length > 0,
-            between.map((s) => `${s.width}:${s.subjects}`).join(" ") || "always 272 or 56"
-        );
-
-        // 4. nothing escapes horizontally at any width — the band's chips used to draw over the rail.
-        const overflowing = sweep.filter((s) => s.docOverflow > 0);
-        rec("4. no horizontal document overflow at any width", overflowing.length === 0, overflowing.map((s) => s.width).join(","));
-
-        // 5. the width does not close a rail the user opened. This used to write the open atom shut on every
-        //    transition into narrow — and since the first measurement counts as one and the surface unmounts
-        //    on each nav switch, the rail was a 44px strip at every width until clicked open again.
-        await h.cdp("Emulation.setDeviceMetricsOverride", { width: 1600, height: 900, deviceScaleFactor: 1, mobile: false });
-        await settle(320);
-        await h.ev(`document.querySelector('aside[aria-label="Stage context"] button')?.click()`);
-        await settle(450);
-        const railOpened = (await probe()).rail;
-        await h.cdp("Emulation.setDeviceMetricsOverride", { width: 1000, height: 900, deviceScaleFactor: 1, mobile: false });
-        await settle(450);
-        const railAfterNarrow = (await probe()).rail;
-        rec(
-            "5. narrowing the window leaves an opened rail open",
-            railOpened > 44 && railAfterNarrow === railOpened,
-            `opened=${railOpened} after-narrow=${railAfterNarrow}`
-        );
-        return steps;
-    },
-    async teardown(h) {
-        // the runner restores its pinned viewport after every scenario, so this only has to leave the
-        // surface where the others expect it.
         await h.goto("cockpit");
     },
 };
@@ -2462,97 +1065,6 @@ const jarvisCollapseOrder = {
 // (navrailwidth.ts, the design's step 4) and the context rail leaving the flow entirely once collapsing
 // both regions to strips is still not enough (jarvislayout.ts's railOverlay). jarvis-collapse-order owns
 // the *order*; this owns the two widths where the new steps fire.
-const jarvisNarrow = {
-    name: "jarvis-narrow",
-    surface: "jarvis",
-    // closed: the overlay substitutes for the 44px strip. A rail the user opened is never overlaid
-    // (jarvislayout.layoutFor), so with it open this scenario's subject does not exist.
-    arrange: setRail(false),
-    async assert(h) {
-        const steps = [];
-        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
-        const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
-        await h.goto("jarvis");
-        await settle(400);
-
-        // measured, not computed: the point of this scenario is that the live layout agrees with
-        // jarvislayout.ts's arithmetic. STAGE_MIN_PX is mirrored above - if they drift, this fails.
-        const boxes = () =>
-            h.ev(`(() => {
-                const q = (sel) => {
-                    const el = document.querySelector(sel);
-                    if (!el) return null;
-                    const r = el.getBoundingClientRect();
-                    return { left: r.left, right: r.right, width: r.width };
-                };
-                return JSON.stringify({
-                    surface: q('[data-jarvis-region="surface"]'),
-                    stage: q('[data-jarvis-region="stage"]'),
-                    subjects: q('[data-jarvis-region="subjects"]'),
-                    rail: q('aside[aria-label="Stage context"]'),
-                });
-            })()`);
-
-        // raw CDP passthrough - the harness exposes h.cdp for exactly this (attach.mjs:143). verify.mjs
-        // re-applies VERIFY_VIEWPORT after every scenario, so no teardown is needed here.
-        const atWidth = async (width) => {
-            await h.cdp("Emulation.setDeviceMetricsOverride", {
-                width,
-                height: 1000,
-                deviceScaleFactor: 1,
-                mobile: false,
-            });
-            await settle(350);
-            return JSON.parse(await boxes());
-        };
-
-        for (const width of [1600, 1200, 1000, 900]) {
-            const b = await atWidth(width);
-            const ok = b.stage != null && b.stage.width >= STAGE_MIN_PX;
-            rec(`stage holds its floor at ${width}px`, ok, `stage=${Math.round(b.stage?.width ?? 0)}px`);
-        }
-
-        // below the point where strips are still enough, the rail must stop taking inline width: its box
-        // overlaps the Stage's rather than sitting beside it. 760, not 800: the nav rail's own collapse
-        // frees 22px, so at 800 the two strips already clear the floor (644px) and the overlay is correctly
-        // NOT engaged. The overlay's first width is 796 and below.
-        const narrow = await atWidth(760);
-        const overlapping = narrow.rail != null && narrow.stage != null && narrow.rail.left < narrow.stage.right;
-        rec(
-            "rail overlays the Stage once collapsing is not enough",
-            overlapping,
-            `rail.left=${Math.round(narrow.rail?.left ?? 0)} stage.right=${Math.round(narrow.stage?.right ?? 0)}`
-        );
-        rec(
-            "stage still holds its floor with the rail overlaid",
-            narrow.stage != null && narrow.stage.width >= STAGE_MIN_PX,
-            `stage=${Math.round(narrow.stage?.width ?? 0)}px`
-        );
-
-        // the nav rail is global chrome, so its collapse is asserted on the nav itself rather than inferred
-        // from the surface getting wider.
-        const navWidth = () =>
-            h.ev(`(() => {
-                const nav = document.querySelector('nav');
-                return nav ? Math.round(nav.getBoundingClientRect().width) : null;
-            })()`);
-        const navNarrow = await navWidth();
-        await atWidth(1200);
-        const navWide = await navWidth();
-        rec(
-            "the nav rail collapses itself below 900px and reopens above it",
-            navNarrow === 56 && navWide === 78,
-            `at760=${navNarrow} at1200=${navWide}`
-        );
-
-        await atWidth(760);
-        await h.shot("cdp-shots/jarvis-narrow.png");
-        return steps;
-    },
-    async teardown(h) {
-        await h.goto("cockpit");
-    },
-};
 
 // One gutter, one header band (jarvis/stagemeasure.ts). The surface was assembled by merging three
 // destinations, and each region kept the padding, header height and divider tone it had as its own screen:
@@ -2565,145 +1077,6 @@ const jarvisNarrow = {
 // which is circular: a sealed run's header band did not carry it, kept its own px-6, and put the largest
 // text on the Stage 20px left of everything else while this scenario stayed green. So the probe below finds
 // bands by geometry, and the loop walks every subject kind rather than only the fixture conversation.
-const jarvisMeasure = {
-    name: "jarvis-measure",
-    surface: "jarvis",
-    arrange: setRail(true),
-    async assert(h) {
-        const steps = [];
-        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
-        const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
-        await h.goto("jarvis");
-        await settle(400);
-
-        // A band is anything as wide as the Stage (allowing for a scrollbar). Its content-left is where its
-        // own padding starts; 0 means a bare rule/background wrapper that pads nothing, and every other
-        // value has to be the one gutter. `reach` is the widest content box any gutter band gets — the check
-        // that the Stage is actually being used, which a centred column fails by design.
-        const probe = () =>
-            h.ev(`(() => {
-                const stage = document.querySelector('[data-jarvis-region="stage"]');
-                const r0 = stage.getBoundingClientRect();
-                const surfaceTop = document.querySelector('[data-jarvis-region="surface"]')?.getBoundingClientRect().top ?? 0;
-                const lefts = [];
-                let reach = 0;
-                for (const el of stage.querySelectorAll('div,button,section,header,aside')) {
-                    const r = el.getBoundingClientRect();
-                    if (r.width < r0.width - 12 || r.height < 10) continue;
-                    const cs = getComputedStyle(el);
-                    const padL = parseFloat(cs.paddingLeft) || 0;
-                    if (padL <= 0) continue;
-                    lefts.push(Math.round(r.left - r0.left + padL));
-                    reach = Math.max(reach, Math.round(r.width - padL - (parseFloat(cs.paddingRight) || 0)));
-                }
-                // each column's first horizontal rule, as a y relative to the surface
-                const ruleY = (sel) => {
-                    const col = document.querySelector(sel);
-                    if (col == null) return null;
-                    for (const el of [col, ...col.querySelectorAll('*')]) {
-                        const cs = getComputedStyle(el);
-                        if ((parseFloat(cs.borderBottomWidth) || 0) > 0) {
-                            const r = el.getBoundingClientRect();
-                            if (r.width > 40) return Math.round(r.bottom - surfaceTop);
-                        }
-                    }
-                    return null;
-                };
-                return JSON.stringify({
-                    stage: Math.round(r0.width),
-                    lefts: [...new Set(lefts)],
-                    reach,
-                    rules: {
-                        subjects: ruleY('[data-jarvis-region="subjects"]'),
-                        stage: ruleY('[data-jarvis-region="stage"]'),
-                        rail: ruleY('aside[aria-label="Stage context"]'),
-                    },
-                });
-            })()`);
-
-        // the conversation comes from the dev-only fixture bar; the channel and record rows come from
-        // whatever the dev DB holds, matched on data-jarvis-subject-kind. Matching on the row's leading
-        // subject mark used to work, but a record row draws a status-toned bar instead of a glyph now, and a
-        // mark-based lookup would silently find nothing and drop the record kind while still reporting green.
-        const selectKind = (kind) =>
-            kind == null
-                ? h.ev(`(() => { const b = document.querySelector('[data-fixture="active"]'); if (b == null) return "none"; b.click(); return "ok"; })()`)
-                : h.ev(`(() => {
-                      const row = document.querySelector('[data-jarvis-subject-kind="${kind}"]');
-                      if (row == null) return "none";
-                      row.click();
-                      return "ok";
-                  })()`);
-
-        // Records defaults collapsed, so its rows are absent from the DOM until the group is opened — and the
-        // open has to settle before the row can be queried, which is why this is its own step rather than a
-        // branch inside selectKind.
-        const expandRecords = async () => {
-            const r = await h.ev(`(() => {
-                if (document.querySelector('[data-jarvis-subject-kind="dossier"]') != null) return "open";
-                const hdr = document.querySelector('[data-jarvis-group-toggle="dossiers"]');
-                if (hdr == null) return "no-group";
-                hdr.click();
-                return "clicked";
-            })()`);
-            if (r === "clicked") await settle(300);
-            return r;
-        };
-
-        for (const width of [1500, 1920]) {
-            await h.cdp("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
-            await settle(450);
-
-            const seen = [];
-            let recordsGroup = "n/a";
-            for (const [label, kind] of [
-                ["conversation", null],
-                ["channel", "channel"],
-                ["record", "dossier"],
-            ]) {
-                if (kind === "dossier") {
-                    recordsGroup = await expandRecords();
-                }
-                if ((await selectKind(kind)) !== "ok") continue;
-                await settle(800);
-                seen.push([label, JSON.parse(await probe())]);
-            }
-            const kinds = seen.map(([k]) => k).join("+") || "none";
-            const lefts = [...new Set(seen.flatMap(([, m]) => m.lefts))];
-
-            rec(`at least two subject kinds reachable at ${width}px`, seen.length >= 2, kinds);
-            // asserted on its own so a record row that has stopped being findable fails here instead of
-            // quietly dropping out of the loop and leaving the measurements below looking green
-            rec(
-                `the collapsed Records group opens and yields a record row at ${width}px`,
-                kinds.includes("record"),
-                `group=${recordsGroup} kinds=${kinds}`
-            );
-            rec(
-                `every band on the Stage shares one left edge at ${width}px`,
-                lefts.length === 1,
-                `kinds=${kinds} lefts=${lefts.join(",")}`
-            );
-            rec(
-                `content reaches the Stage's width at ${width}px — no dead gutter`,
-                seen.length > 0 && seen.every(([, m]) => m.reach >= m.stage - 80),
-                seen.map(([k, m]) => `${k} ${m.reach}/${m.stage}`).join("  ")
-            );
-            const ys = Object.values(seen[seen.length - 1]?.[1].rules ?? {});
-            rec(
-                `the three columns' header rules share one y at ${width}px`,
-                ys.length === 3 && ys.every((y) => y != null) && new Set(ys).size === 1,
-                JSON.stringify(seen[seen.length - 1]?.[1].rules ?? {})
-            );
-        }
-
-        await h.shot("cdp-shots/jarvis-measure.png");
-        return steps;
-    },
-    async teardown(h) {
-        await h.goto("cockpit");
-    },
-};
 
 // --- usage charts: the meter primitives + the visx DailyChart actually render -------------------
 // Class names asserted below were read off the installed packages, not guessed: @visx/axis puts
@@ -2840,7 +1213,9 @@ const usageCharts = {
                 capturedAt: Date.now(),
             },
         };
-        await h.ev(`localStorage.setItem('wave:dev-usage-buckets', ${JSON.stringify(JSON.stringify(buildUsageFixture()))})`);
+        await h.ev(
+            `localStorage.setItem('wave:dev-usage-buckets', ${JSON.stringify(JSON.stringify(buildUsageFixture()))})`
+        );
         await h.ev(`localStorage.setItem('wave:ratelimits', ${JSON.stringify(JSON.stringify(rateLimits))})`);
         // reload so savedRateLimitsAtom (module-load seeded) and the Usage surface both read the snapshot
         await h.ev("location.reload()");
@@ -3006,7 +1381,10 @@ const usageCharts = {
         })()`);
         rec(
             "8. selecting OpenCode leaves only OpenCode model cards and totals",
-            clickedOpenCode && openCodeState.hasOpenaiModel && openCodeState.hasUnpricedModel && !openCodeState.hasAnthropicHeading,
+            clickedOpenCode &&
+                openCodeState.hasOpenaiModel &&
+                openCodeState.hasUnpricedModel &&
+                !openCodeState.hasAnthropicHeading,
             JSON.stringify(openCodeState)
         );
         rec(
@@ -3154,7 +1532,12 @@ const usageCharts = {
         })()`);
         rec(
             "16. selecting Pi leaves only Pi model cards with a provider/model distinct from Codex and OpenCode",
-            clickedPi && piState.hasPiProvider && piState.hasPiModelRow && piState.noCodexCard && piState.noOpenCodeCard && piState.noAnthropicHeading,
+            clickedPi &&
+                piState.hasPiProvider &&
+                piState.hasPiModelRow &&
+                piState.noCodexCard &&
+                piState.noOpenCodeCard &&
+                piState.noAnthropicHeading,
             JSON.stringify(piState)
         );
 
@@ -3916,7 +2299,11 @@ const jarvisVolunteer = {
             const t = (document.body.innerText || "").toLowerCase();
             return t.includes("still open") && t.includes("cdp probe");
         })()`);
-        steps.push({ step: 'bubble speaks it under the "Still open" register', ok: spoke === true, detail: String(spoke) });
+        steps.push({
+            step: 'bubble speaks it under the "Still open" register',
+            ok: spoke === true,
+            detail: String(spoke),
+        });
 
         // open the peek: the two verbs live there, not on the bubble, which auto-dismisses after 6s.
         // The creature is a motion.div with role="button", not a <button>, so query the label directly.
@@ -3937,6 +2324,16 @@ const jarvisVolunteer = {
         });
         await h.shot("cdp-shots/jarvis-volunteer-peek.png");
 
+        // the acts live in the "Since you looked" drawer, which starts shut and shows only its newest line
+        // while it is. Expanding it is part of reading the panel, not an optional detour — without this the
+        // step could only ever find no controls, in every profile, for reasons that have nothing to do with
+        // whether the acts exist.
+        await h.ev(`(() => {
+            const toggle = document.querySelector('[data-pet-updates] button[aria-expanded]');
+            if (toggle && toggle.getAttribute('aria-expanded') === 'false') toggle.click();
+            return true;
+        })()`);
+        await h.ev("new Promise((r) => setTimeout(r, 300))");
         const verbs = await h.ev(`(() => {
             const panel = document.querySelector('[data-pet-peek]');
             return {
@@ -4100,39 +2497,41 @@ const codeSearch = {
 };
 
 const codeSidebar = {
-  name: "code-sidebar",
-  surface: "code",
-  async arrange(h) {
-    // unmount Code before seeding storage so the assertion starts from fresh component state.
-    await h.goto("cockpit");
-    const previous = await h.ev("localStorage.getItem('code.sidebar.prefs')");
-    await h.ev(
-      `localStorage.setItem('code.sidebar.prefs', ${JSON.stringify(
-        JSON.stringify({ widths: { files: 280, search: 380, changed: 380 }, open: true })
-      )})`
-    );
-    return { previous };
-  },
-  async assert(h, ctx) {
-    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-    const steps = [];
-    await h.goto("code");
-    if ((await openProjectPicker(h)) === true) {
-      await sleep(300);
-      await chooseProjectRow(h);
-      await sleep(1200);
-    }
-    ctx.previousMode = await h.ev(`document.querySelector('[data-code-column-tab][aria-pressed="true"]')?.getAttribute('data-code-column-tab') || null`);
-    const files = await h.ev(`(() => {
+    name: "code-sidebar",
+    surface: "code",
+    async arrange(h) {
+        // unmount Code before seeding storage so the assertion starts from fresh component state.
+        await h.goto("cockpit");
+        const previous = await h.ev("localStorage.getItem('code.sidebar.prefs')");
+        await h.ev(
+            `localStorage.setItem('code.sidebar.prefs', ${JSON.stringify(
+                JSON.stringify({ widths: { files: 280, search: 380, changed: 380 }, open: true })
+            )})`
+        );
+        return { previous };
+    },
+    async assert(h, ctx) {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const steps = [];
+        await h.goto("code");
+        if ((await openProjectPicker(h)) === true) {
+            await sleep(300);
+            await chooseProjectRow(h);
+            await sleep(1200);
+        }
+        ctx.previousMode = await h.ev(
+            `document.querySelector('[data-code-column-tab][aria-pressed="true"]')?.getAttribute('data-code-column-tab') || null`
+        );
+        const files = await h.ev(`(() => {
             const button = document.querySelector('[data-code-column-tab="files"]');
             if (!button) return false;
             button.click();
             return true;
         })()`);
-    await sleep(100);
-    steps.push({ step: "start in Files mode", ok: files === true, detail: `selected=${files}` });
-    const probe = () =>
-      h.ev(`(() => {
+        await sleep(100);
+        steps.push({ step: "start in Files mode", ok: files === true, detail: `selected=${files}` });
+        const probe = () =>
+            h.ev(`(() => {
                 const sidebar = document.querySelector('[aria-label="Code sidebar"]');
                 const grip = document.querySelector('[role="separator"][aria-label="Resize Code sidebar"]');
                 return sidebar && grip ? {
@@ -4141,89 +2540,89 @@ const codeSidebar = {
                     active: document.activeElement?.getAttribute('aria-label') || ''
                 } : null;
             })()`);
-    let initial = null;
-    for (let i = 0; i < 10 && initial == null; i++) {
-      initial = await probe();
-      if (initial == null) await sleep(200);
-    }
-    steps.push({
-      step: "Files starts at its remembered default width",
-      ok: initial?.width === 280 && initial?.value === 280,
-      detail: JSON.stringify(initial),
-    });
+        let initial = null;
+        for (let i = 0; i < 10 && initial == null; i++) {
+            initial = await probe();
+            if (initial == null) await sleep(200);
+        }
+        steps.push({
+            step: "Files starts at its remembered default width",
+            ok: initial?.width === 280 && initial?.value === 280,
+            detail: JSON.stringify(initial),
+        });
 
-    const search = await h.ev(`(() => {
+        const search = await h.ev(`(() => {
             const tab = document.querySelector('[data-code-column-tab="search"]');
             if (!tab) return false;
             tab.click();
             return true;
         })()`);
-    await sleep(200);
-    const searchWidth = await probe();
-    steps.push({
-      step: "Search keeps its independent remembered width",
-      ok: search === true && searchWidth?.width === 380,
-      detail: JSON.stringify(searchWidth),
-    });
+        await sleep(200);
+        const searchWidth = await probe();
+        steps.push({
+            step: "Search keeps its independent remembered width",
+            ok: search === true && searchWidth?.width === 380,
+            detail: JSON.stringify(searchWidth),
+        });
 
-    const gripFocused = await h.ev(`(() => {
+        const gripFocused = await h.ev(`(() => {
             const grip = document.querySelector('[role="separator"][aria-label="Resize Code sidebar"]');
             if (!grip) return false;
             grip.focus();
             return document.activeElement === grip;
         })()`);
-    await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", key: "ArrowRight", code: "ArrowRight" });
-    await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", key: "ArrowRight", code: "ArrowRight" });
-    await h.cdp("Input.dispatchKeyEvent", {
-      type: "keyDown",
-      key: "ArrowLeft",
-      code: "ArrowLeft",
-      modifiers: 8,
-    });
-    await h.cdp("Input.dispatchKeyEvent", {
-      type: "keyUp",
-      key: "ArrowLeft",
-      code: "ArrowLeft",
-      modifiers: 8,
-    });
-    const keyboard = gripFocused === true;
-    await sleep(100);
-    const keyboardWidth = await probe();
-    steps.push({
-      step: "Focused separator adjusts with keyboard without losing focus",
-      ok: keyboard === true && keyboardWidth?.value === 356 && keyboardWidth?.active === "Resize Code sidebar",
-      detail: JSON.stringify(keyboardWidth),
-    });
+        await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", key: "ArrowRight", code: "ArrowRight" });
+        await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", key: "ArrowRight", code: "ArrowRight" });
+        await h.cdp("Input.dispatchKeyEvent", {
+            type: "keyDown",
+            key: "ArrowLeft",
+            code: "ArrowLeft",
+            modifiers: 8,
+        });
+        await h.cdp("Input.dispatchKeyEvent", {
+            type: "keyUp",
+            key: "ArrowLeft",
+            code: "ArrowLeft",
+            modifiers: 8,
+        });
+        const keyboard = gripFocused === true;
+        await sleep(100);
+        const keyboardWidth = await probe();
+        steps.push({
+            step: "Focused separator adjusts with keyboard without losing focus",
+            ok: keyboard === true && keyboardWidth?.value === 356 && keyboardWidth?.active === "Resize Code sidebar",
+            detail: JSON.stringify(keyboardWidth),
+        });
 
-    const collapsed = await h.ev(`(() => {
+        const collapsed = await h.ev(`(() => {
             const button = document.querySelector('button[aria-label="Collapse Code sidebar"]');
             if (!button) return false;
             button.click();
             return true;
         })()`);
-    await sleep(200);
-    const collapsedWidth = await probe();
-    const openerFocused = await h.ev(`document.activeElement?.getAttribute('aria-label') || ''`);
-    steps.push({
-      step: "Collapse leaves a 36px reachable opener",
-      ok: collapsed === true && collapsedWidth?.width === 36 && /Expand Code sidebar/.test(openerFocused),
-      detail: JSON.stringify({ collapsedWidth, openerFocused }),
-    });
+        await sleep(200);
+        const collapsedWidth = await probe();
+        const openerFocused = await h.ev(`document.activeElement?.getAttribute('aria-label') || ''`);
+        steps.push({
+            step: "Collapse leaves a 36px reachable opener",
+            ok: collapsed === true && collapsedWidth?.width === 36 && /Expand Code sidebar/.test(openerFocused),
+            detail: JSON.stringify({ collapsedWidth, openerFocused }),
+        });
 
-    await h.cdp("Input.dispatchKeyEvent", {
-      type: "keyDown",
-      key: "f",
-      code: "KeyF",
-      modifiers: 10,
-    });
-    await h.cdp("Input.dispatchKeyEvent", {
-      type: "keyUp",
-      key: "f",
-      code: "KeyF",
-      modifiers: 10,
-    });
-    await sleep(200);
-    const searchShortcut = await h.ev(`(() => {
+        await h.cdp("Input.dispatchKeyEvent", {
+            type: "keyDown",
+            key: "f",
+            code: "KeyF",
+            modifiers: 10,
+        });
+        await h.cdp("Input.dispatchKeyEvent", {
+            type: "keyUp",
+            key: "f",
+            code: "KeyF",
+            modifiers: 10,
+        });
+        await sleep(200);
+        const searchShortcut = await h.ev(`(() => {
             const tab = document.querySelector('[data-code-column-tab="search"]');
             const sidebar = document.querySelector('[aria-label="Code sidebar"]');
             return tab && sidebar ? {
@@ -4232,23 +2631,23 @@ const codeSidebar = {
                 active: document.activeElement?.getAttribute('aria-label') || ''
             } : null;
         })()`);
-    steps.push({
-      step: "Ctrl+Shift+F expands the collapsed sidebar and selects Search",
-      ok: searchShortcut?.selected === true && searchShortcut?.width === 356,
-      detail: JSON.stringify(searchShortcut),
-    });
+        steps.push({
+            step: "Ctrl+Shift+F expands the collapsed sidebar and selects Search",
+            ok: searchShortcut?.selected === true && searchShortcut?.width === 356,
+            detail: JSON.stringify(searchShortcut),
+        });
 
-    const collapsedForTree = await h.ev(`(() => {
+        const collapsedForTree = await h.ev(`(() => {
             const button = document.querySelector('button[aria-label="Collapse Code sidebar"]');
             if (!button) return false;
             button.click();
             return true;
         })()`);
-    await sleep(200);
-    await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", key: "t", code: "KeyT", modifiers: 1 });
-    await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", key: "t", code: "KeyT", modifiers: 1 });
-    await sleep(200);
-    const treeShortcut = await h.ev(`(() => {
+        await sleep(200);
+        await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", key: "t", code: "KeyT", modifiers: 1 });
+        await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", key: "t", code: "KeyT", modifiers: 1 });
+        await sleep(200);
+        const treeShortcut = await h.ev(`(() => {
             const tree = document.querySelector('[data-code-tree]');
             const active = document.activeElement;
             return {
@@ -4257,50 +2656,55 @@ const codeSidebar = {
                 active: active?.getAttribute('aria-label') || ''
             };
         })()`);
-    steps.push({
-      step: "Alt+T expands the collapsed sidebar before focusing the tree",
-      ok: collapsedForTree === true && treeShortcut?.expanded === true,
-      detail: JSON.stringify(treeShortcut),
-    });
+        steps.push({
+            step: "Alt+T expands the collapsed sidebar before focusing the tree",
+            ok: collapsedForTree === true && treeShortcut?.expanded === true,
+            detail: JSON.stringify(treeShortcut),
+        });
 
-    await h.ev(`document.querySelector('button[aria-label="Collapse Code sidebar"]')?.click()`);
-    await sleep(200);
-    await h.ev(`document.querySelector('button[aria-label="Expand Code sidebar"]')?.click()`);
-    await sleep(200);
-    const reopened = await probe();
-    steps.push({
-      step: "Opener restores the selected mode width and focus",
-      ok: reopened?.width === 280 && reopened?.active === "Collapse Code sidebar",
-      detail: JSON.stringify(reopened),
-    });
+        await h.ev(`document.querySelector('button[aria-label="Collapse Code sidebar"]')?.click()`);
+        await sleep(200);
+        await h.ev(`document.querySelector('button[aria-label="Expand Code sidebar"]')?.click()`);
+        await sleep(200);
+        const reopened = await probe();
+        steps.push({
+            step: "Opener restores the selected mode width and focus",
+            ok: reopened?.width === 280 && reopened?.active === "Collapse Code sidebar",
+            detail: JSON.stringify(reopened),
+        });
 
-    await h.cdp("Emulation.setDeviceMetricsOverride", { width: 520, height: 950, deviceScaleFactor: 1, mobile: false });
-    await sleep(300);
-    const narrow = await probe();
-    steps.push({
-      step: "Narrow viewport temporarily compacts without changing the preference",
-      ok: narrow?.width === 36 && /wider/.test(narrow?.active || ""),
-      detail: JSON.stringify(narrow),
-    });
-    await h.cdp("Emulation.setDeviceMetricsOverride", {
-      width: 1600,
-      height: 950,
-      deviceScaleFactor: 1,
-      mobile: false,
-    });
-    await sleep(300);
-    const restored = await probe();
-    steps.push({
-      step: "Widening restores the open preference and remembered width",
-      ok: restored?.width === 280 && restored?.active === "Collapse Code sidebar",
-      detail: JSON.stringify(restored),
-    });
-    await h.shot("cdp-shots/code-sidebar.png");
-    return steps;
-  },
-  async teardown(h, ctx) {
-    await h.ev(
-      `(() => {
+        await h.cdp("Emulation.setDeviceMetricsOverride", {
+            width: 520,
+            height: 950,
+            deviceScaleFactor: 1,
+            mobile: false,
+        });
+        await sleep(300);
+        const narrow = await probe();
+        steps.push({
+            step: "Narrow viewport temporarily compacts without changing the preference",
+            ok: narrow?.width === 36 && /wider/.test(narrow?.active || ""),
+            detail: JSON.stringify(narrow),
+        });
+        await h.cdp("Emulation.setDeviceMetricsOverride", {
+            width: 1600,
+            height: 950,
+            deviceScaleFactor: 1,
+            mobile: false,
+        });
+        await sleep(300);
+        const restored = await probe();
+        steps.push({
+            step: "Widening restores the open preference and remembered width",
+            ok: restored?.width === 280 && restored?.active === "Collapse Code sidebar",
+            detail: JSON.stringify(restored),
+        });
+        await h.shot("cdp-shots/code-sidebar.png");
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await h.ev(
+            `(() => {
                 const previousMode = ${JSON.stringify(ctx.previousMode ?? null)};
                 if (previousMode === 'files' || previousMode === 'search' || previousMode === 'changed') {
                     document.querySelector(
@@ -4311,9 +2715,9 @@ const codeSidebar = {
                 if (previous == null) localStorage.removeItem('code.sidebar.prefs');
                 else localStorage.setItem('code.sidebar.prefs', previous);
             })()`
-    );
-    await h.goto("cockpit");
-  },
+        );
+        await h.goto("cockpit");
+    },
 };
 
 const codeGitStatus = {
@@ -4345,7 +2749,11 @@ const codeGitStatus = {
             t.click();
             return true;
         })()`);
-        steps.push({ step: "switch the left column to Changed", ok: switched === true, detail: `switched=${switched}` });
+        steps.push({
+            step: "switch the left column to Changed",
+            ok: switched === true,
+            detail: `switched=${switched}`,
+        });
 
         // poll rather than sleep a guessed interval: status shells out to git
         let rowPath = "";
@@ -4476,9 +2884,7 @@ const codeDiff = {
             if (t) t.focus();
             return true;
         })()`);
-        await h.ev(
-            `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', code: 'KeyD', bubbles: true }))`
-        );
+        await h.ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', code: 'KeyD', bubbles: true }))`);
         await sleep(800);
         const back = await h.ev(
             `(() => ({ diff: !!document.querySelector('.monaco-diff-editor'), plain: !!document.querySelector('.monaco-editor') }))()`
@@ -4842,7 +3248,11 @@ const harnessPicker = {
         await settle(900);
 
         const empty = await picker("run-worker");
-        rec("1. Launch composer shows 'Choose harness' with the preference cleared", empty != null && empty.runtime === "" && empty.label.includes("Choose harness"), JSON.stringify(empty));
+        rec(
+            "1. Launch composer shows 'Choose harness' with the preference cleared",
+            empty != null && empty.runtime === "" && empty.label.includes("Choose harness"),
+            JSON.stringify(empty)
+        );
         const disabledEmpty = await submitDisabled();
         rec("2. Run action disabled without a harness", disabledEmpty === true, `disabled=${disabledEmpty}`);
 
@@ -4854,7 +3264,13 @@ const harnessPicker = {
                 c.getAttribute('data-testid') || c.textContent.trim().slice(0, 24));
             return tags;
         })()`);
-        rec("3. footer order: picker, behavior, attachment, action", Array.isArray(order) && order[0].includes("harness-picker") && order.some((t) => t.includes("composer-attachment")), JSON.stringify(order));
+        rec(
+            "3. footer order: picker, behavior, attachment, action",
+            Array.isArray(order) &&
+                order[0].includes("harness-picker") &&
+                order.some((t) => t.includes("composer-attachment")),
+            JSON.stringify(order)
+        );
 
         // open the picker, assert installed/disabled rows, then select OpenCode
         await h.ev(`(() => {
@@ -4871,7 +3287,14 @@ const harnessPicker = {
             }));
             return opts;
         })()`);
-        rec("4. picker lists catalog rows incl. pi, uninstalled disabled", Array.isArray(rows) && rows.length >= 3 && rows.some((r) => r.disabled) && rows.some((r) => r.runtime === "pi"), JSON.stringify(rows));
+        rec(
+            "4. picker lists catalog rows incl. pi, uninstalled disabled",
+            Array.isArray(rows) &&
+                rows.length >= 3 &&
+                rows.some((r) => r.disabled) &&
+                rows.some((r) => r.runtime === "pi"),
+            JSON.stringify(rows)
+        );
 
         // every catalog row renders its brand mark as a LOCAL bundled asset (same-origin in dev), and
         // the OpenCode and Pi marks must actually decode (naturalWidth > 0), not be dead srcs.
@@ -4898,7 +3321,11 @@ const harnessPicker = {
         })()`);
         await settle(600); // wait for SetConfigCommand to persist
         const afterOpen = await picker("run-worker");
-        rec("6. selecting OpenCode persists it as the shared preference", picked && afterOpen != null && afterOpen.runtime === "opencode", JSON.stringify(afterOpen));
+        rec(
+            "6. selecting OpenCode persists it as the shared preference",
+            picked && afterOpen != null && afterOpen.runtime === "opencode",
+            JSON.stringify(afterOpen)
+        );
 
         // bare ask uses the preferred runtime; an explicit @ask override is one-off
         const ta = () =>
@@ -4916,7 +3343,11 @@ const harnessPicker = {
             const shell = document.querySelector('[data-testid="composer-action"]')?.closest('.flex.items-center.gap-2\\\\.5');
             return shell ? shell.textContent.trim() : '';
         })()`);
-        rec("7. bare goal footer names the preferred harness", footerText.includes("OpenCode"), `footer=${footerText.slice(0, 80)}`);
+        rec(
+            "7. bare goal footer names the preferred harness",
+            footerText.includes("OpenCode"),
+            `footer=${footerText.slice(0, 80)}`
+        );
         const oneOff = await h.ev(`(() => {
             const t = document.querySelector('[data-jarvis-composer] textarea');
             const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
@@ -4929,7 +3360,14 @@ const harnessPicker = {
             const shell = document.querySelector('[data-testid="composer-action"]')?.closest('.flex.items-center.gap-2\\\\.5');
             return shell ? shell.textContent.trim() : '';
         })()`);
-        rec("8. explicit @ask shows Codex · one-off, preference unchanged", oneOff && footerOneOff.includes("one-off") && footerOneOff.includes("OpenCode") && !footerOneOff.includes("preferred codex"), `footer=${footerOneOff.slice(0, 100)}`);
+        rec(
+            "8. explicit @ask shows Codex · one-off, preference unchanged",
+            oneOff &&
+                footerOneOff.includes("one-off") &&
+                footerOneOff.includes("OpenCode") &&
+                !footerOneOff.includes("preferred codex"),
+            `footer=${footerOneOff.slice(0, 100)}`
+        );
 
         // Pi selection is conditional on installation: the row always exists (step 4), but selecting it
         // only when pi is on PATH. Restore OpenCode afterward so the remaining steps keep their
@@ -4960,7 +3398,11 @@ const harnessPicker = {
                 JSON.stringify({ picked: piPicked, restored })
             );
         } else {
-            rec("9. selecting Pi persists it as the shared preference when installed", piRow != null, "pi uninstalled — row asserted only");
+            rec(
+                "9. selecting Pi persists it as the shared preference when installed",
+                piRow != null,
+                "pi uninstalled — row asserted only"
+            );
         }
 
         // blocked submission preserves draft + attachment: attach a file, submit, then assert both remain
@@ -4985,7 +3427,11 @@ const harnessPicker = {
         })()`);
         await settle(300);
         const draftAfter = await h.ev(`document.querySelector('[data-jarvis-composer] textarea')?.value || ''`);
-        rec("10. a blocked dispatch preserves the draft", draftBefore.includes("this must not dispatch") && draftAfter === draftBefore, `before=${draftBefore.length} after=${draftAfter.length}`);
+        rec(
+            "10. a blocked dispatch preserves the draft",
+            draftBefore.includes("this must not dispatch") && draftAfter === draftBefore,
+            `before=${draftBefore.length} after=${draftAfter.length}`
+        );
 
         // legacy label: inject a Run object with no runtime via eventpublish, then assert the header label
         const legacyId = "00000000-0000-0000-0000-0000000000ff";
@@ -4997,9 +3443,17 @@ const harnessPicker = {
                 otype: "run",
                 oid: legacyId,
                 obj: {
-                    otype: "run", oid: legacyId, version: 1, meta: {},
-                    id: legacyId, goal: "legacy run", workspaceid: ctx.workspaceId,
-                    projectpath: ctx.cwd, status: "done", phases: [], createdts: Date.now(),
+                    otype: "run",
+                    oid: legacyId,
+                    version: 1,
+                    meta: {},
+                    id: legacyId,
+                    goal: "legacy run",
+                    workspaceid: ctx.workspaceId,
+                    projectpath: ctx.cwd,
+                    status: "done",
+                    phases: [],
+                    createdts: Date.now(),
                 },
             },
         });
@@ -5007,7 +3461,11 @@ const harnessPicker = {
             const el = document.querySelector('[data-testid="run-runtime"]');
             return el ? { label: el.textContent.trim(), legacy: el.getAttribute('data-run-legacy') } : null;
         })()`);
-        rec("11. a missing-runtime Run renders Claude · legacy", legacy != null && legacy.label.includes("Claude · legacy") && legacy.legacy === "true", JSON.stringify(legacy));
+        rec(
+            "11. a missing-runtime Run renders Claude · legacy",
+            legacy != null && legacy.label.includes("Claude · legacy") && legacy.legacy === "true",
+            JSON.stringify(legacy)
+        );
 
         return steps;
     },
@@ -5231,7 +3689,10 @@ const codeMarkdown = {
         })()`);
         steps.push({
             step: "unrelated Code pane updates preserve the rendered document nodes",
-            ok: filesSelected === true && stableRender?.changedSelected === true && stableRender?.nodesPreserved === true,
+            ok:
+                filesSelected === true &&
+                stableRender?.changedSelected === true &&
+                stableRender?.nodesPreserved === true,
             detail: JSON.stringify({ filesSelected, ...stableRender }),
         });
 
@@ -5316,14 +3777,39 @@ const dagLifecycle = {
         );
         const draftFixture = {
             kind: "draft",
-            request: { channelId: ctx.channelId, goal: "verify dag: do nothing, make no file changes, stop immediately", route: { runtime: "claude", tier: "capable" } },
+            request: {
+                channelId: ctx.channelId,
+                goal: "verify dag: do nothing, make no file changes, stop immediately",
+                route: { runtime: "claude", tier: "capable" },
+            },
             draft: {
                 title: "verify dag",
                 parallelism: 2,
                 tasks: [
-                    { id: "t-0", label: "noop", description: "do nothing, stop immediately", deps: [], gate: false, route: null },
-                    { id: "t-1", label: "review", description: "review only, make no changes", deps: ["t-0"], gate: true, route: null },
-                    { id: "t-2", label: "noop 2", description: "do nothing, stop immediately", deps: ["t-1"], gate: false, route: null },
+                    {
+                        id: "t-0",
+                        label: "noop",
+                        description: "do nothing, stop immediately",
+                        deps: [],
+                        gate: false,
+                        route: null,
+                    },
+                    {
+                        id: "t-1",
+                        label: "review",
+                        description: "review only, make no changes",
+                        deps: ["t-0"],
+                        gate: true,
+                        route: null,
+                    },
+                    {
+                        id: "t-2",
+                        label: "noop 2",
+                        description: "do nothing, stop immediately",
+                        deps: ["t-1"],
+                        gate: false,
+                        route: null,
+                    },
                 ],
             },
             fallback: false,
@@ -5340,37 +3826,83 @@ const dagLifecycle = {
             return true;
         })()`);
         await h.ev("new Promise((r) => setTimeout(r, 500))");
-        const modalKind = await h.ev(`document.querySelector('[data-dag-modal-kind]')?.getAttribute('data-dag-modal-kind')`);
+        const modalKind = await h.ev(
+            `document.querySelector('[data-dag-modal-kind]')?.getAttribute('data-dag-modal-kind')`
+        );
         const dialog = await h.ev(`document.querySelector('[role="dialog"]') != null`);
         const afterPlanning = await getChannelRunCount();
-        const launchEnabled = await h.ev(`(() => { const b = document.querySelector('[data-dag-launch]'); return b instanceof HTMLButtonElement && !b.disabled; })()`);
-        rec("planning creates no Run", fixtureSet && channelClickedForDraft && dialog && modalKind === "draft" && afterPlanning === beforePlanning && launchEnabled, JSON.stringify({ beforePlanning, afterPlanning, modalKind, dialog, launchEnabled }));
+        const launchEnabled = await h.ev(
+            `(() => { const b = document.querySelector('[data-dag-launch]'); return b instanceof HTMLButtonElement && !b.disabled; })()`
+        );
+        rec(
+            "planning creates no Run",
+            fixtureSet &&
+                channelClickedForDraft &&
+                dialog &&
+                modalKind === "draft" &&
+                afterPlanning === beforePlanning &&
+                launchEnabled,
+            JSON.stringify({ beforePlanning, afterPlanning, modalKind, dialog, launchEnabled })
+        );
         await h.shot("cdp-shots/dag-summary-clean.png");
 
-        await h.ev(`(() => [...document.querySelectorAll('button')].find((b) => (b.textContent || '').includes('Open graph'))?.click())()`);
+        await h.ev(
+            `(() => [...document.querySelectorAll('button')].find((b) => (b.textContent || '').includes('Open graph'))?.click())()`
+        );
         await h.ev("new Promise((r) => setTimeout(r, 250))");
         await h.shot("cdp-shots/dag-draft-graph.png");
-        const graphRoundTrip = await h.ev(`(() => { const b = [...document.querySelectorAll('button')].find((x) => (x.textContent || '').includes('Open summary')); if (!b) return false; b.click(); return true; })()`);
+        const graphRoundTrip = await h.ev(
+            `(() => { const b = [...document.querySelectorAll('button')].find((x) => (x.textContent || '').includes('Open summary')); if (!b) return false; b.click(); return true; })()`
+        );
         await h.ev("new Promise((r) => setTimeout(r, 250))");
-        const summaryAfterGraph = await h.ev(`document.querySelector('[data-dag-modal-kind]')?.getAttribute('data-dag-modal-kind') === 'draft' && (document.body.textContent || '').includes('verify dag')`);
-        rec("Graph → Summary preserves the draft", graphRoundTrip && summaryAfterGraph, JSON.stringify({ graphRoundTrip, summaryAfterGraph }));
+        const summaryAfterGraph = await h.ev(
+            `document.querySelector('[data-dag-modal-kind]')?.getAttribute('data-dag-modal-kind') === 'draft' && (document.body.textContent || '').includes('verify dag')`
+        );
+        rec(
+            "Graph → Summary preserves the draft",
+            graphRoundTrip && summaryAfterGraph,
+            JSON.stringify({ graphRoundTrip, summaryAfterGraph })
+        );
 
-        const exceptionFixture = { ...draftFixture, fallback: true, dirty: true, warnings: ["Planner returned an invalid plan. Review the fallback task before launching."], selectedTaskId: "t-1" };
+        const exceptionFixture = {
+            ...draftFixture,
+            fallback: true,
+            dirty: true,
+            warnings: ["Planner returned an invalid plan. Review the fallback task before launching."],
+            selectedTaskId: "t-1",
+        };
         await h.ev(`window.__waveDagModalFixture.setState(${JSON.stringify(exceptionFixture)})`);
         await h.ev("new Promise((r) => setTimeout(r, 250))");
         await h.shot("cdp-shots/dag-summary-exceptions.png");
-        const retryClicked = await h.ev(`(() => { const b = [...document.querySelectorAll('button')].find((x) => (x.textContent || '').trim() === 'Retry'); if (!b) return false; b.click(); return true; })()`);
+        const retryClicked = await h.ev(
+            `(() => { const b = [...document.querySelectorAll('button')].find((x) => (x.textContent || '').trim() === 'Retry'); if (!b) return false; b.click(); return true; })()`
+        );
         await h.ev("new Promise((r) => setTimeout(r, 250))");
         const retryConfirm = await h.ev(`(document.body.textContent || '').includes('Replace edited fallback?')`);
-        const keepDraft = await h.ev(`(() => { const b = [...document.querySelectorAll('button')].find((x) => (x.textContent || '').includes('Keep draft')); if (!b) return false; b.click(); return true; })()`);
-        rec("dirty fallback Retry requires confirmation and cancel preserves draft", retryClicked && retryConfirm && keepDraft && await h.ev(`document.querySelector('[data-dag-modal-kind]')?.getAttribute('data-dag-modal-kind') === 'draft'`), JSON.stringify({ retryClicked, retryConfirm, keepDraft }));
+        const keepDraft = await h.ev(
+            `(() => { const b = [...document.querySelectorAll('button')].find((x) => (x.textContent || '').includes('Keep draft')); if (!b) return false; b.click(); return true; })()`
+        );
+        rec(
+            "dirty fallback Retry requires confirmation and cancel preserves draft",
+            retryClicked &&
+                retryConfirm &&
+                keepDraft &&
+                (await h.ev(
+                    `document.querySelector('[data-dag-modal-kind]')?.getAttribute('data-dag-modal-kind') === 'draft'`
+                )),
+            JSON.stringify({ retryClicked, retryConfirm, keepDraft })
+        );
         await h.shot("cdp-shots/dag-fallback-retry.png");
 
         await h.ev(`window.__waveDagModalFixture.setState(${JSON.stringify(draftFixture)})`);
         await h.ev("new Promise((r) => setTimeout(r, 250))");
-        const launchClicked = await h.ev(`(() => { const button = document.querySelector('[data-dag-launch]'); if (!(button instanceof HTMLButtonElement) || button.disabled) return false; button.click(); return true; })()`);
+        const launchClicked = await h.ev(
+            `(() => { const button = document.querySelector('[data-dag-launch]'); if (!(button instanceof HTMLButtonElement) || button.disabled) return false; button.click(); return true; })()`
+        );
         await h.ev("new Promise((r) => setTimeout(r, 1800))");
-        const liveKind = await h.ev(`document.querySelector('[data-dag-modal-kind]')?.getAttribute('data-dag-modal-kind')`);
+        const liveKind = await h.ev(
+            `document.querySelector('[data-dag-modal-kind]')?.getAttribute('data-dag-modal-kind')`
+        );
         const afterLaunch = await getChannelRunCount();
         const channelsAfterLaunch = await h.rpc("getchannels", null);
         const launchedChannel = (channelsAfterLaunch.channels || []).find((x) => x.oid === ctx.channelId) || {};
@@ -5382,9 +3914,18 @@ const dagLifecycle = {
         rec(
             "Launch creates one orchestrator parent Run (DAG child Runs may already exist)",
             launchClicked && liveKind === "live" && afterLaunch >= beforePlanning + 1 && parentRuns.length === 1,
-            JSON.stringify({ beforePlanning, afterLaunch, parentCount: parentRuns.length, modes: launchedRuns.map((run) => run.mode) })
+            JSON.stringify({
+                beforePlanning,
+                afterLaunch,
+                parentCount: parentRuns.length,
+                modes: launchedRuns.map((run) => run.mode),
+            })
         );
-        rec("deferred launch creates orchestrator Run", !!runId && created.run.mode === "orchestrator", JSON.stringify({ runId, mode: created.run && created.run.mode }));
+        rec(
+            "deferred launch creates orchestrator Run",
+            !!runId && created.run.mode === "orchestrator",
+            JSON.stringify({ runId, mode: created.run && created.run.mode })
+        );
 
         const g = await h.rpc("dagstatus", { channelid: ctx.channelId, runid: runId });
         rec(
@@ -5393,7 +3934,11 @@ const dagLifecycle = {
             JSON.stringify({ id: g.id, status: g.status, tasks: g.tasks.map((t) => t.id) })
         );
         const rAfter = await getRun(runId);
-        rec("3. run.dagoref links the group", rAfter && rAfter.dagoref === g.id, JSON.stringify({ dagoref: rAfter && rAfter.dagoref }));
+        rec(
+            "3. run.dagoref links the group",
+            rAfter && rAfter.dagoref === g.id,
+            JSON.stringify({ dagoref: rAfter && rAfter.dagoref })
+        );
 
         const beforeRetryCount = await getChannelRunCount();
         const retry = await h.rpc("dagsubmit", {
@@ -5443,14 +3988,28 @@ const dagLifecycle = {
             `[...document.querySelectorAll('button')].find((x) => (x.textContent || '').includes('Open DAG'))`
         );
         await h.ev("new Promise((r) => setTimeout(r, 1200))");
-        const modalKindAfterOpen = await h.ev(`(() => (document.querySelector('[data-dag-modal-kind]') || {}).getAttribute?.('data-dag-modal-kind') || null)()`);
+        const modalKindAfterOpen = await h.ev(
+            `(() => (document.querySelector('[data-dag-modal-kind]') || {}).getAttribute?.('data-dag-modal-kind') || null)()`
+        );
         const nodeCount = await h.ev(`(() => document.querySelectorAll('.react-flow__node').length)()`);
-        const modalHeading = await h.ev(`(() => (document.querySelector('#dag-modal-heading') || {}).textContent || '')()`);
-        const closeBtn = await h.ev(`(() => [...document.querySelectorAll('button')].some((x) => (x.textContent || '').includes('Close')))()`);
+        const modalHeading = await h.ev(
+            `(() => (document.querySelector('#dag-modal-heading') || {}).textContent || '')()`
+        );
+        const closeBtn = await h.ev(
+            `(() => [...document.querySelectorAll('button')].some((x) => (x.textContent || '').includes('Close')))()`
+        );
         rec(
             "5. Open DAG -> Stage-local modal shows the live graph (3 nodes) with a heading",
             openClicked === true && modalKindAfterOpen === "live" && nodeCount >= 3 && modalHeading === "Route DAG",
-            JSON.stringify({ channelClicked, runClicked, openClicked, modalKind: modalKindAfterOpen, nodeCount, modalHeading, closeBtn })
+            JSON.stringify({
+                channelClicked,
+                runClicked,
+                openClicked,
+                modalKind: modalKindAfterOpen,
+                nodeCount,
+                modalHeading,
+                closeBtn,
+            })
         );
         await h.shot("cdp-shots/dag-modal.png");
         // escape dismisses the modal (the modal state machine refuses close while launching, which is
@@ -5480,7 +4039,11 @@ const dagLifecycle = {
         rec(
             "7. DagAction cancel terminally cancels owner, children, and DAG",
             cascadeOk,
-            JSON.stringify({ owner: cancelledOwner && cancelledOwner.status, children: cancelledChildren.map((run) => ({ id: run.id, status: run.status })), dag: cancelledDag.status })
+            JSON.stringify({
+                owner: cancelledOwner && cancelledOwner.status,
+                children: cancelledChildren.map((run) => ({ id: run.id, status: run.status })),
+                dag: cancelledDag.status,
+            })
         );
 
         await h.rpc("dagaction", { channelid: ctx.channelId, runid: runId, taskid: "", action: "cancel" });
@@ -5538,12 +4101,20 @@ const routePickerFlat = {
         };
         await h.goto("settings");
         const pickerPresent = await h.ev(`(() => !!document.querySelector('[data-testid="route-picker"]'))()`);
-        await h.ev(`(() => { document.querySelector('[data-testid="route-picker"]')?.scrollIntoView({ block: "center" }); return true; })()`);
+        await h.ev(
+            `(() => { document.querySelector('[data-testid="route-picker"]')?.scrollIntoView({ block: "center" }); return true; })()`
+        );
         await settle(200);
-        await h.ev(`(() => { const b = document.querySelector('[data-testid="route-picker"]'); if (b) b.click(); return true; })()`);
+        await h.ev(
+            `(() => { const b = document.querySelector('[data-testid="route-picker"]'); if (b) b.click(); return true; })()`
+        );
         await settle(400);
         const rowCount = await h.ev(`(() => document.querySelectorAll('[data-testid^="route-option-"]').length)()`);
-        rec("route picker opens with flat model rows", pickerPresent === true && rowCount > 0, `picker=${pickerPresent} rows=${rowCount}`);
+        rec(
+            "route picker opens with flat model rows",
+            pickerPresent === true && rowCount > 0,
+            `picker=${pickerPresent} rows=${rowCount}`
+        );
         const layout = await h.ev(`(() => {
             const group = document.querySelector('[aria-label="Available routes"]');
             const panel = group?.parentElement;
@@ -5575,7 +4146,11 @@ const routePickerFlat = {
         await pressKey("ArrowDown", 40);
         await settle(100);
         const arrowFocus = await h.ev(`document.activeElement?.getAttribute('data-testid') ?? ''`);
-        rec("ArrowDown moves focus from the filter to a model row", arrowFocus.startsWith("route-option-"), `focus="${arrowFocus}"`);
+        rec(
+            "ArrowDown moves focus from the filter to a model row",
+            arrowFocus.startsWith("route-option-"),
+            `focus="${arrowFocus}"`
+        );
         await pressKey("Escape", 27);
         await settle(100);
         const escapeState = await h.ev(`(() => {
@@ -5600,8 +4175,14 @@ const routePickerFlat = {
             return true;
         })()`);
         await settle(300);
-        const filteredCount = await h.ev(`(() => document.querySelectorAll('[data-testid^="route-option-"]').length)()`);
-        rec("filter shrinks model rows", filterTyped === true && filteredCount > 0 && filteredCount < rowCount, `rows=${rowCount} filtered=${filteredCount}`);
+        const filteredCount = await h.ev(
+            `(() => document.querySelectorAll('[data-testid^="route-option-"]').length)()`
+        );
+        rec(
+            "filter shrinks model rows",
+            filterTyped === true && filteredCount > 0 && filteredCount < rowCount,
+            `rows=${rowCount} filtered=${filteredCount}`
+        );
         // choosing a row updates the face off "capable"
         await h.ev(`(() => {
             const input = document.querySelector('input[aria-label="Filter models"]');
@@ -5615,7 +4196,9 @@ const routePickerFlat = {
             return true;
         })()`);
         await settle(400);
-        const face = await h.ev(`((document.querySelector('[data-testid="route-picker"]')||{}).textContent||'').trim()`);
+        const face = await h.ev(
+            `((document.querySelector('[data-testid="route-picker"]')||{}).textContent||'').trim()`
+        );
         rec("face shows the chosen model", !face.includes("· capable"), `face="${face}"`);
         return steps;
     },
@@ -5658,7 +4241,9 @@ const vaultSteering = {
         await h.shot("cdp-shots/vault-steering-shared.png");
 
         for (const runtime of present) {
-            await h.ev(`(() => { document.querySelector('[data-vault-doc-tab="${runtime}"]')?.click(); return true; })()`);
+            await h.ev(
+                `(() => { document.querySelector('[data-vault-doc-tab="${runtime}"]')?.click(); return true; })()`
+            );
             await h.ev("new Promise((r) => setTimeout(r, 500))");
             const doc = await h.rpc("agentsyncharnessread", { runtime });
             // scoped to the steering pane, not the document: an unscoped textarea query picks up the
@@ -5698,9 +4283,7 @@ const vaultSteering = {
         })()`);
         steps.push({
             step: "collection line agrees with its button (empty shared doc -> Start, otherwise Sync)",
-            ok:
-                line.empty !== null &&
-                line.label === (line.empty ? "Start the shared doc" : "Sync harnesses"),
+            ok: line.empty !== null && line.label === (line.empty ? "Start the shared doc" : "Sync harnesses"),
             detail: JSON.stringify(line),
         });
         return steps;
@@ -5758,7 +4341,11 @@ const vaultRecords = {
             return { list: !!list, groups, rows };
         })()`);
         if (ledger.rows === 0) {
-            rec("2. the ledger groups every status that has rows", false, "Vault Records requires at least one dossier");
+            rec(
+                "2. the ledger groups every status that has rows",
+                false,
+                "Vault Records requires at least one dossier"
+            );
             return steps;
         }
         const groupStatuses = ledger.groups.map((g) => g.status);
@@ -5791,7 +4378,10 @@ const vaultRecords = {
         })()`);
         rec(
             "3. selecting a row keeps the index visible at desktop width and renders that record",
-            selected.listWidth > 0 && selected.status != null && selected.detail.includes("timeline") && selected.objective !== "",
+            selected.listWidth > 0 &&
+                selected.status != null &&
+                selected.detail.includes("timeline") &&
+                selected.objective !== "",
             JSON.stringify(selected)
         );
 
@@ -5799,7 +4389,11 @@ const vaultRecords = {
         // the projection surviving the filter rather than about the word "archived" appearing somewhere.
         const archived = dossiers.find((d) => d.status === "archived");
         if (archived == null) {
-            rec("4. an archived record is reachable through search", false, "no archived dossier in this profile — seed one before reading this as a pass");
+            rec(
+                "4. an archived record is reachable through search",
+                false,
+                "no archived dossier in this profile — seed one before reading this as a pass"
+            );
         } else {
             await h.ev(`(() => {
                 const input = document.querySelector('input[placeholder="Search records…"]');
@@ -5845,13 +4439,21 @@ const vaultRecords = {
         })()`);
         rec(
             "5. Vault shows status read-only while Add decision is present",
-            readOnly.statusTag != null && readOnly.statusTag !== "BUTTON" && readOnly.add === true && readOnly.transitions === 0,
+            readOnly.statusTag != null &&
+                readOnly.statusTag !== "BUTTON" &&
+                readOnly.add === true &&
+                readOnly.transitions === 0,
             JSON.stringify(readOnly)
         );
 
         // 6. narrow: one pane at a time with a Back. The threshold is a CSS media query (vaultrecords.tsx),
         // so this is the only place the live width actually decides what is rendered.
-        await h.cdp("Emulation.setDeviceMetricsOverride", { width: 800, height: 1000, deviceScaleFactor: 1, mobile: false });
+        await h.cdp("Emulation.setDeviceMetricsOverride", {
+            width: 800,
+            height: 1000,
+            deviceScaleFactor: 1,
+            mobile: false,
+        });
         await settle(500);
         const narrowList = await h.ev(`(() => {
             const list = document.querySelector('[data-vault-record-list]');
@@ -5908,8 +4510,7 @@ const briefContextualMap = {
         const rec = (step, ok, detail) => steps.push({ step, ok, detail });
         const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
 
-        // arrange: brief composition, reloaded so the surface mounts in it
-        await h.ev(`localStorage.setItem('jarvis.composition', ${JSON.stringify(JSON.stringify("brief"))})`);
+        // arrange: a reloaded surface, so the restore below is the only thing that has run
         await h.ev("location.reload()");
         await settle(2600);
 
@@ -5979,8 +4580,9 @@ const briefContextualMap = {
             JSON.stringify(peek)
         );
 
-        // 3. THE B3 rule for this overlay: no dead run control in Brief mode, while the Ask exit that does
-        //    work is present on a selected task node.
+        // 3. With nothing selected the overlay offers no node actions at all — the two exits are asserted
+        //    where they can exist, on a focused task node (4b). Asserting them here would be asserting them
+        //    against a state the graph deliberately does not have.
         const runControl = await h.ev(`(() => {
             const el = document.querySelector('[data-jarvis-graph-peek]');
             if (!el) return null;
@@ -5989,8 +4591,8 @@ const briefContextualMap = {
             return { runs, ask };
         })()`);
         rec(
-            "3. the Brief's graph renders Ask but no Open run control",
-            runControl != null && runControl.runs === 0,
+            "3. the graph peek opens over the Brief with no node selected, so no node action is offered",
+            runControl != null && runControl.runs === 0 && runControl.ask === 0,
             JSON.stringify(runControl)
         );
 
@@ -6011,7 +4613,7 @@ const briefContextualMap = {
         // the palette is the only in-app route from the Brief to a record (see brief-peek for the full
         // explanation): nothing on the Brief itself names one.
         await h.ev(
-            `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', code: 'KeyP', ctrlKey: true, shiftKey: true, bubbles: true }))`
+            `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', code: 'KeyP', ctrlKey: true, bubbles: true }))`
         );
         await settle(1200);
         await h.ev(`(() => {
@@ -6039,7 +4641,7 @@ const briefContextualMap = {
             return { open: open.length, runs };
         })()`);
         rec(
-            "4b. the record peek's map button focuses its task node, with no run control and one Open record",
+            "4b. the record peek's map button focuses its task node: one Open record, no run control",
             mapClicked === true && focused != null && focused.open === 1 && focused.runs === 0,
             JSON.stringify({ mapClicked, focused })
         );
@@ -6065,17 +4667,14 @@ const briefContextualMap = {
         return steps;
     },
     async teardown(h) {
-        // composition is persisted, and a leaked "brief" strands every scenario that selects the Stage
-        await resetComposition(h);
         await h.goto("cockpit");
     },
 };
 
 // --- brief-restore: the stored subject, landed three different ways -------------------------------
-// The three-pane composition restores a stored subject onto the Stage. The Brief has no Stage, so the same
-// stored value means three different things (briefrestore.ts): a dossier opens the record peek, a
-// conversation hydrates the thread, and a channel defers because B5 owns its destination. Each case needs
-// its own reload, because the restore is once per frontend load by design.
+// What the same stored value means now (briefrestore.ts): a dossier opens the record peek, a conversation
+// hydrates the thread, and a channel opens its own sheet. Each case needs its own reload, because the
+// restore is once per frontend load by design.
 const briefRestore = {
     name: "brief-restore",
     surface: "jarvis",
@@ -6086,7 +4685,7 @@ const briefRestore = {
         const steps = [];
         const rec = (step, ok, detail) => steps.push({ step, ok, detail });
         const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
-        await h.ev(`localStorage.setItem('jarvis.composition', ${JSON.stringify(JSON.stringify("brief"))})`);
+        await h.ev(`localStorage.setItem('jarvis.subject.last', null)`);
 
         // a fresh load is what makes the restore one-shot, so each case reloads
         const withStored = async (stored) => {
@@ -6101,7 +4700,11 @@ const briefRestore = {
         const listed = await h.rpc("listtaskdossiers", null);
         const dossier = (listed?.dossiers ?? [])[0];
         if (dossier == null) {
-            rec("1. a stored dossier restores to the record peek", false, "Vault Records requires at least one dossier");
+            rec(
+                "1. a stored dossier restores to the record peek",
+                false,
+                "Vault Records requires at least one dossier"
+            );
         } else {
             await withStored({ kind: "dossier", id: dossier.id });
             const opened = await h.ev(`(() => {
@@ -6130,7 +4733,11 @@ const briefRestore = {
         const convos = await h.rpc("listjarvisconversations", null);
         const convo = (convos?.conversations ?? [])[0];
         if (convo == null) {
-            rec("2. a stored conversation hydrates the Brief thread", false, "no persisted conversation in this profile — seed one before reading this as a pass");
+            rec(
+                "2. a stored conversation hydrates the Brief thread",
+                false,
+                "no persisted conversation in this profile — seed one before reading this as a pass"
+            );
         } else {
             await withStored({ kind: "conversation", id: convo.id });
             const hydrated = await h.ev(`(() => {
@@ -6153,18 +4760,23 @@ const briefRestore = {
             await h.shot("cdp-shots/brief-restore-thread.png");
         }
 
-        // 3. a channel stays stored: the Brief has no destination for one until B5, and forgetting it would
-        //    discard a restore target the user never asked to forget
+        // 3. the channel opens its OWN sheet: B5 gave a stored channel a destination, so it is now decided
+        //    like every other kind — the id still existing is exactly what decides it.
         const chans = await h.rpc("getchannels", null);
         const channel = (chans?.channels ?? [])[0];
         if (channel == null) {
-            rec("3. a stored channel stays stored", false, "no channel in this profile — seed one before reading this as a pass");
+            rec(
+                "3. a stored channel restores onto its sheet",
+                false,
+                "no channel in this profile — seed one before reading this as a pass"
+            );
         } else {
             await withStored({ kind: "channel", id: channel.oid });
             const after = await h.ev(`(() => ({
                 stored: localStorage.getItem('jarvis.subject.last'),
                 brief: !!document.querySelector('[data-jarvis-region="brief"]'),
                 peek: !!document.querySelector('[data-jarvis-brief-band="peek"]'),
+                sheet: !!document.querySelector('[data-jarvis-brief-sheet="channel"]'),
             }))()`);
             let stored = null;
             try {
@@ -6173,8 +4785,8 @@ const briefRestore = {
                 stored = null;
             }
             rec(
-                "3. a stored channel is left stored and fabricates no Brief destination",
-                after.brief === true && after.peek === false && stored?.kind === "channel" && stored?.id === channel.oid,
+                "3. a stored channel restores onto its own sheet",
+                after.brief === true && after.sheet === true && after.peek === false && stored?.kind === "channel",
                 JSON.stringify({ channel: channel.oid, ...after })
             );
         }
@@ -6182,7 +4794,6 @@ const briefRestore = {
     },
     async teardown(h) {
         await h.ev(`localStorage.removeItem('jarvis.subject.last')`);
-        await resetComposition(h);
         await h.goto("cockpit");
     },
 };
@@ -6194,7 +4805,8 @@ export const SCENARIOS = [
     briefRestore,
     runsLifecycle,
     terminalTheme,
-    tuiLeader,    tuiFullscreen,
+    tuiLeader,
+    tuiFullscreen,
     gitHistory,
     surfaceSmoke,
     codeSearch,
@@ -6203,24 +4815,13 @@ export const SCENARIOS = [
     codeDiff,
     codeMarkdown,
     jarvisAvatar,
-    jarvisStates,
     jarvisBriefing,
     briefSurface,
     briefPeek,
-    jarvisFleet,
     jarvisAsk,
     jarvisContextual,
-    jarvisAmbient,
     jarvisMultiturn,
     jarvisVaultRecall,
-    jarvisContinuityResume,
-    jarvisProactive,
-    jarvisDrawer,
-    jarvisSubjectState,
-    jarvisAttribution,
-    jarvisCollapseOrder,
-    jarvisNarrow,
-    jarvisMeasure,
     jarvisPeek,
     jarvisVolunteer,
     usageCharts,

@@ -11,6 +11,7 @@ import {
     mergeActiveWork,
     normalizeBriefingNav,
     projectBriefing,
+    queueOpenTarget,
     type AgentRow,
     type BlockerRow,
     type BriefingModelInput,
@@ -610,5 +611,38 @@ describe("effortListLabel", () => {
     it("still offers a route to the full list when nothing overflows", () => {
         // the archived group lives only on that list, so the link cannot be conditional on overflow
         expect(effortListLabel(0)).toBe("All initiatives");
+    });
+});
+
+// The queue is the one region whose rows are INERT without this: the decision a row waits on is resolved by
+// the run body, so a row that cannot open its run cannot be acted on at all.
+describe("queueOpenTarget", () => {
+    it("opens a run's own sheet, carrying the run so the sheet lands on it rather than the channel's default", () => {
+        expect(queueOpenTarget({ kind: "channel", channelId: "c1", runId: "r1" })).toEqual({
+            kind: "channel",
+            channelId: "c1",
+            runId: "r1",
+        });
+    });
+
+    it("opens a channel with no run named, which is the launcher", () => {
+        expect(queueOpenTarget({ kind: "channel", channelId: "c1", runId: null })).toEqual({
+            kind: "channel",
+            channelId: "c1",
+            runId: null,
+        });
+    });
+
+    // a triage row and a blocked chunk are the two kinds addressed by oref instead of by channel; both have
+    // their own surface, and routing them through the same router is what stops a second one existing.
+    it.each([
+        { kind: "radar" as const, oref: "radarreport:rr1" },
+        { kind: "effort" as const, oref: "effort:e1" },
+    ])("routes $kind through its own oref", (nav) => {
+        expect(queueOpenTarget(nav)).toEqual({ kind: "oref", oref: nav.oref });
+    });
+
+    it("leaves a standalone row with no destination inert", () => {
+        expect(queueOpenTarget(null)).toBeNull();
     });
 });

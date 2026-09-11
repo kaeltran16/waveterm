@@ -32,8 +32,9 @@ import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
 import { vaultFocusAtom, vaultReaderAtom, vaultTabAtom } from "@/app/view/agents/vaultstore";
 import { codeFinderOpenAtom, codeTreeFocusedAtom } from "@/app/view/code/codestore";
 import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
-import { graphPeekOpenAtom } from "@/app/view/jarvis/jarvisstore";
+import { briefPeekRecordAtom, graphPeekOpenAtom } from "@/app/view/jarvis/jarvisstore";
 import { petPeekOpenAtom } from "@/app/view/jarvis/petstore";
+import { dagModalStateAtom } from "@/app/view/orchestrate/dagmodalstate";
 import { atom, type Atom, type PrimitiveAtom } from "jotai";
 import { listNavAtom } from "./listnav";
 
@@ -48,6 +49,8 @@ export const PREDICATE_ATOMS: Atom<unknown>[] = [
     graphPeekOpenAtom, // buildJarvisBindings: onStage, surface:back-home
     autonomyPanelOpenAtom, // surface:back-home
     petPeekOpenAtom, // surface:back-home
+    briefPeekRecordAtom, // surface:back-home
+    dagModalStateAtom, // surface:back-home
     codeFinderOpenAtom, // surface:back-home
     codeTreeFocusedAtom, // buildCodeBindings: inTree
     listNavAtom, // buildListNavBindings: active

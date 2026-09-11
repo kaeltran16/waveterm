@@ -11,14 +11,13 @@
 import { globalStore } from "@/app/store/global";
 import * as WOS from "@/app/store/wos";
 import type { AgentsViewModel } from "../agents/agents";
-import { runAtom, selectChannel } from "../agents/channelsstore";
+import { selectChannel } from "../agents/channelsstore";
 import { selectNote } from "../agents/memstore";
 import { selectReport } from "../agents/radarstore";
-import { pendingRunFocusAtom } from "../agents/runactions";
 import { vaultFocusAtom, vaultRecordIdAtom, vaultRecordPaneAtom, vaultTabAtom } from "../agents/vaultstore";
-import { expandEffort } from "./effortstore";
-import { briefPeekRecordAtom, jarvisCompositionAtom } from "./jarvisstore";
-import { loadRecordDetail, selectSubject } from "./jarvissubjectstore";
+import type { QueueOpenTarget } from "./briefingmodel";
+import { briefPeekRecordAtom, briefSheetOpenAtom } from "./jarvisstore";
+import { loadRecordDetail, selectSubject, setActiveRunId } from "./jarvissubjectstore";
 import { pendingDecisionAnchorAtom } from "./petstore";
 
 export type OrefNav =
@@ -52,39 +51,75 @@ export function orefNavPlan(oref: string): OrefNav {
     return { kind: "unsupported", otype };
 }
 
+// The Brief's detail sheet, opened on a subject. These three are the only ways in, and they live beside
+// the oref router because every one of them is what an oref resolves to: a channel is a destination, a run
+// is a channel's selected run rather than a subject kind of its own, and an initiative is the detail the
+// palette's effort rows used to reach through the briefing.
+export async function openChannelSheet(channelId: string, runId: string | null): Promise<void> {
+    // Selecting the channel is what LOADS it: the sheet's body resolves its run from the active channel's
+    // list (stageRunAtom), so a sheet opened on a channel that was never selected had a null run and an
+    // unloaded channel — it read "Reading this channel…" and stayed there. Every entry point needs this, so
+    // it belongs here rather than in each caller.
+    await selectChannel(channelId);
+    selectSubject({ kind: "channel", id: channelId });
+    if (runId != null) {
+        setActiveRunId(channelId, runId);
+    }
+    globalStore.set(briefSheetOpenAtom, true);
+}
+
+export function openEffortSheet(effortId: string): void {
+    selectSubject({ kind: "effort", id: effortId });
+    globalStore.set(briefSheetOpenAtom, true);
+}
+
+// A run is not a fifth subject kind: it resolves from its channel plus the selected run id, which is exactly
+// what stageRunAtom reads. The channel comes off the run's own object, because the Brief's run rows are
+// projected from WorkState and carry no channel of their own.
+export async function openRunSheet(runId: string): Promise<void> {
+    const ref = WOS.makeORef("run", runId);
+    if (ref == null) {
+        return;
+    }
+    const run = await WOS.loadAndPinWaveObject<Run>(ref).catch(() => null);
+    const channelId = run?.channeloid ?? "";
+    if (channelId === "") {
+        return; // nothing to show it against: a run with no channel has no sheet face
+    }
+    await openChannelSheet(channelId, runId);
+}
+
+// A queue row's destination, from the model's own plan (briefingmodel.queueOpenTarget). A channel row opens
+// the sheet — carrying the run it named, so the sheet lands on THAT run — and everything else already has a
+// surface of its own, so it goes through the same oref router the palette and the citations use.
+export function openQueueTarget(model: AgentsViewModel, target: QueueOpenTarget): void {
+    if (target.kind === "channel") {
+        void openChannelSheet(target.channelId, target.runId);
+        globalStore.set(model.surfaceAtom, "jarvis");
+        return;
+    }
+    void openORef(model, target.oref);
+}
+
 // impure: open the oref in its native surface. Unsupported kinds are a deliberate no-op (never an error).
 // `anchor` names a sub-object to highlight once the surface lands — today only a decision within a record.
 export async function openORef(model: AgentsViewModel, oref: string, anchor?: string): Promise<void> {
     const plan = orefNavPlan(oref);
     if (plan.kind === "channel") {
-        await selectChannel(plan.oid);
-        selectSubject({ kind: "channel", id: plan.oid });
+        await openChannelSheet(plan.oid, null);
         globalStore.set(model.surfaceAtom, "jarvis");
         return;
     }
     if (plan.kind === "run") {
-        const ref = WOS.makeORef("run", plan.oid);
-        if (!ref) {
-            return;
-        }
-        await WOS.loadAndPinWaveObject(ref);
-        const run = globalStore.get(runAtom(plan.oid));
-        if (run?.channeloid) {
-            globalStore.set(pendingRunFocusAtom, { channelId: run.channeloid, runId: plan.oid });
-            globalStore.set(model.surfaceAtom, "jarvis");
-        }
+        await openRunSheet(plan.oid);
+        globalStore.set(model.surfaceAtom, "jarvis");
         return;
     }
-    // a record has a surface for the first time: it is a subject on the merged Stage, not a separate tab.
-    // In the Brief there is no Stage, so the destination is the peek instead — the same one-branch shape
-    // the radarreport route uses rather than a second router, and the arm B5 deletes when the panes go.
+    // a record is the Brief's peek, which is the same destination the palette, a citation and the record
+    // band all use — one answer to "show me this record" rather than one per entry point.
     if (plan.kind === "task") {
         globalStore.set(pendingDecisionAnchorAtom, anchor ?? null);
-        if (globalStore.get(jarvisCompositionAtom) === "brief") {
-            globalStore.set(briefPeekRecordAtom, plan.oid);
-        } else {
-            selectSubject({ kind: "dossier", id: plan.oid });
-        }
+        globalStore.set(briefPeekRecordAtom, plan.oid);
         globalStore.set(model.surfaceAtom, "jarvis");
         return;
     }
@@ -108,11 +143,10 @@ export async function openORef(model: AgentsViewModel, oref: string, anchor?: st
         globalStore.set(model.surfaceAtom, "radar");
         return;
     }
-    // an effort address opens the briefing with that effort expanded (spec UI §1): the subjects
-    // column and delta rows point here, and the detail subject is the expanded card's own "details".
+    // an effort address opens the initiative's own sheet: the Brief's Initiatives rows and the palette's
+    // effort rows both land here, where the chunk detail and its two writes live.
     if (plan.kind === "effort") {
-        selectSubject({ kind: "briefing", id: "all" });
-        await expandEffort("effort:" + plan.oid);
+        openEffortSheet(plan.oid);
         globalStore.set(model.surfaceAtom, "jarvis");
     }
 }
