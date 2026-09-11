@@ -1967,6 +1967,23 @@ func Submit(id string) error {
         git(dir, "commit", "-q", "-m", "raise the budget, add submit");
         const name = "verify-diff-compare";
         await h.rpc("createproject", { name, path: dir });
+
+        // Deterministic entry. historyCollapsedAtom is an explicit override that a resize deliberately
+        // cannot undo (difflayout.ts), and it is module-level, so it outlives the surface for the whole
+        // life of the page. An earlier run of this scenario would otherwise be the thing that decides
+        // what "at 1000x700" means below, and a reload is the only route back to "follow the width".
+        try {
+            await h.ev("location.reload()");
+        } catch {
+            /* the evaluate is cut off by the navigation it just started */
+        }
+        for (let waited = 0; waited < 30000; waited += 500) {
+            const up = await h
+                .ev("!!window.TabRpcClient && !!document.querySelector('nav button')")
+                .catch(() => false);
+            if (up) break;
+            await new Promise((r) => setTimeout(r, 500));
+        }
         return { dir, name };
     },
     async assert(h, ctx) {
@@ -1985,6 +2002,15 @@ func Submit(id string) error {
                   if (!el) return false; el.click(); return true; })()`
             );
             if (!ok) throw new Error(`nothing to click at ${sel}`);
+        };
+        // a cold dev app compiles the surface's modules on first visit, so the fixed sleeps below are a
+        // floor, not a budget - wait for the thing itself rather than guessing how slow the first run is
+        const waitFor = async (sel, ms) => {
+            for (let waited = 0; waited < ms; waited += 250) {
+                if (await present(sel)) return true;
+                await sleep(250);
+            }
+            return false;
         };
 
         // the shipped window (src-tauri/tauri.conf.json), which is the whole point of this scenario
@@ -2037,6 +2063,7 @@ func Submit(id string) error {
             `column=${column} railBack=${railBack}`
         );
 
+        await waitFor('[data-changed-file-row="policy.go"]', 8000);
         const files = await h.ev(
             `Array.from(document.querySelectorAll('[data-changed-file-row]')).map(e => e.dataset.changedFileRow).join(',')`
         );
@@ -2046,27 +2073,44 @@ func Submit(id string) error {
             `files=${files}`
         );
 
-        // the modified file, not the added one: it is the case that needs both FileAtRef reads
-        await click('[data-changed-file-row="policy.go"]');
+        // the modified file, not the added one: it is the case that needs both FileAtRef reads. Recorded
+        // as part of the step rather than thrown, so a miss here still reports what the four above found.
+        const opened = await h.ev(
+            `(() => { const el = document.querySelector('[data-changed-file-row="policy.go"]');
+              if (!el) return false; el.click(); return true; })()`
+        );
         await sleep(2500); // two FileAtRef reads, then Monaco's first mount
         const editor = await present("[data-diff-pane] .monaco-diff-editor");
         const paneWidth = await widthOf("[data-diff-pane]");
         rec(
             "5. the file opens in Monaco, in a pane wide enough to read",
-            editor && paneWidth >= 400,
-            `monaco=${editor} paneWidth=${paneWidth}`
+            opened && editor && paneWidth >= 400,
+            `clicked=${opened} monaco=${editor} paneWidth=${paneWidth}`
         );
         await h.shot("cdp-shots/diff-compare.png");
 
         return steps;
     },
     async teardown(h, ctx) {
+        // This scenario is the only one that drives module-level Diff state, and both bits it touches
+        // OUTLIVE the surface: compare mode, and an explicit collapse that a resize deliberately cannot
+        // undo (difflayout.ts). Leaving the column explicitly collapsed makes the next Diff scenario read
+        // a rail at 1600x950 and find no [data-history-scroll] at all, which is how this was found.
+        const esc = { key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 };
+        await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", ...esc });
+        await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", ...esc });
+        await h.ev(`document.querySelector('[data-history-rail] button[title="Expand history"]')?.click()`);
         try {
             await h.rpc("deleteproject", { name: ctx.name });
         } catch {
             /* leave a stale registry entry rather than failing teardown */
         }
-        rmSync(ctx.dir, { recursive: true, force: true });
+        try {
+            // the surface is still scoped here, so wavesrv may hold the repo open a moment longer
+            rmSync(ctx.dir, { recursive: true, force: true });
+        } catch {
+            /* a leftover temp repo is cheaper than a failed teardown */
+        }
     },
 };
 
