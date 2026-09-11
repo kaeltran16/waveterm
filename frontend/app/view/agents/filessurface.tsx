@@ -15,7 +15,7 @@ import { MotionConfig } from "motion/react";
 import { buildFilesBindings } from "@/app/store/keybindings/bindings";
 import { useSurfaceListNav, type ListNavController } from "@/app/store/keybindings/listnav";
 import { useKeybindings } from "@/app/store/keybindings/store";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSyncMonacoTheme } from "@/app/monaco/monacotheme";
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import type { AgentsViewModel } from "./agents";
@@ -28,6 +28,8 @@ import { filesErrorAtom, filesStateAtom, loadFilesForScope, startChangesPoll, ty
 import { availableRanges, historyOptsFor, rangeKey, scopeKey, summaryLine } from "./diffscope";
 import { agentDiffScope, projectDiffScope } from "./agentdiffnav";
 import { setDiffRange } from "./diffscopeatom";
+import { historyCollapsedAtom, resolveCollapsed } from "./difflayout";
+import { HistoryRail } from "./historyrail";
 import { peekSessionStart } from "./agentsessionstore";
 import { RangeStrip } from "./rangestrip";
 import { projectsAtom } from "./projectsstore";
@@ -215,6 +217,13 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
     // the ref picker's own open/closed state: `c` and a click on the chip open it, Enter/Escape close it
     const [pickerOpen, setPickerOpen] = useState(false);
 
+    // The history column folds to a rail below a width threshold. Measured on the surface root rather
+    // than the window: the surface does not own the whole window, and the rail's whole purpose is to
+    // leave the diff pane something to render in.
+    const surfaceRef = useRef<HTMLDivElement>(null);
+    const [surfaceWidth, setSurfaceWidth] = useState(0);
+    const collapsed = resolveCollapsed(useAtomValue(historyCollapsedAtom), surfaceWidth);
+
     // registered projects (name -> path) as a sorted, path-bearing list for the picker
     const projects: FilesProject[] = Object.entries(registry ?? {})
         .filter(([, v]) => v?.path)
@@ -308,6 +317,17 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
 
     // Keeps the change list from going stale while this surface is on screen; stops the moment it isn't.
     useEffect(() => startChangesPoll(), []);
+
+    useEffect(() => {
+        const el = surfaceRef.current;
+        if (el == null) {
+            return;
+        }
+        const ro = new ResizeObserver(() => setSurfaceWidth(el.clientWidth));
+        ro.observe(el);
+        setSurfaceWidth(el.clientWidth);
+        return () => ro.disconnect();
+    }, []);
 
     useEffect(() => {
         if (restoreMsg == null) {
@@ -464,7 +484,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
 
     return (
         <MotionConfig reducedMotion="user">
-            <div className="absolute inset-0 flex min-h-0 flex-col">
+            <div ref={surfaceRef} className="absolute inset-0 flex min-h-0 flex-col">
                 {/* subject bar: which repository, and which range within it */}
                 <div className="flex-none px-[18px] pt-[14px]">
                     <div className="flex items-center gap-[14px] pb-[6px]">
@@ -557,37 +577,78 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                     <NotARepoPanel />
                 ) : (
                     <div className="flex min-h-0 flex-1 border-t border-edge-faint">
-                        <div className="flex w-[460px] flex-none flex-col border-r border-edge-faint">
-                            {compareOn ? (
-                                <CompareColumn
-                                    rows={compareRows}
-                                    selected={compareSelection}
-                                    mergeBase={compareSides?.mergeBase ?? ""}
-                                    error={compareError}
-                                    loading={compareSides == null && compareError == null}
-                                    onSelect={(id) =>
-                                        state?.cwd && fireAndForget(() => selectCompareRow(state.cwd!, id))
+                        <div
+                            className={cn(
+                                "flex flex-none flex-col border-r border-edge-faint",
+                                collapsed ? "w-[44px]" : "w-[460px]"
+                            )}
+                        >
+                            {collapsed ? (
+                                <HistoryRail
+                                    // a compare commit row IS a HistoryRow, so the rail takes it directly
+                                    rows={
+                                        compareOn
+                                            ? (compareRows.filter((r) => r.kind === "commit") as CompareCommitRow[])
+                                            : (historyRows ?? [])
                                     }
+                                    selected={compareOn ? compareSelection : selectedCommit}
+                                    onSelect={(hash) =>
+                                        state?.cwd &&
+                                        fireAndForget(() =>
+                                            compareOn
+                                                ? selectCompareRow(state.cwd!, hash)
+                                                : selectCommit(state.cwd!, hash)
+                                        )
+                                    }
+                                    onExpand={() => globalStore.set(historyCollapsedAtom, false)}
                                 />
                             ) : (
-                                <HistoryPane
-                                    rows={historyRows ?? []}
-                                    selected={selectedCommit}
-                                    // a filtered set mostly lacks its own parents, so lane assignment would
-                                    // sprawl to the fold limit and draw edges to commits that are not there
-                                    graphOn={graphOn && !historyFiltered}
-                                    loading={historyRows == null}
-                                    countLabel={countLabel(historyFilters, historyRows?.length ?? 0, historyRows == null)}
-                                    filtered={historyFiltered}
-                                    initialScroll={historyScroll}
-                                    hasMore={historyHasMore}
-                                    appendState={historyAppend}
-                                    onSelect={(hash) =>
-                                        state?.cwd && fireAndForget(() => selectCommit(state.cwd!, hash))
-                                    }
-                                    onScroll={(top) => globalStore.set(historyScrollAtom, top)}
-                                    onLoadMore={() => fireAndForget(() => loadMoreHistory())}
-                                />
+                                <>
+                                    {/* mirrors the rail's expand affordance, so toggling shifts no rows */}
+                                    <button
+                                        onClick={() => globalStore.set(historyCollapsedAtom, true)}
+                                        title="Collapse history"
+                                        className="flex-none border-b border-edge-faint py-[6px] text-[11px] text-ink-faint hover:text-foreground"
+                                    >
+                                        ‹
+                                    </button>
+                                    {compareOn ? (
+                                        <CompareColumn
+                                            rows={compareRows}
+                                            selected={compareSelection}
+                                            mergeBase={compareSides?.mergeBase ?? ""}
+                                            error={compareError}
+                                            loading={compareSides == null && compareError == null}
+                                            onSelect={(id) =>
+                                                state?.cwd && fireAndForget(() => selectCompareRow(state.cwd!, id))
+                                            }
+                                        />
+                                    ) : (
+                                        <HistoryPane
+                                            rows={historyRows ?? []}
+                                            selected={selectedCommit}
+                                            // a filtered set mostly lacks its own parents, so lane assignment
+                                            // would sprawl to the fold limit and draw edges to commits that
+                                            // are not there
+                                            graphOn={graphOn && !historyFiltered}
+                                            loading={historyRows == null}
+                                            countLabel={countLabel(
+                                                historyFilters,
+                                                historyRows?.length ?? 0,
+                                                historyRows == null
+                                            )}
+                                            filtered={historyFiltered}
+                                            initialScroll={historyScroll}
+                                            hasMore={historyHasMore}
+                                            appendState={historyAppend}
+                                            onSelect={(hash) =>
+                                                state?.cwd && fireAndForget(() => selectCommit(state.cwd!, hash))
+                                            }
+                                            onScroll={(top) => globalStore.set(historyScrollAtom, top)}
+                                            onLoadMore={() => fireAndForget(() => loadMoreHistory())}
+                                        />
+                                    )}
+                                </>
                             )}
                         </div>
                         <div className="flex w-[300px] flex-none flex-col border-r border-edge-faint bg-surface">
