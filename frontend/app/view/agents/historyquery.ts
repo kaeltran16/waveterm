@@ -81,8 +81,12 @@ export function countLabel(f: HistoryFilters, shown: number, loading: boolean): 
 
 // A full page means there may be another; a short page is the end. Cheaper and more honest than a
 // count query, and wrong only in the harmless case where the last page is exactly full.
-export function hasMorePages(pageLength: number): boolean {
-    return pageLength >= HISTORY_PAGE_SIZE;
+// limit is what the read asked for, which is not always a page: a background refresh re-reads every
+// commit already loaded in one call. Comparing a 73-commit answer against the page constant instead
+// of against the 100 that were requested would claim another page exists and leave a footer that
+// loads nothing forever.
+export function hasMorePages(pageLength: number, limit: number = HISTORY_PAGE_SIZE): boolean {
+    return pageLength >= limit;
 }
 
 export interface RestoreState {

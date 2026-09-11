@@ -36,6 +36,9 @@ export interface FileView {
     binary: boolean;
     // set for a rename, so a file whose content did not change can say why it has nothing to show
     renamedFrom?: string;
+    // bytes of the patch the server refused to send. Set only when it was refused, because zero lines
+    // and zero lines are the same thing to the renderer and "too big to show" is not "no changes".
+    tooLarge?: number;
 }
 
 const HEADER_PREFIXES = ["diff ", "index ", "--- ", "+++ ", "new file", "deleted file", "similarity ", "rename ", "old mode", "new mode"];
@@ -165,4 +168,35 @@ export function firstChangedLine(view: FileView): number | undefined {
     }
     const n = parseInt(line.gNew, 10);
     return Number.isFinite(n) ? n : undefined;
+}
+
+// A diff the server refused to send. Empty like the binary and pure-rename states, and drawn the same
+// way, but carrying the size so the pane can name the number rather than just decline.
+export function tooLargeFileView(size: number): FileView {
+    return {
+        isDiff: true,
+        lines: [],
+        adds: 0,
+        dels: 0,
+        hunkLabel: "",
+        diffHeader: "",
+        hunks: [],
+        binary: false,
+        tooLarge: size,
+    };
+}
+
+// What a diff RPC's answer becomes. One place decides, because four call sites deciding separately is
+// four chances for a refused patch to render as "nothing inside this file changed".
+export function diffFileView(d: {
+    diff?: string;
+    content?: string;
+    untracked?: boolean;
+    toolarge?: boolean;
+    size?: number;
+}): FileView {
+    if (d.toolarge) {
+        return tooLargeFileView(d.size ?? 0);
+    }
+    return d.untracked ? plainFileView(d.content ?? "") : parseUnifiedDiff(d.diff ?? "");
 }

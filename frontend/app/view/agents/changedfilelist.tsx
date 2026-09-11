@@ -8,8 +8,15 @@
 // for status colour, path truncation and the selected tint.
 
 import { SkeletonLine } from "@/app/element/skeleton";
+import { globalStore } from "@/app/store/jotaiStore";
 import { cn } from "@/util/util";
-import { statusColor, type GitChanges } from "./gitstatus";
+import { useAtomValue } from "jotai";
+import { useMemo } from "react";
+import { buildFileTree, collapsedDirsAtom, treeModeAtom, type FileTreeRow } from "./filetree";
+import { statusColor, type GitChange, type GitChanges } from "./gitstatus";
+
+const INDENT_PX = 14;
+const ROW_PAD_PX = 8;
 
 function FileListSkeleton() {
     return (
@@ -24,6 +31,86 @@ function FileListSkeleton() {
     );
 }
 
+// The tree/flat switch, in the header of whichever pane is hosting the list. Here rather than in the
+// two panes so the atom has one reader and the two headers cannot drift apart.
+export function TreeModeToggle() {
+    const tree = useAtomValue(treeModeAtom);
+    return (
+        <button
+            onClick={() => globalStore.set(treeModeAtom, !tree)}
+            title={tree ? "Show a flat path list" : "Group files by directory"}
+            className="flex-none rounded border border-edge-mid px-[6px] py-[1px] font-mono text-[10px] text-ink-faint hover:text-foreground"
+        >
+            {tree ? "tree" : "flat"}
+        </button>
+    );
+}
+
+function FileRow({
+    change,
+    label,
+    depth,
+    selected,
+    onSelect,
+}: {
+    change: GitChange;
+    label: string;
+    depth: number;
+    selected: boolean;
+    onSelect: () => void;
+}) {
+    return (
+        <button
+            data-changed-file-row={change.path}
+            onClick={onSelect}
+            style={{ paddingLeft: ROW_PAD_PX + depth * INDENT_PX }}
+            title={change.path}
+            className={cn(
+                "flex w-full items-center gap-[8px] rounded-[7px] py-[7px] pr-[8px] text-left transition-colors duration-[140ms] hover:bg-surface-raised",
+                selected && "bg-surface-selected"
+            )}
+        >
+            <span
+                className={cn(
+                    "w-[13px] flex-none text-center font-mono text-[10px] font-bold",
+                    statusColor(change.status)
+                )}
+            >
+                {change.status}
+            </span>
+            <span
+                className={cn(
+                    "min-w-0 flex-1 truncate font-mono text-[11.5px]",
+                    selected ? "text-ink-hi" : "text-ink-mid"
+                )}
+            >
+                {label}
+            </span>
+            <span className="flex-none font-mono text-[10px] font-semibold text-success">+{change.adds}</span>
+            <span className="flex-none font-mono text-[10px] font-semibold text-error">−{change.dels}</span>
+        </button>
+    );
+}
+
+function DirRow({ row, collapsed, onToggle }: { row: FileTreeRow; collapsed: boolean; onToggle: () => void }) {
+    return (
+        <button
+            onClick={onToggle}
+            style={{ paddingLeft: ROW_PAD_PX + row.depth * INDENT_PX }}
+            title={row.id}
+            className="flex w-full items-center gap-[6px] rounded-[7px] py-[5px] pr-[8px] text-left hover:bg-surface-raised"
+        >
+            <span className="w-[9px] flex-none font-mono text-[9px] text-ink-faint">{collapsed ? "▸" : "▾"}</span>
+            <span className="min-w-0 flex-1 truncate font-mono text-[11px] font-semibold text-ink-mid">
+                {row.label}
+            </span>
+            <span className="flex-none font-mono text-[9.5px] text-ink-faint">{row.files}</span>
+            <span className="flex-none font-mono text-[9.5px] text-success">+{row.adds}</span>
+            <span className="flex-none font-mono text-[9.5px] text-error">−{row.dels}</span>
+        </button>
+    );
+}
+
 export function ChangedFileList({
     changes,
     selectedFile,
@@ -33,43 +120,63 @@ export function ChangedFileList({
     selectedFile: string | null;
     onSelectFile: (path: string) => void;
 }) {
+    const tree = useAtomValue(treeModeAtom);
+    const collapsed = useAtomValue(collapsedDirsAtom);
+    const rows = useMemo(
+        () => (changes != null && tree ? buildFileTree(changes.files, collapsed) : []),
+        [changes, tree, collapsed]
+    );
     if (changes == null) {
         return <FileListSkeleton />;
     }
     if (changes.files.length === 0) {
         return <div className="px-[8px] py-[6px] text-[12px] text-ink-mid">No files changed</div>;
     }
+    if (!tree) {
+        return (
+            <>
+                {changes.files.map((f) => (
+                    <FileRow
+                        key={f.path}
+                        change={f}
+                        label={f.path}
+                        depth={0}
+                        selected={f.path === selectedFile}
+                        onSelect={() => onSelectFile(f.path)}
+                    />
+                ))}
+            </>
+        );
+    }
     return (
         <>
-            {changes.files.map((f) => (
-                <button
-                    key={f.path}
-                    onClick={() => onSelectFile(f.path)}
-                    className={cn(
-                        "flex w-full items-center gap-[8px] rounded-[7px] px-[8px] py-[7px] text-left transition-colors duration-[140ms] hover:bg-surface-raised",
-                        f.path === selectedFile && "bg-surface-selected"
-                    )}
-                >
-                    <span
-                        className={cn(
-                            "w-[13px] flex-none text-center font-mono text-[10px] font-bold",
-                            statusColor(f.status)
-                        )}
-                    >
-                        {f.status}
-                    </span>
-                    <span
-                        className={cn(
-                            "min-w-0 flex-1 truncate font-mono text-[11.5px]",
-                            f.path === selectedFile ? "text-ink-hi" : "text-ink-mid"
-                        )}
-                    >
-                        {f.path}
-                    </span>
-                    <span className="flex-none font-mono text-[10px] font-semibold text-success">+{f.adds}</span>
-                    <span className="flex-none font-mono text-[10px] font-semibold text-error">−{f.dels}</span>
-                </button>
-            ))}
+            {rows.map((r) =>
+                r.kind === "dir" ? (
+                    <DirRow
+                        key={`dir:${r.id}`}
+                        row={r}
+                        collapsed={collapsed.has(r.id)}
+                        // a new Set every time: jotai compares by reference, so mutating one would
+                        // change the value without telling anybody
+                        onToggle={() => {
+                            const next = new Set(collapsed);
+                            if (!next.delete(r.id)) {
+                                next.add(r.id);
+                            }
+                            globalStore.set(collapsedDirsAtom, next);
+                        }}
+                    />
+                ) : (
+                    <FileRow
+                        key={r.id}
+                        change={r.change!}
+                        label={r.label}
+                        depth={r.depth}
+                        selected={r.id === selectedFile}
+                        onSelect={() => onSelectFile(r.id)}
+                    />
+                )
+            )}
         </>
     );
 }

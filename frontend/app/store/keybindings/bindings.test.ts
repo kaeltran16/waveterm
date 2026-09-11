@@ -372,7 +372,7 @@ describe("diff-surface history bindings", () => {
     it("does not claim the graph or filter keys while compare is on", () => {
         globalStore.set(diffScopeAtom, {
             repo: { origin: { kind: "agent", id: "a1" }, label: "a1" },
-            range: { kind: "compare", base: "main", head: "feat", from: { kind: "working" } },
+            range: { kind: "compare", base: "main", head: "feat", form: "mergebase", from: { kind: "working" } },
         });
         expect(find("files:toggle-graph").when?.(ctx)).toBe(false);
         expect(find("files:filter").when?.(ctx)).toBe(false);
@@ -412,7 +412,7 @@ describe("diff-surface history bindings", () => {
         expect(b.when?.(ctx)).toBe(true);
         globalStore.set(diffScopeAtom, {
             repo: { origin: { kind: "agent", id: "a1" }, label: "a1" },
-            range: { kind: "compare", base: "main", head: "feat", from: { kind: "working" } },
+            range: { kind: "compare", base: "main", head: "feat", form: "mergebase", from: { kind: "working" } },
         });
         expect(b.when?.(ctx)).toBe(true);
     });

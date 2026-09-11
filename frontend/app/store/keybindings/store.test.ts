@@ -272,7 +272,7 @@ describe("keybinding conflict invariant", () => {
 
         globalStore.set(diffScopeAtom, {
             repo: { origin: { kind: "agent", id: "a1" }, label: "a1" },
-            range: { kind: "compare", base: "main", head: "feat", from: { kind: "working" } },
+            range: { kind: "compare", base: "main", head: "feat", form: "mergebase", from: { kind: "working" } },
         });
         // compare owns Escape: exactly one of the two is live, so the key never means two things
         expect(backHome.when!(filesCtx)).toBe(false);

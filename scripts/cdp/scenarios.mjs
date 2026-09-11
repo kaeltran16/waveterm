@@ -2044,6 +2044,199 @@ const gitHistory = {
     },
 };
 
+// --- diff surface: a comparison at the shipped window size ---------------------------------------
+// The layout claim the parity plan was written for: at 1000x700 the history column has to fold to a
+// rail, or a fixed 460px of commits plus the file list leaves the diff pane about 240px and nothing
+// in it can be read. Pinned to that size on purpose - at the harness's roomy 1600x950 default there
+// is room for all three columns and the assertion proves nothing.
+const diffCompare = {
+    name: "diff-compare",
+    surface: "files",
+    async arrange(h) {
+        const dir = mkdtempSync(join(tmpdir(), "verify-diff-compare-"));
+        git(dir, "init", "-q", "--initial-branch=main");
+        writeFileSync(join(dir, "README.md"), "# retry\n");
+        writeFileSync(
+            join(dir, "policy.go"),
+            `package retry
+
+func Budget() int {
+    return 3
+}
+`
+        );
+        git(dir, "add", ".");
+        git(dir, "commit", "-q", "-m", "seed the retry package");
+        git(dir, "checkout", "-q", "-b", "feature");
+        writeFileSync(
+            join(dir, "policy.go"),
+            `package retry
+
+func Budget() int {
+    return 8
+}
+`
+        );
+        writeFileSync(
+            join(dir, "submit.go"),
+            `package retry
+
+func Submit(id string) error {
+    return nil
+}
+`
+        );
+        git(dir, "add", ".");
+        git(dir, "commit", "-q", "-m", "raise the budget, add submit");
+        const name = "verify-diff-compare";
+        await h.rpc("createproject", { name, path: dir });
+
+        // Deterministic entry. historyCollapsedAtom is an explicit override that a resize deliberately
+        // cannot undo (difflayout.ts), and it is module-level, so it outlives the surface for the whole
+        // life of the page. An earlier run of this scenario would otherwise be the thing that decides
+        // what "at 1000x700" means below, and a reload is the only route back to "follow the width".
+        try {
+            await h.ev("location.reload()");
+        } catch {
+            /* the evaluate is cut off by the navigation it just started */
+        }
+        for (let waited = 0; waited < 30000; waited += 500) {
+            const up = await h
+                .ev("!!window.TabRpcClient && !!document.querySelector('nav button')")
+                .catch(() => false);
+            if (up) break;
+            await new Promise((r) => setTimeout(r, 500));
+        }
+        return { dir, name };
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const present = (sel) => h.ev(`!!document.querySelector(${JSON.stringify(sel)})`);
+        const widthOf = (sel) =>
+            h.ev(
+                `(() => { const el = document.querySelector(${JSON.stringify(sel)});
+                  return el ? Math.round(el.getBoundingClientRect().width) : 0; })()`
+            );
+        const click = async (sel) => {
+            const ok = await h.ev(
+                `(() => { const el = document.querySelector(${JSON.stringify(sel)});
+                  if (!el) return false; el.click(); return true; })()`
+            );
+            if (!ok) throw new Error(`nothing to click at ${sel}`);
+        };
+        // a cold dev app compiles the surface's modules on first visit, so the fixed sleeps below are a
+        // floor, not a budget - wait for the thing itself rather than guessing how slow the first run is
+        const waitFor = async (sel, ms) => {
+            for (let waited = 0; waited < ms; waited += 250) {
+                if (await present(sel)) return true;
+                await sleep(250);
+            }
+            return false;
+        };
+
+        // the shipped window (src-tauri/tauri.conf.json), which is the whole point of this scenario
+        await h.cdp("Emulation.setDeviceMetricsOverride", {
+            width: 1000,
+            height: 700,
+            deviceScaleFactor: 1,
+            mobile: false,
+        });
+        await sleep(600);
+
+        await click("[data-files-source-picker]");
+        await sleep(200);
+        await click(`[data-files-source-option=${JSON.stringify(ctx.name)}]`);
+        await sleep(1600); // change list + history page
+
+        const railWidth = await widthOf("[data-history-rail]");
+        const expandedRow = await present("[data-history-row]");
+        rec(
+            "1. at 1000x700 the commit column folds to a rail",
+            railWidth > 0 && railWidth <= 48 && !expandedRow,
+            `railWidth=${railWidth} expandedRows=${expandedRow}`
+        );
+
+        await h.cdp("Input.dispatchKeyEvent", {
+            type: "keyDown",
+            key: "c",
+            code: "KeyC",
+            text: "c",
+            windowsVirtualKeyCode: 67,
+        });
+        await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", key: "c", code: "KeyC", windowsVirtualKeyCode: 67 });
+        await sleep(2200); // divergence, then the aggregate's own change list
+        const chipOn = await h.ev(
+            `document.querySelector('[data-range-chip="compare"]')?.getAttribute('aria-pressed') === 'true'`
+        );
+        rec("2. c switches the range to a two-ref comparison", chipOn, `compareChipPressed=${chipOn}`);
+
+        // the rail stands in for the compare column at this width too, so prove the column is what it
+        // unfolds into rather than a separate history-only affordance
+        await click('[data-history-rail] button[title="Expand history"]');
+        await sleep(500);
+        const column = await present("[data-compare-column]");
+        await click('button[title="Collapse history"]');
+        await sleep(500);
+        const railBack = await present("[data-history-rail]");
+        rec(
+            "3. the rail unfolds into the compare column and back",
+            column && railBack,
+            `column=${column} railBack=${railBack}`
+        );
+
+        await waitFor('[data-changed-file-row="policy.go"]', 8000);
+        const files = await h.ev(
+            `Array.from(document.querySelectorAll('[data-changed-file-row]')).map(e => e.dataset.changedFileRow).join(',')`
+        );
+        rec(
+            "4. the aggregate lists what the branch changed",
+            files.includes("policy.go") && files.includes("submit.go"),
+            `files=${files}`
+        );
+
+        // the modified file, not the added one: it is the case that needs both FileAtRef reads. Recorded
+        // as part of the step rather than thrown, so a miss here still reports what the four above found.
+        const opened = await h.ev(
+            `(() => { const el = document.querySelector('[data-changed-file-row="policy.go"]');
+              if (!el) return false; el.click(); return true; })()`
+        );
+        await sleep(2500); // two FileAtRef reads, then Monaco's first mount
+        const editor = await present("[data-diff-pane] .monaco-diff-editor");
+        const paneWidth = await widthOf("[data-diff-pane]");
+        rec(
+            "5. the file opens in Monaco, in a pane wide enough to read",
+            opened && editor && paneWidth >= 400,
+            `clicked=${opened} monaco=${editor} paneWidth=${paneWidth}`
+        );
+        await h.shot("cdp-shots/diff-compare.png");
+
+        return steps;
+    },
+    async teardown(h, ctx) {
+        // This scenario is the only one that drives module-level Diff state, and both bits it touches
+        // OUTLIVE the surface: compare mode, and an explicit collapse that a resize deliberately cannot
+        // undo (difflayout.ts). Leaving the column explicitly collapsed makes the next Diff scenario read
+        // a rail at 1600x950 and find no [data-history-scroll] at all, which is how this was found.
+        const esc = { key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 };
+        await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", ...esc });
+        await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", ...esc });
+        await h.ev(`document.querySelector('[data-history-rail] button[title="Expand history"]')?.click()`);
+        try {
+            await h.rpc("deleteproject", { name: ctx.name });
+        } catch {
+            /* leave a stale registry entry rather than failing teardown */
+        }
+        try {
+            // the surface is still scoped here, so wavesrv may hold the repo open a moment longer
+            rmSync(ctx.dir, { recursive: true, force: true });
+        } catch {
+            /* a leftover temp repo is cheaper than a failed teardown */
+        }
+    },
+};
+
 // --- jarvis avatar: the hologram in window chrome ----------------------------------------------
 // The avatar is a <canvas>, so there are no attributes to read the way the old SVG creature allowed. It
 // publishes its last built scene on window in DEV builds instead (petview.tsx), which is a STRONGER
@@ -4830,6 +5023,7 @@ export const SCENARIOS = [
     tuiLeader,
     tuiFullscreen,
     gitHistory,
+    diffCompare,
     surfaceSmoke,
     codeSearch,
     codeSidebar,

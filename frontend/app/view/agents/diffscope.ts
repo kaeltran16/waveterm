@@ -7,6 +7,7 @@
 // and nothing could set it. Here it is one value, and every question the surface and its three git
 // stores ask about scope is answered by a function in this file.
 
+import type { CompareForm } from "./diffcontent";
 import type { GitChanges } from "./gitstatus";
 import type { HistoryFilters } from "./historyquery";
 
@@ -28,8 +29,11 @@ export type DiffRange =
     | { kind: "session"; agentId: string }
     | { kind: "run"; runId: string; baseCommit: string }
     // `from` is the range comparison interrupted. Escape restores it instead of guessing, which is
-    // also what lets the old compareAnchorAtom and its invalidation effect go away.
-    | { kind: "compare"; base: string; head: string; from: DiffRange };
+    // also what lets the old compareAnchorAtom and its invalidation effect go away. `form` is which
+    // range form the aggregate uses: merge-base (what head introduced) or tip-to-tip (the full
+    // difference). It lives here rather than beside the surface so rangeKey covers it and changing it
+    // drops the stale read - a file list built one way beside a pane read the other is the failure.
+    | { kind: "compare"; base: string; head: string; form: CompareForm; from: DiffRange };
 
 export interface DiffScope {
     repo: DiffRepo;
@@ -74,7 +78,7 @@ export function rangeKey(r: DiffRange): string {
         case "run":
             return `run:${r.runId}:${r.baseCommit}`;
         case "compare":
-            return `compare:${r.base}..${r.head}`;
+            return `compare:${r.base}..${r.head}:${r.form}`;
     }
 }
 
@@ -155,7 +159,7 @@ function currentCompareRange(active: DiffRange): DiffRange {
     if (active.kind === "compare") {
         return active;
     }
-    return { kind: "compare", base: "", head: "", from: active };
+    return { kind: "compare", base: "", head: "", form: "mergebase", from: active };
 }
 
 export function historyOptsFor(range: DiffRange, resolvedRef: string): LoadHistoryOpts {
@@ -189,7 +193,7 @@ export function rangeSummary(range: DiffRange, f: SummaryFacts): string {
     const counts = `${f.files} ${f.files === 1 ? "file" : "files"} · +${f.adds} −${f.dels}`;
     switch (range.kind) {
         case "compare":
-            return `${range.base} … ${range.head} · ${counts}`;
+            return `${range.base} … ${range.head} · ${range.form === "tips" ? "tip to tip" : "since merge base"} · ${counts}`;
         case "run":
             return `${shortSha(range.baseCommit)} … HEAD · ${counts}`;
         case "session":
