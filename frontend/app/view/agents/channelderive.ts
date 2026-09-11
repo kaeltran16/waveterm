@@ -32,6 +32,13 @@ export function promoteConsultText(runtime: string, question: string): string {
     return `@${runtime} ${question.trim()}`;
 }
 
+// The comparison key for a project path. A channel stores what the user registered (backslashes on
+// Windows) while a radar report stores it canonPath'd, so two spellings of one project must land on one
+// key or the app mints a duplicate channel for a project that already has one. Mirrors Go's canonPath.
+export function normProjectPath(p: string): string {
+    return p.replace(/\\/g, "/").replace(/\/+$/, "");
+}
+
 // resolveTargetChannel finds the channel a Radar finding should hand off to: the first whose bound
 // project path matches. Both paths trace back to the same project registry, but a radar report stores it
 // canonPath'd (forward slashes, per pkg/reporadar) while a channel stores it verbatim — so on Windows a
@@ -40,9 +47,8 @@ export function resolveTargetChannel(channels: Channel[], projectPath: string | 
     if (!projectPath) {
         return undefined;
     }
-    const norm = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "");
-    const want = norm(projectPath);
-    return channels.find((c) => c.projectpath != null && norm(c.projectpath) === want);
+    const want = normProjectPath(projectPath);
+    return channels.find((c) => c.projectpath != null && normProjectPath(c.projectpath) === want);
 }
 
 export interface ChannelPartition {

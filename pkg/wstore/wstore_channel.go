@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -41,6 +42,34 @@ func stampMessageIdentity(channelId string, msg *waveobj.ChannelMessage) {
 func stampRunIdentity(channelId string, run *waveobj.Run) {
 	run.OID = run.ID
 	run.ChannelOID = channelId
+}
+
+// normProjectPath is the comparison key for a project path. A channel stores what the user registered
+// (backslashes on Windows) while a radar report stores it canonPath'd, so two spellings of one project
+// must land on one key. Mirrors the frontend's normProjectPath in channelderive.ts.
+func normProjectPath(p string) string {
+	return strings.TrimRight(strings.ReplaceAll(p, "\\", "/"), "/")
+}
+
+// ChannelAtPath returns the channel bound to projectPath, or (nil, nil) if there is none. An empty path
+// matches nothing rather than matching every pathless channel — "this channel has no project" is not an
+// answer to "which channel is this project's". Reads through GetChannels, which sorts newest-first, so a
+// pre-collapse project with duplicates resolves to the same one the frontend's resolveTargetChannel picks.
+func ChannelAtPath(ctx context.Context, projectPath string) (*waveobj.Channel, error) {
+	want := normProjectPath(projectPath)
+	if want == "" {
+		return nil, nil
+	}
+	chans, err := GetChannels(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, ch := range chans {
+		if normProjectPath(ch.ProjectPath) == want {
+			return ch, nil
+		}
+	}
+	return nil, nil
 }
 
 func CreateChannel(ctx context.Context, name, projectPath string) (*waveobj.Channel, error) {

@@ -18,6 +18,18 @@ import (
 )
 
 func (ws *WshServer) CreateChannelCommand(ctx context.Context, data wshrpc.CommandCreateChannelData) (*waveobj.Channel, error) {
+	// One channel per project: the channel is storage for "work in this project", and the cockpit labels
+	// every channel with its project's name, so a second one at the same path is a row the user cannot
+	// tell from the first. Mirrors wconfig.ProjectNameAtPath, which already refuses a second project at
+	// one path. Returning the existing channel rather than an error is deliberate — two windows racing
+	// the frontend's find-or-create both want the same end state, and an error there is a failed launch.
+	existing, err := wstore.ChannelAtPath(ctx, data.ProjectPath)
+	if err != nil {
+		return nil, fmt.Errorf("looking for this project's channel: %w", err)
+	}
+	if existing != nil {
+		return existing, nil
+	}
 	ch, err := wstore.CreateChannel(ctx, data.Name, data.ProjectPath)
 	if err != nil {
 		return nil, fmt.Errorf("creating channel: %w", err)

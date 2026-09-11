@@ -19,9 +19,10 @@
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import type { JarvisTier } from "@/app/view/agents/channelmessages";
 import { setChannelTier } from "@/app/view/agents/channelsstore";
+import { projectsAtom } from "@/app/view/agents/projectsstore";
 import { cn, fireAndForget } from "@/util/util";
 import { autoUpdate, offset, useClick, useDismiss, useFloating, useInteractions } from "@floating-ui/react";
-import { useAtom } from "jotai";
+import { useAtom, useAtomValue } from "jotai";
 import { useEffect, useMemo, useState } from "react";
 import {
     autonomyPanelOpenAtom,
@@ -57,7 +58,8 @@ export function AutonomyLadder({ channels }: { channels: Channel[] | null }) {
     // open would keep Escape hostage on every other deep surface.
     const [open, setOpen] = useAtom(autonomyPanelOpenAtom);
     useEffect(() => () => setOpen(false), [setOpen]);
-    const rows = useMemo(() => channelAutonomy(channels), [channels]);
+    const projects = useAtomValue(projectsAtom);
+    const rows = useMemo(() => channelAutonomy(channels, projects), [channels, projects]);
     // the project the panel is editing. Not an atom: the panel closes with the surface, and a remembered
     // project that had been archived meanwhile would edit nothing — falling back to the first row is the
     // same rule the profile modal follows.

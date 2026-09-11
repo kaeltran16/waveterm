@@ -13,6 +13,8 @@
 
 import { HarnessPicker } from "@/app/view/agents/harnesspicker";
 import { harnessPreferenceAtom, harnessesAtom } from "@/app/view/agents/harnessstore";
+import { channelProjectLabel, dedupeByProject } from "@/app/view/agents/projectlabel";
+import { projectsAtom } from "@/app/view/agents/projectsstore";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useState } from "react";
@@ -32,6 +34,7 @@ export function PetErrand({
     const errand = useAtomValue(petErrandAtom);
     const pref = useAtomValue(harnessPreferenceAtom);
     const harnesses = useAtomValue(harnessesAtom);
+    const projects = useAtomValue(projectsAtom);
     const [draft, setDraft] = useState("");
 
     const busy = errand?.status === "streaming";
@@ -43,9 +46,9 @@ export function PetErrand({
         saving: pref.saving,
         harnesses,
     });
-    const options = channels ?? [];
+    const options = dedupeByProject(channels ?? []);
     const placeholder =
-        dest == null ? "No channel to send to yet" : busy ? "Jarvis is thinking" : "Ask Jarvis anything";
+        dest == null ? "No project to send to yet" : busy ? "Jarvis is thinking" : "Ask Jarvis anything";
     // only a reason that BLOCKS a ready draft earns a line. An empty draft and a missing destination are
     // both already visible — the field is empty, the picker says where — so they render nothing.
     const blocker =
@@ -125,15 +128,16 @@ export function PetErrand({
                         data-pet-errand-dest
                         aria-label="Where the reply lands"
                         // still titled: the longest per-task names outrun even a full row
-                        title={dest != null ? `Reply lands in #${dest.name}` : undefined}
+                        title={dest != null ? `Reply lands in ${channelProjectLabel(dest, projects)}` : undefined}
                         value={dest?.oid ?? ""}
                         onChange={(event) => onPick(event.target.value)}
                         className="h-6 min-w-0 max-w-[240px] flex-none rounded-md border border-border bg-surface px-1.5 font-mono text-[10.5px] text-ink-mid hover:border-edge-mid hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                     >
-                        {/* no "→" glyph: "#" already reads as a destination and the arrow only costs width */}
+                        {/* no "→" glyph: the project name already reads as a destination and the arrow
+                            only costs width */}
                         {options.map((channel) => (
                             <option key={channel.oid} value={channel.oid}>
-                                #{channel.name}
+                                {channelProjectLabel(channel, projects)}
                             </option>
                         ))}
                     </select>

@@ -4,6 +4,7 @@
 package wstore
 
 import (
+	"context"
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -89,5 +90,65 @@ func TestUpdateRunInErrorsWhenMissing(t *testing.T) {
 	ch := &waveobj.Channel{OID: "c1", Runs: []waveobj.Run{{ID: "r1"}}}
 	if err := updateRunIn(ch, "nope", func(*waveobj.Run) error { return nil }); err == nil {
 		t.Fatalf("expected error for missing run id")
+	}
+}
+
+func TestChannelAtPath(t *testing.T) {
+	ctx := context.Background()
+	a, err := CreateChannel(ctx, "alpha", "/repo/alpha")
+	if err != nil {
+		t.Fatalf("CreateChannel alpha: %v", err)
+	}
+	if _, err := CreateChannel(ctx, "beta", "/repo/beta"); err != nil {
+		t.Fatalf("CreateChannel beta: %v", err)
+	}
+
+	got, err := ChannelAtPath(ctx, "/repo/alpha")
+	if err != nil {
+		t.Fatalf("ChannelAtPath: %v", err)
+	}
+	if got == nil || got.OID != a.OID {
+		t.Fatalf("ChannelAtPath(/repo/alpha) = %v, want %s", got, a.OID)
+	}
+
+	// a Windows spelling and a trailing slash are the same project
+	got, err = ChannelAtPath(ctx, "/repo/alpha/")
+	if err != nil {
+		t.Fatalf("ChannelAtPath trailing slash: %v", err)
+	}
+	if got == nil || got.OID != a.OID {
+		t.Fatalf("ChannelAtPath(/repo/alpha/) = %v, want %s", got, a.OID)
+	}
+
+	got, err = ChannelAtPath(ctx, "/repo/nothing")
+	if err != nil {
+		t.Fatalf("ChannelAtPath miss: %v", err)
+	}
+	if got != nil {
+		t.Fatalf("ChannelAtPath(/repo/nothing) = %v, want nil", got)
+	}
+
+	// an empty path is not "every channel with no path" — it is no answer
+	got, err = ChannelAtPath(ctx, "")
+	if err != nil {
+		t.Fatalf("ChannelAtPath empty: %v", err)
+	}
+	if got != nil {
+		t.Fatalf("ChannelAtPath(\"\") = %v, want nil", got)
+	}
+}
+
+func TestChannelAtPathMatchesSeparatorStyles(t *testing.T) {
+	ctx := context.Background()
+	ch, err := CreateChannel(ctx, "wave", `C:\Users\k\wave`)
+	if err != nil {
+		t.Fatalf("CreateChannel: %v", err)
+	}
+	got, err := ChannelAtPath(ctx, "C:/Users/k/wave")
+	if err != nil {
+		t.Fatalf("ChannelAtPath: %v", err)
+	}
+	if got == nil || got.OID != ch.OID {
+		t.Fatalf("ChannelAtPath forward-slash = %v, want %s", got, ch.OID)
 	}
 }
