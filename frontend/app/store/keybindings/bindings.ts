@@ -12,7 +12,7 @@ import { sideJumpTarget, type CompareRow } from "@/app/view/agents/comparerows";
 import { compareOnAtom, compareSelectionAtom, leaveCompare, swapCompareRefs } from "@/app/view/agents/comparestore";
 import { historyCollapsedAtom } from "@/app/view/agents/difflayout";
 import { gotoChange } from "@/app/view/agents/diffnav";
-import { splitViewAtom } from "@/app/view/agents/diffpane";
+import { ignoreWsAtom, splitViewAtom } from "@/app/view/agents/diffoptions";
 import { filesStateAtom, reloadChanges } from "@/app/view/agents/filesstore";
 import {
     clearHistoryFilters,
@@ -799,6 +799,14 @@ export function buildFilesBindings(): Binding[] {
             label: "Split / unified",
             when: on,
             run: () => globalStore.set(splitViewAtom, !globalStore.get(splitViewAtom)),
+        },
+        {
+            id: "files:toggle-whitespace",
+            keys: "Shift:w",
+            group: "Diff",
+            label: "Ignore whitespace",
+            when: on,
+            run: () => globalStore.set(ignoreWsAtom, !globalStore.get(ignoreWsAtom)),
         },
         {
             id: "files:swap-refs",
