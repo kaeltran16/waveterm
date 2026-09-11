@@ -2068,8 +2068,8 @@ const jarvisAvatar = {
 
         rec(
             "1. the render loop publishes a non-empty scene",
-            scene.segments > 0 && scene.points > 0,
-            `segments=${scene.segments} points=${scene.points} renderer=${scene.renderer}`
+            scene.segments > 0 && scene.fills > 0,
+            `segments=${scene.segments} fills=${scene.fills} renderer=${scene.renderer}`
         );
         // a literal here would silently opt the avatar out of every runtime theme
         rec(
