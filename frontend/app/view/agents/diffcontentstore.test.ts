@@ -64,7 +64,10 @@ describe("loading both sides of a diff", () => {
             form: "tips",
         });
         expect(globalStore.get(diffPairAtom)).toMatchObject({ tooLarge: true, size: 9_000_000 });
-        expect(fileAtRef).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ maxbytes: MAX_DIFF_BYTES }));
+        expect(fileAtRef).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({ maxbytes: MAX_DIFF_BYTES })
+        );
     });
 
     // Clicking a second file while the first is still in flight: the slow answer must not overwrite
@@ -89,5 +92,21 @@ describe("loading both sides of a diff", () => {
         const pending = loadDiffPair("/repo", "b.ts", { kind: "commit", hash: "bbb" });
         expect(globalStore.get(diffPairAtom)).toBeNull();
         await pending;
+    });
+});
+
+describe("refreshing the pair already on screen", () => {
+    // The change poll replaces the working-tree state every few seconds, and the surface re-reads the
+    // open file with it. Blanking the atom first would flash the skeleton on every tick.
+    it("keeps the current content on screen while re-reading the same file", async () => {
+        fileAtRef.mockResolvedValue({ content: "v1\n" });
+        fileRead.mockResolvedValue({ data64: b64("v1 edited\n") });
+        await loadDiffPair("/repo", "a.ts", { kind: "worktree", anchorRef: "HEAD" });
+
+        fileRead.mockResolvedValue({ data64: b64("v2 edited\n") });
+        const pending = loadDiffPair("/repo", "a.ts", { kind: "worktree", anchorRef: "HEAD" });
+        expect(globalStore.get(diffPairAtom)?.modified).toBe("v1 edited\n");
+        await pending;
+        expect(globalStore.get(diffPairAtom)?.modified).toBe("v2 edited\n");
     });
 });

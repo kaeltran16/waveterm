@@ -10,6 +10,7 @@ import { answerDigitTarget, canSubmitAsk, moveCursor, type AgentVM } from "@/app
 import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
 import { sideJumpTarget, type CompareRow } from "@/app/view/agents/comparerows";
 import { compareOnAtom, compareSelectionAtom, leaveCompare } from "@/app/view/agents/comparestore";
+import { splitViewAtom } from "@/app/view/agents/diffpane";
 import { filesStateAtom, reloadChanges } from "@/app/view/agents/filesstore";
 import {
     clearHistoryFilters,
@@ -786,6 +787,16 @@ export function buildFilesBindings(): Binding[] {
             label: "Toggle graph",
             when: inHistory,
             run: () => globalStore.set(graphOnAtom, !globalStore.get(graphOnAtom)),
+        },
+        {
+            // Shift:d, not bare "d" — bare letters on this surface sit next to the g leader and "/"
+            // and would shadow future chords.
+            id: "files:toggle-split",
+            keys: "Shift:d",
+            group: "Diff",
+            label: "Split / unified",
+            when: on,
+            run: () => globalStore.set(splitViewAtom, !globalStore.get(splitViewAtom)),
         },
         {
             // Escape's order on this surface: clear filters, else leave compare, else go home. The

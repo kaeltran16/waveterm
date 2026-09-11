@@ -14,8 +14,7 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
 import { historyKey, type LoadHistoryOpts } from "./diffscope";
-import { consumeFileLink, filesDiffAtom, filesStateAtom, selectFile } from "./filesstore";
-import { diffFileView, type FileView } from "./gitdiff";
+import { consumeFileLink, filesStateAtom, selectFile } from "./filesstore";
 import { parseGitChanges, type GitChanges } from "./gitstatus";
 import {
     FILTER_DEBOUNCE_MS,
@@ -47,7 +46,6 @@ export const selectedFileAtom = atom<string | null>(null) as PrimitiveAtom<strin
 export const graphOnAtom = atom<boolean>(true) as PrimitiveAtom<boolean>;
 
 const commitChangesAtom = atom<GitChanges | null>(null) as PrimitiveAtom<GitChanges | null>;
-const commitDiffAtom = atom<FileView | null>(null) as PrimitiveAtom<FileView | null>;
 // The scope's anchor/labels, held so the debounced filter reload can reissue the same scoped read.
 const historyOptsAtom = atom<LoadHistoryOpts>({}) as PrimitiveAtom<LoadHistoryOpts>;
 // When the current page was read. Relative ages are computed against this rather than a live clock,
@@ -85,9 +83,6 @@ export const historyRowsAtom = atom<HistoryRow[] | null>((get) => {
 export const activeChangesAtom = atom<GitChanges | null>((get) =>
     get(selectedCommitAtom) === WORKING_TREE ? (get(filesStateAtom)?.changes ?? null) : get(commitChangesAtom)
 );
-export const activeDiffAtom = atom<FileView | null>((get) =>
-    get(selectedCommitAtom) === WORKING_TREE ? get(filesDiffAtom) : get(commitDiffAtom)
-);
 
 const current = { token: "" };
 let filterTimer: ReturnType<typeof setTimeout> | null = null;
@@ -123,7 +118,6 @@ export function resetHistory(): void {
     globalStore.set(selectedCommitAtom, null);
     globalStore.set(selectedFileAtom, null);
     globalStore.set(commitChangesAtom, null);
-    globalStore.set(commitDiffAtom, null);
 }
 
 // Deliberately excludes the anchor: GitHistoryCommand takes cwd, limit and filters, so two loads that
@@ -220,7 +214,7 @@ function settleSelection(cwd: string, scope?: string): void {
     const linked = scope ? consumeFileLink(scope, files.map((f) => f.path)) : undefined;
     if (linked) {
         globalStore.set(selectedCommitAtom, WORKING_TREE);
-        void selectCommitFile(cwd, WORKING_TREE, linked);
+        selectCommitFile(WORKING_TREE, linked);
         return;
     }
     const prev = globalStore.get(selectedCommitAtom);
@@ -372,14 +366,13 @@ export function retryHistory(): void {
 export async function selectCommit(cwd: string, hash: string): Promise<void> {
     globalStore.set(selectedCommitAtom, hash);
     globalStore.set(selectedFileAtom, null);
-    globalStore.set(commitDiffAtom, null);
     if (hash === WORKING_TREE) {
         // the working tree's file list is already loaded by filesstore for the active scope; just pick
         // its first file so pane 3 is never blank
         const first = globalStore.get(filesStateAtom)?.changes?.files[0]?.path;
         if (first) {
             globalStore.set(selectedFileAtom, first);
-            void selectFile(cwd, first);
+            selectFile(first);
         }
         return;
     }
@@ -393,7 +386,7 @@ export async function selectCommit(cwd: string, hash: string): Promise<void> {
         globalStore.set(commitChangesAtom, changes);
         const first = changes?.files[0]?.path;
         if (first) {
-            void selectCommitFile(cwd, hash, first);
+            selectCommitFile(hash, first);
         }
     } catch {
         if (globalStore.get(selectedCommitAtom) === hash) {
@@ -402,22 +395,12 @@ export async function selectCommit(cwd: string, hash: string): Promise<void> {
     }
 }
 
-export async function selectCommitFile(cwd: string, hash: string, path: string): Promise<void> {
+// Selection only. The pane reads the commit and its parent itself (diffcontentstore), so there is no
+// patch to fetch here; the working-tree row still routes through filesstore because that row's
+// selection lives there.
+export function selectCommitFile(hash: string, path: string): void {
     globalStore.set(selectedFileAtom, path);
     if (hash === WORKING_TREE) {
-        void selectFile(cwd, path);
-        return;
-    }
-    globalStore.set(commitDiffAtom, null);
-    try {
-        const d = await RpcApi.GitCommitDiffCommand(TabRpcClient, { cwd, hash, path });
-        if (globalStore.get(selectedFileAtom) !== path || globalStore.get(selectedCommitAtom) !== hash) {
-            return; // selection moved on
-        }
-        globalStore.set(commitDiffAtom, diffFileView(d));
-    } catch {
-        if (globalStore.get(selectedFileAtom) === path) {
-            globalStore.set(commitDiffAtom, null);
-        }
+        selectFile(path);
     }
 }
