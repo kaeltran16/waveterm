@@ -538,12 +538,12 @@ export function buildJarvisBindings(): Binding[] {
         },
         ...buildJarvisGraphBindings(),
         {
-            id: "jarvis:new-channel",
-            keys: "c",
+            id: "jarvis:new-run",
+            keys: "r",
             group: "Jarvis",
-            label: "New channel",
+            label: "New run",
             when: onStage,
-            run: () => clickThrough("[data-jarvis-new-channel]"),
+            run: () => clickThrough("[data-jarvis-new-run]"),
         },
         {
             id: "jarvis:new-initiative",
