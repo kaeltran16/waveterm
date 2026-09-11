@@ -9,6 +9,7 @@ import {
     resolveEffectiveRoute,
     routeForRuntime,
     routePickerItems,
+    scopePickerSections,
 } from "./route";
 
 const capability = (runtime: string, tier: string, resolvedmodel = `${runtime}/${tier}`): RouteCapabilityInfo => ({
@@ -139,6 +140,14 @@ describe("picker sections", () => {
         const byProvider = filterPickerSections(sections, "OPENCODE");
         expect(byProvider.flatMap((s) => s.rows.map((r) => r.provider))).toEqual(["opencode", "opencode"]);
         expect(filterPickerSections(sections, "").flatMap((s) => s.rows)).toHaveLength(5);
+    });
+
+    it("scopes to one harness, and ignores a scope the query has emptied", () => {
+        const sections = buildPickerSections(flatHarnesses);
+        expect(scopePickerSections(sections, null).map((s) => s.runtime)).toEqual(["pi", "claude"]);
+        expect(scopePickerSections(sections, "claude").map((s) => s.runtime)).toEqual(["claude"]);
+        const onlyPi = filterPickerSections(sections, "deepseek");
+        expect(scopePickerSections(onlyPi, "claude").map((s) => s.runtime)).toEqual(["pi"]);
     });
 
     it("modelFace returns model when set, tier otherwise", () => {
