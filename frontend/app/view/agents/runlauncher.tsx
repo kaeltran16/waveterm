@@ -170,7 +170,7 @@ function RoutingSection({ showWorkerRoute }: { showWorkerRoute: boolean }) {
 
 // No Launch button of its own: the goal and its `Run ⏎` are in the composer immediately below, and a
 // second button here would have to reach across components to submit through that same face.
-export function RunLauncher({ channelName }: { channelName: string }) {
+export function RunLauncher({ projectName }: { projectName: string }) {
     const shape = useAtomValue(runShapeAtom);
     const orchestration = useAtomValue(orchestrationAtom);
     const face = runLauncherFace(shape, orchestration);
@@ -178,7 +178,7 @@ export function RunLauncher({ channelName }: { channelName: string }) {
         <div className="min-h-0 flex-1 overflow-y-auto px-6 pt-6 pb-2">
             <div className="mx-auto flex w-full max-w-[720px] flex-col gap-5">
                 <div className="flex flex-col gap-1">
-                    <span className="text-[15px] font-semibold text-primary">Start a run in #{channelName}</span>
+                    <span className="text-[15px] font-semibold text-primary">Start a run in {projectName}</span>
                     <span className="text-[12px] leading-[1.5] text-muted">
                         Set it up here, then give Jarvis the goal below and press Run ⏎. Typing @quick, @run or @ask in
                         the goal overrides the shape for that one launch.
