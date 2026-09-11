@@ -40,7 +40,10 @@ const LABEL = "font-mono text-[9.5px] font-bold uppercase tracking-[.13em] text-
 const FIELD = "rounded-[7px] border border-border bg-background px-2 py-1 text-[11.5px] text-ink-hi";
 const BTN =
     "rounded-[7px] border border-border bg-surface-raised px-2.5 py-1 text-[11px] font-semibold text-secondary hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-40 disabled:cursor-default";
-const SECTION = "flex flex-col gap-2 border-t border-edge-faint pt-3.5";
+const SECTION = "flex flex-col gap-2 border-t border-edge-faint pt-4";
+// one width for every control, so the form reads as a column instead of a ragged left edge. 300px is the
+// container-xs token, which is also RoutePicker's own cap — the one control here that sizes to its content.
+const CONTROL = "w-full max-w-xs";
 const BADGE = "rounded-[4px] px-1.5 py-px font-mono text-[9px] font-semibold uppercase tracking-[.08em]";
 
 type Scope = "project" | "global";
@@ -72,7 +75,7 @@ function DefaultRow({
 }) {
     const reset = resetActionState(inherited, disabled);
     return (
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-1.5">
             <div className="flex items-center gap-2">
                 <span className="text-[11.5px] font-semibold text-secondary">{label}</span>
                 {inheritable ? (
@@ -134,7 +137,7 @@ function DefaultsFields({
                     value={draft.defaultmode ?? base.defaultmode ?? "pipeline"}
                     disabled={saving}
                     onChange={(e) => set({ defaultmode: e.target.value })}
-                    className={cn(FIELD, "w-40")}
+                    className={cn(FIELD, CONTROL)}
                 >
                     <option value="quick">quick</option>
                     <option value="pipeline">pipeline</option>
@@ -150,7 +153,7 @@ function DefaultsFields({
                     value={draft.machine ?? base.machine ?? "adaptive"}
                     disabled={saving}
                     onChange={(e) => set({ machine: e.target.value })}
-                    className={cn(FIELD, "w-40")}
+                    className={cn(FIELD, CONTROL)}
                 >
                     <option value="adaptive">adaptive</option>
                     <option value="engine">engine</option>
@@ -169,7 +172,7 @@ function DefaultsFields({
                     disabled={saving}
                     placeholder="let the lead choose"
                     onChange={(e) => set({ parallelism: e.target.value === "" ? undefined : Number(e.target.value) })}
-                    className={cn(FIELD, "w-40")}
+                    className={cn(FIELD, CONTROL)}
                 />
             </DefaultRow>
             {routeRow}
@@ -392,7 +395,7 @@ export function BriefProfileModal({ open, onClose }: { open: boolean; onClose: (
                         Close
                     </button>
                 </header>
-                <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
+                <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-4 py-4">
                     <div className="flex flex-none gap-1 rounded-[8px] border border-edge-mid p-0.5">
                         {(["project", "global"] as const).map((s) => (
                             <button
@@ -412,13 +415,13 @@ export function BriefProfileModal({ open, onClose }: { open: boolean; onClose: (
                         ))}
                     </div>
                     {!isGlobal && (channels?.length ?? 0) > 1 ? (
-                        <label className="flex flex-col gap-1">
+                        <label className="flex flex-col gap-1.5">
                             <span className={LABEL}>project</span>
                             <select
                                 value={channelId}
                                 disabled={saving}
                                 onChange={(e) => setChannelId(e.target.value)}
-                                className={FIELD}
+                                className={cn(FIELD, CONTROL)}
                             >
                                 {dedupeByProject(channels ?? []).map((c) => (
                                     <option key={c.oid} value={c.oid}>
@@ -446,7 +449,7 @@ export function BriefProfileModal({ open, onClose }: { open: boolean; onClose: (
                     ) : null}
                     {isGlobal && globalDraft != null ? (
                         <>
-                            <section className="flex flex-col gap-3.5">
+                            <section className="flex flex-col gap-5">
                                 <span className={LABEL}>future-run defaults</span>
                                 <DefaultsFields
                                     inheritable={false}
@@ -480,7 +483,7 @@ export function BriefProfileModal({ open, onClose }: { open: boolean; onClose: (
                     ) : null}
                     {!isGlobal && loaded != null ? (
                         <>
-                            <section className="flex flex-col gap-3.5">
+                            <section className="flex flex-col gap-5">
                                 <span className={LABEL}>future-run defaults</span>
                                 <DefaultsFields
                                     inheritable
