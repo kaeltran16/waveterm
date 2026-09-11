@@ -17,6 +17,7 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
 import { AGGREGATE } from "./comparerows";
+import type { CompareForm } from "./diffcontent";
 import type { DiffRange } from "./diffscope";
 import { diffScopeAtom } from "./diffscopeatom";
 import { parseGitChanges, type GitChanges } from "./gitstatus";
@@ -53,6 +54,13 @@ export const compareActiveChangesAtom = atom<GitChanges | null>((get) =>
 );
 
 const current = { token: "" };
+
+// The scope is the single source of truth for which form is active; this reads it rather than
+// carrying a second copy that could disagree with the range strip.
+function activeForm(): CompareForm {
+    const r = globalStore.get(diffScopeAtom)?.range;
+    return r?.kind === "compare" ? r.form : "mergebase";
+}
 
 // Which repository the remembered pair in compareRefsAtom was picked in. That atom survives
 // clearCompareState on purpose, but the pair is only an offer for the repo it came from — carried
@@ -111,7 +119,7 @@ export async function enterCompare(cwd: string, currentBranch: string): Promise<
     const prev = remembered.cwd === cwd ? globalStore.get(compareRefsAtom) : null;
     const base = prev?.base || def;
     const head = prev?.head || currentBranch;
-    globalStore.set(diffScopeAtom, { ...scope, range: { kind: "compare", base, head, from } });
+    globalStore.set(diffScopeAtom, { ...scope, range: { kind: "compare", base, head, form: "mergebase", from } });
     await setCompareRefs(cwd, base, head);
 }
 
@@ -123,7 +131,8 @@ export async function setCompareRefs(cwd: string, base: string, head: string): P
     if (scope?.range.kind === "compare") {
         globalStore.set(diffScopeAtom, { ...scope, range: { ...scope.range, base, head } });
     }
-    const token = `${cwd}|${base}|${head}`;
+    const form = activeForm();
+    const token = `${cwd}|${base}|${head}|${form}`;
     current.token = token;
     globalStore.set(compareSidesAtom, null);
     globalStore.set(compareAggregateAtom, null);
@@ -138,7 +147,9 @@ export async function setCompareRefs(cwd: string, base: string, head: string): P
     try {
         const [div, agg] = await Promise.all([
             RpcApi.GitDivergenceCommand(TabRpcClient, { cwd, base, head }),
-            RpcApi.GitCompareChangesCommand(TabRpcClient, { cwd, base, head }),
+            // the wire takes a bool because git has exactly two range separators; the union stays
+            // the vocabulary everywhere above it
+            RpcApi.GitCompareChangesCommand(TabRpcClient, { cwd, base, head, tips: form === "tips" }),
         ]);
         if (current.token !== token) {
             return;
@@ -165,6 +176,17 @@ export async function setCompareRefs(cwd: string, base: string, head: string): P
             globalStore.set(compareErrorAtom, `Couldn’t compare ${base} with ${head}.`);
         }
     }
+}
+
+// A form change is a different question about the same two refs, so it re-reads the aggregate and the
+// open file but leaves the commit columns alone — divergence does not depend on the form.
+export async function setCompareForm(cwd: string, form: CompareForm): Promise<void> {
+    const scope = globalStore.get(diffScopeAtom);
+    if (scope == null || scope.range.kind !== "compare" || scope.range.form === form) {
+        return;
+    }
+    globalStore.set(diffScopeAtom, { ...scope, range: { ...scope.range, form } });
+    await setCompareRefs(cwd, scope.range.base, scope.range.head);
 }
 
 export async function selectCompareRow(cwd: string, rowId: string): Promise<void> {

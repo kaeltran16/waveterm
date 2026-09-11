@@ -21,7 +21,7 @@ import { PopoverReveal } from "@/app/element/popoverreveal";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
 import { DiffPane } from "./diffpane";
-import type { DiffSelection } from "./diffcontent";
+import type { CompareForm, DiffSelection } from "./diffcontent";
 import { clearDiffPair, loadDiffPair } from "./diffcontentstore";
 import { StatusDot } from "./statusdot";
 import { filesErrorAtom, filesStateAtom, loadFilesForScope, startChangesPoll, type FilesProject } from "./filesstore";
@@ -51,6 +51,7 @@ import {
     leaveCompare,
     selectCompareFile,
     selectCompareRow,
+    setCompareForm,
     setCompareRefs,
 } from "./comparestore";
 import { RefPicker } from "./refpicker";
@@ -389,6 +390,10 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
         refreshHistoryIfMoved(state?.head ?? "");
     }, [state?.head]);
 
+    // Which range form the comparison is asking about. The scope is the one place that says so, which
+    // is what keeps the file list and the diff pane from answering two different questions.
+    const compareForm: CompareForm = scope?.range.kind === "compare" ? scope.range.form : "mergebase";
+
     // What the diff pane is showing. The header's +/- come from the row that is already loaded, so
     // opening a file costs no extra read.
     const shownPath = compareOn ? compareFile : selectedFile;
@@ -449,9 +454,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                       base: compareRefs?.base ?? "",
                       head: compareRefs?.head ?? "",
                       mergeBase: compareSides?.mergeBase ?? "",
-                      // Task 10 moves the range form into scope.range; until then a comparison is
-                      // always merge-base anchored, which is what the change list already shows.
-                      form: "mergebase",
+                      form: compareForm,
                   }
                 : { kind: "commit", hash: compareSelection ?? "" }
             : selectedCommit === WORKING_TREE
@@ -467,6 +470,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
         compareRefs?.head,
         compareSides?.mergeBase,
         compareSelection,
+        compareForm,
         selectedCommit,
         liveTick,
     ]);
@@ -657,9 +661,13 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                     <AggregatePane
                                         base={compareRefs?.base ?? ""}
                                         head={compareRefs?.head ?? ""}
+                                        form={compareForm}
                                         changes={compareChanges}
                                         selectedFile={compareFile}
                                         onSelectFile={(path) => selectCompareFile(path)}
+                                        onSetForm={(f) =>
+                                            state?.cwd && fireAndForget(() => setCompareForm(state.cwd!, f))
+                                        }
                                     />
                                 ) : (
                                     // a compare commit row *is* a HistoryRow, so the shipped pane takes it directly

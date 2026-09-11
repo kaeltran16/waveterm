@@ -7,22 +7,28 @@
 // is selected instead, the surface renders the shipped CommitPane — a compare commit row is a
 // HistoryRow, so no adapter is needed.
 
+import { cn } from "@/util/util";
 import { ChangedFileList } from "./changedfilelist";
 import { SIDE_TEXT } from "./comparerows";
+import type { CompareForm } from "./diffcontent";
 import type { GitChanges } from "./gitstatus";
 
 export function AggregatePane({
     base,
     head,
+    form,
     changes,
     selectedFile,
     onSelectFile,
+    onSetForm,
 }: {
     base: string;
     head: string;
+    form: CompareForm;
     changes: GitChanges | null;
     selectedFile: string | null;
     onSelectFile: (path: string) => void;
+    onSetForm: (form: CompareForm) => void;
 }) {
     const count = changes?.files.length ?? 0;
     return (
@@ -35,6 +41,25 @@ export function AggregatePane({
                     <span className={SIDE_TEXT.head}>{head}</span>
                     <span className="text-ink-faint">→</span>
                     <span className={SIDE_TEXT.base}>{base}</span>
+                </div>
+                {/* The chips name the range separator: three dots is what head introduced since the
+                    merge base, two is the full difference between the tips. The file list and the
+                    diff pane both read this, so they cannot disagree about which question is asked. */}
+                <div className="mt-[9px] flex items-center gap-[6px] font-mono text-[10px]">
+                    {(["mergebase", "tips"] as const).map((f) => (
+                        <button
+                            key={f}
+                            onClick={() => onSetForm(f)}
+                            className={cn(
+                                "rounded-[6px] border px-[7px] py-[2px]",
+                                form === f
+                                    ? "border-accent/40 bg-accentbg text-ink-hi"
+                                    : "border-edge-mid text-ink-faint hover:text-foreground"
+                            )}
+                        >
+                            {f === "mergebase" ? "••• merge base" : "•• tip to tip"}
+                        </button>
+                    ))}
                 </div>
                 <div className="mt-[9px] flex items-center gap-[10px]">
                     <span className="font-mono text-[11px] font-semibold text-muted">

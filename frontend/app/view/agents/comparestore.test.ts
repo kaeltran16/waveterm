@@ -6,13 +6,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const divergence = vi.fn();
 const compareChanges = vi.fn();
-const compareDiff = vi.fn();
 const listBranches = vi.fn();
 vi.mock("@/app/store/wshclientapi", () => ({
     RpcApi: {
         GitDivergenceCommand: (...a: any[]) => divergence(...a),
         GitCompareChangesCommand: (...a: any[]) => compareChanges(...a),
-        GitCompareDiffCommand: (...a: any[]) => compareDiff(...a),
         ListBranchesCommand: (...a: any[]) => listBranches(...a),
         GitCommitChangesCommand: vi.fn(),
         GitCommitDiffCommand: vi.fn(),
@@ -20,7 +18,7 @@ vi.mock("@/app/store/wshclientapi", () => ({
 }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 
-import { compareOnAtom, compareRefsAtom, enterCompare, leaveCompare } from "./comparestore";
+import { compareOnAtom, compareRefsAtom, enterCompare, leaveCompare, setCompareForm } from "./comparestore";
 import type { DiffScope } from "./diffscope";
 import { diffScopeAtom } from "./diffscopeatom";
 
@@ -108,5 +106,40 @@ describe("comparison as a range", () => {
         await enterCompare("/repo-b", "feat/b");
 
         expect(globalStore.get(compareRefsAtom)).toEqual({ base: "trunk", head: "feat/b" });
+    });
+});
+
+describe("the range form", () => {
+    async function entered() {
+        globalStore.set(diffScopeAtom, base);
+        listBranches.mockResolvedValue({ branches: [], default: "main" });
+        divergence.mockResolvedValue({ isrepo: true, ahead: [], behind: [], mergebase: "m1" });
+        compareChanges.mockResolvedValue({ isrepo: true, statusz: "", numstat: "" });
+        await enterCompare("/repo", "feat");
+    }
+
+    it("starts merge-base anchored — the file list matches the ahead count beside it", async () => {
+        await entered();
+        const range = globalStore.get(diffScopeAtom)!.range;
+        expect(range.kind === "compare" && range.form).toBe("mergebase");
+        expect(compareChanges).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ tips: false }));
+    });
+
+    // The form is a different question about the same two refs, so the aggregate has to be re-read.
+    // A file list built three-dot beside a pane read two-dot is the failure this exists to prevent.
+    it("re-reads the aggregate tip-to-tip and records the form in the range", async () => {
+        await entered();
+        await setCompareForm("/repo", "tips");
+
+        const range = globalStore.get(diffScopeAtom)!.range;
+        expect(range.kind === "compare" && range.form).toBe("tips");
+        expect(compareChanges).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ tips: true }));
+    });
+
+    it("does not re-read when the form is already the active one", async () => {
+        await entered();
+        const before = compareChanges.mock.calls.length;
+        await setCompareForm("/repo", "mergebase");
+        expect(compareChanges.mock.calls.length).toBe(before);
     });
 });
