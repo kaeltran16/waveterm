@@ -8,7 +8,7 @@
 // HistoryRow, so no adapter is needed.
 
 import { cn } from "@/util/util";
-import { ChangedFileList } from "./changedfilelist";
+import { ChangedFileList, TreeModeToggle } from "./changedfilelist";
 import { SIDE_TEXT } from "./comparerows";
 import type { CompareForm } from "./diffcontent";
 import type { GitChanges } from "./gitstatus";
@@ -67,6 +67,8 @@ export function AggregatePane({
                     </span>
                     <span className="font-mono text-[11px] font-semibold text-success">+{changes?.adds ?? 0}</span>
                     <span className="font-mono text-[11px] font-semibold text-error">−{changes?.dels ?? 0}</span>
+                    <div className="flex-1" />
+                    <TreeModeToggle />
                 </div>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-[8px] pb-[20px] pt-[8px]">

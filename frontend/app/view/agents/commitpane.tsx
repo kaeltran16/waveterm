@@ -6,7 +6,7 @@
 // files it touched. Read-only — no stage control, no message box, nothing that authors a commit.
 
 import { cn } from "@/util/util";
-import { ChangedFileList } from "./changedfilelist";
+import { ChangedFileList, TreeModeToggle } from "./changedfilelist";
 import { type GitChanges } from "./gitstatus";
 import { WORKING_TREE, refChipClass, type HistoryRow } from "./historyrows";
 
@@ -71,6 +71,7 @@ export function CommitPane({
                 <div className="flex-1" />
                 <span className="font-mono text-[11px] font-semibold text-success">+{changes?.adds ?? 0}</span>
                 <span className="font-mono text-[11px] font-semibold text-error">−{changes?.dels ?? 0}</span>
+                <TreeModeToggle />
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-[8px] pb-[20px]">
                 <ChangedFileList changes={changes} selectedFile={selectedFile} onSelectFile={onSelectFile} />
