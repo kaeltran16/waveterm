@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { MOTION, cardVariants, composerReveal, computeEntrances, easeFluidCss, initialEntranceState, modalBackdrop, modalPanel, paneReveal, popoverReveal, shouldFadeEntry, reflowProps } from "./motiontokens";
+import { MOTION, cardVariants, composerReveal, computeEntrances, easeFluidCss, initialEntranceState, modalBackdrop, modalPanel, paneReveal, popoverReveal, sheetPanel, shouldFadeEntry, reflowProps } from "./motiontokens";
 
 describe("motiontokens", () => {
     it("uses the Fluid feel: macro ~360ms on the chosen ease curve", () => {
@@ -36,6 +36,14 @@ describe("motiontokens", () => {
 
     it("modal panel reuses the card entrance signature (single source of feel)", () => {
         expect(modalPanel).toBe(cardVariants);
+    });
+
+    it("the sheet slides from the edge it is pinned to, and leaves quicker than it arrives", () => {
+        expect((sheetPanel.initial as { x: number }).x).toBeGreaterThan(0);
+        expect((sheetPanel.animate as { x: number }).x).toBe(0);
+        expect((sheetPanel.animate as any).transition.duration).toBeCloseTo(MOTION.durMacro);
+        expect((sheetPanel.exit as any).transition.duration).toBeCloseTo(MOTION.durExit);
+        expect((sheetPanel.animate as any).transition.ease).toEqual(MOTION.easeFluid);
     });
 });
 

@@ -32,6 +32,16 @@ export const modalBackdrop: Variants = {
 // Panel reuses moment 1's opacity+scale signature — one source of feel for cards and modals.
 export const modalPanel = cardVariants;
 
+// Sheet reveal (Jarvis detail sheet). A right-pinned full-height drawer slides in from the edge it is
+// pinned to: a layer arriving from off-screen reads as navigation, where a centered scale reads as a
+// dialog. x is safe here — cardVariants bans it because Reorder.Item owns that transform on cockpit
+// cards, and a sheet has no such owner.
+export const sheetPanel: Variants = {
+    initial: { opacity: 0, x: 24 },
+    animate: { opacity: 1, x: 0, transition: { duration: MOTION.durMacro, ease: MOTION.easeFluid } },
+    exit: { opacity: 0, x: 24, transition: { duration: MOTION.durExit, ease: MOTION.easeFluid } },
+};
+
 // Corner-resize follow. The drag sets the target height instantly; this spring is what the eye tracks,
 // so it eases without lag and settles on release instead of snapping. Stiff + well-damped = responsive,
 // no wobble. Bound to style.height via useSpring, so it runs off React (no per-frame re-render).

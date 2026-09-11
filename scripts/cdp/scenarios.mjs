@@ -4932,7 +4932,9 @@ const briefProfile = {
         await h.ev("new Promise((r) => setTimeout(r, 1200))");
 
         const STATE = `(() => {
-            const dlg = document.querySelector('[data-jarvis-brief-modal="profile"] [role="dialog"]');
+            // the hook is now INSIDE ModalShell's panel, which is itself the [role="dialog"] — the
+            // profile stopped hand-rolling its own scrim and dialog when it moved onto the shell.
+            const dlg = document.querySelector('[data-jarvis-brief-modal="profile"]');
             const txt = (el) => (el?.innerText || "").replace(/\\s+/g, " ").trim();
             return {
                 scope: dlg ? dlg.dataset.jarvisProfileScope : null,
@@ -5018,6 +5020,198 @@ const briefProfile = {
     },
 };
 
+// --- jarvis-motion: the structural facts the motion pass rests on -------------------------------
+// The animations themselves are not assertable here — a tween is a sequence of transient computed
+// styles, and reading one mid-flight is a race rather than a check. What IS assertable is the
+// structure each moment depends on, which is also the half a later refactor can quietly break with
+// nothing failing: the detail sheet's surface scoping, the freshness mark's presence and its cap, and
+// the updates drawer's split between the element whose height animates and the inner scroller.
+const jarvisMotion = {
+    name: "jarvis-motion",
+    surface: "jarvis",
+    async arrange() {
+        return { id: `loose-end:cdp-motion:${Date.now()}` };
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
+
+        // 1. ModalShell variant="sheet" is `absolute z-20`, not the dialog's `fixed z-[70]` — that is
+        //    what keeps a detail sheet scoped to the Brief and the nav rail reachable underneath it.
+        //    Driven through the boot restore because no fixture state carries a queue `nav`, so no
+        //    fixture row is a button that opens anything; this is the same driver brief-restore uses.
+        const chans = await h.rpc("getchannels", null);
+        const channel = (chans?.channels ?? [])[0];
+        if (channel == null) {
+            rec(
+                "1. the sheet mounts inside a Brief-scoped backdrop",
+                false,
+                "no channel in this profile — seed one before reading this as a pass"
+            );
+        } else {
+            const stored = JSON.stringify(JSON.stringify({ kind: "channel", id: channel.oid }));
+            await h.ev(`localStorage.setItem('jarvis.subject.last', ${stored})`);
+            await h.ev("location.reload()");
+            await settle(2800);
+            await h.goto("jarvis");
+            await settle(1200);
+            const scoped = await h.ev(`(() => {
+                const sheet = document.querySelector('[data-jarvis-brief-sheet]');
+                // the panel IS the [role="dialog"]; the backdrop is the element it sits in
+                const backdrop = sheet?.closest('[role="dialog"]')?.parentElement ?? null;
+                const rail = document.querySelector('nav button[aria-label="Cockpit"]');
+                const r = rail?.getBoundingClientRect();
+                const hit = r ? document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) : null;
+                return {
+                    sheet: sheet != null,
+                    position: backdrop ? getComputedStyle(backdrop).position : null,
+                    // the claim itself rather than a proxy for it: a click on the rail still lands there
+                    railReachable: rail != null && hit != null && rail.contains(hit),
+                };
+            })()`);
+            rec(
+                "1. the sheet mounts inside a Brief-scoped backdrop, nav rail still hit-testable",
+                scoped.sheet === true && scoped.position === "absolute" && scoped.railReachable === true,
+                JSON.stringify(scoped)
+            );
+            await h.shot("cdp-shots/jarvis-motion-sheet.png");
+            await h.ev(
+                `[...document.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === 'Close detail sheet')?.click()`
+            );
+            await settle(500);
+        }
+
+        // 2. freshness against a visit cursor older than the rows. The `normal` fixture's cursor is
+        //    seven days back and every initiative and session row it carries is one to three days old,
+        //    so each of those regions must mark, and must mark no more rows than it has.
+        await h.ev(`document.querySelector('[data-briefing-fixture="normal"]')?.click()`);
+        await settle(900);
+        const TALLY = `(() => {
+            const per = {};
+            document.querySelectorAll('[data-jarvis-brief-row]').forEach((r) => {
+                const k = r.dataset.jarvisBriefRow;
+                per[k] = per[k] || { rows: 0, marked: 0 };
+                per[k].rows += 1;
+                if (r.classList.contains('fresh-mark')) per[k].marked += 1;
+            });
+            return per;
+        })()`;
+        const marked = await h.ev(TALLY);
+        const region = (k) => marked[k] ?? { rows: 0, marked: 0 };
+        rec(
+            "2. rows newer than the visit cursor carry the freshness mark",
+            region("initiative").marked > 0 && region("session").marked > 0,
+            JSON.stringify(marked)
+        );
+        await h.shot("cdp-shots/jarvis-motion-fresh.png");
+
+        // 3. the cap, per region. freshrows.ts suppresses the mark entirely above FRESH_MARK_CAP,
+        //    because a week away that lights up every row is decoration rather than a reading aid.
+        //    Asserted per region, not in total: the three marked regions each call freshKeys with
+        //    their own list, so the cap is three separate budgets and a summed check would be wrong.
+        const FRESH_MARK_CAP = 6;
+        const capped = ["queue", "initiative", "session"].every((k) => region(k).marked <= FRESH_MARK_CAP);
+        rec(
+            `3. no region marks more than ${FRESH_MARK_CAP} rows`,
+            capped,
+            JSON.stringify({ cap: FRESH_MARK_CAP, ...marked })
+        );
+
+        // 4. the negative. The plan asked for a fixture whose rows all PREDATE the cursor; no fixture
+        //    supplies one — every loaded state hangs its timestamps one to three days off `now` while
+        //    the cursor sits seven days back. So the deterministic negative the design actually states
+        //    stands in for it: the `behind` region is since-your-last-visit by construction, which is
+        //    why it is excluded from the mark — marking it would mark every row, and the region's own
+        //    label already says the thing the mark would be saying. `empty` is kept alongside it as
+        //    the trivial case: no rows, therefore no marks, therefore no mark leaking from elsewhere.
+        const behind = region("delta").marked + region("shipped").marked;
+        rec(
+            "4. the behind region carries no mark, though every row in it postdates the cursor",
+            behind === 0 && region("delta").rows + region("shipped").rows > 0,
+            JSON.stringify({ delta: region("delta"), shipped: region("shipped") })
+        );
+
+        await h.ev(`document.querySelector('[data-briefing-fixture="empty"]')?.click()`);
+        await settle(700);
+        const emptyMarks = await h.ev(`document.querySelectorAll('.fresh-mark').length`);
+        rec("5. a state with no rows marks nothing", emptyMarks === 0, String(emptyMarks));
+
+        // 6. the updates drawer. Task 14 moved the scroll container to an inner div: paneReveal
+        //    animates the outer element's height and needs overflow-hidden there, which on the same
+        //    element would fight overflow-y-auto and clip the scrollbar mid-tween. An injected pet
+        //    event guarantees the drawer exists at all — it renders only when there are updates.
+        await h.ev(`(() => {
+            document.querySelector('button[aria-label="Close Jarvis panel"]')?.click();
+            return true;
+        })()`);
+        await settle(200);
+        const pushed = await h.ev(`(() => {
+            const mod = globalThis.__wavePetStore;
+            if (mod == null) return "petstore test hook not exposed (dev build?)";
+            mod.pushPetEvent({
+                id: ${JSON.stringify(ctx.id)},
+                at: Date.now(),
+                kind: "loose-end",
+                text: "CDP motion probe - untouched for 21 days",
+                sources: [{ ref: "task:cdp-motion", title: "CDP motion probe", sourceType: "dossier" }],
+            });
+            return true;
+        })()`);
+        await settle(400);
+        await h.ev(`document.querySelector('[aria-label="Jarvis condition"]')?.click()`);
+        await settle(300);
+        const DRAWER = `(() => {
+            const box = document.querySelector('[data-pet-updates]');
+            const toggle = box?.querySelector('button[aria-expanded]');
+            // the revealing element is the toggle's sibling; the scroller is its only child
+            const pane = toggle?.nextElementSibling ?? null;
+            const scroller = pane?.firstElementChild ?? null;
+            return {
+                expanded: toggle?.getAttribute('aria-expanded') ?? null,
+                rows: scroller ? scroller.children.length : 0,
+                paneOverflow: pane ? getComputedStyle(pane).overflow : null,
+                scrollerOverflowY: scroller ? getComputedStyle(scroller).overflowY : null,
+            };
+        })()`;
+        const shut = await h.ev(DRAWER);
+        await h.ev(`(() => {
+            const toggle = document.querySelector('[data-pet-updates] button[aria-expanded]');
+            if (toggle && toggle.getAttribute('aria-expanded') === 'false') toggle.click();
+            return true;
+        })()`);
+        await settle(500);
+        const opened = await h.ev(DRAWER);
+        rec(
+            "6. the drawer toggles its updates list, height on the outside and the scroller within",
+            pushed === true &&
+                shut.expanded === "false" &&
+                shut.rows === 0 &&
+                opened.expanded === "true" &&
+                opened.rows > 0 &&
+                opened.paneOverflow === "hidden" &&
+                opened.scrollerOverflowY === "auto",
+            JSON.stringify({ pushed, shut, opened })
+        );
+        await h.shot("cdp-shots/jarvis-motion-drawer.png");
+
+        return steps;
+    },
+    async teardown(h) {
+        await h.ev(`(() => {
+            // the injected utterance advanced a PERSISTED watermark, so leaving it moved is a side
+            // effect on the user's own creature rather than a test (jarvis-volunteer's rule)
+            document.querySelector('button[aria-label="Close Jarvis panel"]')?.click();
+            try {
+                globalThis.localStorage?.removeItem("wave:pet.watermark");
+                globalThis.localStorage?.removeItem("jarvis.subject.last");
+            } catch {}
+            return true;
+        })()`);
+        await h.goto("cockpit");
+    },
+};
+
 export const SCENARIOS = [
     vaultSteering,
     vaultRecords,
@@ -5050,4 +5244,5 @@ export const SCENARIOS = [
     harnessPicker,
     dagLifecycle,
     routePickerFlat,
+    jarvisMotion,
 ];
