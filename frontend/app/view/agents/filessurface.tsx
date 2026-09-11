@@ -375,7 +375,12 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
             <div ref={surfaceRef} className="absolute inset-0 flex min-h-0 flex-col">
                 {/* subject bar: which repository, and which range within it */}
                 <div className="flex-none px-[18px] pt-[14px]">
-                    <div className="flex items-center gap-[14px] pb-[6px]">
+                    {/* wraps because compare adds two controls to this row: at the shipped 1000x700 the
+                        ref picker's editing form plus Fetch need 901px of an 886px row, and a nowrap flex
+                        pays for that by squeezing the source picker from its 210px to 155px and pushing
+                        Fetch off the window edge. Wrapping costs a second line only at the width that
+                        cannot hold one. */}
+                    <div className="flex flex-wrap items-center gap-x-[14px] gap-y-[8px] pb-[6px]">
                         <h1 className="flex-none text-[16px] font-bold">Diff</h1>
                         <div className="w-[210px] rounded-[9px] border border-edge-mid bg-surface">
                             <SourcePicker
