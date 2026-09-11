@@ -7,18 +7,29 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const divergence = vi.fn();
 const compareChanges = vi.fn();
 const listBranches = vi.fn();
+const gitFetch = vi.fn();
 vi.mock("@/app/store/wshclientapi", () => ({
     RpcApi: {
         GitDivergenceCommand: (...a: any[]) => divergence(...a),
         GitCompareChangesCommand: (...a: any[]) => compareChanges(...a),
         ListBranchesCommand: (...a: any[]) => listBranches(...a),
+        GitFetchCommand: (...a: any[]) => gitFetch(...a),
         GitCommitChangesCommand: vi.fn(),
         GitCommitDiffCommand: vi.fn(),
     },
 }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 
-import { compareOnAtom, compareRefsAtom, enterCompare, leaveCompare, setCompareForm } from "./comparestore";
+import {
+    compareOnAtom,
+    compareRefsAtom,
+    enterCompare,
+    fetchStateAtom,
+    leaveCompare,
+    runFetch,
+    setCompareForm,
+    swapCompareRefs,
+} from "./comparestore";
 import type { DiffScope } from "./diffscope";
 import { diffScopeAtom } from "./diffscopeatom";
 
@@ -31,6 +42,8 @@ afterEach(() => {
     divergence.mockReset();
     compareChanges.mockReset();
     listBranches.mockReset();
+    gitFetch.mockReset();
+    globalStore.set(fetchStateAtom, { running: false, at: 0, failure: null });
     globalStore.set(diffScopeAtom, null);
 });
 
@@ -141,5 +154,77 @@ describe("the range form", () => {
         const before = compareChanges.mock.calls.length;
         await setCompareForm("/repo", "mergebase");
         expect(compareChanges.mock.calls.length).toBe(before);
+    });
+});
+
+describe("remote refs, swap and fetch", () => {
+    async function entered() {
+        globalStore.set(diffScopeAtom, base);
+        listBranches.mockResolvedValue({ branches: [], default: "main" });
+        divergence.mockResolvedValue({ isrepo: true, ahead: [], behind: [], mergebase: "m1" });
+        compareChanges.mockResolvedValue({ isrepo: true, statusz: "", numstat: "" });
+        await enterCompare("/repo", "feat");
+    }
+
+    // origin/* is the review base most of the time, and T2 made the backend's default branch prefer it
+    it("asks for remote-tracking refs, not just local branches", async () => {
+        await entered();
+        expect(listBranches).toHaveBeenCalledWith(expect.anything(), { projectpath: "/repo", includeremotes: true });
+    });
+
+    it("swaps by re-reading the inverted pair, not by redrawing", async () => {
+        await entered();
+        await swapCompareRefs("/repo");
+
+        expect(globalStore.get(compareRefsAtom)).toEqual({ base: "feat", head: "main" });
+        expect(divergence).toHaveBeenLastCalledWith(
+            expect.anything(),
+            expect.objectContaining({ base: "feat", head: "main" })
+        );
+    });
+
+    it("has nothing to swap before both refs are set", async () => {
+        globalStore.set(compareRefsAtom, null); // the pair survives across compares on purpose
+        await swapCompareRefs("/repo");
+        expect(divergence).not.toHaveBeenCalled();
+    });
+
+    // The refs moved, so what the comparison means moved with them — re-reading is the point.
+    it("re-reads the comparison after a successful fetch", async () => {
+        await entered();
+        const before = divergence.mock.calls.length;
+        gitFetch.mockResolvedValue({ isrepo: true, fetchedat: 1_700_000_000 });
+
+        await runFetch("/repo");
+
+        expect(globalStore.get(fetchStateAtom)).toEqual({ running: false, at: 1_700_000_000, failure: null });
+        expect(divergence.mock.calls.length).toBeGreaterThan(before);
+    });
+
+    // git's own words, and the comparison on screen is still valid — it is merely not freshened.
+    it("keeps the failure as data, the old clock, and does not re-read", async () => {
+        await entered();
+        globalStore.set(fetchStateAtom, { running: false, at: 1_699_000_000, failure: null });
+        const before = divergence.mock.calls.length;
+        const failure = { command: "git fetch --prune origin", exitcode: 128, stderr: "no such remote" };
+        gitFetch.mockResolvedValue({ isrepo: true, fetchedat: 0, failure });
+
+        await runFetch("/repo");
+
+        expect(globalStore.get(fetchStateAtom)).toEqual({ running: false, at: 1_699_000_000, failure });
+        expect(divergence.mock.calls.length).toBe(before);
+    });
+
+    // A rejected RPC has no stderr to show; the button must still stop spinning.
+    it("stops running and keeps the previous clock when the call itself fails", async () => {
+        globalStore.set(fetchStateAtom, { running: false, at: 42, failure: null });
+        gitFetch.mockRejectedValue(new Error("socket closed"));
+
+        await runFetch("/repo");
+
+        const st = globalStore.get(fetchStateAtom);
+        expect(st.running).toBe(false);
+        expect(st.at).toBe(42);
+        expect(st.failure?.exitcode).toBe(-1);
     });
 });

@@ -5,7 +5,7 @@
 // The subject bar's ref expression, editable in place (Wave-git-review.dc.html: "press c, or click
 // the ref expression and add a second ref"). One control serves both gestures, so there is no second
 // overlay and no duplicated ref-selection logic. Free text is accepted alongside the branch
-// suggestions, so a tag or a raw SHA works — the suggestion list is local branches only.
+// suggestions, so a tag or a raw SHA works.
 
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import { cn } from "@/util/util";
@@ -23,27 +23,56 @@ function Suggestions({
 }) {
     const q = query.trim().toLowerCase();
     const shown = (q ? branches.filter((b) => b.name.toLowerCase().includes(q)) : branches).slice(0, 8);
+    // Grouped, not sorted: origin/main and main are one letter apart in a flat list and mean quite
+    // different things — one is as fresh as the last fetch.
+    const groups: { label: string; rows: BranchInfo[] }[] = [
+        { label: "Local", rows: shown.filter((b) => !b.remote) },
+        { label: "Remote", rows: shown.filter((b) => b.remote) },
+    ];
     return (
         <PopoverReveal
             open={shown.length > 0}
             origin="top"
             className="absolute left-0 top-full z-20 mt-1 w-[240px] overflow-hidden rounded border border-border bg-modalbg py-1 shadow-popover"
         >
-            {shown.map((b) => (
-                <button
-                    key={b.name}
-                    // mousedown, not click: the field's blur would tear the popover down first
-                    onMouseDown={(e) => {
-                        e.preventDefault();
-                        onPick(b.name);
-                    }}
-                    className="flex w-full items-center gap-[8px] px-[10px] py-[6px] text-left hover:bg-surface-hover"
-                >
-                    <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-ink-mid">{b.name}</span>
-                    <span className="flex-none text-[10px] text-ink-faint">{b.age}</span>
-                </button>
-            ))}
+            {groups.map((g) =>
+                g.rows.length === 0 ? null : (
+                    <div key={g.label}>
+                        <div className="px-[10px] pb-[2px] pt-[4px] font-mono text-[9px] uppercase tracking-[0.1em] text-ink-faint">
+                            {g.label}
+                        </div>
+                        {g.rows.map((b) => (
+                            <button
+                                key={b.name}
+                                // mousedown, not click: the field's blur would tear the popover down first
+                                onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    onPick(b.name);
+                                }}
+                                className="flex w-full items-center gap-[8px] px-[10px] py-[6px] text-left hover:bg-surface-hover"
+                            >
+                                <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-ink-mid">
+                                    {b.name}
+                                </span>
+                                <span className="flex-none text-[10px] text-ink-faint">{b.age}</span>
+                            </button>
+                        ))}
+                    </div>
+                )
+            )}
         </PopoverReveal>
+    );
+}
+
+function SwapButton({ onClick }: { onClick: () => void }) {
+    return (
+        <button
+            onClick={onClick}
+            title="Swap base and head"
+            className="flex-none px-[3px] font-mono text-[12px] text-ink-faint hover:text-foreground"
+        >
+            ⇄
+        </button>
     );
 }
 
@@ -55,6 +84,7 @@ export function RefPicker({
     onEdit,
     onApply,
     onCancel,
+    onSwap,
 }: {
     base: string;
     head: string;
@@ -63,6 +93,7 @@ export function RefPicker({
     onEdit: () => void;
     onApply: (base: string, head: string) => void;
     onCancel: () => void;
+    onSwap: () => void;
 }) {
     const [draftBase, setDraftBase] = useState(base);
     const [draftHead, setDraftHead] = useState(head);
@@ -81,21 +112,26 @@ export function RefPicker({
     }, [editing, base, head]);
 
     if (!editing) {
+        // The swap sits outside the chip's own button rather than inside it — nesting a button in a
+        // button is invalid, and clicking swap must not also open the editor.
         return (
-            <button
-                data-files-ref-expr
-                onClick={onEdit}
-                className="flex items-center gap-[8px] rounded-[9px] border border-accent/30 bg-accentbg px-[11px] py-[6px] hover:border-edge-strong"
-            >
-                <span className="font-mono text-xxxs font-semibold uppercase tracking-[0.1em] text-ink-faint">
-                    Compare
-                </span>
-                {/* base first, the order `git diff base...head` reads in and the order the summary
-                    line beside this chip prints — the two used to name the same pair backwards */}
-                <span className="font-mono text-[12px] text-ink-hi">
-                    {base || "—"} … {head || "—"}
-                </span>
-            </button>
+            <div className="flex items-center gap-[4px] rounded-[9px] border border-accent/30 bg-accentbg pr-[8px]">
+                <button
+                    data-files-ref-expr
+                    onClick={onEdit}
+                    className="flex items-center gap-[8px] rounded-l-[9px] px-[11px] py-[6px] hover:bg-surface-hover"
+                >
+                    <span className="font-mono text-xxxs font-semibold uppercase tracking-[0.1em] text-ink-faint">
+                        Compare
+                    </span>
+                    {/* base first, the order `git diff base...head` reads in and the order the summary
+                        line beside this chip prints — the two used to name the same pair backwards */}
+                    <span className="font-mono text-[12px] text-ink-hi">
+                        {base || "—"} … {head || "—"}
+                    </span>
+                </button>
+                <SwapButton onClick={onSwap} />
+            </div>
         );
     }
 
@@ -133,7 +169,13 @@ export function RefPicker({
                     <Suggestions branches={branches} query={draftBase} onPick={setDraftBase} />
                 ) : null}
             </div>
-            <span className="flex-none font-mono text-[12px] text-ink-faint">…</span>
+            {/* swaps the drafts, not the applied pair: nothing is read until Compare */}
+            <SwapButton
+                onClick={() => {
+                    setDraftBase(draftHead);
+                    setDraftHead(draftBase);
+                }}
+            />
             <div className="relative">
                 <input
                     value={draftHead}
