@@ -82,21 +82,6 @@ const CORNER_CLASS: Record<PetCorner, string> = {
 // (avatarscene.ts), so this is the only size and nothing multiplies it.
 const AVATAR_PX = 132;
 
-// Density, judged on a contact sheet of all four expressions rendered at AVATAR_PX through the GL renderer
-// with DEFAULT_BLOOM — not on the canvas fallback and not scaled up from a larger render, because the
-// question being asked is only ever about this size.
-//
-// Three platters holds: it is what makes the tilt divergence legible as drifting, two read as a coincidence
-// and four are mush. 72 ticks did NOT hold. The claim was that 72 leaves each tick individually resolvable
-// on the outermost ring; at AVATAR_PX that ring has a radius near 45px, which gives each tick about 4px of
-// arc, and additive blending fuses them into a continuous fuzzy band well before they resolve. Swept at
-// 72/40/32/28/24: 28 is where the ticks separate and stay countable while the ring still reads as ticked
-// rather than as a dashed circle. 16 nodes is unchanged — enough that severing most of the links at rank 1
-// still leaves a recognisable network rather than dust.
-const RINGS = 3;
-const RING_TICKS = 28;
-const NODES = 16;
-
 // The backing store is capped at 2x: past that the bloom's half-resolution targets cost more than the
 // softness they buy back.
 const MAX_DPR = 2;
@@ -288,10 +273,6 @@ export function PetView({ model }: { model: AgentsViewModel }) {
                 ripple,
                 jolt: impulseEnvelope(now, joltAtRef.current, JOLT_MS),
                 quiet: f.quiet,
-                rings: RINGS,
-                ringTicks: RING_TICKS,
-                nodes: NODES,
-                shell: true,
                 still: f.reduce,
             });
 
@@ -309,7 +290,7 @@ export function PetView({ model }: { model: AgentsViewModel }) {
             if (import.meta.env.DEV) {
                 (window as unknown as { __jarvisAvatarScene?: unknown }).__jarvisAvatarScene = {
                     segments: scene.segments.length,
-                    points: scene.points.length,
+                    fills: scene.fills.length,
                     toneVar: scene.toneVar,
                     markerVar: scene.markerVar,
                     extent: Math.round(scene.extent),

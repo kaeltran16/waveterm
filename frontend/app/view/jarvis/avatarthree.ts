@@ -1,14 +1,13 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The avatar's three.js renderer. Third consumer of avatarscene.ts, and the reason the scene builder was
+// The avatar's three.js renderer. Second consumer of avatarscene.ts, and the reason the scene builder was
 // kept pure: the form did not change to get here.
 //
-// It exists for one reason. The hand-rolled renderer in avatargl.ts draws with gl.lineWidth(1), which every
+// It exists for one reason. The hand-rolled renderer this replaced drew with gl.lineWidth(1), which every
 // modern WebGL implementation clamps to 1.0 — so at 2x DPR the entire avatar was drawn in half-CSS-pixel
-// hairlines, and ~890 segments inside a 46px form summed into a scribble rather than a hologram. three's
-// LineSegments2 expands each segment into an instanced quad, so line width is real and specified in pixels.
-// That is the whole point; everything else here is in service of it.
+// hairlines. three's LineSegments2 expands each segment into an instanced quad, so line width is real and
+// specified in pixels. That is the whole point; everything else here is in service of it.
 //
 // What this deliberately does NOT do is re-project. avatarscene.ts already emits screen-space x/y with depth
 // folded into alpha, so the camera is orthographic over that same space. Putting a perspective camera here
@@ -19,10 +18,11 @@ import {
     BufferAttribute,
     BufferGeometry,
     Color,
+    DoubleSide,
+    Mesh,
+    MeshBasicMaterial,
     OrthographicCamera,
-    Points,
     Scene,
-    ShaderMaterial,
     Vector2,
     WebGLRenderer,
 } from "three";
@@ -34,7 +34,7 @@ import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import type { SceneColours } from "./avatarcanvas";
-import type { AvatarScene, SceneTone } from "./avatarscene";
+import { STROKE_WIDTHS, type AvatarScene, type SceneFill, type SceneSegment, type SceneTone } from "./avatarscene";
 
 export interface ThreeBloomSettings {
     strength: number;
@@ -42,18 +42,12 @@ export interface ThreeBloomSettings {
     radius: number;
 }
 
-// Not the same numbers as avatargl's DEFAULT_BLOOM. That bloom was a hand-rolled two-pass blur whose
-// strength was an arbitrary multiplier; UnrealBloomPass strength is a physical-ish gain on the thresholded
-// bright pass, and 4.4 there is a white-out.
 // Threshold is deliberately low. The two registers that report a fault (drifting, cannot-see) are the two
 // that render faintest, and a bloom that only lifts bright pixels lifts everything EXCEPT them — which is
 // the same contrast collapse the mood table was already fixed for once.
 // Radius is kept short for the same reason SPHERE_FRACTION leaves margin: a blur whose tail reaches the
 // framebuffer border clamps there, and the clamp is a visible soft-edged square around the avatar.
 export const DEFAULT_THREE_BLOOM: ThreeBloomSettings = { strength: 1.8, threshold: 0.05, radius: 0.4 };
-
-// Stroke width in CSS pixels. The value the whole port exists to be able to set above 1.
-export const LINE_WIDTH_PX = 1.0;
 
 function channels(colour: string): [number, number, number] {
     const hex = colour.trim().replace("#", "");
@@ -77,6 +71,13 @@ function channels(colour: string): [number, number, number] {
     return [0.5, 0.5, 0.5];
 }
 
+function picker(colours: SceneColours): (tone: SceneTone) => [number, number, number] {
+    const body = channels(colours.body);
+    const hot = channels(colours.hot);
+    const marker = colours.marker == null ? body : channels(colours.marker);
+    return (tone) => (tone === "hot" ? hot : tone === "marker" ? marker : body);
+}
+
 export interface PackedLines {
     positions: Float32Array;
     colors: Float32Array;
@@ -84,31 +85,29 @@ export interface PackedLines {
 }
 
 /**
- * Scene -> flat position/colour arrays for LineSegmentsGeometry.
+ * Segments -> flat position/colour arrays for LineSegmentsGeometry.
+ *
+ * Takes a segment list rather than the whole scene because line width is a material uniform in three's
+ * fat-line implementation: the renderer draws the scene as one batch per stroke weight, and each batch
+ * packs its own slice.
  *
  * Alpha is premultiplied into the colour rather than carried separately, because LineMaterial's vertex
  * colours are rgb-only. Under additive blending that is not an approximation — a segment contributes
  * `colour * alpha` to the framebuffer either way — which is why the renderer can stay additive and still
  * reproduce the depth falloff the scene builder folded into alpha.
- *
- * Exported and pure so the packing is testable without a GL context, the same way packScene is.
  */
-export function packLines(scene: AvatarScene, size: number, colours: SceneColours): PackedLines {
-    const count = scene.segments.length;
+export function packLines(segments: readonly SceneSegment[], size: number, colours: SceneColours): PackedLines {
+    const count = segments.length;
     const positions = new Float32Array(count * 6);
     const colors = new Float32Array(count * 6);
+    const pick = picker(colours);
 
-    const body = channels(colours.body);
-    const hot = channels(colours.hot);
-    const marker = colours.marker == null ? body : channels(colours.marker);
-    const pick = (tone: SceneTone) => (tone === "hot" ? hot : tone === "marker" ? marker : body);
-
-    // same mapping avatargl uses: screen pixels to a [-1,1] box, y flipped because screen y runs down
+    // same mapping the old renderer used: screen pixels to a [-1,1] box, y flipped because screen y runs down
     const nx = (x: number) => (x / size) * 2 - 1;
     const ny = (y: number) => 1 - (y / size) * 2;
 
     for (let i = 0; i < count; i++) {
-        const s = scene.segments[i];
+        const s = segments[i];
         const rgb = pick(s.tone);
         const a = Math.max(0, Math.min(1, s.alpha));
         const p = i * 6;
@@ -127,61 +126,49 @@ export function packLines(scene: AvatarScene, size: number, colours: SceneColour
     return { positions, colors, segments: count };
 }
 
-export interface PackedPoints {
+export interface PackedFills {
     positions: Float32Array;
     colors: Float32Array;
-    sizes: Float32Array;
-    count: number;
+    triangles: number;
 }
 
-/** Same premultiplied-alpha contract as packLines, plus the per-point size the node dots vary by. */
-export function packPoints(scene: AvatarScene, size: number, dpr: number, colours: SceneColours): PackedPoints {
-    const count = scene.points.length;
-    const positions = new Float32Array(count * 3);
-    const colors = new Float32Array(count * 3);
-    const sizes = new Float32Array(count);
-
-    const body = channels(colours.body);
-    const hot = channels(colours.hot);
-    const marker = colours.marker == null ? body : channels(colours.marker);
-    const pick = (tone: SceneTone) => (tone === "hot" ? hot : tone === "marker" ? marker : body);
-
-    for (let i = 0; i < count; i++) {
-        const pt = scene.points[i];
-        const rgb = pick(pt.tone);
-        const a = Math.max(0, Math.min(1, pt.alpha));
-        positions[i * 3] = (pt.x / size) * 2 - 1;
-        positions[i * 3 + 1] = 1 - (pt.y / size) * 2;
-        positions[i * 3 + 2] = 0;
-        colors[i * 3] = rgb[0] * a;
-        colors[i * 3 + 1] = rgb[1] * a;
-        colors[i * 3 + 2] = rgb[2] * a;
-        sizes[i] = pt.size * dpr;
+/**
+ * Fills -> a flat triangle soup, fanned from each polygon's first vertex.
+ *
+ * One un-indexed mesh rather than one per fill: the form emits on the order of 150 quads a frame and a
+ * draw call each would cost more than the geometry does. Same premultiplied-alpha contract as packLines,
+ * for the same reason — these composite additively over the line work.
+ */
+export function packFills(fills: readonly SceneFill[], size: number, colours: SceneColours): PackedFills {
+    const pick = picker(colours);
+    let triangles = 0;
+    for (const f of fills) {
+        triangles += Math.max(0, f.points.length - 2);
     }
-    return { positions, colors, sizes, count };
+    const positions = new Float32Array(triangles * 9);
+    const colors = new Float32Array(triangles * 9);
+
+    const nx = (x: number) => (x / size) * 2 - 1;
+    const ny = (y: number) => 1 - (y / size) * 2;
+
+    let at = 0;
+    for (const f of fills) {
+        const rgb = pick(f.tone);
+        const a = Math.max(0, Math.min(1, f.alpha));
+        for (let i = 1; i + 1 < f.points.length; i++) {
+            for (const v of [f.points[0], f.points[i], f.points[i + 1]]) {
+                positions[at] = nx(v[0]);
+                positions[at + 1] = ny(v[1]);
+                positions[at + 2] = 0;
+                colors[at] = rgb[0] * a;
+                colors[at + 1] = rgb[1] * a;
+                colors[at + 2] = rgb[2] * a;
+                at += 3;
+            }
+        }
+    }
+    return { positions, colors, triangles };
 }
-
-// PointsMaterial carries one size for the whole cloud, and the node dots vary per point, so the shader is
-// the smallest thing that keeps them. Round rather than square: a squared-off node reads as a glitch.
-const POINT_VERTEX = `
-attribute float size;
-varying vec3 vColor;
-void main() {
-    vColor = color;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-    gl_PointSize = size;
-}`;
-
-const POINT_FRAGMENT = `
-varying vec3 vColor;
-void main() {
-    // the squared smoothstep is the falloff the old renderer used: a hard-edged disc reads as a
-    // cluster of pinpricks at this size, where the soft one reads as a lit node
-    float d = length(gl_PointCoord - vec2(0.5)) * 2.0;
-    float a = smoothstep(1.0, 0.0, d);
-    a *= a;
-    gl_FragColor = vec4(vColor * a, 1.0);
-}`;
 
 // The avatar is a glow over the app background, but UnrealBloomPass composites with a hardcoded alpha of
 // 1.0, which turns the whole canvas into an opaque box the size of the avatar. This final pass puts the
@@ -208,7 +195,7 @@ void main() {
     float l = max(max(c.r, c.g), c.b);
     // the floor is the bloom's own wash: a wide blur spreads a little energy over every pixel, which
     // without it gives the whole canvas a slight alpha and puts a visible box around the avatar. Kept
-    // far under the faintest real line (drifting's shell arcs sit near 0.05) so geometry is not clipped.
+    // far under the faintest real line so geometry is not clipped.
     gl_FragColor = vec4(c.rgb, clamp((l - 0.008) / (1.0 - 0.008), 0.0, 1.0));
 }`,
 };
@@ -218,6 +205,14 @@ export interface AvatarThreeOptions {
     onRestored?: () => void;
 }
 
+/** One draw batch: every segment in the scene that shares a stroke weight. */
+interface LineBatch {
+    width: number;
+    material: LineMaterial;
+    lines: LineSegments2;
+    geometry: LineSegmentsGeometry;
+}
+
 export class AvatarThree {
     private renderer: WebGLRenderer;
     private canvas: HTMLCanvasElement;
@@ -225,12 +220,10 @@ export class AvatarThree {
     private scene = new Scene();
     // the packed scene already lives in a [-1,1] box, so the camera is exactly that box
     private camera = new OrthographicCamera(-1, 1, 1, -1, -10, 10);
-    private geometry = new LineSegmentsGeometry();
-    private material: LineMaterial;
-    private lines: LineSegments2;
-    private pointGeometry = new BufferGeometry();
-    private pointMaterial: ShaderMaterial;
-    private pointCloud: Points;
+    private batches: LineBatch[];
+    private fillGeometry = new BufferGeometry();
+    private fillMaterial: MeshBasicMaterial;
+    private fillMesh: Mesh;
     private composer: EffectComposer | null = null;
     private bloomPass: UnrealBloomPass | null = null;
     private isLost = false;
@@ -243,35 +236,43 @@ export class AvatarThree {
         this.renderer = renderer;
         this.options = options;
 
-        this.material = new LineMaterial({
-            vertexColors: true,
-            // pixels, not world units — the reason this renderer exists
-            worldUnits: false,
-            linewidth: LINE_WIDTH_PX,
-            transparent: true,
-            blending: AdditiveBlending,
-            // additive summing is order-independent, so depth sorting would only cost work and drop overlaps
-            depthTest: false,
-            depthWrite: false,
+        // One batch per stroke weight, built once. The scene's widths come from a fixed ladder precisely so
+        // this list is short and static — a per-primitive width would mean a draw call per primitive.
+        this.batches = STROKE_WIDTHS.map((width) => {
+            const material = new LineMaterial({
+                vertexColors: true,
+                // pixels, not world units — the reason this renderer exists
+                worldUnits: false,
+                linewidth: width,
+                transparent: true,
+                blending: AdditiveBlending,
+                // additive summing is order-independent, so depth sorting would only cost work and drop overlaps
+                depthTest: false,
+                depthWrite: false,
+            });
+            const geometry = new LineSegmentsGeometry();
+            const lines = new LineSegments2(geometry, material);
+            // the form is rebuilt every frame and its bounds are the camera box anyway; culling it can only
+            // ever throw the whole avatar away on a stale bounding sphere
+            lines.frustumCulled = false;
+            this.scene.add(lines);
+            return { width, material, lines, geometry };
         });
-        this.lines = new LineSegments2(this.geometry, this.material);
-        // the form is rebuilt every frame and its bounds are the camera box anyway; culling it can only
-        // ever throw the whole avatar away on a stale bounding sphere
-        this.lines.frustumCulled = false;
-        this.scene.add(this.lines);
 
-        this.pointMaterial = new ShaderMaterial({
-            vertexShader: POINT_VERTEX,
-            fragmentShader: POINT_FRAGMENT,
+        this.fillMaterial = new MeshBasicMaterial({
             vertexColors: true,
             transparent: true,
             blending: AdditiveBlending,
             depthTest: false,
             depthWrite: false,
+            // the projected quads can wind either way once a plane tilts past edge-on
+            side: DoubleSide,
         });
-        this.pointCloud = new Points(this.pointGeometry, this.pointMaterial);
-        this.pointCloud.frustumCulled = false;
-        this.scene.add(this.pointCloud);
+        this.fillMesh = new Mesh(this.fillGeometry, this.fillMaterial);
+        this.fillMesh.frustumCulled = false;
+        // rendered under the line work: the fills are what the strokes sit on, not what covers them
+        this.fillMesh.renderOrder = -1;
+        this.scene.add(this.fillMesh);
 
         this.onContextLost = (ev: Event) => {
             ev.preventDefault();
@@ -302,7 +303,7 @@ export class AvatarThree {
         return new AvatarThree(canvas, renderer, options);
     }
 
-    /** Mirrors AvatarGL.lost so petview can keep one renderer-liveness check for both. */
+    /** Mirrors the fallback's liveness flag, so petview keeps one renderer check for both. */
     get lost(): boolean {
         return this.isLost;
     }
@@ -314,7 +315,9 @@ export class AvatarThree {
         }
         // the canvas is already sized by the caller; setSize must not write style back onto it
         this.renderer.setSize(pixels, pixels, false);
-        this.material.resolution.set(pixels, pixels);
+        for (const batch of this.batches) {
+            batch.material.resolution.set(pixels, pixels);
+        }
         if (this.composer == null) {
             this.composer = new EffectComposer(this.renderer);
             this.composer.addPass(new RenderPass(this.scene, this.camera));
@@ -332,32 +335,42 @@ export class AvatarThree {
         this.bloomPass?.resolution.set(pixels, pixels);
     }
 
-    draw(scene: AvatarScene, size: number, _dpr: number, colours: SceneColours, bloom: ThreeBloomSettings): void {
+    draw(scene: AvatarScene, size: number, dpr: number, colours: SceneColours, bloom: ThreeBloomSettings): void {
         if (this.isLost || this.composer == null) {
             return;
         }
-        const packed = packLines(scene, size, colours);
-        if (packed.segments === 0) {
-            this.renderer.clear();
-            return;
-        }
-        // a fresh geometry per frame rather than a resized attribute: LineSegmentsGeometry builds instanced
-        // interleaved buffers, and the segment count changes with sever/ring count between frames
-        const next = new LineSegmentsGeometry();
-        next.setPositions(packed.positions);
-        next.setColors(packed.colors);
-        this.geometry.dispose();
-        this.geometry = next;
-        this.lines.geometry = next;
 
-        const pts = packPoints(scene, size, _dpr, colours);
-        const nextPoints = new BufferGeometry();
-        nextPoints.setAttribute("position", new BufferAttribute(pts.positions, 3));
-        nextPoints.setAttribute("color", new BufferAttribute(pts.colors, 3));
-        nextPoints.setAttribute("size", new BufferAttribute(pts.sizes, 1));
-        this.pointGeometry.dispose();
-        this.pointGeometry = nextPoints;
-        this.pointCloud.geometry = nextPoints;
+        for (const batch of this.batches) {
+            const slice = scene.segments.filter((s) => s.width === batch.width);
+            batch.lines.visible = slice.length > 0;
+            // LineMaterial's width is in the resolution's units, and three sets that resolution to the
+            // drawing buffer on every render — so the scene's CSS-pixel weights have to be scaled here or a
+            // 2x display would draw the whole form at half the intended weight.
+            batch.material.linewidth = batch.width * (dpr > 0 ? dpr : 1);
+            if (slice.length === 0) {
+                continue;
+            }
+            const packed = packLines(slice, size, colours);
+            // a fresh geometry per frame rather than a resized attribute: LineSegmentsGeometry builds
+            // instanced interleaved buffers, and the segment count changes with sever and stutter
+            const next = new LineSegmentsGeometry();
+            next.setPositions(packed.positions);
+            next.setColors(packed.colors);
+            batch.geometry.dispose();
+            batch.geometry = next;
+            batch.lines.geometry = next;
+        }
+
+        const fills = packFills(scene.fills, size, colours);
+        this.fillMesh.visible = fills.triangles > 0;
+        if (fills.triangles > 0) {
+            const nextFill = new BufferGeometry();
+            nextFill.setAttribute("position", new BufferAttribute(fills.positions, 3));
+            nextFill.setAttribute("color", new BufferAttribute(fills.colors, 3));
+            this.fillGeometry.dispose();
+            this.fillGeometry = nextFill;
+            this.fillMesh.geometry = nextFill;
+        }
 
         if (this.bloomPass != null) {
             this.bloomPass.strength = bloom.strength;
@@ -370,10 +383,12 @@ export class AvatarThree {
     dispose(): void {
         this.canvas.removeEventListener("webglcontextlost", this.onContextLost);
         this.canvas.removeEventListener("webglcontextrestored", this.onContextRestored);
-        this.geometry.dispose();
-        this.material.dispose();
-        this.pointGeometry.dispose();
-        this.pointMaterial.dispose();
+        for (const batch of this.batches) {
+            batch.geometry.dispose();
+            batch.material.dispose();
+        }
+        this.fillGeometry.dispose();
+        this.fillMaterial.dispose();
         this.composer?.dispose();
         this.renderer.dispose();
     }
