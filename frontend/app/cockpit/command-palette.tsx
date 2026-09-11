@@ -17,6 +17,8 @@ import { formatAge } from "@/app/view/agents/agentsviewmodel";
 import { sendChannelMessage } from "@/app/view/agents/channelactions";
 import { activeChannelAtom, channelsAtom } from "@/app/view/agents/channelsstore";
 import type { Runtime } from "@/app/view/agents/launch";
+import { channelProjectLabel, dedupeByProject } from "@/app/view/agents/projectlabel";
+import { projectsAtom } from "@/app/view/agents/projectsstore";
 import { createRun, resolveChannelLaunchRoute } from "@/app/view/agents/runactions";
 import { loadSessionsArchive, sessionsArchiveAtom } from "@/app/view/agents/sessionsarchivestore";
 import { activeSpaceAtom, enterSpace, exitSpace, loadSpaces, spacesAtom } from "@/app/view/agents/spacestore";
@@ -67,14 +69,14 @@ interface PaletteItem {
     footer?: string; // one-line echo shown in the palette footer when selected
 }
 
-// The launch group renders its own dynamic label ("Launch in #<channel>"), so it is excluded here.
+// The launch group renders its own dynamic label ("Launch in #<project>"), so it is excluded here.
 const GROUP_LABELS: Record<Exclude<GroupKind, RichGroupKind>, string> = {
     recent: "Recent",
     "focus-task": "Focus on task",
     command: "Commands",
     agent: "Agents",
     session: "Sessions",
-    channel: "Channels",
+    channel: "Projects",
     record: "Records",
     thread: "Threads",
     effort: "Initiatives", // the user-facing word for an effort (briefpalette's BRIEF_KIND_LABELS)
@@ -116,6 +118,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     const sessions = useAtomValue(sessionsArchiveAtom);
     const channel = useAtomValue(activeChannelAtom);
     const channels = useAtomValue(channelsAtom);
+    const projects = useAtomValue(projectsAtom);
     const spaces = useAtomValue(spacesAtom);
     const activeSpace = useAtomValue(activeSpaceAtom);
     const records = useAtomValue(taskListAtom);
@@ -266,7 +269,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                 model,
                 channelId: ch.oid,
                 projectPath: ch.projectpath ?? "",
-                projectName: ch.name ?? "agent",
+                projectName: channelProjectLabel(ch, projects) || "agent",
                 roster: agents.map((a) => ({ id: a.id, name: a.name, blockId: a.blockId })),
                 text,
             });
@@ -282,7 +285,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
             run: (goal) => guarded(goal, (route) => createRun(ch.oid, goal, route)),
             consult: (runtime, goal) => fireLaunch(() => sendText(`ask @${runtime} ${goal}`)),
         };
-        return buildLaunchItems(launchGoal, ch.name, deps).map((li) => ({
+        return buildLaunchItems(launchGoal, channelProjectLabel(ch, projects), deps).map((li) => ({
             key: li.key,
             kind: "launch" as const,
             search: "",
@@ -294,7 +297,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
             desc: li.desc,
             footer: li.footer,
         }));
-    }, [showLaunch, targetChannel, launchGoal, agents, model]);
+    }, [showLaunch, targetChannel, launchGoal, agents, model, projects]);
 
     // "Ask Jarvis" lead group: turn the typed goal into a recall conversation and open the Jarvis surface.
     // Reuses jarvisstore's module-scope streaming so the answer keeps arriving after the palette closes.
@@ -310,22 +313,25 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     };
     const askItems = buildAskItems(launchGoal, askDeps);
 
-    // Channel picker rows (# scope, no goal). Enter switches the active channel and opens the surface.
+    // Project picker rows (# scope, no goal). Enter switches the active project and opens the surface.
     const channelItems = useMemo<PaletteItem[]>(
         () =>
-            (channels ?? []).map((c) => ({
-                key: `channel:${c.oid}`,
-                kind: "channel" as const,
-                search: `#${c.name} ${c.projectpath ?? ""}`,
-                title: `#${c.name}`,
-                subtitle: c.projectpath ? c.projectpath.split(/[\\/]/).pop() : undefined,
-                run: () => {
-                    void openChannelSheet(c.oid, null);
-                    globalStore.set(model.surfaceAtom, "jarvis");
-                    close();
-                },
-            })),
-        [channels, model]
+            dedupeByProject(channels ?? []).map((c) => {
+                const name = channelProjectLabel(c, projects);
+                return {
+                    key: `channel:${c.oid}`,
+                    kind: "channel" as const,
+                    search: `#${name} ${c.projectpath ?? ""}`,
+                    title: `#${name}`,
+                    subtitle: c.projectpath ? c.projectpath.split(/[\\/]/).pop() : undefined,
+                    run: () => {
+                        void openChannelSheet(c.oid, null);
+                        globalStore.set(model.surfaceAtom, "jarvis");
+                        close();
+                    },
+                };
+            }),
+        [channels, model, projects]
     );
 
     // "Focus on task" group: rows for each active|paused task (+ Exit focus when focused). Selecting a
@@ -442,12 +448,12 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     const capped = capGroups(groups);
     const flat = capped.flatMap((g) => g.items);
 
-    // Scope-aware empty text: a '#<token>' that resolves to nothing vs. an empty channel list.
+    // Scope-aware empty text: a '#<token>' that resolves to nothing vs. an empty project list.
     const emptyMessage =
         parsed.scope === "channel" && channelLaunch
-            ? `No channel matches “${channelLaunch.token}”`
+            ? `No project matches “${channelLaunch.token}”`
             : parsed.scope === "channel"
-              ? "No channels."
+              ? "No projects."
               : "No results.";
     const selClamped = flat.length === 0 ? 0 : Math.min(sel, flat.length - 1);
     const flatIndex = new Map(flat.map((it, i) => [it.key, i]));
@@ -546,7 +552,9 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                                             {g.kind === "launch" ? (
                                                 <>
                                                     Launch in{" "}
-                                                    <span className="text-accent-100">#{targetChannel?.name}</span>
+                                                    <span className="text-accent-100">
+                                                        #{channelProjectLabel(targetChannel, projects)}
+                                                    </span>
                                                 </>
                                             ) : g.kind === "act-on" ? (
                                                 <>
@@ -709,7 +717,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                                 <span className="font-mono text-[10.5px] text-muted">
                                     <span className="text-secondary">{">"}</span> commands{"  "}
                                     <span className="text-secondary">@</span> agents{"  "}
-                                    <span className="text-secondary">#</span> channels{"  "}
+                                    <span className="text-secondary">#</span> projects{"  "}
                                     <span className="text-secondary">/</span> sessions
                                 </span>
                             )}

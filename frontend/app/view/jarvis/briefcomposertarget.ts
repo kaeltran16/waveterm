@@ -28,7 +28,7 @@ export interface BriefTargetInput {
     face: SheetFace;
     run: Run | null;
     agents: AgentVM[];
-    channelName?: string;
+    projectName?: string;
     effortTitle?: string;
 }
 
@@ -61,6 +61,6 @@ export function resolveBriefComposerTarget(input: BriefTargetInput): BriefCompos
         channelId: face.channelId,
         workerORef: `tab:${lead.id}`,
         workerName: lead.name,
-        sessionName: input.channelName?.trim() || lead.name,
+        sessionName: input.projectName?.trim() || lead.name,
     };
 }

@@ -70,3 +70,39 @@ func TestGetAttentionCommandSeesAGateInAnyChannel(t *testing.T) {
 		t.Fatalf("wrong gate item: %+v", *found)
 	}
 }
+
+func TestCreateChannelCommandIsIdempotentPerProject(t *testing.T) {
+	ctx := context.Background()
+	ws := &WshServer{}
+	first, err := ws.CreateChannelCommand(ctx, wshrpc.CommandCreateChannelData{Name: "wave", ProjectPath: "/repo/wave"})
+	if err != nil {
+		t.Fatalf("first CreateChannelCommand: %v", err)
+	}
+	second, err := ws.CreateChannelCommand(ctx, wshrpc.CommandCreateChannelData{Name: "wave again", ProjectPath: "/repo/wave/"})
+	if err != nil {
+		t.Fatalf("second CreateChannelCommand: %v", err)
+	}
+	if second.OID != first.OID {
+		t.Fatalf("second create made a new channel %s, want the existing %s", second.OID, first.OID)
+	}
+	// the existing channel is returned as it stands: a second create does not rename it
+	if second.Name != "wave" {
+		t.Fatalf("second create renamed the channel to %q, want %q", second.Name, "wave")
+	}
+}
+
+func TestCreateChannelCommandStillCreatesWithoutAProject(t *testing.T) {
+	ctx := context.Background()
+	ws := &WshServer{}
+	a, err := ws.CreateChannelCommand(ctx, wshrpc.CommandCreateChannelData{Name: "scratch one"})
+	if err != nil {
+		t.Fatalf("first: %v", err)
+	}
+	b, err := ws.CreateChannelCommand(ctx, wshrpc.CommandCreateChannelData{Name: "scratch two"})
+	if err != nil {
+		t.Fatalf("second: %v", err)
+	}
+	if a.OID == b.OID {
+		t.Fatalf("two pathless channels collapsed onto %s; a pathless channel is not a project", a.OID)
+	}
+}

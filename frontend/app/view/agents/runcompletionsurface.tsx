@@ -12,11 +12,13 @@ import { getApi } from "@/app/store/global";
 import { AskJarvisButton, sourceRefForRun } from "@/app/view/jarvis/contextualentry";
 import { STAGE_GUTTER, STAGE_SCROLLER } from "@/app/view/jarvis/stagemeasure";
 import { cn } from "@/util/util";
+import { useAtomValue } from "jotai";
 import { MotionConfig, motion } from "motion/react";
 import { type ReactNode } from "react";
 import { openDiff, runDiffScope } from "./agentdiffnav";
 import type { AgentsViewModel } from "./agents";
-import { RunTimeline } from "./runtimelineview";
+import { channelProjectLabel } from "./projectlabel";
+import { projectsAtom } from "./projectsstore";
 import {
     artifactKindClass,
     fmtBytes,
@@ -30,6 +32,7 @@ import {
     verifCounts,
     verifTone,
 } from "./runcompletion";
+import { RunTimeline } from "./runtimelineview";
 
 function openPath(projectPath: string, rel: string) {
     const sep = projectPath.includes("\\") ? "\\" : "/";
@@ -77,6 +80,8 @@ function Section({ label, right, children }: { label: string; right?: ReactNode;
 }
 
 export function RunCompletion({ channel, run, model }: { channel: Channel; run: Run; model: AgentsViewModel }) {
+    // ahead of the evidence guard: a hook cannot sit behind an early return
+    const projects = useAtomValue(projectsAtom);
     const ev = run.evidence;
     if (!ev) {
         return null;
@@ -94,7 +99,7 @@ export function RunCompletion({ channel, run, model }: { channel: Channel; run: 
                         {/* uncapped: the goal here is a single truncated heading line, not prose */}
                         <div className="min-w-0">
                             <div className="flex items-center gap-2 font-mono text-[11px] text-muted">
-                                <span className="text-ink-mid">#{channel.name}</span>
+                                <span className="text-ink-mid">{channelProjectLabel(channel, projects)}</span>
                                 <span>/</span>
                                 <span>run {runShortId(run.id)}</span>
                             </div>
