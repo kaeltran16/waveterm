@@ -10,6 +10,7 @@ import { answerDigitTarget, canSubmitAsk, moveCursor, type AgentVM } from "@/app
 import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
 import { sideJumpTarget, type CompareRow } from "@/app/view/agents/comparerows";
 import { compareOnAtom, compareSelectionAtom, leaveCompare } from "@/app/view/agents/comparestore";
+import { historyCollapsedAtom } from "@/app/view/agents/difflayout";
 import { splitViewAtom } from "@/app/view/agents/diffpane";
 import { filesStateAtom, reloadChanges } from "@/app/view/agents/filesstore";
 import {
@@ -797,6 +798,19 @@ export function buildFilesBindings(): Binding[] {
             label: "Split / unified",
             when: on,
             run: () => globalStore.set(splitViewAtom, !globalStore.get(splitViewAtom)),
+        },
+        {
+            id: "files:toggle-history",
+            keys: "Shift:h",
+            group: "Diff",
+            label: "Collapse / expand history",
+            when: on,
+            run: () => {
+                const cur = globalStore.get(historyCollapsedAtom);
+                // from "follow the width", an explicit toggle means "collapse it" — that is the
+                // state the user can see and is reacting to
+                globalStore.set(historyCollapsedAtom, cur == null ? true : !cur);
+            },
         },
         {
             // Escape's order on this surface: clear filters, else leave compare, else go home. The
