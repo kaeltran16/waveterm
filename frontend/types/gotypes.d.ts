@@ -1182,6 +1182,19 @@ declare global {
         isrepo: boolean;
     };
 
+    // wshrpc.CommandGitFetchData
+    type CommandGitFetchData = {
+        cwd: string;
+        remote?: string;
+    };
+
+    // wshrpc.CommandGitFetchRtnData
+    type CommandGitFetchRtnData = {
+        fetchedat: number;
+        failure?: GitFailure;
+        isrepo: boolean;
+    };
+
     // wshrpc.CommandGitFileAtRefData
     type CommandGitFileAtRefData = {
         cwd: string;

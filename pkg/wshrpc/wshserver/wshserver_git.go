@@ -98,3 +98,11 @@ func (ws *WshServer) GitFileAtRefCommand(ctx context.Context, data wshrpc.Comman
 		TooLarge: fc.TooLarge, Size: fc.Size, IsRepo: fc.IsRepo,
 	}, nil
 }
+
+func (ws *WshServer) GitFetchCommand(ctx context.Context, data wshrpc.CommandGitFetchData) (*wshrpc.CommandGitFetchRtnData, error) {
+	r, err := gitinfo.Fetch(ctx, data.Cwd, data.Remote)
+	if err != nil {
+		return nil, err
+	}
+	return &wshrpc.CommandGitFetchRtnData{FetchedAt: r.FetchedAt, Failure: r.Failure, IsRepo: r.IsRepo}, nil
+}

@@ -812,6 +812,12 @@ func GitDivergenceCommand(w *wshutil.WshRpc, data wshrpc.CommandGitDivergenceDat
 	return resp, err
 }
 
+// command "gitfetch", wshserver.GitFetchCommand
+func GitFetchCommand(w *wshutil.WshRpc, data wshrpc.CommandGitFetchData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGitFetchRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGitFetchRtnData](w, "gitfetch", data, opts)
+	return resp, err
+}
+
 // command "gitfileatref", wshserver.GitFileAtRefCommand
 func GitFileAtRefCommand(w *wshutil.WshRpc, data wshrpc.CommandGitFileAtRefData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGitFileAtRefRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGitFileAtRefRtnData](w, "gitfileatref", data, opts)
