@@ -16,6 +16,8 @@
 // Nothing is written until Save, and a refused save leaves the draft standing with the server's message.
 
 import { channelsAtom, loadChannels } from "@/app/view/agents/channelsstore";
+import { channelProjectLabel, dedupeByProject } from "@/app/view/agents/projectlabel";
+import { projectsAtom } from "@/app/view/agents/projectsstore";
 import { RoutePicker } from "@/app/view/agents/routepicker";
 import {
     clearResolvedProfiles,
@@ -205,6 +207,7 @@ function DefaultsFields({
 
 export function BriefProfileModal({ open, onClose }: { open: boolean; onClose: () => void }) {
     const channels = useAtomValue(channelsAtom);
+    const projects = useAtomValue(projectsAtom);
     const [channelId, setChannelId] = useState("");
     const [scope, setScope] = useState<Scope>("project");
     const [loaded, setLoaded] = useState<Loaded | null>(null);
@@ -383,7 +386,7 @@ export function BriefProfileModal({ open, onClose }: { open: boolean; onClose: (
                 <header className="flex flex-none items-center gap-2.5 border-b border-edge-faint px-4 py-3">
                     <span className={cn(LABEL, "text-accent-soft")}>profile</span>
                     <span className="min-w-0 flex-1 truncate text-[13.5px] font-semibold text-ink-hi">
-                        {isGlobal ? "Global defaults" : (channel?.name ?? "No project")}
+                        {isGlobal ? "Global defaults" : channelProjectLabel(channel, projects) || "No project"}
                     </span>
                     <button type="button" aria-label="Close profile" onClick={onClose} className={BTN}>
                         Close
@@ -417,9 +420,9 @@ export function BriefProfileModal({ open, onClose }: { open: boolean; onClose: (
                                 onChange={(e) => setChannelId(e.target.value)}
                                 className={FIELD}
                             >
-                                {(channels ?? []).map((c) => (
+                                {dedupeByProject(channels ?? []).map((c) => (
                                     <option key={c.oid} value={c.oid}>
-                                        {c.name}
+                                        {channelProjectLabel(c, projects)}
                                     </option>
                                 ))}
                             </select>
