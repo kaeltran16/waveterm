@@ -1,13 +1,23 @@
 import { describe, expect, it } from "vitest";
 import type { SceneColours } from "./avatarcanvas";
-import { buildAvatarScene, type AvatarScene, type SceneInput } from "./avatarscene";
-import { packLines, packPoints } from "./avatarthree";
+import {
+    buildAvatarScene,
+    STROKE,
+    STROKE_WIDTHS,
+    type AvatarScene,
+    type SceneFill,
+    type SceneInput,
+    type SceneSegment,
+} from "./avatarscene";
+import { packFills, packLines } from "./avatarthree";
+
+const SIZE = 132;
 
 function sceneOf(over: Partial<SceneInput> = {}): AvatarScene {
     return buildAvatarScene({
         expression: { kind: "at-rest" },
         posture: "none",
-        size: 112,
+        size: SIZE,
         now: 0,
         yaw: 0,
         pitch: 0,
@@ -16,10 +26,6 @@ function sceneOf(over: Partial<SceneInput> = {}): AvatarScene {
         quiet: false,
         ripple: null,
         jolt: 0,
-        rings: 3,
-        ringTicks: 28,
-        nodes: 16,
-        shell: true,
         still: false,
         ...over,
     });
@@ -27,23 +33,58 @@ function sceneOf(over: Partial<SceneInput> = {}): AvatarScene {
 
 const COLOURS: SceneColours = { body: "#5f74e0", hot: "#afbbf0", marker: "#e0726c" };
 
+const seg = (over: Partial<SceneSegment> = {}): SceneSegment => ({
+    ax: 0,
+    ay: 0,
+    bx: 10,
+    by: 10,
+    depth: 0,
+    tone: "body",
+    alpha: 1,
+    width: STROKE.base,
+    ...over,
+});
+
+const fill = (over: Partial<SceneFill> = {}): SceneFill => ({
+    points: [
+        [0, 0],
+        [10, 0],
+        [10, 10],
+        [0, 10],
+    ],
+    depth: 0,
+    tone: "body",
+    alpha: 1,
+    ...over,
+});
+
 describe("packLines", () => {
     it("emits six position floats and six colour floats per segment", () => {
         const scene = sceneOf();
-        const packed = packLines(scene, 112, COLOURS);
+        const packed = packLines(scene.segments, SIZE, COLOURS);
         expect(packed.segments).toBe(scene.segments.length);
         expect(packed.positions.length).toBe(scene.segments.length * 6);
         expect(packed.colors.length).toBe(scene.segments.length * 6);
     });
 
+    it("packs only the slice it is handed, because the renderer batches by stroke weight", () => {
+        const scene = sceneOf();
+        const total = STROKE_WIDTHS.reduce(
+            (sum, width) =>
+                sum +
+                packLines(
+                    scene.segments.filter((s) => s.width === width),
+                    SIZE,
+                    COLOURS
+                ).segments,
+            0
+        );
+        // every segment lands in exactly one batch: none double-counted, none stranded off the ladder
+        expect(total).toBe(scene.segments.length);
+    });
+
     it("maps screen coordinates into a [-1,1] box with y flipped", () => {
-        const scene = sceneOf({ rings: 0, shell: false, nodes: 0 });
-        const one: AvatarScene = {
-            ...scene,
-            segments: [{ ax: 0, ay: 0, bx: 112, by: 112, depth: 0, tone: "body", alpha: 1 }],
-            points: [],
-        };
-        const packed = packLines(one, 112, COLOURS);
+        const packed = packLines([seg({ ax: 0, ay: 0, bx: SIZE, by: SIZE })], SIZE, COLOURS);
         // top-left of the box is (-1, +1); bottom-right is (+1, -1)
         expect(packed.positions[0]).toBeCloseTo(-1);
         expect(packed.positions[1]).toBeCloseTo(1);
@@ -52,66 +93,95 @@ describe("packLines", () => {
     });
 
     it("premultiplies alpha into the colour, because LineMaterial carries no per-vertex alpha", () => {
-        const base = sceneOf({ rings: 0, shell: false, nodes: 0 });
-        const seg = { ax: 0, ay: 0, bx: 10, by: 10, depth: 0, tone: "body" as const };
-        const full = packLines({ ...base, segments: [{ ...seg, alpha: 1 }], points: [] }, 112, COLOURS);
-        const half = packLines({ ...base, segments: [{ ...seg, alpha: 0.5 }], points: [] }, 112, COLOURS);
+        const full = packLines([seg({ alpha: 1 })], SIZE, COLOURS);
+        const half = packLines([seg({ alpha: 0.5 })], SIZE, COLOURS);
         expect(half.colors[0]).toBeCloseTo(full.colors[0] / 2);
         expect(half.colors[1]).toBeCloseTo(full.colors[1] / 2);
         expect(half.colors[2]).toBeCloseTo(full.colors[2] / 2);
     });
 
-    it("carries alpha to black at zero, so a severed link contributes no light", () => {
-        const base = sceneOf({ rings: 0, shell: false, nodes: 0 });
-        const packed = packLines(
-            { ...base, segments: [{ ax: 0, ay: 0, bx: 1, by: 1, depth: 0, tone: "body", alpha: 0 }], points: [] },
-            112,
-            COLOURS
-        );
+    it("carries alpha to black at zero, so a stuttered-out layer contributes no light", () => {
+        const packed = packLines([seg({ alpha: 0 })], SIZE, COLOURS);
         expect(Array.from(packed.colors)).toEqual(new Array(6).fill(0));
     });
 
     it("resolves each tone to its own colour", () => {
-        const base = sceneOf({ rings: 0, shell: false, nodes: 0 });
-        const of = (tone: "body" | "hot" | "marker") =>
-            packLines(
-                { ...base, segments: [{ ax: 0, ay: 0, bx: 1, by: 1, depth: 0, tone, alpha: 1 }], points: [] },
-                112,
-                COLOURS
-            ).colors.slice(0, 3);
-        expect(Array.from(of("body"))).not.toEqual(Array.from(of("hot")));
-        expect(Array.from(of("body"))).not.toEqual(Array.from(of("marker")));
+        const of = (tone: SceneSegment["tone"]) =>
+            Array.from(packLines([seg({ tone })], SIZE, COLOURS).colors.slice(0, 3));
+        expect(of("body")).not.toEqual(of("hot"));
+        expect(of("body")).not.toEqual(of("marker"));
     });
 
-    it("packs an empty scene without allocating a malformed buffer", () => {
-        const base = sceneOf({ rings: 0, shell: false, nodes: 0 });
-        const packed = packLines({ ...base, segments: [], points: [] }, 112, COLOURS);
+    it("packs an empty slice without allocating a malformed buffer", () => {
+        const packed = packLines([], SIZE, COLOURS);
         expect(packed.segments).toBe(0);
         expect(packed.positions.length).toBe(0);
     });
 });
 
-describe("packPoints", () => {
-    it("emits one position, one colour and one size per point", () => {
-        const scene = sceneOf();
-        const packed = packPoints(scene, 112, 1, COLOURS);
-        expect(packed.count).toBe(scene.points.length);
-        expect(packed.positions.length).toBe(scene.points.length * 3);
-        expect(packed.sizes.length).toBe(scene.points.length);
+describe("packFills", () => {
+    it("fans each polygon into n-2 triangles of nine floats", () => {
+        const scene = sceneOf({ posture: "escalation" });
+        const expected = scene.fills.reduce((sum, f) => sum + Math.max(0, f.points.length - 2), 0);
+        const packed = packFills(scene.fills, SIZE, COLOURS);
+        expect(expected).toBeGreaterThan(0);
+        expect(packed.triangles).toBe(expected);
+        expect(packed.positions.length).toBe(expected * 9);
+        expect(packed.colors.length).toBe(expected * 9);
     });
 
-    it("scales point size by device pixel ratio, so a node is the same physical dot at any density", () => {
-        const scene = sceneOf();
-        const at1 = packPoints(scene, 112, 1, COLOURS);
-        const at2 = packPoints(scene, 112, 2, COLOURS);
-        expect(at2.sizes[0]).toBeCloseTo(at1.sizes[0] * 2);
+    it("maps into the same [-1,1] box as the lines, so fills and strokes register", () => {
+        const packed = packFills(
+            [
+                fill({
+                    points: [
+                        [0, 0],
+                        [SIZE, 0],
+                        [SIZE, SIZE],
+                    ],
+                }),
+            ],
+            SIZE,
+            COLOURS
+        );
+        expect(packed.positions[0]).toBeCloseTo(-1);
+        expect(packed.positions[1]).toBeCloseTo(1);
+        expect(packed.positions[6]).toBeCloseTo(1);
+        expect(packed.positions[7]).toBeCloseTo(-1);
     });
 
     it("premultiplies alpha the same way lines do", () => {
-        const base = sceneOf({ rings: 0, shell: false, nodes: 0 });
-        const pt = { x: 10, y: 10, depth: 0, tone: "body" as const, size: 2 };
-        const full = packPoints({ ...base, segments: [], points: [{ ...pt, alpha: 1 }] }, 112, 1, COLOURS);
-        const half = packPoints({ ...base, segments: [], points: [{ ...pt, alpha: 0.5 }] }, 112, 1, COLOURS);
+        const full = packFills([fill({ alpha: 1 })], SIZE, COLOURS);
+        const half = packFills([fill({ alpha: 0.5 })], SIZE, COLOURS);
         expect(half.colors[0]).toBeCloseTo(full.colors[0] / 2);
+    });
+
+    it("resolves the marker tone, which is the one fill the posture marker needs", () => {
+        const body = Array.from(packFills([fill({ tone: "body" })], SIZE, COLOURS).colors.slice(0, 3));
+        const marker = Array.from(packFills([fill({ tone: "marker" })], SIZE, COLOURS).colors.slice(0, 3));
+        expect(body).not.toEqual(marker);
+    });
+
+    it("contributes nothing for a polygon with fewer than three points", () => {
+        const packed = packFills(
+            [
+                fill({
+                    points: [
+                        [0, 0],
+                        [1, 1],
+                    ],
+                }),
+            ],
+            SIZE,
+            COLOURS
+        );
+        expect(packed.triangles).toBe(0);
+        expect(packed.positions.length).toBe(0);
+    });
+
+    it("packs an empty fill list without allocating a malformed buffer", () => {
+        const packed = packFills([], SIZE, COLOURS);
+        expect(packed.triangles).toBe(0);
+        expect(packed.positions.length).toBe(0);
     });
 });

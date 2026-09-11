@@ -1,7 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The avatar's form, as data. Expression in, a flat list of line segments and points in screen space out.
+// The avatar's form, as data. Condition in, a flat list of screen-space primitives out.
 //
 // Pure on purpose, and that is the whole design (spec §5). The blob this replaced kept its geometry inside
 // petview.tsx as JSX attributes, so the only way to check the form was to screenshot the running app. Here
@@ -12,6 +12,13 @@
 //
 // Colours leave here as --color-* NAMES, never resolved values. Resolution needs getComputedStyle, which
 // would drag the DOM into a unit test and break the theme-token rule the moment someone inlined a hex.
+//
+// The FORM itself is the one settled by the design studies under docs/prototype/jarvis-hud-*: three arc
+// planes stacked in depth, held together by six struts, around a recessed core. It replaced a wireframe
+// sphere wrapped in a node network and three tick platters, which had a single problem that no amount of
+// constant-tuning fixed — at the size it ships at, ~890 hairlines inside a 132px box fuse into a smudge.
+// This form is roughly half as many primitives, each individually resolvable, and it says the same five
+// things by moving rather than by having more parts.
 
 import type { PetExpression, PetPosture } from "./petcondition";
 
@@ -27,21 +34,42 @@ export interface SceneSegment {
     depth: number;
     tone: SceneTone;
     alpha: number;
+    /**
+     * Stroke weight in CSS px, from the STROKE ladder.
+     *
+     * Per-segment rather than one width for the whole scene, because weight is what separates the layers of
+     * this form: the marker rim has to out-weigh a blade, and a blade has to out-weigh the tick ring behind
+     * it. With a single width they differed only in alpha, and additive blending spends alpha on depth
+     * already. avatarthree batches by width, so the ladder is short on purpose.
+     */
+    width: number;
 }
 
-export interface ScenePoint {
-    x: number;
-    y: number;
+/**
+ * A filled convex polygon in screen space, drawn as a triangle fan from its first vertex.
+ *
+ * Line work alone could not carry this form. The posture marker went first: drawn as a hairline arc it
+ * disappeared at the shipped size, because a stroke competing with a lit form behind it loses however wide
+ * you make it. What reads is a filled sector over a body that has been dimmed behind it. The same is true
+ * of the arc bands that give the rim and the blades their thickness.
+ *
+ * Convex on purpose, and emitted as a strip of quads rather than as one ring sector: an annular sector is
+ * not convex, so a fan from its first vertex would cut straight across the hole in the middle. Deliberately
+ * a projected polygon rather than an arc description, too — the scene builder owns projection, so a
+ * renderer sweeping its own arc would be projecting a second time and the two renderers would disagree
+ * about where the marker is.
+ */
+export interface SceneFill {
+    /** at least 3 screen-space vertices, in order */
+    points: [number, number][];
     depth: number;
     tone: SceneTone;
     alpha: number;
-    /** diameter in css px */
-    size: number;
 }
 
 export interface AvatarScene {
     segments: SceneSegment[];
-    points: ScenePoint[];
+    fills: SceneFill[];
     /** a --color-* custom property name; the renderer resolves it and lightens it for the "hot" tone */
     toneVar: string;
     /** the --color-* name being crossfaded away from, or null when the tone is settled */
@@ -58,15 +86,15 @@ export interface AvatarScene {
 
 export interface AvatarMood {
     toneVar: string;
-    /** brightness and pulse rate, 0..1 */
+    /** brightness, 0..1 */
     energy: number;
-    /** ring coplanarity and network cohesion, 0..1 */
+    /** how coplanar the three arc planes are, 0..1 */
     align: number;
-    /** instability, 0..1 */
+    /** instability, 0..1 — how much of the form cuts out */
     jitter: number;
-    /** platter rotation rate, 0..1 */
+    /** tumble rate, 0..1, spent only on what alignment has already loosened */
     spin: number;
-    /** fraction of network links cut, 0..1 */
+    /** fraction of the six struts cut, 0..1 */
     sever: number;
 }
 
@@ -82,16 +110,25 @@ export interface SceneInput {
     size: number;
     /** monotonic ms; only read when `still` is false */
     now: number;
+    /**
+     * Orbit phase in radians (petmotion's idleOrbit yaw), read as a phase rather than as an angle.
+     *
+     * idleOrbit turns a full circle, which was right for a sphere and is wrong for a stack of planes: a
+     * quarter of every turn would put the form edge-on and collapse it to a handful of lines. The scene
+     * takes the sine of it instead, so the same clock produces a bounded sway around a fixed three-quarter
+     * view and the form is never seen from an angle it does not read from.
+     */
     yaw: number;
+    /** radians, already bounded by idleOrbit; tips the near face up and down */
     pitch: number;
     /** 0..1 from breathPhase */
     breath: number;
     /** 0..1 from utteranceEnvelope */
     utterance: number;
-    /** true when the avatar has nothing to express: smaller and dimmer, at the periphery */
+    /** true when the avatar has nothing to express: dimmer, at the periphery */
     quiet: boolean;
     /**
-     * A wave crossing the network, as progress 0..1 from the centre outward, or null for no ripple.
+     * A wave crossing the form, as progress 0..1 from the centre outward, or null for no ripple.
      *
      * Progress rather than an intensity envelope, because the front has to travel: an envelope that rose
      * and fell would send the wave out and then pull it back in, which reads as a pulse rather than as
@@ -100,29 +137,24 @@ export interface SceneInput {
     ripple: number | null;
     /** 0..1 impact, displacing the whole assembly. An arrival that has to be felt, not read. */
     jolt: number;
-    rings: number;
-    ringTicks: number;
-    nodes: number;
-    shell: boolean;
-    /** reduced motion: no rotation, spin, breath or surge */
+    /** reduced motion: no sway, tumble, breath, stutter or punctuation */
     still: boolean;
 }
 
 // Severity reads in the tone before the shape has been parsed: error for the worst thing that can be true,
-// warning for the body clock, muted for slow drift, accent at rest. Same mapping the blob used.
+// warning for the body clock, muted for slow drift, accent at rest.
 const MOODS: Record<PetExpression["kind"], AvatarMood> = {
-    // energy 0.74 had the same bug drifting did, and it mattered more here because this is rank 1. Nothing
-    // in the register table asks cannot-see to dim: its tells are severed links, nodes drifting outside the
-    // sphere and ticks stuttering out of phase, all structural. Being dim was a fourth tell nobody asked
-    // for, and combined with sever cutting 72% of the links it made the most severe register the faintest
-    // thing the avatar could show. An alarm is bright.
+    // Nothing in the register table asks cannot-see to dim: its tells are severed struts, planes out of the
+    // stack and the form stuttering out, all structural. Being dim as well would be a fourth tell nobody
+    // asked for, and combined with sever cutting most of the struts it made the most severe register the
+    // faintest thing the avatar could show. An alarm is bright.
     "cannot-see": { toneVar: "--color-error", energy: 0.95, align: 0.14, jitter: 0.75, spin: 0.85, sever: 0.72 },
     tired: { toneVar: "--color-warning", energy: 0.44, align: 0.8, jitter: 0.03, spin: 0.34, sever: 0 },
-    // energy, not tone, is the one that was wrong here. Drifting was authored at 0.34 — dimmer than tired,
-    // the single register the design table defines as dimming — so decay borrowed the exhaustion tell and
-    // then outdid it. Read against the table it is the opposite: decay is loss of STRUCTURE, not loss of
-    // power, and drifting already owns three structural tells (align, spin, sever). It keeps its power.
-    // Still under at-rest, so that "everything is fine" stays the brightest thing the avatar can be.
+    // Drifting was once authored dimmer than tired — the single register the design table defines as
+    // dimming — so decay borrowed the exhaustion tell and then outdid it. Read against the table it is the
+    // opposite: decay is loss of STRUCTURE, not loss of power, and drifting already owns three structural
+    // tells (align, spin, sever). It keeps its power. Still under at-rest, so that "everything is fine"
+    // stays the brightest thing the avatar can be.
     drifting: { toneVar: "--color-muted", energy: 0.88, align: 0.4, jitter: 0.1, spin: 0.62, sever: 0.25 },
     // --color-accent rather than the 500 step: at-rest is the tone shown almost all the time, and the 500
     // step (#667ad1 in the default theme) is the closest of the five to the panel it sits on, so the state
@@ -137,9 +169,9 @@ export function moodFor(expression: PetExpression): AvatarMood {
 /**
  * A mood mid-transition: the numeric fields eased, plus which tone is being crossfaded away from.
  *
- * Registers used to change in a single frame — tone, brightness, platter tilt and sever all snapped at
- * once — which read as a glitch rather than as a condition changing. The form is continuous, so the
- * change should be too.
+ * Registers used to change in a single frame — tone, brightness, plane splay and sever all snapped at once
+ * — which read as a glitch rather than as a condition changing. The form is continuous, so the change
+ * should be too.
  */
 export interface RenderMood extends AvatarMood {
     toneFromVar: string | null;
@@ -201,7 +233,7 @@ export function approachMood(current: RenderMood, expression: PetExpression, dtM
     };
 }
 
-// Posture is a bearing marker and an outline, never a count: which kind of waiting, not how much of it.
+// Posture is a bearing marker, never a count: which kind of waiting, not how much of it.
 export const MARKER_VARS: Record<PetPosture, string | null> = {
     "review-gate": "--color-accent",
     escalation: "--color-error",
@@ -216,76 +248,112 @@ const MARKER_BEARINGS: Record<PetPosture, number | null> = {
     none: null,
 };
 
-export type Vec3 = [number, number, number];
+/**
+ * The four stroke weights the form is drawn with, CSS px.
+ *
+ * A ladder rather than a per-primitive number so avatarthree can batch: line width is a material uniform
+ * in three's fat-line implementation, so every distinct width costs a draw call and a geometry rebuild per
+ * frame. Four is what the form actually needs — body line work, the lit inner arcs, the blades, and the
+ * marker rim that has to beat all of them.
+ */
+export const STROKE = { fine: 0.85, base: 1.2, heavy: 1.9, bold: 2.8 } as const;
 
-export interface Network {
-    nodes: Vec3[];
-    links: [number, number][];
+/** Every width a scene can emit, so the renderer can prepare its batches once. */
+export const STROKE_WIDTHS: readonly number[] = [STROKE.fine, STROKE.base, STROKE.heavy, STROKE.bold];
+
+type Vec3 = [number, number, number];
+
+/** A rigid transform for one layer of the form: Euler XYZ like three's Group, then a shift along z. */
+interface Placement {
+    rx: number;
+    ry: number;
+    rz: number;
+    z: number;
 }
 
-// Memoised by count. Same input, same output — so this stays pure from a caller's view — but the
-// nearest-neighbour pass is O(n squared) and must not run on every frame.
-const NETWORK_CACHE = new Map<number, Network>();
+const IDENTITY: Placement = { rx: 0, ry: 0, rz: 0, z: 0 };
 
-export function networkFor(count: number): Network {
-    const n = Math.max(0, Math.floor(count));
-    const hit = NETWORK_CACHE.get(n);
-    if (hit != null) {
-        return hit;
-    }
-    const nodes: Vec3[] = [];
-    for (let i = 0; i < n; i++) {
-        // a Fibonacci sphere for even angular spread, then pulled inward by a repeating factor so the
-        // network fills the sphere's volume instead of decorating its shell
-        const y = n === 1 ? 0 : 1 - (i / (n - 1)) * 2;
-        const r = Math.sqrt(Math.max(0, 1 - y * y));
-        const th = i * 2.399963;
-        const depth = 0.42 + 0.56 * (((i * 7) % 5) / 4);
-        nodes.push([Math.cos(th) * r * depth, y * depth, Math.sin(th) * r * depth]);
-    }
-    const links: [number, number][] = [];
-    const seen = new Set<string>();
-    for (let i = 0; i < nodes.length; i++) {
-        const near: [number, number][] = [];
-        for (let j = 0; j < nodes.length; j++) {
-            if (i === j) {
-                continue;
-            }
-            const a = nodes[i];
-            const b = nodes[j];
-            near.push([Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]), j]);
-        }
-        near.sort((p, q) => p[0] - q[0]);
-        for (let k = 0; k < Math.min(3, near.length); k++) {
-            const j = near[k][1];
-            const key = i < j ? i + ":" + j : j + ":" + i;
-            if (!seen.has(key)) {
-                seen.add(key);
-                links.push([Math.min(i, j), Math.max(i, j)]);
-            }
-        }
-    }
-    const net = { nodes, links };
-    NETWORK_CACHE.set(n, net);
-    return net;
-}
+const TAU = Math.PI * 2;
 
-function rot3(p: Vec3, yaw: number, pitch: number): Vec3 {
-    const cy = Math.cos(yaw);
-    const sy = Math.sin(yaw);
-    const x = p[0] * cy + p[2] * sy;
-    let z = -p[0] * sy + p[2] * cy;
-    const cp = Math.cos(pitch);
-    const sp = Math.sin(pitch);
-    const y = p[1] * cp - z * sp;
-    z = p[1] * sp + z * cp;
-    return [x, y, z];
-}
+// The named layers. Everything the mood does to brightness, it does to one of these at a time — which is
+// what makes "part of it cut out" expressible at all.
+const PART_KEYS = ["outer", "mid", "front", "struts", "core"] as const;
+type PartKey = (typeof PART_KEYS)[number];
+
+// Where each layer sits, in form units, so a ripple front at radius r knows what it is passing over.
+const PART_RADIUS: Record<PartKey, number> = { core: 0.36, front: 0.87, mid: 1.06, struts: 1.25, outer: 1.4 };
+
+const STRUT_COUNT = 6;
+// Which struts go first, so severing scatters the gaps instead of opening one hole.
+const SEVER_ORDER = [1, 4, 0, 3, 5, 2];
+
+// Which layers can drop out, and how hard. The core is in the list but last, so the form loses its
+// periphery before it loses its centre — a centre that blinks reads as the whole avatar failing rather
+// than as the avatar reporting that it cannot see.
+const STUTTER_PARTS: readonly PartKey[] = ["outer", "mid", "struts", "front", "core"];
+// How often a layer is gated out at full jitter, and how far it drops when it is.
+const STUTTER_RATE = 0.55;
+const STUTTER_DEPTH = 0.8;
+
+// How thick the ripple front is, in form units. Wide enough to light a whole layer at once (a front that
+// lit one primitive at a time reads as a chase, not a wave) and narrow enough that the form is never
+// uniformly lit, which would just be a flash.
+const RIPPLE_WIDTH = 0.38;
+// How far past the rim the front travels before the window ends, so the wave leaves rather than stopping.
+const RIPPLE_REACH = 1.55;
+
+// Peak displacement of a jolt, as a fraction of the viewport. Small on purpose: the edge test's headroom is
+// about 18px at the shipped size, and a knock that moves the form out of its own box is a bug.
+const JOLT_PX = 0.02;
+// Shake rate. Fast enough to read as an impact rather than as a sway.
+const JOLT_HZ = 0.055;
+
+// How much the idle state dims. It does not shrink: the peripheral-when-idle rule (design §3) rides
+// brightness alone, on purpose. It used to ride three axes at once — petview picked a smaller canvas, a
+// factor scaled the form's radius, and the same factor scaled the glow — and since at-rest-and-idle is the
+// condition the avatar is in almost all the time, the compounded result was the state a user essentially
+// always saw. The design study that settled this form scaled the idle avatar to 0.82 as well; that is the
+// one thing from it deliberately not ported, because this rule is the fix for a bug that already shipped.
+export const QUIET_DIM = 0.75;
+
+// One form unit as a fraction of the viewport. Sized so the tick ring — the widest primitive, at 1.56 units
+// — still leaves margin inside the canvas, because the bloom needs somewhere to fall off. A form that
+// reaches the edge turns its own glow into a visible square where the blur clamps against the framebuffer
+// border. This puts the widest primitive at roughly two thirds of the half-width.
+const SPHERE_FRACTION = 0.19;
+
+// Bounded sway, in radians, around the fixed three-quarter attitude. See SceneInput.yaw.
+const ORBIT_SWAY = 0.16;
+
+// Polyline and quad-strip density: segments per radian per unit radius. Tuned so the longest arc in the
+// form lands near a 1.5px chord at the shipped size — fine enough that a circle is a circle, coarse enough
+// that the whole form stays under ~550 segments, which is what the old one failed at.
+const ARC_DETAIL = 18;
+const BAND_DETAIL = 10;
+const ARC_MAX = 96;
+const BAND_MAX = 64;
+
+// Ticks on the outer plane. 48 at this size fuse into a fuzzy band under additive blending long before they
+// resolve; 24 stay countable.
+const TICK_COUNT = 24;
+
+// The marker's sweep, in radians — 72°, not the ±20° this used to draw. The narrower arc was legible on a
+// contact sheet and invisible in window chrome. The BEARING is what says which kind of waiting; the width
+// is only what makes it survive 132px.
+const MARKER_SWEEP = 1.25;
+
+const clamp01 = (v: number) => (Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0);
 
 function rotX(p: Vec3, a: number): Vec3 {
     const c = Math.cos(a);
     const s = Math.sin(a);
     return [p[0], p[1] * c - p[2] * s, p[1] * s + p[2] * c];
+}
+
+function rotY(p: Vec3, a: number): Vec3 {
+    const c = Math.cos(a);
+    const s = Math.sin(a);
+    return [p[0] * c + p[2] * s, p[1], -p[0] * s + p[2] * c];
 }
 
 function rotZ(p: Vec3, a: number): Vec3 {
@@ -294,288 +362,306 @@ function rotZ(p: Vec3, a: number): Vec3 {
     return [p[0] * c - p[1] * s, p[0] * s + p[1] * c, p[2]];
 }
 
-// Each platter sits on its own plane. As alignment falls the planes diverge, which is the drifting
-// register: vault decay is loss of structure, not loss of power, so it needs a different tell from tired.
-function ringTilt(ringIndex: number, align: number): { tiltX: number; tiltZ: number } {
-    return {
-        tiltX: (0.24 + ringIndex * 0.34) * (1 - align) + 0.16 * ringIndex,
-        tiltZ: ringIndex * 1.05 + (1 - align) * 0.7,
-    };
+/**
+ * An irregular 0..1 gate for one layer of the form, out of phase with every other layer.
+ *
+ * Two incommensurate sines beaten together: it never repeats on any interval you would notice, and it holds
+ * a value for several frames at a time rather than flickering per-frame, which is the difference between a
+ * signal dropping out and white noise. A pure function of the clock, so the scene stays stateless.
+ */
+function gate(t: number, seed: number): number {
+    const a = Math.sin(t * (9.3 + seed * 2.1) + seed * 2.7);
+    const b = Math.sin(t * (4.7 + seed * 1.3) + seed * 1.9);
+    return 0.5 + 0.5 * a * b;
 }
-
-/** The plane normal for a platter, so coplanarity is assertable without reading segments. */
-export function ringPlaneNormal(ringIndex: number, align: number): Vec3 {
-    const { tiltX, tiltZ } = ringTilt(ringIndex, align);
-    // a ring in the xz plane has normal +y; carry it through the same two rotations the ring gets
-    const n = rotZ(rotX([0, 1, 0], tiltX), tiltZ);
-    const len = Math.hypot(n[0], n[1], n[2]) || 1;
-    return [n[0] / len, n[1] / len, n[2] / len];
-}
-
-const RING_BASE_RADIUS = 1.42;
-const RING_GAP = 0.3;
-
-// How thick the ripple front is, in sphere radii. Wide enough that it lights several nodes at once (a
-// front that lit one node at a time reads as a chase, not a wave) and narrow enough that the form is
-// never uniformly lit, which would just be a flash.
-const RIPPLE_WIDTH = 0.38;
-// How far past the shell the front travels before the window ends, so the wave leaves rather than stopping.
-const RIPPLE_REACH = 1.25;
-// Peak displacement of a jolt, as a fraction of the viewport. Small on purpose: the edge test's headroom
-// is about 10px at the shipped size, and a knock that moves the form out of its own box is a bug.
-const JOLT_PX = 0.02;
-// Shake rate. Fast enough to read as an impact rather than as a sway.
-const JOLT_HZ = 0.055;
-
-// Alignment fades the line work, but only down to this floor. Coplanarity is already carried by the platter
-// planes diverging (ringTilt), so multiplying alignment straight into alpha spent the same signal a second
-// time — and that second spend compounded with the mood's own energy and with QUIET_DIM. At the quiet size
-// the avatar is in almost all the time, drifting's shell arcs landed near 5% alpha of --color-muted over
-// --color-background, and cannot-see's near 2%: the two registers that report a fault were the two you
-// could not see. A floored ramp keeps the ordering (aligned still reads brighter) without the collapse.
-//
-// One constant for both the shell and the platter edges. They had separate ramps — the edges were already
-// floored at 0.4 and the shell was not — with nothing to justify treating them differently.
-const ALIGN_DIM_FLOOR = 0.55;
-
-const alignDim = (align: number) => ALIGN_DIM_FLOOR + (1 - ALIGN_DIM_FLOOR) * align;
-
-const clamp01 = (v: number) => (Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0);
-
-// How much the idle state dims. It does not shrink: the peripheral-when-idle rule (design §3) rides
-// brightness alone, on purpose. It used to ride three axes at once — petview picked a smaller canvas, this
-// factor scaled the sphere radius, and the same factor scaled the glow — and since at-rest-and-idle is the
-// condition the avatar is in almost all the time, the compounded result (a form 28px wide inside a 68px box,
-// at 0.62 alpha, in the lowest-contrast tone of the five) was the state a user essentially always saw.
-export const QUIET_DIM = 0.75;
-// The sphere's radius as a fraction of the viewport. Tuned down from a value that filled the box: sized so
-// the OUTERMOST platter plus its ticks still leaves margin inside the canvas, because the bloom needs
-// somewhere to fall off. A form that reaches the edge turns its own glow into a visible square where the
-// blur clamps against the framebuffer border. This puts the widest primitive at roughly two thirds of the
-// half-width, which was the point where the box stopped being visible.
-const SPHERE_FRACTION = 0.148;
 
 export function buildAvatarScene(input: SceneInput): AvatarScene {
     const mood: RenderMood = input.mood ?? settledMood(input.expression);
     const still = input.still;
     const now = still ? 0 : input.now;
+    const t = now / 1_000;
     const breath = still ? 0 : clamp01(input.breath);
     const utterance = still ? 0 : clamp01(input.utterance);
-    const yaw = still ? 0 : input.yaw;
-    const pitch = still ? 0.22 : 0.22 + input.pitch;
 
-    const dim = input.quiet ? QUIET_DIM : 1;
-    const glow = (0.45 + 0.55 * mood.energy) * dim;
+    // The whole attitude is the signal: three-quarters-on at rest, square-on while speaking, and turned
+    // further away while something waits on you. `face` rides the utterance envelope rather than easing on
+    // its own state, which keeps this function a pure function of its inputs.
+    const attention = input.posture === "none" ? 0 : 1;
+    const face = utterance * (1 - attention);
+    const calm = Math.max(0, 1 - Math.max(face, attention));
+    const wave = breath * 2 - 1;
 
-    // The jolt moves the whole form rather than any part of it: a rigid knock reads as something landing
-    // on the avatar, where a per-primitive wobble would read as the avatar itself becoming unstable, which
-    // is already what jitter means in the cannot-see register.
+    const quietDim = input.quiet ? QUIET_DIM : 1;
+    const glow = (0.5 + 0.5 * mood.energy) * (1 - 0.16 * calm * (0.5 - 0.5 * wave)) * (1 - attention * 0.58) * quietDim;
+
+    // Per-layer brightness, in two directions. `lift` is what brightens a layer (a ripple passing over it,
+    // the voice lighting the centre) and `drop` is the stutter. They are kept apart because the clamp
+    // between them is load-bearing: a layer that a ripple has already pushed to full opacity must still be
+    // able to cut out, and folding them into one product would let the lift cancel the dropout.
+    const lift: Record<PartKey, number> = { outer: 1, mid: 1, front: 1, struts: 1, core: 1 };
+    const drop: Record<PartKey, number> = { outer: 1, mid: 1, front: 1, struts: 1, core: 1 };
+
+    const rippleAt = still || input.ripple == null ? null : clamp01(input.ripple);
+    if (rippleAt != null) {
+        const head = rippleAt * RIPPLE_REACH;
+        for (const part of PART_KEYS) {
+            const bell = Math.max(0, 1 - Math.abs(PART_RADIUS[part] - head) / RIPPLE_WIDTH);
+            lift[part] *= 1 + bell * 1.6;
+        }
+    }
+    if (utterance > 0) {
+        // scaled by energy, because alpha clamps at 1: unscaled, a tired avatar that started speaking hit
+        // the same ceiling a rested one does and its register vanished for as long as it was talking. A
+        // tired voice is quieter.
+        const voice = utterance * (0.4 + 0.6 * mood.energy);
+        lift.core *= 1 + voice * 0.7;
+        lift.front *= 1 + voice * 0.4;
+    }
+    if (!still && mood.jitter > 0.005) {
+        STUTTER_PARTS.forEach((part, seed) => {
+            if (gate(t, seed) > 1 - mood.jitter * STUTTER_RATE) {
+                drop[part] = 1 - mood.jitter * STUTTER_DEPTH;
+            }
+        });
+    }
+
+    // The jolt moves the whole form rather than any part of it: a rigid knock reads as something landing on
+    // the avatar, where a per-primitive wobble would read as the avatar itself becoming unstable, which is
+    // already what jitter means. That collision is why jitter is a dropout and not a tremble.
     const jolt = still ? 0 : clamp01(input.jolt);
     const knock = jolt * input.size * JOLT_PX;
     const centreX = input.size / 2 + Math.sin(now * JOLT_HZ) * knock;
     const centreY = input.size / 2 + Math.cos(now * JOLT_HZ * 1.37) * knock * 0.6;
-    // deliberately not scaled by `dim` — see QUIET_DIM. The geometry is the same size in every state.
-    const radius = input.size * SPHERE_FRACTION * (1 + 0.03 * breath);
+    const radius = input.size * SPHERE_FRACTION * (1 + 0.03 * calm * wave);
+
+    const rootRx = 0.2 - face * 0.17 + attention * 0.14 + (still ? 0 : input.pitch);
+    const rootRy = -0.28 + face * 0.24 - attention * 0.16 + (still ? 0 : Math.sin(input.yaw) * ORBIT_SWAY);
+    const rootRz = -0.06 + face * 0.06;
+
+    // align is plane coplanarity: as it falls the three planes come apart and tilt out of the stack, which
+    // is decay you can see in the silhouette rather than in the brightness. spin is then spent only on what
+    // alignment has already loosened — at-rest (align 1) contributes no tumble and breathes in place, so
+    // the resting avatar is still rather than idling like a spinner.
+    const splay = 1 - mood.align;
+    const tumble = mood.spin * splay * t;
+    // A twist while speaking, which returns when the utterance decays. The form working, not drifting.
+    const work = face * 0.6;
+
+    const planeBack: Placement = {
+        rx: -splay * 0.42,
+        ry: splay * 0.3,
+        rz: -work * 0.4 - tumble * 0.12,
+        z: -0.38 - splay * 0.3,
+    };
+    const planeMid: Placement = { rx: 0, ry: 0, rz: work * 0.9 + tumble * 0.075, z: 0 };
+    const planeFront: Placement = {
+        rx: splay * 0.34,
+        ry: -splay * 0.24,
+        rz: -work * 0.6 - tumble * 0.05,
+        z: 0.32 + face * 0.14 + splay * 0.3,
+    };
+    // The struts and the core hang off the root, not off a plane: that is what makes the splay read as the
+    // stack coming apart rather than as the whole assembly opening like a flower.
+    const coreAt: Placement = { rx: 0, ry: 0, rz: 0, z: -0.25 };
 
     const segments: SceneSegment[] = [];
-    const points: ScenePoint[] = [];
+    const fills: SceneFill[] = [];
     let extent = 0;
 
     // Perspective is a divide rather than a matrix: both renderers take screen-space primitives, which is
     // what keeps the fallback pixel-comparable with the primary instead of subtly differently projected.
-    const project = (p: Vec3): [number, number, number, number] => {
-        const k = 1 / (1 - p[2] * 0.17);
-        const x = centreX + p[0] * radius * k;
-        const y = centreY - p[1] * radius * k;
+    const project = (p: Vec3, at: Placement): [number, number, number] => {
+        const placed = rotX(rotY(rotZ(p, at.rz), at.ry), at.rx);
+        const world = rotX(rotY(rotZ([placed[0], placed[1], placed[2] + at.z], rootRz), rootRy), rootRx);
+        const k = 1 / (1 - world[2] * 0.17);
+        const x = centreX + world[0] * radius * k;
+        const y = centreY - world[1] * radius * k;
         extent = Math.max(extent, Math.hypot(x - centreX, y - centreY));
-        return [x, y, p[2], k];
+        return [x, y, world[2]];
     };
 
-    const strip = (pts: [number, number, number, number][], tone: SceneTone, alpha: number) => {
-        for (let i = 1; i < pts.length; i++) {
-            const a = pts[i - 1];
-            const b = pts[i];
+    // Line work is authored at a base opacity and lit by the mood; the marker is not, which is the contrast
+    // that makes it readable over a form the same glow has just dimmed by 58%.
+    const bodyAlpha = (base: number, part: PartKey | null): number => {
+        const a = clamp01(base * glow);
+        return part == null ? a : Math.min(1, a * lift[part]) * drop[part];
+    };
+    const markerAlpha = (base: number) => clamp01(base * quietDim);
+
+    const line = (a: Vec3, b: Vec3, at: Placement, tone: SceneTone, width: number, alpha: number) => {
+        const pa = project(a, at);
+        const pb = project(b, at);
+        segments.push({
+            ax: pa[0],
+            ay: pa[1],
+            bx: pb[0],
+            by: pb[1],
+            depth: (pa[2] + pb[2]) / 2,
+            tone,
+            alpha,
+            width,
+        });
+    };
+
+    const arc = (
+        at: Placement,
+        r: number,
+        start: number,
+        length: number,
+        tone: SceneTone,
+        width: number,
+        alpha: number
+    ) => {
+        const steps = Math.max(4, Math.min(ARC_MAX, Math.ceil(Math.abs(length) * r * ARC_DETAIL)));
+        let prev = project([Math.cos(start) * r, Math.sin(start) * r, 0], at);
+        for (let i = 1; i <= steps; i++) {
+            const a = start + (length * i) / steps;
+            const next = project([Math.cos(a) * r, Math.sin(a) * r, 0], at);
             segments.push({
-                ax: a[0],
-                ay: a[1],
-                bx: b[0],
-                by: b[1],
-                depth: (a[2] + b[2]) / 2,
+                ax: prev[0],
+                ay: prev[1],
+                bx: next[0],
+                by: next[1],
+                depth: (prev[2] + next[2]) / 2,
                 tone,
-                alpha: clamp01(alpha),
+                alpha,
+                width,
             });
+            prev = next;
         }
     };
 
-    // the shell: latitude and longitude arcs implying a sphere without drawing a surface
-    const alignAlpha = alignDim(mood.align);
-    if (input.shell) {
-        for (let i = 0; i < 3; i++) {
-            const lat = (i - 1) * 0.62;
-            const rr = Math.cos(lat);
-            const arc: [number, number, number, number][] = [];
-            for (let k = 0; k <= 64; k++) {
-                const a = (k / 64) * Math.PI * 2;
-                arc.push(project(rot3([Math.cos(a) * rr, Math.sin(lat), Math.sin(a) * rr], yaw, pitch)));
-            }
-            strip(arc, "body", 0.26 * glow * alignAlpha);
+    const band = (
+        at: Placement,
+        inner: number,
+        outer: number,
+        start: number,
+        length: number,
+        tone: SceneTone,
+        alpha: number
+    ) => {
+        const steps = Math.max(2, Math.min(BAND_MAX, Math.ceil(Math.abs(length) * outer * BAND_DETAIL)));
+        let ia = project([Math.cos(start) * inner, Math.sin(start) * inner, 0], at);
+        let oa = project([Math.cos(start) * outer, Math.sin(start) * outer, 0], at);
+        for (let i = 1; i <= steps; i++) {
+            const a = start + (length * i) / steps;
+            const ib = project([Math.cos(a) * inner, Math.sin(a) * inner, 0], at);
+            const ob = project([Math.cos(a) * outer, Math.sin(a) * outer, 0], at);
+            fills.push({
+                points: [
+                    [ia[0], ia[1]],
+                    [oa[0], oa[1]],
+                    [ob[0], ob[1]],
+                    [ib[0], ib[1]],
+                ],
+                depth: (ia[2] + ob[2]) / 2,
+                tone,
+                alpha,
+            });
+            ia = ib;
+            oa = ob;
         }
-        for (let i = 0; i < 3; i++) {
-            const lon = (i / 3) * Math.PI;
-            const arc: [number, number, number, number][] = [];
-            for (let k = 0; k <= 64; k++) {
-                const a = (k / 64) * Math.PI * 2;
-                arc.push(project(rot3(rotZ(rotX([Math.cos(a), Math.sin(a), 0], Math.PI / 2), lon), yaw, pitch)));
-            }
-            strip(arc, "body", 0.22 * glow * alignAlpha);
-        }
+    };
+
+    // the outer plane: six rim arcs over a tick ring, the part of the form furthest from the viewer
+    for (let i = 0; i < 6; i++) {
+        const start = (i * TAU) / 6 + 0.08;
+        arc(planeBack, 1.4, start, 0.78, "body", STROKE.fine, bodyAlpha(0.65, "outer"));
+        band(planeBack, 1.32, 1.39, start, 0.78, "body", bodyAlpha(0.18, "outer"));
+    }
+    for (let i = 0; i < TICK_COUNT; i++) {
+        const a = (i * TAU) / TICK_COUNT;
+        const len = i % 4 === 0 ? 0.09 : 0.035;
+        line(
+            [Math.cos(a) * 1.47, Math.sin(a) * 1.47, 0],
+            [Math.cos(a) * (1.47 + len), Math.sin(a) * (1.47 + len), 0],
+            planeBack,
+            "body",
+            STROKE.fine,
+            bodyAlpha(0.78, "outer")
+        );
     }
 
-    const net = networkFor(input.nodes);
-    const scatter = (1 - mood.align) * 0.42;
-    const rippleAt = still || input.ripple == null ? null : clamp01(input.ripple);
-    // a bell over progress: the wave fades as it leaves rather than switching off at the shell
-    const rippleGain = rippleAt == null ? 0 : Math.sin(rippleAt * Math.PI);
-    const rippleFront = rippleAt == null ? 0 : rippleAt * RIPPLE_REACH;
-    // how strongly the ripple is touching a node at sphere-radius r, 0..1
-    const rippleAtRadius = (r: number) =>
-        rippleAt == null ? 0 : Math.max(0, 1 - Math.abs(r - rippleFront) / RIPPLE_WIDTH) * rippleGain;
-    const nodeRadius = net.nodes.map((n) => Math.hypot(n[0], n[1], n[2]));
-    const placed = net.nodes.map((n, i) => {
-        const ph = i * 1.7;
-        const w = still ? Math.sin(ph) : Math.sin(now * 0.0009 + ph);
-        const w2 = still ? Math.cos(ph) : Math.cos(now * 0.0011 + ph * 1.3);
-        const j = still ? 0 : Math.sin(now * 0.02 + ph) * mood.jitter * 0.09;
-        return project(
-            rot3(
-                [n[0] * (1 + w * scatter) + j, n[1] * (1 + w2 * scatter * 0.8), n[2] * (1 + w * scatter * 0.6)],
-                yaw,
-                pitch
-            )
+    // the middle plane: three heavy blades, the layer that carries the form's weight
+    for (let i = 0; i < 3; i++) {
+        const start = (i * TAU) / 3 + 0.3;
+        arc(planeMid, 1.11, start, 1.62, "body", STROKE.heavy, bodyAlpha(1, "mid"));
+        band(planeMid, 1.02, 1.1, start, 1.62, "body", bodyAlpha(0.32, "mid"));
+    }
+
+    // the front plane: a thin ring with three lit arcs inside it, nearest the viewer
+    for (let i = 0; i < 3; i++) {
+        arc(planeFront, 0.83, (i * TAU) / 3 + 0.1, 1.3, "hot", STROKE.base, bodyAlpha(0.75, "front"));
+    }
+    arc(planeFront, 0.91, 0, TAU, "body", STROKE.fine, bodyAlpha(0.5, "front"));
+
+    // the struts, spanning back plane to middle. Severed deterministically by rank, so the same ones stay
+    // cut frame to frame rather than flickering — a link that came and went would be jitter, not damage.
+    const cut = Math.round(STRUT_COUNT * clamp01(mood.sever));
+    SEVER_ORDER.forEach((index, rank) => {
+        if (rank < cut) {
+            return;
+        }
+        const a = (index * TAU) / 6 + 0.45;
+        line(
+            [Math.cos(a) * 1.4, Math.sin(a) * 1.4, -0.38],
+            [Math.cos(a) * 1.11, Math.sin(a) * 1.11, 0],
+            IDENTITY,
+            "body",
+            STROKE.fine,
+            bodyAlpha(0.45, "struts")
         );
     });
 
-    net.links.forEach((link, i) => {
-        // severed links are what degraded recall looks like from the inside. Deterministic in the index so
-        // the same links stay cut frame to frame rather than flickering.
-        if (mood.sever > 0 && (i % 7) / 7 < mood.sever) {
-            return;
-        }
-        const a = placed[link[0]];
-        const b = placed[link[1]];
-        const depth = (a[2] + b[2]) / 2;
-        const lit = rippleAtRadius((nodeRadius[link[0]] + nodeRadius[link[1]]) / 2);
-        segments.push({
-            ax: a[0],
-            ay: a[1],
-            bx: b[0],
-            by: b[1],
-            depth,
-            tone: lit > 0.55 ? "hot" : "body",
-            alpha: clamp01((0.26 + 0.4 * ((depth + 1) / 2)) * glow * (1 + 1.8 * lit)),
-        });
-    });
+    // the core, recessed behind the middle plane: a lit ring, three brackets, and a hex at the centre
+    arc(coreAt, 0.31, 0, TAU, "hot", STROKE.base, bodyAlpha(0.95, "core"));
+    for (let i = 0; i < 3; i++) {
+        arc(coreAt, 0.42, (i * TAU) / 3 + 0.1, 1.1, "body", STROKE.base, bodyAlpha(0.95, "core"));
+    }
+    for (let i = 0; i < 6; i++) {
+        const a = (i * TAU) / 6;
+        const b = ((i + 1) * TAU) / 6;
+        line(
+            [Math.cos(a) * 0.17, Math.sin(a) * 0.17, 0],
+            [Math.cos(b) * 0.17, Math.sin(b) * 0.17, 0],
+            coreAt,
+            "body",
+            STROKE.fine,
+            bodyAlpha(0.9, "core")
+        );
+    }
+    band(coreAt, 0.31, 0.41, 0, TAU, "body", bodyAlpha(0.17, "core"));
 
-    // a pulse walking the graph, slower when energy is low
-    const head = still ? 0 : (now * 0.0007 * (0.25 + mood.energy)) % Math.max(1, placed.length);
-    placed.forEach((p, i) => {
-        const span = Math.max(1, placed.length);
-        const dist = Math.abs((((i - head) % span) + span) % span);
-        const near = 1 - Math.min(1, dist / 2.4);
-        const front = (p[2] + 1) / 2;
-        const lit = rippleAtRadius(nodeRadius[i]);
-        points.push({
-            x: p[0],
-            y: p[1],
-            depth: p[2],
-            tone: near > 0.5 || lit > 0.35 ? "hot" : "body",
-            alpha: clamp01((0.42 + 0.55 * front) * glow * (0.5 + 0.5 * near) * (1 + 2.2 * lit)),
-            size: Math.max(1.6, input.size * 0.013) * p[3] * (0.7 + 0.5 * front) * (1 + 0.6 * near + 1.4 * lit),
-        });
-    });
-
-    // the platters: exterior tick rings, evoking hard-drive platters and reel-to-reel tape, whose tick
-    // lengths ride the utterance envelope
-    const ringCount = Math.max(0, Math.floor(input.rings));
-    for (let ri = 0; ri < ringCount; ri++) {
-        const ringRadius = RING_BASE_RADIUS + ri * RING_GAP;
-        const dir = ri % 2 ? -1 : 1;
-        const spin = still ? 0 : now * 0.00034 * dir * mood.spin * (1 + ri * 0.25);
-        const { tiltX, tiltZ } = ringTilt(ri, mood.align);
-        const tickCount = Math.max(6, Math.round(input.ringTicks * (1 - ri * 0.12)));
-        const amp = 0.2 + 0.8 * utterance;
-
-        for (let i = 0; i < tickCount; i++) {
-            const a = (i / tickCount) * Math.PI * 2 + spin;
-            // three partials so it reads as speech rather than as a sine
-            let w =
-                Math.sin(i * 0.55 + now * 0.006) * 0.5 +
-                Math.sin(i * 1.31 - now * 0.009) * 0.32 +
-                Math.sin(i * 2.77 + now * 0.013) * 0.18;
-            if (still) {
-                w = Math.sin(i * 0.55) * 0.5 + Math.sin(i * 1.31) * 0.32 + Math.sin(i * 2.77) * 0.18;
-            } else if (mood.jitter > 0.3) {
-                w += Math.sin(i * 5.1 + now * 0.03) * mood.jitter * 0.5;
-            }
-            const mag = Math.abs(w) * amp;
-            const major = i % 8 === 0;
-            const len = (0.05 + 0.3 * mag + (major ? 0.05 : 0)) * (0.5 + 0.5 * mood.energy);
-            const inner = project(
-                rot3(rotZ(rotX([Math.cos(a) * ringRadius, 0, Math.sin(a) * ringRadius], tiltX), tiltZ), yaw, pitch)
-            );
-            const outer = project(
-                rot3(
-                    rotZ(rotX([Math.cos(a) * (ringRadius + len), 0, Math.sin(a) * (ringRadius + len)], tiltX), tiltZ),
-                    yaw,
-                    pitch
-                )
-            );
-            const front = (inner[2] + 1) / 2;
-            segments.push({
-                ax: inner[0],
-                ay: inner[1],
-                bx: outer[0],
-                by: outer[1],
-                depth: inner[2],
-                tone: major ? "hot" : "body",
-                alpha: clamp01((0.22 + 0.55 * front) * glow * (0.55 + 0.45 * mag * 1.6)),
-            });
-        }
-
-        const edge: [number, number, number, number][] = [];
-        for (let k = 0; k <= 96; k++) {
-            const a = (k / 96) * Math.PI * 2 + spin;
-            edge.push(
-                project(
-                    rot3(rotZ(rotX([Math.cos(a) * ringRadius, 0, Math.sin(a) * ringRadius], tiltX), tiltZ), yaw, pitch)
-                )
-            );
-        }
-        strip(edge, "body", 0.32 * glow * alignAlpha);
+    // A bright short arc sweeping the middle plane, only while Jarvis is actually saying something. It is
+    // the one part of the form that spins on its own clock, which is why it must never be visible at rest:
+    // a permanent sweep is a loading spinner.
+    if (face > 0.02) {
+        arc(planeMid, 1.11, -0.32 + (still ? 0 : t * 1.6), 0.64, "hot", STROKE.bold, bodyAlpha(face, null));
     }
 
     // the bearing marker: which kind of waiting, at a fixed bearing. Never a count — the nav rail's badge
     // owns counts, and that split is the whole reason keeping both indicators is not redundancy.
     const bearing = MARKER_BEARINGS[input.posture];
-    if (bearing != null && ringCount > 0) {
-        const markerRadius = RING_BASE_RADIUS + (ringCount - 1) * RING_GAP + 0.22;
-        const from = ((bearing - 20) * Math.PI) / 180;
-        const to = ((bearing + 20) * Math.PI) / 180;
-        const arc: [number, number, number, number][] = [];
-        for (let k = 0; k <= 32; k++) {
-            const a = from + (to - from) * (k / 32);
-            arc.push(
-                project(
-                    rot3(rotZ(rotX([Math.cos(a) * markerRadius, 0, Math.sin(a) * markerRadius], 0.16), 0), yaw, pitch)
-                )
+    if (bearing != null) {
+        const start = (bearing * Math.PI) / 180 - MARKER_SWEEP / 2;
+        band(IDENTITY, 0.98, 1.46, start, MARKER_SWEEP, "marker", markerAlpha(0.42));
+        arc(IDENTITY, 1.46, start, MARKER_SWEEP, "marker", STROKE.bold, markerAlpha(1));
+        arc(IDENTITY, 0.98, start, MARKER_SWEEP, "marker", STROKE.heavy, markerAlpha(0.9));
+        for (const a of [start, start + MARKER_SWEEP]) {
+            line(
+                [Math.cos(a) * 0.98, Math.sin(a) * 0.98, 0],
+                [Math.cos(a) * 1.46, Math.sin(a) * 1.46, 0],
+                IDENTITY,
+                "marker",
+                STROKE.heavy,
+                markerAlpha(0.9)
             );
         }
-        strip(arc, "marker", 0.9 * dim);
     }
 
     return {
         segments,
-        points,
+        fills,
         toneVar: mood.toneVar,
         toneFromVar: mood.toneFromVar,
         toneMix: mood.toneMix,
@@ -586,5 +672,4 @@ export function buildAvatarScene(input: SceneInput): AvatarScene {
     };
 }
 
-// Referenced by Task 4. Exported here so the bearing table has one home.
 export { MARKER_BEARINGS };
