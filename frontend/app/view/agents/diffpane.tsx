@@ -21,6 +21,7 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { firstDifferingLine } from "./diffcontent";
 import { diffPairAtom } from "./diffcontentstore";
+import { clearDiffNav, setDiffNav } from "./diffnav";
 import { fmtBytes } from "./runcompletion";
 
 const MonacoDiffViewer = lazy(() => import("@/app/monaco/monaco-react").then((m) => ({ default: m.MonacoDiffViewer })));
@@ -119,7 +120,17 @@ export function DiffPane({
         }
         return (
             <Suspense fallback={<PaneSkeleton />}>
-                <MonacoDiffViewer path={path} original={pair.original} modified={pair.modified} options={options} />
+                <MonacoDiffViewer
+                    path={path}
+                    original={pair.original}
+                    modified={pair.modified}
+                    options={options}
+                    // publishes the editor so Shift+N / Shift+P can walk its hunks without focusing it
+                    onMount={(diff) => {
+                        setDiffNav(diff);
+                        return () => clearDiffNav(diff);
+                    }}
+                />
             </Suspense>
         );
     };

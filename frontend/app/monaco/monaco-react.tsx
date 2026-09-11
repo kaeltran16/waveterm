@@ -122,11 +122,14 @@ type DiffViewerProps = {
     language?: string;
     path: string;
     options: MonacoTypes.editor.IDiffEditorOptions;
+    // same shape as MonacoCodeEditor's: returns its own teardown, run just before the editor disposes
+    onMount?: (diff: MonacoTypes.editor.IStandaloneDiffEditor) => () => void;
 };
 
-export function MonacoDiffViewer({ original, modified, language, path, options }: DiffViewerProps) {
+export function MonacoDiffViewer({ original, modified, language, path, options, onMount }: DiffViewerProps) {
     const divRef = useRef<HTMLDivElement>(null);
     const diffRef = useRef<MonacoTypes.editor.IStandaloneDiffEditor | null>(null);
+    const onUnmountRef = useRef<(() => void) | null>(null);
 
     // Create once
     useEffect(() => {
@@ -146,7 +149,12 @@ export function MonacoDiffViewer({ original, modified, language, path, options }
 
         diff.setModel({ original: originalModel, modified: modifiedModel });
 
+        if (onMount) {
+            onUnmountRef.current = onMount(diff);
+        }
+
         return () => {
+            if (onUnmountRef.current) onUnmountRef.current();
             diff.setModel(null);
             diff.dispose();
             originalModel.dispose();
