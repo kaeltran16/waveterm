@@ -62,7 +62,7 @@ describe("resolveBriefComposerTarget", () => {
                 face: channelRun,
                 run: run(),
                 agents: [agent()],
-                channelName: "waveterm",
+                projectName: "waveterm",
             })
         ).toEqual({
             audience: "worker",
