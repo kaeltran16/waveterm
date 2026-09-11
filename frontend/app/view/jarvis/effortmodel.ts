@@ -39,6 +39,8 @@ export type EffortCardModel = {
     chips: ChunkChip[];
     chipOverflow: number;
     blockedChunks: string[];
+    // carried so the card can tell the detail cache how fresh the summary it is drawing from is
+    updatedts: number;
 };
 
 // done/(total-skipped): skips shrink the denominator so a finished-by-skipping effort still reads 100%.
@@ -59,6 +61,7 @@ export function buildEffortCard(e: EffortSummary): EffortCardModel {
     const chips = chunks.slice(0, CHIP_CAP).map((c) => ({ label: c.label, tone: chunkTone(c.status) }));
     return {
         oref: e.oref,
+        updatedts: e.updatedts,
         title: e.title,
         project: e.project,
         ticket: e.ticket,

@@ -121,6 +121,22 @@ type AttentionItem struct {
 	// radar triage sets it; channel-backed items leave it empty because ChannelId+RunId already address
 	// them, and the frontend's rule is that an item naming no destination renders static.
 	ORef string `json:"oref,omitempty"`
+
+	// EffortOID/ChunkLabel are the initiative this waiting thing belongs to, read off the owning run's
+	// EffortRef. Only the oid travels: the effort's title is already on the Brief, so joining it here
+	// would be a second source for one fact. Empty when the run is not attributed to an initiative.
+	EffortOID  string `json:"effortoid,omitempty"`
+	ChunkLabel string `json:"chunklabel,omitempty"`
+	// Why is the one sentence of context Text cannot carry: what else is done, what stays stopped. It is
+	// composed from counts the server already holds, never model-generated prose — a queue row that
+	// summarised its own item with a language model would be an unverifiable claim on the one surface
+	// whose whole promise is that every number is derived.
+	Why string `json:"why,omitempty"`
+	// Cites are the concrete things the decision rests on — today the gated phase's recorded artifacts.
+	// Plain strings because they render as numbered labels, not controls: the row itself is the button,
+	// and a second control inside it is the affordance defect invariant 4 names. They share the item's
+	// WaitingSince (one phase produced them all), so they carry no per-citation timestamp.
+	Cites []string `json:"cites,omitempty"`
 }
 
 type CommandGetAttentionRtnData struct {

@@ -10,17 +10,24 @@ import { buildEffortCard, type EffortCardModel } from "./effortmodel";
 
 export const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
-// the briefing shows capped windows, never longer pages; the header pills keep the true counts.
+// The window a region opens at. This projection produces every row it knows about; the caps are what
+// the Brief shows before its regions are expanded, so the hidden rows stay addressable rather than
+// being discarded here. capRegion applies them.
 export const EFFORT_CAP = 6;
 export const ACTIVE_CAP = 8;
 export const DELTA_CAP = 10;
 export const SHIPPED_CAP = 8;
 
-// The efforts section's link to the full list. It reads as overflow when the briefing is capped, but
-// it is never conditional on overflow: the archived group only exists on that list, so a briefing
-// showing every live initiative still needs a way in.
-export function effortListLabel(more: number): string {
-    return more > 0 ? `+${more} more` : "All initiatives";
+export interface CappedRows<T> {
+    rows: T[];
+    more: number;
+}
+
+// The overflow count is what the cap actually hid, not what it was expected to hide: derived from the
+// rows either side of the slice so the "+N more" on a region can never disagree with the rows above it.
+export function capRegion<T>(rows: T[], cap: number, expanded: boolean): CappedRows<T> {
+    const shown = expanded ? rows : rows.slice(0, cap);
+    return { rows: shown, more: rows.length - shown.length };
 }
 
 export interface BriefingModelInput {
@@ -134,6 +141,15 @@ export interface QueueRow {
     action: string | null;
     nav: QueueNav | null;
     tone: QueueTone;
+    // The initiative this waiting thing belongs to: the effort's title joined here from the list the
+    // Brief already holds, plus the chunk the run executes. The server sends the oid and the chunk and
+    // NOT the title, so the name of an initiative has one source on this surface.
+    attrib: string;
+    // One derived sentence of context, composed server-side from counts (pkg/jarvis/attention.go).
+    why: string;
+    // What the decision rests on, rendered as numbered labels. Never controls: the row itself is the
+    // button, and a second control inside it is the affordance defect invariant 4 names.
+    cites: string[];
 }
 
 // dag-gate/dag-blocked are absent from the rail's map and fell through to the raw wire kind, which
@@ -169,6 +185,9 @@ const QUEUE_KIND_LABEL: Record<string, string> = {
 };
 
 export function buildAttentionQueue(input: { attention: AttentionItem[]; efforts: EffortCardModel[] }): QueueRow[] {
+    // an effort the Brief is not holding (archived, or another project's) resolves to no title; the
+    // chunk label still names the work, so the row keeps it rather than dropping the attribution.
+    const effortTitles = new Map(input.efforts.map((e) => [e.oref.replace(/^effort:/, ""), e.title]));
     // wire order is the priority claim (gates, then escalations, then asks; oldest first inside a
     // kind — pkg/jarvis/attention.go), so this preserves it rather than re-sorting on age.
     const rows: QueueRow[] = (input.attention ?? []).map((a) => {
@@ -195,6 +214,12 @@ export function buildAttentionQueue(input: { attention: AttentionItem[]; efforts
                       ? { kind: "channel", channelId, runId: a.runid != null && a.runid !== "" ? a.runid : null }
                       : null,
             tone: a.kind === "dag-blocked" ? "error" : "asking",
+            attrib:
+                a.effortoid != null && a.effortoid !== ""
+                    ? [effortTitles.get(a.effortoid) ?? "", a.chunklabel ?? ""].filter((s) => s !== "").join(" · ")
+                    : "",
+            why: a.why ?? "",
+            cites: a.cites ?? [],
         };
     });
     // a blocked chunk is attention the server's attention leg never sees; it has no waiting-since to
@@ -210,6 +235,11 @@ export function buildAttentionQueue(input: { attention: AttentionItem[]; efforts
                 action: "Open",
                 nav: { kind: "effort", oref: e.oref },
                 tone: "asking",
+                // a blocked chunk IS the initiative's row, so naming the initiative again beside the
+                // chunk would say the same thing twice; detail already carries the title.
+                attrib: "",
+                why: "",
+                cites: [],
             });
         }
     }
@@ -284,10 +314,6 @@ export interface BriefingModel {
     delta: DeltaRow[];
     shipped: ShippedRow[];
     efforts: EffortCardModel[];
-    effortMore: number;
-    activeMore: number;
-    deltaMore: number;
-    shippedMore: number;
     health: SourceHealthSummary;
     counts: { runs: number; agents: number; delta: number; shipped: number };
 }
@@ -450,34 +476,19 @@ export function projectBriefing(input: BriefingModelInput): BriefingModel {
     }
 
     // efforts: non-archived only, newest-updated first (the wire already sorts; the defensive sort
-    // keeps the projection total regardless of server ordering), then capped for display.
+    // keeps the projection total regardless of server ordering).
     const effortCards = (state.efforts ?? [])
         .filter((e) => e.status !== "archived")
         .sort((a, b) => b.updatedts - a.updatedts)
         .map(buildEffortCard);
 
-    // display caps: rows show the window, the section pill keeps the true count, overflow is a link.
-    const cappedRuns = activeRuns.slice(0, ACTIVE_CAP);
-    const cappedBlockers = blockers.slice(0, ACTIVE_CAP);
-    const cappedAgents = directAgents.slice(0, ACTIVE_CAP);
-    const cappedDelta = delta.slice(0, DELTA_CAP);
-    const cappedShipped = shipped.slice(0, SHIPPED_CAP);
-    const over = (n: number, cap: number) => Math.max(0, n - cap);
-
     return {
-        activeRuns: cappedRuns,
-        blockers: cappedBlockers,
-        directAgents: cappedAgents,
-        delta: cappedDelta,
-        shipped: cappedShipped,
-        efforts: effortCards.slice(0, EFFORT_CAP),
-        effortMore: over(effortCards.length, EFFORT_CAP),
-        activeMore:
-            over(activeRuns.length, ACTIVE_CAP) +
-            over(blockers.length, ACTIVE_CAP) +
-            over(directAgents.length, ACTIVE_CAP),
-        deltaMore: over(delta.length, DELTA_CAP),
-        shippedMore: over(shipped.length, SHIPPED_CAP),
+        activeRuns,
+        blockers,
+        directAgents,
+        delta,
+        shipped,
+        efforts: effortCards,
         health: { complete: missingLegs.length === 0, missingLegs, attentionState: state.sources.attention },
         counts: { runs: activeRuns.length, agents: directAgents.length, delta: delta.length, shipped: shipped.length },
     };

@@ -6,6 +6,7 @@ import {
     principleRows,
     profileOverrideIsEmpty,
     reduceGlobalPrinciples,
+    reducePlaybook,
     reducePrinciplePatch,
     resetActionState,
     sectionSource,
@@ -23,7 +24,11 @@ describe("sectionSource", () => {
         expect(sectionSource({})).toEqual({ playbook: "global", principles: "global", route: "global" });
     });
     it("is project for the section that is present", () => {
-        expect(sectionSource({ principles: {} })).toEqual({ playbook: "global", principles: "project", route: "global" });
+        expect(sectionSource({ principles: {} })).toEqual({
+            playbook: "global",
+            principles: "project",
+            route: "global",
+        });
         expect(sectionSource({ playbook: [] })).toEqual({ playbook: "project", principles: "global", route: "global" });
     });
 });
@@ -115,9 +120,9 @@ describe("isDirty", () => {
     });
     it("is true when the patch differs meaningfully", () => {
         expect(isDirty({}, { principles: { disabled: ["a"] } })).toBe(true);
-        expect(isDirty({ principles: { replacements: { a: "x" } } }, { principles: { replacements: { a: "y" } } })).toBe(
-            true
-        );
+        expect(
+            isDirty({ principles: { replacements: { a: "x" } } }, { principles: { replacements: { a: "y" } } })
+        ).toBe(true);
         expect(isDirty({ playbook: [] }, {})).toBe(true);
     });
 });
@@ -183,5 +188,57 @@ describe("resetActionState", () => {
 
     it("disables every row's reset for the whole save", () => {
         expect(resetActionState(false, true)).toEqual({ show: true, disabled: true });
+    });
+});
+
+// The playbook is the phase list a pipeline run is composed from. Phases carry no id, so every action is
+// addressed by position and the reducer has to survive an index that no longer exists.
+describe("reducePlaybook", () => {
+    const P: RunPhase[] = [
+        { kind: "brainstorm", state: "pending" },
+        { kind: "plan", state: "pending", gate: true },
+        { kind: "execute", state: "pending", freshctx: true },
+    ];
+
+    it("appends a pending custom phase, the one kind that needs no skill to mean something", () => {
+        const next = reducePlaybook(P, { type: "add" });
+        expect(next).toHaveLength(4);
+        expect(next[3]).toEqual({ kind: "custom", state: "pending" });
+    });
+
+    it("replaces one phase and leaves the rest identical", () => {
+        const next = reducePlaybook(P, { type: "update", index: 1, phase: { ...P[1], skill: "writing-plans" } });
+        expect(next[1].skill).toBe("writing-plans");
+        expect(next[0]).toBe(P[0]);
+        expect(next[2]).toBe(P[2]);
+    });
+
+    it("removes by position", () => {
+        expect(reducePlaybook(P, { type: "remove", index: 0 }).map((p) => p.kind)).toEqual(["plan", "execute"]);
+    });
+
+    it("swaps a phase with its neighbour", () => {
+        expect(reducePlaybook(P, { type: "move", index: 2, dir: -1 }).map((p) => p.kind)).toEqual([
+            "brainstorm",
+            "execute",
+            "plan",
+        ]);
+    });
+
+    it("never mutates the input", () => {
+        reducePlaybook(P, { type: "move", index: 0, dir: 1 });
+        expect(P.map((p) => p.kind)).toEqual(["brainstorm", "plan", "execute"]);
+    });
+
+    // a click that lands after the list has shrunk must not corrupt the draft
+    it("returns the list unchanged for a move off either end or past the end of the list", () => {
+        expect(reducePlaybook(P, { type: "move", index: 0, dir: -1 })).toBe(P);
+        expect(reducePlaybook(P, { type: "move", index: 2, dir: 1 })).toBe(P);
+        expect(reducePlaybook(P, { type: "move", index: 9, dir: -1 })).toBe(P);
+    });
+
+    it("is a no-op for an update or remove that names a phase which is gone", () => {
+        expect(reducePlaybook(P, { type: "update", index: 7, phase: P[0] })).toEqual(P);
+        expect(reducePlaybook(P, { type: "remove", index: 7 })).toEqual(P);
     });
 });

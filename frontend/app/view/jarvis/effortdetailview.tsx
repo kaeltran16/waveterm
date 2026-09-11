@@ -10,6 +10,7 @@ import { formatAge } from "@/app/view/agents/agentsviewmodel";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect, useState } from "react";
+import { briefingStateAtom } from "./briefingstore";
 import { Mark, REVEAL_ON_HOVER, StageHeader, StageTag } from "./effortcard";
 import { buildEffortCard, CHUNK_CHIP_CLASSES, chunkTrailView, groupChunksByStage, stageOptions } from "./effortmodel";
 import {
@@ -141,8 +142,11 @@ export function EffortDetailView({ model }: { model: AgentsViewModel }) {
     const subject = useAtomValue(activeSubjectAtom);
     const cache = useAtomValue(effortDetailAtom);
     const agents = useAtomValue(model.agentsAtom);
+    const briefing = useAtomValue(briefingStateAtom);
     const oref = subject?.kind === "effort" ? "effort:" + subject.id : null;
     const effort = oref != null ? (cache.get(oref) ?? null) : null;
+    // the freshest updatedts anything in the app knows for this effort; the cache compares against it
+    const freshTs = briefing.snapshot?.state.efforts?.find((e) => e.oref === oref)?.updatedts;
     const [error, setError] = useState<string | null>(null);
     const [addingChunk, setAddingChunk] = useState(false);
     const [noting, setNoting] = useState(false);
@@ -150,14 +154,15 @@ export function EffortDetailView({ model }: { model: AgentsViewModel }) {
     const [noteDraft, setNoteDraft] = useState("");
     const [mutateError, setMutateError] = useState<string | null>(null);
 
-    // the subject selection warms the cache; this effect covers direct mounts and retries.
+    // the subject selection warms the cache; this effect covers direct mounts, retries, and an effort
+    // ticked from outside the app — loadEffortDetail decides whether the cached copy still stands.
     useEffect(() => {
-        if (oref == null || effort != null) {
+        if (oref == null) {
             return;
         }
         let cancelled = false;
         setError(null);
-        loadEffortDetail(oref).catch((e) => {
+        loadEffortDetail(oref, freshTs).catch((e) => {
             if (!cancelled) {
                 setError(e instanceof Error ? e.message : String(e));
             }
@@ -165,7 +170,7 @@ export function EffortDetailView({ model }: { model: AgentsViewModel }) {
         return () => {
             cancelled = true;
         };
-    }, [oref, effort]);
+    }, [oref, freshTs]);
 
     const runMutation = async (fn: () => Promise<void>): Promise<void> => {
         setMutateError(null);
@@ -181,7 +186,7 @@ export function EffortDetailView({ model }: { model: AgentsViewModel }) {
             return;
         }
         setError(null);
-        void loadEffortDetail(oref).catch((e) => setError(e instanceof Error ? e.message : String(e)));
+        void loadEffortDetail(oref, freshTs).catch((e) => setError(e instanceof Error ? e.message : String(e)));
     };
 
     const card = effort != null ? buildEffortCard(effortSummaryOf(effort)) : null;
