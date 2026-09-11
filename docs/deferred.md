@@ -7,6 +7,28 @@ where it would plug in, and how to pick it back up. Append new entries at the to
 > append-only rationale log — append the full deferral here, then mirror a one-line row there. Entries
 > marked RESOLVED/DECLINED below are kept for the reasoning, not as pending work.
 
+## Diff surface — hiding whitespace-only files from the change list (2026-09-11)
+
+Deferred by finding F4 of the git-compare-viewer parity initiative
+(`docs/superpowers/plans/2026-09-04-git-compare-viewer-parity.md`).
+
+- **What the finding asked for, and why it was not built:** F4 prescribed threading `-w` through the
+  `CommitDiff` / `CompareDiff` RPCs. That prescription went stale during the initiative — after Task 8 the
+  production pane calls neither command: it reads two file texts through `GitFileAtRef` and lets Monaco
+  compute the diff. A temp-repo probe also showed the two git reads disagree under `-w`: `git diff
+  --numstat -w` drops a whitespace-only file entirely while `git diff --name-status -w` still lists it, so a
+  server-side flag would leave the change list and its own counts contradicting each other.
+- **What shipped instead** (`72777e4b`): the real post-Task-8 defect was Monaco's `ignoreTrimWhitespace`
+  defaulting to **true** — a whitespace-only change drew as no change at all while the header above it read
+  `+2 -2`. `frontend/app/view/agents/diffoptions.ts` makes the switch explicit and **off** by default, so the
+  pane and the list agree; Shift+W (`files:toggle-whitespace`) is the opt-in for reading through a reformat.
+- **What is still deferred:** filtering whitespace-only *files* out of the change list while whitespace is
+  ignored. It is not a flag on an existing command — it needs one read that decides both the list and the
+  counts, i.e. `gitinfo.Changes` returning a per-file "whitespace-only" bit derived from a single
+  `--numstat` / `--numstat -w` pair. Building it as a second read is what produces the contradiction above.
+- **Where to pick it up:** `git show 72777e4b:frontend/app/view/agents/diffoptions.ts` for the switch this
+  would hang off, and `pkg/gitinfo/gitinfo.go` `Changes` for the read that would have to carry the bit.
+
 ## Jarvis Brief — what retiring the three-pane composition left without a mount (2026-09-10)
 
 Deferred by B5 of the Jarvis Brief initiative (`docs/superpowers/specs/2026-09-09-jarvis-brief-meta-spec.md`),
@@ -992,6 +1014,8 @@ Deferred out of the S3 first cycle:
 ## Diff surface — narrow-window folding and row density (2026-08-03)
 
 - **Diff surface narrow-window folding and row density declined** (2026-08-03). The Git-review mockup folds the commit pane to a chip below ~1100px, drops the author column, folds the graph to three lanes and turns history into a drawer below 900px, and exposes comfortable 34px / compact 28px rows. Both declined in `docs/superpowers/specs/2026-08-03-git-review-history-reads-design.md` decision 2: the cockpit runs at roughly 1600×950, so every breakpoint would be an untested path, and `historypane.tsx` keeps its single `ROW_H = 34`. Revive only on evidence of a narrow-window user.
+
+**PARTLY RESOLVED 2026-09-11 (`17948094`)** — the evidence arrived: the app ships a 1000×700 window (`src-tauri/tauri.conf.json`), where a fixed 460px commit column plus the file list leaves the diff pane about 240px. The commit column now folds to a 44px rail below 1280px (`difflayout.ts`, `historyrail.tsx`), and the fold is manually overridable so a resize cannot undo the user's choice. The rest of the cascade stays declined: no author-column drop, no three-lane graph, no history drawer, and `ROW_H` is still a single 34.
 
 ## Jarvis pet — 2D creature (2026-08-04)
 

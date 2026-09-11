@@ -123,6 +123,7 @@ export function DiffPane({
             transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
             className="flex min-h-0 min-w-0 flex-1 flex-col"
             ref={hostRef}
+            data-diff-pane
         >
             {path ? (
                 <div className="flex flex-none items-center gap-[11px] border-b border-border px-[20px] py-[13px]">

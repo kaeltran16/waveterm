@@ -22,7 +22,7 @@ export function HistoryRail({
     onExpand: () => void;
 }) {
     return (
-        <div className="flex min-h-0 flex-1 flex-col">
+        <div data-history-rail className="flex min-h-0 flex-1 flex-col">
             <button
                 onClick={onExpand}
                 title="Expand history"
