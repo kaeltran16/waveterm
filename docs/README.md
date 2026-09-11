@@ -12,7 +12,7 @@ reference for build commands, architecture, and gotchas — start there.
 | `superpowers/briefs/` | Decision and scan briefs — backlogs, ranked improvement passes, direction calls. |
 | `agents/` | Integration notes for the external agent reporters and hooks that live under `~/.claude`, plus the ask-channel hook scripts themselves. |
 | `handoff/` | Dated verification records. Each one is a snapshot of a live CDP pass, kept for its reproductions rather than its conclusions. |
-| `reference/` | Protocol and format references cited from source comments. |
+| `reference/` | Protocol and format references cited from source comments, plus `architecture.md` — the full three-layer map extracted from `CLAUDE.md`. |
 | `images/` | Screenshots referenced by the docs above. |
 
 ## Standing documents
