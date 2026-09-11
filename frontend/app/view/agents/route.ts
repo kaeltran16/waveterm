@@ -150,6 +150,19 @@ export function filterPickerSections(sections: PickerSection[], query: string): 
         .filter((s) => s.rows.length > 0);
 }
 
+// Which harness the picker is showing. The catalog is lopsided — one harness can enumerate several
+// hundred models while another has three — so a single flat list buries every other harness that many
+// rows down a scroller. Scoping by harness is what keeps them reachable without a scroll marathon.
+export function scopePickerSections(sections: PickerSection[], runtime: string | null): PickerSection[] {
+    if (runtime == null) {
+        return sections;
+    }
+    const scoped = sections.filter((s) => s.runtime === runtime);
+    // a scope the query has already emptied is not worth honouring: it would report no matches for a
+    // model that does exist, just under a different harness
+    return scoped.length > 0 ? scoped : sections;
+}
+
 // displayed id on the picker face / graph route line
 export function modelFace(pin: RoutePin): string {
     return pin.model ?? pin.tier ?? "capable";

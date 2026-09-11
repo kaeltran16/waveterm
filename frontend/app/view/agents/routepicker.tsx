@@ -6,6 +6,7 @@ import { cn } from "@/util/util";
 import {
     autoUpdate,
     flip,
+    FloatingPortal,
     offset,
     shift,
     size as floatingSize,
@@ -17,10 +18,14 @@ import {
 } from "@floating-ui/react";
 import { useAtomValue } from "jotai";
 import { useEffect, useMemo, useRef, useState, type JSX, type KeyboardEvent } from "react";
-import { buildPickerSections, filterPickerSections, modelFace, pickerTitleFor } from "./route";
+import { buildPickerSections, filterPickerSections, modelFace, pickerTitleFor, scopePickerSections } from "./route";
+import type { PickerSection } from "./route";
 import { harnessesAtom, refreshHarnessCatalog } from "./harnessstore";
 
-const ROUTE_PICKER_MAX_HEIGHT = 360;
+// The panel is portalled to the body so this is measured against the viewport. Rendered in place it was
+// clipped to the gap between the trigger and the bottom of whatever scroll container held it — inside the
+// + Run modal that left a 37px window onto a 28,000px list.
+const ROUTE_PICKER_MAX_HEIGHT = 480;
 
 export function RoutePicker({
     value,
@@ -46,6 +51,7 @@ export function RoutePicker({
     const harnesses = useAtomValue(harnessesAtom);
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState("");
+    const [scope, setScope] = useState<string | null>(null);
     const [customId, setCustomId] = useState<{ runtime: string; draft: string } | null>(null);
     const triggerRef = useRef<HTMLButtonElement>(null);
     const searchRef = useRef<HTMLInputElement>(null);
@@ -59,7 +65,8 @@ export function RoutePicker({
     // claims "unavailable" — resolution happens server-side at dispatch.
     const harness = value == null ? undefined : harnesses.find((h) => h.runtime === value.runtime);
     const face = value == null ? inheritedLabel : `${harness?.label ?? value.runtime} · ${modelFace(value)}`;
-    const sections = useMemo(() => filterPickerSections(buildPickerSections(harnesses), query), [harnesses, query]);
+    const matched = useMemo(() => filterPickerSections(buildPickerSections(harnesses), query), [harnesses, query]);
+    const sections = useMemo(() => scopePickerSections(matched, scope), [matched, scope]);
     const rowKeys = useMemo(
         () => sections.flatMap((section) => section.rows.map((row) => `${row.runtime}:${row.model}`)),
         [sections]
@@ -68,9 +75,12 @@ export function RoutePicker({
         if (!open) {
             return;
         }
+        // start on the harness already in use: the chip strip then reads as "you are here, and there are
+        // others", where an unscoped list just looks like one harness is everything there is
+        setScope(value?.runtime ?? null);
         const frame = requestAnimationFrame(() => searchRef.current?.focus());
         return () => cancelAnimationFrame(frame);
-    }, [open]);
+    }, [open, value?.runtime]);
     const { refs, floatingStyles, context } = useFloating({
         open,
         onOpenChange(next, _event, reason) {
@@ -80,6 +90,7 @@ export function RoutePicker({
             }
         },
         placement,
+        strategy: "fixed",
         middleware: [
             offset(6),
             flip({ padding: 8 }),
@@ -140,7 +151,9 @@ export function RoutePicker({
                 <span className="min-w-0 truncate">{face}</span>
                 <span className={cn("flex-none font-mono text-[10px] text-muted", open && "rotate-180")}>▾</span>
             </button>
-            <div ref={refs.setFloating} style={floatingStyles} {...getFloatingProps()} className="z-20">
+            <FloatingPortal>
+                {/* above ModalShell's z-[70] backdrop: the launcher's pickers live inside a modal */}
+                <div ref={refs.setFloating} style={floatingStyles} {...getFloatingProps()} className="z-[80]">
                 <PopoverReveal
                     open={open}
                     origin="bottom left"
@@ -174,6 +187,7 @@ export function RoutePicker({
                             aria-label="Filter models"
                             className="mb-1 w-full rounded-[7px] border border-edge-mid bg-surface px-2 py-1 text-[11.5px] text-primary outline-none focus-visible:ring-2 focus-visible:ring-accent"
                         />
+                        <HarnessChips sections={matched} scope={scope} onScope={setScope} />
                         {canInherit ? (
                             <button
                                 type="button"
@@ -267,7 +281,37 @@ export function RoutePicker({
                         </div>
                     </div>
                 </PopoverReveal>
-            </div>
+                </div>
+            </FloatingPortal>
+        </div>
+    );
+}
+
+// One chip per harness that still has rows under the current query, so a harness with three models is one
+// click away instead of ~490 rows down the list. Hidden when there is nothing to choose between.
+function HarnessChips({ sections, scope, onScope }: { sections: PickerSection[]; scope: string | null; onScope: (runtime: string | null) => void }) {
+    if (sections.length < 2) {
+        return null;
+    }
+    const active = sections.some((s) => s.runtime === scope) ? scope : null;
+    const chips = [{ runtime: null as string | null, label: "All" }, ...sections.map((s) => ({ runtime: s.runtime, label: s.label }))];
+    return (
+        <div className="mb-1 flex flex-wrap gap-1 px-[1px]">
+            {chips.map((chip) => (
+                <button
+                    key={chip.runtime ?? "all"}
+                    type="button"
+                    aria-pressed={active === chip.runtime}
+                    data-testid={`route-harness-${chip.runtime ?? "all"}`}
+                    onClick={() => onScope(chip.runtime)}
+                    className={cn(
+                        "cursor-pointer rounded-full border px-2 py-[2px] text-[10px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                        active === chip.runtime ? "border-accent-700 bg-surface-raised text-accent" : "border-border text-muted hover:text-secondary"
+                    )}
+                >
+                    {chip.label}
+                </button>
+            ))}
         </div>
     );
 }

@@ -168,12 +168,25 @@ function RoutingSection({ showWorkerRoute }: { showWorkerRoute: boolean }) {
     );
 }
 
-// No Launch button of its own: the goal and its `Run ⏎` are in the composer immediately below, and a
-// second button here would have to reach across components to submit through that same face.
-export function RunLauncher({ projectName }: { projectName: string }) {
+// The controls themselves, without the intro. The + Run modal names the project and the action in its own
+// header, so it renders these directly rather than printing a second heading over the same three sections.
+export function RunLauncherSections() {
     const shape = useAtomValue(runShapeAtom);
     const orchestration = useAtomValue(orchestrationAtom);
     const face = runLauncherFace(shape, orchestration);
+    return (
+        <>
+            <ShapeCards />
+            {face.showMachine ? <MachineCards /> : null}
+            {face.showParallelism ? <ParallelismStepper /> : null}
+            <RoutingSection showWorkerRoute={face.showWorkerRoute} />
+        </>
+    );
+}
+
+// No Launch button of its own: the goal and its `Run ⏎` are in the composer immediately below, and a
+// second button here would have to reach across components to submit through that same face.
+export function RunLauncher({ projectName }: { projectName: string }) {
     return (
         <div className="min-h-0 flex-1 overflow-y-auto px-6 pt-6 pb-2">
             <div className="mx-auto flex w-full max-w-[720px] flex-col gap-5">
@@ -184,10 +197,7 @@ export function RunLauncher({ projectName }: { projectName: string }) {
                         the goal overrides the shape for that one launch.
                     </span>
                 </div>
-                <ShapeCards />
-                {face.showMachine ? <MachineCards /> : null}
-                {face.showParallelism ? <ParallelismStepper /> : null}
-                <RoutingSection showWorkerRoute={face.showWorkerRoute} />
+                <RunLauncherSections />
             </div>
         </div>
     );

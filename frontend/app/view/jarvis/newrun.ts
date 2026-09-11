@@ -7,8 +7,10 @@
 // That is why this is a decision and not a create call — a create call cannot be unit-tested, and getting
 // "does this project already have a channel" wrong is how you end up with the duplicates we are removing.
 
+import { fuzzyScore } from "@/app/cockpit/palette-match";
 import { resolveTargetChannel } from "@/app/view/agents/channelderive";
-import { profileRunDefaults } from "@/app/view/agents/runconfig";
+import type { RunShape } from "@/app/view/agents/composercommand";
+import type { Orchestration } from "@/app/view/agents/orchestratorpicker";
 
 export type ChannelTarget = { kind: "existing"; oid: string } | { kind: "create"; name: string; path: string };
 
@@ -31,6 +33,13 @@ export function resolveChannelTarget(
     return { kind: "create", name: projectName, path: projectPath };
 }
 
+export interface RunConfig {
+    shape: RunShape;
+    orchestration: Orchestration;
+    parallelism: number;
+    workerRoute: RoutePin | null;
+}
+
 export interface LaunchOpts {
     mode: string;
     orchestration?: string;
@@ -38,21 +47,50 @@ export interface LaunchOpts {
     workerRoute?: RoutePin;
 }
 
-// The launch a project's profile already describes, as CreateRun's arguments. The header modal offers no
-// run configuration — the sheet's launcher owns that — but it cannot simply omit the mode: the server reads
-// an unset mode as `quick` (resolveRunPlan), so a project whose profile says `pipeline` would silently get
-// a quick run. Sending the profile's own answer is what makes "it uses the project's settings" true.
-export function launchOptsFromProfile(profile: JarvisProfile | null | undefined): LaunchOpts {
-    const defaults = profileRunDefaults(profile);
-    const mode = defaults.shape ?? "quick";
-    if (mode !== "orchestrator") {
-        return { mode };
+// What the launcher's controls mean as CreateRun's arguments. The mode cannot simply be omitted: the
+// server reads an unset mode as `quick` (resolveRunPlan), so a project configured as `pipeline` would
+// silently get a quick run. The dials below the shape describe an engine orchestrator only — an adaptive
+// lead dispatches its own subagents, so a width and a worker route there would promise a fan-out that
+// never happens, which is the same reason runLauncherFace hides them.
+export function launchOptsFromConfig(config: RunConfig): LaunchOpts {
+    const { shape, orchestration, parallelism, workerRoute } = config;
+    if (shape !== "orchestrator") {
+        return { mode: shape };
     }
-    // the machine, the width and the worker route are read only on an orchestrator launch (runLauncherFace)
+    const engine = orchestration === "engine";
     return {
-        mode,
-        ...(defaults.orchestration != null ? { orchestration: defaults.orchestration } : {}),
-        ...(defaults.parallelism != null ? { parallelism: defaults.parallelism } : {}),
-        ...(defaults.workerRoute != null ? { workerRoute: defaults.workerRoute } : {}),
+        mode: shape,
+        orchestration,
+        ...(engine ? { parallelism } : {}),
+        ...(engine && workerRoute != null ? { workerRoute } : {}),
     };
+}
+
+// Which projects a typed query leaves, best first. Reuses the palette's scorer so one query language
+// covers both places a project is picked by name. An empty query is not a filter: the registry's own
+// order stands rather than being re-sorted into a ranking the user never asked for.
+export function rankProjects(names: string[], query: string): string[] {
+    const q = query.trim();
+    if (q === "") {
+        return names;
+    }
+    return names
+        .map((name, index) => ({ name, index, score: fuzzyScore(q, name) }))
+        .filter((row): row is { name: string; index: number; score: number } => row.score != null)
+        .sort((a, b) => b.score - a.score || a.index - b.index)
+        .map((row) => row.name);
+}
+
+// Arrow-key movement over the filtered rows. It wraps, because a list this short has no scrollbar to say
+// an end was reached and a selection that silently stops reads as broken. A `current` the filter has since
+// removed is not a position to step from, so the move restarts at the end the user is heading toward.
+export function stepPick(rows: string[], current: string | null, delta: number): string | null {
+    if (rows.length === 0) {
+        return null;
+    }
+    const at = current == null ? -1 : rows.indexOf(current);
+    if (at < 0) {
+        return delta > 0 ? rows[0] : rows[rows.length - 1];
+    }
+    return rows[(at + delta + rows.length) % rows.length];
 }
