@@ -40,6 +40,14 @@ orphaned. Status: Actionable (Spec A), Blocked on a brainstorm (Spec B). Specs:
 `docs/superpowers/plans/2026-09-04-git-compare-viewer-parity.md`, rationale in the `docs/deferred.md`
 2026-09-04 entry.
 
+**Tracked as an initiative since 2026-09-11:** `effort:5e862ff9-4082-492d-8e5d-d02dcae208e2` — the
+plan's 13 tasks plus five findings from a read of the shipped surface (history column never
+refreshes; the two diff readers are uncapped and the renderer unvirtualized; no in-diff hunk
+navigation; no ignore-whitespace toggle; `filessurface.tsx` holds five jobs). Each chunk carries its
+evidence; read `wsh effort show 5e862ff9` before picking any of them up. Note the plan's 0/68
+checkboxes understate it — Task 1 (`gitinfo.FileAtRef`) shipped out-of-band in `e632dd81` with the
+Code surface and is wired as `GitFileAtRefCommand`; start at Task 2.
+
 ### Lead-authored task routing — Phases 1–3
 
 The roadmap header still reads "draft, awaiting review" (2026-08-19), but the route chain has shipped:
