@@ -79,11 +79,22 @@ async function mutateEffort(oref: string, ops: EffortOp[]): Promise<void> {
     void loadBriefingAsync(); // summary leg refresh; failure degrades to the next load
 }
 
-// fetch-once cache fill shared by the card expand, the detail subject, and re-entry paths; a
-// successful mutate has already replaced the cache entry, so callers may skip this. Failures are
-// recorded in effortDetailErrorAtom and re-thrown so callers can decide (the expand helpers swallow).
-export async function loadEffortDetail(oref: string): Promise<void> {
-    if (globalStore.get(effortDetailAtom).has(oref)) {
+// The cache was fetch-once, and only a mutate made THROUGH this store replaced an entry. An effort
+// ticked out of band — `wsh effort` in a terminal, or an agent advancing its own chunk — therefore left
+// every rendered row frozen at whatever the app read first, while the header's count came off the
+// briefing that reloads on each Brief entry. A count disagreeing with the rows beneath it is exactly the
+// defect invariant 5 names. The briefing already carries each effort's updatedts, so the load that keeps
+// the count honest is also what proves the detail stale: pass it, and the cache can tell.
+export function effortDetailIsFresh(cached: Effort | undefined, freshTs?: number): boolean {
+    return cached != null && (freshTs == null || cached.updatedts >= freshTs);
+}
+
+// Cache fill shared by the card expand, the detail subject, and re-entry paths; a successful mutate has
+// already replaced the cache entry, so callers may skip this. Failures are recorded in
+// effortDetailErrorAtom and re-thrown so callers can decide (the expand helpers swallow). The stale entry
+// is left in place across a refetch on purpose — dropping it first would blank an open tracker's rows.
+export async function loadEffortDetail(oref: string, freshTs?: number): Promise<void> {
+    if (effortDetailIsFresh(globalStore.get(effortDetailAtom).get(oref), freshTs)) {
         return;
     }
     try {

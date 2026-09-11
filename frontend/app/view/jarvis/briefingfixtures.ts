@@ -187,7 +187,9 @@ const loaded = (state: WorkState): BriefingLoadState => ({
 });
 
 // one of each shape the queue can take: a gate with a run to land on, an escalation, and a
-// dag-blocked row carrying the error tone.
+// dag-blocked row carrying the error tone. The attribution, why-line and citations are written the way
+// pkg/jarvis/attention.go composes them for these shapes — a fixture whose why-line no server would
+// emit would verify a row the app cannot actually produce.
 const attentionItems: AttentionItem[] = [
     {
         kind: "gate",
@@ -200,6 +202,10 @@ const attentionItems: AttentionItem[] = [
         action: "Review",
         phaseidx: 1,
         waitingsince: NOW - DAY,
+        effortoid: "scenario-gate",
+        chunklabel: "Phase 3",
+        why: "The plan phase finished — 2 of 4 done. The execute phase starts only when you approve.",
+        cites: ["docs/superpowers/plans/ask-bridge.md", "pkg/agentask/encode.go"],
     },
     {
         kind: "escalation",
@@ -212,6 +218,9 @@ const attentionItems: AttentionItem[] = [
         action: "Decide",
         phaseidx: 0,
         waitingsince: NOW - 2 * 60 * 1000,
+        effortoid: "scenario-gate",
+        chunklabel: "Phase 3",
+        why: "Jarvis escalated this instead of answering it; frontend-e2e is paused until it is decided.",
     },
     {
         kind: "dag-blocked",
@@ -224,6 +233,7 @@ const attentionItems: AttentionItem[] = [
         action: "Review",
         phaseidx: 0,
         waitingsince: NOW - DAY,
+        why: "5 of 9 tasks done. The group stays stopped until you retry or skip.",
     },
 ];
 

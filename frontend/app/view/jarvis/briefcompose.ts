@@ -1,7 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The words on the Brief's one composer. resolveComposerTarget decides WHO a keystroke reaches; this only
+// The words on the Brief's one composer. briefcomposertarget.ts decides WHO a keystroke reaches; this only
 // says it out loud, for the Brief's three shapes — the launch view, an expanded thread, a work sheet. The
 // user must never be unsure whether a keystroke reaches a running worker or Jarvis, and on the Brief the
 // composer never moves, so these three strings are the only thing that changes when its meaning does.

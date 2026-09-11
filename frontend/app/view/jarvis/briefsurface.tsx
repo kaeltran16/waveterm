@@ -11,10 +11,10 @@
 // with whatever the projection's caps hid stated separately as "+N more" — so no line here can claim
 // more work than the surface is showing.
 //
-// The record peek is here (BriefPeek, opened by a record oref) and the palette extends the app's own. The
-// mockup's remaining row actions — Answer / Look in / open the sheet — still render as stated state rather
-// than controls that would navigate nowhere: the session and initiative sheets land with B4 and B5. The
-// composer and the thread it grows into are here.
+// The record peek is here (BriefPeek, opened by a record oref) and the palette extends the app's own. A
+// queue row's action word stays a label because the row itself already opens what the word names; a
+// session or record row opens its own sheet, an initiative row is the effort card and opens itself in
+// place, and a region's overflow opens in place too. The composer and the thread it grows into are here.
 //
 // One presentation rule runs through the whole file and decides every border below: a bordered chip is
 // the control recipe, a borderless one is a label. Dressing something inert as a control and camouflaging
@@ -28,26 +28,40 @@ import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { formatAge } from "@/app/view/agents/agentsviewmodel";
 import { ambientProviderAtom, ensureAmbient } from "@/app/view/agents/ambientstore";
 import { attentionAtom } from "@/app/view/agents/attentionstore";
+import { steerWorker } from "@/app/view/agents/channelactions";
 import { resolveTargetChannel } from "@/app/view/agents/channelderive";
-import { activeChannelRunsAtom, channelsAtom, loadChannels } from "@/app/view/agents/channelsstore";
-import { pendingRunDraftAtom, pendingRunFocusAtom } from "@/app/view/agents/runactions";
+import { activeChannelAtom, activeChannelRunsAtom, channelsAtom, loadChannels } from "@/app/view/agents/channelsstore";
+import {
+    getJarvisProfile,
+    pendingRunDraftAtom,
+    pendingRunFocusAtom,
+    refreshResolvedProfile,
+    setChannelProfile,
+} from "@/app/view/agents/runactions";
 import { DagModal } from "@/app/view/orchestrate/dagmodal";
 import { setDagModalAgentsContext } from "@/app/view/orchestrate/dagmodalstate";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtom, useAtomValue, useSetAtom } from "jotai";
 import { AnimatePresence } from "motion/react";
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { AutonomyLadder } from "./autonomyladderview";
 import { resolveComposerLabels, type BriefComposeState } from "./briefcompose";
+import { resolveBriefComposerTarget } from "./briefcomposertarget";
 import { drewOn, type DrewRow } from "./briefdrew";
 import { briefFleet } from "./brieffleet";
 import { BRIEFING_FIXTURES } from "./briefingfixtures";
 import {
+    ACTIVE_CAP,
     buildAttentionQueue,
+    capRegion,
+    DELTA_CAP,
+    EFFORT_CAP,
     groupDelta,
     mergeActiveWork,
     projectBriefing,
     queueOpenTarget,
     SEVEN_DAYS_MS,
+    SHIPPED_CAP,
     type ActiveWorkRow,
     type QueueRow,
 } from "./briefingmodel";
@@ -74,8 +88,11 @@ import { BriefPeek } from "./briefpeekview";
 import { BriefProfileModal } from "./briefprofileview";
 import { briefRestorePlan } from "./briefrestore";
 import { BriefSheet } from "./briefsheet";
+import { sheetFace } from "./briefsheetmodel";
 import { openJarvisWithSource } from "./contextualentry";
+import { EffortCard } from "./effortcard";
 import type { EffortCardModel } from "./effortmodel";
+import { effortDetailAtom, expandedEffortOrefAtom, toggleEffort } from "./effortstore";
 import { peekFocus, type PeekFocus } from "./graphfocus";
 import { GraphPeek } from "./graphpeek";
 import {
@@ -89,16 +106,19 @@ import {
 import {
     briefGraphRecordAtom,
     briefPeekRecordAtom,
+    briefSheetOpenAtom,
     conversationsByIdAtom,
     graphPeekOpenAtom,
     loadJarvisConversations,
     persistedSummariesAtom,
     selectConversation,
 } from "./jarvisstore";
-import { activeSubjectAtom, persistedSubjectAtom, setActiveRunId } from "./jarvissubjectstore";
+import { activeSubjectAtom, persistedSubjectAtom, setActiveRunId, stageRunAtom } from "./jarvissubjectstore";
 import { mentionedDossierIds } from "./mentions";
-import { NewChannelControl } from "./newchannelcontrol";
+import { NewRunControl } from "./newruncontrol";
+import { NewInitiativeControl } from "./newinitiativecontrol";
 import { openChannelSheet, openORef, openQueueTarget, openRunSheet, orefNavPlan } from "./openref";
+import { reducePrinciplePatch } from "./profilemodel";
 import { ageLabel, freshnessLabel } from "./recallderive";
 import { loadTaskList, taskListAtom } from "./tasksstore";
 
@@ -182,19 +202,29 @@ function Region({
     );
 }
 
-// the caps live in the projection; the surface states what they hid instead of growing past them.
-function MoreLine({ n }: { n: number }) {
-    if (n <= 0) {
+// What the region's window hid, and the way past it. There is no all-initiatives or all-events surface
+// to send this anywhere — the three-pane composition's rail was the old destination and B5 deleted it —
+// so the overflow opens in place. Bordered because it is a control: invariant 4 forbids the borderless
+// link-coloured span this used to be, which named a number and did nothing.
+function MoreControl({ n, expanded, onToggle }: { n: number; expanded: boolean; onToggle: () => void }) {
+    if (n <= 0 && !expanded) {
         return null;
     }
     return (
-        <span className="self-start px-2.5 py-1.5 font-mono text-[10.5px] font-medium text-accent-soft">+{n} more</span>
+        <button
+            type="button"
+            data-jarvis-brief-more={expanded ? "less" : "more"}
+            onClick={onToggle}
+            className="mt-0.5 cursor-pointer self-start rounded-[6px] border border-border px-2.5 py-1 font-mono text-[10.5px] font-medium text-accent-soft hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+            {expanded ? "Show less" : `+${n} more`}
+        </button>
     );
 }
 
 function QueueRowView({ row, focused, onOpen }: { row: QueueRow; focused: boolean; onOpen?: () => void }) {
     const err = row.tone === "error";
-    const hasMeta = row.detail !== "" || row.ts != null;
+    const hasMeta = row.attrib !== "" || row.detail !== "" || row.ts != null;
     const base =
         "grid grid-cols-[3px_minmax(0,1fr)] gap-[13px] rounded-[10px] border border-border bg-surface py-[13px] pl-3 pr-[15px]";
     const face = (
@@ -226,10 +256,42 @@ function QueueRowView({ row, focused, onOpen }: { row: QueueRow; focused: boolea
                 </div>
                 {hasMeta ? (
                     <div className="flex min-w-0 flex-wrap items-center gap-2 font-mono text-[10.5px] text-muted">
+                        {row.attrib !== "" ? (
+                            // the initiative the waiting thing belongs to. A label, not a link to the
+                            // effort sheet: the row is already a button, and nesting a second one inside
+                            // it is the affordance defect invariant 4 names.
+                            <span data-jarvis-brief-attrib className="min-w-0 truncate text-secondary">
+                                <span aria-hidden>✦ </span>
+                                {row.attrib}
+                            </span>
+                        ) : null}
                         {row.detail !== "" ? <span className="min-w-0 truncate">{row.detail}</span> : null}
                         {row.ts != null ? (
                             <span className="flex-none text-ink-faint">waiting {formatAge(Date.now() - row.ts)}</span>
                         ) : null}
+                    </div>
+                ) : null}
+                {row.why !== "" ? (
+                    // what the title cannot say: how much is already behind this, and what stays
+                    // stopped. Composed server-side from counts, never generated prose.
+                    <span data-jarvis-brief-why className="text-[13px]/[1.55] text-pretty text-secondary">
+                        {row.why}
+                    </span>
+                ) : null}
+                {row.cites.length > 0 ? (
+                    <div className="flex flex-wrap gap-[7px]">
+                        {row.cites.map((c, i) => (
+                            // borderless on purpose: invariant 4 reads a bordered chip as a control, and
+                            // a citation here is a label — the row is what you press.
+                            <span
+                                key={i + ":" + c}
+                                data-jarvis-brief-cite
+                                className="flex max-w-full items-center gap-[7px] truncate rounded-[6px] bg-surface-raised px-2.5 py-[5px] font-mono text-[10px] font-medium text-muted"
+                            >
+                                <span className="flex-none font-bold text-accent-soft">[{i + 1}]</span>
+                                <span className="min-w-0 truncate">{c}</span>
+                            </span>
+                        ))}
                     </div>
                 ) : null}
             </div>
@@ -262,45 +324,33 @@ function QueueRowView({ row, focused, onOpen }: { row: QueueRow; focused: boolea
     );
 }
 
-// A blocked chunk stalls the whole initiative, so it outranks the wire status as the word to print.
-// Never the bar alone: the mark and the state word carry what the color says.
-function initiativeState(e: EffortCardModel): { word: string; fg: string; bar: string } {
-    if (e.blockedChunks.length > 0) {
-        return { word: "stalled", fg: "text-asking", bar: "bg-asking" };
-    }
-    if (e.status === "active") {
-        return { word: "active", fg: "text-accent-soft", bar: "bg-accent" };
-    }
-    return { word: e.status, fg: "text-muted", bar: "bg-edge-strong" };
-}
-
-function InitiativeRow({ effort, focused }: { effort: EffortCardModel; focused: boolean }) {
-    const state = initiativeState(effort);
+// An initiative row is the effort card itself, collapsed to its header and status lines and expanding
+// in place for the chunk tracker. The Brief's sketch drew these compact, but a compact row can only be
+// opened, and the card's own writes (mark done, reopen, + chunk, note, stage) are most of what putting
+// initiatives on a queue surface is for; the sheet stays one click away behind "full record".
+//
+// The card is a div with buttons inside it, so the region's row hook and the cursor ring sit on a
+// wrapper rather than on the card.
+function InitiativeRow({
+    effort,
+    focused,
+    expanded,
+    onToggle,
+    onOpen,
+}: {
+    effort: EffortCardModel;
+    focused: boolean;
+    expanded: boolean;
+    onToggle: () => void;
+    onOpen: () => void;
+}) {
     return (
         <div
             data-jarvis-brief-row="initiative"
             {...cursorAttrs(focused)}
-            className={cn(
-                "flex items-center gap-[11px] rounded-[10px] border border-border bg-surface px-3 py-[11px]",
-                focused && CURSOR_RING
-            )}
+            className={cn("rounded-[10px]", focused && CURSOR_RING)}
         >
-            <span aria-hidden className={cn("flex-none font-mono text-[11px] font-bold", state.fg)}>
-                ✦
-            </span>
-            <span className="min-w-0 flex-1 truncate text-[13.5px] font-semibold text-ink-hi">{effort.title}</span>
-            <span className="max-w-[240px] flex-none truncate font-mono text-[10px] text-muted">
-                {effort.countLine}
-            </span>
-            <span className="h-[3px] w-[76px] flex-none overflow-hidden rounded-full bg-surface-raised">
-                <span
-                    className={cn("block h-full rounded-full", state.bar)}
-                    style={{ width: `${effort.progressPct}%` }}
-                />
-            </span>
-            <span className={cn("min-w-[118px] flex-none text-right font-mono text-[9.5px] font-semibold", state.fg)}>
-                {state.word}
-            </span>
+            <EffortCard model={effort} expanded={expanded} onToggle={onToggle} onOpenDetail={onOpen} />
         </div>
     );
 }
@@ -413,6 +463,11 @@ function PastRow({
 // module scope, not useState: a j/k cursor that reset on every glance at another surface would be worse
 // than none. Composer state lives in briefingstore so contextual entry can seed it before this mounts.
 const briefCursorAtom = atom<string | undefined>(undefined);
+
+// Which regions the user has opened past their window. Module scope for the same reason as the cursor:
+// the Brief unmounts on every surface switch, and a region that silently re-collapsed while you were
+// reading a record would be worse than one that never opened.
+const briefExpandedAtom = atom<Partial<Record<RegionId, boolean>>>({});
 
 const COMPOSER_CHIP = "flex-none font-mono text-[9.5px] font-semibold";
 const TURN_WHO = "flex-none font-mono text-[9px] font-bold uppercase tracking-[.11em]";
@@ -576,6 +631,16 @@ function BriefComposer({ model }: { model: AgentsViewModel }) {
     const scope = useAtomValue(briefScopeAtom);
     const askState = useAtomValue(briefingAskStateAtom);
     const answer = useAtomValue(briefingAnswerAtom);
+    // Who a keystroke reaches. The composer never moves, so the only thing that can change its meaning is
+    // what the detail sheet is drawing — hence it reads the sheet's inputs rather than owning state.
+    const agents = useAtomValue(model.agentsAtom);
+    const subject = useAtomValue(activeSubjectAtom);
+    const sheetRun = useAtomValue(stageRunAtom);
+    const sheetOpen = useAtomValue(briefSheetOpenAtom);
+    const channel = useAtomValue(activeChannelAtom);
+    const effortCache = useAtomValue(effortDetailAtom);
+    // a send that left Jarvis has no thread to land in, so its outcome is said here or nowhere
+    const [status, setStatus] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
 
     const last = thread[thread.length - 1];
     const awaitingReply = last != null && last.turn.role === "user";
@@ -595,12 +660,26 @@ function BriefComposer({ model }: { model: AgentsViewModel }) {
     const asked = thread.filter((e) => e.turn.role === "user").length;
     const title = thread.length > 0 ? turnProse(thread[0].turn) : (scope.attached[0]?.title ?? "");
     const sourceChip = scope.chips.find((chip) => chip.active)?.label;
-    // `sheet` is briefcompose's third shape and belongs to the record/session peek sub-project; no state
-    // on this surface can produce it, so the Brief resolves launch or thread and nothing else.
+    const face = sheetFace(subject, sheetRun);
+    const target = resolveBriefComposerTarget({
+        sheetOpen,
+        face,
+        run: sheetRun,
+        agents,
+        channelName: channel?.name,
+        effortTitle: face.kind === "effort" ? effortCache.get(`effort:${face.effortId}`)?.title : undefined,
+    });
+    // `sheet` is briefcompose's third shape: an open drawer is a narrower context than the thread behind
+    // it, so it wins. The target decides, not the sheet's openness — a drawer with nothing to talk to
+    // resolves to the Brief, and then these labels must not claim otherwise.
     const state: BriefComposeState =
-        thread.length === 0 && sourceChip == null
-            ? { peek: "launch" }
-            : { peek: "thread", title, turnCount: thread.length, sourceChip };
+        target.audience === "worker"
+            ? { peek: "sheet", kind: "session", name: target.sessionName, project: channel?.name ?? "" }
+            : target.audience === "initiative"
+              ? { peek: "sheet", kind: "initiative", name: target.name }
+              : thread.length === 0 && sourceChip == null
+                ? { peek: "launch" }
+                : { peek: "thread", title, turnCount: thread.length, sourceChip };
     const labels = resolveComposerLabels(state);
     const conversation: JarvisConversation = {
         id: "brief-ask",
@@ -612,8 +691,17 @@ function BriefComposer({ model }: { model: AgentsViewModel }) {
     // held only while this thread's own question is still out — a second one would supersede the first ask
     // and leave the turn it belonged to unanswered. A pending ask from anywhere else is not this composer's
     // to hold, and a failed one must stay retryable, so neither disables it.
-    const inFlight = awaitingReply && askState === "pending";
+    // a directive goes straight into a terminal, so it is never "in flight" the way an ask is
+    const inFlight = target.audience !== "worker" && awaitingReply && askState === "pending";
     const canSend = draft.trim() !== "" && !inFlight;
+
+    const askJarvis = (text: string, scopedTo: string[]) => {
+        setThread((t) => [
+            ...t,
+            { key: `q${t.length}:${Date.now()}`, ts: Date.now(), turn: userTurn(text, scope.attached) },
+        ]);
+        askAcrossWork(text, [...scopedTo, ...scope.attached.map((ref) => ref.oref)]);
+    };
 
     const submit = () => {
         if (!canSend) {
@@ -621,18 +709,64 @@ function BriefComposer({ model }: { model: AgentsViewModel }) {
         }
         const text = draft.trim();
         setDraft("");
-        setThread((t) => [
-            ...t,
-            { key: `q${t.length}:${Date.now()}`, ts: Date.now(), turn: userTurn(text, scope.attached) },
-        ]);
-        askAcrossWork(
-            text,
-            scope.attached.map((ref) => ref.oref)
-        );
+        setStatus(null);
+        if (target.audience === "worker") {
+            fireAndForget(async () => {
+                const sent = await steerWorker({
+                    channelId: target.channelId,
+                    workerORef: target.workerORef,
+                    agents,
+                    text,
+                });
+                if (!sent) {
+                    // the roster moved between render and send: give the words back rather than eat them
+                    setDraft(text);
+                    setStatus({ tone: "error", text: `${target.workerName} is no longer live — nothing was sent.` });
+                }
+            });
+            return;
+        }
+        askJarvis(text, target.audience === "initiative" ? [target.effortORef] : []);
+    };
+
+    // ⇧⏎: the standing rule the composer offers on a session sheet. It is a principle on the channel's
+    // profile — the same list the profile modal edits — so the rule outlives the session that prompted it.
+    const addStandingRule = () => {
+        const text = draft.trim();
+        if (target.audience !== "worker" || text === "") {
+            return;
+        }
+        const { channelId, sessionName } = target;
+        setDraft("");
+        setStatus(null);
+        fireAndForget(async () => {
+            try {
+                const profile = await getJarvisProfile(channelId);
+                const override = profile.override ?? {};
+                const principles = reducePrinciplePatch(override.principles, {
+                    type: "add",
+                    principle: { id: `project-${crypto.randomUUID()}`, text },
+                });
+                await setChannelProfile(channelId, { ...override, principles });
+                // the resolved cache is what future runs read; a stale one would describe a rule that is
+                // saved but not yet in force.
+                await refreshResolvedProfile(channelId);
+                setStatus({ tone: "ok", text: `Standing rule saved for ${sessionName}. It applies to future runs.` });
+            } catch (e) {
+                setDraft(text);
+                setStatus({ tone: "error", text: String(e) });
+            }
+        });
     };
 
     // local to the input, never a window listener: the Brief adds no global chord of its own.
     const onKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        // gated on the label, not on the target, so the offer and the behaviour cannot disagree
+        if (e.key === "Enter" && e.shiftKey && labels.alt != null) {
+            e.preventDefault();
+            addStandingRule();
+            return;
+        }
         if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
             submit();
@@ -686,9 +820,12 @@ function BriefComposer({ model }: { model: AgentsViewModel }) {
                     {answered ? <DrewBand conversation={conversation} model={model} /> : null}
                 </div>
             ) : null}
+            {/* z-30 clears the detail sheet's backdrop. The sheet dims and covers the ground on purpose,
+                but the composer is not ground: its whole contract is that it stays reachable and retargets
+                to whatever the sheet opened on, which a backdrop over it would make impossible. */}
             <footer
                 data-jarvis-brief-band="composer"
-                className="flex-none border-t border-edge-faint bg-surface px-[22px] pb-4 pt-2.5"
+                className="relative z-30 flex-none border-t border-edge-faint bg-surface px-[22px] pb-4 pt-2.5"
             >
                 <div className="flex flex-col gap-2.5 rounded-[9px] border border-border bg-surface-raised px-[15px] py-3 focus-within:border-edge-strong">
                     <input
@@ -720,6 +857,15 @@ function BriefComposer({ model }: { model: AgentsViewModel }) {
                             {labels.action}
                         </button>
                     </div>
+                    {status != null ? (
+                        <span
+                            data-jarvis-brief-composer="status"
+                            aria-live="polite"
+                            className={cn("text-[11.5px]", status.tone === "ok" ? "text-success" : "text-error")}
+                        >
+                            {status.text}
+                        </span>
+                    ) : null}
                 </div>
             </footer>
         </>
@@ -892,20 +1038,45 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         () => (model_ != null ? buildAttentionQueue({ attention, efforts: model_.efforts }) : []),
         [model_, attention]
     );
+    // the full projection, not the window: a blocked chunk on the seventh initiative is still waiting on
+    // you, so the queue reads every effort even when the Initiatives region is only showing six.
     const efforts = useMemo(() => model_?.efforts ?? [], [model_]);
-    const sessions = useMemo(
-        () =>
-            model_ != null
-                ? mergeActiveWork({
-                      activeRuns: model_.activeRuns,
-                      blockers: model_.blockers,
-                      directAgents: model_.directAgents,
-                  })
-                : [],
-        [model_]
+
+    // Each region opens at its cap and the region's own control opens the rest in place. The caps stay
+    // display-side so the overflow count is what was actually hidden from the rows above it.
+    const [expanded, setExpanded] = useAtom(briefExpandedAtom);
+    const toggleRegion = useCallback(
+        (id: RegionId) => setExpanded((prev) => ({ ...prev, [id]: prev[id] !== true })),
+        [setExpanded]
     );
-    const deltaGroups = useMemo(() => (model_ != null ? groupDelta(model_.delta, Date.now()) : []), [model_]);
-    const shipped = useMemo(() => model_?.shipped ?? [], [model_]);
+    // which card is open in the Initiatives region; module-level so it survives the surface unmounting
+    const expandedEffort = useAtomValue(expandedEffortOrefAtom);
+    const initiativesOpen = expanded.initiatives === true;
+    const sessionsOpen = expanded.sessions === true;
+    const behindOpen = expanded.behind === true;
+
+    const effortWindow = useMemo(() => capRegion(efforts, EFFORT_CAP, initiativesOpen), [efforts, initiativesOpen]);
+    // the three legs cap independently — the merge is a triage order, not a page — so the region's
+    // overflow is what all three hid between them.
+    const sessions = useMemo(() => {
+        if (model_ == null) {
+            return { rows: [] as ActiveWorkRow[], more: 0 };
+        }
+        const runs = capRegion(model_.activeRuns, ACTIVE_CAP, sessionsOpen);
+        const blockers = capRegion(model_.blockers, ACTIVE_CAP, sessionsOpen);
+        const direct = capRegion(model_.directAgents, ACTIVE_CAP, sessionsOpen);
+        return {
+            rows: mergeActiveWork({
+                activeRuns: runs.rows,
+                blockers: blockers.rows,
+                directAgents: direct.rows,
+            }),
+            more: runs.more + blockers.more + direct.more,
+        };
+    }, [model_, sessionsOpen]);
+    const deltaWindow = useMemo(() => capRegion(model_?.delta ?? [], DELTA_CAP, behindOpen), [model_, behindOpen]);
+    const deltaGroups = useMemo(() => groupDelta(deltaWindow.rows, Date.now()), [deltaWindow]);
+    const shipped = useMemo(() => capRegion(model_?.shipped ?? [], SHIPPED_CAP, behindOpen), [model_, behindOpen]);
 
     // j/k across every region in render order. subjectscolumn.tsx publishes the same controller for this
     // surface in the three-pane composition, but the two compositions never mount together so there is no
@@ -913,8 +1084,15 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     // claiming Enter would swallow it for the composer below — bindings.ts only lets Enter through while
     // the controller leaves it unset.
     const navIds = useMemo(
-        () => briefNavIds({ queue, efforts, sessions, deltaGroups, shipped }),
-        [queue, efforts, sessions, deltaGroups, shipped]
+        () =>
+            briefNavIds({
+                queue,
+                efforts: effortWindow.rows,
+                sessions: sessions.rows,
+                deltaGroups,
+                shipped: shipped.rows,
+            }),
+        [queue, effortWindow, sessions, deltaGroups, shipped]
     );
     const [storedCursor, setCursor] = useAtom(briefCursorAtom);
     const cursor = resolveBriefCursor(navIds, storedCursor);
@@ -977,8 +1155,10 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     };
     const projectCount = snapshot?.state.projects?.length ?? 0;
     const stalled = efforts.filter((e) => e.blockedChunks.length > 0).length;
-    const pastRows = deltaGroups.reduce((n, g) => n + g.rows.length, 0) + shipped.length;
-    const pastMore = (model_?.deltaMore ?? 0) + (model_?.shippedMore ?? 0);
+    // the true total, not the window's: a region meta that shrank back when you collapsed it would be
+    // describing the control rather than the work.
+    const pastRows = (model_?.delta.length ?? 0) + (model_?.shipped.length ?? 0);
+    const pastMore = deltaWindow.more + shipped.more;
     const firstLoad = snapshot == null && loading;
     const loadFailed = snapshot == null && error != null;
     const staleSnapshot = snapshot != null && error != null;
@@ -1019,16 +1199,23 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                 <span data-jarvis-brief-band="fleet" className="flex-none font-mono text-[10px] text-muted">
                     {fleet.line}
                 </span>
+                {/* the remote-approval policy, and the one header item that is a summary rather than a
+                    reading: the tier is per-channel in the backend, so the chip states what every project
+                    agrees on and the popover it opens edits them one at a time. */}
+                <AutonomyLadder channels={channels} />
                 {/* A real control with the control recipe's border: invariant 4 forbids camouflaging it among
                     the status chips above, which are borderless labels. */}
                 <button
                     type="button"
+                    data-jarvis-brief-profile
+                    aria-expanded={profileOpen}
                     onClick={() => setProfileOpen(true)}
                     className="flex-none cursor-pointer rounded-[6px] border border-border px-2.5 py-[3px] font-mono text-[9.5px] font-bold uppercase tracking-[.06em] text-secondary hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 >
                     Profile
                 </button>
-                <NewChannelControl model={model} />
+                <NewInitiativeControl />
+                <NewRunControl model={model} />
             </header>
             {staleSnapshot ? (
                 <div
@@ -1102,19 +1289,26 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                             meta={stalled > 0 ? `${stalled} stalled` : "all moving"}
                         >
                             <div className="flex flex-col gap-2.5">
-                                {efforts.map((e) => (
+                                {effortWindow.rows.map((e) => (
                                     <InitiativeRow
                                         key={e.oref}
                                         effort={e}
                                         focused={cursor === `initiatives:${e.oref}`}
+                                        expanded={expandedEffort === e.oref}
+                                        onToggle={() => fireAndForget(() => toggleEffort(e.oref))}
+                                        onOpen={() => fireAndForget(() => openORef(model, e.oref))}
                                     />
                                 ))}
-                                <MoreLine n={model_.effortMore} />
+                                <MoreControl
+                                    n={effortWindow.more}
+                                    expanded={initiativesOpen}
+                                    onToggle={() => toggleRegion("initiatives")}
+                                />
                             </div>
                         </Region>
-                        <Region id="sessions" empty={sessions.length === 0} gap="gap-1" meta="run on their own">
+                        <Region id="sessions" empty={sessions.rows.length === 0} gap="gap-1" meta="run on their own">
                             <div className="flex flex-col gap-1">
-                                {sessions.map((r) => (
+                                {sessions.rows.map((r) => (
                                     <SessionRow
                                         key={r.key}
                                         row={r}
@@ -1126,7 +1320,11 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                         }
                                     />
                                 ))}
-                                <MoreLine n={model_.activeMore} />
+                                <MoreControl
+                                    n={sessions.more}
+                                    expanded={sessionsOpen}
+                                    onToggle={() => toggleRegion("sessions")}
+                                />
                             </div>
                         </Region>
                         <Region
@@ -1152,10 +1350,10 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                         ))}
                                     </Fragment>
                                 ))}
-                                {shipped.length > 0 ? (
+                                {shipped.rows.length > 0 ? (
                                     <>
                                         <span className={SUB_LABEL}>Shipped · 7 days</span>
-                                        {shipped.map((s) => (
+                                        {shipped.rows.map((s) => (
                                             <PastRow
                                                 key={s.oref}
                                                 hook="shipped"
@@ -1175,7 +1373,11 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                         ))}
                                     </>
                                 ) : null}
-                                <MoreLine n={pastMore} />
+                                <MoreControl
+                                    n={pastMore}
+                                    expanded={behindOpen}
+                                    onToggle={() => toggleRegion("behind")}
+                                />
                             </div>
                         </Region>
                     </>

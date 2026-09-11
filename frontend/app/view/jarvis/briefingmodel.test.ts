@@ -5,19 +5,24 @@ import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { describe, expect, it } from "vitest";
 import { EFFORT_FIXTURES } from "./briefingfixtures";
 import {
+    ACTIVE_CAP,
     buildAttentionQueue,
-    effortListLabel,
+    capRegion,
+    DELTA_CAP,
+    EFFORT_CAP,
     groupDelta,
     mergeActiveWork,
     normalizeBriefingNav,
     projectBriefing,
     queueOpenTarget,
+    SHIPPED_CAP,
     type AgentRow,
     type BlockerRow,
     type BriefingModelInput,
     type DeltaRow,
     type RunRow,
 } from "./briefingmodel";
+import type { EffortCardModel } from "./effortmodel";
 
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
@@ -247,13 +252,12 @@ describe("briefing projection", () => {
         expect(normalizeBriefingNav("")).toBeNull();
     });
 
-    it("projects efforts, non-archived only, capped at 6 with overflow", () => {
+    it("projects efforts, non-archived only, and leaves the display window to the view", () => {
         const state = workState([{ project: "waveterm", active: [], shipped: [], events: [], delta: [] }]);
         state.efforts = EFFORT_FIXTURES;
         const m = projectBriefing(input(state));
         expect(m.efforts.map((e) => e.title)).toEqual(["Scenario gate clearance", "Reflux state-layer migration"]);
-        expect(m.effortMore).toBe(0);
-        // cap: 8 efforts -> 6 cards + 2 overflow (archived never counts)
+        // 8 efforts in, 7 projected (archived never counts), and the cap is what the region opens at
         const many = [
             ...EFFORT_FIXTURES,
             ...Array.from({ length: 6 }, (_, i) => ({
@@ -267,9 +271,10 @@ describe("briefing projection", () => {
             })),
         ] as WorkState["efforts"];
         const m2 = projectBriefing(input({ ...state, efforts: many }));
-        expect(m2.efforts).toHaveLength(6);
-        expect(m2.effortMore).toBe(1);
+        expect(m2.efforts).toHaveLength(7);
         expect(m2.efforts.some((e) => e.title === "effort 0")).toBe(false); // archived excluded
+        expect(capRegion(m2.efforts, EFFORT_CAP, false)).toMatchObject({ more: 1 });
+        expect(capRegion(m2.efforts, EFFORT_CAP, true).rows).toHaveLength(7);
     });
 
     it("folds blocked chunks into the queue", () => {
@@ -283,7 +288,7 @@ describe("briefing projection", () => {
         expect(row?.nav).toEqual({ kind: "effort", oref: "effort:scenario-gate" });
     });
 
-    it("caps delta rows at 10 and counts the overflow", () => {
+    it("projects every delta row the window holds, and the cap hides two of them", () => {
         const events = Array.from({ length: 12 }, (_, i) => ({
             ts: T0 - i * HOUR,
             kind: "run-created",
@@ -291,12 +296,12 @@ describe("briefing projection", () => {
         })) as TimelineEvent[];
         const state = workState([{ project: "waveterm", active: [], shipped: [], events, delta: events }]);
         const m = projectBriefing(input(state));
-        expect(m.delta).toHaveLength(10);
-        expect(m.deltaMore).toBe(2);
+        expect(m.delta).toHaveLength(12);
         expect(m.counts.delta).toBe(12); // the pill keeps the true count
+        expect(capRegion(m.delta, DELTA_CAP, false)).toMatchObject({ more: 2 });
     });
 
-    it("caps active legs and shipped rows with overflow counts", () => {
+    it("projects every active leg and shipped row, each capped on its own", () => {
         const active = Array.from({ length: 10 }, (_, i) =>
             runItem({ title: `run ${i}`, ts: T0 - i * HOUR, navtarget: `run:r-${i}` })
         );
@@ -309,12 +314,12 @@ describe("briefing projection", () => {
         }));
         const state = workState([{ project: "waveterm", active, shipped, events: [], delta: [] }]);
         const m = projectBriefing(input(state));
-        expect(m.activeRuns).toHaveLength(8);
-        expect(m.activeMore).toBe(2);
-        expect(m.shipped).toHaveLength(8);
-        expect(m.shippedMore).toBe(2);
+        expect(m.activeRuns).toHaveLength(10);
+        expect(m.shipped).toHaveLength(10);
         expect(m.counts.runs).toBe(10);
         expect(m.counts.shipped).toBe(10);
+        expect(capRegion(m.activeRuns, ACTIVE_CAP, false)).toMatchObject({ more: 2 });
+        expect(capRegion(m.shipped, SHIPPED_CAP, false)).toMatchObject({ more: 2 });
     });
 });
 
@@ -584,6 +589,47 @@ describe("buildAttentionQueue", () => {
         expect(q[0]!.nav).toEqual({ kind: "channel", channelId: "ch-1", runId: "r1" });
     });
 
+    // F8: the row carries the initiative, the derived why-line and the citations. The title is joined
+    // here from the efforts the Brief already holds, so an initiative's name has one source.
+    it("joins the initiative title from the efforts it already has and appends the chunk", () => {
+        const q = buildAttentionQueue({
+            attention: [item({ effortoid: "e-7", chunklabel: "rebase and squash" })],
+            efforts: [{ oref: "effort:e-7", title: "Attention reliability", blockedChunks: [] } as EffortCardModel],
+        });
+        expect(q[0]!.attrib).toBe("Attention reliability · rebase and squash");
+    });
+
+    it("keeps the chunk when the effort is not one the Brief is holding", () => {
+        const q = buildAttentionQueue({
+            attention: [item({ effortoid: "gone", chunklabel: "backfill" })],
+            efforts: [],
+        });
+        expect(q[0]!.attrib).toBe("backfill");
+    });
+
+    it("names no initiative for a run that is not attributed to one", () => {
+        const q = buildAttentionQueue({ attention: [item({})], efforts: [] });
+        expect(q[0]!.attrib).toBe("");
+        expect(q[0]!.why).toBe("");
+        expect(q[0]!.cites).toEqual([]);
+    });
+
+    it("passes the server's why-line and citations through unchanged", () => {
+        const q = buildAttentionQueue({
+            attention: [
+                item({
+                    why: "The plan phase finished — 1 of 2 done. The execute phase starts only when you approve.",
+                    cites: ["docs/plans/auth.md", "pkg/auth/plan.go"],
+                }),
+            ],
+            efforts: [],
+        });
+        expect(q[0]!.why).toBe(
+            "The plan phase finished — 1 of 2 done. The execute phase starts only when you approve."
+        );
+        expect(q[0]!.cites).toEqual(["docs/plans/auth.md", "pkg/auth/plan.go"]);
+    });
+
     it("still falls through to the raw wire kind for a kind it has never seen", () => {
         const q = buildAttentionQueue({ attention: [item({ kind: "some-future-kind", key: "f1" })], efforts: [] });
         expect(q[0]!.kind).toBe("some-future-kind");
@@ -603,14 +649,20 @@ describe("buildAttentionQueue", () => {
     });
 });
 
-describe("effortListLabel", () => {
-    it("names the overflow when the briefing caps the list", () => {
-        expect(effortListLabel(3)).toBe("+3 more");
+describe("capRegion", () => {
+    const rows = Array.from({ length: 5 }, (_, i) => ({ id: i }));
+
+    it("shows the window and reports what it hid", () => {
+        expect(capRegion(rows, 3, false)).toEqual({ rows: rows.slice(0, 3), more: 2 });
     });
 
-    it("still offers a route to the full list when nothing overflows", () => {
-        // the archived group lives only on that list, so the link cannot be conditional on overflow
-        expect(effortListLabel(0)).toBe("All initiatives");
+    it("shows everything and hides nothing once the region is expanded", () => {
+        expect(capRegion(rows, 3, true)).toEqual({ rows, more: 0 });
+    });
+
+    // the count has to come off the slice, not off the cap: a region shorter than its window hid nothing
+    it("reports no overflow for a region that never reached its cap", () => {
+        expect(capRegion(rows, 9, false)).toEqual({ rows, more: 0 });
     });
 });
 
