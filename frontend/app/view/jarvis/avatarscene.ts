@@ -7,7 +7,7 @@
 // petview.tsx as JSX attributes, so the only way to check the form was to screenshot the running app. Here
 // the form is a function, so the form is testable.
 //
-// Two renderers consume this — avatargl.ts and avatarcanvas.ts — which is also how a lost WebGL context
+// Two renderers consume this — avatarthree.ts and avatarcanvas.ts — which is also how a lost WebGL context
 // survives: the fallback draws the same scene rather than a second, drifting copy of the geometry.
 //
 // Colours leave here as --color-* NAMES, never resolved values. Resolution needs getComputedStyle, which
@@ -44,6 +44,10 @@ export interface AvatarScene {
     points: ScenePoint[];
     /** a --color-* custom property name; the renderer resolves it and lightens it for the "hot" tone */
     toneVar: string;
+    /** the --color-* name being crossfaded away from, or null when the tone is settled */
+    toneFromVar: string | null;
+    /** 0..1 progress of that crossfade; 1 (and meaningless) when toneFromVar is null */
+    toneMix: number;
     /** a --color-* name for the posture marker, or null when nothing is waiting */
     markerVar: string | null;
     centreX: number;
@@ -68,6 +72,11 @@ export interface AvatarMood {
 
 export interface SceneInput {
     expression: PetExpression;
+    /**
+     * The eased mood, when a register change is in flight. Omitted, the expression's settled mood is used
+     * — which is what a caller that does not animate (a test, a one-off render) wants.
+     */
+    mood?: RenderMood;
     posture: PetPosture;
     /** square viewport for the avatar, css px */
     size: number;
@@ -81,6 +90,16 @@ export interface SceneInput {
     utterance: number;
     /** true when the avatar has nothing to express: smaller and dimmer, at the periphery */
     quiet: boolean;
+    /**
+     * A wave crossing the network, as progress 0..1 from the centre outward, or null for no ripple.
+     *
+     * Progress rather than an intensity envelope, because the front has to travel: an envelope that rose
+     * and fell would send the wave out and then pull it back in, which reads as a pulse rather than as
+     * news arriving. The brightness bell over that progress is computed here.
+     */
+    ripple: number | null;
+    /** 0..1 impact, displacing the whole assembly. An arrival that has to be felt, not read. */
+    jolt: number;
     rings: number;
     ringTicks: number;
     nodes: number;
@@ -92,9 +111,19 @@ export interface SceneInput {
 // Severity reads in the tone before the shape has been parsed: error for the worst thing that can be true,
 // warning for the body clock, muted for slow drift, accent at rest. Same mapping the blob used.
 const MOODS: Record<PetExpression["kind"], AvatarMood> = {
-    "cannot-see": { toneVar: "--color-error", energy: 0.74, align: 0.14, jitter: 0.75, spin: 0.85, sever: 0.72 },
+    // energy 0.74 had the same bug drifting did, and it mattered more here because this is rank 1. Nothing
+    // in the register table asks cannot-see to dim: its tells are severed links, nodes drifting outside the
+    // sphere and ticks stuttering out of phase, all structural. Being dim was a fourth tell nobody asked
+    // for, and combined with sever cutting 72% of the links it made the most severe register the faintest
+    // thing the avatar could show. An alarm is bright.
+    "cannot-see": { toneVar: "--color-error", energy: 0.95, align: 0.14, jitter: 0.75, spin: 0.85, sever: 0.72 },
     tired: { toneVar: "--color-warning", energy: 0.44, align: 0.8, jitter: 0.03, spin: 0.34, sever: 0 },
-    drifting: { toneVar: "--color-muted", energy: 0.34, align: 0.4, jitter: 0.1, spin: 0.62, sever: 0.25 },
+    // energy, not tone, is the one that was wrong here. Drifting was authored at 0.34 — dimmer than tired,
+    // the single register the design table defines as dimming — so decay borrowed the exhaustion tell and
+    // then outdid it. Read against the table it is the opposite: decay is loss of STRUCTURE, not loss of
+    // power, and drifting already owns three structural tells (align, spin, sever). It keeps its power.
+    // Still under at-rest, so that "everything is fine" stays the brightest thing the avatar can be.
+    drifting: { toneVar: "--color-muted", energy: 0.88, align: 0.4, jitter: 0.1, spin: 0.62, sever: 0.25 },
     // --color-accent rather than the 500 step: at-rest is the tone shown almost all the time, and the 500
     // step (#667ad1 in the default theme) is the closest of the five to the panel it sits on, so the state
     // with the most screen time was also the hardest to see. The error/warning tones already read.
@@ -103,6 +132,73 @@ const MOODS: Record<PetExpression["kind"], AvatarMood> = {
 
 export function moodFor(expression: PetExpression): AvatarMood {
     return MOODS[expression.kind];
+}
+
+/**
+ * A mood mid-transition: the numeric fields eased, plus which tone is being crossfaded away from.
+ *
+ * Registers used to change in a single frame — tone, brightness, platter tilt and sever all snapped at
+ * once — which read as a glitch rather than as a condition changing. The form is continuous, so the
+ * change should be too.
+ */
+export interface RenderMood extends AvatarMood {
+    toneFromVar: string | null;
+    toneMix: number;
+}
+
+/**
+ * Time constant of the ease, not its duration: the mood covers about 90% of the remaining distance in
+ * three of these. Chosen long enough to read as a transition and short enough that a condition which
+ * appears and clears inside one poll cycle still visibly happened.
+ */
+export const MOOD_TAU_MS = 420;
+
+export function settledMood(expression: PetExpression): RenderMood {
+    return { ...moodFor(expression), toneFromVar: null, toneMix: 1 };
+}
+
+/**
+ * One step of the ease, toward the settled mood of `expression`.
+ *
+ * Framerate-independent by construction: the step is `1 - exp(-dt/tau)` rather than a fixed fraction per
+ * frame, so a 30Hz display and a 144Hz one take the same wall-clock time to arrive. A frame that took
+ * absurdly long (a backgrounded tab, a GC pause) is clamped rather than allowed to overshoot.
+ */
+export function approachMood(current: RenderMood, expression: PetExpression, dtMs: number): RenderMood {
+    const target = moodFor(expression);
+    const dt = Number.isFinite(dtMs) ? Math.max(0, Math.min(1_000, dtMs)) : 0;
+    const k = 1 - Math.exp(-dt / MOOD_TAU_MS);
+
+    // A tone change starts a crossfade from whatever is on screen now, which may itself be a blend part
+    // way through an earlier one. Reversing mid-fade therefore fades back from the blend rather than
+    // snapping to the tone it was heading for.
+    let toneVar = current.toneVar;
+    let toneFromVar = current.toneFromVar;
+    let toneMix = current.toneMix;
+    if (target.toneVar !== current.toneVar) {
+        toneFromVar = current.toneVar;
+        toneVar = target.toneVar;
+        toneMix = 0;
+    } else if (toneFromVar != null) {
+        toneMix = toneMix + (1 - toneMix) * k;
+        // an asymptote never arrives; past this the blend is below one 8-bit step, so it is done
+        if (toneMix > 0.997) {
+            toneFromVar = null;
+            toneMix = 1;
+        }
+    }
+
+    const to = (from: number, at: number) => from + (at - from) * k;
+    return {
+        toneVar,
+        toneFromVar,
+        toneMix,
+        energy: to(current.energy, target.energy),
+        align: to(current.align, target.align),
+        jitter: to(current.jitter, target.jitter),
+        spin: to(current.spin, target.spin),
+        sever: to(current.sever, target.sever),
+    };
 }
 
 // Posture is a bearing marker and an outline, never a count: which kind of waiting, not how much of it.
@@ -219,6 +315,31 @@ export function ringPlaneNormal(ringIndex: number, align: number): Vec3 {
 const RING_BASE_RADIUS = 1.42;
 const RING_GAP = 0.3;
 
+// How thick the ripple front is, in sphere radii. Wide enough that it lights several nodes at once (a
+// front that lit one node at a time reads as a chase, not a wave) and narrow enough that the form is
+// never uniformly lit, which would just be a flash.
+const RIPPLE_WIDTH = 0.38;
+// How far past the shell the front travels before the window ends, so the wave leaves rather than stopping.
+const RIPPLE_REACH = 1.25;
+// Peak displacement of a jolt, as a fraction of the viewport. Small on purpose: the edge test's headroom
+// is about 10px at the shipped size, and a knock that moves the form out of its own box is a bug.
+const JOLT_PX = 0.02;
+// Shake rate. Fast enough to read as an impact rather than as a sway.
+const JOLT_HZ = 0.055;
+
+// Alignment fades the line work, but only down to this floor. Coplanarity is already carried by the platter
+// planes diverging (ringTilt), so multiplying alignment straight into alpha spent the same signal a second
+// time — and that second spend compounded with the mood's own energy and with QUIET_DIM. At the quiet size
+// the avatar is in almost all the time, drifting's shell arcs landed near 5% alpha of --color-muted over
+// --color-background, and cannot-see's near 2%: the two registers that report a fault were the two you
+// could not see. A floored ramp keeps the ordering (aligned still reads brighter) without the collapse.
+//
+// One constant for both the shell and the platter edges. They had separate ramps — the edges were already
+// floored at 0.4 and the shell was not — with nothing to justify treating them differently.
+const ALIGN_DIM_FLOOR = 0.55;
+
+const alignDim = (align: number) => ALIGN_DIM_FLOOR + (1 - ALIGN_DIM_FLOOR) * align;
+
 const clamp01 = (v: number) => (Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0);
 
 // How much the idle state dims. It does not shrink: the peripheral-when-idle rule (design §3) rides
@@ -235,7 +356,7 @@ export const QUIET_DIM = 0.75;
 const SPHERE_FRACTION = 0.148;
 
 export function buildAvatarScene(input: SceneInput): AvatarScene {
-    const mood = moodFor(input.expression);
+    const mood: RenderMood = input.mood ?? settledMood(input.expression);
     const still = input.still;
     const now = still ? 0 : input.now;
     const breath = still ? 0 : clamp01(input.breath);
@@ -245,8 +366,14 @@ export function buildAvatarScene(input: SceneInput): AvatarScene {
 
     const dim = input.quiet ? QUIET_DIM : 1;
     const glow = (0.45 + 0.55 * mood.energy) * dim;
-    const centreX = input.size / 2;
-    const centreY = input.size / 2;
+
+    // The jolt moves the whole form rather than any part of it: a rigid knock reads as something landing
+    // on the avatar, where a per-primitive wobble would read as the avatar itself becoming unstable, which
+    // is already what jitter means in the cannot-see register.
+    const jolt = still ? 0 : clamp01(input.jolt);
+    const knock = jolt * input.size * JOLT_PX;
+    const centreX = input.size / 2 + Math.sin(now * JOLT_HZ) * knock;
+    const centreY = input.size / 2 + Math.cos(now * JOLT_HZ * 1.37) * knock * 0.6;
     // deliberately not scaled by `dim` — see QUIET_DIM. The geometry is the same size in every state.
     const radius = input.size * SPHERE_FRACTION * (1 + 0.03 * breath);
 
@@ -281,6 +408,7 @@ export function buildAvatarScene(input: SceneInput): AvatarScene {
     };
 
     // the shell: latitude and longitude arcs implying a sphere without drawing a surface
+    const alignAlpha = alignDim(mood.align);
     if (input.shell) {
         for (let i = 0; i < 3; i++) {
             const lat = (i - 1) * 0.62;
@@ -290,7 +418,7 @@ export function buildAvatarScene(input: SceneInput): AvatarScene {
                 const a = (k / 64) * Math.PI * 2;
                 arc.push(project(rot3([Math.cos(a) * rr, Math.sin(lat), Math.sin(a) * rr], yaw, pitch)));
             }
-            strip(arc, "body", 0.26 * glow * mood.align);
+            strip(arc, "body", 0.26 * glow * alignAlpha);
         }
         for (let i = 0; i < 3; i++) {
             const lon = (i / 3) * Math.PI;
@@ -299,12 +427,20 @@ export function buildAvatarScene(input: SceneInput): AvatarScene {
                 const a = (k / 64) * Math.PI * 2;
                 arc.push(project(rot3(rotZ(rotX([Math.cos(a), Math.sin(a), 0], Math.PI / 2), lon), yaw, pitch)));
             }
-            strip(arc, "body", 0.22 * glow * mood.align);
+            strip(arc, "body", 0.22 * glow * alignAlpha);
         }
     }
 
     const net = networkFor(input.nodes);
     const scatter = (1 - mood.align) * 0.42;
+    const rippleAt = still || input.ripple == null ? null : clamp01(input.ripple);
+    // a bell over progress: the wave fades as it leaves rather than switching off at the shell
+    const rippleGain = rippleAt == null ? 0 : Math.sin(rippleAt * Math.PI);
+    const rippleFront = rippleAt == null ? 0 : rippleAt * RIPPLE_REACH;
+    // how strongly the ripple is touching a node at sphere-radius r, 0..1
+    const rippleAtRadius = (r: number) =>
+        rippleAt == null ? 0 : Math.max(0, 1 - Math.abs(r - rippleFront) / RIPPLE_WIDTH) * rippleGain;
+    const nodeRadius = net.nodes.map((n) => Math.hypot(n[0], n[1], n[2]));
     const placed = net.nodes.map((n, i) => {
         const ph = i * 1.7;
         const w = still ? Math.sin(ph) : Math.sin(now * 0.0009 + ph);
@@ -328,14 +464,15 @@ export function buildAvatarScene(input: SceneInput): AvatarScene {
         const a = placed[link[0]];
         const b = placed[link[1]];
         const depth = (a[2] + b[2]) / 2;
+        const lit = rippleAtRadius((nodeRadius[link[0]] + nodeRadius[link[1]]) / 2);
         segments.push({
             ax: a[0],
             ay: a[1],
             bx: b[0],
             by: b[1],
             depth,
-            tone: "body",
-            alpha: clamp01((0.26 + 0.4 * ((depth + 1) / 2)) * glow),
+            tone: lit > 0.55 ? "hot" : "body",
+            alpha: clamp01((0.26 + 0.4 * ((depth + 1) / 2)) * glow * (1 + 1.8 * lit)),
         });
     });
 
@@ -346,13 +483,14 @@ export function buildAvatarScene(input: SceneInput): AvatarScene {
         const dist = Math.abs((((i - head) % span) + span) % span);
         const near = 1 - Math.min(1, dist / 2.4);
         const front = (p[2] + 1) / 2;
+        const lit = rippleAtRadius(nodeRadius[i]);
         points.push({
             x: p[0],
             y: p[1],
             depth: p[2],
-            tone: near > 0.5 ? "hot" : "body",
-            alpha: clamp01((0.42 + 0.55 * front) * glow * (0.5 + 0.5 * near)),
-            size: Math.max(1.6, input.size * 0.013) * p[3] * (0.7 + 0.5 * front) * (1 + 0.6 * near),
+            tone: near > 0.5 || lit > 0.35 ? "hot" : "body",
+            alpha: clamp01((0.42 + 0.55 * front) * glow * (0.5 + 0.5 * near) * (1 + 2.2 * lit)),
+            size: Math.max(1.6, input.size * 0.013) * p[3] * (0.7 + 0.5 * front) * (1 + 0.6 * near + 1.4 * lit),
         });
     });
 
@@ -387,10 +525,7 @@ export function buildAvatarScene(input: SceneInput): AvatarScene {
             );
             const outer = project(
                 rot3(
-                    rotZ(
-                        rotX([Math.cos(a) * (ringRadius + len), 0, Math.sin(a) * (ringRadius + len)], tiltX),
-                        tiltZ
-                    ),
+                    rotZ(rotX([Math.cos(a) * (ringRadius + len), 0, Math.sin(a) * (ringRadius + len)], tiltX), tiltZ),
                     yaw,
                     pitch
                 )
@@ -416,7 +551,7 @@ export function buildAvatarScene(input: SceneInput): AvatarScene {
                 )
             );
         }
-        strip(edge, "body", 0.32 * glow * (0.4 + 0.6 * mood.align));
+        strip(edge, "body", 0.32 * glow * alignAlpha);
     }
 
     // the bearing marker: which kind of waiting, at a fixed bearing. Never a count — the nav rail's badge
@@ -442,6 +577,8 @@ export function buildAvatarScene(input: SceneInput): AvatarScene {
         segments,
         points,
         toneVar: mood.toneVar,
+        toneFromVar: mood.toneFromVar,
+        toneMix: mood.toneMix,
         markerVar: MARKER_VARS[input.posture],
         centreX,
         centreY,

@@ -21,9 +21,9 @@ export interface SceneColours {
 
 const HOT_LIGHTEN = 0.62;
 
-// Parses #rgb / #rrggbb and mixes toward white. Anything else passes through unchanged, so a token that
-// resolves to a colour space this does not parse degrades to a flat tone rather than throwing on a frame.
-function lighten(colour: string, k: number): string {
+// Parses #rgb / #rrggbb into 0-255 channels, or null for anything else. One copy: lighten, blendTones and
+// withAlpha all need it, and three hand-rolled hex parsers in one file is how they drift apart.
+function channels(colour: string): [number, number, number] | null {
     const hex = colour.trim().replace("#", "");
     const parts =
         hex.length === 3
@@ -32,16 +32,52 @@ function lighten(colour: string, k: number): string {
               ? [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16))
               : null;
     if (parts == null || parts.some((n) => !Number.isFinite(n))) {
+        return null;
+    }
+    return [parts[0], parts[1], parts[2]];
+}
+
+const hex2 = (n: number) =>
+    Math.max(0, Math.min(255, Math.round(n)))
+        .toString(16)
+        .padStart(2, "0");
+
+// Mixes toward white. Anything this cannot parse passes through unchanged, so a token that resolves to a
+// colour space it does not know degrades to a flat tone rather than throwing on a frame.
+function lighten(colour: string, k: number): string {
+    const parts = channels(colour);
+    if (parts == null) {
         return colour;
     }
     const mixed = parts.map((n) => Math.round(n + (255 - n) * k));
     return "rgb(" + mixed[0] + "," + mixed[1] + "," + mixed[2] + ")";
 }
 
+/**
+ * Crossfades two theme tones, returning hex rather than rgb() on purpose: `lighten` derives the "hot"
+ * tone from whatever this returns, and it only parses hex. An rgb() string here would silently flatten
+ * the pulse head and the major ticks into the body tone for the length of every transition.
+ *
+ * A tone that cannot be parsed is not blended at all — it snaps at the halfway point. Better a hard
+ * switch than a frame of mid-grey, which is what channel-wise nonsense would produce.
+ */
+export function blendTones(from: string, to: string, mix: number): string {
+    const t = Number.isFinite(mix) ? Math.max(0, Math.min(1, mix)) : 1;
+    const a = channels(from);
+    const b = channels(to);
+    if (a == null || b == null) {
+        return t < 0.5 ? from : to;
+    }
+    return "#" + [0, 1, 2].map((i) => hex2(a[i] + (b[i] - a[i]) * t)).join("");
+}
+
 // `read` is injected rather than calling getComputedStyle here, so this is testable and so the theme-token
 // rule cannot be broken by a literal creeping in.
 export function resolveTone(scene: AvatarScene, read: (name: string) => string): SceneColours {
-    const body = read(scene.toneVar);
+    // The crossfade is resolved here rather than in either renderer, so a register change eases in both
+    // of them from one implementation. Both already funnel through this function for their colours.
+    const to = read(scene.toneVar);
+    const body = scene.toneFromVar == null ? to : blendTones(read(scene.toneFromVar), to, scene.toneMix);
     return {
         body,
         hot: lighten(body, HOT_LIGHTEN),
@@ -51,14 +87,8 @@ export function resolveTone(scene: AvatarScene, read: (name: string) => string):
 
 function withAlpha(colour: string, alpha: number): string {
     const a = Math.max(0, Math.min(1, alpha));
-    const hex = colour.trim().replace("#", "");
-    const parts =
-        hex.length === 3
-            ? hex.split("").map((c) => parseInt(c + c, 16))
-            : hex.length === 6
-              ? [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16))
-              : null;
-    if (parts != null && parts.every((n) => Number.isFinite(n))) {
+    const parts = channels(colour);
+    if (parts != null) {
         return "rgba(" + parts[0] + "," + parts[1] + "," + parts[2] + "," + a + ")";
     }
     const rgb = colour.match(/^rgb\(([^)]+)\)$/);
