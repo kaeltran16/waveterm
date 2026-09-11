@@ -36,9 +36,10 @@ describe("briefFleet", () => {
             withCost("c", "asking", 0.25),
         ]);
         expect(fleet.liveCount).toBe(2);
-        // idle spend still accrued, so it stays in the total the count is printed next to
-        expect(fleet.spendUsd).toBeCloseTo(1.0, 5);
-        expect(fleet.line).toBe("2 sessions live · $1.00");
+        // an idle worker leaves the count, so its spend leaves the total printed beside that count —
+        // otherwise the dollars describe a larger set than the sessions they sit next to
+        expect(fleet.spendUsd).toBeCloseTo(0.75, 5);
+        expect(fleet.line).toBe("2 sessions live · $0.75");
     });
 
     it("treats a missing or malformed usage reading as zero rather than poisoning the line", () => {
@@ -60,10 +61,10 @@ describe("briefFleet", () => {
         expect(fleet.line).toBe(NO_FLEET_LINE);
     });
 
-    it("states absence for an all-idle roster even when it accrued spend", () => {
+    it("states absence for an all-idle roster, and reports no spend rather than an orphaned total", () => {
         const fleet = briefFleet([withCost("a", "idle", 3.2), withCost("b", "idle", 1.1)]);
         expect(fleet.liveCount).toBe(0);
-        expect(fleet.spendUsd).toBeCloseTo(4.3, 5);
+        expect(fleet.spendUsd).toBe(0);
         expect(fleet.line).toBe(NO_FLEET_LINE);
     });
 

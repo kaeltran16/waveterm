@@ -82,27 +82,39 @@ end to end; a landed merge stamps `Merged` (marker from `5a863daa`), which clean
 **G6 remains** (low, deferred as design): lead control notifications are fire-and-forget with no
 delivery ack.
 
-### Jarvis Brief B5 — the retired panes' orphaned mounts (deferred 2026-09-10)
+### Jarvis Brief B5 — the retired panes' orphaned mounts (deferred 2026-09-10, revised 2026-09-11)
 
 B5 deleted the Subjects column, the Stage and the context rail. Five capabilities were re-homed into the
 Brief's detail sheet — the run body, the launcher and its goal row, the record band, the initiative detail,
-and B4's profile modal. Ten were not re-homed, and their implementations are still in the tree, orphaned but
-**not deleted**: re-homing one is moving an existing control, not rebuilding it. The list was found by
-sweeping every exported function in `app/` for one with no production consumer left, so it is mechanical
-rather than recalled. Full rationale: `docs/deferred.md`, 2026-09-10.
+and B4's profile modal. Thirteen were not, and their implementations are still in the tree, orphaned but
+**not deleted**: re-homing one is moving an existing control, not rebuilding it.
 
-| Capability | Orphaned implementation | Load-bearing? |
-|---|---|---|
-| Channel lifecycle — rename / delete / archive / notes | `renameChannel`, `deleteChannel`, `archiveChannel`, `setChannelNotes` (`agents/channelsstore.ts`) | **yes** — a channel can now be created and never managed |
-| Initiative lifecycle and the effort card | `EffortCreateForm`, `EffortCard`, `expandEffort`, `toggleEffort`, `unarchiveEffort`, `deleteEffort` | **yes** — no initiative can be started |
-| Autonomy ladder — tier and mode | `AutonomyLadder` (`jarvis/autonomyladderview.tsx`) | yes — this is the remote approval policy |
-| Subject browsing, grouping, filtering | `toggleSubjectGroup`; the grouping model went with `subjects.ts` | no — the Brief's regions cover running work |
-| Thread lifecycle — archive / delete | `archiveJarvisConversation`, `deleteJarvisConversation` | no |
-| Per-answer cancel and retry | `cancelJarvisQuery`, `retryJarvisQuery` | no |
-| Ask-mode consult results (§4a item 11) | `ConsultsSection`, deleted with the rail | deliberate drop |
-| Resume / proactive cards (§4a item 12) | `ResumeCard`, `ProactiveCard` | deliberate drop |
-| Rail fleet roster and per-worker dismiss | `FleetRoster`, `dismissWorker`, `runRailSection` | no — the header keeps a derived fleet line |
-| Stage turn renderers | `JarvisAnswer`, `JarvisWorkingSteps` (`jarvis/jarvisturn.tsx`) | largely superseded by `briefdrew.ts` |
+**The "mechanical rather than recalled" claim is walked back (2026-09-11).** The list came from sweeping `app/`
+for exported functions with no production consumer left, and that sweep is a floor, not a proof. It missed
+`agents/channelcomposers.tsx` outright, and it is structurally blind to a capability that dies *inside* a file
+that has a successor — the exports keep a consumer (a test file counts as one to a grep), so nothing reads as
+orphaned. It is also single-level: an export whose only consumer is itself unmounted reads as live, which is
+how steering survived the sweep behind `channelcomposers.tsx`. All three gaps are folded into the table
+below. Full rationale: `docs/deferred.md`, the 2026-09-10 entry and its 2026-09-11 update.
+
+**Four are closed** by the Brief review-findings pass (`effort:732863fa-1374-4ab2-9753-1220fc885f34`, F1–F9),
+each by re-homing the existing control; the status column says which chunk.
+
+| Capability | Orphaned implementation | Load-bearing? | Status |
+|---|---|---|---|
+| Channel lifecycle — rename / delete / archive / notes | `renameChannel`, `deleteChannel`, `archiveChannel`, `setChannelNotes` (`agents/channelsstore.ts`) | **yes** — a channel can still be created and never managed | open |
+| Initiative lifecycle and the effort card | `EffortCreateForm`, `EffortCard`, `expandEffort`, `toggleEffort`, `unarchiveEffort`, `deleteEffort` | **yes** — no initiative could be started | **creation re-homed (F7)** — `newinitiativecontrol.tsx` + `Shift+N`; archive / unarchive / delete still orphaned |
+| Autonomy ladder — tier and mode | `AutonomyLadder` (`jarvis/autonomyladderview.tsx`) | yes — this is the remote approval policy | **re-homed (F7)** — the header tier chip, faced by `briefautonomy.ts` |
+| Profile drawer — playbook and global profile (*missed by the sweep: died inside `profilepanel.tsx` → `briefprofileview.tsx`*) | `ProfileOverride.playbook`; `getGlobalProfile` / `setGlobalProfile` / `reduceGlobalPrinciples` | yes — `resolveRunPlan` composes every pipeline run from the resolved playbook | **re-homed (F4)** — `BriefProfileModal`'s project/global scope toggle |
+| Steering a running worker (*missed by the sweep: its only consumer was the unmounted `channelcomposers.tsx`*) | `steerWorker` (`agents/channelactions.ts`), via the Talk face | yes — unreachable cockpit-wide, not just from the Brief | **re-homed (F3)** — sheet composer → `briefcomposertarget.ts`; `TalkComposer` itself stays orphaned |
+| Composer `@`-command vocabulary — `@quick` / `@run` / `@ask` (*missed by the sweep entirely*) | `LaunchComposer`, `TalkComposer` (`agents/channelcomposers.tsx`); `LAUNCH_COMMANDS`, `parseComposerCommand`, `resolveComposerDispatch` (`agents/composercommand.ts`, now reached only by that file and its test) | no — the launcher's controls set the mode; the one-shot `@ask` consult has no typed form | open |
+| Subject browsing, grouping, filtering | `toggleSubjectGroup`; the grouping model went with `subjects.ts` | no — the Brief's regions cover running work | open |
+| Thread lifecycle — archive / delete | `archiveJarvisConversation`, `deleteJarvisConversation` | no | open |
+| Per-answer cancel and retry | `cancelJarvisQuery`, `retryJarvisQuery` | no | open |
+| Ask-mode consult results (§4a item 11) | `ConsultsSection`, deleted with the rail | deliberate drop | open |
+| Resume / proactive cards (§4a item 12) | `ResumeCard`, `ProactiveCard` | deliberate drop | open |
+| Rail fleet roster and per-worker dismiss | `FleetRoster`, `dismissWorker`, `runRailSection` | no — the header keeps a derived fleet line | open |
+| Stage turn renderers | `JarvisAnswer`, `JarvisWorkingSteps` (`jarvis/jarvisturn.tsx`) | largely superseded by `briefdrew.ts` | open |
 
 ---
 

@@ -205,6 +205,10 @@ declare global {
         phaseidx: number;
         waitingsince: number;
         oref?: string;
+        effortoid?: string;
+        chunklabel?: string;
+        why?: string;
+        cites?: string[];
     };
 
     // wshrpc.BackgroundAgentData

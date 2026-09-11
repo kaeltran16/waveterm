@@ -41,12 +41,16 @@ const runsLifecycle = {
             if (oref) ctx.workers.push(oref);
         };
 
+        // mode pinned, not left empty: an empty mode resolves the profile's default, which is `quick`
+        // (one phase, no gate) on a stock profile — and every step below asserts the three-phase
+        // pipeline and the gate between p1 and p2. The shape under test has to be the one requested.
         const created = await h.rpc("createrun", {
             channelid: ctx.channelId,
             workspaceid: ctx.workspaceId,
             goal: ctx.goal,
             runtime: "claude",
             tier: "capable",
+            mode: "pipeline",
         });
         const run = created.run;
         const runId = run.id;
@@ -95,11 +99,58 @@ const runsLifecycle = {
             JSON.stringify({ status: r3.status, states: r3.phases.map((p) => p.state) })
         );
 
+        // --- the Brief's way in ------------------------------------------------------------------
+        // The three-pane Subjects column is gone, so the run body is reached the way the Brief reaches
+        // it: the gate this run is holding at is a queue row, and that row carries the run id, so the
+        // sheet lands on THIS run rather than whichever one the channel would default to. It has to
+        // happen here, at awaiting-review — once the run is cancelled every run in the channel is
+        // terminal, the gate row is gone, and defaultRunId resolves nothing for the sheet to show. The
+        // sheet then stays open across the two RPCs below, which is what puts the timeline's live
+        // append (the run:event broadcast) under test rather than a second page load.
+        await h.ev("location.reload()");
+        await settle(2800);
+        await h.goto("jarvis");
+        const goalPrefix = ctx.goal.split(":")[0];
+        const clickGateRow = () =>
+            h.ev(`(() => {
+                const row = [...document.querySelectorAll('[data-jarvis-brief-row="queue"]')]
+                    .find((x) => x.tagName === 'BUTTON' && (x.textContent || '').includes(${JSON.stringify(goalPrefix)}));
+                if (!row) return false;
+                row.click();
+                return true;
+            })()`);
+        // attention is polled cockpit-wide (attentionpoller.tsx, 10s), so the row can be a full
+        // interval behind the RPC that created the gate.
+        let gateOpened = false;
+        for (let i = 0; i < 24 && !gateOpened; i++) {
+            await settle(700);
+            gateOpened = await clickGateRow();
+        }
+        await settle(1200);
+        const sheet = await h.ev(`(() => {
+            const showing = [...document.querySelectorAll('span')]
+                .map((x) => (x.textContent || '').trim())
+                .find((t) => /^showing .+ run [0-9a-f]{4}$/.test(t));
+            return {
+                settings: document.querySelector('[data-jarvis-brief-sheet-face="settings"]') != null,
+                showing: showing || null,
+            };
+        })()`);
+        rec(
+            "4. the gate's queue row opens the sheet on THAT run",
+            gateOpened === true &&
+                sheet.settings === true &&
+                sheet.showing != null &&
+                sheet.showing.endsWith(runId.slice(0, 4)),
+            JSON.stringify({ gateOpened, ...sheet })
+        );
+        await h.shot("cdp-shots/runs-gate-sheet.png");
+
         await h.rpc("advancerun", { channelid: ctx.channelId, runid: runId, action: "approve" });
         const r4 = await getRun(runId);
         track(workerOf(r4.phases[2]));
         rec(
-            "4. Approve gate -> p2 running + worker, status executing",
+            "5. Approve gate -> p2 running + worker, status executing",
             r4.phases[2].state === "running" && !!workerOf(r4.phases[2]) && r4.status === "executing",
             JSON.stringify({ status: r4.status, states: r4.phases.map((p) => p.state) })
         );
@@ -107,7 +158,7 @@ const runsLifecycle = {
         await h.rpc("cancelrun", { channelid: ctx.channelId, runid: runId });
         const r5 = await getRun(runId);
         rec(
-            "5. Cancel -> status cancelled, p2 skipped",
+            "6. Cancel -> status cancelled, p2 skipped",
             r5.status === "cancelled" && r5.phases[2].state === "skipped",
             JSON.stringify({ status: r5.status, states: r5.phases.map((p) => p.state) })
         );
@@ -117,7 +168,7 @@ const runsLifecycle = {
         const evres = await h.rpc("jarvisrunevents", { channelid: ctx.channelId, runid: runId, limit: 200 });
         const kinds = (evres.events || []).map((e) => e.kind + (e.phaseidx != null ? `@${e.phaseidx}` : ""));
         rec(
-            "6. run:event log holds the written lifecycle kinds",
+            "7. run:event log holds the written lifecycle kinds",
             kinds.includes("run-created") &&
                 kinds.includes("phase-started@0") &&
                 kinds.includes("phase-complete@0") &&
@@ -130,42 +181,9 @@ const runsLifecycle = {
             kinds.join(" ")
         );
 
-        // The RPCs above ran out-of-band from the Subjects column's snapshot; reload so the column
-        // reflects the fresh channel/run set (same reason jarvis-continuity reloads), then select the
-        // channel and ITS run row (scoped to the channel's run list so a same-goal leftover run under
-        // another channel can never be picked). The Stage renders RunBody with the collapsed timeline
-        // under the header; the event store loads via RPC on mount, so poll rather than sample once.
-        await h.ev("location.reload()");
-        await settle(2500);
-        await h.goto("jarvis");
-        const pick = async () => {
-            const b = await h.ev(`(() => {
-                const row = [...document.querySelectorAll('[data-jarvis-subject-kind="channel"]')]
-                    .find((x) => (x.getAttribute('aria-label') || x.textContent || '').includes('verify-runs'));
-                if (!row) return false;
-                row.click();
-                return true;
-            })()`);
-            await settle(400);
-            const r = await h.ev(`(() => {
-                const row = [...document.querySelectorAll('[data-jarvis-subject-kind="channel"]')]
-                    .find((x) => (x.getAttribute('aria-label') || x.textContent || '').includes('verify-runs'));
-                const list = row && row.nextElementSibling;
-                if (!list) return false;
-                const runRow = [...(list.querySelectorAll('button') || [])]
-                    .find((x) => (x.textContent || '').includes(${JSON.stringify(ctx.goal.split(":")[0])}));
-                if (!runRow) return false;
-                runRow.click();
-                return true;
-            })()`);
-            return b && r;
-        };
-        let pickedBoth = false;
-        for (let i = 0; i < 12 && !pickedBoth; i++) {
-            await settle(300);
-            pickedBoth = await pick();
-        }
-        rec("7. channel + its run selected in the Subjects column", pickedBoth === true, `pickedBoth=${pickedBoth}`);
+        // No reload here on purpose: the sheet opened at the gate is still showing this run, and the two
+        // RPCs above were broadcast into it on run:<id>. So the timeline below is the LIVE-appended one,
+        // and a reload would replace exactly the thing worth checking with a fresh RPC read.
         const timelineProbe = async () => {
             const btn = await h.ev(`(() => {
                 const b = [...document.querySelectorAll('button')]
@@ -814,6 +832,11 @@ const briefSurface = {
             );
             await h.ev("new Promise((r) => setTimeout(r, 150))");
         };
+        // the cursor is module state and outlives a scenario run, so walk it back to the top first:
+        // otherwise this step asserts where the PREVIOUS run left it. k clamps at the first row.
+        for (let i = 0; i < 15; i++) {
+            await press("k");
+        }
         const trail = [await h.ev(cursorNow)];
         await press("j");
         trail.push(await h.ev(cursorNow));
@@ -832,6 +855,106 @@ const briefSurface = {
                 text[3] === text[1], // k returns to the row j came from
             detail: JSON.stringify(trail.map((t) => (t == null ? null : `${t.row}/${t.text}`))),
         });
+
+        // The initiatives region is the one B5 left with no way in: the effort sheet it built was reachable
+        // only sideways, through a blocked chunk's queue row. The row is the effort card itself now, so the
+        // way in is the card's own header — it expands the chunk tracker, its writes and its "full record"
+        // in place. A row nesting controls is the point of that, not the defect the compact row was checked
+        // for. The fixture's efforts are fabricated, so what the expanded body can prove here is the other
+        // half of the contract: it says the detail could not be fetched and offers a retry, rather than
+        // sitting on a spinner or drawing an empty tracker as if the initiative had no chunks.
+        // which card is open is module state that outlives a scenario run, so start from closed rather
+        // than from whatever the previous run left behind — otherwise this click collapses instead.
+        await h.ev(`document.querySelector('[data-jarvis-brief-row="initiative"] button[aria-expanded="true"]')?.click()`);
+        await h.ev("new Promise((r) => setTimeout(r, 200))");
+        await h.ev(`document.querySelector('[data-jarvis-brief-row="initiative"] button[aria-expanded]')?.click()`);
+        await h.ev("new Promise((r) => setTimeout(r, 900))");
+        const card = await h.ev(`(() => {
+            const rows = [...document.querySelectorAll('[data-jarvis-brief-row="initiative"]')];
+            const open = rows.find((r) => r.querySelector('button[aria-expanded="true"]') != null);
+            const txt = (e) => (e.innerText || "").replace(/\\s+/g, " ").trim();
+            return {
+                rows: rows.length,
+                expandable: rows.filter((r) => r.querySelector("button[aria-expanded]") != null).length,
+                opened: open != null,
+                // collapsed cards keep their status lines; only the opened one grows a body
+                body: open == null ? null : txt(open).slice(0, 80),
+            };
+        })()`);
+        steps.push({
+            step: "7. an initiative row is the effort card, expanding its tracker in place",
+            ok:
+                card.rows > 0 &&
+                card.expandable === card.rows &&
+                card.opened === true &&
+                /retry/.test(card.body ?? ""),
+            detail: JSON.stringify(card),
+        });
+        // the expansion is module state that outlives the run, and step 6 reads the collapsed row's text
+        await h.ev(`document.querySelector('[data-jarvis-brief-row="initiative"] button[aria-expanded="true"]')?.click()`);
+
+        // The sideways arm into the effort sheet is still the one a blocked chunk takes, and it is still
+        // the only arm the fixture can drive end to end: the sheet's own chrome names the record it is
+        // showing whether or not the detail behind it resolves.
+        await h.ev(`document.querySelector('[data-jarvis-brief-row="queue"]')?.click()`);
+        await h.ev("new Promise((r) => setTimeout(r, 500))");
+        const sheet = await h.ev(`(() => {
+            const el = document.querySelector('[data-jarvis-brief-sheet]');
+            return {
+                face: el ? el.dataset.jarvisBriefSheet : null,
+                label: el ? (el.innerText || "").replace(/\\s+/g, " ").trim().slice(0, 10).toLowerCase() : null,
+            };
+        })()`);
+        steps.push({
+            step: "8. a blocked chunk still opens the initiative's own sheet",
+            ok: sheet.face === "effort" && sheet.label === "initiative",
+            detail: JSON.stringify(sheet),
+        });
+        await h.ev(`[...document.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === 'Close detail sheet')?.click()`);
+        await h.ev("new Promise((r) => setTimeout(r, 300))");
+
+        // F8: the row states what it is waiting on, what it belongs to and what the decision rests on.
+        // The "attention" fixture is the one that carries wire attention items; "normal" has none, so
+        // the queue there is only blocked chunks, which carry no attribution by design. Every added
+        // element must be a span: the row itself is the button (step 4), and a bordered chip inside it
+        // would be a second affordance for one decision.
+        await h.ev(`document.querySelector('[data-briefing-fixture="attention"]')?.click()`);
+        await h.ev("new Promise((r) => setTimeout(r, 600))");
+        const ctx = await h.ev(`(() => {
+            const rows = [...document.querySelectorAll('[data-jarvis-brief-row="queue"]')];
+            const pick = (sel) => rows.map((r) => r.querySelector(sel)).filter(Boolean);
+            const attribs = pick('[data-jarvis-brief-attrib]');
+            const whys = pick('[data-jarvis-brief-why]');
+            const cites = rows.flatMap((r) => [...r.querySelectorAll('[data-jarvis-brief-cite]')]);
+            const txt = (e) => (e.innerText || "").replace(/\\s+/g, " ").trim();
+            return {
+                rows: rows.length,
+                nested: rows.reduce((n, r) => n + r.querySelectorAll('button, a, input, select, textarea').length, 0),
+                attribs: attribs.length,
+                firstAttrib: attribs.length ? txt(attribs[0]) : null,
+                whys: whys.length,
+                firstWhy: whys.length ? txt(whys[0]) : null,
+                cites: cites.length,
+                firstCite: cites.length ? txt(cites[0]) : null,
+                allSpans: [...attribs, ...whys, ...cites].every((e) => e.tagName === 'SPAN'),
+            };
+        })()`);
+        steps.push({
+            step: "9. a queue row names its initiative, why it is waiting and what it rests on, all as labels",
+            ok:
+                ctx.rows >= 3 &&
+                ctx.nested === 0 &&
+                ctx.allSpans === true &&
+                // the effort title is joined on the frontend from the efforts already on the surface,
+                // so a raw oid here would mean the join silently failed
+                ctx.firstAttrib === "\u2726 Scenario gate clearance \u00b7 Phase 3" &&
+                ctx.whys === 3 &&
+                /2 of 4 done/.test(ctx.firstWhy ?? "") &&
+                ctx.cites === 2 &&
+                ctx.firstCite === "[1] docs/superpowers/plans/ask-bridge.md",
+            detail: JSON.stringify(ctx),
+        });
+        await h.shot("cdp-shots/brief-queue-context.png");
 
         await h.shot("cdp-shots/brief-surface.png");
         return steps;
@@ -956,7 +1079,7 @@ const briefPeek = {
                     (d) => (d.textContent || "").trim().toLowerCase() === "records"
                 );
                 const group = headers[0]?.parentElement;
-                const row = group ? [...group.querySelectorAll("button[data-idx]")][${"$"}{attempt}] : null;
+                const row = group ? [...group.querySelectorAll("button[data-idx]")][${attempt}] : null;
                 if (!row) return false;
                 row.click();
                 return true;
@@ -2138,8 +2261,8 @@ const jarvisAvatar = {
 
         rec(
             "1. the render loop publishes a non-empty scene",
-            scene.segments > 0 && scene.points > 0,
-            `segments=${scene.segments} points=${scene.points} renderer=${scene.renderer}`
+            scene.segments > 0 && scene.fills > 0,
+            `segments=${scene.segments} fills=${scene.fills} renderer=${scene.renderer}`
         );
         // a literal here would silently opt the avatar out of every runtime theme
         rec(
@@ -3691,122 +3814,6 @@ const harnessPicker = {
     },
 };
 
-// --- jarvis: the landing briefing (once-per-launch pinned all-work subject) -----------------------
-const jarvisBriefing = {
-    name: "jarvis-briefing",
-    surface: "jarvis",
-    async arrange() {
-        return {};
-    },
-    async assert(h) {
-        const steps = [];
-        const briefingRow = `document.querySelector('[data-jarvis-subject-kind="briefing"]')`;
-        const briefingActive = `(() => { const b = ${briefingRow}; return !!b && b.classList.contains('bg-accentbg'); })()`;
-        // 1. first neutral Jarvis entry opens Briefing on a fresh profile. The once-per-launch guard is
-        // in-memory, so "fresh" means a real page reload — localStorage.clear() alone cannot reset a
-        // guard the app session's boot already consumed.
-        await h.cdp("Page.reload", {});
-        await h.ev("new Promise((r) => setTimeout(r, 1500))");
-        await h.ev("(() => { localStorage.clear(); return true; })()");
-        await h.goto("jarvis");
-        await h.ev("new Promise((r) => setTimeout(r, 400))");
-        steps.push({ step: "first neutral entry opens Briefing", ok: (await h.ev(briefingActive)) === true });
-        // 2. Briefing stays pinned under a nonmatching text filter
-        await h.ev(`(() => {
-            const input = document.querySelector('[data-jarvis-region="subjects"] input[type="text"]');
-            if (!input) return false;
-            const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-            setter.call(input, 'zzz-no-match');
-            input.dispatchEvent(new Event('input', { bubbles: true }));
-            return true;
-        })()`);
-        await h.ev("new Promise((r) => setTimeout(r, 150))");
-        steps.push({
-            step: "Briefing stays pinned under a nonmatching filter",
-            ok: (await h.ev(`(() => { const b = ${briefingRow}; return !!b && b.offsetParent !== null; })()`)) === true,
-        });
-        await h.ev(`(() => {
-            const input = document.querySelector('[data-jarvis-region="subjects"] input[type="text"]');
-            const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-            setter.call(input, '');
-            input.dispatchEvent(new Event('input', { bubbles: true }));
-            return true;
-        })()`);
-        // 3. fixture states render honestly
-        for (const s of ["normal", "attention", "empty", "partial", "failed"]) {
-            const clicked = await h.ev(`(() => {
-                const b = [...document.querySelectorAll('[data-testid="jarvis-briefing-fixture-bar"] button')]
-                    .find((x) => x.getAttribute('data-briefing-fixture') === ${JSON.stringify(s)});
-                if (!b) return false;
-                b.click();
-                return true;
-            })()`);
-            await h.ev("new Promise((r) => setTimeout(r, 300))");
-            const sections = await h.ev(
-                `document.querySelectorAll('[data-jarvis-briefing-section]').length + (document.querySelector('[data-jarvis-briefing-error]') ? 1 : 0)`
-            );
-            steps.push({
-                step: `briefing fixture "${s}" -> sections render`,
-                ok: clicked === true && sections > 0,
-                detail: `clicked=${clicked} sections=${sections}`,
-            });
-            await h.shot(`cdp-shots/jarvis-briefing-${s}.png`);
-        }
-        // 4. inline ask answer + source buttons (button-capable run oref, cited-text memory oref). The
-        // ask fixture seeds a snapshot too — the loop above ends on "failed", which has no snapshot to
-        // hang the answer on.
-        await h.ev(`(() => {
-            const b = [...document.querySelectorAll('[data-testid="jarvis-briefing-fixture-bar"] button')]
-                .find((x) => x.getAttribute('data-briefing-fixture') === 'ask');
-            if (b) b.click();
-            return true;
-        })()`);
-        await h.ev("new Promise((r) => setTimeout(r, 200))");
-        const askOk = await h.ev(`(() => {
-            const ask = document.querySelector('[data-jarvis-briefing-section="ask"]');
-            return ask ? { len: (ask.textContent || '').trim().length, buttons: ask.querySelectorAll('button').length } : null;
-        })()`);
-        steps.push({
-            step: "inline ask renders answer + a source button",
-            ok: askOk != null && askOk.len > 0 && askOk.buttons >= 1,
-            detail: JSON.stringify(askOk),
-        });
-        // 5. a navigable row leaves Briefing for its subject
-        const navOk = await h.ev(`(() => {
-            const row = document.querySelector('[data-jarvis-briefing-row][data-row-kind="blocker"]');
-            if (!row) return false;
-            row.click();
-            return true;
-        })()`);
-        await h.ev("new Promise((r) => setTimeout(r, 200))");
-        steps.push({
-            step: "navigable row leaves Briefing",
-            ok: navOk === true && (await h.ev(briefingActive)) === false,
-        });
-        // 6. manual re-click of the pinned row returns to Briefing and refreshes
-        await h.ev(`(() => { const b = ${briefingRow}; if (b) b.click(); return true; })()`);
-        await h.ev("new Promise((r) => setTimeout(r, 200))");
-        steps.push({ step: "pinned row re-selects Briefing", ok: (await h.ev(briefingActive)) === true });
-        // 7. no Briefing-only control on ordinary subjects
-        await h.ev(`(() => {
-            const b = [...document.querySelectorAll('[data-testid="jarvis-fixture-bar"] button')]
-                .find((x) => x.getAttribute('data-fixture') === 'active');
-            if (b) b.click();
-            return true;
-        })()`);
-        await h.ev("new Promise((r) => setTimeout(r, 200))");
-        steps.push({
-            step: "no Refresh control on ordinary subjects",
-            ok: (await h.ev(`document.querySelector('[data-jarvis-briefing-refresh]') == null`)) === true,
-        });
-        await h.shot("cdp-shots/jarvis-briefing-ordinary-subject.png");
-        return steps;
-    },
-    async teardown(h) {
-        await h.goto("cockpit"); // leave the app where a human expects it
-    },
-};
-
 const codeMarkdown = {
     name: "code-markdown",
     surface: "code",
@@ -3952,10 +3959,6 @@ const dagLifecycle = {
             return (channel.runs || []).length;
         };
 
-        const beforePlanning = await getChannelRunCount();
-        await h.ev("location.reload()");
-        await h.ev("new Promise((r) => setTimeout(r, 3500))");
-        await h.goto("jarvis");
         const clickRetry = (findJs, tries = 8) =>
             h.ev(`(async () => {
                 for (let i = 0; i < ${tries}; i++) {
@@ -3965,166 +3968,76 @@ const dagLifecycle = {
                 }
                 return false;
             })()`);
-        const channelClickedForDraft = await clickRetry(
-            `[...document.querySelectorAll('[data-jarvis-subject-kind="channel"]')].find((b) => (b.getAttribute('aria-label') || '').includes('verify-dag'))`
-        );
-        const draftFixture = {
-            kind: "draft",
-            request: {
-                channelId: ctx.channelId,
-                goal: "verify dag: do nothing, make no file changes, stop immediately",
-                route: { runtime: "claude", tier: "capable" },
+
+        // The draft-first DAG composer no longer exists: 4296d92d removed the draft modal and the
+        // `kind: "draft"` state it was driven through, leaving the live modal as the only DAG UI. So a
+        // DAG is created here the way the lead creates one — an orchestrator run held in planning by
+        // DeferStart, then an explicit DagSubmit — and the DOM half below asserts only what survived.
+        const beforePlanning = await getChannelRunCount();
+        const parentGoal = "verify dag: do nothing, make no file changes, stop immediately";
+        const dagTitle = "verify dag";
+        const dagParallelism = 2;
+        const dagTasks = [
+            { id: "t-0", label: "noop", description: "do nothing, stop immediately", deps: [], gate: false, state: "" },
+            {
+                id: "t-1",
+                label: "review",
+                description: "review only, make no changes",
+                deps: ["t-0"],
+                gate: true,
+                state: "",
             },
-            draft: {
-                title: "verify dag",
-                parallelism: 2,
-                tasks: [
-                    {
-                        id: "t-0",
-                        label: "noop",
-                        description: "do nothing, stop immediately",
-                        deps: [],
-                        gate: false,
-                        route: null,
-                    },
-                    {
-                        id: "t-1",
-                        label: "review",
-                        description: "review only, make no changes",
-                        deps: ["t-0"],
-                        gate: true,
-                        route: null,
-                    },
-                    {
-                        id: "t-2",
-                        label: "noop 2",
-                        description: "do nothing, stop immediately",
-                        deps: ["t-1"],
-                        gate: false,
-                        route: null,
-                    },
-                ],
+            {
+                id: "t-2",
+                label: "noop 2",
+                description: "do nothing, stop immediately",
+                deps: ["t-1"],
+                gate: false,
+                state: "",
             },
-            fallback: false,
-            warnings: [],
-            view: "summary",
-            selectedTaskId: null,
-            dirty: false,
-            error: "",
-        };
-        const fixtureSet = await h.ev(`(() => {
-            const fixture = window.__waveDagModalFixture;
-            if (!fixture) return false;
-            fixture.setState(${JSON.stringify(draftFixture)});
-            return true;
-        })()`);
-        await h.ev("new Promise((r) => setTimeout(r, 500))");
-        const modalKind = await h.ev(
-            `document.querySelector('[data-dag-modal-kind]')?.getAttribute('data-dag-modal-kind')`
-        );
-        const dialog = await h.ev(`document.querySelector('[role="dialog"]') != null`);
+        ];
+        const createdParent = await h.rpc("createrun", {
+            channelid: ctx.channelId,
+            workspaceid: ctx.workspaceId,
+            goal: parentGoal,
+            runtime: "claude",
+            tier: "capable",
+            mode: "orchestrator",
+            deferstart: true,
+            // pinned, not left to the profile's default: every assertion below is about a plan-gated
+            // dag (park, approve, dispatch), and an inherited `false` would skip the gate entirely.
+            plangate: true,
+        });
+        const runId = createdParent.run.id;
         const afterPlanning = await getChannelRunCount();
-        const launchEnabled = await h.ev(
-            `(() => { const b = document.querySelector('[data-dag-launch]'); return b instanceof HTMLButtonElement && !b.disabled; })()`
-        );
         rec(
-            "planning creates no Run",
-            fixtureSet &&
-                channelClickedForDraft &&
-                dialog &&
-                modalKind === "draft" &&
-                afterPlanning === beforePlanning &&
-                launchEnabled,
-            JSON.stringify({ beforePlanning, afterPlanning, modalKind, dialog, launchEnabled })
-        );
-        await h.shot("cdp-shots/dag-summary-clean.png");
-
-        await h.ev(
-            `(() => [...document.querySelectorAll('button')].find((b) => (b.textContent || '').includes('Open graph'))?.click())()`
-        );
-        await h.ev("new Promise((r) => setTimeout(r, 250))");
-        await h.shot("cdp-shots/dag-draft-graph.png");
-        const graphRoundTrip = await h.ev(
-            `(() => { const b = [...document.querySelectorAll('button')].find((x) => (x.textContent || '').includes('Open summary')); if (!b) return false; b.click(); return true; })()`
-        );
-        await h.ev("new Promise((r) => setTimeout(r, 250))");
-        const summaryAfterGraph = await h.ev(
-            `document.querySelector('[data-dag-modal-kind]')?.getAttribute('data-dag-modal-kind') === 'draft' && (document.body.textContent || '').includes('verify dag')`
-        );
-        rec(
-            "Graph → Summary preserves the draft",
-            graphRoundTrip && summaryAfterGraph,
-            JSON.stringify({ graphRoundTrip, summaryAfterGraph })
-        );
-
-        const exceptionFixture = {
-            ...draftFixture,
-            fallback: true,
-            dirty: true,
-            warnings: ["Planner returned an invalid plan. Review the fallback task before launching."],
-            selectedTaskId: "t-1",
-        };
-        await h.ev(`window.__waveDagModalFixture.setState(${JSON.stringify(exceptionFixture)})`);
-        await h.ev("new Promise((r) => setTimeout(r, 250))");
-        await h.shot("cdp-shots/dag-summary-exceptions.png");
-        const retryClicked = await h.ev(
-            `(() => { const b = [...document.querySelectorAll('button')].find((x) => (x.textContent || '').trim() === 'Retry'); if (!b) return false; b.click(); return true; })()`
-        );
-        await h.ev("new Promise((r) => setTimeout(r, 250))");
-        const retryConfirm = await h.ev(`(document.body.textContent || '').includes('Replace edited fallback?')`);
-        const keepDraft = await h.ev(
-            `(() => { const b = [...document.querySelectorAll('button')].find((x) => (x.textContent || '').includes('Keep draft')); if (!b) return false; b.click(); return true; })()`
-        );
-        rec(
-            "dirty fallback Retry requires confirmation and cancel preserves draft",
-            retryClicked &&
-                retryConfirm &&
-                keepDraft &&
-                (await h.ev(
-                    `document.querySelector('[data-dag-modal-kind]')?.getAttribute('data-dag-modal-kind') === 'draft'`
-                )),
-            JSON.stringify({ retryClicked, retryConfirm, keepDraft })
-        );
-        await h.shot("cdp-shots/dag-fallback-retry.png");
-
-        await h.ev(`window.__waveDagModalFixture.setState(${JSON.stringify(draftFixture)})`);
-        await h.ev("new Promise((r) => setTimeout(r, 250))");
-        const launchClicked = await h.ev(
-            `(() => { const button = document.querySelector('[data-dag-launch]'); if (!(button instanceof HTMLButtonElement) || button.disabled) return false; button.click(); return true; })()`
-        );
-        await h.ev("new Promise((r) => setTimeout(r, 1800))");
-        const liveKind = await h.ev(
-            `document.querySelector('[data-dag-modal-kind]')?.getAttribute('data-dag-modal-kind')`
-        );
-        const afterLaunch = await getChannelRunCount();
-        const channelsAfterLaunch = await h.rpc("getchannels", null);
-        const launchedChannel = (channelsAfterLaunch.channels || []).find((x) => x.oid === ctx.channelId) || {};
-        const launchedRuns = launchedChannel.runs || [];
-        const parentGoal = draftFixture.request.goal;
-        const parentRuns = launchedRuns.filter((run) => run.goal === parentGoal && run.mode === "orchestrator");
-        const created = { run: parentRuns.at(-1) };
-        const runId = created.run && created.run.id;
-        rec(
-            "Launch creates one orchestrator parent Run (DAG child Runs may already exist)",
-            launchClicked && liveKind === "live" && afterLaunch >= beforePlanning + 1 && parentRuns.length === 1,
+            "1. DeferStart -> one orchestrator Run held in planning, no phase worker spawned",
+            createdParent.run.mode === "orchestrator" &&
+                createdParent.run.status === "planning" &&
+                afterPlanning === beforePlanning + 1 &&
+                (createdParent.run.phases || []).every((p) => !workerOf(p)),
             JSON.stringify({
                 beforePlanning,
-                afterLaunch,
-                parentCount: parentRuns.length,
-                modes: launchedRuns.map((run) => run.mode),
+                afterPlanning,
+                mode: createdParent.run.mode,
+                status: createdParent.run.status,
             })
         );
-        rec(
-            "deferred launch creates orchestrator Run",
-            !!runId && created.run.mode === "orchestrator",
-            JSON.stringify({ runId, mode: created.run && created.run.mode })
-        );
 
-        const g = await h.rpc("dagstatus", { channelid: ctx.channelId, runid: runId });
+        await h.rpc("dagsubmit", {
+            channelid: ctx.channelId,
+            runid: runId,
+            title: dagTitle,
+            parallelism: dagParallelism,
+            tasks: dagTasks,
+        });
+
+        // DagStatus returns { group, digest } since 5a863daa — the group is the snapshot this asserts.
+        const g = (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: runId })).group;
         rec(
-            "2. Launch DagSubmit -> group with 3 tasks, status running, run linked (dagoref)",
-            g.tasks.length === 3 && (g.status === "running" || g.status === "done") && !!g.id,
-            JSON.stringify({ id: g.id, status: g.status, tasks: g.tasks.map((t) => t.id) })
+            "2. DagSubmit -> group with 3 tasks parked at the plan gate, nothing dispatched",
+            g.tasks.length === 3 && g.status === "awaiting-plan" && g.tasks.every((t) => t.state === "pending"),
+            JSON.stringify({ id: g.id, status: g.status, tasks: g.tasks.map((t) => [t.id, t.state]) })
         );
         const rAfter = await getRun(runId);
         rec(
@@ -4137,16 +4050,9 @@ const dagLifecycle = {
         const retry = await h.rpc("dagsubmit", {
             channelid: ctx.channelId,
             runid: runId,
-            title: draftFixture.draft.title,
-            parallelism: draftFixture.draft.parallelism,
-            tasks: draftFixture.draft.tasks.map((task) => ({
-                id: task.id,
-                label: task.label,
-                description: task.description,
-                deps: task.deps,
-                gate: task.gate,
-                state: "",
-            })),
+            title: dagTitle,
+            parallelism: dagParallelism,
+            tasks: dagTasks,
         });
         const afterRetryCount = await getChannelRunCount();
         rec(
@@ -4155,28 +4061,41 @@ const dagLifecycle = {
             JSON.stringify({ first: g.id, retry: retry.id, beforeRetryCount, afterRetryCount })
         );
 
-        const st = await h.rpc("dagstatus", { channelid: ctx.channelId, runid: runId });
+        // approving the plan is what spawns the first worker — until then the dag holds every task
+        // pending, which is what step 2 just asserted.
+        await h.rpc("dagaction", { channelid: ctx.channelId, runid: runId, taskid: "", action: "approve-plan" });
+        let st = null;
+        for (let i = 0; i < 20; i++) {
+            await h.ev("new Promise((r) => setTimeout(r, 700))");
+            st = (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: runId })).group;
+            if (st.tasks[0].state !== "pending") break;
+        }
         rec(
-            "4. DagStatus -> t-0 scheduled (running) or already finished, t-1/t-2 pending",
-            st.tasks[0].state === "running" || st.tasks[0].state === "done",
-            JSON.stringify(st.tasks.map((t) => ({ id: t.id, state: t.state })))
+            "4. approve-plan -> t-0 scheduled (running) or already finished, t-1/t-2 pending",
+            st != null && (st.tasks[0].state === "running" || st.tasks[0].state === "done"),
+            JSON.stringify(st == null ? null : st.tasks.map((t) => ({ id: t.id, state: t.state })))
         );
 
-        // graph surface: the run header has an Open DAG button (jarvis surface). The subjects column
-        // reads a boot-primed channel snapshot, so reload the page to pick up the RPC-created channel,
-        // then click the channel row (matched by data-jarvis-subject-kind, not text — the project group
-        // header contains the same temp-dir name), then the run row.
+        // graph surface: the run header has an Open DAG button. The Brief's Sessions region is how a
+        // LIVE run is reached now — its row carries the run oref and opens the sheet on that run — so
+        // there is no channel row to click first. Reload to pick up the RPC-created channel (the Brief
+        // reads a boot-primed snapshot the same way the subjects column did), and open the region's
+        // overflow first: Sessions caps at ACTIVE_CAP and this DAG adds a parent plus its children.
         await h.ev("location.reload()");
         await h.ev("new Promise((r) => setTimeout(r, 4500))");
         await h.goto("jarvis");
-        const channelClicked = await clickRetry(
-            `[...document.querySelectorAll('[data-jarvis-subject-kind="channel"]')].find((b) => (b.getAttribute('aria-label') || '').includes('verify-dag'))`
+        await clickRetry(
+            `[...document.querySelectorAll('[data-jarvis-brief-more="more"]')].find((b) => b.closest('[data-jarvis-brief-region="sessions"]'))`,
+            2
         );
         const runClicked = await clickRetry(
-            `[...document.querySelectorAll('button')].find((x) => (x.textContent || '').includes('verify dag: do nothing, make no file changes, stop immediately'))`
+            `[...document.querySelectorAll('[data-jarvis-brief-row="session"]')]
+                .find((x) => x.tagName === 'BUTTON' && (x.textContent || '').includes(${JSON.stringify(parentGoal)}))`,
+            16
         );
-        // task 9 removed the cockpit takeover: Open DAG opens a Stage-local modal (the jarvis surface
-        // stays mounted underneath) instead of replacing the fleet view.
+        await h.ev("new Promise((r) => setTimeout(r, 1200))");
+        // task 9 removed the cockpit takeover: Open DAG opens a surface-local modal (the Brief stays
+        // mounted underneath) instead of replacing the fleet view.
         const openClicked = await clickRetry(
             `[...document.querySelectorAll('button')].find((x) => (x.textContent || '').includes('Open DAG'))`
         );
@@ -4192,10 +4111,9 @@ const dagLifecycle = {
             `(() => [...document.querySelectorAll('button')].some((x) => (x.textContent || '').includes('Close')))()`
         );
         rec(
-            "5. Open DAG -> Stage-local modal shows the live graph (3 nodes) with a heading",
+            "5. Open DAG -> surface-local modal shows the live graph (3 nodes) with a heading",
             openClicked === true && modalKindAfterOpen === "live" && nodeCount >= 3 && modalHeading === "Route DAG",
             JSON.stringify({
-                channelClicked,
                 runClicked,
                 openClicked,
                 modalKind: modalKindAfterOpen,
@@ -4222,7 +4140,7 @@ const dagLifecycle = {
         const cancelledRuns = cancelledChannel.runs || [];
         const cancelledOwner = cancelledRuns.find((run) => run.id === runId);
         const cancelledChildren = cancelledRuns.filter((run) => run.dagoref === g.id && run.id !== runId);
-        const cancelledDag = await h.rpc("dagstatus", { channelid: ctx.channelId, runid: runId });
+        const cancelledDag = (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: runId })).group;
         const cascadeOk =
             cancelledOwner &&
             cancelledOwner.status === "cancelled" &&
@@ -4240,7 +4158,7 @@ const dagLifecycle = {
         );
 
         await h.rpc("dagaction", { channelid: ctx.channelId, runid: runId, taskid: "", action: "cancel" });
-        const repeatedDag = await h.rpc("dagstatus", { channelid: ctx.channelId, runid: runId });
+        const repeatedDag = (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: runId })).group;
         const repeatedOwner = await getRun(runId);
         rec(
             "8. repeated DAG cancellation is idempotent",
@@ -4991,6 +4909,110 @@ const briefRestore = {
     },
 };
 
+// --- brief-profile: both scopes of the profile modal, and the playbook override -----------------
+// F4's re-home. The playbook editor and the global face lost their mount when B5 deleted profilepanel.tsx,
+// which left a custom playbook and the global principles reachable only over the RPC. Read-only on purpose:
+// it never presses Save, so it asserts the editors exist and the override toggles without writing a
+// profile into whatever config dir the dev app is pointed at.
+const briefProfile = {
+    name: "brief-profile",
+    surface: "jarvis",
+    async arrange() {
+        return {};
+    },
+    async assert(h) {
+        const steps = [];
+        await h.goto("jarvis");
+        await h.ev(`document.querySelector('[data-jarvis-brief-profile]')?.click()`);
+        await h.ev("new Promise((r) => setTimeout(r, 1200))");
+
+        const STATE = `(() => {
+            const dlg = document.querySelector('[data-jarvis-brief-modal="profile"] [role="dialog"]');
+            const txt = (el) => (el?.innerText || "").replace(/\\s+/g, " ").trim();
+            return {
+                scope: dlg ? dlg.dataset.jarvisProfileScope : null,
+                title: txt(dlg?.querySelector("header")),
+                tabs: [...document.querySelectorAll('[data-jarvis-profile-tab]')].map((b) => b.dataset.jarvisProfileTab),
+                sections: [...(dlg?.querySelectorAll("section") ?? [])].map((s) => txt(s).slice(0, 14)),
+                editors: document.querySelectorAll('[data-jarvis-playbook="editor"]').length,
+                summary: document.querySelectorAll('[data-jarvis-playbook="summary"]').length,
+                phases: document.querySelectorAll('[data-jarvis-playbook="phase"]').length,
+                globalPrinciples: document.querySelectorAll('[data-jarvis-global-principles="editor"] textarea').length,
+                save: txt([...(dlg?.querySelectorAll("footer button") ?? [])][0]),
+                saveDisabled: [...(dlg?.querySelectorAll("footer button") ?? [])][0]?.disabled ?? null,
+            };
+        })()`;
+
+        const project = await h.ev(STATE);
+        steps.push({
+            step: "1. the modal opens on this project, with both scopes offered",
+            ok:
+                project.scope === "project" &&
+                project.tabs.join(",") === "project,global" &&
+                project.sections.length === 3 &&
+                project.saveDisabled === true,
+            detail: JSON.stringify(project),
+        });
+
+        // an inherited playbook is stated, not editable: the project has not said anything different yet
+        steps.push({
+            step: "2. the inherited playbook reads as a summary, with no editor under it",
+            ok: project.summary === 1 && project.editors === 0 && project.phases === 0,
+            detail: JSON.stringify({ summary: project.summary, editors: project.editors, phases: project.phases }),
+        });
+
+        await h.ev(
+            `[...document.querySelectorAll('[data-jarvis-brief-modal="profile"] button')].find((b) => b.innerText.trim() === 'customize')?.click()`
+        );
+        await h.ev("new Promise((r) => setTimeout(r, 400))");
+        const customized = await h.ev(STATE);
+        steps.push({
+            step: "3. customize copies the inherited phases into an editable override",
+            ok:
+                customized.editors === 1 &&
+                customized.summary === 0 &&
+                customized.phases > 0 &&
+                customized.saveDisabled === false,
+            detail: JSON.stringify(customized),
+        });
+
+        await h.ev(
+            `[...document.querySelectorAll('[data-jarvis-brief-modal="profile"] section button')].find((b) => b.innerText.trim() === 'reset')?.click()`
+        );
+        await h.ev("new Promise((r) => setTimeout(r, 400))");
+        const resetted = await h.ev(STATE);
+        steps.push({
+            step: "4. reset drops the override, so the draft is clean again",
+            ok: resetted.summary === 1 && resetted.editors === 0 && resetted.saveDisabled === true,
+            detail: JSON.stringify(resetted),
+        });
+
+        await h.ev(`document.querySelector('[data-jarvis-profile-tab="global"]')?.click()`);
+        await h.ev("new Promise((r) => setTimeout(r, 600))");
+        const global = await h.ev(STATE);
+        steps.push({
+            step: "5. the global face edits the playbook and the principles every project inherits",
+            ok:
+                global.scope === "global" &&
+                global.title.toLowerCase().includes("global defaults") &&
+                global.editors === 1 &&
+                global.globalPrinciples > 0 &&
+                global.save.toLowerCase() === "save global defaults" &&
+                global.saveDisabled === true,
+            detail: JSON.stringify(global),
+        });
+
+        await h.shot("cdp-shots/brief-profile.png");
+        return steps;
+    },
+    async teardown(h) {
+        await h.ev(
+            `[...document.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === 'Close profile')?.click()`
+        );
+        await h.goto("cockpit");
+    },
+};
+
 export const SCENARIOS = [
     vaultSteering,
     vaultRecords,
@@ -5009,9 +5031,9 @@ export const SCENARIOS = [
     codeDiff,
     codeMarkdown,
     jarvisAvatar,
-    jarvisBriefing,
     briefSurface,
     briefPeek,
+    briefProfile,
     jarvisAsk,
     jarvisContextual,
     jarvisMultiturn,

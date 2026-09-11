@@ -8,47 +8,45 @@
 // Nothing here reads condition. Aliveness is not a fifth register: the avatar turns and breathes whatever
 // it currently expresses, and that is what separates idle from frozen.
 //
-// This module used to serve eyes. eyeRoom clamped pupil travel inside a lid and nextBlinkDelay scheduled
-// blinks; the hologram form has neither, so both are gone. What survived is the distance ramp, reused to
-// rotate the whole assembly instead of sliding a pupil inside an eye.
+// This module used to serve eyes, then it served a gaze. eyeRoom clamped pupil travel inside a lid and
+// nextBlinkDelay scheduled blinks; the hologram form has neither. gazeYawPitch then turned the whole
+// assembly to face the pointer, and that is gone too — a hologram that watches the cursor is a pet, and
+// tracking the pointer across a window whose other surfaces are live terminals made the avatar read as
+// something demanding attention rather than something holding it. It turns on its own clock now.
 
-// How far the pointer must be before the turn is fully committed. Below it the turn ramps, so a pointer
-// resting alongside the avatar does not peg it to one side.
-export const GAZE_SATURATE_PX = 220;
-
-export interface GazeAngles {
+export interface OrbitAngles {
     /** radians, positive turns the avatar's near face toward larger screen x */
     yaw: number;
     /** radians, positive tips the near face upward */
     pitch: number;
 }
 
-// Pointer position (viewport px) -> rotation of the whole form.
-//
-// The direction is normalised before the caps are applied, so a diagonal splits its budget between the two
-// axes. Clamping each axis independently would let a diagonal reach yawCap AND pitchCap at once, which is a
-// harder turn than the caps were chosen to permit.
-export function gazeYawPitch(
-    cx: number,
-    cy: number,
-    pointerX: number,
-    pointerY: number,
-    yawCap: number,
-    pitchCap: number
-): GazeAngles {
-    const vx = pointerX - cx;
-    const vy = pointerY - cy;
-    const dist = Math.hypot(vx, vy);
-    // written as !(dist > 0) so a NaN coordinate lands here too: the pointer on the exact centre has no
-    // direction to turn toward, and dividing by it would put NaN into a rotation
-    if (!(dist > 0)) {
+// One full turn. Deliberately long: at 48s the near face crosses the silhouette slowly enough that the
+// motion is only visible if you look for it, which is the difference between a hologram idling and a
+// loading spinner. The platters already spin on their own much faster clock (mood.spin), so the body
+// turn is the slowest thing in the form and reads as parallax rather than as rotation.
+export const ORBIT_MS = 48_000;
+
+// The pitch bob rides a second, coprime-ish period so the pair never returns to the same pose on a short
+// cycle. Shallow — this is a nod, not a tumble, and the scene already tilts the whole form by 0.22.
+export const ORBIT_PITCH_MS = 17_000;
+export const ORBIT_PITCH = 0.18;
+
+/**
+ * The body's own rotation, from the clock alone.
+ *
+ * Yaw is taken modulo the period rather than accumulated. `now` is a monotonic ms clock that only grows,
+ * and a session left open overnight would otherwise push it past the point where float32 spacing is
+ * coarser than a frame's worth of turn — the rotation would visibly quantise into steps.
+ */
+export function idleOrbit(now: number): OrbitAngles {
+    if (!Number.isFinite(now)) {
         return { yaw: 0, pitch: 0 };
     }
-    const ramp = Math.min(1, dist / GAZE_SATURATE_PX);
+    const turn = (((now % ORBIT_MS) + ORBIT_MS) % ORBIT_MS) / ORBIT_MS;
     return {
-        yaw: (vx / dist) * Math.max(0, yawCap) * ramp,
-        // screen y grows downward while pitch is positive-up, hence the negation
-        pitch: -(vy / dist) * Math.max(0, pitchCap) * ramp,
+        yaw: turn * Math.PI * 2,
+        pitch: Math.sin((now / ORBIT_PITCH_MS) * Math.PI * 2) * ORBIT_PITCH,
     };
 }
 
@@ -69,6 +67,39 @@ export function utteranceEnvelope(now: number, spokeAt: number | null, durationM
         return 0;
     }
     return 1 - elapsed / durationMs;
+}
+
+// Punctuation windows. A ripple is the network carrying news across itself, so it needs long enough to
+// visibly cross the form; a jolt is an impact and has to be over before it becomes a wobble.
+export const RIPPLE_MS = 1_400;
+export const JOLT_MS = 520;
+
+// Fraction of the window spent rising. Utterances start at their peak and decay because the bubble is
+// already on screen by then — the surge is the tail of something the user has seen. A punctuation is the
+// first the user hears of it, so it needs an onset to be an event rather than a fade.
+const IMPULSE_ATTACK = 0.18;
+
+/**
+ * 0 -> 1 -> 0 across the window, with a fast rise and a squared falloff.
+ *
+ * Same defensive shape as utteranceEnvelope, and for the same reasons: a null or future `firedAt` reads
+ * as nothing happening rather than as a permanent surge, so a clock adjustment cannot leave the avatar
+ * stuck mid-impact.
+ */
+export function impulseEnvelope(now: number, firedAt: number | null, durationMs: number): number {
+    if (firedAt == null || !Number.isFinite(firedAt) || !Number.isFinite(now) || !(durationMs > 0)) {
+        return 0;
+    }
+    const elapsed = now - firedAt;
+    if (!(elapsed >= 0) || elapsed >= durationMs) {
+        return 0;
+    }
+    const p = elapsed / durationMs;
+    if (p < IMPULSE_ATTACK) {
+        return p / IMPULSE_ATTACK;
+    }
+    const fall = 1 - (p - IMPULSE_ATTACK) / (1 - IMPULSE_ATTACK);
+    return fall * fall;
 }
 
 export const BREATH_MS = 4_200;

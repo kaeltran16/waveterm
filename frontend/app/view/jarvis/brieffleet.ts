@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // The Brief header's fleet line: the live agent roster -> how many workers are running and what they
-// have cost. Count and spend both come off the one roster argument, so the two halves of the line can
+// have cost. Count and spend are summed over the same live subset, so the two halves of the line can
 // never disagree — the version this replaces derived its count and hardcoded its spend.
 
 import { liveWindowAgents, type AgentVM } from "@/app/view/agents/agentsviewmodel";
@@ -22,9 +22,11 @@ function formatUsd(n: number): string {
 
 // Per-agent reported cost, not the Usage surface's totalSpendUsd: that is a client-side price estimate
 // over historical transcripts and it stops refreshing once its surface unmounts, while this line is
-// header chrome that has to stay current. Idle agents still count — their frozen last reading is spend
-// the fleet already accrued.
-function rosterSpendUsd(agents: AgentVM[]): number {
+// header chrome that has to stay current. Summed over the live subset the count is printed next to, so
+// the dollars are what those sessions cost; spend an idle session already accrued belongs to Usage, which
+// is the surface that keeps historical totals. The all-idle case is why: this line drops to "nothing
+// running", and a roster-wide total there would be computed and then thrown away.
+function liveSpendUsd(agents: AgentVM[]): number {
     let total = 0;
     for (const a of agents) {
         const cost = a.usage?.costusd;
@@ -36,12 +38,12 @@ function rosterSpendUsd(agents: AgentVM[]): number {
     return total;
 }
 
-/** Pure: roster -> live count, roster spend, and the header line. "Live" is liveWindowAgents so the
- *  count matches every other live reading in the cockpit. Parts are omitted rather than zeroed. */
+/** Pure: roster -> live count, that subset's spend, and the header line. "Live" is liveWindowAgents so
+ *  the count matches every other live reading in the cockpit. Parts are omitted rather than zeroed. */
 export function briefFleet(agents: AgentVM[]): BriefFleet {
-    const roster = agents ?? [];
-    const liveCount = liveWindowAgents(roster).length;
-    const spendUsd = rosterSpendUsd(roster);
+    const live = liveWindowAgents(agents ?? []);
+    const liveCount = live.length;
+    const spendUsd = liveSpendUsd(live);
     if (liveCount === 0) {
         return { liveCount, spendUsd, line: NO_FLEET_LINE };
     }
