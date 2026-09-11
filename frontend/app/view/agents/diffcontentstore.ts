@@ -72,8 +72,15 @@ async function readSide(cwd: string, path: string, side: DiffSide): Promise<Side
 export async function loadDiffPair(cwd: string, path: string, sel: DiffSelection): Promise<void> {
     const refs = pairRefsFor(sel);
     const token = `${cwd}|${path}|${JSON.stringify(refs)}`;
+    // Re-reading what is already on screen is a refresh, not a navigation: the change poll replaces
+    // the working-tree state every few seconds and the surface re-reads with it, so blanking here
+    // would flash the skeleton on every tick. A different file or range still blanks — showing the
+    // previous file's text under the new one's header is worse than showing nothing.
+    const refresh = current.token === token;
     current.token = token;
-    globalStore.set(diffPairAtom, null);
+    if (!refresh) {
+        globalStore.set(diffPairAtom, null);
+    }
     try {
         const [original, modified] = await Promise.all([
             readSide(cwd, path, refs.original),

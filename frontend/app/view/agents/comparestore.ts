@@ -19,7 +19,6 @@ import { atom, type PrimitiveAtom } from "jotai";
 import { AGGREGATE } from "./comparerows";
 import type { DiffRange } from "./diffscope";
 import { diffScopeAtom } from "./diffscopeatom";
-import { diffFileView, type FileView } from "./gitdiff";
 import { parseGitChanges, type GitChanges } from "./gitstatus";
 
 export interface CompareRefs {
@@ -45,9 +44,6 @@ export const compareSelectedFileAtom = atom<string | null>(null) as PrimitiveAto
 // A failed compare read, phrased with the refs in it so the column can name what did not resolve.
 export const compareErrorAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 export const compareBranchesAtom = atom<BranchInfo[]>([]) as PrimitiveAtom<BranchInfo[]>;
-// The open file's diff. One atom for both selection states — the aggregate and a commit each write it
-// from their own command, so there is nothing for a derived atom to choose between.
-export const compareDiffAtom = atom<FileView | null>(null) as PrimitiveAtom<FileView | null>;
 
 const commitChangesAtom = atom<GitChanges | null>(null) as PrimitiveAtom<GitChanges | null>;
 
@@ -80,7 +76,6 @@ function clearCompareState(): void {
     globalStore.set(compareSelectionAtom, AGGREGATE);
     globalStore.set(compareSelectedFileAtom, null);
     globalStore.set(commitChangesAtom, null);
-    globalStore.set(compareDiffAtom, null);
     globalStore.set(compareErrorAtom, null);
     // compareRefsAtom survives on purpose: re-entering compare should offer the pair you last used.
 }
@@ -135,7 +130,6 @@ export async function setCompareRefs(cwd: string, base: string, head: string): P
     globalStore.set(compareSelectionAtom, AGGREGATE);
     globalStore.set(compareSelectedFileAtom, null);
     globalStore.set(commitChangesAtom, null);
-    globalStore.set(compareDiffAtom, null);
     globalStore.set(compareErrorAtom, null);
     if (!base || !head) {
         globalStore.set(compareErrorAtom, "Pick two refs to compare.");
@@ -162,7 +156,7 @@ export async function setCompareRefs(cwd: string, base: string, head: string): P
         globalStore.set(compareAggregateAtom, changes);
         const first = changes.files[0]?.path;
         if (first) {
-            void selectCompareFile(cwd, first);
+            selectCompareFile(first);
         }
     } catch {
         if (current.token === token) {
@@ -176,11 +170,10 @@ export async function setCompareRefs(cwd: string, base: string, head: string): P
 export async function selectCompareRow(cwd: string, rowId: string): Promise<void> {
     globalStore.set(compareSelectionAtom, rowId);
     globalStore.set(compareSelectedFileAtom, null);
-    globalStore.set(compareDiffAtom, null);
     if (rowId === AGGREGATE) {
         const first = globalStore.get(compareAggregateAtom)?.files[0]?.path;
         if (first) {
-            void selectCompareFile(cwd, first);
+            selectCompareFile(first);
         }
         return;
     }
@@ -194,7 +187,7 @@ export async function selectCompareRow(cwd: string, rowId: string): Promise<void
         globalStore.set(commitChangesAtom, changes);
         const first = changes?.files[0]?.path;
         if (first) {
-            void selectCompareFile(cwd, first);
+            selectCompareFile(first);
         }
     } catch {
         if (globalStore.get(compareSelectionAtom) === rowId) {
@@ -203,38 +196,8 @@ export async function selectCompareRow(cwd: string, rowId: string): Promise<void
     }
 }
 
-export async function selectCompareFile(cwd: string, path: string): Promise<void> {
+// Selection only. Which two refs the aggregate row and a commit row mean is the pane's question now
+// (diffcontent.ts), and it reads the same compareSelectionAtom this writes.
+export function selectCompareFile(path: string): void {
     globalStore.set(compareSelectedFileAtom, path);
-    globalStore.set(compareDiffAtom, null);
-    const selection = globalStore.get(compareSelectionAtom);
-    const refs = globalStore.get(compareRefsAtom);
-    const moved = () =>
-        globalStore.get(compareSelectedFileAtom) !== path || globalStore.get(compareSelectionAtom) !== selection;
-    try {
-        if (selection === AGGREGATE) {
-            if (refs == null) {
-                return;
-            }
-            const d = await RpcApi.GitCompareDiffCommand(TabRpcClient, {
-                cwd,
-                base: refs.base,
-                head: refs.head,
-                path,
-            });
-            if (moved()) {
-                return;
-            }
-            globalStore.set(compareDiffAtom, diffFileView(d));
-            return;
-        }
-        const d = await RpcApi.GitCommitDiffCommand(TabRpcClient, { cwd, hash: selection, path });
-        if (moved()) {
-            return;
-        }
-        globalStore.set(compareDiffAtom, diffFileView(d));
-    } catch {
-        if (!moved()) {
-            globalStore.set(compareDiffAtom, null);
-        }
-    }
 }

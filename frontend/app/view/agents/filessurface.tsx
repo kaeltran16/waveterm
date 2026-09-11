@@ -4,32 +4,31 @@
 
 // Diff surface (Wave-git-review.dc.html): three panes on one time axis — commit history with a lane
 // gutter (historypane), the selected commit's metadata + files (commitpane), and that file's diff
-// (CenterPane, below). Uncommitted work is row zero of the history, not a separate mode. Read-only.
+// (diffpane). Uncommitted work is row zero of the history, not a separate mode. Read-only.
 
 import { getApi } from "@/app/store/global";
 import { globalStore } from "@/app/store/jotaiStore";
 import { joinRepoPath } from "@/util/paths";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { MotionConfig, motion } from "motion/react";
+import { MotionConfig } from "motion/react";
 import { buildFilesBindings } from "@/app/store/keybindings/bindings";
 import { useSurfaceListNav, type ListNavController } from "@/app/store/keybindings/listnav";
 import { useKeybindings } from "@/app/store/keybindings/store";
 import { useEffect, useMemo, useState } from "react";
-import { MOTION } from "@/app/element/motiontokens";
+import { useSyncMonacoTheme } from "@/app/monaco/monacotheme";
 import { PopoverReveal } from "@/app/element/popoverreveal";
-import { SkeletonLine } from "@/app/element/skeleton";
-import { openInCode } from "@/app/view/code/codestore";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
-import { firstChangedLine, type DiffLine, type FileView } from "./gitdiff";
+import { DiffPane } from "./diffpane";
+import type { DiffSelection } from "./diffcontent";
+import { clearDiffPair, loadDiffPair } from "./diffcontentstore";
 import { StatusDot } from "./statusdot";
 import { filesErrorAtom, filesStateAtom, loadFilesForScope, startChangesPoll, type FilesProject } from "./filesstore";
 import { availableRanges, historyOptsFor, rangeKey, scopeKey, summaryLine } from "./diffscope";
 import { agentDiffScope, projectDiffScope } from "./agentdiffnav";
 import { setDiffRange } from "./diffscopeatom";
 import { peekSessionStart } from "./agentsessionstore";
-import { fmtBytes } from "./runcompletion";
 import { RangeStrip } from "./rangestrip";
 import { projectsAtom } from "./projectsstore";
 import { CommitPane } from "./commitpane";
@@ -40,7 +39,6 @@ import {
     compareActiveChangesAtom,
     compareAggregateAtom,
     compareBranchesAtom,
-    compareDiffAtom,
     compareErrorAtom,
     compareOnAtom,
     compareRefsAtom,
@@ -56,7 +54,6 @@ import {
 import { RefPicker } from "./refpicker";
 import {
     activeChangesAtom,
-    activeDiffAtom,
     dismissRestoreNotice,
     graphOnAtom,
     historyAppendAtom,
@@ -188,156 +185,6 @@ function SourcePicker({
     );
 }
 
-function EmptyCenter({ msg }: { msg: string }) {
-    return <div className="flex h-full items-center justify-center text-[13px] text-muted">{msg}</div>;
-}
-
-// A file can legitimately have changed and still have no diff text: git sends one sentence for a
-// binary file, and a pure rename or a mode change has no content to show at all. Both used to render
-// as an empty scroll area under a "+0 −0" bar, which reads as a broken pane rather than an answer.
-// A patch refused by the server's size cap lands here too, and must say so — it is the one case where
-// "nothing inside this file changed" would be the opposite of the truth.
-function NoTextDiff({ view }: { view: FileView }) {
-    return (
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-[7px] px-[20px] text-center">
-            <span className="text-[13px] text-muted">
-                {view.tooLarge != null
-                    ? `Diff too large to display — ${fmtBytes(view.tooLarge)} of patch.`
-                    : view.binary
-                      ? "Binary file — git reports a change but has no text diff to show."
-                      : view.renamedFrom
-                        ? "Renamed. Nothing inside the file changed."
-                        : "Nothing inside this file changed."}
-            </span>
-            {view.renamedFrom ? (
-                <span className="font-mono text-[11.5px] text-ink-faint">from {view.renamedFrom}</span>
-            ) : null}
-        </div>
-    );
-}
-
-function DiffSkeleton() {
-    return (
-        <div className="flex min-h-0 flex-1 flex-col">
-            <div className="flex flex-none items-center gap-[14px] border-b border-edge-faint px-[20px] py-[8px]">
-                <SkeletonLine className="h-[11px] w-[34px]" />
-                <SkeletonLine className="h-[11px] w-[34px]" />
-                <SkeletonLine className="h-[11px] w-[92px]" />
-            </div>
-            <div className="flex-1 overflow-hidden px-[20px] py-[14px]">
-                {Array.from({ length: 12 }).map((_, i) => (
-                    <div key={i} className="mb-[10px] flex gap-[10px]">
-                        <SkeletonLine className="h-[12px] w-[30px]" />
-                        <SkeletonLine className="h-[12px] w-[30px]" />
-                        <SkeletonLine className="h-[12px] w-[72%]" />
-                    </div>
-                ))}
-            </div>
-        </div>
-    );
-}
-
-function DiffRow({ line }: { line: DiffLine }) {
-    if (line.kind === "hunk") {
-        return <div className="bg-surface px-[20px] py-[2px] font-mono text-[11px] text-ink-mid">{line.text}</div>;
-    }
-    const tint =
-        line.kind === "add"
-            ? "color-mix(in srgb, var(--color-success) 12%, transparent)"
-            : line.kind === "del"
-              ? "color-mix(in srgb, var(--color-error) 12%, transparent)"
-              : undefined;
-    const textColor = line.kind === "add" ? "text-success" : line.kind === "del" ? "text-error" : "text-foreground";
-    return (
-        <div className="flex min-w-max" style={tint ? { background: tint } : undefined}>
-            <span className="w-[42px] flex-none select-none px-[8px] text-right text-ink-faint">{line.gOld}</span>
-            <span className="w-[42px] flex-none select-none px-[8px] text-right text-ink-faint">{line.gNew}</span>
-            <span className={cn("w-[16px] flex-none text-center", textColor)}>{line.sign}</span>
-            <span className={cn("whitespace-pre pr-[28px]", textColor)}>{line.text}</span>
-        </div>
-    );
-}
-
-function CenterPane({
-    path,
-    view,
-    editorCwd,
-    repoCwd,
-    model,
-}: {
-    path: string | null;
-    view: FileView | null;
-    editorCwd: string | null;
-    repoCwd: string | null;
-    model: AgentsViewModel;
-}) {
-    return (
-        <motion.div
-            key={path ?? "__empty__"}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
-            className="flex min-h-0 min-w-0 flex-1 flex-col"
-        >
-            {!path ? (
-                <EmptyCenter msg="Select a file to view its changes" />
-            ) : (
-                <>
-                    <div className="flex flex-none items-center gap-[11px] border-b border-border px-[20px] py-[13px]">
-                        <span className="min-w-0 truncate font-mono text-[13px] font-semibold">{path}</span>
-                        <div className="flex-1" />
-                        <span className="flex-none font-mono text-[11px] text-ink-mid">Read-only</span>
-                        {repoCwd && (
-                            <button
-                                onClick={() =>
-                                    fireAndForget(() =>
-                                        openInCode(model, {
-                                            projectPath: repoCwd,
-                                            rel: path,
-                                            line: view != null ? firstChangedLine(view) : undefined,
-                                        })
-                                    )
-                                }
-                                className="flex-none rounded border border-border px-[11px] py-[6px] text-[12px] text-ink-mid hover:text-foreground"
-                            >
-                                Open in Code
-                            </button>
-                        )}
-                        {editorCwd && (
-                            <button
-                                onClick={() => getApi().openExternal(joinRepoPath(editorCwd, path))}
-                                className="flex-none rounded border border-border px-[11px] py-[6px] text-[12px] text-ink-mid hover:text-foreground"
-                            >
-                                Open in editor ↗
-                            </button>
-                        )}
-                    </div>
-                    {view == null ? (
-                        <DiffSkeleton />
-                    ) : view.lines.length === 0 ? (
-                        <NoTextDiff view={view} />
-                    ) : (
-                        <>
-                            {view.isDiff && (
-                                <div className="flex flex-none items-center gap-[14px] border-b border-edge-faint px-[20px] py-[8px] font-mono text-[11px] font-bold">
-                                    <span className="text-success">+{view.adds}</span>
-                                    <span className="text-error">−{view.dels}</span>
-                                    <span className="font-medium text-ink-mid">{view.hunkLabel}</span>
-                                </div>
-                            )}
-                            <div className="min-h-0 flex-1 overflow-auto py-[8px] font-mono text-[12.5px] leading-[1.75]">
-                                {view.lines.map((l, i) => (
-                                    <DiffRow key={i} line={l} />
-                                ))}
-                            </div>
-                        </>
-                    )}
-                </>
-            )}
-        </motion.div>
-    );
-}
-
 export function FilesSurface({ model }: { model: AgentsViewModel }) {
     const focusId = useAtomValue(model.focusIdAtom);
     const agents = useAtomValue(model.agentsAtom);
@@ -356,7 +203,6 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
     const selectedFile = useAtomValue(selectedFileAtom);
     const graphOn = useAtomValue(graphOnAtom);
     const activeChanges = useAtomValue(activeChangesAtom);
-    const activeDiff = useAtomValue(activeDiffAtom);
     const compareOn = useAtomValue(compareOnAtom);
     const compareRefs = useAtomValue(compareRefsAtom);
     const compareSides = useAtomValue(compareSidesAtom);
@@ -366,7 +212,6 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
     const compareError = useAtomValue(compareErrorAtom);
     const compareBranches = useAtomValue(compareBranchesAtom);
     const compareChanges = useAtomValue(compareActiveChangesAtom);
-    const compareDiff = useAtomValue(compareDiffAtom);
     // the ref picker's own open/closed state: `c` and a click on the chip open it, Enter/Escape close it
     const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -524,11 +369,21 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
         refreshHistoryIfMoved(state?.head ?? "");
     }, [state?.head]);
 
+    // What the diff pane is showing. The header's +/- come from the row that is already loaded, so
+    // opening a file costs no extra read.
+    const shownPath = compareOn ? compareFile : selectedFile;
+    const shownChanges = compareOn ? compareChanges : activeChanges;
+    const selectedChange = shownChanges?.files.find((f) => f.path === shownPath) ?? null;
+    // The working-tree side is live — an agent editing under this surface must not leave a stale diff
+    // on screen. The change poll replaces filesStateAtom on every tick, so its identity IS the tick;
+    // a commit or a comparison is immutable and stays out of the dep so it is read exactly once.
+    const liveTick = !compareOn && selectedCommit === WORKING_TREE ? state : null;
+
     // publish the visible column's rows for global j/k list-nav. cursor == selection: moving selects,
     // which loads that row's files and first diff. Must run before the early return (hooks rules).
     const navIds = compareOn ? compareNavIds(compareRows) : (historyRows ?? []).map((r) => r.hash);
     const navCursor = compareOn ? compareSelection : (selectedCommit ?? undefined);
-    const navFile = compareOn ? compareFile : selectedFile;
+    const navFile = shownPath;
     const listNav = useMemo<ListNavController | null>(
         () =>
             state?.cwd && navIds.length > 0
@@ -553,6 +408,48 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
     // stable array: every run() reads live atoms, so it never needs rebuilding
     const filesBindings = useMemo(() => buildFilesBindings(), []);
     useKeybindings(filesBindings);
+
+    // the diff pane is Monaco, which reads the same theme tokens the Code surface syncs
+    useSyncMonacoTheme();
+
+    // One place decides which two refs the pane reads; the three selection states differ only in
+    // what they name, which is diffcontent.ts's whole job.
+    useEffect(() => {
+        const cwd = state?.cwd;
+        if (!cwd || !shownPath) {
+            clearDiffPair();
+            return;
+        }
+        // In compare mode only the aggregate row means "the whole comparison"; a commit row there is
+        // still one commit against its parent, exactly as in history.
+        const sel: DiffSelection = compareOn
+            ? compareSelection === AGGREGATE
+                ? {
+                      kind: "compare",
+                      base: compareRefs?.base ?? "",
+                      head: compareRefs?.head ?? "",
+                      mergeBase: compareSides?.mergeBase ?? "",
+                      // Task 10 moves the range form into scope.range; until then a comparison is
+                      // always merge-base anchored, which is what the change list already shows.
+                      form: "mergebase",
+                  }
+                : { kind: "commit", hash: compareSelection ?? "" }
+            : selectedCommit === WORKING_TREE
+              ? { kind: "worktree", anchorRef: state?.ref ?? "" }
+              : { kind: "commit", hash: selectedCommit ?? "" };
+        fireAndForget(() => loadDiffPair(cwd, shownPath, sel));
+    }, [
+        state?.cwd,
+        state?.ref,
+        shownPath,
+        compareOn,
+        compareRefs?.base,
+        compareRefs?.head,
+        compareSides?.mergeBase,
+        compareSelection,
+        selectedCommit,
+        liveTick,
+    ]);
 
     if (agents.length === 0 && projects.length === 0) {
         return (
@@ -701,9 +598,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                         head={compareRefs?.head ?? ""}
                                         changes={compareChanges}
                                         selectedFile={compareFile}
-                                        onSelectFile={(path) =>
-                                            state?.cwd && fireAndForget(() => selectCompareFile(state.cwd!, path))
-                                        }
+                                        onSelectFile={(path) => selectCompareFile(path)}
                                     />
                                 ) : (
                                     // a compare commit row *is* a HistoryRow, so the shipped pane takes it directly
@@ -715,9 +610,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                         }
                                         changes={compareChanges}
                                         selectedFile={compareFile}
-                                        onSelectFile={(path) =>
-                                            state?.cwd && fireAndForget(() => selectCompareFile(state.cwd!, path))
-                                        }
+                                        onSelectFile={(path) => selectCompareFile(path)}
                                     />
                                 )
                             ) : (
@@ -726,17 +619,16 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                     changes={activeChanges}
                                     selectedFile={selectedFile}
                                     onSelectFile={(path) =>
-                                        state?.cwd &&
-                                        selectedCommit != null &&
-                                        fireAndForget(() => selectCommitFile(state.cwd!, selectedCommit, path))
+                                        selectedCommit != null && selectCommitFile(selectedCommit, path)
                                     }
                                 />
                             )}
                         </div>
                         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-                            <CenterPane
-                                path={compareOn ? compareFile : selectedFile}
-                                view={compareOn ? compareDiff : activeDiff}
+                            <DiffPane
+                                path={shownPath}
+                                adds={selectedChange?.adds ?? 0}
+                                dels={selectedChange?.dels ?? 0}
                                 // "Open in editor" only makes sense for a path that exists in the working tree
                                 editorCwd={!compareOn && selectedCommit === WORKING_TREE ? (state?.cwd ?? null) : null}
                                 // "Open in Code" wants only the repository: the Code surface always shows the

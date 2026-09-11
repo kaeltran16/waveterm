@@ -2,12 +2,10 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const gitChanges = vi.fn();
-const gitDiff = vi.fn();
 const resolveCwd = vi.fn();
 vi.mock("@/app/store/wshclientapi", () => ({
     RpcApi: {
         GitChangesCommand: (...a: any[]) => gitChanges(...a),
-        GitDiffCommand: (...a: any[]) => gitDiff(...a),
     },
 }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
@@ -18,7 +16,6 @@ vi.mock("./agentsessionstore", () => ({ ensureSessionStart: (...a: any[]) => ens
 import { scopeKey, type DiffScope } from "./diffscope";
 import {
     consumeFileLink,
-    filesDiffAtom,
     filesSelectedPathAtom,
     filesStateAtom,
     loadFilesForScope,
@@ -43,31 +40,28 @@ const projectScopeVal = (name: string, path = "/repo"): DiffScope => ({
 
 afterEach(() => {
     gitChanges.mockReset();
-    gitDiff.mockReset();
     resolveCwd.mockReset();
     ensureSessionStart.mockReset();
     globalStore.set(filesStateAtom, null);
     globalStore.set(filesSelectedPathAtom, null);
-    globalStore.set(filesDiffAtom, null);
 });
 
 describe("loadFilesForScope, run range", () => {
-    it("threads the base commit as ref into GitChanges and the follow-up GitDiff", async () => {
+    it("threads the base commit as ref into GitChanges and records it as the diff anchor", async () => {
         gitChanges.mockResolvedValue({ isrepo: true, branch: "main", statusz: "M  x.ts\0", numstat: "1\t0\tx.ts\n" });
-        gitDiff.mockResolvedValue({ diff: "", content: "", untracked: false });
 
         await loadFilesForScope(runScopeVal("run-1"));
         // let the fire-and-forget selectFile settle
         await new Promise((r) => setTimeout(r, 0));
 
         expect(gitChanges).toHaveBeenCalledWith({}, { cwd: "/repo", ref: "abc123" });
-        expect(gitDiff).toHaveBeenCalledWith({}, { cwd: "/repo", path: "x.ts", ref: "abc123" });
+        // the anchor the pane diffs against is this ref, so list and pane cannot disagree
         expect(globalStore.get(filesStateAtom)?.ref).toBe("abc123");
     });
 });
 
 describe("loadFilesForScope, session range", () => {
-    it("resolves the session-start ts, sends it as sessionstartts, and threads the echoed base into GitDiff", async () => {
+    it("resolves the session-start ts, sends it as sessionstartts, and records the echoed base as the anchor", async () => {
         resolveCwd.mockResolvedValue("/wt");
         ensureSessionStart.mockResolvedValue(1719000000);
         // backend resolved the session-start commit and echoed it back as `ref`
@@ -78,14 +72,12 @@ describe("loadFilesForScope, session range", () => {
             numstat: "2\t0\ty.ts\n",
             ref: "base9",
         });
-        gitDiff.mockResolvedValue({ diff: "", content: "", untracked: false });
 
         await loadFilesForScope(agentScopeVal("a1"), { transcriptPath: "/t.jsonl" });
         await new Promise((r) => setTimeout(r, 0));
 
         expect(gitChanges).toHaveBeenCalledWith({}, { cwd: "/wt", sessionstartts: 1719000000 });
-        // the per-file diff must use the SAME base the list did, not "" — else pill/list/diff disagree
-        expect(gitDiff).toHaveBeenCalledWith({}, { cwd: "/wt", path: "y.ts", ref: "base9" });
+        // the pane diffs against the SAME base the list did, not "" — else pill/list/diff disagree
         expect(globalStore.get(filesStateAtom)?.ref).toBe("base9");
     });
 
@@ -99,7 +91,6 @@ describe("loadFilesForScope, session range", () => {
             numstat: "2\t0\ty.ts\n",
             ref: "",
         });
-        gitDiff.mockResolvedValue({ diff: "", content: "", untracked: false });
 
         await loadFilesForScope(agentScopeVal("a2"), { transcriptPath: "/t.jsonl" });
         await new Promise((r) => setTimeout(r, 0));
@@ -121,7 +112,6 @@ describe("loadFilesForScope, working range on an agent", () => {
             numstat: "2\t0\ty.ts\n",
             ref: "",
         });
-        gitDiff.mockResolvedValue({ diff: "", content: "", untracked: false });
 
         await loadFilesForScope({ ...agentScopeVal("a3"), range: { kind: "working" } }, { transcriptPath: "/t.jsonl" });
         await new Promise((r) => setTimeout(r, 0));
@@ -139,17 +129,15 @@ describe("reloadChanges", () => {
             statusz: "M  a.ts\0M  b.ts\0",
             numstat: "1\t0\ta.ts\n1\t0\tb.ts\n",
         });
-        gitDiff.mockResolvedValue({ diff: "", content: "", untracked: false });
 
         await loadFilesForScope(projectScopeVal("proj"));
         await new Promise((r) => setTimeout(r, 0));
         expect(globalStore.get(filesSelectedPathAtom)).toBe("a.ts");
 
         // user navigates away from the auto-selected first file
-        await selectFile("/repo", "b.ts");
+        selectFile("b.ts");
         expect(globalStore.get(filesSelectedPathAtom)).toBe("b.ts");
 
-        gitDiff.mockClear();
         gitChanges.mockResolvedValueOnce({
             isrepo: true,
             branch: "main",
@@ -161,24 +149,20 @@ describe("reloadChanges", () => {
         await new Promise((r) => setTimeout(r, 0));
 
         expect(globalStore.get(filesSelectedPathAtom)).toBe("b.ts");
-        // the open file's diff is resynced in place, not dropped
-        expect(gitDiff).toHaveBeenCalledWith({}, { cwd: "/repo", path: "b.ts", ref: "" });
     });
 
-    it("leaves the selection in place and skips the diff refetch when the selected file drops out of the change set", async () => {
+    it("leaves the selection in place when the selected file drops out of the change set", async () => {
         gitChanges.mockResolvedValueOnce({
             isrepo: true,
             branch: "main",
             statusz: "M  a.ts\0M  b.ts\0",
             numstat: "1\t0\ta.ts\n1\t0\tb.ts\n",
         });
-        gitDiff.mockResolvedValue({ diff: "", content: "", untracked: false });
 
         await loadFilesForScope(projectScopeVal("proj"));
         await new Promise((r) => setTimeout(r, 0));
-        await selectFile("/repo", "b.ts");
+        selectFile("b.ts");
 
-        gitDiff.mockClear();
         gitChanges.mockResolvedValueOnce({
             isrepo: true,
             branch: "main",
@@ -190,7 +174,6 @@ describe("reloadChanges", () => {
         await new Promise((r) => setTimeout(r, 0));
 
         expect(globalStore.get(filesSelectedPathAtom)).toBe("b.ts");
-        expect(gitDiff).not.toHaveBeenCalled();
     });
 });
 
@@ -200,7 +183,6 @@ describe("startChangesPoll", () => {
 
     it("re-fetches changes for the active cwd on every tick", async () => {
         gitChanges.mockResolvedValue({ isrepo: true, branch: "main", statusz: "", numstat: "" });
-        gitDiff.mockResolvedValue({ diff: "", content: "", untracked: false });
         await loadFilesForScope(projectScopeVal("proj"));
         gitChanges.mockClear();
 
@@ -215,7 +197,6 @@ describe("startChangesPoll", () => {
 
     it("stops ticking once stopped", async () => {
         gitChanges.mockResolvedValue({ isrepo: true, branch: "main", statusz: "", numstat: "" });
-        gitDiff.mockResolvedValue({ diff: "", content: "", untracked: false });
         await loadFilesForScope(projectScopeVal("proj"));
         gitChanges.mockClear();
 
