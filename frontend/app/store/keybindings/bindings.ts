@@ -11,6 +11,7 @@ import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
 import { sideJumpTarget, type CompareRow } from "@/app/view/agents/comparerows";
 import { compareOnAtom, compareSelectionAtom, leaveCompare } from "@/app/view/agents/comparestore";
 import { historyCollapsedAtom } from "@/app/view/agents/difflayout";
+import { gotoChange } from "@/app/view/agents/diffnav";
 import { splitViewAtom } from "@/app/view/agents/diffpane";
 import { filesStateAtom, reloadChanges } from "@/app/view/agents/filesstore";
 import {
@@ -798,6 +799,26 @@ export function buildFilesBindings(): Binding[] {
             label: "Split / unified",
             when: on,
             run: () => globalStore.set(splitViewAtom, !globalStore.get(splitViewAtom)),
+        },
+        {
+            // Shift+N/Shift+P, not vim's ]c/[c: "[" and "]" already cycle surfaces globally, and
+            // claiming either as a leader here would cost that on this surface. Monaco is asked where
+            // the next hunk is rather than told — it computed the diff that is on screen.
+            id: "files:next-change",
+            keys: "Shift:n",
+            group: "Diff",
+            label: "Next change",
+            when: on,
+            // no editor mounted (nothing selected, a binary file, still loading) — decline the key
+            run: () => gotoChange("next"),
+        },
+        {
+            id: "files:prev-change",
+            keys: "Shift:p",
+            group: "Diff",
+            label: "Previous change",
+            when: on,
+            run: () => gotoChange("previous"),
         },
         {
             id: "files:toggle-history",
