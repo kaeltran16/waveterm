@@ -15,6 +15,7 @@
 //
 // Nothing is written until Save, and a refused save leaves the draft standing with the server's message.
 
+import { ModalShell } from "@/app/modals/modalshell";
 import { channelsAtom, loadChannels } from "@/app/view/agents/channelsstore";
 import { channelProjectLabel, dedupeByProject } from "@/app/view/agents/projectlabel";
 import { projectsAtom } from "@/app/view/agents/projectsstore";
@@ -373,18 +374,16 @@ export function BriefProfileModal({ open, onClose }: { open: boolean; onClose: (
         ) : null;
 
     return (
-        <div data-jarvis-brief-modal="profile" className="absolute inset-0 z-30 flex items-center justify-center">
-            <button
-                type="button"
-                aria-label="Close profile"
-                onClick={onClose}
-                className="absolute inset-0 cursor-default bg-background/60"
-            />
+        <ModalShell
+            open={open}
+            onClose={onClose}
+            align="center"
+            className="flex max-h-[86vh] w-[560px] max-w-[94vw] flex-col"
+        >
             <div
-                role="dialog"
-                aria-label="Jarvis profile"
+                data-jarvis-brief-modal="profile"
                 data-jarvis-profile-scope={scope}
-                className="relative flex max-h-[86vh] w-[560px] max-w-[94vw] flex-col rounded-[12px] border border-border bg-surface shadow-xl"
+                className="flex min-h-0 flex-1 flex-col"
             >
                 <header className="flex flex-none items-center gap-2.5 border-b border-edge-faint px-4 py-3">
                     <span className={cn(LABEL, "text-accent-soft")}>profile</span>
@@ -578,6 +577,6 @@ export function BriefProfileModal({ open, onClose }: { open: boolean; onClose: (
                     </span>
                 </footer>
             </div>
-        </div>
+        </ModalShell>
     );
 }

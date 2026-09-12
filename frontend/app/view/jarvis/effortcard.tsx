@@ -9,8 +9,10 @@
 // its own, and nesting those inside an outer button is invalid and cost a stopPropagation call on
 // every one of them.
 
+import { paneReveal } from "@/app/element/motiontokens";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
+import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useId, useState } from "react";
 import {
     effortStatusLines,
@@ -425,146 +427,157 @@ export function EffortCard({
                 </div>
             )}
 
-            {expanded ? (
-                <div className="ml-4 mt-2 flex flex-col border-l border-border pl-3">
-                    {effort == null ? (
-                        detailError != null ? (
-                            <span className="flex items-center gap-2 text-[11px] text-error">
-                                {detailError}
-                                <FooterButton onClick={() => void loadEffortDetail(model.oref)}>retry</FooterButton>
-                            </span>
+            <AnimatePresence initial={false}>
+                {expanded ? (
+                    <motion.div
+                        key="detail"
+                        variants={paneReveal}
+                        initial="initial"
+                        animate="animate"
+                        exit="exit"
+                        className="ml-4 mt-2 flex flex-col overflow-hidden border-l border-border pl-3"
+                    >
+                        {effort == null ? (
+                            detailError != null ? (
+                                <span className="flex items-center gap-2 text-[11px] text-error">
+                                    {detailError}
+                                    <FooterButton onClick={() => void loadEffortDetail(model.oref)}>retry</FooterButton>
+                                </span>
+                            ) : (
+                                <div className="h-10 animate-pulse motion-reduce:animate-none rounded-[8px] bg-surface-raised" />
+                            )
                         ) : (
-                            <div className="h-10 animate-pulse motion-reduce:animate-none rounded-[8px] bg-surface-raised" />
-                        )
-                    ) : (
-                        <>
-                            {groupChunksByStage(rows).map((g, gi) => (
-                                <div key={g.stage + ":" + gi} className="flex flex-col">
-                                    <StageHeader
-                                        stage={g.stage}
-                                        fraction={g.fraction}
-                                        options={options}
-                                        onCommit={(next) =>
-                                            void runMutation(() =>
-                                                setChunkStage(
-                                                    model.oref,
-                                                    g.rows.map((r) => r.label),
-                                                    next
-                                                )
-                                            )
-                                        }
-                                    />
-                                    {g.rows.map((r, i) => (
-                                        <ChunkRow
-                                            key={r.label}
-                                            row={r}
+                            <>
+                                {groupChunksByStage(rows).map((g, gi) => (
+                                    <div key={g.stage + ":" + gi} className="flex flex-col">
+                                        <StageHeader
+                                            stage={g.stage}
+                                            fraction={g.fraction}
                                             options={options}
-                                            onAdvance={() => void runMutation(() => advanceChunk(model.oref))}
-                                            onReopen={() => void runMutation(() => reopenChunk(model.oref, r.label))}
-                                            // the run tail: this chunk down to the next stage boundary
-                                            onStage={(next) =>
+                                            onCommit={(next) =>
                                                 void runMutation(() =>
                                                     setChunkStage(
                                                         model.oref,
-                                                        g.rows.slice(i).map((x) => x.label),
+                                                        g.rows.map((r) => r.label),
                                                         next
                                                     )
                                                 )
                                             }
                                         />
-                                    ))}
-                                </div>
-                            ))}
-                            <div className="flex flex-wrap items-center gap-2 px-1.5 pb-0.5 pt-[7px]">
-                                <FooterButton
-                                    onClick={() => {
-                                        setAddingChunk(true);
-                                        setNoting(false);
-                                    }}
-                                >
-                                    + chunk
-                                </FooterButton>
-                                <FooterButton
-                                    onClick={() => {
-                                        setNoting(true);
-                                        setAddingChunk(false);
-                                    }}
-                                >
-                                    Note
-                                </FooterButton>
-                                {/* no confirm: the efforts list's "show archived" toggle is the way back */}
-                                <FooterButton
-                                    onClick={() => void runMutation(() => setEffortStatus(model.oref, "archived"))}
-                                >
-                                    Archive
-                                </FooterButton>
-                                {addingChunk ? (
-                                    <input
-                                        autoFocus
-                                        value={chunkDraft}
-                                        onChange={(e) => setChunkDraft(e.target.value)}
-                                        onKeyDown={(e) => {
-                                            e.stopPropagation();
-                                            if (e.key === "Enter") {
-                                                submitChunk();
-                                            } else if (e.key === "Escape") {
-                                                setAddingChunk(false);
-                                                setChunkDraft("");
-                                            }
+                                        {g.rows.map((r, i) => (
+                                            <ChunkRow
+                                                key={r.label}
+                                                row={r}
+                                                options={options}
+                                                onAdvance={() => void runMutation(() => advanceChunk(model.oref))}
+                                                onReopen={() =>
+                                                    void runMutation(() => reopenChunk(model.oref, r.label))
+                                                }
+                                                // the run tail: this chunk down to the next stage boundary
+                                                onStage={(next) =>
+                                                    void runMutation(() =>
+                                                        setChunkStage(
+                                                            model.oref,
+                                                            g.rows.slice(i).map((x) => x.label),
+                                                            next
+                                                        )
+                                                    )
+                                                }
+                                            />
+                                        ))}
+                                    </div>
+                                ))}
+                                <div className="flex flex-wrap items-center gap-2 px-1.5 pb-0.5 pt-[7px]">
+                                    <FooterButton
+                                        onClick={() => {
+                                            setAddingChunk(true);
+                                            setNoting(false);
                                         }}
-                                        placeholder="chunk label"
-                                        className="w-44 rounded-[7px] border border-edge-mid bg-background px-2 py-1 text-[12px] text-primary outline-none focus:border-accent/60"
-                                    />
-                                ) : null}
-                                {noting ? (
-                                    <input
-                                        autoFocus
-                                        value={noteDraft}
-                                        onChange={(e) => setNoteDraft(e.target.value)}
-                                        onKeyDown={(e) => {
-                                            e.stopPropagation();
-                                            if (e.key === "Enter") {
-                                                submitNote();
-                                            } else if (e.key === "Escape") {
-                                                setNoting(false);
-                                                setNoteDraft("");
-                                            }
+                                    >
+                                        + chunk
+                                    </FooterButton>
+                                    <FooterButton
+                                        onClick={() => {
+                                            setNoting(true);
+                                            setAddingChunk(false);
                                         }}
-                                        placeholder={
-                                            model.activeChunk != null
-                                                ? `note on ${model.activeChunk}`
-                                                : "initiative-level note"
-                                        }
-                                        className="w-64 rounded-[7px] border border-edge-mid bg-background px-2 py-1 text-[12px] text-primary outline-none focus:border-accent/60"
-                                    />
-                                ) : null}
-                                <button
-                                    type="button"
-                                    title="copy the CLI handle"
-                                    onClick={() => void navigator.clipboard.writeText("wsh effort show " + oid)}
-                                    className="cursor-pointer font-mono text-[9.5px] text-muted hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                                >
-                                    wsh effort show {oid}
-                                </button>
-                                <span className="flex-1" />
-                                {onOpenDetail != null ? (
+                                    >
+                                        Note
+                                    </FooterButton>
+                                    {/* no confirm: the efforts list's "show archived" toggle is the way back */}
+                                    <FooterButton
+                                        onClick={() => void runMutation(() => setEffortStatus(model.oref, "archived"))}
+                                    >
+                                        Archive
+                                    </FooterButton>
+                                    {addingChunk ? (
+                                        <input
+                                            autoFocus
+                                            value={chunkDraft}
+                                            onChange={(e) => setChunkDraft(e.target.value)}
+                                            onKeyDown={(e) => {
+                                                e.stopPropagation();
+                                                if (e.key === "Enter") {
+                                                    submitChunk();
+                                                } else if (e.key === "Escape") {
+                                                    setAddingChunk(false);
+                                                    setChunkDraft("");
+                                                }
+                                            }}
+                                            placeholder="chunk label"
+                                            className="w-44 rounded-[7px] border border-edge-mid bg-background px-2 py-1 text-[12px] text-primary outline-none focus:border-accent/60"
+                                        />
+                                    ) : null}
+                                    {noting ? (
+                                        <input
+                                            autoFocus
+                                            value={noteDraft}
+                                            onChange={(e) => setNoteDraft(e.target.value)}
+                                            onKeyDown={(e) => {
+                                                e.stopPropagation();
+                                                if (e.key === "Enter") {
+                                                    submitNote();
+                                                } else if (e.key === "Escape") {
+                                                    setNoting(false);
+                                                    setNoteDraft("");
+                                                }
+                                            }}
+                                            placeholder={
+                                                model.activeChunk != null
+                                                    ? `note on ${model.activeChunk}`
+                                                    : "initiative-level note"
+                                            }
+                                            className="w-64 rounded-[7px] border border-edge-mid bg-background px-2 py-1 text-[12px] text-primary outline-none focus:border-accent/60"
+                                        />
+                                    ) : null}
                                     <button
                                         type="button"
-                                        onClick={onOpenDetail}
-                                        className="cursor-pointer font-mono text-[9.5px] font-semibold text-accent-soft hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                                        title="copy the CLI handle"
+                                        onClick={() => void navigator.clipboard.writeText("wsh effort show " + oid)}
+                                        className="cursor-pointer font-mono text-[9.5px] text-muted hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                                     >
-                                        full record →
+                                        wsh effort show {oid}
                                     </button>
-                                ) : null}
-                            </div>
-                            <span className="px-1.5 font-mono text-[9.5px] text-ink-faint">
-                                hover a row for its trail · reopen on done rows · a stage header renames its run, a row
-                                starts one
-                            </span>
-                        </>
-                    )}
-                </div>
-            ) : null}
+                                    <span className="flex-1" />
+                                    {onOpenDetail != null ? (
+                                        <button
+                                            type="button"
+                                            onClick={onOpenDetail}
+                                            className="cursor-pointer font-mono text-[9.5px] font-semibold text-accent-soft hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                                        >
+                                            full record →
+                                        </button>
+                                    ) : null}
+                                </div>
+                                <span className="px-1.5 font-mono text-[9.5px] text-ink-faint">
+                                    hover a row for its trail · reopen on done rows · a stage header renames its run, a
+                                    row starts one
+                                </span>
+                            </>
+                        )}
+                    </motion.div>
+                ) : null}
+            </AnimatePresence>
             {mutateError != null ? <span className="mt-2 block text-[11px] text-error">{mutateError}</span> : null}
         </div>
     );
