@@ -16,14 +16,25 @@ import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { ORCHESTRATION_OPTIONS, type Orchestration } from "./orchestratorpicker";
 import { RoutePicker } from "./routepicker";
-import { MAX_DAG_TASKS, MAX_PARALLELISM, SHAPE_CARDS, machineNote, runLauncherFace } from "./runconfig";
+import {
+    MAX_DAG_TASKS,
+    MAX_PARALLELISM,
+    PLANNER_OPTIONS,
+    SHAPE_CARDS,
+    machineNote,
+    plannerNote,
+    runLauncherFace,
+    type Planner,
+} from "./runconfig";
 import {
     orchestrationAtom,
     parallelismAtom,
+    plannerAtom,
     routeOpenRequestAtom,
     runRouteAtom,
     runShapeAtom,
     setOrchestration,
+    setPlanner,
     setRunRoute,
     setRunShape,
     setWorkerRoute,
@@ -98,6 +109,36 @@ function MachineCards() {
                 ))}
             </div>
             <span className="text-[11px] leading-[1.45] text-muted">{machineNote(orchestration)}</span>
+        </Section>
+    );
+}
+
+// Who drafts the DAG. It sits directly under the machine because it only means anything for the engine,
+// and above the width because choosing to write the plan yourself is the decision that makes the width a
+// property of your own plan rather than of a lead's.
+const PLANNER_LABEL: Record<Planner, string> = { lead: "A lead", human: "You" };
+
+function PlannerCards() {
+    const planner = useAtomValue(plannerAtom);
+    return (
+        <Section label="Who plans">
+            <div className="flex gap-2">
+                {PLANNER_OPTIONS.map((option: Planner) => (
+                    <button
+                        key={option}
+                        type="button"
+                        aria-pressed={planner === option}
+                        onClick={() => setPlanner(option)}
+                        className={cn(
+                            "cursor-pointer rounded-[7px] border px-3 py-1.5 font-mono text-[11.5px] font-semibold",
+                            pickTone(planner === option)
+                        )}
+                    >
+                        {PLANNER_LABEL[option]}
+                    </button>
+                ))}
+            </div>
+            <span className="text-[11px] leading-[1.45] text-muted">{plannerNote(planner)}</span>
         </Section>
     );
 }
@@ -178,6 +219,7 @@ export function RunLauncherSections() {
         <>
             <ShapeCards />
             {face.showMachine ? <MachineCards /> : null}
+            {face.showPlanner ? <PlannerCards /> : null}
             {face.showParallelism ? <ParallelismStepper /> : null}
             <RoutingSection showWorkerRoute={face.showWorkerRoute} />
         </>

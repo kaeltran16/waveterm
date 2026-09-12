@@ -15,6 +15,23 @@ export const MAX_DAG_TASKS = 16; // jarvis.MaxDagTasks (pkg/jarvis/run.go)
 
 export const DEFAULT_PARALLELISM = 3;
 
+// Who writes the DAG. A lead planning turn is a whole model turn spent transcribing a goal into tasks,
+// and it is the single largest cost in an engine run when the decomposition is already settled: the
+// measured run spent 45m19s there with no intervening events. `human` defers the start so the run holds
+// its spec and waits for a DAG instead of spawning a lead to invent one. The engine has supported this
+// since DeferStart landed; until now nothing in the app could ask for it.
+export type Planner = "lead" | "human";
+export const PLANNER_OPTIONS: Planner[] = ["lead", "human"];
+export const DEFAULT_PLANNER: Planner = "lead";
+
+// Said in full because choosing `human` leaves the run deliberately idle, and a user who is not told
+// how to hand it a plan reads that as a broken launch.
+export function plannerNote(planner: Planner): string {
+    return planner === "lead"
+        ? "A lead reads the goal and drafts the DAG, then you approve it at the plan gate."
+        : "The run waits with no lead and no workers. Write the DAG yourself, then `wsh jarvis dag submit --file <path> --channel <id> --runid <id>` — a run with no dag cannot be resolved from a terminal block, so both ids are required.";
+}
+
 export interface ShapeCard {
     id: RunShape;
     desc: string;
@@ -68,6 +85,7 @@ export function profileRunDefaults(profile: JarvisProfile | null | undefined): P
 
 export interface RunLauncherFace {
     showMachine: boolean;
+    showPlanner: boolean;
     showParallelism: boolean;
     showWorkerRoute: boolean;
 }
@@ -78,5 +96,7 @@ export interface RunLauncherFace {
 export function runLauncherFace(shape: RunShape, orchestration: Orchestration): RunLauncherFace {
     const orchestrator = shape === "orchestrator";
     const engine = orchestrator && orchestration === "engine";
-    return { showMachine: orchestrator, showParallelism: engine, showWorkerRoute: engine };
+    // engine-only for the same reason as the dials: `wsh jarvis dag submit` hands a DAG to the engine
+    // scheduler, and an adaptive lead has no DAG for a human-written plan to replace.
+    return { showMachine: orchestrator, showPlanner: engine, showParallelism: engine, showWorkerRoute: engine };
 }

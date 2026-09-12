@@ -38,6 +38,7 @@ import {
     hydrateRunConfigFromProfile,
     orchestrationAtom,
     parallelismAtom,
+    plannerAtom,
     resetRunConfigForChannel,
     routeTouchedAtom,
     runRouteAtom,
@@ -62,6 +63,7 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
     const orchestration = useAtomValue(orchestrationAtom);
     const parallelism = useAtomValue(parallelismAtom);
     const workerRoute = useAtomValue(workerRouteAtom);
+    const planner = useAtomValue(plannerAtom);
     const runRoute = useAtomValue(runRouteAtom);
     const routeTouched = useAtomValue(routeTouchedAtom);
     const entries = Object.entries(projects ?? {});
@@ -152,7 +154,7 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
                     oid,
                     text,
                     route,
-                    launchOptsFromConfig({ shape, orchestration, parallelism, workerRoute })
+                    launchOptsFromConfig({ shape, orchestration, parallelism, workerRoute, planner })
                 );
                 // the launch consumed this draft, so the next one starts from the project's saved defaults
                 endRunConfigDraft(globalStore.get(resolvedProfileAtom)[oid]);

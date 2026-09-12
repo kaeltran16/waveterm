@@ -2,11 +2,13 @@ package orchestrate
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/runroute"
@@ -88,7 +90,7 @@ func (c *captureClient) dagCleanupStates(scope string) []string {
 func TestTaskPromptCarriesDescriptionAndContract(t *testing.T) {
 	owner := jarvis.NewRun("owner", "ws-1", "/p", nil, jarvis.RunMode_Orchestrator, nil, 1)
 	desc := "pin: date-only format (Aug 16)"
-	p := taskPrompt(&waveobj.TaskNode{ID: "t-1", Label: "add fmtDate", Description: desc}, &owner)
+	p := taskPrompt(&waveobj.TaskNode{ID: "t-1", Label: "add fmtDate", Description: desc}, &owner, "")
 	if !strings.Contains(p, "add fmtDate") {
 		t.Fatalf("label missing from prompt: %q", p)
 	}
@@ -102,7 +104,7 @@ func TestTaskPromptCarriesDescriptionAndContract(t *testing.T) {
 
 func TestTaskPromptLabelOnlyStillHasContract(t *testing.T) {
 	owner := jarvis.NewRun("owner", "ws-1", "/p", nil, jarvis.RunMode_Orchestrator, nil, 1)
-	p := taskPrompt(&waveobj.TaskNode{ID: "t-1", Label: "plain"}, &owner)
+	p := taskPrompt(&waveobj.TaskNode{ID: "t-1", Label: "plain"}, &owner, "")
 	if !strings.Contains(p, HeadlessContract) {
 		t.Fatalf("contract missing from prompt: %q", p)
 	}
@@ -111,9 +113,84 @@ func TestTaskPromptLabelOnlyStillHasContract(t *testing.T) {
 	}
 }
 
+func TestPredecessorHandoffCarriesDepCommitFilesAndNote(t *testing.T) {
+	g := &waveobj.TaskGroup{Tasks: []waveobj.TaskNode{
+		{ID: "t-1", Label: "add fmtDate", State: TaskState_Done, RunID: "run-dep", Merged: true},
+		{ID: "t-2", Label: "use fmtDate", Deps: []string{"t-1"}},
+	}}
+	runs := map[string]*waveobj.Run{"run-dep": {
+		EndCommit: "abc1234",
+		Evidence: &waveobj.RunEvidence{
+			Summary: "chose date-only format; fmtDate lives in util/date.ts",
+			Files:   []waveobj.EvidenceFile{{Path: "util/date.ts", Add: 12, Del: 2}},
+		},
+	}}
+	h := predecessorHandoff(taskByID(g, "t-2"), g, runs)
+	for _, want := range []string{"add fmtDate", "t-1", "abc1234", "util/date.ts", "+12/-2", "date-only format"} {
+		if !strings.Contains(h, want) {
+			t.Fatalf("handoff missing %q: %q", want, h)
+		}
+	}
+}
+
+func TestPredecessorHandoffEmptyWithoutDepsOrCommit(t *testing.T) {
+	g := &waveobj.TaskGroup{Tasks: []waveobj.TaskNode{
+		{ID: "t-1", Label: "dep", State: TaskState_Done, RunID: "run-dep"},
+		{ID: "t-2", Label: "no deps"},
+		{ID: "t-3", Label: "dep not landed", Deps: []string{"t-1"}},
+	}}
+	// a task with no deps gets nothing
+	if h := predecessorHandoff(taskByID(g, "t-2"), g, map[string]*waveobj.Run{"run-dep": {EndCommit: "abc"}}); h != "" {
+		t.Fatalf("expected no handoff for a task with no deps, got %q", h)
+	}
+	// a dep whose merge never stamped a commit contributes nothing rather than a bare heading
+	if h := predecessorHandoff(taskByID(g, "t-3"), g, map[string]*waveobj.Run{"run-dep": {}}); h != "" {
+		t.Fatalf("expected no handoff for an unstamped dep, got %q", h)
+	}
+}
+
+func TestPredecessorHandoffSurvivesUnsealedEvidence(t *testing.T) {
+	g := &waveobj.TaskGroup{Tasks: []waveobj.TaskNode{
+		{ID: "t-1", Label: "dep", State: TaskState_Done, RunID: "run-dep", Merged: true},
+		{ID: "t-2", Label: "dependent", Deps: []string{"t-1"}},
+	}}
+	// cleanup or the seal can fail and leave Evidence nil; the commit must still reach the child
+	h := predecessorHandoff(taskByID(g, "t-2"), g, map[string]*waveobj.Run{"run-dep": {EndCommit: "deadbee"}})
+	if !strings.Contains(h, "deadbee") {
+		t.Fatalf("commit missing when evidence is unsealed: %q", h)
+	}
+}
+
+func TestTaskPromptPlacesHandoffBeforeTheContract(t *testing.T) {
+	owner := jarvis.NewRun("owner", "ws-1", "/p", nil, jarvis.RunMode_Orchestrator, nil, 1)
+	p := taskPrompt(&waveobj.TaskNode{ID: "t-2", Label: "dependent"}, &owner, "landed as commit abc1234")
+	hi := strings.Index(p, "landed as commit abc1234")
+	ci := strings.Index(p, HeadlessContract)
+	if hi < 0 || ci < 0 {
+		t.Fatalf("handoff or contract missing: %q", p)
+	}
+	if hi > ci {
+		t.Fatalf("handoff must precede the contract so the completion instruction stays last: %q", p)
+	}
+}
+
+func TestTruncateNoteBoundsAndCollapses(t *testing.T) {
+	if got := truncateNote("  two   lines\nof note ", 100); got != "two lines of note" {
+		t.Fatalf("whitespace not collapsed: %q", got)
+	}
+	long := strings.Repeat("word ", 200)
+	got := truncateNote(long, 50)
+	if len(got) > 53 {
+		t.Fatalf("note not bounded: %d chars", len(got))
+	}
+	if !strings.HasSuffix(got, "...") {
+		t.Fatalf("truncated note should be marked: %q", got)
+	}
+}
+
 func TestTaskPromptRunSpecGoalWins(t *testing.T) {
 	owner := jarvis.NewRun("owner", "ws-1", "/p", nil, jarvis.RunMode_Orchestrator, nil, 1)
-	p := taskPrompt(&waveobj.TaskNode{ID: "t-1", Label: "label", RunSpec: waveobj.RunSpec{Goal: "explicit goal"}}, &owner)
+	p := taskPrompt(&waveobj.TaskNode{ID: "t-1", Label: "label", RunSpec: waveobj.RunSpec{Goal: "explicit goal"}}, &owner, "")
 	if !strings.Contains(p, "explicit goal") {
 		t.Fatalf("runspec goal missing from prompt: %q", p)
 	}
@@ -389,6 +466,112 @@ func TestScheduleOncePublishesChildDone(t *testing.T) {
 	if g.Tasks[0].State != TaskState_Done {
 		t.Fatalf("t-0 must derive done, got %s", g.Tasks[0].State)
 	}
+}
+
+// the dispatch and first-activity timings are the whole point of chunk 3 on the orchestrator-cost
+// tracker: a child's wall clock is otherwise one opaque span, and every claim about task size is a
+// guess about which part of it is environment setup.
+func TestScheduleStampsDispatchAndFirstActivityTimings(t *testing.T) {
+	allowWorkerHarnessForTest(t)
+	ctx := context.Background()
+	root := t.TempDir()
+	prevRoot := sessionsRootFor
+	sessionsRootFor = func(string) string { return root }
+	defer func() { sessionsRootFor = prevRoot }()
+
+	ch, err := wstore.CreateChannel(ctx, "engine-timing", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := jarvis.NewRun("owner goal", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
+		t.Fatal(err)
+	}
+	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 1, false, []waveobj.TaskNode{{ID: "t-0", Label: "a"}}, 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := wstore.AppendDag(ctx, &g); err != nil {
+		t.Fatal(err)
+	}
+	old := spawnWorker
+	spawnWorker = func(context.Context, runroute.Capability, string, string, string, string, jarvis.RunWorkerOptions) (string, error) {
+		return "tab:worker", nil
+	}
+	defer func() { spawnWorker = old }()
+
+	if err := ScheduleOnce(ctx, &g); err != nil {
+		t.Fatal(err)
+	}
+	spawnDetail := firstEventDetail(t, ctx, ch.OID, owner.ID, waveobj.RunEventKindTaskSpawned)
+	for _, key := range []string{"worktreems", "spawnms"} {
+		if _, ok := spawnDetail[key]; !ok {
+			t.Fatalf("task-spawned must carry %q so dispatch cost is separable, got %+v", key, spawnDetail)
+		}
+	}
+	if g.Tasks[0].FirstActivity != 0 {
+		t.Fatalf("nothing has been read from the child yet, got firstactivity %d", g.Tasks[0].FirstActivity)
+	}
+
+	// the child writes its first transcript line; the next tick is the first that can observe it
+	marker := dagSessionMarker(g.OID, "t-0")
+	first := time.Now().Add(-1 * time.Minute)
+	writeClaudeSession(t, root, ch.ProjectPath, "sess-1", "goal\n\n"+marker, first)
+	if err := ScheduleOnce(ctx, &g); err != nil {
+		t.Fatal(err)
+	}
+	if g.Tasks[0].FirstActivity != first.UnixMilli() {
+		t.Fatalf("want firstactivity %d, got %d", first.UnixMilli(), g.Tasks[0].FirstActivity)
+	}
+	if d := firstEventDetail(t, ctx, ch.OID, owner.ID, waveobj.RunEventKindTaskFirstActivity); d["taskid"] != "t-0" {
+		t.Fatalf("task-first-activity must name its task, got %+v", d)
+	}
+
+	// stamped once: a later write moves LastActivity, never FirstActivity, and emits no second row
+	later := time.Now()
+	writeClaudeSession(t, root, ch.ProjectPath, "sess-1", "goal\n\n"+marker, later)
+	if err := ScheduleOnce(ctx, &g); err != nil {
+		t.Fatal(err)
+	}
+	if g.Tasks[0].FirstActivity != first.UnixMilli() {
+		t.Fatalf("firstactivity must not be revised, got %d", g.Tasks[0].FirstActivity)
+	}
+	if n := countEvents(t, ctx, ch.OID, owner.ID, waveobj.RunEventKindTaskFirstActivity); n != 1 {
+		t.Fatalf("want exactly one task-first-activity row, got %d", n)
+	}
+}
+
+func runEventsOfKind(t *testing.T, ctx context.Context, channelID, runID, kind string) []waveobj.RunEvent {
+	t.Helper()
+	events, err := wstore.QueryRunEvents(ctx, channelID, runID, 100)
+	if err != nil {
+		t.Fatalf("query run events: %v", err)
+	}
+	var out []waveobj.RunEvent
+	for _, e := range events {
+		if e.Kind == kind {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+func countEvents(t *testing.T, ctx context.Context, channelID, runID, kind string) int {
+	t.Helper()
+	return len(runEventsOfKind(t, ctx, channelID, runID, kind))
+}
+
+func firstEventDetail(t *testing.T, ctx context.Context, channelID, runID, kind string) map[string]any {
+	t.Helper()
+	rows := runEventsOfKind(t, ctx, channelID, runID, kind)
+	if len(rows) == 0 {
+		t.Fatalf("no %s event on run %s", kind, runID)
+	}
+	var detail map[string]any
+	if err := json.Unmarshal(rows[0].Detail, &detail); err != nil {
+		t.Fatalf("unmarshal %s detail: %v", kind, err)
+	}
+	return detail
 }
 
 func TestScheduleOnceUsesTaskRouteForSpawnAndChild(t *testing.T) {

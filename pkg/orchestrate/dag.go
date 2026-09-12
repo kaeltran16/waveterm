@@ -219,6 +219,9 @@ func NewTaskGroup(runID, channelId, title string, parallelism int, mergeRequired
 		if t.LastActivity != 0 {
 			return waveobj.TaskGroup{}, fmt.Errorf("task %q lastactivity must be zero", t.ID)
 		}
+		if t.FirstActivity != 0 {
+			return waveobj.TaskGroup{}, fmt.Errorf("task %q firstactivity must be zero", t.ID)
+		}
 		if t.Attempts != 0 {
 			return waveobj.TaskGroup{}, fmt.Errorf("task %q attempts must be zero", t.ID)
 		}
