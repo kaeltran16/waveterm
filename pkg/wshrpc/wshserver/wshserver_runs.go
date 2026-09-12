@@ -124,6 +124,14 @@ func writeProactive(ctx context.Context, channelId, runId string, sug jarvisproa
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, channelId))
 }
 
+// SealDoneRunEvidenceAsync is the seal seam the orchestrate engine calls when it closes a lead-free run
+// itself. Same dispatch AdvanceRun uses, so a caller holding the dag mutation lock never waits on a git
+// diff. Note the continuity capture AdvanceRun also runs on its done-path is deliberately not here —
+// there is no lead transcript to summarize.
+func SealDoneRunEvidenceAsync(channelId, runId string) {
+	sealAsync(func() { sealDoneRunEvidence(channelId, runId) })
+}
+
 // sealDoneRunEvidence seals a done run's immutable evidence snapshot (a git diff + transcript reads that can
 // take many seconds) detached from any RPC budget. Self-contained and idempotent: it re-loads the run, and
 // SealEvidence refuses to seal on a git failure/timeout — leaving the run unsealed for the backfill
