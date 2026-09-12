@@ -462,8 +462,10 @@ func buildEngineOrchestratePrompt(b *strings.Builder, goal, runtime string, para
 	b.WriteString("Use `wsh jarvis dag status` for detail at any time.\n")
 	b.WriteString("If a genuinely consequential or ambiguous decision comes up — one where a wrong assumption would waste real work — use the AskUserQuestion tool to ask the human; it renders an answerable question in the cockpit and blocks until they reply. Never pose such a question in prose.\n")
 	// the digest's own words: kind `merge-ready`, action `resolve-merge`. A lead that pattern-matches
-	// any other word never acts on the gate.
-	b.WriteString("A Git-backed dependent task stays pending until each predecessor is merged; when the digest reports `merge-ready` with the action `resolve-merge`, run `wsh jarvis dag merge <task-id>` for each reported id after reviewing that finished child, so its successors start from the integrated project HEAD.\n")
+	// any other word never acts on the merges the engine leaves to a person. The bare `dag merge` is
+	// deliberately not offered here: the engine only leaves a clean merge undone when the project
+	// index is dirty, and that merge would commit the human's staged edits into the task.
+	b.WriteString("A Git-backed dependent task stays pending until each predecessor is merged, and the engine lands a clean merge itself the moment the child reports done — that is not your step. The digest keeps offering the action `resolve-merge` only where the engine declined, and the kind says why. A `merge-ready` task that does not clear means the project tree has staged edits the engine refuses to fold into a task's commit: never merge over them, ask the human with AskUserQuestion to commit or stash first. A task reported in `blocked-merge` is a squash conflict: resolve it in the project tree yourself, then run `wsh jarvis dag merge <task-id> --continue`.\n")
 	fmt.Fprintf(b, "Goal: %s\n", goal)
 	b.WriteString("When the goal is fully accomplished, commit your work and run `wsh jarvis complete --commit $(git rev-parse HEAD)`.\n")
 }

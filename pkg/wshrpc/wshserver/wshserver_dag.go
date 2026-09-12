@@ -7,7 +7,6 @@ package wshserver
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -342,84 +341,6 @@ func planSendBackLine(notes string) string {
 
 // taskBlockOrefs lists the worker block orefs of a run's phases (the blocks the ask registry keys
 // asks by).
-// findTaskNode returns the task with id taskID inside g, or nil.
-func findTaskNode(g *waveobj.TaskGroup, taskID string) *waveobj.TaskNode {
-	for i := range g.Tasks {
-		if g.Tasks[i].ID == taskID {
-			return &g.Tasks[i]
-		}
-	}
-	return nil
-}
-
-func cleanupMergedTask(ctx context.Context, channelID string, g *waveobj.TaskGroup, taskID string) error {
-	task := findTaskNode(g, taskID)
-	if task == nil {
-		return fmt.Errorf("no task %q", taskID)
-	}
-	childRunID := task.RunID
-	cleanupErr := orchestrate.CleanupTaskWorktree(ctx, g, taskID)
-	if err := orchestrate.PersistCleanupState(ctx, g); err != nil {
-		return err
-	}
-	if cleanupErr != nil {
-		appendRunEvent(ctx, channelID, g.RunID, waveobj.RunEventKindTaskCleanupFailed, nil, map[string]any{"taskid": taskID, "error": cleanupErr.Error()})
-		return cleanupErr
-	}
-	appendRunEvent(ctx, channelID, g.RunID, waveobj.RunEventKindTaskCleanupCompleted, nil, map[string]any{"taskid": taskID})
-	child, err := wstore.GetRun(ctx, channelID, childRunID)
-	if err != nil {
-		return fmt.Errorf("loading child run: %w", err)
-	}
-	return jarvis.SealEvidence(ctx, child)
-}
-
-func persistMergedTask(ctx context.Context, channelID, dagID, childRunID, taskID, sha string) error {
-	if err := wstore.WithTx(ctx, func(tx *wstore.TxWrap) error {
-		txCtx := tx.Context()
-		if err := wstore.UpdateRun(txCtx, channelID, childRunID, func(r *waveobj.Run) error {
-			r.EndCommit = sha
-			return nil
-		}); err != nil {
-			return err
-		}
-		return wstore.UpdateDag(txCtx, dagID, func(cur *waveobj.TaskGroup) error {
-			task := findTaskNode(cur, taskID)
-			if task == nil {
-				return fmt.Errorf("no task %q", taskID)
-			}
-			task.Merged = true
-			task.CleanupPending = true
-			task.CleanupError = ""
-			orchestrate.RecomputeDagStatus(cur)
-			return nil
-		})
-	}); err != nil {
-		return err
-	}
-	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, dagID))
-	return nil
-}
-
-// finishMergedTask stamps a landed merge and then removes the worktree. It runs under the dag
-// mutation lock: the engine persists its tick as a whole-object replace of a snapshot taken under
-// that lock, so a merge stamp written outside it is silently reverted by any overlapping watchdog
-// tick. Nothing inside re-enters the lock (the lock is not reentrant).
-func finishMergedTask(ctx context.Context, channelID, dagID, childRunID, taskID, sha string) error {
-	return orchestrate.WithDagMutation(dagID, func() error {
-		if err := persistMergedTask(ctx, channelID, dagID, childRunID, taskID, sha); err != nil {
-			return err
-		}
-		g, err := wstore.GetDag(ctx, dagID)
-		if err != nil {
-			return err
-		}
-		appendRunEvent(ctx, channelID, g.RunID, waveobj.RunEventKindTaskMerged, nil, map[string]any{"taskid": taskID, "commit": sha})
-		appendRunEvent(ctx, channelID, g.RunID, waveobj.RunEventKindTaskCleanupPending, nil, map[string]any{"taskid": taskID})
-		return cleanupMergedTask(ctx, channelID, g, taskID)
-	})
-}
-
 func taskBlockOrefs(ctx context.Context, run *waveobj.Run) []string {
 	var out []string
 	seen := map[string]bool{}
@@ -536,72 +457,11 @@ func (ws *WshServer) DagAnswerCommand(ctx context.Context, data wshrpc.CommandDa
 // DagMergeCommand squash-merges one finished task's worktree back into the project branch. RunId is
 // the dag's owning run (which has no worktree of its own); TaskId selects the child — the branch is
 // keyed by the composite worktree key the engine spawned, never by a run id.
+// DagMergeCommand lands a task's merge on a human's instruction. The engine lands a clean merge on
+// its own (orchestrate.AutoMergeReady); this stays the way to land one it declined to — a project
+// tree with staged edits, or a conflict the caller has since made mergeable.
 func (ws *WshServer) DagMergeCommand(ctx context.Context, data wshrpc.CommandDagMergeData) error {
-	if data.ChannelId == "" || data.RunId == "" || data.TaskId == "" {
-		return fmt.Errorf("channelid, runid and taskid are required")
-	}
-	owner, err := wstore.GetRun(ctx, data.ChannelId, data.RunId)
-	if err != nil {
-		return fmt.Errorf("loading run: %w", err)
-	}
-	if owner.DagORef == "" {
-		return fmt.Errorf("run has no dag")
-	}
-	g, err := wstore.GetDag(ctx, owner.DagORef)
-	if err != nil {
-		return err
-	}
-	taskIdx := -1
-	for i := range g.Tasks {
-		if g.Tasks[i].ID == data.TaskId {
-			taskIdx = i
-			break
-		}
-	}
-	if taskIdx < 0 {
-		return fmt.Errorf("no task %q", data.TaskId)
-	}
-	task := &g.Tasks[taskIdx]
-	if task.Merged {
-		if !task.CleanupPending && task.CleanupError == "" {
-			return nil
-		}
-		return orchestrate.WithDagMutation(owner.DagORef, func() error {
-			return cleanupMergedTask(ctx, data.ChannelId, g, data.TaskId)
-		})
-	}
-	if task.State != orchestrate.TaskState_Done && task.State != orchestrate.TaskState_BlockedMerge {
-		return fmt.Errorf("task %s is %s, want done", data.TaskId, task.State)
-	}
-	if task.RunID == "" {
-		return fmt.Errorf("task %s has no child run", data.TaskId)
-	}
-	child, err := wstore.GetRun(ctx, data.ChannelId, task.RunID)
-	if err != nil {
-		return fmt.Errorf("loading child run: %w", err)
-	}
-	key := orchestrate.TaskWorktreeKey(owner.ID, data.TaskId)
-	// commit message should be the task label, not the full child goal
-	// (which embeds plan description + headless contract).
-	mergeMsg := task.Label
-	if mergeMsg == "" {
-		mergeMsg = task.ID
-	}
-	// merge-started closes the digest's merge-wait window (task-done -> here): the interval a
-	// finished task spent waiting on the lead to land it.
-	appendRunEvent(ctx, data.ChannelId, owner.ID, waveobj.RunEventKindTaskMergeStarted, nil, map[string]any{"taskid": data.TaskId})
-	sha, err := orchestrate.MergeRunWorktree(ctx, owner.ProjectPath, key, mergeMsg)
-	if err != nil {
-		if errors.Is(err, orchestrate.ErrMergeConflict) {
-			appendRunEvent(ctx, data.ChannelId, owner.ID, waveobj.RunEventKindTaskMergeBlocked, nil, map[string]any{"taskid": data.TaskId})
-			if derr := orchestrate.MarkBlockedMerge(ctx, owner.DagORef, child.ID); derr != nil {
-				return derr
-			}
-			return err
-		}
-		return err
-	}
-	return finishMergedTask(ctx, data.ChannelId, owner.DagORef, child.ID, data.TaskId, sha)
+	return orchestrate.MergeTask(ctx, data.ChannelId, data.RunId, data.TaskId)
 }
 
 // DagMergeContinueCommand finishes a squash merge the caller resolved manually after MergeContinue's
@@ -638,7 +498,7 @@ func (ws *WshServer) DagMergeContinueCommand(ctx context.Context, data wshrpc.Co
 			return nil
 		}
 		return orchestrate.WithDagMutation(owner.DagORef, func() error {
-			return cleanupMergedTask(ctx, data.ChannelId, g, data.TaskId)
+			return orchestrate.CleanupMergedTask(ctx, data.ChannelId, g, data.TaskId)
 		})
 	}
 	if task.State != orchestrate.TaskState_BlockedMerge {
@@ -661,5 +521,8 @@ func (ws *WshServer) DagMergeContinueCommand(ctx context.Context, data wshrpc.Co
 	if err != nil {
 		return err
 	}
-	return finishMergedTask(ctx, data.ChannelId, owner.DagORef, child.ID, data.TaskId, sha)
+	// the stamp is a dag write, and the engine reverts any dag write made outside this lock
+	return orchestrate.WithDagMutation(owner.DagORef, func() error {
+		return orchestrate.FinishMergedTask(ctx, data.ChannelId, owner.DagORef, child.ID, data.TaskId, sha)
+	})
 }

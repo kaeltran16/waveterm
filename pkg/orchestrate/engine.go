@@ -158,6 +158,12 @@ func failDispatch(ctx context.Context, g *waveobj.TaskGroup, taskID, kind string
 // persist, and publish waveobj + event updates. Idempotent — safe to call repeatedly.
 // It is authoritative: it reloads the DAG after acquiring the per-DAG mutation lock.
 func Schedule(ctx context.Context, dagID string) error {
+	// before the tick, not inside it: the merge takes the same lock and it is not reentrant. A
+	// landed merge is what makes a dependent's dep satisfied, so merging first lets one tick both
+	// land the predecessor and dispatch what it unblocked. Detached from the caller's ctx for the
+	// same reason the spawn path is (spawnCtx below): two of the three callers are RPC handlers, and
+	// a cancelled ctx that kills git mid-commit leaves an index.lock no later tick can get past.
+	AutoMergeReady(context.WithoutCancel(ctx), dagID)
 	return withDagMutation(dagID, func() error {
 		return scheduleLocked(ctx, dagID)
 	})
