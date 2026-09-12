@@ -451,12 +451,15 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 	for _, publish := range afterCommit {
 		publish()
 	}
-	// auto-close the orchestrator lead tab once both the owning run and the DAG are
-	// terminal — the lead's process may already be idle (keeponexit kept it), so the
-	// shell layer will not delete it. best-effort: never fail Schedule over it.
+	// the one place a dag goes terminal regardless of what triggered the tick, so both closures hang
+	// here: complete a run that has no lead to report its own completion, then close a lead tab whose
+	// process may already be idle (keeponexit kept it), which the shell layer will not delete. The two
+	// are disjoint — a lead-free run has no tab, a run with one is not ours to complete. best-effort:
+	// never fail Schedule over either.
 	if owner != nil {
 		if freshRun, err := wstore.GetRun(ctx, g.ChannelId, g.RunID); err == nil {
 			if freshDag, err := wstore.GetDag(ctx, g.OID); err == nil {
+				MaybeCompleteLeadFreeRun(ctx, freshRun, freshDag)
 				_, _ = MaybeCloseOrchestratorLead(ctx, freshRun, freshDag)
 			}
 		}

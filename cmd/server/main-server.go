@@ -620,9 +620,10 @@ func main() {
 	go updateTelemetryCountsLoop()
 	go backupCleanupLoop()
 	go tempAttachmentCleanupLoop()
-	go startupActivityUpdate(firstLaunch)             // must be after startConfigWatcher()
-	orchestrate.StartWatchdog(context.Background())   // dag advance + stall detection tick
-	agentask.AnswerHook = wshserver.RecordAskAnswered // one ask lifecycle row per delivered answer, whichever surface delivered it
+	go startupActivityUpdate(firstLaunch)                                // must be after startConfigWatcher()
+	orchestrate.SealRunEvidenceHook = wshserver.SealDoneRunEvidenceAsync // a run the engine closed itself gets the same evidence snapshot `wsh jarvis complete` produces; before StartWatchdog, whose first tick is immediate and can be the tick that closes one
+	orchestrate.StartWatchdog(context.Background())                      // dag advance + stall detection tick
+	agentask.AnswerHook = wshserver.RecordAskAnswered                    // one ask lifecycle row per delivered answer, whichever surface delivered it
 	if err := agentask.InitDurablePendingAsks(context.Background()); err != nil {
 		// a queue that lost its restored asks is still a working queue, so this does not stop startup
 		log.Printf("error restoring pending asks: %v\n", err)
