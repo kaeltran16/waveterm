@@ -9,6 +9,7 @@
 //
 // The derivations live in petpeekmodel.ts and petcondition.ts. This file is a renderer.
 
+import { cardVariants, MOTION, paneReveal } from "@/app/element/motiontokens";
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
@@ -16,9 +17,10 @@ import { attentionAtom } from "@/app/view/agents/attentionstore";
 import { activeChannelAtom, channelsAtom } from "@/app/view/agents/channelsstore";
 import { memLoadedAtom, memNotesAtom, memPruneAtom } from "@/app/view/agents/memstore";
 import { cn, fireAndForget } from "@/util/util";
-import { FloatingFocusManager, autoUpdate, offset, shift, useFloating, type Placement } from "@floating-ui/react";
+import { autoUpdate, FloatingFocusManager, offset, shift, useFloating, type Placement } from "@floating-ui/react";
 import { useAtomValue } from "jotai";
 import { X } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { runAct } from "./petactrun";
 import { actsForEvent, type PetAct } from "./petacts";
@@ -121,7 +123,10 @@ function ActOutcome({ acts, className }: { acts: PetAct[]; className?: string })
         return null;
     }
     return (
-        <p
+        <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
             className={cn(
                 "font-mono text-[10.5px] leading-[1.45]",
                 done.status === "error" ? "text-error" : "text-muted",
@@ -129,7 +134,7 @@ function ActOutcome({ acts, className }: { acts: PetAct[]; className?: string })
             )}
         >
             {done.text}
-        </p>
+        </motion.p>
     );
 }
 
@@ -407,48 +412,58 @@ export function PetPeek({
                                     the same shape is what made the old panel read as telemetry */}
                                 {conditions.length > 0 ? (
                                     <div data-pet-conditions className="flex flex-col gap-2 px-3 pb-2.5 pt-0.5">
-                                        {conditions.map((condition, index) => (
-                                            <div key={condition.expr.kind}>
-                                                <div className="flex min-h-6 items-center gap-2">
-                                                    <span
-                                                        className={cn(
-                                                            "h-1.5 w-1.5 flex-none rounded-full",
-                                                            CONDITION_DOT[condition.expr.kind]
-                                                        )}
-                                                    />
-                                                    <span
-                                                        className={cn(
-                                                            "min-w-0 flex-1 leading-[1.4]",
-                                                            index === 0
-                                                                ? "text-[11.5px] font-medium text-secondary"
-                                                                : "text-[11px] text-muted"
-                                                        )}
-                                                    >
-                                                        {conditionLine(condition.expr, now)}
-                                                    </span>
-                                                    {condition.acts.map((act) => (
-                                                        <ActButton
-                                                            key={act.id}
-                                                            model={model}
-                                                            act={act}
-                                                            tone="quiet"
-                                                            onLeave={leavePeek}
-                                                        />
-                                                    ))}
-                                                    {/* a condition with no remedy ends where a button
-                                                        would sit, so it reads finished rather than broken */}
-                                                    {condition.readout ? (
+                                        <AnimatePresence initial={false}>
+                                            {conditions.map((condition, index) => (
+                                                <motion.div
+                                                    key={condition.expr.kind}
+                                                    layout
+                                                    variants={cardVariants}
+                                                    initial="initial"
+                                                    animate="animate"
+                                                    exit="exit"
+                                                    transition={{ duration: MOTION.durMacro, ease: MOTION.easeFluid }}
+                                                >
+                                                    <div className="flex min-h-6 items-center gap-2">
                                                         <span
-                                                            title="this condition has no remedy — it is a readout"
-                                                            className="flex-none font-mono text-[9.5px] text-ink-faint"
+                                                            className={cn(
+                                                                "h-1.5 w-1.5 flex-none rounded-full",
+                                                                CONDITION_DOT[condition.expr.kind]
+                                                            )}
+                                                        />
+                                                        <span
+                                                            className={cn(
+                                                                "min-w-0 flex-1 leading-[1.4]",
+                                                                index === 0
+                                                                    ? "text-[11.5px] font-medium text-secondary"
+                                                                    : "text-[11px] text-muted"
+                                                            )}
                                                         >
-                                                            no action
+                                                            {conditionLine(condition.expr, now)}
                                                         </span>
-                                                    ) : null}
-                                                </div>
-                                                <ActOutcome acts={condition.acts} className="pl-3.5" />
-                                            </div>
-                                        ))}
+                                                        {condition.acts.map((act) => (
+                                                            <ActButton
+                                                                key={act.id}
+                                                                model={model}
+                                                                act={act}
+                                                                tone="quiet"
+                                                                onLeave={leavePeek}
+                                                            />
+                                                        ))}
+                                                        {/* a condition with no remedy ends where a button
+                                                        would sit, so it reads finished rather than broken */}
+                                                        {condition.readout ? (
+                                                            <span
+                                                                title="this condition has no remedy — it is a readout"
+                                                                className="flex-none font-mono text-[9.5px] text-ink-faint"
+                                                            >
+                                                                no action
+                                                            </span>
+                                                        ) : null}
+                                                    </div>
+                                                    <ActOutcome acts={condition.acts} className="pl-3.5" />
+                                                </motion.div>
+                                            ))}
+                                        </AnimatePresence>
                                     </div>
                                 ) : null}
                             </div>
@@ -466,9 +481,23 @@ export function PetPeek({
                                         Nothing waiting on you.
                                     </p>
                                 ) : null}
-                                {rows.map((row) => (
-                                    <QueueRow key={row.key} model={model} row={row} now={now} onLeave={leavePeek} />
-                                ))}
+                                {/* initial={false} is what stops the whole list cascading on every open:
+                                    the popup mounts fresh each time, so the rows are all "new" otherwise. */}
+                                <AnimatePresence initial={false}>
+                                    {rows.map((row) => (
+                                        <motion.div
+                                            key={row.key}
+                                            layout
+                                            variants={cardVariants}
+                                            initial="initial"
+                                            animate="animate"
+                                            exit="exit"
+                                            transition={{ duration: MOTION.durMacro, ease: MOTION.easeFluid }}
+                                        >
+                                            <QueueRow model={model} row={row} now={now} onLeave={leavePeek} />
+                                        </motion.div>
+                                    ))}
+                                </AnimatePresence>
                             </div>
 
                             {updates.length > 0 ? (
@@ -492,20 +521,34 @@ export function PetPeek({
                                             {drawerOpen ? "−" : "›"}
                                         </span>
                                     </button>
-                                    {drawerOpen ? (
-                                        <div className="max-h-[170px] overflow-y-auto border-t border-border">
-                                            {updates.map((event) => (
-                                                <UpdateRow
-                                                    key={event.id}
-                                                    model={model}
-                                                    event={event}
-                                                    now={now}
-                                                    noteExists={noteExists}
-                                                    onLeave={leavePeek}
-                                                />
-                                            ))}
-                                        </div>
-                                    ) : null}
+                                    {/* the scroll container moves to an inner div: paneReveal animates the
+                                        outer height and needs overflow-hidden, which on the same element
+                                        would fight overflow-y-auto and clip the scrollbar mid-tween. */}
+                                    <AnimatePresence initial={false}>
+                                        {drawerOpen ? (
+                                            <motion.div
+                                                key="updates"
+                                                variants={paneReveal}
+                                                initial="initial"
+                                                animate="animate"
+                                                exit="exit"
+                                                className="overflow-hidden border-t border-border"
+                                            >
+                                                <div className="max-h-[170px] overflow-y-auto">
+                                                    {updates.map((event) => (
+                                                        <UpdateRow
+                                                            key={event.id}
+                                                            model={model}
+                                                            event={event}
+                                                            now={now}
+                                                            noteExists={noteExists}
+                                                            onLeave={leavePeek}
+                                                        />
+                                                    ))}
+                                                </div>
+                                            </motion.div>
+                                        ) : null}
+                                    </AnimatePresence>
                                 </div>
                             ) : null}
 

@@ -20,6 +20,7 @@
 // the control recipe, a borderless one is a label. Dressing something inert as a control and camouflaging
 // a real control among labels are the same lie, so neither happens here.
 
+import { cardVariants, computeEntrances, initialEntranceState, MOTION, paneReveal } from "@/app/element/motiontokens";
 import { globalStore } from "@/app/store/jotaiStore";
 import { buildJarvisBindings } from "@/app/store/keybindings/bindings";
 import { useSurfaceListNav, type ListNavController } from "@/app/store/keybindings/listnav";
@@ -33,6 +34,7 @@ import { resolveTargetChannel } from "@/app/view/agents/channelderive";
 import { activeChannelAtom, activeChannelRunsAtom, channelsAtom, loadChannels } from "@/app/view/agents/channelsstore";
 import { channelProjectLabel } from "@/app/view/agents/projectlabel";
 import { projectsAtom } from "@/app/view/agents/projectsstore";
+import { RollingCount } from "@/app/view/agents/rollingcount";
 import {
     getJarvisProfile,
     pendingRunDraftAtom,
@@ -44,8 +46,8 @@ import { DagModal } from "@/app/view/orchestrate/dagmodal";
 import { setDagModalAgentsContext } from "@/app/view/orchestrate/dagmodalstate";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtom, useAtomValue, useSetAtom } from "jotai";
-import { AnimatePresence } from "motion/react";
-import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { AnimatePresence, motion, MotionConfig } from "motion/react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AutonomyLadder } from "./autonomyladderview";
 import { resolveComposerLabels, type BriefComposeState } from "./briefcompose";
 import { resolveBriefComposerTarget } from "./briefcomposertarget";
@@ -95,6 +97,7 @@ import { openJarvisWithSource } from "./contextualentry";
 import { EffortCard } from "./effortcard";
 import type { EffortCardModel } from "./effortmodel";
 import { effortDetailAtom, expandedEffortOrefAtom, toggleEffort } from "./effortstore";
+import { freshKeys } from "./freshrows";
 import { peekFocus, type PeekFocus } from "./graphfocus";
 import { GraphPeek } from "./graphpeek";
 import {
@@ -224,7 +227,17 @@ function MoreControl({ n, expanded, onToggle }: { n: number; expanded: boolean; 
     );
 }
 
-function QueueRowView({ row, focused, onOpen }: { row: QueueRow; focused: boolean; onOpen?: () => void }) {
+function QueueRowView({
+    row,
+    focused,
+    fresh,
+    onOpen,
+}: {
+    row: QueueRow;
+    focused: boolean;
+    fresh: boolean;
+    onOpen?: () => void;
+}) {
     const err = row.tone === "error";
     const hasMeta = row.attrib !== "" || row.detail !== "" || row.ts != null;
     const base =
@@ -303,7 +316,11 @@ function QueueRowView({ row, focused, onOpen }: { row: QueueRow; focused: boolea
     // navigates nowhere (the rule this region has always followed for a channel-less row).
     if (onOpen == null) {
         return (
-            <div data-jarvis-brief-row="queue" {...cursorAttrs(focused)} className={cn(base, focused && CURSOR_RING)}>
+            <div
+                data-jarvis-brief-row="queue"
+                {...cursorAttrs(focused)}
+                className={cn(base, focused && CURSOR_RING, fresh && "fresh-mark")}
+            >
                 {face}
             </div>
         );
@@ -318,7 +335,8 @@ function QueueRowView({ row, focused, onOpen }: { row: QueueRow; focused: boolea
             className={cn(
                 base,
                 "w-full cursor-pointer text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
-                focused && CURSOR_RING
+                focused && CURSOR_RING,
+                fresh && "fresh-mark"
             )}
         >
             {face}
@@ -336,12 +354,14 @@ function QueueRowView({ row, focused, onOpen }: { row: QueueRow; focused: boolea
 function InitiativeRow({
     effort,
     focused,
+    fresh,
     expanded,
     onToggle,
     onOpen,
 }: {
     effort: EffortCardModel;
     focused: boolean;
+    fresh: boolean;
     expanded: boolean;
     onToggle: () => void;
     onOpen: () => void;
@@ -350,7 +370,7 @@ function InitiativeRow({
         <div
             data-jarvis-brief-row="initiative"
             {...cursorAttrs(focused)}
-            className={cn("rounded-[10px]", focused && CURSOR_RING)}
+            className={cn("rounded-[10px]", focused && CURSOR_RING, fresh && "fresh-mark")}
         >
             <EffortCard model={effort} expanded={expanded} onToggle={onToggle} onOpenDetail={onOpen} />
         </div>
@@ -372,7 +392,17 @@ function sessionMark(row: ActiveWorkRow): { glyph: string; fg: string } {
 // A run row is the one session row with a destination: B4's session sheet. A blocker or a direct agent
 // has no sheet yet, so it stays a row rather than becoming a control that opens nothing (the same rule the
 // wait queue follows for its channel-less items).
-function SessionRow({ row, focused, onOpen }: { row: ActiveWorkRow; focused: boolean; onOpen?: () => void }) {
+function SessionRow({
+    row,
+    focused,
+    fresh,
+    onOpen,
+}: {
+    row: ActiveWorkRow;
+    focused: boolean;
+    fresh: boolean;
+    onOpen?: () => void;
+}) {
     const mark = sessionMark(row);
     const openable = row.kind === "run" && onOpen != null;
     const face = (
@@ -405,7 +435,8 @@ function SessionRow({ row, focused, onOpen }: { row: ActiveWorkRow; focused: boo
                 className={cn(
                     base,
                     "w-full cursor-pointer text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
-                    focused && CURSOR_RING
+                    focused && CURSOR_RING,
+                    fresh && "fresh-mark"
                 )}
             >
                 {face}
@@ -413,7 +444,11 @@ function SessionRow({ row, focused, onOpen }: { row: ActiveWorkRow; focused: boo
         );
     }
     return (
-        <div data-jarvis-brief-row="session" {...cursorAttrs(focused)} className={cn(base, focused && CURSOR_RING)}>
+        <div
+            data-jarvis-brief-row="session"
+            {...cursorAttrs(focused)}
+            className={cn(base, focused && CURSOR_RING, fresh && "fresh-mark")}
+        >
             {face}
         </div>
     );
@@ -812,9 +847,21 @@ function BriefComposer({ model }: { model: AgentsViewModel }) {
                         className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-[22px] py-3.5"
                         aria-live="polite"
                     >
-                        {thread.map((e) => (
-                            <TurnView key={e.key} exchange={e} model={model} />
-                        ))}
+                        {/* opacity only, and no layout: these wrap prose that streams in, and animating
+                            layout on streaming text is the perf trap the cockpit spec names. initial={false}
+                            so reopening a restored thread does not replay every turn. */}
+                        <AnimatePresence initial={false}>
+                            {thread.map((e) => (
+                                <motion.div
+                                    key={e.key}
+                                    initial={{ opacity: 0 }}
+                                    animate={{ opacity: 1 }}
+                                    transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
+                                >
+                                    <TurnView exchange={e} model={model} />
+                                </motion.div>
+                            ))}
+                        </AnimatePresence>
                         {inFlight ? (
                             <div className="flex items-center gap-[9px]">
                                 <span className={cn(TURN_WHO, "text-accent-soft")}>Jarvis</span>
@@ -825,7 +872,19 @@ function BriefComposer({ model }: { model: AgentsViewModel }) {
                             <span className="text-[12.5px] text-secondary">Ask failed — try again.</span>
                         ) : null}
                     </div>
-                    {answered ? <DrewBand conversation={conversation} model={model} /> : null}
+                    <AnimatePresence initial={false}>
+                        {answered ? (
+                            <motion.div
+                                key="drew"
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
+                            >
+                                <DrewBand conversation={conversation} model={model} />
+                            </motion.div>
+                        ) : null}
+                    </AnimatePresence>
                 </div>
             ) : null}
             {/* z-30 clears the detail sheet's backdrop. The sheet dims and covers the ground on purpose,
@@ -1082,6 +1141,53 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
             more: runs.more + blockers.more + direct.more,
         };
     }, [model_, sessionsOpen]);
+    // moment 1: which rows are new to YOU. Excludes `behind` deliberately — that region is entirely
+    // since-your-last-visit by construction, so marking it would mark every row and its own label
+    // already states the fact.
+    const cursorTs = snapshot?.actualCursor ?? 0;
+    const freshWaiting = useMemo(
+        () =>
+            freshKeys(
+                queue.map((q) => ({ key: q.key, ts: q.ts })),
+                cursorTs
+            ),
+        [queue, cursorTs]
+    );
+    const freshInitiatives = useMemo(
+        () =>
+            freshKeys(
+                effortWindow.rows.map((e) => ({ key: e.oref, ts: e.updatedts })),
+                cursorTs
+            ),
+        [effortWindow, cursorTs]
+    );
+    const freshSessions = useMemo(
+        () =>
+            freshKeys(
+                sessions.rows.map((r) => ({ key: r.key, ts: r.ts })),
+                cursorTs
+            ),
+        [sessions, cursorTs]
+    );
+
+    // moment 2: only ids that arrive while the snapshot's identity is unchanged animate in. A refresh
+    // reseeds silently, which is what stops a whole-snapshot swap from firing N entrances at once; the
+    // live attention poll still lands a new waiting row against an unchanged key. Committed in a layout
+    // effect rather than during render because the render pass can run twice (motiontokens.ts).
+    const entranceIds = [
+        ...queue.map((q) => q.key),
+        ...effortWindow.rows.map((e) => e.oref),
+        ...sessions.rows.map((r) => r.key),
+    ];
+    const entranceKey = snapshot?.queryStartedAt?.toString();
+    const entranceRef = useRef(initialEntranceState());
+    const { animate: entering } = computeEntrances(entranceRef.current, entranceKey, entranceIds);
+    const entranceIdsKey = entranceIds.join(",");
+    useLayoutEffect(() => {
+        entranceRef.current = computeEntrances(entranceRef.current, entranceKey, entranceIds).state;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [entranceIdsKey, entranceKey]);
+
     const deltaWindow = useMemo(() => capRegion(model_?.delta ?? [], DELTA_CAP, behindOpen), [model_, behindOpen]);
     const deltaGroups = useMemo(() => groupDelta(deltaWindow.rows, Date.now()), [deltaWindow]);
     const shipped = useMemo(() => capRegion(model_?.shipped ?? [], SHIPPED_CAP, behindOpen), [model_, behindOpen]);
@@ -1167,6 +1273,17 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     // describing the control rather than the work.
     const pastRows = (model_?.delta.length ?? 0) + (model_?.shipped.length ?? 0);
     const pastMore = deltaWindow.more + shipped.more;
+    // shared by the capped head and the overflow pane below it, which render the same row in two places
+    const renderInitiative = (e: EffortCardModel) => (
+        <InitiativeRow
+            effort={e}
+            focused={cursor === `initiatives:${e.oref}`}
+            fresh={freshInitiatives.has(e.oref)}
+            expanded={expandedEffort === e.oref}
+            onToggle={() => fireAndForget(() => toggleEffort(e.oref))}
+            onOpen={() => fireAndForget(() => openORef(model, e.oref))}
+        />
+    );
     const firstLoad = snapshot == null && loading;
     const loadFailed = snapshot == null && error != null;
     const staleSnapshot = snapshot != null && error != null;
@@ -1189,7 +1306,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                     <span
                         data-jarvis-brief-band="waiting"
                         className={cn(
-                            "flex flex-none items-center gap-[7px] rounded-[6px] border px-2.5 py-[3px] font-mono text-[9.5px] font-bold uppercase tracking-[.06em]",
+                            "flex flex-none items-center gap-[7px] rounded-[6px] border px-2.5 py-[3px] font-mono text-[9.5px] font-bold uppercase tracking-[.06em] transition-colors duration-[140ms]",
                             queue.length === 0
                                 ? "border-success/30 bg-success/15 text-success"
                                 : "border-asking/30 bg-asking/15 text-asking"
@@ -1197,11 +1314,19 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                     >
                         <span
                             className={cn(
-                                "h-[5px] w-[5px] flex-none rounded-full",
-                                queue.length === 0 ? "bg-success" : "animate-pulse bg-asking motion-reduce:animate-none"
+                                "h-[5px] w-[5px] flex-none rounded-full transition-colors duration-[140ms]",
+                                queue.length === 0
+                                    ? "bg-success"
+                                    : "animate-[pulseDot_1.8s_ease-in-out_infinite] bg-asking motion-reduce:animate-none"
                             )}
                         />
-                        {queue.length === 0 ? "all clear" : `${queue.length} waiting`}
+                        {queue.length === 0 ? (
+                            "all clear"
+                        ) : (
+                            <span className="flex items-center gap-1">
+                                <RollingCount value={queue.length} /> waiting
+                            </span>
+                        )}
                     </span>
                 ) : null}
                 <span data-jarvis-brief-band="fleet" className="flex-none font-mono text-[10px] text-muted">
@@ -1225,171 +1350,277 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                 <NewInitiativeControl />
                 <NewRunControl model={model} />
             </header>
-            {staleSnapshot ? (
-                <div
-                    data-jarvis-brief-band="stale"
-                    className="flex flex-none items-center gap-2 border-b border-edge-faint px-[22px] py-1 font-mono text-[10px] text-error"
-                >
-                    <span aria-hidden className="font-bold">
-                        ✕
-                    </span>
-                    refresh failed — showing the previous snapshot
-                </div>
-            ) : null}
+            {/* both bands push the surface down, so height belongs in the animation rather than a cut */}
+            <AnimatePresence initial={false}>
+                {staleSnapshot ? (
+                    <motion.div
+                        key="stale"
+                        variants={paneReveal}
+                        initial="initial"
+                        animate="animate"
+                        exit="exit"
+                        data-jarvis-brief-band="stale"
+                        className="flex flex-none items-center gap-2 overflow-hidden border-b border-edge-faint px-[22px] py-1 font-mono text-[10px] text-error"
+                    >
+                        <span aria-hidden className="font-bold">
+                            ✕
+                        </span>
+                        refresh failed — showing the previous snapshot
+                    </motion.div>
+                ) : null}
+            </AnimatePresence>
             <div
                 className="flex min-h-0 flex-1 flex-col gap-[26px] overflow-y-auto px-[22px] pb-2.5 pt-5"
                 aria-live="polite"
             >
-                {loadFailed ? (
-                    <div
-                        data-jarvis-brief-state="error"
-                        className="flex flex-col gap-2 rounded-[10px] border border-border bg-surface px-4 py-3"
-                    >
-                        <span className="text-[13px] font-semibold text-ink-hi">Couldn't load your work state.</span>
-                        <span className="text-[12px] text-secondary">{error}</span>
-                        <button
-                            type="button"
-                            onClick={refreshBriefing}
-                            className="mt-1 w-fit cursor-pointer rounded-[7px] border border-border bg-surface-raised px-2.5 py-1 text-[11px] font-semibold text-secondary hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                <AnimatePresence initial={false}>
+                    {loadFailed ? (
+                        <motion.div
+                            key="load-error"
+                            variants={paneReveal}
+                            initial="initial"
+                            animate="animate"
+                            exit="exit"
+                            data-jarvis-brief-state="error"
+                            className="flex flex-col gap-2 overflow-hidden rounded-[10px] border border-border bg-surface px-4 py-3"
                         >
-                            Retry
-                        </button>
-                    </div>
-                ) : null}
-                {firstLoad ? (
-                    <div data-jarvis-brief-state="loading" className="flex flex-col gap-[26px]">
-                        {Object.entries(REGIONS).map(([id, r]) => (
-                            <div key={id} className="flex flex-col gap-2">
-                                <span className={cn(REGION_LABEL, "text-feed-label")}>{r.label}</span>
-                                <div className="h-12 animate-pulse rounded-[10px] bg-surface motion-reduce:animate-none" />
-                            </div>
-                        ))}
-                    </div>
-                ) : null}
-                {model_ != null ? (
-                    <>
-                        <Region
-                            id="waiting"
-                            alert={queue.length > 0}
-                            empty={queue.length === 0}
-                            gap="gap-[9px]"
-                            meta="oldest first · gates before asks"
+                            <span className="text-[13px] font-semibold text-ink-hi">
+                                Couldn't load your work state.
+                            </span>
+                            <span className="text-[12px] text-secondary">{error}</span>
+                            <button
+                                type="button"
+                                onClick={refreshBriefing}
+                                className="mt-1 w-fit cursor-pointer rounded-[7px] border border-border bg-surface-raised px-2.5 py-1 text-[11px] font-semibold text-secondary hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                            >
+                                Retry
+                            </button>
+                        </motion.div>
+                    ) : null}
+                </AnimatePresence>
+                {/* mode="wait" so the skeleton is gone before the regions arrive: the two cross-faded in
+                    place would read as a double exposure of the same four headings. The skeleton blocks'
+                    own animate-pulse is unchanged. */}
+                <AnimatePresence mode="wait" initial={false}>
+                    {firstLoad ? (
+                        <motion.div
+                            key="skeleton"
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
+                            data-jarvis-brief-state="loading"
+                            className="flex flex-col gap-[26px]"
                         >
-                            <div className="flex flex-col gap-[9px]">
-                                {queue.map((q) => {
-                                    const target = queueOpenTarget(q.nav);
-                                    return (
-                                        <QueueRowView
-                                            key={q.key}
-                                            row={q}
-                                            focused={cursor === `waiting:${q.key}`}
-                                            onOpen={target == null ? undefined : () => openQueueTarget(model, target)}
-                                        />
-                                    );
-                                })}
-                            </div>
-                        </Region>
-                        <Region
-                            id="initiatives"
-                            count={efforts.length}
-                            empty={efforts.length === 0}
-                            gap="gap-2.5"
-                            meta={stalled > 0 ? `${stalled} stalled` : "all moving"}
+                            {Object.entries(REGIONS).map(([id, r]) => (
+                                <div key={id} className="flex flex-col gap-2">
+                                    <span className={cn(REGION_LABEL, "text-feed-label")}>{r.label}</span>
+                                    <div className="h-12 animate-pulse rounded-[10px] bg-surface motion-reduce:animate-none" />
+                                </div>
+                            ))}
+                        </motion.div>
+                    ) : null}
+                    {model_ != null ? (
+                        <motion.div
+                            key="regions"
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
+                            className="flex flex-col gap-[26px]"
                         >
-                            <div className="flex flex-col gap-2.5">
-                                {effortWindow.rows.map((e) => (
-                                    <InitiativeRow
-                                        key={e.oref}
-                                        effort={e}
-                                        focused={cursor === `initiatives:${e.oref}`}
-                                        expanded={expandedEffort === e.oref}
-                                        onToggle={() => fireAndForget(() => toggleEffort(e.oref))}
-                                        onOpen={() => fireAndForget(() => openORef(model, e.oref))}
+                            <Region
+                                id="waiting"
+                                alert={queue.length > 0}
+                                empty={queue.length === 0}
+                                gap="gap-[9px]"
+                                meta="oldest first · gates before asks"
+                            >
+                                <div className="flex flex-col gap-[9px]">
+                                    <MotionConfig reducedMotion="user">
+                                        <AnimatePresence initial={false}>
+                                            {queue.map((q) => {
+                                                const target = queueOpenTarget(q.nav);
+                                                return (
+                                                    <motion.div
+                                                        key={q.key}
+                                                        layout
+                                                        variants={cardVariants}
+                                                        initial={entering.has(q.key) ? "initial" : false}
+                                                        animate="animate"
+                                                        exit="exit"
+                                                        transition={{
+                                                            duration: MOTION.durMacro,
+                                                            ease: MOTION.easeFluid,
+                                                        }}
+                                                    >
+                                                        <QueueRowView
+                                                            row={q}
+                                                            focused={cursor === `waiting:${q.key}`}
+                                                            fresh={freshWaiting.has(q.key)}
+                                                            onOpen={
+                                                                target == null
+                                                                    ? undefined
+                                                                    : () => openQueueTarget(model, target)
+                                                            }
+                                                        />
+                                                    </motion.div>
+                                                );
+                                            })}
+                                        </AnimatePresence>
+                                    </MotionConfig>
+                                </div>
+                            </Region>
+                            <Region
+                                id="initiatives"
+                                count={efforts.length}
+                                empty={efforts.length === 0}
+                                gap="gap-2.5"
+                                meta={stalled > 0 ? `${stalled} stalled` : "all moving"}
+                            >
+                                <div className="flex flex-col gap-2.5">
+                                    <MotionConfig reducedMotion="user">
+                                        <AnimatePresence initial={false}>
+                                            {effortWindow.rows.slice(0, EFFORT_CAP).map((e) => (
+                                                <motion.div
+                                                    key={e.oref}
+                                                    layout
+                                                    variants={cardVariants}
+                                                    initial={entering.has(e.oref) ? "initial" : false}
+                                                    animate="animate"
+                                                    exit="exit"
+                                                    transition={{ duration: MOTION.durMacro, ease: MOTION.easeFluid }}
+                                                >
+                                                    {renderInitiative(e)}
+                                                </motion.div>
+                                            ))}
+                                        </AnimatePresence>
+                                        {/* the rows the expansion adds reveal as one pane rather than N entrances:
+                                        opening a disclosure is not news arriving. overflow-hidden is required —
+                                        paneReveal animates height, and the rows spill without it. */}
+                                        <AnimatePresence initial={false}>
+                                            {effortWindow.rows.length > EFFORT_CAP ? (
+                                                <motion.div
+                                                    key="initiatives-overflow"
+                                                    variants={paneReveal}
+                                                    initial="initial"
+                                                    animate="animate"
+                                                    exit="exit"
+                                                    className="flex flex-col gap-2.5 overflow-hidden"
+                                                >
+                                                    {effortWindow.rows.slice(EFFORT_CAP).map((e) => (
+                                                        <Fragment key={e.oref}>{renderInitiative(e)}</Fragment>
+                                                    ))}
+                                                </motion.div>
+                                            ) : null}
+                                        </AnimatePresence>
+                                    </MotionConfig>
+                                    <MoreControl
+                                        n={effortWindow.more}
+                                        expanded={initiativesOpen}
+                                        onToggle={() => toggleRegion("initiatives")}
                                     />
-                                ))}
-                                <MoreControl
-                                    n={effortWindow.more}
-                                    expanded={initiativesOpen}
-                                    onToggle={() => toggleRegion("initiatives")}
-                                />
-                            </div>
-                        </Region>
-                        <Region id="sessions" empty={sessions.rows.length === 0} gap="gap-1" meta="run on their own">
-                            <div className="flex flex-col gap-1">
-                                {sessions.rows.map((r) => (
-                                    <SessionRow
-                                        key={r.key}
-                                        row={r}
-                                        focused={cursor === `sessions:${r.key}`}
-                                        onOpen={
-                                            r.kind === "run"
-                                                ? () => fireAndForget(() => openRunSheet(r.oref.replace(/^run:/, "")))
-                                                : undefined
-                                        }
+                                </div>
+                            </Region>
+                            <Region
+                                id="sessions"
+                                empty={sessions.rows.length === 0}
+                                gap="gap-1"
+                                meta="run on their own"
+                            >
+                                <div className="flex flex-col gap-1">
+                                    <MotionConfig reducedMotion="user">
+                                        <AnimatePresence initial={false}>
+                                            {sessions.rows.map((r) => (
+                                                <motion.div
+                                                    key={r.key}
+                                                    layout
+                                                    variants={cardVariants}
+                                                    initial={entering.has(r.key) ? "initial" : false}
+                                                    animate="animate"
+                                                    exit="exit"
+                                                    transition={{ duration: MOTION.durMacro, ease: MOTION.easeFluid }}
+                                                >
+                                                    <SessionRow
+                                                        row={r}
+                                                        focused={cursor === `sessions:${r.key}`}
+                                                        fresh={freshSessions.has(r.key)}
+                                                        onOpen={
+                                                            r.kind === "run"
+                                                                ? () =>
+                                                                      fireAndForget(() =>
+                                                                          openRunSheet(r.oref.replace(/^run:/, ""))
+                                                                      )
+                                                                : undefined
+                                                        }
+                                                    />
+                                                </motion.div>
+                                            ))}
+                                        </AnimatePresence>
+                                    </MotionConfig>
+                                    <MoreControl
+                                        n={sessions.more}
+                                        expanded={sessionsOpen}
+                                        onToggle={() => toggleRegion("sessions")}
                                     />
-                                ))}
-                                <MoreControl
-                                    n={sessions.more}
-                                    expanded={sessionsOpen}
-                                    onToggle={() => toggleRegion("sessions")}
-                                />
-                            </div>
-                        </Region>
-                        <Region
-                            id="behind"
-                            empty={pastRows === 0}
-                            gap="gap-[5px]"
-                            meta={`${pastRows} ${pastRows === 1 ? "event" : "events"}`}
-                        >
-                            <div className="flex flex-col gap-[5px] pb-1.5">
-                                {deltaGroups.map((g) => (
-                                    <Fragment key={g.label}>
-                                        <span className={SUB_LABEL}>{g.label}</span>
-                                        {g.rows.map((d) => (
-                                            <PastRow
-                                                key={d.key}
-                                                hook="delta"
-                                                at={formatAge(Date.now() - d.ts)}
-                                                verb={d.wording}
-                                                verbFg="text-muted"
-                                                what={d.title}
-                                                focused={cursor === `behind:${d.key}`}
-                                            />
-                                        ))}
-                                    </Fragment>
-                                ))}
-                                {shipped.rows.length > 0 ? (
-                                    <>
-                                        <span className={SUB_LABEL}>Shipped · 7 days</span>
-                                        {shipped.rows.map((s) => (
-                                            <PastRow
-                                                key={s.oref}
-                                                hook="shipped"
-                                                at={formatAge(Date.now() - s.completedTs)}
-                                                verb="Shipped"
-                                                verbFg="text-success"
-                                                what={[s.goal, s.project].filter((p) => p !== "").join(" · ")}
-                                                focused={cursor === `behind:shipped:${s.oref}`}
-                                                tail={
-                                                    s.fresh ? (
-                                                        <span className="flex-none rounded-[4px] bg-success/15 px-1.5 py-px font-mono text-[9.5px] font-semibold uppercase text-success">
-                                                            New
-                                                        </span>
-                                                    ) : null
-                                                }
-                                            />
-                                        ))}
-                                    </>
-                                ) : null}
-                                <MoreControl
-                                    n={pastMore}
-                                    expanded={behindOpen}
-                                    onToggle={() => toggleRegion("behind")}
-                                />
-                            </div>
-                        </Region>
-                    </>
-                ) : null}
+                                </div>
+                            </Region>
+                            <Region
+                                id="behind"
+                                empty={pastRows === 0}
+                                gap="gap-[5px]"
+                                meta={`${pastRows} ${pastRows === 1 ? "event" : "events"}`}
+                            >
+                                <div className="flex flex-col gap-[5px] pb-1.5">
+                                    {deltaGroups.map((g) => (
+                                        <Fragment key={g.label}>
+                                            <span className={SUB_LABEL}>{g.label}</span>
+                                            {g.rows.map((d) => (
+                                                <PastRow
+                                                    key={d.key}
+                                                    hook="delta"
+                                                    at={formatAge(Date.now() - d.ts)}
+                                                    verb={d.wording}
+                                                    verbFg="text-muted"
+                                                    what={d.title}
+                                                    focused={cursor === `behind:${d.key}`}
+                                                />
+                                            ))}
+                                        </Fragment>
+                                    ))}
+                                    {shipped.rows.length > 0 ? (
+                                        <>
+                                            <span className={SUB_LABEL}>Shipped · 7 days</span>
+                                            {shipped.rows.map((s) => (
+                                                <PastRow
+                                                    key={s.oref}
+                                                    hook="shipped"
+                                                    at={formatAge(Date.now() - s.completedTs)}
+                                                    verb="Shipped"
+                                                    verbFg="text-success"
+                                                    what={[s.goal, s.project].filter((p) => p !== "").join(" · ")}
+                                                    focused={cursor === `behind:shipped:${s.oref}`}
+                                                    tail={
+                                                        s.fresh ? (
+                                                            <span className="flex-none rounded-[4px] bg-success/15 px-1.5 py-px font-mono text-[9.5px] font-semibold uppercase text-success">
+                                                                New
+                                                            </span>
+                                                        ) : null
+                                                    }
+                                                />
+                                            ))}
+                                        </>
+                                    ) : null}
+                                    <MoreControl
+                                        n={pastMore}
+                                        expanded={behindOpen}
+                                        onToggle={() => toggleRegion("behind")}
+                                    />
+                                </div>
+                            </Region>
+                        </motion.div>
+                    ) : null}
+                </AnimatePresence>
             </div>
             <BriefComposer model={model} />
             {/* the Brief's destination for a record oref: openref.ts's task arm sets the atom this reads.

@@ -72,7 +72,8 @@ export function SheetShell({
         <aside
             data-jarvis-brief-sheet={face}
             aria-label="Detail sheet"
-            className="absolute inset-y-0 right-0 flex w-[640px] max-w-[92vw] flex-col border-l border-edge-faint bg-surface shadow-xl"
+            // positioning, width, scrim and edge now belong to ModalShell variant="sheet"
+            className="flex h-full min-h-0 flex-col"
         >
             <header className="flex flex-none items-center gap-2.5 border-b border-edge-faint px-4 py-3">
                 <span className={cn(LABEL, "text-accent-soft")}>{label}</span>
@@ -91,15 +92,7 @@ function runRuntimeView(run: Run): string {
     return [run.runtime || "claude", run.model || run.tier || "capable"].filter((p) => p !== "").join(" · ");
 }
 
-function LoadedSettings({
-    run,
-    group,
-    groupRead,
-}: {
-    run: Run;
-    group: TaskGroup | null;
-    groupRead: LinkedGroupRead;
-}) {
+function LoadedSettings({ run, group, groupRead }: { run: Run; group: TaskGroup | null; groupRead: LinkedGroupRead }) {
     const [draft, setDraft] = useState<RunSettingsDraft | null>(null);
     const [baseline, setBaseline] = useState<RunSettingsDraft | null>(null);
     const [saving, setSaving] = useState<string | null>(null);

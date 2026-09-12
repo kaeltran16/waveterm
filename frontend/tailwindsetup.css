@@ -351,6 +351,45 @@ svg [aria-label="tip"] g path {
     }
 }
 
+/* Fresh mark (Jarvis motion moment 1): a row new since your last visit carries a one-shot accent rule
+   on its leading edge, holding briefly then fading. A positioned ::before rather than a box-shadow,
+   because a row's focus cursor is `ring-1 ring-accent/70` — itself a box-shadow — and a second shadow
+   would fight it. Absolutely positioned so it adds no layout: the mark must never move a row the user
+   is already reading, which is the whole reason it is a mark and not an entrance. */
+@keyframes freshMark {
+    0%,
+    60% {
+        opacity: 1;
+    }
+    100% {
+        opacity: 0;
+    }
+}
+
+.fresh-mark {
+    position: relative;
+}
+
+.fresh-mark::before {
+    content: "";
+    position: absolute;
+    inset-block: 0;
+    inset-inline-start: 0;
+    width: 2px;
+    border-radius: 2px;
+    background: var(--color-accent);
+    animation: freshMark 2.4s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    pointer-events: none;
+}
+
+/* reduced motion means less movement, not less information: the rule stays, it just never animates */
+@media (prefers-reduced-motion: reduce) {
+    .fresh-mark::before {
+        animation: none;
+        opacity: 1;
+    }
+}
+
 /* Usage donut arc (moment 7): registered so the conic-gradient sweep is transitionable —
    gradient stops are not animatable unless routed through a typed custom property. WebView2 is
    Chromium, so @property is supported. Angle only; ring color switches at ok/warn/hot thresholds

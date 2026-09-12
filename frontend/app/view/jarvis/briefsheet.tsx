@@ -17,6 +17,7 @@
 // of a launch, and its own docblock says so — the goal and its Run live in the composer that used to sit
 // directly below it on the Stage.
 
+import { ModalShell } from "@/app/modals/modalshell";
 import { globalStore } from "@/app/store/jotaiStore";
 import { buildChannelsAskBindings } from "@/app/store/keybindings/bindings";
 import { useKeybindings } from "@/app/store/keybindings/store";
@@ -55,7 +56,7 @@ import { fireAndForget } from "@/util/util";
 import { useAtomValue, useSetAtom } from "jotai";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { RunSettingsPanel, SheetShell } from "./briefrunsheet";
-import { sheetFace } from "./briefsheetmodel";
+import { sheetFace, type SheetFace } from "./briefsheetmodel";
 import { EffortDetailView } from "./effortdetailview";
 import { effortDetailAtom } from "./effortstore";
 import { briefSheetOpenAtom } from "./jarvisstore";
@@ -277,7 +278,9 @@ export function BriefSheet({ model }: { model: AgentsViewModel }) {
     useKeybindings(askBindings);
     askAgentRef.current = run != null ? liveWorkers(run, agents).find((w) => w.state === "asking") : undefined;
 
-    const face = sheetFace(subject, run);
+    // memoized because the latch below has it in a dep array: sheetFace builds a fresh object each call,
+    // so an unmemoized face would refire the latch every render and setState its way into a loop
+    const face = useMemo(() => sheetFace(subject, run), [subject, run]);
     const subjectId = subject?.id ?? null;
     const bandOpen = subjectId != null ? (bandsOpen[subjectId] ?? false) : false;
     const tags = run != null ? ambient.tagsFor({ oref: "run:" + run.id }) : [];
@@ -291,71 +294,77 @@ export function BriefSheet({ model }: { model: AgentsViewModel }) {
         }
     }, [bandOpen, bandRecordId]);
 
-    if (!open || face.kind === "none") {
-        return null;
-    }
-
     const close = () => {
         globalStore.set(briefSheetOpenAtom, false);
         clearSubject();
     };
+    // "none" is never drawn — `visible` below excludes it, so it is never latched — but it is in the union
+    // now that the early return is gone, so it needs a branch rather than a non-null assertion.
     const title =
         face.kind === "channel"
             ? channelProjectLabel(channel, projects)
-            : (effortCache.get("effort:" + face.effortId)?.title ?? "Initiative");
+            : face.kind === "effort"
+              ? (effortCache.get("effort:" + face.effortId)?.title ?? "Initiative")
+              : "";
+
+    const visible = open && face.kind !== "none";
+    // the exit animation still needs something to draw after the subject clears, so the last shown
+    // face and its title are latched rather than read live (petbubble.tsx keeps the same rule)
+    const [shown, setShown] = useState<{ face: SheetFace; title: string } | null>(null);
+    useEffect(() => {
+        if (visible) {
+            setShown({ face, title });
+        }
+    }, [visible, face, title]);
 
     return (
-        <div className="absolute inset-0 z-20">
-            <button
-                type="button"
-                aria-label="Close detail sheet"
-                onClick={close}
-                className="absolute inset-0 cursor-default bg-background/40"
-            />
-            <SheetShell
-                face={face.kind}
-                label={face.kind === "effort" ? "initiative" : "project"}
-                title={title}
-                onClose={close}
-            >
-                {face.kind === "channel" && face.body === "run" && run != null ? (
-                    <RecordBand
-                        kind={subject?.kind ?? "channel"}
-                        tags={tags}
-                        detail={bandRecordId != null ? (recordDetails[bandRecordId] ?? null) : null}
-                        runORef={"run:" + run.id}
-                        open={bandOpen}
-                        onToggle={() => subjectId != null && toggleRecordBand(subjectId)}
-                    />
-                ) : null}
-                {face.kind === "channel" ? (
-                    channel == null ? (
-                        <SheetChannelPending channelId={face.channelId} />
-                    ) : face.body === "run" && run != null ? (
-                        <ChannelRun model={model} channel={channel} run={run} />
-                    ) : (
+        <ModalShell open={visible} variant="sheet" onClose={close} className="h-full w-[640px] max-w-[92vw]">
+            {shown == null ? null : (
+                <SheetShell
+                    face={shown.face.kind}
+                    label={shown.face.kind === "effort" ? "initiative" : "project"}
+                    title={shown.title}
+                    onClose={close}
+                >
+                    {face.kind === "channel" && face.body === "run" && run != null ? (
+                        <RecordBand
+                            kind={subject?.kind ?? "channel"}
+                            tags={tags}
+                            detail={bandRecordId != null ? (recordDetails[bandRecordId] ?? null) : null}
+                            runORef={"run:" + run.id}
+                            open={bandOpen}
+                            onToggle={() => subjectId != null && toggleRecordBand(subjectId)}
+                        />
+                    ) : null}
+                    {face.kind === "channel" ? (
+                        channel == null ? (
+                            <SheetChannelPending channelId={face.channelId} />
+                        ) : face.body === "run" && run != null ? (
+                            <ChannelRun model={model} channel={channel} run={run} />
+                        ) : (
+                            <div className="flex min-h-0 flex-1 flex-col">
+                                <RunLauncher projectName={channelProjectLabel(channel, projects)} />
+                                <ChannelLaunch channel={channel} />
+                            </div>
+                        )
+                    ) : null}
+                    {face.kind === "effort" ? (
                         <div className="flex min-h-0 flex-1 flex-col">
-                            <RunLauncher projectName={channelProjectLabel(channel, projects)} />
-                            <ChannelLaunch channel={channel} />
+                            <EffortDetailView model={model} />
                         </div>
-                    )
-                ) : null}
-                {face.kind === "effort" ? (
-                    <div className="flex min-h-0 flex-1 flex-col">
-                        <EffortDetailView model={model} />
-                    </div>
-                ) : null}
-                {/* the settings face is a fixed-height band under the body: RunBody scrolls itself, and a
+                    ) : null}
+                    {/* the settings face is a fixed-height band under the body: RunBody scrolls itself, and a
                     second scroller around it would put two scrollbars on one surface. */}
-                {face.kind === "channel" && face.body === "run" && run != null ? (
-                    <div
-                        data-jarvis-brief-sheet-face="settings"
-                        className="flex max-h-[55%] flex-none flex-col gap-4 overflow-y-auto border-t border-edge-faint px-4 py-4"
-                    >
-                        <RunSettingsPanel run={run} />
-                    </div>
-                ) : null}
-            </SheetShell>
-        </div>
+                    {face.kind === "channel" && face.body === "run" && run != null ? (
+                        <div
+                            data-jarvis-brief-sheet-face="settings"
+                            className="flex max-h-[55%] flex-none flex-col gap-4 overflow-y-auto border-t border-edge-faint px-4 py-4"
+                        >
+                            <RunSettingsPanel run={run} />
+                        </div>
+                    ) : null}
+                </SheetShell>
+            )}
+        </ModalShell>
     );
 }
