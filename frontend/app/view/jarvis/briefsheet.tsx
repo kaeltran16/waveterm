@@ -42,6 +42,7 @@ import {
     hydrateRunConfigFromProfile,
     orchestrationAtom,
     parallelismAtom,
+    plannerAtom,
     resetRunConfigForChannel,
     routeTouchedAtom,
     runRouteAtom,
@@ -69,6 +70,7 @@ import {
     stageRunAtom,
     toggleRecordBand,
 } from "./jarvissubjectstore";
+import { launchOptsFromConfig } from "./newrun";
 import { recordBandCase } from "./recordband";
 import { RecordBand } from "./recordbandview";
 
@@ -83,6 +85,7 @@ function ChannelLaunch({ channel }: { channel: Channel }) {
     const orchestration = useAtomValue(orchestrationAtom);
     const workerRoute = useAtomValue(workerRouteAtom);
     const parallelism = useAtomValue(parallelismAtom);
+    const planner = useAtomValue(plannerAtom);
     const runRoute = useAtomValue(runRouteAtom);
     const routeTouched = useAtomValue(routeTouchedAtom);
     const pref = useAtomValue(harnessPreferenceAtom);
@@ -130,13 +133,11 @@ function ChannelLaunch({ channel }: { channel: Channel }) {
         setError(null);
         fireAndForget(async () => {
             try {
-                const mode = shape;
+                // one translation from launcher state to CreateRun arguments, shared with the + Run
+                // modal and unit-tested there; this had its own inline copy and they drifted.
                 const created = await createRun(channelId, text, runRoute, {
-                    mode,
+                    ...launchOptsFromConfig({ shape, orchestration, parallelism, workerRoute, planner }),
                     ...(radarDraft != null ? { radarOrigin: radarDraft.radarOrigin } : {}),
-                    ...(mode === "orchestrator" ? { orchestration } : {}),
-                    ...(mode === "orchestrator" && orchestration === "engine" && workerRoute ? { workerRoute } : {}),
-                    ...(mode === "orchestrator" && orchestration === "engine" ? { parallelism } : {}),
                 });
                 // the launch consumed this draft, so the next one starts from the channel's saved defaults
                 endRunConfigDraft(profiles[channelId]);

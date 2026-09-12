@@ -39,7 +39,13 @@ describe("resolveChannelTarget", () => {
 });
 
 describe("launchOptsFromConfig", () => {
-    const base = { shape: "quick", orchestration: "adaptive", parallelism: 3, workerRoute: null } as RunConfig;
+    const base = {
+        shape: "quick",
+        orchestration: "adaptive",
+        parallelism: 3,
+        workerRoute: null,
+        planner: "lead",
+    } as RunConfig;
 
     it("names the mode rather than leaving the server to default it to quick", () => {
         expect(launchOptsFromConfig({ ...base, shape: "pipeline" })).toEqual({ mode: "pipeline" });
@@ -55,20 +61,56 @@ describe("launchOptsFromConfig", () => {
     it("carries the width and the worker route for an engine orchestrator", () => {
         const workerRoute: RoutePin = { runtime: "claude", tier: "capable" };
         expect(
-            launchOptsFromConfig({ shape: "orchestrator", orchestration: "engine", parallelism: 4, workerRoute })
+            launchOptsFromConfig({
+                ...base,
+                shape: "orchestrator",
+                orchestration: "engine",
+                parallelism: 4,
+                workerRoute,
+            })
         ).toEqual({ mode: "orchestrator", orchestration: "engine", parallelism: 4, workerRoute });
     });
 
     it("withholds the width and the worker route from an adaptive lead, which fans out on its own", () => {
         const workerRoute: RoutePin = { runtime: "claude", tier: "capable" };
         expect(
-            launchOptsFromConfig({ shape: "orchestrator", orchestration: "adaptive", parallelism: 4, workerRoute })
+            launchOptsFromConfig({
+                ...base,
+                shape: "orchestrator",
+                orchestration: "adaptive",
+                parallelism: 4,
+                workerRoute,
+            })
+        ).toEqual({ mode: "orchestrator", orchestration: "adaptive" });
+    });
+
+    it("defers the start when the human is writing the plan, so no lead is spawned to transcribe it", () => {
+        expect(
+            launchOptsFromConfig({ ...base, shape: "orchestrator", orchestration: "engine", planner: "human" })
+        ).toEqual({ mode: "orchestrator", orchestration: "engine", parallelism: 3, deferStart: true });
+    });
+
+    it("never sends deferStart for a lead-planned run, which the server already reads as start now", () => {
+        expect(
+            launchOptsFromConfig({ ...base, shape: "orchestrator", orchestration: "engine", planner: "lead" })
+        ).not.toHaveProperty("deferStart");
+    });
+
+    it("ignores the planner for an adaptive lead, which has no DAG to hand it", () => {
+        expect(
+            launchOptsFromConfig({ ...base, shape: "orchestrator", orchestration: "adaptive", planner: "human" })
         ).toEqual({ mode: "orchestrator", orchestration: "adaptive" });
     });
 
     it("omits a worker route the launcher left inheriting the lead", () => {
         expect(
-            launchOptsFromConfig({ shape: "orchestrator", orchestration: "engine", parallelism: 2, workerRoute: null })
+            launchOptsFromConfig({
+                ...base,
+                shape: "orchestrator",
+                orchestration: "engine",
+                parallelism: 2,
+                workerRoute: null,
+            })
         ).toEqual({ mode: "orchestrator", orchestration: "engine", parallelism: 2 });
     });
 });

@@ -11,6 +11,7 @@ import { fuzzyScore } from "@/app/cockpit/palette-match";
 import { resolveTargetChannel } from "@/app/view/agents/channelderive";
 import type { RunShape } from "@/app/view/agents/composercommand";
 import type { Orchestration } from "@/app/view/agents/orchestratorpicker";
+import type { Planner } from "@/app/view/agents/runconfig";
 
 export type ChannelTarget = { kind: "existing"; oid: string } | { kind: "create"; name: string; path: string };
 
@@ -38,6 +39,7 @@ export interface RunConfig {
     orchestration: Orchestration;
     parallelism: number;
     workerRoute: RoutePin | null;
+    planner: Planner;
 }
 
 export interface LaunchOpts {
@@ -45,6 +47,7 @@ export interface LaunchOpts {
     orchestration?: string;
     parallelism?: number;
     workerRoute?: RoutePin;
+    deferStart?: boolean;
 }
 
 // What the launcher's controls mean as CreateRun's arguments. The mode cannot simply be omitted: the
@@ -53,7 +56,7 @@ export interface LaunchOpts {
 // lead dispatches its own subagents, so a width and a worker route there would promise a fan-out that
 // never happens, which is the same reason runLauncherFace hides them.
 export function launchOptsFromConfig(config: RunConfig): LaunchOpts {
-    const { shape, orchestration, parallelism, workerRoute } = config;
+    const { shape, orchestration, parallelism, workerRoute, planner } = config;
     if (shape !== "orchestrator") {
         return { mode: shape };
     }
@@ -63,6 +66,9 @@ export function launchOptsFromConfig(config: RunConfig): LaunchOpts {
         orchestration,
         ...(engine ? { parallelism } : {}),
         ...(engine && workerRoute != null ? { workerRoute } : {}),
+        // deferStart is only ever sent to ask for it: the server reads an absent flag as "start now",
+        // and sending false would still be the default with extra wire noise.
+        ...(engine && planner === "human" ? { deferStart: true } : {}),
     };
 }
 

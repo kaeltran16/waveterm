@@ -3677,6 +3677,7 @@ declare global {
         merged?: boolean;
         runspec?: RunSpec;
         lastactivity?: number;
+        firstactivity?: number;
         attempts?: number;
         lastfailurekind?: string;
         escalations?: number;

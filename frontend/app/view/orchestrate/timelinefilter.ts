@@ -68,6 +68,7 @@ export type TimelineTarget =
 // the merge state for integration, the task itself for cleanup debt.
 const TASK_TARGET_KINDS: Record<string, TimelineTarget["kind"]> = {
     "task-spawned": "worker",
+    "task-first-activity": "worker",
     "task-done": "worker",
     "task-failed": "worker",
     "task-stalled": "worker",

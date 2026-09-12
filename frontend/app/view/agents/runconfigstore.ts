@@ -10,7 +10,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { atom, type PrimitiveAtom } from "jotai";
 import type { RunShape } from "./composercommand";
 import type { Orchestration } from "./orchestratorpicker";
-import { DEFAULT_PARALLELISM, clampParallelism, profileRunDefaults } from "./runconfig";
+import { DEFAULT_PARALLELISM, DEFAULT_PLANNER, clampParallelism, profileRunDefaults, type Planner } from "./runconfig";
 
 // What the launcher shows for a control the channel's profile does not speak for. Hydration restores a
 // field the profile has stopped stating to this baseline rather than leaving the value it used to state
@@ -23,6 +23,9 @@ export const orchestrationAtom = atom<Orchestration>(LAUNCH_ORCHESTRATION) as Pr
 export const runRouteAtom = atom<RoutePin | null>(null) as PrimitiveAtom<RoutePin | null>;
 export const workerRouteAtom = atom<RoutePin | null>(null) as PrimitiveAtom<RoutePin | null>;
 export const parallelismAtom = atom<number>(DEFAULT_PARALLELISM) as PrimitiveAtom<number>;
+// Not profile-backed: a saved profile says nothing about who plans, and a default that silently
+// launched lead-free runs for a whole channel is not a default anyone asked for.
+export const plannerAtom = atom<Planner>(DEFAULT_PLANNER) as PrimitiveAtom<Planner>;
 
 // Whether the user has picked a route by hand on this channel. Until they have, the channel's preferred
 // route keeps flowing in; after, it must not be overwritten under them. Was a component ref, and has to
@@ -43,6 +46,11 @@ export function setParallelism(next: number): void {
 export function setRunShape(next: RunShape): void {
     globalStore.set(configTouchedAtom, true);
     globalStore.set(runShapeAtom, next);
+}
+
+export function setPlanner(next: Planner): void {
+    globalStore.set(configTouchedAtom, true);
+    globalStore.set(plannerAtom, next);
 }
 
 export function setOrchestration(next: Orchestration): void {
@@ -70,6 +78,7 @@ export function hydrateRunConfigFromProfile(profile: JarvisProfile | null | unde
     globalStore.set(runShapeAtom, defaults.shape ?? LAUNCH_SHAPE);
     globalStore.set(orchestrationAtom, defaults.orchestration ?? LAUNCH_ORCHESTRATION);
     globalStore.set(parallelismAtom, defaults.parallelism ?? DEFAULT_PARALLELISM);
+    globalStore.set(plannerAtom, DEFAULT_PLANNER);
     globalStore.set(workerRouteAtom, defaults.workerRoute ?? null);
 }
 
@@ -119,6 +128,7 @@ export function resetRunConfig(): void {
     globalStore.set(runRouteAtom, null);
     globalStore.set(workerRouteAtom, null);
     globalStore.set(parallelismAtom, DEFAULT_PARALLELISM);
+    globalStore.set(plannerAtom, DEFAULT_PLANNER);
     globalStore.set(routeTouchedAtom, false);
     // a fresh channel has no user choices yet, which is what lets its profile hydrate in
     globalStore.set(configTouchedAtom, false);

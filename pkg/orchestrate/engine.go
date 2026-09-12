@@ -231,6 +231,22 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		if activity > t.LastActivity {
 			t.LastActivity = activity
 		}
+		// first-activity boundary: stamped once, from the first tick that can read the child's
+		// transcript at all. Spawn stamps LastActivity, so the transition to "has written something"
+		// is not visible in that field — this is why FirstActivity is its own stamp rather than a
+		// zero check. Without it a child's wall clock is one opaque span and every claim about task
+		// size is a guess about which part of it is setup.
+		if tracked && activity > 0 && t.FirstActivity == 0 {
+			t.FirstActivity = activity
+			taskID := t.ID
+			sinceSpawn := int64(0)
+			if spawned := spawnTs(runs[t.RunID]); spawned > 0 {
+				sinceSpawn = activity - spawned
+			}
+			afterCommit = append(afterCommit, func() {
+				appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskFirstActivity, nil, map[string]any{"taskid": taskID, "sincespawnms": sinceSpawn})
+			})
+		}
 		// no readable activity source: the spawn-time seed would age into a stall on its own and hand
 		// the lead a retry that kills a working child. Report freshness unknown (zero) instead — a
 		// missed stall only costs a timeout.
@@ -319,17 +335,25 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 			failDispatch(ctx, g, taskID, FailureKindHarness, harnessErr, &afterCommit)
 			continue
 		}
+		// dispatch timing: worktree creation and the spawn call are in-process and separately
+		// fixable (a warm tree vs. a warm worker), so they are measured separately rather than
+		// folded into the child's wall clock where neither can be told apart.
 		cwd := owner.ProjectPath
+		var worktreeMs int64
 		if IsGitRepo(owner.ProjectPath) {
+			wtStart := time.Now()
 			wt, werr := EnsureRunWorktree(spawnCtx, owner.ProjectPath, TaskWorktreeKey(owner.ID, taskID), spawnBase)
+			worktreeMs = time.Since(wtStart).Milliseconds()
 			if werr != nil {
 				failDispatch(ctx, g, taskID, FailureKindWorktree, werr, &afterCommit)
 				continue
 			}
 			cwd = wt
 		}
-		prompt := taskPrompt(task, owner) + "\n\n" + dagSessionMarker(g.OID, taskID)
+		prompt := taskPrompt(task, owner, predecessorHandoff(task, g, runs)) + "\n\n" + dagSessionMarker(g.OID, taskID)
+		spawnStart := time.Now()
 		oref, err := spawnWorker(spawnCtx, capability, owner.WorkspaceId, "", cwd, prompt, jarvis.RunWorkerOptions{})
+		spawnMs := time.Since(spawnStart).Milliseconds()
 		if err != nil {
 			failDispatch(ctx, g, taskID, FailureKindSpawn, err, &afterCommit)
 			continue
@@ -367,7 +391,7 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		spawnedTaskID := taskID
 		afterCommit = append(afterCommit, func() {
 			publishDagEvent(DagEventTaskSpawned, g, spawnedTaskID)
-			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskSpawned, nil, map[string]any{"taskid": spawnedTaskID})
+			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskSpawned, nil, map[string]any{"taskid": spawnedTaskID, "worktreems": worktreeMs, "spawnms": spawnMs})
 		})
 	}
 	RecomputeDagStatus(g)
@@ -472,10 +496,84 @@ func taskIdx(g *waveobj.TaskGroup, taskID string) int {
 // lead's job: no design-approval gates, no plan rewriting — the plan was already approved.
 const HeadlessContract = "You are a DAG child worker. The plan was already approved — do not pause for design approval, do not re-plan, and do not silently invent unpinned decisions when they are genuinely consequential. If a real decision is blocking you and the plan does not pin it, ask: your question is forwarded to the orchestrator lead, who answers it or escalates it to the human. Ask once with a concrete question and concrete options, then wait — the answer will be delivered to you. When the task is fully done: commit your changes in this working tree and run `wsh jarvis complete --commit $(git rev-parse HEAD)` from it, so the engine records the task complete."
 
+// predecessor handoff bounds: a brief, not a transcript. The child can read the whole change with
+// `git show`; what it needs inline is enough to know a decision was made and where to look.
+const (
+	handoffMaxFiles      = 12
+	handoffMaxSummaryLen = 600
+)
+
+// predecessorHandoff describes what each of a task's satisfied dependencies actually did: the squash
+// commit its work landed as, the files it touched, and its closing note. Without this a dependent
+// learns only its own label and description, so it re-derives (or contradicts) decisions a sibling
+// already made and committed. Everything here is already loaded at dispatch time — runs is the map
+// scheduleLocked built for DeriveTaskStates, keyed by child run id.
+//
+// The commit is citable from the dependent's own tree: a dep is only satisfied once merged
+// (depSatisfied), and that merge squashes onto the project branch its worktree branches from.
+// Evidence can still be nil — cleanup or the seal may have failed and the backfill retries — so the
+// files and the note degrade to the commit line alone.
+func predecessorHandoff(task *waveobj.TaskNode, g *waveobj.TaskGroup, runs map[string]*waveobj.Run) string {
+	var b strings.Builder
+	for _, depID := range task.Deps {
+		dep := taskByID(g, depID)
+		if dep == nil || dep.RunID == "" {
+			continue
+		}
+		depRun := runs[dep.RunID]
+		if depRun == nil || depRun.EndCommit == "" {
+			continue
+		}
+		if b.Len() == 0 {
+			b.WriteString("Work already landed by the tasks this one depends on. It is in your starting tree — read it before you touch any file it changed, and do not redo or revert its decisions.\n")
+		}
+		label := dep.Label
+		if label == "" {
+			label = dep.ID
+		}
+		fmt.Fprintf(&b, "\n- %s (task %s) landed as commit %s — inspect it with `git show --stat %s`.\n", label, dep.ID, depRun.EndCommit, depRun.EndCommit)
+		if depRun.Evidence == nil {
+			continue
+		}
+		if files := depRun.Evidence.Files; len(files) > 0 {
+			b.WriteString("  Files: ")
+			for i, f := range files {
+				if i == handoffMaxFiles {
+					fmt.Fprintf(&b, ", and %d more", len(files)-handoffMaxFiles)
+					break
+				}
+				if i > 0 {
+					b.WriteString(", ")
+				}
+				fmt.Fprintf(&b, "%s (+%d/-%d)", f.Path, f.Add, f.Del)
+			}
+			b.WriteString("\n")
+		}
+		if note := truncateNote(depRun.Evidence.Summary, handoffMaxSummaryLen); note != "" {
+			fmt.Fprintf(&b, "  It reported: %s\n", note)
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+// truncateNote collapses a child's closing note to one bounded run of text. A worker's final message
+// can be arbitrarily long and a dependent's prompt is not the place to replay it.
+func truncateNote(s string, max int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if len(s) <= max {
+		return s
+	}
+	cut := s[:max]
+	if i := strings.LastIndex(cut, " "); i > max/2 {
+		cut = cut[:i]
+	}
+	return cut + "..."
+}
+
 // taskPrompt is the child's goal: per-task RunSpec goal, else the task label, with the plan
-// description (decision pins) and the headless contract appended so the child never re-asks what the
-// plan already decided.
-func taskPrompt(task *waveobj.TaskNode, owner *waveobj.Run) string {
+// description (decision pins), the predecessor handoff, and the headless contract appended so the
+// child never re-asks what the plan already decided or redoes what a dependency already landed.
+func taskPrompt(task *waveobj.TaskNode, owner *waveobj.Run, handoff string) string {
 	var b strings.Builder
 	if task.RunSpec.Goal != "" {
 		b.WriteString(task.RunSpec.Goal)
@@ -487,6 +585,10 @@ func taskPrompt(task *waveobj.TaskNode, owner *waveobj.Run) string {
 	if task.Description != "" {
 		b.WriteString("\n\n")
 		b.WriteString(task.Description)
+	}
+	if handoff != "" {
+		b.WriteString("\n\n")
+		b.WriteString(handoff)
 	}
 	b.WriteString("\n\n")
 	b.WriteString(HeadlessContract)

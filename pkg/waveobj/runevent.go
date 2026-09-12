@@ -21,10 +21,14 @@ const (
 	RunEventKindRunCancelled   = "run-cancelled"
 	RunEventKindEvidenceSealed = "evidence-sealed"
 	RunEventKindTaskSpawned    = "task-spawned"
-	RunEventKindTaskStalled    = "task-stalled"
-	RunEventKindDagBlocked     = "dag-blocked"
-	RunEventKindDagDone        = "dag-done"
-	RunEventKindTaskRetried    = "task-retried"
+	// task-first-activity marks the first transcript write observed from a child. Paired with
+	// task-spawned it decomposes a child's wall clock into environment setup and cold orientation —
+	// the two candidates with different fixes, indistinguishable from the done timestamp alone.
+	RunEventKindTaskFirstActivity = "task-first-activity"
+	RunEventKindTaskStalled       = "task-stalled"
+	RunEventKindDagBlocked        = "dag-blocked"
+	RunEventKindDagDone           = "dag-done"
+	RunEventKindTaskRetried       = "task-retried"
 	// orchestration lifecycle transitions beyond run/phase/child coverage. Start/sent events append
 	// after the request is accepted or its delivery write succeeds; outcome events append only after
 	// the authoritative state mutation persists. Each writer attempts once at that boundary; a
@@ -67,6 +71,8 @@ const (
 //   evidence-sealed:  "files" int, "addtotal" int, "deltotal" int
 //   task/dag events:  "taskid" string, "failures" int
 //   task-retried:     "taskid" string, "kind" string, "attempt" int
+//   task-spawned:     "taskid" string, "worktreems" int64, "spawnms" int64
+//   task-first-activity: "taskid" string, "sincespawnms" int64
 //   created:          "runtime" string, "mode" string
 
 // RunEvent is one row of a run's append-only lifecycle log (db_runevent).

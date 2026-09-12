@@ -10,6 +10,7 @@ import {
     SHAPE_CARDS,
     clampParallelism,
     machineNote,
+    plannerNote,
     profileRunDefaults,
     runLauncherFace,
 } from "./runconfig";
@@ -104,6 +105,33 @@ describe("runLauncherFace", () => {
             expect(face.showParallelism).toBe(false);
             expect(face.showWorkerRoute).toBe(false);
         }
+    });
+
+    // only the engine reads a submitted DAG, so only the engine can be launched without a lead
+    it("offers the planner choice only where a hand-written DAG can be submitted", () => {
+        expect(runLauncherFace("orchestrator", "engine").showPlanner).toBe(true);
+        expect(runLauncherFace("orchestrator", "adaptive").showPlanner).toBe(false);
+        expect(runLauncherFace("pipeline", "engine").showPlanner).toBe(false);
+        expect(runLauncherFace("quick", "engine").showPlanner).toBe(false);
+    });
+});
+
+describe("plannerNote", () => {
+    it("names the plan gate for a lead", () => {
+        expect(plannerNote("lead")).toMatch(/plan gate/);
+    });
+
+    // choosing "you" starts a run with nothing running in it; the note is the only place the launcher
+    // says how to hand the DAG over, so a missing command reads as a broken launch
+    it("gives the human the command that hands the DAG over", () => {
+        expect(plannerNote("human")).toContain("wsh jarvis dag submit --file");
+    });
+
+    // a deferred run has no dag and no running phase, so ownerRunForBlock cannot resolve it and the
+    // bare command fails; a note that omits the ids strands exactly the person it is written for
+    it("keeps the ids the deferred run cannot resolve from a block", () => {
+        expect(plannerNote("human")).toContain("--channel");
+        expect(plannerNote("human")).toContain("--runid");
     });
 });
 

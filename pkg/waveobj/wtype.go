@@ -329,6 +329,11 @@ type TaskNode struct {
 	// LastActivity is the newest observed child transcript write (UnixMilli). The watchdog flags a
 	// running task stalled when this goes quiet past the stall threshold; 0 = never observed.
 	LastActivity int64 `json:"lastactivity,omitempty"`
+	// FirstActivity is the FIRST observed child transcript write (UnixMilli), stamped once and never
+	// revised. Against the task-spawned row it measures how long a child took to produce anything at
+	// all, which is the span that separates environment setup from cold orientation; 0 = not yet
+	// observed. It is an upper bound, not the true first token: the watchdog samples an mtime.
+	FirstActivity int64 `json:"firstactivity,omitempty"`
 	// Attempts is the consecutive count for LastFailureKind.
 	Attempts int `json:"attempts,omitempty"`
 	// LastFailureKind is the classifier output for the latest failed attempt.
