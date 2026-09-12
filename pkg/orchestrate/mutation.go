@@ -214,35 +214,41 @@ func applyActionLocked(ctx context.Context, dagID, taskID, action string, target
 
 func MarkBlockedMerge(ctx context.Context, dagID, childRunID string) error {
 	return withDagMutation(dagID, func() error {
-		g, err := wstore.GetDag(ctx, dagID)
-		if err != nil {
-			return fmt.Errorf("loading dag: %w", err)
-		}
-		if g.Status == DagStatus_Cancelled {
-			return fmt.Errorf("dag %s is cancelled", dagID)
-		}
-		found := false
-		for i := range g.Tasks {
-			if g.Tasks[i].RunID == childRunID {
-				g.Tasks[i].State = TaskState_BlockedMerge
-				found = true
-				break
-			}
-		}
-		if !found {
-			return fmt.Errorf("no task owns run %s", childRunID)
-		}
-		RecomputeDagStatus(g)
-		g.UpdatedTs = time.Now().UnixMilli()
-		if err := wstore.UpdateDag(ctx, dagID, func(cur *waveobj.TaskGroup) error {
-			*cur = *g
-			return nil
-		}); err != nil {
-			return err
-		}
-		wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, g.OID))
-		return nil
+		return markBlockedMergeLocked(ctx, dagID, childRunID)
 	})
+}
+
+// markBlockedMergeLocked is the body of MarkBlockedMerge for callers already holding the dag
+// mutation lock (the merge path takes it before running git, so it cannot re-enter).
+func markBlockedMergeLocked(ctx context.Context, dagID, childRunID string) error {
+	g, err := wstore.GetDag(ctx, dagID)
+	if err != nil {
+		return fmt.Errorf("loading dag: %w", err)
+	}
+	if g.Status == DagStatus_Cancelled {
+		return fmt.Errorf("dag %s is cancelled", dagID)
+	}
+	found := false
+	for i := range g.Tasks {
+		if g.Tasks[i].RunID == childRunID {
+			g.Tasks[i].State = TaskState_BlockedMerge
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("no task owns run %s", childRunID)
+	}
+	RecomputeDagStatus(g)
+	g.UpdatedTs = time.Now().UnixMilli()
+	if err := wstore.UpdateDag(ctx, dagID, func(cur *waveobj.TaskGroup) error {
+		*cur = *g
+		return nil
+	}); err != nil {
+		return err
+	}
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, g.OID))
+	return nil
 }
 
 // ApprovePlan releases a plan-gated dag and lets the engine dispatch. Idempotent: the gate card and

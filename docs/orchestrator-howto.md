@@ -13,9 +13,10 @@ live in [`docs/open-issues.md`](open-issues.md).
 You start a run from `+ Run` on the Jarvis Brief. If the route resolves to the **engine** machine, the
 lead agent's first job is to write a plan and submit it as a DAG; the engine holds that plan at a gate
 until you approve it. On approval the engine — not the lead — spawns one child agent per ready task,
-each in its own git worktree on its own branch. Children commit and report done. The lead merges each
-finished branch back with a squash merge, then moves on. You are involved at exactly three kinds of
-moment: the plan gate, any question a child asks, and a merge that needs a decision.
+each in its own git worktree on its own branch. Children commit and report done, and the engine
+squash-merges each finished branch back the moment it lands cleanly. You are involved at exactly three
+kinds of moment: the plan gate, any question a child asks, and a merge that needs a decision — a
+squash conflict, or a project tree with staged edits the engine will not commit into.
 
 Everything else is machinery. The rest of this document is what that machinery looks like from the
 outside, and what to do when it stops.
@@ -165,7 +166,7 @@ Six controls, all of them load-bearing:
 | Shape | Orchestrator | Pipeline is phases in order, one worker each. Quick is one worker, no plan. Only Orchestrator fans out. |
 | Who fans out | Engine | See Phase 0.3. Parallelism and the worker route only exist for Engine (`runLauncherFace`, `runconfig.ts:78`). |
 | Parallelism | 3 | Ceiling is `MaxParallelism = 8`, DAG ceiling is `MaxDagTasks = 16`. 3 is a deliberate choice: enough overlap to be worth it, few enough merges to stay legible. |
-| Lead route | `Claude Code · opus` | The lead writes the plan, answers the children's asks and drives every merge. It is the one worker whose judgment is not recoverable by a retry. |
+| Lead route | `Claude Code · opus` | The lead writes the plan, answers the children's asks and resolves the merges the engine stops on. It is the one worker whose judgment is not recoverable by a retry. |
 | Worker route | Inherit the lead | Children inherit unless told otherwise. |
 
 The route picker is a portalled floating panel, not a `<select>`: the trigger carries

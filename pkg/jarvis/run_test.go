@@ -384,6 +384,17 @@ func TestBuildOrchestratePromptUsesDigestMergeVocabulary(t *testing.T) {
 	}
 }
 
+// the engine lands a clean merge itself, so a prompt that still hands the lead every merge puts a
+// model back on the critical path of every dependency edge — the cost this change removed.
+func TestBuildOrchestratePromptLeavesRoutineMergesToTheEngine(t *testing.T) {
+	for _, runtime := range []string{"claude", "pi"} {
+		p := BuildOrchestratePrompt("do X", nil, runtime, Orchestration_Engine, 0)
+		if !strings.Contains(p, "the engine lands a clean merge itself") {
+			t.Fatalf("%s engine prompt must say the engine merges:\n%s", runtime, p)
+		}
+	}
+}
+
 func TestResolveOrchestrationLegacyFork(t *testing.T) {
 	cases := []struct{ orch, runtime, want string }{
 		{"", "pi", Orchestration_Engine},
