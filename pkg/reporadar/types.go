@@ -129,6 +129,20 @@ const DefaultRadarPayloadBudget = 40_000
 // MaxFindings caps New+Recurring findings surfaced per scan.
 const MaxFindings = 10
 
+// EvidenceWindow is how far back every scan looks for activity. It is rolling rather than since-last-scan
+// so back-to-back scans see the same evidence and a finding keeps its identity instead of vanishing.
+const EvidenceWindow = 30 * 24 * time.Hour
+
+// NoLongerAfterMisses is how many consecutive scans must miss an open finding before it moves to
+// No longer detected; a single miss is usually model variance, not vanished evidence.
+const NoLongerAfterMisses = 2
+
+// ReportsKeptPerProject bounds stored reports per project; attention triage loads every report.
+const ReportsKeptPerProject = 20
+
+// InvestigationOrphaned marks an investigation whose run no longer exists, so it can never finish.
+const InvestigationOrphaned = "orphaned"
+
 func ValidRiskKind(mode, kind string) bool {
 	for _, k := range RiskKindsByMode[mode] {
 		if k == kind {

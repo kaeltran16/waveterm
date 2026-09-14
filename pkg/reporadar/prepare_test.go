@@ -10,6 +10,19 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
 
+// A transcript counts as an explicit failure only when it recorded tool errors; the count arrives as a
+// float64 after a DB round-trip.
+func TestHasExplicitFailureReadsTranscriptErrors(t *testing.T) {
+	quiet := newSignal(CollectorTranscript, "tx:1", 1, []string{"src/a.ts"}, "s", map[string]any{"toolerrors": 0}, "")
+	failed := newSignal(CollectorTranscript, "tx:2", 1, []string{"src/a.ts"}, "s", map[string]any{"toolerrors": float64(2)}, "")
+	if hasExplicitFailure([]waveobj.RadarSignal{quiet}) {
+		t.Fatal("a transcript without tool errors is not an explicit failure")
+	}
+	if !hasExplicitFailure([]waveobj.RadarSignal{failed}) {
+		t.Fatal("a transcript with tool errors is an explicit failure")
+	}
+}
+
 func TestEstimateTokens(t *testing.T) {
 	// ~4 chars per token heuristic
 	if got := estimateTokens(strings.Repeat("x", 400)); got < 90 || got > 110 {

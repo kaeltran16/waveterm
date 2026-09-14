@@ -14,6 +14,9 @@ import {
     findingSignalCount,
     findingSourceCount,
     groupMeta,
+    investigationEndLabel,
+    isDetectedNow,
+    missedLatestScan,
     MODE_META,
     referencedSignals,
     strengthPips,
@@ -85,7 +88,7 @@ export function RadarFindingDetail({
         globalStore.set(pendingRunFocusAtom, { channelId: inv.channelid, runId: inv.runid });
         globalStore.set(model.surfaceAtom, "jarvis");
     };
-    const stillDetected = finding.group === "new" || finding.group === "recurring";
+    const stillDetected = isDetectedNow(finding);
 
     return (
         <div className="flex min-w-0 flex-1 flex-col gap-6 overflow-y-auto p-6">
@@ -101,6 +104,9 @@ export function RadarFindingDetail({
                         <span className={cn("h-1.5 w-1.5 rounded-full", TONE_DOT[meta.tone])} />
                         {meta.label}
                     </span>
+                    {missedLatestScan(finding) ? (
+                        <span className="text-[11px] text-muted">not detected in the latest scan</span>
+                    ) : null}
                     <span
                         className={cn(
                             "rounded px-2 py-0.5 font-semibold uppercase tracking-wide",
@@ -274,17 +280,19 @@ export function RadarFindingDetail({
                             </span>
                         ) : (
                             <span className="text-[11px] font-semibold text-muted">
-                                {inv.status === "cancelled" ? "Investigation cancelled" : "Investigation failed"}
+                                {investigationEndLabel(inv.status)}
                             </span>
                         )}
                         <span className="flex-1" />
-                        <button
-                            type="button"
-                            onClick={openRun}
-                            className="rounded border border-border px-2 py-1 text-[11px] text-muted-foreground hover:border-edge-strong hover:text-primary"
-                        >
-                            Open run
-                        </button>
+                        {inv.status !== "orphaned" ? (
+                            <button
+                                type="button"
+                                onClick={openRun}
+                                className="rounded border border-border px-2 py-1 text-[11px] text-muted-foreground hover:border-edge-strong hover:text-primary"
+                            >
+                                Open run
+                            </button>
+                        ) : null}
                     </div>
                     {inv.status === "done" ? (
                         <div className="flex flex-wrap items-center gap-3 font-mono text-[11px] text-muted-foreground">

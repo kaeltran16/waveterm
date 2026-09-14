@@ -578,6 +578,7 @@ type RadarFinding struct {
 	Mission       string              `json:"mission"`
 	Disposition   *RadarDisposition   `json:"disposition,omitempty"`
 	Investigation *RadarInvestigation `json:"investigation,omitempty"`
+	MissCount     int                 `json:"misscount,omitempty"` // consecutive scans that did not detect it (0 = detected this scan)
 }
 
 // RadarInvestigation is the latest Run outcome recorded against a finding (by fingerprint). It closes the
@@ -588,7 +589,7 @@ type RadarFinding struct {
 type RadarInvestigation struct {
 	RunID        string `json:"runid"`
 	ChannelID    string `json:"channelid"`
-	Status       string `json:"status"` // executing | done | cancelled | failed
+	Status       string `json:"status"` // executing | done | cancelled | failed | orphaned (run no longer exists)
 	StartedTs    int64  `json:"startedts"`
 	CompletedTs  int64  `json:"completedts,omitempty"`
 	Summary      string `json:"summary,omitempty"`
@@ -611,6 +612,7 @@ type RadarModeRun struct {
 	TokensEstimated bool   `json:"tokensestimated,omitempty"`
 	ResolvedModel   string `json:"resolvedmodel,omitempty"`
 	FindingCount    int    `json:"findingcount,omitempty"`
+	RawResponse     string `json:"rawresponse,omitempty"` // model output before validation, capped; the audit trail for rejected proposals
 }
 
 type RadarReport struct {

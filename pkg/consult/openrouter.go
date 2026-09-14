@@ -28,12 +28,17 @@ const (
 type openrouterBackend struct{}
 
 func (b *openrouterBackend) Run(ctx context.Context, spec RuntimeSpec, prompt string, emit func(string)) (string, error) {
+	full, _, err := b.RunWithUsage(ctx, spec, prompt, emit)
+	return full, err
+}
+
+func (b *openrouterBackend) RunWithUsage(ctx context.Context, spec RuntimeSpec, prompt string, emit func(string)) (string, Usage, error) {
 	key, exists, err := secretstore.GetSecret(openRouterSecretName)
 	if err != nil {
-		return "", fmt.Errorf("reading OPENROUTER_KEY: %w", err)
+		return "", Usage{}, fmt.Errorf("reading OPENROUTER_KEY: %w", err)
 	}
 	if !exists || key == "" {
-		return "", fmt.Errorf("OpenRouter API key not configured (set OPENROUTER_KEY)")
+		return "", Usage{}, fmt.Errorf("OpenRouter API key not configured (set OPENROUTER_KEY)")
 	}
 
 	model := spec.Model
@@ -47,15 +52,17 @@ func (b *openrouterBackend) Run(ctx context.Context, spec RuntimeSpec, prompt st
 			{"role": "user", "content": prompt},
 		},
 		"stream": true,
+		// usage accounting rides in the stream's final chunk only when requested
+		"usage": map[string]bool{"include": true},
 	}
 	payload, err := json.Marshal(body)
 	if err != nil {
-		return "", fmt.Errorf("marshaling request: %w", err)
+		return "", Usage{}, fmt.Errorf("marshaling request: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, openRouterChatEndpoint, bytes.NewReader(payload))
 	if err != nil {
-		return "", fmt.Errorf("building request: %w", err)
+		return "", Usage{}, fmt.Errorf("building request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+key)
@@ -63,32 +70,47 @@ func (b *openrouterBackend) Run(ctx context.Context, spec RuntimeSpec, prompt st
 	client := &http.Client{Timeout: openRouterTimeout}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("OpenRouter request failed: %w", err)
+		return "", Usage{}, fmt.Errorf("OpenRouter request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return "", fmt.Errorf("OpenRouter API error %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
+		return "", Usage{}, fmt.Errorf("OpenRouter API error %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
 	}
+	return decodeOpenrouterStream(resp.Body, emit)
+}
 
-	decoder := eventsource.NewDecoder(resp.Body)
+// decodeOpenrouterStream accumulates a streamed reply, emitting each fragment, and reads the resolved
+// model and token usage the stream carries.
+func decodeOpenrouterStream(r io.Reader, emit func(string)) (string, Usage, error) {
+	decoder := eventsource.NewDecoder(r)
 	var full strings.Builder
+	var usage Usage
 	for {
 		ev, derr := decoder.Decode()
 		if derr != nil {
 			if derr == io.EOF {
 				break
 			}
-			return full.String(), fmt.Errorf("SSE decode error: %w", derr)
+			return full.String(), usage, fmt.Errorf("SSE decode error: %w", derr)
 		}
 		data := strings.TrimSpace(ev.Data())
 		if data == "" || data == "[DONE]" {
 			continue
 		}
-		var chunk openaichat.StreamChunk
+		var chunk struct {
+			openaichat.StreamChunk
+			Usage *openaichat.ChatUsage `json:"usage"`
+		}
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			continue
+		}
+		if chunk.Model != "" {
+			usage.Model = chunk.Model
+		}
+		if chunk.Usage != nil {
+			usage.TotalTokens = chunk.Usage.TotalTokens
 		}
 		for _, choice := range chunk.Choices {
 			if choice.Delta.Content != "" {
@@ -97,7 +119,7 @@ func (b *openrouterBackend) Run(ctx context.Context, spec RuntimeSpec, prompt st
 			}
 		}
 	}
-	return full.String(), nil
+	return full.String(), usage, nil
 }
 
 // OpenrouterCheapModel returns the configured cheap model or the default.

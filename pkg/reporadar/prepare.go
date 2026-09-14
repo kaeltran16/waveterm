@@ -105,13 +105,27 @@ func distinctCollectors(sigs []waveobj.RadarSignal) int {
 	return len(set)
 }
 
-// hasExplicitFailure reports whether any signal represents a concrete failure (a run/transcript
-// error), which justifies surfacing even a single-signal group.
+// hasExplicitFailure reports whether any signal represents a concrete failure (a failed run phase or a
+// transcript tool error), which justifies surfacing even a single-signal group. A transcript that only
+// repeated edits is activity, not failure.
 func hasExplicitFailure(sigs []waveobj.RadarSignal) bool {
 	for _, s := range sigs {
-		if s.Collector == CollectorRuns || s.Collector == CollectorTranscript {
+		if s.Collector == CollectorRuns || (s.Collector == CollectorTranscript && factInt(s, "toolerrors") > 0) {
 			return true
 		}
 	}
 	return false
+}
+
+// factInt reads a numeric fact tolerantly: int in memory, float64 after a DB round-trip.
+func factInt(s waveobj.RadarSignal, key string) int {
+	switch v := s.Facts[key].(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
+	}
+	return 0
 }

@@ -73,3 +73,34 @@ func RecordInvestigation(ctx context.Context, projectPath, fingerprint string, i
 	publish(rpt.OID)
 	return nil
 }
+
+// refreshInvestigations settles investigations still marked executing against their run. The run's own
+// terminal write-back can miss (it lands on whichever report was newest at the time, or the run was
+// deleted), and the finding would then read "Investigating" forever.
+func refreshInvestigations(ctx context.Context, findings []waveobj.RadarFinding) {
+	for i := range findings {
+		inv := findings[i].Investigation
+		if inv == nil || inv.Status != "executing" {
+			continue
+		}
+		run, err := wstore.DBGet[*waveobj.Run](ctx, inv.RunID)
+		if err != nil {
+			log.Printf("radar: reading run %s to refresh its investigation: %v", inv.RunID, err)
+			continue
+		}
+		switch {
+		case run == nil:
+			orphaned := *inv
+			orphaned.Status = InvestigationOrphaned
+			orphaned.CompletedTs = nowMilli()
+			findings[i].Investigation = &orphaned
+		case run.Status == "done" || run.Status == "cancelled":
+			ts := run.CompletedTs
+			if ts == 0 {
+				ts = nowMilli()
+			}
+			settled := InvestigationFromRun(run, inv.ChannelID, run.Status, ts)
+			findings[i].Investigation = &settled
+		}
+	}
+}

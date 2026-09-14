@@ -11,6 +11,7 @@ import {
     DEFAULT_OPEN_GROUPS,
     failedLenses,
     filterByMode,
+    findingDelta,
     findingMode,
     findingSignalCount,
     findingSourceCount,
@@ -21,12 +22,17 @@ import {
     groupFindings,
     hasCoverageFailure,
     investigationBadge,
+    investigationEndLabel,
+    isDetectedNow,
     isMutedGroup,
     isResultsState,
+    missedLatestScan,
+    partialCollectors,
     projectsWithPath,
     referencedSignals,
     reportSignalCount,
     reportSourceCount,
+    repositoryChangedDuringScan,
     rescanLabel,
     resolveSelection,
     scanScopeLabel,
@@ -151,7 +157,7 @@ describe("presentation helpers", () => {
     });
 
     it("exposes group label/hint/delta, defaulting unknown groups to new", () => {
-        expect(groupMeta("recurring").delta).toBe("↑ strengthened");
+        expect(groupMeta("recurring").delta).toBe("recurring");
         expect(groupMeta("nolonger").tone).toBe("nolonger");
         expect(groupMeta("bogus").label).toBe(groupMeta("new").label);
     });
@@ -365,5 +371,53 @@ describe("radar modes", () => {
         expect(failed).toHaveLength(1);
         expect(failed[0].mode).toBe("security");
         expect(failedLenses(null)).toHaveLength(0);
+    });
+});
+
+describe("scan-miss hysteresis", () => {
+    it("flags an open finding the latest scan missed", () => {
+        expect(missedLatestScan(finding("a", "new", { misscount: 1 }))).toBe(true);
+        expect(missedLatestScan(finding("a", "recurring"))).toBe(false);
+        expect(missedLatestScan(finding("a", "dismissed", { misscount: 3 }))).toBe(false);
+    });
+    it("counts only a detected open finding as detected now", () => {
+        expect(isDetectedNow(finding("a", "recurring"))).toBe(true);
+        expect(isDetectedNow(finding("a", "recurring", { misscount: 1 }))).toBe(false);
+        expect(isDetectedNow(finding("a", "nolonger"))).toBe(false);
+    });
+    it("replaces the group delta for a missed finding", () => {
+        expect(findingDelta(finding("a", "recurring", { misscount: 1 }))).toBe("not detected this scan");
+        expect(findingDelta(finding("a", "recurring"))).toBe("recurring");
+    });
+    it("does not call a missed finding still detected after its investigation", () => {
+        const investigation = { runid: "r", channelid: "c", status: "done", startedts: 0 };
+        expect(investigationBadge(finding("a", "recurring", { misscount: 1, investigation }))).toBe("investigated");
+    });
+});
+
+describe("partial scan reasons", () => {
+    it("names failed collectors, not the legacy repository-changed marker", () => {
+        expect(partialCollectors(report({ partialsources: ["git", "repository-changed"] }))).toEqual(["git"]);
+        expect(partialCollectors(report())).toEqual([]);
+    });
+    it("detects a repository change from the recorded boundaries", () => {
+        expect(repositoryChangedDuringScan(report({ windowendts: 1, starthead: "a", endhead: "b" }))).toBe(true);
+        expect(
+            repositoryChangedDuringScan(
+                report({ windowendts: 1, starthead: "a", endhead: "a", startdirty: "x", enddirty: "y" })
+            )
+        ).toBe(true);
+        expect(repositoryChangedDuringScan(report({ windowendts: 1, starthead: "a", endhead: "a" }))).toBe(false);
+        // the end boundary is written at finalize; before that a start boundary alone is not a change
+        expect(repositoryChangedDuringScan(report({ starthead: "a", startdirty: "x" }))).toBe(false);
+        expect(repositoryChangedDuringScan(report({ partialsources: ["repository-changed"] }))).toBe(true);
+    });
+});
+
+describe("investigationEndLabel", () => {
+    it("labels each way an investigation can end without completing", () => {
+        expect(investigationEndLabel("cancelled")).toBe("Investigation cancelled");
+        expect(investigationEndLabel("orphaned")).toBe("Investigation run no longer exists");
+        expect(investigationEndLabel("failed")).toBe("Investigation failed");
     });
 });

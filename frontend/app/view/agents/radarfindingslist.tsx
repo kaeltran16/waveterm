@@ -9,6 +9,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useMemo, useState } from "react";
 import {
     DEFAULT_OPEN_GROUPS,
+    findingDelta,
     findingMode,
     findingSignalCount,
     groupFindings,
@@ -16,6 +17,7 @@ import {
     GROUP_ORDER,
     investigationBadge,
     isMutedGroup,
+    missedLatestScan,
     MODE_META,
     strengthPips,
     type RadarGroup,
@@ -177,7 +179,9 @@ export function RadarFindingsList({
                                                   </span>
                                               ) : null}
                                               <span className="flex-1" />
-                                              <span className={TONE_TEXT[fmeta.tone]}>{fmeta.delta}</span>
+                                              <span className={missedLatestScan(f) ? "text-muted" : TONE_TEXT[fmeta.tone]}>
+                                                  {findingDelta(f)}
+                                              </span>
                                           </div>
                                       </button>
                                   );
