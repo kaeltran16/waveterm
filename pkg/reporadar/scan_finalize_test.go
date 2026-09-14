@@ -26,7 +26,7 @@ func TestFinalizePersistsFindingsAndPrunes(t *testing.T) {
 	}}}
 	validated := validateFindings("/repos/pay", ModeCorrectness, resp, byID)
 	runs := []waveobj.RadarModeRun{{Mode: ModeCorrectness, Status: ModeRunCompleted, ResolvedModel: "claude-sonnet-x"}}
-	finalizeFindings(ctx, rpt.OID, validated, runs, pool, nil)
+	finalizeFindings(ctx, rpt.OID, clusterPass{validated: validated, modeRuns: runs, candidates: pool})
 
 	got, _ := wstore.GetRadarReport(ctx, rpt.OID)
 	if got.Status != StatusCompleted {
@@ -44,6 +44,9 @@ func TestFinalizePersistsFindingsAndPrunes(t *testing.T) {
 	if len(got.Signals) != 2 {
 		t.Fatalf("expected 2 referenced signals retained, got %d", len(got.Signals))
 	}
+	if got.ResolvedModel != "claude-sonnet-x" {
+		t.Fatalf("resolved model must come from the mode run, got %q", got.ResolvedModel)
+	}
 }
 
 func TestFinalizeRenumbersCollidingLensIDs(t *testing.T) {
@@ -52,14 +55,13 @@ func TestFinalizeRenumbersCollidingLensIDs(t *testing.T) {
 	// frontend keys selection on the id, so a collision highlights two cards for one selection. Finalize
 	// must renumber the persisted set so every finding has a distinct id.
 	ctx := context.Background()
-	// unique project path so no prior test's report reconciles in as a carried-forward finding.
 	rpt, _ := wstore.CreateRadarReport(ctx, "renumber", "/repos/renumber")
 	merged := []waveobj.RadarFinding{
 		{ID: "f1", Fingerprint: "RAD-corr", Group: GroupNew, Mode: ModeCorrectness, RiskKind: RiskTestCoverageGap, Subsystem: "src/a"},
 		{ID: "f1", Fingerprint: "RAD-sec", Group: GroupNew, Mode: ModeSecurity, RiskKind: RiskInputValidationGap, Subsystem: "src/b"},
 	}
 	runs := []waveobj.RadarModeRun{{Mode: ModeCorrectness, Status: ModeRunCompleted}, {Mode: ModeSecurity, Status: ModeRunCompleted}}
-	finalizeFindings(ctx, rpt.OID, merged, runs, nil, nil)
+	finalizeFindings(ctx, rpt.OID, clusterPass{validated: merged, modeRuns: runs})
 
 	got, _ := wstore.GetRadarReport(ctx, rpt.OID)
 	if len(got.Findings) != 2 {
@@ -77,7 +79,7 @@ func TestFinalizeRetainsCandidatesOnClusterFailure(t *testing.T) {
 	pool := []waveobj.RadarSignal{s1}
 	wstore.UpdateRadarReport(ctx, rpt.OID, func(r *waveobj.RadarReport) { r.Candidates = pool })
 	runs := []waveobj.RadarModeRun{{Mode: ModeCorrectness, Status: ModeRunClusterFailed, ClusterError: "boom"}}
-	finalizeFindings(ctx, rpt.OID, nil, runs, pool, nil)
+	finalizeFindings(ctx, rpt.OID, clusterPass{modeRuns: runs, candidates: pool})
 
 	got, _ := wstore.GetRadarReport(ctx, rpt.OID)
 	if got.Status != StatusFailed {
@@ -88,5 +90,68 @@ func TestFinalizeRetainsCandidatesOnClusterFailure(t *testing.T) {
 	}
 	if got.ClusterError == "" {
 		t.Fatalf("aggregate cluster error must be recorded")
+	}
+}
+
+// A lens that failed to cluster must not turn its findings into No longer detected, and a finding carried
+// from the previous report must keep the evidence it cites even though this scan did not collect it.
+func TestFinalizeCarriesFailedLensAndPriorEvidence(t *testing.T) {
+	ctx := context.Background()
+	rpt, _ := wstore.CreateRadarReport(ctx, "carry", "/repos/carry")
+	old := newSignal(CollectorGit, "commit:old", 100, []string{"src/auth/login.ts"}, "c", nil, "")
+	sec := waveobj.RadarFinding{Fingerprint: "RAD-sec", Group: GroupRecurring, Mode: ModeSecurity, Subsystem: "src/auth", SignalIDs: []string{old.ID}}
+	corr := waveobj.RadarFinding{Fingerprint: "RAD-corr", Group: GroupNew, Mode: ModeCorrectness, Subsystem: "src/a"}
+	runs := []waveobj.RadarModeRun{{Mode: ModeCorrectness, Status: ModeRunCompleted}, {Mode: ModeSecurity, Status: ModeRunClusterFailed, ClusterError: "boom"}}
+	finalizeFindings(ctx, rpt.OID, clusterPass{
+		modeRuns:     runs,
+		baseline:     []waveobj.RadarFinding{sec, corr},
+		priorSignals: []waveobj.RadarSignal{old},
+	})
+
+	got, _ := wstore.GetRadarReport(ctx, rpt.OID)
+	if got.Status != StatusPartial {
+		t.Fatalf("one failed lens makes the scan partial, got %q", got.Status)
+	}
+	byFP := map[string]waveobj.RadarFinding{}
+	for _, f := range got.Findings {
+		byFP[f.Fingerprint] = f
+	}
+	if f := byFP["RAD-sec"]; f.Group != GroupRecurring || f.MissCount != 0 {
+		t.Fatalf("a failed lens's finding must carry unchanged, got %+v", f)
+	}
+	if f := byFP["RAD-corr"]; f.Group != GroupNew || f.MissCount != 1 {
+		t.Fatalf("a finding the clustered lens missed once stays open, got %+v", f)
+	}
+	if len(got.Signals) != 1 || got.Signals[0].ID != old.ID {
+		t.Fatalf("the carried finding must keep its prior evidence, got %+v", got.Signals)
+	}
+}
+
+func TestPruneReportsKeepsNewestAndBaseline(t *testing.T) {
+	ctx := context.Background()
+	pp := "/repos/prune"
+	var ids []string
+	for i := 0; i < ReportsKeptPerProject+3; i++ {
+		rpt, _ := wstore.CreateRadarReport(ctx, "prune", pp)
+		status := StatusFailed
+		if i == 0 {
+			status = StatusCompleted // the oldest report is the only successful one, so it is the baseline
+		}
+		wstore.UpdateRadarReport(ctx, rpt.OID, func(r *waveobj.RadarReport) {
+			r.Status = status
+			r.StartedTs = int64(1000 + i)
+		})
+		ids = append(ids, rpt.OID)
+	}
+	pruneReports(ctx, pp, ids[1])
+
+	got, _ := wstore.GetRadarReports(ctx, pp)
+	kept := map[string]bool{}
+	for _, r := range got {
+		kept[r.OID] = true
+	}
+	if len(got) != ReportsKeptPerProject+2 || !kept[ids[0]] || !kept[ids[1]] || kept[ids[2]] {
+		t.Fatalf("want the newest %d plus the baseline and the finalized report, got %d (baseline=%v finalized=%v pruned-kept=%v)",
+			ReportsKeptPerProject, len(got), kept[ids[0]], kept[ids[1]], kept[ids[2]])
 	}
 }

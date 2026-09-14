@@ -58,6 +58,11 @@ func TestSecurityBoundaryKind(t *testing.T) {
 		"pkg/secretstore/vault.go": "secret",
 		"src/api/validate.ts":      "input",
 		"src/util/format.ts":       "",
+		// whole path words only: substrings of unrelated names are not boundaries
+		"src/middleware/authMiddleware.ts": "auth",
+		"pkg/agentsessions/list.go":        "",
+		"src/game/possession.ts":           "",
+		"src/api/webhooks/stripe.ts":       "input",
 	}
 	for p, want := range cases {
 		if got := securityBoundaryKind(p); got != want {

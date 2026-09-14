@@ -33,6 +33,9 @@ func collectRuns(ctx context.Context, in collectInput) ([]waveobj.RadarSignal, e
 			if canonPath(run.ProjectPath) != cp && run.ProjectPath != "" {
 				continue
 			}
+			if in.sinceTs > 0 && run.CreatedTs < in.sinceTs {
+				continue // outside the evidence window
+			}
 			for idx, ph := range run.Phases {
 				if ph.State != "failed" && ph.State != "blocked" {
 					continue

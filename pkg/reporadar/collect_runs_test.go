@@ -41,3 +41,29 @@ func TestCollectRunsEmitsFailedPhases(t *testing.T) {
 		t.Fatalf("project filter leaked: %d signals", len(otherSigs))
 	}
 }
+
+// A run that failed before the evidence window is not current evidence; without the bound it was re-cited
+// by every scan forever.
+func TestCollectRunsHonorsEvidenceWindow(t *testing.T) {
+	ctx := context.Background()
+	proj := "/repos/window"
+	ch, err := wstore.CreateChannel(ctx, "window", proj)
+	if err != nil {
+		t.Fatalf("channel: %v", err)
+	}
+	failed := []waveobj.RunPhase{{Kind: "execute", State: "failed", Artifacts: []string{"src/a.ts"}}}
+	for _, run := range []waveobj.Run{
+		{ID: "old", Goal: "old", ProjectPath: proj, Status: "blocked", CreatedTs: 1000, Phases: failed},
+		{ID: "recent", Goal: "recent", ProjectPath: proj, Status: "blocked", CreatedTs: 5000, Phases: failed},
+	} {
+		if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
+			t.Fatalf("append run: %v", err)
+		}
+	}
+	if sigs, _ := collectRuns(ctx, collectInput{projectPath: proj}); len(sigs) != 2 {
+		t.Fatalf("unbounded collection sees both runs, got %d", len(sigs))
+	}
+	if sigs, _ := collectRuns(ctx, collectInput{projectPath: proj, sinceTs: 3000}); len(sigs) != 1 {
+		t.Fatalf("only the run inside the window is evidence, got %d", len(sigs))
+	}
+}

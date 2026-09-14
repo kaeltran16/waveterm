@@ -19,9 +19,16 @@ import (
 
 type transcriptFacts struct {
 	toolErrors  int
-	files       []string // project-relative
+	errors      []string // first line of the first few tool errors, redacted
+	files       []string // project-relative: edited files plus files whose tool call errored
 	editsByFile map[string]int
 }
+
+// maxTranscriptErrors bounds how many error lines a transcript signal carries into the prompt.
+const maxTranscriptErrors = 3
+
+// maxEvidenceTextLen bounds a single quoted line (commit subject, tool error) in a signal summary.
+const maxEvidenceTextLen = 160
 
 type tLine struct {
 	Type       string `json:"type"`
@@ -33,12 +40,17 @@ type tLine struct {
 }
 
 type contentBlock struct {
-	Type    string          `json:"type"`
-	Name    string          `json:"name"`
-	IsError bool            `json:"is_error"`
-	Input   json.RawMessage `json:"input"`
-	Content json.RawMessage `json:"content"` // tool_result body (string or [{text}] blocks)
+	Type      string          `json:"type"`
+	ID        string          `json:"id"`          // tool_use id
+	ToolUseID string          `json:"tool_use_id"` // the tool_use a tool_result answers
+	Name      string          `json:"name"`
+	IsError   bool            `json:"is_error"`
+	Input     json.RawMessage `json:"input"`
+	Content   json.RawMessage `json:"content"` // tool_result body (string or [{text}] blocks)
 }
+
+// editTools are the tool calls whose file counts as work done on that file.
+var editTools = map[string]bool{"Edit": true, "MultiEdit": true, "Write": true}
 
 // toolRejectedMarker is the substring Claude Code puts in a tool_result body when the user declines a
 // tool call (a denied permission prompt or a rejected/clarified AskUserQuestion). Both variants contain
@@ -51,35 +63,48 @@ const toolRejectedMarker = "The tool use was rejected"
 // sessions where the user simply declined a prompt. The body is a string or a [{text}] array (mirrors
 // evidence.go's resultText), flattened to text before matching.
 func isUserRejection(raw json.RawMessage) bool {
+	return strings.Contains(toolResultText(raw), toolRejectedMarker)
+}
+
+// toolResultText flattens a tool_result body (a string or a [{text}] block array) to text.
+func toolResultText(raw json.RawMessage) string {
 	if len(raw) == 0 {
-		return false
+		return ""
 	}
 	var s string
 	if json.Unmarshal(raw, &s) == nil {
-		return strings.Contains(s, toolRejectedMarker)
+		return s
 	}
 	var blocks []struct {
 		Text string `json:"text"`
 	}
-	if json.Unmarshal(raw, &blocks) == nil {
-		for _, b := range blocks {
-			if strings.Contains(b.Text, toolRejectedMarker) {
-				return true
-			}
-		}
+	if json.Unmarshal(raw, &blocks) != nil {
+		return ""
 	}
-	return false
+	parts := make([]string, 0, len(blocks))
+	for _, b := range blocks {
+		parts = append(parts, b.Text)
+	}
+	return strings.Join(parts, "\n")
 }
 
 // extractTranscript folds one transcript's lines into facts, scoped to projectPath. Returns nil
 // when the transcript's cwd does not match the project (so it is skipped). It counts explicit tool
-// errors and per-file edits, and records project-relative referenced files — it never infers that
-// an agent was "confused" from prose.
+// errors and per-file edits, and records the project-relative files that were edited or whose tool
+// call failed — files merely read are not evidence about them, and listing them spread one session's
+// signal across the whole repo. It never infers that an agent was "confused" from prose.
 func extractTranscript(sessionId, projectPath string, lines []string) *transcriptFacts {
 	cp := canonPath(projectPath)
 	f := &transcriptFacts{editsByFile: map[string]int{}}
 	matched := false
 	fileSet := map[string]bool{}
+	fileByToolUse := map[string]string{}
+	addFile := func(rel string) {
+		if rel != "" && !fileSet[rel] {
+			fileSet[rel] = true
+			f.files = append(f.files, rel)
+		}
+	}
 	for _, ln := range lines {
 		var rec tLine
 		if json.Unmarshal([]byte(ln), &rec) != nil {
@@ -103,17 +128,22 @@ func extractTranscript(sessionId, projectPath string, lines []string) *transcrip
 		for _, b := range blocks {
 			if b.Type == "tool_result" && b.IsError && !isUserRejection(b.Content) {
 				f.toolErrors++
-			}
-			if b.Type == "tool_use" && (b.Name == "Edit" || b.Name == "Write" || b.Name == "Read") {
-				if rel := relFileFromInput(b.Input, cp); rel != "" {
-					if !fileSet[rel] {
-						fileSet[rel] = true
-						f.files = append(f.files, rel)
-					}
-					if b.Name == "Edit" || b.Name == "Write" {
-						f.editsByFile[rel]++
-					}
+				addFile(fileByToolUse[b.ToolUseID])
+				if len(f.errors) < maxTranscriptErrors {
+					f.errors = append(f.errors, clip(Redact(firstLine(toolResultText(b.Content))), maxEvidenceTextLen))
 				}
+			}
+			if b.Type != "tool_use" {
+				continue
+			}
+			rel := relFileFromInput(b.Input, cp)
+			if rel == "" {
+				continue
+			}
+			fileByToolUse[b.ID] = rel
+			if editTools[b.Name] {
+				addFile(rel)
+				f.editsByFile[rel]++
 			}
 		}
 	}
@@ -194,8 +224,19 @@ func hasRepeatedEdit(f *transcriptFacts) bool {
 
 func transcriptSignal(name string, ts int64, f *transcriptFacts) waveobj.RadarSignal {
 	summary := fmt.Sprintf("transcript recorded %d explicit tool error(s) across %d file(s)", f.toolErrors, len(f.files))
-	facts := map[string]any{"toolerrors": f.toolErrors, "editsbyfile": f.editsByFile}
+	if len(f.errors) > 0 {
+		summary += fmt.Sprintf("; first error: %q", f.errors[0])
+	}
+	facts := map[string]any{"toolerrors": f.toolErrors, "errors": f.errors, "editsbyfile": f.editsByFile}
 	return newSignal(CollectorTranscript, "transcript:"+name, ts, f.files, summary, facts, "")
+}
+
+func firstLine(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return strings.TrimSpace(s[:i])
+	}
+	return s
 }
 
 func nonBlankLines(s string) []string {

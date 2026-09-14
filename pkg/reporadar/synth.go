@@ -70,16 +70,51 @@ func buildSynthesisPrompt(projectName, mode string, groups []CandidateGroup) str
 	return b.String()
 }
 
-// synthesize runs one bounded model call via consult.Run and returns the parsed response.
-func synthesize(ctx context.Context, projectName, mode string, groups []CandidateGroup) (*SynthResponse, error) {
+// maxRawResponseBytes bounds the stored model reply; it is an audit trail, not a transcript.
+const maxRawResponseBytes = 64 * 1024
+
+// synthMeta is what a synthesis call reports about itself. It is kept even when the reply does not
+// parse, which is when the raw reply matters most.
+type synthMeta struct {
+	resolvedModel string
+	totalTokens   int // 0 when the runtime does not report usage
+	raw           string
+}
+
+// synthesize runs one bounded model call via consult and returns the parsed response.
+func synthesize(ctx context.Context, projectName, mode string, groups []CandidateGroup) (*SynthResponse, synthMeta, error) {
 	prompt := buildSynthesisPrompt(projectName, mode, groups)
 	spec, ok := consult.HeadlessSpecForTier(consult.TierMid)
 	if !ok {
-		return nil, fmt.Errorf("headless runtime not available")
+		return nil, synthMeta{}, fmt.Errorf("headless runtime not available")
 	}
-	full, err := consult.Run(ctx, spec, wavebase.HeadlessAgentCwd(), prompt, func(string) {})
+	full, usage, err := consult.RunWithUsage(ctx, spec, wavebase.HeadlessAgentCwd(), prompt, func(string) {})
+	meta := synthMeta{resolvedModel: usage.Model, totalTokens: usage.TotalTokens, raw: clip(full, maxRawResponseBytes)}
 	if err != nil {
-		return nil, fmt.Errorf("radar synthesis failed: %w", err)
+		return nil, meta, fmt.Errorf("radar synthesis failed: %w", err)
 	}
-	return parseSynthesisResponse(full)
+	resp, perr := parseSynthesisResponse(full)
+	return resp, meta, perr
+}
+
+// headlessModelLabel names what synthesis is configured to run on.
+func headlessModelLabel() string {
+	runtime := consult.HeadlessRuntime()
+	spec, _ := consult.SpecForTier(runtime, consult.TierMid)
+	return modelLabel(runtime, spec)
+}
+
+// modelLabel is the runtime plus the model it is told to use. A runtime given no model runs its own
+// configured default, which Radar cannot see, so the label is the runtime alone.
+func modelLabel(runtime string, spec consult.RuntimeSpec) string {
+	model := spec.Model
+	for i, arg := range spec.BaseArgs {
+		if arg == "--model" && i+1 < len(spec.BaseArgs) {
+			model = spec.BaseArgs[i+1]
+		}
+	}
+	if model == "" {
+		return runtime
+	}
+	return runtime + ":" + model
 }

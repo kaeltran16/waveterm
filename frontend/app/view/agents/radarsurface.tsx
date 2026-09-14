@@ -24,7 +24,9 @@ import {
     isResultsState,
     MODE_META,
     modeFilterOptions,
+    partialCollectors,
     projectsWithPath,
+    repositoryChangedDuringScan,
     rescanLabel,
     resolveSelection,
     scanScopeLabel,
@@ -293,13 +295,20 @@ export function RadarSurface({ model }: { model: AgentsViewModel }) {
                                     </span>
                                 </div>
 
-                                {state === "partial" ? (
+                                {partialCollectors(report).length > 0 ? (
                                     <div className="flex items-center gap-2.5 border-b border-border bg-warning/10 px-6 py-2 text-xs text-warning">
                                         <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                                         <span>
-                                            <b>Partial scan.</b> Some collectors did not complete — findings that rely
-                                            on the missing evidence may be absent.
+                                            <b>Partial scan.</b> {partialCollectors(report).join(", ")} did not complete
+                                            — findings that rely on that evidence may be absent.
                                         </span>
+                                    </div>
+                                ) : null}
+
+                                {repositoryChangedDuringScan(report) ? (
+                                    <div className="border-b border-border px-6 py-2 text-xs text-muted">
+                                        The repository changed while this scan ran — evidence may mix the tree before
+                                        and after the change.
                                     </div>
                                 ) : null}
 

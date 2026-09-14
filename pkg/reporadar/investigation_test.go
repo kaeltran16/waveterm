@@ -82,6 +82,34 @@ func TestRecordInvestigationNoopOnAbsentFingerprint(t *testing.T) {
 	}
 }
 
+// An investigation whose terminal write-back never landed must settle from its run, or from the run's
+// absence, instead of reading "Investigating" forever.
+func TestRefreshInvestigationsSettlesFromRun(t *testing.T) {
+	ctx := context.Background()
+	doneID := "bbbbbbbb-0000-0000-0000-000000000001"
+	run := &waveobj.Run{OID: doneID, ID: doneID, Status: "done", CreatedTs: 100, CompletedTs: 700,
+		Evidence: &waveobj.RunEvidence{Summary: "fixed", Files: []waveobj.EvidenceFile{{Path: "a.go"}}}, Meta: make(waveobj.MetaMapType)}
+	if err := wstore.DBInsert(ctx, run); err != nil {
+		t.Fatalf("insert run: %v", err)
+	}
+	executing := &waveobj.RadarInvestigation{RunID: doneID, ChannelID: "chan1", Status: "executing", StartedTs: 100}
+	findings := []waveobj.RadarFinding{
+		{Fingerprint: "RAD-done", Investigation: executing},
+		{Fingerprint: "RAD-gone", Investigation: &waveobj.RadarInvestigation{RunID: "bbbbbbbb-0000-0000-0000-00000000dead", Status: "executing"}},
+	}
+	refreshInvestigations(ctx, findings)
+
+	if inv := findings[0].Investigation; inv.Status != "done" || inv.CompletedTs != 700 || inv.FilesTouched != 1 || inv.ChannelID != "chan1" {
+		t.Fatalf("a finished run must settle its investigation with evidence, got %+v", inv)
+	}
+	if executing.Status != "executing" {
+		t.Fatal("refresh must replace the record, not mutate one other findings may share")
+	}
+	if inv := findings[1].Investigation; inv.Status != InvestigationOrphaned || inv.CompletedTs == 0 {
+		t.Fatalf("a missing run must orphan its investigation, got %+v", inv)
+	}
+}
+
 func TestRecordInvestigationNoopWhenNoReport(t *testing.T) {
 	ctx := context.Background()
 	if err := RecordInvestigation(ctx, canonPath("/repos/never-scanned"), "RAD-x", waveobj.RadarInvestigation{RunID: "r1"}); err != nil {

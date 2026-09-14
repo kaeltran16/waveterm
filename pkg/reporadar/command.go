@@ -119,18 +119,22 @@ func Cancel(reportId string) error {
 	return nil
 }
 
-// Retry re-runs clustering for a failed report using its retained candidate signals, without
-// recollecting. Rejected when the report has no retained candidates or is not in a retryable state.
+// Retry re-runs clustering for the failed lenses of a failed or partial report using its retained
+// candidate signals, without recollecting. Rejected when the report has no retained candidates, no
+// failed lens, or is not in a retryable state.
 func Retry(ctx context.Context, reportId string) error {
 	rpt, err := wstore.GetRadarReport(ctx, reportId)
 	if err != nil {
 		return err
 	}
-	if rpt.Status != StatusFailed {
+	if rpt.Status != StatusFailed && rpt.Status != StatusPartial {
 		return fmt.Errorf("report %s is not in a retryable state (%s)", reportId, rpt.Status)
 	}
 	if len(rpt.Candidates) == 0 {
 		return fmt.Errorf("no retained candidate signals to retry")
+	}
+	if len(retryModes(rpt)) == 0 {
+		return fmt.Errorf("report %s has no failed lens to retry", reportId)
 	}
 	scanCtx, ok := mgr.register(reportId)
 	if !ok {

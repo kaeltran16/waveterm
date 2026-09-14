@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
 
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
@@ -66,30 +67,64 @@ func isSecurityConsequence(s waveobj.RadarSignal) bool {
 }
 
 // securityBoundaryKind maps a path to a security-boundary category via deterministic name heuristics,
-// or "" when the path is not security-relevant. Order matters: auth wins over secret wins over input.
+// or "" when the path is not security-relevant. Markers match whole path words, not substrings: a
+// substring match tagged every file under names like agentsessions or possession. Order matters: auth
+// wins over secret wins over input.
 func securityBoundaryKind(p string) string {
-	lp := strings.ToLower(strings.ReplaceAll(p, "\\", "/"))
-	for _, m := range authMarkers {
-		if strings.Contains(lp, m) {
-			return "auth"
-		}
-	}
-	for _, m := range secretMarkers {
-		if strings.Contains(lp, m) {
-			return "secret"
-		}
-	}
-	for _, m := range inputMarkers {
-		if strings.Contains(lp, m) {
-			return "input"
-		}
+	words := pathWords(p)
+	switch {
+	case words.hasAny(authMarkers):
+		return "auth"
+	case words.hasAny(secretMarkers):
+		return "secret"
+	case words.hasAny(inputMarkers):
+		return "input"
 	}
 	return ""
 }
 
-var authMarkers = []string{"auth", "session", "login", "permission", "rbac", "oauth", "jwt", "/acl"}
-var secretMarkers = []string{"secret", "credential", "keystore", "crypto", "encrypt", "vault"}
-var inputMarkers = []string{"validate", "sanitize", "deserialize", "webhook", "upload", "graphql"}
+type wordSet map[string]bool
+
+func (w wordSet) hasAny(markers []string) bool {
+	for _, m := range markers {
+		if w[m] {
+			return true
+		}
+	}
+	return false
+}
+
+// pathWords splits a path into lower-case words at separators, dots, and camelCase humps
+// (src/authMiddleware.ts -> src, auth, middleware, ts).
+func pathWords(p string) wordSet {
+	words := wordSet{}
+	var cur []rune
+	flush := func() {
+		if len(cur) > 0 {
+			words[strings.ToLower(string(cur))] = true
+			cur = cur[:0]
+		}
+	}
+	var prev rune
+	for _, r := range p {
+		switch {
+		case !unicode.IsLetter(r) && !unicode.IsDigit(r):
+			flush()
+		case unicode.IsUpper(r) && unicode.IsLower(prev):
+			flush()
+			cur = append(cur, r)
+		default:
+			cur = append(cur, r)
+		}
+		prev = r
+	}
+	flush()
+	return words
+}
+
+var authMarkers = []string{"auth", "authn", "authz", "authentication", "authorization", "authorize", "session", "sessions", "login", "permission", "permissions", "rbac", "oauth", "jwt", "acl", "acls"}
+var secretMarkers = []string{"secret", "secrets", "secretstore", "credential", "credentials", "keystore", "crypto", "crypt", "encrypt", "encryption", "vault"}
+var inputMarkers = []string{"validate", "validation", "validator", "sanitize", "sanitizer", "deserialize", "webhook", "webhooks", "upload", "uploads", "graphql"}
 
 var securityDepMarkers = []string{"auth", "jwt", "jsonwebtoken", "passport", "oauth", "bcrypt", "crypto", "session", "cors", "helmet", "sanitize", "csrf", "cookie", "openssl", "tls"}
 
