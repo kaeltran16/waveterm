@@ -129,9 +129,10 @@ func TestScheduleOnceFlagsStalledChild(t *testing.T) {
 	wps.Broker.Subscribe("stall-events", wps.SubscriptionRequest{Event: DagEventTaskStalled, AllScopes: true})
 	defer wps.Broker.Unsubscribe("stall-events", DagEventTaskStalled)
 
-	// no sessions exist for the child -> liveness probe returns 0, LastActivity stays stale
+	// the child wrote a transcript, then went quiet past the threshold
 	oldRoot := sessionsRootFor
-	sessionsRootFor = func(string) string { return t.TempDir() }
+	root := t.TempDir()
+	sessionsRootFor = func(string) string { return root }
 	defer func() { sessionsRootFor = oldRoot }()
 
 	ch, err := wstore.CreateChannel(ctx, "stall", t.TempDir())
@@ -148,15 +149,18 @@ func TestScheduleOnceFlagsStalledChild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	g.Tasks[0].LastActivity = time.Now().Add(-StallThreshold - time.Minute).UnixMilli()
+	quiet := time.Now().Add(-StallThreshold - time.Minute)
+	g.Tasks[0].LastActivity = quiet.UnixMilli()
 	if err := wstore.AppendDag(ctx, &g); err != nil {
 		t.Fatal(err)
 	}
+	writeClaudeSession(t, root, ch.ProjectPath, "claude-quiet", "Goal: a\n\n"+dagSessionMarker(g.OID, "t-0"), quiet)
 	child := jarvis.NewRun("child", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), 1)
 	child.ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
 	// as childRunFromSpec builds it: a tracked runtime whose worktree cwd resolves, so the probe has
-	// somewhere to look and its silence is a real verdict
-	child.Runtime = "pi"
+	// somewhere to look and its silence is a real verdict. claude, because the first-token deadline is
+	// not armed for it: only the aging transcript can flag this child.
+	child.Runtime = "claude"
 	child.DagORef = g.OID
 	if err := wstore.AppendRun(ctx, ch.OID, child); err != nil {
 		t.Fatal(err)
@@ -324,53 +328,67 @@ func TestScheduleOnceDoesNotStallActiveClaudeChild(t *testing.T) {
 
 // A runtime liveness cannot read has no heartbeat to age, so its task must report freshness unknown
 // rather than stall: the lead's answer to a stall is retry, which kills the child it was told about.
+// The first-token deadline is no exception - an unreadable pi child has written nothing as far as the
+// probe can tell, however hard it is working.
 func TestScheduleOnceLeavesUntrackedRuntimeFreshnessUnknown(t *testing.T) {
 	allowWorkerHarnessForTest(t)
 	ctx := context.Background()
-	oldRoot := sessionsRootFor
-	sessionsRootFor = func(string) string { return t.TempDir() }
-	defer func() { sessionsRootFor = oldRoot }()
+	cases := []struct {
+		name    string
+		runtime string
+		root    string
+	}{
+		{name: "runtime without a transcript reader", runtime: "opencode", root: t.TempDir()},
+		{name: "pi child with no session root", runtime: "pi", root: ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			oldRoot := sessionsRootFor
+			sessionsRootFor = func(string) string { return tc.root }
+			defer func() { sessionsRootFor = oldRoot }()
 
-	ch, err := wstore.CreateChannel(ctx, "untracked", t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
-	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
-		t.Fatal(err)
-	}
-	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 1, false, []waveobj.TaskNode{{ID: "t-0", Label: "a"}}, 1, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	g.Tasks[0].LastActivity = time.Now().Add(-StallThreshold - time.Minute).UnixMilli()
-	if err := wstore.AppendDag(ctx, &g); err != nil {
-		t.Fatal(err)
-	}
-	child := jarvis.NewRun("child", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), 1)
-	child.ID = "33333333-3333-4333-8333-333333333333"
-	child.Runtime = "opencode"
-	child.DagORef = g.OID
-	if err := wstore.AppendRun(ctx, ch.OID, child); err != nil {
-		t.Fatal(err)
-	}
-	g.Tasks[0].RunID = child.ID
-	g.Tasks[0].State = TaskState_Running
-	if err := wstore.UpdateDag(ctx, g.OID, func(cur *waveobj.TaskGroup) error {
-		*cur = g
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
+			ch, err := wstore.CreateChannel(ctx, "untracked-"+tc.runtime, t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+			if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
+				t.Fatal(err)
+			}
+			g, err := NewTaskGroup(owner.ID, ch.OID, "g", 1, false, []waveobj.TaskNode{{ID: "t-0", Label: "a"}}, 1, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			g.Tasks[0].LastActivity = time.Now().Add(-StallThreshold - time.Minute).UnixMilli()
+			if err := wstore.AppendDag(ctx, &g); err != nil {
+				t.Fatal(err)
+			}
+			// spawned long past both deadlines
+			child := jarvis.NewRun("child", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), 1)
+			child.Runtime = tc.runtime
+			child.DagORef = g.OID
+			if err := wstore.AppendRun(ctx, ch.OID, child); err != nil {
+				t.Fatal(err)
+			}
+			g.Tasks[0].RunID = child.ID
+			g.Tasks[0].State = TaskState_Running
+			if err := wstore.UpdateDag(ctx, g.OID, func(cur *waveobj.TaskGroup) error {
+				*cur = g
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
 
-	if err := ScheduleOnce(ctx, &g); err != nil {
-		t.Fatal(err)
-	}
-	if g.Tasks[0].State != TaskState_Running {
-		t.Fatalf("an unobservable child must not be flagged stalled, got %s", g.Tasks[0].State)
-	}
-	if g.Tasks[0].LastActivity != 0 {
-		t.Fatalf("freshness must read unknown, got %d", g.Tasks[0].LastActivity)
+			if err := ScheduleOnce(ctx, &g); err != nil {
+				t.Fatal(err)
+			}
+			if g.Tasks[0].State != TaskState_Running {
+				t.Fatalf("an unobservable child must not be flagged stalled, got %s", g.Tasks[0].State)
+			}
+			if g.Tasks[0].LastActivity != 0 {
+				t.Fatalf("freshness must read unknown, got %d", g.Tasks[0].LastActivity)
+			}
+		})
 	}
 }
 
@@ -429,7 +447,9 @@ func TestSafeTickSurvivesPanic(t *testing.T) {
 // deadline existed it could never stall: the whole stall path is gated on LastActivity > 0. This is
 // the hang case specifically - a child that DIED is caught in seconds by the worker-exit hook. The
 // deadline is armed per runtime: pi writes its transcript per event, so silence past it is real,
-// while a claude child routinely commits correct work having written no transcript at all.
+// while a claude child routinely commits correct work having written no transcript at all. Dispatch
+// seeds LastActivity with the spawn time, and that seed must not read as a write: it would hide the pi
+// child from the deadline and age the claude child into a 15m stall.
 func TestScheduleOnceFirstTokenDeadlineIsPerRuntime(t *testing.T) {
 	allowWorkerHarnessForTest(t)
 	ctx := context.Background()
@@ -442,14 +462,17 @@ func TestScheduleOnceFirstTokenDeadlineIsPerRuntime(t *testing.T) {
 	cases := []struct {
 		name    string
 		runtime string
+		age     time.Duration
 		want    string
 	}{
-		{name: "pi child stalls", runtime: "pi", want: TaskState_Stalled},
-		{name: "claude child keeps running", runtime: "claude", want: TaskState_Running},
+		{name: "pi child stalls", runtime: "pi", age: FirstTokenDeadline + time.Minute, want: TaskState_Stalled},
+		{name: "claude child keeps running", runtime: "claude", age: FirstTokenDeadline + time.Minute, want: TaskState_Running},
+		// the false stall: the spawn seed aged into a stall on a child that had written nothing
+		{name: "claude child keeps running past the stall threshold", runtime: "claude", age: StallThreshold + time.Minute, want: TaskState_Running},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ch, err := wstore.CreateChannel(ctx, "first-token-"+tc.runtime, t.TempDir())
+			ch, err := wstore.CreateChannel(ctx, "first-token-"+tc.runtime+"-"+tc.age.String(), t.TempDir())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -464,7 +487,7 @@ func TestScheduleOnceFirstTokenDeadlineIsPerRuntime(t *testing.T) {
 			if err := wstore.AppendDag(ctx, &g); err != nil {
 				t.Fatal(err)
 			}
-			spawnedTs := time.Now().Add(-FirstTokenDeadline - time.Minute).UnixMilli()
+			spawnedTs := time.Now().Add(-tc.age).UnixMilli()
 			child := jarvis.NewRun("child", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), spawnedTs)
 			child.Runtime = tc.runtime
 			child.DagORef = g.OID
@@ -473,7 +496,7 @@ func TestScheduleOnceFirstTokenDeadlineIsPerRuntime(t *testing.T) {
 			}
 			g.Tasks[0].RunID = child.ID
 			g.Tasks[0].State = TaskState_Running
-			g.Tasks[0].LastActivity = 0 // never observed writing anything
+			g.Tasks[0].LastActivity = spawnedTs // dispatch seeds the spawn time
 			if err := wstore.UpdateDag(ctx, g.OID, func(cur *waveobj.TaskGroup) error {
 				*cur = g
 				return nil
@@ -485,7 +508,10 @@ func TestScheduleOnceFirstTokenDeadlineIsPerRuntime(t *testing.T) {
 				t.Fatal(err)
 			}
 			if g.Tasks[0].State != tc.want {
-				t.Fatalf("%s child silent past the first-token deadline: want %s, got %s", tc.runtime, tc.want, g.Tasks[0].State)
+				t.Fatalf("%s child silent for %s: want %s, got %s", tc.runtime, tc.age, tc.want, g.Tasks[0].State)
+			}
+			if g.Tasks[0].LastActivity != 0 {
+				t.Fatalf("a child that wrote nothing must read freshness unknown, got %d", g.Tasks[0].LastActivity)
 			}
 		})
 	}

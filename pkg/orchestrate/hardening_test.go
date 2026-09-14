@@ -70,6 +70,40 @@ func TestScheduleRecordsSpawnFailureReason(t *testing.T) {
 	}
 }
 
+// a worker that spawned but could not be recorded is stopped and its task failed by the schedule
+// cleanup, which must leave the same trail as a spawn that never happened.
+func TestScheduleRecordsUnrecordedDispatchReason(t *testing.T) {
+	allowWorkerHarnessForTest(t)
+	ctx, g, channelID, runID := seedDispatchDag(t, "dispatch-unrecorded")
+	stubSpawnWorker(t, "tab:worker-unrecorded", nil)
+	oldAppend, oldStop := appendChildRun, stopSpawnedWorker
+	appendChildRun = func(context.Context, string, waveobj.Run) error { return errors.New("child run persist failed") }
+	stopSpawnedWorker = func(context.Context, string) error { return nil }
+	t.Cleanup(func() { appendChildRun, stopSpawnedWorker = oldAppend, oldStop })
+
+	if err := Schedule(ctx, g.OID); err == nil {
+		t.Fatal("want the persist failure returned")
+	}
+	got := mustLoadDag(t, ctx, g.OID)
+	if got.Tasks[0].State != TaskState_Failed || got.Tasks[0].LastFailureKind != FailureKindUnrecorded {
+		t.Fatalf("unrecorded dispatch task = %+v", got.Tasks[0])
+	}
+	if got.Tasks[0].Attempts != 1 {
+		t.Fatalf("unrecorded dispatch attempts = %d, want 1", got.Tasks[0].Attempts)
+	}
+	detail := eventDetail(t, lifecycleEvents(t, channelID, runID), waveobj.RunEventKindTaskFailed)
+	if detail == nil {
+		t.Fatal("unrecorded dispatch emitted no task-failed event")
+	}
+	if detail["lastfailurekind"] != FailureKindUnrecorded {
+		t.Fatalf("event kind = %v, want %q", detail["lastfailurekind"], FailureKindUnrecorded)
+	}
+	msg, _ := detail["detail"].(string)
+	if !strings.Contains(msg, "child run persist failed") {
+		t.Fatalf("event detail %q does not carry the cause", msg)
+	}
+}
+
 func TestScheduleRecordsHarnessFailureReason(t *testing.T) {
 	old := validateWorkerHarness
 	validateWorkerHarness = func(string) error { return errors.New("pi is not installed") }

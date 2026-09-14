@@ -404,6 +404,12 @@ tip. The worktree directory stays on disk — that is the cleanup debt the start
 
 ### The false stall — a live bug, and the operator's correct move is to do nothing
 
+> **Fixed 2026-09-14** (orchestrator redesign, slice 1). A readable but empty transcript now clears the
+> spawn seed, so a write-less claude child stays `running` and a write-less pi child is flagged by the
+> 5-minute first-token deadline. The fix differs from the one proposed below in one respect: the
+> `continue` stays. The seed, not the `continue`, hid a tracked child from the deadline, and an
+> untracked pi child let past it would be judged on a transcript the probe cannot read.
+
 At 23:14:35 — the first liveness tick after `StallThreshold` (15 minutes) had elapsed since their
 22:59:15 spawn — `t-5` and `t-3` flipped to `stalled`:
 
@@ -857,6 +863,10 @@ and the RPC — and is then dropped by the approve button itself, whose `fireAnd
 `try`/`finally` and no `catch`. Clearing the `RunID` also puts those tasks outside
 `DeriveTaskStates` (`dag.go:382-402`), which only maps tasks that have one, so nothing repairs the
 state later either.
+
+> **Fixed 2026-09-14** (orchestrator redesign, slice 1). The batch path now sets `LastFailureKind` to
+> `dispatch-unrecorded`, increments `Attempts`, and appends a `task-failed` event carrying the cause. It
+> still writes no log line, and the approve button's dropped error is not part of this fix.
 
 Recovery took two commands and no restart: `retry` on `t-1` — which re-entered the scheduler and
 dispatched `t-9` as well — then `retry` on `t-6`. All three ran. The digest went `healthy`.
