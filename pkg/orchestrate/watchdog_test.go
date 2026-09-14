@@ -433,11 +433,11 @@ func TestSafeTickSurvivesPanic(t *testing.T) {
 
 	// a panicking tick must not take the loop down: recover is per-tick, not per-loop
 	watchdogTick = func(ctx context.Context) { panic("boom") }
-	safeTick(context.Background())
+	safeTick(context.Background(), watchdogTick)
 
 	ticked := false
 	watchdogTick = func(ctx context.Context) { ticked = true }
-	safeTick(context.Background())
+	safeTick(context.Background(), watchdogTick)
 	if !ticked {
 		t.Fatal("watchdog must keep ticking after a panicking tick")
 	}

@@ -2,7 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { artifactsOf, buildRunTimeline, clickTargetFor, joinWorkspacePath, toneFor } from "./runtimeline";
+import {
+    artifactsOf,
+    buildRunTimeline,
+    clickTargetFor,
+    eventKindTitle,
+    joinWorkspacePath,
+    toneFor,
+} from "./runtimeline";
 
 function ev(kind: string, ts: number, phaseIdx?: number): RunEvent {
     return {
@@ -80,6 +87,20 @@ describe("toneFor", () => {
         expect(toneFor("phase-started")).toBe("text-success");
         expect(toneFor("task-stalled")).toBe("text-warning");
         expect(toneFor("unknown-kind")).toBe("text-muted");
+    });
+
+    it("tones the queue and wake rows", () => {
+        expect(toneFor("task-forwarded")).toBe("text-asking");
+        expect(toneFor("lead-wake-failed")).toBe("text-warning");
+        expect(toneFor("lead-woken")).toBe("text-muted");
+    });
+});
+
+describe("eventKindTitle", () => {
+    it("names the queue and wake rows", () => {
+        expect(eventKindTitle("task-forwarded")).toBe("Handed to you");
+        expect(eventKindTitle("lead-woken")).toBe("Lead woken");
+        expect(eventKindTitle("lead-wake-failed")).toBe("Lead wake failed");
     });
 });
 

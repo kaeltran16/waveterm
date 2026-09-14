@@ -21,6 +21,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/aiusechat"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/filestore"
+	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
 	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/suggestion"
@@ -187,6 +188,11 @@ func (ws *WshServer) EventPublishCommand(ctx context.Context, data wps.WaveEvent
 		retireAskOnResume(&data)
 	}
 	wps.Broker.Publish(data)
+	if data.Event == wps.Event_AgentStatus {
+		// after the publish: the wake adapter re-reads the lead's state from event history, which has
+		// to hold this event already
+		orchestrate.NoteLeadStatus(ctx, &data)
+	}
 	return nil
 }
 

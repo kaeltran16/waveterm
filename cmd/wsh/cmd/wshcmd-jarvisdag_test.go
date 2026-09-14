@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/wavetermdev/waveterm/pkg/agentask"
+	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/pitasks"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -132,6 +134,62 @@ func TestDagStatusLinesUsesDigest(t *testing.T) {
 	}
 }
 
+func TestDagAskLinesShowsEveryQuestion(t *testing.T) {
+	asks := []wshrpc.DagAskItem{
+		{TaskId: "t-3", Owner: agentask.AskOwner_Lead, Ts: 9_000, Deadline: 609_000, Questions: []baseds.AgentAskQuestion{{Question: "later?"}}},
+		{TaskId: "t-2", Owner: agentask.AskOwner_Lead, Ts: 1_000, Deadline: 601_000, Note: agentask.AnswerUnconfirmedNote, Questions: []baseds.AgentAskQuestion{
+			{Header: "Cache", Question: "which ttl?", Options: []baseds.AgentAskOption{{Label: "24h", Description: "matches prod"}, {Label: "7d"}}},
+			{Question: "which regions?", MultiSelect: true, Options: []baseds.AgentAskOption{{Label: "eu"}, {Label: "us"}}},
+		}},
+		{TaskId: "t-4", Owner: agentask.AskOwner_User, Ts: 500, Questions: []baseds.AgentAskQuestion{{Question: "the human's call?"}}},
+	}
+	joined := strings.Join(dagAskLines(asks, 61_000), "\n")
+	for _, want := range []string{
+		"t-2  asked 1m ago  deadline in 9m",
+		"note: " + agentask.AnswerUnconfirmedNote,
+		"[Cache] which ttl?",
+		"0) 24h - matches prod",
+		"1) 7d",
+		"which regions? (multi-select)",
+		"wsh jarvis dag answer",
+		"wsh jarvis dag forward",
+		"1 held by the human in the run cockpit",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("missing %q in:\n%s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "the human's call?") {
+		t.Fatalf("a question the human holds is not the lead's to answer:\n%s", joined)
+	}
+	if strings.Index(joined, "t-2") > strings.Index(joined, "t-3") {
+		t.Fatalf("the oldest question comes first:\n%s", joined)
+	}
+}
+
+func TestDagAskLinesWithNothingForTheLead(t *testing.T) {
+	if got := dagAskLines(nil, 1_000); !reflect.DeepEqual(got, []string{"no questions waiting"}) {
+		t.Fatalf("empty queue = %q", got)
+	}
+	held := []wshrpc.DagAskItem{{TaskId: "t-1", Owner: agentask.AskOwner_User, Ts: 1, Questions: []baseds.AgentAskQuestion{{Question: "q?"}}}}
+	want := []string{"no questions waiting", "1 held by the human in the run cockpit"}
+	if got := dagAskLines(held, 1_000); !reflect.DeepEqual(got, want) {
+		t.Fatalf("human-held queue = %q, want %q", got, want)
+	}
+}
+
+func TestDagForwardData(t *testing.T) {
+	cmd := newDagEscalateTestCmd(t, map[string]string{"channel": "ch", "runid": "run"})
+	got, err := dagForwardData(cmd, []string{"t-1", "scope call: B drops the export"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := wshrpc.CommandDagActionData{ChannelId: "ch", RunId: "run", TaskId: "t-1", Action: "forward", Notes: "scope call: B drops the export"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("forward data = %+v, want %+v", got, want)
+	}
+}
+
 func TestCompactDur(t *testing.T) {
 	cases := []struct {
 		ms   int64
@@ -202,61 +260,5 @@ func TestDagSubmitSource(t *testing.T) {
 	}
 	if _, err := dagSubmitSource(nil, filepath.Join(dir, "missing.json"), strings.NewReader("")); err == nil {
 		t.Fatal("missing file must be rejected")
-	}
-}
-
-func TestWaitDecision(t *testing.T) {
-	cases := []struct {
-		name       string
-		digest     wshrpc.DagStatusDigest
-		wantReturn bool
-		wantReason string
-	}{
-		{
-			name:       "quiet dag keeps blocking",
-			digest:     wshrpc.DagStatusDigest{Health: "healthy", Next: wshrpc.DagNextStep{Kind: "parallelism-wait", BlockingTaskIds: []string{"t-2"}}},
-			wantReturn: false,
-		},
-		{
-			name:       "dependency wait keeps blocking",
-			digest:     wshrpc.DagStatusDigest{Health: "healthy", Next: wshrpc.DagNextStep{Kind: "dependency-wait"}},
-			wantReturn: false,
-		},
-		{
-			name:       "cleanup wait keeps blocking",
-			digest:     wshrpc.DagStatusDigest{Health: "healthy", Next: wshrpc.DagNextStep{Kind: "cleanup-wait", TaskIds: []string{"t-1"}}},
-			wantReturn: false,
-		},
-		{
-			name:       "merge gate needs the lead",
-			digest:     wshrpc.DagStatusDigest{Health: "healthy", Next: wshrpc.DagNextStep{Kind: "merge-ready", Actions: []string{"resolve-merge"}}},
-			wantReturn: true, wantReason: "action:merge-ready",
-		},
-		{
-			name:       "child ask needs the lead",
-			digest:     wshrpc.DagStatusDigest{Health: "needs-you", Next: wshrpc.DagNextStep{Kind: "human-action", Actions: []string{"answer"}}},
-			wantReturn: true, wantReason: "action:human-action",
-		},
-		{
-			name:       "terminal kind wins",
-			digest:     wshrpc.DagStatusDigest{Health: "healthy", Next: wshrpc.DagNextStep{Kind: "terminal", TerminalStatus: "done"}},
-			wantReturn: true, wantReason: "terminal:done",
-		},
-		{
-			name:       "cancelled health is terminal even without a terminal next",
-			digest:     wshrpc.DagStatusDigest{Health: "cancelled", Next: wshrpc.DagNextStep{Kind: "dispatch"}},
-			wantReturn: true, wantReason: "terminal:cancelled",
-		},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			got, reason := waitDecision(c.digest)
-			if got != c.wantReturn {
-				t.Fatalf("returnNow = %v, want %v", got, c.wantReturn)
-			}
-			if c.wantReturn && reason != c.wantReason {
-				t.Fatalf("reason = %q, want %q", reason, c.wantReason)
-			}
-		})
 	}
 }

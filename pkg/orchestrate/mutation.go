@@ -217,9 +217,11 @@ func markBlockedMergeLocked(ctx context.Context, dagID, childRunID string) error
 		return fmt.Errorf("dag %s is cancelled", dagID)
 	}
 	found := false
+	taskID := ""
 	for i := range g.Tasks {
 		if g.Tasks[i].RunID == childRunID {
 			g.Tasks[i].State = TaskState_BlockedMerge
+			taskID = g.Tasks[i].ID
 			found = true
 			break
 		}
@@ -236,6 +238,7 @@ func markBlockedMergeLocked(ctx context.Context, dagID, childRunID string) error
 		return err
 	}
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, g.OID))
+	PostWake(ctx, g.ChannelId, g.RunID, mergeConflictWake(taskID))
 	return nil
 }
 

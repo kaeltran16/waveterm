@@ -449,16 +449,17 @@ func buildEngineOrchestratePrompt(b *strings.Builder, goal, runtime string, para
 	b.WriteString("Each task description must include the task-specific goal, relevant evidence and constraints, expected verification, and pinned decisions, so the child never has to rediscover the broad goal.\n")
 	// the gate is stated up front because it changes what submitting means: the lead is publishing a
 	// proposal, not starting work, and a lead that does not know this reads the pause after submit as
-	// the engine failing to dispatch. How a rejection *arrives* is per-runtime, so it stays inside the
-	// fork below — pi is push-delivered and never runs the wait loop.
+	// the engine failing to dispatch.
 	b.WriteString("Your submitted plan is a proposal: the human reads the task list and approves it before any worker spawns, so write task labels and descriptions to be read by them. A sent-back plan is discarded — revise it and submit again.\n")
 	if runtime == "pi" {
-		b.WriteString("Create pi-tasks records and run `wsh jarvis dag import-tasks`; the engine validates and schedules ready children automatically and wakes you with control events; respond to control events as they arrive — do not babysit. If the human sends the plan back you are told directly, with their notes.\n")
+		b.WriteString("Create pi-tasks records and run `wsh jarvis dag import-tasks`; the engine validates and schedules ready children automatically.\n")
 	} else {
 		b.WriteString("Write the DAG as JSON to a file and submit it with `wsh jarvis dag submit --file <path>`. The JSON is an object with `title`, `parallelism` (1-8), and `tasks`, each task `{\"id\": \"t-1\", \"label\": \"...\", \"description\": \"...\", \"deps\": [\"t-0\"]}`.\n")
-		b.WriteString("Then loop: run `wsh jarvis dag wait`, do exactly what it reports, and wait again. Stop when it reports a line beginning `woke: terminal:`. Acting on a reported action is what lets the next wait block — an action you leave untaken makes wait return immediately.\n")
-		b.WriteString("While the plan sits at the gate, wait reports nothing to do and simply blocks; a sent-back plan returns `woke: plan-sent-back` followed by the human's notes.\n")
 	}
+	// both runtimes are woken by text typed into this terminal, which only lands at an idle prompt: a
+	// lead that keeps its turn open to poll never receives it.
+	b.WriteString("After submitting, end your turn and do not poll. When something needs your judgment the engine types a line beginning `wake:` into this terminal, naming the event and the command that shows it; handle it, then end your turn again. A sent-back plan is typed here too, with the human's notes.\n")
+	b.WriteString("Answer a child's question with `wsh jarvis dag answer <task-id> <answers-json>`. A product or scope call, or a question the plan does not settle, goes to the human with `wsh jarvis dag forward <task-id> \"<what you checked, what you recommend>\"`; a failed task you cannot recover is forwarded the same way.\n")
 	b.WriteString("Use `wsh jarvis dag status` for detail at any time.\n")
 	b.WriteString("If a genuinely consequential or ambiguous decision comes up — one where a wrong assumption would waste real work — use the AskUserQuestion tool to ask the human; it renders an answerable question in the cockpit and blocks until they reply. Never pose such a question in prose.\n")
 	// the digest's own words: kind `merge-ready`, action `resolve-merge`. A lead that pattern-matches

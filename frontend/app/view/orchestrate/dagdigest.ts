@@ -35,16 +35,9 @@ export function taskBriefs(group: TaskGroup | undefined): Map<string, TaskBrief>
     return briefs;
 }
 
-// events whose arrival means the current digest may be out of date (ask/answer/clear and control
-// delivery). Not activity ticks — those never re-request the digest.
-const REFRESH_EVENT_KINDS = new Set([
-    "child-ask",
-    "child-answered",
-    "child-ask-cleared",
-    "lead-control-sent",
-    "lead-control-failed",
-    "lead-control-acknowledged",
-]);
+// events whose arrival means the current digest may be out of date (ask/answer/clear). Not activity
+// ticks — those never re-request the digest.
+const REFRESH_EVENT_KINDS = new Set(["child-ask", "child-answered", "child-ask-cleared"]);
 
 // acceptDigest decides whether candidate may replace the current digest: its DagVersion must equal the
 // observed group version, and it must be the response to the newest outstanding request (an older
@@ -186,18 +179,6 @@ export function nextStepView(state: DigestState, briefs?: Map<string, TaskBrief>
 // freshCounts returns the counts only while they are current, for the same reason.
 export function freshCounts(state: DigestState): DagStatusCounts | undefined {
     return state.digest == null || state.stale ? undefined : state.digest.counts;
-}
-
-// CONTROL_WARNING is the human-facing half of the control digest. Acknowledged (and no attempt at
-// all) say nothing: control delivery is visibility, and a warning for the normal case is noise.
-const CONTROL_WARNING: Record<string, string> = {
-    unconfirmed: "lead not confirmed",
-    failed: "lead notify failed",
-    unavailable: "lead unreachable",
-};
-
-export function controlWarning(digest: DagStatusDigest | undefined): string | null {
-    return digest?.control ? (CONTROL_WARNING[digest.control.status] ?? null) : null;
 }
 
 // useDagDigest loads the status digest for an orchestrator run and keeps it fresh: initially, on any

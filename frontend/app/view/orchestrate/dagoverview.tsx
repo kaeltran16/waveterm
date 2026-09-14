@@ -17,7 +17,6 @@ import { useRunEvents } from "../agents/runeventstore";
 import { ActivityLine, StatusLine } from "../agents/statusline";
 import { attentionQueue, type QueueEntry } from "./attentionqueue";
 import {
-    controlWarning,
     freshCounts,
     healthView,
     lastUpdatedText,
@@ -64,7 +63,6 @@ export function DagOverview({
     const health = healthView(digestState);
     const counts = freshCounts(digestState);
     const nextMove = nextStepView(digestState, taskBriefs(group));
-    const control = controlWarning(digest);
     const lastUpdated = lastUpdatedText(digestState, now);
     const elapsed = counts ? digest?.durations?.elapsedms : undefined;
     const refreshFailed = digestState.error != null && !digestState.loading;
@@ -82,7 +80,6 @@ export function DagOverview({
                     <span aria-live="polite">{counts?.attention ? `attention ${counts.attention}` : ""}</span>
                     <span>{counts?.mergeready ? `merge ${counts.mergeready}` : ""}</span>
                     {lastUpdated ? <span>{lastUpdated}</span> : null}
-                    {control ? <span className="text-warning">⚠ {control}</span> : null}
                     {refreshFailed && digestState.retry ? (
                         <button
                             type="button"

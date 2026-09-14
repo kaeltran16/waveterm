@@ -16,6 +16,14 @@ var sendInput = func(blockId string, data []byte) error {
 	return blockcontroller.SendInput(blockId, &blockcontroller.BlockInputUnion{InputData: data})
 }
 
+// SetSendInputForTest swaps the keystroke sink for a test outside this package, which has no PTY to
+// type into, and returns the restore.
+func SetSendInputForTest(fn func(blockId string, data []byte) error) func() {
+	orig := sendInput
+	sendInput = fn
+	return func() { sendInput = orig }
+}
+
 // AnswerHook runs after a delivered answer, whichever path delivered it — the cockpit panel, the
 // server-side Gatekeeper actuator, or the dag lead's `wsh jarvis dag answer`. All three claim through
 // DeliverAnswer, so hooking here is what stops them recording the ask lifecycle three different ways
@@ -72,6 +80,11 @@ func injectAnswer(oref string, pending PendingAsk, answers []baseds.AgentAnswerI
 		if err := sendInput(pending.BlockId, k); err != nil {
 			return false, err // partial prefix already sent — do NOT restore
 		}
+	}
+	// a dag child's answer is not delivered until the child clears the ask (spec §5): keystrokes into
+	// a picker that was not listening vanish, and nothing else would notice the child still waiting.
+	if pending.Owner != "" {
+		GlobalRegistry.awaitClear(oref, pending, time.Now().UnixMilli())
 	}
 	return true, nil
 }

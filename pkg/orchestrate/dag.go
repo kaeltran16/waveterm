@@ -366,6 +366,17 @@ func BlockingKind(g *waveobj.TaskGroup) string {
 	return out
 }
 
+// gatedTaskID returns the id of the done, unreleased gate halting the DAG, or "".
+func gatedTaskID(g *waveobj.TaskGroup) string {
+	for i := range g.Tasks {
+		t := &g.Tasks[i]
+		if t.Gate && t.State == TaskState_Done && !t.Released {
+			return t.ID
+		}
+	}
+	return ""
+}
+
 // dagCondition is the lead-facing identity of what the dag is currently asking for: the status, plus
 // what is being asked about. Two different gates are two different questions for the human even
 // though the status does not move between them, and a second task failing a different way turns a

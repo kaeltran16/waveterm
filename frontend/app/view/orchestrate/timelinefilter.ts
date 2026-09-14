@@ -33,7 +33,8 @@ export const ATTENTION_KINDS = new Set<string>([
     "dag-blocked",
     "task-merge-blocked",
     "task-cleanup-failed",
-    "lead-control-failed",
+    "task-forwarded",
+    "lead-wake-failed",
 ]);
 
 // taskIdOf reads the task a row belongs to; "" for a dag-level row (dag-done, evidence-sealed).
@@ -85,9 +86,7 @@ const TASK_TARGET_KINDS: Record<string, TimelineTarget["kind"]> = {
     "task-cleanup-pending": "dag-task",
     "task-cleanup-completed": "dag-task",
     "task-cleanup-failed": "dag-task",
-    "lead-control-sent": "dag-task",
-    "lead-control-failed": "dag-task",
-    "lead-control-acknowledged": "dag-task",
+    "task-forwarded": "dag-task",
 };
 
 // eventClickTarget decides where a row navigates. A row whose detail lacks the id its target needs

@@ -12,24 +12,13 @@ import (
 
 // DagCommands is the deterministic orchestration engine surface (pkg/orchestrate).
 type DagCommands interface {
-	DagSubmitCommand(ctx context.Context, data CommandDagSubmitData) (*waveobj.TaskGroup, error)                        // validate + persist a TaskGroup for an orchestrator run
-	DagStatusCommand(ctx context.Context, data CommandDagStatusData) (*CommandDagStatusRtnData, error)                  // engine-owned status snapshot: group + typed digest
-	DagActionCommand(ctx context.Context, data CommandDagActionData) error                                              // approve | sendback | retry | skip | escalate | cancel
-	DagMergeCommand(ctx context.Context, data CommandDagMergeData) error                                                // squash-merge a finished child's worktree back
-	DagMergeContinueCommand(ctx context.Context, data CommandDagMergeData) error                                        // finish a squash merge after manual conflict resolution
-	DagAsksCommand(ctx context.Context, data CommandDagStatusData) (*CommandDagAsksRtnData, error)                      // pending child asks (children block on one at a time)
-	DagAnswerCommand(ctx context.Context, data CommandDagAnswerData) error                                              // deliver an answer to a child's pending ask
-	PiControlAckCommand(ctx context.Context, data CommandPiControlAckData) error                                        // the pi watcher confirms it accepted a lead-control event
-}
-
-// CommandPiControlAckData is the pi watcher's confirmation that it dispatched a lead-control event.
-// The four fields are echoed straight back from the control file's envelope, so an acknowledgement
-// can only ever name the exact attempt it processed.
-type CommandPiControlAckData struct {
-	ChannelId string `json:"channelid"`
-	RunId     string `json:"runid"`
-	EventId   string `json:"eventid"`
-	SessionId string `json:"sessionid"`
+	DagSubmitCommand(ctx context.Context, data CommandDagSubmitData) (*waveobj.TaskGroup, error)       // validate + persist a TaskGroup for an orchestrator run
+	DagStatusCommand(ctx context.Context, data CommandDagStatusData) (*CommandDagStatusRtnData, error) // engine-owned status snapshot: group + typed digest
+	DagActionCommand(ctx context.Context, data CommandDagActionData) error                             // approve | sendback | retry | skip | escalate | cancel | forward
+	DagMergeCommand(ctx context.Context, data CommandDagMergeData) error                               // squash-merge a finished child's worktree back
+	DagMergeContinueCommand(ctx context.Context, data CommandDagMergeData) error                       // finish a squash merge after manual conflict resolution
+	DagAsksCommand(ctx context.Context, data CommandDagStatusData) (*CommandDagAsksRtnData, error)     // pending child asks (children block on one at a time)
+	DagAnswerCommand(ctx context.Context, data CommandDagAnswerData) error                             // deliver an answer to a child's pending ask
 }
 
 type CommandDagSubmitData struct {
@@ -50,10 +39,10 @@ type CommandDagActionData struct {
 	ChannelId string `json:"channelid"`
 	RunId     string `json:"runid"`
 	TaskId    string `json:"taskid"`
-	Action    string `json:"action"`            // approve | sendback | retry | skip | escalate | cancel | approve-plan | sendback-plan
+	Action    string `json:"action"`            // approve | sendback | retry | skip | escalate | cancel | forward | approve-plan | sendback-plan
 	Model     string `json:"model,omitempty"`   // escalate target model (exact id); required
 	Runtime   string `json:"runtime,omitempty"` // escalate target runtime; empty = task's current runtime
-	Notes     string `json:"notes,omitempty"`   // sendback-plan: what the human wants changed, delivered to the lead
+	Notes     string `json:"notes,omitempty"`   // sendback-plan: what the human wants changed, delivered to the lead. forward: what the lead checked and recommends, shown to the human
 }
 
 type CommandDagMergeData struct {
@@ -62,21 +51,19 @@ type CommandDagMergeData struct {
 	TaskId    string `json:"taskid"` // selects the child whose worktree merges
 }
 
-// DagAskItem is one pending child ask: the task that raised it, the registry's ask id (so the digest
-// and lifecycle events can correlate one ask across raise/answer/clear), the question text + options,
-// the child block the answer must be delivered to, and when it was raised.
+// DagAskItem is one entry in a dag's question queue: the task that raised it, the registry's ask id (so
+// the digest and lifecycle events can correlate one ask across raise/answer/clear), who holds it and
+// why, every question with its options, the child block the answer is delivered to, and when it was
+// raised.
 type DagAskItem struct {
-	TaskId    string         `json:"taskid"`
-	AskId     string         `json:"askid,omitempty"`
-	Question  string         `json:"question"`
-	Options   []DagAskOption `json:"options,omitempty"`
-	BlockORef string         `json:"blockoref"`
-	Ts        int64          `json:"ts"`
-}
-
-// DagAskOption is one selectable answer option of a pending child ask.
-type DagAskOption struct {
-	Label string `json:"label"`
+	TaskId    string                    `json:"taskid"`
+	AskId     string                    `json:"askid,omitempty"`
+	Owner     string                    `json:"owner,omitempty"`    // lead | user; empty when the raise could not resolve the dag
+	Deadline  int64                     `json:"deadline,omitempty"` // UnixMilli past which a lead-held ask moves to the human
+	Note      string                    `json:"note,omitempty"`     // why the holder has it: a forward note, a missed deadline, a failed delivery
+	Questions []baseds.AgentAskQuestion `json:"questions"`
+	BlockORef string                    `json:"blockoref"`
+	Ts        int64                     `json:"ts"`
 }
 
 type CommandDagAsksRtnData struct {
@@ -108,7 +95,6 @@ type DagStatusDigest struct {
 	Next       DagNextStep       `json:"next"`
 	Tasks      []DagTaskDigest   `json:"tasks"`
 	Durations  DagDurationDigest `json:"durations"`
-	Control    *ControlDigest    `json:"control,omitempty"`
 }
 
 type DagStatusCounts struct {
@@ -156,15 +142,4 @@ type DagTaskDuration struct {
 	MergeWaitMs int64  `json:"mergewaitms,omitempty"`
 	CleanupMs   int64  `json:"cleanupms,omitempty"`
 	Partial     bool   `json:"partial,omitempty"`
-}
-
-type ControlDigest struct {
-	EventId        string `json:"eventid"`
-	Kind           string `json:"kind"` // child_done | gate_open | dag_blocked | dag_complete | task_spawned | child_ask | child_stalled
-	TaskId         string `json:"taskid,omitempty"`
-	SessionId      string `json:"sessionid,omitempty"`
-	Status         string `json:"status"` // acknowledged | unconfirmed | failed | unavailable
-	SentTs         int64  `json:"sentts,omitempty"`
-	AcknowledgedTs int64  `json:"acknowledgedts,omitempty"`
-	Error          string `json:"error,omitempty"`
 }

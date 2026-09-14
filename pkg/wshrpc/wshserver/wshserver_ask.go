@@ -93,6 +93,9 @@ func (ws *WshServer) AgentAskClearCommand(ctx context.Context, oref string) erro
 	if oref == "" {
 		return fmt.Errorf("oref is required")
 	}
+	// a dag child clearing its ask is the proof a typed answer reached the picker; without it the sweep
+	// puts an answered question back in front of its owner
+	agentask.GlobalRegistry.ConfirmClear(oref)
 	askId := ""
 	if pending, ok := agentask.GlobalRegistry.Get(oref); ok {
 		askId = pending.AskId
@@ -149,10 +152,9 @@ func publishAgentAsk(data baseds.AgentAskData) {
 	jarvis.PublishAgentAsk(data)
 }
 
-// forwardChildAsk routes a pending ask raised by a dag child's block to the dag + its owning run:
-// the child's ask card renders only on the child session (invisible to the human), so the engine
-// mirrors it as a dag:child-ask event the lead and the cockpit's parent-run surface can show. No-op
-// for blocks that are not dag children.
+// forwardChildAsk puts a pending ask raised by a dag child's block in its lead's question queue: the
+// child's ask card renders only on the child session, invisible to the human, so the lead answers it
+// or forwards it. No-op for blocks that are not dag children.
 func forwardChildAsk(ctx context.Context, blockOref, askId string, questions []baseds.AgentAskQuestion) {
 	if len(questions) == 0 {
 		return
@@ -161,7 +163,7 @@ func forwardChildAsk(ctx context.Context, blockOref, askId string, questions []b
 	if !ok {
 		return
 	}
-	orchestrate.PublishChildAsk(ctx, g, target, questions[0].Question)
+	orchestrate.RaiseChildAsk(ctx, g, target, blockOref, questions[0].Question)
 }
 
 // askTargetForBlock resolves the dag task behind a block's ask, so the raise, answer and clear paths

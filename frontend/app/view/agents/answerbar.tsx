@@ -232,6 +232,7 @@ export function AnswerBar({
     onSubmit,
     onSelectQuestion,
     onDismiss,
+    showHint = true,
     className,
 }: {
     agent: AgentVM;
@@ -246,6 +247,7 @@ export function AnswerBar({
     onSubmit: () => void;
     onSelectQuestion?: (qi: number) => void;
     onDismiss?: () => void;
+    showHint?: boolean;
     className?: string;
 }) {
     const questions = agent.ask?.questions ?? [];
@@ -317,7 +319,7 @@ export function AnswerBar({
             <div className={className}>
                 {dismissControl}
                 {renderGroup(0)}
-                {hint ? <div className="mt-2 text-[11px] text-secondary">{hint}</div> : null}
+                {showHint && hint ? <div className="mt-2 text-[11px] text-secondary">{hint}</div> : null}
             </div>
         );
     }
@@ -348,7 +350,7 @@ export function AnswerBar({
                 })}
             </div>
             {renderGroup(idx)}
-            {hint ? <div className="mt-2 text-[11px] text-secondary">{hint}</div> : null}
+            {showHint && hint ? <div className="mt-2 text-[11px] text-secondary">{hint}</div> : null}
         </div>
     );
 }
