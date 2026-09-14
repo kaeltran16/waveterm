@@ -50,14 +50,16 @@ export const ITEMS: { key: SurfaceKey; label: string }[] = [
 
 export function NavRail({ model }: { model: AgentsViewModel }) {
     const [active, setActive] = useAtom(model.surfaceAtom);
-    // Two disjoint "needs you" badges from one server-computed list: Jarvis counts everything a channel
+    // Three disjoint "needs you" badges from one server-computed list: Jarvis counts everything a channel
     // owns (review gates, Gatekeeper escalations, dispatched workers), Cockpit counts standalone agents
-    // no channel dispatched. Disjoint by construction — an item either names a channel or it does not.
+    // no channel dispatched, Radar counts projects with untriaged findings. Each sits on the surface that
+    // clears it.
     const attention = useAtomValue(attentionAtom);
     const split = splitAttention(attention);
     const badges: Partial<Record<SurfaceKey, number>> = {
         cockpit: split.standalone.length,
         jarvis: split.channel.length,
+        radar: split.radar.length,
     };
     const [narrow, setNarrow] = useState(() => navRailCollapsed(window.innerWidth));
     useEffect(() => {

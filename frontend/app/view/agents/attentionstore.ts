@@ -18,18 +18,25 @@ export const attentionAtom = atom<AttentionItem[]>([]) as PrimitiveAtom<Attentio
 // ask was answered would otherwise land after it and restore the count that was just cleared.
 let latestAttentionLoad = 0;
 
-// splitAttention keeps the two nav-rail badges disjoint by construction rather than by two derivations
-// agreeing: an item either names a channel or it does not.
+// splitAttention keeps the nav-rail badges disjoint by construction rather than by derivations agreeing.
+// Radar triage is routed by kind before the channel test: it names no channel either, and falling through
+// would count it on Cockpit, a surface with nothing that can clear it.
 export function splitAttention(items: AttentionItem[]): {
     channel: AttentionItem[];
     standalone: AttentionItem[];
+    radar: AttentionItem[];
 } {
     const channel: AttentionItem[] = [];
     const standalone: AttentionItem[] = [];
+    const radar: AttentionItem[] = [];
     for (const i of items ?? []) {
-        (i.channelid ? channel : standalone).push(i);
+        if (i.kind === "radar-triage") {
+            radar.push(i);
+        } else {
+            (i.channelid ? channel : standalone).push(i);
+        }
     }
-    return { channel, standalone };
+    return { channel, standalone, radar };
 }
 
 // A failed poll leaves the last good list in place. Blanking the badge on one dropped request would
