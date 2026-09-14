@@ -202,26 +202,38 @@ export function CodeTreePane({ model }: { model: AgentsViewModel }) {
     );
 
     return (
-        <div
-            role="tree"
-            tabIndex={0}
-            data-code-tree
-            onFocus={() => {
-                globalStore.set(codeTreeFocusedAtom, true);
-                fireAndForget(checkStale);
-            }}
-            onBlur={() => globalStore.set(codeTreeFocusedAtom, false)}
-            className="h-full overflow-y-auto border-r border-border py-2 outline-none"
-        >
-            {rows.flatMap((row, i) => {
-                const out: React.ReactNode[] = [];
-                if (i === provisional) {
-                    out.push(provisionalInput);
-                }
-                out.push(renderRow(row));
-                return out;
-            })}
-            {provisional >= rows.length ? provisionalInput : null}
+        <div className="flex h-full flex-col border-r border-border">
+            {/* above the rows rather than after them: a truncated list is the one too long to scroll to
+                the end of, and a missing file otherwise just looks deleted */}
+            {index?.truncated ? (
+                <div
+                    data-code-tree-truncated
+                    className="flex-none border-b border-border px-3 py-1.5 text-[11px] text-muted"
+                >
+                    File list truncated — showing the first 20,000 files only.
+                </div>
+            ) : null}
+            <div
+                role="tree"
+                tabIndex={0}
+                data-code-tree
+                onFocus={() => {
+                    globalStore.set(codeTreeFocusedAtom, true);
+                    fireAndForget(checkStale);
+                }}
+                onBlur={() => globalStore.set(codeTreeFocusedAtom, false)}
+                className="min-h-0 flex-1 overflow-y-auto py-2 outline-none"
+            >
+                {rows.flatMap((row, i) => {
+                    const out: React.ReactNode[] = [];
+                    if (i === provisional) {
+                        out.push(provisionalInput);
+                    }
+                    out.push(renderRow(row));
+                    return out;
+                })}
+                {provisional >= rows.length ? provisionalInput : null}
+            </div>
         </div>
     );
 }

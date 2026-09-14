@@ -20,7 +20,15 @@ import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { parseFinderQuery, rankPaths } from "./codefinder";
-import { codeFinderOpenAtom, codeIndexAtom, codePendingLineAtom, codeProjectAtom, openInCode } from "./codestore";
+import { recentPaths } from "./codehistory";
+import {
+    codeFinderOpenAtom,
+    codeHistoryAtom,
+    codeIndexAtom,
+    codePendingLineAtom,
+    codeProjectAtom,
+    openInCode,
+} from "./codestore";
 
 const MAX_RESULTS = 50;
 const COMMAND_SIGIL = ">";
@@ -29,13 +37,17 @@ export function CodeFinderPalette({ model }: { model: AgentsViewModel }) {
     const open = useAtomValue(codeFinderOpenAtom);
     const index = useAtomValue(codeIndexAtom);
     const project = useAtomValue(codeProjectAtom);
+    const history = useAtomValue(codeHistoryAtom);
     const [query, setQuery] = useState("");
     const [cursor, setCursor] = useState(0);
     const inputRef = useRef<HTMLInputElement>(null);
     const listRef = useRef<HTMLDivElement>(null);
 
     const parsed = useMemo(() => parseFinderQuery(query), [query]);
-    const matches = useMemo(() => rankPaths(parsed.text, index?.paths ?? [], MAX_RESULTS), [parsed.text, index]);
+    const matches = useMemo(
+        () => rankPaths(parsed.text, index?.paths ?? [], MAX_RESULTS, recentPaths(history)),
+        [parsed.text, index, history]
+    );
     const selected = Math.min(cursor, Math.max(matches.length - 1, 0));
 
     useEffect(() => {

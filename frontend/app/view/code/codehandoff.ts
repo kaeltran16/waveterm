@@ -9,6 +9,8 @@
 // and dribble the rest in as separate messages. Reading the file is what the agent is for.
 
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
+import { sameRepoPath } from "@/util/paths";
+import type { CodeProject } from "./codestore";
 
 export function handoffLine(a: { rel: string; startLine?: number; endLine?: number; note?: string }): string {
     let ref = a.rel;
@@ -29,4 +31,17 @@ export function liveAgentsForProject(agents: readonly AgentVM[], projectName: st
         return [];
     }
     return agents.filter((a) => !!a.blockId && (a.kind == null || a.kind === "agent") && a.project === projectName);
+}
+
+// The name agents are matched by. A worktree browsed from the picker is not in the registry itself,
+// but the repository it checks out is, and an agent launched into a worktree carries that name.
+export function handoffProjectName(
+    project: CodeProject,
+    registered: readonly CodeProject[],
+    mainPath: string | null
+): string {
+    const owner =
+        registered.find((p) => sameRepoPath(p.path, project.path)) ??
+        registered.find((p) => sameRepoPath(p.path, mainPath ?? ""));
+    return owner?.name ?? project.name;
 }

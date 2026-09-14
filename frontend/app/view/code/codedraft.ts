@@ -69,3 +69,82 @@ export function withoutDraft(drafts: Drafts, key: string): Map<string, Draft> {
     out.delete(key);
     return out;
 }
+
+// Windows-only build: draft keys come from joinRepoPath, which normalizes the whole join to
+// backslashes, so both sides of this comparison are built the same way and a plain prefix match is
+// exact rather than approximate.
+const ABS_SEP = "\\";
+
+// A rename carries its drafts along: the file's own key, or every key under a renamed directory. The
+// separator is what stops `pkg` from also claiming `pkg2\a.go`.
+export function renameDraftKeys(drafts: Drafts, from: string, to: string): Map<string, Draft> {
+    const out = new Map<string, Draft>();
+    for (const [key, d] of drafts) {
+        if (key === from) {
+            out.set(to, d);
+        } else if (key.startsWith(from + ABS_SEP)) {
+            out.set(to + key.slice(from.length), d);
+        } else {
+            out.set(key, d);
+        }
+    }
+    return out;
+}
+
+// Drafts outlive an app reload as a JSON array of [absolute path, draft] pairs. Malformed rows are
+// dropped one by one, so a single bad entry does not cost the others.
+export function parseStoredDrafts(raw: string | null): Map<string, Draft> {
+    const out = new Map<string, Draft>();
+    if (raw == null) {
+        return out;
+    }
+    let value: unknown;
+    try {
+        value = JSON.parse(raw);
+    } catch {
+        return out;
+    }
+    if (!Array.isArray(value)) {
+        return out;
+    }
+    for (const entry of value) {
+        const draft = storedDraft(entry);
+        if (draft != null) {
+            out.set(entry[0], draft);
+        }
+    }
+    return out;
+}
+
+function storedDraft(entry: unknown): Draft | null {
+    if (!Array.isArray(entry) || typeof entry[0] !== "string") {
+        return null;
+    }
+    const d = entry[1];
+    const b = d?.base;
+    if (
+        typeof d?.text !== "string" ||
+        typeof b?.text !== "string" ||
+        typeof b.size !== "number" ||
+        typeof b.modtime !== "number"
+    ) {
+        return null;
+    }
+    return { text: d.text, base: { text: b.text, size: b.size, modtime: b.modtime } };
+}
+
+// `budget` counts JSON characters. A draft that would overflow it is left out rather than cutting the
+// whole set short — it still lives in memory, it just will not outlast a reload.
+export function storedDraftsJson(drafts: Drafts, budget: number): string {
+    const rows: string[] = [];
+    let used = 2; // the brackets
+    for (const entry of drafts) {
+        const row = JSON.stringify(entry);
+        if (used + row.length + 1 > budget) {
+            continue;
+        }
+        rows.push(row);
+        used += row.length + 1;
+    }
+    return `[${rows.join(",")}]`;
+}
