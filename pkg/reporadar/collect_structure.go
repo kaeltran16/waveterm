@@ -7,10 +7,15 @@ import (
 	"context"
 	"fmt"
 	"path"
+	"sort"
 	"strings"
 
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
+
+// maxUntestedPathsPerDir bounds the file list one directory's no-test signal carries; the count fact
+// keeps the full number.
+const maxUntestedPathsPerDir = 20
 
 // ignoredDirs are never scanned (git internals, deps, build output, secrets).
 var ignoredDirs = []string{".git/", "node_modules/", "vendor/", "dist/", "build/", ".next/", "target/", "__pycache__/"}
@@ -37,21 +42,38 @@ func collectStructure(ctx context.Context, in collectInput) ([]waveobj.RadarSign
 			testStems[testStemKey(f)] = true
 		}
 	}
-	var sigs []waveobj.RadarSignal
+	// one signal per directory, not per file: per-file facts were most of every candidate pool and
+	// crowded the payload budget out of the activity evidence that actually corroborates a risk
+	untestedByDir := map[string][]string{}
 	for _, f := range files {
-		if !isProductionSource(f) {
+		if !isProductionSource(f) || testStems[sourceStemKey(f)] {
 			continue
 		}
-		if testStems[sourceStemKey(f)] {
-			continue // has an adjacent test
-		}
-		summary := fmt.Sprintf("production source %s has no adjacent test", f)
-		facts := map[string]any{"classes": []string{"source-without-test"}}
-		sigs = append(sigs, newSignal(CollectorStructure, "struct:no-test:"+f, in.sinceTs, []string{f}, summary, facts, ""))
+		dir := path.Dir(f)
+		untestedByDir[dir] = append(untestedByDir[dir], f)
 	}
-	// security-boundary classification: tag tracked source files whose path is security-relevant. This
+	dirs := make([]string, 0, len(untestedByDir))
+	for dir := range untestedByDir {
+		dirs = append(dirs, dir)
+	}
+	sort.Strings(dirs)
+	var sigs []waveobj.RadarSignal
+	for _, dir := range dirs {
+		untested := untestedByDir[dir]
+		summary := fmt.Sprintf("%d production source(s) in %s have no adjacent test", len(untested), dir)
+		facts := map[string]any{"classes": []string{"source-without-test"}, "count": len(untested)}
+		paths := untested
+		if len(paths) > maxUntestedPathsPerDir {
+			paths = paths[:maxUntestedPathsPerDir]
+		}
+		sigs = append(sigs, newSignal(CollectorStructure, "struct:no-test:"+dir, in.sinceTs, paths, summary, facts, ""))
+	}
+	// security-boundary classification: tag tracked production files whose path is security-relevant. This
 	// is a fact (a boundary exists), never a defect — the security lens pairs it with a consequence.
 	for _, f := range files {
+		if isTestPath(f) {
+			continue // a test exercises a boundary; it is not one
+		}
 		kind := securityBoundaryKind(f)
 		if kind == "" {
 			continue

@@ -9,7 +9,6 @@ import (
 	"log"
 	"strings"
 
-	"github.com/wavetermdev/waveterm/pkg/consult"
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
@@ -111,12 +110,7 @@ func runScan(ctx context.Context, reportId string) {
 
 	startHead, _ := gitHead(ctx, rpt.ProjectPath)
 	startDirty := gitDirtyFingerprint(ctx, rpt.ProjectPath)
-	sinceTs := int64(0)
-	if rpt.PrevReportId != "" {
-		if prev, perr := wstore.GetRadarReport(ctx, rpt.PrevReportId); perr == nil {
-			sinceTs = prev.CompletedTs
-		}
-	}
+	sinceTs := nowMilli() - EvidenceWindow.Milliseconds()
 
 	// stream each collector's status to the frontend as it runs, so the checklist ticks off
 	// structure -> git -> ... -> config in real time rather than snapping from queued to done.
@@ -161,11 +155,17 @@ func runScan(ctx context.Context, reportId string) {
 		finishCancelled(ctx, reportId)
 		return
 	}
-	finalizeFindings(ctx, reportId, findings, modeRuns, cr.signals, cr.partialSources)
+	pass := clusterPass{validated: findings, modeRuns: modeRuns, candidates: cr.signals, partialSources: cr.partialSources}
+	// resolved after clustering so an investigation recorded while this scan ran is in the baseline
+	if prev := latestSuccessfulExcluding(ctx, rpt.ProjectPath, reportId); prev != nil {
+		pass.baseline = prev.Findings
+		pass.priorSignals = prev.Signals
+	}
+	finalizeFindings(ctx, reportId, pass)
 }
 
-// runClusterOnly re-runs synthesis + finalize using a report's retained candidates, with no
-// recollection. Used by Retry after a clustering failure.
+// runClusterOnly re-runs synthesis for the lenses that failed, using the report's retained candidates
+// with no recollection, then finalizes. Used by Retry after a clustering failure.
 func runClusterOnly(ctx context.Context, reportId string) {
 	rpt, err := wstore.GetRadarReport(ctx, reportId)
 	if err != nil || len(rpt.Candidates) == 0 {
@@ -173,12 +173,67 @@ func runClusterOnly(ctx context.Context, reportId string) {
 		return
 	}
 	setStatus(ctx, reportId, StatusClustering, "clustering")
-	findings, modeRuns := clusterModes(ctx, rpt.ProjectName, rpt.ProjectPath, rpt.Candidates, V1Modes)
+	modes := retryModes(rpt)
+	findings, modeRuns := clusterModes(ctx, rpt.ProjectName, rpt.ProjectPath, rpt.Candidates, modes)
 	if ctx.Err() != nil {
-		finishCancelled(ctx, reportId)
+		// a cancelled retry leaves the report as it was, so a partial report stays the reconcile baseline
+		setStatus(context.Background(), reportId, rpt.Status, "")
 		return
 	}
-	finalizeFindings(ctx, reportId, findings, modeRuns, rpt.Candidates, rpt.PartialSources)
+	finalizeFindings(ctx, reportId, retryPass(ctx, rpt, modes, findings, modeRuns))
+}
+
+// retryModes returns the lenses a retry reruns: those that failed to cluster, or every lens when the
+// report never reached a clustering result.
+func retryModes(rpt *waveobj.RadarReport) []string {
+	if len(rpt.ModeRuns) == 0 {
+		return V1Modes
+	}
+	var modes []string
+	for _, r := range rpt.ModeRuns {
+		if r.Status == ModeRunClusterFailed {
+			modes = append(modes, r.Mode)
+		}
+	}
+	return modes
+}
+
+// retryPass assembles finalize's input for a retry. The rerun lenses reconcile against the report's own
+// findings for those lenses (carried unchanged when they failed, and holding any decision the user made
+// since); every other lens keeps its findings and mode run as they are.
+func retryPass(ctx context.Context, rpt *waveobj.RadarReport, rerun []string, validated []waveobj.RadarFinding, runs []waveobj.RadarModeRun) clusterPass {
+	pass := clusterPass{validated: validated, candidates: rpt.Candidates, partialSources: rpt.PartialSources, priorSignals: rpt.Signals}
+	prior := rpt.Findings
+	if len(rpt.ModeRuns) == 0 {
+		// never clustered, so the report holds no findings of its own; reconcile like a fresh scan
+		if prev := latestSuccessfulExcluding(ctx, rpt.ProjectPath, rpt.OID); prev != nil {
+			prior, pass.priorSignals = prev.Findings, prev.Signals
+		}
+	}
+	rerunSet := map[string]bool{}
+	for _, m := range rerun {
+		rerunSet[m] = true
+	}
+	for _, f := range prior {
+		if rerunSet[modeOf(f)] {
+			pass.baseline = append(pass.baseline, f)
+		} else {
+			pass.untouched = append(pass.untouched, f)
+		}
+	}
+	byMode := map[string]waveobj.RadarModeRun{}
+	for _, r := range rpt.ModeRuns {
+		byMode[r.Mode] = r
+	}
+	for _, r := range runs {
+		byMode[r.Mode] = r
+	}
+	for _, m := range V1Modes {
+		if r, ok := byMode[m]; ok {
+			pass.modeRuns = append(pass.modeRuns, r)
+		}
+	}
+	return pass
 }
 
 func finishClusterFailed(reportId, msg string) {
@@ -235,11 +290,12 @@ func clusterModes(ctx context.Context, projectName, projectPath string, signals 
 		cand := candidatesForMode(mode, signals)
 		groups, payloadTokens := prepareCandidates(cand, DefaultRadarPayloadBudget)
 		run := waveobj.RadarModeRun{Mode: mode, PayloadTokens: payloadTokens}
-		resp, serr := synthesize(ctx, projectName, mode, groups)
+		resp, meta, serr := synthesize(ctx, projectName, mode, groups)
+		if serr != nil && ctx.Err() != nil {
+			return merged, runs
+		}
+		run.ResolvedModel, run.TotalTokens, run.RawResponse = meta.resolvedModel, meta.totalTokens, meta.raw
 		if serr != nil {
-			if ctx.Err() != nil {
-				return merged, runs
-			}
 			run.Status = ModeRunClusterFailed
 			run.ClusterError = serr.Error()
 			runs = append(runs, run)
@@ -261,6 +317,7 @@ func clusterModes(ctx context.Context, projectName, projectPath string, signals 
 type modeRunAgg struct {
 	anyFailed     bool
 	allFailed     bool
+	failedModes   map[string]bool
 	estimated     bool
 	clusterErr    string
 	resolvedModel string
@@ -270,7 +327,7 @@ type modeRunAgg struct {
 
 // aggregateModeRuns folds per-mode runs into the report's scan-wide fields.
 func aggregateModeRuns(runs []waveobj.RadarModeRun) modeRunAgg {
-	agg := modeRunAgg{allFailed: len(runs) > 0}
+	agg := modeRunAgg{allFailed: len(runs) > 0, failedModes: map[string]bool{}}
 	var errs []string
 	for _, r := range runs {
 		agg.payloadTokens += r.PayloadTokens
@@ -285,6 +342,7 @@ func aggregateModeRuns(runs []waveobj.RadarModeRun) modeRunAgg {
 			}
 		} else {
 			agg.anyFailed = true
+			agg.failedModes[r.Mode] = true
 			if r.ClusterError != "" {
 				errs = append(errs, r.Mode+": "+r.ClusterError)
 			}
@@ -294,76 +352,69 @@ func aggregateModeRuns(runs []waveobj.RadarModeRun) modeRunAgg {
 	return agg
 }
 
-// finalizeFindings reconciles the merged validated findings against the previous successful report,
-// prunes candidates to referenced signals, folds per-mode runs into the scan-wide status, and
-// persists. It retains the candidate pool whenever any lens failed to cluster so Retry can reuse it.
-func finalizeFindings(ctx context.Context, reportId string, validated []waveobj.RadarFinding, modeRuns []waveobj.RadarModeRun, candidates []waveobj.RadarSignal, partialSources []string) {
+// clusterPass is one clustering pass's input to finalize.
+type clusterPass struct {
+	validated      []waveobj.RadarFinding // what the clustered lenses found
+	modeRuns       []waveobj.RadarModeRun // every lens's run, in V1Modes order
+	candidates     []waveobj.RadarSignal
+	partialSources []string
+	baseline       []waveobj.RadarFinding // prior findings of the clustered lenses
+	untouched      []waveobj.RadarFinding // findings of lenses a retry did not rerun, kept as they are
+	priorSignals   []waveobj.RadarSignal  // evidence earlier findings cite, for the ones carried forward
+}
+
+// finalizeFindings reconciles a pass's findings against its baseline, prunes signals to the ones the
+// findings cite, folds per-mode runs into the scan-wide status, and persists. It retains the candidate
+// pool whenever any lens failed to cluster so Retry can reuse it.
+func finalizeFindings(ctx context.Context, reportId string, pass clusterPass) {
 	rpt, err := wstore.GetRadarReport(ctx, reportId)
 	if err != nil {
 		log.Printf("reporadar: finalize load %s: %v", reportId, err)
 		return
 	}
 	byID := map[string]waveobj.RadarSignal{}
-	for _, s := range candidates {
+	for _, s := range pass.candidates {
 		byID[s.ID] = s
 	}
+	agg := aggregateModeRuns(pass.modeRuns)
+	reconciled := reconcile(pass.validated, pass.baseline, evidenceTimestamps(pass.validated, byID), agg.failedModes)
+	findings := assignFindingIDs(append(append([]waveobj.RadarFinding{}, pass.untouched...), reconciled...))
+	refreshInvestigations(ctx, findings)
+	kept := referencedSignals(findings, pass.candidates, pass.priorSignals)
 
-	evidenceTs := map[string]int64{}
-	for _, f := range validated {
-		var max int64
-		for _, id := range f.SignalIDs {
-			if s, ok := byID[id]; ok && s.ObservedTs > max {
-				max = s.ObservedTs
-			}
-		}
-		evidenceTs[f.Fingerprint] = max
-	}
-
-	prev := latestSuccessfulExcluding(ctx, rpt.ProjectPath, reportId)
-	reconciled := assignFindingIDs(reconcile(rpt.ProjectPath, validated, prev, evidenceTs))
-
-	refIDs := map[string]bool{}
-	for _, f := range reconciled {
-		for _, id := range f.SignalIDs {
-			refIDs[id] = true
-		}
-	}
-	var kept []waveobj.RadarSignal
-	for _, s := range candidates {
-		if refIDs[s.ID] {
-			kept = append(kept, s)
-		}
-	}
-
-	agg := aggregateModeRuns(modeRuns)
 	status := StatusCompleted
-	if len(partialSources) > 0 || agg.anyFailed {
+	if len(pass.partialSources) > 0 || agg.anyFailed {
 		status = StatusPartial
 	}
 	if agg.allFailed {
 		status = StatusFailed
 	}
 
-	endHead, _ := gitHead(ctx, rpt.ProjectPath)
-	endDirty := gitDirtyFingerprint(ctx, rpt.ProjectPath)
-	if status != StatusFailed && ((rpt.StartHead != "" && endHead != "" && rpt.StartHead != endHead) || rpt.StartDirty != endDirty) {
-		status = StatusPartial
-		partialSources = appendUnique(partialSources, "repository-changed")
+	// the repository boundary belongs to the first pass; a retry reclusters that evidence, not a newer tree.
+	// a boundary change is recorded, not treated as a coverage gap: every collector still ran
+	firstPass := rpt.WindowEndTs == 0
+	var endHead, endDirty string
+	if firstPass {
+		endHead, _ = gitHead(ctx, rpt.ProjectPath)
+		endDirty = gitDirtyFingerprint(ctx, rpt.ProjectPath)
 	}
+	configured := headlessModelLabel()
 	wstore.UpdateRadarReport(ctx, reportId, func(r *waveobj.RadarReport) {
-		r.Findings = reconciled
+		r.Findings = findings
 		r.Signals = kept
-		r.ModeRuns = modeRuns
-		r.PartialSources = partialSources
-		r.ConfiguredModel = consult.MidModel
+		r.ModeRuns = pass.modeRuns
+		r.PartialSources = pass.partialSources
+		r.ConfiguredModel = configured
 		r.ResolvedModel = agg.resolvedModel
 		r.PayloadTokens = agg.payloadTokens
 		r.TotalTokens = agg.totalTokens
 		r.TotalTokensEstimated = agg.estimated
 		r.ClusterError = agg.clusterErr
-		r.EndHead = endHead
-		r.EndDirty = endDirty
-		r.WindowEndTs = nowMilli()
+		if firstPass {
+			r.EndHead = endHead
+			r.EndDirty = endDirty
+			r.WindowEndTs = nowMilli()
+		}
 		r.Status = status
 		r.Phase = ""
 		r.CompletedTs = nowMilli()
@@ -372,6 +423,7 @@ func finalizeFindings(ctx context.Context, reportId string, validated []waveobj.
 		}
 	})
 	publish(reportId)
+	pruneReports(ctx, rpt.ProjectPath, reportId)
 }
 
 // RecoverInterruptedScans marks any report stranded in collecting/clustering (from a previous
@@ -408,4 +460,30 @@ func latestSuccessfulExcluding(ctx context.Context, projectPath, exceptId string
 		}
 	}
 	return nil
+}
+
+// pruneReports deletes a project's reports beyond the newest ReportsKeptPerProject. It keeps, whatever
+// their age, the latest successful report (the next scan's baseline), the report just finalized, and any
+// report with a scan in flight.
+func pruneReports(ctx context.Context, projectPath, finalizedId string) {
+	reports, err := wstore.GetRadarReports(ctx, projectPath)
+	if err != nil {
+		log.Printf("reporadar: listing reports to prune for %s: %v", projectPath, err)
+		return
+	}
+	baselineId := ""
+	for _, r := range reports { // newest-first
+		if r.Status == StatusCompleted || r.Status == StatusPartial {
+			baselineId = r.OID
+			break
+		}
+	}
+	for i, r := range reports {
+		if i < ReportsKeptPerProject || r.OID == baselineId || r.OID == finalizedId || mgr.active(r.OID) {
+			continue
+		}
+		if err := wstore.DeleteRadarReport(ctx, r.OID); err != nil {
+			log.Printf("reporadar: pruning report %s: %v", r.OID, err)
+		}
+	}
 }

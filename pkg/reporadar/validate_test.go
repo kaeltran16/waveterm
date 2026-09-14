@@ -88,3 +88,37 @@ func TestValidateStampsModeAndRejectsForeignKind(t *testing.T) {
 		t.Fatalf("a correctness kind must be rejected under the security mode, got %d", len(out))
 	}
 }
+
+// Two proposals with one identity are one risk; the second's evidence must survive, not be dropped.
+func TestValidateMergesSameFingerprint(t *testing.T) {
+	a := newSignal(CollectorRuns, "run:1:phase:0", 1, []string{"src/pay/a.ts"}, "x", nil, "")
+	b := newSignal(CollectorGit, "commit:1", 2, []string{"src/pay/b.ts"}, "y", nil, "")
+	c := newSignal(CollectorTranscript, "tx:1", 3, []string{"src/pay/b.ts"}, "z", nil, "")
+	byID := map[string]waveobj.RadarSignal{a.ID: a, b.ID: b, c.ID: c}
+	resp := &SynthResponse{Findings: []SynthFinding{
+		{RiskKind: RiskTestCoverageGap, Risk: "first", Why: "w", Severity: "low", SignalIDs: []string{a.ID}, Files: []string{"src/pay/a.ts"}, Mission: "m"},
+		{RiskKind: RiskTestCoverageGap, Risk: "second", Why: "w", Severity: "high", SignalIDs: []string{b.ID, c.ID}, Files: []string{"src/pay/b.ts"}, Mission: "m"},
+	}}
+	out := validateFindings("/repos/pay", ModeCorrectness, resp, byID)
+	if len(out) != 1 {
+		t.Fatalf("same-fingerprint proposals must merge into one finding, got %d", len(out))
+	}
+	f := out[0]
+	if len(f.SignalIDs) != 3 || len(f.Files) != 2 || f.Severity != SeverityHigh || f.Strength != StrengthStrong {
+		t.Fatalf("merge must union evidence, keep the higher severity and recompute strength, got %+v", f)
+	}
+}
+
+// One wide signal (a session touching many directories) must not pull a finding's identity to the root.
+func TestSubsystemForSignalsIgnoresWideSignal(t *testing.T) {
+	wide := newSignal(CollectorTranscript, "tx:1", 1, []string{"docs/x.md", "src/pay/a.ts", "web/y.ts"}, "s", nil, "")
+	s1 := newSignal(CollectorGit, "commit:1", 2, []string{"src/pay/a.ts"}, "s", nil, "")
+	s2 := newSignal(CollectorRuns, "run:1:phase:0", 3, []string{"src/pay/b.ts"}, "s", nil, "")
+	if got := subsystemForSignals([]waveobj.RadarSignal{wide, s1, s2}); got != "src/pay" {
+		t.Fatalf("want src/pay, got %q", got)
+	}
+	// with only wide signals there is nothing to vote with; the common prefix stands
+	if got := subsystemForSignals([]waveobj.RadarSignal{wide}); got != subsystemForPaths(wide.Paths) {
+		t.Fatalf("want the common prefix %q, got %q", subsystemForPaths(wide.Paths), got)
+	}
+}

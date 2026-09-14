@@ -80,12 +80,12 @@ Additional completed states include no findings and reports containing only hist
 
 ## Evidence window
 
-The first successful scan reads:
+Every scan reads:
 
 - the current tracked tree; and
 - the previous 30 days of commits, project-matching Runs, transcripts, and memory changes.
 
-Later scans read activity since the previous successful scan and refresh evidence referenced by existing findings. The report records both the time boundary and Git HEAD boundary, so the window is auditable.
+The window rolls rather than starting at the previous scan, so back-to-back scans see the same evidence and a finding keeps its identity instead of vanishing. Findings carried from earlier reports keep the evidence they cite. The report records both the time boundary and Git HEAD boundary, so the window is auditable.
 
 If clustering fails, collected signals remain until the user retries, discards them, or starts a newer scan. There is no arbitrary expiry timer.
 
@@ -193,7 +193,7 @@ The report records:
 - exact token usage when available;
 - explicitly-labelled estimated usage otherwise.
 
-If Claude or Sonnet is unavailable, collection remains intact and clustering fails clearly. Retry uses the retained signals.
+If Claude or Sonnet is unavailable, collection remains intact and clustering fails clearly. Retry reruns only the lenses that failed to cluster, on a failed or partial report, using the retained signals; the other lenses' findings stand.
 
 The per-scan cap is the named constant `DefaultRadarPayloadBudget = 40_000` estimated tokens supplied by Radar. The prepared payload must fit before invocation. Synthesis is limited to one turn with a bounded structured response and no automatic retry.
 
@@ -295,8 +295,8 @@ Code computes the fingerprint from project identity, risk kind, and the determin
 ### Cross-scan lifecycle
 
 - **New:** fingerprint was absent from the previous successful report.
-- **Recurring:** fingerprint remains and has newer canonical evidence.
-- **No longer detected:** a previously open fingerprint lacks current supporting evidence.
+- **Recurring:** fingerprint was in the previous successful report and is detected again.
+- **No longer detected:** two consecutive scans did not detect a previously open fingerprint. After a single miss it stays open and is marked not detected in the latest scan, since one miss is usually model variance. Findings of a lens that failed to cluster carry forward unchanged, and Dismissed and Suppressed findings carry forward while undetected.
 - **Dismissed:** the user closed one finding revision with a recorded reason.
 - **Suppressed:** the user suppressed the stable fingerprint.
 - **Open:** internal umbrella state for New and Recurring.
@@ -313,7 +313,7 @@ A dismissal stores:
 - local user identity;
 - evidence revision at dismissal.
 
-Dismissed findings remain in a collapsed history group so the action is reversible. Any canonical signal newer than the dismissal reopens the fingerprint as Recurring.
+Dismissed findings remain in a collapsed history group so the action is reversible. Any activity signal (commit, Run, transcript, memory) newer than the dismissal reopens the fingerprint as Recurring. Standing facts about the tree (structure, config, dependency) never do: they carry the scan window as their time, so they would reopen every dismissal once the window moved past it.
 
 ### Suppression
 
@@ -355,7 +355,7 @@ The scan sequence is:
 13. persist completed, partial, failed, or cancelled state;
 14. publish the normal wave-object update.
 
-If HEAD or the dirty-state fingerprint changes during scanning, the report completes as partial with a visible repository-changed warning. Radar never locks the working tree.
+If HEAD or the dirty-state fingerprint changes during scanning, the report records both boundaries and shows a repository-changed note. Every collector still ran, so it is not a coverage gap and does not make the report partial. Radar never locks the working tree.
 
 An Arc restart does not resume a live scan. On startup, a report stranded in `collecting` or `clustering` becomes failed with `scan-interrupted`. Retained signals remain retryable when collection had completed.
 
@@ -510,7 +510,7 @@ Acceptance requires:
 - The hybrid design costs more code than a single autonomous scan prompt, but it makes evidence auditable, usage bounded, and findings comparable across scans. The deterministic pipeline and fingerprint provide that stability; the single model call itself is not reproducible.
 - A fixed Sonnet model makes v1 behavior comparable across scans but does not accommodate users without Claude Code; failure is explicit rather than hidden behind a different model.
 - A 30-day first window can miss older latent risks. V1 optimizes for recent, actionable evidence; full-history scanning remains a later option.
-- Persisting referenced evidence signals increases database size slowly. Retry payloads are pruned after successful synthesis, and no raw transcripts are stored; report-retention policy is deferred until measured.
+- Persisting referenced evidence signals increases database size slowly. Retry payloads are pruned after successful synthesis, and no raw transcripts are stored. Each project keeps its newest 20 reports, plus the reconcile baseline and any report with a scan in flight.
 - Dismissed and Suppressed history adds state, but without it repeated false positives would make Radar untrustworthy.
 - No automatic validation means some findings remain uncertain. That separation is deliberate: Radar discovers; Runs investigate.
 

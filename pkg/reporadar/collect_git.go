@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
@@ -41,7 +42,7 @@ func collectGit(ctx context.Context, in collectInput) ([]waveobj.RadarSignal, er
 			"testchanged": testChanged,
 			"files":       c.files,
 		}
-		summary := fmt.Sprintf("commit %s touched %d file(s)%s", c.hash[:7], len(c.files), testSuffix(testChanged))
+		summary := fmt.Sprintf("commit %s touched %d file(s)%s: %s", c.hash[:7], len(c.files), testSuffix(testChanged), clip(Redact(c.subject), maxEvidenceTextLen))
 		sigs = append(sigs, newSignal(CollectorGit, "commit:"+c.hash, c.ts*1000, paths, summary, facts, ""))
 	}
 	return sigs, nil
@@ -110,4 +111,16 @@ func testSuffix(b bool) string {
 		return " (incl. tests)"
 	}
 	return " (no test change)"
+}
+
+// clip bounds a quoted line of untrusted text so one long message cannot crowd the payload budget.
+func clip(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	cut := n
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "…"
 }

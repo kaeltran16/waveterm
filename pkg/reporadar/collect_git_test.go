@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -60,5 +61,26 @@ func TestCollectGitProducesCommitSignals(t *testing.T) {
 	head, err := gitHead(context.Background(), dir)
 	if err != nil || head == "" {
 		t.Fatalf("gitHead: %v head=%q", err, head)
+	}
+}
+
+// The subject is the one line saying what a commit was for; it reaches the model redacted.
+func TestCollectGitSummaryCarriesRedactedSubject(t *testing.T) {
+	dir := t.TempDir()
+	gitCmd(t, dir, "init", "-q")
+	writeFile(t, dir, "src/x.ts", "export const x = 1\n")
+	gitCmd(t, dir, "add", ".")
+	gitCmd(t, dir, "commit", "-q", "-m", "fix coupon rounding, rotate sk-ABCDEF0123456789ABCDEF0123456789")
+
+	sigs, err := collectGit(context.Background(), collectInput{projectPath: dir})
+	if err != nil || len(sigs) == 0 {
+		t.Fatalf("collectGit: %v (%d signals)", err, len(sigs))
+	}
+	summary := sigs[0].Summary
+	if !strings.Contains(summary, "fix coupon rounding") {
+		t.Fatalf("summary must carry the commit subject, got %q", summary)
+	}
+	if strings.Contains(summary, "sk-ABCDEF") {
+		t.Fatalf("summary must redact secrets in the subject, got %q", summary)
 	}
 }
