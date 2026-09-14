@@ -842,6 +842,12 @@ func GitListFilesCommand(w *wshutil.WshRpc, data wshrpc.CommandGitListFilesData,
 	return resp, err
 }
 
+// command "gitlistworktrees", wshserver.GitListWorktreesCommand
+func GitListWorktreesCommand(w *wshutil.WshRpc, data wshrpc.CommandGitListWorktreesData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGitListWorktreesRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGitListWorktreesRtnData](w, "gitlistworktrees", data, opts)
+	return resp, err
+}
+
 // command "gitrevert", wshserver.GitRevertCommand
 func GitRevertCommand(w *wshutil.WshRpc, data wshrpc.CommandGitRevertData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "gitrevert", data, opts)

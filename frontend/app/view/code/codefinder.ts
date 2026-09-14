@@ -42,7 +42,14 @@ function scoreTerm(term: string, path: string, base: string): number | null {
     return score;
 }
 
-export function rankPaths(query: string, paths: readonly string[], limit: number): FinderMatch[] {
+// recent: most recent first. It only shapes the empty query — the file you just left is the likeliest
+// next open, and an alphabetical head of the index is the least likely.
+export function rankPaths(
+    query: string,
+    paths: readonly string[],
+    limit: number,
+    recent: readonly string[] = []
+): FinderMatch[] {
     // Whitespace splits terms, ANDed in any order — no path contains a space, so matching one
     // literally meant every multi-word query ("usage stats") returned nothing at all.
     const terms = query
@@ -51,7 +58,7 @@ export function rankPaths(query: string, paths: readonly string[], limit: number
         .split(/\s+/)
         .filter((t) => t !== "");
     if (terms.length === 0) {
-        return paths.slice(0, limit).map((path) => ({ path, score: 0 }));
+        return emptyQuery(paths, limit, recent);
     }
     const out: Scored[] = [];
     for (const path of paths) {
@@ -75,6 +82,23 @@ export function rankPaths(query: string, paths: readonly string[], limit: number
     // codefinder.test.ts, and the file itself is what you asked for, not its test.
     out.sort((a, b) => b.score - a.score || a.base.length - b.base.length || a.path.localeCompare(b.path));
     return out.slice(0, limit).map(({ path, score }) => ({ path, score }));
+}
+
+// a recent file the index no longer lists was deleted or renamed, and offering it would open a dead end
+function emptyQuery(paths: readonly string[], limit: number, recent: readonly string[]): FinderMatch[] {
+    const known = recent.length === 0 ? null : new Set(paths);
+    const head = recent.filter((p) => known?.has(p));
+    const headSet = new Set(head);
+    const out = head.slice(0, limit);
+    for (const path of paths) {
+        if (out.length >= limit) {
+            break;
+        }
+        if (!headSet.has(path)) {
+            out.push(path);
+        }
+    }
+    return out.map((path) => ({ path, score: 0 }));
 }
 
 export interface FinderQuery {

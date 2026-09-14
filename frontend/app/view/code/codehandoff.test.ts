@@ -4,7 +4,7 @@
 
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { describe, expect, it } from "vitest";
-import { handoffLine, liveAgentsForProject } from "./codehandoff";
+import { handoffLine, handoffProjectName, liveAgentsForProject } from "./codehandoff";
 
 const agent = (over: Partial<AgentVM>): AgentVM =>
     ({ id: "t1", name: "a", task: "", state: "working", ...over }) as AgentVM;
@@ -59,5 +59,24 @@ describe("liveAgentsForProject", () => {
 
     it("returns nothing for a blank project name, so a worktree cannot match everything", () => {
         expect(liveAgentsForProject(roster, "")).toEqual([]);
+    });
+});
+
+describe("handoffProjectName", () => {
+    const registered = [{ name: "waveterm", path: "C:\\src\\waveterm" }];
+
+    it("uses the registered name of a registered project", () => {
+        expect(handoffProjectName({ name: "wt", path: "c:/src/waveterm" }, registered, null)).toBe("waveterm");
+    });
+
+    it("names a browsed worktree after the registered repository it checks out", () => {
+        const worktree = { name: "feat-x", path: "C:\\src\\waveterm-worktrees\\feat-x" };
+        expect(handoffProjectName(worktree, registered, "C:/src/waveterm")).toBe("waveterm");
+    });
+
+    it("keeps the project's own name when neither it nor its main checkout is registered", () => {
+        const other = { name: "ra", path: "D:\\ra" };
+        expect(handoffProjectName(other, registered, "D:/ra")).toBe("ra");
+        expect(handoffProjectName(other, registered, null)).toBe("ra");
     });
 });

@@ -3,7 +3,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { conflictOf, nextDrafts, withoutDraft, type Draft, type FileBase } from "./codedraft";
+import {
+    conflictOf,
+    nextDrafts,
+    parseStoredDrafts,
+    renameDraftKeys,
+    storedDraftsJson,
+    withoutDraft,
+    type Draft,
+    type FileBase,
+} from "./codedraft";
 
 const base: FileBase = { text: "hello", size: 5, modtime: 1000 };
 
@@ -76,5 +85,72 @@ describe("withoutDraft", () => {
         expect(out.has("/repo/a.go")).toBe(false);
         expect(out.has("/repo/b.go")).toBe(true);
         expect(start.size).toBe(2);
+    });
+});
+
+describe("renameDraftKeys", () => {
+    const d: Draft = { text: "x", base };
+
+    it("moves the draft of a renamed file", () => {
+        const out = renameDraftKeys(new Map([["C:\\repo\\a.go", d]]), "C:\\repo\\a.go", "C:\\repo\\b.go");
+        expect([...out.keys()]).toEqual(["C:\\repo\\b.go"]);
+    });
+
+    it("moves every draft under a renamed directory", () => {
+        const start = new Map([
+            ["C:\\repo\\pkg\\a.go", d],
+            ["C:\\repo\\pkg\\sub\\b.go", d],
+        ]);
+        const out = renameDraftKeys(start, "C:\\repo\\pkg", "C:\\repo\\lib");
+        expect([...out.keys()]).toEqual(["C:\\repo\\lib\\a.go", "C:\\repo\\lib\\sub\\b.go"]);
+    });
+
+    it("leaves a sibling that only shares the renamed name as a prefix", () => {
+        const start = new Map([
+            ["C:\\repo\\pkg2\\a.go", d],
+            ["C:\\repo\\pkg.go", d],
+        ]);
+        const out = renameDraftKeys(start, "C:\\repo\\pkg", "C:\\repo\\lib");
+        expect([...out.keys()]).toEqual(["C:\\repo\\pkg2\\a.go", "C:\\repo\\pkg.go"]);
+    });
+
+    it("does not mutate the map it was given", () => {
+        const start = new Map([["C:\\repo\\a.go", d]]);
+        renameDraftKeys(start, "C:\\repo\\a.go", "C:\\repo\\b.go");
+        expect([...start.keys()]).toEqual(["C:\\repo\\a.go"]);
+    });
+});
+
+describe("stored drafts", () => {
+    const d: Draft = { text: "edited", base };
+
+    it("round-trips drafts through their stored form", () => {
+        const drafts = new Map([["C:\\repo\\a.go", d]]);
+        expect(parseStoredDrafts(storedDraftsJson(drafts, 10_000))).toEqual(drafts);
+    });
+
+    it("reads no drafts from an absent or corrupt value", () => {
+        expect(parseStoredDrafts(null).size).toBe(0);
+        expect(parseStoredDrafts("not json").size).toBe(0);
+        expect(parseStoredDrafts(JSON.stringify({ a: 1 })).size).toBe(0);
+    });
+
+    it("drops malformed entries and keeps the valid ones", () => {
+        const raw = JSON.stringify([
+            ["C:\\repo\\a.go", d],
+            ["C:\\repo\\b.go", { text: "x" }],
+            ["C:\\repo\\c.go", { text: "x", base: { text: "y", size: "5", modtime: 1 } }],
+            [42, d],
+        ]);
+        expect([...parseStoredDrafts(raw).keys()]).toEqual(["C:\\repo\\a.go"]);
+    });
+
+    it("leaves out a draft that would overflow the budget but keeps the ones that fit", () => {
+        const big: Draft = { text: "x".repeat(500), base };
+        const drafts = new Map([
+            ["C:\\repo\\big.go", big],
+            ["C:\\repo\\a.go", d],
+        ]);
+        expect([...parseStoredDrafts(storedDraftsJson(drafts, 200)).keys()]).toEqual(["C:\\repo\\a.go"]);
     });
 });

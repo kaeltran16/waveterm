@@ -600,6 +600,107 @@ func TestCreateWorktreeNotARepo(t *testing.T) {
 	}
 }
 
+// git prints worktree paths with forward slashes and resolved, so compare the directories themselves
+func sameDir(t *testing.T, a, b string) bool {
+	t.Helper()
+	ai, err := os.Stat(a)
+	if err != nil {
+		t.Fatalf("stat %s: %v", a, err)
+	}
+	bi, err := os.Stat(b)
+	if err != nil {
+		t.Fatalf("stat %s: %v", b, err)
+	}
+	return os.SameFile(ai, bi)
+}
+
+func TestListWorktreesMainOnly(t *testing.T) {
+	dir := repoWithChange(t)
+	got, err := ListWorktrees(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || !got[0].IsMain || got[0].Branch != "main" || !sameDir(t, got[0].Path, dir) {
+		t.Fatalf("got %+v, want just the main checkout on main", got)
+	}
+}
+
+func TestListWorktreesLinkedWithBranch(t *testing.T) {
+	dir := repoWithChange(t)
+	wt, err := CreateWorktree(context.Background(), dir, "feat/x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := ListWorktrees(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %+v, want main and one linked worktree", got)
+	}
+	if got[1].IsMain || got[1].Branch != "feat/x" || !sameDir(t, got[1].Path, wt) {
+		t.Fatalf("linked worktree = %+v, want feat/x at %s", got[1], wt)
+	}
+}
+
+// the Code surface browses a worktree and still needs to know which repository it belongs to
+func TestListWorktreesFromALinkedWorktreeListsMainFirst(t *testing.T) {
+	dir := repoWithChange(t)
+	wt, err := CreateWorktree(context.Background(), dir, "feat/x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := ListWorktrees(context.Background(), wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || !got[0].IsMain || !sameDir(t, got[0].Path, dir) {
+		t.Fatalf("got %+v, want the main checkout first", got)
+	}
+}
+
+func TestListWorktreesDetachedHasNoBranch(t *testing.T) {
+	dir := repoWithChange(t)
+	detached := filepath.Join(t.TempDir(), "detached")
+	git(t, dir, "worktree", "add", "--detach", detached)
+	got, err := ListWorktrees(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[1].Branch != "" || !sameDir(t, got[1].Path, detached) {
+		t.Fatalf("got %+v, want a detached worktree with no branch", got)
+	}
+}
+
+// a row for a directory that no longer exists would only lead to an empty tree
+func TestListWorktreesSkipsAWorktreeWhoseDirectoryIsGone(t *testing.T) {
+	dir := repoWithChange(t)
+	wt, err := CreateWorktree(context.Background(), dir, "feat/gone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(wt); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ListWorktrees(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || !got[0].IsMain {
+		t.Fatalf("got %+v, want only the main checkout", got)
+	}
+}
+
+func TestListWorktreesNotARepo(t *testing.T) {
+	got, err := ListWorktrees(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatalf("expected nil error for non-repo, got %v", err)
+	}
+	if got == nil || len(got) != 0 {
+		t.Fatalf("expected an empty, non-nil slice, got %#v", got)
+	}
+}
+
 func TestListBranches(t *testing.T) {
 	dir := repoWithChange(t)
 	branches, err := ListBranches(context.Background(), dir, false)
@@ -1540,7 +1641,7 @@ func grepPaths(res *GrepResult) map[string]bool {
 }
 
 func TestGrepReturnsPathLineAndText(t *testing.T) {
-	res, err := Grep(context.Background(), repoForGrep(t), "NEEDLE")
+	res, err := Grep(context.Background(), repoForGrep(t), "NEEDLE", GrepOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1562,7 +1663,7 @@ func TestGrepReturnsPathLineAndText(t *testing.T) {
 }
 
 func TestGrepStripsTheCarriageReturn(t *testing.T) {
-	res, err := Grep(context.Background(), repoForGrep(t), "carriage")
+	res, err := Grep(context.Background(), repoForGrep(t), "carriage", GrepOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1575,7 +1676,7 @@ func TestGrepStripsTheCarriageReturn(t *testing.T) {
 }
 
 func TestGrepNoMatchIsNotAnError(t *testing.T) {
-	res, err := Grep(context.Background(), repoForGrep(t), "no-such-string-anywhere")
+	res, err := Grep(context.Background(), repoForGrep(t), "no-such-string-anywhere", GrepOpts{})
 	if err != nil {
 		t.Fatalf("git grep exits 1 for no matches; that is not an error: %v", err)
 	}
@@ -1588,7 +1689,7 @@ func TestGrepNoMatchIsNotAnError(t *testing.T) {
 }
 
 func TestGrepSearchesUntrackedAndHonorsGitignore(t *testing.T) {
-	res, err := Grep(context.Background(), repoForGrep(t), "NEEDLE")
+	res, err := Grep(context.Background(), repoForGrep(t), "NEEDLE", GrepOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1602,7 +1703,7 @@ func TestGrepSearchesUntrackedAndHonorsGitignore(t *testing.T) {
 }
 
 func TestGrepSkipsBinaryFiles(t *testing.T) {
-	res, err := Grep(context.Background(), repoForGrep(t), "NEEDLE")
+	res, err := Grep(context.Background(), repoForGrep(t), "NEEDLE", GrepOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1612,7 +1713,7 @@ func TestGrepSkipsBinaryFiles(t *testing.T) {
 }
 
 func TestGrepIsCaseInsensitive(t *testing.T) {
-	res, err := Grep(context.Background(), repoForGrep(t), "needle")
+	res, err := Grep(context.Background(), repoForGrep(t), "needle", GrepOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1622,7 +1723,7 @@ func TestGrepIsCaseInsensitive(t *testing.T) {
 }
 
 func TestGrepEmptyQueryReturnsNoMatches(t *testing.T) {
-	res, err := Grep(context.Background(), repoForGrep(t), "   ")
+	res, err := Grep(context.Background(), repoForGrep(t), "   ", GrepOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1641,7 +1742,7 @@ func TestGrepTruncatesAtTheCap(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "many.txt"), []byte(sb.String()), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	res, err := Grep(context.Background(), dir, "NEEDLE")
+	res, err := Grep(context.Background(), dir, "NEEDLE", GrepOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1654,8 +1755,113 @@ func TestGrepTruncatesAtTheCap(t *testing.T) {
 }
 
 func TestGrepOnNonRepoIsAnError(t *testing.T) {
-	if _, err := Grep(context.Background(), t.TempDir(), "anything"); err == nil {
+	if _, err := Grep(context.Background(), t.TempDir(), "anything", GrepOpts{}); err == nil {
 		t.Error("a non-repository must error (git exits 128), not report zero matches")
+	}
+}
+
+func TestGrepCaseSensitiveExcludesOtherCase(t *testing.T) {
+	res, err := Grep(context.Background(), repoForGrep(t), "needle", GrepOpts{CaseSensitive: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := grepPaths(res)
+	if !paths["untracked.txt"] {
+		t.Error("untracked.txt has the lowercase needle and must still match")
+	}
+	if paths["tracked.txt"] {
+		t.Error("tracked.txt only has NEEDLE — CaseSensitive must drop -i")
+	}
+}
+
+func TestGrepWholeWordExcludesASubstringHit(t *testing.T) {
+	dir := repoForGrep(t)
+	writeAt(t, dir, "word.txt", "needlework\n")
+	res, err := Grep(context.Background(), dir, "needle", GrepOpts{WholeWord: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := grepPaths(res)
+	if !paths["untracked.txt"] {
+		t.Error("untracked.txt has needle as a word and must match")
+	}
+	if paths["word.txt"] {
+		t.Error("word.txt only has needlework — WholeWord must exclude a substring hit")
+	}
+}
+
+func TestGrepRegexAcceptsAnExtendedPattern(t *testing.T) {
+	// alternation is ERE syntax: under -F, or a basic regex, this pattern matches nothing
+	res, err := Grep(context.Background(), repoForGrep(t), "alpha|carriage", GrepOpts{Regex: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := grepPaths(res)
+	if !paths["tracked.txt"] || !paths["crlf.txt"] {
+		t.Errorf("want tracked.txt and crlf.txt, got %+v", res.Matches)
+	}
+}
+
+// Git's regex engine is a build-time choice, so the search never relies on \b; this asserts the
+// flag it relies on instead works together with -E on the git this runs against.
+func TestGrepWholeWordWorksWithRegex(t *testing.T) {
+	dir := repoForGrep(t)
+	writeAt(t, dir, "word.txt", "needlework\n")
+	res, err := Grep(context.Background(), dir, "need(le|ful)", GrepOpts{Regex: true, WholeWord: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := grepPaths(res)
+	if !paths["untracked.txt"] {
+		t.Error("untracked.txt has needle as a word and must match")
+	}
+	if paths["word.txt"] {
+		t.Error("word.txt only has needlework — -w must still apply under -E")
+	}
+}
+
+func TestGrepInvalidRegexReportsInvalidPatternNotAnError(t *testing.T) {
+	res, err := Grep(context.Background(), repoForGrep(t), "(", GrepOpts{Regex: true})
+	if err != nil {
+		t.Fatalf("an uncompilable regex is the user's typo, not a failed read: %v", err)
+	}
+	if !res.InvalidPattern {
+		t.Error("InvalidPattern must be set")
+	}
+	if len(res.Matches) != 0 {
+		t.Errorf("want no matches, got %+v", res.Matches)
+	}
+}
+
+func TestGrepIncludeMatchesAtAnyDepth(t *testing.T) {
+	dir := repoForGrep(t)
+	writeAt(t, dir, "pkg/sub/deep.go", "NEEDLE deep\n")
+	writeAt(t, dir, "top.go", "NEEDLE top\n")
+	res, err := Grep(context.Background(), dir, "NEEDLE", GrepOpts{Include: []string{"*.go"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := grepPaths(res)
+	// what someone typing *.go means; a glob-magic pathspec would only reach top.go
+	if len(paths) != 2 || !paths["pkg/sub/deep.go"] || !paths["top.go"] {
+		t.Errorf("want exactly the two .go files, got %+v", res.Matches)
+	}
+}
+
+func TestGrepExcludeDropsPathsFromAnIncludedSet(t *testing.T) {
+	res, err := Grep(context.Background(), repoForGrep(t), "needle", GrepOpts{
+		Include: []string{"*.txt"},
+		Exclude: []string{"untracked*", " "},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := grepPaths(res)
+	if !paths["tracked.txt"] || !paths["crlf.txt"] {
+		t.Errorf("want tracked.txt and crlf.txt, got %+v", res.Matches)
+	}
+	if paths["untracked.txt"] {
+		t.Error("untracked.txt matched an exclude and must be dropped")
 	}
 }
 

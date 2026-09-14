@@ -846,6 +846,12 @@ export class RpcApiType {
         return client.wshRpcCall("gitlistfiles", data, opts);
     }
 
+    // command "gitlistworktrees" [call]
+    GitListWorktreesCommand(client: WshClient, data: CommandGitListWorktreesData, opts?: RpcOpts): Promise<CommandGitListWorktreesRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "gitlistworktrees", data, opts);
+        return client.wshRpcCall("gitlistworktrees", data, opts);
+    }
+
     // command "gitrevert" [call]
     GitRevertCommand(client: WshClient, data: CommandGitRevertData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "gitrevert", data, opts);

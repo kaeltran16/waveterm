@@ -42,7 +42,7 @@ LSP client.
 | Fuzzy matcher | `fuzzyScore` in `frontend/app/cockpit/palette-match.ts` | Shipped. Ranks symbol names exactly as it ranks paths. |
 | Jump primitive | `openInCode(model, { projectPath, rel, line })` in `codestore.ts` | Shipped. Every navigation in this spec goes through it — no second path-opening route. |
 | Line reveal | `codePendingLineAtom` + `applyPendingLine` in `codeviewer.tsx` | Shipped. The only module that touches Monaco; symbol jumps reuse it unchanged. |
-| History stack | `codehistory.ts` + `Alt+ArrowLeft` / `Alt+ArrowRight` | Shipped. A go-to-definition jump pushes onto it, so "back from a definition" needs no new mechanism. |
+| History stack | `codehistory.ts` + `Alt+ArrowLeft` / `Alt+ArrowRight` | Shipped. Entries carry a line: `openInCode` pushes the jump's target line, a jump to another line of the open file counts as a move, and the caret's line is recorded as an entry is left. A go-to-definition jump through `openInCode` therefore gets "back" in the same file or across files with no new mechanism. (Until 2026-09-14 entries were bare paths and a same-file push was dropped, so this row's claim did not hold for a definition in the same file.) |
 | Column-mode idiom | `codeSearchModeAtom` + the tab strip in `CodePanes` | Shipped. Spec 1 widens it to three; this widens it to four. |
 | The open file's text | `codeFileAtom` `text` variant, and the draft overlay | Shipped. The outline parses the buffer in memory — no read, no RPC. |
 
@@ -54,8 +54,10 @@ are untouched. Everything the search pane already does — grouping, truncation 
 token, the 20s ceiling — keeps working because the result shape does not change.
 
 **2. Path scoping is expressed as git pathspecs, not as a filter applied to results.** Include and
-exclude are passed to git as `-- ':(glob)<include>' ':(exclude,glob)<exclude>'` so git never reads the
-excluded files. Filtering 500 returned matches client-side would be filtering *after* the cap, which
+exclude are passed to git as `-- '<include>' ':(exclude)<exclude>'` so git never reads the excluded
+files. They use git's default pathspec matching, not `:(glob)` as first drafted: under glob magic `*`
+stops at a slash, so `*.go` would mean Go files at the top level only, which is not what anyone typing
+it means (a Go test asserts the any-depth match). Filtering 500 returned matches client-side would be filtering *after* the cap, which
 means an exclude could silently empty a result set that was truncated before the filter ever ran.
 
 **3. Patterns use `-E` (POSIX extended) and never rely on `\b`; whole-word is git's own `-w`.** Git's
@@ -130,8 +132,8 @@ type GrepOpts struct {
     Regex         bool     // -E instead of -F
     WholeWord     bool     // -w
     CaseSensitive bool     // drop -i
-    Include       []string // pathspecs, applied as ':(glob)<p>'
-    Exclude       []string // pathspecs, applied as ':(exclude,glob)<p>'
+    Include       []string // pathspecs, passed as-is
+    Exclude       []string // pathspecs, applied as ':(exclude)<p>'
 }
 
 func Grep(ctx context.Context, cwd, query string, opts GrepOpts) (*GrepResult, error)
@@ -144,7 +146,9 @@ unchanged.
 
 **One new failure to distinguish:** an invalid regex makes git grep exit 128 with a message on stderr.
 That is a *user* error, not a broken read, so it returns a sentinel the frontend renders as "Invalid
-pattern" beside the input rather than as a red failure banner.
+pattern" beside the input rather than as a red failure banner. Exit 128 also means "not a repository",
+so the reader matches the quoted pattern in git's `<origin>, '<pattern>': <error>` message; the origin
+wording differs across versions (`command line` upstream, `-e option` on Git for Windows).
 
 The only caller is `wshserver_git.go`, updated in the same change.
 

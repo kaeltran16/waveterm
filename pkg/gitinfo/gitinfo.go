@@ -529,6 +529,50 @@ func CreateWorktree(ctx context.Context, repoPath, branch string) (string, error
 	return wt, nil
 }
 
+// Worktree is one checkout of a repository.
+type Worktree struct {
+	Path   string
+	Branch string // short name; empty when detached
+	IsMain bool
+}
+
+// ListWorktrees returns every checkout of the repository at cwd, main first, from whichever checkout
+// cwd is. It returns an empty slice and no error when cwd is not a repository, the same posture
+// ListBranches takes. A worktree whose directory is gone (git marks it prunable) is left out: there is
+// nothing there to browse.
+func ListWorktrees(ctx context.Context, cwd string) ([]Worktree, error) {
+	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
+	defer cancel()
+	inside, err := run(ctx, cwd, "rev-parse", "--is-inside-work-tree")
+	if err != nil || strings.TrimSpace(inside) != "true" {
+		return []Worktree{}, nil
+	}
+	out, err := run(ctx, cwd, "worktree", "list", "--porcelain")
+	if err != nil {
+		return nil, err
+	}
+	worktrees := []Worktree{}
+	// records are separated by a blank line, and the first record is always the main checkout
+	for i, rec := range strings.Split(strings.ReplaceAll(out, "\r\n", "\n"), "\n\n") {
+		wt := Worktree{IsMain: i == 0}
+		prunable := false
+		for _, line := range strings.Split(rec, "\n") {
+			switch {
+			case strings.HasPrefix(line, "worktree "):
+				wt.Path = filepath.FromSlash(strings.TrimPrefix(line, "worktree "))
+			case strings.HasPrefix(line, "branch "):
+				wt.Branch = strings.TrimPrefix(strings.TrimPrefix(line, "branch "), "refs/heads/")
+			case strings.HasPrefix(line, "prunable"):
+				prunable = true
+			}
+		}
+		if wt.Path != "" && !prunable {
+			worktrees = append(worktrees, wt)
+		}
+	}
+	return worktrees, nil
+}
+
 // defaultHistoryLimit bounds an unpaginated history read. A cockpit-sized page, not a whole repo:
 // the surface pages as the user scrolls, and an unbounded log on a large repo blocks the RPC.
 const defaultHistoryLimit = 200
@@ -1089,31 +1133,50 @@ type GrepMatch struct {
 }
 
 // GrepResult holds at most maxGrepMatches matches; Truncated reports that the scan stopped early.
+// InvalidPattern reports a regex git could not compile — the user's typo, not a failed read.
 type GrepResult struct {
-	Matches   []GrepMatch
-	Truncated bool
+	Matches        []GrepMatch
+	Truncated      bool
+	InvalidPattern bool
 }
 
-// Grep searches file contents in cwd for a fixed, case-insensitive string.
+// GrepOpts are the flags the Code surface's search filters map onto. The zero value reproduces the
+// original search exactly: a fixed, case-insensitive substring across the whole repository.
+type GrepOpts struct {
+	Regex         bool
+	WholeWord     bool
+	CaseSensitive bool
+	Include       []string
+	Exclude       []string
+}
+
+// Grep searches file contents in cwd for a string, or with opts.Regex a POSIX extended regex.
 //
 // --untracked is not optional: the Code surface builds its tree and its file finder from
 // ls-files --cached --others --exclude-standard, and without the flag git grep would search only
 // tracked files — so a newly created file would appear in the tree and never in search results.
 // .gitignore is still honored either way.
 //
-// git grep exits 1 when nothing matched, which is not a failure. Exit 128 (not a repository) and
-// everything else are.
-func Grep(ctx context.Context, cwd, query string) (*GrepResult, error) {
+// git grep exits 1 when nothing matched, which is not a failure, and 128 for a regex it cannot
+// compile, which is reported as InvalidPattern. Every other exit 128 (not a repository) and
+// everything else are failures.
+func Grep(ctx context.Context, cwd, query string, opts GrepOpts) (*GrepResult, error) {
 	q := strings.TrimSpace(query)
 	if q == "" {
 		return &GrepResult{}, nil // `git grep -e ""` matches every line of every file
 	}
 	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
 	defer cancel()
-	out, err := run(ctx, cwd, "grep", "--untracked", "-n", "-z", "-I", "-i", "-F", "--no-color", "-e", q)
+	out, err := run(ctx, cwd, grepArgs(q, opts)...)
 	if err != nil {
 		var ee *exec.ExitError
-		if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+		if !errors.As(err, &ee) {
+			return nil, err
+		}
+		if opts.Regex && isInvalidPattern(ee, q) {
+			return &GrepResult{Matches: []GrepMatch{}, InvalidPattern: true}, nil
+		}
+		if ee.ExitCode() != 1 {
 			return nil, err
 		}
 	}
@@ -1144,4 +1207,40 @@ func Grep(ctx context.Context, cwd, query string) (*GrepResult, error) {
 		})
 	}
 	return &GrepResult{Matches: matches, Truncated: truncated}, nil
+}
+
+// Pathspecs follow `--` so none can be read as a flag. They use git's default matching rather than
+// :(glob), whose `*` stops at a slash and would turn `*.go` into "Go files at the top level only".
+func grepArgs(q string, opts GrepOpts) []string {
+	args := []string{"grep", "--untracked", "-n", "-z", "-I", "--no-color"}
+	if !opts.CaseSensitive {
+		args = append(args, "-i")
+	}
+	if opts.Regex {
+		args = append(args, "-E")
+	} else {
+		args = append(args, "-F")
+	}
+	if opts.WholeWord {
+		args = append(args, "-w")
+	}
+	args = append(args, "-e", q, "--")
+	for _, p := range opts.Include {
+		if p = strings.TrimSpace(p); p != "" {
+			args = append(args, p)
+		}
+	}
+	for _, p := range opts.Exclude {
+		if p = strings.TrimSpace(p); p != "" {
+			args = append(args, ":(exclude)"+p)
+		}
+	}
+	return args
+}
+
+// git dies with "<origin>, '<pattern>': <regcomp error>" when a regex will not compile. The origin
+// wording differs across versions ("command line", "-e option"), so the quoted pattern is what gets
+// matched. The exit code alone cannot tell this apart from a missing repository.
+func isInvalidPattern(ee *exec.ExitError, q string) bool {
+	return ee.ExitCode() == 128 && strings.Contains(string(ee.Stderr), ", '"+q+"': ")
 }

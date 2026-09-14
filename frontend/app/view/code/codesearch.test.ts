@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { groupMatches, summarize } from "./codesearch";
+import { groupMatches, stepRow, summarize } from "./codesearch";
 
 const m = (path: string, line: number, text = "hit"): GitGrepMatch => ({ path, line, text });
 
@@ -46,5 +46,25 @@ describe("summarize", () => {
 
     it("says nothing matched for an empty result", () => {
         expect(summarize([], false)).toBe("No matches");
+    });
+});
+
+describe("stepRow", () => {
+    it("moves from the query input onto the first row", () => {
+        expect(stepRow(-1, 1, 3)).toBe(0);
+    });
+
+    it("walks down the rows and stops at the last one", () => {
+        expect(stepRow(0, 1, 3)).toBe(1);
+        expect(stepRow(2, 1, 3)).toBe(2);
+    });
+
+    it("walks up from the first row back to the input, and no further", () => {
+        expect(stepRow(0, -1, 3)).toBe(-1);
+        expect(stepRow(-1, -1, 3)).toBe(-1);
+    });
+
+    it("stays on the input when there are no rows", () => {
+        expect(stepRow(-1, 1, 0)).toBe(-1);
     });
 });
