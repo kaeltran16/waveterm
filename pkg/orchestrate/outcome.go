@@ -111,6 +111,8 @@ func HandleChildOutcome(ctx context.Context, workerORef string, data jarvis.Outc
 			detail := map[string]any{"taskid": task.ID, "kind": kind, "attempt": attempt}
 			publishDagEvent(DagEventTaskRetried, g, task.ID)
 			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskRetried, nil, detail)
+		} else {
+			PostWake(ctx, g.ChannelId, g.RunID, taskFailedWake(task.ID, kind))
 		}
 		return scheduleLocked(ctx, g.OID)
 	})

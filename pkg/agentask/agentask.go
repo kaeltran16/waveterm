@@ -9,9 +9,27 @@ package agentask
 
 import (
 	"sync"
+	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 )
+
+// Owners of a dag child's ask. Only asks raised by dag children have one; the queue is how the lead
+// and the human take turns on a question, and every other ask keeps Owner "".
+const (
+	AskOwner_Lead = "lead"
+	AskOwner_User = "user"
+)
+
+// AnswerClearTimeout bounds how long a typed answer may go unconfirmed. Hook delivery is sub-second;
+// this absorbs a slow turn start.
+const AnswerClearTimeout = 30 * time.Second
+
+// AnswerUnconfirmedNote is the note on an ask whose typed answer never cleared it.
+const AnswerUnconfirmedNote = "answer was sent but never confirmed"
+
+// a second unconfirmed delivery means typing into this child does not work, so the human takes it.
+const maxDeliveryMisses = 2
 
 // PendingAsk is the question set currently awaiting an answer for a block.
 type PendingAsk struct {
@@ -27,6 +45,20 @@ type PendingAsk struct {
 	// undurable: the delivery is an in-memory channel, so a restored copy could only be a question
 	// nobody is listening to. DurableHook's implementation reads this to decide what to persist.
 	Wait bool
+	// the fields below are set only for an ask raised by a dag child. They live in memory only:
+	// DurableHook does not store them, and a dag child's ask never survives a restart to need them.
+	Owner string
+	// Deadline is the UnixMilli past which a lead-owned ask moves to the user.
+	Deadline int64
+	// Note says why the ask is with its owner: the lead's forward note, a missed deadline, a failed delivery.
+	Note string
+	// Misses counts typed answers the agent never cleared.
+	Misses    int
+	ChannelId string
+	// RunId is the dag's owning run, the one the lead works in.
+	RunId  string
+	TaskId string
+	DagOID string
 }
 
 // DurableHook mirrors every registry mutation to durable storage: pending != nil is an upsert,
@@ -42,11 +74,19 @@ var DurableHook func(oref string, pending *PendingAsk)
 type Registry struct {
 	lock    sync.Mutex
 	pending map[string]PendingAsk
-	waits   waiters
+	// clears holds typed dag answers waiting for the agent's clear, keyed by oref.
+	clears map[string]sentAnswer
+	waits  waiters
+}
+
+// sentAnswer is a claimed ask whose answer was typed but not yet confirmed.
+type sentAnswer struct {
+	pending PendingAsk
+	sentAt  int64
 }
 
 func MakeRegistry() *Registry {
-	return &Registry{pending: make(map[string]PendingAsk)}
+	return &Registry{pending: make(map[string]PendingAsk), clears: make(map[string]sentAnswer)}
 }
 
 // GlobalRegistry is the process-wide instance used by the wsh server handlers.
@@ -111,4 +151,65 @@ func (r *Registry) Claim(oref, askid string) (PendingAsk, bool) {
 		DurableHook(oref, nil)
 	}
 	return p, true
+}
+
+// Update edits a pending ask in place. It skips DurableHook because it exists for the queue fields,
+// which are not stored; callers must not use it to change a stored field. It returns false when
+// nothing is pending, or when askId != "" and no longer matches.
+func (r *Registry) Update(oref, askId string, fn func(*PendingAsk)) bool {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	p, ok := r.pending[oref]
+	if !ok || (askId != "" && p.AskId != askId) {
+		return false
+	}
+	fn(&p)
+	r.pending[oref] = p
+	return true
+}
+
+func (r *Registry) awaitClear(oref string, p PendingAsk, now int64) {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	r.clears[oref] = sentAnswer{pending: p, sentAt: now}
+}
+
+// ConfirmClear ends the wait on a typed answer. The agent clearing its ask is the only proof the
+// keystrokes reached the picker.
+func (r *Registry) ConfirmClear(oref string) bool {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	_, ok := r.clears[oref]
+	delete(r.clears, oref)
+	return ok
+}
+
+// ExpireClears puts back every typed answer the agent did not clear within timeout, keyed by oref.
+// The ask returns to its owner with the failure noted, and to the user on the second miss. A block
+// that already holds a new ask moved on, so its answer did land and nothing is restored.
+func (r *Registry) ExpireClears(now int64, timeout time.Duration) map[string]PendingAsk {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	restored := make(map[string]PendingAsk)
+	for oref, s := range r.clears {
+		if now-s.sentAt < timeout.Milliseconds() {
+			continue
+		}
+		delete(r.clears, oref)
+		if _, live := r.pending[oref]; live {
+			continue
+		}
+		p := s.pending
+		p.Misses++
+		p.Note = AnswerUnconfirmedNote
+		if p.Misses >= maxDeliveryMisses {
+			p.Owner = AskOwner_User
+		}
+		r.pending[oref] = p
+		if DurableHook != nil {
+			DurableHook(oref, &p)
+		}
+		restored[oref] = p
+	}
+	return restored
 }

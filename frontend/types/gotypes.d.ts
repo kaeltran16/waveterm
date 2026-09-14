@@ -1615,14 +1615,6 @@ declare global {
         message: string;
     };
 
-    // wshrpc.CommandPiControlAckData
-    type CommandPiControlAckData = {
-        channelid: string;
-        runid: string;
-        eventid: string;
-        sessionid: string;
-    };
-
     // wshrpc.CommandPostChannelMessageData
     type CommandPostChannelMessageData = {
         channelid: string;
@@ -2060,18 +2052,6 @@ declare global {
         text: string;
     };
 
-    // wshrpc.ControlDigest
-    type ControlDigest = {
-        eventid: string;
-        kind: string;
-        taskid?: string;
-        sessionid?: string;
-        status: string;
-        sentts?: number;
-        acknowledgedts?: number;
-        error?: string;
-    };
-
     // wshrpc.CwdQueueWire
     type CwdQueueWire = {
         cwd: string;
@@ -2083,15 +2063,12 @@ declare global {
     type DagAskItem = {
         taskid: string;
         askid?: string;
-        question: string;
-        options?: DagAskOption[];
+        owner?: string;
+        deadline?: number;
+        note?: string;
+        questions: AgentAskQuestion[];
         blockoref: string;
         ts: number;
-    };
-
-    // wshrpc.DagAskOption
-    type DagAskOption = {
-        label: string;
     };
 
     // wshrpc.DagDurationDigest
@@ -2130,7 +2107,6 @@ declare global {
         next: DagNextStep;
         tasks: DagTaskDigest[];
         durations: DagDurationDigest;
-        control?: ControlDigest;
     };
 
     // wshrpc.DagTaskDigest
@@ -2902,15 +2878,6 @@ declare global {
     type PhaseTriage = {
         verdict: string;
         note?: string;
-    };
-
-    // wshrpc.PiControlCommandData
-    type PiControlCommandData = {
-        sessionid: string;
-        command: string;
-        content: string;
-        name: string;
-        path: string;
     };
 
     // wshrpc.PiTask

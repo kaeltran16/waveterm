@@ -175,11 +175,11 @@ func TestDagAsksAndAnswerRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(asks.Asks) != 1 || asks.Asks[0].TaskId != "t-0" || asks.Asks[0].Question != "A or B?" {
+	if len(asks.Asks) != 1 || asks.Asks[0].TaskId != "t-0" || len(asks.Asks[0].Questions) != 1 || asks.Asks[0].Questions[0].Question != "A or B?" {
 		t.Fatalf("asks mismatch: %+v", asks.Asks)
 	}
-	if len(asks.Asks[0].Options) != 2 || asks.Asks[0].Options[1].Label != "B" {
-		t.Fatalf("options not carried: %+v", asks.Asks[0].Options)
+	if opts := asks.Asks[0].Questions[0].Options; len(opts) != 2 || opts[1].Label != "B" {
+		t.Fatalf("options not carried: %+v", opts)
 	}
 
 	if err := ws.DagAnswerCommand(context.Background(), wshrpc.CommandDagAnswerData{
@@ -285,5 +285,68 @@ func TestAgentAskClearRecordsChildAskClearedOnce(t *testing.T) {
 	}
 	if again := askLifecycleRows(t, g.ChannelId, g.RunID, waveobj.RunEventKindChildAskCleared); len(again) != 1 {
 		t.Fatalf("duplicate clear must append nothing, got %d rows", len(again))
+	}
+}
+
+func TestDagForwardHandsQuestionToHuman(t *testing.T) {
+	g, _, blockORef := dagAskFixture(t)
+	ws := &WshServer{}
+	ctx := context.Background()
+	agentask.GlobalRegistry = agentask.MakeRegistry()
+	agentask.GlobalRegistry.Set(blockORef, agentask.PendingAsk{
+		AskId:     "ask-forward",
+		Questions: []baseds.AgentAskQuestion{{Question: "A or B?", Options: []baseds.AgentAskOption{{Label: "A"}, {Label: "B"}}}},
+		Ts:        1,
+		Owner:     agentask.AskOwner_Lead,
+	})
+	note := "scope call: B drops the export; I recommend A"
+
+	if err := ws.DagActionCommand(ctx, wshrpc.CommandDagActionData{
+		ChannelId: g.ChannelId, RunId: g.RunID, TaskId: "t-0", Action: "forward", Notes: note,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	asks, err := ws.DagAsksCommand(ctx, wshrpc.CommandDagStatusData{ChannelId: g.ChannelId, RunId: g.RunID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(asks.Asks) != 1 || asks.Asks[0].Owner != agentask.AskOwner_User || asks.Asks[0].Note != note {
+		t.Fatalf("forward must hand the question to the human with the lead's note: %+v", asks.Asks)
+	}
+	if rows := askLifecycleRows(t, g.ChannelId, g.RunID, waveobj.RunEventKindTaskForwarded); len(rows) != 1 || rows[0]["taskid"] != "t-0" {
+		t.Fatalf("want one task-forwarded row for t-0, got %+v", rows)
+	}
+}
+
+// A typed answer to a dag child counts as delivered only once the child clears its ask, so the clear
+// is what must stop the sweep from putting the question back.
+func TestAgentAskClearConfirmsTypedDagAnswer(t *testing.T) {
+	g, _, blockORef := dagAskFixture(t)
+	ws := &WshServer{}
+	agentask.GlobalRegistry = agentask.MakeRegistry()
+	t.Cleanup(agentask.SetSendInputForTest(func(string, []byte) error { return nil }))
+	agentask.GlobalRegistry.Set(blockORef, agentask.PendingAsk{
+		AskId:     "ask-typed",
+		BlockId:   "child-block",
+		Questions: []baseds.AgentAskQuestion{{Question: "A or B?", Options: []baseds.AgentAskOption{{Label: "A"}, {Label: "B"}}}},
+		Ts:        1,
+		Owner:     agentask.AskOwner_Lead,
+		ChannelId: g.ChannelId,
+		RunId:     g.RunID,
+		TaskId:    "t-0",
+		DagOID:    g.OID,
+	})
+	if ok, err := agentask.DeliverAnswer(blockORef, "ask-typed", []baseds.AgentAnswerItem{{SelectedIndexes: []int{1}}}); err != nil || !ok {
+		t.Fatalf("want delivered, got (%v, %v)", ok, err)
+	}
+
+	if err := ws.AgentAskClearCommand(context.Background(), blockORef); err != nil {
+		t.Fatal(err)
+	}
+
+	later := time.Now().Add(agentask.AnswerClearTimeout + time.Second).UnixMilli()
+	if back := agentask.GlobalRegistry.ExpireClears(later, agentask.AnswerClearTimeout); len(back) != 0 {
+		t.Fatalf("the child's clear confirmed the answer, so nothing may come back: %+v", back)
 	}
 }

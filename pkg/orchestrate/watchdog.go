@@ -16,6 +16,10 @@ import (
 // dag action, run update), and a stalled child produces no events — the watchdog tick is what notices.
 const watchdogInterval = 30 * time.Second
 
+// wakeTickInterval paces the wake adapter and the ask sweep. It sits well under WakeConfirmTimeout and
+// agentask.AnswerClearTimeout, so neither window runs much past what its constant says.
+const wakeTickInterval = 5 * time.Second
+
 // watchdogStatuses are the dag statuses worth a periodic tick: every nonterminal one. Stall detection
 // lives inside the schedule tick, so scanning only "running" stops supervising a dag the moment one
 // task fails or a gate opens — while its siblings are still live children that can hang with nothing
@@ -50,33 +54,42 @@ var (
 	}
 )
 
-// StartWatchdog launches the periodic DAG-advance loop (idempotent; the first call wins). The loop
-// runs until ctx is done. Wired once at server startup.
+// StartWatchdog launches the periodic DAG-advance loop and the wake loop (idempotent; the first call
+// wins). Both run until ctx is done. Wired once at server startup.
 func StartWatchdog(ctx context.Context) {
 	watchdogOnce.Do(func() {
 		go func() {
 			ticker := time.NewTicker(watchdogInterval)
 			defer ticker.Stop()
-			safeTick(ctx) // first pass immediately (a submitted dag's children may already need attention)
+			wakeTicker := time.NewTicker(wakeTickInterval)
+			defer wakeTicker.Stop()
+			safeTick(ctx, watchdogTick) // first pass immediately (a submitted dag's children may already need attention)
 			for {
 				select {
 				case <-ctx.Done():
 					return
 				case <-ticker.C:
-					safeTick(ctx)
+					safeTick(ctx, watchdogTick)
+				case <-wakeTicker.C:
+					safeTick(ctx, wakeTick)
 				}
 			}
 		}()
 	})
 }
 
+func wakeTick(ctx context.Context) {
+	sweepAsks(ctx)
+	tickWakes(ctx)
+}
+
 // safeTick recovers per tick: a panic inside one Schedule must not kill the loop for the server's
 // lifetime — the watchdog is the only advance path for event-less stalls.
-func safeTick(ctx context.Context) {
+func safeTick(ctx context.Context, tick func(context.Context)) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("watchdog: tick panic (loop continues): %v", r)
 		}
 	}()
-	watchdogTick(ctx)
+	tick(ctx)
 }

@@ -790,6 +790,17 @@ export function isAskStale(askTs: number | undefined, statusTs: number | undefin
     return statusTs - askTs > ASK_STALE_GRACE_MS;
 }
 
+/** Pure: wire ask questions (lowercase Go json tags) in the view model's shape. Shared by the session ask
+ *  and the dag child-ask card, so both render one question shape. */
+export function toAskQuestions(questions: AgentAskData["questions"]): AgentAskQuestion[] {
+    return (questions ?? []).map((q) => ({
+        question: q.question,
+        header: q.header,
+        multiSelect: q.multiselect,
+        options: q.options?.map((o) => ({ label: o.label, description: o.description, preview: o.preview })),
+    }));
+}
+
 export function withAsk(vm: AgentVM, ask: AgentAskData | null, now: number): AgentVM {
     if (ask == null || ask.cleared) {
         return vm;
@@ -800,12 +811,7 @@ export function withAsk(vm: AgentVM, ask: AgentAskData | null, now: number): Age
         activeMs: undefined,
         blockedMs: ask.ts != null ? Math.max(0, now - ask.ts) : vm.blockedMs,
         ask: {
-            questions: (ask.questions ?? []).map((q) => ({
-                question: q.question,
-                header: q.header,
-                multiSelect: q.multiselect,
-                options: q.options?.map((o) => ({ label: o.label, description: o.description, preview: o.preview })),
-            })),
+            questions: toAskQuestions(ask.questions),
             askId: ask.askid,
             oref: ask.oref,
             prose: ask.prose,

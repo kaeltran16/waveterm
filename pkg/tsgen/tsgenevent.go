@@ -48,7 +48,7 @@ var WaveEventDataTypes = map[string]reflect.Type{
 	wps.DagEventBlocked:        reflect.TypeOf(""), // detail is the failure count
 	wps.DagEventComplete:       reflect.TypeOf(""), // detail is "all tasks done"
 	wps.DagEventTaskSpawned:    reflect.TypeOf(""), // detail is the task id
-	wps.DagEventChildAsk:       reflect.TypeOf(""), // detail is JSON {taskid, question}
+	wps.DagEventChildAsk:       reflect.TypeOf(""), // detail is JSON {taskid, askid}
 	wps.DagEventTaskStalled:    reflect.TypeOf(""), // detail is the task id
 	wps.DagEventTaskRetried:    reflect.TypeOf(""), // detail is the task id
 	wps.Event_RunEvent:         reflect.TypeOf(wshrpc.RunEventData{}),

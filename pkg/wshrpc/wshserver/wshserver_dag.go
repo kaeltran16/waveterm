@@ -6,7 +6,6 @@ package wshserver
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -102,8 +101,8 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 			return fmt.Errorf("dag run %s is %s, want planning or executing", run.ID, run.Status)
 		}
 		run.Status = jarvis.RunStatus_Executing
-		// the notes that produced this draft are answered by it; leaving them would re-wake the lead
-		// on the next `dag wait` with feedback it has already acted on.
+		// the notes that produced this draft are answered by it; leaving them would hand the lead
+		// feedback it has already acted on the next time it reads `dag status`.
 		run.PlanFeedback = ""
 		return nil
 	})
@@ -143,8 +142,8 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 // raised cap cannot leave the tail of a full dag reporting partial durations.
 const dagDigestChildRunLimit = jarvis.MaxDagTasks
 
-// dagDigestRetainedKinds are the lifecycle boundaries the digest derives durations/retries/control
-// from. The UI's 200-row window is not consulted.
+// dagDigestRetainedKinds are the lifecycle boundaries the digest derives durations and retries from.
+// The UI's 200-row window is not consulted.
 var dagDigestRetainedKinds = []string{
 	waveobj.RunEventKindTaskRetried,
 	waveobj.RunEventKindTaskDone,
@@ -154,9 +153,6 @@ var dagDigestRetainedKinds = []string{
 	waveobj.RunEventKindTaskCleanupFailed,
 	waveobj.RunEventKindDagDone,
 	waveobj.RunEventKindDagCancelled,
-	waveobj.RunEventKindLeadControlSent,
-	waveobj.RunEventKindLeadControlFailed,
-	waveobj.RunEventKindLeadControlAcknowledged,
 }
 
 func (ws *WshServer) DagStatusCommand(ctx context.Context, data wshrpc.CommandDagStatusData) (*wshrpc.CommandDagStatusRtnData, error) {
@@ -217,62 +213,6 @@ func dagDigestRetained(ctx context.Context, channelId, runId string) []waveobj.R
 	return ev
 }
 
-// controlAckKinds are the rows an acknowledgement is checked against: the attempt it claims to
-// confirm must appear as sent, must not have failed, and must not already be acknowledged.
-var controlAckKinds = []string{
-	waveobj.RunEventKindLeadControlSent,
-	waveobj.RunEventKindLeadControlFailed,
-	waveobj.RunEventKindLeadControlAcknowledged,
-}
-
-// PiControlAckCommand records that the lead's pi watcher accepted a control event. Acknowledgement is
-// visibility only — the persisted DAG is authoritative either way — so the handler's job is to make
-// sure the row it writes is TRUE: it appends only for an attempt that was really sent to really this
-// session, and never twice for the same attempt.
-func (ws *WshServer) PiControlAckCommand(ctx context.Context, data wshrpc.CommandPiControlAckData) error {
-	if data.ChannelId == "" || data.RunId == "" || data.EventId == "" || data.SessionId == "" {
-		return fmt.Errorf("channelid, runid, eventid and sessionid are required")
-	}
-	events, err := wstore.QueryRunEventsByKind(ctx, data.ChannelId, data.RunId, controlAckKinds, 0)
-	if err != nil {
-		return fmt.Errorf("loading control events: %w", err)
-	}
-	sentSession := ""
-	sent, failed, acked := false, false, false
-	for _, ev := range events {
-		var detail struct {
-			EventId   string `json:"eventid"`
-			SessionId string `json:"sessionid"`
-		}
-		if jerr := json.Unmarshal(ev.Detail, &detail); jerr != nil || detail.EventId != data.EventId {
-			continue
-		}
-		switch ev.Kind {
-		case waveobj.RunEventKindLeadControlSent:
-			sent, sentSession = true, detail.SessionId
-		case waveobj.RunEventKindLeadControlFailed:
-			failed = true
-		case waveobj.RunEventKindLeadControlAcknowledged:
-			acked = true
-		}
-	}
-	if !sent {
-		if failed {
-			return fmt.Errorf("control event %s was never delivered", data.EventId)
-		}
-		return fmt.Errorf("unknown control event %s for run %s", data.EventId, data.RunId)
-	}
-	if sentSession != data.SessionId {
-		return fmt.Errorf("control event %s was sent to session %s, not %s", data.EventId, sentSession, data.SessionId)
-	}
-	if acked {
-		return nil // already confirmed; a watcher retry must not write a second row
-	}
-	appendRunEvent(ctx, data.ChannelId, data.RunId, waveobj.RunEventKindLeadControlAcknowledged, nil,
-		map[string]any{"eventid": data.EventId, "sessionid": data.SessionId})
-	return nil
-}
-
 func (ws *WshServer) DagActionCommand(ctx context.Context, data wshrpc.CommandDagActionData) error {
 	if data.ChannelId == "" || data.RunId == "" || data.Action == "" {
 		return fmt.Errorf("channelid, runid and action are required")
@@ -300,10 +240,12 @@ func (ws *WshServer) DagActionCommand(ctx context.Context, data wshrpc.CommandDa
 		appendRunEvent(ctx, data.ChannelId, data.RunId, waveobj.RunEventKindDagPlanSentBack, nil, map[string]any{
 			"notes": strings.TrimSpace(data.Notes),
 		})
-		// the lead is blocked in `dag wait`; steering it is what makes the redraft immediate rather
-		// than waiting out the poll's timeout. Best effort — the wait loop reads the same feedback.
+		// the lead no longer polls, so typing the notes into its terminal is how it learns of the
+		// rejection. Best effort: `dag status` carries the same feedback.
 		steerRunLead(ctx, leadORef(run), planSendBackLine(strings.TrimSpace(data.Notes)))
 		return nil
+	case "forward":
+		return orchestrate.ForwardTask(ctx, run.DagORef, data.TaskId, data.Notes)
 	}
 	target := waveobj.RoutePin{Runtime: data.Runtime, Model: data.Model}
 	return orchestrate.ApplyAction(ctx, run.DagORef, data.TaskId, data.Action, target)
@@ -333,33 +275,10 @@ func planSendBackLine(notes string) string {
 	return line + "\r"
 }
 
-// taskBlockOrefs lists the worker block orefs of a run's phases (the blocks the ask registry keys
-// asks by).
-func taskBlockOrefs(ctx context.Context, run *waveobj.Run) []string {
-	var out []string
-	seen := map[string]bool{}
-	for _, p := range run.Phases {
-		for _, oref := range p.WorkerOrefs {
-			if !strings.HasPrefix(oref, "tab:") {
-				continue
-			}
-			tab, terr := wstore.DBMustGet[*waveobj.Tab](ctx, strings.TrimPrefix(oref, "tab:"))
-			if terr != nil || len(tab.BlockIds) == 0 {
-				continue
-			}
-			bo := waveobj.MakeORef(waveobj.OType_Block, tab.BlockIds[0]).String()
-			if !seen[bo] {
-				seen[bo] = true
-				out = append(out, bo)
-			}
-		}
-	}
-	return out
-}
-
-// gatherDagAsks lists the pending asks of the dag's running children — the lead's visibility into
-// what its children are blocked on (children block on one ask at a time, and their cards are
-// invisible on the child sessions). Shared by the asks RPC and the status digest.
+// gatherDagAsks lists the dag's question queue: every pending ask of its children, whoever holds it.
+// Children block on one ask at a time and their own cards are invisible on the child sessions, so this
+// is how the lead (`dag asks`) and the run cockpit see them. Shared by the asks RPC and the status
+// digest.
 func gatherDagAsks(ctx context.Context, run *waveobj.Run) []wshrpc.DagAskItem {
 	g, err := wstore.GetDag(ctx, run.DagORef)
 	if err != nil {
@@ -375,23 +294,21 @@ func gatherDagAsks(ctx context.Context, run *waveobj.Run) []wshrpc.DagAskItem {
 		if cerr != nil {
 			continue
 		}
-		for _, bo := range taskBlockOrefs(ctx, child) {
+		for _, bo := range orchestrate.RunBlockORefs(ctx, child) {
 			pending, ok := agentask.GlobalRegistry.Get(bo)
 			if !ok || len(pending.Questions) == 0 {
 				continue
 			}
-			q := pending.Questions[0]
-			item := wshrpc.DagAskItem{
+			items = append(items, wshrpc.DagAskItem{
 				TaskId:    task.ID,
 				AskId:     pending.AskId,
-				Question:  q.Question,
+				Owner:     pending.Owner,
+				Deadline:  pending.Deadline,
+				Note:      pending.Note,
+				Questions: pending.Questions,
 				BlockORef: bo,
 				Ts:        pending.Ts,
-			}
-			for _, o := range q.Options {
-				item.Options = append(item.Options, wshrpc.DagAskOption{Label: o.Label})
-			}
-			items = append(items, item)
+			})
 		}
 	}
 	return items
@@ -409,9 +326,9 @@ func (ws *WshServer) DagAsksCommand(ctx context.Context, data wshrpc.CommandDagS
 	return &wshrpc.CommandDagAsksRtnData{Asks: gatherDagAsks(ctx, run)}, nil
 }
 
-// DagAnswerCommand delivers an answer to a child's pending ask (the lead's answer path for the
-// `child_ask` control event). The child blocks until the answer resolves, so this is what unblocks
-// a question-raised child.
+// DagAnswerCommand delivers an answer to a child's pending ask: the lead's, after a `wake: N questions
+// waiting` line, or the human's, for a question the lead forwarded. The child blocks until the answer
+// resolves, so this is what unblocks a question-raised child.
 func (ws *WshServer) DagAnswerCommand(ctx context.Context, data wshrpc.CommandDagAnswerData) error {
 	run, err := wstore.GetRun(ctx, data.ChannelId, data.RunId)
 	if err != nil {
@@ -432,7 +349,7 @@ func (ws *WshServer) DagAnswerCommand(ctx context.Context, data wshrpc.CommandDa
 		if cerr != nil {
 			return fmt.Errorf("loading child run: %w", cerr)
 		}
-		blocks := taskBlockOrefs(ctx, child)
+		blocks := orchestrate.RunBlockORefs(ctx, child)
 		if len(blocks) == 0 {
 			return fmt.Errorf("task %s has no worker blocks", data.TaskId)
 		}

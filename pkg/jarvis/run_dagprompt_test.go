@@ -12,7 +12,7 @@ func TestBuildOrchestratePromptPiPublishesTypedTasksAutonomously(t *testing.T) {
 	for _, want := range []string{
 		"wsh jarvis dag import-tasks",
 		"wsh jarvis dag status",
-		"respond to control events",
+		"wake:",
 		"task-specific goal",
 		"relevant evidence",
 		"verification",

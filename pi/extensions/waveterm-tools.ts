@@ -1,24 +1,15 @@
-// pi extension: wave_* tools (pi drives arc), notification bridge (B3), and the control
-// channel watcher (arc steers pi). Installed by `wsh install-agent-hooks` into
-// ~/.pi/agent/extensions/waveterm-tools.ts with __WSH_PATH__ substituted for the absolute wsh
-// path. Bare pi outside a Wave block is inert: the tools fail closed with a clear error, the
-// watcher needs WAVETERM_PI_CONTROL_DIR.
-import { existsSync, readFileSync, rmSync, watch } from "node:fs";
-import { join } from "node:path";
+// pi extension: wave_* tools (pi drives arc) and the notification bridge (B3). Installed by
+// `wsh install-agent-hooks` into ~/.pi/agent/extensions/waveterm-tools.ts with __WSH_PATH__
+// substituted for the absolute wsh path. Bare pi outside a Wave block is inert: the tools fail closed
+// with a clear error.
 import { Type } from "typebox";
 import {
     captureTailArgs,
-    controlAckArgs,
-    controlFileName,
-    dagEventMessage,
-    makeSerialChain,
     notifyArgs,
     openFileArgs,
-    parseControlCommand,
     querySessionsArgs,
     runCommandArgs,
     vaultAskArgs,
-    type PiControlCommand,
 } from "./waveterm-tools-core";
 
 export function registerWavetermTools(pi: any, wshPath: string): void {
@@ -166,141 +157,6 @@ export function registerWavetermTools(pi: any, wshPath: string): void {
         if (event?.error || ctx?.lastError) {
             await notify("Pi session ended with an error", { level: "error" });
         }
-    });
-
-    // --- B2: control channel watcher ---------------------------------------
-
-    // makeDispatcher maps a parsed command file onto pi/ctx APIs. ctx is the session ctx from
-    // the enclosing session_start; the ctx-dependent commands (compact/abort/new_session/
-    // switch_session) use it, per the spec's session-replacement notes.
-    // ackControl confirms a dispatched engine control event back to the server. Best-effort: a failed
-    // acknowledgement leaves the attempt "unconfirmed" in the cockpit, which is the honest state — it
-    // must never block or undo the command the lead already acted on.
-    const ackControl = async (cmd: PiControlCommand, log: (m: string) => void): Promise<void> => {
-        const args = controlAckArgs(cmd);
-        if (!args) return; // not an engine control event (no envelope) — nothing to confirm
-        const r = await wsh(args);
-        if (!r.ok) log(`pi-control: ack for ${cmd.eventid} failed: ${r.stderr}`);
-    };
-
-    // makeDispatcher returns whether the command was accepted, so only a real dispatch is
-    // acknowledged — a command that threw must not be reported to the cockpit as received.
-    const makeDispatcher = (ctx: any, log: (m: string) => void) => {
-        return async (cmd: PiControlCommand): Promise<boolean> => {
-            try {
-                switch (cmd.cmd) {
-                    case "steer":
-                        await pi.sendUserMessage(cmd.content, { deliverAs: "steer" });
-                        break;
-                    case "follow_up":
-                        await pi.sendUserMessage(cmd.content, { deliverAs: "followUp" });
-                        break;
-                    case "set_session_name":
-                        if (cmd.name) pi.setSessionName(cmd.name);
-                        break;
-                    case "compact":
-                        ctx.compact({ customInstructions: cmd.content || undefined });
-                        break;
-                    case "abort":
-                        if (typeof ctx.abort === "function") ctx.abort();
-                        break;
-                    case "new_session":
-                        await ctx.newSession({ withSession: async () => {} });
-                        break;
-                    case "switch_session":
-                        if (!cmd.path) {
-                            log("pi-control: switch_session requires a session path");
-                            break;
-                        }
-                        await ctx.switchSession(cmd.path, { withSession: async () => {} });
-                        break;
-                    case "child_done":
-                    case "gate_open":
-                    case "dag_blocked":
-                    case "dag_complete":
-                    case "child_ask":
-                    case "child_stalled":
-                        await notify(dagEventMessage(cmd.cmd, cmd.content));
-                        break;
-                }
-                return true;
-            } catch (e) {
-                log(`pi-control: command ${cmd.cmd} failed: ${String(e)}`);
-                await notify(`Pi control command failed: ${cmd.cmd}`, { level: "error" });
-                return false;
-            }
-        };
-    };
-
-    // startControlWatcher watches dir for <sessionId>.json, executes each parsed command, and
-    // deletes the file when processing finishes (idempotent; a wedged command cannot replay).
-    // fs.watch with a polling fallback when the platform/dir cannot watch.
-    const startControlWatcher = (
-        dir: string,
-        sessionId: string,
-        onCommand: (cmd: PiControlCommand) => Promise<boolean>,
-        log: (m: string) => void
-    ): (() => void) => {
-        const file = join(dir, controlFileName(sessionId));
-        const process = async (): Promise<void> => {
-            if (!existsSync(file)) return;
-            let cmd: PiControlCommand | null = null;
-            try {
-                cmd = parseControlCommand(readFileSync(file, "utf8"));
-            } catch {
-                log(`pi-control: unreadable control file ${file}`);
-            }
-            if (!cmd) {
-                log(`pi-control: ignoring malformed or unknown command in ${file}`);
-                rmSync(file, { force: true });
-                return;
-            }
-            try {
-                if (await onCommand(cmd)) {
-                    await ackControl(cmd, log);
-                }
-            } finally {
-                rmSync(file, { force: true });
-            }
-        };
-        let watcher: ReturnType<typeof watch> | null = null;
-        let poll: ReturnType<typeof setInterval> | null = null;
-        // fs.watch coalesces but does not serialize: two callbacks can fire before the first
-        // process() resolves, and all commands share one control file — concurrent runs could rm a
-        // file the other is about to read or dispatch a stale generation. One chain keeps the
-        // read-parse-dispatch-delete sequence atomic per command event.
-        const enqueue = makeSerialChain(process, (e) => log(`pi-control: processing failed: ${String(e)}`));
-        try {
-            watcher = watch(dir, (_eventType, filename) => {
-                if (filename === controlFileName(sessionId)) enqueue();
-            });
-        } catch {
-            poll = setInterval(enqueue, 1000);
-        }
-        return () => {
-            watcher?.close();
-            if (poll) clearInterval(poll);
-        };
-    };
-
-    let cleanup: (() => void) | undefined;
-
-    pi.on("session_start", (_event: any, ctx: any) => {
-        cleanup?.();
-        const dir = process.env.WAVETERM_PI_CONTROL_DIR;
-        const sessionId = ctx?.sessionManager?.getSessionId?.();
-        if (!dir || !sessionId) return; // bare pi outside a Wave block — inert
-        cleanup = startControlWatcher(
-            dir,
-            sessionId,
-            makeDispatcher(ctx, (m) => console.log(m)),
-            (m) => console.log(m)
-        );
-    });
-
-    pi.on("session_shutdown", () => {
-        cleanup?.();
-        cleanup = undefined;
     });
 }
 

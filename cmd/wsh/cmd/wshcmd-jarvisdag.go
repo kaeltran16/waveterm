@@ -9,16 +9,16 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"text/tabwriter"
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/wavetermdev/waveterm/pkg/agentask"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/pitasks"
-	"github.com/wavetermdev/waveterm/pkg/waveobj"
-	"github.com/wavetermdev/waveterm/pkg/wps"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc/wshclient"
 )
@@ -149,100 +149,6 @@ var dagStatusCmd = &cobra.Command{
 			fmt.Println(line)
 		}
 		return nil
-	},
-}
-
-// dagWaitEvents is every engine event that can change what the lead should do next. Each is already
-// registered in wps.AllEvents and published scoped to the owning run.
-var dagWaitEvents = []string{
-	wps.DagEventChildDone, wps.DagEventGateOpen, wps.DagEventBlocked, wps.DagEventComplete,
-	wps.DagEventTaskSpawned, wps.DagEventChildAsk, wps.DagEventTaskStalled, wps.DagEventTaskRetried,
-}
-
-// waitDecision reports whether the lead should be handed control now, and why. Pure, so the blocking
-// glue evaluates it identically against the first digest and every post-event digest. Actions come
-// from the digest's own single derivation — never re-derived here from task state.
-func waitDecision(d wshrpc.DagStatusDigest) (bool, string) {
-	if d.Next.Kind == "terminal" || d.Health == "done" || d.Health == "cancelled" {
-		status := d.Next.TerminalStatus
-		if status == "" {
-			status = d.Health
-		}
-		return true, "terminal:" + status
-	}
-	if len(d.Next.Actions) > 0 {
-		return true, "action:" + d.Next.Kind
-	}
-	return false, ""
-}
-
-func printDagWait(rtn *wshrpc.CommandDagStatusRtnData, reason string) {
-	fmt.Printf("woke: %s\n", reason)
-	for _, line := range dagStatusLines(rtn, time.Now().UnixMilli()) {
-		fmt.Println(line)
-	}
-	fmt.Printf("dagversion=%d\n", rtn.Digest.DagVersion)
-}
-
-// DagWaitDefaultTimeout is bounded by Claude Code's Bash tool, which caps at 600s: a wait that
-// outlives its caller is killed and reported as a tool failure, which reads as a real error to a lead.
-const DagWaitDefaultTimeout = 540
-
-var dagWaitCmd = &cobra.Command{
-	Use:     "wait",
-	Short:   "block until the dag needs the lead, goes terminal, or the timeout elapses",
-	Args:    cobra.NoArgs,
-	PreRunE: preRunSetupRpcClient,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		timeoutSec, _ := cmd.Flags().GetInt("timeout")
-		channelId, runId, err := dagIds(cmd)
-		if err != nil {
-			return err
-		}
-		// subscribe before the first status read: an event landing between the two would otherwise be
-		// lost, and the lead would block on state that had already moved.
-		runScope := waveobj.MakeORef(waveobj.OType_Run, runId).String()
-		woke := make(chan struct{}, 1)
-		for _, ev := range dagWaitEvents {
-			RpcClient.EventListener.On(ev, func(e *wps.WaveEvent) {
-				if !e.HasScope(runScope) {
-					return
-				}
-				select {
-				case woke <- struct{}{}:
-				default: // a pending wake already covers this one
-				}
-			})
-			wshclient.EventSubCommand(RpcClient, wps.SubscriptionRequest{Event: ev, Scopes: []string{runScope}}, nil)
-		}
-		// one deadline for the whole call, not restarted per event
-		deadline := time.After(time.Duration(timeoutSec) * time.Second)
-		for {
-			rtn, err := wshclient.DagStatusCommand(RpcClient, wshrpc.CommandDagStatusData{ChannelId: channelId, RunId: runId}, &wshrpc.RpcOpts{Timeout: 10_000})
-			if err != nil {
-				return err
-			}
-			if rtn.Group == nil {
-				// a sent-back plan is a wake, not an error: the dag the lead was waiting on was
-				// discarded on purpose, and the notes are the whole point of returning here.
-				if rtn.PlanFeedback != "" {
-					fmt.Printf("woke: plan-sent-back\n%s\n", rtn.PlanFeedback)
-					return nil
-				}
-				return fmt.Errorf("no dag for this run — submit one first")
-			}
-			if ret, reason := waitDecision(rtn.Digest); ret {
-				printDagWait(rtn, reason)
-				return nil
-			}
-			select {
-			case <-woke:
-				// re-read and re-evaluate; a purely informational event resumes blocking
-			case <-deadline:
-				printDagWait(rtn, "timeout")
-				return nil
-			}
-		}
 	},
 }
 
@@ -429,7 +335,7 @@ var dagMergeCmd = &cobra.Command{
 
 var dagAsksCmd = &cobra.Command{
 	Use:     "asks",
-	Short:   "list pending asks of the dag's children",
+	Short:   "list the questions waiting on the lead, oldest first, with every option",
 	Args:    cobra.NoArgs,
 	PreRunE: preRunSetupRpcClient,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -441,15 +347,79 @@ var dagAsksCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if len(rtn.Asks) == 0 {
-			fmt.Println("no pending child asks")
-			return nil
-		}
-		for _, a := range rtn.Asks {
-			fmt.Printf("%s: %s\n", a.TaskId, a.Question)
+		for _, line := range dagAskLines(rtn.Asks, time.Now().UnixMilli()) {
+			fmt.Println(line)
 		}
 		return nil
 	},
+}
+
+// dagAskLines renders the lead's question queue, oldest first: every question of every entry the lead
+// holds, with the option indexes `dag answer` takes. Entries the human holds are only counted, since
+// the lead handed them on and an answer from it would race the human's.
+func dagAskLines(asks []wshrpc.DagAskItem, now int64) []string {
+	sorted := append([]wshrpc.DagAskItem(nil), asks...)
+	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Ts < sorted[j].Ts })
+	var lines []string
+	held := 0
+	for _, a := range sorted {
+		if a.Owner == agentask.AskOwner_User {
+			held++
+			continue
+		}
+		lines = append(lines, dagAskHeading(a, now))
+		if a.Note != "" {
+			lines = append(lines, "  note: "+a.Note)
+		}
+		for _, q := range a.Questions {
+			lines = append(lines, dagQuestionLines(q)...)
+		}
+	}
+	if len(lines) == 0 {
+		lines = append(lines, "no questions waiting")
+	} else {
+		lines = append(lines,
+			`answer:  wsh jarvis dag answer <task-id> '[{"selectedindexes":[0]}]'  (one item per question, in order; {"text":"..."} for free text)`,
+			`forward: wsh jarvis dag forward <task-id> "<what you checked, what you recommend>"`)
+	}
+	if held > 0 {
+		lines = append(lines, fmt.Sprintf("%d held by the human in the run cockpit", held))
+	}
+	return lines
+}
+
+func dagAskHeading(a wshrpc.DagAskItem, now int64) string {
+	age := compactDur(now - a.Ts)
+	if age == "" {
+		age = "0s"
+	}
+	line := fmt.Sprintf("%s  asked %s ago", a.TaskId, age)
+	if a.Deadline == 0 {
+		return line
+	}
+	if left := a.Deadline - now; left > 0 {
+		return line + "  deadline in " + compactDur(left)
+	}
+	return line + "  deadline passed"
+}
+
+func dagQuestionLines(q baseds.AgentAskQuestion) []string {
+	head := "  " + q.Question
+	if q.Header != "" {
+		head = fmt.Sprintf("  [%s] %s", q.Header, q.Question)
+	}
+	if q.MultiSelect {
+		head += " (multi-select)"
+	}
+	lines := []string{head}
+	for i, o := range q.Options {
+		opt := fmt.Sprintf("    %d) %s", i, o.Label)
+		if o.Description != "" {
+			opt += " - " + o.Description
+		}
+		lines = append(lines, opt)
+	}
+	return lines
 }
 
 var dagAnswerCmd = &cobra.Command{
@@ -472,23 +442,27 @@ var dagAnswerCmd = &cobra.Command{
 	},
 }
 
-// dagAckCmd is invoked by the pi control watcher, not by a human — it echoes the control file's
-// envelope back so the server can record that the lead actually received the event. Hidden because a
-// hand-typed acknowledgement would be a claim nobody made.
-var dagAckCmd = &cobra.Command{
-	Use:     "ack",
-	Short:   "confirm a lead-control event was dispatched (pi control watcher)",
-	Hidden:  true,
-	Args:    cobra.NoArgs,
+// dagForwardData is the forward action's payload. The note is not checked here: the server owns what
+// a forward needs.
+func dagForwardData(cmd *cobra.Command, args []string) (wshrpc.CommandDagActionData, error) {
+	channelId, runId, err := dagIds(cmd)
+	if err != nil {
+		return wshrpc.CommandDagActionData{}, err
+	}
+	return wshrpc.CommandDagActionData{ChannelId: channelId, RunId: runId, TaskId: args[0], Action: "forward", Notes: args[1]}, nil
+}
+
+var dagForwardCmd = &cobra.Command{
+	Use:     "forward <task-id> <note>",
+	Short:   "hand a task's question, failure, stall or merge conflict to the human, with what you checked and recommend",
+	Args:    cobra.ExactArgs(2),
 	PreRunE: preRunSetupRpcClient,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		channelId, _ := cmd.Flags().GetString("channel")
-		runId, _ := cmd.Flags().GetString("runid")
-		eventId, _ := cmd.Flags().GetString("event")
-		sessionId, _ := cmd.Flags().GetString("session")
-		return wshclient.PiControlAckCommand(RpcClient, wshrpc.CommandPiControlAckData{
-			ChannelId: channelId, RunId: runId, EventId: eventId, SessionId: sessionId,
-		}, &wshrpc.RpcOpts{Timeout: 5_000})
+		data, err := dagForwardData(cmd, args)
+		if err != nil {
+			return err
+		}
+		return wshclient.DagActionCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: 10_000})
 	},
 }
 
@@ -530,21 +504,18 @@ var dagInitCmd = &cobra.Command{
 }
 
 func init() {
-	jarvisDagCmd.AddCommand(dagSubmitCmd, dagImportCmd, dagStatusCmd, dagMergeCmd, dagAsksCmd, dagAnswerCmd)
+	jarvisDagCmd.AddCommand(dagSubmitCmd, dagImportCmd, dagStatusCmd, dagMergeCmd, dagAsksCmd, dagAnswerCmd, dagForwardCmd)
 	jarvisDagCmd.AddCommand(dagAction("approve"), dagAction("sendback"), dagAction("retry"), dagAction("skip"), dagEscalateCmd, dagAction("cancel"))
-	jarvisDagCmd.AddCommand(dagInitCmd, dagAckCmd, dagWaitCmd)
+	jarvisDagCmd.AddCommand(dagInitCmd)
 	for _, c := range jarvisDagCmd.Commands() {
 		c.Flags().String("runid", "", "run id")
 		c.Flags().String("channel", "", "channel id")
 	}
 	dagSubmitCmd.Flags().String("file", "", "read the dag JSON from a file (\"-\" for stdin)")
-	dagWaitCmd.Flags().Int("timeout", DagWaitDefaultTimeout, "seconds to block before returning the current digest")
 	dagImportCmd.Flags().String("dir", "", "pi-tasks dir (default .)")
 	dagImportCmd.Flags().String("title", "", "dag title (shown in the ui; default runs the first task's label)")
 	dagImportCmd.Flags().Int("parallelism", 0, fmt.Sprintf("concurrent children (1-%d); default is the dag's ready width", orchestrate.MaxParallelism))
 	dagInitCmd.Flags().String("dir", "", "pi-tasks dir (default .)")
-	dagAckCmd.Flags().String("event", "", "control event id from the control file envelope")
-	dagAckCmd.Flags().String("session", "", "pi session id the control file was written for")
 	dagEscalateCmd.Flags().String("model", "", "exact model id to retry on (e.g. sonnet, or opencode/deepseek-v4-pro for pi)")
 	dagEscalateCmd.Flags().String("runtime", "", "runtime to retry on; empty keeps the task's current runtime")
 	dagMergeCmd.Flags().Bool("continue", false, "finish a blocked squash merge after manual conflict resolution")

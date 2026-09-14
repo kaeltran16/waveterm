@@ -1,0 +1,343 @@
+// Copyright 2026, Command Line Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+package orchestrate
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/wavetermdev/waveterm/pkg/agentask"
+	"github.com/wavetermdev/waveterm/pkg/baseds"
+	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
+	"github.com/wavetermdev/waveterm/pkg/util/utilfn"
+	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wps"
+	"github.com/wavetermdev/waveterm/pkg/wstore"
+)
+
+const (
+	// LeadAskDeadline is how long the lead owns a child's question before it moves to the human: above
+	// the 155s worst compaction plus a Read/Grep answer, below the 15m stall threshold.
+	LeadAskDeadline = 10 * time.Minute
+	// WakeConfirmTimeout is how long a typed wake may go without the lead turning working.
+	WakeConfirmTimeout = 30 * time.Second
+)
+
+// why a lead stopped getting wakes; each lands on the lead-wake-failed row and on every ask it hands over.
+const (
+	leadNotRunningNote  = "lead process is not running"
+	wakeUnconfirmedNote = "lead did not respond to a wake"
+	leadDeadNote        = "lead is not taking wakes"
+)
+
+type leadState struct {
+	BlockId string
+	TabId   string
+	Alive   bool
+	State   string
+}
+
+// leadStateFn reads the lead's block, whether its process runs and its latest agent state. A var so
+// tests can script the lead without a live block.
+var leadStateFn = readLeadState
+
+// sendWakeFn types a wake into the lead's block; text "" presses Enter alone. A var for tests.
+var sendWakeFn = typeWake
+
+var wakeNow = func() int64 { return time.Now().UnixMilli() }
+
+type runWake struct {
+	channelId string
+	lines     []string
+	blockId   string
+	tabId     string
+	// sentAt is the UnixMilli of the unconfirmed wake, 0 when none is outstanding.
+	sentAt  int64
+	retried bool
+	dead    bool
+	told    map[string]bool
+}
+
+type waker struct {
+	lock sync.Mutex
+	// runs is keyed by the dag's owning run id.
+	runs map[string]*runWake
+}
+
+func newWaker() *waker {
+	return &waker{runs: make(map[string]*runWake)}
+}
+
+var wakes = newWaker()
+
+func (w *waker) runLocked(channelId, runId string) *runWake {
+	rw := w.runs[runId]
+	if rw == nil {
+		rw = &runWake{channelId: channelId, told: make(map[string]bool)}
+		w.runs[runId] = rw
+	}
+	return rw
+}
+
+// PostWake hands a judgment event to runId's lead: typed now if the lead can take it, held and joined
+// with later events if it is busy.
+func PostWake(ctx context.Context, channelId, runId, line string) {
+	wakes.lock.Lock()
+	defer wakes.lock.Unlock()
+	rw := wakes.runLocked(channelId, runId)
+	if rw.dead {
+		appendRunEvent(ctx, channelId, runId, waveobj.RunEventKindLeadWakeFailed, nil, map[string]any{"reason": leadDeadNote, "lines": []string{line}})
+		return
+	}
+	rw.lines = append(rw.lines, line)
+	wakes.flushLocked(ctx, runId, rw)
+}
+
+// PokeWake re-checks runId's question queue after an ask was raised or came back. A lead given up on
+// cannot own a new question, so it goes to the human (G8).
+func PokeWake(ctx context.Context, channelId, runId string) {
+	wakes.lock.Lock()
+	defer wakes.lock.Unlock()
+	rw := wakes.runLocked(channelId, runId)
+	if rw.dead {
+		for oref, p := range leadAsks(runId) {
+			forwardAskToUser(ctx, oref, p, leadDeadNote)
+		}
+		return
+	}
+	wakes.flushLocked(ctx, runId, rw)
+}
+
+// LeadDead reports that runId's lead stopped taking wakes, so its judgment belongs to the human (G8).
+func LeadDead(runId string) bool {
+	wakes.lock.Lock()
+	defer wakes.lock.Unlock()
+	rw := wakes.runs[runId]
+	return rw != nil && rw.dead
+}
+
+// NoteLeadStatus feeds agent status events to the adapter. working confirms the outstanding wake and
+// revives a lead given up on; a lead back at its prompt gets what was held while it was busy.
+func NoteLeadStatus(ctx context.Context, ev *wps.WaveEvent) {
+	var data baseds.AgentStatusData
+	if ev == nil || utilfn.ReUnmarshal(&data, ev.Data) != nil || data.ORef == "" {
+		return
+	}
+	oref, err := waveobj.ParseORef(data.ORef)
+	if err != nil {
+		return
+	}
+	wakes.lock.Lock()
+	defer wakes.lock.Unlock()
+	for runId, rw := range wakes.runs {
+		if oref.OID != rw.blockId && oref.OID != rw.tabId {
+			continue
+		}
+		if data.State == baseds.AgentState_Working {
+			rw.sentAt, rw.retried, rw.dead = 0, false, false
+			continue
+		}
+		if atPrompt(data.State) {
+			wakes.flushLocked(ctx, runId, rw)
+		}
+	}
+}
+
+// tickWakes retries an unconfirmed wake once and then gives up on the lead. It also flushes anything
+// held, which covers an idle status that arrived before the adapter knew the lead's block.
+func tickWakes(ctx context.Context) {
+	now := wakeNow()
+	wakes.lock.Lock()
+	defer wakes.lock.Unlock()
+	for runId, rw := range wakes.runs {
+		if rw.sentAt == 0 {
+			wakes.flushLocked(ctx, runId, rw)
+			continue
+		}
+		if now-rw.sentAt < WakeConfirmTimeout.Milliseconds() {
+			continue
+		}
+		if rw.retried {
+			wakes.leadDiedLocked(ctx, runId, rw, wakeUnconfirmedNote)
+			continue
+		}
+		// the text is already in the lead's input, so only Enter is repeated.
+		rw.retried, rw.sentAt = true, now
+		sendWakeFn(rw.blockId, "")
+	}
+}
+
+// atPrompt reports a lead that can take typed input. A Claude lead left at its prompt reports waiting
+// through the idle Notification hook, and run workers skip permission prompts, so waiting is not a
+// dialog. asking is the lead's own question to the human, which typed text would answer.
+func atPrompt(state string) bool {
+	return state == baseds.AgentState_Idle || state == baseds.AgentState_Waiting
+}
+
+func (w *waker) flushLocked(ctx context.Context, runId string, rw *runWake) {
+	if rw.sentAt != 0 || rw.dead {
+		return
+	}
+	asks := leadAsks(runId)
+	untold := false
+	for _, p := range asks {
+		if !rw.told[askTold(p)] {
+			untold = true
+		}
+	}
+	if len(rw.lines) == 0 && !untold {
+		return
+	}
+	st := leadStateFn(ctx, rw.channelId, runId)
+	rw.blockId, rw.tabId = st.BlockId, st.TabId
+	if !st.Alive {
+		w.leadDiedLocked(ctx, runId, rw, leadNotRunningNote)
+		return
+	}
+	if !atPrompt(st.State) {
+		return
+	}
+	lines := append([]string{}, rw.lines...)
+	if untold {
+		lines = append(lines, questionsLine(asks))
+	}
+	text := strings.Join(lines, "\n")
+	sendWakeFn(st.BlockId, text)
+	rw.lines, rw.sentAt, rw.retried = nil, wakeNow(), false
+	for _, p := range asks {
+		rw.told[askTold(p)] = true
+	}
+	appendRunEvent(ctx, rw.channelId, runId, waveobj.RunEventKindLeadWoken, nil, map[string]any{"text": text})
+}
+
+// leadDiedLocked hands the lead's judgment to the human (G8): held events go on the lead-wake-failed
+// row, and every question the lead owns moves to the user.
+func (w *waker) leadDiedLocked(ctx context.Context, runId string, rw *runWake, reason string) {
+	lines := rw.lines
+	rw.lines, rw.sentAt, rw.retried, rw.dead = nil, 0, false, true
+	appendRunEvent(ctx, rw.channelId, runId, waveobj.RunEventKindLeadWakeFailed, nil, map[string]any{"reason": reason, "lines": lines})
+	for oref, p := range leadAsks(runId) {
+		forwardAskToUser(ctx, oref, p, reason)
+	}
+}
+
+// leadAsks is runId's lead-owned questions, keyed by the oref each child waits on.
+func leadAsks(runId string) map[string]agentask.PendingAsk {
+	out := make(map[string]agentask.PendingAsk)
+	for oref, p := range agentask.GlobalRegistry.List() {
+		if p.RunId == runId && p.Owner == agentask.AskOwner_Lead {
+			out[oref] = p
+		}
+	}
+	return out
+}
+
+// askTold keys an announcement by miss count too, so an ask back from a failed delivery is news again.
+func askTold(p agentask.PendingAsk) string {
+	return fmt.Sprintf("%s/%d", p.AskId, p.Misses)
+}
+
+func questionsLine(asks map[string]agentask.PendingAsk) string {
+	n := 0
+	for _, p := range asks {
+		n += len(p.Questions)
+	}
+	noun := "questions"
+	if n == 1 {
+		noun = "question"
+	}
+	return fmt.Sprintf("wake: %d %s waiting. wsh jarvis dag asks", n, noun)
+}
+
+// forwardAskToUser moves a dag child's question to the human with why, and reports whether it moved.
+// An ask answered or replaced in the meantime moves nothing. The identity is written too, because
+// `dag forward` can move an ask that never went through the raise (one restored after a restart), and
+// an answer that never lands needs its run to come back to.
+func forwardAskToUser(ctx context.Context, oref string, p agentask.PendingAsk, note string) bool {
+	moved := agentask.GlobalRegistry.Update(oref, p.AskId, func(cur *agentask.PendingAsk) {
+		cur.Owner, cur.Note = agentask.AskOwner_User, note
+		cur.ChannelId, cur.RunId, cur.TaskId, cur.DagOID = p.ChannelId, p.RunId, p.TaskId, p.DagOID
+	})
+	if !moved {
+		return false
+	}
+	publishChildAsk(p)
+	appendRunEvent(ctx, p.ChannelId, p.RunId, waveobj.RunEventKindTaskForwarded, nil, map[string]any{
+		"taskid": p.TaskId,
+		"askid":  p.AskId,
+		"note":   truncateText(note, MaxAskSummaryLen),
+	})
+	return true
+}
+
+// publishChildAsk tells the run's cockpit that its question queue changed; the card re-reads `dag asks`.
+func publishChildAsk(p agentask.PendingAsk) {
+	detail, _ := json.Marshal(map[string]string{"taskid": p.TaskId, "askid": p.AskId})
+	publishDagEvent(DagEventChildAsk, &waveobj.TaskGroup{OID: p.DagOID, RunID: p.RunId}, string(detail))
+}
+
+func readLeadState(ctx context.Context, channelId, runId string) leadState {
+	run, err := wstore.GetRun(ctx, channelId, runId)
+	if err != nil || run == nil {
+		return leadState{}
+	}
+	tabId := leadTabID(run)
+	if tabId == "" {
+		return leadState{}
+	}
+	tab, err := wstore.DBGet[*waveobj.Tab](ctx, tabId)
+	if err != nil || tab == nil || len(tab.BlockIds) == 0 {
+		return leadState{TabId: tabId}
+	}
+	st := leadState{BlockId: tab.BlockIds[0], TabId: tabId}
+	if rs := blockcontroller.GetBlockControllerRuntimeStatus(st.BlockId); rs != nil {
+		st.Alive = rs.ShellProcStatus == blockcontroller.Status_Running
+	}
+	st.State = latestAgentState(st.BlockId, tabId)
+	return st
+}
+
+// latestAgentState is the newest state reported for the lead. Hooks report on the block, but a reporter
+// may use the tab, so both scopes are read and the later report wins.
+func latestAgentState(blockId, tabId string) string {
+	var best baseds.AgentStatusData
+	scopes := []string{waveobj.MakeORef(waveobj.OType_Block, blockId).String(), waveobj.MakeORef(waveobj.OType_Tab, tabId).String()}
+	for _, scope := range scopes {
+		for _, ev := range wps.Broker.ReadEventHistory(wps.Event_AgentStatus, scope, 1) {
+			var d baseds.AgentStatusData
+			if utilfn.ReUnmarshal(&d, ev.Data) == nil && d.State != "" && d.Ts >= best.Ts {
+				best = d
+			}
+		}
+	}
+	return best.State
+}
+
+// typeWake pastes the wake and then presses Enter. Bracketed paste keeps a multi-line wake one message
+// instead of relying on how each harness's editor treats a typed newline; the pause mirrors agentask's
+// keystroke pacing, since one combined write races the editor. It runs async so the waker lock is
+// never held across the pause.
+func typeWake(blockId, text string) {
+	go func() {
+		if text != "" {
+			if err := sendBlockInput(blockId, "\x1b[200~"+text+"\x1b[201~"); err != nil {
+				log.Printf("wake: typing into block %s: %v", blockId, err)
+				return
+			}
+			time.Sleep(agentask.KeystrokeDelay)
+		}
+		if err := sendBlockInput(blockId, "\r"); err != nil {
+			log.Printf("wake: submitting in block %s: %v", blockId, err)
+		}
+	}()
+}
+
+func sendBlockInput(blockId, s string) error {
+	return blockcontroller.SendInput(blockId, &blockcontroller.BlockInputUnion{InputData: []byte(s)})
+}

@@ -126,6 +126,11 @@ func ResolveAskOwner(ctx context.Context, ownerORef string) (*waveobj.Channel, s
 
 func handleAsk(ctx context.Context, data baseds.AgentAskData) {
 	ownerORef := ChannelOwnerORef(ctx, data.ORef)
+	// a dag child's question waits in its lead's queue: an auto-answer would race the lead's, and an
+	// escalation would put a second card in front of the human for the same question
+	if m := ResolveRunWorkerFromMeta(ctx, ownerORef); m != nil && isDagChildRun(ctx, m.Run) {
+		return
+	}
 	ch, task := ResolveAskOwner(ctx, ownerORef)
 	if ch == nil {
 		return // not owned by any gatekeeper-enabled channel or run
@@ -159,6 +164,16 @@ func handleAsk(ctx context.Context, data baseds.AgentAskData) {
 		}
 	}
 	postEscalation(ch.OID, data, decision.Reason, ownerORef)
+}
+
+// isDagChildRun reports a run the engine spawned for a dag task. A dag names its lead in RunID, and the
+// lead holds the same DagORef without being a child.
+func isDagChildRun(ctx context.Context, run *waveobj.Run) bool {
+	if run.DagORef == "" {
+		return false
+	}
+	g, err := wstore.GetDag(ctx, run.DagORef)
+	return err == nil && g.RunID != run.ID
 }
 
 func postAnswered(channelId string, q baseds.AgentAskQuestion, choiceIdx int, reason, askORef, workerORef string) {

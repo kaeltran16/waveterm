@@ -302,9 +302,9 @@ type Run struct {
 	// sheet before the DAG exists. DagSubmit consumes it at submission; once a group exists the group's
 	// own PlanGate is the only authority and this is never read again, so there is no second live truth.
 	PlanGatePending *bool `json:"plangatepending,omitempty"`
-	// PlanFeedback is what the human wrote when they sent this run's gated plan back. The lead reads
-	// it through `wsh jarvis dag wait` and redrafts; the next accepted submission clears it, so a
-	// redraft is never answered with the notes that produced it.
+	// PlanFeedback is what the human wrote when they sent this run's gated plan back. The lead is
+	// handed it in its terminal and from `wsh jarvis dag status`, and redrafts; the next accepted
+	// submission clears it, so a redraft is never answered with the notes that produced it.
 	PlanFeedback string      `json:"planfeedback,omitempty"`
 	Meta         MetaMapType `json:"meta"`
 }

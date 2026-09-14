@@ -576,6 +576,12 @@ Files changing in the last five minutes means the child is working and the engin
 
 ### Nobody ever woke the lead
 
+> **Update 2026-09-14 (orchestrator redesign, slice 3):** the machinery this section describes is gone.
+> `NotifyLead`, the pi control files, `PiSendControlCommand`, `dag wait` and the `lead-control-*` rows
+> were deleted. The engine now types a `wake:` line into the lead's terminal when there is judgment work
+> (`pkg/orchestrate/wake.go`), and the timeline shows `Lead woken` or `Lead wake failed`. The section
+> stays as the record of why.
+
 Open the DAG modal during execution and the LIFECYCLE rail on the right tells the run's story in
 reverse. Most of it is what you would expect — `Task spawned`, `Task done`, `Merge started`,
 `Task merged`, `Cleanup complete`. Interleaved with them, nine times, is a row that looks like
@@ -1018,6 +1024,11 @@ lead blocked in `wait` would have been woken within a second. But whether the le
 polling on its own clock, or simply mid-turn on something else, nothing outside the worker can tell
 you. `DagWaitDefaultTimeout` is 540 seconds — nine minutes —
 and I have no way to rule out that the first gap was a `wait` timing out rather than a lead thinking.
+
+> **Update 2026-09-14:** `dag wait` no longer exists. The lead ends its turn after submitting and is woken
+> by a typed `wake:` line. A wake it does not pick up within 30 seconds is retried once; after that the
+> lead is treated as dead, the timeline records `Lead wake failed`, and its events go to the human. A lead
+> that stops taking wakes now shows on the timeline.
 
 So the honest version of the "watch the merge latencies" rule is weaker than I first wrote it: a gap is
 not proof of death, and you cannot tell a slow lead from a stopped one from outside. Reading the

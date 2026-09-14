@@ -38,24 +38,28 @@ const (
 	//   child-ask / -answered / -cleared  one ask id survives across every answer path
 	//   task-merge-*                  merge lifecycle at persisted content-integration boundaries
 	//   task-cleanup-*                durable worktree cleanup at persisted transition boundaries
-	//   lead-control-*                lead-control delivery + acknowledgement (stable event id)
-	RunEventKindTaskDone                = "task-done"
-	RunEventKindTaskFailed              = "task-failed"
-	RunEventKindDagCancelled            = "dag-cancelled"
-	RunEventKindDagGateOpen             = "dag-gate-open"
-	RunEventKindChildAsk                = "child-ask"
-	RunEventKindChildAnswered           = "child-answered"
-	RunEventKindChildAskCleared         = "child-ask-cleared"
-	RunEventKindTaskMergeStarted        = "task-merge-started"
-	RunEventKindTaskMergeBlocked        = "task-merge-blocked"
-	RunEventKindTaskMergeContinued      = "task-merge-continued"
-	RunEventKindTaskMerged              = "task-merged"
-	RunEventKindTaskCleanupPending      = "task-cleanup-pending"
-	RunEventKindTaskCleanupCompleted    = "task-cleanup-completed"
-	RunEventKindTaskCleanupFailed       = "task-cleanup-failed"
-	RunEventKindLeadControlSent         = "lead-control-sent"
-	RunEventKindLeadControlFailed       = "lead-control-failed"
-	RunEventKindLeadControlAcknowledged = "lead-control-acknowledged"
+	RunEventKindTaskDone             = "task-done"
+	RunEventKindTaskFailed           = "task-failed"
+	RunEventKindDagCancelled         = "dag-cancelled"
+	RunEventKindDagGateOpen          = "dag-gate-open"
+	RunEventKindChildAsk             = "child-ask"
+	RunEventKindChildAnswered        = "child-answered"
+	RunEventKindChildAskCleared      = "child-ask-cleared"
+	RunEventKindTaskMergeStarted     = "task-merge-started"
+	RunEventKindTaskMergeBlocked     = "task-merge-blocked"
+	RunEventKindTaskMergeContinued   = "task-merge-continued"
+	RunEventKindTaskMerged           = "task-merged"
+	RunEventKindTaskCleanupPending   = "task-cleanup-pending"
+	RunEventKindTaskCleanupCompleted = "task-cleanup-completed"
+	RunEventKindTaskCleanupFailed    = "task-cleanup-failed"
+
+	// the question queue and the lead wake (orchestrator redesign §5, §6):
+	//   task-forwarded    a task's open judgment handed to the human, with why ("taskid", "askid", "note")
+	//   lead-woken        a wake typed into the lead's terminal ("text")
+	//   lead-wake-failed  the lead cannot take wakes; its judgment goes to the human ("reason", "lines")
+	RunEventKindTaskForwarded  = "task-forwarded"
+	RunEventKindLeadWoken      = "lead-woken"
+	RunEventKindLeadWakeFailed = "lead-wake-failed"
 
 	// the plan gate: a published dag waiting on the human, and the two ways out of it. Distinct from
 	// the gate-* kinds, which are a *task* gate inside an already-approved plan.

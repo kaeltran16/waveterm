@@ -45,7 +45,7 @@ describe("filterEvents", () => {
         expect(filterEvents(events, "attention").map((e) => e.kind)).toEqual(["child-ask"]);
     });
 
-    it("attention covers asks, gates, failures, blocked merges, failed cleanup and failed control", () => {
+    it("attention covers asks, gates, failures, blocked merges, failed cleanup, hand-offs and failed wakes", () => {
         for (const kind of [
             "child-ask",
             "dag-gate-open",
@@ -55,10 +55,15 @@ describe("filterEvents", () => {
             "dag-blocked",
             "task-merge-blocked",
             "task-cleanup-failed",
-            "lead-control-failed",
+            "task-forwarded",
+            "lead-wake-failed",
         ]) {
             expect(ATTENTION_KINDS.has(kind), kind).toBe(true);
         }
+    });
+
+    it("a wake that landed is not attention", () => {
+        expect(ATTENTION_KINDS.has("lead-woken")).toBe(false);
     });
 
     it("a resolved ask is not attention", () => {
@@ -85,6 +90,13 @@ describe("eventClickTarget", () => {
         expect(eventClickTarget(ev("task-cleanup-failed", { taskid: "t-5" }))).toEqual({
             kind: "dag-task",
             taskId: "t-5",
+        });
+    });
+
+    it("routes a hand-off to the dag task", () => {
+        expect(eventClickTarget(ev("task-forwarded", { taskid: "t-6", askid: "a-1", note: "yours" }))).toEqual({
+            kind: "dag-task",
+            taskId: "t-6",
         });
     });
 

@@ -4,7 +4,6 @@
 import { describe, expect, it } from "vitest";
 import {
     acceptDigest,
-    controlWarning,
     freshCounts,
     healthView,
     nextStepText,
@@ -51,12 +50,6 @@ describe("shouldRefreshDigest", () => {
         expect(shouldRefreshDigest("child-ask-cleared")).toBe(true);
     });
 
-    it("refreshes on lead-control delivery events", () => {
-        expect(shouldRefreshDigest("lead-control-sent")).toBe(true);
-        expect(shouldRefreshDigest("lead-control-failed")).toBe(true);
-        expect(shouldRefreshDigest("lead-control-acknowledged")).toBe(true);
-    });
-
     it("does not refresh on activity ticks or unrelated kinds", () => {
         expect(shouldRefreshDigest(undefined)).toBe(false);
         expect(shouldRefreshDigest("phase-started")).toBe(false);
@@ -82,7 +75,7 @@ describe("nextStepText", () => {
     });
 });
 describe("degradation views (spec 8)", () => {
-    const digest = (health: string, control?: ControlDigest): DagStatusDigest =>
+    const digest = (health: string): DagStatusDigest =>
         ({
             dagversion: 1,
             health,
@@ -90,7 +83,6 @@ describe("degradation views (spec 8)", () => {
             next: { kind: "dispatch" },
             tasks: [],
             durations: { elapsedms: 1000 },
-            control,
         }) as DagStatusDigest;
 
     it("never infers healthy when the digest is unavailable", () => {
@@ -121,20 +113,6 @@ describe("degradation views (spec 8)", () => {
         const fresh = { loading: false, stale: false, digest: digest("healthy") };
         expect(nextStepView(fresh)).toBe("dispatching next task");
         expect(freshCounts(fresh)?.total).toBe(2);
-    });
-
-    it("warns only for control states the human should know about", () => {
-        expect(controlWarning(digest("healthy"))).toBeNull();
-        expect(controlWarning(digest("healthy", { eventid: "e", kind: "gate_open", status: "acknowledged" }))).toBeNull();
-        expect(
-            controlWarning(digest("healthy", { eventid: "e", kind: "gate_open", status: "unconfirmed" }))
-        ).toContain("not confirmed");
-        expect(controlWarning(digest("healthy", { eventid: "e", kind: "gate_open", status: "failed" }))).toContain(
-            "failed"
-        );
-        expect(
-            controlWarning(digest("healthy", { eventid: "e", kind: "gate_open", status: "unavailable" }))
-        ).toContain("unreachable");
     });
 });
 

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
@@ -45,7 +46,7 @@ func setTaskStates(g *waveobj.TaskGroup, states map[string]string) {
 // digestAsk is one pending child ask for a task. AskId mirrors the registry's generated id that
 // DagAsksCommand now carries on DagAskItem.
 func digestAsk(taskID, askID string, ts int64) wshrpc.DagAskItem {
-	return wshrpc.DagAskItem{TaskId: taskID, Question: "should we ship?", Ts: ts, AskId: askID}
+	return wshrpc.DagAskItem{TaskId: taskID, Questions: []baseds.AgentAskQuestion{{Question: "should we ship?"}}, Ts: ts, AskId: askID}
 }
 
 // retainedEvent builds one RunEvent row for a task-scoped kind (unused detail omitted).
@@ -93,18 +94,3 @@ func digestSnapshot(g *waveobj.TaskGroup, runs []*waveobj.Run, asks []wshrpc.Dag
 }
 
 var digestNow = time.UnixMilli(10_000)
-
-// controlEvent builds one lead-control-* row as the control writers persist it.
-func controlEvent(kind, eventID, sessionID, taskID, cmd, failure string, ts int64) waveobj.RunEvent {
-	detail := map[string]any{"eventid": eventID}
-	for k, v := range map[string]string{"sessionid": sessionID, "taskid": taskID, "cmd": cmd, "failure": failure} {
-		if v != "" {
-			detail[k] = v
-		}
-	}
-	detailJSON, _ := json.Marshal(detail)
-	return waveobj.RunEvent{
-		ID: uuid.NewString(), RunID: "run-1", ChannelID: "ch-1",
-		Ts: ts, Kind: kind, Detail: detailJSON,
-	}
-}

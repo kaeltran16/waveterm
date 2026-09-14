@@ -344,26 +344,26 @@ func TestBuildOrchestratePromptEngine(t *testing.T) {
 
 	claude := BuildOrchestratePrompt("do X", principles, "claude", Orchestration_Engine, 0)
 	for _, want := range []string{
-		"do X", "be clean", "dag submit --file", "wsh jarvis dag wait", "terminal:",
+		"do X", "be clean", "dag submit --file", "end your turn", "wake:", "wsh jarvis dag answer", "wsh jarvis dag forward",
 		"wsh jarvis dag merge", "AskUserQuestion", "16 tasks", "one DAG", "wsh jarvis complete",
 	} {
 		if !strings.Contains(claude, want) {
 			t.Fatalf("claude engine prompt missing %q:\n%s", want, claude)
 		}
 	}
-	if strings.Contains(claude, "import-tasks") {
-		t.Fatalf("claude engine prompt must not mention pi-tasks:\n%s", claude)
+	if strings.Contains(claude, "import-tasks") || strings.Contains(claude, "dag wait") {
+		t.Fatalf("claude engine prompt must not mention pi-tasks or the wait loop:\n%s", claude)
 	}
 
-	// pi keeps push delivery: control events, never the wait loop.
+	// both runtimes are woken by typed `wake:` lines: no wait loop and no control events.
 	pi := BuildOrchestratePrompt("do X", principles, "pi", Orchestration_Engine, 0)
-	for _, want := range []string{"import-tasks", "control events", "16 tasks", "wsh jarvis dag merge"} {
+	for _, want := range []string{"import-tasks", "wake:", "wsh jarvis dag forward", "16 tasks", "wsh jarvis dag merge"} {
 		if !strings.Contains(pi, want) {
 			t.Fatalf("pi engine prompt missing %q:\n%s", want, pi)
 		}
 	}
-	if strings.Contains(pi, "dag wait") || strings.Contains(pi, "--file") {
-		t.Fatalf("pi engine prompt must not use the pull loop:\n%s", pi)
+	if strings.Contains(pi, "dag wait") || strings.Contains(pi, "--file") || strings.Contains(pi, "control events") {
+		t.Fatalf("pi engine prompt must not use the pull loop or control events:\n%s", pi)
 	}
 }
 

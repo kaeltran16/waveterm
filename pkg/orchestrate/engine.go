@@ -136,6 +136,7 @@ func cleanupScheduleFailure(ctx, workerCtx context.Context, g *waveobj.TaskGroup
 			appendRunEvent(cleanupCtx, fresh.ChannelId, fresh.RunID, waveobj.RunEventKindTaskFailed, nil, map[string]any{
 				"taskid": fresh.Tasks[idx].ID, "lastfailurekind": FailureKindUnrecorded, "attempts": fresh.Tasks[idx].Attempts, "detail": detail,
 			})
+			PostWake(cleanupCtx, fresh.ChannelId, fresh.RunID, taskFailedWake(fresh.Tasks[idx].ID, FailureKindUnrecorded))
 		}
 	}
 	return errors.Join(errs...)
@@ -162,6 +163,7 @@ func failDispatch(ctx context.Context, g *waveobj.TaskGroup, taskID, kind string
 		appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskFailed, nil, map[string]any{
 			"taskid": taskID, "lastfailurekind": kind, "attempts": attempts, "detail": detail,
 		})
+		PostWake(ctx, g.ChannelId, g.RunID, taskFailedWake(taskID, kind))
 	})
 }
 
@@ -236,9 +238,9 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 	}
 	DeriveTaskStates(g, runs)
 	// liveness + stall detection: refresh each running task's last-activity from its child's own
-	// transcript writes; a running task silent past StallThreshold is flagged stalled and reported to
-	// the lead (nothing else ever notices a headless child that stopped progressing). A stalled task
-	// whose child later completes still derives done (DeriveTaskStates).
+	// transcript writes; a running task silent past StallThreshold is flagged stalled (nothing else ever
+	// notices a headless child that stopped progressing). A stalled task whose child later completes
+	// still derives done (DeriveTaskStates).
 	now := time.Now().UnixMilli()
 	for i := range g.Tasks {
 		t := &g.Tasks[i]
@@ -290,8 +292,8 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 			t.State = TaskState_Stalled
 		}
 	}
-	// child-done notification: a task whose child just reached done wakes the lead (publish + control file)
-	// and records the task-done lifecycle boundary (task id + child run id).
+	// child-done: record the task-done lifecycle boundary (task id + child run id). A done child is not
+	// judgment, so the lead is not woken; the merge that follows wakes it only on a conflict.
 	for i := range g.Tasks {
 		t := &g.Tasks[i]
 		if t.State == TaskState_Done && t.RunID != "" && taskActive(prevStates[t.ID]) {
@@ -299,14 +301,13 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 			childRunID := t.RunID
 			afterCommit = append(afterCommit, func() {
 				publishDagEvent(DagEventChildDone, g, taskID)
-				notifyLeadBestEffort(ctx, g, DagEventChildDone, taskID, taskID)
 				appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskDone, nil, map[string]any{"taskid": taskID, "runid": childRunID})
 			})
 		}
 		if t.State == TaskState_Stalled && prevStates[t.ID] == TaskState_Running {
 			taskID := t.ID
 			afterCommit = append(afterCommit, func() {
-				PublishTaskStalled(ctx, g, taskID)
+				publishDagEvent(DagEventTaskStalled, g, taskID)
 				appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskStalled, nil, map[string]any{"taskid": taskID})
 			})
 		}
@@ -337,6 +338,7 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 			attempts := g.Tasks[i].Attempts
 			afterCommit = append(afterCommit, func() {
 				appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskFailed, nil, map[string]any{"taskid": taskID, "runid": childRunID, "lastfailurekind": kind, "attempts": attempts})
+				PostWake(ctx, g.ChannelId, g.RunID, taskFailedWake(taskID, kind))
 			})
 		}
 	}
@@ -420,22 +422,21 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		})
 	}
 	RecomputeDagStatus(g)
-	// status notifications: gate-open / blocked / complete wake the lead, once per condition. The
-	// watchdog and every dag mutation re-enter Schedule, so emitting the standing status would refill
-	// the lifecycle log with identical rows and re-wake the lead about what it was already told. The
-	// gate cannot be compared against the status this tick started from: the mutation paths recompute
-	// and PERSIST the new status before calling Schedule, so the row already reads the new condition.
-	// What the lead was last told is its own fact, so the dag records it.
+	// status notifications: gate-open / blocked / complete, once per condition. The watchdog and every
+	// dag mutation re-enter Schedule, so emitting the standing status would refill the lifecycle log with
+	// identical rows and re-wake the lead about what it was already told. The gate cannot be compared
+	// against the status this tick started from: the mutation paths recompute and PERSIST the new status
+	// before calling Schedule, so the row already reads the new condition. What was last announced is its
+	// own fact, so the dag records it. Only the finished run wakes the lead here: a gate is the human's,
+	// and each failure behind a blocked dag woke the lead when it happened.
 	condition := dagCondition(g)
 	notify := condition != g.NotifiedCondition
 	g.NotifiedCondition = condition
 	switch {
 	case notify && g.Status == DagStatus_AwaitingReview:
 		gateTask := gatedTaskID(g)
-		detail := fmt.Sprintf("gate %s", gateTask)
 		afterCommit = append(afterCommit, func() {
 			publishDagEvent(DagEventGateOpen, g, "")
-			notifyLeadBestEffort(ctx, g, DagEventGateOpen, detail, gateTask)
 			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindDagGateOpen, nil, map[string]any{"taskid": gateTask})
 		})
 	case notify && g.Status == DagStatus_Blocked:
@@ -444,13 +445,12 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		afterCommit = append(afterCommit, func() {
 			publishDagEvent(DagEventBlocked, g, "")
 			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindDagBlocked, nil, map[string]any{"failures": failures, "kind": blockingKind})
-			notifyLeadBestEffort(ctx, g, DagEventBlocked, fmt.Sprintf("%d failures", failures), "")
 		})
 	case notify && g.Status == DagStatus_Done:
 		afterCommit = append(afterCommit, func() {
 			publishDagEvent(DagEventComplete, g, "")
 			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindDagDone, nil, map[string]any{})
-			notifyLeadBestEffort(ctx, g, DagEventComplete, "all tasks done", "")
+			PostWake(ctx, g.ChannelId, g.RunID, runFinishedWake)
 		})
 	}
 	g.UpdatedTs = time.Now().UnixMilli()

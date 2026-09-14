@@ -42,7 +42,7 @@ const (
 	DagEventBlocked     = "dag:dag-blocked"  // type: string (failure count)
 	DagEventComplete    = "dag:dag-complete" // type: string ("all tasks done")
 	DagEventTaskSpawned = "dag:task-spawned" // type: string (task id)
-	DagEventChildAsk    = "dag:child-ask"    // type: string (JSON {taskid, question})
+	DagEventChildAsk    = "dag:child-ask"    // type: string (JSON {taskid, askid})
 	DagEventTaskStalled = "dag:task-stalled" // type: string (task id)
 	DagEventTaskRetried = "dag:task-retried" // type: string (task id)
 	Event_RunEvent      = "run:event"        // type: wshrpc.RunEventData
