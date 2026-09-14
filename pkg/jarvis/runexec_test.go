@@ -24,12 +24,10 @@ func TestRunWorkerSpecFor(t *testing.T) {
 		args    []string
 	}{
 		{"claude", "claude", []string{"--dangerously-skip-permissions", "do work"}},
-		{"codex", "codex", []string{"--dangerously-bypass-approvals-and-sandbox", "do work"}},
-		{"opencode", "opencode", []string{"--auto", "--prompt", "do work"}},
 		{"pi", "pi", []string{"do work"}},
 	}
 	for _, tt := range tests {
-		cap, err := runroute.Resolve(waveobj.RoutePin{Runtime: tt.runtime, Tier: string(consult.TierCapable)})
+		cap, err := runroute.Resolve(waveobj.RoutePin{Runtime: tt.runtime})
 		if err != nil {
 			t.Fatalf("resolve %s: %v", tt.runtime, err)
 		}
@@ -44,19 +42,17 @@ func TestRunWorkerSpecFor_CapabilityArgs(t *testing.T) {
 	tests := []struct {
 		name    string
 		runtime string
-		tier    consult.Tier
+		model   string
 		args    []string
 	}{
-		{"pi capable", "pi", consult.TierCapable, []string{"do work"}},
-		{"claude cheap", "claude", consult.TierCheap, []string{"--dangerously-skip-permissions", "--model", consult.CheapModel, "do work"}},
-		{"claude mid", "claude", consult.TierMid, []string{"--dangerously-skip-permissions", "--model", consult.MidModel, "do work"}},
-		{"claude capable", "claude", consult.TierCapable, []string{"--dangerously-skip-permissions", "do work"}},
-		{"codex capable", "codex", consult.TierCapable, []string{"--dangerously-bypass-approvals-and-sandbox", "do work"}},
-		{"opencode capable", "opencode", consult.TierCapable, []string{"--auto", "--prompt", "do work"}},
+		{"pi default", "pi", "", []string{"do work"}},
+		{"claude cheap model", "claude", consult.CheapModel, []string{"--dangerously-skip-permissions", "--model", consult.CheapModel, "do work"}},
+		{"claude mid model", "claude", consult.MidModel, []string{"--dangerously-skip-permissions", "--model", consult.MidModel, "do work"}},
+		{"claude default", "claude", "", []string{"--dangerously-skip-permissions", "do work"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cap, err := runroute.Resolve(waveobj.RoutePin{Runtime: tt.runtime, Tier: string(tt.tier)})
+			cap, err := runroute.Resolve(waveobj.RoutePin{Runtime: tt.runtime, Model: tt.model})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -66,15 +62,24 @@ func TestRunWorkerSpecFor_CapabilityArgs(t *testing.T) {
 			}
 		})
 	}
-	cap, _ := runroute.Resolve(waveobj.RoutePin{Runtime: "claude", Tier: string(consult.TierCheap)})
-	cap.Tier = string(consult.TierCapable)
+	cap, _ := runroute.Resolve(waveobj.RoutePin{Runtime: "claude", Model: consult.CheapModel})
+	cap.ModelArgs = nil
 	for _, invalid := range []runroute.Capability{
 		cap,
-		{Runtime: "pi", Tier: string(consult.TierCapable)},
-		{Runtime: "mystery", Tier: string(consult.TierCapable)},
+		{Runtime: "pi"},
+		{Runtime: "mystery", ResolvedModel: "operator default"},
 	} {
 		if _, ok := RunWorkerSpecFor(invalid, "do work"); ok {
 			t.Errorf("mismatched/unsupported capability %+v produced a worker spec", cap)
+		}
+	}
+}
+
+func TestRunWorkerSpecForRejectsUnsupportedRuntimes(t *testing.T) {
+	for _, runtime := range []string{"codex", "opencode"} {
+		cap := runroute.Capability{Runtime: runtime, ResolvedModel: "operator default"}
+		if spec, ok := RunWorkerSpecFor(cap, "do work"); ok {
+			t.Errorf("%s must have no run worker adapter, got %+v", runtime, spec)
 		}
 	}
 }
@@ -116,7 +121,7 @@ func TestEnsureWorkersPassesKeepOnExitOnlyForOrchestrator(t *testing.T) {
 		got = append(got, opts)
 		return "tab:worker", nil
 	}
-	cap, err := runroute.Resolve(waveobj.RoutePin{Runtime: "pi", Tier: string(consult.TierCapable)})
+	cap, err := runroute.Resolve(waveobj.RoutePin{Runtime: "pi"})
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}

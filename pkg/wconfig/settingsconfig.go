@@ -178,7 +178,6 @@ type SettingsType struct {
 	DebugWebGlStatus         bool `json:"debug:webglstatus,omitempty"`
 
 	HarnessPreferredRuntime string `json:"harness:preferredruntime,omitempty"`
-	HarnessPreferredTier    string `json:"harness:preferredtier,omitempty"`
 	HarnessPreferredModel   string `json:"harness:preferredmodel,omitempty"`
 }
 

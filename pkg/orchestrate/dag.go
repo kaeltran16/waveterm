@@ -285,7 +285,7 @@ func SameDagProposal(a, b *waveobj.TaskGroup) bool {
 				return false
 			}
 		}
-		if ta.RunSpec.Runtime != tb.RunSpec.Runtime || ta.RunSpec.Tier != tb.RunSpec.Tier || ta.RunSpec.Model != tb.RunSpec.Model || ta.RunSpec.Goal != tb.RunSpec.Goal || ta.RunSpec.Mode != tb.RunSpec.Mode {
+		if ta.RunSpec.Runtime != tb.RunSpec.Runtime || ta.RunSpec.Model != tb.RunSpec.Model || ta.RunSpec.Goal != tb.RunSpec.Goal || ta.RunSpec.Mode != tb.RunSpec.Mode {
 			return false
 		}
 	}

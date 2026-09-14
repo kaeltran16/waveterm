@@ -205,8 +205,7 @@ func spawnRunWorkers(ctx context.Context, channelId, runId, projectName string) 
 	if err != nil {
 		return err
 	}
-	pin := runroute.NormalizeLegacy(run.Runtime, run.Tier)
-	pin.Model = run.Model
+	pin := waveobj.RoutePin{Runtime: runroute.DefaultRuntime(run.Runtime), Model: run.Model}
 	cap, routeErr := runroute.Resolve(pin)
 	if routeErr != nil {
 		return routeErr
@@ -314,7 +313,7 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 		effortRef = &waveobj.RunEffortRef{EffortOID: data.EffortOID, ChunkLabel: data.ChunkLabel}
 	}
 	// Resolve and validate the complete route before loading or persisting any run state.
-	cap, err := runroute.Resolve(waveobj.RoutePin{Runtime: data.Runtime, Tier: data.Tier, Model: data.Model})
+	cap, err := runroute.Resolve(waveobj.RoutePin{Runtime: data.Runtime, Model: data.Model})
 	if err != nil {
 		return nil, err
 	}
@@ -353,7 +352,6 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 		run.Status = jarvis.RunStatus_Planning
 	}
 	run.Runtime = cap.Runtime // immutable after Start; every phase and child inherits this
-	run.Tier = cap.Tier
 	run.Model = cap.Model
 	run.WorkerRoute = data.WorkerRoute
 	run.Orchestration = orchestration // prompt-shaping only; DagSubmit stays open to either choice
@@ -465,8 +463,7 @@ func (ws *WshServer) CreateChildRunCommand(ctx context.Context, data wshrpc.Comm
 		mode = parent.Mode // inherit the channel strategy the parent run was created with
 	}
 	resolved := jarvis.ResolveProfile(jarvis.LoadGlobalProfile(), jarvis.OverrideFromMeta(m.Channel))
-	pin := runroute.NormalizeLegacy(parent.Runtime, parent.Tier)
-	pin.Model = parent.Model
+	pin := waveobj.RoutePin{Runtime: runroute.DefaultRuntime(parent.Runtime), Model: parent.Model}
 	cap, err := runroute.Resolve(pin)
 	if err != nil {
 		return nil, err
@@ -476,10 +473,10 @@ func (ws *WshServer) CreateChildRunCommand(ctx context.Context, data wshrpc.Comm
 	}
 	childMode, playbook := childRunPlan(resolved, mode)
 	child := jarvis.NewRun(data.Goal, parent.WorkspaceId, parent.ProjectPath, parent.Principles, childMode, playbook, time.Now().UnixMilli())
-	// Children inherit the parent's runtime server-side; an empty legacy parent runtime becomes explicit
-	// claude so the child is never re-resolved as a legacy object.
+	// Children inherit the parent's route server-side; an empty parent runtime becomes explicit claude
+	// so the child is never re-resolved as a legacy object.
 	child.Runtime = cap.Runtime
-	child.Tier = string(cap.Tier)
+	child.Model = cap.Model
 	child.ParentLeadORef = data.ORef
 	if head, herr := gitinfo.HeadCommit(ctx, parent.ProjectPath); herr == nil {
 		child.BaseCommit = head

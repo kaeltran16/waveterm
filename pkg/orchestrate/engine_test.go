@@ -583,7 +583,7 @@ func TestScheduleOnceUsesTaskRouteForSpawnAndChild(t *testing.T) {
 	}
 	owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
 	owner.Runtime = "claude"
-	owner.Tier = "mid"
+	owner.Model = "sonnet"
 	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
 		t.Fatal(err)
 	}
@@ -627,7 +627,6 @@ func TestScheduleOnceRejectsUnavailableTaskRouteBeforeSpawn(t *testing.T) {
 	}
 	owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
 	owner.Runtime = "claude"
-	owner.Tier = "capable"
 	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
 		t.Fatal(err)
 	}
@@ -668,7 +667,7 @@ func TestScheduleOnceLegacyRuntimeOnlyAndInheritedRoutes(t *testing.T) {
 	}
 	owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
 	owner.Runtime = "pi"
-	owner.Tier = "mid"
+	owner.Model = "opencode/deepseek-v4-pro"
 	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
 		t.Fatal(err)
 	}
@@ -704,13 +703,12 @@ func TestScheduleOnceLegacyRuntimeOnlyAndInheritedRoutes(t *testing.T) {
 			t.Fatal(cerr)
 		}
 		if id == "legacy" {
-			if caps[id].Runtime != "claude" || caps[id].Tier != "capable" || child.Runtime != "claude" || child.Tier != "capable" {
-				t.Fatalf("legacy route = cap %+v child %s/%s, want claude/capable", caps[id], child.Runtime, child.Tier)
+			// a runtime-only task pin is that runtime's default, never the owner's model
+			if caps[id].Runtime != "claude" || caps[id].Model != "" || child.Runtime != "claude" || child.Model != "" {
+				t.Fatalf("legacy route = cap %+v child %s/%s, want the claude default", caps[id], child.Runtime, child.Model)
 			}
-			// the owner's persisted pi/mid is a legacy pin: pi has no tiers, so it normalizes to
-			// capable (pi's own default model) instead of stranding the child on a dead route
-		} else if caps[id].Runtime != "pi" || caps[id].Tier != "capable" || child.Runtime != "pi" || child.Tier != "capable" {
-			t.Fatalf("inherited route = cap %+v child %s/%s, want pi/capable", caps[id], child.Runtime, child.Tier)
+		} else if caps[id].Runtime != "pi" || caps[id].Model != owner.Model || child.Runtime != "pi" || child.Model != owner.Model {
+			t.Fatalf("inherited route = cap %+v child %s/%s, want the owner's pi model", caps[id], child.Runtime, child.Model)
 		}
 	}
 }

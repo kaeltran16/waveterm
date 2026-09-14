@@ -64,11 +64,11 @@ func TestCreateChildRunCommand_InheritsAndStampsParent(t *testing.T) {
 	if child.Mode != jarvis.RunMode_Orchestrator {
 		t.Errorf("child Mode = %q, want inherited orchestrator", child.Mode)
 	}
-	if child.Runtime != "claude" || child.Tier != "capable" {
-		t.Errorf("child route = %s/%s, want claude/capable", child.Runtime, child.Tier)
+	if child.Runtime != "claude" || child.Model != "" {
+		t.Errorf("child route = %s/%q, want the claude default", child.Runtime, child.Model)
 	}
-	if spawnedWith.Runtime != "claude" || spawnedWith.Tier != "capable" {
-		t.Errorf("spawned capability = %+v, want claude/capable", spawnedWith)
+	if spawnedWith.Runtime != "claude" || spawnedWith.Model != "" {
+		t.Errorf("spawned capability = %+v, want the claude default", spawnedWith)
 	}
 	for i, p := range child.Phases {
 		if p.Gate {
@@ -86,7 +86,8 @@ func TestCreateChildRunCommand_InheritsParentRuntime(t *testing.T) {
 	}
 	parent := jarvis.NewRun("work the backlog", "ws-1", "/repo",
 		nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(true), 1)
-	parent.Runtime = "opencode"
+	parent.Runtime = "pi"
+	parent.Model = "opencode/deepseek-v4-pro"
 	leadORef := waveobj.MakeORef(waveobj.OType_Tab, "leadtab").String()
 	parent.Phases[0].WorkerOrefs = []string{leadORef}
 	if err := wstore.AppendRun(ctx, ch.OID, parent); err != nil {
@@ -116,8 +117,8 @@ func TestCreateChildRunCommand_InheritsParentRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetRun(child): %v", err)
 	}
-	if child.Runtime != "opencode" || child.Tier != "capable" {
-		t.Errorf("child route = %s/%s, want opencode/capable", child.Runtime, child.Tier)
+	if child.Runtime != "pi" || child.Model != parent.Model {
+		t.Errorf("child route = %s/%q, want the parent's pi model", child.Runtime, child.Model)
 	}
 }
 
@@ -159,8 +160,8 @@ func TestCreateChildRunCommand_LegacyParentPersistsClaude(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetRun(child): %v", err)
 	}
-	if child.Runtime != "claude" || child.Tier != "capable" {
-		t.Errorf("child route = %s/%s, want explicit claude/capable for a legacy parent", child.Runtime, child.Tier)
+	if child.Runtime != "claude" || child.Model != "" {
+		t.Errorf("child route = %s/%q, want explicit claude with its default model for a legacy parent", child.Runtime, child.Model)
 	}
 }
 

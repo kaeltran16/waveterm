@@ -8,7 +8,7 @@ import { atom } from "jotai";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { globalStore } from "@/app/store/global";
-import { capabilityFor } from "./route";
+import { capabilityFor, normalizeRoute } from "./route";
 
 export interface HarnessPreferenceState {
     route: RoutePin | null;
@@ -34,12 +34,8 @@ export function resolveDefaultRuntime(pref: string, harnesses: HarnessInfo[]): s
     return first ? first.runtime : "";
 }
 
-function toPin(routeOrRuntime: RoutePin | string, tier?: string): RoutePin {
-    return typeof routeOrRuntime === "string" ? { runtime: routeOrRuntime, tier: tier || "capable" } : routeOrRuntime;
-}
-
-export function beginSave(state: HarnessPreferenceState, routeOrRuntime: RoutePin | string, tier?: string): HarnessPreferenceState {
-    return { route: toPin(routeOrRuntime, tier), persistedRoute: state.persistedRoute, saving: true };
+export function beginSave(state: HarnessPreferenceState, route: RoutePin): HarnessPreferenceState {
+    return { route, persistedRoute: state.persistedRoute, saving: true };
 }
 
 export function persistSave(state: HarnessPreferenceState): HarnessPreferenceState {
@@ -55,18 +51,16 @@ export function setPreferredRoute(route: RoutePin): void {
     const same =
         current.route != null &&
         current.route.runtime === route.runtime &&
-        (current.route.model ?? "") === (route.model ?? "") &&
-        (current.route.tier ?? "") === (route.tier ?? "");
+        (current.route.model ?? "") === (route.model ?? "");
     if (current.saving || same) {
         return;
     }
     globalStore.set(harnessPreferenceAtom, beginSave(current, route));
     void (async () => {
         try {
-            // always send all three so switching model<->tier clears the stale selector
+            // the server takes the pair together; an empty model clears the previous runtime's model
             const patch: Record<string, string> = {
                 "harness:preferredruntime": route.runtime,
-                "harness:preferredtier": route.tier ?? "",
                 "harness:preferredmodel": route.model ?? "",
             };
             await RpcApi.SetConfigCommand(TabRpcClient, patch as Parameters<typeof RpcApi.SetConfigCommand>[1]);
@@ -81,8 +75,7 @@ export function setPreferredRoute(route: RoutePin): void {
 export function setPreferredHarness(runtime: string): void {
     const current = globalStore.get(harnessPreferenceAtom);
     const harness = globalStore.get(harnessesAtom).find((h) => h.runtime === runtime);
-    const tier = current.route?.tier || "capable";
-    const route = harness?.routecapabilities?.find((c) => c.tier === tier) ?? harness?.routecapabilities?.find((c) => c.tier === "capable");
+    const route = harness?.routecapabilities?.find((c) => (c.model ?? "") === "");
     if (route == null) {
         globalStore.set(harnessPreferenceAtom, { ...current, error: `No route capability available for ${runtime}` });
         return;
@@ -90,17 +83,15 @@ export function setPreferredHarness(runtime: string): void {
     // re-picking the harness already in use must not discard its model pin; a model id belongs to one
     // harness's namespace, so switching harnesses does drop it
     const model = current.route?.runtime === runtime ? current.route.model : undefined;
-    setPreferredRoute({ runtime: route.runtime, tier: route.tier, ...(model ? { model } : {}) });
+    setPreferredRoute({ runtime: route.runtime, ...(model ? { model } : {}) });
 }
 
-export function initHarnessPreference(persistedRuntime: string, persistedTier = "", persistedModel = ""): void {
+export function initHarnessPreference(persistedRuntime: string, persistedModel = ""): void {
     const current = globalStore.get(harnessPreferenceAtom);
     if (current.saving) {
         return;
     }
-    const route = persistedRuntime
-        ? { runtime: persistedRuntime, tier: persistedTier || "capable", ...(persistedModel ? { model: persistedModel } : {}) }
-        : null;
+    const route = normalizeRoute(persistedRuntime, persistedModel);
     globalStore.set(harnessPreferenceAtom, { route, persistedRoute: route, saving: false });
 }
 

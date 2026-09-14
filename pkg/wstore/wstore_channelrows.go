@@ -27,7 +27,7 @@ const MetaKey_ConciergeOwnersBackfilled = "channel:conciergeownersbackfilled"
 func BackfillChannelRows() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	done, err := singletonMetaBool(ctx, MetaKey_ChannelRowsBackfilled)
+	done, err := SingletonMetaBool(ctx, MetaKey_ChannelRowsBackfilled)
 	if err != nil {
 		return err
 	}
@@ -35,12 +35,12 @@ func BackfillChannelRows() error {
 		if err := backfillChannelRowsOnce(ctx); err != nil {
 			return err
 		}
-		if err := markSingletonMetaBool(ctx, MetaKey_ChannelRowsBackfilled); err != nil {
+		if err := MarkSingletonMetaBool(ctx, MetaKey_ChannelRowsBackfilled); err != nil {
 			return err
 		}
 	}
 	// Phase-2 concierge-owner stamp (separate marker; the Phase-1 marker already fired on existing dirs).
-	done2, err := singletonMetaBool(ctx, MetaKey_ConciergeOwnersBackfilled)
+	done2, err := SingletonMetaBool(ctx, MetaKey_ConciergeOwnersBackfilled)
 	if err != nil {
 		return err
 	}
@@ -48,7 +48,7 @@ func BackfillChannelRows() error {
 		if err := backfillConciergeOwnersOnce(ctx); err != nil {
 			return err
 		}
-		if err := markSingletonMetaBool(ctx, MetaKey_ConciergeOwnersBackfilled); err != nil {
+		if err := MarkSingletonMetaBool(ctx, MetaKey_ConciergeOwnersBackfilled); err != nil {
 			return err
 		}
 	}
@@ -135,9 +135,9 @@ func backfillChannelRowsOnce(ctx context.Context) error {
 	return nil
 }
 
-// singletonMetaBool reads a boolean flag off the MainServer singleton meta. A fresh store with no
+// SingletonMetaBool reads a boolean flag off the MainServer singleton meta. A fresh store with no
 // MainServer row yet reports false (not done). Used to gate the one-shot backfills.
-func singletonMetaBool(ctx context.Context, key string) (bool, error) {
+func SingletonMetaBool(ctx context.Context, key string) (bool, error) {
 	ms, err := DBGetSingleton[*waveobj.MainServer](ctx)
 	if err != nil || ms == nil {
 		// no MainServer yet (fresh store) → not set
@@ -146,8 +146,8 @@ func singletonMetaBool(ctx context.Context, key string) (bool, error) {
 	return ms.Meta.GetBool(key, false), nil
 }
 
-// markSingletonMetaBool sets a boolean flag on the MainServer singleton meta.
-func markSingletonMetaBool(ctx context.Context, key string) error {
+// MarkSingletonMetaBool sets a boolean flag on the MainServer singleton meta.
+func MarkSingletonMetaBool(ctx context.Context, key string) error {
 	ms, err := DBGetSingleton[*waveobj.MainServer](ctx)
 	if err != nil || ms == nil {
 		// no MainServer row yet: the mark will be set by whoever creates it, and the backfill core is

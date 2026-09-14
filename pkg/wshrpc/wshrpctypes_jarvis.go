@@ -213,8 +213,7 @@ type CommandArchiveJarvisConversationData struct {
 
 type RouteCapabilityInfo struct {
 	Runtime       string `json:"runtime"`
-	Tier          string `json:"tier,omitempty"`  // legacy tier pin only; "" for model capabilities
-	Model         string `json:"model,omitempty"` // exact model id; set on catalog capabilities
+	Model         string `json:"model,omitempty"` // exact model id; "" for the runtime default
 	ResolvedModel string `json:"resolvedmodel"`
 	Provider      string `json:"provider,omitempty"`
 	ContextHint   string `json:"contexthint,omitempty"`

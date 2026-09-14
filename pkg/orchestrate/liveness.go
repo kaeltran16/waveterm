@@ -60,8 +60,9 @@ var sessionsRootFor = agentsessions.SessionRoot
 // is identity. opencode is deliberately absent — its cwd lives in a session-info file whose prompt is
 // in sibling part files the marker never reaches, and whether that file is rewritten as the session
 // progresses is unverified; a frozen mtime there would stall healthy children, which is exactly the
-// failure this scan exists to prevent.
-var livenessRuntimes = map[string]bool{"claude": true, "codex": true, "pi": true}
+// failure this scan exists to prevent. codex left with its run worker adapter (docs/deferred.md,
+// 2026-09-14); the scan below still reads its rollout layout, so it returns with the adapter.
+var livenessRuntimes = map[string]bool{"claude": true, "pi": true}
 
 // firstTokenRuntimes are the runtimes whose transcript is written per event, which is the only thing
 // that makes "has written nothing yet" mean hung. claude is deliberately absent: in the 2026-09-05
@@ -84,7 +85,7 @@ func firstTokenArmed(run *waveobj.Run) bool {
 	return firstTokenRuntimes[runtime]
 }
 
-// defaultWorkerRuntime mirrors runroute.NormalizeLegacy's default: a child run persisted before the
+// defaultWorkerRuntime mirrors runroute.DefaultRuntime: a child run persisted before the
 // route carried a runtime ran claude.
 const defaultWorkerRuntime = "claude"
 

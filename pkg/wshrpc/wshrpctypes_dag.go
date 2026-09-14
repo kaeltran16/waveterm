@@ -51,8 +51,7 @@ type CommandDagActionData struct {
 	RunId     string `json:"runid"`
 	TaskId    string `json:"taskid"`
 	Action    string `json:"action"`            // approve | sendback | retry | skip | escalate | cancel | approve-plan | sendback-plan
-	Tier      string `json:"tier,omitempty"`    // legacy escalate target tier
-	Model     string `json:"model,omitempty"`   // escalate target model (exact id); wins over Tier
+	Model     string `json:"model,omitempty"`   // escalate target model (exact id); required
 	Runtime   string `json:"runtime,omitempty"` // escalate target runtime; empty = task's current runtime
 	Notes     string `json:"notes,omitempty"`   // sendback-plan: what the human wants changed, delivered to the lead
 }

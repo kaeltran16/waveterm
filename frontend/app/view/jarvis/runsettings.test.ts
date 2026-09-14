@@ -92,14 +92,14 @@ describe("sheetFace", () => {
 
 describe("runSettingsDraft", () => {
     it("reads the run's own launch form before submission", () => {
-        const route = { runtime: "pi", tier: "capable" } as RoutePin;
+        const route = { runtime: "pi" } as RoutePin;
         const run = engineRun({ parallelism: 4, workerroute: route });
         expect(runSettingsDraft(run, null)).toEqual({ parallelism: 4, workerRoute: route, planGate: true });
     });
 
     // the group, not the run, is what the scheduler will read
     it("prefers the group once a dag exists", () => {
-        const route = { runtime: "claude", tier: "capable" } as RoutePin;
+        const route = { runtime: "claude" } as RoutePin;
         const run = engineRun({ parallelism: 4 });
         const group = gatedGroup({ parallelism: 2, workerroute: route, plangate: false });
         expect(runSettingsDraft(run, group)).toEqual({ parallelism: 2, workerRoute: route, planGate: false });
@@ -123,7 +123,7 @@ describe("draftIsDirty", () => {
         expect(
             draftIsDirty(base, {
                 parallelism: 2,
-                workerRoute: { runtime: "pi", tier: "capable" } as RoutePin,
+                workerRoute: { runtime: "pi" } as RoutePin,
                 planGate: true,
             })
         ).toBe(true);
@@ -132,12 +132,12 @@ describe("draftIsDirty", () => {
 
 describe("settingsPayload", () => {
     it("sends only the mutable settings, addressed to the run", () => {
-        const draft = { parallelism: 3, workerRoute: { runtime: "pi", tier: "capable" } as RoutePin, planGate: false };
+        const draft = { parallelism: 3, workerRoute: { runtime: "pi" } as RoutePin, planGate: false };
         expect(settingsPayload("c1", "r1", draft)).toEqual({
             channelid: "c1",
             runid: "r1",
             parallelism: 3,
-            workerroute: { runtime: "pi", tier: "capable" },
+            workerroute: { runtime: "pi" },
             plangate: false,
         });
     });
@@ -211,14 +211,14 @@ describe("draftSeedKey", () => {
     it("changes on a route-only group update", () => {
         const linked = engineRun({ dagoref: "d1" });
         const before = draftSeedKey(linked, gatedGroup());
-        const after = draftSeedKey(linked, gatedGroup({ workerroute: { runtime: "pi", tier: "capable" } as RoutePin }));
+        const after = draftSeedKey(linked, gatedGroup({ workerroute: { runtime: "pi" } as RoutePin }));
         expect(after).not.toBe(before);
     });
 
     it("changes on a pre-dag width or worker route", () => {
         const base = draftSeedKey(engineRun(), null);
         expect(draftSeedKey(engineRun({ parallelism: 6 }), null)).not.toBe(base);
-        expect(draftSeedKey(engineRun({ workerroute: { runtime: "pi", tier: "capable" } as RoutePin }), null)).not.toBe(
+        expect(draftSeedKey(engineRun({ workerroute: { runtime: "pi" } as RoutePin }), null)).not.toBe(
             base
         );
     });
@@ -237,15 +237,15 @@ describe("draftSeedKey", () => {
 
 describe("effectiveRunConfig", () => {
     it("reads the launched facts from the run and the mutable dials from the draft", () => {
-        const lead = { runtime: "claude", tier: "strong" } as RoutePin;
-        const worker = { runtime: "pi", tier: "capable" } as RoutePin;
-        const run = engineRun({ runtime: "claude", tier: "strong", workerroute: lead });
+        const lead = { runtime: "claude", model: "opus" } as RoutePin;
+        const worker = { runtime: "pi" } as RoutePin;
+        const run = engineRun({ runtime: "claude", model: "opus", workerroute: lead });
         const got = effectiveRunConfig(run, { parallelism: 4, workerRoute: worker, planGate: false });
         expect(got).toEqual({
             shape: "orchestrator",
             machine: "engine",
             parallelism: 4,
-            leadRoute: { runtime: "claude", tier: "strong" },
+            leadRoute: { runtime: "claude", model: "opus" },
             workerRoute: worker,
             planGate: false,
         });
@@ -261,8 +261,8 @@ describe("engineDefaultsPatch", () => {
             shape: "orchestrator",
             machine: "engine",
             parallelism: 5,
-            leadRoute: { runtime: "claude", tier: "strong" } as RoutePin,
-            workerRoute: { runtime: "pi", tier: "capable" } as RoutePin,
+            leadRoute: { runtime: "claude", model: "opus" } as RoutePin,
+            workerRoute: { runtime: "pi" } as RoutePin,
             planGate: false,
         };
         expect(engineDefaultsPatch(existing, config)).toEqual({
@@ -270,14 +270,14 @@ describe("engineDefaultsPatch", () => {
             defaultmode: "orchestrator",
             machine: "engine",
             parallelism: 5,
-            route: { runtime: "claude", tier: "strong" },
-            workerroute: { runtime: "pi", tier: "capable" },
+            route: { runtime: "claude", model: "opus" },
+            workerroute: { runtime: "pi" },
             defaultplangate: false,
         });
     });
 
     it("clears the routes when the run inherits them", () => {
-        const existing = { workerroute: { runtime: "pi", tier: "capable" } } as ProfileOverride;
+        const existing = { workerroute: { runtime: "pi" } } as ProfileOverride;
         const patched = engineDefaultsPatch(existing, {
             shape: "pipeline",
             machine: "adaptive",

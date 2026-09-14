@@ -22,6 +22,7 @@ import {
 import { HarnessPicker, harnessRuntimeIds } from "./harnesspicker";
 import { harnessPreferenceAtom, harnessesAtom } from "./harnessstore";
 import { orchestratorBehaviorFace } from "./orchestratorpicker";
+import { modelFace } from "./route";
 import { orchestrationAtom, runRouteAtom, runShapeAtom, workerRouteAtom } from "./runconfigstore";
 import { runtimeMeta } from "./runtimemeta";
 
@@ -130,8 +131,8 @@ export function LaunchComposer({
         selectedShape === "orchestrator"
             ? orchestratorBehaviorFace({
                   orchestration,
-                  leadFace: route?.model || route?.tier || "unset",
-                  workerFace: workerRoute ? workerRoute.model || workerRoute.tier || null : null,
+                  leadFace: route ? modelFace(route) : "unset",
+                  workerFace: workerRoute ? modelFace(workerRoute) : null,
               })
             : selectedShape === "quick"
               ? `→ direct quick launch in #${channelName}`

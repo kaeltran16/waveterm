@@ -222,7 +222,7 @@ func TestDagSubmitDeferredRun(t *testing.T) {
 	stubRunServer(t, "pi", nil)
 	ws := &WshServer{}
 	rtn, err := ws.CreateRunCommand(ctx, wshrpc.CommandCreateRunData{
-		ChannelId: ch.OID, WorkspaceId: "ws", Goal: "test", Runtime: "pi", Tier: "capable",
+		ChannelId: ch.OID, WorkspaceId: "ws", Goal: "test", Runtime: "pi",
 		Mode: jarvis.RunMode_Orchestrator, DeferStart: true,
 	})
 	if err != nil {
@@ -316,7 +316,6 @@ func TestDagSubmitRejectsEngineStateAndLimitsBeforePersistence(t *testing.T) {
 			owner := jarvis.NewRun("owner", "ws", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
 			owner.Status = jarvis.RunStatus_Planning
 			owner.Runtime = "claude"
-			owner.Tier = "capable"
 			if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
 				t.Fatal(err)
 			}
@@ -342,11 +341,10 @@ func TestDagSubmitRejectsInvalidTaskRoutesBeforePersistence(t *testing.T) {
 		task        waveobj.TaskNode
 		unavailable bool
 	}{
-		{name: "runtime-only", task: waveobj.TaskNode{ID: "t", Label: "a", RunSpec: waveobj.RunSpec{Runtime: "pi"}}},
-		{name: "tier-only", task: waveobj.TaskNode{ID: "t", Label: "a", RunSpec: waveobj.RunSpec{Tier: "cheap"}}},
-		{name: "unknown-runtime", task: waveobj.TaskNode{ID: "t", Label: "a", RunSpec: waveobj.RunSpec{Runtime: "missing", Tier: "capable"}}},
-		{name: "unknown-tier", task: waveobj.TaskNode{ID: "t", Label: "a", RunSpec: waveobj.RunSpec{Runtime: "pi", Tier: "missing"}}},
-		{name: "unsupported-pair", task: waveobj.TaskNode{ID: "t", Label: "a", RunSpec: waveobj.RunSpec{Runtime: "codex", Tier: "cheap"}}},
+		{name: "unknown-runtime", task: waveobj.TaskNode{ID: "t", Label: "a", RunSpec: waveobj.RunSpec{Runtime: "missing"}}},
+		{name: "cross-namespace-model", task: waveobj.TaskNode{ID: "t", Label: "a", RunSpec: waveobj.RunSpec{Runtime: "pi", Model: "sonnet"}}},
+		{name: "model-foreign-to-inherited-runtime", task: waveobj.TaskNode{ID: "t", Label: "a", RunSpec: waveobj.RunSpec{Model: "opencode/deepseek-v4-pro"}}},
+		{name: "non-worker-runtime", task: waveobj.TaskNode{ID: "t", Label: "a", RunSpec: waveobj.RunSpec{Runtime: "codex"}}},
 		{name: "unavailable", task: waveobj.TaskNode{ID: "t", Label: "a", RunSpec: waveobj.RunSpec{Runtime: "pi", Model: "opencode/deepseek-v4-pro"}}, unavailable: true},
 	}
 	for _, tc := range cases {
@@ -358,7 +356,6 @@ func TestDagSubmitRejectsInvalidTaskRoutesBeforePersistence(t *testing.T) {
 			}
 			owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
 			owner.Runtime = "claude"
-			owner.Tier = "capable"
 			if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
 				t.Fatal(err)
 			}
@@ -421,7 +418,6 @@ func TestDagSubmitAcceptsPinnedAndInheritedRoutes(t *testing.T) {
 	}
 	owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
 	owner.Runtime = "claude"
-	owner.Tier = "mid"
 	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
 		t.Fatal(err)
 	}
@@ -454,6 +450,8 @@ func TestDagSubmitAcceptsPinnedAndInheritedRoutes(t *testing.T) {
 		ChannelId: ch.OID, RunId: owner.ID, Title: "g", Parallelism: 1,
 		Tasks: []waveobj.TaskNode{
 			{ID: "pinned", Label: "pinned", RunSpec: waveobj.RunSpec{Runtime: "pi", Model: "opencode/deepseek-v4-pro"}},
+			{ID: "runtime-only", Label: "runtime-only", RunSpec: waveobj.RunSpec{Runtime: "pi"}},
+			{ID: "model-only", Label: "model-only", RunSpec: waveobj.RunSpec{Model: "sonnet"}},
 			{ID: "inherited", Label: "inherited"},
 		},
 	})
@@ -465,7 +463,7 @@ func TestDagSubmitAcceptsPinnedAndInheritedRoutes(t *testing.T) {
 	}
 }
 
-func seedDagActionEscalation(t *testing.T, tier string) (context.Context, *waveobj.Channel, waveobj.Run, waveobj.TaskGroup, waveobj.Run) {
+func seedDagActionEscalation(t *testing.T) (context.Context, *waveobj.Channel, waveobj.Run, waveobj.TaskGroup, waveobj.Run) {
 	t.Helper()
 	ctx := context.Background()
 	ch, err := wstore.CreateChannel(ctx, "dag-escalation", t.TempDir())
@@ -475,7 +473,6 @@ func seedDagActionEscalation(t *testing.T, tier string) (context.Context, *waveo
 	owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
 	owner.Status = jarvis.RunStatus_Executing
 	owner.Runtime = "pi"
-	owner.Tier = tier
 	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
 		t.Fatal(err)
 	}
@@ -520,8 +517,8 @@ func seedDagActionEscalation(t *testing.T, tier string) (context.Context, *waveo
 }
 
 func TestDagActionRejectsEmptyEscalateTarget(t *testing.T) {
-	ctx, ch, owner, g, child := seedDagActionEscalation(t, "mid")
-	// no automatic tier ladder: the human names the model (or legacy higher tier)
+	ctx, ch, owner, g, child := seedDagActionEscalation(t)
+	// the human names the model
 	err := (&WshServer{}).DagActionCommand(ctx, wshrpc.CommandDagActionData{
 		ChannelId: ch.OID, RunId: owner.ID, TaskId: "t-0", Action: "escalate",
 	})
@@ -532,7 +529,7 @@ func TestDagActionRejectsEmptyEscalateTarget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Tasks[0].RunSpec.Runtime != "" || got.Tasks[0].RunSpec.Tier != "" || got.Tasks[0].Escalations != 0 {
+	if got.Tasks[0].RunSpec.Runtime != "" || got.Tasks[0].RunSpec.Model != "" || got.Tasks[0].Escalations != 0 {
 		t.Fatalf("rejected escalation mutated task: %+v", got.Tasks[0])
 	}
 	oldChild, err := wstore.GetRun(ctx, ch.OID, child.ID)
@@ -545,7 +542,7 @@ func TestDagActionRejectsEmptyEscalateTarget(t *testing.T) {
 }
 
 func TestDagActionEscalatesToModel(t *testing.T) {
-	ctx, ch, owner, g, child := seedDagActionEscalation(t, "mid")
+	ctx, ch, owner, g, child := seedDagActionEscalation(t)
 	if err := (&WshServer{}).DagActionCommand(ctx, wshrpc.CommandDagActionData{
 		ChannelId: ch.OID, RunId: owner.ID, TaskId: "t-0", Action: "escalate",
 		Runtime: "claude", Model: "sonnet",
@@ -556,7 +553,7 @@ func TestDagActionEscalatesToModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Tasks[0].RunSpec.Runtime != "claude" || got.Tasks[0].RunSpec.Model != "sonnet" || got.Tasks[0].RunSpec.Tier != "" || got.Tasks[0].Escalations != 1 {
+	if got.Tasks[0].RunSpec.Runtime != "claude" || got.Tasks[0].RunSpec.Model != "sonnet" || got.Tasks[0].Escalations != 1 {
 		t.Fatalf("rpc model escalation = %+v", got.Tasks[0])
 	}
 	oldChild, err := wstore.GetRun(ctx, ch.OID, child.ID)
@@ -565,23 +562,6 @@ func TestDagActionEscalatesToModel(t *testing.T) {
 	}
 	if oldChild.Status != jarvis.RunStatus_Cancelled {
 		t.Fatalf("old child status = %q, want cancelled", oldChild.Status)
-	}
-}
-
-func TestDagActionRejectsSameTierWithoutCancellingRun(t *testing.T) {
-	ctx, ch, owner, _, child := seedDagActionEscalation(t, "mid")
-	err := (&WshServer{}).DagActionCommand(ctx, wshrpc.CommandDagActionData{
-		ChannelId: ch.OID, RunId: owner.ID, TaskId: "t-0", Action: "escalate", Tier: "mid",
-	})
-	if err == nil {
-		t.Fatal("same-tier RPC escalation was accepted")
-	}
-	got, getErr := wstore.GetRun(ctx, ch.OID, child.ID)
-	if getErr != nil {
-		t.Fatal(getErr)
-	}
-	if got.Status != jarvis.RunStatus_Blocked {
-		t.Fatalf("rejected RPC escalation cancelled child: %q", got.Status)
 	}
 }
 

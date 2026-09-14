@@ -161,30 +161,23 @@ func TestHandleChildOutcomeIgnoresExitAfterCompletion(t *testing.T) {
 	}
 }
 
-// context-window is the one failure where the identical route cannot succeed on a retry.
-func TestHandleChildOutcomeEscalatesContextWindowOnce(t *testing.T) {
+// a context-window failure is a real failure: the human picks a bigger model, the engine never guesses one.
+func TestHandleChildOutcomeFailsContextWindowWithoutRepinning(t *testing.T) {
 	h := newChildOutcomeHarness(t, 1)
 	data := jarvis.OutcomeData{Status: "failed", Summary: "context window exceeded", ExitCode: 1}
 	if err := HandleChildOutcome(h.ctx, h.workers[0], data); err != nil {
 		t.Fatal(err)
 	}
 	got := h.loadDag(t)
-	if got.Tasks[0].Escalations != 1 || got.Tasks[0].RunSpec.Tier != "capable" {
-		t.Fatalf("context-window escalation = %+v", got.Tasks[0])
+	task := got.Tasks[0]
+	if task.State != TaskState_Failed || task.Escalations != 0 || task.RunSpec.Runtime != "" || task.RunSpec.Model != "" {
+		t.Fatalf("context-window failure = %+v", task)
 	}
-	if got.Failures != 0 {
-		t.Fatalf("an escalated task must not push the failure streak, got %d", got.Failures)
+	if got.Failures != 1 {
+		t.Fatalf("a terminal failure must push the failure streak, got %d", got.Failures)
 	}
-	if len(h.workers) != 2 {
-		t.Fatalf("escalation spawned %d workers, want 2", len(h.workers))
-	}
-	// the cap is one hop: a second context-window failure is a real failure, not another escalation
-	if err := HandleChildOutcome(h.ctx, h.workers[1], data); err != nil {
-		t.Fatal(err)
-	}
-	got = h.loadDag(t)
-	if got.Tasks[0].Escalations != 1 || got.Tasks[0].State != TaskState_Failed {
-		t.Fatalf("second context-window failure = %+v", got.Tasks[0])
+	if len(h.workers) != 1 {
+		t.Fatalf("a context-window failure spawned %d workers, want 1", len(h.workers))
 	}
 }
 
@@ -243,34 +236,6 @@ func TestSessionMentionsSurvivesOversizedLine(t *testing.T) {
 	}
 	if sessionMentions(path, dagSessionMarker("dag-1", "t-9")) {
 		t.Fatal("a marker that is not present must not match")
-	}
-}
-
-func TestEscalateDecisionAndTierLadder(t *testing.T) {
-	for _, tc := range []struct {
-		kind        string
-		escalations int
-		want        bool
-	}{
-		{FailureKindContextWindow, 0, true},
-		{FailureKindContextWindow, 1, false},
-		{FailureKindToolError, 0, false},
-		{FailureKindWorkerExit, 0, false},
-		{FailureKindTimeout, 0, false},
-	} {
-		if got := escalateDecision(tc.kind, tc.escalations); got != tc.want {
-			t.Fatalf("escalateDecision(%q, %d) = %v, want %v", tc.kind, tc.escalations, got, tc.want)
-		}
-	}
-	for _, tc := range []struct{ current, want string }{
-		{"cheap", "mid"},
-		{"mid", "capable"},
-		{"capable", ""},
-		{"", ""},
-	} {
-		if got := nextTier(tc.current); got != tc.want {
-			t.Fatalf("nextTier(%q) = %q, want %q", tc.current, got, tc.want)
-		}
 	}
 }
 

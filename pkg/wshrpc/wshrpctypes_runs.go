@@ -24,9 +24,8 @@ type CommandCreateRunData struct {
 	ChannelId     string                  `json:"channelid"`
 	WorkspaceId   string                  `json:"workspaceid"` // where phase-worker tabs are created
 	Goal          string                  `json:"goal"`
-	Runtime       string                  `json:"runtime"` // the harness that runs every phase and child run; immutable after Start
-	Tier          string                  `json:"tier"`
-	Model         string                  `json:"model,omitempty"`         // exact model id; empty = tier. wins over tier
+	Runtime       string                  `json:"runtime"`                 // the harness that runs every phase and child run; immutable after Start
+	Model         string                  `json:"model,omitempty"`         // exact model id; empty = runtime default
 	WorkerRoute   *waveobj.RoutePin       `json:"workerroute,omitempty"`   // B1b default worker route (nil = inherit lead)
 	Orchestration string                  `json:"orchestration,omitempty"` // engine | adaptive (empty = legacy runtime fork)
 	Parallelism   int                     `json:"parallelism,omitempty"`   // engine width the user picked in the Run rail; 0 = let the lead choose

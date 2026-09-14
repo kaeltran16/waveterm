@@ -178,13 +178,13 @@ export function settingsSections(flagRuntime: Runtime): SettingSectionDef[] {
         {
             id: "run",
             name: "Run defaults",
-            blurb: "Backend-authoritative harness, tier and model for new runs.",
+            blurb: "Backend-authoritative harness and model for new runs.",
             group: "Agents",
             rows: [
                 {
                     id: "run.route",
                     title: "Run route",
-                    desc: "Harness, tier, and resolved model for new runs.",
+                    desc: "Harness and resolved model for new runs.",
                     key: "harness.preference",
                     scope: "synced",
                 },

@@ -278,9 +278,9 @@ func intPtr(n int) *int { return &n }
 // Future-run engine defaults resolve section-by-section like every other profile section: an absent
 // override field inherits the global value, a present one replaces it.
 func TestResolveProfileAppliesEngineDefaults(t *testing.T) {
-	globalRoute := &waveobj.RoutePin{Runtime: "pi", Tier: "capable"}
+	globalRoute := &waveobj.RoutePin{Runtime: "pi"}
 	global := waveobj.JarvisProfile{Machine: Orchestration_Engine, Parallelism: 2, WorkerRoute: globalRoute}
-	overrideRoute := &waveobj.RoutePin{Runtime: "claude", Tier: "strong"}
+	overrideRoute := &waveobj.RoutePin{Runtime: "claude", Model: "opus"}
 	got := ResolveProfile(global, &waveobj.ProfileOverride{
 		Machine:     strPtr(Orchestration_Adaptive),
 		Parallelism: intPtr(6),
@@ -298,7 +298,7 @@ func TestResolveProfileAppliesEngineDefaults(t *testing.T) {
 }
 
 func TestResolveProfileInheritsEngineDefaults(t *testing.T) {
-	globalRoute := &waveobj.RoutePin{Runtime: "pi", Tier: "capable"}
+	globalRoute := &waveobj.RoutePin{Runtime: "pi"}
 	global := waveobj.JarvisProfile{Machine: Orchestration_Engine, Parallelism: 2, WorkerRoute: globalRoute}
 	got := ResolveProfile(global, &waveobj.ProfileOverride{DefaultMode: strPtr(RunMode_Orchestrator)})
 	if got.Machine != Orchestration_Engine || got.Parallelism != 2 {
@@ -321,7 +321,7 @@ func TestProfileOverrideIsEmptyUnderstandsEngineDefaults(t *testing.T) {
 		{"bare", &waveobj.ProfileOverride{}, true},
 		{"machine", &waveobj.ProfileOverride{Machine: strPtr(Orchestration_Engine)}, false},
 		{"parallelism", &waveobj.ProfileOverride{Parallelism: intPtr(3)}, false},
-		{"workerroute", &waveobj.ProfileOverride{WorkerRoute: &waveobj.RoutePin{Runtime: "pi", Tier: "capable"}}, false},
+		{"workerroute", &waveobj.ProfileOverride{WorkerRoute: &waveobj.RoutePin{Runtime: "pi"}}, false},
 		{"empty patch is empty", &waveobj.ProfileOverride{Principles: &waveobj.PrinciplePatch{}}, true},
 	}
 	for _, tc := range cases {

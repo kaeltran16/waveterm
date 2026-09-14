@@ -152,7 +152,7 @@ describe("resolveComposerDispatch", () => {
 
 describe("resolveRunCreationDecision", () => {
     const route = {
-        pin: { runtime: "opencode", tier: "capable" },
+        pin: { runtime: "pi" },
         source: "settings" as const,
         capability: {} as NonNullable<EffectiveRoute["capability"]>,
     };

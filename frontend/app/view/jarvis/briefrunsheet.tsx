@@ -87,9 +87,9 @@ export function SheetShell({
     );
 }
 
-// The run's own route, printed as the fact it is: runtime and the model or tier it resolved to.
+// The run's own route, printed as the fact it is: runtime and the model it resolved to.
 function runRuntimeView(run: Run): string {
-    return [run.runtime || "claude", run.model || run.tier || "capable"].filter((p) => p !== "").join(" · ");
+    return [run.runtime || "claude", run.model || "default"].join(" · ");
 }
 
 function LoadedSettings({ run, group, groupRead }: { run: Run; group: TaskGroup | null; groupRead: LinkedGroupRead }) {

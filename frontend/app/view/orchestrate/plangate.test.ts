@@ -92,11 +92,9 @@ describe("planGateView", () => {
 });
 
 describe("leadRouteText", () => {
-    it("prefers the exact model over the tier, as the router does", () => {
-        expect(leadRouteText({ runtime: "claude", tier: "capable", model: "opus-4.6" } as Run)).toBe(
-            "lead claude · opus-4.6"
-        );
-        expect(leadRouteText({ runtime: "claude", tier: "capable" } as Run)).toBe("lead claude · capable");
+    it("names the exact model, or the runtime default when there is none", () => {
+        expect(leadRouteText({ runtime: "claude", model: "opus-4.6" } as Run)).toBe("lead claude · opus-4.6");
+        expect(leadRouteText({ runtime: "claude" } as Run)).toBe("lead claude · default");
     });
 
     it("says unavailable rather than inventing a runtime", () => {
@@ -105,7 +103,7 @@ describe("leadRouteText", () => {
 });
 
 describe("workerRouteText", () => {
-    const run = { runtime: "claude", tier: "capable" } as Run;
+    const run = { runtime: "claude" } as Run;
 
     it("inherits from the lead when no worker route is pinned", () => {
         expect(workerRouteText(run, { mergerequired: true } as TaskGroup)).toBe(
@@ -114,8 +112,10 @@ describe("workerRouteText", () => {
     });
 
     it("names a pinned worker route", () => {
-        const g = { mergerequired: true, workerroute: { runtime: "codex", tier: "fast" } } as TaskGroup;
-        expect(workerRouteText(run, g)).toBe("workers codex · fast · managed worktrees");
+        const g = { mergerequired: true, workerroute: { runtime: "pi", model: "opencode/deepseek-v4-flash" } } as TaskGroup;
+        expect(workerRouteText(run, g)).toBe("workers pi · opencode/deepseek-v4-flash · managed worktrees");
+        const runtimeOnly = { mergerequired: true, workerroute: { runtime: "pi" } } as TaskGroup;
+        expect(workerRouteText(run, runtimeOnly)).toBe("workers pi · default · managed worktrees");
     });
 
     it("never promises worktree isolation a non-git project does not have", () => {

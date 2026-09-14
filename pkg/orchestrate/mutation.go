@@ -95,35 +95,23 @@ func escalationTarget(task *waveobj.TaskNode, owner *waveobj.Run, group *waveobj
 	if task.Escalations >= 1 {
 		return waveobj.RoutePin{}, fmt.Errorf("task %q is already escalated; it is blocked for the human", task.ID)
 	}
-	current := effectiveTaskRoute(task, owner, group)
+	if target.Model == "" {
+		return waveobj.RoutePin{}, fmt.Errorf("escalating %q: a target model is required", task.ID)
+	}
 	if target.Runtime == "" {
-		target.Runtime = current.Runtime
+		target.Runtime = effectiveTaskRoute(task, owner, group).Runtime
 	}
-	if target.Model != "" {
-		if _, err := runroute.Resolve(target); err != nil {
-			return waveobj.RoutePin{}, fmt.Errorf("escalating %q: %w", task.ID, err)
-		}
-		return target, nil
-	}
-	if target.Tier == "" {
-		return waveobj.RoutePin{}, fmt.Errorf("escalating %q: a target model or tier is required", task.ID)
-	}
-	if !isHigherTier(current.Tier, target.Tier) {
-		return waveobj.RoutePin{}, fmt.Errorf("task %q tier %q is not higher than %q", task.ID, target.Tier, current.Tier)
-	}
-	target = waveobj.RoutePin{Runtime: target.Runtime, Tier: target.Tier}
+	target = waveobj.RoutePin{Runtime: target.Runtime, Model: target.Model}
 	if _, err := runroute.Resolve(target); err != nil {
 		return waveobj.RoutePin{}, fmt.Errorf("escalating %q: %w", task.ID, err)
 	}
 	return target, nil
 }
 
-// applyEscalation repins a task to a higher-tier route and returns it to pending so the next tick
-// dispatches it fresh. Shared by the human escalate action and the automatic context-window hop, so
-// both leave the node in exactly one shape.
+// applyEscalation repins a task to a chosen model and returns it to pending so the next tick
+// dispatches it fresh.
 func applyEscalation(task *waveobj.TaskNode, target waveobj.RoutePin) {
 	task.RunSpec.Runtime = target.Runtime
-	task.RunSpec.Tier = target.Tier
 	task.RunSpec.Model = target.Model
 	task.Attempts = 0
 	task.LastFailureKind = ""

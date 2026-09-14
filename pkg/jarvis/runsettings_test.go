@@ -125,7 +125,7 @@ func TestGateSettingsBlockerRejectsTerminalGroup(t *testing.T) {
 // the same single source of truth the pre-rail runs already used.
 func TestApplyPendingEngineSettingsWritesRun(t *testing.T) {
 	r := engineRun()
-	route := &waveobj.RoutePin{Runtime: "pi", Tier: "capable"}
+	route := &waveobj.RoutePin{Runtime: "pi"}
 	gate := false
 	got := ApplyPendingEngineSettings(r, PendingEngineSettings{Parallelism: intPtr(3), WorkerRoute: route, PlanGate: &gate})
 	if got.Parallelism != 3 {
@@ -153,7 +153,7 @@ func TestApplyPendingEngineSettingsLeavesOmittedWidth(t *testing.T) {
 // A nil route clears the pending worker default rather than leaving the previous one in place.
 func TestApplyPendingEngineSettingsClearsRoute(t *testing.T) {
 	r := engineRun()
-	r.WorkerRoute = &waveobj.RoutePin{Runtime: "pi", Tier: "capable"}
+	r.WorkerRoute = &waveobj.RoutePin{Runtime: "pi"}
 	got := ApplyPendingEngineSettings(r, PendingEngineSettings{Parallelism: intPtr(2)})
 	if got.WorkerRoute != nil {
 		t.Errorf("worker route = %+v, want nil", got.WorkerRoute)
@@ -163,7 +163,7 @@ func TestApplyPendingEngineSettingsClearsRoute(t *testing.T) {
 // Post-DAG the group is the scheduler's source of truth; the run keeps its launch snapshot.
 func TestApplyLiveEngineSettingsWritesGroupOnly(t *testing.T) {
 	g := waveobj.TaskGroup{OID: "d1", Parallelism: 2}
-	route := &waveobj.RoutePin{Runtime: "pi", Tier: "capable"}
+	route := &waveobj.RoutePin{Runtime: "pi"}
 	got := ApplyLiveEngineSettings(g, PendingEngineSettings{Parallelism: intPtr(5), WorkerRoute: route})
 	if got.Parallelism != 5 {
 		t.Errorf("parallelism = %d, want 5", got.Parallelism)
@@ -186,7 +186,7 @@ func TestApplyLiveEngineSettingsLeavesOmittedWidth(t *testing.T) {
 func TestRunEngineSettingsReadsLaunchForm(t *testing.T) {
 	r := engineRun()
 	r.Parallelism = 4
-	route := &waveobj.RoutePin{Runtime: "claude", Tier: "capable"}
+	route := &waveobj.RoutePin{Runtime: "claude"}
 	r.WorkerRoute = route
 	got := RunEngineSettings(r, nil)
 	if got.Parallelism == nil || *got.Parallelism != 4 {

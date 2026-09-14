@@ -43,8 +43,11 @@ func TestListHarnessesReturnsCatalogWithoutOpenRouter(t *testing.T) {
 		if info.Runtime == "openrouter" {
 			t.Fatal("OpenRouter must not be listed as a harness")
 		}
-		if info.Label == "" || !info.ConsultCapable || !info.RunWorkerCapable {
+		if info.Label == "" || !info.ConsultCapable {
 			t.Errorf("info %+v missing label/capabilities", info)
+		}
+		if wantWorker := info.Runtime == "claude" || info.Runtime == "pi"; info.RunWorkerCapable != wantWorker {
+			t.Errorf("%s RunWorkerCapable = %v, want %v", info.Runtime, info.RunWorkerCapable, wantWorker)
 		}
 	}
 }
@@ -80,7 +83,6 @@ func TestListHarnessesAddsRouteCapabilitiesOnlyForAvailableWorkers(t *testing.T)
 			for _, capability := range runroute.Capabilities("pi") {
 				want = append(want, wshrpc.RouteCapabilityInfo{
 					Runtime:       capability.Runtime,
-					Tier:          string(capability.Tier),
 					ResolvedModel: capability.ResolvedModel,
 				})
 			}

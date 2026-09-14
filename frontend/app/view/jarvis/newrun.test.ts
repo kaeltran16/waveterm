@@ -52,14 +52,14 @@ describe("launchOptsFromConfig", () => {
     });
 
     it("drops the engine dials on a shape that has no fan-out", () => {
-        const workerRoute: RoutePin = { runtime: "claude", tier: "capable" };
+        const workerRoute: RoutePin = { runtime: "claude" };
         expect(launchOptsFromConfig({ ...base, shape: "pipeline", parallelism: 6, workerRoute })).toEqual({
             mode: "pipeline",
         });
     });
 
     it("carries the width and the worker route for an engine orchestrator", () => {
-        const workerRoute: RoutePin = { runtime: "claude", tier: "capable" };
+        const workerRoute: RoutePin = { runtime: "claude" };
         expect(
             launchOptsFromConfig({
                 ...base,
@@ -72,7 +72,7 @@ describe("launchOptsFromConfig", () => {
     });
 
     it("withholds the width and the worker route from an adaptive lead, which fans out on its own", () => {
-        const workerRoute: RoutePin = { runtime: "claude", tier: "capable" };
+        const workerRoute: RoutePin = { runtime: "claude" };
         expect(
             launchOptsFromConfig({
                 ...base,

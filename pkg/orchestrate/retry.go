@@ -1,10 +1,6 @@
 package orchestrate
 
-import (
-	"strings"
-
-	"github.com/wavetermdev/waveterm/pkg/consult"
-)
+import "strings"
 
 const (
 	FailureKindToolError     = "tool_call_error"
@@ -53,30 +49,4 @@ func classifyFailure(summary string, exitCode int) string {
 
 func retryDecision(kind string, attempts int) bool {
 	return kind == FailureKindToolError && attempts == 0
-}
-
-// escalateDecision reports whether a failure should auto-repin the task one tier up instead of
-// failing it outright. Only context-window qualifies: retrying the identical route is guaranteed to
-// hit the same wall, and a larger context is a property of the model, not of the attempt. Bounded by
-// the same single-escalation cap the human path enforces, so a task can auto-escalate at most once
-// and then stops for a human either way.
-func escalateDecision(kind string, escalations int) bool {
-	return kind == FailureKindContextWindow && escalations == 0
-}
-
-// nextTier returns the tier one step above current, or "" when there is none (already capable, or
-// the route is pinned to an exact model and has no tier to step).
-func nextTier(current string) string {
-	switch current {
-	case string(consult.TierCheap):
-		return string(consult.TierMid)
-	case string(consult.TierMid):
-		return string(consult.TierCapable)
-	}
-	return ""
-}
-
-func isHigherTier(current, target string) bool {
-	cheap, mid, capable := string(consult.TierCheap), string(consult.TierMid), string(consult.TierCapable)
-	return current == cheap && (target == mid || target == capable) || current == mid && target == capable
 }

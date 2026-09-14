@@ -49,7 +49,6 @@ const runsLifecycle = {
             workspaceid: ctx.workspaceId,
             goal: ctx.goal,
             runtime: "claude",
-            tier: "capable",
             mode: "pipeline",
         });
         const run = created.run;
@@ -618,7 +617,6 @@ const jarvisVaultRecall = {
             workspaceid: workspaceId,
             goal: VAULT_GOAL,
             runtime: "claude",
-            tier: "capable",
         });
         const run = created.run;
         const worker = run.phases && run.phases[0] && run.phases[0].workerorefs && run.phases[0].workerorefs[0];
@@ -1731,7 +1729,6 @@ const attentionCrossChannel = {
             workspaceid: ctx.workspaceId,
             goal: "spawn-test, only: do nothing, make no file changes, stop immediately",
             runtime: "claude",
-            tier: "capable",
         });
         const runId = created.run.id;
         track(workerOf(created.run.phases[0]));
@@ -4001,7 +3998,6 @@ const dagLifecycle = {
             workspaceid: ctx.workspaceId,
             goal: parentGoal,
             runtime: "claude",
-            tier: "capable",
             mode: "orchestrator",
             deferstart: true,
             // pinned, not left to the profile's default: every assertion below is about a plan-gated

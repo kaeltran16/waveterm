@@ -141,7 +141,6 @@ export function draftSeedKey(run: Run, group: TaskGroup | null): string {
         draft.parallelism,
         draft.planGate ? "gate" : "nogate",
         route?.runtime ?? "",
-        route?.tier ?? "",
         route?.model ?? "",
     ].join("|");
 }
@@ -150,7 +149,7 @@ function sameRoute(a: RoutePin | null, b: RoutePin | null): boolean {
     if (a == null || b == null) {
         return a == null && b == null;
     }
-    return a.runtime === b.runtime && a.tier === b.tier && (a.model ?? "") === (b.model ?? "");
+    return a.runtime === b.runtime && (a.model ?? "") === (b.model ?? "");
 }
 
 // A submitted plan already holds a concrete width, so the sheet never offers "let the lead choose".
@@ -207,7 +206,7 @@ function leadRouteOf(run: Run): RoutePin | null {
     if ((run.runtime ?? "") === "") {
         return null;
     }
-    return { runtime: run.runtime, tier: run.tier || "capable", ...(run.model ? { model: run.model } : {}) };
+    return { runtime: run.runtime, ...(run.model ? { model: run.model } : {}) };
 }
 
 // "Save as project defaults" copies the whole effective configuration — copying only part of it would
@@ -229,5 +228,5 @@ export function routeLabel(route: RoutePin | null | undefined): string {
     if (route == null || (route.runtime ?? "") === "") {
         return "inherit the lead";
     }
-    return [route.runtime, route.model || route.tier].filter((p) => p != null && p !== "").join(" · ");
+    return [route.runtime, route.model || "default"].join(" · ");
 }

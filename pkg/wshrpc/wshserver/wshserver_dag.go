@@ -34,23 +34,17 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 	if run.Mode != jarvis.RunMode_Orchestrator {
 		return nil, fmt.Errorf("dag requires an orchestrator-mode run")
 	}
-	ownerPin := runroute.NormalizeLegacy(run.Runtime, run.Tier)
+	ownerPin := waveobj.RoutePin{Runtime: runroute.DefaultRuntime(run.Runtime), Model: run.Model}
 	for _, task := range data.Tasks {
-		// a submitted route must be fully specified — unlike the engine, which also has to dispatch
-		// legacy pins already sitting in the store. A model pin is the exception that stands alone:
-		// it needs no tier, and an absent runtime inherits the owner's, exactly as dispatch does.
+		// an absent runtime inherits the owner's, exactly as dispatch does; a runtime with no model is
+		// that runtime's default
 		pin := ownerPin
-		switch {
-		case task.RunSpec.Model != "":
+		if task.RunSpec.Runtime != "" || task.RunSpec.Model != "" {
 			runtime := task.RunSpec.Runtime
 			if runtime == "" {
 				runtime = ownerPin.Runtime
 			}
 			pin = waveobj.RoutePin{Runtime: runtime, Model: task.RunSpec.Model}
-		case (task.RunSpec.Runtime != "") != (task.RunSpec.Tier != ""):
-			return nil, fmt.Errorf("task %q runtime and tier must be provided together", task.ID)
-		case task.RunSpec.Runtime != "":
-			pin = waveobj.RoutePin{Runtime: task.RunSpec.Runtime, Tier: task.RunSpec.Tier}
 		}
 		if _, err := runroute.Resolve(pin); err != nil {
 			return nil, fmt.Errorf("task %q: %w", task.ID, err)
@@ -311,7 +305,7 @@ func (ws *WshServer) DagActionCommand(ctx context.Context, data wshrpc.CommandDa
 		steerRunLead(ctx, leadORef(run), planSendBackLine(strings.TrimSpace(data.Notes)))
 		return nil
 	}
-	target := waveobj.RoutePin{Runtime: data.Runtime, Tier: data.Tier, Model: data.Model}
+	target := waveobj.RoutePin{Runtime: data.Runtime, Model: data.Model}
 	return orchestrate.ApplyAction(ctx, run.DagORef, data.TaskId, data.Action, target)
 }
 

@@ -43,9 +43,10 @@ var specs = []Spec{
 		SteeringRel: []string{".pi", "agent", "AGENTS.md"}},
 	{Runtime: "claude", Bin: "claude", Label: "Claude Code", ConsultCapable: true, RunWorkerCapable: true,
 		SteeringRel: []string{".claude", "CLAUDE.md"}, SkillsRel: []string{".claude", "skills"}},
-	{Runtime: "codex", Bin: "codex", Label: "Codex", ConsultCapable: true, RunWorkerCapable: true,
+	// run workers are claude and pi only (docs/deferred.md, 2026-09-14); codex and opencode still consult
+	{Runtime: "codex", Bin: "codex", Label: "Codex", ConsultCapable: true, RunWorkerCapable: false,
 		SteeringRel: []string{".codex", "AGENTS.md"}, SkillsRel: []string{".codex", "skills"}},
-	{Runtime: "opencode", Bin: "opencode", Label: "OpenCode", ConsultCapable: true, RunWorkerCapable: true,
+	{Runtime: "opencode", Bin: "opencode", Label: "OpenCode", ConsultCapable: true, RunWorkerCapable: false,
 		SteeringRel: []string{".config", "opencode", "AGENTS.md"}, SkillsRel: []string{".config", "opencode", "skills"}},
 }
 

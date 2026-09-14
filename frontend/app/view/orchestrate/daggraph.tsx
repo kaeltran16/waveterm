@@ -54,7 +54,7 @@ function DagTaskNode({ data }: NodeProps) {
     const tone = STATE_TONE[view.state] ?? STATE_TONE.pending;
     return (
         <div
-            data-dag-node-route={`${view.route.source}:${view.route.runtime}:${view.route.tier}`}
+            data-dag-node-route={`${view.route.source}:${view.route.runtime}:${view.route.model}`}
             className={`w-[168px] rounded-[11px] border bg-lane px-2.5 py-2 shadow-popover-line ${
                 selected ? "border-accent" : "border-edge-mid"
             }`}
@@ -73,7 +73,7 @@ function DagTaskNode({ data }: NodeProps) {
             </div>
             {view.meta ? <div className="truncate font-mono text-[9px] text-muted">{view.meta}</div> : null}
             <div className="truncate font-mono text-[9px] text-secondary">
-                {view.route.source === "pinned" ? "pinned" : "inherits run route"} · {view.route.runtime} / {view.route.model || view.route.tier} · {view.route.resolvedModel}
+                {view.route.source === "pinned" ? "pinned" : "inherits run route"} · {view.route.runtime} / {view.route.model || "default"} · {view.route.resolvedModel}
             </div>
             {view.gate ? (
                 <div className="mt-0.5 font-mono text-[8.5px] uppercase tracking-wide text-warning">gate</div>
@@ -243,7 +243,7 @@ function DagGraphInner({ oref, owner, harnesses }: { oref: string; owner: Run; h
         <div className="relative flex h-full min-h-0 w-full flex-col bg-background">
             <DagGraphHeader group={group} />
             <div className="flex flex-none items-center gap-2 border-b border-border bg-surface px-4 py-1.5 font-mono text-xxs text-muted">
-                Run route · {owner.runtime || "unavailable"} / {owner.tier || "capable"}
+                Run route · {owner.runtime || "unavailable"} / {owner.model || "default"}
             </div>
             <div className="relative min-h-0 flex-1">
                 <ReactFlow
@@ -303,8 +303,8 @@ function DagGraphInner({ oref, owner, harnesses }: { oref: string; owner: Run; h
                                 {selected.gate ? " · gate" : ""}
                                 {selected.meta ? ` · ${selected.meta}` : ""}
                             </div>
-                            <div className="font-mono text-[10px] text-secondary" data-dag-node-route={`${selected.route.source}:${selected.route.runtime}:${selected.route.tier}`}>
-                                {selected.route.source === "pinned" ? "pinned" : "inherits run route"} · {selected.route.runtime} / {selected.route.model || selected.route.tier} · {selected.route.resolvedModel}
+                            <div className="font-mono text-[10px] text-secondary" data-dag-node-route={`${selected.route.source}:${selected.route.runtime}:${selected.route.model}`}>
+                                {selected.route.source === "pinned" ? "pinned" : "inherits run route"} · {selected.route.runtime} / {selected.route.model || "default"} · {selected.route.resolvedModel}
                             </div>
                             {selectedNode && agentsCtx ? (
                                 <SelectedTaskWorker
