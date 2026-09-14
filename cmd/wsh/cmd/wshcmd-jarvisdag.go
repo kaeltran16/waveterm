@@ -373,15 +373,16 @@ func dagEscalateData(cmd *cobra.Command, args []string) (wshrpc.CommandDagAction
 	if err != nil {
 		return wshrpc.CommandDagActionData{}, err
 	}
-	tier, _ := cmd.Flags().GetString("tier")
 	model, _ := cmd.Flags().GetString("model")
+	if model == "" {
+		return wshrpc.CommandDagActionData{}, fmt.Errorf("--model is required")
+	}
 	runtime, _ := cmd.Flags().GetString("runtime")
 	return wshrpc.CommandDagActionData{
 		ChannelId: channelID,
 		RunId:     runID,
 		TaskId:    args[0],
 		Action:    "escalate",
-		Tier:      tier,
 		Model:     model,
 		Runtime:   runtime,
 	}, nil
@@ -544,9 +545,8 @@ func init() {
 	dagInitCmd.Flags().String("dir", "", "pi-tasks dir (default .)")
 	dagAckCmd.Flags().String("event", "", "control event id from the control file envelope")
 	dagAckCmd.Flags().String("session", "", "pi session id the control file was written for")
-	dagEscalateCmd.Flags().String("model", "", "exact model id to retry on (e.g. opencode/claude-opus-4-8)")
+	dagEscalateCmd.Flags().String("model", "", "exact model id to retry on (e.g. sonnet, or opencode/deepseek-v4-pro for pi)")
 	dagEscalateCmd.Flags().String("runtime", "", "runtime to retry on; empty keeps the task's current runtime")
-	dagEscalateCmd.Flags().String("tier", "", "legacy: retry on a higher tier (mid|capable)")
 	dagMergeCmd.Flags().Bool("continue", false, "finish a blocked squash merge after manual conflict resolution")
 	jarvisCmd.AddCommand(jarvisDagCmd)
 }

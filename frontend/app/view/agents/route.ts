@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Pure route selection and backend-capability presentation. The backend is the sole source of valid
-// runtime/tier pairs; capable is only a legacy normalization for settings and older task records.
+// routes; a route is a runtime plus an optional model, and no model means the runtime's own default.
 
 export type RouteSource = "task" | "run" | "channel" | "settings";
 export type RouteCapability = NonNullable<HarnessInfo["routecapabilities"]>[number];
@@ -18,26 +18,21 @@ export interface RoutePickerSection {
     capabilities: RouteCapability[];
 }
 
-export function normalizeLegacyRoute(runtime: string, tier?: string, model?: string): RoutePin | null {
+export function normalizeRoute(runtime: string, model?: string): RoutePin | null {
     if (!runtime) {
         return null;
     }
-    return { runtime, tier: tier || "capable", ...(model ? { model } : {}) };
+    return { runtime, ...(model ? { model } : {}) };
 }
 
 export function capabilityFor(pin: RoutePin | null | undefined, harnesses: HarnessInfo[]): RouteCapability | undefined {
     if (pin == null) {
         return undefined;
     }
-    const caps = harnesses.flatMap((h) => h.routecapabilities ?? []);
-    if (pin.model) {
-        const byModel = caps.find((c) => c.runtime === pin.runtime && c.model === pin.model);
-        if (byModel != null) {
-            return byModel;
-        }
-    }
-    // legacy tier fallback: persisted pins without a model still render their resolved tier model
-    return caps.find((c) => c.runtime === pin.runtime && (c.tier ?? "") !== "" && c.tier === (pin.tier || "capable"));
+    const caps = harnesses.flatMap((h) => h.routecapabilities ?? []).filter((c) => c.runtime === pin.runtime);
+    const model = pin.model ?? "";
+    // a model the catalog does not list still launches; the CLI resolves it, so show the runtime's default row
+    return caps.find((c) => (c.model ?? "") === model) ?? caps.find((c) => (c.model ?? "") === "");
 }
 
 export function resolveEffectiveRoute(input: {
@@ -57,7 +52,7 @@ export function resolveEffectiveRoute(input: {
         if (raw == null) {
             continue;
         }
-        const pin = normalizeLegacyRoute(raw.runtime, raw.tier, raw.model);
+        const pin = normalizeRoute(raw.runtime, raw.model);
         if (pin != null) {
             return { pin, source, capability: capabilityFor(pin, input.harnesses) };
         }
@@ -65,37 +60,11 @@ export function resolveEffectiveRoute(input: {
     return null;
 }
 
-export function routeForRuntime(
-    runtime: string,
-    effective: RoutePin | null | undefined,
-    harnesses: HarnessInfo[]
-): RoutePin | undefined {
-    const harness = harnesses.find((h) => h.runtime === runtime);
-    const capabilities = harness?.routecapabilities ?? [];
-    if (capabilities.length === 0) {
-        return undefined;
-    }
-    // a model pin survives a no-op runtime switch; model ids are per-harness namespaces, so one can
-    // never be carried across harnesses
-    if (effective?.runtime === runtime && effective.model) {
-        return effective;
-    }
-    const normalized = effective == null ? null : normalizeLegacyRoute(effective.runtime, effective.tier);
-    const selected = normalized?.runtime === runtime ? normalized : undefined;
-    if (selected != null && capabilityFor(selected, harnesses) != null) {
-        return selected;
-    }
-    const sameTier = normalized == null ? undefined : capabilities.find((c) => c.tier === normalized.tier);
-    const capable = capabilities.find((c) => c.tier === "capable");
-    const choice = sameTier ?? capable ?? capabilities[0];
-    return { runtime: choice.runtime, tier: choice.tier };
-}
-
 export function normalizeProfileOverrideRoute(override: ProfileOverride): ProfileOverride {
     if (override.route == null) {
         return override;
     }
-    const route = normalizeLegacyRoute(override.route.runtime, override.route.tier);
+    const route = normalizeRoute(override.route.runtime, override.route.model);
     return route == null ? { ...override, route: undefined } : { ...override, route };
 }
 
@@ -120,7 +89,7 @@ export interface PickerSection {
     rows: PickerModelRow[];
 }
 
-// model-only rows for the picker; legacy tier capabilities never become rows ("flat model list").
+// model-only rows for the picker; a runtime's default row names no model, so it never becomes a row.
 export function buildPickerSections(harnesses: HarnessInfo[]): PickerSection[] {
     return harnesses
         .map((h) => ({
@@ -165,7 +134,7 @@ export function scopePickerSections(sections: PickerSection[], runtime: string |
 
 // displayed id on the picker face / graph route line
 export function modelFace(pin: RoutePin): string {
-    return pin.model ?? pin.tier ?? "capable";
+    return pin.model || "default";
 }
 
 export function pickerTitleFor(customTitle?: string): string {

@@ -41,12 +41,3 @@ func TestRetryDecision(t *testing.T) {
 		}
 	}
 }
-
-func TestTierPolicy(t *testing.T) {
-	if !isHigherTier("cheap", "mid") || !isHigherTier("cheap", "capable") || !isHigherTier("mid", "capable") {
-		t.Fatal("valid upward hops rejected")
-	}
-	if isHigherTier("mid", "mid") || isHigherTier("mid", "cheap") || isHigherTier("capable", "capable") {
-		t.Fatal("same-tier or downward escalation accepted")
-	}
-}

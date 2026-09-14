@@ -7,7 +7,7 @@ import (
 )
 
 func TestEffectiveTaskRoute_WorkerRouteFallback(t *testing.T) {
-	owner := &waveobj.Run{Runtime: "claude", Tier: "capable", Model: ""}
+	owner := &waveobj.Run{Runtime: "claude", Model: ""}
 	group := &waveobj.TaskGroup{WorkerRoute: &waveobj.RoutePin{Runtime: "pi", Model: "opencode/deepseek-v4-pro"}}
 	task := &waveobj.TaskNode{}
 	got := effectiveTaskRoute(task, owner, group)
@@ -17,11 +17,11 @@ func TestEffectiveTaskRoute_WorkerRouteFallback(t *testing.T) {
 }
 
 func TestEffectiveTaskRoute_TaskPinWinsOverWorkerRoute(t *testing.T) {
-	owner := &waveobj.Run{Runtime: "claude", Tier: "capable"}
+	owner := &waveobj.Run{Runtime: "claude"}
 	group := &waveobj.TaskGroup{WorkerRoute: &waveobj.RoutePin{Runtime: "pi", Model: "opencode/deepseek-v4-pro"}}
-	task := &waveobj.TaskNode{RunSpec: waveobj.RunSpec{Model: "opencode/claude-opus-4-8", Runtime: "opencode"}}
+	task := &waveobj.TaskNode{RunSpec: waveobj.RunSpec{Model: "opencode/claude-opus-4-8", Runtime: "pi"}}
 	got := effectiveTaskRoute(task, owner, group)
-	if got.Model != "opencode/claude-opus-4-8" {
+	if got.Model != "opencode/claude-opus-4-8" || got.Runtime != "pi" {
 		t.Fatalf("task pin must win over workerRoute: got %+v", got)
 	}
 }
@@ -32,14 +32,5 @@ func TestEffectiveTaskRoute_InheritOwnerWhenNoWorkerRoute(t *testing.T) {
 	got := effectiveTaskRoute(&waveobj.TaskNode{}, owner, group)
 	if got.Model != "opencode/deepseek-v4-pro" {
 		t.Fatalf("owner model fallback: got %+v", got)
-	}
-}
-
-func TestEffectiveTaskRoute_WorkerRouteTierFallback(t *testing.T) {
-	owner := &waveobj.Run{Runtime: "claude", Tier: "cheap"}
-	group := &waveobj.TaskGroup{WorkerRoute: &waveobj.RoutePin{Runtime: "codex", Tier: "capable"}}
-	got := effectiveTaskRoute(&waveobj.TaskNode{}, owner, group)
-	if got.Tier != "capable" || got.Runtime != "codex" {
-		t.Fatalf("workerRoute tier fallback: got %+v", got)
 	}
 }

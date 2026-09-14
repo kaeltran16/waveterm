@@ -114,8 +114,8 @@ describe("isDirty", () => {
         expect(isDirty({ principles: { additions: [], disabled: [] } }, {})).toBe(false);
     });
     it("treats a route-only override as project-scoped and dirty", () => {
-        expect(sectionSource({ route: { runtime: "pi", tier: "capable" } }).route).toBe("project");
-        expect(isDirty({}, { route: { runtime: "pi", tier: "capable" } })).toBe(true);
+        expect(sectionSource({ route: { runtime: "pi" } }).route).toBe("project");
+        expect(isDirty({}, { route: { runtime: "pi" } })).toBe(true);
         expect(isDirty({ route: undefined }, { route: undefined })).toBe(false);
     });
     it("is true when the patch differs meaningfully", () => {
@@ -164,9 +164,9 @@ describe("profileOverrideIsEmpty", () => {
         ["empty patch", { principles: {} }, true],
         ["machine", { machine: "engine" }, false],
         ["parallelism", { parallelism: 3 }, false],
-        ["worker route", { workerroute: { runtime: "pi", tier: "capable" } }, false],
+        ["worker route", { workerroute: { runtime: "pi" } }, false],
         ["default plan gate", { defaultplangate: false }, false],
-        ["lead route", { route: { runtime: "pi", tier: "capable" } }, false],
+        ["lead route", { route: { runtime: "pi" } }, false],
         ["default mode", { defaultmode: "orchestrator" }, false],
         ["playbook", { playbook: [] }, false],
         ["patch with a disable", { principles: { disabled: ["a"] } }, false],

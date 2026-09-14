@@ -27,7 +27,7 @@ import {
     workerRouteAtom,
 } from "./runconfigstore";
 
-const pin = (model: string): RoutePin => ({ runtime: "claude", tier: "capable", model }) as RoutePin;
+const pin = (model: string): RoutePin => ({ runtime: "claude", model }) as RoutePin;
 
 beforeEach(() => {
     forgetConfiguredChannel();

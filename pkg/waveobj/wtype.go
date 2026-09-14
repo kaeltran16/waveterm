@@ -238,8 +238,9 @@ type PhaseTriage struct {
 
 type RoutePin struct {
 	Runtime string `json:"runtime"`
-	Tier    string `json:"tier"`
-	Model   string `json:"model,omitempty"` // exact model id; empty means resolve Tier. model wins over tier
+	Model   string `json:"model,omitempty"` // exact model id; empty means the runtime's own default
+	// Tier is read only by the startup pin migration (runroute.MigrateTierPin), which clears it.
+	Tier string `json:"tier,omitempty"`
 }
 
 type RunPhase struct {
@@ -263,8 +264,7 @@ type Run struct {
 	ID          string          `json:"id"`                   // == OID; retained for embedded-blob consumers until phase 3 contract
 	Goal        string          `json:"goal"`
 	Runtime     string          `json:"runtime,omitempty"` // the harness running every phase and child; empty means legacy Claude-only
-	Tier        string          `json:"tier,omitempty"`
-	Model       string          `json:"model,omitempty"` // exact model id override (flat route); empty means tier
+	Model       string          `json:"model,omitempty"`   // exact model id override (flat route); empty means the runtime default
 	PlaybookId  string          `json:"playbookid,omitempty"`
 	Mode        string          `json:"mode,omitempty"`       // pipeline | orchestrator (empty = pipeline, legacy-safe)
 	WorkspaceId string          `json:"workspaceid"`          // where phase-worker tabs are created (frontend supplies at CreateRun)
@@ -347,10 +347,9 @@ type TaskNode struct {
 // RunSpec is the child-run launch form a task wants (runtime/mode/goal override).
 type RunSpec struct {
 	Runtime string `json:"runtime,omitempty"` // harness; empty = run default
-	Tier    string `json:"tier,omitempty"`
-	Model   string `json:"model,omitempty"` // exact model id; empty = tier/default
-	Mode    string `json:"mode,omitempty"`  // quick | pipeline | orchestrator
-	Goal    string `json:"goal,omitempty"`  // per-task goal; empty = task label
+	Model   string `json:"model,omitempty"`   // exact model id; empty = runtime default
+	Mode    string `json:"mode,omitempty"`    // quick | pipeline | orchestrator
+	Goal    string `json:"goal,omitempty"`    // per-task goal; empty = task label
 }
 
 // TaskGroup is the persisted DAG attached to an orchestrator run (oref dag:<id>).

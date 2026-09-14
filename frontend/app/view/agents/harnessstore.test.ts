@@ -41,43 +41,63 @@ describe("harnessstore model catalog freshness", () => {
         expect(listHarnesses).toHaveBeenCalledTimes(1);
     });
 
-    it("persists model in the route settings patch", async () => {
-        setPreferredRoute({ runtime: "pi", tier: "", model: "opencode/deepseek-v4-pro" });
+    it("sends exactly the runtime and model settings", async () => {
+        setPreferredRoute({ runtime: "pi", model: "opencode/deepseek-v4-pro" });
         await vi.waitFor(() => expect(setConfig).toHaveBeenCalled());
-        const patch = setConfig.mock.calls[0][1] as Record<string, string>;
-        expect(patch["harness:preferredmodel"]).toBe("opencode/deepseek-v4-pro");
-        expect(patch["harness:preferredruntime"]).toBe("pi");
+        expect(setConfig.mock.calls[0][1]).toEqual({
+            "harness:preferredruntime": "pi",
+            "harness:preferredmodel": "opencode/deepseek-v4-pro",
+        });
+    });
+
+    // the server takes the pair together, so a runtime default has to clear the previous runtime's model
+    it("clears the persisted model when the route is the runtime default", async () => {
+        setPreferredRoute({ runtime: "claude" });
+        await vi.waitFor(() => expect(setConfig).toHaveBeenCalled());
+        expect(setConfig.mock.calls[0][1]).toEqual({ "harness:preferredruntime": "claude", "harness:preferredmodel": "" });
     });
 
     it("treats a model-only change as a change worth saving", async () => {
-        initHarnessPreference("pi", "capable");
-        setPreferredRoute({ runtime: "pi", tier: "", model: "opencode/deepseek-v4-pro" });
+        initHarnessPreference("pi");
+        setPreferredRoute({ runtime: "pi", model: "opencode/deepseek-v4-pro" });
         await vi.waitFor(() => expect(setConfig).toHaveBeenCalled());
         expect(setConfig.mock.calls[0][1]["harness:preferredmodel"]).toBe("opencode/deepseek-v4-pro");
     });
 
     it("keeps the pinned model when the harness picker re-picks the current runtime", () => {
         globalStore.set(harnessesAtom, [
-            { runtime: "pi", label: "Pi", routecapabilities: [{ runtime: "pi", tier: "capable", resolvedmodel: "operator default" }] },
-            { runtime: "codex", label: "Codex", routecapabilities: [{ runtime: "codex", tier: "capable", resolvedmodel: "operator default" }] },
+            { runtime: "pi", label: "Pi", routecapabilities: [{ runtime: "pi", resolvedmodel: "operator default" }] },
+            { runtime: "claude", label: "Claude", routecapabilities: [{ runtime: "claude", resolvedmodel: "operator default" }] },
         ] as HarnessInfo[]);
-        initHarnessPreference("pi", "capable", "opencode/deepseek-v4-pro");
+        initHarnessPreference("pi", "opencode/deepseek-v4-pro");
 
         setPreferredHarness("pi");
-        expect(globalStore.get(harnessPreferenceAtom).route).toEqual({ runtime: "pi", tier: "capable", model: "opencode/deepseek-v4-pro" });
+        expect(globalStore.get(harnessPreferenceAtom).route).toEqual({ runtime: "pi", model: "opencode/deepseek-v4-pro" });
 
         // a different harness has a different id namespace, so the model cannot come along
+        setPreferredHarness("claude");
+        expect(globalStore.get(harnessPreferenceAtom).route).toEqual({ runtime: "claude" });
+    });
+
+    it("refuses a harness with no runtime-default route", () => {
+        globalStore.set(harnessesAtom, [
+            { runtime: "codex", label: "Codex", routecapabilities: [] },
+            {
+                runtime: "pi",
+                label: "Pi",
+                routecapabilities: [{ runtime: "pi", model: "opencode/deepseek-v4-pro", resolvedmodel: "opencode/deepseek-v4-pro" }],
+            },
+        ] as HarnessInfo[]);
         setPreferredHarness("codex");
-        expect(globalStore.get(harnessPreferenceAtom).route).toEqual({ runtime: "codex", tier: "capable" });
+        expect(globalStore.get(harnessPreferenceAtom).error).toContain("codex");
+        setPreferredHarness("pi");
+        expect(globalStore.get(harnessPreferenceAtom).error).toContain("pi");
+        expect(setConfig).not.toHaveBeenCalled();
     });
 
     it("seeds the preference from a persisted model", () => {
-        initHarnessPreference("pi", "capable", "opencode/deepseek-v4-pro");
-        expect(globalStore.get(harnessPreferenceAtom).route).toEqual({
-            runtime: "pi",
-            tier: "capable",
-            model: "opencode/deepseek-v4-pro",
-        });
+        initHarnessPreference("claude", "sonnet");
+        expect(globalStore.get(harnessPreferenceAtom).route).toEqual({ runtime: "claude", model: "sonnet" });
     });
 });
 

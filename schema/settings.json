@@ -330,9 +330,6 @@
         "harness:preferredruntime": {
           "type": "string"
         },
-        "harness:preferredtier": {
-          "type": "string"
-        },
         "harness:preferredmodel": {
           "type": "string"
         }

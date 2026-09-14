@@ -189,7 +189,7 @@ function normalizeOverride(o: ProfileOverride): ProfileOverride {
     if (o.route?.runtime == null || o.route.runtime === "") {
         delete out.route;
     } else {
-        out.route = { runtime: o.route.runtime, tier: o.route.tier || "capable" };
+        out.route = { runtime: o.route.runtime, ...(o.route.model ? { model: o.route.model } : {}) };
     }
     return out;
 }

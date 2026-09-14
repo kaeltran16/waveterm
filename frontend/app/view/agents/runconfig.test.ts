@@ -139,7 +139,7 @@ describe("plannerNote", () => {
 // state comes back as "no opinion" so the launcher's own default stands rather than being silently replaced.
 describe("profileRunDefaults", () => {
     it("maps a saved profile onto the launcher's controls", () => {
-        const route = { runtime: "pi", tier: "capable" } as RoutePin;
+        const route = { runtime: "pi" } as RoutePin;
         const got = profileRunDefaults({
             playbook: [],
             defaultmode: "orchestrator",

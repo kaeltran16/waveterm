@@ -26,7 +26,7 @@ func TestSpawnRunWorkers_ConcurrentSpawnsOnce(t *testing.T) {
 		t.Fatalf("CreateChannel: %v", err)
 	}
 	run := jarvis.NewRun("do X", "ws-id", "/repo", nil, jarvis.RunMode_Pipeline, jarvis.DefaultPlaybook(), 1)
-	run.Runtime = "opencode"
+	run.Runtime = "pi"
 	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
 		t.Fatalf("AppendRun: %v", err)
 	}
@@ -57,8 +57,8 @@ func TestSpawnRunWorkers_ConcurrentSpawnsOnce(t *testing.T) {
 	if got := atomic.LoadInt32(&calls); got != 1 {
 		t.Fatalf("SpawnRunWorker calls = %d, want exactly 1", got)
 	}
-	if spawnedWith.Runtime != "opencode" || spawnedWith.Tier != "capable" {
-		t.Fatalf("worker spawned with capability %+v, want opencode/capable", spawnedWith)
+	if spawnedWith.Runtime != "pi" {
+		t.Fatalf("worker spawned with capability %+v, want pi", spawnedWith)
 	}
 	out, err := wstore.GetRun(ctx, ch.OID, run.ID)
 	if err != nil {

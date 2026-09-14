@@ -246,12 +246,11 @@ func seedRunningDag(t *testing.T) (context.Context, *waveobj.TaskGroup, *waveobj
 	return ctx, dag, owner, child
 }
 
-func seedEscalationDag(t *testing.T, runtime, tier, state string, escalations int) (context.Context, *waveobj.TaskGroup, waveobj.Run, string) {
+func seedEscalationDag(t *testing.T, runtime, state string, escalations int) (context.Context, *waveobj.TaskGroup, waveobj.Run, string) {
 	t.Helper()
 	ctx, dag := seedPendingDag(t)
 	if err := wstore.UpdateRun(ctx, dag.ChannelId, dag.RunID, func(owner *waveobj.Run) error {
 		owner.Runtime = runtime
-		owner.Tier = tier
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -313,60 +312,56 @@ func assertEscalationRejectedWithoutCancelling(t *testing.T, ctx context.Context
 }
 
 func TestEscalateRejectsEmptyTarget(t *testing.T) {
-	ctx, dag, _, _ := seedEscalationDag(t, "claude", "mid", TaskState_Failed, 0)
+	ctx, dag, _, _ := seedEscalationDag(t, "claude", TaskState_Failed, 0)
 	allowEscalationSchedule(t)
-	// no automatic tier ladder: a judged hop requires an explicit model or higher tier
+	// a judged hop requires an explicit model
 	if err := ApplyAction(ctx, dag.OID, "t-0", "escalate", waveobj.RoutePin{}); err == nil {
 		t.Fatal("empty escalate target must be rejected")
 	}
 	got := mustLoadDag(t, ctx, dag.OID)
 	task := got.Tasks[0]
-	if task.RunSpec.Runtime != "" || task.RunSpec.Tier != "" || task.Escalations != 0 || task.State != TaskState_Failed {
+	if task.RunSpec.Runtime != "" || task.RunSpec.Model != "" || task.Escalations != 0 || task.State != TaskState_Failed {
 		t.Fatalf("rejected escalation mutated task route/state = %+v", task)
 	}
 }
 
-func TestEscalateAcceptsExplicitHigherTier(t *testing.T) {
-	ctx, dag, _, _ := seedEscalationDag(t, "claude", "cheap", TaskState_Failed, 0)
+// a runtime alone names no escalation target: the human picks the model
+func TestEscalateRequiresModelWithoutCancellingRun(t *testing.T) {
+	ctx, dag, child, worker := seedEscalationDag(t, "claude", TaskState_Failed, 0)
+	assertEscalationRejectedWithoutCancelling(t, ctx, dag, child, worker, waveobj.RoutePin{Runtime: "claude"})
+}
+
+func TestEscalateRepinsToModel(t *testing.T) {
+	ctx, dag, _, _ := seedEscalationDag(t, "claude", TaskState_Failed, 0)
 	allowEscalationSchedule(t)
-	if err := ApplyAction(ctx, dag.OID, "t-0", "escalate", waveobj.RoutePin{Tier: "capable"}); err != nil {
+	if err := ApplyAction(ctx, dag.OID, "t-0", "escalate", waveobj.RoutePin{Model: "opus"}); err != nil {
 		t.Fatal(err)
 	}
 	got := mustLoadDag(t, ctx, dag.OID)
-	if got.Tasks[0].RunSpec.Runtime != "claude" || got.Tasks[0].RunSpec.Tier != "capable" || got.Tasks[0].Escalations != 1 {
-		t.Fatalf("explicit escalation = %+v", got.Tasks[0])
-	}
-}
-
-func TestEscalateRejectsSameOrLowerTierWithoutCancellingRun(t *testing.T) {
-	for _, requested := range []string{"mid", "cheap"} {
-		t.Run(requested, func(t *testing.T) {
-			ctx, dag, child, worker := seedEscalationDag(t, "claude", "mid", TaskState_Failed, 0)
-			assertEscalationRejectedWithoutCancelling(t, ctx, dag, child, worker, waveobj.RoutePin{Tier: requested})
-		})
+	if got.Tasks[0].RunSpec.Runtime != "claude" || got.Tasks[0].RunSpec.Model != "opus" || got.Tasks[0].Escalations != 1 {
+		t.Fatalf("model escalation = %+v", got.Tasks[0])
 	}
 }
 
 func TestEscalateRejectsSecondHopWithoutCancellingRun(t *testing.T) {
-	ctx, dag, child, worker := seedEscalationDag(t, "claude", "mid", TaskState_Failed, 1)
-	assertEscalationRejectedWithoutCancelling(t, ctx, dag, child, worker, waveobj.RoutePin{Tier: "capable"})
+	ctx, dag, child, worker := seedEscalationDag(t, "claude", TaskState_Failed, 1)
+	assertEscalationRejectedWithoutCancelling(t, ctx, dag, child, worker, waveobj.RoutePin{Model: "opus"})
 }
 
 func TestEscalateRejectsUnsupportedRouteWithoutCancellingRun(t *testing.T) {
-	ctx, dag, child, worker := seedEscalationDag(t, "codex", "cheap", TaskState_Failed, 0)
-	assertEscalationRejectedWithoutCancelling(t, ctx, dag, child, worker, waveobj.RoutePin{Tier: "mid"})
+	ctx, dag, child, worker := seedEscalationDag(t, "claude", TaskState_Failed, 0)
+	assertEscalationRejectedWithoutCancelling(t, ctx, dag, child, worker, waveobj.RoutePin{Runtime: "claude", Model: "gpt-5.4"})
 }
 
 func TestEscalateRejectsPendingTask(t *testing.T) {
 	ctx, dag := seedPendingDag(t)
 	if err := wstore.UpdateRun(ctx, dag.ChannelId, dag.RunID, func(owner *waveobj.Run) error {
 		owner.Runtime = "claude"
-		owner.Tier = "mid"
 		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyAction(ctx, dag.OID, "t-0", "escalate", waveobj.RoutePin{Tier: "capable"}); err == nil {
+	if err := ApplyAction(ctx, dag.OID, "t-0", "escalate", waveobj.RoutePin{Model: "opus"}); err == nil {
 		t.Fatal("pending task accepted escalation")
 	}
 	got := mustLoadDag(t, ctx, dag.OID)

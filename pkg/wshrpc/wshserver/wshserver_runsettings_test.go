@@ -30,7 +30,7 @@ func newEngineRun(t *testing.T, ctx context.Context, name string, orchestration 
 		t.Fatalf("CreateChannel: %v", err)
 	}
 	rtn, err := (&WshServer{}).CreateRunCommand(ctx, wshrpc.CommandCreateRunData{
-		ChannelId: ch.OID, WorkspaceId: "ws", Goal: "reconfigure me", Runtime: "pi", Tier: "capable",
+		ChannelId: ch.OID, WorkspaceId: "ws", Goal: "reconfigure me", Runtime: "pi",
 		Mode: jarvis.RunMode_Orchestrator, Orchestration: orchestration, DeferStart: true,
 	})
 	if err != nil {
@@ -78,7 +78,7 @@ func submitGatedPlan(t *testing.T, ctx context.Context, ch *waveobj.Channel, run
 func TestSetRunSettingsPersistsPendingOnRunBeforeDag(t *testing.T) {
 	ctx := context.Background()
 	ch, run := newEngineRun(t, ctx, "rs-pending", jarvis.Orchestration_Engine)
-	route := &waveobj.RoutePin{Runtime: "pi", Tier: "capable"}
+	route := &waveobj.RoutePin{Runtime: "pi"}
 	gate := false
 	if err := (&WshServer{}).SetRunSettingsCommand(ctx, wshrpc.CommandSetRunSettingsData{
 		ChannelId: ch.OID, RunId: run.ID, Parallelism: intPtr(3), WorkerRoute: route, PlanGate: &gate,
@@ -155,7 +155,7 @@ func TestSetRunSettingsRejectsInvalidWorkerRoute(t *testing.T) {
 	ctx := context.Background()
 	ch, run := newEngineRun(t, ctx, "rs-badroute", jarvis.Orchestration_Engine)
 	if err := (&WshServer{}).SetRunSettingsCommand(ctx, wshrpc.CommandSetRunSettingsData{
-		ChannelId: ch.OID, RunId: run.ID, WorkerRoute: &waveobj.RoutePin{Runtime: "openrouter", Tier: "capable"},
+		ChannelId: ch.OID, RunId: run.ID, WorkerRoute: &waveobj.RoutePin{Runtime: "openrouter"},
 	}); err == nil {
 		t.Fatal("expected an invalid worker route to be rejected")
 	}
@@ -342,14 +342,14 @@ func TestCreateRunHydratesEngineDefaultsFromProfile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateChannel: %v", err)
 	}
-	route := &waveobj.RoutePin{Runtime: "pi", Tier: "capable"}
+	route := &waveobj.RoutePin{Runtime: "pi"}
 	seedProfileMeta(t, ctx, ch.OID, &waveobj.ProfileOverride{
 		Machine:     strPtr(jarvis.Orchestration_Engine),
 		Parallelism: intPtr(3),
 		WorkerRoute: route,
 	})
 	rtn, err := (&WshServer{}).CreateRunCommand(ctx, wshrpc.CommandCreateRunData{
-		ChannelId: ch.OID, WorkspaceId: "ws", Goal: "g", Runtime: "pi", Tier: "capable",
+		ChannelId: ch.OID, WorkspaceId: "ws", Goal: "g", Runtime: "pi",
 		Mode: jarvis.RunMode_Orchestrator, DeferStart: true,
 	})
 	if err != nil {
@@ -378,7 +378,7 @@ func TestCreateRunExplicitValuesBeatProfileDefaults(t *testing.T) {
 		Machine: strPtr(jarvis.Orchestration_Engine), Parallelism: intPtr(3),
 	})
 	rtn, err := (&WshServer{}).CreateRunCommand(ctx, wshrpc.CommandCreateRunData{
-		ChannelId: ch.OID, WorkspaceId: "ws", Goal: "g", Runtime: "pi", Tier: "capable",
+		ChannelId: ch.OID, WorkspaceId: "ws", Goal: "g", Runtime: "pi",
 		Mode: jarvis.RunMode_Orchestrator, Orchestration: jarvis.Orchestration_Adaptive,
 		Parallelism: 7, DeferStart: true,
 	})
@@ -410,7 +410,7 @@ func TestSetChannelProfileValidatesEngineDefaults(t *testing.T) {
 	}
 	if err := ws.SetChannelProfileCommand(ctx, wshrpc.CommandSetChannelProfileData{
 		ChannelId: ch.OID, Override: &waveobj.ProfileOverride{
-			WorkerRoute: &waveobj.RoutePin{Runtime: "openrouter", Tier: "capable"},
+			WorkerRoute: &waveobj.RoutePin{Runtime: "openrouter"},
 		},
 	}); err == nil {
 		t.Fatal("expected an invalid profile worker route to be rejected")
@@ -427,7 +427,7 @@ func TestSetChannelProfileStoresEngineDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateChannel: %v", err)
 	}
-	route := &waveobj.RoutePin{Runtime: "pi", Tier: "capable"}
+	route := &waveobj.RoutePin{Runtime: "pi"}
 	if err := (&WshServer{}).SetChannelProfileCommand(ctx, wshrpc.CommandSetChannelProfileData{
 		ChannelId: ch.OID, Override: &waveobj.ProfileOverride{
 			Machine: strPtr(jarvis.Orchestration_Engine), Parallelism: intPtr(4), WorkerRoute: route,

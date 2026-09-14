@@ -624,28 +624,17 @@ func taskPrompt(task *waveobj.TaskNode, owner *waveobj.Run, handoff string) stri
 }
 
 func effectiveTaskRoute(task *waveobj.TaskNode, owner *waveobj.Run, group *waveobj.TaskGroup) waveobj.RoutePin {
-	if task.RunSpec.Model != "" {
+	if task.RunSpec.Runtime != "" || task.RunSpec.Model != "" {
 		runtime := task.RunSpec.Runtime
 		if runtime == "" {
 			runtime = owner.Runtime
 		}
-		return waveobj.RoutePin{Runtime: runtime, Model: task.RunSpec.Model}
+		return waveobj.RoutePin{Runtime: runroute.DefaultRuntime(runtime), Model: task.RunSpec.Model}
 	}
-	if task.RunSpec.Runtime != "" || task.RunSpec.Tier != "" {
-		return runroute.NormalizeLegacy(task.RunSpec.Runtime, task.RunSpec.Tier)
+	if group != nil && group.WorkerRoute != nil && (group.WorkerRoute.Runtime != "" || group.WorkerRoute.Model != "") {
+		return waveobj.RoutePin{Runtime: runroute.DefaultRuntime(group.WorkerRoute.Runtime), Model: group.WorkerRoute.Model}
 	}
-	if group != nil && group.WorkerRoute != nil {
-		if group.WorkerRoute.Model != "" {
-			return waveobj.RoutePin{Runtime: group.WorkerRoute.Runtime, Model: group.WorkerRoute.Model}
-		}
-		if group.WorkerRoute.Runtime != "" || group.WorkerRoute.Tier != "" {
-			return runroute.NormalizeLegacy(group.WorkerRoute.Runtime, group.WorkerRoute.Tier)
-		}
-	}
-	if owner.Model != "" {
-		return waveobj.RoutePin{Runtime: owner.Runtime, Model: owner.Model}
-	}
-	return runroute.NormalizeLegacy(owner.Runtime, owner.Tier)
+	return waveobj.RoutePin{Runtime: runroute.DefaultRuntime(owner.Runtime), Model: owner.Model}
 }
 
 // childRunFromSpec builds the child run that owns the spawned worker. The child carries
@@ -658,7 +647,6 @@ func childRunFromSpec(g *waveobj.TaskGroup, task *waveobj.TaskNode, owner *waveo
 	}
 	run := jarvis.NewRun(goal, owner.WorkspaceId, cwd, nil, mode, jarvis.QuickPlaybook(), time.Now().UnixMilli())
 	run.Runtime = route.Runtime
-	run.Tier = route.Tier
 	run.Model = route.Model
 	run.DagORef = g.OID
 	run.BaseCommit = baseCommit

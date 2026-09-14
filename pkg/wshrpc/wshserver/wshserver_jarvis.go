@@ -360,7 +360,7 @@ func routeCapabilitiesForProbe(result harness.ProbeResult) []runroute.Capability
 }
 
 // catalogModelsForProbe returns the harness-sourced model catalog for installed, run-worker-capable
-// probes; the picker sees the flat catalog, never the legacy tiers.
+// probes.
 func catalogModelsForProbe(ctx context.Context, result harness.ProbeResult) []runroute.ModelEntry {
 	if !result.Installed || !result.Spec.RunWorkerCapable {
 		return nil
@@ -376,7 +376,6 @@ func (ws *WshServer) ListHarnessesCommand(ctx context.Context) (*wshrpc.CommandL
 		for _, capability := range routeCapabilitiesForProbe(r) {
 			capabilities = append(capabilities, wshrpc.RouteCapabilityInfo{
 				Runtime:       capability.Runtime,
-				Tier:          capability.Tier,
 				ResolvedModel: capability.ResolvedModel,
 			})
 		}

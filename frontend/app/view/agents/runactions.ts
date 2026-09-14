@@ -14,7 +14,7 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { fireAndForget } from "@/util/util";
 import { atom, type PrimitiveAtom } from "jotai";
 import type { PendingRunDraft } from "./radarmodel";
-import { normalizeProfileOverrideRoute, resolveEffectiveRoute } from "./route";
+import { normalizeProfileOverrideRoute, normalizeRoute, resolveEffectiveRoute } from "./route";
 import { harnessesAtom, harnessPreferenceAtom } from "./harnessstore";
 
 // The pending Run draft handed from Radar's "Start investigation" to the Channels Run composer. Ephemeral
@@ -82,7 +82,6 @@ export async function createRun(
         workspaceid: workspaceId,
         goal,
         runtime: route.runtime,
-        tier: route.tier ?? "",
         ...(route.model ? { model: route.model } : {}),
         ...(opts?.mode === "orchestrator" && opts.workerRoute ? { workerroute: opts.workerRoute } : {}),
         ...(opts?.mode === "orchestrator" && opts.orchestration ? { orchestration: opts.orchestration } : {}),
@@ -191,14 +190,9 @@ export async function resolveChannelLaunchRoute(channelId: string): Promise<Rout
     const response = await getJarvisProfile(channelId);
     cacheJarvisProfile(channelId, response);
     const settingsRuntime = (globalStore.get(getSettingsKeyAtom("harness:preferredruntime")) as string) ?? "";
-    const settingsTier = (globalStore.get(getSettingsKeyAtom("harness:preferredtier")) as string) ?? "";
     const settingsModel = (globalStore.get(getSettingsKeyAtom("harness:preferredmodel")) as string) ?? "";
     const pref = globalStore.get(harnessPreferenceAtom);
-    const settings =
-        pref.route ??
-        (settingsRuntime
-            ? { runtime: settingsRuntime, tier: settingsTier || "capable", ...(settingsModel ? { model: settingsModel } : {}) }
-            : null);
+    const settings = pref.route ?? normalizeRoute(settingsRuntime, settingsModel);
     const effective = resolveEffectiveRoute({
         settings,
         channel: response.override?.route ?? null,

@@ -63,12 +63,10 @@ describe("workerPickerFace", () => {
     });
 
     test("shows model when workerRoute is set", () => {
-        expect(workerPickerFace({ runtime: "pi", tier: "", model: "opencode/deepseek-v4-pro" })).toBe(
-            "opencode/deepseek-v4-pro"
-        );
+        expect(workerPickerFace({ runtime: "pi", model: "opencode/deepseek-v4-pro" })).toBe("opencode/deepseek-v4-pro");
     });
 
-    test("shows tier when model missing", () => {
-        expect(workerPickerFace({ runtime: "pi", tier: "capable" })).toBe("capable");
+    test("names the runtime default when the route has no model", () => {
+        expect(workerPickerFace({ runtime: "pi" })).toBe("default");
     });
 });

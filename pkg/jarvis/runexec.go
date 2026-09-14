@@ -19,15 +19,14 @@ import (
 )
 
 // RunWorkerSpec is the unattended launch form for one harness's run worker: the executable plus the
-// argument prefix that goes before the prompt. The prompt travels positionally (claude) or as a flag
-// value (opencode --prompt); codex appends it positionally in interactive mode (never `exec`).
+// argument prefix that goes before the prompt. The prompt travels positionally for both claude and pi.
 type RunWorkerSpec struct {
 	Bin  string
 	Args []string
 }
 
 // RunWorkerSpecFor resolves the unattended worker launch form from one validated capability. The
-// capability authority owns runtime/tier compatibility and model selection; this adapter only supplies
+// capability authority owns runtime/model compatibility and model selection; this adapter only supplies
 // each runtime's unattended base arguments.
 func RunWorkerSpecFor(cap runroute.Capability, prompt string) (RunWorkerSpec, bool) {
 	if !runroute.IsValid(cap) {
@@ -41,10 +40,6 @@ func RunWorkerSpecFor(cap runroute.Capability, prompt string) (RunWorkerSpec, bo
 	switch cap.Runtime {
 	case "claude":
 		args = []string{"--dangerously-skip-permissions"}
-	case "codex":
-		args = []string{"--dangerously-bypass-approvals-and-sandbox"}
-	case "opencode":
-		args = []string{"--auto", "--prompt"}
 	case "pi":
 		args = nil
 	default:
@@ -115,7 +110,7 @@ var SpawnRunWorker = func(ctx context.Context, cap runroute.Capability, workspac
 	}
 	spec, ok := RunWorkerSpecFor(cap, prompt)
 	if !ok {
-		return "", fmt.Errorf("no unattended run worker adapter for runtime %q tier %q", cap.Runtime, cap.Tier)
+		return "", fmt.Errorf("no unattended run worker adapter for runtime %q model %q", cap.Runtime, cap.Model)
 	}
 	// --dangerously-skip-permissions covers tool prompts, not the first-run folder-trust prompt, so a
 	// worker launched into an untrusted project would park there forever with no signal. Every claude

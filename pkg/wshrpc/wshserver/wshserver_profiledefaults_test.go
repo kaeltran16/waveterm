@@ -135,7 +135,7 @@ func TestProfileDefaultsDriveNextEngineRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateChannel: %v", err)
 	}
-	route := &waveobj.RoutePin{Runtime: "pi", Tier: "capable"}
+	route := &waveobj.RoutePin{Runtime: "pi"}
 	gateOff := false
 	if err := (&WshServer{}).SetChannelProfileCommand(ctx, wshrpc.CommandSetChannelProfileData{
 		ChannelId: ch.OID,
@@ -150,7 +150,7 @@ func TestProfileDefaultsDriveNextEngineRun(t *testing.T) {
 	}
 
 	rtn, err := (&WshServer{}).CreateRunCommand(ctx, wshrpc.CommandCreateRunData{
-		ChannelId: ch.OID, WorkspaceId: "ws", Goal: "g", Runtime: "pi", Tier: "capable",
+		ChannelId: ch.OID, WorkspaceId: "ws", Goal: "g", Runtime: "pi",
 		Mode: jarvis.RunMode_Orchestrator, DeferStart: true,
 	})
 	if err != nil {
@@ -200,7 +200,7 @@ func TestEngineDefaultsNotHydratedOntoNonEngineRuns(t *testing.T) {
 		Override: &waveobj.ProfileOverride{
 			Machine:         strPtr(jarvis.Orchestration_Engine),
 			Parallelism:     intPtr(5),
-			WorkerRoute:     &waveobj.RoutePin{Runtime: "pi", Tier: "capable"},
+			WorkerRoute:     &waveobj.RoutePin{Runtime: "pi"},
 			DefaultPlanGate: &gateOff,
 		},
 	}); err != nil {
@@ -217,7 +217,7 @@ func TestEngineDefaultsNotHydratedOntoNonEngineRuns(t *testing.T) {
 	}
 	for _, l := range launches {
 		rtn, err := (&WshServer{}).CreateRunCommand(ctx, wshrpc.CommandCreateRunData{
-			ChannelId: ch.OID, WorkspaceId: "ws", Goal: "g", Runtime: "pi", Tier: "capable",
+			ChannelId: ch.OID, WorkspaceId: "ws", Goal: "g", Runtime: "pi",
 			Mode: l.mode, Orchestration: l.orchestration, DeferStart: true,
 		})
 		if err != nil {

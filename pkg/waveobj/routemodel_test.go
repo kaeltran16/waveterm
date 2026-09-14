@@ -9,7 +9,7 @@ import (
 )
 
 func TestRoutePinModelJSONRoundTrip(t *testing.T) {
-	pin := RoutePin{Runtime: "pi", Tier: "", Model: "opencode/deepseek-v4-pro"}
+	pin := RoutePin{Runtime: "pi", Model: "opencode/deepseek-v4-pro"}
 	raw, err := json.Marshal(pin)
 	if err != nil {
 		t.Fatal(err)
@@ -24,9 +24,9 @@ func TestRoutePinModelJSONRoundTrip(t *testing.T) {
 }
 
 func TestRoutePinModelOmitEmpty(t *testing.T) {
-	raw, _ := json.Marshal(RoutePin{Runtime: "claude", Tier: "capable"})
-	if string(raw) != `{"runtime":"claude","tier":"capable"}` {
-		t.Fatalf("empty model must be omitted, got %s", raw)
+	raw, _ := json.Marshal(RoutePin{Runtime: "claude"})
+	if string(raw) != `{"runtime":"claude"}` {
+		t.Fatalf("empty model and tier must be omitted, got %s", raw)
 	}
 }
 

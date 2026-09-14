@@ -1,7 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// Package runroute owns the supported run-runtime and model-tier authority.
+// Package runroute owns the supported run runtimes and the model a route resolves to.
 package runroute
 
 import (
@@ -15,45 +15,33 @@ import (
 
 const operatorDefault = "operator default"
 
+// a run persisted before routes existed has no runtime; it was always a claude run
+const defaultRuntime = "claude"
+
 var (
-	claudeAliasRe    = regexp.MustCompile(`^(opus|sonnet|haiku|fable|best)(\[[0-9]+m\])?$`)
-	claudeFullRe     = regexp.MustCompile(`^claude-[a-zA-Z0-9-]+$`)
-	providerModelRe  = regexp.MustCompile(`^[a-zA-Z0-9_-]+/[a-zA-Z0-9._:+-]+$`)
-	codexForbiddenRe = regexp.MustCompile(`[\s;&|` + "`" + `$<>'"]`)
+	claudeAliasRe   = regexp.MustCompile(`^(opus|sonnet|haiku|fable|best)(\[[0-9]+m\])?$`)
+	claudeFullRe    = regexp.MustCompile(`^claude-[a-zA-Z0-9-]+$`)
+	providerModelRe = regexp.MustCompile(`^[a-zA-Z0-9_-]+/[a-zA-Z0-9._:+-]+$`)
 )
 
-func codexSafe(model string) bool {
-	if model == "" {
-		return false
-	}
-	return !codexForbiddenRe.MatchString(model)
-}
-
 type Capability struct {
-	Runtime       string `json:"runtime"`
-	Tier          string `json:"tier,omitempty"`        // legacy tier pin only; "" for model pins
-	Model         string `json:"model,omitempty"`       // set on model pins; "" for legacy tier pins
-	ResolvedModel string `json:"resolvedmodel"`
-	Provider      string `json:"provider,omitempty"`   // catalog metadata, informational
-	ContextHint   string `json:"contexthint,omitempty"` // catalog metadata, informational
-	Default       bool   `json:"default,omitempty"`     // catalog metadata: the harness's own default model
+	Runtime       string   `json:"runtime"`
+	Model         string   `json:"model,omitempty"` // "" means the runtime's own default model
+	ResolvedModel string   `json:"resolvedmodel"`
+	Provider      string   `json:"provider,omitempty"`    // catalog metadata, informational
+	ContextHint   string   `json:"contexthint,omitempty"` // catalog metadata, informational
+	Default       bool     `json:"default,omitempty"`     // catalog metadata: the harness's own default model
 	ModelArgs     []string `json:"-"`
 }
 
-var capabilityTable = []Capability{
-	// pi has no tiers: its ids are provider-namespaced (provider/model), not aliases, so there is no
-	// bare id Wave can pin that pi can resolve on its own. A tier pin means "pi's configured default".
-	{Runtime: "pi", Tier: string(consult.TierCapable), ResolvedModel: operatorDefault},
-	{Runtime: "claude", Tier: string(consult.TierCheap), ResolvedModel: consult.CheapModel, ModelArgs: []string{"--model", consult.CheapModel}},
-	{Runtime: "claude", Tier: string(consult.TierMid), ResolvedModel: consult.MidModel, ModelArgs: []string{"--model", consult.MidModel}},
-	{Runtime: "claude", Tier: string(consult.TierCapable), ResolvedModel: operatorDefault},
-	{Runtime: "codex", Tier: string(consult.TierCapable), ResolvedModel: operatorDefault},
-	{Runtime: "opencode", Tier: string(consult.TierCapable), ResolvedModel: operatorDefault},
+var runtimeDefaults = []Capability{
+	{Runtime: "pi", ResolvedModel: operatorDefault},
+	{Runtime: "claude", ResolvedModel: operatorDefault},
 }
 
 func Capabilities(runtime string) []Capability {
-	capabilities := make([]Capability, 0, len(capabilityTable))
-	for _, capability := range capabilityTable {
+	capabilities := make([]Capability, 0, len(runtimeDefaults))
+	for _, capability := range runtimeDefaults {
 		if capability.Runtime != runtime {
 			continue
 		}
@@ -66,16 +54,12 @@ func Resolve(pin waveobj.RoutePin) (Capability, error) {
 	if pin.Model != "" {
 		return resolveModelPin(pin)
 	}
-	return resolveLegacyTier(pin)
-}
-
-func resolveLegacyTier(pin waveobj.RoutePin) (Capability, error) {
-	for _, capability := range capabilityTable {
-		if capability.Runtime == pin.Runtime && capability.Tier == pin.Tier {
+	for _, capability := range runtimeDefaults {
+		if capability.Runtime == pin.Runtime {
 			return clone(capability), nil
 		}
 	}
-	return Capability{}, fmt.Errorf("unsupported route runtime %q tier %q", pin.Runtime, pin.Tier)
+	return Capability{}, fmt.Errorf("unsupported route runtime %q", pin.Runtime)
 }
 
 func resolveModelPin(pin waveobj.RoutePin) (Capability, error) {
@@ -89,7 +73,7 @@ func resolveModelPin(pin waveobj.RoutePin) (Capability, error) {
 		Runtime:       pin.Runtime,
 		Model:         pin.Model,
 		ResolvedModel: pin.Model,
-		ModelArgs:     modelArgsFor(pin.Runtime, pin.Model),
+		ModelArgs:     []string{"--model", pin.Model},
 	}, nil
 }
 
@@ -101,37 +85,41 @@ func modelNamespaceValid(runtime, model string) bool {
 		return claudeAliasRe.MatchString(model) || claudeFullRe.MatchString(model)
 	case "pi":
 		return providerModelRe.MatchString(model)
-	case "opencode":
-		return providerModelRe.MatchString(model)
-	case "codex":
-		return codexSafe(model)
 	}
 	return false
 }
 
-func modelArgsFor(runtime, model string) []string {
-	switch runtime {
-	case "claude", "codex", "opencode", "pi":
-		return []string{"--model", model}
+// DefaultRuntime names the runtime of a route persisted without one.
+func DefaultRuntime(runtime string) string {
+	if runtime == "" {
+		return defaultRuntime
 	}
-	return nil
+	return runtime
 }
 
-func NormalizeLegacy(runtime, tier string) waveobj.RoutePin {
-	if runtime == "" {
-		runtime = "claude"
+// MigrateTierPin rewrites a pin saved with a tier to the model that tier resolved to before tiers
+// were deleted, and clears the tier. Only claude ever mapped cheap and mid to a model; every other
+// tier resolved to the runtime default.
+func MigrateTierPin(pin waveobj.RoutePin) (waveobj.RoutePin, bool) {
+	if pin.Tier == "" {
+		return pin, false
 	}
-	if tier == "" || runtime == "pi" {
-		// pi never had meaningful tiers; a pin persisted at one still has to resolve.
-		tier = string(consult.TierCapable)
+	if pin.Model == "" && pin.Runtime == "claude" {
+		switch consult.Tier(pin.Tier) {
+		case consult.TierCheap:
+			pin.Model = consult.CheapModel
+		case consult.TierMid:
+			pin.Model = consult.MidModel
+		}
 	}
-	return waveobj.RoutePin{Runtime: runtime, Tier: tier}
+	pin.Tier = ""
+	return pin, true
 }
 
 // IsValid reports whether a capability is an unmodified value returned by Resolve. Consumers pass
 // capabilities across package boundaries, so this keeps adapters from launching a hand-built route.
 func IsValid(capability Capability) bool {
-	resolved, err := Resolve(waveobj.RoutePin{Runtime: capability.Runtime, Tier: capability.Tier, Model: capability.Model})
+	resolved, err := Resolve(waveobj.RoutePin{Runtime: capability.Runtime, Model: capability.Model})
 	return err == nil && resolved.ResolvedModel == capability.ResolvedModel && slices.Equal(resolved.ModelArgs, capability.ModelArgs)
 }
 

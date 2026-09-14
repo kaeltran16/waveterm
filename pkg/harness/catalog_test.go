@@ -26,8 +26,12 @@ func TestListExcludesAPIBackends(t *testing.T) {
 func TestLookupCapabilities(t *testing.T) {
 	for _, runtime := range []string{"pi", "claude", "codex", "opencode"} {
 		spec, ok := Lookup(runtime)
-		if !ok || !spec.ConsultCapable || !spec.RunWorkerCapable || spec.Bin == "" {
+		if !ok || !spec.ConsultCapable || spec.Bin == "" {
 			t.Fatalf("invalid %s spec: %+v, ok=%v", runtime, spec, ok)
+		}
+		// run workers are claude and pi only; codex and opencode stay consult-only
+		if wantWorker := runtime == "pi" || runtime == "claude"; spec.RunWorkerCapable != wantWorker {
+			t.Fatalf("%s RunWorkerCapable = %v, want %v", runtime, spec.RunWorkerCapable, wantWorker)
 		}
 	}
 }
@@ -55,8 +59,11 @@ func TestValidateInstalled(t *testing.T) {
 	t.Cleanup(func() { lookPath = old })
 	lookPath = func(bin string) (string, error) { return `C:\bin\` + bin, nil }
 
-	if _, err := ValidateInstalled("opencode", OperationRunWorker); err != nil {
+	if _, err := ValidateInstalled("claude", OperationRunWorker); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := ValidateInstalled("opencode", OperationRunWorker); err == nil || !strings.Contains(err.Error(), "does not support run workers") {
+		t.Fatalf("opencode run worker error = %v", err)
 	}
 	if _, err := ValidateInstalled("missing", OperationConsult); err == nil || !strings.Contains(err.Error(), "missing") {
 		t.Fatalf("unknown runtime error = %v", err)

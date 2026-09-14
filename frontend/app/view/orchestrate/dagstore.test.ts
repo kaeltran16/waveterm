@@ -13,10 +13,10 @@ const group = {
     ],
 } as any;
 
-const owner = { runtime: "claude", tier: "mid" } as Run;
+const owner = { runtime: "claude", model: "sonnet" } as Run;
 const harnesses = [
-    { runtime: "claude", routecapabilities: [{ runtime: "claude", tier: "mid", resolvedmodel: "sonnet" }, { runtime: "claude", tier: "capable", resolvedmodel: "operator default" }] },
-    { runtime: "pi", routecapabilities: [{ runtime: "pi", tier: "cheap", resolvedmodel: "pi-cheap" }] },
+    { runtime: "claude", routecapabilities: [{ runtime: "claude", model: "sonnet", resolvedmodel: "claude-sonnet-4-6" }, { runtime: "claude", resolvedmodel: "operator default" }] },
+    { runtime: "pi", routecapabilities: [{ runtime: "pi", resolvedmodel: "operator default" }] },
 ] as HarnessInfo[];
 
 describe("buildViewData", () => {
@@ -49,22 +49,24 @@ describe("buildViewData", () => {
         expect(perf.actions).toEqual(["retry", "skip", "escalate"]);
     });
 
-    it("projects pinned, inherited, legacy, and unavailable routes", () => {
+    it("projects pinned, inherited, runtime-default, and unavailable routes", () => {
         const routed = {
             ...group,
             tasks: [
-                { id: "pinned", label: "Pinned", state: "running", runspec: { runtime: "pi", tier: "cheap" } },
+                { id: "pinned", label: "Pinned", state: "running", runspec: { runtime: "claude", model: "sonnet" } },
                 { id: "inherited", label: "Inherited", state: "running" },
-                { id: "legacy", label: "Legacy", state: "running", runspec: { runtime: "pi" } },
-                { id: "missing", label: "Missing", state: "running", runspec: { runtime: "missing", tier: "mid" } },
-                { id: "modelpin", label: "ModelPin", state: "running", runspec: { runtime: "pi", tier: "", model: "opencode/deepseek-v4-pro" } },
+                { id: "runtimeonly", label: "RuntimeOnly", state: "running", runspec: { runtime: "pi" } },
+                { id: "missing", label: "Missing", state: "running", runspec: { runtime: "missing" } },
+                { id: "modelonly", label: "ModelOnly", state: "running", runspec: { model: "sonnet" } },
             ],
         } as any;
-        const { nodes } = buildViewData(routed, { runtime: "claude", tier: "" } as Run, harnesses);
-        expect(nodes.find((n) => n.id === "pinned")!.route).toEqual({ source: "pinned", runtime: "pi", tier: "cheap", model: "", resolvedModel: "pi-cheap" });
-        expect(nodes.find((n) => n.id === "inherited")!.route).toEqual({ source: "inherited", runtime: "claude", tier: "capable", model: "", resolvedModel: "operator default" });
-        expect(nodes.find((n) => n.id === "legacy")!.route).toEqual({ source: "pinned", runtime: "pi", tier: "capable", model: "", resolvedModel: "unavailable" });
-        expect(nodes.find((n) => n.id === "missing")!.route).toEqual({ source: "pinned", runtime: "missing", tier: "mid", model: "", resolvedModel: "unavailable" });
-        expect(nodes.find((n) => n.id === "modelpin")!.route).toEqual({ source: "pinned", runtime: "pi", tier: "capable", model: "opencode/deepseek-v4-pro", resolvedModel: "unavailable" });
+        const { nodes } = buildViewData(routed, owner, harnesses);
+        expect(nodes.find((n) => n.id === "pinned")!.route).toEqual({ source: "pinned", runtime: "claude", model: "sonnet", resolvedModel: "claude-sonnet-4-6" });
+        expect(nodes.find((n) => n.id === "inherited")!.route).toEqual({ source: "inherited", runtime: "claude", model: "sonnet", resolvedModel: "claude-sonnet-4-6" });
+        // a runtime-only pin is that runtime's default, never the owner's model
+        expect(nodes.find((n) => n.id === "runtimeonly")!.route).toEqual({ source: "pinned", runtime: "pi", model: "", resolvedModel: "operator default" });
+        expect(nodes.find((n) => n.id === "missing")!.route).toEqual({ source: "pinned", runtime: "missing", model: "", resolvedModel: "unavailable" });
+        // a model-only pin inherits the owner's runtime
+        expect(nodes.find((n) => n.id === "modelonly")!.route).toEqual({ source: "pinned", runtime: "claude", model: "sonnet", resolvedModel: "claude-sonnet-4-6" });
     });
 });

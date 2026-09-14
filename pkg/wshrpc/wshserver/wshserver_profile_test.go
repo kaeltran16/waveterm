@@ -168,7 +168,7 @@ func TestSetChannelProfileRouteRoundTripsWithoutResolvedRoute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	route := &waveobj.RoutePin{Runtime: "pi", Tier: "capable"}
+	route := &waveobj.RoutePin{Runtime: "pi"}
 	if err := (&WshServer{}).SetChannelProfileCommand(ctx, wshrpc.CommandSetChannelProfileData{
 		ChannelId: ch.OID,
 		Override:  &waveobj.ProfileOverride{Route: route},
@@ -205,8 +205,8 @@ func TestSetChannelProfileRejectsInvalidRouteBeforeWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	seedProfileMeta(t, ctx, ch.OID, &waveobj.ProfileOverride{Route: &waveobj.RoutePin{Runtime: "pi", Tier: "capable"}})
-	invalid := &waveobj.RoutePin{Runtime: "openrouter", Tier: "capable"}
+	seedProfileMeta(t, ctx, ch.OID, &waveobj.ProfileOverride{Route: &waveobj.RoutePin{Runtime: "pi"}})
+	invalid := &waveobj.RoutePin{Runtime: "openrouter"}
 	if err := (&WshServer{}).SetChannelProfileCommand(ctx, wshrpc.CommandSetChannelProfileData{
 		ChannelId: ch.OID,
 		Override:  &waveobj.ProfileOverride{Route: invalid},
@@ -218,7 +218,7 @@ func TestSetChannelProfileRejectsInvalidRouteBeforeWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	stored := jarvis.OverrideFromMeta(reloaded)
-	if stored == nil || stored.Route == nil || stored.Route.Runtime != "pi" || stored.Route.Tier != "capable" {
+	if stored == nil || stored.Route == nil || stored.Route.Runtime != "pi" {
 		t.Fatalf("invalid route changed profile: %+v", stored)
 	}
 }
@@ -229,7 +229,7 @@ func TestSetChannelProfileNilRouteClearsEmptyOverride(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	seedProfileMeta(t, ctx, ch.OID, &waveobj.ProfileOverride{Route: &waveobj.RoutePin{Runtime: "pi", Tier: "capable"}})
+	seedProfileMeta(t, ctx, ch.OID, &waveobj.ProfileOverride{Route: &waveobj.RoutePin{Runtime: "pi"}})
 	if err := (&WshServer{}).SetChannelProfileCommand(ctx, wshrpc.CommandSetChannelProfileData{
 		ChannelId: ch.OID,
 		Override:  &waveobj.ProfileOverride{},

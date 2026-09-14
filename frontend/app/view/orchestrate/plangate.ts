@@ -75,16 +75,17 @@ function plural(n: number, word: string): string {
     return `${n} ${word}${n === 1 ? "" : "s"}`;
 }
 
-function pinText(runtime: string | undefined, tier: string | undefined, model: string | undefined): string {
-    const where = runtime || "unavailable";
-    // an exact model wins over the tier, exactly as the router resolves it
-    const what = model || tier;
-    return what ? `${where} · ${what}` : where;
+function pinText(runtime: string | undefined, model: string | undefined): string {
+    // without a runtime there is no default to name
+    if (!runtime) {
+        return "unavailable";
+    }
+    return `${runtime} · ${model || "default"}`;
 }
 
 // leadRouteText says who wrote this plan, because the answer changes how much of it a reader checks.
 export function leadRouteText(run: Run): string {
-    return `lead ${pinText(run.runtime, run.tier, run.model)}`;
+    return `lead ${pinText(run.runtime, run.model)}`;
 }
 
 // workerRouteText says who will execute it and where. "managed worktrees" is claimed only when the
@@ -92,7 +93,7 @@ export function leadRouteText(run: Run): string {
 // promising isolation that is not there is the one wrong thing to say at an approval gate.
 export function workerRouteText(run: Run, group: TaskGroup): string {
     const route = group.workerroute ?? run.workerroute;
-    const who = route == null ? "same as lead" : pinText(route.runtime, route.tier, route.model);
+    const who = route == null ? "same as lead" : pinText(route.runtime, route.model);
     return group.mergerequired ? `workers ${who} · managed worktrees` : `workers ${who} · in the project directory`;
 }
 

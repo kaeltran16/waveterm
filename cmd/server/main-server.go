@@ -21,6 +21,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/blocklogger"
 	"github.com/wavetermdev/waveterm/pkg/filebackup"
 	"github.com/wavetermdev/waveterm/pkg/filestore"
+	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/jarvisvolunteer"
 	"github.com/wavetermdev/waveterm/pkg/jobcontroller"
 	"github.com/wavetermdev/waveterm/pkg/memdistill"
@@ -606,6 +607,9 @@ func main() {
 	sigutil.InstallShutdownSignalHandlers(doShutdown)
 	sigutil.InstallSIGUSR1Handler()
 	wconfig.MigratePresetsBackgrounds()
+	if err := jarvis.MigrateTierPins(context.Background()); err != nil {
+		log.Printf("error migrating route tier pins: %v\n", err)
+	}
 	err = startConfigWatcher()
 	if err != nil {
 		log.Printf("error starting config watcher: %v\n", err)

@@ -26,7 +26,7 @@ func gatedRun(t *testing.T, name string) (context.Context, *WshServer, *waveobj.
 	run.Status = jarvis.RunStatus_Planning
 	// a route the stub server will actually spawn on, so an approved plan dispatches instead of
 	// blocking on a rejected capability — the tests below are about the gate, not about routing
-	run.Runtime, run.Tier = "pi", "capable"
+	run.Runtime = "pi"
 	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
 		t.Fatalf("AppendRun: %v", err)
 	}

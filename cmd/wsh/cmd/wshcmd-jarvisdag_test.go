@@ -16,28 +16,22 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
 
-func TestDagEscalateData(t *testing.T) {
+func newDagEscalateTestCmd(t *testing.T, flags map[string]string) *cobra.Command {
+	t.Helper()
 	cmd := &cobra.Command{}
-	cmd.Flags().String("channel", "", "")
-	cmd.Flags().String("runid", "", "")
-	cmd.Flags().String("tier", "", "")
-	cmd.Flags().String("model", "", "")
-	cmd.Flags().String("runtime", "", "")
-	if err := cmd.Flags().Set("channel", "ch"); err != nil {
-		t.Fatal(err)
+	for _, name := range []string{"channel", "runid", "model", "runtime"} {
+		cmd.Flags().String(name, "", "")
 	}
-	if err := cmd.Flags().Set("runid", "run"); err != nil {
-		t.Fatal(err)
+	for name, value := range flags {
+		if err := cmd.Flags().Set(name, value); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if err := cmd.Flags().Set("tier", "capable"); err != nil {
-		t.Fatal(err)
-	}
-	if err := cmd.Flags().Set("model", "opencode/claude-opus-4-8"); err != nil {
-		t.Fatal(err)
-	}
-	if err := cmd.Flags().Set("runtime", "claude"); err != nil {
-		t.Fatal(err)
-	}
+	return cmd
+}
+
+func TestDagEscalateData(t *testing.T) {
+	cmd := newDagEscalateTestCmd(t, map[string]string{"channel": "ch", "runid": "run", "model": "sonnet", "runtime": "claude"})
 	got, err := dagEscalateData(cmd, []string{"t-1"})
 	if err != nil {
 		t.Fatal(err)
@@ -47,8 +41,7 @@ func TestDagEscalateData(t *testing.T) {
 		RunId:     "run",
 		TaskId:    "t-1",
 		Action:    "escalate",
-		Tier:      "capable",
-		Model:     "opencode/claude-opus-4-8",
+		Model:     "sonnet",
 		Runtime:   "claude",
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -56,6 +49,16 @@ func TestDagEscalateData(t *testing.T) {
 	}
 	if dagEscalateCmd.PreRunE == nil {
 		t.Fatal("escalate command must initialize the RPC client")
+	}
+	if dagEscalateCmd.Flags().Lookup("tier") != nil {
+		t.Fatal("escalate must not offer a tier flag")
+	}
+}
+
+func TestDagEscalateDataRequiresModel(t *testing.T) {
+	cmd := newDagEscalateTestCmd(t, map[string]string{"channel": "ch", "runid": "run", "runtime": "claude"})
+	if _, err := dagEscalateData(cmd, []string{"t-1"}); err == nil || !strings.Contains(err.Error(), "--model is required") {
+		t.Fatalf("missing model error = %v", err)
 	}
 }
 

@@ -17,7 +17,7 @@ describe("escalate", () => {
     });
 
     it("builds the dag action payload with runtime and model", () => {
-        const payload = escalatePayload("ch-1", "run-1", "t-3", { runtime: "claude", tier: "", model: "opus" });
+        const payload = escalatePayload("ch-1", "run-1", "t-3", { runtime: "claude", model: "opus" });
         expect(payload).toMatchObject({ channelid: "ch-1", runid: "run-1", taskid: "t-3", action: "escalate", runtime: "claude", model: "opus" });
     });
 });

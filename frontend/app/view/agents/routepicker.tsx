@@ -225,7 +225,7 @@ export function RoutePicker({
                                             onKeyDown={(event) => navigateRow(event, index)}
                                             aria-pressed={selectedRow}
                                             data-testid={`route-option-${row.runtime}-${row.model}`}
-                                            onClick={() => choose({ runtime: row.runtime, tier: "", model: row.model })}
+                                            onClick={() => choose({ runtime: row.runtime, model:row.model })}
                                             className={cn(
                                                 "flex w-full cursor-pointer items-start gap-2 rounded px-[9px] py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
                                                 selectedRow ? "bg-surface-raised" : "hover:bg-surface-hover"
@@ -251,7 +251,7 @@ export function RoutePicker({
                                             onChange={(e) => setCustomId({ runtime: section.runtime, draft: e.target.value })}
                                             onKeyDown={(e) => {
                                                 if (e.key === "Enter" && customId.draft.trim()) {
-                                                    choose({ runtime: section.runtime, tier: "", model: customId.draft.trim() });
+                                                    choose({ runtime: section.runtime, model:customId.draft.trim() });
                                                 }
                                             }}
                                             aria-label={`Custom model id for ${section.label}`}
@@ -259,7 +259,7 @@ export function RoutePicker({
                                         />
                                         <button
                                             type="button"
-                                            onClick={() => customId.draft.trim() && choose({ runtime: section.runtime, tier: "", model: customId.draft.trim() })}
+                                            onClick={() => customId.draft.trim() && choose({ runtime: section.runtime, model:customId.draft.trim() })}
                                             aria-label="Use custom model"
                                             className="cursor-pointer rounded-md border border-edge-mid px-2 py-1 text-[10.5px] font-semibold text-secondary hover:border-edge-strong hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                                         >

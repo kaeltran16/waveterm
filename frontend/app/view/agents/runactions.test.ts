@@ -60,7 +60,7 @@ describe("profile cache", () => {
     it("stores resolved profile and channel override together", () => {
         const response = {
             global: {} as JarvisProfile,
-            override: { route: { runtime: "pi", tier: "cheap" } },
+            override: { route: { runtime: "pi" } },
             resolved: { defaultmode: "pipeline" } as JarvisProfile,
         } as CommandGetJarvisProfileRtnData;
         cacheJarvisProfile("channel-1", response);
@@ -72,10 +72,10 @@ describe("profile cache", () => {
 describe("createRun", () => {
     it.each([undefined, "quick", "pipeline"])("omits orchestrator options for mode %s", async (mode) => {
         createRunCommand.mockResolvedValueOnce({ run: { id: "run-1" } });
-        await createRun("channel-1", "fix", { runtime: "pi", tier: "mid" }, {
+        await createRun("channel-1", "fix", { runtime: "pi" }, {
             mode,
             orchestration: "engine",
-            workerRoute: { runtime: "claude", tier: "", model: "sonnet" },
+            workerRoute: { runtime: "claude", model:"sonnet" },
         });
         const payload = createRunCommand.mock.calls[0][1];
         expect(payload.mode).toBe(mode);
@@ -85,10 +85,10 @@ describe("createRun", () => {
 
     it("preserves an explicitly selected engine orchestrator", async () => {
         createRunCommand.mockResolvedValueOnce({ run: { id: "run-1" } });
-        await createRun("channel-1", "coordinate", { runtime: "pi", tier: "mid" }, {
+        await createRun("channel-1", "coordinate", { runtime: "pi" }, {
             mode: "orchestrator",
             orchestration: "engine",
-            workerRoute: { runtime: "claude", tier: "", model: "sonnet" },
+            workerRoute: { runtime: "claude", model:"sonnet" },
         });
         expect(createRunCommand.mock.calls[0][1]).toMatchObject({
             mode: "orchestrator",
@@ -99,23 +99,22 @@ describe("createRun", () => {
 
     it("sends workerRoute when B1b workers picker is set", async () => {
         createRunCommand.mockResolvedValueOnce({ run: { id: "run-1" } });
-        await createRun("channel-1", "ship", { runtime: "claude", tier: "", model: "opus" }, { mode: "orchestrator", workerRoute: { runtime: "pi", model: "opencode/deepseek-v4-pro" } as RoutePin });
+        await createRun("channel-1", "ship", { runtime: "claude", model:"opus" }, { mode: "orchestrator", workerRoute: { runtime: "pi", model: "opencode/deepseek-v4-pro" } as RoutePin });
         expect(createRunCommand).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ workerroute: { runtime: "pi", model: "opencode/deepseek-v4-pro" } }));
     });
     it("omits workerRoute when workers inherit (collapsed)", async () => {
         createRunCommand.mockResolvedValueOnce({ run: { id: "run-2" } });
-        await createRun("channel-1", "ship", { runtime: "claude", tier: "", model: "opus" }, { mode: "orchestrator" });
+        await createRun("channel-1", "ship", { runtime: "claude", model:"opus" }, { mode: "orchestrator" });
         expect(createRunCommand).toHaveBeenCalledWith(expect.anything(), expect.not.objectContaining({ workerroute: expect.anything() }));
     });
     it("maps deferred orchestrator options to the RPC shape", async () => {
         createRunCommand.mockResolvedValueOnce({ run: { id: "run-1" } });
-        await createRun("channel-1", "ship", { runtime: "pi", tier: "mid" }, { mode: "orchestrator", deferStart: true });
+        await createRun("channel-1", "ship", { runtime: "pi" }, { mode: "orchestrator", deferStart: true });
         expect(createRunCommand).toHaveBeenCalledWith(expect.anything(), {
             channelid: "channel-1",
             workspaceid: "workspace-1",
             goal: "ship",
             runtime: "pi",
-            tier: "mid",
             mode: "orchestrator",
             plangate: undefined,
             deferstart: true,
@@ -123,9 +122,9 @@ describe("createRun", () => {
         });
 
         createRunCommand.mockResolvedValueOnce({ run: { id: "run-2" } });
-        await createRun("channel-1", "direct", { runtime: "pi", tier: "mid" });
+        await createRun("channel-1", "direct", { runtime: "pi" });
         expect(createRunCommand.mock.calls[1][1]).toEqual(
-            expect.objectContaining({ runtime: "pi", tier: "mid", mode: undefined, deferstart: undefined }),
+            expect.objectContaining({ runtime: "pi", mode: undefined, deferstart: undefined }),
         );
     });
 });

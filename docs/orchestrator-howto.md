@@ -121,6 +121,20 @@ Two different defaults decide which you get, and they disagree.
 So the modal is safe by default and everything else is not. Read the machine off the launch summary
 after the run starts (`MACHINE engine` in the run panel) rather than trusting that you chose it.
 
+### 4. The lead's harness must be claude or pi, with its packages installed
+
+Run workers, leads and task workers alike, run on Claude Code or pi only (2026-09-14). codex and opencode
+still answer consults but cannot be picked for a run; `docs/deferred.md` records what it would take to bring
+them back.
+
+A pi lead needs two packages that Claude Code gets for free:
+
+- **The ask tool, `@juicesharp/rpiv-ask-user-question`.** Without it a pi child has no structured way to ask
+  a question, so the ask never reaches Wave to be answered or escalated.
+- **The superpowers package.** The lead plans with `brainstorming` and `writing-plans`. pi's `skills` setting
+  points at `~/.claude/skills`, which holds hand-written skills only; Claude Code's plugin skills live in the
+  plugin cache, which pi never reads. Install superpowers into pi itself, in `~/.pi/agent/settings.json`.
+
 ---
 
 ## Phase 1 — launching the run

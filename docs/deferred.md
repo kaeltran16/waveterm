@@ -7,6 +7,35 @@ where it would plug in, and how to pick it back up. Append new entries at the to
 > append-only rationale log — append the full deferral here, then mirror a one-line row there. Entries
 > marked RESOLVED/DECLINED below are kept for the reasoning, not as pending work.
 
+## Codex and opencode run workers (2026-09-14)
+
+The orchestrator redesign (`docs/superpowers/specs/2026-09-14-orchestrator-redesign-design.md` §8) scopes
+run workers, both leads and task workers, to Claude Code and pi, the two harnesses the owner uses. Consults
+still run on codex and opencode; only the unattended run path lost them.
+
+- **What was removed:**
+  - `RunWorkerCapable` is false for codex and opencode (`pkg/harness/catalog.go`).
+  - The codex and opencode arms of `RunWorkerSpecFor` (`pkg/jarvis/runexec.go`) are deleted.
+  - The codex entry in `livenessRuntimes` (`pkg/orchestrate/liveness.go`) and its rollout test are deleted.
+    The transcript scan still reads codex's date-nested layout and its `session_meta` cwd.
+  - The codex and opencode rows of the route table, and `codexSafe` (`pkg/runroute/runroute.go`), are
+    deleted.
+- **Why:** each runtime multiplies the orchestration surface: wake adapters, compaction hooks, ask
+  delivery, liveness and route validation. The redesign builds those for two harnesses, and neither of the
+  other two was in use.
+- **Recovery:**
+  - `git show f09e272a:pkg/jarvis/runexec.go`
+  - `git show f09e272a:pkg/jarvis/runexec_test.go`
+  - `git show f09e272a:pkg/orchestrate/liveness.go`
+  - `git show f09e272a:pkg/orchestrate/liveness_test.go`
+  - `git show f09e272a:pkg/runroute/runroute.go`
+  - `git show f09e272a:pkg/runroute/runroute_test.go`
+  - `git show f09e272a:pkg/harness/catalog.go`
+- **Where to pick it up:** re-add the adapter arm, the route validation (a model namespace check, since
+  tiers are gone) and the `RunWorkerCapable` flag together; a runtime needs all three to dispatch. A
+  runtime also needs the redesign's per-harness pieces (wake, compaction rules, ask delivery) before it can
+  lead. codex additionally needs its `livenessRuntimes` entry back.
+
 ## Jarvis Gatekeeper — every multi-question or multi-select ask escalates unjudged (2026-09-14)
 
 Found while designing the orchestrator redesign

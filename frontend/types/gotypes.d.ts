@@ -649,7 +649,6 @@ declare global {
         workspaceid: string;
         goal: string;
         runtime: string;
-        tier: string;
         model?: string;
         workerroute?: RoutePin;
         orchestration?: string;
@@ -691,7 +690,6 @@ declare global {
         runid: string;
         taskid: string;
         action: string;
-        tier?: string;
         model?: string;
         runtime?: string;
         notes?: string;
@@ -3122,7 +3120,6 @@ declare global {
     // wshrpc.RouteCapabilityInfo
     type RouteCapabilityInfo = {
         runtime: string;
-        tier?: string;
         model?: string;
         resolvedmodel: string;
         provider?: string;
@@ -3133,8 +3130,8 @@ declare global {
     // waveobj.RoutePin
     type RoutePin = {
         runtime: string;
-        tier: string;
         model?: string;
+        tier?: string;
     };
 
     // wshrpc.RpcContext
@@ -3175,7 +3172,6 @@ declare global {
         id: string;
         goal: string;
         runtime?: string;
-        tier?: string;
         model?: string;
         playbookid?: string;
         mode?: string;
@@ -3263,7 +3259,6 @@ declare global {
     // waveobj.RunSpec
     type RunSpec = {
         runtime?: string;
-        tier?: string;
         model?: string;
         mode?: string;
         goal?: string;
@@ -3423,7 +3418,6 @@ declare global {
         "debug:pprofmemprofilerate"?: number;
         "debug:webglstatus"?: boolean;
         "harness:preferredruntime"?: string;
-        "harness:preferredtier"?: string;
         "harness:preferredmodel"?: string;
     };
 

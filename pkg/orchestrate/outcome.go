@@ -17,7 +17,7 @@ func init() {
 }
 
 // HandleChildOutcome reacts to a dag child's worker process exiting. A "failed" outcome is classified
-// and retried/escalated/counted. A "done" outcome matters too: the contract asks the child to run
+// and retried or counted. A "done" outcome matters too: the contract asks the child to run
 // `wsh jarvis complete` before exiting, and a child that exited without doing so has not completed —
 // noticing that here costs seconds, whereas waiting for the transcript to go quiet costs
 // StallThreshold. "waiting" (blocked on an ask) is left alone; the ask machinery owns it.
@@ -87,21 +87,16 @@ func HandleChildOutcome(ctx context.Context, workerORef string, data jarvis.Outc
 		task.Attempts++
 		attempt := task.Attempts
 		task.State = TaskState_Failed
-		escalateTo, mayEscalate := autoEscalationTarget(ctx, g, task, kind)
 		// a recoverable flake is retried, not a genuine failure: it must not push the streak
 		// toward the circuit-break, or n concurrent one-shot flakes (plus any manual failure)
 		// would block the DAG though every flake auto-recovers. only terminal failures count.
-		// an auto-escalation is the same shape — the task is being re-dispatched, not abandoned.
-		if !mayRetry && !mayEscalate {
+		if !mayRetry {
 			g.Failures++
 		}
 		if mayRetry {
 			if err := RetryTask(g, task.ID); err != nil {
 				return err
 			}
-		}
-		if mayEscalate {
-			applyEscalation(task, escalateTo)
 		}
 		g.UpdatedTs = time.Now().UnixMilli()
 		RecomputeDagStatus(g)
@@ -112,40 +107,13 @@ func HandleChildOutcome(ctx context.Context, workerORef string, data jarvis.Outc
 			return err
 		}
 		// emit only after the persist lands so the event never describes state the store rejected
-		if mayRetry || mayEscalate {
+		if mayRetry {
 			detail := map[string]any{"taskid": task.ID, "kind": kind, "attempt": attempt}
-			if mayEscalate {
-				detail["escalatedto"] = escalateTo.Tier
-			}
 			publishDagEvent(DagEventTaskRetried, g, task.ID)
 			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskRetried, nil, detail)
 		}
 		return scheduleLocked(ctx, g.OID)
 	})
-}
-
-// autoEscalationTarget resolves the one-tier-up route for a failure the engine should re-dispatch
-// rather than fail (today: context-window, where the identical route cannot succeed). Every
-// unresolvable case — no owning run, an exact-model pin with no tier to step, already at the top
-// tier, the escalation cap already spent — degrades to no escalation, so the task simply fails and
-// waits for a human. The task must already be in a failed state; escalationTarget enforces that.
-func autoEscalationTarget(ctx context.Context, g *waveobj.TaskGroup, task *waveobj.TaskNode, kind string) (waveobj.RoutePin, bool) {
-	if !escalateDecision(kind, task.Escalations) {
-		return waveobj.RoutePin{}, false
-	}
-	owner, err := wstore.GetRun(ctx, g.ChannelId, g.RunID)
-	if err != nil {
-		return waveobj.RoutePin{}, false
-	}
-	up := nextTier(effectiveTaskRoute(task, owner, g).Tier)
-	if up == "" {
-		return waveobj.RoutePin{}, false
-	}
-	target, err := escalationTarget(task, owner, g, waveobj.RoutePin{Tier: up})
-	if err != nil {
-		return waveobj.RoutePin{}, false
-	}
-	return target, true
 }
 
 // isOrchestratorLead reports whether a run drives a dag rather than being driven by one. A dag names

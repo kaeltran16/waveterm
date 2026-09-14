@@ -10,8 +10,7 @@ export const selectedTaskIdAtom = atom<string | null>(null) as PrimitiveAtom<str
 export type DagNodeRoute = {
     source: "pinned" | "inherited";
     runtime: string;
-    tier: string;
-    model: string; // exact model id when set; "" for legacy tier routes
+    model: string; // exact model id; "" when the runtime runs its own default
     resolvedModel: string;
 };
 
@@ -46,7 +45,7 @@ export function buildViewData(group: TaskGroup, owner: Run, harnesses: HarnessIn
         if (t.state === "done" && !t.gate && !t.merged) actions = ["merge"];
         if (canEscalate(t)) actions = [...new Set([...actions, "escalate"])];
         const taskPin = t.runspec?.runtime || t.runspec?.model ? normalizeSpecPin(t.runspec, owner) : null;
-        const effective = taskPin ?? ownerPin ?? { runtime: "", tier: "capable", model: "" } as RoutePin;
+        const effective: RoutePin = taskPin ?? ownerPin ?? { runtime: "" };
         const capability = capabilityFor(effective, harnesses);
         return {
             id: t.id,
@@ -58,7 +57,6 @@ export function buildViewData(group: TaskGroup, owner: Run, harnesses: HarnessIn
             route: {
                 source: taskPin == null ? ("inherited" as const) : ("pinned" as const),
                 runtime: effective.runtime,
-                tier: effective.tier,
                 model: effective.model ?? "",
                 resolvedModel: capability?.resolvedmodel ?? "unavailable",
             },
@@ -76,17 +74,12 @@ export function useDagGroup(oref: string) {
     return useWaveObjectValue<TaskGroup>(oref);
 }
 
-// normalizeRunPin folds a run's runtime+tier(+model) into a selectable pin; model wins.
-function normalizeRunPin(run: Pick<Run, "runtime" | "tier" | "model">): RoutePin | null {
+function normalizeRunPin(run: Pick<Run, "runtime" | "model">): RoutePin | null {
     if (!run.runtime && !run.model) return null;
-    return { runtime: run.runtime ?? "", tier: run.tier || "capable", ...(run.model ? { model: run.model } : {}) };
+    return { runtime: run.runtime ?? "", ...(run.model ? { model: run.model } : {}) };
 }
 
 function normalizeSpecPin(spec: TaskNode["runspec"] | undefined, owner: Run): RoutePin | null {
     if (spec == null || (!spec.runtime && !spec.model)) return null;
-    return {
-        runtime: spec.runtime ?? owner.runtime ?? "",
-        tier: spec.tier || "capable",
-        ...(spec.model ? { model: spec.model } : {}),
-    };
+    return { runtime: spec.runtime || owner.runtime || "", ...(spec.model ? { model: spec.model } : {}) };
 }

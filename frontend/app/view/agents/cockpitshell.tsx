@@ -27,9 +27,8 @@ import { UsageSurface } from "./usagesurface";
 function useHarnessPreference() {
     useEffect(() => {
         const persisted = (globalStore.get(getSettingsKeyAtom("harness:preferredruntime")) as string) ?? "";
-        const persistedTier = (globalStore.get(getSettingsKeyAtom("harness:preferredtier")) as string) ?? "";
         const persistedModel = (globalStore.get(getSettingsKeyAtom("harness:preferredmodel")) as string) ?? "";
-        initHarnessPreference(persisted, persistedTier, persistedModel);
+        initHarnessPreference(persisted, persistedModel);
         fireAndForget(loadHarnesses);
     }, []);
 }

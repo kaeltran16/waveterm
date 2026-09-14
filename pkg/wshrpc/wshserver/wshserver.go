@@ -215,40 +215,21 @@ func (ws *WshServer) EventReadHistoryCommand(ctx context.Context, data wshrpc.Co
 
 func validatePreferredRoutePatch(patch waveobj.MetaMapType) error {
 	runtimeValue, runtimePresent := patch[wconfig.ConfigKey_HarnessPreferredRuntime]
-	tierValue, tierPresent := patch[wconfig.ConfigKey_HarnessPreferredTier]
 	modelValue, modelPresent := patch[wconfig.ConfigKey_HarnessPreferredModel]
-	if !runtimePresent && !tierPresent && !modelPresent {
+	if !runtimePresent && !modelPresent {
 		return nil
 	}
-	// absent keys read as "" so a patch can clear tier or model by passing an empty string;
-	// present values must be strings
-	readKey := func(present bool, value any) (string, error) {
-		if !present {
-			return "", nil
-		}
-		s, ok := value.(string)
-		if !ok {
-			return "", fmt.Errorf("preferred route values must be strings")
-		}
-		return s, nil
+	// the keys travel together so a runtime change cannot strand the previous runtime's model;
+	// an empty model string selects the runtime default
+	if runtimePresent != modelPresent {
+		return fmt.Errorf("preferred route runtime and model must be patched together")
 	}
-	runtime, err := readKey(runtimePresent, runtimeValue)
-	if err != nil {
-		return err
+	runtime, runtimeIsString := runtimeValue.(string)
+	model, modelIsString := modelValue.(string)
+	if !runtimeIsString || !modelIsString {
+		return fmt.Errorf("preferred route values must be strings")
 	}
-	tier, err := readKey(tierPresent, tierValue)
-	if err != nil {
-		return err
-	}
-	model, err := readKey(modelPresent, modelValue)
-	if err != nil {
-		return err
-	}
-	if runtime == "" {
-		return fmt.Errorf("preferred route runtime must be set whenever tier or model changes")
-	}
-	// empty tier + empty model fails Resolve: a route needs at least one selector
-	if _, err := runroute.Resolve(waveobj.RoutePin{Runtime: runtime, Tier: tier, Model: model}); err != nil {
+	if _, err := runroute.Resolve(waveobj.RoutePin{Runtime: runtime, Model: model}); err != nil {
 		return fmt.Errorf("invalid preferred route: %w", err)
 	}
 	return nil

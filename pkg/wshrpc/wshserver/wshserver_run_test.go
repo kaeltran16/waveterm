@@ -348,7 +348,7 @@ func TestCreateRunCommand_EmptyRuntimeRejected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateChannel: %v", err)
 	}
-	stubRunServer(t, "opencode", nil)
+	stubRunServer(t, "pi", nil)
 
 	ws := &WshServer{}
 	_, err = ws.CreateRunCommand(ctx, wshrpc.CommandCreateRunData{
@@ -365,12 +365,11 @@ func TestCreateRunCommand_EmptyRuntimeRejected(t *testing.T) {
 
 func TestCreateRunCommand_RejectsInvalidOrUnavailableRouteBeforePersistence(t *testing.T) {
 	cases := []struct {
-		name, runtime, tier string
-		available           bool
+		name, runtime string
+		available     bool
 	}{
-		{name: "missing tier", runtime: "claude"},
-		{name: "unsupported pair", runtime: "codex", tier: "cheap"},
-		{name: "unavailable harness", runtime: "claude", tier: "capable", available: false},
+		{name: "unsupported runtime", runtime: "codex"},
+		{name: "unavailable harness", runtime: "claude", available: false},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -397,7 +396,7 @@ func TestCreateRunCommand_RejectsInvalidOrUnavailableRouteBeforePersistence(t *t
 			t.Cleanup(func() { jarvis.SpawnRunWorker = oldSpawn })
 
 			_, err = (&WshServer{}).CreateRunCommand(ctx, wshrpc.CommandCreateRunData{
-				ChannelId: ch.OID, WorkspaceId: "ws-1", Goal: "do it", Runtime: tt.runtime, Tier: tt.tier,
+				ChannelId: ch.OID, WorkspaceId: "ws-1", Goal: "do it", Runtime: tt.runtime,
 			})
 			if err == nil {
 				t.Fatal("CreateRun must reject the route")
@@ -420,20 +419,20 @@ func TestCreateRunCommand_PersistsExplicitRuntime(t *testing.T) {
 		t.Fatalf("CreateChannel: %v", err)
 	}
 	var spawnedCap runroute.Capability
-	stubRunServer(t, "opencode", nil, &spawnedCap)
+	stubRunServer(t, "pi", nil, &spawnedCap)
 
 	ws := &WshServer{}
 	rtn, err := ws.CreateRunCommand(ctx, wshrpc.CommandCreateRunData{
-		ChannelId: ch.OID, WorkspaceId: "ws-1", Goal: "do it", Runtime: "opencode", Tier: "capable",
+		ChannelId: ch.OID, WorkspaceId: "ws-1", Goal: "do it", Runtime: "pi",
 	})
 	if err != nil {
 		t.Fatalf("CreateRunCommand: %v", err)
 	}
-	if rtn.Run.Runtime != "opencode" || rtn.Run.Tier != "capable" {
-		t.Fatalf("persisted route = %s/%s, want opencode/capable", rtn.Run.Runtime, rtn.Run.Tier)
+	if rtn.Run.Runtime != "pi" || rtn.Run.Model != "" {
+		t.Fatalf("persisted route = %s/%q, want pi with its default model", rtn.Run.Runtime, rtn.Run.Model)
 	}
-	if spawnedCap.Runtime != "opencode" || spawnedCap.Tier != "capable" || spawnedCap.ResolvedModel != "operator default" || len(spawnedCap.ModelArgs) != 0 {
-		t.Fatalf("spawned capability = %+v, want opencode/capable operator default", spawnedCap)
+	if spawnedCap.Runtime != "pi" || spawnedCap.Model != "" || spawnedCap.ResolvedModel != "operator default" || len(spawnedCap.ModelArgs) != 0 {
+		t.Fatalf("spawned capability = %+v, want the pi operator default", spawnedCap)
 	}
 	if got := mustSeq(t, ch.OID, rtn.Run.ID); !reflect.DeepEqual(got, []string{
 		waveobj.RunEventKindCreated, waveobj.RunEventKindPhaseStarted + "@0",
@@ -476,7 +475,7 @@ func TestAdvanceRun_SpawnsPersistedRuntime(t *testing.T) {
 	}
 	run := jarvis.NewRun("do it", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Pipeline, jarvis.DefaultPlaybook(), 1)
 	run.Runtime = "claude"
-	run.Tier = "cheap"
+	run.Model = consult.CheapModel
 	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
 		t.Fatalf("AppendRun: %v", err)
 	}
@@ -506,8 +505,8 @@ func TestAdvanceRun_SpawnsPersistedRuntime(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("AdvanceRunCommand: %v", err)
 	}
-	if spawnedWith.Runtime != "claude" || spawnedWith.Tier != "cheap" || !reflect.DeepEqual(spawnedWith.ModelArgs, []string{"--model", consult.CheapModel}) {
-		t.Fatalf("next worker spawned with capability %+v, want claude/cheap with haiku model args", spawnedWith)
+	if spawnedWith.Runtime != "claude" || spawnedWith.Model != consult.CheapModel || !reflect.DeepEqual(spawnedWith.ModelArgs, []string{"--model", consult.CheapModel}) {
+		t.Fatalf("next worker spawned with capability %+v, want claude with haiku model args", spawnedWith)
 	}
 }
 
@@ -546,15 +545,15 @@ func TestAdvanceRun_LegacyRouteNormalizesOnlyForSpawn(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("AdvanceRunCommand: %v", err)
 	}
-	if spawnedWith.Runtime != "claude" || spawnedWith.Tier != "capable" || len(spawnedWith.ModelArgs) != 0 {
-		t.Fatalf("legacy worker capability = %+v, want claude/capable operator default", spawnedWith)
+	if spawnedWith.Runtime != "claude" || spawnedWith.Model != "" || len(spawnedWith.ModelArgs) != 0 {
+		t.Fatalf("legacy worker capability = %+v, want the claude operator default", spawnedWith)
 	}
 	persisted, err := wstore.GetRun(ctx, ch.OID, run.ID)
 	if err != nil {
 		t.Fatalf("GetRun: %v", err)
 	}
-	if persisted.Runtime != "claude" || persisted.Tier != "" {
-		t.Fatalf("legacy run was rewritten while spawning: %s/%s", persisted.Runtime, persisted.Tier)
+	if persisted.Runtime != "claude" || persisted.Model != "" {
+		t.Fatalf("legacy run was rewritten while spawning: %s/%q", persisted.Runtime, persisted.Model)
 	}
 }
 
@@ -741,7 +740,7 @@ func TestCreateRunDeferStart(t *testing.T) {
 	stubRunServer(t, "pi", nil)
 
 	rtn, err := (&WshServer{}).CreateRunCommand(ctx, wshrpc.CommandCreateRunData{
-		ChannelId: ch.OID, WorkspaceId: "ws", Goal: "test", Runtime: "pi", Tier: "capable",
+		ChannelId: ch.OID, WorkspaceId: "ws", Goal: "test", Runtime: "pi",
 		Mode: jarvis.RunMode_Orchestrator, DeferStart: true,
 	})
 	if err != nil {
@@ -890,7 +889,7 @@ func TestCreateRunCommand_PersistsOrchestration(t *testing.T) {
 
 	ws := &WshServer{}
 	rtn, err := ws.CreateRunCommand(ctx, wshrpc.CommandCreateRunData{
-		ChannelId: ch.OID, WorkspaceId: "ws-1", Goal: "do it", Runtime: "claude", Tier: "capable",
+		ChannelId: ch.OID, WorkspaceId: "ws-1", Goal: "do it", Runtime: "claude",
 		Mode: jarvis.RunMode_Orchestrator, Orchestration: jarvis.Orchestration_Engine,
 	})
 	if err != nil {
