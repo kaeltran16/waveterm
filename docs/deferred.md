@@ -7,6 +7,47 @@ where it would plug in, and how to pick it back up. Append new entries at the to
 > append-only rationale log — append the full deferral here, then mirror a one-line row there. Entries
 > marked RESOLVED/DECLINED below are kept for the reasoning, not as pending work.
 
+## Jarvis Gatekeeper — every multi-question or multi-select ask escalates unjudged (2026-09-14)
+
+Found while designing the orchestrator redesign
+(`docs/superpowers/briefs/2026-09-14-orchestrator-redesign-measurements.md`). Deferred by the user: the
+redesign's high-level decisions come first. The fix shape below was reviewed in chat and is **not approved**.
+
+- **What is limited:** `handleAsk` (`pkg/jarvis/watcher.go`) escalates every ask that `askAutoAnswerable`
+  rejects — more than one question, or one multi-select question — with "needs a human (multiple or
+  multi-select questions)". The judge never sees it. Under the redesign the ask judge is the only automated
+  answerer of child asks, so each such ask costs a human round-trip, and human latency is the largest
+  wall-clock lever the brief measured.
+- **Why it is not a delivery limit:** `agentask.EncodeAnswer` already types single-question multi-select
+  (`63ffc6e1`, 2026-07-03), multi-question batches (`4a6efb84`, 2026-07-09) and free-text answers
+  (`dfa9200c`, 2026-07-10), each recorded as verified live against CC. The one-question, one-pick assumption
+  lives only in the Gatekeeper: `askAutoAnswerable`, `Decision.OptionIndex` (one int), `BuildClassifyPrompt`
+  (one question), `handleAsk`'s `[]int{idx}` delivery, and `postAnswered` / `postEscalation` reading
+  `Questions[0]`.
+- **Fix shape:**
+  1. Drop the prefilter; every ask reaches the judge.
+  2. `Decision` carries `Answers []baseds.AgentAnswerItem` — one per question, picks or text.
+  3. The prompt renders every question with its pick-one / pick-any mode and indexed options, and allows a
+     one-line text answer when no option fits.
+  4. All or nothing: if any part needs the human, the whole ask escalates. CC's panel submits the batch at
+     once, so a partial answer would leave the human finishing a half-typed panel.
+  5. Validate before delivering, through one validator shared with `EncodeAnswer` (extract
+     `agentask.ValidateAnswers`): one answer per question, picks xor text, exactly one pick for
+     single-select and at least one unique pick for multi-select, indexes in range, single-line printable
+     text, and the prose path's one-answer rule. An invalid answer escalates without calling `deliverFn`;
+     `DeliverAnswer` claims the ask before it encodes, so a bad judge answer must never reach that claim.
+  6. `JarvisCardData` gains `Questions` and `Answers`; `Question` / `Options` stay populated from question 0
+     so persisted cards, `parseCardData` and the attention row keep working. No frontend change: nothing in
+     the frontend reads `choice` or `humanPick` any more, and `SetChannelMessagePickCommand` has no caller
+     (dead plumbing, out of scope here).
+  7. Tests: a `ValidateAnswers` table; the prompt renders all questions and modes; `ParseDecision` reads
+     answers; `handleAsk` delivers a multi-question shape; an invalid answer escalates with no delivery.
+     `TestAskAutoAnswerable` / `TestOptionIndexInRange` go with their functions; encode tests must still pass
+     after the extraction.
+- **Where to pick it up:** with the redesign's child-ask section. That section changes the judge's context
+  (spec, sibling tasks, prior question-and-answer pairs) and its escalation classes, not this answer format,
+  so the two compose. Files: `pkg/jarvis/watcher.go`, `classify.go`, `cards.go`, `pkg/agentask/encode.go`.
+
 ## Diff surface — hiding whitespace-only files from the change list (2026-09-11)
 
 Deferred by finding F4 of the git-compare-viewer parity initiative
@@ -810,6 +851,8 @@ time of the sweep, so nothing material is sitting uncommitted.
   `encode.go` now supports single-question **multi-select** (verified live vs CC v2.1.199 — see the
   2026-07-03 entry at the top). The `q.MultiSelect` and `len(sel) != 1` guards are gone; the
   `len(questions) != 1` guard (multi-question batches) remains, pending a tab-navigation spike.
+  **Stale (noted 2026-09-14):** multi-question batches shipped 2026-07-09 (`4a6efb84`). The one-question
+  limit that remains is the Gatekeeper's, not `encode.go`'s — see the 2026-09-14 entry at the top.
 
 **Shipped since the memory notes were written (corrections, not open work):** Jarvis Delegator
 fan-out (`f43768d9`), the memory force-graph (`bb4da8a1`), the Agents cursor-row composer
