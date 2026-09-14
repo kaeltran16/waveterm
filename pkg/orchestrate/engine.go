@@ -110,10 +110,14 @@ func cleanupScheduleFailure(ctx, workerCtx context.Context, g *waveobj.TaskGroup
 	if err != nil {
 		return errors.Join(append(errs, fmt.Errorf("reload dag for task failure cleanup: %w", err))...)
 	}
+	var failed []int
 	for _, sp := range spawned {
 		if idx := taskIdx(fresh, sp.taskID); idx >= 0 {
 			fresh.Tasks[idx].State = TaskState_Failed
 			fresh.Tasks[idx].RunID = ""
+			fresh.Tasks[idx].LastFailureKind = FailureKindUnrecorded
+			fresh.Tasks[idx].Attempts++
+			failed = append(failed, idx)
 		}
 	}
 	fresh.UpdatedTs = time.Now().UnixMilli()
@@ -125,6 +129,14 @@ func cleanupScheduleFailure(ctx, workerCtx context.Context, g *waveobj.TaskGroup
 		errs = append(errs, fmt.Errorf("recording task failure: %w", err))
 	} else {
 		wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, fresh.OID))
+		// the child run was cancelled or never persisted, so as with failDispatch the event is the only
+		// place the reason survives
+		detail := truncateText(cause.Error(), MaxFailureDetailLen)
+		for _, idx := range failed {
+			appendRunEvent(cleanupCtx, fresh.ChannelId, fresh.RunID, waveobj.RunEventKindTaskFailed, nil, map[string]any{
+				"taskid": fresh.Tasks[idx].ID, "lastfailurekind": FailureKindUnrecorded, "attempts": fresh.Tasks[idx].Attempts, "detail": detail,
+			})
+		}
 	}
 	return errors.Join(errs...)
 }
@@ -255,10 +267,17 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		}
 		// no readable activity source: the spawn-time seed would age into a stall on its own and hand
 		// the lead a retry that kills a working child. Report freshness unknown (zero) instead — a
-		// missed stall only costs a timeout.
+		// missed stall only costs a timeout. It skips the first-token deadline too: an unreadable child
+		// has written nothing as far as the probe can tell, however hard it is working.
 		if !tracked {
 			t.LastActivity = 0
 			continue
+		}
+		// readable but nothing written yet: the spawn seed is not activity either. Kept, it ages into a
+		// stall on a child that simply writes no transcript (claude routinely), and it hides the child
+		// from the first-token deadline, which only judges a zero.
+		if activity == 0 {
+			t.LastActivity = 0
 		}
 		if t.State == TaskState_Running && t.LastActivity > 0 && now-t.LastActivity > StallThreshold.Milliseconds() {
 			t.State = TaskState_Stalled

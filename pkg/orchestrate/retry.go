@@ -23,6 +23,7 @@ const (
 	FailureKindWorktree   = "worktree-failed"
 	FailureKindSpawn      = "spawn-failed"
 	FailureKindWorkerExit = "worker-exit-unreported"
+	FailureKindUnrecorded = "dispatch-unrecorded"
 )
 
 // MaxFailureDetailLen bounds the failure message carried on a lifecycle event.
