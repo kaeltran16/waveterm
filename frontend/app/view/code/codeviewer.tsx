@@ -22,6 +22,8 @@ import type * as MonacoTypes from "monaco-editor";
 import { useEffect } from "react";
 import { isMarkdownPath } from "./codeclassify";
 import { CodeDiffView } from "./codediffview";
+import { remember } from "./codeeditorcache";
+import { resolveDocLink } from "./codelink";
 import {
     codeDraftsAtom,
     codeFileAtom,
@@ -30,7 +32,9 @@ import {
     codeViewModeAtom,
     draftKey,
     editDraft,
+    openInCode,
     refreshIndex,
+    setCaretLineReader,
 } from "./codestore";
 
 // The markdown element defaults to 14px with no padding — sized for the old full-width chat block,
@@ -47,6 +51,20 @@ function sizeLabel(bytes: number): string {
 // surface unmounts on every nav switch. Cleared by the cleanup CodeEditor invokes on unmount.
 let editor: MonacoTypes.editor.IStandaloneCodeEditor | null = null;
 
+setCaretLineReader(() => editor?.getPosition()?.lineNumber ?? null);
+
+// The editor unmounts on every file, mode and surface switch. Its model is kept alive and its view
+// state saved here, keyed like drafts by absolute path, so coming back restores the caret, scroll,
+// selection and undo history. Capped because every kept model holds a full copy of its file.
+const KEPT_EDITORS = 20;
+
+interface KeptEditor {
+    model: MonacoTypes.editor.ITextModel;
+    view: MonacoTypes.editor.ICodeEditorViewState | null;
+}
+
+const kept = new Map<string, KeptEditor>();
+
 export function codeEditorSelection(): { startLine: number; endLine: number } | null {
     const sel = editor?.getSelection();
     if (sel == null || sel.isEmpty()) {
@@ -61,8 +79,32 @@ function applyPendingLine(ed: MonacoTypes.editor.IStandaloneCodeEditor): void {
         return;
     }
     globalStore.set(codePendingLineAtom, null);
-    ed.revealLineInCenter(line);
-    ed.setPosition({ lineNumber: line, column: 1 });
+    // a history walk has usually just restored a view that already shows the line, and re-centering
+    // it — or dropping the caret's column — would jolt what the reader left
+    ed.revealLineInCenterIfOutsideViewport(line);
+    if (ed.getPosition()?.lineNumber !== line) {
+        ed.setPosition({ lineNumber: line, column: 1 });
+    }
+}
+
+function restoreKept(ed: MonacoTypes.editor.IStandaloneCodeEditor, key: string): void {
+    const saved = kept.get(key);
+    // the mounted model leaves the cache so an eviction can never dispose it out from under the editor
+    kept.delete(key);
+    if (saved != null) {
+        ed.restoreViewState(saved.view);
+    }
+}
+
+// Both CodeEditor and the Monaco wrapper run this on unmount; the second call finds no model.
+function keepEditor(ed: MonacoTypes.editor.IStandaloneCodeEditor, key: string): void {
+    const model = ed.getModel();
+    if (model == null) {
+        return;
+    }
+    for (const old of remember(kept, key, { model, view: ed.saveViewState() }, KEPT_EDITORS)) {
+        old.model.dispose();
+    }
 }
 
 export function CodeViewer({ model }: { model: AgentsViewModel }) {
@@ -132,7 +174,8 @@ export function CodeViewer({ model }: { model: AgentsViewModel }) {
             // `text` is the draft when one exists, so the buffer survives a surface unmount. Monaco's
             // prop-sync effect no-ops when the incoming text already equals the model's (monaco-react
             // checks before pushing an edit), so feeding our own keystrokes back does not move the caret.
-            const draft = project != null ? drafts.get(draftKey(project, file.path)) : undefined;
+            const abs = project != null ? draftKey(project, file.path) : file.path;
+            const draft = drafts.get(abs);
             // keyed by path: MonacoDiffViewer creates its models once, so a new file needs a new
             // instance or it keeps the previous file's model URI and language
             if (mode === "diff") {
@@ -149,24 +192,43 @@ export function CodeViewer({ model }: { model: AgentsViewModel }) {
                         className="h-full"
                         contentClassName="px-5 py-4"
                         fontSizeOverride={DOC_FONT_SIZE}
+                        onClickLink={(href) => {
+                            const target = project != null ? resolveDocLink(file.path, href) : null;
+                            if (target == null) {
+                                return false;
+                            }
+                            fireAndForget(() =>
+                                openInCode(model, {
+                                    projectPath: project.path,
+                                    rel: target.rel,
+                                    line: target.line ?? undefined,
+                                })
+                            );
+                            return true;
+                        }}
                     />
                 );
             }
             return (
+                // keyed and named by absolute path: kept models outlive a project switch, so two
+                // projects' same relative path must not share a model URI
                 <CodeEditor
-                    key={file.path}
+                    key={abs}
                     blockId={model.blockId}
                     text={draft?.text ?? file.text}
-                    fileName={file.path}
+                    fileName={abs}
                     readonly={false}
+                    keepModel
                     onChange={editDraft}
                     onMount={(ed) => {
                         editor = ed;
+                        restoreKept(ed, abs);
                         applyPendingLine(ed);
                         return () => {
                             if (editor === ed) {
                                 editor = null;
                             }
+                            keepEditor(ed, abs);
                         };
                     }}
                 />

@@ -76,8 +76,26 @@ func (ws *WshServer) GitListFilesCommand(ctx context.Context, data wshrpc.Comman
 	return &wshrpc.CommandGitListFilesRtnData{Files: fl.Paths, IsRepo: fl.IsRepo, Truncated: fl.Truncated}, nil
 }
 
+func (ws *WshServer) GitListWorktreesCommand(ctx context.Context, data wshrpc.CommandGitListWorktreesData) (*wshrpc.CommandGitListWorktreesRtnData, error) {
+	wts, err := gitinfo.ListWorktrees(ctx, data.Cwd)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]wshrpc.GitWorktree, 0, len(wts))
+	for _, wt := range wts {
+		out = append(out, wshrpc.GitWorktree{Path: wt.Path, Branch: wt.Branch, IsMain: wt.IsMain})
+	}
+	return &wshrpc.CommandGitListWorktreesRtnData{Worktrees: out}, nil
+}
+
 func (ws *WshServer) GitGrepCommand(ctx context.Context, data wshrpc.CommandGitGrepData) (*wshrpc.CommandGitGrepRtnData, error) {
-	res, err := gitinfo.Grep(ctx, data.Cwd, data.Query)
+	res, err := gitinfo.Grep(ctx, data.Cwd, data.Query, gitinfo.GrepOpts{
+		Regex:         data.Regex,
+		WholeWord:     data.WholeWord,
+		CaseSensitive: data.CaseSensitive,
+		Include:       data.Include,
+		Exclude:       data.Exclude,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +103,9 @@ func (ws *WshServer) GitGrepCommand(ctx context.Context, data wshrpc.CommandGitG
 	for _, m := range res.Matches {
 		matches = append(matches, wshrpc.GitGrepMatch{Path: m.Path, Line: m.Line, Text: m.Text})
 	}
-	return &wshrpc.CommandGitGrepRtnData{Matches: matches, Truncated: res.Truncated}, nil
+	return &wshrpc.CommandGitGrepRtnData{
+		Matches: matches, Truncated: res.Truncated, InvalidPattern: res.InvalidPattern,
+	}, nil
 }
 
 func (ws *WshServer) GitFileAtRefCommand(ctx context.Context, data wshrpc.CommandGitFileAtRefData) (*wshrpc.CommandGitFileAtRefRtnData, error) {

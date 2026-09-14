@@ -10,7 +10,7 @@ import {
     transformBlocks,
 } from "@/app/element/markdown-util";
 import remarkMermaidToTag from "@/app/element/remark-mermaid-to-tag";
-import { boundNumber, useAtomValueSafe, cn } from "@/util/util";
+import { boundNumber, cn, useAtomValueSafe } from "@/util/util";
 import clsx from "clsx";
 import { Atom } from "jotai";
 import { OverlayScrollbarsComponent, OverlayScrollbarsComponentRef } from "overlayscrollbars-react";
@@ -40,16 +40,18 @@ const initializeMermaid = async () => {
 
 const Link = ({
     setFocusedHeading,
+    onClickLink,
     props,
 }: {
     props: React.AnchorHTMLAttributes<HTMLAnchorElement>;
     setFocusedHeading: (href: string) => void;
+    onClickLink?: (href: string) => boolean;
 }) => {
     const onClick = (e: React.MouseEvent) => {
         e.preventDefault();
         if (props.href.startsWith("#")) {
             setFocusedHeading(props.href);
-        } else {
+        } else if (!onClickLink?.(props.href)) {
             openLink(props.href);
         }
     };
@@ -299,6 +301,8 @@ type MarkdownProps = {
     className?: string;
     contentClassName?: string;
     onClickExecute?: (cmd: string) => void;
+    // return true when the link was handled; false falls through to the external opener
+    onClickLink?: (href: string) => boolean;
     resolveOpts?: MarkdownResolveOpts;
     scrollable?: boolean;
     rehype?: boolean;
@@ -319,6 +323,7 @@ const Markdown = memo(function Markdown({
     scrollable = true,
     rehype = true,
     onClickExecute,
+    onClickLink,
 }: MarkdownProps) {
     const textAtomValue = useAtomValueSafe<string>(textAtom);
     const tocRef = useRef<TocItem[]>([]);
@@ -349,7 +354,7 @@ const Markdown = memo(function Markdown({
 
     const markdownComponents: Partial<Components> = {
         a: (props: React.HTMLAttributes<HTMLAnchorElement>) => (
-            <Link props={props} setFocusedHeading={setFocusedHeading} />
+            <Link props={props} setFocusedHeading={setFocusedHeading} onClickLink={onClickLink} />
         ),
         p: (props: React.HTMLAttributes<HTMLParagraphElement>) => <div className="paragraph" {...props} />,
         h1: (props: React.HTMLAttributes<HTMLHeadingElement>) => <Heading props={props} hnum={1} />,

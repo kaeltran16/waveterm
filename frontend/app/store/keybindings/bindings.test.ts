@@ -517,12 +517,28 @@ describe("code surface bindings", () => {
         const focused = vi.fn();
         const opener = { classList: { contains: () => false }, click: clicked, focus: focused };
         vi.stubGlobal("document", { querySelector: vi.fn(() => opener) });
+        vi.stubGlobal("window", { requestAnimationFrame: vi.fn() });
 
         find("code:search").run(code);
 
         expect(globalStore.get(codeSearchModeAtom)).toBe("search");
         expect(clicked).toHaveBeenCalledOnce();
         expect(focused).toHaveBeenCalledOnce();
+    });
+
+    // The pane focuses its input only when it mounts, and nothing remounts it when Search is already
+    // the column's mode — so without this the chord from the editor leaves the caret in Monaco.
+    it("puts the caret in the search input when Search is already showing", () => {
+        const input = { focus: vi.fn(), select: vi.fn() };
+        const querySelector = vi.fn((selector: string) => (selector.includes("data-code-search-input") ? input : null));
+        vi.stubGlobal("document", { querySelector });
+        vi.stubGlobal("window", { requestAnimationFrame: (callback: () => void) => callback() });
+        globalStore.set(codeSearchModeAtom, "search");
+
+        find("code:search").run(code);
+
+        expect(input.focus).toHaveBeenCalledOnce();
+        expect(input.select).toHaveBeenCalledOnce();
     });
 
     it("focuses the reachable opener instead of the hidden tree while collapsed", () => {

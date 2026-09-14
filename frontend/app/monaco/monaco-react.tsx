@@ -7,9 +7,19 @@ import * as monaco from "monaco-editor";
 import { useEffect, useRef } from "react";
 import { debounce } from "throttle-debounce";
 
-function createModel(value: string, path: string, language?: string) {
+// A kept model outlives its editor, so the next mount under the same path picks up its undo history.
+// If the text moved on while it sat unmounted (a reload from disk), setValue drops that history
+// rather than letting Ctrl+Z resurrect bytes that are no longer there.
+function acquireModel(value: string, path: string, language: string | undefined, keep: boolean) {
     const uri = monaco.Uri.parse(`wave://editor/${encodeURIComponent(path)}`);
-    return monaco.editor.createModel(value, language, uri);
+    const existing = keep ? monaco.editor.getModel(uri) : null;
+    if (existing == null) {
+        return monaco.editor.createModel(value, language, uri);
+    }
+    if (existing.getValue() !== value) {
+        existing.setValue(value);
+    }
+    return existing;
 }
 
 type CodeEditorProps = {
@@ -20,9 +30,20 @@ type CodeEditorProps = {
     onMount?: (editor: MonacoTypes.editor.IStandaloneCodeEditor, monacoApi: typeof monaco) => () => void;
     path: string;
     options: MonacoTypes.editor.IEditorOptions;
+    // leave the model alive on unmount; the caller owns disposing it
+    keepModel?: boolean;
 };
 
-export function MonacoCodeEditor({ text, readonly, language, onChange, onMount, path, options }: CodeEditorProps) {
+export function MonacoCodeEditor({
+    text,
+    readonly,
+    language,
+    onChange,
+    onMount,
+    path,
+    options,
+    keepModel = false,
+}: CodeEditorProps) {
     const divRef = useRef<HTMLDivElement>(null);
     const editorRef = useRef<MonacoTypes.editor.IStandaloneCodeEditor | null>(null);
     const onUnmountRef = useRef<(() => void) | null>(null);
@@ -34,7 +55,7 @@ export function MonacoCodeEditor({ text, readonly, language, onChange, onMount, 
         const el = divRef.current;
         if (!el) return;
 
-        const model = createModel(text, path, language);
+        const model = acquireModel(text, path, language, keepModel);
         console.log("[monaco] CREATE MODEL", path, model);
 
         const editor = monaco.editor.create(el, {
@@ -58,8 +79,10 @@ export function MonacoCodeEditor({ text, readonly, language, onChange, onMount, 
             if (onUnmountRef.current) onUnmountRef.current();
             editor.setModel(null);
             editor.dispose();
-            model.dispose();
-            console.log("[monaco] dispose model");
+            if (!keepModel) {
+                model.dispose();
+                console.log("[monaco] dispose model");
+            }
             editorRef.current = null;
         };
         // mount/unmount only

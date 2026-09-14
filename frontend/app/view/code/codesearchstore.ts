@@ -12,6 +12,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
+import { DEFAULT_SEARCH_OPTS, grepData, type SearchOpts } from "./codesearchopts";
 
 // One union rather than parallel loading/error booleans, for the same reason CodeFile is one: the
 // pane renders an exhaustive switch and cannot land in a contradictory pair of states.
@@ -28,6 +29,9 @@ export const codeSearchModeAtom = atom<"files" | "search" | "changed">("files") 
 >;
 export const codeSearchQueryAtom = atom<string>("") as PrimitiveAtom<string>;
 export const codeSearchAtom = atom<SearchState>({ kind: "idle" }) as PrimitiveAtom<SearchState>;
+export const codeSearchOptsAtom = atom<SearchOpts>(DEFAULT_SEARCH_OPTS) as PrimitiveAtom<SearchOpts>;
+// beside the state rather than in it: an invalid pattern leaves the previous results on screen
+export const codeSearchInvalidAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
 
 // The RPC layer's DefaultTimeoutMs is 5s and it binds the SERVER-side context, so a search the
 // server would have finished gets killed under it. The reader self-limits at gitinfo's 10s
@@ -37,22 +41,29 @@ const GREP_RPC_TIMEOUT_MS = 20_000;
 // guards a slow search against a newer one, same pattern as codestore's index and file loads
 const current = { token: "" };
 
-export async function runSearch(project: { path: string }, query: string): Promise<void> {
+export async function runSearch(project: { path: string }, query: string, opts: SearchOpts): Promise<void> {
     const q = query.trim();
+    globalStore.set(codeSearchInvalidAtom, false);
     if (q === "") {
         globalStore.set(codeSearchAtom, { kind: "idle" });
         return;
     }
-    const token = `${project.path}|${q}`;
+    // the options are part of the token: toggling a flag re-runs the same query
+    const token = `${project.path}|${q}|${JSON.stringify(opts)}`;
     current.token = token;
+    const before = globalStore.get(codeSearchAtom);
     globalStore.set(codeSearchAtom, { kind: "searching", query: q });
     try {
-        const res = await RpcApi.GitGrepCommand(
-            TabRpcClient,
-            { cwd: project.path, query: q },
-            { timeout: GREP_RPC_TIMEOUT_MS }
-        );
+        const res = await RpcApi.GitGrepCommand(TabRpcClient, grepData(project.path, q, opts), {
+            timeout: GREP_RPC_TIMEOUT_MS,
+        });
         if (current.token !== token) {
+            return;
+        }
+        if (res.invalidpattern) {
+            // a regex typo is the user's to fix, not a failed read: flag the input, keep the results
+            globalStore.set(codeSearchAtom, before.kind === "searching" ? { kind: "idle" } : before);
+            globalStore.set(codeSearchInvalidAtom, true);
             return;
         }
         globalStore.set(codeSearchAtom, {
@@ -78,5 +89,7 @@ export function resetSearch(): void {
     current.token = "";
     globalStore.set(codeSearchQueryAtom, "");
     globalStore.set(codeSearchAtom, { kind: "idle" });
+    globalStore.set(codeSearchOptsAtom, DEFAULT_SEARCH_OPTS);
+    globalStore.set(codeSearchInvalidAtom, false);
     globalStore.set(codeSearchModeAtom, "files");
 }

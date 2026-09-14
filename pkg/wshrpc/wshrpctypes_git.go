@@ -20,6 +20,7 @@ type GitCommands interface {
 	GitCompareChangesCommand(ctx context.Context, data CommandGitCompareChangesData) (*CommandGitCompareChangesRtnData, error)
 	GitCompareDiffCommand(ctx context.Context, data CommandGitCompareDiffData) (*CommandGitCompareDiffRtnData, error)
 	GitListFilesCommand(ctx context.Context, data CommandGitListFilesData) (*CommandGitListFilesRtnData, error)
+	GitListWorktreesCommand(ctx context.Context, data CommandGitListWorktreesData) (*CommandGitListWorktreesRtnData, error)
 	GitGrepCommand(ctx context.Context, data CommandGitGrepData) (*CommandGitGrepRtnData, error)
 	GitFileAtRefCommand(ctx context.Context, data CommandGitFileAtRefData) (*CommandGitFileAtRefRtnData, error)
 	GitFetchCommand(ctx context.Context, data CommandGitFetchData) (*CommandGitFetchRtnData, error)
@@ -133,9 +134,30 @@ type CommandGitListFilesRtnData struct {
 	Truncated bool     `json:"truncated,omitempty"`
 }
 
+type CommandGitListWorktreesData struct {
+	Cwd string `json:"cwd"`
+}
+
+type GitWorktree struct {
+	Path   string `json:"path"`
+	Branch string `json:"branch,omitempty"` // empty when detached
+	IsMain bool   `json:"ismain,omitempty"`
+}
+
+// Worktrees is main first and empty when cwd is not a repository.
+type CommandGitListWorktreesRtnData struct {
+	Worktrees []GitWorktree `json:"worktrees"`
+}
+
+// Include and Exclude are git pathspecs, so the filter runs inside git and before the match cap.
 type CommandGitGrepData struct {
-	Cwd   string `json:"cwd"`
-	Query string `json:"query"`
+	Cwd           string   `json:"cwd"`
+	Query         string   `json:"query"`
+	Regex         bool     `json:"regex,omitempty"`
+	WholeWord     bool     `json:"wholeword,omitempty"`
+	CaseSensitive bool     `json:"casesensitive,omitempty"`
+	Include       []string `json:"include,omitempty"`
+	Exclude       []string `json:"exclude,omitempty"`
 }
 
 // Unlike the change-list and diff commands, which hand raw git output across the wire for one
@@ -143,8 +165,9 @@ type CommandGitGrepData struct {
 // format is the parsing Go already does for ls-files, the match cap has to be applied server-side
 // regardless, and there is no second caller to share a TypeScript parser with.
 type CommandGitGrepRtnData struct {
-	Matches   []GitGrepMatch `json:"matches"`
-	Truncated bool           `json:"truncated,omitempty"`
+	Matches        []GitGrepMatch `json:"matches"`
+	Truncated      bool           `json:"truncated,omitempty"`
+	InvalidPattern bool           `json:"invalidpattern,omitempty"`
 }
 
 type GitGrepMatch struct {

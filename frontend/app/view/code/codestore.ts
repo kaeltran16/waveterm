@@ -17,10 +17,33 @@ import { joinRepoPath, repoBasename, sameRepoPath } from "@/util/paths";
 import { base64ToString, fireAndForget, stringToBase64 } from "@/util/util";
 import { atom, type PrimitiveAtom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
+import { debounce } from "throttle-debounce";
 import { classifyFile, hasNulByte, MAX_VIEW_BYTES } from "./codeclassify";
-import { conflictMessage, conflictOf, nextDrafts, withoutDraft, type Draft, type FileBase } from "./codedraft";
-import { back, currentPath, EMPTY_HISTORY, forward, push, type History } from "./codehistory";
+import {
+    conflictMessage,
+    conflictOf,
+    nextDrafts,
+    parseStoredDrafts,
+    renameDraftKeys,
+    storedDraftsJson,
+    withoutDraft,
+    type Draft,
+    type FileBase,
+} from "./codedraft";
+import {
+    back,
+    canBack,
+    canForward,
+    currentEntry,
+    EMPTY_HISTORY,
+    forward,
+    push,
+    withLine,
+    type History,
+} from "./codehistory";
 import { deleteWarning, renamedPath, targetDir } from "./codemutate";
+import { cleanPathInput, pathErrorMessage, statPathError, validatePathInput } from "./codepathinput";
+import { pruneRecent, pushRecent } from "./coderecents";
 import { resetSearch } from "./codesearchstore";
 import { changedDirs, statusByPath, type CodeStatus } from "./codestatus";
 import { ancestorsOf, buildTree, visibleRows } from "./codetree";
@@ -71,9 +94,56 @@ export const codeExpandedAtom = atom<Set<string>>(new Set<string>()) as Primitiv
 export const codeFileAtom = atom<CodeFile>({ kind: "none" }) as PrimitiveAtom<CodeFile>;
 export const codeHistoryAtom = atom<History>(EMPTY_HISTORY) as PrimitiveAtom<History>;
 export const codeFinderOpenAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
+// every checkout of the selected project's repository, main first; empty until loaded
+export const codeWorktreesAtom = atom<GitWorktree[]>([]) as PrimitiveAtom<GitWorktree[]>;
+// persisted, so a worktree or a directory reached by path stays one click away after a restart
+export const codeRecentsAtom = atomWithStorage<CodeProject[]>("code.project.recents", [], undefined, {
+    getOnInit: true,
+}) as PrimitiveAtom<CodeProject[]>;
+export const codePickerErrorAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
+const DRAFTS_STORAGE_KEY = "code.drafts";
+// JSON characters: a conservative slice of the origin's localStorage quota, which the rest of the app
+// shares. A draft that does not fit stays in memory only.
+const DRAFTS_STORAGE_BUDGET = 2_000_000;
+// a keystroke must not re-serialize every draft, so the write trails the typing
+const DRAFTS_PERSIST_MS = 500;
+
+function readStoredDrafts(): Map<string, Draft> {
+    try {
+        return parseStoredDrafts(window.localStorage.getItem(DRAFTS_STORAGE_KEY));
+    } catch {
+        return new Map<string, Draft>(); // no localStorage: a restricted webview, or vitest's node
+    }
+}
+
+function writeStoredDrafts(drafts: Map<string, Draft>): void {
+    try {
+        window.localStorage.setItem(DRAFTS_STORAGE_KEY, storedDraftsJson(drafts, DRAFTS_STORAGE_BUDGET));
+    } catch (e) {
+        console.warn("[code] unsaved drafts were not persisted", e);
+        // an older copy left behind would resurrect edits that have since been saved or reverted
+        try {
+            window.localStorage.removeItem(DRAFTS_STORAGE_KEY);
+        } catch {
+            // no storage at all, so there is no stale copy either
+        }
+    }
+}
+
 // Unsaved edits, keyed by ABSOLUTE path so two projects cannot collide, and deliberately not cleared
 // on project switch — losing typed-but-unsaved work to a nav click would be the worst kind of bug.
-export const codeDraftsAtom = atom<Map<string, Draft>>(new Map<string, Draft>()) as PrimitiveAtom<Map<string, Draft>>;
+// Persisted for the same reason, since a reload lost them just as surely. A restored draft keeps its
+// pinned base, so a file that changed on disk in the meantime still refuses to save over.
+export const codeDraftsAtom = atom<Map<string, Draft>>(readStoredDrafts()) as PrimitiveAtom<Map<string, Draft>>;
+const persistDraftsSoon = debounce(DRAFTS_PERSIST_MS, () => writeStoredDrafts(globalStore.get(codeDraftsAtom)));
+globalStore.sub(codeDraftsAtom, persistDraftsSoon);
+// a reload inside the debounce window would otherwise drop the last burst of typing
+if (typeof window !== "undefined") {
+    window.addEventListener("pagehide", () => {
+        persistDraftsSoon.cancel();
+        writeStoredDrafts(globalStore.get(codeDraftsAtom));
+    });
+}
 export const codeSaveAtom = atom<SaveState>({ kind: "idle" }) as PrimitiveAtom<SaveState>;
 
 // The tree's highlighted row — a file OR a directory. Deliberately separate from codeFileAtom: the
@@ -82,6 +152,12 @@ export const codeCursorAtom = atom<string | null>(null) as PrimitiveAtom<string 
 // A line a jump wants revealed once the file's text is in place. The store never touches Monaco;
 // codeviewer.tsx consumes this and clears it.
 export const codePendingLineAtom = atom<number | null>(null) as PrimitiveAtom<number | null>;
+// The viewer lends the store a reader for the caret's line, which history records as an entry is left.
+// A reader rather than an atom: the caret moves on every keystroke and nothing needs to re-render.
+let readCaretLine: () => number | null = () => null;
+export function setCaretLineReader(read: () => number | null): void {
+    readCaretLine = read;
+}
 // Whether the tree pane holds focus. An atom rather than a document.activeElement query because the
 // keybinding `when` predicates are evaluated by store.test.ts in vitest's node environment, where
 // there is no document — and because this codebase keeps DOM reads in `run`, never in `when`.
@@ -144,7 +220,7 @@ export function draftKey(project: CodeProject, rel: string): string {
 const indexCache = new Map<string, CodeIndex>();
 
 // guards a slow load against a newer one, same pattern as filesstore.ts
-const current = { indexToken: "", fileToken: "", statusToken: "", headToken: "" };
+const current = { indexToken: "", fileToken: "", statusToken: "", headToken: "", worktreesToken: "" };
 
 export async function selectProject(p: CodeProject | null): Promise<void> {
     globalStore.set(codeProjectAtom, p);
@@ -165,6 +241,7 @@ export async function selectProject(p: CodeProject | null): Promise<void> {
     globalStore.set(codeStatusErrorAtom, null);
     globalStore.set(codeHeadAtom, { kind: "idle" });
     globalStore.set(codeStaleAtom, null);
+    globalStore.set(codeWorktreesAtom, []);
     resetSearch(); // results belong to the repository they were found in
     // drafts survive on purpose — they are keyed by absolute path, so coming back to this project
     // brings your unsaved edits back with it
@@ -172,6 +249,7 @@ export async function selectProject(p: CodeProject | null): Promise<void> {
         current.indexToken = "";
         return;
     }
+    globalStore.set(codeRecentsAtom, pushRecent(globalStore.get(codeRecentsAtom), p));
     await loadIndex(p);
 }
 
@@ -189,10 +267,18 @@ export function canRestoreProject(stored: CodeProject | null, registry: Record<s
     return false;
 }
 
+export function registeredProjects(registry: Record<string, ProjectKeywords> | undefined): CodeProject[] {
+    return Object.entries(registry ?? {})
+        .filter(([, v]) => v?.path)
+        .map(([name, v]) => ({ name, path: v.path }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+}
+
 async function loadIndex(p: CodeProject): Promise<void> {
     const token = `index:${p.path}`;
     current.indexToken = token;
     void loadStatus(); // independent of ls-files, so it runs alongside rather than after
+    void loadWorktrees();
     const cached = indexCache.get(p.path);
     if (cached != null) {
         globalStore.set(codeIndexAtom, cached);
@@ -272,6 +358,28 @@ export async function loadStatus(): Promise<void> {
         }
         globalStore.set(codeStatusAtom, null);
         globalStore.set(codeStatusErrorAtom, e instanceof Error ? e.message : String(e));
+    }
+}
+
+// The picker lists these and Send to agent resolves a browsed worktree's repository from them. Neither
+// is something the surface depends on, so a failure leaves the list empty instead of raising a banner.
+async function loadWorktrees(): Promise<void> {
+    const p = globalStore.get(codeProjectAtom);
+    if (p == null) {
+        return;
+    }
+    const token = `worktrees:${p.path}`;
+    current.worktreesToken = token;
+    try {
+        const res = await RpcApi.GitListWorktreesCommand(TabRpcClient, { cwd: p.path });
+        if (current.worktreesToken === token) {
+            globalStore.set(codeWorktreesAtom, res?.worktrees ?? []);
+        }
+    } catch (e) {
+        console.error("listing worktrees failed", p.path, e);
+        if (current.worktreesToken === token) {
+            globalStore.set(codeWorktreesAtom, []);
+        }
     }
 }
 
@@ -448,26 +556,8 @@ export async function renamePath(rel: string, newName: string): Promise<void> {
     await refreshIndex();
 }
 
-// Windows-only build: draft keys come from joinRepoPath, which normalizes the whole join to
-// backslashes, so both sides of this comparison are built the same way and a plain prefix match is
-// exact rather than approximate.
-const ABS_SEP = "\\";
-
 function carryRename(project: CodeProject, rel: string, next: string): void {
-    const from = draftKey(project, rel);
-    const to = draftKey(project, next);
-    const drafts = globalStore.get(codeDraftsAtom);
-    const moved = new Map<string, Draft>();
-    for (const [key, d] of drafts) {
-        if (key === from) {
-            moved.set(to, d);
-        } else if (key.startsWith(from + ABS_SEP)) {
-            moved.set(to + key.slice(from.length), d);
-        } else {
-            moved.set(key, d);
-        }
-    }
-    globalStore.set(codeDraftsAtom, moved);
+    globalStore.set(codeDraftsAtom, (d) => renameDraftKeys(d, draftKey(project, rel), draftKey(project, next)));
 
     const file = globalStore.get(codeFileAtom);
     if (file.kind !== "none") {
@@ -480,7 +570,10 @@ function carryRename(project: CodeProject, rel: string, next: string): void {
     if (cursor != null) {
         globalStore.set(codeCursorAtom, renamedPath(cursor, rel, next));
     }
-    globalStore.set(codeHistoryAtom, (h) => ({ stack: h.stack.map((p) => renamedPath(p, rel, next)), idx: h.idx }));
+    globalStore.set(codeHistoryAtom, (h) => ({
+        stack: h.stack.map((e) => ({ ...e, path: renamedPath(e.path, rel, next) })),
+        idx: h.idx,
+    }));
     revealPath(next);
 }
 
@@ -553,13 +646,13 @@ export function revealPath(path: string): void {
     globalStore.set(codeExpandedAtom, next);
 }
 
-export async function openPath(rel: string, opts?: { pushHistory?: boolean }): Promise<void> {
+export async function openPath(rel: string, opts?: { pushHistory?: boolean; line?: number | null }): Promise<void> {
     const project = globalStore.get(codeProjectAtom);
     if (project == null) {
         return;
     }
     if (opts?.pushHistory !== false) {
-        globalStore.set(codeHistoryAtom, (h) => push(h, rel));
+        globalStore.set(codeHistoryAtom, (h) => push(withLine(h, readCaretLine()), rel, opts?.line ?? null));
     }
     const token = `file:${rel}`;
     current.fileToken = token;
@@ -712,28 +805,69 @@ export async function reloadFromDisk(): Promise<void> {
 }
 
 // back/forward re-read from disk rather than replaying cached text: simpler, and it shows the file
-// as it is now rather than as it was when you first opened it.
+// as it is now rather than as it was when you first opened it. The entry's line rides the same
+// pending-line reveal a jump uses.
 export async function goBack(): Promise<void> {
-    const next = back(globalStore.get(codeHistoryAtom));
-    globalStore.set(codeHistoryAtom, next);
-    const path = currentPath(next);
-    if (path != null) {
-        await openPath(path, { pushHistory: false });
+    const h = globalStore.get(codeHistoryAtom);
+    if (canBack(h)) {
+        await walkTo(back(withLine(h, readCaretLine())));
     }
 }
 
 export async function goForward(): Promise<void> {
-    const next = forward(globalStore.get(codeHistoryAtom));
-    globalStore.set(codeHistoryAtom, next);
-    const path = currentPath(next);
-    if (path != null) {
-        await openPath(path, { pushHistory: false });
+    const h = globalStore.get(codeHistoryAtom);
+    if (canForward(h)) {
+        await walkTo(forward(withLine(h, readCaretLine())));
     }
+}
+
+async function walkTo(h: History): Promise<void> {
+    globalStore.set(codeHistoryAtom, h);
+    const entry = currentEntry(h);
+    if (entry == null) {
+        return;
+    }
+    globalStore.set(codePendingLineAtom, entry.line);
+    await openPath(entry.path, { pushHistory: false });
 }
 
 // The one way into this surface from anywhere else: a content-search hit, a diff row, a Radar
 // finding, a finder query with a line. Takes the view model because surfaceAtom lives on the
 // AgentsViewModel instance rather than in a module — the same type-only seam bindings.ts uses.
+// reach a directory by path, under its registered name when it has one
+export async function selectPath(path: string): Promise<void> {
+    await selectProject(resolveJumpProject(path));
+}
+
+// A typed path or a Recent row: either can name something that is not a directory (or no longer
+// exists), so it is checked before the selection changes. Resolves false with the reason in
+// codePickerErrorAtom; a gone directory also leaves the Recent list here.
+export async function openPickedPath(raw: string): Promise<boolean> {
+    const path = cleanPathInput(raw);
+    let error = validatePathInput(path);
+    if (error == null) {
+        try {
+            error = statPathError(await RpcApi.FileInfoCommand(TabRpcClient, { info: { path } }));
+        } catch (e) {
+            globalStore.set(
+                codePickerErrorAtom,
+                `Could not read ${path}: ${e instanceof Error ? e.message : String(e)}`
+            );
+            return false;
+        }
+    }
+    if (error != null) {
+        if (error === "notfound") {
+            globalStore.set(codeRecentsAtom, pruneRecent(globalStore.get(codeRecentsAtom), path));
+        }
+        globalStore.set(codePickerErrorAtom, pathErrorMessage(error, path));
+        return false;
+    }
+    globalStore.set(codePickerErrorAtom, null);
+    await selectPath(path);
+    return true;
+}
+
 export async function openInCode(
     model: AgentsViewModel,
     target: { projectPath: string; rel: string; line?: number }
@@ -750,7 +884,7 @@ export async function openInCode(
     // set before the read: the viewer honors this the moment the text lands
     globalStore.set(codePendingLineAtom, target.line ?? null);
     globalStore.set(model.surfaceAtom, "code");
-    await openPath(target.rel);
+    await openPath(target.rel, { line: target.line ?? null });
 }
 
 function resolveJumpProject(projectPath: string): CodeProject {

@@ -14,20 +14,31 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
+import { projectsAtom } from "@/app/view/agents/projectsstore";
 import { joinRepoPath } from "@/util/paths";
 import { cn, stringToBase64 } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
 import { Check, Copy, Send } from "lucide-react";
 import { useState } from "react";
 import { isMarkdownPath } from "./codeclassify";
-import { handoffLine, liveAgentsForProject } from "./codehandoff";
-import { codeDraftsAtom, codeFileAtom, codeProjectAtom, codeViewModeAtom, draftKey } from "./codestore";
+import { handoffLine, handoffProjectName, liveAgentsForProject } from "./codehandoff";
+import {
+    codeDraftsAtom,
+    codeFileAtom,
+    codeProjectAtom,
+    codeViewModeAtom,
+    codeWorktreesAtom,
+    draftKey,
+    registeredProjects,
+} from "./codestore";
 import { codeEditorSelection } from "./codeviewer";
 
 export function CodePathBar({ model }: { model: AgentsViewModel }) {
     const project = useAtomValue(codeProjectAtom);
     const file = useAtomValue(codeFileAtom);
     const drafts = useAtomValue(codeDraftsAtom);
+    const registry = useAtomValue(projectsAtom);
+    const worktrees = useAtomValue(codeWorktreesAtom);
     const [copied, setCopied] = useState(false);
 
     if (project == null || file.kind === "none") {
@@ -67,7 +78,15 @@ export function CodePathBar({ model }: { model: AgentsViewModel }) {
                 {copied ? <Check size={11} strokeWidth={2} /> : <Copy size={11} strokeWidth={1.8} />}
                 <span>{copied ? "Copied" : "Copy path"}</span>
             </button>
-            <SendToAgent model={model} rel={file.path} projectName={project.name} />
+            <SendToAgent
+                model={model}
+                rel={file.path}
+                projectName={handoffProjectName(
+                    project,
+                    registeredProjects(registry),
+                    worktrees.find((wt) => wt.ismain)?.path ?? null
+                )}
+            />
         </div>
     );
 }
