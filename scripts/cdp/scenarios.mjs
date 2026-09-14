@@ -2314,6 +2314,7 @@ const jarvisPeek = {
             const store = globalThis.__wavePetStore;
             if (typeof store?.resetPeek !== 'function') return false;
             store.resetPeek();
+            store.setAttention([]);
             return true;
         })()`);
         return { reset };
@@ -2354,6 +2355,7 @@ const jarvisPeek = {
             return {
                 role: panel.getAttribute('role'),
                 label,
+                shape: panel.getAttribute('data-pet-peek-shape'),
                 close: panel.querySelector('button[aria-label="Close Jarvis panel"]') != null,
                 panelFocused: document.activeElement === panel,
                 // the panel is header / queue / composer, in that DOM order. Conditions and the updates
@@ -2378,7 +2380,8 @@ const jarvisPeek = {
             "1. keyboard open renders a labelled dialog of header/queue/composer and focuses its container",
             creatureFocused === true &&
                 structure?.role === "dialog" &&
-                structure?.label === "Jarvis" &&
+                structure?.label === "Nothing waiting on you" &&
+                structure?.shape === "quiet" &&
                 structure?.header === true &&
                 structure?.queue === true &&
                 structure?.composer === true &&
@@ -2389,7 +2392,7 @@ const jarvisPeek = {
 
         await press("Tab", "Tab", 9);
         const firstTab = await h.ev(`(() => ({
-            text: (document.activeElement?.innerText || '').trim(),
+            label: document.activeElement?.getAttribute('aria-label') ?? null,
             inside: document.querySelector('[data-pet-peek]')?.contains(document.activeElement) ?? false,
         }))()`);
         await press("Tab", "Tab", 9, 8);
@@ -2397,20 +2400,21 @@ const jarvisPeek = {
             `document.querySelector('[data-pet-peek]')?.contains(document.activeElement) ?? false`
         );
         rec(
-            "2. Tab starts at Open full view and reverse traversal stays inside the dialog",
-            firstTab.inside === true && firstTab.text === "Open full view" && wrappedInside === true,
+            "2. Tab starts at Close and reverse traversal stays inside the dialog",
+            firstTab.inside === true && firstTab.label === "Close Jarvis panel" && wrappedInside === true,
             JSON.stringify({ firstTab, wrappedInside })
         );
-        // Each string below is one the old three-card panel rendered to report that nothing was wrong:
-        // two of its four tiles said "No reading" / "Nothing", the updates card cost 78px to say it was
-        // empty, and the ask row stated its disabled condition three times. None may come back.
+        // Each string below is one the old three-card panel rendered to report missing telemetry or repeat
+        // a disabled composer state. The adaptive card states queue absence once in its title; these older
+        // tile-level absence messages must not come back.
         const ABSENCE =
             /No updates yet|No reading|Usage unavailable|No action needed|No destination|No channel selected|Select a channel to ask Jarvis/;
         rec(
-            "3. the resting panel renders no absence, and the composer is live wherever there is a destination",
+            "3. the quiet card states queue absence once, and the composer is live wherever there is a destination",
             ctx.reset === true &&
                 structure?.updatesDrawer === false &&
                 ABSENCE.test(structure?.text ?? "") === false &&
+                structure?.text.includes("Nothing waiting on you") === true &&
                 // the fix: dead only when there is genuinely nowhere to send. The composer used to read the
                 // Jarvis surface's selection, which nothing sets at boot, so it was dead on every surface.
                 structure?.inputDisabled === !structure?.destPresent &&
@@ -2444,6 +2448,8 @@ const jarvisPeek = {
                 bottom: Math.round(rect.bottom),
                 viewportWidth: window.innerWidth,
                 viewportHeight: window.innerHeight,
+                width: Math.round(rect.width),
+                shape: panel.getAttribute('data-pet-peek-shape'),
                 horizontalOverflow: panel.scrollWidth - panel.clientWidth,
                 bodyScrollable: body.scrollHeight > body.clientHeight,
                 headerStayed: headerTop === headerAfterScroll,
@@ -2490,11 +2496,52 @@ const jarvisPeek = {
                 narrow.right <= narrow.viewportWidth - 8 &&
                 narrow.top >= 8 &&
                 narrow.bottom <= narrow.viewportHeight - 8 &&
+                narrow.width <= 300 &&
+                narrow.shape === "quiet" &&
                 narrow.horizontalOverflow <= 0 &&
                 narrow.headerStayed === true &&
                 pickerOpened === true &&
                 pickerVisibility?.visible === true,
             JSON.stringify({ narrow, pickerOpened, pickerVisibility })
+        );
+
+        const busyArranged = await h.ev(`(() => {
+            const store = globalThis.__wavePetStore;
+            const panel = document.querySelector('[data-pet-peek]');
+            if (typeof store?.setAttention !== 'function' || !panel) return false;
+            store.setAttention([
+                { key: 'gate:cdp-1', kind: 'gate', source: 'first gate', text: 'Approve before Jarvis proceeds.', action: 'Review', waitingsince: Date.now() - 120000, channelid: '', runid: 'cdp-1', phaseidx: 0 },
+                { key: 'ask:cdp-2', kind: 'ask', source: 'second ask', text: 'Waiting on your reply', action: 'Answer', waitingsince: Date.now() - 60000, channelid: '', runid: 'cdp-2', phaseidx: 0 },
+            ]);
+            return true;
+        })()`);
+        await settle(450);
+        const busyBefore = await h.ev(`(() => {
+            const panel = document.querySelector('[data-pet-peek]');
+            panel?.focus();
+            const rect = panel?.getBoundingClientRect();
+            return {
+                shape: panel?.getAttribute('data-pet-peek-shape') ?? null,
+                width: rect == null ? null : Math.round(rect.width),
+                cursor: panel?.querySelector('[data-pet-cursor="true"]')?.closest('[data-pet-row]')?.getAttribute('data-pet-row') ?? null,
+                focused: document.activeElement === panel,
+            };
+        })()`);
+        await h.shot("cdp-shots/jarvis-peek-busy.png");
+        await press("ArrowDown", "ArrowDown", 40);
+        const movedCursor = await h.ev(`document.querySelector('[data-pet-cursor="true"]')?.closest('[data-pet-row]')?.getAttribute('data-pet-row') ?? null`);
+        await press("/", "Slash", 191);
+        const composerFocused = await h.ev(`document.activeElement?.hasAttribute('data-pet-errand-input') ?? false`);
+        rec(
+            "5. attention expands the card and keyboard navigation moves the cursor then focuses the composer",
+            busyArranged === true &&
+                busyBefore?.shape === "busy" &&
+                busyBefore?.width > 300 &&
+                busyBefore?.cursor === "gate:cdp-1" &&
+                busyBefore?.focused === true &&
+                movedCursor === "ask:cdp-2" &&
+                composerFocused === true,
+            JSON.stringify({ busyArranged, busyBefore, movedCursor, composerFocused })
         );
 
         await press("Escape", "Escape", 27);
@@ -2529,7 +2576,7 @@ const jarvisPeek = {
             focusReturned: document.activeElement?.getAttribute('aria-label') === 'Jarvis condition',
         }))()`);
         rec(
-            "5. Escape, close, and backdrop dismiss only the peek and return focus to the creature",
+            "6. Escape, close, and backdrop dismiss only the peek and return focus to the creature",
             escapeDismissed.panelGone === true &&
                 escapeDismissed.focusReturned === true &&
                 closeClicked === true &&
@@ -2541,7 +2588,7 @@ const jarvisPeek = {
             JSON.stringify({ escapeDismissed, closeClicked, closeDismissed, backdropClicked, backdropDismissed })
         );
         const stayed = (await h.activeSurfaceLabel()) === SURFACE_LABEL.cockpit;
-        rec("6. dismissing the global peek stays on the current surface", stayed, String(stayed));
+        rec("7. dismissing the global peek stays on the current surface", stayed, String(stayed));
         return steps;
     },
     async teardown(h) {
@@ -2553,6 +2600,7 @@ const jarvisPeek = {
         });
         await h.ev(`(() => {
             document.querySelector('button[aria-label="Close Jarvis panel"]')?.click();
+            globalThis.__wavePetStore?.setAttention([]);
             return true;
         })()`);
         await h.goto("cockpit");
@@ -2637,16 +2685,8 @@ const jarvisVolunteer = {
         });
         await h.shot("cdp-shots/jarvis-volunteer-peek.png");
 
-        // the acts live in the "Since you looked" drawer, which starts shut and shows only its newest line
-        // while it is. Expanding it is part of reading the panel, not an optional detour — without this the
-        // step could only ever find no controls, in every profile, for reasons that have nothing to do with
-        // whether the acts exist.
-        await h.ev(`(() => {
-            const toggle = document.querySelector('[data-pet-updates] button[aria-expanded]');
-            if (toggle && toggle.getAttribute('aria-expanded') === 'false') toggle.click();
-            return true;
-        })()`);
-        await h.ev("new Promise((r) => setTimeout(r, 300))");
+        // with no attention queue, the adaptive card shows the latest update directly. It keeps both acts:
+        // compacting the card must not turn the volunteered fact into a dead readout.
         const verbs = await h.ev(`(() => {
             const panel = document.querySelector('[data-pet-peek]');
             return {
@@ -2655,7 +2695,7 @@ const jarvisVolunteer = {
             };
         })()`);
         steps.push({
-            step: "peek row offers Open and Ask",
+            step: "latest update offers Open and Ask",
             ok: verbs?.open === true && verbs?.ask === true,
             detail: JSON.stringify(verbs),
         });

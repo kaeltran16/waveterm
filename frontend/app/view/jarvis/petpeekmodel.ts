@@ -58,6 +58,54 @@ export function dedupeUpdates(events: PetEvent[], items: AttentionItem[]): PetEv
     );
 }
 
+export type PeekKeyCommand =
+    | "next"
+    | "previous"
+    | "open"
+    | "approve"
+    | "sendback"
+    | "conditions"
+    | "composer"
+    | "close";
+
+export function peekKeyCommand(key: string): PeekKeyCommand | null {
+    switch (key) {
+        case "j":
+        case "ArrowDown":
+            return "next";
+        case "k":
+        case "ArrowUp":
+            return "previous";
+        case "Enter":
+            return "open";
+        case "a":
+            return "approve";
+        case "s":
+            return "sendback";
+        case "c":
+            return "conditions";
+        case "/":
+            return "composer";
+        case "Escape":
+            return "close";
+        default:
+            return null;
+    }
+}
+
+export function peekActForCommand(row: PeekRow | undefined, command: PeekKeyCommand): PetAct | null {
+    if (row == null) {
+        return null;
+    }
+    if (command === "open") {
+        return row.primary;
+    }
+    if (command !== "approve" && command !== "sendback") {
+        return null;
+    }
+    return row.more.find((act) => act.verb === "do" && act.op.kind === "gate" && act.op.action === command) ?? null;
+}
+
 export interface ConditionSources {
     index: EmbedIndexStatus | null | undefined;
     prune: MemoryPruneCandidate[] | null | undefined;
