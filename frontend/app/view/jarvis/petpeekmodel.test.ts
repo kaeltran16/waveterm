@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dedupeUpdates, peekConditions, queueRows } from "./petpeekmodel";
+import { dedupeUpdates, peekActForCommand, peekConditions, peekKeyCommand, queueRows } from "./petpeekmodel";
 import type { PetEvent } from "./petvoice";
 
 const RUN = "run-1";
@@ -140,6 +140,48 @@ describe("dedupeUpdates — report each thing once", () => {
     it("leaves every other kind of update alone", () => {
         const events: PetEvent[] = [sweep, { id: "recall:1", at: 3, kind: "recall", text: "You argued this before." }];
         expect(dedupeUpdates(events, [ASK, GATE])).toEqual(events);
+    });
+});
+
+describe("peekKeyCommand", () => {
+    it("maps navigation keys", () => {
+        expect(peekKeyCommand("j")).toBe("next");
+        expect(peekKeyCommand("ArrowDown")).toBe("next");
+        expect(peekKeyCommand("k")).toBe("previous");
+        expect(peekKeyCommand("ArrowUp")).toBe("previous");
+        expect(peekKeyCommand("Enter")).toBe("open");
+    });
+
+    it("maps actions and panel controls", () => {
+        expect(peekKeyCommand("a")).toBe("approve");
+        expect(peekKeyCommand("s")).toBe("sendback");
+        expect(peekKeyCommand("c")).toBe("conditions");
+        expect(peekKeyCommand("/")).toBe("composer");
+        expect(peekKeyCommand("Escape")).toBe("close");
+    });
+
+    it("ignores unrelated and uppercase keys", () => {
+        expect(peekKeyCommand("x")).toBeNull();
+        expect(peekKeyCommand("A")).toBeNull();
+    });
+});
+
+describe("peekActForCommand", () => {
+    it("opens the focused row through its primary act", () => {
+        const row = queueRows([ASK], CONCIERGE)[0];
+        expect(peekActForCommand(row, "open")).toBe(row.primary);
+    });
+
+    it("finds delegator gate decisions and rejects unavailable ones", () => {
+        const gate = queueRows([GATE], DELEGATOR)[0];
+        expect(peekActForCommand(gate, "approve")?.id).toBe(`${GATE.key}:approve`);
+        expect(peekActForCommand(gate, "sendback")?.id).toBe(`${GATE.key}:sendback`);
+        expect(peekActForCommand(queueRows([GATE], CONCIERGE)[0], "approve")).toBeNull();
+        expect(peekActForCommand(queueRows([ASK], DELEGATOR)[0], "sendback")).toBeNull();
+    });
+
+    it("returns no act without a focused row", () => {
+        expect(peekActForCommand(undefined, "open")).toBeNull();
     });
 });
 

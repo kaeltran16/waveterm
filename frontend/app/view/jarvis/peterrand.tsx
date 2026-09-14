@@ -26,10 +26,12 @@ export function PetErrand({
     dest,
     channels,
     onPick,
+    compact = false,
 }: {
     dest: Channel | null;
     channels: Channel[] | null;
     onPick: (oid: string) => void;
+    compact?: boolean;
 }) {
     const errand = useAtomValue(petErrandAtom);
     const pref = useAtomValue(harnessPreferenceAtom);
@@ -66,7 +68,10 @@ export function PetErrand({
     };
 
     return (
-        <div data-pet-composer className="flex-none border-t border-border px-2.5 pb-2.5 pt-2">
+        <div
+            data-pet-composer
+            className={cn("flex-none border-t border-border px-2.5 pb-2.5 pt-2", compact && "px-2 pb-2")}
+        >
             {errand != null ? (
                 <div className="mb-2 px-1">
                     <div className="mb-1 flex items-center gap-2">
@@ -121,8 +126,12 @@ export function PetErrand({
                 </button>
             </div>
 
-            <div className="mt-1.5 flex min-w-0 items-center gap-2 pl-0.5">
-                <HarnessPicker operation="consult" placement="top-start" />
+            <div className={cn("mt-1.5 flex min-w-0 items-center gap-2 pl-0.5", compact && "gap-1.5")}>
+                <HarnessPicker
+                    operation="consult"
+                    placement="top-start"
+                    className={compact ? "min-w-0 max-w-[110px]" : undefined}
+                />
                 {options.length > 0 ? (
                     <select
                         data-pet-errand-dest
@@ -131,7 +140,10 @@ export function PetErrand({
                         title={dest != null ? `Reply lands in ${channelProjectLabel(dest, projects)}` : undefined}
                         value={dest?.oid ?? ""}
                         onChange={(event) => onPick(event.target.value)}
-                        className="h-6 min-w-0 max-w-[240px] flex-none rounded-md border border-border bg-surface px-1.5 font-mono text-[10.5px] text-ink-mid hover:border-edge-mid hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                        className={cn(
+                            "h-6 min-w-0 flex-none rounded-md border border-border bg-surface px-1.5 font-mono text-[10.5px] text-ink-mid hover:border-edge-mid hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                            compact ? "max-w-[142px]" : "max-w-[240px]"
+                        )}
                     >
                         {/* no "→" glyph: the project name already reads as a destination and the arrow
                             only costs width */}
