@@ -39,6 +39,27 @@ func Run(ctx context.Context, spec RuntimeSpec, cwd, prompt string, emit func(st
 	return runPipe(ctx, spec, cwd, prompt, emit)
 }
 
+// Usage is what one call consumed, as the runtime reported it. Zero fields mean unreported: CLI
+// runtimes surface neither the model they resolved nor token counts.
+type Usage struct {
+	Model       string
+	TotalTokens int
+}
+
+// usageBackend is an apiBackend that also reports usage.
+type usageBackend interface {
+	RunWithUsage(ctx context.Context, spec RuntimeSpec, prompt string, emit func(string)) (string, Usage, error)
+}
+
+// RunWithUsage is Run plus the call's usage, when the runtime reports it.
+func RunWithUsage(ctx context.Context, spec RuntimeSpec, cwd, prompt string, emit func(string)) (string, Usage, error) {
+	if ub, ok := spec.ApiBackend.(usageBackend); ok {
+		return ub.RunWithUsage(ctx, spec, prompt, emit)
+	}
+	full, err := Run(ctx, spec, cwd, prompt, emit)
+	return full, Usage{}, err
+}
+
 // runPipe spawns the CLI with stdout piped. With a ParseLine it reads JSONL events line-by-line and
 // emits the text each reply event carries; without one it emits raw stdout chunks verbatim. It drains
 // stdout to EOF (a Complete/settlement event does not stop the drain) and only then reaps the process,

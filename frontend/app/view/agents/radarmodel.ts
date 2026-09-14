@@ -111,7 +111,7 @@ export interface GroupMeta {
 
 export const GROUP_META: Record<RadarGroup, GroupMeta> = {
     new: { label: "New", hint: "since last scan", delta: "new", tone: "new" },
-    recurring: { label: "Recurring", hint: "evidence strengthened", delta: "↑ strengthened", tone: "recurring" },
+    recurring: { label: "Recurring", hint: "seen in an earlier scan too", delta: "recurring", tone: "recurring" },
     nolonger: { label: "No longer detected", hint: "evidence disappeared", delta: "no longer detected", tone: "nolonger" },
     dismissed: { label: "Dismissed", hint: "closed with a reason", delta: "dismissed", tone: "muted" },
     suppressed: { label: "Suppressed", hint: "marked intentional", delta: "muted", tone: "muted" },
@@ -124,6 +124,25 @@ export function groupMeta(group: string): GroupMeta {
 // Findings in the muted (history) lifecycle groups render dimmed and closed by default.
 export function isMutedGroup(group: string): boolean {
     return group === "nolonger" || group === "dismissed" || group === "suppressed";
+}
+
+function isOpenGroup(group: string): boolean {
+    return group === "new" || group === "recurring";
+}
+
+// An open finding the latest scan did not detect stays open for a scan before moving to No longer
+// detected (one miss is usually model variance), so its group alone overstates what the scan saw.
+export function missedLatestScan(f: RadarFinding): boolean {
+    return isOpenGroup(f.group) && (f.misscount ?? 0) > 0;
+}
+
+export function isDetectedNow(f: RadarFinding): boolean {
+    return isOpenGroup(f.group) && !missedLatestScan(f);
+}
+
+// findingDelta is a finding's lifecycle note in the list.
+export function findingDelta(f: RadarFinding): string {
+    return missedLatestScan(f) ? "not detected this scan" : groupMeta(f.group).delta;
 }
 
 // groupSummary returns per-group counts in canonical order (all groups, including empty ones) for the
@@ -209,6 +228,29 @@ export function hasCoverageFailure(report: RadarReport): boolean {
     return coverageEntries(report).some((e) => e.status !== "ok");
 }
 
+// reports written before a repository change stopped counting as a coverage gap carry this marker in
+// partialsources
+const REPOSITORY_CHANGED = "repository-changed";
+
+// partialCollectors names the collectors that failed, which is what makes a scan partial.
+export function partialCollectors(report: RadarReport): string[] {
+    return (report.partialsources ?? []).filter((s) => s !== REPOSITORY_CHANGED);
+}
+
+// repositoryChangedDuringScan reports whether HEAD or the working tree moved while the scan ran. It is a
+// note, not a coverage gap: every collector still ran. The end boundary exists only once the scan
+// finalized.
+export function repositoryChangedDuringScan(report: RadarReport): boolean {
+    if ((report.partialsources ?? []).includes(REPOSITORY_CHANGED)) {
+        return true;
+    }
+    if (!report.windowendts) {
+        return false;
+    }
+    const headMoved = !!report.starthead && !!report.endhead && report.starthead !== report.endhead;
+    return headMoved || (report.startdirty ?? "") !== (report.enddirty ?? "");
+}
+
 // findings ordered by group, used for selection fallback (first actionable finding wins).
 function orderedFindings(findings: RadarFinding[]): RadarFinding[] {
     const grouped = groupFindings(findings);
@@ -285,8 +327,8 @@ export function toPendingRunDraft(report: RadarReport, finding: RadarFinding): P
 export type InvestigationBadge = "investigating" | "investigated" | "still-detected" | null;
 
 // The loop badge for a finding: an active investigation, a completed one, or a completed one contradicted by
-// the finding still being detected (group still new/recurring — "the fix did not take"). cancelled/failed
-// carry no list badge (surfaced only in the detail pane). Pure — no jotai/RPC.
+// the latest scan still detecting the finding ("the fix did not take"). cancelled/failed/orphaned carry no
+// list badge (surfaced only in the detail pane). Pure — no jotai/RPC.
 export function investigationBadge(f: RadarFinding): InvestigationBadge {
     const inv = f.investigation;
     if (!inv) {
@@ -296,9 +338,21 @@ export function investigationBadge(f: RadarFinding): InvestigationBadge {
         return "investigating";
     }
     if (inv.status === "done") {
-        return f.group === "new" || f.group === "recurring" ? "still-detected" : "investigated";
+        return isDetectedNow(f) ? "still-detected" : "investigated";
     }
     return null;
+}
+
+// investigationEndLabel labels an investigation that ended without completing.
+export function investigationEndLabel(status: string): string {
+    switch (status) {
+        case "cancelled":
+            return "Investigation cancelled";
+        case "orphaned":
+            return "Investigation run no longer exists";
+        default:
+            return "Investigation failed";
+    }
 }
 
 export type RadarMode = "correctness" | "security" | "debt";

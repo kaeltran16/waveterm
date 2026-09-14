@@ -5,6 +5,7 @@ package reporadar
 
 import (
 	"sort"
+	"strings"
 
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
@@ -38,7 +39,7 @@ func evidenceStrength(sigs []waveobj.RadarSignal) string {
 // canonical signal for the current report.
 func validateFindings(projectPath, mode string, resp *SynthResponse, byID map[string]waveobj.RadarSignal) []waveobj.RadarFinding {
 	var out []waveobj.RadarFinding
-	seenFP := map[string]bool{}
+	indexByFP := map[string]int{}
 	for _, sf := range resp.Findings {
 		if !ValidRiskKind(mode, sf.RiskKind) {
 			continue
@@ -68,10 +69,12 @@ func validateFindings(projectPath, mode string, resp *SynthResponse, byID map[st
 			continue // fails this mode's admissibility gate
 		}
 		fp := fingerprint(projectPath, sf.RiskKind, subsystem)
-		if seenFP[fp] {
-			continue // duplicate within this report
+		if i, seen := indexByFP[fp]; seen {
+			// two proposals with one identity are one risk; dropping the second would lose its evidence
+			mergeFinding(&out[i], sf, byID)
+			continue
 		}
-		seenFP[fp] = true
+		indexByFP[fp] = len(out)
 		// ID is stamped once on the merged+reconciled set (see assignFindingIDs) — a per-lens index
 		// here collides once lenses merge, and with findings carried forward from the prior report.
 		out = append(out, waveobj.RadarFinding{
@@ -108,13 +111,74 @@ func filesCoveredBySignals(files []string, sigs []waveobj.RadarSignal) bool {
 	return true
 }
 
-// subsystemForSignals derives the canonical subsystem from all referenced signals' paths.
-func subsystemForSignals(sigs []waveobj.RadarSignal) string {
-	var paths []string
-	for _, s := range sigs {
-		paths = append(paths, s.Paths...)
+// mergeFinding folds a same-fingerprint proposal into an accepted finding: evidence and files are
+// unioned, severity takes the higher of the two, and strength is recomputed from the union.
+func mergeFinding(f *waveobj.RadarFinding, sf SynthFinding, byID map[string]waveobj.RadarSignal) {
+	for _, id := range sf.SignalIDs {
+		f.SignalIDs = appendUnique(f.SignalIDs, id)
 	}
-	return subsystemForPaths(paths)
+	for _, file := range sf.Files {
+		f.Files = appendUnique(f.Files, file)
+	}
+	if sev := normalizeSeverity(sf.Severity); severityRank[sev] > severityRank[f.Severity] {
+		f.Severity = sev
+	}
+	var supporting []waveobj.RadarSignal
+	for _, id := range f.SignalIDs {
+		supporting = append(supporting, byID[id])
+	}
+	f.Strength = evidenceStrength(supporting)
+}
+
+// subsystemForSignals picks the subsystem most cited signals sit in. A common prefix over every path let
+// one wide signal (a session touching many directories) collapse a finding's identity to the repo root,
+// so unrelated risks shared a fingerprint. Signals whose own paths already span directories abstain;
+// when every signal abstains the common prefix is the only honest answer.
+func subsystemForSignals(sigs []waveobj.RadarSignal) string {
+	votes := map[string]int{}
+	var all []string
+	for _, s := range sigs {
+		all = append(all, s.Paths...)
+		sub := subsystemForPaths(s.Paths)
+		if sub == "unknown" || (sub == "." && spansDirectories(s.Paths)) {
+			continue
+		}
+		votes[sub]++
+	}
+	if len(votes) == 0 {
+		return subsystemForPaths(all)
+	}
+	best := ""
+	for sub, n := range votes {
+		if best == "" || preferSubsystem(sub, n, best, votes[best]) {
+			best = sub
+		}
+	}
+	return best
+}
+
+// preferSubsystem orders vote winners deterministically: more votes, then a named directory over the
+// root, then the more specific directory, then lexical order.
+func preferSubsystem(a string, aVotes int, b string, bVotes int) bool {
+	if aVotes != bVotes {
+		return aVotes > bVotes
+	}
+	if (a == ".") != (b == ".") {
+		return b == "."
+	}
+	if da, db := strings.Count(a, "/"), strings.Count(b, "/"); da != db {
+		return da > db
+	}
+	return a < b
+}
+
+func spansDirectories(paths []string) bool {
+	for _, p := range paths {
+		if subsystemForPaths([]string{p}) != "." {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeSeverity(s string) string {

@@ -84,3 +84,38 @@ func TestCollectStructureTagsSecurityBoundaries(t *testing.T) {
 		t.Fatalf("expected boundary=auth, got %v", boundary.Facts["boundary"])
 	}
 }
+
+// Untested sources aggregate per directory so they cannot crowd activity evidence out of the payload;
+// a test file exercises a boundary but is not one.
+func TestCollectStructureAggregatesPerDirectory(t *testing.T) {
+	dir := t.TempDir()
+	gitCmd(t, dir, "init", "-q")
+	writeFile(t, dir, "src/a.ts", "export const a = 1\n")
+	writeFile(t, dir, "src/b.ts", "export const b = 1\n")
+	writeFile(t, dir, "lib/c.go", "package lib\n")
+	writeFile(t, dir, "src/auth/login.test.ts", "test('login', () => {})\n")
+	gitCmd(t, dir, "add", ".")
+	gitCmd(t, dir, "commit", "-q", "-m", "init")
+
+	sigs, err := collectStructure(context.Background(), collectInput{projectPath: dir})
+	if err != nil {
+		t.Fatalf("collectStructure: %v", err)
+	}
+	var noTest []waveobj.RadarSignal
+	for _, s := range sigs {
+		if hasClass(s, "source-without-test") {
+			noTest = append(noTest, s)
+		}
+		if hasClass(s, ClassSecurityBoundary) {
+			t.Fatalf("a test file must not be tagged a security boundary, got %v", s.Paths)
+		}
+	}
+	if len(noTest) != 2 {
+		t.Fatalf("want one no-test signal per directory (lib, src), got %d", len(noTest))
+	}
+	for _, s := range noTest {
+		if s.Paths[0] == "src/a.ts" && (len(s.Paths) != 2 || s.Facts["count"] != 2) {
+			t.Fatalf("src must carry both files and count=2, got paths=%v facts=%v", s.Paths, s.Facts)
+		}
+	}
+}

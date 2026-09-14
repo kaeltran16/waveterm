@@ -11,29 +11,33 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
-// reconcile classifies the current scan's validated findings against the previous successful report
-// and carries dismissal/suppression forward:
-//   - fingerprint absent in prev        -> New
-//   - prev open (new/recurring/nolonger)-> Recurring
-//   - prev Suppressed                   -> stays Suppressed (same kind+subsystem => same fp)
-//   - prev Dismissed, newer evidence     -> Recurring (reopened); else stays Dismissed
-//   - prev-open fingerprint absent now   -> a No-longer-detected entry (carried from prev)
+// reconcile classifies the current scan's validated findings against the baseline findings (the previous
+// successful report's, or on a retry the report's own) and carries user state forward:
+//   - fingerprint absent in baseline      -> New
+//   - baseline open (new/recurring/nolonger) -> Recurring
+//   - baseline Suppressed                 -> stays Suppressed (same kind+subsystem => same fp)
+//   - baseline Dismissed, newer evidence  -> Recurring (reopened); else stays Dismissed
+//
+// Baseline findings the scan did not detect:
+//   - their lens failed to cluster        -> carried unchanged; the scan says nothing about them
+//   - Dismissed/Suppressed                -> carried; a user decision outlives detection
+//   - open                                -> carried open until NoLongerAfterMisses consecutive misses
+//   - already No longer detected          -> dropped
 //
 // "No longer detected" never means fixed — it means the supporting evidence disappeared.
-// evidenceTs maps a finding's fingerprint to the newest supporting signal's ObservedTs (resolved by
-// the scan wiring); it gates dismissal reopen without a shared mutable global.
-func reconcile(projectPath string, current []waveobj.RadarFinding, prev *waveobj.RadarReport, evidenceTs map[string]int64) []waveobj.RadarFinding {
-	prevByFP := map[string]waveobj.RadarFinding{}
-	if prev != nil {
-		for _, f := range prev.Findings {
-			prevByFP[f.Fingerprint] = f
-		}
+// evidenceTs maps a finding's fingerprint to the newest supporting event's ObservedTs (see
+// evidenceTimestamps); it gates dismissal reopen.
+func reconcile(current, baseline []waveobj.RadarFinding, evidenceTs map[string]int64, failedModes map[string]bool) []waveobj.RadarFinding {
+	baseByFP := map[string]waveobj.RadarFinding{}
+	for _, f := range baseline {
+		baseByFP[f.Fingerprint] = f
 	}
 	currentFPs := map[string]bool{}
 	var out []waveobj.RadarFinding
 	for _, f := range current {
 		currentFPs[f.Fingerprint] = true
-		p, existed := prevByFP[f.Fingerprint]
+		f.MissCount = 0
+		p, existed := baseByFP[f.Fingerprint]
 		if !existed {
 			f.Group = GroupNew
 			out = append(out, f)
@@ -56,19 +60,84 @@ func reconcile(projectPath string, current []waveobj.RadarFinding, prev *waveobj
 		}
 		out = append(out, f)
 	}
-	// prev-open fingerprints that vanished -> No longer detected (carried from prev)
-	if prev != nil {
-		for _, p := range prev.Findings {
-			if currentFPs[p.Fingerprint] {
-				continue
-			}
-			if p.Group == GroupNew || p.Group == GroupRecurring {
+	for _, p := range baseline {
+		if currentFPs[p.Fingerprint] {
+			continue
+		}
+		if failedModes[modeOf(p)] {
+			out = append(out, p)
+			continue
+		}
+		switch p.Group {
+		case GroupNoLonger:
+			continue
+		case GroupDismissed, GroupSuppressed:
+			p.MissCount++
+		default:
+			p.MissCount++
+			if p.MissCount >= NoLongerAfterMisses {
 				p.Group = GroupNoLonger
-				out = append(out, p)
+			}
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// modeOf reads a finding's mode; reports written before modes existed carry none and were correctness.
+func modeOf(f waveobj.RadarFinding) string {
+	if f.Mode == "" {
+		return ModeCorrectness
+	}
+	return f.Mode
+}
+
+// isStandingFact reports whether a collector describes the tree as it is rather than something that
+// happened. Such signals carry the scan window as their observed time, so letting them count as evidence
+// time would reopen every dismissal once the rolling window slid past it.
+func isStandingFact(collector string) bool {
+	switch collector {
+	case CollectorStructure, CollectorConfig, CollectorDependency:
+		return true
+	}
+	return false
+}
+
+// evidenceTimestamps maps each finding's fingerprint to its newest supporting event signal's ObservedTs.
+func evidenceTimestamps(findings []waveobj.RadarFinding, byID map[string]waveobj.RadarSignal) map[string]int64 {
+	out := map[string]int64{}
+	for _, f := range findings {
+		var max int64
+		for _, id := range f.SignalIDs {
+			if s, ok := byID[id]; ok && !isStandingFact(s.Collector) && s.ObservedTs > max {
+				max = s.ObservedTs
+			}
+		}
+		out[f.Fingerprint] = max
+	}
+	return out
+}
+
+// referencedSignals returns the signals the findings cite, drawn from the pools in order. Carried
+// findings cite signals from earlier reports, so the current candidate pool alone would leave them
+// with no evidence to show.
+func referencedSignals(findings []waveobj.RadarFinding, pools ...[]waveobj.RadarSignal) []waveobj.RadarSignal {
+	refIDs := map[string]bool{}
+	for _, f := range findings {
+		for _, id := range f.SignalIDs {
+			refIDs[id] = true
+		}
+	}
+	var kept []waveobj.RadarSignal
+	for _, pool := range pools {
+		for _, s := range pool {
+			if refIDs[s.ID] {
+				kept = append(kept, s)
+				delete(refIDs, s.ID)
 			}
 		}
 	}
-	return out
+	return kept
 }
 
 // assignFindingIDs stamps report-unique, deterministic ids onto the final finding set. A finding id is a

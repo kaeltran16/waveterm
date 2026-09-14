@@ -2993,6 +2993,7 @@ declare global {
         mission: string;
         disposition?: RadarDisposition;
         investigation?: RadarInvestigation;
+        misscount?: number;
     };
 
     // waveobj.RadarInvestigation
@@ -3020,6 +3021,7 @@ declare global {
         tokensestimated?: boolean;
         resolvedmodel?: string;
         findingcount?: number;
+        rawresponse?: string;
     };
 
     // waveobj.RadarReport
