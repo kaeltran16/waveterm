@@ -14,14 +14,16 @@ import { useKeybindings } from "@/app/store/keybindings/store";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { projectsAtom } from "@/app/view/agents/projectsstore";
 import { SurfaceEmptyState, SurfaceError, SurfaceHeader } from "@/app/view/agents/surfacescaffold";
+import { sameRepoPath } from "@/util/paths";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
-import { ChevronDown, FilePlus, FolderGit2, FolderPlus, RotateCw, Save, Undo2 } from "lucide-react";
+import { ArrowRight, ChevronDown, FilePlus, FolderGit2, FolderPlus, RotateCw, Save, Undo2 } from "lucide-react";
 import { useEffect, useInsertionEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { CodeChangedPane } from "./codechangedpane";
 import { CodeFinderPalette } from "./codefinderpalette";
 import { canBack, canForward } from "./codehistory";
 import { CodePathBar } from "./codepathbar";
+import { pickerRecents } from "./coderecents";
 import { CodeSearchPane } from "./codesearchpane";
 import { codeSearchModeAtom } from "./codesearchstore";
 import {
@@ -49,17 +51,23 @@ import {
     codeIndexAtom,
     codeIndexErrorAtom,
     codeMutateErrorAtom,
+    codePickerErrorAtom,
     codeProjectAtom,
+    codeRecentsAtom,
     codeSaveAtom,
+    codeWorktreesAtom,
     draftKey,
     goBack,
     goForward,
     lastCodeProjectAtom,
+    openPickedPath,
     refreshIndex,
+    registeredProjects,
     reloadFromDisk,
     revalidateIndex,
     revertDraft,
     saveCurrent,
+    selectPath,
     selectProject,
     startCreate,
     type CodeProject,
@@ -76,17 +84,40 @@ export function CodeSurface({ model }: { model: AgentsViewModel }) {
     const history = useAtomValue(codeHistoryAtom);
     const hasFocus = useAtomValue(atoms.documentHasFocus);
     const mutateError = useAtomValue(codeMutateErrorAtom);
+    const worktrees = useAtomValue(codeWorktreesAtom);
+    const recents = useAtomValue(codeRecentsAtom);
+    const pickerError = useAtomValue(codePickerErrorAtom);
     const [pickerOpen, setPickerOpen] = useState(false);
+    const [typedPath, setTypedPath] = useState("");
 
     // stable array: every run() reads live atoms, so it never needs rebuilding
     const codeBindings = useMemo(() => buildCodeBindings(), []);
     useKeybindings(codeBindings);
     useSyncMonacoTheme();
 
-    const projects: CodeProject[] = Object.entries(registry ?? {})
-        .filter(([, v]) => v?.path)
-        .map(([name, v]) => ({ name, path: v.path }))
-        .sort((a, b) => a.name.localeCompare(b.name));
+    const projects: CodeProject[] = registeredProjects(registry);
+    // a lone main checkout would only repeat the selection
+    const otherCheckouts = worktrees.length > 1 ? worktrees : [];
+    const shownRecents = pickerRecents(recents, [
+        ...projects.map((p) => p.path),
+        ...otherCheckouts.map((wt) => wt.path),
+    ]);
+    const pick = (select: () => Promise<void>) => {
+        setPickerOpen(false);
+        fireAndForget(select);
+    };
+    const togglePicker = (open: boolean) => {
+        globalStore.set(codePickerErrorAtom, null);
+        setPickerOpen(open);
+    };
+    // unlike a listed project, a path can be refused, and the picker stays open to say why
+    const openPicked = (path: string) =>
+        fireAndForget(async () => {
+            if (await openPickedPath(path)) {
+                setPickerOpen(false);
+                setTypedPath("");
+            }
+        });
 
     // the index survives an unmount in a module atom, but a project picked before this surface ever
     // loaded (or a cache cleared elsewhere) leaves the atom null — reload on mount when that happens.
@@ -131,7 +162,7 @@ export function CodeSurface({ model }: { model: AgentsViewModel }) {
                             <button
                                 type="button"
                                 data-code-project-picker
-                                onClick={() => setPickerOpen((v) => !v)}
+                                onClick={() => togglePicker(!pickerOpen)}
                                 className="flex cursor-pointer items-center gap-1.5 rounded-[8px] border border-border bg-surface px-2.5 py-1 text-[12px] text-secondary hover:text-primary"
                             >
                                 <FolderGit2 size={13} strokeWidth={1.8} />
@@ -141,29 +172,88 @@ export function CodeSurface({ model }: { model: AgentsViewModel }) {
                             <PopoverReveal
                                 open={pickerOpen}
                                 origin="top right"
-                                className="absolute right-0 top-[calc(100%+6px)] z-20 min-w-[240px] overflow-hidden rounded-[10px] border border-border bg-surface shadow-lg"
+                                className="absolute right-0 top-[calc(100%+6px)] z-20 max-h-[70vh] min-w-[240px] overflow-y-auto rounded-[10px] border border-border bg-surface shadow-lg"
                             >
+                                <PickerHeading first>Projects</PickerHeading>
                                 {projects.length === 0 ? (
                                     <div className="px-3 py-2 text-[12px] text-muted">No registered projects</div>
                                 ) : (
                                     projects.map((p) => (
-                                        <button
+                                        <PickerRow
                                             key={p.name}
-                                            type="button"
-                                            onClick={() => {
-                                                setPickerOpen(false);
-                                                fireAndForget(() => selectProject(p));
-                                            }}
-                                            className={cn(
-                                                "flex w-full cursor-pointer flex-col items-start gap-0.5 px-3 py-2 text-left hover:bg-accent/10",
-                                                p.path === project?.path && "bg-accent/10"
-                                            )}
-                                        >
-                                            <span className="text-[12.5px] text-primary">{p.name}</span>
-                                            <span className="font-mono text-[10.5px] text-muted">{p.path}</span>
-                                        </button>
+                                            label={p.name}
+                                            detail={p.path}
+                                            current={p.path === project?.path}
+                                            onClick={() => pick(() => selectProject(p))}
+                                        />
                                     ))
                                 )}
+                                {otherCheckouts.length > 0 ? (
+                                    <div data-code-picker-section="worktrees">
+                                        <PickerHeading>Worktrees</PickerHeading>
+                                        {otherCheckouts.map((wt) => (
+                                            <PickerRow
+                                                key={wt.path}
+                                                label={wt.branch || "detached HEAD"}
+                                                detail={wt.path}
+                                                current={sameRepoPath(wt.path, project?.path ?? "")}
+                                                onClick={() => pick(() => selectPath(wt.path))}
+                                            />
+                                        ))}
+                                    </div>
+                                ) : null}
+                                {shownRecents.length > 0 ? (
+                                    <div data-code-picker-section="recent">
+                                        <PickerHeading>Recent</PickerHeading>
+                                        {shownRecents.map((r) => (
+                                            <PickerRow
+                                                key={r.path}
+                                                label={r.name}
+                                                detail={r.path}
+                                                current={sameRepoPath(r.path, project?.path ?? "")}
+                                                onClick={() => openPicked(r.path)}
+                                            />
+                                        ))}
+                                    </div>
+                                ) : null}
+                                <form
+                                    data-code-picker-path
+                                    onSubmit={(e) => {
+                                        e.preventDefault();
+                                        openPicked(typedPath);
+                                    }}
+                                    className="flex flex-col gap-1 border-t border-border p-2"
+                                >
+                                    <div className="flex items-center gap-1">
+                                        <input
+                                            value={typedPath}
+                                            placeholder="Path to a directory"
+                                            aria-label="Directory path"
+                                            aria-invalid={pickerError != null}
+                                            onChange={(e) => {
+                                                setTypedPath(e.target.value);
+                                                globalStore.set(codePickerErrorAtom, null);
+                                            }}
+                                            className={cn(
+                                                "w-full rounded-[8px] border bg-surface px-2 py-1 text-[12px] text-primary outline-none placeholder:text-muted",
+                                                pickerError != null ? "border-error" : "border-border"
+                                            )}
+                                        />
+                                        <button
+                                            type="submit"
+                                            title="Open directory"
+                                            aria-label="Open directory"
+                                            className="flex flex-none cursor-pointer items-center rounded-[8px] border border-border px-1.5 py-1 text-secondary hover:text-primary"
+                                        >
+                                            <ArrowRight size={13} strokeWidth={1.8} />
+                                        </button>
+                                    </div>
+                                    {pickerError != null ? (
+                                        <div role="alert" className="text-[11.5px] text-error">
+                                            {pickerError}
+                                        </div>
+                                    ) : null}
+                                </form>
                             </PopoverReveal>
                         </div>
                         <SaveControls />
@@ -206,10 +296,45 @@ export function CodeSurface({ model }: { model: AgentsViewModel }) {
             ) : null}
             <SaveBanner />
             <div className="min-h-0 flex-1">
-                <CodeBody model={model} onPickProject={() => setPickerOpen(true)} />
+                <CodeBody model={model} onPickProject={() => togglePicker(true)} />
             </div>
             <CodeFinderPalette model={model} />
         </div>
+    );
+}
+
+function PickerHeading({ first, children }: { first?: boolean; children: React.ReactNode }) {
+    return (
+        <div className={cn("px-3 pb-1 pt-2 text-[10.5px] text-muted", !first && "border-t border-border")}>
+            {children}
+        </div>
+    );
+}
+
+function PickerRow({
+    label,
+    detail,
+    current,
+    onClick,
+}: {
+    label: string;
+    detail: string;
+    current: boolean;
+    onClick: () => void;
+}) {
+    return (
+        <button
+            type="button"
+            data-code-picker-row
+            onClick={onClick}
+            className={cn(
+                "flex w-full cursor-pointer flex-col items-start gap-0.5 px-3 py-2 text-left hover:bg-accent/10",
+                current && "bg-accent/10"
+            )}
+        >
+            <span className="text-[12.5px] text-primary">{label}</span>
+            <span className="font-mono text-[10.5px] text-muted">{detail}</span>
+        </button>
     );
 }
 

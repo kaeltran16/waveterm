@@ -11,15 +11,24 @@ import { waveEventSubscribeSingle } from "@/app/store/wps";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
-import { codeProjectAtom, codeViewModeAtom, openPath, selectProject } from "@/app/view/code/codestore";
+import { projectsAtom } from "@/app/view/agents/projectsstore";
+import {
+    codeProjectAtom,
+    codeViewModeAtom,
+    openPath,
+    registeredProjects,
+    selectProject,
+} from "@/app/view/code/codestore";
 import { normalizeRepoPath, sameRepoPath } from "@/util/paths";
 import { routeOpenFile } from "./openfileroute";
 
 async function handleOpenFile(model: AgentsViewModel, path: string, edit: boolean): Promise<void> {
     const info = await RpcApi.FileInfoCommand(TabRpcClient, { info: { path } });
     // FileInfo marks directories by returning Dir equal to Path (separator-normalized)
-    const isDir = info != null && !info.notfound && normalizeRepoPath(info.dir ?? "") === normalizeRepoPath(info.path ?? "");
-    const route = routeOpenFile(path, isDir, globalStore.get(codeProjectAtom));
+    const isDir =
+        info != null && !info.notfound && normalizeRepoPath(info.dir ?? "") === normalizeRepoPath(info.path ?? "");
+    const registered = registeredProjects(globalStore.get(projectsAtom));
+    const route = routeOpenFile(path, isDir, globalStore.get(codeProjectAtom), registered);
     const curProject = globalStore.get(codeProjectAtom);
     if (!sameRepoPath(curProject?.path ?? "", route.project.path)) {
         await selectProject(route.project);

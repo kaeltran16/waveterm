@@ -1221,12 +1221,18 @@ declare global {
     type CommandGitGrepData = {
         cwd: string;
         query: string;
+        regex?: boolean;
+        wholeword?: boolean;
+        casesensitive?: boolean;
+        include?: string[];
+        exclude?: string[];
     };
 
     // wshrpc.CommandGitGrepRtnData
     type CommandGitGrepRtnData = {
         matches: GitGrepMatch[];
         truncated?: boolean;
+        invalidpattern?: boolean;
     };
 
     // wshrpc.CommandGitHistoryData
@@ -1258,6 +1264,16 @@ declare global {
         files: string[];
         isrepo: boolean;
         truncated?: boolean;
+    };
+
+    // wshrpc.CommandGitListWorktreesData
+    type CommandGitListWorktreesData = {
+        cwd: string;
+    };
+
+    // wshrpc.CommandGitListWorktreesRtnData
+    type CommandGitListWorktreesRtnData = {
+        worktrees: GitWorktree[];
     };
 
     // wshrpc.CommandGitRevertData
@@ -2417,6 +2433,13 @@ declare global {
         path: string;
         line: number;
         text: string;
+    };
+
+    // wshrpc.GitWorktree
+    type GitWorktree = {
+        path: string;
+        branch?: string;
+        ismain?: boolean;
     };
 
     // wshrpc.GraphLink

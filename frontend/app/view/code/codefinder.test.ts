@@ -33,6 +33,15 @@ describe("rankPaths", () => {
         expect(rankPaths("   ", ["b.ts", "a.ts"], 1).map((m) => m.path)).toEqual(["b.ts"]);
     });
 
+    it("lists recent files first for an empty query, then the rest in index order", () => {
+        const paths = ["a.ts", "b.ts", "c.ts", "d.ts"];
+        expect(rankPaths("", paths, 3, ["c.ts", "a.ts"]).map((m) => m.path)).toEqual(["c.ts", "a.ts", "b.ts"]);
+    });
+
+    it("skips a recent file the index no longer has", () => {
+        expect(rankPaths("", ["a.ts"], 5, ["gone.ts", "a.ts"]).map((m) => m.path)).toEqual(["a.ts"]);
+    });
+
     it("honors the limit", () => {
         const paths = ["m1.ts", "m2.ts", "m3.ts", "m4.ts"];
         expect(rankPaths("m", paths, 2)).toHaveLength(2);

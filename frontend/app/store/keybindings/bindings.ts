@@ -87,6 +87,14 @@ function focusCodeTree(): void {
     }
 }
 
+function focusCodeSearchInput(): void {
+    const input = document.querySelector<HTMLInputElement>("[data-code-search-input]");
+    if (input != null) {
+        input.focus();
+        input.select(); // typing replaces the last query, as in every editor's search box
+    }
+}
+
 // g-leader surface teleports (collision-free letters; see design spec).
 const GO_TARGETS: { letter: string; surface: SurfaceKey; label: string }[] = [
     { letter: "h", surface: "cockpit", label: "Cockpit (home)" },
@@ -1143,6 +1151,9 @@ export function buildCodeBindings(): Binding[] {
             run: () => {
                 globalStore.set(codeSearchModeAtom, "search");
                 focusCodeSidebarOpener();
+                // the pane focuses its input only on mount: nothing remounts it when Search is already
+                // showing, and a collapsed sidebar mounts it hidden, where focus() does nothing
+                window.requestAnimationFrame(focusCodeSearchInput);
             },
         },
         {

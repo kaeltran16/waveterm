@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { canRestoreProject } from "./codestore";
+import { canRestoreProject, registeredProjects } from "./codestore";
 
 const registry = {
     alpha: { path: "C:\\repos\\alpha" },
@@ -29,5 +29,20 @@ describe("canRestoreProject", () => {
 
     it("rejects while the registry has not loaded yet", () => {
         expect(canRestoreProject({ name: "alpha", path: "C:\\repos\\alpha" }, {})).toBe(false);
+    });
+});
+
+describe("registeredProjects", () => {
+    it("lists every entry that has a path, sorted by name", () => {
+        const unsorted = { zeta: { path: "C:\\z" }, blank: {}, ...registry } as Record<string, ProjectKeywords>;
+        expect(registeredProjects(unsorted)).toEqual([
+            { name: "alpha", path: "C:\\repos\\alpha" },
+            { name: "beta", path: "/home/u/beta" },
+            { name: "zeta", path: "C:\\z" },
+        ]);
+    });
+
+    it("is empty while the registry has not loaded yet", () => {
+        expect(registeredProjects(undefined)).toEqual([]);
     });
 });

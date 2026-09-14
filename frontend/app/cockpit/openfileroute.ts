@@ -5,8 +5,8 @@
 // Pure routing for "openfile" events: turn an absolute path into a Code-surface project/file
 // selection. Kept free of atoms and RPC so it unit-tests without booting the store.
 
-import { normalizeRepoPath, repoBasename } from "@/util/paths";
 import type { CodeProject } from "@/app/view/code/codestore";
+import { normalizeRepoPath, repoBasename, sameRepoPath } from "@/util/paths";
 
 export interface OpenFileRoute {
     // project to have selected when this route runs
@@ -38,12 +38,34 @@ function dirnameOf(path: string): string {
     return idx <= 0 ? path : path.slice(0, idx);
 }
 
-export function routeOpenFile(absPath: string, isDir: boolean, current: CodeProject | null): OpenFileRoute {
+// A path outside the current project belongs to the registered project that contains it before it
+// becomes a project of its own directory: agents are matched to a project by its registered name, and
+// a file opened under a synthesized project would also lose the rest of its repository.
+export function routeOpenFile(
+    absPath: string,
+    isDir: boolean,
+    current: CodeProject | null,
+    registered: readonly CodeProject[]
+): OpenFileRoute {
     if (isDir) {
-        return { project: { name: repoBasename(absPath), path: absPath }, rel: null };
+        const known = registered.find((p) => sameRepoPath(p.path, absPath));
+        return { project: known ?? { name: repoBasename(absPath), path: absPath }, rel: null };
     }
     if (current != null && current.path !== "" && isUnderRoot(current.path, absPath)) {
         return { project: current, rel: toRel(current.path, absPath) };
+    }
+    // the deepest root wins, so a repository registered inside another claims its own files
+    let owner: CodeProject | null = null;
+    for (const p of registered) {
+        if (
+            isUnderRoot(p.path, absPath) &&
+            (owner == null || normalizeRepoPath(p.path).length > normalizeRepoPath(owner.path).length)
+        ) {
+            owner = p;
+        }
+    }
+    if (owner != null) {
+        return { project: owner, rel: toRel(owner.path, absPath) };
     }
     const dir = dirnameOf(absPath);
     return { project: { name: repoBasename(dir), path: dir }, rel: repoBasename(absPath) };
