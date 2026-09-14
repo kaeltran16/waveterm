@@ -154,7 +154,7 @@ export function needsHuman(a: AgentVM, answered: Set<string>): boolean {
 }
 
 // Fleet-wide count of workers genuinely blocked on the human, deduped against Jarvis-answered asks across
-// ALL channels. This is the whole-fleet reading (every asking agent, dispatched or not); the two nav-rail
+// ALL channels. This is the whole-fleet reading (every asking agent, dispatched or not); the nav-rail
 // badges instead split the server-computed attention list (attentionstore.splitAttention), and the Cockpit
 // "need you" counter inlines the same needsHuman filter (sharing its answered-set with the sticky bar).
 export function pendingAskCount(channels: Channel[], agents: AgentVM[]): number {

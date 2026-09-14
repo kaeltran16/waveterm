@@ -51,10 +51,24 @@ describe("splitAttention", () => {
         expect(out.standalone.map((i) => i.key)).toEqual(["b"]);
     });
 
-    it("keeps the two groups disjoint and complete", () => {
-        const items = [item({ key: "a", channelid: "c1" }), item({ key: "b" })];
+    it("routes radar triage to the Radar badge, not Cockpit, even though it names no channel", () => {
+        const out = splitAttention([
+            item({ key: "r", kind: "radar-triage", channelid: "", oref: "radarreport:x" }),
+            item({ key: "b" }),
+        ]);
+        expect(out.radar.map((i) => i.key)).toEqual(["r"]);
+        expect(out.standalone.map((i) => i.key)).toEqual(["b"]);
+        expect(out.channel).toHaveLength(0);
+    });
+
+    it("keeps the three groups disjoint and complete", () => {
+        const items = [
+            item({ key: "a", channelid: "c1" }),
+            item({ key: "b" }),
+            item({ key: "r", kind: "radar-triage" }),
+        ];
         const out = splitAttention(items);
-        expect(out.channel.length + out.standalone.length).toBe(items.length);
+        expect(out.channel.length + out.standalone.length + out.radar.length).toBe(items.length);
     });
 
     it("treats an empty channel id as standalone, not as a channel named empty", () => {
