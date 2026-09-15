@@ -18,8 +18,8 @@ import { vaultTabAtom } from "@/app/view/agents/vaultstore";
 import { askAboutSource } from "./jarvissubjectstore";
 import { openORef } from "./openref";
 import type { PetAct, PetOp, PetTarget } from "./petacts";
-import { loadIndexStatus } from "./petsources";
-import { clearActState, petErrandAtom, petIndexAtom, petPeekOpenAtom, setActState } from "./petstore";
+import { startIndexCatchUp } from "./petindex";
+import { clearActState, petErrandAtom, petPeekOpenAtom, setActState } from "./petstore";
 
 // The same budget the Channels surface gives a consult (CONSULT_RPC_TIMEOUT_MS in channelactions.ts): the
 // backend's consultTimeout is 120s and the rpc layer's 5s default would kill the stream long before a reply
@@ -51,34 +51,10 @@ async function escort(model: AgentsViewModel, target: PetTarget): Promise<void> 
     globalStore.set(model.surfaceAtom, "settings");
 }
 
-// The ambient index poll is every 15 minutes because the backend parses the whole vault to count drift —
-// right for ambient polling, and far too slow the moment the user presses a button. This re-reads on a
-// tight cadence for long enough to cover a real build (a 373-note vault measured 5m17s) and then stops,
-// clearing the act so the row goes back to speaking for itself.
-const CATCHUP_POLL_MS = 30_000;
-const CATCHUP_WINDOW_MS = 12 * 60_000;
-
-function watchCatchUp(actId: string): void {
-    const deadline = Date.now() + CATCHUP_WINDOW_MS;
-    const timer = setInterval(() => {
-        void loadIndexStatus().then(() => {
-            const caughtUp = globalStore.get(petIndexAtom)?.state === "ok";
-            if (caughtUp || Date.now() > deadline) {
-                clearInterval(timer);
-                clearActState(actId);
-            }
-        });
-    }, CATCHUP_POLL_MS);
-}
-
 async function perform(act: PetAct & { verb: "do" }): Promise<void> {
     const op = act.op;
     if (op.kind === "reconcile-index") {
-        await RpcApi.EmbedReconcileCommand(TabRpcClient);
-        // stays "running": the rpc returning means the work STARTED, and claiming done here would be the
-        // panel's own version of the lie this whole change removes
-        setActState(act.id, { status: "running", text: "catching up" });
-        watchCatchUp(act.id);
+        await startIndexCatchUp(act.id);
         return;
     }
     if (op.kind === "gate") {

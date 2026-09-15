@@ -15,9 +15,9 @@
 //                       in-memory, so a wavesrv restart replays nothing — the durable half of Voice is the
 //                       launch narrative above, which is why that one reads the DB.
 //   index status      — read at launch and every 15 minutes. NOT on the 10s attention cadence: the backend
-//                       read parses the whole vault to count drift, and the state it reports changes on the
-//                       order of minutes to hours. The cost of the slow cadence is that toggling embeddings
-//                       mid-session takes up to 15 minutes to show on the creature.
+//                       read parses the whole vault to count drift. A stale read starts the hash-gated
+//                       catch-up; configuration/provider failures stay manual so a bad paid boundary is
+//                       never retried in the background.
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { waveEventSubscribeSingle } from "@/app/store/wps";
@@ -27,6 +27,7 @@ import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { focusedBlockId } from "@/util/focusutil";
 import { useEffect } from "react";
 import { readUntilLanded } from "./petboot";
+import { loadAndCatchUpIndex } from "./petindex";
 import {
     askAgent,
     eventFromActivity,
@@ -38,7 +39,7 @@ import {
     shouldSpeakAsk,
     type AskGateCtx,
 } from "./petjoin";
-import { petIndexAtom, pushPetEvent, recordPass, removePetEvent } from "./petstore";
+import { pushPetEvent, recordPass, removePetEvent } from "./petstore";
 
 const INDEX_POLL_MS = 15 * 60_000;
 const ACTIVITY_BACKLOG = 20;
@@ -48,22 +49,6 @@ let notifySeq = 0;
 
 // Each loader returns whether the read landed, never whether it found anything: "the vault has no narrative"
 // is a successful read, "the backend did not answer" is not, and only the second is worth retrying.
-//
-// A failed read leaves the previous value alone. Blanking the index status on one dropped request would read
-// as "recall is fine", which is the one thing rank 1 must never say without knowing it.
-//
-// Exported for petactrun.ts: after a catch-up is dispatched, the 15-minute ambient cadence below is far too
-// slow to show that the button did anything, so the runner re-reads on a tight bounded burst of its own.
-export async function loadIndexStatus(): Promise<boolean> {
-    try {
-        const status = await RpcApi.GetEmbedIndexStatusCommand(TabRpcClient);
-        globalStore.set(petIndexAtom, status);
-        return true;
-    } catch {
-        return false; // keep the previous value
-    }
-}
-
 async function loadLaunchNarrative(): Promise<boolean> {
     try {
         const event = eventFromResume(await RpcApi.GetLatestResumeCommand(TabRpcClient));
@@ -134,8 +119,8 @@ export function PetSources({ model }: { model: AgentsViewModel }) {
         void readUntilLanded({ read: loadLaunchNarrative, live });
         void readUntilLanded({ read: loadActivityBacklog, live });
         void readUntilLanded({ read: loadVolunteerBacklog, live });
-        void readUntilLanded({ read: loadIndexStatus, live });
-        const t = setInterval(() => void loadIndexStatus(), INDEX_POLL_MS);
+        void readUntilLanded({ read: loadAndCatchUpIndex, live });
+        const t = setInterval(() => void loadAndCatchUpIndex(), INDEX_POLL_MS);
         const unsub = waveEventSubscribeSingle({
             eventType: "memory:activity",
             handler: (event) => {

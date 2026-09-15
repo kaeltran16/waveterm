@@ -52,6 +52,8 @@ export interface PetActState {
     text?: string;
 }
 
+export const RECALL_CATCHUP_ACT_ID = "recall:catchup";
+
 // pkg/memvault/prune.go's one mechanical reason: a note explicitly replaced by another. Every other reason
 // is a judgement about whether the note is still worth keeping, and pruning deletes the file irreversibly.
 const SUPERSEDED = "superseded";
@@ -87,7 +89,7 @@ export function actsForRecall(status: EmbedIndexStatus | null | undefined): PetA
     }
     if (status.state === "stale") {
         // all three stale reasons — drifted content, another model, never built — are what Reconcile does
-        return [{ id: "recall:catchup", verb: "do", label: "Catch up", op: { kind: "reconcile-index" } }];
+        return [{ id: RECALL_CATCHUP_ACT_ID, verb: "do", label: "Catch up", op: { kind: "reconcile-index" } }];
     }
     if (status.state !== "off") {
         // a state this build has not been taught: recallLine still reports it, but guessing a verb for it

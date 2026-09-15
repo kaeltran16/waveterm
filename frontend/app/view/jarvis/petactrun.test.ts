@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { globalStore } from "@/app/store/jotaiStore";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const openORef = vi.fn();
 const askAboutSource = vi.fn();
 const confirmPruneAllSuperseded = vi.fn();
-const embedReconcile = vi.fn();
+const startIndexCatchUp = vi.fn();
 const approveGate = vi.fn();
 const sendBackGate = vi.fn();
 const postMessage = vi.fn();
@@ -31,14 +31,12 @@ vi.mock("@/app/view/agents/runactions", () => ({
 }));
 vi.mock("@/app/store/wshclientapi", () => ({
     RpcApi: {
-        EmbedReconcileCommand: (...a: any[]) => embedReconcile(...a),
         PostChannelMessageCommand: (...a: any[]) => postMessage(...a),
         ConsultCommand: (...a: any[]) => consult(...a),
     },
 }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
-// petsources.tsx is the always-mounted driver; the runner only borrows its one read
-vi.mock("./petsources", () => ({ loadIndexStatus: vi.fn(async () => true) }));
+vi.mock("./petindex", () => ({ startIndexCatchUp: (...a: any[]) => startIndexCatchUp(...a) }));
 
 import { memViewAtom, pendingMemoryFocusAtom } from "@/app/view/agents/memstore";
 import { pendingSettingsSectionAtom, SETTINGS_SECTION_EMBEDDINGS } from "@/app/view/agents/settingsstore";
@@ -46,7 +44,7 @@ import { vaultTabAtom } from "@/app/view/agents/vaultstore";
 import { atom } from "jotai";
 import { runAct, sendErrand } from "./petactrun";
 import type { PetAct } from "./petacts";
-import { petActStateAtom, petErrandAtom, petIndexAtom, petPeekOpenAtom } from "./petstore";
+import { petActStateAtom, petErrandAtom, petPeekOpenAtom } from "./petstore";
 
 // the runner only ever reads surfaceAtom off the model, so a bare atom pair is a sufficient stand-in
 const model = { surfaceAtom: atom("cockpit") } as any;
@@ -145,49 +143,22 @@ describe("runAct — clear superseded", () => {
 });
 
 describe("runAct — catch up the index", () => {
-    // fake timers so the bounded re-read burst is drivable rather than a 30-second wait, and so the
-    // interval cannot outlive the test
-    beforeEach(() => vi.useFakeTimers());
-    afterEach(() => {
-        vi.useRealTimers();
-        globalStore.set(petIndexAtom, null);
-    });
+    it("delegates the shared catch-up lifecycle using the action's id", async () => {
+        startIndexCatchUp.mockResolvedValue(undefined);
+        const act: PetAct = {
+            id: "recall:catchup",
+            verb: "do",
+            label: "Catch up",
+            op: { kind: "reconcile-index" },
+        };
 
-    const catchup: PetAct = {
-        id: "recall:catchup",
-        verb: "do",
-        label: "Catch up",
-        op: { kind: "reconcile-index" },
-    };
+        await runAct(model, act);
 
-    it("dispatches the reconcile and stays running, because the work outlives the call", async () => {
-        embedReconcile.mockResolvedValue(undefined);
-        await runAct(model, catchup);
-        expect(embedReconcile).toHaveBeenCalledTimes(1);
-        expect(globalStore.get(petActStateAtom)["recall:catchup"]).toEqual({
-            status: "running",
-            text: "catching up",
-        });
-    });
-
-    it("stops watching and clears the act once the index reads ok", async () => {
-        embedReconcile.mockResolvedValue(undefined);
-        await runAct(model, catchup);
-        globalStore.set(petIndexAtom, { state: "ok" } as EmbedIndexStatus);
-        await vi.advanceTimersByTimeAsync(30_000);
-        expect(globalStore.get(petActStateAtom)["recall:catchup"]).toBeUndefined();
-    });
-
-    it("gives up after the window rather than watching forever", async () => {
-        embedReconcile.mockResolvedValue(undefined);
-        await runAct(model, catchup);
-        globalStore.set(petIndexAtom, { state: "stale" } as EmbedIndexStatus);
-        await vi.advanceTimersByTimeAsync(12 * 60_000 + 30_000);
-        expect(globalStore.get(petActStateAtom)["recall:catchup"]).toBeUndefined();
+        expect(startIndexCatchUp).toHaveBeenCalledWith("recall:catchup");
     });
 
     it("reports a refused dispatch on the row", async () => {
-        embedReconcile.mockRejectedValue(new Error("EC-TIME"));
+        startIndexCatchUp.mockRejectedValue(new Error("EC-TIME"));
         const act: PetAct = {
             id: "recall:retry",
             verb: "do",
