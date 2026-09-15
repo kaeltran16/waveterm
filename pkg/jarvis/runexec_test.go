@@ -31,7 +31,7 @@ func TestRunWorkerSpecFor(t *testing.T) {
 		if err != nil {
 			t.Fatalf("resolve %s: %v", tt.runtime, err)
 		}
-		spec, ok := RunWorkerSpecFor(cap, "do work")
+		spec, ok := RunWorkerSpecFor(cap, "", "do work")
 		if !ok || spec.Bin != tt.bin || !reflect.DeepEqual(spec.Args, tt.args) {
 			t.Errorf("%s spec = %+v, ok=%v", tt.runtime, spec, ok)
 		}
@@ -56,7 +56,7 @@ func TestRunWorkerSpecFor_CapabilityArgs(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			spec, ok := RunWorkerSpecFor(cap, "do work")
+			spec, ok := RunWorkerSpecFor(cap, "", "do work")
 			if !ok || spec.Bin != tt.runtime || !reflect.DeepEqual(spec.Args, tt.args) {
 				t.Fatalf("spec = %+v, ok=%v", spec, ok)
 			}
@@ -69,7 +69,7 @@ func TestRunWorkerSpecFor_CapabilityArgs(t *testing.T) {
 		{Runtime: "pi"},
 		{Runtime: "mystery", ResolvedModel: "operator default"},
 	} {
-		if _, ok := RunWorkerSpecFor(invalid, "do work"); ok {
+		if _, ok := RunWorkerSpecFor(invalid, "", "do work"); ok {
 			t.Errorf("mismatched/unsupported capability %+v produced a worker spec", cap)
 		}
 	}
@@ -78,8 +78,32 @@ func TestRunWorkerSpecFor_CapabilityArgs(t *testing.T) {
 func TestRunWorkerSpecForRejectsUnsupportedRuntimes(t *testing.T) {
 	for _, runtime := range []string{"codex", "opencode"} {
 		cap := runroute.Capability{Runtime: runtime, ResolvedModel: "operator default"}
-		if spec, ok := RunWorkerSpecFor(cap, "do work"); ok {
+		if spec, ok := RunWorkerSpecFor(cap, "", "do work"); ok {
 			t.Errorf("%s must have no run worker adapter, got %+v", runtime, spec)
+		}
+	}
+}
+
+// claude and pi both take --session-id, which names the transcript the worker writes; the engine picks
+// the id so liveness and evidence can open that file instead of searching for it.
+func TestRunWorkerSpecForSessionId(t *testing.T) {
+	const id = "0b6f7c1e-4d2a-4f3b-9c8d-1a2b3c4d5e6f"
+	tests := []struct {
+		runtime string
+		model   string
+		args    []string
+	}{
+		{"claude", consult.CheapModel, []string{"--dangerously-skip-permissions", "--session-id", id, "--model", consult.CheapModel, "do work"}},
+		{"pi", "", []string{"--session-id", id, "do work"}},
+	}
+	for _, tt := range tests {
+		cap, err := runroute.Resolve(waveobj.RoutePin{Runtime: tt.runtime, Model: tt.model})
+		if err != nil {
+			t.Fatalf("resolve %s: %v", tt.runtime, err)
+		}
+		spec, ok := RunWorkerSpecFor(cap, id, "do work")
+		if !ok || !reflect.DeepEqual(spec.Args, tt.args) {
+			t.Errorf("%s args = %v, ok=%v, want %v", tt.runtime, spec.Args, ok, tt.args)
 		}
 	}
 }
@@ -203,7 +227,7 @@ func TestRunWorkerSpecFor_piModelPinPassesQualifiedID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	spec, ok := RunWorkerSpecFor(cap, "do work")
+	spec, ok := RunWorkerSpecFor(cap, "", "do work")
 	if !ok {
 		t.Fatal("pi model pin must produce a worker spec")
 	}

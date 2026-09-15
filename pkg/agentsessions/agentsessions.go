@@ -1256,6 +1256,35 @@ func SessionRoot(runtime string) string {
 	return ""
 }
 
+// TranscriptForSession returns the transcript a runtime writes for a session launched with --session-id
+// under root, or "" when it has not been written yet or the runtime has no such launch. claude names the
+// file by the id inside the projects dir for its cwd; SlugifyCwd is lossy, so every projects dir is tried
+// when that one misses. pi puts its start timestamp before the id, in a dir it derives from the cwd.
+func TranscriptForSession(root, runtime, cwd, sessionId string) string {
+	if root == "" || sessionId == "" {
+		return ""
+	}
+	var pattern string
+	switch runtime {
+	case "claude":
+		path := filepath.Join(root, agentobserve.SlugifyCwd(cwd), sessionId+".jsonl")
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+		pattern = filepath.Join(root, "*", sessionId+".jsonl")
+	case "pi":
+		pattern = filepath.Join(root, "*", "*_"+sessionId+".jsonl")
+	default:
+		return ""
+	}
+	// Glob only fails on a malformed pattern, which a root holding glob syntax would be; nothing matches it
+	matches, _ := filepath.Glob(pattern)
+	if len(matches) == 0 {
+		return ""
+	}
+	return matches[0]
+}
+
 // scanProviders merges every provider's candidates before parsing, so the limit is the global newest
 // sessions across runtimes — a provider that writes many files cannot crowd other runtimes' recent
 // sessions out of the parse set by quota alone.

@@ -21,8 +21,9 @@ var deleteLeadTab = func(ctx context.Context, workspaceId, tabId string) error {
 	return err
 }
 
-// leadTabID extracts the orchestrator lead's tab id from the run's first worker oref.
-func leadTabID(run *waveobj.Run) string {
+// runTabID extracts the tab running a run's worker (an orchestrator's lead, a dag child's worker) from
+// the run's first worker oref.
+func runTabID(run *waveobj.Run) string {
 	for _, p := range run.Phases {
 		for _, oref := range p.WorkerOrefs {
 			if strings.HasPrefix(oref, "tab:") {
@@ -39,7 +40,7 @@ func MaybeCloseOrchestratorLead(ctx context.Context, run *waveobj.Run, dag *wave
 	if !ShouldCloseOrchestratorLead(run, dag) {
 		return false, nil
 	}
-	tabId := leadTabID(run)
+	tabId := runTabID(run)
 	if tabId == "" || run.WorkspaceId == "" {
 		return false, nil
 	}
@@ -96,7 +97,7 @@ func MaybeCompleteLeadFreeRun(ctx context.Context, run *waveobj.Run, dag *waveob
 	}
 	// a run that has a lead has someone to report the completion, and that lead may still owe the human
 	// a summary after the last task lands. this path is only for a run that has nobody.
-	if leadTabID(run) != "" {
+	if runTabID(run) != "" {
 		return false
 	}
 	idx := jarvis.RunningPhaseIndex(*run)

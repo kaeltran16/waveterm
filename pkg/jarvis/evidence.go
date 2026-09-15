@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -17,7 +18,9 @@ import (
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/agentobserve"
+	"github.com/wavetermdev/waveterm/pkg/agentsessions"
 	"github.com/wavetermdev/waveterm/pkg/gitinfo"
+	"github.com/wavetermdev/waveterm/pkg/pisession"
 	"github.com/wavetermdev/waveterm/pkg/util/utilfn"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -68,25 +71,59 @@ type evBlock struct {
 	Input     struct {
 		Command string `json:"command"`
 	} `json:"input"`
+	Arguments struct {
+		Command string `json:"command"`
+	} `json:"arguments"` // pi's toolCall input
 }
 
 type evRecord struct {
 	Type    string `json:"type"`
 	Message struct {
-		Content json.RawMessage `json:"content"`
+		Role       string          `json:"role"`
+		ToolCallID string          `json:"toolCallId"`
+		IsError    bool            `json:"isError"`
+		Content    json.RawMessage `json:"content"`
 	} `json:"message"`
 }
 
+// evBlocks reads a transcript line in claude's shape: the record type and its content blocks. A pi
+// message entry is mapped onto that shape, so the summary and verification scans read both runtimes.
 func evBlocks(line string) (string, []evBlock) {
 	var rec evRecord
 	if json.Unmarshal([]byte(strings.TrimSpace(line)), &rec) != nil {
 		return "", nil
+	}
+	if rec.Type == "message" {
+		return piBlocks(rec)
 	}
 	var blocks []evBlock
 	if json.Unmarshal(rec.Message.Content, &blocks) != nil {
 		return rec.Type, nil
 	}
 	return rec.Type, blocks
+}
+
+// piBlocks maps a pi message entry onto claude's shape. pi returns a tool's output as its own toolResult
+// message instead of a tool_result block, and names its shell tool bash with the command in arguments.
+func piBlocks(rec evRecord) (string, []evBlock) {
+	if rec.Message.Role == "toolResult" {
+		return "user", []evBlock{{Type: "tool_result", ToolUseID: rec.Message.ToolCallID, IsError: rec.Message.IsError, Content: rec.Message.Content}}
+	}
+	var blocks []evBlock
+	if json.Unmarshal(rec.Message.Content, &blocks) != nil {
+		return rec.Message.Role, nil
+	}
+	for i := range blocks {
+		if blocks[i].Type != "toolCall" {
+			continue
+		}
+		blocks[i].Type = "tool_use"
+		blocks[i].Input.Command = blocks[i].Arguments.Command
+		if blocks[i].Name == "bash" {
+			blocks[i].Name = "Bash"
+		}
+	}
+	return rec.Message.Role, blocks
 }
 
 // finalAssistantText returns the text of the last assistant message that carried a text block.
@@ -397,10 +434,48 @@ func activeSpanMs(run *waveobj.Run) int64 {
 	return sum
 }
 
+// transcriptRootFor resolves a runtime's transcript root (a var so tests can point it at a temp dir).
+var transcriptRootFor = agentsessions.SessionRoot
+
+// sessionTranscriptLines reads the transcript named by a run's session id. pi's is read along its active
+// branch through pisession, so turns on an abandoned branch are not counted.
+func sessionTranscriptLines(run *waveobj.Run) []string {
+	path := agentsessions.TranscriptForSession(transcriptRootFor(run.Runtime), run.Runtime, run.ProjectPath, run.SessionId)
+	if path == "" {
+		return nil
+	}
+	if run.Runtime != "pi" {
+		return readTranscriptLines(path)
+	}
+	file, err := pisession.Read(path)
+	if err != nil {
+		log.Printf("evidence: reading pi session: %v", err)
+		return nil
+	}
+	branch, err := file.ActiveBranch()
+	if err != nil {
+		log.Printf("evidence: pi session branch: %v", err)
+		return nil
+	}
+	lines := make([]string, len(branch))
+	for i, e := range branch {
+		lines[i] = string(e.Raw)
+	}
+	return lines
+}
+
 // workerTranscripts returns every non-skipped phase worker's transcript lines, in phase order with
-// workers in oref order. Unresolvable transcripts (a torn-down worker tab) are skipped; an empty
-// result means no worker transcript was readable.
+// workers in oref order. A run the engine launched under a session id has one worker, whose transcript
+// is named by that id; other runs (leads, quick runs) resolve each worker tab's cwd. Unresolvable
+// transcripts (a torn-down worker tab) are skipped; an empty result means no worker transcript was
+// readable.
 func workerTranscripts(run *waveobj.Run) [][]string {
+	if run.SessionId != "" {
+		if lines := sessionTranscriptLines(run); len(lines) > 0 {
+			return [][]string{lines}
+		}
+		return nil
+	}
 	var out [][]string
 	for _, p := range run.Phases {
 		if p.State == PhaseState_Skipped {

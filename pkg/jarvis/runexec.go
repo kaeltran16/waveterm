@@ -27,8 +27,9 @@ type RunWorkerSpec struct {
 
 // RunWorkerSpecFor resolves the unattended worker launch form from one validated capability. The
 // capability authority owns runtime/model compatibility and model selection; this adapter only supplies
-// each runtime's unattended base arguments.
-func RunWorkerSpecFor(cap runroute.Capability, prompt string) (RunWorkerSpec, bool) {
+// each runtime's unattended base arguments. A non-empty sessionId names the worker's session: both
+// runtimes take --session-id and name the transcript by it.
+func RunWorkerSpecFor(cap runroute.Capability, sessionId, prompt string) (RunWorkerSpec, bool) {
 	if !runroute.IsValid(cap) {
 		return RunWorkerSpec{}, false
 	}
@@ -44,6 +45,9 @@ func RunWorkerSpecFor(cap runroute.Capability, prompt string) (RunWorkerSpec, bo
 		args = nil
 	default:
 		return RunWorkerSpec{}, false
+	}
+	if sessionId != "" {
+		args = append(args, "--session-id", sessionId)
 	}
 	args = append(args, cap.ModelArgs...)
 	args = append(args, prompt)
@@ -63,7 +67,9 @@ func RunWorkerSpecFor(cap runroute.Capability, prompt string) (RunWorkerSpec, bo
 // It is a var so tests can stub the process-spawning boundary without a live tab/PTY.
 
 type RunWorkerOptions struct {
-    KeepOnExit bool
+	KeepOnExit bool
+	// SessionId, when set, is passed as --session-id so the worker's transcript is named by it.
+	SessionId string
 }
 
 var persistWorkerBlockMeta = func(ctx context.Context, blockID string, meta waveobj.MetaMapType) error {
@@ -108,7 +114,7 @@ var SpawnRunWorker = func(ctx context.Context, cap runroute.Capability, workspac
 	if workspaceId == "" {
 		return "", fmt.Errorf("workspaceId is required to spawn a worker")
 	}
-	spec, ok := RunWorkerSpecFor(cap, prompt)
+	spec, ok := RunWorkerSpecFor(cap, opts.SessionId, prompt)
 	if !ok {
 		return "", fmt.Errorf("no unattended run worker adapter for runtime %q model %q", cap.Runtime, cap.Model)
 	}

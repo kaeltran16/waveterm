@@ -276,7 +276,7 @@ Lanes run concurrently up to `--parallelism` on `dag submit`, which keeps its cu
 
 - Every task gets a fresh worker session: fresh even within a lane (see Measurements).
 - The engine launches it with `--session-id <uuid>`, generated at spawn and stored on the child run. Both CLIs accept the flag.
-- Evidence and liveness find the transcript by that id, replacing the marker scan (`dagSessionMarker`, `engine.go:236`) and `TranscriptPathForTab` (`pkg/jarvis/evidence.go:450`):
+- Evidence and liveness find the transcript by that id, replacing the marker scan (`dagSessionMarker`, `engine.go:236`) and, for task workers, `TranscriptPathForTab` (`pkg/jarvis/evidence.go:450`). Leads and quick runs, which the engine does not launch, keep that lookup until they launch with a session id:
   - Claude: `~/.claude/projects/<cwd slug>/<uuid>.jsonl`
   - pi: located and read by `pkg/pisession`
 
