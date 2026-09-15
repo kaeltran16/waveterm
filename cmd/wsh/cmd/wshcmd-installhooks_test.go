@@ -226,22 +226,29 @@ func TestMergeStatusLinePreservesOtherKeys(t *testing.T) {
 func TestConfigIsHealthy(t *testing.T) {
 	full := mergeStatusLine(mergeAgentHooks(map[string]any{}, testWsh), testWsh)
 
-	// all managed present + exe exists -> healthy
-	if !configIsHealthy(full, func(string) bool { return true }) {
-		t.Fatal("full config with present exe should be healthy")
+	stable := `C:\Users\u\.arc\bin\wsh.exe`
+
+	// all managed present, all naming the path this install writes -> healthy
+	if !configIsHealthy(full, testWsh) {
+		t.Fatal("full config naming the wanted wsh should be healthy")
 	}
-	// exe missing on disk -> not healthy (must heal to repoint)
-	if configIsHealthy(full, func(string) bool { return false }) {
-		t.Fatal("full config with missing exe should NOT be healthy")
+	// naming any other binary -> not healthy, so a versioned build path migrates to the stable copy
+	if configIsHealthy(full, stable) {
+		t.Fatal("full config naming a different wsh should NOT be healthy")
 	}
 	// empty config -> not healthy
-	if configIsHealthy(map[string]any{}, func(string) bool { return true }) {
+	if configIsHealthy(map[string]any{}, testWsh) {
 		t.Fatal("empty config should NOT be healthy")
 	}
 	// hooks present but statusLine absent -> not healthy
 	hooksOnly := mergeAgentHooks(map[string]any{}, testWsh)
-	if configIsHealthy(hooksOnly, func(string) bool { return true }) {
+	if configIsHealthy(hooksOnly, testWsh) {
 		t.Fatal("config missing managed statusLine should NOT be healthy")
+	}
+	// hooks repointed but statusLine still naming the old build -> not healthy
+	staleStatusLine := mergeStatusLine(mergeAgentHooks(map[string]any{}, stable), testWsh)
+	if configIsHealthy(staleStatusLine, stable) {
+		t.Fatal("config whose statusLine names a different wsh should NOT be healthy")
 	}
 }
 
@@ -258,7 +265,7 @@ func TestInstallOpencodePlugin_writesSubstitutedPlugin(t *testing.T) {
 	defer func() { opencodeLookPath = origLookPath }()
 
 	home := t.TempDir()
-	if err := installOpencodePlugin(home); err != nil {
+	if err := installOpencodePlugin(home, testWsh); err != nil {
 		t.Fatalf("installOpencodePlugin error: %v", err)
 	}
 	path := filepath.Join(home, ".config", "opencode", "plugins", "waveterm-status.js")
@@ -272,11 +279,7 @@ func TestInstallOpencodePlugin_writesSubstitutedPlugin(t *testing.T) {
 	if !strings.Contains(string(b), `"agent-hook"`) {
 		t.Fatalf("installed plugin missing the agent-hook invocation:\n%s", string(b))
 	}
-	exe, err := os.Executable()
-	if err != nil {
-		t.Fatalf("resolving test executable: %v", err)
-	}
-	wantDeclaration := "const WSH = " + jsonString(exe) + ";"
+	wantDeclaration := "const WSH = " + jsonString(testWsh) + ";"
 	if !strings.Contains(string(b), wantDeclaration) {
 		t.Fatalf("installed plugin has invalid WSH declaration, want %q:\n%s", wantDeclaration, string(b))
 	}
@@ -288,7 +291,7 @@ func TestInstallOpencodePlugin_skipsWhenOpencodeMissing(t *testing.T) {
 	defer func() { opencodeLookPath = origLookPath }()
 
 	home := t.TempDir()
-	if err := installOpencodePlugin(home); err != nil {
+	if err := installOpencodePlugin(home, testWsh); err != nil {
 		t.Fatalf("missing opencode must not error, got %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(home, ".config", "opencode", "plugins", "waveterm-status.js")); !os.IsNotExist(err) {
@@ -296,15 +299,10 @@ func TestInstallOpencodePlugin_skipsWhenOpencodeMissing(t *testing.T) {
 	}
 }
 
-// fakeWshPath is the wsh executable path the pi extension installer embeds. It equals
-// the running test binary, matching what installPiStatusExtension resolves via os.Executable().
+// fakeWshPath is the wsh executable path the pi extension tests hand the installer to embed.
 func fakeWshPath(t *testing.T) string {
 	t.Helper()
-	exe, err := os.Executable()
-	if err != nil {
-		t.Fatalf("resolving test executable: %v", err)
-	}
-	return exe
+	return testWsh
 }
 
 func piExtensionPath(home string) string {
@@ -322,7 +320,7 @@ func TestInstallPiStatusExtension_writesSubstitutedExtension(t *testing.T) {
 	stubPiLookPath(t)
 
 	home := t.TempDir()
-	if err := installPiStatusExtension(home); err != nil {
+	if err := installPiStatusExtension(home, fakeWshPath(t)); err != nil {
 		t.Fatalf("installPiStatusExtension error: %v", err)
 	}
 	path := piExtensionPath(home)
@@ -347,7 +345,7 @@ func TestInstallPiStatusExtension_skipsWhenPiMissing(t *testing.T) {
 	defer func() { piLookPath = orig }()
 
 	home := t.TempDir()
-	if err := installPiStatusExtension(home); err != nil {
+	if err := installPiStatusExtension(home, fakeWshPath(t)); err != nil {
 		t.Fatalf("missing pi must not error, got %v", err)
 	}
 	if _, err := os.Stat(piExtensionPath(home)); !os.IsNotExist(err) {
@@ -359,7 +357,7 @@ func TestInstallPiStatusExtension_equalBytesPreserveMtime(t *testing.T) {
 	stubPiLookPath(t)
 
 	home := t.TempDir()
-	if err := installPiStatusExtension(home); err != nil {
+	if err := installPiStatusExtension(home, fakeWshPath(t)); err != nil {
 		t.Fatalf("installPiStatusExtension error: %v", err)
 	}
 	path := piExtensionPath(home)
@@ -368,7 +366,7 @@ func TestInstallPiStatusExtension_equalBytesPreserveMtime(t *testing.T) {
 		t.Fatalf("stat after first install: %v", err)
 	}
 	time.Sleep(20 * time.Millisecond)
-	if err := installPiStatusExtension(home); err != nil {
+	if err := installPiStatusExtension(home, fakeWshPath(t)); err != nil {
 		t.Fatalf("installPiStatusExtension error: %v", err)
 	}
 	info2, err := os.Stat(path)
@@ -394,7 +392,7 @@ func TestInstallPiStatusExtension_rewritesChangedPath(t *testing.T) {
 		t.Fatalf("seeding stale extension: %v", err)
 	}
 
-	if err := installPiStatusExtension(home); err != nil {
+	if err := installPiStatusExtension(home, fakeWshPath(t)); err != nil {
 		t.Fatalf("installPiStatusExtension error: %v", err)
 	}
 	body, err := os.ReadFile(path)
@@ -417,7 +415,7 @@ func TestInstallPiMemoryExtension_writesSubstitutedExtension(t *testing.T) {
 	stubPiLookPath(t)
 
 	home := t.TempDir()
-	if err := installPiMemoryExtension(home); err != nil {
+	if err := installPiMemoryExtension(home, fakeWshPath(t)); err != nil {
 		t.Fatalf("installPiMemoryExtension error: %v", err)
 	}
 	path := piMemoryExtensionPath(home)
@@ -439,7 +437,7 @@ func TestInstallPiMemoryExtension_skipsWhenPiMissing(t *testing.T) {
 	defer func() { piLookPath = orig }()
 
 	home := t.TempDir()
-	if err := installPiMemoryExtension(home); err != nil {
+	if err := installPiMemoryExtension(home, fakeWshPath(t)); err != nil {
 		t.Fatalf("missing pi must not error, got %v", err)
 	}
 	if _, err := os.Stat(piMemoryExtensionPath(home)); !os.IsNotExist(err) {
@@ -461,7 +459,7 @@ func TestInstallPiMemoryExtension_rewritesChangedPath(t *testing.T) {
 		t.Fatalf("seeding stale extension: %v", err)
 	}
 
-	if err := installPiMemoryExtension(home); err != nil {
+	if err := installPiMemoryExtension(home, fakeWshPath(t)); err != nil {
 		t.Fatalf("installPiMemoryExtension error: %v", err)
 	}
 	body, err := os.ReadFile(path)
@@ -716,5 +714,103 @@ func TestCompactionHooksAreManaged(t *testing.T) {
 	groups, _ := merged["hooks"].(map[string]any)["SessionStart"].([]any)
 	if len(groups) != 3 {
 		t.Fatalf("SessionStart groups after two merges = %d, want the memory, idle and rules hooks", len(groups))
+	}
+}
+
+func writeTestFile(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("creating %s: %v", filepath.Dir(path), err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+		t.Fatalf("writing %s: %v", path, err)
+	}
+}
+
+func TestSyncStableWsh_copiesThenLeavesAnIdenticalCopyAlone(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "wsh-0.14.11-windows.x64.exe")
+	writeTestFile(t, src, "build 11")
+	dst := stableWshPath(filepath.Join(dir, "home"))
+
+	if err := syncStableWsh(src, dst); err != nil {
+		t.Fatalf("first sync: %v", err)
+	}
+	if got, err := os.ReadFile(dst); err != nil || string(got) != "build 11" {
+		t.Fatalf("stable copy = %q (err %v), want the source bytes", got, err)
+	}
+	info1, err := os.Stat(dst)
+	if err != nil {
+		t.Fatalf("stat after first sync: %v", err)
+	}
+	time.Sleep(20 * time.Millisecond)
+	if err := syncStableWsh(src, dst); err != nil {
+		t.Fatalf("second sync: %v", err)
+	}
+	info2, err := os.Stat(dst)
+	if err != nil {
+		t.Fatalf("stat after second sync: %v", err)
+	}
+	if !info2.ModTime().Equal(info1.ModTime()) {
+		t.Fatalf("identical copy was rewritten: mtime %v -> %v", info1.ModTime(), info2.ModTime())
+	}
+}
+
+// the failure this exists for: a rebuild deletes the versioned binary the hooks named
+func TestSyncStableWsh_survivesARebuildDeletingTheOldBinary(t *testing.T) {
+	dir := t.TempDir()
+	dst := stableWshPath(filepath.Join(dir, "home"))
+	oldBuild := filepath.Join(dir, "wsh-0.14.10-windows.x64.exe")
+	newBuild := filepath.Join(dir, "wsh-0.14.11-windows.x64.exe")
+	writeTestFile(t, oldBuild, "build 10")
+
+	if err := syncStableWsh(oldBuild, dst); err != nil {
+		t.Fatalf("sync from old build: %v", err)
+	}
+	if err := os.Remove(oldBuild); err != nil {
+		t.Fatalf("simulating the rebuild: %v", err)
+	}
+	if got, err := os.ReadFile(dst); err != nil || string(got) != "build 10" {
+		t.Fatalf("stable copy gone after the old build was deleted: %q (err %v)", got, err)
+	}
+
+	writeTestFile(t, newBuild, "build 11")
+	if err := syncStableWsh(newBuild, dst); err != nil {
+		t.Fatalf("sync from new build: %v", err)
+	}
+	if got, err := os.ReadFile(dst); err != nil || string(got) != "build 11" {
+		t.Fatalf("stable copy = %q (err %v), want the new build", got, err)
+	}
+	for _, leftover := range []string{dst + ".tmp", dst + ".old"} {
+		if _, err := os.Stat(leftover); !os.IsNotExist(err) {
+			t.Fatalf("swap left %s behind", leftover)
+		}
+	}
+}
+
+func TestResolveHookWsh_namesTheStableCopy(t *testing.T) {
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	exe := filepath.Join(dir, "wsh-0.14.11-windows.x64.exe")
+	writeTestFile(t, exe, "build 11")
+
+	if got := resolveHookWsh(exe, home); got != stableWshPath(home) {
+		t.Fatalf("resolveHookWsh = %q, want the stable copy %q", got, stableWshPath(home))
+	}
+}
+
+func TestResolveHookWsh_fallsBackWhenTheCopyCannotBeRefreshed(t *testing.T) {
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	unreadable := filepath.Join(dir, "gone.exe")
+
+	// no copy yet: the running binary is the only thing left to name
+	if got := resolveHookWsh(unreadable, home); got != unreadable {
+		t.Fatalf("with no stable copy, resolveHookWsh = %q, want the running binary %q", got, unreadable)
+	}
+	// an existing copy beats a failed refresh: stale but runnable
+	writeTestFile(t, stableWshPath(home), "build 10")
+	if got := resolveHookWsh(unreadable, home); got != stableWshPath(home) {
+		t.Fatalf("with a stable copy, resolveHookWsh = %q, want %q", got, stableWshPath(home))
 	}
 }

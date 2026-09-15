@@ -4,6 +4,7 @@
 package cmd
 
 import (
+	"bytes"
 	_ "embed"
 	"encoding/base64"
 	"encoding/json"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -98,6 +100,70 @@ func splitFirstToken(command string) (string, string) {
 
 func quotePath(p string) string {
 	return `"` + p + `"`
+}
+
+// stableWshPath is the wsh every agent integration names: a fixed, versionless copy under ~/.arc/bin.
+// The running binary is the wrong target — its name carries the version, and a rebuild, an app update,
+// `task clean` or a worktree removal deletes it while every hook still names it.
+func stableWshPath(home string) string {
+	name := "wsh"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	return filepath.Join(home, ".arc", "bin", name)
+}
+
+// syncStableWsh makes dst a byte-identical copy of src and leaves an identical copy untouched. The
+// previous copy is renamed aside rather than overwritten because Windows refuses to overwrite an exe a
+// running hook is executing, but allows renaming it.
+func syncStableWsh(src, dst string) error {
+	if src == dst {
+		return nil
+	}
+	want, err := os.ReadFile(src)
+	if err != nil {
+		return fmt.Errorf("reading %s: %w", src, err)
+	}
+	if cur, err := os.ReadFile(dst); err == nil && bytes.Equal(cur, want) {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return fmt.Errorf("creating %s: %w", filepath.Dir(dst), err)
+	}
+	tmp := dst + ".tmp"
+	if err := os.WriteFile(tmp, want, 0o755); err != nil {
+		return fmt.Errorf("writing %s: %w", tmp, err)
+	}
+	old := dst + ".old"
+	// a previous swap's copy may still be executing; if it cannot go, the rename below reports it
+	_ = os.Remove(old)
+	if _, err := os.Stat(dst); err == nil {
+		if err := os.Rename(dst, old); err != nil {
+			return fmt.Errorf("moving aside %s: %w", dst, err)
+		}
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		_ = os.Rename(old, dst) // restore the previous copy so the hooks keep a binary to run
+		return fmt.Errorf("replacing %s: %w", dst, err)
+	}
+	_ = os.Remove(old) // fails only while the previous copy is still executing; the next sync retries
+	return nil
+}
+
+// resolveHookWsh returns the wsh path to write into the integrations. A failed refresh keeps an existing
+// copy (stale but runnable); only with no copy at all does it fall back to the running binary.
+func resolveHookWsh(exe, home string) string {
+	stable := stableWshPath(home)
+	err := syncStableWsh(exe, stable)
+	if err == nil {
+		return stable
+	}
+	if _, statErr := os.Stat(stable); statErr == nil {
+		fmt.Fprintf(os.Stderr, "keeping the existing %s (refresh failed: %v)\n", stable, err)
+		return stable
+	}
+	fmt.Fprintf(os.Stderr, "naming %s in the hooks (no stable copy: %v)\n", exe, err)
+	return exe
 }
 
 func buildManagedGroup(mh managedHook, wshExe string) map[string]any {
@@ -235,10 +301,10 @@ func mergeStatusLine(existing map[string]any, wshExe string) map[string]any {
 }
 
 // configIsHealthy reports whether existing already carries Arc's full managed hook set and managed
-// statusLine, all referencing a wsh binary that exists on disk (per exeExists). When true the install
-// can skip its rewrite, so a coexisting install does not clobber a working config every launch.
-// When any managed hook is missing or its exe is gone, it returns false and the caller heals (rewrites).
-func configIsHealthy(existing map[string]any, exeExists func(string) bool) bool {
+// statusLine, all naming wantExe — the path this install would write. When true the install skips its
+// rewrite, so a working config is not rewritten every launch. A config naming any other binary (a
+// versioned build a rebuild will delete, or one already gone) returns false and the caller rewrites it.
+func configIsHealthy(existing map[string]any, wantExe string) bool {
 	hooks, _ := existing["hooks"].(map[string]any)
 	if hooks == nil {
 		return false
@@ -261,8 +327,7 @@ func configIsHealthy(existing map[string]any, exeExists func(string) bool) bool 
 				if !isManagedCommand(c) {
 					continue
 				}
-				exe, _ := splitFirstToken(c)
-				if !exeExists(exe) {
+				if exe, _ := splitFirstToken(c); exe != wantExe {
 					return false
 				}
 				count++
@@ -281,7 +346,7 @@ func configIsHealthy(existing map[string]any, exeExists func(string) bool) bool 
 		return false
 	}
 	exe, _ := splitFirstToken(slc)
-	return exeExists(exe)
+	return exe == wantExe
 }
 
 //go:embed opencode-plugin.js
@@ -337,15 +402,11 @@ func jsonString(s string) string {
 // (~/.config/opencode/plugins/), where opencode auto-loads every file. No-op when opencode is not
 // installed. Idempotent: rewrites only when the installed copy differs (the wsh path changes when
 // the app install moves), so re-running on every launch self-heals without churn.
-func installOpencodePlugin(home string) error {
+func installOpencodePlugin(home, wshExe string) error {
 	if _, err := opencodeLookPath("opencode"); err != nil {
 		return nil // opencode not installed; nothing to hook
 	}
-	exe, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("resolving wsh path: %w", err)
-	}
-	want := strings.ReplaceAll(opencodePluginTemplate, "__WSH_PATH__", jsonString(exe))
+	want := strings.ReplaceAll(opencodePluginTemplate, "__WSH_PATH__", jsonString(wshExe))
 	dir := filepath.Join(home, ".config", "opencode", "plugins")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("creating %s: %w", dir, err)
@@ -371,15 +432,11 @@ func installOpencodePlugin(home string) error {
 // install moves), so re-running on every launch self-heals without churn. Mirrors the OpenCode
 // installer: the complete quoted "__WSH_PATH__" placeholder is replaced with a JSON string literal
 // of the current wsh executable path.
-func installPiStatusExtension(home string) error {
+func installPiStatusExtension(home, wshExe string) error {
 	if _, err := piLookPath("pi"); err != nil {
 		return nil // pi not installed; nothing to hook
 	}
-	exe, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("resolving wsh path: %w", err)
-	}
-	want := strings.ReplaceAll(piStatusExtensionTemplate, `"__WSH_PATH__"`, jsonString(exe))
+	want := strings.ReplaceAll(piStatusExtensionTemplate, `"__WSH_PATH__"`, jsonString(wshExe))
 	dir := filepath.Join(home, ".pi", "agent", "extensions")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("creating %s: %w", dir, err)
@@ -402,19 +459,15 @@ func installPiStatusExtension(home string) error {
 // installPiToolsExtension writes the Wave tools + steering extension pair into pi's global
 // extension directory, where pi auto-loads every file. Same contract as
 // installPiStatusExtension: __WSH_PATH__ is replaced with the absolute wsh exe path.
-func installPiToolsExtension(home string) error {
+func installPiToolsExtension(home, wshExe string) error {
 	if _, err := piLookPath("pi"); err != nil {
 		return nil // pi not installed; nothing to hook
-	}
-	exe, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("resolving wsh path: %w", err)
 	}
 	dir := filepath.Join(home, ".pi", "agent", "extensions")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("creating pi extensions dir: %w", err)
 	}
-	tools := strings.ReplaceAll(piToolsExtensionTemplate, `"__WSH_PATH__"`, jsonString(exe))
+	tools := strings.ReplaceAll(piToolsExtensionTemplate, `"__WSH_PATH__"`, jsonString(wshExe))
 	if err := os.WriteFile(filepath.Join(dir, "waveterm-tools.ts"), []byte(tools), 0o644); err != nil {
 		return fmt.Errorf("writing waveterm-tools.ts: %w", err)
 	}
@@ -428,19 +481,15 @@ func installPiToolsExtension(home string) error {
 // directory, where pi auto-loads every file. Same contract as installPiToolsExtension:
 // __WSH_PATH__ is replaced with the absolute wsh exe path on the tool file; the core module
 // has no placeholder.
-func installPiAskExtension(home string) error {
+func installPiAskExtension(home, wshExe string) error {
 	if _, err := piLookPath("pi"); err != nil {
 		return nil // pi not installed; nothing to hook
-	}
-	exe, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("resolving wsh path: %w", err)
 	}
 	dir := filepath.Join(home, ".pi", "agent", "extensions")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("creating pi extensions dir: %w", err)
 	}
-	tool := strings.ReplaceAll(piAskExtensionTemplate, `"__WSH_PATH__"`, jsonString(exe))
+	tool := strings.ReplaceAll(piAskExtensionTemplate, `"__WSH_PATH__"`, jsonString(wshExe))
 	if err := os.WriteFile(filepath.Join(dir, "waveterm-ask.ts"), []byte(tool), 0o644); err != nil {
 		return fmt.Errorf("writing waveterm-ask.ts: %w", err)
 	}
@@ -489,15 +538,11 @@ func installPiSimplifyGateExtension(home string) error {
 // installPiMemoryExtension writes the Wave memory extension into pi's global extension directory
 // (~/.pi/agent/extensions/), where pi auto-loads every file. Same contract as installPiStatusExtension:
 // no-op when pi is not installed, idempotent rewrite, self-heals when the wsh path changes.
-func installPiMemoryExtension(home string) error {
+func installPiMemoryExtension(home, wshExe string) error {
 	if _, err := piLookPath("pi"); err != nil {
 		return nil // pi not installed; nothing to hook
 	}
-	exe, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("resolving wsh path: %w", err)
-	}
-	want := strings.ReplaceAll(piMemoryExtensionTemplate, `"__WSH_PATH__"`, jsonString(exe))
+	want := strings.ReplaceAll(piMemoryExtensionTemplate, `"__WSH_PATH__"`, jsonString(wshExe))
 	dir := filepath.Join(home, ".pi", "agent", "extensions")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("creating %s: %w", dir, err)
@@ -651,6 +696,12 @@ func installAgentHooksRun(cmd *cobra.Command, args []string) error {
 	}
 	path := filepath.Join(dir, "settings.json")
 
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolving wsh path: %w", err)
+	}
+	wsh := resolveHookWsh(exe, home)
+
 	existing := map[string]any{}
 	if b, err := os.ReadFile(path); err == nil && len(strings.TrimSpace(string(b))) > 0 {
 		if err := json.Unmarshal(b, &existing); err != nil {
@@ -658,19 +709,11 @@ func installAgentHooksRun(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if configIsHealthy(existing, func(p string) bool {
-		_, err := os.Stat(p)
-		return err == nil
-	}) {
+	if configIsHealthy(existing, wsh) {
 		fmt.Printf("Arc agent hooks already installed in %s (skipping)\n", path)
 	} else {
-		exe, err := os.Executable()
-		if err != nil {
-			return fmt.Errorf("resolving wsh path: %w", err)
-		}
-
-		merged := mergeAgentHooks(existing, exe)
-		merged = mergeStatusLine(merged, exe)
+		merged := mergeAgentHooks(existing, wsh)
+		merged = mergeStatusLine(merged, wsh)
 		out, err := json.MarshalIndent(merged, "", "  ")
 		if err != nil {
 			return fmt.Errorf("encoding settings: %w", err)
@@ -685,22 +728,22 @@ func installAgentHooksRun(cmd *cobra.Command, args []string) error {
 		}
 		fmt.Printf("installed Arc agent hooks into %s\n", path)
 	}
-	if err := installOpencodePlugin(home); err != nil {
+	if err := installOpencodePlugin(home, wsh); err != nil {
 		return err
 	}
-	if err := installPiStatusExtension(home); err != nil {
+	if err := installPiStatusExtension(home, wsh); err != nil {
 		return err
 	}
-	if err := installPiToolsExtension(home); err != nil {
+	if err := installPiToolsExtension(home, wsh); err != nil {
 		return err
 	}
-	if err := installPiAskExtension(home); err != nil {
+	if err := installPiAskExtension(home, wsh); err != nil {
 		return err
 	}
 	if err := installPiSimplifyGateExtension(home); err != nil {
 		return err
 	}
-	if err := installPiMemoryExtension(home); err != nil {
+	if err := installPiMemoryExtension(home, wsh); err != nil {
 		return err
 	}
 	if err := installPiTheme(home); err != nil {
