@@ -94,7 +94,9 @@ unlinkReparsePoints(wt)
 ```
 
 Note the detail that a naive fix misses: on current Go a junction reports as `ModeIrregular`, not
-`ModeSymlink`, so a check for symlinks alone finds nothing. Committed as `f927dea9`.
+`ModeSymlink`, so a check for symlinks alone finds nothing. An earlier version of this section cited a
+commit, `f927dea9`, that never reached the repository. The fix landed on 2026-09-15, as the first task of
+the orchestrator redesign's slice 4c plan.
 
 The general lesson is the one worth carrying: **before the first merge, know what the engine deletes
 and what it deletes through.** The destructive step runs unattended, after the part you were

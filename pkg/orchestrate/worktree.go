@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -65,6 +66,10 @@ func RemoveRunWorktree(ctx context.Context, projectPath, runID string) error {
 	if _, err := os.Stat(wt); err != nil {
 		return nil // nothing to remove
 	}
+	// before git sees the tree: its forced removal deletes through a junction into the target
+	if err := unlinkReparsePoints(wt); err != nil {
+		return fmt.Errorf("removing worktree: %w", err)
+	}
 	if _, err := git(ctx, projectPath, "worktree", "remove", "--force", wt); err != nil {
 		// On Windows the dir can remain locked by an idle child shell or by
 		// junctioned node_modules/src-tauri/target/dist/bin. If git no longer
@@ -87,6 +92,24 @@ func isWorktreeRegistered(ctx context.Context, projectPath, wt string) bool {
 	}
 	// porcelain lists "worktree <path>" per entry
 	return strings.Contains(out, wt)
+}
+
+// unlinkReparsePoints removes every symlink and junction inside wt without following it. A junction
+// reads as ModeIrregular rather than ModeSymlink, so both bits are checked; WalkDir does not descend
+// into either.
+func unlinkReparsePoints(wt string) error {
+	return filepath.WalkDir(wt, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if path == wt || d.Type()&(fs.ModeSymlink|fs.ModeIrregular) == 0 {
+			return nil
+		}
+		if err := os.Remove(path); err != nil {
+			return fmt.Errorf("unlinking %s: %w", path, err)
+		}
+		return nil
+	})
 }
 
 // EnsureRunWorktree returns a usable linked worktree for runID at baseCommit. An existing tree is
