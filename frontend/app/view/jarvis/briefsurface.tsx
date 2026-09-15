@@ -66,8 +66,10 @@ import {
     queueOpenTarget,
     SEVEN_DAYS_MS,
     SHIPPED_CAP,
+    summarizeAttentionQueue,
     type ActiveWorkRow,
     type QueueRow,
+    type QueueSummary,
 } from "./briefingmodel";
 import {
     ackBriefingVisit,
@@ -224,6 +226,40 @@ function MoreControl({ n, expanded, onToggle }: { n: number; expanded: boolean; 
         >
             {expanded ? "Show less" : `+${n} more`}
         </button>
+    );
+}
+
+function QueueSummaryView({
+    summary,
+    count,
+    expanded,
+    error,
+    onToggle,
+}: {
+    summary: QueueSummary;
+    count: number;
+    expanded: boolean;
+    error: boolean;
+    onToggle: () => void;
+}) {
+    return (
+        <div className="grid w-full grid-cols-[3px_minmax(0,1fr)_auto] items-center gap-3 rounded-[10px] border border-border bg-surface py-[9px] pl-3 pr-[11px]">
+            <span className={cn("self-stretch rounded-[2px]", error ? "bg-error" : "bg-asking")} />
+            <span className="min-w-0">
+                <span className="block truncate text-[13px] font-semibold text-ink-hi">{summary.title}</span>
+                <span className="mt-0.5 block truncate font-mono text-[9.5px] text-muted">{summary.detail}</span>
+            </span>
+            <button
+                type="button"
+                aria-expanded={expanded}
+                aria-controls="jarvis-attention-details"
+                onClick={onToggle}
+                data-jarvis-brief-attention-summary
+                className="flex-none cursor-pointer rounded-[7px] border border-edge-mid bg-surface-raised px-2.5 py-1 font-mono text-[10px] font-semibold text-muted hover:border-edge-strong hover:bg-surface-hover hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+                {expanded ? "Hide" : count === 1 ? "Review" : `Review ${count}`}
+            </button>
+        </div>
     );
 }
 
@@ -1118,9 +1154,11 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     );
     // which card is open in the Initiatives region; module-level so it survives the surface unmounting
     const expandedEffort = useAtomValue(expandedEffortOrefAtom);
+    const waitingOpen = expanded.waiting === true;
     const initiativesOpen = expanded.initiatives === true;
     const sessionsOpen = expanded.sessions === true;
     const behindOpen = expanded.behind === true;
+    const queueSummary = useMemo(() => summarizeAttentionQueue(queue), [queue]);
 
     const effortWindow = useMemo(() => capRegion(efforts, EFFORT_CAP, initiativesOpen), [efforts, initiativesOpen]);
     // the three legs cap independently — the merge is a triage order, not a page — so the region's
@@ -1200,13 +1238,13 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     const navIds = useMemo(
         () =>
             briefNavIds({
-                queue,
+                queue: waitingOpen ? queue : [],
                 efforts: effortWindow.rows,
                 sessions: sessions.rows,
                 deltaGroups,
                 shipped: shipped.rows,
             }),
-        [queue, effortWindow, sessions, deltaGroups, shipped]
+        [waitingOpen, queue, effortWindow, sessions, deltaGroups, shipped]
     );
     const [storedCursor, setCursor] = useAtom(briefCursorAtom);
     const cursor = resolveBriefCursor(navIds, storedCursor);
@@ -1432,44 +1470,70 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                             <Region
                                 id="waiting"
                                 alert={queue.length > 0}
+                                count={queue.length > 0 ? queue.length : undefined}
                                 empty={queue.length === 0}
                                 gap="gap-[9px]"
-                                meta="oldest first · gates before asks"
+                                meta={
+                                    !waitingOpen && queueSummary?.oldestTs != null
+                                        ? `oldest ${formatAge(Date.now() - queueSummary.oldestTs)}`
+                                        : "gates before asks"
+                                }
                             >
-                                <div className="flex flex-col gap-[9px]">
-                                    <MotionConfig reducedMotion="user">
-                                        <AnimatePresence initial={false}>
-                                            {queue.map((q) => {
-                                                const target = queueOpenTarget(q.nav);
-                                                return (
+                                {queueSummary != null ? (
+                                    <div className="flex flex-col gap-[9px]">
+                                        <QueueSummaryView
+                                            summary={queueSummary}
+                                            count={queue.length}
+                                            expanded={waitingOpen}
+                                            error={queue.some((q) => q.tone === "error")}
+                                            onToggle={() => toggleRegion("waiting")}
+                                        />
+                                        <MotionConfig reducedMotion="user">
+                                            <AnimatePresence initial={false}>
+                                                {waitingOpen ? (
                                                     <motion.div
-                                                        key={q.key}
-                                                        layout
-                                                        variants={cardVariants}
-                                                        initial={entering.has(q.key) ? "initial" : false}
+                                                        id="jarvis-attention-details"
+                                                        key="attention-details"
+                                                        variants={paneReveal}
+                                                        initial="initial"
                                                         animate="animate"
                                                         exit="exit"
-                                                        transition={{
-                                                            duration: MOTION.durMacro,
-                                                            ease: MOTION.easeFluid,
-                                                        }}
+                                                        className="flex flex-col gap-[9px] overflow-hidden"
                                                     >
-                                                        <QueueRowView
-                                                            row={q}
-                                                            focused={cursor === `waiting:${q.key}`}
-                                                            fresh={freshWaiting.has(q.key)}
-                                                            onOpen={
-                                                                target == null
-                                                                    ? undefined
-                                                                    : () => openQueueTarget(model, target)
-                                                            }
-                                                        />
+                                                        {queue.map((q) => {
+                                                            const target = queueOpenTarget(q.nav);
+                                                            return (
+                                                                <motion.div
+                                                                    key={q.key}
+                                                                    layout
+                                                                    variants={cardVariants}
+                                                                    initial={entering.has(q.key) ? "initial" : false}
+                                                                    animate="animate"
+                                                                    exit="exit"
+                                                                    transition={{
+                                                                        duration: MOTION.durMacro,
+                                                                        ease: MOTION.easeFluid,
+                                                                    }}
+                                                                >
+                                                                    <QueueRowView
+                                                                        row={q}
+                                                                        focused={cursor === `waiting:${q.key}`}
+                                                                        fresh={freshWaiting.has(q.key)}
+                                                                        onOpen={
+                                                                            target == null
+                                                                                ? undefined
+                                                                                : () => openQueueTarget(model, target)
+                                                                        }
+                                                                    />
+                                                                </motion.div>
+                                                            );
+                                                        })}
                                                     </motion.div>
-                                                );
-                                            })}
-                                        </AnimatePresence>
-                                    </MotionConfig>
-                                </div>
+                                                ) : null}
+                                            </AnimatePresence>
+                                        </MotionConfig>
+                                    </div>
+                                ) : null}
                             </Region>
                             <Region
                                 id="initiatives"

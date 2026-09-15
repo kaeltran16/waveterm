@@ -136,6 +136,7 @@ export interface QueueRow {
     key: string;
     kind: string;
     title: string;
+    source: string;
     detail: string;
     ts: number | null;
     action: string | null;
@@ -200,6 +201,7 @@ export function buildAttentionQueue(input: { attention: AttentionItem[]; efforts
             key: a.key,
             kind: QUEUE_KIND_LABEL[a.kind] ?? a.kind,
             title: a.text,
+            source: a.source,
             detail: [a.source, channelId !== "" && a.channelname ? "#" + a.channelname : null]
                 .filter((s) => s != null && s !== "")
                 .join(" · "),
@@ -230,6 +232,7 @@ export function buildAttentionQueue(input: { attention: AttentionItem[]; efforts
                 key: "chunk:" + e.oref + ":" + label,
                 kind: "chunk blocked",
                 title: label,
+                source: e.title,
                 detail: e.title,
                 ts: null,
                 action: "Open",
@@ -244,6 +247,53 @@ export function buildAttentionQueue(input: { attention: AttentionItem[]; efforts
         }
     }
     return rows;
+}
+
+export interface QueueSummary {
+    title: string;
+    detail: string;
+    oldestTs: number | null;
+}
+
+const QUEUE_SUMMARY_SOURCE_CAP = 2;
+
+export function summarizeAttentionQueue(rows: QueueRow[]): QueueSummary | null {
+    if (rows.length === 0) {
+        return null;
+    }
+    const oldestTs = rows.reduce<number | null>((oldest, row) => {
+        if (row.ts == null) {
+            return oldest;
+        }
+        return oldest == null ? row.ts : Math.min(oldest, row.ts);
+    }, null);
+    if (rows.length === 1) {
+        return {
+            title: rows[0]!.title,
+            detail: [rows[0]!.kind, rows[0]!.source].filter(Boolean).join(" · "),
+            oldestTs,
+        };
+    }
+
+    const kindCounts = new Map<string, number>();
+    for (const row of rows) {
+        kindCounts.set(row.kind, (kindCounts.get(row.kind) ?? 0) + 1);
+    }
+    const sources = [...new Set(rows.map((row) => row.source).filter(Boolean))];
+    const visibleSources = sources.slice(0, QUEUE_SUMMARY_SOURCE_CAP);
+    const hiddenSources = sources.length - visibleSources.length;
+    const detail = [
+        ...[...kindCounts].map(([kind, count]) => `${kind} ×${count}`),
+        ...visibleSources,
+        hiddenSources > 0 ? `+${hiddenSources} ${hiddenSources === 1 ? "source" : "sources"}` : null,
+    ]
+        .filter((part) => part != null)
+        .join(" · ");
+    return {
+        title: `${rows.length} items need your attention`,
+        detail,
+        oldestTs,
+    };
 }
 
 // needing-eyes first (blocked run / blocker / asking agent), recency within tier, identity last.

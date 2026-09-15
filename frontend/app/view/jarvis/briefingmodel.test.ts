@@ -16,6 +16,7 @@ import {
     projectBriefing,
     queueOpenTarget,
     SHIPPED_CAP,
+    summarizeAttentionQueue,
     type AgentRow,
     type BlockerRow,
     type BriefingModelInput,
@@ -445,20 +446,22 @@ describe("unified active work", () => {
     });
 });
 
+const attentionItem = (over: Partial<AttentionItem>): AttentionItem => ({
+    kind: "gate",
+    key: "gate:r1",
+    channelid: "ch-1",
+    channelname: "waveterm",
+    runid: "r1",
+    source: "ship the ledger",
+    text: "Approve before Jarvis proceeds.",
+    action: "Review",
+    phaseidx: 2,
+    waitingsince: T0 - HOUR,
+    ...over,
+});
+
 describe("buildAttentionQueue", () => {
-    const item = (over: Partial<AttentionItem>): AttentionItem => ({
-        kind: "gate",
-        key: "gate:r1",
-        channelid: "ch-1",
-        channelname: "waveterm",
-        runid: "r1",
-        source: "ship the ledger",
-        text: "Approve before Jarvis proceeds.",
-        action: "Review",
-        phaseidx: 2,
-        waitingsince: T0 - HOUR,
-        ...over,
-    });
+    const item = attentionItem;
 
     it("keeps the server's priority order rather than re-sorting on age", () => {
         const q = buildAttentionQueue({
@@ -646,6 +649,72 @@ describe("buildAttentionQueue", () => {
         const q = buildAttentionQueue({ attention: [item({})], efforts });
         expect(q.map((r) => r.kind)).toEqual(["gate", "chunk blocked"]);
         expect(q[1]!.ts).toBeNull();
+    });
+});
+
+describe("summarizeAttentionQueue", () => {
+    it("keeps a single item's specific request", () => {
+        const summary = summarizeAttentionQueue([
+            {
+                key: "gate:r1",
+                kind: "gate",
+                title: "Approve before Jarvis proceeds.",
+                source: "ship the ledger",
+                detail: "ship the ledger · #waveterm",
+                ts: T0 - HOUR,
+                action: "Review",
+                nav: null,
+                tone: "asking",
+                attrib: "",
+                why: "",
+                cites: [],
+            },
+        ]);
+        expect(summary).toEqual({
+            title: "Approve before Jarvis proceeds.",
+            detail: "gate · ship the ledger",
+            oldestTs: T0 - HOUR,
+        });
+    });
+
+    it("summarizes multiple rows by kind and distinct source", () => {
+        const queue = buildAttentionQueue({
+            attention: [
+                attentionItem({
+                    kind: "radar-triage",
+                    key: "radar:one",
+                    source: "cyber_assistant",
+                    waitingsince: T0 - HOUR,
+                }),
+                attentionItem({ kind: "radar-triage", key: "radar:two", source: "waveterm", waitingsince: T0 - DAY }),
+            ],
+            efforts: [],
+        });
+        expect(summarizeAttentionQueue(queue)).toEqual({
+            title: "2 items need your attention",
+            detail: "triage ×2 · cyber_assistant · waveterm",
+            oldestTs: T0 - DAY,
+        });
+    });
+
+    it("bounds source detail and ignores rows without an age", () => {
+        const queue = buildAttentionQueue({
+            attention: [
+                attentionItem({ kind: "gate", key: "g1", source: "one", waitingsince: 0 }),
+                attentionItem({ kind: "ask", key: "a1", source: "two", waitingsince: T0 - HOUR }),
+                attentionItem({ kind: "ask", key: "a2", source: "three", waitingsince: T0 - 2 * HOUR }),
+            ],
+            efforts: [],
+        });
+        expect(summarizeAttentionQueue(queue)).toEqual({
+            title: "3 items need your attention",
+            detail: "gate ×1 · ask ×2 · one · two · +1 source",
+            oldestTs: T0 - 2 * HOUR,
+        });
+    });
+
+    it("returns null for an empty queue", () => {
+        expect(summarizeAttentionQueue([])).toBeNull();
     });
 });
 

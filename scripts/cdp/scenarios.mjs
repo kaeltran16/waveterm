@@ -750,6 +750,10 @@ const briefSurface = {
             detail: JSON.stringify(dflt),
         });
 
+        // the fixture seam bypasses the rpc, so these checks do not race FetchWorkState (which walks
+        // transcript scans over ~/.claude and is documented at ~14s warm).
+        await h.ev(`document.querySelector('[data-briefing-fixture="normal"]')?.click()`);
+        await h.ev("new Promise((r) => setTimeout(r, 900))");
         const regions = await h.ev(
             `[...document.querySelectorAll('[data-jarvis-brief-region]')].map((s) => s.dataset.jarvisBriefRegion)`
         );
@@ -759,33 +763,43 @@ const briefSurface = {
             detail: JSON.stringify(regions),
         });
 
-        // the fixture seam bypasses the rpc, so this asserts rendering without waiting on FetchWorkState
-        // (which walks transcript scans over ~/.claude and is documented at ~14s warm).
-        await h.ev(`document.querySelector('[data-briefing-fixture="normal"]')?.click()`);
-        await h.ev("new Promise((r) => setTimeout(r, 900))");
-        const rows = await h.ev(`(() => {
+        // the disclosure is module state, so normalize it closed before asserting the compact default.
+        await h.ev(`document.querySelector('[data-jarvis-brief-attention-summary][aria-expanded="true"]')?.click()`);
+        await h.ev("new Promise((r) => setTimeout(r, 300))");
+        const seeded = await h.ev(`(() => {
             const m = {};
             document.querySelectorAll('[data-jarvis-brief-row]').forEach((r) => {
                 const k = r.dataset.jarvisBriefRow;
                 m[k] = (m[k] || 0) + 1;
             });
-            return m;
+            const summary = document.querySelector('[data-jarvis-brief-attention-summary]');
+            return {
+                rows: m,
+                summary: summary != null,
+                open: summary?.getAttribute('aria-expanded') ?? null,
+                queueRows: document.querySelectorAll('[data-jarvis-brief-row="queue"]').length,
+            };
         })()`);
         steps.push({
-            step: "3. a seeded fixture populates every region",
-            ok: Object.keys(rows).length >= 4 && Object.values(rows).every((n) => n > 0),
-            detail: JSON.stringify(rows),
+            step: "3. attention starts compact while the other seeded regions stay visible",
+            ok:
+                seeded.summary === true &&
+                seeded.open === "false" &&
+                seeded.queueRows === 0 &&
+                ["initiative", "session", "delta", "shipped"].every((kind) => (seeded.rows[kind] ?? 0) > 0),
+            detail: JSON.stringify(seeded),
         });
 
-        // The queue is the region this retirement actually had to make actionable: the decision a row waits
-        // on is resolved by the run body, so before B5 the action was printed as a borderless label because
-        // there was nowhere to send it. Now the row itself is the control and the action word stays a label —
-        // two affordances for one decision, with the one that only names it made to look pressable, would be
-        // the same lie in the other direction.
+        // Review reveals the existing actionable rows; the disclosure changes presentation, not where a
+        // decision lands or whether the inert action word is honestly styled as a label.
+        await h.ev(`document.querySelector('[data-jarvis-brief-attention-summary]')?.click()`);
+        await h.ev("new Promise((r) => setTimeout(r, 300))");
         const q = await h.ev(`(() => {
+            const summary = document.querySelector('[data-jarvis-brief-attention-summary]');
             const rows = [...document.querySelectorAll('[data-jarvis-brief-row="queue"]')];
             const actions = rows.map((r) => r.querySelector('[data-jarvis-brief-action]')).filter(Boolean);
             return {
+                expanded: summary?.getAttribute('aria-expanded') ?? null,
                 rows: rows.length,
                 openable: rows.filter((r) => r.tagName === 'BUTTON').length,
                 nested: rows.reduce((n, r) => n + r.querySelectorAll('button, a, input, select, textarea').length, 0),
@@ -794,8 +808,9 @@ const briefSurface = {
             };
         })()`);
         steps.push({
-            step: "4. a queue row opens what it names, and its action word stays a label",
+            step: "4. Review reveals queue rows that open what they name",
             ok:
+                q.expanded === "true" &&
                 q.rows > 0 &&
                 q.openable === q.rows &&
                 q.nested === 0 &&
@@ -955,6 +970,7 @@ const briefSurface = {
         await h.shot("cdp-shots/brief-queue-context.png");
 
         await h.shot("cdp-shots/brief-surface.png");
+        await h.ev(`document.querySelector('[data-jarvis-brief-attention-summary][aria-expanded="true"]')?.click()`);
         return steps;
     },
     async teardown(h) {
