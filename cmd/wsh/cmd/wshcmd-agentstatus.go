@@ -101,9 +101,14 @@ func buildAgentStatusEvent(oref *waveobj.ORef, data baseds.AgentStatusData, pers
 	}
 }
 
+// agentStatusPublishTimeoutMs bounds the wait for wavesrv's reply, so a hook never stalls its agent's turn.
+const agentStatusPublishTimeoutMs = 2000
+
+// publishAgentStatusData waits for wavesrv's reply: hooks exit right after it, and os.Exit drops an rpc
+// message still queued for the socket.
 func publishAgentStatusData(oref *waveobj.ORef, data baseds.AgentStatusData, persist int) error {
 	event := buildAgentStatusEvent(oref, data, persist)
-	return wshclient.EventPublishCommand(RpcClient, event, &wshrpc.RpcOpts{NoResponse: true})
+	return wshclient.EventPublishCommand(RpcClient, event, &wshrpc.RpcOpts{Timeout: agentStatusPublishTimeoutMs})
 }
 
 func agentStatusRun(cmd *cobra.Command, args []string) (rtnErr error) {

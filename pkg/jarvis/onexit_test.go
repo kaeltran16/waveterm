@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"log"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -118,5 +119,34 @@ func TestExitOutcomeReportsDeathBeforeFirstToken(t *testing.T) {
 func TestExitOutcomeIgnoresCleanExitWithoutTranscript(t *testing.T) {
 	if _, ok := exitOutcome("", "codex", 0); ok {
 		t.Fatal("a clean exit with no transcript must stay silent")
+	}
+}
+
+// a lead can exit before its transcript exists on disk; its run still has to learn that it is gone
+func TestOnWorkerExitReportsALeadExitBeforeTheTranscriptParses(t *testing.T) {
+	ctx := context.Background()
+	tabOID, blockOID := uuid.NewString(), uuid.NewString()
+	tabORef := waveobj.MakeORef(waveobj.OType_Tab, tabOID).String()
+	if err := wstore.DBInsert(ctx, &waveobj.Tab{OID: tabOID, BlockIds: []string{blockOID}, Meta: waveobj.MetaMapType{"session:agent": "claude"}}); err != nil {
+		t.Fatalf("seed tab: %v", err)
+	}
+	block := &waveobj.Block{OID: blockOID, ParentORef: tabORef, Meta: waveobj.MetaMapType{
+		waveobj.MetaKey_AgentTranscriptPath: filepath.Join(t.TempDir(), "never-written.jsonl"),
+	}}
+	if err := wstore.DBInsert(ctx, block); err != nil {
+		t.Fatalf("seed block: %v", err)
+	}
+	old := LeadExitHook
+	t.Cleanup(func() { LeadExitHook = old })
+	var got []string
+	LeadExitHook = func(_ context.Context, worker string) error {
+		got = append(got, worker)
+		return nil
+	}
+
+	OnWorkerExit(blockOID, 0)
+
+	if len(got) != 1 || got[0] != tabORef {
+		t.Fatalf("lead exit hook calls = %v, want [%s]", got, tabORef)
 	}
 }

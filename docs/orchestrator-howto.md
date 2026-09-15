@@ -19,6 +19,15 @@ last task is done. You are involved at exactly three
 kinds of moment: the plan gate, any question a child asks, and a merge that needs a decision — a
 squash conflict, or a project tree with staged edits the engine will not commit into.
 
+> **Update 2026-09-15 (orchestrator redesign, slice 5a):**
+> - **Lead:** an engine lead no longer plans the dag in JSON. From a goal it brainstorms with you, writes the
+>   spec and a plan in the plan format, and runs `wsh jarvis dag submit --plan <plan> --spec <spec>`. The plan
+>   gate still holds it until slice 5c.
+> - **Compaction:** once the lead submits, the engine types a `/compact` that keeps what you said and drops the
+>   drafts. After any compaction the lead gets its orchestration rules back (`wsh jarvis dag rules`).
+> - **Workers:** every worker's prompt opens with a contract that names its task in the plan.
+> - **Dead lead:** a lead that exits before submitting fails the run with a `Lead exited` row.
+
 Everything else is machinery. The rest of this document is what that machinery looks like from the
 outside, and what to do when it stops.
 

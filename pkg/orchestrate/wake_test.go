@@ -233,3 +233,50 @@ func TestWakeReannouncesRestoredQuestion(t *testing.T) {
 		t.Fatalf("a question back after a failed delivery is announced again, got %q", f.sends)
 	}
 }
+
+func TestHandoffTypedAloneOnceTheLeadIsAtItsPrompt(t *testing.T) {
+	f := newFakeLead(t)
+	ctx := context.Background()
+	// the lead is still in the turn that ran `dag submit`
+	f.state.State = baseds.AgentState_Working
+	PostHandoff(ctx, wakeChannel, wakeRun)
+	PostWake(ctx, wakeChannel, wakeRun, finishedLine)
+	if len(f.sends) != 0 {
+		t.Fatalf("a working lead gets nothing yet, got %q", f.sends)
+	}
+
+	NoteLeadStatus(ctx, f.status(baseds.AgentState_Idle))
+	if len(f.sends) != 1 || f.sends[0] != HandoffCompact {
+		t.Fatalf("the handoff compaction goes out first and alone, got %q", f.sends)
+	}
+	if f.countKind(waveobj.RunEventKindLeadWoken) != 1 {
+		t.Fatalf("the handoff records one lead-woken row, got %+v", f.rows)
+	}
+
+	// PreCompact reports working, and the SessionStart after the compaction reports idle
+	NoteLeadStatus(ctx, f.status(baseds.AgentState_Working))
+	NoteLeadStatus(ctx, f.status(baseds.AgentState_Idle))
+	if len(f.sends) != 2 || f.sends[1] != finishedLine {
+		t.Fatalf("the held wake follows once the compaction is over, got %q", f.sends)
+	}
+}
+
+func TestHandoffUnconfirmedIsRetriedLikeAWake(t *testing.T) {
+	f := newFakeLead(t)
+	ctx := context.Background()
+	PostHandoff(ctx, wakeChannel, wakeRun)
+	if len(f.sends) != 1 || f.sends[0] != HandoffCompact {
+		t.Fatalf("an idle lead gets the handoff at once, got %q", f.sends)
+	}
+	f.now += WakeConfirmTimeout.Milliseconds()
+	tickWakes(ctx)
+	if len(f.sends) != 2 || f.sends[1] != "" {
+		t.Fatalf("an unconfirmed handoff is retried with Enter alone, got %q", f.sends)
+	}
+	NoteLeadStatus(ctx, f.status(baseds.AgentState_Working))
+	f.now += 3 * WakeConfirmTimeout.Milliseconds()
+	tickWakes(ctx)
+	if len(f.sends) != 2 || LeadDead(wakeRun) {
+		t.Fatalf("a confirmed handoff is done, sends=%q dead=%v", f.sends, LeadDead(wakeRun))
+	}
+}

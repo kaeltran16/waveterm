@@ -4,6 +4,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -13,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/wavetermdev/waveterm/pkg/agentask"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
+	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/pitasks"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -329,5 +331,52 @@ func TestDagStatusLinesCarriesTheReportAndVerifyFailure(t *testing.T) {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("status must show %q, got:\n%s", want, joined)
 		}
+	}
+}
+
+func TestDagRulesTextOnlyForTheLead(t *testing.T) {
+	st := &wshrpc.CommandDagStatusRtnData{Group: &waveobj.TaskGroup{RunID: "lead-run", PlanPath: "C:/p/plan.md", SpecPath: "C:/p/spec.md"}}
+	lead := &wshrpc.CommandJarvisCtxRtnData{ChannelId: "ch", RunId: "lead-run", DagOID: "dag-1"}
+	if got, want := dagRulesText(lead, st), jarvis.OrchestrationRules("lead-run", "C:/p/spec.md", "C:/p/plan.md"); got != want {
+		t.Fatalf("lead rules = %q, want %q", got, want)
+	}
+	// a dag child resolves to its own run, which the dag does not name
+	child := &wshrpc.CommandJarvisCtxRtnData{ChannelId: "ch", RunId: "child-run", DagOID: "dag-1"}
+	if got := dagRulesText(child, st); got != "" {
+		t.Fatalf("a dag child gets no lead rules, got %q", got)
+	}
+	if got := dagRulesText(lead, &wshrpc.CommandDagStatusRtnData{}); got != "" {
+		t.Fatalf("no dag, no rules, got %q", got)
+	}
+}
+
+func TestDagRulesIsHiddenWithInjectFlag(t *testing.T) {
+	if !dagRulesCmd.Hidden {
+		t.Fatal("dag rules is plumbing for hooks and must stay out of help")
+	}
+	if dagRulesCmd.Flags().Lookup("inject") == nil {
+		t.Fatal("dag rules needs --inject for the SessionStart hook")
+	}
+}
+
+func TestSessionStartPayloadShape(t *testing.T) {
+	out, err := sessionStartPayload("rules text")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		HookSpecificOutput struct {
+			HookEventName     string `json:"hookEventName"`
+			AdditionalContext string `json:"additionalContext"`
+		} `json:"hookSpecificOutput"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.HookSpecificOutput.HookEventName != "SessionStart" || got.HookSpecificOutput.AdditionalContext != "rules text" {
+		t.Fatalf("payload = %s", out)
+	}
+	if strings.Contains(string(out), "additional_context") {
+		t.Fatalf("exactly one context key may be emitted: %s", out)
 	}
 }

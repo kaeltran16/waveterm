@@ -68,6 +68,17 @@ func resolveProjectCwd(flagCwd string, inject bool, stdin io.Reader) string {
 	return ev.Cwd
 }
 
+// sessionStartPayload wraps text as a SessionStart hook's added context. Claude Code reads both
+// additional_context and hookSpecificOutput without deduplication, so exactly one of them may be emitted.
+func sessionStartPayload(text string) ([]byte, error) {
+	return json.Marshal(map[string]any{
+		"hookSpecificOutput": map[string]any{
+			"hookEventName":     "SessionStart",
+			"additionalContext": text,
+		},
+	})
+}
+
 // agentMemoryProjectRun always returns nil on setup failure: outside WaveTerm there is no server
 // to talk to, and a failed projection must never break the agent's turn.
 func agentMemoryProjectRun(cmd *cobra.Command, args []string) error {
@@ -89,15 +100,7 @@ func agentMemoryProjectRun(cmd *cobra.Command, args []string) error {
 	if err != nil || strings.TrimSpace(manifest) == "" {
 		return nil // fail-safe: a memory failure must never degrade session start
 	}
-	// claude code reads both additional_context and hookSpecificOutput without deduplication, so
-	// exactly one of them may be emitted
-	payload := map[string]any{
-		"hookSpecificOutput": map[string]any{
-			"hookEventName":     "SessionStart",
-			"additionalContext": manifest,
-		},
-	}
-	out, err := json.Marshal(payload)
+	out, err := sessionStartPayload(manifest)
 	if err != nil {
 		return nil
 	}

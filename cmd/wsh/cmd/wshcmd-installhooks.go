@@ -34,10 +34,16 @@ var managedHooks = []managedHook{
 	{"Stop", "", "agent-hook", 10},
 	{"SubagentStop", "", "agent-hook", 10},
 	{"UserPromptSubmit", "", "agent-hook", 10},
+	// a compaction reports working and its end reports idle: the wake adapter types a lead's handoff
+	// /compact as a wake that working confirms, and holds later wakes until the session is back
+	{"PreCompact", "", "agent-hook", 10},
 	{"SessionEnd", "", "agent-memory-hook", 10},
 	// matcher mirrors the superpowers plugin's SessionStart hook: /clear and a compaction both drop
 	// the previous injection from context, so memory has to be re-injected on each
 	{"SessionStart", "startup|clear|compact", "agent-memory-project --inject", 15},
+	{"SessionStart", "compact", "agent-hook", 10},
+	// a compaction drops a lead's launch prompt, so its orchestration rules come back in its place
+	{"SessionStart", "compact", "jarvis dag rules --inject", 15},
 }
 
 func managedEventOrder() []string {
@@ -65,7 +71,7 @@ func isManagedCommand(command string) bool {
 		return false
 	}
 	switch strings.TrimSpace(rest) {
-	case "agent-hook", "ask", "ask --clear", "agent-memory-hook", "agent-memory-project --inject":
+	case "agent-hook", "ask", "ask --clear", "agent-memory-hook", "agent-memory-project --inject", "jarvis dag rules --inject":
 		return true
 	}
 	return false

@@ -5,11 +5,13 @@
 import { Type } from "typebox";
 import {
     captureTailArgs,
+    dagRulesArgs,
     notifyArgs,
     openFileArgs,
     querySessionsArgs,
     runCommandArgs,
     vaultAskArgs,
+    withOrchestrationRules,
 } from "./waveterm-tools-core";
 
 export function registerWavetermTools(pi: any, wshPath: string): void {
@@ -157,6 +159,22 @@ export function registerWavetermTools(pi: any, wshPath: string): void {
         if (event?.error || ctx?.lastError) {
             await notify("Pi session ended with an error", { level: "error" });
         }
+    });
+
+    // --- orchestrator lead: the rules after a compaction ------------------------------------------
+
+    // a compaction drops the lead's launch prompt, so the rules are fetched once per compaction and ride
+    // on every later request. a failed fetch keeps the last rules: they only name the run and its files.
+    let rules = "";
+    pi.on("session_compact", async () => {
+        const r = await wsh(dagRulesArgs());
+        if (r.ok) {
+            rules = r.stdout;
+        }
+    });
+    pi.on("context", (event: any) => {
+        const messages = withOrchestrationRules(event?.messages ?? [], rules, Date.now());
+        return messages ? { messages } : undefined;
     });
 }
 

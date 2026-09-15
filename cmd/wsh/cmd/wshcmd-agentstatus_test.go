@@ -4,11 +4,15 @@
 package cmd
 
 import (
+	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wps"
+	"github.com/wavetermdev/waveterm/pkg/wshrpc"
+	"github.com/wavetermdev/waveterm/pkg/wshutil"
 )
 
 func TestBuildAgentStatusEvent(t *testing.T) {
@@ -28,6 +32,50 @@ func TestBuildAgentStatusEvent(t *testing.T) {
 	}
 	if got, ok := ev.Data.(baseds.AgentStatusData); !ok || got.State != baseds.AgentState_Working {
 		t.Fatalf("data = %#v, want AgentStatusData{State:working}", ev.Data)
+	}
+}
+
+// a hook process exits the moment the publish returns, so a publish that returns before wavesrv has the
+// event loses it to os.Exit: live, most compaction reports never arrived and the handoff went unconfirmed
+func TestPublishAgentStatusDataReturnsOnlyOnceTheServerHasTheEvent(t *testing.T) {
+	inputCh := make(chan baseds.RpcInputChType, 1)
+	outputCh := make(chan []byte, 1)
+	prev := RpcClient
+	RpcClient = wshutil.MakeWshRpcWithChannels(inputCh, outputCh, wshrpc.RpcContext{}, nil, "test")
+	defer func() { RpcClient = prev }()
+	oref := &waveobj.ORef{OType: waveobj.OType_Block, OID: "abc"}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- publishAgentStatusData(oref, baseds.AgentStatusData{ORef: oref.String(), State: baseds.AgentState_Working}, 1)
+	}()
+	var req wshutil.RpcMessage
+	select {
+	case msg := <-outputCh:
+		if err := json.Unmarshal(msg, &req); err != nil {
+			t.Fatalf("request is not an rpc message: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no request was sent")
+	}
+	select {
+	case <-done:
+		t.Fatal("publish returned before the server replied")
+	case <-time.After(100 * time.Millisecond):
+	}
+	if req.Command != "eventpublish" || req.ReqId == "" {
+		t.Fatalf("request = %+v, want an eventpublish that expects a reply", req)
+	}
+
+	resp, _ := json.Marshal(wshutil.RpcMessage{ResId: req.ReqId})
+	inputCh <- baseds.RpcInputChType{MsgBytes: resp}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("publish = %v, want nil once the server replies", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("publish did not return after the server replied")
 	}
 }
 

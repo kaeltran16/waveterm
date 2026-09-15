@@ -44,4 +44,21 @@ export function vaultAskArgs(question: string, cwd?: string): string[] {
     return args;
 }
 
+// dagRulesArgs asks wsh for the orchestration rules of the lead this session is; wsh prints nothing for
+// any other session.
+export function dagRulesArgs(): string[] {
+    return ["jarvis", "dag", "rules"];
+}
+
+// withOrchestrationRules appends a lead's rules to a provider request as its last message (orchestrator
+// redesign §7). No rules leaves the request untouched, which is every session that is not a lead holding
+// a dag.
+export function withOrchestrationRules(messages: unknown[], rules: string, now: number): unknown[] | undefined {
+    const text = rules.trim();
+    if (!text) {
+        return undefined;
+    }
+    return [...messages, { role: "user", content: text, timestamp: now }];
+}
+
 export default function noop(): void {}

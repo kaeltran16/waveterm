@@ -392,7 +392,7 @@ The same adapter types the handoff `/compact` (§7) and the plan-input launch wa
    /compact Keep: what the human said that the spec does not record, and the reason behind each decision. Drop: code you read, drafts, tool output.
    ```
    - This compacts at the natural boundary, instead of an auto-compaction landing mid-wake at ~205k.
-   - pi's `session_before_compact` event carries `customInstructions` for a manual `/compact`. Before building on it, the plan verifies that pi's `/compact` takes the argument. The fallback is the extension calling `ctx.compact` (`types.d.ts:246`).
+   - pi's `session_before_compact` event carries `customInstructions` for a manual `/compact`. Verified on pi 0.85.1 (2026-09-15): interactive mode passes the text after `/compact ` as `customInstructions` (`interactive-mode.js:2465-2468`), matching `/compact [instructions]` in pi's `docs/compaction.md`, so the extension's `ctx.compact` (`types.d.ts:246`) is not needed as a fallback.
    - Auto-compactions keep the harness's default summary. Re-orientation (rule 3) covers them.
 3. **Re-orientation after any compaction.**
    - A new hidden `wsh jarvis dag rules` resolves the calling block's run. It prints the orchestration rules when the block is an orchestrator lead holding a dag, and nothing otherwise.
@@ -529,7 +529,7 @@ The frontend orchestration-toggle and pipeline-shape code lives in `newruncontro
 
 ## 13. Delivery slices
 
-This is too large for one plan. Slice 1 is two small, reversible fixes, made directly without a plan. Slices 2, 3 and 5 get one plan each; slice 4 is split into four sub-slices, and only its two risky ones get plans. Each slice leaves the app working. Old paths are deleted only after their replacements are live, so there is no half-landed state. Tracked as the Wave initiative `effort:aeabb4ad-a19c-4f5d-bba2-44586b73af16`, with slice 4's sub-slices as chunks under its `S4 plan-driven engine` stage.
+This is too large for one plan. Slice 1 is two small, reversible fixes, made directly without a plan. Slices 2 and 3 get one plan each. Slice 4 is split into four sub-slices, and only its two risky ones get plans. Slice 5 is split into three sub-slices, each with a plan. Each slice leaves the app working. Old paths are deleted only after their replacements are live, so there is no half-landed state. Tracked as the Wave initiative `effort:aeabb4ad-a19c-4f5d-bba2-44586b73af16`, with the sub-slices of slices 4 and 5 as chunks under their `S4 plan-driven engine` and `S5 lead flow` stages.
 
 1. **Land-first fixes:** false stall, `cleanupScheduleFailure`.
 2. **Harness scope and tier deletion:** §8, §9, pin migration.
@@ -539,9 +539,14 @@ This is too large for one plan. Slice 1 is two small, reversible fixes, made dir
    - **4b. Worker identity and hung:** `--session-id` launch, transcript lookup by session id, the hung signal. No plan.
    - **4c. Setup and merge-point Verify:** Setup after `worktree add`, Verify after each squash merge at today's per-task merge points, `verify-failed` and `dag merge --continue`, the per-project merge queue, report numbers. Plan.
    - **4d. Lanes:** lane worktrees and branches, stacked in-lane commits, merges at lane tips, cross-lane waits, the G1 spec and plan fold. Plan.
-5. **Lead flow:** launch prompt, orchestration rules, worker contract, compaction handoff and re-orientation hooks, + Run shapes and plan-path preview. Delete pipeline, adaptive, the plan gate and the old lead prompt, then JSON submit, `import-tasks`, `init` and `MaxDagTasks`. Those four move here from slice 4: until this slice replaces the old lead prompt (`buildEngineOrchestratePrompt`), it tells leads to submit through JSON, `import-tasks` and `init`, and states the `MaxDagTasks` cap, which `dagDigestChildRunLimit` and the frontend's `MAX_DAG_TASKS` also follow.
+5. **Lead flow:** §1, §2, §7, §10, in three sub-slices. The old paths go last, after their replacements pass live acceptance.
+   - **5a. Lead prompt and compaction:** first verify that pi's `/compact` takes instructions (§7). The launch prompt and orchestration rules replace `buildEngineOrchestratePrompt`; the worker contract carries the plan path and task heading; `wsh jarvis dag rules`; the handoff compaction; the Claude `SessionStart` `compact` hook entry and pi's `session_compact` and `context` handlers; a lead that exits before `dag submit` fails the run (G8). Until 5c, a submitted plan still stops at the plan gate, because `DagSubmitCommand` gates every top-level plan. Plan.
+   - **5b. + Run shapes and plan-path start:** the Quick and Orchestrator shapes, Quick's ask line, the plan-path input with its parse preview, the engine submitting the plan at run start, and the lead launched at the first judgment event with the 5a orchestration rules (G5). Plan.
+   - **5c. Deletions:** pipeline, adaptive and triage with the frontend toggle, the plan gate, then JSON submit, `import-tasks`, `init` and `MaxDagTasks`, with `dagDigestChildRunLimit` and the frontend's `MAX_DAG_TASKS`. Those four moved here from slice 4 because the old lead prompt told leads to use them. Existing pipeline and adaptive runs stay readable. Plan: mostly the per-file inventory §10 asks for.
 
-Slice 5 depends on 3 and 4. Slices 1 and 2 are independent of everything. Within slice 4, 4b is independent; 4c needs 4a, because Setup and Verify come from the plan; 4d needs 4a and 4c.
+Slice 5 depends on 3 and 4. Slices 1 and 2 are independent of everything. Within slice 4, 4b is independent; 4c needs 4a, because Setup and Verify come from the plan; 4d needs 4a and 4c. Within slice 5, 5b needs 5a; 5c needs 5a, 5b and live acceptance 1 to 3 (§12), because it deletes the paths they replace.
+
+Slices 4a to 4d landed without a live run, so a live check comes before 5a: rebuild the backend, `dag submit --plan` a two-lane plan with a Verify line, and watch both lanes land. Live acceptance 4 and 5 run after 5c.
 
 ## 14. Open items
 
@@ -552,4 +557,4 @@ Slice 5 depends on 3 and 4. Slices 1 and 2 are independent of everything. Within
   - `VerifyTimeout = 20m`
   - `SetupTimeout = 2m` (slice 4c): Setup runs under the dag mutation lock, so it prepares a tree and does not install
   - `MaxPlanOutputLen = 1000` bytes (slice 4c): the tail of a failing Setup or Verify kept for the lead
-- **pi `/compact <instructions>`:** verify before slice 5 (§7).
+- **pi `/compact <instructions>`:** verified on pi 0.85.1 (§7).

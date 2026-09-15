@@ -22,6 +22,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/pitasks"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc/wshclient"
+	"github.com/wavetermdev/waveterm/pkg/wshutil"
 )
 
 var jarvisDagCmd = &cobra.Command{
@@ -578,8 +579,65 @@ var dagInitCmd = &cobra.Command{
 	},
 }
 
+var dagRulesInject bool
+
+// dagRulesCmd prints the orchestration rules for the caller's lead session (spec §7). It runs from a
+// SessionStart hook in every Claude session and from pi after every compaction, so it is silent and
+// succeeds everywhere else: outside Wave, outside a lead, and before the lead holds a dag.
+var dagRulesCmd = &cobra.Command{
+	Use:           "rules",
+	Short:         "print the orchestration rules for this lead's run (nothing outside a lead holding a dag)",
+	Args:          cobra.NoArgs,
+	Hidden:        true,
+	SilenceErrors: true,
+	SilenceUsage:  true,
+	RunE:          dagRulesRun,
+}
+
+func dagRulesRun(cmd *cobra.Command, args []string) error {
+	jwt := os.Getenv(wshutil.WaveJwtTokenVarName)
+	if jwt == "" || setupRpcClient(nil, jwt) != nil {
+		return nil
+	}
+	oref, err := resolveBlockArg()
+	if err != nil {
+		return nil
+	}
+	ctxRtn, err := wshclient.JarvisCtxCommand(RpcClient, wshrpc.CommandJarvisCtxData{BlockORef: oref.String()}, &wshrpc.RpcOpts{Timeout: 5000})
+	if err != nil || ctxRtn.DagOID == "" {
+		return nil
+	}
+	st, err := wshclient.DagStatusCommand(RpcClient, wshrpc.CommandDagStatusData{ChannelId: ctxRtn.ChannelId, RunId: ctxRtn.RunId}, &wshrpc.RpcOpts{Timeout: 5000})
+	if err != nil {
+		return nil
+	}
+	text := dagRulesText(ctxRtn, st)
+	if text == "" {
+		return nil
+	}
+	if !dagRulesInject {
+		fmt.Println(text)
+		return nil
+	}
+	out, err := sessionStartPayload(text)
+	if err != nil {
+		return nil
+	}
+	fmt.Println(string(out))
+	return nil
+}
+
+// dagRulesText is the rules for a caller whose run the dag names, and "" for anyone else: a dag child
+// resolves to its own run.
+func dagRulesText(ctx *wshrpc.CommandJarvisCtxRtnData, st *wshrpc.CommandDagStatusRtnData) string {
+	if ctx == nil || st == nil || st.Group == nil || ctx.RunId == "" || st.Group.RunID != ctx.RunId {
+		return ""
+	}
+	return jarvis.OrchestrationRules(ctx.RunId, st.Group.SpecPath, st.Group.PlanPath)
+}
+
 func init() {
-	jarvisDagCmd.AddCommand(dagSubmitCmd, dagImportCmd, dagStatusCmd, dagMergeCmd, dagAsksCmd, dagAnswerCmd, dagForwardCmd)
+	jarvisDagCmd.AddCommand(dagSubmitCmd, dagImportCmd, dagStatusCmd, dagMergeCmd, dagAsksCmd, dagAnswerCmd, dagForwardCmd, dagRulesCmd)
 	jarvisDagCmd.AddCommand(dagAction("approve"), dagAction("sendback"), dagAction("retry"), dagAction("skip"), dagEscalateCmd, dagAction("cancel"))
 	jarvisDagCmd.AddCommand(dagInitCmd)
 	for _, c := range jarvisDagCmd.Commands() {
@@ -596,5 +654,6 @@ func init() {
 	dagEscalateCmd.Flags().String("model", "", "exact model id to retry on (e.g. sonnet, or opencode/deepseek-v4-pro for pi)")
 	dagEscalateCmd.Flags().String("runtime", "", "runtime to retry on; empty keeps the task's current runtime")
 	dagMergeCmd.Flags().Bool("continue", false, "finish a resolved squash merge, or re-run a failed Verify after committing the fix")
+	dagRulesCmd.Flags().BoolVar(&dagRulesInject, "inject", false, "emit the rules as a Claude Code SessionStart hook's added context")
 	jarvisCmd.AddCommand(jarvisDagCmd)
 }

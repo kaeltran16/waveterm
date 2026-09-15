@@ -26,10 +26,13 @@ func TestPlanEmission(t *testing.T) {
 		{"post tool working", ccHookEvent{HookEventName: "PostToolUse"}, baseds.AgentState_Working, true},
 		{"pre bash working", ccHookEvent{HookEventName: "PreToolUse", ToolName: "Bash", ToolInput: json.RawMessage(`{"command":"ls"}`)}, baseds.AgentState_Working, true},
 		{"pre ask -> asking", ccHookEvent{HookEventName: "PreToolUse", ToolName: "AskUserQuestion"}, baseds.AgentState_Asking, false},
+		{"pre compact working", ccHookEvent{HookEventName: "PreCompact"}, baseds.AgentState_Working, false},
+		{"session start after a compaction is idle", ccHookEvent{HookEventName: "SessionStart", Source: "compact"}, baseds.AgentState_Idle, false},
+		{"session start on startup reports nothing", ccHookEvent{HookEventName: "SessionStart", Source: "startup"}, "", false},
 		// Task now only keeps the parent "working"; the disk store (not a hook delta) tracks subagents.
 		{"pre task -> working", ccHookEvent{HookEventName: "PreToolUse", ToolName: "Task", ToolUseID: "t1", ToolInput: json.RawMessage(`{"subagent_type":"Explore"}`)}, baseds.AgentState_Working, true},
 		{"subagent stop -> nothing", ccHookEvent{HookEventName: "SubagentStop", ToolUseID: "t1"}, "", false},
-		{"unknown event -> nothing", ccHookEvent{HookEventName: "PreCompact"}, "", false},
+		{"unknown event -> nothing", ccHookEvent{HookEventName: "SomeFutureEvent"}, "", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

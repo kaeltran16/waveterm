@@ -405,7 +405,7 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 			cwd = wt
 			taskBase = head
 		}
-		prompt := taskPrompt(task, owner, predecessorHandoff(task, g, runs))
+		prompt := taskPrompt(g, task, owner, pin.Runtime, predecessorHandoff(task, g, runs))
 		// a new session per dispatch: its transcript is named by the id, so liveness and evidence never
 		// read a previous attempt's file as this one's.
 		sessionId := uuid.NewString()
@@ -546,12 +546,32 @@ func taskIdx(g *waveobj.TaskGroup, taskID string) int {
 	return -1
 }
 
-// HeadlessContract is appended to every DAG child's goal. Children are unattended but not mute:
-// a genuinely consequential decision the plan didn't pin must go UP — the child's ask is forwarded
-// to the orchestrator lead (dag:child-ask event + parent-run card), who answers it or escalates to
-// the human. The child waits for the answer rather than guessing. What children must NOT do is the
-// lead's job: no design-approval gates, no plan rewriting — the plan was already approved.
-const HeadlessContract = "You are a DAG child worker. The plan was already approved — do not pause for design approval, do not re-plan, and do not silently invent unpinned decisions when they are genuinely consequential. If a real decision is blocking you and the plan does not pin it, ask: your question is forwarded to the orchestrator lead, who answers it or escalates it to the human. Ask once with a concrete question and concrete options, then wait — the answer will be delivered to you. When the task is fully done: commit your changes in this working tree and run `wsh jarvis complete --commit $(git rev-parse HEAD)` from it, so the engine records the task complete."
+// workerContract opens every dag worker's prompt (spec §4). The plan is approved, so the worker neither
+// re-plans nor guesses a consequential decision: it asks, and the lead or the human answers. It owns its
+// task's tests, and it names the plan so a compacted worker can re-read its task.
+func workerContract(g *waveobj.TaskGroup, task *waveobj.TaskNode, runtime string) string {
+	var b strings.Builder
+	if g.PlanPath != "" {
+		fmt.Fprintf(&b, "You are the worker for task %s of the plan at %s", strings.TrimPrefix(task.ID, "t-"), g.PlanPath)
+		if g.SpecPath != "" {
+			fmt.Fprintf(&b, " (spec: %s)", g.SpecPath)
+		}
+		b.WriteString(".\n")
+	} else {
+		fmt.Fprintf(&b, "You are the worker for task %s of this run's dag.\n", task.ID)
+	}
+	fmt.Fprintf(&b, "The plan is approved: don't re-plan or pause for design approval. If a consequential decision isn't pinned, or the plan and the code disagree, ask once with %s and concrete options, then wait; the lead or the human answers.\n", jarvis.AskTool(runtime))
+	if g.Verify != "" {
+		fmt.Fprintf(&b, "Run `%s` and get it passing before you complete; if you can't, ask.", g.Verify)
+	} else {
+		b.WriteString("Run the tests the task names and get them passing before you complete; if you can't, ask.")
+	}
+	b.WriteString(" Commit, then `wsh jarvis complete --commit $(git rev-parse HEAD)`.")
+	if g.PlanPath != "" {
+		b.WriteString("\nIf your context was compacted, re-read your task from the plan.")
+	}
+	return b.String()
+}
 
 // predecessor handoff bounds: a brief, not a transcript. The child can read the whole change with
 // `git show`; what it needs inline is enough to know a decision was made and where to look.
@@ -628,11 +648,12 @@ func truncateNote(s string, max int) string {
 	return cut + "..."
 }
 
-// taskPrompt is the child's goal: per-task RunSpec goal, else the task label, with the plan
-// description (decision pins), the predecessor handoff, and the headless contract appended so the
-// child never re-asks what the plan already decided or redoes what a dependency already landed.
-func taskPrompt(task *waveobj.TaskNode, owner *waveobj.Run, handoff string) string {
+// taskPrompt is the child's goal: the worker contract, then the task's text (its RunSpec goal, else its
+// label, with the plan description and its decision pins), then the handoff from landed dependencies.
+func taskPrompt(g *waveobj.TaskGroup, task *waveobj.TaskNode, owner *waveobj.Run, runtime, handoff string) string {
 	var b strings.Builder
+	b.WriteString(workerContract(g, task, runtime))
+	b.WriteString("\n\n")
 	if task.RunSpec.Goal != "" {
 		b.WriteString(task.RunSpec.Goal)
 	} else if task.Label != "" {
@@ -648,8 +669,6 @@ func taskPrompt(task *waveobj.TaskNode, owner *waveobj.Run, handoff string) stri
 		b.WriteString("\n\n")
 		b.WriteString(handoff)
 	}
-	b.WriteString("\n\n")
-	b.WriteString(HeadlessContract)
 	return b.String()
 }
 

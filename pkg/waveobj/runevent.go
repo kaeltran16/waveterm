@@ -57,9 +57,11 @@ const (
 	//   task-forwarded    a task's open judgment handed to the human, with why ("taskid", "askid", "note")
 	//   lead-woken        a wake typed into the lead's terminal ("text")
 	//   lead-wake-failed  the lead cannot take wakes; its judgment goes to the human ("reason", "lines")
+	//   lead-exited       the lead exited before submitting a plan, which fails the run ("reason")
 	RunEventKindTaskForwarded  = "task-forwarded"
 	RunEventKindLeadWoken      = "lead-woken"
 	RunEventKindLeadWakeFailed = "lead-wake-failed"
+	RunEventKindLeadExited     = "lead-exited"
 
 	// merge-point Verify (orchestrator redesign §4): the plan's Verify command, run in the project
 	// checkout after a task's squash merge.

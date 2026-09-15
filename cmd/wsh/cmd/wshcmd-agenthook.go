@@ -30,6 +30,7 @@ type ccHookEvent struct {
 	ToolUseID      string          `json:"tool_use_id"`
 	TranscriptPath string          `json:"transcript_path"`
 	ToolInput      json.RawMessage `json:"tool_input"`
+	Source         string          `json:"source"`
 }
 
 // agentEmission describes what to publish for one hook event. State=="" means no
@@ -58,6 +59,15 @@ func planEmission(ev ccHookEvent) agentEmission {
 			return agentEmission{State: baseds.AgentState_Asking}
 		default:
 			return agentEmission{State: baseds.AgentState_Working, Detail: detailForTool(ev.ToolName, ev.ToolInput), AttachModelTitle: true}
+		}
+	case "PreCompact":
+		// a compaction is work the session cannot take typed input during, and it confirms a typed /compact
+		return agentEmission{State: baseds.AgentState_Working}
+	case "SessionStart":
+		// the session is back at its prompt once the summary lands. an auto-compaction inside a turn reads
+		// idle only until that turn's next tool reports working, and a wake typed then queues behind it.
+		if ev.Source == "compact" {
+			return agentEmission{State: baseds.AgentState_Idle}
 		}
 	}
 	return agentEmission{}

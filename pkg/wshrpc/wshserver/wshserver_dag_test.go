@@ -968,3 +968,53 @@ func TestDagDigestChildRunLimitCoversTaskCap(t *testing.T) {
 		t.Fatalf("dagDigestChildRunLimit must follow jarvis.MaxDagTasks: %d vs %d", dagDigestChildRunLimit, jarvis.MaxDagTasks)
 	}
 }
+
+func TestDagSubmitHandsOffOnlyToALead(t *testing.T) {
+	ctx := context.Background()
+	var handed []string
+	old := postHandoff
+	postHandoff = func(_ context.Context, channelId, runId string) { handed = append(handed, channelId+"/"+runId) }
+	t.Cleanup(func() { postHandoff = old })
+	stubRunServer(t, "pi", nil)
+	ws := &WshServer{}
+
+	ch, err := wstore.CreateChannel(ctx, "dag-handoff", t.TempDir())
+	if err != nil {
+		t.Fatalf("CreateChannel: %v", err)
+	}
+	lead := jarvis.NewRun("do the thing", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	lead.Phases[0].WorkerOrefs = []string{"tab:lead-tab"}
+	if err := wstore.AppendRun(ctx, ch.OID, lead); err != nil {
+		t.Fatalf("AppendRun: %v", err)
+	}
+	submit := wshrpc.CommandDagSubmitData{
+		ChannelId: ch.OID, RunId: lead.ID, Title: "t", Parallelism: 1,
+		Tasks: []waveobj.TaskNode{{ID: "t-1", Label: "one"}},
+	}
+	if _, err := ws.DagSubmitCommand(ctx, submit); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if _, err := ws.DagSubmitCommand(ctx, submit); err != nil {
+		t.Fatalf("identical retry: %v", err)
+	}
+	if want := []string{ch.OID + "/" + lead.ID}; !reflect.DeepEqual(handed, want) {
+		t.Fatalf("handoffs = %v, want exactly one for the lead's first submit %v", handed, want)
+	}
+
+	deferred, err := ws.CreateRunCommand(ctx, wshrpc.CommandCreateRunData{
+		ChannelId: ch.OID, WorkspaceId: "ws", Goal: "human planned", Runtime: "pi",
+		Mode: jarvis.RunMode_Orchestrator, DeferStart: true,
+	})
+	if err != nil {
+		t.Fatalf("create deferred: %v", err)
+	}
+	if _, err := ws.DagSubmitCommand(ctx, wshrpc.CommandDagSubmitData{
+		ChannelId: ch.OID, RunId: deferred.Run.ID, Title: "g", Parallelism: 1,
+		Tasks: []waveobj.TaskNode{{ID: "t-1", Label: "one"}},
+	}); err != nil {
+		t.Fatalf("submit deferred: %v", err)
+	}
+	if len(handed) != 1 {
+		t.Fatalf("a run with no lead worker gets no handoff, got %v", handed)
+	}
+}

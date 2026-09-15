@@ -7,31 +7,20 @@ import (
 
 // Empty orchestration throughout this file is deliberate: these two guard the legacy runtime fork a
 // pre-2026-09 run is still built under, so they must keep passing the shape those runs stored.
-func TestBuildOrchestratePromptPiPublishesTypedTasksAutonomously(t *testing.T) {
-	p := BuildOrchestratePrompt("ship auth", nil, "pi", "", 0)
-	for _, want := range []string{
-		"wsh jarvis dag import-tasks",
-		"wsh jarvis dag status",
-		"wake:",
-		"task-specific goal",
-		"relevant evidence",
-		"verification",
-		"pinned decisions",
-		"Goal: ship auth",
-	} {
+func TestBuildOrchestratePromptLegacyPiGetsTheEngineLaunchPrompt(t *testing.T) {
+	p := BuildOrchestratePrompt("ship auth", nil, "pi", "")
+	for _, want := range []string{"Goal: ship auth", "wsh jarvis dag submit --plan", "ask_user_question"} {
 		if !strings.Contains(p, want) {
 			t.Errorf("pi prompt missing %q", want)
 		}
 	}
-	for _, unwanted := range []string{"hold <plan-file-path>", "wait for human approval", "plan review"} {
-		if strings.Contains(strings.ToLower(p), strings.ToLower(unwanted)) {
-			t.Errorf("pi prompt retained plan approval %q", unwanted)
-		}
+	if strings.Contains(p, "import-tasks") {
+		t.Errorf("pi prompt still publishes through pi-tasks")
 	}
 }
 
 func TestBuildOrchestratePromptClaudeRetainsAdaptiveTriage(t *testing.T) {
-	p := BuildOrchestratePrompt("ship auth", nil, "claude", "", 0)
+	p := BuildOrchestratePrompt("ship auth", nil, "claude", "")
 	for _, want := range []string{"wsh jarvis triage", "quick", "plan", "Goal: ship auth"} {
 		if !strings.Contains(p, want) {
 			t.Errorf("claude prompt missing %q", want)

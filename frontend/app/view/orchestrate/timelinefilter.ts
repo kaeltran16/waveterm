@@ -36,6 +36,7 @@ export const ATTENTION_KINDS = new Set<string>([
     "task-cleanup-failed",
     "task-forwarded",
     "lead-wake-failed",
+    "lead-exited",
 ]);
 
 // taskIdOf reads the task a row belongs to; "" for a dag-level row (dag-done, evidence-sealed).

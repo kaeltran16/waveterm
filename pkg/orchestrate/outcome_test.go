@@ -269,3 +269,83 @@ func TestBlockedRunEventUsesMixedForDistinctKinds(t *testing.T) {
 		t.Fatalf("blocked event kind = %q, want mixed", detail.Kind)
 	}
 }
+
+// newLeadExitRun stores an orchestrator run whose lead tab is "tab:lead-tab", and captures run events.
+func newLeadExitRun(t *testing.T, mutate func(*waveobj.Run)) (context.Context, string, *waveobj.Run, *[]map[string]any) {
+	t.Helper()
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "lead-exit", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := jarvis.NewRun("goal", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	run.Phases[0].WorkerOrefs = []string{"tab:lead-tab"}
+	if mutate != nil {
+		mutate(&run)
+	}
+	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
+		t.Fatal(err)
+	}
+	rows := &[]map[string]any{}
+	oldOwner, oldAppend := workerOwnerOf, appendRunEvent
+	workerOwnerOf = func(context.Context, string) (string, string, error) {
+		return waveobj.MakeORef(waveobj.OType_Run, run.ID).String(), waveobj.MakeORef(waveobj.OType_Channel, ch.OID).String(), nil
+	}
+	appendRunEvent = func(_ context.Context, _, _, kind string, _ *int, detail any) {
+		row := map[string]any{"eventkind": kind}
+		if d, ok := detail.(map[string]any); ok {
+			for k, v := range d {
+				row[k] = v
+			}
+		}
+		*rows = append(*rows, row)
+	}
+	t.Cleanup(func() { workerOwnerOf, appendRunEvent = oldOwner, oldAppend })
+	return ctx, ch.OID, &run, rows
+}
+
+func TestLeadExitBeforeSubmitFailsTheRunWithAReason(t *testing.T) {
+	ctx, channelId, run, rows := newLeadExitRun(t, nil)
+	if err := HandleLeadExit(ctx, "tab:lead-tab"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := wstore.GetRun(ctx, channelId, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != jarvis.RunStatus_Blocked || got.Phases[0].State != jarvis.PhaseState_Failed {
+		t.Fatalf("run status=%q phase=%q, want blocked and failed", got.Status, got.Phases[0].State)
+	}
+	if len(*rows) != 1 || (*rows)[0]["eventkind"] != waveobj.RunEventKindLeadExited || (*rows)[0]["reason"] != leadExitedNote {
+		t.Fatalf("want one lead-exited row with the reason, got %+v", *rows)
+	}
+}
+
+func TestLeadExitLeavesOtherRunsAlone(t *testing.T) {
+	for name, mutate := range map[string]func(*waveobj.Run){
+		// G8: after submit the engine keeps running the dag, and the wake adapter hands judgment to the human
+		"submitted": func(r *waveobj.Run) { r.DagORef = "dag-1" },
+		// a spike or bounded lead completes before it exits. a failed CompletePhase leaves the run
+		// executing, which the status check below then catches
+		"finished": func(r *waveobj.Run) {
+			next, _ := jarvis.CompletePhase(*r, 0, nil, 2)
+			*r = next
+		},
+		"pipeline": func(r *waveobj.Run) { r.Mode = jarvis.RunMode_Pipeline },
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx, channelId, run, rows := newLeadExitRun(t, mutate)
+			before := run.Status
+			if err := HandleLeadExit(ctx, "tab:lead-tab"); err != nil {
+				t.Fatal(err)
+			}
+			got, err := wstore.GetRun(ctx, channelId, run.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Status != before || len(*rows) != 0 {
+				t.Fatalf("status %q -> %q, rows %+v: a %s run is not the lead-exit case", before, got.Status, *rows, name)
+			}
+		})
+	}
+}

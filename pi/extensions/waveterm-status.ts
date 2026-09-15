@@ -103,6 +103,15 @@ export function registerWavetermStatus(pi: any, wshPath: string): void {
     });
     pi.on("agent_settled", (_event: any, ctx: any) => report(ctx, "idle"));
     pi.on("session_shutdown", (_event: any, ctx: any) => report(ctx, "idle"));
+    // a compaction holds the session like a turn: it confirms a typed handoff /compact and keeps wakes out
+    // while it runs. afterwards the session is back in whatever state the compaction interrupted.
+    let beforeCompact: "working" | "idle" = "idle";
+    pi.on("session_before_compact", async (_event: any, ctx: any) => {
+        beforeCompact = state;
+        await report(ctx, "working");
+    });
+    pi.on("session_compact", (_event: any, ctx: any) => report(ctx, beforeCompact));
+    pi.on("session_compact_failed", (_event: any, ctx: any) => report(ctx, beforeCompact));
 }
 
 export default function wavetermStatus(pi: any): void {

@@ -12,6 +12,9 @@ const LIFECYCLE_EVENTS = [
     "message_end",
     "agent_settled",
     "session_shutdown",
+    "session_before_compact",
+    "session_compact",
+    "session_compact_failed",
 ];
 
 function fakePi() {
@@ -97,6 +100,32 @@ describe("registerWavetermStatus", () => {
         registerWavetermStatus(pi, "wsh");
         await pi.handlers.get("session_start")![0]({}, sessionCtx());
         assertStatusExec(pi, "wsh", { "--state": "idle" });
+    });
+
+    it("reports working for a compaction and idle after it", async () => {
+        const pi = fakePi();
+        registerWavetermStatus(pi, "wsh");
+        await pi.handlers.get("session_before_compact")![0]({ reason: "manual" }, sessionCtx());
+        expect(pi.exec).toHaveBeenLastCalledWith("wsh", expect.arrayContaining(["--state", "working"]));
+        await pi.handlers.get("session_compact")![0]({ reason: "manual" }, sessionCtx());
+        expect(pi.exec).toHaveBeenLastCalledWith("wsh", expect.arrayContaining(["--state", "idle"]));
+    });
+
+    it("keeps a turn working across a compaction inside it", async () => {
+        const pi = fakePi();
+        registerWavetermStatus(pi, "wsh");
+        await pi.handlers.get("agent_start")![0]({}, sessionCtx());
+        await pi.handlers.get("session_before_compact")![0]({ reason: "threshold" }, sessionCtx());
+        await pi.handlers.get("session_compact")![0]({ reason: "threshold" }, sessionCtx());
+        expect(pi.exec).toHaveBeenLastCalledWith("wsh", expect.arrayContaining(["--state", "working"]));
+    });
+
+    it("restores the prior state when a compaction fails", async () => {
+        const pi = fakePi();
+        registerWavetermStatus(pi, "wsh");
+        await pi.handlers.get("session_before_compact")![0]({ reason: "manual" }, sessionCtx());
+        await pi.handlers.get("session_compact_failed")![0]({ reason: "manual", aborted: false }, sessionCtx());
+        expect(pi.exec).toHaveBeenLastCalledWith("wsh", expect.arrayContaining(["--state", "idle"]));
     });
 
     it("reports working on agent_start", async () => {

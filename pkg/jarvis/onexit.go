@@ -28,6 +28,20 @@ func notifyChildOutcome(ctx context.Context, workerORef string, data OutcomeData
 	}
 }
 
+// LeadExitHook, when set (by pkg/orchestrate at init), hears every agent worker tab exit before its
+// transcript is read: a lead that exits before it submits a plan must fail its run whether or not its
+// transcript parses, and a Claude session may not have written one yet.
+var LeadExitHook func(context.Context, string) error
+
+func notifyLeadExit(ctx context.Context, workerORef string) {
+	if LeadExitHook == nil {
+		return
+	}
+	if err := LeadExitHook(ctx, workerORef); err != nil {
+		log.Printf("jarvis lead exit for %s: %v", workerORef, err)
+	}
+}
+
 // OnWorkerExit posts a channel "outcome" message when a dispatched agent worker's process exits: it
 // reads the transcript path stamped on the block by the hook, derives status+summary from the
 // transcript (agentsessions), and posts to the dispatching channel (PostOutcome). No-op for a
@@ -60,11 +74,12 @@ func OnWorkerExit(blockId string, exitCode int) {
 	if runtime == "" {
 		return // not an agent session
 	}
+	workerORef := waveobj.MakeORef(waveobj.OType_Tab, tabId).String()
+	notifyLeadExit(ctx, workerORef)
 	data, ok := exitOutcome(tpath, runtime, exitCode)
 	if !ok {
 		return
 	}
-	workerORef := waveobj.MakeORef(waveobj.OType_Tab, tabId).String()
 	notifyChildOutcome(ctx, workerORef, data)
 	ch := resolveDispatchChannelForWorker(ctx, workerORef)
 	if ch == nil {

@@ -89,27 +89,78 @@ func (c *captureClient) dagCleanupStates(scope string) []string {
 
 func TestTaskPromptCarriesDescriptionAndContract(t *testing.T) {
 	owner := jarvis.NewRun("owner", "ws-1", "/p", nil, jarvis.RunMode_Orchestrator, nil, 1)
+	g := &waveobj.TaskGroup{}
 	desc := "pin: date-only format (Aug 16)"
-	p := taskPrompt(&waveobj.TaskNode{ID: "t-1", Label: "add fmtDate", Description: desc}, &owner, "")
-	if !strings.Contains(p, "add fmtDate") {
-		t.Fatalf("label missing from prompt: %q", p)
-	}
-	if !strings.Contains(p, desc) {
-		t.Fatalf("description missing from prompt: %q", p)
-	}
-	if !strings.Contains(p, HeadlessContract) {
-		t.Fatalf("headless contract missing from prompt: %q", p)
+	task := &waveobj.TaskNode{ID: "t-1", Label: "add fmtDate", Description: desc}
+	p := taskPrompt(g, task, &owner, "claude", "")
+	for _, want := range []string{"add fmtDate", desc, workerContract(g, task, "claude")} {
+		if !strings.Contains(p, want) {
+			t.Fatalf("prompt missing %q: %q", want, p)
+		}
 	}
 }
 
 func TestTaskPromptLabelOnlyStillHasContract(t *testing.T) {
 	owner := jarvis.NewRun("owner", "ws-1", "/p", nil, jarvis.RunMode_Orchestrator, nil, 1)
-	p := taskPrompt(&waveobj.TaskNode{ID: "t-1", Label: "plain"}, &owner, "")
-	if !strings.Contains(p, HeadlessContract) {
-		t.Fatalf("contract missing from prompt: %q", p)
+	g := &waveobj.TaskGroup{}
+	task := &waveobj.TaskNode{ID: "t-1", Label: "plain"}
+	p := taskPrompt(g, task, &owner, "claude", "")
+	if !strings.HasPrefix(p, workerContract(g, task, "claude")) {
+		t.Fatalf("contract must open the prompt: %q", p)
 	}
 	if strings.Contains(p, "description") {
 		t.Fatalf("no description should appear for a label-only task: %q", p)
+	}
+}
+
+// spec §4: the contract, then the task's text, then the handoff, so a worker reads its obligations first
+// and the handoff sits beside the work it shaped.
+func TestTaskPromptOrdersContractTaskHandoff(t *testing.T) {
+	owner := jarvis.NewRun("owner", "ws-1", "/p", nil, jarvis.RunMode_Orchestrator, nil, 1)
+	g := &waveobj.TaskGroup{}
+	task := &waveobj.TaskNode{ID: "t-2", Label: "use fmtDate"}
+	p := taskPrompt(g, task, &owner, "claude", "landed as commit abc1234")
+	ci := strings.Index(p, workerContract(g, task, "claude"))
+	ti := strings.Index(p, "use fmtDate")
+	hi := strings.Index(p, "landed as commit abc1234")
+	if ci != 0 || ti < 0 || hi < 0 || ti > hi {
+		t.Fatalf("want contract, task, handoff in that order (contract@%d task@%d handoff@%d): %q", ci, ti, hi, p)
+	}
+}
+
+func TestWorkerContractNamesPlanSpecVerifyAndTool(t *testing.T) {
+	g := &waveobj.TaskGroup{PlanPath: "C:/p/plan.md", SpecPath: "C:/p/spec.md", Verify: "go test ./..."}
+	c := workerContract(g, &waveobj.TaskNode{ID: "t-3"}, "pi")
+	for _, want := range []string{
+		"You are the worker for task 3 of the plan at C:/p/plan.md (spec: C:/p/spec.md).",
+		"don't re-plan or pause for design approval",
+		"ask once with ask_user_question and concrete options, then wait",
+		"Run `go test ./...` and get it passing before you complete; if you can't, ask.",
+		"Commit, then `wsh jarvis complete --commit $(git rev-parse HEAD)`.",
+		"If your context was compacted, re-read your task from the plan.",
+	} {
+		if !strings.Contains(c, want) {
+			t.Fatalf("contract missing %q:\n%s", want, c)
+		}
+	}
+}
+
+// until slice 5c a dag can still arrive as JSON, with no plan file to point at
+func TestWorkerContractWithoutPlanOrVerify(t *testing.T) {
+	c := workerContract(&waveobj.TaskGroup{}, &waveobj.TaskNode{ID: "t-3"}, "claude")
+	for _, want := range []string{
+		"You are the worker for task t-3 of this run's dag.",
+		"ask once with AskUserQuestion",
+		"Run the tests the task names and get them passing",
+	} {
+		if !strings.Contains(c, want) {
+			t.Fatalf("contract missing %q:\n%s", want, c)
+		}
+	}
+	for _, gone := range []string{"plan at", "spec:", "re-read your task"} {
+		if strings.Contains(c, gone) {
+			t.Fatalf("a dag without a plan names none, found %q:\n%s", gone, c)
+		}
 	}
 }
 
@@ -161,19 +212,6 @@ func TestPredecessorHandoffSurvivesUnsealedEvidence(t *testing.T) {
 	}
 }
 
-func TestTaskPromptPlacesHandoffBeforeTheContract(t *testing.T) {
-	owner := jarvis.NewRun("owner", "ws-1", "/p", nil, jarvis.RunMode_Orchestrator, nil, 1)
-	p := taskPrompt(&waveobj.TaskNode{ID: "t-2", Label: "dependent"}, &owner, "landed as commit abc1234")
-	hi := strings.Index(p, "landed as commit abc1234")
-	ci := strings.Index(p, HeadlessContract)
-	if hi < 0 || ci < 0 {
-		t.Fatalf("handoff or contract missing: %q", p)
-	}
-	if hi > ci {
-		t.Fatalf("handoff must precede the contract so the completion instruction stays last: %q", p)
-	}
-}
-
 func TestTruncateNoteBoundsAndCollapses(t *testing.T) {
 	if got := truncateNote("  two   lines\nof note ", 100); got != "two lines of note" {
 		t.Fatalf("whitespace not collapsed: %q", got)
@@ -190,7 +228,7 @@ func TestTruncateNoteBoundsAndCollapses(t *testing.T) {
 
 func TestTaskPromptRunSpecGoalWins(t *testing.T) {
 	owner := jarvis.NewRun("owner", "ws-1", "/p", nil, jarvis.RunMode_Orchestrator, nil, 1)
-	p := taskPrompt(&waveobj.TaskNode{ID: "t-1", Label: "label", RunSpec: waveobj.RunSpec{Goal: "explicit goal"}}, &owner, "")
+	p := taskPrompt(&waveobj.TaskGroup{}, &waveobj.TaskNode{ID: "t-1", Label: "label", RunSpec: waveobj.RunSpec{Goal: "explicit goal"}}, &owner, "claude", "")
 	if !strings.Contains(p, "explicit goal") {
 		t.Fatalf("runspec goal missing from prompt: %q", p)
 	}

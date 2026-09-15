@@ -57,6 +57,7 @@ describe("filterEvents", () => {
             "task-cleanup-failed",
             "task-forwarded",
             "lead-wake-failed",
+            "lead-exited",
         ]) {
             expect(ATTENTION_KINDS.has(kind), kind).toBe(true);
         }

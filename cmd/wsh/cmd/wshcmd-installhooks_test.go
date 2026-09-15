@@ -691,3 +691,30 @@ func TestSessionStartMemoryHookIsManaged(t *testing.T) {
 		t.Fatal("SessionStart command not recognized as Arc-managed; re-runs would duplicate it")
 	}
 }
+
+func TestCompactionHooksAreManaged(t *testing.T) {
+	for _, want := range []managedHook{
+		{"PreCompact", "", "agent-hook", 10},
+		{"SessionStart", "compact", "agent-hook", 10},
+		{"SessionStart", "compact", "jarvis dag rules --inject", 15},
+	} {
+		found := false
+		for _, mh := range managedHooks {
+			if mh == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("managed hooks missing %+v", want)
+		}
+	}
+	// a command wsh does not recognize is never replaced, so every re-run would add another copy
+	if !isManagedCommand(`"C:\bin\wsh-0.14.10-windows.x64.exe" jarvis dag rules --inject`) {
+		t.Fatal("the rules hook command is not recognized as Arc-managed")
+	}
+	merged := mergeAgentHooks(mergeAgentHooks(map[string]any{}, testWsh), testWsh)
+	groups, _ := merged["hooks"].(map[string]any)["SessionStart"].([]any)
+	if len(groups) != 3 {
+		t.Fatalf("SessionStart groups after two merges = %d, want the memory, idle and rules hooks", len(groups))
+	}
+}

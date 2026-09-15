@@ -36,6 +36,10 @@ const (
 	leadDeadNote        = "lead is not taking wakes"
 )
 
+// HandoffCompact is typed into a lead once its plan is handed over (spec §7): the compaction lands at the
+// natural boundary instead of mid-wake, and keeps what the spec does not already hold.
+const HandoffCompact = "/compact Keep: what the human said that the spec does not record, and the reason behind each decision. Drop: code you read, drafts, tool output."
+
 type leadState struct {
 	BlockId string
 	TabId   string
@@ -62,6 +66,8 @@ type runWake struct {
 	retried bool
 	dead    bool
 	told    map[string]bool
+	// handoff is a handoff compaction not yet typed.
+	handoff bool
 }
 
 type waker struct {
@@ -111,6 +117,19 @@ func PokeWake(ctx context.Context, channelId, runId string) {
 		}
 		return
 	}
+	wakes.flushLocked(ctx, runId, rw)
+}
+
+// PostHandoff queues runId's handoff compaction, typed the next time the lead is at its prompt. It is
+// delivered like a wake: the compaction's working report confirms it on both harnesses.
+func PostHandoff(ctx context.Context, channelId, runId string) {
+	wakes.lock.Lock()
+	defer wakes.lock.Unlock()
+	rw := wakes.runLocked(channelId, runId)
+	if rw.dead {
+		return
+	}
+	rw.handoff = true
 	wakes.flushLocked(ctx, runId, rw)
 }
 
@@ -191,7 +210,7 @@ func (w *waker) flushLocked(ctx context.Context, runId string, rw *runWake) {
 			untold = true
 		}
 	}
-	if len(rw.lines) == 0 && !untold {
+	if len(rw.lines) == 0 && !untold && !rw.handoff {
 		return
 	}
 	st := leadStateFn(ctx, rw.channelId, runId)
@@ -201,6 +220,14 @@ func (w *waker) flushLocked(ctx context.Context, runId string, rw *runWake) {
 		return
 	}
 	if !atPrompt(st.State) {
+		return
+	}
+	if rw.handoff {
+		// alone and first: a wake joined to it would be summarized away before the lead read it, so held
+		// lines wait for the idle report that ends the compaction
+		sendWakeFn(st.BlockId, HandoffCompact)
+		rw.handoff, rw.sentAt, rw.retried = false, wakeNow(), false
+		appendRunEvent(ctx, rw.channelId, runId, waveobj.RunEventKindLeadWoken, nil, map[string]any{"text": HandoffCompact})
 		return
 	}
 	lines := append([]string{}, rw.lines...)
@@ -220,7 +247,7 @@ func (w *waker) flushLocked(ctx context.Context, runId string, rw *runWake) {
 // row, and every question the lead owns moves to the user.
 func (w *waker) leadDiedLocked(ctx context.Context, runId string, rw *runWake, reason string) {
 	lines := rw.lines
-	rw.lines, rw.sentAt, rw.retried, rw.dead = nil, 0, false, true
+	rw.lines, rw.sentAt, rw.retried, rw.dead, rw.handoff = nil, 0, false, true, false
 	appendRunEvent(ctx, rw.channelId, runId, waveobj.RunEventKindLeadWakeFailed, nil, map[string]any{"reason": reason, "lines": lines})
 	for oref, p := range leadAsks(runId) {
 		forwardAskToUser(ctx, oref, p, reason)

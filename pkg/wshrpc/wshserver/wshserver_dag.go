@@ -64,6 +64,9 @@ func loadDagPlan(data *wshrpc.CommandDagSubmitData) (jarvis.Plan, error) {
 	return plan, nil
 }
 
+// postHandoff is a var so tests can see which submits hand a lead its compaction.
+var postHandoff = orchestrate.PostHandoff
+
 func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDagSubmitData) (*waveobj.TaskGroup, error) {
 	var plan jarvis.Plan
 	if data.SpecPath != "" && data.PlanPath == "" {
@@ -175,6 +178,11 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 			appendRunEvent(ctx, data.ChannelId, data.RunId, waveobj.RunEventKindDagPlanGated, nil, map[string]any{
 				"tasks": len(stored.Tasks), "parallelism": stored.Parallelism,
 			})
+		}
+		// a lead that just handed its plan over compacts at that boundary (spec §7); a run with no lead
+		// worker, a human-planned one, has nobody to compact
+		if leadORef(run) != "" {
+			postHandoff(ctx, data.ChannelId, data.RunId)
 		}
 	}
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, stored.OID))

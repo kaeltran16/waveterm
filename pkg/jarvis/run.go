@@ -38,8 +38,8 @@ const (
 	RunMode_Orchestrator = "orchestrator"
 )
 
-// MaxDagTasks is the ceiling orchestrate.MaxTasks enforces. It lives here because the lead's engine
-// prompt has to state it while planning, and pkg/orchestrate imports pkg/jarvis, never the reverse.
+// MaxDagTasks is the ceiling orchestrate.MaxTasks enforces. It lives here because pkg/orchestrate imports
+// pkg/jarvis, never the reverse; slice 5c deletes the cap with JSON submit.
 // The cap bounds blast radius — a lead fanning dozens of children into a user's repo — not resource
 // use: concurrency is governed by Parallelism, and each worktree is removed on merge.
 const MaxDagTasks = 16
@@ -402,16 +402,15 @@ func ResolveOrchestration(orchestration, runtime string) string {
 }
 
 // BuildOrchestratePrompt is the lead's initial prompt for an orchestrator run. The fork is the
-// orchestration choice, not the runtime: "engine" publishes a TaskGroup that pkg/orchestrate
-// schedules into managed worktrees, "adaptive" leaves fan-out to the lead's own subagents. Runtime
-// still selects how an engine lead publishes and how it is woken, because those differ per harness.
-func BuildOrchestratePrompt(goal string, principles waveobj.PrincipleList, runtime, orchestration string, parallelism int) string {
+// orchestration choice, not the runtime: an "engine" lead brainstorms and hands pkg/orchestrate a plan
+// file, an "adaptive" lead fans out with its own subagents. Runtime names the ask tool.
+func BuildOrchestratePrompt(goal string, principles waveobj.PrincipleList, runtime, orchestration string) string {
 	var b strings.Builder
 	if rendered := RenderPrinciples(principles); rendered != "" {
 		fmt.Fprintf(&b, "Work by these principles, and propagate them into every subagent you dispatch:\n%s\n\n", rendered)
 	}
 	if ResolveOrchestration(orchestration, runtime) == Orchestration_Engine {
-		buildEngineOrchestratePrompt(&b, goal, runtime, parallelism)
+		writeLaunchPrompt(&b, goal, runtime)
 	} else {
 		buildAdaptiveOrchestratePrompt(&b, goal)
 	}
@@ -431,42 +430,4 @@ func buildAdaptiveOrchestratePrompt(b *strings.Builder, goal string) {
 	b.WriteString("If a genuinely consequential or ambiguous decision comes up mid-run — one where a wrong assumption would waste real work — use the AskUserQuestion tool to ask the human; it renders as an answerable question in the cockpit and blocks until they reply. Never pose such a question in prose: a prose question does not render as a question, so the run just proceeds without an answer.\n")
 	fmt.Fprintf(b, "Goal: %s\n", goal)
 	b.WriteString("When the goal is fully accomplished, commit your work and run `wsh jarvis complete --commit $(git rev-parse HEAD)` from your working tree (the SHA of your own final commit), so the run's evidence reflects exactly your changes.\n")
-}
-
-// buildEngineOrchestratePrompt: the lead publishes a DAG and the engine schedules it. The two hard
-// limits are stated up front because discovering them at submit time costs a blocking escalation —
-// and the two-phase import a lead naturally proposes as the remedy is exactly what CreateDagForRun
-// rejects.
-func buildEngineOrchestratePrompt(b *strings.Builder, goal, runtime string, parallelism int) {
-	b.WriteString("You are the lead orchestrator for this goal, driving the Arc orchestration engine.\n")
-	b.WriteString("Size up the goal: if it is a small well-understood change, run `wsh jarvis triage quick \"<reason>\"` and do it directly. Otherwise run `wsh jarvis triage plan \"<reason>\"`, plan it with the superpowers:writing-plans approach, and publish that plan as a DAG.\n")
-	fmt.Fprintf(b, "Two hard limits shape the plan, so respect them while planning instead of discovering them at submit time: a DAG holds at most %d tasks, and one orchestrator run holds exactly one DAG for its whole lifetime — a second, different submission is rejected as a dag conflict, so a multi-phase import is not available. Compress the plan to fit.\n", MaxDagTasks)
-	if parallelism > 0 {
-		// the human set this in the Run rail and DagSubmit enforces it, so the lead plans to it rather
-		// than proposing a width that gets replaced under it
-		fmt.Fprintf(b, "The human has set this run's parallelism to %d, and that is the width the engine will use — submit that number and shape the plan's layers around it.\n", parallelism)
-	}
-	b.WriteString("Each task description must include the task-specific goal, relevant evidence and constraints, expected verification, and pinned decisions, so the child never has to rediscover the broad goal.\n")
-	// the gate is stated up front because it changes what submitting means: the lead is publishing a
-	// proposal, not starting work, and a lead that does not know this reads the pause after submit as
-	// the engine failing to dispatch.
-	b.WriteString("Your submitted plan is a proposal: the human reads the task list and approves it before any worker spawns, so write task labels and descriptions to be read by them. A sent-back plan is discarded — revise it and submit again.\n")
-	if runtime == "pi" {
-		b.WriteString("Create pi-tasks records and run `wsh jarvis dag import-tasks`; the engine validates and schedules ready children automatically.\n")
-	} else {
-		b.WriteString("Write the DAG as JSON to a file and submit it with `wsh jarvis dag submit --file <path>`. The JSON is an object with `title`, `parallelism` (1-8), and `tasks`, each task `{\"id\": \"t-1\", \"label\": \"...\", \"description\": \"...\", \"deps\": [\"t-0\"]}`.\n")
-	}
-	// both runtimes are woken by text typed into this terminal, which only lands at an idle prompt: a
-	// lead that keeps its turn open to poll never receives it.
-	b.WriteString("After submitting, end your turn and do not poll. When something needs your judgment the engine types a line beginning `wake:` into this terminal, naming the event and the command that shows it; handle it, then end your turn again. A sent-back plan is typed here too, with the human's notes.\n")
-	b.WriteString("Answer a child's question with `wsh jarvis dag answer <task-id> <answers-json>`. A product or scope call, or a question the plan does not settle, goes to the human with `wsh jarvis dag forward <task-id> \"<what you checked, what you recommend>\"`; a failed task you cannot recover is forwarded the same way.\n")
-	b.WriteString("Use `wsh jarvis dag status` for detail at any time.\n")
-	b.WriteString("If a genuinely consequential or ambiguous decision comes up — one where a wrong assumption would waste real work — use the AskUserQuestion tool to ask the human; it renders an answerable question in the cockpit and blocks until they reply. Never pose such a question in prose.\n")
-	// the digest's own words: kind `merge-ready`, action `resolve-merge`. A lead that pattern-matches
-	// any other word never acts on the merges the engine leaves to a person. The bare `dag merge` is
-	// deliberately not offered here: the engine only leaves a clean merge undone when the project
-	// index is dirty, and that merge would commit the human's staged edits into the task.
-	b.WriteString("A Git-backed dependent task stays pending until each predecessor is merged, and the engine lands a clean merge itself the moment the child reports done — that is not your step. The digest keeps offering the action `resolve-merge` only where the engine declined, and the kind says why. A `merge-ready` task that does not clear means the project tree has staged edits the engine refuses to fold into a task's commit: never merge over them, ask the human with AskUserQuestion to commit or stash first. A task reported in `blocked-merge` is a squash conflict: resolve it in the project tree yourself, then run `wsh jarvis dag merge <task-id> --continue`.\n")
-	fmt.Fprintf(b, "Goal: %s\n", goal)
-	b.WriteString("When the goal is fully accomplished, commit your work and run `wsh jarvis complete --commit $(git rev-parse HEAD)`.\n")
 }
