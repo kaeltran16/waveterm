@@ -45,8 +45,9 @@ cd .claude/worktrees/review-fixes && task worktree:prepare
 `task worktree:prepare` is a Windows-specific step and it matters more than it looks. It junctions
 `node_modules`, `src-tauri/target` and `dist/bin` in from the main checkout. A fresh worktree has
 none of them, so a child that runs `npx vitest` in an unprepared tree fails on a missing dependency
-and spends its one question asking you why. **The engine does not run it for you** — `CreateRunWorktree`
-is a plain `git worktree add` — so if your tasks need `node_modules`, say so in the task description.
+and spends its one question asking you why. **The engine runs it for you when the plan says so:** a plan
+line `` **Setup:** `task worktree:prepare` `` runs in every new task worktree before its worker starts, and
+a Setup that fails fails the task with kind `setup`.
 
 ### 2. The backend running the run must already contain any backend fix the run depends on
 

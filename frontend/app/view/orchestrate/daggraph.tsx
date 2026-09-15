@@ -37,6 +37,8 @@ const STATE_TONE: Record<string, string> = {
     cancelled: "border-edge-mid bg-surface-raised text-muted",
     skipped: "border-edge-mid bg-surface-raised text-muted",
     "blocked-merge": "border-warning/70 bg-warning/15 text-warning",
+    verifying: "border-accent/60 bg-accent/15 text-accent-soft",
+    "verify-failed": "border-warning/70 bg-warning/15 text-warning",
     pending: "border-edge-mid bg-surface-raised text-secondary",
 };
 
@@ -383,8 +385,8 @@ function runEscalate(group: TaskGroup, view: DagViewNode, route: RoutePin) {
 }
 
 // runAction dispatches the node's action to the dag commands; the resulting waveobj update
-// re-derives the graph. "resolve" finishes a blocked squash merge the human resolved in the
-// project tree; the remaining actions go through the engine's dag action RPC.
+// re-derives the graph. "resolve" is merge --continue: it finishes a squash merge the human resolved in the project
+// tree, or re-runs a failed Verify after their fix; the remaining actions go through the engine's dag action RPC.
 function runAction(group: TaskGroup, view: DagViewNode, action: string) {
     const data = { channelid: group.channelid, runid: group.runid, taskid: view.id, action };
     const mergeData = { channelid: group.channelid, runid: group.runid, taskid: view.id };

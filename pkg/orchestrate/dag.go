@@ -22,7 +22,15 @@ const (
 	TaskState_Cancelled    = "cancelled"
 	TaskState_Skipped      = "skipped"
 	TaskState_BlockedMerge = "blocked-merge"
+	TaskState_Verifying    = "verifying"     // merged; the plan's Verify is running in the project checkout
+	TaskState_VerifyFailed = "verify-failed" // merged, and Verify failed or timed out; fixed in the project tree, then `dag merge --continue`
 )
+
+// landingState reports a state the merge path wrote after the child finished. Deriving from the done child
+// would read done and erase the conflict or the failed Verify the task is waiting on.
+func landingState(state string) bool {
+	return state == TaskState_BlockedMerge || state == TaskState_Verifying || state == TaskState_VerifyFailed
+}
 
 // taskActive reports whether a task still owns a live child process. Stalling is an observation the
 // liveness pass writes over a running task, not a transition off it — the child keeps running, keeps
@@ -216,6 +224,9 @@ func NewTaskGroup(runID, channelId, title string, parallelism int, mergeRequired
 		if t.CleanupPending || t.CleanupError != "" {
 			return waveobj.TaskGroup{}, fmt.Errorf("task %q cleanup fields must be empty", t.ID)
 		}
+		if t.VerifyError != "" {
+			return waveobj.TaskGroup{}, fmt.Errorf("task %q verifyerror must be empty", t.ID)
+		}
 		if t.LastActivity != 0 {
 			return waveobj.TaskGroup{}, fmt.Errorf("task %q lastactivity must be zero", t.ID)
 		}
@@ -262,7 +273,8 @@ func SameDagProposal(a, b *waveobj.TaskGroup) bool {
 	if a == nil || b == nil {
 		return a == b
 	}
-	if a.Title != b.Title || a.Parallelism != b.Parallelism || a.MergeRequired != b.MergeRequired || len(a.Tasks) != len(b.Tasks) {
+	if a.Title != b.Title || a.Parallelism != b.Parallelism || a.MergeRequired != b.MergeRequired ||
+		a.Verify != b.Verify || a.Setup != b.Setup || len(a.Tasks) != len(b.Tasks) {
 		return false
 	}
 	if (a.WorkerRoute == nil) != (b.WorkerRoute == nil) {
@@ -314,7 +326,7 @@ func RecomputeDagStatus(g *waveobj.TaskGroup) {
 		switch t.State {
 		case TaskState_Cancelled:
 			cancelled = true
-		case TaskState_Failed, TaskState_BlockedMerge:
+		case TaskState_Failed, TaskState_BlockedMerge, TaskState_VerifyFailed:
 			blocked = true
 		case TaskState_Done:
 			if t.Gate && !t.Released {
@@ -397,7 +409,7 @@ func dagCondition(g *waveobj.TaskGroup) string {
 func DeriveTaskStates(g *waveobj.TaskGroup, runs map[string]*waveobj.Run) {
 	for i := range g.Tasks {
 		t := &g.Tasks[i]
-		if t.RunID == "" {
+		if t.RunID == "" || landingState(t.State) {
 			continue
 		}
 		r, ok := runs[t.RunID]

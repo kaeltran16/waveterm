@@ -325,7 +325,7 @@ type TaskNode struct {
 	Description string   `json:"description,omitempty"` // plan context for the child (pins decisions the child must not re-ask)
 	Deps        []string `json:"deps,omitempty"`
 	Gate        bool     `json:"gate,omitempty"`     // halt the DAG at completion for review
-	State       string   `json:"state"`              // pending|ready|running|stalled|done|failed|cancelled|skipped|blocked-merge
+	State       string   `json:"state"`              // pending|ready|running|stalled|done|failed|cancelled|skipped|blocked-merge|verifying|verify-failed
 	RunID       string   `json:"runid,omitempty"`    // child run once spawned
 	Released    bool     `json:"released,omitempty"` // gate released by human approval
 	Merged      bool     `json:"merged,omitempty"`   // successful squash-merge back into the project branch
@@ -346,6 +346,9 @@ type TaskNode struct {
 	Escalations    int    `json:"escalations,omitempty"`
 	CleanupPending bool   `json:"cleanuppending,omitempty"`
 	CleanupError   string `json:"cleanuperror,omitempty"`
+	// VerifyError is why the plan's Verify failed after this task merged: the exit code or the timeout,
+	// then the tail of the command's output. Cleared when Verify passes.
+	VerifyError string `json:"verifyerror,omitempty"`
 }
 
 // RunSpec is the child-run launch form a task wants (runtime/mode/goal override).
@@ -387,6 +390,12 @@ type TaskGroup struct {
 	// re-announcing a condition that has not changed. Kept in its own block so its name does not
 	// rewiden the alignment of every field above it.
 	NotifiedCondition string `json:"notifiedcondition,omitempty"`
+
+	// Verify and Setup are the plan's commands (jarvis.PlanFormat). Setup runs in each new task worktree
+	// before its worker spawns; Verify runs in the project checkout after each squash merge. Both are
+	// empty for a dag submitted as JSON, which is then prepared by nobody and reported unverified.
+	Verify string `json:"verify,omitempty"`
+	Setup  string `json:"setup,omitempty"`
 }
 
 func (*TaskGroup) GetOType() string {

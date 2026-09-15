@@ -16,7 +16,7 @@ type DagCommands interface {
 	DagStatusCommand(ctx context.Context, data CommandDagStatusData) (*CommandDagStatusRtnData, error) // engine-owned status snapshot: group + typed digest
 	DagActionCommand(ctx context.Context, data CommandDagActionData) error                             // approve | sendback | retry | skip | escalate | cancel | forward
 	DagMergeCommand(ctx context.Context, data CommandDagMergeData) error                               // squash-merge a finished child's worktree back
-	DagMergeContinueCommand(ctx context.Context, data CommandDagMergeData) error                       // finish a squash merge after manual conflict resolution
+	DagMergeContinueCommand(ctx context.Context, data CommandDagMergeData) error                       // finish a resolved squash merge, or re-run a failed Verify
 	DagAsksCommand(ctx context.Context, data CommandDagStatusData) (*CommandDagAsksRtnData, error)     // pending child asks (children block on one at a time)
 	DagAnswerCommand(ctx context.Context, data CommandDagAnswerData) error                             // deliver an answer to a child's pending ask
 }
@@ -96,6 +96,21 @@ type DagStatusDigest struct {
 	Next       DagNextStep       `json:"next"`
 	Tasks      []DagTaskDigest   `json:"tasks"`
 	Durations  DagDurationDigest `json:"durations"`
+	Report     DagReportDigest   `json:"report"`
+}
+
+// DagReportDigest is what the lead writes its run-end report from, and what the run card shows.
+type DagReportDigest struct {
+	WorkerMs   int64             `json:"workerms"`             // the tasks' run time, summed
+	Commits    []DagLandedCommit `json:"commits,omitempty"`    // merged tasks' squash commits, in dag order
+	Unverified bool              `json:"unverified,omitempty"` // no merge point ran a Verify: no Verify line, or nothing to merge into
+	Answered   int               `json:"answered"`             // child questions answered, by the lead or the human
+	Forwarded  int               `json:"forwarded"`            // judgments handed to the human
+}
+
+type DagLandedCommit struct {
+	TaskId string `json:"taskid"`
+	Commit string `json:"commit"`
 }
 
 type DagStatusCounts struct {
@@ -110,7 +125,7 @@ type DagStatusCounts struct {
 }
 
 type DagNextStep struct {
-	Kind            string   `json:"kind"` // human-action | merge-ready | dispatch | parallelism-wait | dependency-wait | cleanup-wait | terminal
+	Kind            string   `json:"kind"` // human-action | merge-ready | dispatch | parallelism-wait | verify-wait | dependency-wait | cleanup-wait | terminal
 	TaskIds         []string `json:"taskids,omitempty"`
 	BlockingTaskIds []string `json:"blockingtaskids,omitempty"`
 	Actions         []string `json:"actions,omitempty"` // answer | approve | sendback | resolve-merge | retry | skip | escalate | retry-cleanup
@@ -119,7 +134,7 @@ type DagNextStep struct {
 
 type DagTaskDigest struct {
 	TaskId          string   `json:"taskid"`
-	WaitReason      string   `json:"waitreason"` // none | dependency | parallelism | gate | ask | failure | merge | cleanup | terminal
+	WaitReason      string   `json:"waitreason"` // none | dependency | parallelism | gate | ask | failure | merge | verify | cleanup | terminal
 	BlockingTaskIds []string `json:"blockingtaskids,omitempty"`
 	HumanActions    []string `json:"humanactions,omitempty"` // answer | approve | sendback | resolve-merge | retry | skip | escalate | retry-cleanup
 	AskId           string   `json:"askid,omitempty"`

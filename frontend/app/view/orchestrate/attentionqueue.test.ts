@@ -40,6 +40,19 @@ describe("attentionQueue membership", () => {
     it("skips a task the digest has no row for rather than guessing its condition", () => {
         expect(queue([node("t-fail", { state: "failed", runid: "r1" })], [])).toEqual([]);
     });
+
+    it("queues a failed Verify against the task", () => {
+        const [entry] = queue(
+            [node("t-1", { state: "verify-failed", runid: "r1", merged: true })],
+            [row("t-1", { waitreason: "verify", mergestate: "merged", humanactions: ["resolve-merge"] })]
+        );
+        expect(entry).toMatchObject({
+            taskId: "t-1",
+            detail: "verify-failed",
+            actions: ["resolve-merge"],
+            target: "task",
+        });
+    });
 });
 
 describe("attentionQueue entry content", () => {

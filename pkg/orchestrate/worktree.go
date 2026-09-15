@@ -112,11 +112,12 @@ func unlinkReparsePoints(wt string) error {
 	})
 }
 
-// EnsureRunWorktree returns a usable linked worktree for runID at baseCommit. An existing tree is
-// reused only when its branch still exists and the tree is clean — a clean tree whose head sits
-// past baseCommit is committed child work that merge needs later, so it stays; anything dirty or
-// unverifiable gets its uncommitted state dumped to a recovery patch and is rebuilt from baseCommit.
-func EnsureRunWorktree(ctx context.Context, projectPath, runID, baseCommit string) (string, error) {
+// EnsureRunWorktree returns a usable linked worktree for runID at baseCommit, and whether this call
+// created it, so one-time preparation runs only on a fresh tree. An existing tree is reused only when its
+// branch still exists and the tree is clean — a clean tree whose head sits past baseCommit is committed
+// child work that merge needs later, so it stays; anything dirty or unverifiable gets its uncommitted
+// state dumped to a recovery patch and is rebuilt from baseCommit.
+func EnsureRunWorktree(ctx context.Context, projectPath, runID, baseCommit string) (string, bool, error) {
 	wt := worktreeDir(projectPath, runID)
 	if _, err := os.Stat(wt); err == nil {
 		usable := false
@@ -129,14 +130,15 @@ func EnsureRunWorktree(ctx context.Context, projectPath, runID, baseCommit strin
 			}
 		}
 		if usable {
-			return wt, nil
+			return wt, false, nil
 		}
 		DumpRecoveryPatch(ctx, projectPath, runID) // best effort; rebuild proceeds either way
 		if err := RemoveRunWorktree(ctx, projectPath, runID); err != nil {
-			return "", fmt.Errorf("recreating stale worktree: %w", err)
+			return "", false, fmt.Errorf("recreating stale worktree: %w", err)
 		}
 	}
-	return CreateRunWorktree(ctx, projectPath, runID, baseCommit)
+	wt, err := CreateRunWorktree(ctx, projectPath, runID, baseCommit)
+	return wt, err == nil, err
 }
 
 // DumpRecoveryPatch writes the worktree's diff vs the project head to a patch file so a cancelled

@@ -37,6 +37,12 @@ func mergeConflictWake(taskID string) string {
 	return fmt.Sprintf("wake: merge conflict landing task %s. git status", taskID)
 }
 
+// verifyFailedWake names the exit code or the timeout, so the lead knows whether to read a failing test or
+// look for a hang before it reads the digest.
+func verifyFailedWake(taskID, reason string) string {
+	return fmt.Sprintf("wake: Verify failed after merging task %s (%s). wsh jarvis dag status", taskID, reason)
+}
+
 // RaiseChildAsk puts a dag child's question in its lead's queue and wakes the lead. question is the
 // first question's text, for the child-ask row.
 func RaiseChildAsk(ctx context.Context, g *waveobj.TaskGroup, target AskTarget, blockOref, question string) {
@@ -108,14 +114,14 @@ func ForwardTask(ctx context.Context, dagID, taskID, note string) error {
 		return nil
 	}
 	switch task.State {
-	case TaskState_Failed, TaskState_Stalled, TaskState_BlockedMerge:
+	case TaskState_Failed, TaskState_Stalled, TaskState_BlockedMerge, TaskState_VerifyFailed:
 		appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskForwarded, nil, map[string]any{
 			"taskid": task.ID,
 			"note":   truncateText(note, MaxAskSummaryLen),
 		})
 		return nil
 	}
-	return fmt.Errorf("task %s has no question, failure, stall or merge conflict to forward (state %q)", taskID, task.State)
+	return fmt.Errorf("task %s has no question, failure, stall, merge conflict or failed Verify to forward (state %q)", taskID, task.State)
 }
 
 func taskPendingAsk(ctx context.Context, g *waveobj.TaskGroup, task *waveobj.TaskNode) (string, agentask.PendingAsk, bool) {

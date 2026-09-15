@@ -50,6 +50,7 @@ func BuildDigest(sn DagDigestSnapshot) wshrpc.DagStatusDigest {
 		Next:       buildNext(g, askByTask),
 		Durations:  buildDurations(sn),
 	}
+	d.Report = buildReport(sn, d.Durations)
 	for i := range g.Tasks {
 		d.Tasks = append(d.Tasks, buildTaskDigest(g, &g.Tasks[i], askByTask, retried))
 	}
@@ -127,7 +128,7 @@ func taskAttention(g *waveobj.TaskGroup, t *waveobj.TaskNode, askByTask map[stri
 	if t.Gate && t.State == TaskState_Done && !t.Released {
 		return true
 	}
-	if t.State == TaskState_Failed || t.State == TaskState_BlockedMerge {
+	if t.State == TaskState_Failed || t.State == TaskState_BlockedMerge || t.State == TaskState_VerifyFailed {
 		return true
 	}
 	if staleGate[t.ID] {
@@ -267,6 +268,9 @@ func buildNext(g *waveobj.TaskGroup, askByTask map[string]wshrpc.DagAskItem) wsh
 	if ids := tasksInState(g, TaskState_BlockedMerge); len(ids) > 0 {
 		return humanActionStep("resolve-merge", ids, digestActionResolveMerge)
 	}
+	if ids := tasksInState(g, TaskState_VerifyFailed); len(ids) > 0 {
+		return humanActionStep("resolve-verify", ids, digestActionResolveMerge)
+	}
 	if ids := failedCleanupIDs(g); len(ids) > 0 {
 		return humanActionStep("retry-cleanup", ids, digestActionRetryCleanup)
 	}
@@ -299,6 +303,10 @@ func buildNext(g *waveobj.TaskGroup, askByTask map[string]wshrpc.DagAskItem) wsh
 	// so a dag that can still spawn is never reported as needing the lead.
 	if ids := mergeReadyIDs(g); len(ids) > 0 {
 		return mergeReadyStep(ids)
+	}
+	// 4c. a merged task's Verify is running; the next merge and its dependents wait on it
+	if ids := tasksInState(g, TaskState_Verifying); len(ids) > 0 {
+		return wshrpc.DagNextStep{Kind: "verify-wait", TaskIds: ids}
 	}
 	// 5. dependency wait on pending tasks with unsatisfied deps
 	if depWait, blocking := dependencyWait(g); len(depWait) > 0 {
@@ -464,6 +472,8 @@ func taskWaitReason(g *waveobj.TaskGroup, t *waveobj.TaskNode) string {
 		return "failure"
 	case TaskState_BlockedMerge:
 		return "merge"
+	case TaskState_Verifying, TaskState_VerifyFailed:
+		return "verify"
 	case TaskState_Done:
 		return "terminal"
 	case TaskState_Skipped, TaskState_Cancelled:
@@ -523,7 +533,7 @@ func taskHumanActions(g *waveobj.TaskGroup, t *waveobj.TaskNode) []string {
 		return digestActionRetryCleanup
 	case t.State == TaskState_Failed || t.State == TaskState_Stalled:
 		return digestActionRetrySkipEscalate
-	case t.State == TaskState_BlockedMerge:
+	case t.State == TaskState_BlockedMerge || t.State == TaskState_VerifyFailed:
 		return digestActionResolveMerge
 	case t.State == TaskState_Done && g.MergeRequired && !t.Merged && (!t.Gate || t.Released):
 		return digestActionResolveMerge
@@ -593,6 +603,37 @@ func buildDurations(sn DagDigestSnapshot) wshrpc.DagDurationDigest {
 		}
 	}
 	return d
+}
+
+// buildReport gathers the run-end numbers. Worker time sums the per-task run time already derived for
+// Durations, so the two cannot disagree.
+func buildReport(sn DagDigestSnapshot, durations wshrpc.DagDurationDigest) wshrpc.DagReportDigest {
+	g := sn.Group
+	r := wshrpc.DagReportDigest{Unverified: !g.MergeRequired || g.Verify == ""}
+	for _, td := range durations.Tasks {
+		r.WorkerMs += td.RunMs
+	}
+	endCommit := map[string]string{}
+	for _, run := range sn.Runs {
+		if run != nil {
+			endCommit[run.ID] = run.EndCommit
+		}
+	}
+	for i := range g.Tasks {
+		t := &g.Tasks[i]
+		if c := endCommit[t.RunID]; t.Merged && c != "" {
+			r.Commits = append(r.Commits, wshrpc.DagLandedCommit{TaskId: t.ID, Commit: c})
+		}
+	}
+	for _, ev := range sn.Retained {
+		switch ev.Kind {
+		case waveobj.RunEventKindChildAnswered:
+			r.Answered++
+		case waveobj.RunEventKindTaskForwarded:
+			r.Forwarded++
+		}
+	}
+	return r
 }
 
 // taskDuration derives one task's duration row. Tasks without a child run and without merge/cleanup

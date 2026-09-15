@@ -368,6 +368,7 @@ func cancelLocked(ctx context.Context, dagID string) error {
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, dagID))
 	// dag-cancelled: the terminal lifecycle boundary, recorded only after the cancelled state persists.
 	appendRunEvent(ctx, gCopy.ChannelId, gCopy.RunID, waveobj.RunEventKindDagCancelled, nil, map[string]any{"source": "cancel"})
+	stopDagVerify(dagID)
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cancelCleanupTimeout)
 	defer cancel()
 	var errs []error

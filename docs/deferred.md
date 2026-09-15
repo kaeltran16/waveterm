@@ -7,6 +7,25 @@ where it would plug in, and how to pick it back up. Append new entries at the to
 > append-only rationale log — append the full deferral here, then mirror a one-line row there. Entries
 > marked RESOLVED/DECLINED below are kept for the reasoning, not as pending work.
 
+## Merge-point Verify: a timeout kills the shell only, and a failed Verify holds only its own run's merges (2026-09-15)
+
+Slice 4c of the orchestrator redesign (`docs/superpowers/plans/2026-09-15-orchestrator-redesign-s4c-setup-merge-verify.md`)
+runs a plan's Setup and Verify commands through the platform shell and serializes merges per project checkout.
+
+- **What was deferred:**
+  - At `SetupTimeout` or `VerifyTimeout`, `execPlanCommand` (`pkg/orchestrate/plancmd.go`) kills the shell it
+    started (`cmd.exe` or `sh`). A test runner the shell started keeps running until it exits on its own;
+    `WaitDelay` only stops the engine waiting for it. `TestPlanCommandTimesOut` shows it on Windows: a 200ms
+    timeout returns after about 5s, because the orphaned `ping` holds the output pipe until `WaitDelay`.
+  - The landing claim (`pkg/orchestrate/verify.go`) serializes a merge and its Verify across every dag in one
+    checkout, but a persisted `verify-failed` task holds only its own dag's later merges. A second orchestrator
+    run in the same checkout would land on top of the failure.
+- **Why:** both need machinery that one run per checkout does not: a process tree kill (a Windows job object,
+  a Unix process group), and a store scan across dags by project path.
+- **Where to pick it up:** `pkg/shellexec/jobobject_windows.go` already kills a process tree through a job
+  object (`attachJobObject`, `killJobTree`); export it and attach it in `execPlanCommand` after `Start`. For the
+  hold, have `AutoMergeReady` scan the non-terminal dags whose owner run has the same `ProjectPath`.
+
 ## Codex and opencode run workers (2026-09-14)
 
 The orchestrator redesign (`docs/superpowers/specs/2026-09-14-orchestrator-redesign-design.md` §8) scopes

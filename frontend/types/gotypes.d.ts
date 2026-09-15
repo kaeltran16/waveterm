@@ -2079,6 +2079,12 @@ declare global {
         tasks?: DagTaskDuration[];
     };
 
+    // wshrpc.DagLandedCommit
+    type DagLandedCommit = {
+        taskid: string;
+        commit: string;
+    };
+
     // wshrpc.DagNextStep
     type DagNextStep = {
         kind: string;
@@ -2086,6 +2092,15 @@ declare global {
         blockingtaskids?: string[];
         actions?: string[];
         terminalstatus?: string;
+    };
+
+    // wshrpc.DagReportDigest
+    type DagReportDigest = {
+        workerms: number;
+        commits?: DagLandedCommit[];
+        unverified?: boolean;
+        answered: number;
+        forwarded: number;
     };
 
     // wshrpc.DagStatusCounts
@@ -2108,6 +2123,7 @@ declare global {
         next: DagNextStep;
         tasks: DagTaskDigest[];
         durations: DagDurationDigest;
+        report: DagReportDigest;
     };
 
     // wshrpc.DagTaskDigest
@@ -3650,6 +3666,8 @@ declare global {
         plangate?: boolean;
         planapprovedts?: number;
         notifiedcondition?: string;
+        verify?: string;
+        setup?: string;
     };
 
     // waveobj.TaskNode
@@ -3671,6 +3689,7 @@ declare global {
         escalations?: number;
         cleanuppending?: boolean;
         cleanuperror?: string;
+        verifyerror?: string;
     };
 
     // waveobj.TermSize

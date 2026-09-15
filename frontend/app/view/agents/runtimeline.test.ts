@@ -104,6 +104,17 @@ describe("eventKindTitle", () => {
     });
 });
 
+describe("verify rows", () => {
+    it("names and tones the merge-point Verify rows", () => {
+        expect(eventKindTitle("task-verify-started")).toBe("Verify started");
+        expect(eventKindTitle("task-verify-passed")).toBe("Verify passed");
+        expect(eventKindTitle("task-verify-failed")).toBe("Verify failed");
+        expect(toneFor("task-verify-started")).toBe("text-muted");
+        expect(toneFor("task-verify-passed")).toBe("text-success");
+        expect(toneFor("task-verify-failed")).toBe("text-warning");
+    });
+});
+
 describe("joinWorkspacePath", () => {
     it("joins a workspace-relative path onto the project path and passes absolute paths through", () => {
         expect(joinWorkspacePath("/repo/a", "docs/x.md")).toBe("/repo/a/docs/x.md");

@@ -49,6 +49,14 @@ describe("buildViewData", () => {
         expect(perf.actions).toEqual(["retry", "skip", "escalate"]);
     });
 
+    it("offers resolve on a failed Verify, which re-runs it through merge --continue", () => {
+        const failed = {
+            ...group,
+            tasks: [{ id: "t-0", label: "setup", state: "verify-failed", merged: true }],
+        } as any;
+        expect(buildViewData(failed, owner, harnesses).nodes[0].actions).toEqual(["resolve"]);
+    });
+
     it("projects pinned, inherited, runtime-default, and unavailable routes", () => {
         const routed = {
             ...group,

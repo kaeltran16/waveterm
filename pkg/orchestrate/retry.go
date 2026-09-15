@@ -17,6 +17,7 @@ const (
 	FailureKindRoute      = "route-unresolved"
 	FailureKindHarness    = "harness-missing"
 	FailureKindWorktree   = "worktree-failed"
+	FailureKindSetup      = "setup" // the plan's Setup command failed in a new worktree
 	FailureKindSpawn      = "spawn-failed"
 	FailureKindWorkerExit = "worker-exit-unreported"
 	FailureKindUnrecorded = "dispatch-unrecorded"

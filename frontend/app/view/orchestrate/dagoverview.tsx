@@ -17,10 +17,12 @@ import { useRunEvents } from "../agents/runeventstore";
 import { ActivityLine, StatusLine } from "../agents/statusline";
 import { attentionQueue, type QueueEntry } from "./attentionqueue";
 import {
+    formatElapsed,
     freshCounts,
     healthView,
     lastUpdatedText,
     nextStepView,
+    reportChips,
     taskBriefs,
     useDagDigest,
     type DigestState,
@@ -77,6 +79,9 @@ export function DagOverview({
                 <div className="flex flex-1 flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10.5px] text-muted">
                     <span>{counts ? `${counts.done}/${counts.total} done` : "…"}</span>
                     {elapsed ? <span>{formatElapsed(elapsed)}</span> : null}
+                    {(counts ? reportChips(digest?.report) : []).map((chip) => (
+                        <span key={chip}>{chip}</span>
+                    ))}
                     <span aria-live="polite">{counts?.attention ? `attention ${counts.attention}` : ""}</span>
                     <span>{counts?.mergeready ? `merge ${counts.mergeready}` : ""}</span>
                     {lastUpdated ? <span>{lastUpdated}</span> : null}
@@ -113,18 +118,6 @@ export function DagOverview({
             </div>
         </div>
     );
-}
-
-function formatElapsed(ms: number): string {
-    const s = Math.floor(ms / 1000);
-    if (s < 60) {
-        return `${s}s`;
-    }
-    const m = Math.floor(s / 60);
-    if (m < 60) {
-        return `${m}m`;
-    }
-    return `${Math.floor(m / 60)}h${m % 60}m`;
 }
 
 function EmptyRow({ text }: { text: string }) {

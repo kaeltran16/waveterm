@@ -61,6 +61,15 @@ const (
 	RunEventKindLeadWoken      = "lead-woken"
 	RunEventKindLeadWakeFailed = "lead-wake-failed"
 
+	// merge-point Verify (orchestrator redesign §4): the plan's Verify command, run in the project
+	// checkout after a task's squash merge.
+	//   task-verify-started  "taskid"
+	//   task-verify-passed   "taskid", "ms"
+	//   task-verify-failed   "taskid", "reason" ("exit 1" or "timed out after 20m"), "detail"
+	RunEventKindTaskVerifyStarted = "task-verify-started"
+	RunEventKindTaskVerifyPassed  = "task-verify-passed"
+	RunEventKindTaskVerifyFailed  = "task-verify-failed"
+
 	// the plan gate: a published dag waiting on the human, and the two ways out of it. Distinct from
 	// the gate-* kinds, which are a *task* gate inside an already-approved plan.
 	RunEventKindDagPlanGated    = "dag-plan-gated"
@@ -75,7 +84,7 @@ const (
 //   evidence-sealed:  "files" int, "addtotal" int, "deltotal" int
 //   task/dag events:  "taskid" string, "failures" int
 //   task-retried:     "taskid" string, "kind" string, "attempt" int
-//   task-spawned:     "taskid" string, "worktreems" int64, "spawnms" int64
+//   task-spawned:     "taskid" string, "worktreems" int64, "setupms" int64, "spawnms" int64
 //   task-first-activity: "taskid" string, "sincespawnms" int64
 //   created:          "runtime" string, "mode" string
 

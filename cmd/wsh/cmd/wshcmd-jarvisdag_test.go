@@ -285,3 +285,32 @@ func TestDagPlanPath(t *testing.T) {
 		t.Fatal("--plan + --file must be rejected")
 	}
 }
+
+func TestDagStatusLinesCarriesTheReportAndVerifyFailure(t *testing.T) {
+	g := &waveobj.TaskGroup{
+		ID: "dag-1", Status: "blocked", Parallelism: 1,
+		Tasks: []waveobj.TaskNode{{ID: "t-0", Label: "a", State: "verify-failed", VerifyError: "exit 1: FAIL pkg/orchestrate"}},
+	}
+	rtn := &wshrpc.CommandDagStatusRtnData{
+		Group: g,
+		Digest: wshrpc.DagStatusDigest{
+			Counts:    wshrpc.DagStatusCounts{Total: 1},
+			Tasks:     []wshrpc.DagTaskDigest{{TaskId: "t-0", HumanActions: []string{"resolve-merge"}}},
+			Durations: wshrpc.DagDurationDigest{ElapsedMs: 12 * 60_000},
+			Report: wshrpc.DagReportDigest{
+				WorkerMs: 34 * 60_000, Answered: 1, Forwarded: 2, Unverified: true,
+				Commits: []wshrpc.DagLandedCommit{{TaskId: "t-0", Commit: "0123456789abcdef"}},
+			},
+		},
+	}
+	joined := strings.Join(dagStatusLines(rtn, 0), "\n")
+	for _, want := range []string{
+		"report  elapsed=12m  workers=34m  commits=1  answered=1  forwarded=2  unverified",
+		"landed  t-0 0123456",
+		"t-0 verify failed: exit 1: FAIL pkg/orchestrate",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("status must show %q, got:\n%s", want, joined)
+		}
+	}
+}

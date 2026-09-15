@@ -83,9 +83,12 @@ func TestEnsureRunWorktreeReusesCleanTree(t *testing.T) {
 	os.WriteFile(filepath.Join(wt, "sentinel.txt"), []byte("x"), 0o644)
 	gitCmd(t, wt, "add", ".")
 	gitCmd(t, wt, "commit", "-m", "child work")
-	got, err := EnsureRunWorktree(context.Background(), dir, key, base)
+	got, created, err := EnsureRunWorktree(context.Background(), dir, key, base)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if created {
+		t.Fatal("a reused tree was not created by this call")
 	}
 	if got != wt {
 		t.Fatalf("clean committed tree must be reused: got %s want %s", got, wt)
@@ -115,7 +118,7 @@ func TestEnsureRunWorktreeKeepsCommittedWorkWhenBaseAdvanced(t *testing.T) {
 	gitCmd(t, dir, "commit", "-m", "advance")
 	newBase := gitCmd(t, dir, "rev-parse", "HEAD")
 
-	got, err := EnsureRunWorktree(context.Background(), dir, key, newBase)
+	got, _, err := EnsureRunWorktree(context.Background(), dir, key, newBase)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,8 +140,8 @@ func TestEnsureRunWorktreeRecreatesDirtyAndDumpsPatch(t *testing.T) {
 	}
 	os.WriteFile(filepath.Join(wt, "uncommitted.txt"), []byte("wip"), 0o644)
 
-	if _, err := EnsureRunWorktree(context.Background(), dir, key, base); err != nil {
-		t.Fatal(err)
+	if _, created, err := EnsureRunWorktree(context.Background(), dir, key, base); err != nil || !created {
+		t.Fatalf("a dirty tree is rebuilt, so this call creates it: created=%v err=%v", created, err)
 	}
 	if status := gitCmd(t, wt, "status", "--porcelain"); strings.TrimSpace(status) != "" {
 		t.Fatalf("dirty tree must be recreated clean, status = %q", status)

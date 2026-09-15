@@ -376,14 +376,28 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		// fixable (a warm tree vs. a warm worker), so they are measured separately rather than
 		// folded into the child's wall clock where neither can be told apart.
 		cwd := owner.ProjectPath
-		var worktreeMs int64
+		var worktreeMs, setupMs int64
 		if IsGitRepo(owner.ProjectPath) {
+			key := TaskWorktreeKey(owner.ID, taskID)
 			wtStart := time.Now()
-			wt, werr := EnsureRunWorktree(spawnCtx, owner.ProjectPath, TaskWorktreeKey(owner.ID, taskID), spawnBase)
+			wt, created, werr := EnsureRunWorktree(spawnCtx, owner.ProjectPath, key, spawnBase)
 			worktreeMs = time.Since(wtStart).Milliseconds()
 			if werr != nil {
 				failDispatch(ctx, g, taskID, FailureKindWorktree, werr, &afterCommit)
 				continue
+			}
+			if created && g.Setup != "" {
+				setupStart := time.Now()
+				serr := runPlanCommand(context.WithoutCancel(ctx), wt, g.Setup, SetupTimeout)
+				setupMs = time.Since(setupStart).Milliseconds()
+				if serr != nil {
+					// only a new tree is set up, so a retry would reuse this half-prepared one as-is
+					if rerr := RemoveRunWorktree(context.WithoutCancel(ctx), owner.ProjectPath, key); rerr != nil {
+						log.Printf("schedule dag %s task %s: removing worktree after setup failure: %v", g.OID, taskID, rerr)
+					}
+					failDispatch(ctx, g, taskID, FailureKindSetup, serr, &afterCommit)
+					continue
+				}
 			}
 			cwd = wt
 		}
@@ -429,7 +443,7 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		spawnedTaskID := taskID
 		afterCommit = append(afterCommit, func() {
 			publishDagEvent(DagEventTaskSpawned, g, spawnedTaskID)
-			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskSpawned, nil, map[string]any{"taskid": spawnedTaskID, "worktreems": worktreeMs, "spawnms": spawnMs})
+			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskSpawned, nil, map[string]any{"taskid": spawnedTaskID, "worktreems": worktreeMs, "setupms": setupMs, "spawnms": spawnMs})
 		})
 	}
 	RecomputeDagStatus(g)

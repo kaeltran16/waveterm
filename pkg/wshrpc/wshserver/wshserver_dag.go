@@ -24,22 +24,23 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
-// loadDagPlan fills a submit's tasks, and its title and width when unset, from its plan file. wavesrv
-// does not share the caller's cwd, so only an absolute path names the file the caller meant.
-func loadDagPlan(data *wshrpc.CommandDagSubmitData) error {
+// loadDagPlan fills a submit's tasks, and its title and width when unset, from its plan file, and
+// returns the plan for its Verify and Setup commands. wavesrv does not share the caller's cwd, so only an
+// absolute path names the file the caller meant.
+func loadDagPlan(data *wshrpc.CommandDagSubmitData) (jarvis.Plan, error) {
 	if !filepath.IsAbs(data.PlanPath) {
-		return fmt.Errorf("planpath %q must be absolute", data.PlanPath)
+		return jarvis.Plan{}, fmt.Errorf("planpath %q must be absolute", data.PlanPath)
 	}
 	if len(data.Tasks) > 0 {
-		return fmt.Errorf("pass tasks or planpath, not both")
+		return jarvis.Plan{}, fmt.Errorf("pass tasks or planpath, not both")
 	}
 	src, err := os.ReadFile(data.PlanPath)
 	if err != nil {
-		return fmt.Errorf("reading plan: %w", err)
+		return jarvis.Plan{}, fmt.Errorf("reading plan: %w", err)
 	}
 	plan, err := jarvis.ParsePlan(string(src))
 	if err != nil {
-		return fmt.Errorf("plan %s: %w", data.PlanPath, err)
+		return jarvis.Plan{}, fmt.Errorf("plan %s: %w", data.PlanPath, err)
 	}
 	data.Tasks = plan.Tasks
 	if data.Title == "" {
@@ -51,14 +52,17 @@ func loadDagPlan(data *wshrpc.CommandDagSubmitData) error {
 	if data.Parallelism == 0 {
 		data.Parallelism = orchestrate.DefaultParallelism(plan.Tasks)
 	}
-	return nil
+	return plan, nil
 }
 
 func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDagSubmitData) (*waveobj.TaskGroup, error) {
+	var plan jarvis.Plan
 	if data.PlanPath != "" {
-		if err := loadDagPlan(&data); err != nil {
+		loaded, err := loadDagPlan(&data)
+		if err != nil {
 			return nil, err
 		}
+		plan = loaded
 	}
 	if data.ChannelId == "" || data.RunId == "" || len(data.Tasks) == 0 {
 		return nil, fmt.Errorf("channelid, runid and tasks are required")
@@ -114,6 +118,7 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 	if err != nil {
 		return nil, err
 	}
+	proposed.Verify, proposed.Setup = plan.Verify, plan.Setup
 	// Every top-level plan is read by the human before a single worker spawns: the decomposition is
 	// the run's most consequential decision and the cheapest point to correct it, and once children
 	// are live the correction costs N worktrees. A child's plan is not gated — its parent's already
@@ -179,7 +184,7 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 // raised cap cannot leave the tail of a full dag reporting partial durations.
 const dagDigestChildRunLimit = jarvis.MaxDagTasks
 
-// dagDigestRetainedKinds are the lifecycle boundaries the digest derives durations and retries from.
+// dagDigestRetainedKinds are the lifecycle rows the digest derives durations, retries and the report's counts from.
 // The UI's 200-row window is not consulted.
 var dagDigestRetainedKinds = []string{
 	waveobj.RunEventKindTaskRetried,
@@ -190,6 +195,8 @@ var dagDigestRetainedKinds = []string{
 	waveobj.RunEventKindTaskCleanupFailed,
 	waveobj.RunEventKindDagDone,
 	waveobj.RunEventKindDagCancelled,
+	waveobj.RunEventKindChildAnswered,
+	waveobj.RunEventKindTaskForwarded,
 }
 
 func (ws *WshServer) DagStatusCommand(ctx context.Context, data wshrpc.CommandDagStatusData) (*wshrpc.CommandDagStatusRtnData, error) {
@@ -412,65 +419,8 @@ func (ws *WshServer) DagMergeCommand(ctx context.Context, data wshrpc.CommandDag
 	return orchestrate.MergeTask(ctx, data.ChannelId, data.RunId, data.TaskId)
 }
 
-// DagMergeContinueCommand finishes a squash merge the caller resolved manually after MergeContinue's
-// conflict: it requires blocked-merge (resolved UU/AA/DD markers left behind) and commits the
-// resolved project state, mirroring DagMergeCommand's run/task stamping + evidence sealing.
+// DagMergeContinueCommand is `dag merge <task> --continue`: it finishes a squash merge the caller
+// resolved after a conflict, or re-runs Verify after the caller committed a fix.
 func (ws *WshServer) DagMergeContinueCommand(ctx context.Context, data wshrpc.CommandDagMergeData) error {
-	if data.ChannelId == "" || data.RunId == "" || data.TaskId == "" {
-		return fmt.Errorf("channelid, runid and taskid are required")
-	}
-	owner, err := wstore.GetRun(ctx, data.ChannelId, data.RunId)
-	if err != nil {
-		return fmt.Errorf("loading run: %w", err)
-	}
-	if owner.DagORef == "" {
-		return fmt.Errorf("run has no dag")
-	}
-	g, err := wstore.GetDag(ctx, owner.DagORef)
-	if err != nil {
-		return err
-	}
-	taskIdx := -1
-	for i := range g.Tasks {
-		if g.Tasks[i].ID == data.TaskId {
-			taskIdx = i
-			break
-		}
-	}
-	if taskIdx < 0 {
-		return fmt.Errorf("no task %q", data.TaskId)
-	}
-	task := &g.Tasks[taskIdx]
-	if task.Merged {
-		if !task.CleanupPending && task.CleanupError == "" {
-			return nil
-		}
-		return orchestrate.WithDagMutation(owner.DagORef, func() error {
-			return orchestrate.CleanupMergedTask(ctx, data.ChannelId, g, data.TaskId)
-		})
-	}
-	if task.State != orchestrate.TaskState_BlockedMerge {
-		return fmt.Errorf("task %s is %s, want blocked-merge", data.TaskId, task.State)
-	}
-	if task.RunID == "" {
-		return fmt.Errorf("task %s has no child run", data.TaskId)
-	}
-	child, err := wstore.GetRun(ctx, data.ChannelId, task.RunID)
-	if err != nil {
-		return fmt.Errorf("loading child run: %w", err)
-	}
-	key := orchestrate.TaskWorktreeKey(owner.ID, data.TaskId)
-	mergeMsg := task.Label
-	if mergeMsg == "" {
-		mergeMsg = task.ID
-	}
-	appendRunEvent(ctx, data.ChannelId, owner.ID, waveobj.RunEventKindTaskMergeContinued, nil, map[string]any{"taskid": data.TaskId})
-	sha, err := orchestrate.MergeContinue(ctx, owner.ProjectPath, key, mergeMsg)
-	if err != nil {
-		return err
-	}
-	// the stamp is a dag write, and the engine reverts any dag write made outside this lock
-	return orchestrate.WithDagMutation(owner.DagORef, func() error {
-		return orchestrate.FinishMergedTask(ctx, data.ChannelId, owner.DagORef, child.ID, data.TaskId, sha)
-	})
+	return orchestrate.ContinueMerge(ctx, data.ChannelId, data.RunId, data.TaskId)
 }

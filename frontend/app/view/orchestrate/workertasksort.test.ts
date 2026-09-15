@@ -47,6 +47,11 @@ describe("workerBucket", () => {
         expect(workerBucket(td("none"), node("skipped"))).toBe("done");
         expect(workerBucket(td("none"), node("cancelled"))).toBe("done");
     });
+
+    it("buckets a failed Verify as attention and a running one as running", () => {
+        expect(workerBucket(td("verify"), node("verify-failed"))).toBe("attention");
+        expect(workerBucket(td("verify"), node("verifying"))).toBe("running");
+    });
 });
 
 describe("workerSortKey", () => {

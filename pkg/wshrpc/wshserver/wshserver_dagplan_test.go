@@ -99,4 +99,16 @@ func TestDagSubmitFromPlanPath(t *testing.T) {
 			t.Fatalf("valid plan after rejections: %v", err)
 		}
 	})
+
+	t.Run("the plan's Verify and Setup commands are stored on the dag", func(t *testing.T) {
+		channelId, runId := newRun(t)
+		src := "**Verify:** `task test`\n**Setup:** `task worktree:prepare`\n\n### Task 1: input\n"
+		g, err := (&WshServer{}).DagSubmitCommand(ctx, wshrpc.CommandDagSubmitData{ChannelId: channelId, RunId: runId, PlanPath: writePlan(t, "plan.md", src)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if g.Verify != "task test" || g.Setup != "task worktree:prepare" {
+			t.Fatalf("verify %q, setup %q", g.Verify, g.Setup)
+		}
+	})
 }

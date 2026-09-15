@@ -296,3 +296,31 @@ func TestDefaultParallelismFollowsReadyWidth(t *testing.T) {
 		t.Fatalf("no tasks must still be a legal width, got %d", got)
 	}
 }
+
+func TestSameDagProposalComparesPlanCommands(t *testing.T) {
+	a, err := NewTaskGroup("run", "channel", "title", 1, true, []waveobj.TaskNode{{ID: "t-1", Label: "one"}}, 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := a
+	b.Verify = "task test"
+	if SameDagProposal(&a, &b) {
+		t.Fatal("a resubmitted plan with a different Verify is a different proposal")
+	}
+	b.Verify, b.Setup = "", "task worktree:prepare"
+	if SameDagProposal(&a, &b) {
+		t.Fatal("a resubmitted plan with a different Setup is a different proposal")
+	}
+}
+
+func TestDeriveTaskStatesKeepsLandingStates(t *testing.T) {
+	for _, state := range []string{TaskState_BlockedMerge, TaskState_Verifying, TaskState_VerifyFailed} {
+		g := mustGroup(t, mkTasks())
+		g.Tasks[0].State = state
+		g.Tasks[0].RunID = "r-0"
+		DeriveTaskStates(g, map[string]*waveobj.Run{"r-0": {ID: "r-0", Status: jarvis.RunStatus_Done}})
+		if g.Tasks[0].State != state {
+			t.Fatalf("a done child must not overwrite %s, got %s", state, g.Tasks[0].State)
+		}
+	}
+}

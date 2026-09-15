@@ -66,6 +66,11 @@ describe("filterEvents", () => {
         expect(ATTENTION_KINDS.has("lead-woken")).toBe(false);
     });
 
+    it("a failed Verify is attention; a passing one is not", () => {
+        expect(ATTENTION_KINDS.has("task-verify-failed")).toBe(true);
+        expect(ATTENTION_KINDS.has("task-verify-passed")).toBe(false);
+    });
+
     it("a resolved ask is not attention", () => {
         expect(ATTENTION_KINDS.has("child-answered")).toBe(false);
         expect(ATTENTION_KINDS.has("child-ask-cleared")).toBe(false);
@@ -84,6 +89,10 @@ describe("eventClickTarget", () => {
 
     it("routes merge kinds to merge state", () => {
         expect(eventClickTarget(ev("task-merge-blocked", { taskid: "t-4" }))).toEqual({ kind: "merge", taskId: "t-4" });
+    });
+
+    it("routes Verify rows to merge state", () => {
+        expect(eventClickTarget(ev("task-verify-failed", { taskid: "t-6" }))).toEqual({ kind: "merge", taskId: "t-6" });
     });
 
     it("routes cleanup kinds to the dag task", () => {

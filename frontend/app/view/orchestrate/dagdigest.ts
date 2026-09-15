@@ -104,6 +104,8 @@ export function nextStepText(next: DagNextStep, briefs?: Map<string, TaskBrief>)
             const busy = nameList(next.blockingtaskids, briefs);
             return busy ? `waiting for a slot — ${busy} still running` : "waiting on parallelism limit";
         }
+        case "verify-wait":
+            return "running Verify" + (named ? ` after ${named}` : "");
         case "dependency-wait": {
             const blockers = nameList(next.blockingtaskids, briefs, blockerName);
             return named && blockers ? `${named} waiting on ${blockers}` : "waiting on dependencies";
@@ -115,6 +117,44 @@ export function nextStepText(next: DagNextStep, briefs?: Map<string, TaskBrief>)
         default:
             return "refreshing status";
     }
+}
+
+// formatElapsed is the overview's short clock ("45s", "12m", "1h5m").
+export function formatElapsed(ms: number): string {
+    const s = Math.floor(ms / 1000);
+    if (s < 60) {
+        return `${s}s`;
+    }
+    const m = Math.floor(s / 60);
+    if (m < 60) {
+        return `${m}m`;
+    }
+    return `${Math.floor(m / 60)}h${m % 60}m`;
+}
+
+// reportChips is the run card's copy of the numbers the lead reports from. A zero carries no news and is
+// left out; an untested run is always said.
+export function reportChips(report: DagReportDigest | undefined): string[] {
+    if (report == null) {
+        return [];
+    }
+    const chips: string[] = [];
+    if (report.workerms > 0) {
+        chips.push(`workers ${formatElapsed(report.workerms)}`);
+    }
+    if (report.commits?.length) {
+        chips.push(`landed ${report.commits.length}`);
+    }
+    if (report.answered > 0) {
+        chips.push(`answered ${report.answered}`);
+    }
+    if (report.forwarded > 0) {
+        chips.push(`forwarded ${report.forwarded}`);
+    }
+    if (report.unverified) {
+        chips.push("unverified");
+    }
+    return chips;
 }
 
 // --- degradation views (spec 8): what the overview may claim, given the digest's state ---------

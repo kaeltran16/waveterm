@@ -46,6 +46,9 @@ const RUN_GROUP_KINDS = new Set([
     "task-forwarded",
     "lead-woken",
     "lead-wake-failed",
+    "task-verify-started",
+    "task-verify-passed",
+    "task-verify-failed",
     "dag-plan-gated",
     "dag-plan-approved",
     "dag-plan-sent-back",
@@ -113,6 +116,9 @@ const KIND_TITLE: Record<string, string> = {
     "task-forwarded": "Handed to you",
     "lead-woken": "Lead woken",
     "lead-wake-failed": "Lead wake failed",
+    "task-verify-started": "Verify started",
+    "task-verify-passed": "Verify passed",
+    "task-verify-failed": "Verify failed",
     "dag-plan-gated": "Plan awaiting your approval",
     "dag-plan-approved": "Plan approved",
     "dag-plan-sent-back": "Plan sent back",
@@ -137,6 +143,7 @@ const KIND_TONE: Record<string, string> = {
     "task-cleanup-completed": "text-success",
     "child-answered": "text-success",
     "task-merge-continued": "text-success",
+    "task-verify-passed": "text-success",
     "phase-held": "text-asking",
     "child-ask": "text-asking",
     "dag-gate-open": "text-asking",
@@ -152,6 +159,7 @@ const KIND_TONE: Record<string, string> = {
     "task-merge-blocked": "text-warning",
     "task-cleanup-failed": "text-warning",
     "lead-wake-failed": "text-warning",
+    "task-verify-failed": "text-warning",
     "child-cancelled": "text-muted",
     "run-cancelled": "text-muted",
     "dag-cancelled": "text-muted",
@@ -160,6 +168,7 @@ const KIND_TONE: Record<string, string> = {
     "task-first-activity": "text-muted",
     "task-cleanup-pending": "text-muted",
     "lead-woken": "text-muted",
+    "task-verify-started": "text-muted",
 };
 
 export function eventKindTitle(kind: string): string {

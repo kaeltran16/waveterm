@@ -48,7 +48,12 @@ function needsAttention(task: TaskNode, row: DagTaskDigest): boolean {
     if (row.cleanupstate === "failed") {
         return true;
     }
-    if (task.state === "failed" || task.state === "stalled" || task.state === "blocked-merge") {
+    if (
+        task.state === "failed" ||
+        task.state === "stalled" ||
+        task.state === "blocked-merge" ||
+        task.state === "verify-failed"
+    ) {
         return true;
     }
     return row.mergestate === "ready";

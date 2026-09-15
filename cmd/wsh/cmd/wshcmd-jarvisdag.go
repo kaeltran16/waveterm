@@ -187,7 +187,14 @@ func dagStatusLines(rtn *wshrpc.CommandDagStatusRtnData, now int64) []string {
 	}
 	line := fmt.Sprintf("dag %s  status=%s  tasks=%d/%d  failures=%d  parallelism=%d",
 		g.ID, g.Status, d.Counts.Done, d.Counts.Total, g.Failures, g.Parallelism)
-	lines := []string{line}
+	lines := []string{line, reportLine(d)}
+	if len(d.Report.Commits) > 0 {
+		landed := make([]string, len(d.Report.Commits))
+		for i, c := range d.Report.Commits {
+			landed[i] = c.TaskId + " " + c.Commit[:min(7, len(c.Commit))]
+		}
+		lines = append(lines, "landed  "+strings.Join(landed, ", "))
+	}
 	if len(g.Tasks) == 0 {
 		return lines
 	}
@@ -214,7 +221,30 @@ func dagStatusLines(rtn *wshrpc.CommandDagStatusRtnData, now int64) []string {
 	for _, row := range strings.Split(strings.TrimSuffix(buf.String(), "\n"), "\n") {
 		lines = append(lines, row)
 	}
+	// the lead fixes a failed Verify from its output, so the whole kept tail is printed
+	for _, t := range g.Tasks {
+		if t.State == orchestrate.TaskState_VerifyFailed && t.VerifyError != "" {
+			lines = append(lines, fmt.Sprintf("%s verify failed: %s", t.ID, t.VerifyError))
+		}
+	}
 	return lines
+}
+
+// reportLine carries what the lead's run-end report is written from.
+func reportLine(d wshrpc.DagStatusDigest) string {
+	line := fmt.Sprintf("report  elapsed=%s  workers=%s  commits=%d  answered=%d  forwarded=%d",
+		durOrZero(d.Durations.ElapsedMs), durOrZero(d.Report.WorkerMs), len(d.Report.Commits), d.Report.Answered, d.Report.Forwarded)
+	if d.Report.Unverified {
+		line += "  unverified"
+	}
+	return line
+}
+
+func durOrZero(ms int64) string {
+	if s := compactDur(ms); s != "" {
+		return s
+	}
+	return "0s"
 }
 
 // compactDur renders a millisecond span as the shortest readable form ("45s", "2m3s", "1h2m").
@@ -335,7 +365,9 @@ var dagMergeCmd = &cobra.Command{
 	Short: "squash-merge a finished task's worktree back into the project branch",
 	Long: "Squash-merge a finished task's worktree back into the project branch. On a squash\n" +
 		"conflict the task enters blocked-merge: resolve the conflicts in the project tree, then\n" +
-		"re-run with --continue so the engine commits the resolved state.",
+		"re-run with --continue so the engine commits the resolved state. When the plan's Verify\n" +
+		"fails after a merge the task enters verify-failed: fix it in the project tree, commit, then\n" +
+		"re-run with --continue so the engine runs Verify again.",
 	Args:    cobra.ExactArgs(1),
 	PreRunE: preRunSetupRpcClient,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -349,7 +381,11 @@ var dagMergeCmd = &cobra.Command{
 		}
 		data := wshrpc.CommandDagMergeData{ChannelId: channelId, RunId: runId, TaskId: args[0]}
 		if cont {
-			return wshclient.DagMergeContinueCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: 60_000})
+			if err := wshclient.DagMergeContinueCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: 60_000}); err != nil {
+				return err
+			}
+			fmt.Printf("task %s continued; the plan's Verify, if it has one, runs next and a failure wakes you\n", args[0])
+			return nil
 		}
 		return wshclient.DagMergeCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: 60_000})
 	},
@@ -541,6 +577,6 @@ func init() {
 	dagInitCmd.Flags().String("dir", "", "pi-tasks dir (default .)")
 	dagEscalateCmd.Flags().String("model", "", "exact model id to retry on (e.g. sonnet, or opencode/deepseek-v4-pro for pi)")
 	dagEscalateCmd.Flags().String("runtime", "", "runtime to retry on; empty keeps the task's current runtime")
-	dagMergeCmd.Flags().Bool("continue", false, "finish a blocked squash merge after manual conflict resolution")
+	dagMergeCmd.Flags().Bool("continue", false, "finish a resolved squash merge, or re-run a failed Verify after committing the fix")
 	jarvisCmd.AddCommand(jarvisDagCmd)
 }

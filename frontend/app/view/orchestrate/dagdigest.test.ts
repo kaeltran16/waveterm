@@ -4,10 +4,12 @@
 import { describe, expect, it } from "vitest";
 import {
     acceptDigest,
+    formatElapsed,
     freshCounts,
     healthView,
     nextStepText,
     nextStepView,
+    reportChips,
     shouldRefreshDigest,
     digestStale,
     lastUpdatedText,
@@ -22,6 +24,7 @@ function digest(version: number): DagStatusDigest {
         next: { kind: "dispatch" },
         tasks: [],
         durations: { elapsedms: 0 },
+        report: { workerms: 0, answered: 0, forwarded: 0 },
     };
 }
 
@@ -201,5 +204,35 @@ describe("freshness (finding 7)", () => {
         const state = { loading: false, stale: false, digest: digest(1), lastUpdatedTs: 40_000 };
         expect(lastUpdatedText(state, 70_000)).toBe("updated 30s ago");
         expect(lastUpdatedText(state, 400_000)).toBe("updated 6m ago");
+    });
+});
+
+describe("reportChips", () => {
+    it("shows only the numbers that carry news, and flags an untested run", () => {
+        expect(reportChips(undefined)).toEqual([]);
+        expect(
+            reportChips({
+                workerms: 34 * 60_000,
+                commits: [{ taskid: "t-0", commit: "abc" }],
+                answered: 1,
+                forwarded: 0,
+                unverified: true,
+            })
+        ).toEqual(["workers 34m", "landed 1", "answered 1", "unverified"]);
+    });
+});
+
+describe("formatElapsed", () => {
+    it("renders seconds, minutes and hours", () => {
+        expect(formatElapsed(45_000)).toBe("45s");
+        expect(formatElapsed(12 * 60_000)).toBe("12m");
+        expect(formatElapsed(65 * 60_000)).toBe("1h5m");
+    });
+});
+
+describe("nextStepText verify-wait", () => {
+    it("names the task whose Verify is running", () => {
+        const briefs = new Map([["t-0", { label: "scaffold", state: "verifying" }]]);
+        expect(nextStepText({ kind: "verify-wait", taskids: ["t-0"] }, briefs)).toBe("running Verify after scaffold");
     });
 });
