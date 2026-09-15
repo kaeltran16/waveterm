@@ -83,7 +83,7 @@ func TestEnsureRunWorktreeReusesCleanTree(t *testing.T) {
 	os.WriteFile(filepath.Join(wt, "sentinel.txt"), []byte("x"), 0o644)
 	gitCmd(t, wt, "add", ".")
 	gitCmd(t, wt, "commit", "-m", "child work")
-	got, created, err := EnsureRunWorktree(context.Background(), dir, key, base)
+	got, _, created, err := EnsureRunWorktree(context.Background(), dir, key, base)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestEnsureRunWorktreeKeepsCommittedWorkWhenBaseAdvanced(t *testing.T) {
 	gitCmd(t, dir, "commit", "-m", "advance")
 	newBase := gitCmd(t, dir, "rev-parse", "HEAD")
 
-	got, _, err := EnsureRunWorktree(context.Background(), dir, key, newBase)
+	got, _, _, err := EnsureRunWorktree(context.Background(), dir, key, newBase)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestEnsureRunWorktreeRecreatesDirtyAndDumpsPatch(t *testing.T) {
 	}
 	os.WriteFile(filepath.Join(wt, "uncommitted.txt"), []byte("wip"), 0o644)
 
-	if _, created, err := EnsureRunWorktree(context.Background(), dir, key, base); err != nil || !created {
+	if _, _, created, err := EnsureRunWorktree(context.Background(), dir, key, base); err != nil || !created {
 		t.Fatalf("a dirty tree is rebuilt, so this call creates it: created=%v err=%v", created, err)
 	}
 	if status := gitCmd(t, wt, "status", "--porcelain"); strings.TrimSpace(status) != "" {
@@ -164,4 +164,116 @@ func newGitRepoAt(t *testing.T, dir string) {
 	os.WriteFile(filepath.Join(dir, "base.txt"), []byte("base\n"), 0o644)
 	gitCmd(t, dir, "add", ".")
 	gitCmd(t, dir, "commit", "-m", "base")
+}
+
+func TestEnsureRunWorktreeReturnsTheCommitATaskStartsAt(t *testing.T) {
+	dir := newGitRepo(t)
+	base := gitCmd(t, dir, "rev-parse", "HEAD")
+	key := TaskWorktreeKey("owner-1", "t-1")
+	wt, head, created, err := EnsureRunWorktree(context.Background(), dir, key, base)
+	if err != nil || !created || head != base {
+		t.Fatalf("a new tree starts at the base: head %s created %v err %v", head, created, err)
+	}
+	os.WriteFile(filepath.Join(wt, "schema.txt"), []byte("schema\n"), 0o644)
+	gitCmd(t, wt, "add", ".")
+	gitCmd(t, wt, "commit", "-m", "schema")
+	committed := gitCmd(t, wt, "rev-parse", "HEAD")
+
+	got, head, created, err := EnsureRunWorktree(context.Background(), dir, key, base)
+	if err != nil || created || got != wt || head != committed {
+		t.Fatalf("the next task in the lane starts at the last commit: head %s created %v err %v", head, created, err)
+	}
+}
+
+func TestEnsureRunWorktreeRebuildsADirtyTreeFromItsBranch(t *testing.T) {
+	dir := newGitRepo(t)
+	base := gitCmd(t, dir, "rev-parse", "HEAD")
+	key := TaskWorktreeKey("owner-1", "t-1")
+	wt, err := CreateRunWorktree(context.Background(), dir, key, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(wt, "schema.txt"), []byte("schema\n"), 0o644)
+	gitCmd(t, wt, "add", ".")
+	gitCmd(t, wt, "commit", "-m", "schema")
+	committed := gitCmd(t, wt, "rev-parse", "HEAD")
+	os.WriteFile(filepath.Join(wt, "leftover.txt"), []byte("wip\n"), 0o644)
+
+	_, head, created, err := EnsureRunWorktree(context.Background(), dir, key, base)
+	if err != nil || !created || head != committed {
+		t.Fatalf("a dirty tree is checked out again at its branch: head %s created %v err %v", head, created, err)
+	}
+	if _, err := os.Stat(filepath.Join(wt, "schema.txt")); err != nil {
+		t.Fatalf("the lane's committed work must survive the rebuild: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(wt, "leftover.txt")); !os.IsNotExist(err) {
+		t.Fatalf("uncommitted state must not survive the rebuild, stat err = %v", err)
+	}
+	patch, err := os.ReadFile(filepath.Join(dir, ".waveterm", "recovery", key+".patch"))
+	if err != nil || !strings.Contains(string(patch), "leftover.txt") {
+		t.Fatalf("the uncommitted state goes to a recovery patch, got %q err %v", patch, err)
+	}
+}
+
+func TestEnsureRunWorktreeChecksOutAMissingTreeFromItsBranch(t *testing.T) {
+	dir := newGitRepo(t)
+	base := gitCmd(t, dir, "rev-parse", "HEAD")
+	key := TaskWorktreeKey("owner-1", "t-1")
+	wt, err := CreateRunWorktree(context.Background(), dir, key, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(wt, "schema.txt"), []byte("schema\n"), 0o644)
+	gitCmd(t, wt, "add", ".")
+	gitCmd(t, wt, "commit", "-m", "schema")
+	if err := os.RemoveAll(wt); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, created, err := EnsureRunWorktree(context.Background(), dir, key, base); err != nil || !created {
+		t.Fatalf("a registered tree whose directory is gone is checked out again: created %v err %v", created, err)
+	}
+	if _, err := os.Stat(filepath.Join(wt, "schema.txt")); err != nil {
+		t.Fatalf("the branch's work must be in the new tree: %v", err)
+	}
+}
+
+// git run inside a directory that is no longer a worktree acts on the project checkout above it, so a
+// recovery dump there would stage the project's own changes
+func TestEnsureRunWorktreeLeavesTheProjectIndexAloneForAStrayDirectory(t *testing.T) {
+	dir := newGitRepo(t)
+	base := gitCmd(t, dir, "rev-parse", "HEAD")
+	key := TaskWorktreeKey("owner-1", "t-1")
+	wt, err := CreateRunWorktree(context.Background(), dir, key, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitCmd(t, dir, "worktree", "remove", "--force", wt)
+	if err := os.MkdirAll(wt, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(wt, "stray.txt"), []byte("stray\n"), 0o644)
+
+	_, _, _, _ = EnsureRunWorktree(context.Background(), dir, key, base)
+	if staged := gitCmd(t, dir, "diff", "--cached", "--name-only"); staged != "" {
+		t.Fatalf("nothing may be staged in the project checkout, got %q", staged)
+	}
+}
+
+func TestRemoveWorktreeDirKeepsTheBranch(t *testing.T) {
+	dir := newGitRepo(t)
+	base := gitCmd(t, dir, "rev-parse", "HEAD")
+	wt, err := CreateRunWorktree(context.Background(), dir, "run-1", base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := removeWorktreeDir(context.Background(), dir, wt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(wt); !os.IsNotExist(err) {
+		t.Fatalf("the directory must go, stat err = %v", err)
+	}
+	if got := gitCmd(t, dir, "rev-parse", "wave/run-1"); got != base {
+		t.Fatalf("the branch must stay, got %q", got)
+	}
 }

@@ -65,7 +65,7 @@ func CleanupTaskWorktree(ctx context.Context, g *waveobj.TaskGroup, taskID strin
 		task.CleanupError = boundedCleanupError(err)
 		return err
 	}
-	err = RemoveTaskWorktree(ctx, projectPath, TaskWorktreeKey(g.RunID, taskID))
+	err = RemoveTaskWorktree(ctx, projectPath, LaneWorktreeKey(g, taskID))
 	task.CleanupPending = false
 	if err != nil {
 		task.CleanupError = boundedCleanupError(err)

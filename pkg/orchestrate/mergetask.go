@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -21,8 +22,8 @@ var mergeWorktree = MergeRunWorktree
 // continueMerge commits a squash merge the caller resolved; a seam so tests skip the real conflict.
 var continueMerge = MergeContinue
 
-// MergeTask lands one done task's worktree on the project branch, stamps the merge and removes the
-// tree. It holds the dag mutation lock across reload -> merge -> stamp -> cleanup for two reasons:
+// MergeTask lands the finished lane holding a task on the project branch, stamps the merge and removes the
+// lane's tree. It holds the dag mutation lock across reload -> merge -> stamp -> cleanup for two reasons:
 // the engine persists a tick as a whole-object replace of a snapshot taken under that lock, so a
 // stamp written outside it is silently reverted by any overlapping tick; and two mergers running a
 // squash merge against one project tree collide on git's index lock. Nothing inside re-enters the
@@ -64,14 +65,14 @@ func ContinueMerge(ctx context.Context, channelID, ownerRunID, taskID string) er
 			return CleanupMergedTask(ctx, channelID, g, taskID)
 		})
 	case task.State == TaskState_BlockedMerge:
-		return continueBlockedMerge(ctx, channelID, owner, task)
+		return continueBlockedMerge(ctx, channelID, owner, g, task)
 	}
 	return fmt.Errorf("task %s is %s, want blocked-merge or verify-failed", taskID, task.State)
 }
 
 // continueBlockedMerge commits the resolved project state of a conflicted squash merge, stamps it like
-// any merge, and hands the checkout to Verify when the plan has one.
-func continueBlockedMerge(ctx context.Context, channelID string, owner *waveobj.Run, task *waveobj.TaskNode) error {
+// any merge, and hands the checkout to Verify when the plan has one. The blocked task is its lane's tip.
+func continueBlockedMerge(ctx context.Context, channelID string, owner *waveobj.Run, g *waveobj.TaskGroup, task *waveobj.TaskNode) error {
 	if task.RunID == "" {
 		return fmt.Errorf("task %s has no child run", task.ID)
 	}
@@ -79,12 +80,8 @@ func continueBlockedMerge(ctx context.Context, channelID string, owner *waveobj.
 	if err != nil {
 		return err
 	}
-	mergeMsg := task.Label
-	if mergeMsg == "" {
-		mergeMsg = task.ID
-	}
 	appendRunEvent(ctx, channelID, owner.ID, waveobj.RunEventKindTaskMergeContinued, nil, map[string]any{"taskid": task.ID})
-	sha, err := continueMerge(ctx, owner.ProjectPath, TaskWorktreeKey(owner.ID, task.ID), mergeMsg)
+	sha, err := continueMerge(ctx, owner.ProjectPath, LaneWorktreeKey(g, task.ID), laneMergeMessage(g, laneOf(g, task.ID)), laneFold(g))
 	if err != nil {
 		releaseProject(owner.ProjectPath, l)
 		return err
@@ -138,27 +135,37 @@ func landAfterMerge(channelID string, owner *waveobj.Run, taskID, verify string,
 // holds, so a human's staged edits would land inside the task's commit.
 var errIndexNotClean = errors.New("project index is not clean")
 
-// mergeTaskLocked returns the plan's Verify command when the landed merge now waits on it.
+// mergeTaskLocked lands the lane holding taskID and returns the plan's Verify command when the landed merge
+// now waits on it. A lane lands as one squash commit recorded on its tip, whichever of its tasks was named,
+// and only once every task in it is done or skipped.
 func mergeTaskLocked(ctx context.Context, channelID string, owner *waveobj.Run, taskID string, requireCleanIndex bool) (string, error) {
 	g, err := wstore.GetDag(ctx, owner.DagORef)
 	if err != nil {
 		return "", err
 	}
-	task := taskByID(g, taskID)
-	if task == nil {
+	if taskByID(g, taskID) == nil {
 		return "", fmt.Errorf("no task %q", taskID)
+	}
+	lane := laneOf(g, taskID)
+	task := laneTip(g, lane)
+	if task == nil {
+		return "", fmt.Errorf("task %s: every task in lane %s was skipped, so there is nothing to merge", taskID, strings.Join(lane, ", "))
 	}
 	if task.Merged {
 		if !task.CleanupPending && task.CleanupError == "" {
 			return "", nil
 		}
-		return "", CleanupMergedTask(ctx, channelID, g, taskID)
+		return "", CleanupMergedTask(ctx, channelID, g, task.ID)
 	}
-	if task.State != TaskState_Done && task.State != TaskState_BlockedMerge {
-		return "", fmt.Errorf("task %s is %s, want done", taskID, task.State)
+	for _, id := range lane {
+		t := taskByID(g, id)
+		if t.State == TaskState_Done || t.State == TaskState_Skipped || (t.ID == task.ID && t.State == TaskState_BlockedMerge) {
+			continue
+		}
+		return "", fmt.Errorf("task %s is %s, want done: lane %s lands as one merge once all of it is done", t.ID, t.State, strings.Join(lane, ", "))
 	}
 	if task.RunID == "" {
-		return "", fmt.Errorf("task %s has no child run", taskID)
+		return "", fmt.Errorf("task %s has no child run", task.ID)
 	}
 	if requireCleanIndex {
 		// AutoMergeReady checks this from a read taken before the claim, which misses a Verify that failed
@@ -177,27 +184,21 @@ func mergeTaskLocked(ctx context.Context, channelID string, owner *waveobj.Run, 
 		}
 	}
 	childRunID := task.RunID
-	// commit message should be the task label, not the full child goal (which embeds plan
-	// description + headless contract).
-	mergeMsg := task.Label
-	if mergeMsg == "" {
-		mergeMsg = task.ID
-	}
 	// merge-started closes the digest's merge-wait window (task-done -> here): the interval a
 	// finished task spent waiting to be landed. Emitted only once the attempt is going ahead, so a
 	// refused automatic attempt never opens a window it did not start.
-	appendRunEvent(ctx, channelID, owner.ID, waveobj.RunEventKindTaskMergeStarted, nil, map[string]any{"taskid": taskID})
-	sha, err := mergeWorktree(ctx, owner.ProjectPath, TaskWorktreeKey(owner.ID, taskID), mergeMsg)
+	appendRunEvent(ctx, channelID, owner.ID, waveobj.RunEventKindTaskMergeStarted, nil, map[string]any{"taskid": task.ID})
+	sha, err := mergeWorktree(ctx, owner.ProjectPath, LaneWorktreeKey(g, task.ID), laneMergeMessage(g, lane), laneFold(g))
 	if err != nil {
 		if errors.Is(err, ErrMergeConflict) {
-			appendRunEvent(ctx, channelID, owner.ID, waveobj.RunEventKindTaskMergeBlocked, nil, map[string]any{"taskid": taskID})
+			appendRunEvent(ctx, channelID, owner.ID, waveobj.RunEventKindTaskMergeBlocked, nil, map[string]any{"taskid": task.ID})
 			if derr := markBlockedMergeLocked(ctx, owner.DagORef, childRunID); derr != nil {
 				return "", derr
 			}
 		}
 		return "", err
 	}
-	return FinishMergedTask(ctx, channelID, owner.DagORef, childRunID, taskID, sha)
+	return FinishMergedTask(ctx, channelID, owner.DagORef, childRunID, task.ID, sha)
 }
 
 // FinishMergedTask stamps a landed merge and then removes the worktree. It returns the plan's Verify
@@ -254,6 +255,12 @@ func persistMergedTask(ctx context.Context, channelID, dagID, childRunID, taskID
 			if task == nil {
 				return fmt.Errorf("no task %q", taskID)
 			}
+			// the squash landed every finished task in the lane; the commit, cleanup and Verify are the tip's
+			for _, id := range laneOf(cur, taskID) {
+				if t := taskByID(cur, id); t.State == TaskState_Done {
+					t.Merged = true
+				}
+			}
 			task.Merged = true
 			task.CleanupPending = true
 			task.CleanupError = ""
@@ -272,8 +279,8 @@ func persistMergedTask(ctx context.Context, channelID, dagID, childRunID, taskID
 	return nil
 }
 
-// AutoMergeReady lands every task whose work is finished and whose gate, if it has one, a human
-// already released. Under MergeRequired the merge is what unblocks a dependent, so leaving it to the
+// AutoMergeReady lands every lane whose work is finished and whose gates a human already released.
+// Under MergeRequired the merge is what unblocks a dependent in another lane, so leaving it to the
 // lead put a language model on the critical path of every edge in the dag; dispatch has always been
 // the watchdog's job and this makes the merge match. A conflict still stops at the human: the task
 // goes blocked-merge exactly as it does from the RPC, and is not retried on the next tick. A merge also
@@ -316,19 +323,15 @@ func AutoMergeReady(ctx context.Context, dagID string) {
 	}
 }
 
-// autoMergeable lists tasks whose merge can be landed without asking anyone: finished, not yet
-// merged, past their gate. blocked-merge is excluded — a conflicted tree is the human's.
+// autoMergeable lists the lanes that can be landed without asking anyone, by their tip: every task
+// finished or skipped, nothing merged yet, every gate released. blocked-merge is excluded — a conflicted
+// tree is the human's.
 func autoMergeable(g *waveobj.TaskGroup) []string {
 	var out []string
-	for i := range g.Tasks {
-		t := &g.Tasks[i]
-		if t.State != TaskState_Done || t.Merged || t.RunID == "" {
-			continue
+	for _, lane := range jarvis.Lanes(g.Tasks) {
+		if tip := laneMergeReady(g, lane); tip != nil {
+			out = append(out, tip.ID)
 		}
-		if t.Gate && !t.Released {
-			continue
-		}
-		out = append(out, t.ID)
 	}
 	return out
 }

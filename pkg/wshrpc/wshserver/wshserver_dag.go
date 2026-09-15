@@ -34,6 +34,15 @@ func loadDagPlan(data *wshrpc.CommandDagSubmitData) (jarvis.Plan, error) {
 	if len(data.Tasks) > 0 {
 		return jarvis.Plan{}, fmt.Errorf("pass tasks or planpath, not both")
 	}
+	if data.SpecPath != "" {
+		if !filepath.IsAbs(data.SpecPath) {
+			return jarvis.Plan{}, fmt.Errorf("specpath %q must be absolute", data.SpecPath)
+		}
+		// checked now: a mistyped path would otherwise surface only as a log line at the first merge
+		if _, err := os.Stat(data.SpecPath); err != nil {
+			return jarvis.Plan{}, fmt.Errorf("reading spec: %w", err)
+		}
+	}
 	src, err := os.ReadFile(data.PlanPath)
 	if err != nil {
 		return jarvis.Plan{}, fmt.Errorf("reading plan: %w", err)
@@ -57,6 +66,9 @@ func loadDagPlan(data *wshrpc.CommandDagSubmitData) (jarvis.Plan, error) {
 
 func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDagSubmitData) (*waveobj.TaskGroup, error) {
 	var plan jarvis.Plan
+	if data.SpecPath != "" && data.PlanPath == "" {
+		return nil, fmt.Errorf("specpath needs planpath: the spec is committed with the plan it produced")
+	}
 	if data.PlanPath != "" {
 		loaded, err := loadDagPlan(&data)
 		if err != nil {
@@ -119,6 +131,7 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 		return nil, err
 	}
 	proposed.Verify, proposed.Setup = plan.Verify, plan.Setup
+	proposed.PlanPath, proposed.SpecPath = data.PlanPath, data.SpecPath
 	// Every top-level plan is read by the human before a single worker spawns: the decomposition is
 	// the run's most consequential decision and the cheapest point to correct it, and once children
 	// are live the correction costs N worktrees. A child's plan is not gated — its parent's already

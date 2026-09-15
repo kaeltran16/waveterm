@@ -29,6 +29,7 @@ type CommandDagSubmitData struct {
 	Tasks       []waveobj.TaskNode `json:"tasks"`
 	WorkerRoute *waveobj.RoutePin  `json:"workerroute,omitempty"` // nil = inherit lead; B1b workers default
 	PlanPath    string             `json:"planpath,omitempty"`    // absolute path to a plan in jarvis.PlanFormat; replaces tasks
+	SpecPath    string             `json:"specpath,omitempty"`    // absolute path to the spec the plan implements; only with planpath
 }
 
 type CommandDagStatusData struct {

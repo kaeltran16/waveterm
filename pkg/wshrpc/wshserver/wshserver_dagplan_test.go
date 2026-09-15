@@ -87,6 +87,9 @@ func TestDagSubmitFromPlanPath(t *testing.T) {
 			{"plan path and tasks together", wshrpc.CommandDagSubmitData{PlanPath: writePlan(t, "plan.md", plan), Tasks: []waveobj.TaskNode{{ID: "t-1", Label: "a"}}}, "not both"},
 			{"missing plan file", wshrpc.CommandDagSubmitData{PlanPath: filepath.Join(dir, "missing.md")}, "missing.md"},
 			{"unparseable plan", wshrpc.CommandDagSubmitData{PlanPath: writePlan(t, "prose.md", "just prose\n")}, "no tasks"},
+			{"spec without a plan", wshrpc.CommandDagSubmitData{SpecPath: writePlan(t, "spec.md", "# spec\n"), Tasks: []waveobj.TaskNode{{ID: "t-1", Label: "a"}}}, "needs planpath"},
+			{"relative spec path", wshrpc.CommandDagSubmitData{PlanPath: writePlan(t, "plan.md", plan), SpecPath: "spec.md"}, "absolute"},
+			{"missing spec file", wshrpc.CommandDagSubmitData{PlanPath: writePlan(t, "plan.md", plan), SpecPath: filepath.Join(dir, "missing-spec.md")}, "missing-spec.md"},
 		}
 		for _, c := range cases {
 			c.data.ChannelId, c.data.RunId = channelId, runId
@@ -109,6 +112,18 @@ func TestDagSubmitFromPlanPath(t *testing.T) {
 		}
 		if g.Verify != "task test" || g.Setup != "task worktree:prepare" {
 			t.Fatalf("verify %q, setup %q", g.Verify, g.Setup)
+		}
+	})
+
+	t.Run("the plan and spec paths are stored on the dag", func(t *testing.T) {
+		channelId, runId := newRun(t)
+		planPath, specPath := writePlan(t, "plan.md", plan), writePlan(t, "spec.md", "# spec\n")
+		g, err := (&WshServer{}).DagSubmitCommand(ctx, wshrpc.CommandDagSubmitData{ChannelId: channelId, RunId: runId, PlanPath: planPath, SpecPath: specPath})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if g.PlanPath != planPath || g.SpecPath != specPath {
+			t.Fatalf("planpath %q, specpath %q", g.PlanPath, g.SpecPath)
 		}
 	})
 }

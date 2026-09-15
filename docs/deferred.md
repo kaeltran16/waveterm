@@ -7,6 +7,26 @@ where it would plug in, and how to pick it back up. Append new entries at the to
 > append-only rationale log — append the full deferral here, then mirror a one-line row there. Entries
 > marked RESOLVED/DECLINED below are kept for the reasoning, not as pending work.
 
+## Lanes: a skipped task's commits land with its lane, and a retry's evidence starts at the branch head (2026-09-15)
+
+Slice 4d of the orchestrator redesign (`docs/superpowers/plans/2026-09-15-orchestrator-redesign-s4d-lanes.md`)
+runs a chain of tasks as one lane: one worktree and branch, and one squash merge once the last task is done.
+
+- **What was deferred:**
+  - Skipping a task never rewinds its lane's branch. Anything a failed attempt committed before the task was
+    skipped lands with the lane's squash merge.
+  - A retried task continues from the lane branch, including any commits its failed attempt made. Its child
+    run's `BaseCommit` is the branch head at the retry, so its evidence leaves those commits out.
+  - A lane's first task retried after a Setup failure keeps the base its branch was created at, even when
+    other lanes have merged since.
+- **Why:** workers commit once, at the end, so a failed attempt rarely leaves commits behind. Rewinding needs
+  a hard reset inside a tree that `task worktree:prepare` junctions into, the class of operation 6179ac3d had
+  to make safe for removal.
+- **Where to pick it up:** in `applyActionLocked`'s `skip` case (`pkg/orchestrate/mutation.go`), reset the lane
+  worktree to the last done task's reported commit (its child run's `EndCommit`) after `DumpRecoveryPatch`,
+  unlinking junctions first as `removeWorktreeDir` does. For evidence, stamp the base on the task node at its
+  first dispatch and reuse it on a retry.
+
 ## Merge-point Verify: a timeout kills the shell only, and a failed Verify holds only its own run's merges (2026-09-15)
 
 Slice 4c of the orchestrator redesign (`docs/superpowers/plans/2026-09-15-orchestrator-redesign-s4c-setup-merge-verify.md`)

@@ -88,7 +88,7 @@ func stubMerge(t *testing.T, fn func(ctx context.Context, projectPath, runID, go
 	t.Helper()
 	calls := 0
 	old := mergeWorktree
-	mergeWorktree = func(ctx context.Context, projectPath, runID, goal string) (string, error) {
+	mergeWorktree = func(ctx context.Context, projectPath, runID, goal string, _ []string) (string, error) {
 		calls++
 		return fn(ctx, projectPath, runID, goal)
 	}
@@ -112,6 +112,8 @@ func TestScheduleMergesDoneTaskAndUnblocksDependent(t *testing.T) {
 	f := newMergeFixture(t, []waveobj.TaskNode{
 		{ID: "t-0", Label: "first"},
 		{ID: "t-1", Label: "second", Deps: []string{"t-0"}},
+		// a second dependent makes t-0 a lane of its own, so it lands before either starts
+		{ID: "t-2", Label: "third", Deps: []string{"t-0"}},
 	})
 	child := f.finish(t, "t-0")
 	calls := stubMerge(t, func(context.Context, string, string, string) (string, error) { return "sha-1", nil })

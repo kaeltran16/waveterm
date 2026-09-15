@@ -469,7 +469,7 @@ func TestCancelPersistsCleanupDebtAndRetry(t *testing.T) {
 	if err := wstore.AppendDag(ctx, &g); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := EnsureRunWorktree(ctx, projectDir, TaskWorktreeKey(owner.ID, "t-0"), owner.BaseCommit); err != nil {
+	if _, _, _, err := EnsureRunWorktree(ctx, projectDir, TaskWorktreeKey(owner.ID, "t-0"), owner.BaseCommit); err != nil {
 		t.Fatal(err)
 	}
 

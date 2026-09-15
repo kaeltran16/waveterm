@@ -12,9 +12,10 @@ live in [`docs/open-issues.md`](open-issues.md).
 
 You start a run from `+ Run` on the Jarvis Brief. If the route resolves to the **engine** machine, the
 lead agent's first job is to write a plan and submit it as a DAG; the engine holds that plan at a gate
-until you approve it. On approval the engine — not the lead — spawns one child agent per ready task,
-each in its own git worktree on its own branch. Children commit and report done, and the engine
-squash-merges each finished branch back the moment it lands cleanly. You are involved at exactly three
+until you approve it. On approval the engine — not the lead — spawns one child agent per ready task.
+A chain of tasks, each the only one waiting on the task before it, is a lane: it shares one git worktree
+and one branch, each child commits on top of the last, and the engine squash-merges the lane back once its
+last task is done. You are involved at exactly three
 kinds of moment: the plan gate, any question a child asks, and a merge that needs a decision — a
 squash conflict, or a project tree with staged edits the engine will not commit into.
 
@@ -29,9 +30,9 @@ Three preconditions. None of them are optional, and each one has burned a run be
 
 ### 1. The project must be a git repo, and it must be the repo you want touched
 
-The engine gives every child its own linked worktree under
-`<project>/.waveterm/worktrees/<runID>-<taskID>` on a branch named `wave/<key>`
-(`pkg/orchestrate/worktree.go`). No git repo, no worktrees — every child is spawned into the project
+The engine gives every lane one linked worktree under
+`<project>/.waveterm/worktrees/<runID>-<taskID>`, keyed by the lane's first task, on a branch named
+`wave/<key>` (`pkg/orchestrate/worktree.go`, `pkg/orchestrate/lane.go`). No git repo, no worktrees — every child is spawned into the project
 directory itself and they overwrite each other.
 
 Because merges land on whatever branch the project has checked out, the project should not be a
@@ -46,7 +47,7 @@ cd .claude/worktrees/review-fixes && task worktree:prepare
 `node_modules`, `src-tauri/target` and `dist/bin` in from the main checkout. A fresh worktree has
 none of them, so a child that runs `npx vitest` in an unprepared tree fails on a missing dependency
 and spends its one question asking you why. **The engine runs it for you when the plan says so:** a plan
-line `` **Setup:** `task worktree:prepare` `` runs in every new task worktree before its worker starts, and
+line `` **Setup:** `task worktree:prepare` `` runs in every new worktree before its worker starts, and
 a Setup that fails fails the task with kind `setup`.
 
 ### 2. The backend running the run must already contain any backend fix the run depends on

@@ -34,7 +34,7 @@ func taskHungWake(taskID string, silentMin int64) string {
 }
 
 func mergeConflictWake(taskID string) string {
-	return fmt.Sprintf("wake: merge conflict landing task %s. git status", taskID)
+	return fmt.Sprintf("wake: merge conflict landing lane ending at task %s. git status", taskID)
 }
 
 // verifyFailedWake names the exit code or the timeout, so the lead knows whether to read a failing test or

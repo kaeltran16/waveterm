@@ -737,6 +737,7 @@ declare global {
         tasks: TaskNode[];
         workerroute?: RoutePin;
         planpath?: string;
+        specpath?: string;
     };
 
     // wshrpc.CommandDebugTermData
@@ -3668,6 +3669,8 @@ declare global {
         notifiedcondition?: string;
         verify?: string;
         setup?: string;
+        planpath?: string;
+        specpath?: string;
     };
 
     // waveobj.TaskNode

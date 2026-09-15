@@ -17,11 +17,12 @@ import (
 func newCleanupGroup(t *testing.T, ch *waveobj.Channel) *waveobj.TaskGroup {
 	t.Helper()
 	g, err := NewTaskGroup("run-1", ch.OID, "cleanup group", 2, false, []waveobj.TaskNode{
+		// independent tasks: each is a lane of its own, so each cleanup keys its own tree
 		{ID: "t-0", Label: "zero"},
-		{ID: "t-1", Label: "one", Deps: []string{"t-0"}},
-		{ID: "t-2", Label: "two", Deps: []string{"t-1"}},
-		{ID: "t-3", Label: "three", Deps: []string{"t-2"}},
-		{ID: "t-4", Label: "four", Deps: []string{"t-3"}},
+		{ID: "t-1", Label: "one"},
+		{ID: "t-2", Label: "two"},
+		{ID: "t-3", Label: "three"},
+		{ID: "t-4", Label: "four"},
 	}, time.Now().UnixMilli(), nil)
 	if err != nil {
 		t.Fatal(err)

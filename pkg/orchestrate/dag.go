@@ -274,7 +274,7 @@ func SameDagProposal(a, b *waveobj.TaskGroup) bool {
 		return a == b
 	}
 	if a.Title != b.Title || a.Parallelism != b.Parallelism || a.MergeRequired != b.MergeRequired ||
-		a.Verify != b.Verify || a.Setup != b.Setup || len(a.Tasks) != len(b.Tasks) {
+		a.Verify != b.Verify || a.Setup != b.Setup || a.PlanPath != b.PlanPath || a.SpecPath != b.SpecPath || len(a.Tasks) != len(b.Tasks) {
 		return false
 	}
 	if (a.WorkerRoute == nil) != (b.WorkerRoute == nil) {

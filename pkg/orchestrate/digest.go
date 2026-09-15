@@ -147,7 +147,7 @@ func buildCounts(g *waveobj.TaskGroup, askByTask map[string]wshrpc.DagAskItem, r
 			if retried[t.ID] {
 				c.RecoveredRetry++
 			}
-			if g.MergeRequired && !t.Merged && (!t.Gate || t.Released) {
+			if mergeReadyTip(g, t) {
 				c.MergeReady++
 			}
 		case TaskState_Running:
@@ -167,7 +167,7 @@ func buildCounts(g *waveobj.TaskGroup, askByTask map[string]wshrpc.DagAskItem, r
 
 func hasUnsatDep(g *waveobj.TaskGroup, t *waveobj.TaskNode) bool {
 	for _, d := range t.Deps {
-		if !depSatisfied(g, d) {
+		if !depSatisfied(g, t.ID, d) {
 			return true
 		}
 	}
@@ -215,11 +215,8 @@ func mergeReadyBlocking(g *waveobj.TaskGroup) []string {
 		return nil
 	}
 	mergeReady := map[string]bool{}
-	for i := range g.Tasks {
-		t := &g.Tasks[i]
-		if t.State == TaskState_Done && !t.Merged && (!t.Gate || t.Released) {
-			mergeReady[t.ID] = true
-		}
+	for _, id := range mergeReadyIDs(g) {
+		mergeReady[id] = true
 	}
 	if len(mergeReady) == 0 {
 		return nil
@@ -241,7 +238,7 @@ func depChainReachesMergeReady(g *waveobj.TaskGroup, t *waveobj.TaskNode, mergeR
 			return true
 		}
 		dn := taskByID(g, d)
-		if dn != nil && !depSatisfied(g, d) && depChainReachesMergeReady(g, dn, mergeReady) {
+		if dn != nil && !depSatisfied(g, t.ID, d) && depChainReachesMergeReady(g, dn, mergeReady) {
 			return true
 		}
 	}
@@ -384,9 +381,8 @@ func cleanupPendingIDs(g *waveobj.TaskGroup) []string {
 func mergeReadyIDs(g *waveobj.TaskGroup) []string {
 	var ids []string
 	for i := range g.Tasks {
-		t := &g.Tasks[i]
-		if g.MergeRequired && t.State == TaskState_Done && !t.Merged && (!t.Gate || t.Released) {
-			ids = append(ids, t.ID)
+		if mergeReadyTip(g, &g.Tasks[i]) {
+			ids = append(ids, g.Tasks[i].ID)
 		}
 	}
 	return ids
@@ -414,7 +410,7 @@ func dependencyWait(g *waveobj.TaskGroup) ([]string, []string) {
 		}
 		hasBlock := false
 		for _, d := range t.Deps {
-			if !depSatisfied(g, d) {
+			if !depSatisfied(g, t.ID, d) {
 				hasBlock = true
 				blockingSet[d] = true
 			}
@@ -507,7 +503,7 @@ func taskIsParallelismCapped(g *waveobj.TaskGroup, t *waveobj.TaskNode) bool {
 
 func taskReady(g *waveobj.TaskGroup, t *waveobj.TaskNode) bool {
 	for _, d := range t.Deps {
-		if !depSatisfied(g, d) {
+		if !depSatisfied(g, t.ID, d) {
 			return false
 		}
 	}
@@ -520,7 +516,7 @@ func taskBlockingIds(g *waveobj.TaskGroup, t *waveobj.TaskNode) []string {
 	}
 	var out []string
 	for _, d := range t.Deps {
-		if !depSatisfied(g, d) {
+		if !depSatisfied(g, t.ID, d) {
 			out = append(out, d)
 		}
 	}
@@ -535,7 +531,7 @@ func taskHumanActions(g *waveobj.TaskGroup, t *waveobj.TaskNode) []string {
 		return digestActionRetrySkipEscalate
 	case t.State == TaskState_BlockedMerge || t.State == TaskState_VerifyFailed:
 		return digestActionResolveMerge
-	case t.State == TaskState_Done && g.MergeRequired && !t.Merged && (!t.Gate || t.Released):
+	case mergeReadyTip(g, t):
 		return digestActionResolveMerge
 	}
 	return nil
@@ -551,7 +547,8 @@ func taskMergeState(g *waveobj.TaskGroup, t *waveobj.TaskNode) string {
 	if t.State == TaskState_BlockedMerge {
 		return "blocked"
 	}
-	if t.State == TaskState_Done && (!t.Gate || t.Released) {
+	// a lane merges as one, so only its tip reads ready
+	if mergeReadyTip(g, t) {
 		return "ready"
 	}
 	return "waiting"
@@ -621,7 +618,8 @@ func buildReport(sn DagDigestSnapshot, durations wshrpc.DagDurationDigest) wshrp
 	}
 	for i := range g.Tasks {
 		t := &g.Tasks[i]
-		if c := endCommit[t.RunID]; t.Merged && c != "" {
+		// a lane lands one squash commit, recorded on its tip; earlier tasks keep the commits they reported
+		if c := endCommit[t.RunID]; t.Merged && c != "" && laneTip(g, laneOf(g, t.ID)).ID == t.ID {
 			r.Commits = append(r.Commits, wshrpc.DagLandedCommit{TaskId: t.ID, Commit: c})
 		}
 	}

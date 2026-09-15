@@ -396,6 +396,12 @@ type TaskGroup struct {
 	// empty for a dag submitted as JSON, which is then prepared by nobody and reported unverified.
 	Verify string `json:"verify,omitempty"`
 	Setup  string `json:"setup,omitempty"`
+
+	// PlanPath and SpecPath are the absolute paths of the plan a dag was submitted from and the spec it
+	// implements. They stay uncommitted in the project checkout until the dag's first squash merge, which
+	// stages both so the docs land with the work they describe. Empty for a dag submitted as JSON.
+	PlanPath string `json:"planpath,omitempty"`
+	SpecPath string `json:"specpath,omitempty"`
 }
 
 func (*TaskGroup) GetOType() string {
