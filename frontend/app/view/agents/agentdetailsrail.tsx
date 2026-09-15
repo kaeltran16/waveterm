@@ -40,17 +40,17 @@ const GAUGE_FILL: Record<"ok" | "warn" | "hot", string> = {
 
 const RailFilesCap = 8; // a 296px rail can't show a large worktree; overflow folds into "+N more"
 
-// A 264px-wide rail can't always fit "label   value" on one line (a ticket-prefixed branch, a runtime
-// plus its age). shrink-0 stops the value from being squeezed into the leftover gap and broken
-// mid-token: it either sits beside the label or wraps whole onto its own full-width line. Only a value
-// wider than the rail itself ellipsizes, and then `title` carries the full text.
+// A 264px-wide rail can't always fit "label   value" on one line (a ticket-prefixed branch, a project
+// path). The value takes the space the label leaves and ellipsizes there, with `title` carrying the full
+// text. Wrapping it whole onto its own line read as the value spilling out of its row, and letting it
+// shrink without nowrap broke it mid-token.
 function DetailRow({ label, value, title }: { label: string; value: React.ReactNode; title?: string }) {
     return (
-        <div className="flex flex-wrap items-baseline gap-x-[12px] border-b border-edge-faint py-[5px] last:border-b-0">
+        <div className="flex items-baseline gap-x-[12px] border-b border-edge-faint py-[5px] last:border-b-0">
             <span className="shrink-0 text-[12.5px] text-muted">{label}</span>
             <span
                 title={title}
-                className="ml-auto max-w-full shrink-0 truncate font-mono text-[12px] font-medium text-secondary"
+                className="min-w-0 flex-1 truncate text-right font-mono text-[12px] font-medium text-secondary"
             >
                 {value}
             </span>
