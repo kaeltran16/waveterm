@@ -2,7 +2,7 @@
 
 **One line:** A goal-first orchestrator. The lead works the goal with the human through the brainstorming skill. Architectural goals go to a deterministic engine, which runs the plan in lanes and wakes the lead only when something needs judgment.
 
-**Status:** Design approved in conversation 2026-09-14. Implementation not started.
+**Status:** Design approved in conversation 2026-09-14. Slices 1-3 built (149be624, 680da968, 27228cb9). Slice 4 is split into 4a-4d (§13).
 
 **Evidence:** `docs/superpowers/briefs/2026-09-14-orchestrator-redesign-measurements.md` (commit 426211c9), plus the transcript and run-event probes summarized under [Measurements](#measurements-that-shaped-the-design).
 
@@ -529,15 +529,19 @@ The frontend orchestration-toggle and pipeline-shape code lives in `newruncontro
 
 ## 13. Delivery slices
 
-This is too large for one plan. Slice 1 is two small, reversible fixes, made directly without a plan. Slices 2-5 get one plan each, four plans in all, executed in order. Each slice leaves the app working. Old paths are deleted only after their replacements are live, so there is no half-landed state. Tracked as the Wave initiative `effort:aeabb4ad-a19c-4f5d-bba2-44586b73af16`.
+This is too large for one plan. Slice 1 is two small, reversible fixes, made directly without a plan. Slices 2, 3 and 5 get one plan each; slice 4 is split into four sub-slices, and only its two risky ones get plans. Each slice leaves the app working. Old paths are deleted only after their replacements are live, so there is no half-landed state. Tracked as the Wave initiative `effort:aeabb4ad-a19c-4f5d-bba2-44586b73af16`, with slice 4's sub-slices as chunks under its `S4 plan-driven engine` stage.
 
 1. **Land-first fixes:** false stall, `cleanupScheduleFailure`.
 2. **Harness scope and tier deletion:** §8, §9, pin migration.
 3. **Queue and wake:** §5, §6; `dag retry`, `dag skip`, `dag forward`. Delete the pi control plumbing and `dag wait` once the adapter wakes both harnesses.
-4. **Plan-driven engine:** §3, §4; `dag submit --plan`, lanes, Setup, session id, merge-point Verify, hung signal, report numbers. Delete JSON submit, `import-tasks`, `init` and `MaxDagTasks`.
-5. **Lead flow:** launch prompt, orchestration rules, worker contract, compaction handoff and re-orientation hooks, + Run shapes and plan-path preview. Delete pipeline, adaptive, the plan gate and the old lead prompt.
+4. **Plan-driven engine:** §3, §4, in four sub-slices.
+   - **4a. Plan parser:** `PlanFormat`, the parser with its lane derivation, and `dag submit --plan` beside JSON submit. No plan.
+   - **4b. Worker identity and hung:** `--session-id` launch, transcript lookup by session id, the hung signal. No plan.
+   - **4c. Setup and merge-point Verify:** Setup after `worktree add`, Verify after each squash merge at today's per-task merge points, `verify-failed` and `dag merge --continue`, the per-project merge queue, report numbers. Plan.
+   - **4d. Lanes:** lane worktrees and branches, stacked in-lane commits, merges at lane tips, cross-lane waits, the G1 spec and plan fold. Plan.
+5. **Lead flow:** launch prompt, orchestration rules, worker contract, compaction handoff and re-orientation hooks, + Run shapes and plan-path preview. Delete pipeline, adaptive, the plan gate and the old lead prompt, then JSON submit, `import-tasks`, `init` and `MaxDagTasks`. Those four move here from slice 4: until this slice replaces the old lead prompt (`buildEngineOrchestratePrompt`), it tells leads to submit through JSON, `import-tasks` and `init`, and states the `MaxDagTasks` cap, which `dagDigestChildRunLimit` and the frontend's `MAX_DAG_TASKS` also follow.
 
-Slice 5 depends on 3 and 4. Slices 1 and 2 are independent of everything.
+Slice 5 depends on 3 and 4. Slices 1 and 2 are independent of everything. Within slice 4, 4b is independent; 4c needs 4a, because Setup and Verify come from the plan; 4d needs 4a and 4c.
 
 ## 14. Open items
 

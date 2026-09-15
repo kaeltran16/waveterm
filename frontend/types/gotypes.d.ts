@@ -736,6 +736,7 @@ declare global {
         parallelism: number;
         tasks: TaskNode[];
         workerroute?: RoutePin;
+        planpath?: string;
     };
 
     // wshrpc.CommandDebugTermData

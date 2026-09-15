@@ -28,6 +28,7 @@ type CommandDagSubmitData struct {
 	Parallelism int                `json:"parallelism"`
 	Tasks       []waveobj.TaskNode `json:"tasks"`
 	WorkerRoute *waveobj.RoutePin  `json:"workerroute,omitempty"` // nil = inherit lead; B1b workers default
+	PlanPath    string             `json:"planpath,omitempty"`    // absolute path to a plan in jarvis.PlanFormat; replaces tasks
 }
 
 type CommandDagStatusData struct {
