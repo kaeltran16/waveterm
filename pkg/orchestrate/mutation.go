@@ -390,7 +390,8 @@ func cancelLocked(ctx context.Context, dagID string) error {
 	if IsGitRepo(projectPath) {
 		for i := range gCopy.Tasks {
 			taskID := gCopy.Tasks[i].ID
-			key := TaskWorktreeKey(gCopy.RunID, taskID)
+			// a lane's tasks share one key: the first removes the tree, the rest find nothing left to do
+			key := LaneWorktreeKey(gCopy, taskID)
 			DumpRecoveryPatch(cleanupCtx, projectPath, key) // best effort
 			cleanupErr := CleanupTaskWorktree(cleanupCtx, gCopy, taskID)
 			if err := PersistCleanupState(cleanupCtx, gCopy); err != nil {

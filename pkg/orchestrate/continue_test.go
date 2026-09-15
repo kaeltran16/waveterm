@@ -71,7 +71,7 @@ func TestContinueAfterConflictRunsVerify(t *testing.T) {
 		t.Fatalf("setup: want blocked-merge, got %s", got)
 	}
 	orig := continueMerge
-	continueMerge = func(context.Context, string, string, string) (string, error) { return "sha-2", nil }
+	continueMerge = func(context.Context, string, string, string, []string) (string, error) { return "sha-2", nil }
 	t.Cleanup(func() { continueMerge = orig })
 	calls := stubPlanCommand(t, func(context.Context, string, string) error { return nil })
 	await := awaitVerify(t)

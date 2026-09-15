@@ -71,6 +71,18 @@ func dagPlanPath(args []string, file, plan string) (string, error) {
 	return filepath.Abs(plan)
 }
 
+// dagSpecPath resolves --spec to an absolute path. A spec is committed with the plan it produced, so it is
+// only accepted beside --plan.
+func dagSpecPath(planPath, spec string) (string, error) {
+	if spec == "" {
+		return "", nil
+	}
+	if planPath == "" {
+		return "", fmt.Errorf("pass --spec with --plan")
+	}
+	return filepath.Abs(spec)
+}
+
 var dagSubmitCmd = &cobra.Command{
 	Use:     "submit [dag-json]",
 	Short:   "validate and submit a DAG for the current run (--plan <plan.md>, inline JSON, or --file <path>|-)",
@@ -80,13 +92,18 @@ var dagSubmitCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		file, _ := cmd.Flags().GetString("file")
 		plan, _ := cmd.Flags().GetString("plan")
+		spec, _ := cmd.Flags().GetString("spec")
 		planPath, err := dagPlanPath(args, file, plan)
+		if err != nil {
+			return err
+		}
+		specPath, err := dagSpecPath(planPath, spec)
 		if err != nil {
 			return err
 		}
 		var data wshrpc.CommandDagSubmitData
 		if planPath != "" {
-			data.PlanPath = planPath
+			data.PlanPath, data.SpecPath = planPath, specPath
 		} else {
 			raw, err := dagSubmitSource(args, file, cmd.InOrStdin())
 			if err != nil {
@@ -571,6 +588,7 @@ func init() {
 	}
 	dagSubmitCmd.Flags().String("file", "", "read the dag JSON from a file (\"-\" for stdin)")
 	dagSubmitCmd.Flags().String("plan", "", "submit a plan file in the plan format below; its tasks become the dag")
+	dagSubmitCmd.Flags().String("spec", "", "the spec the plan implements; committed with the plan in the run's first merge")
 	dagImportCmd.Flags().String("dir", "", "pi-tasks dir (default .)")
 	dagImportCmd.Flags().String("title", "", "dag title (shown in the ui; default runs the first task's label)")
 	dagImportCmd.Flags().Int("parallelism", 0, fmt.Sprintf("concurrent children (1-%d); default is the dag's ready width", orchestrate.MaxParallelism))

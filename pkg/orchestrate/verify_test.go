@@ -83,6 +83,8 @@ func TestVerifyPassAfterMergeUnblocksDependent(t *testing.T) {
 	f := newMergeFixture(t, []waveobj.TaskNode{
 		{ID: "t-0", Label: "first"},
 		{ID: "t-1", Label: "second", Deps: []string{"t-0"}},
+		// a second dependent makes t-0 a lane of its own, so it merges and verifies before either starts
+		{ID: "t-2", Label: "third", Deps: []string{"t-0"}},
 	})
 	f.setPlanCommands(t, verifyCmd, "")
 	f.finish(t, "t-0")
@@ -123,6 +125,8 @@ func TestVerifyFailureBlocksTheDagAndWakesTheLead(t *testing.T) {
 	f := newMergeFixture(t, []waveobj.TaskNode{
 		{ID: "t-0", Label: "first"},
 		{ID: "t-1", Label: "second", Deps: []string{"t-0"}},
+		// a second dependent makes t-0 a lane of its own, so it merges and verifies before either starts
+		{ID: "t-2", Label: "third", Deps: []string{"t-0"}},
 	})
 	f.setPlanCommands(t, verifyCmd, "")
 	f.finish(t, "t-0")

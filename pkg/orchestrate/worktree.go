@@ -37,8 +37,9 @@ func ProjectHeadCommit(ctx context.Context, projectPath string) (string, error) 
 	return git(ctx, projectPath, "rev-parse", "HEAD")
 }
 
-// TaskWorktreeKey derives the per-task worktree key: <owner run ID>-<task ID>. Single source of
-// truth for the key — engine spawn, merge, and cancel sweeps must all derive it identically.
+// TaskWorktreeKey derives a worktree key from a task: <owner run ID>-<task ID>. Tasks share their lane's
+// tree, so spawn, merge, cleanup and the cancel sweep all key through LaneWorktreeKey, which calls this
+// with the lane's first task.
 func TaskWorktreeKey(ownerRunID, taskID string) string {
 	return ownerRunID + "-" + taskID
 }
@@ -66,6 +67,15 @@ func RemoveRunWorktree(ctx context.Context, projectPath, runID string) error {
 	if _, err := os.Stat(wt); err != nil {
 		return nil // nothing to remove
 	}
+	if err := removeWorktreeDir(ctx, projectPath, wt); err != nil {
+		return err
+	}
+	git(ctx, projectPath, "branch", "-D", "wave/"+runID) // best-effort
+	return nil
+}
+
+// removeWorktreeDir unregisters and deletes a linked worktree's directory and keeps its branch.
+func removeWorktreeDir(ctx context.Context, projectPath, wt string) error {
 	// before git sees the tree: its forced removal deletes through a junction into the target
 	if err := unlinkReparsePoints(wt); err != nil {
 		return fmt.Errorf("removing worktree: %w", err)
@@ -76,12 +86,10 @@ func RemoveRunWorktree(ctx context.Context, projectPath, runID string) error {
 		// lists the worktree, the registration is gone and the lingering dir
 		// should be treated as already removed.
 		if !isWorktreeRegistered(ctx, projectPath, wt) {
-			git(ctx, projectPath, "branch", "-D", "wave/"+runID) // best-effort
 			return nil
 		}
 		return fmt.Errorf("removing worktree: %w", err)
 	}
-	git(ctx, projectPath, "branch", "-D", "wave/"+runID) // best-effort
 	return nil
 }
 
@@ -112,33 +120,59 @@ func unlinkReparsePoints(wt string) error {
 	})
 }
 
-// EnsureRunWorktree returns a usable linked worktree for runID at baseCommit, and whether this call
-// created it, so one-time preparation runs only on a fresh tree. An existing tree is reused only when its
-// branch still exists and the tree is clean — a clean tree whose head sits past baseCommit is committed
-// child work that merge needs later, so it stays; anything dirty or unverifiable gets its uncommitted
-// state dumped to a recovery patch and is rebuilt from baseCommit.
-func EnsureRunWorktree(ctx context.Context, projectPath, runID, baseCommit string) (string, bool, error) {
+// EnsureRunWorktree returns a usable linked worktree for runID, the commit its next task starts at, and
+// whether this call created the tree, so one-time preparation runs only on a fresh tree. An existing branch
+// is continued, never discarded: its commits are the finished tasks earlier in the lane, or an earlier
+// attempt's work, which the next task builds on and the lane's merge lands. A clean tree on the branch is
+// reused; a dirty one has its uncommitted state dumped to a recovery patch, and a dirty or missing one is
+// checked out again from the branch. With no branch, the tree is created at baseCommit.
+func EnsureRunWorktree(ctx context.Context, projectPath, runID, baseCommit string) (string, string, bool, error) {
 	wt := worktreeDir(projectPath, runID)
-	if _, err := os.Stat(wt); err == nil {
-		usable := false
-		if _, err := WorktreeHeadCommit(ctx, projectPath, runID); err == nil {
-			status, serr := git(ctx, wt, "status", "--porcelain")
-			// any dirt forces a rebuild (dump first); a clean tree is reused even when its head
-			// sits past baseCommit — that divergence is committed child work merge needs later
-			if serr == nil && strings.TrimSpace(status) == "" {
-				usable = true
+	_, statErr := os.Stat(wt)
+	head, headErr := WorktreeHeadCommit(ctx, projectPath, runID)
+	if headErr != nil {
+		if statErr == nil {
+			DumpRecoveryPatch(ctx, projectPath, runID) // best effort; rebuild proceeds either way
+			if err := RemoveRunWorktree(ctx, projectPath, runID); err != nil {
+				return "", "", false, fmt.Errorf("recreating stale worktree: %w", err)
 			}
 		}
-		if usable {
-			return wt, false, nil
+		if _, err := CreateRunWorktree(ctx, projectPath, runID, baseCommit); err != nil {
+			return "", "", false, err
 		}
-		DumpRecoveryPatch(ctx, projectPath, runID) // best effort; rebuild proceeds either way
-		if err := RemoveRunWorktree(ctx, projectPath, runID); err != nil {
-			return "", false, fmt.Errorf("recreating stale worktree: %w", err)
+		created, err := WorktreeHeadCommit(ctx, projectPath, runID)
+		if err != nil {
+			return "", "", false, fmt.Errorf("reading new worktree head: %w", err)
+		}
+		return wt, created, true, nil
+	}
+	if statErr == nil {
+		if worktreeOnBranch(ctx, wt, runID) {
+			status, err := git(ctx, wt, "status", "--porcelain")
+			if err == nil && strings.TrimSpace(status) == "" {
+				return wt, head, false, nil
+			}
+			DumpRecoveryPatch(ctx, projectPath, runID) // best effort; rebuild proceeds either way
+		}
+		if err := removeWorktreeDir(ctx, projectPath, wt); err != nil {
+			return "", "", false, fmt.Errorf("recreating worktree: %w", err)
 		}
 	}
-	wt, err := CreateRunWorktree(ctx, projectPath, runID, baseCommit)
-	return wt, err == nil, err
+	// a registration whose directory is already gone makes the add refuse
+	if _, err := git(ctx, projectPath, "worktree", "prune"); err != nil {
+		return "", "", false, fmt.Errorf("pruning worktrees: %w", err)
+	}
+	if _, err := git(ctx, projectPath, "worktree", "add", wt, "wave/"+runID); err != nil {
+		return "", "", false, fmt.Errorf("checking out worktree from wave/%s: %w", runID, err)
+	}
+	return wt, head, true, nil
+}
+
+// worktreeOnBranch reports whether wt is a checked-out tree of wave/<runID>. A directory whose registration
+// git already dropped is not one, and git run inside it acts on the project checkout above it.
+func worktreeOnBranch(ctx context.Context, wt, runID string) bool {
+	branch, err := git(ctx, wt, "rev-parse", "--abbrev-ref", "HEAD")
+	return err == nil && branch == "wave/"+runID
 }
 
 // DumpRecoveryPatch writes the worktree's diff vs the project head to a patch file so a cancelled

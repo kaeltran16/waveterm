@@ -2,7 +2,7 @@
 
 **One line:** A goal-first orchestrator. The lead works the goal with the human through the brainstorming skill. Architectural goals go to a deterministic engine, which runs the plan in lanes and wakes the lead only when something needs judgment.
 
-**Status:** Design approved in conversation 2026-09-14. Slices 1-3 built (149be624, 680da968, 27228cb9). Slice 4 is split into 4a-4d (§13); 4a and 4b are built (f3b8de76, 48bd69df), and 4c is built from `docs/superpowers/plans/2026-09-15-orchestrator-redesign-s4c-setup-merge-verify.md`.
+**Status:** Design approved in conversation 2026-09-14. Slices 1-3 built (149be624, 680da968, 27228cb9). Slice 4 is split into 4a-4d (§13), all built: 4a and 4b (f3b8de76, 48bd69df), 4c (01ade5da) from `docs/superpowers/plans/2026-09-15-orchestrator-redesign-s4c-setup-merge-verify.md`, and 4d from `docs/superpowers/plans/2026-09-15-orchestrator-redesign-s4d-lanes.md`.
 
 **Evidence:** `docs/superpowers/briefs/2026-09-14-orchestrator-redesign-measurements.md` (commit 426211c9), plus the transcript and run-event probes summarized under [Measurements](#measurements-that-shaped-the-design).
 

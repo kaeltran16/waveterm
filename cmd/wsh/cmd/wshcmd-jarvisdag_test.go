@@ -286,6 +286,23 @@ func TestDagPlanPath(t *testing.T) {
 	}
 }
 
+func TestDagSpecPath(t *testing.T) {
+	if dagSubmitCmd.Flags().Lookup("spec") == nil {
+		t.Fatal("dag submit must expose --spec")
+	}
+	if got, err := dagSpecPath("", ""); err != nil || got != "" {
+		t.Fatalf("no --spec = %q, %v", got, err)
+	}
+	if _, err := dagSpecPath("", "spec.md"); err == nil {
+		t.Fatal("--spec without --plan must be rejected")
+	}
+	// wavesrv does not share the lead's cwd, so a relative --spec has to be resolved here
+	got, err := dagSpecPath(filepath.Join(string(filepath.Separator), "plan.md"), filepath.Join("docs", "spec.md"))
+	if err != nil || !filepath.IsAbs(got) || !strings.HasSuffix(got, filepath.Join("docs", "spec.md")) {
+		t.Fatalf("relative --spec = %q, %v", got, err)
+	}
+}
+
 func TestDagStatusLinesCarriesTheReportAndVerifyFailure(t *testing.T) {
 	g := &waveobj.TaskGroup{
 		ID: "dag-1", Status: "blocked", Parallelism: 1,

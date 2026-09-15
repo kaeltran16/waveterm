@@ -203,7 +203,7 @@ func TestMergeConflictWakesLead(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := "wake: merge conflict landing task t-0. git status"
+	want := "wake: merge conflict landing lane ending at task t-0. git status"
 	if len(f.sends) != 1 || f.sends[0] != want {
 		t.Fatalf("want %q, got %q", want, f.sends)
 	}

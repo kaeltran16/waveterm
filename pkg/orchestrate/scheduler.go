@@ -2,6 +2,7 @@ package orchestrate
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
@@ -31,7 +32,7 @@ func ReadyTasks(g *waveobj.TaskGroup) []string {
 		}
 		ok := true
 		for _, d := range t.Deps {
-			if !depSatisfied(g, d) {
+			if !depSatisfied(g, t.ID, d) {
 				ok = false
 				break
 			}
@@ -43,24 +44,22 @@ func ReadyTasks(g *waveobj.TaskGroup) []string {
 	return out
 }
 
-func depSatisfied(g *waveobj.TaskGroup, id string) bool {
-	for i := range g.Tasks {
-		t := &g.Tasks[i]
-		if t.ID != id {
-			continue
-		}
-		if t.State == TaskState_Skipped {
-			return true
-		}
-		if t.State != TaskState_Done {
-			return false
-		}
-		if !g.MergeRequired {
-			return true
-		}
-		return t.Merged && (!t.Gate || t.Released)
+// depSatisfied reports whether dependency depID lets taskID start. Without merges, finishing is enough.
+// With them, a dependency in the same lane only has to be done, because its commits are already in the tree
+// the lane shares; one in another lane is satisfied once its whole lane has landed on the project branch.
+func depSatisfied(g *waveobj.TaskGroup, taskID, depID string) bool {
+	dep := taskByID(g, depID)
+	if dep == nil {
+		return false
 	}
-	return false
+	if !g.MergeRequired {
+		return dep.State == TaskState_Done || dep.State == TaskState_Skipped
+	}
+	lane := laneOf(g, depID)
+	if slices.Contains(lane, taskID) {
+		return dep.State == TaskState_Skipped || (dep.State == TaskState_Done && (!dep.Gate || dep.Released))
+	}
+	return laneLanded(g, lane)
 }
 
 // NextToSpawn returns ready tasks the engine should spawn now: ready minus busy,
@@ -92,11 +91,27 @@ func NextToSpawn(g *waveobj.TaskGroup) []string {
 	if room <= 0 {
 		return nil
 	}
-	ready := ReadyTasks(g)
-	if len(ready) > room {
-		ready = ready[:room]
+	// one worker per lane: its tasks share a tree, and an earlier task that was retried must not start
+	// beside a later one still running in it
+	lanes := map[string]bool{}
+	for i := range g.Tasks {
+		if taskActive(g.Tasks[i].State) {
+			lanes[LaneWorktreeKey(g, g.Tasks[i].ID)] = true
+		}
 	}
-	return ready
+	var out []string
+	for _, id := range ReadyTasks(g) {
+		key := LaneWorktreeKey(g, id)
+		if lanes[key] {
+			continue
+		}
+		lanes[key] = true
+		out = append(out, id)
+		if len(out) == room {
+			break
+		}
+	}
+	return out
 }
 
 // MarkRunning assigns a spawned child run to a ready task.

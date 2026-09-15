@@ -324,3 +324,19 @@ func TestDeriveTaskStatesKeepsLandingStates(t *testing.T) {
 		}
 	}
 }
+
+func TestSameDagProposalComparesPlanAndSpecPaths(t *testing.T) {
+	a, err := NewTaskGroup("run-1", "ch-1", "g", 1, true, []waveobj.TaskNode{{ID: "t-1", Label: "a"}}, 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.PlanPath = "/docs/plan.md"
+	b := a
+	if !SameDagProposal(&a, &b) {
+		t.Fatal("identical proposals must match")
+	}
+	b.SpecPath = "/docs/spec.md"
+	if SameDagProposal(&a, &b) {
+		t.Fatal("a resubmission naming a different spec is a different proposal")
+	}
+}

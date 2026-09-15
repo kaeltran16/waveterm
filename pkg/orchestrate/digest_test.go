@@ -203,8 +203,12 @@ func TestNextStalled(t *testing.T) {
 }
 
 func TestNextMergeReady(t *testing.T) {
-	g := digestGroup(t, true, chainTasks())
-	// t-0 done, unmerged, merge-required -> blocks t-1 (depSatisfied needs Merged)
+	// t-0 has two dependents, so it is a lane of its own: done and unmerged, it blocks both
+	g := digestGroup(t, true, []waveobj.TaskNode{
+		{ID: "t-0", Label: "a"},
+		{ID: "t-1", Label: "b", Deps: []string{"t-0"}},
+		{ID: "t-2", Label: "c", Deps: []string{"t-0"}},
+	})
 	setTaskStates(g, map[string]string{"t-0": TaskState_Done})
 	d := BuildDigest(digestSnapshot(g, nil, nil, nil, digestNow))
 	if d.Next.Kind != "merge-ready" {

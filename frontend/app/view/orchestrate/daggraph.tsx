@@ -21,9 +21,10 @@ import type { AgentVM } from "../agents/agentsviewmodel";
 import { runAtom } from "../agents/channelsstore";
 import { StatusLine } from "../agents/statusline";
 import { RoutePicker } from "../agents/routepicker";
+import { useDagDigest } from "./dagdigest";
 import { DagGraphHeader } from "./daggraph-header";
 import { computeLayeredLayout } from "./daglayout";
-import { buildViewData, selectedTaskIdAtom, useDagGroup, type DagViewNode } from "./dagstore";
+import { buildViewData, mergeReadyIds, selectedTaskIdAtom, useDagGroup, type DagViewNode } from "./dagstore";
 import { escalatePayload } from "./escalate";
 import { dagModalAgentsContextAtom } from "./dagmodalstate";
 import { openTaskWorker, resolveTaskWorker, type TaskWorkerView } from "./taskcorrelate";
@@ -185,11 +186,17 @@ function DagGraphInner({ oref, owner, harnesses }: { oref: string; owner: Run; h
     const [group, loading] = useDagGroup(oref);
     const selectedId = useAtomValue(selectedTaskIdAtom);
     const { fitView, zoomIn, zoomOut } = useReactFlow();
+    // owner is the dag's own run (LiveDagModal loads run:<runId>), so its ids address the digest
+    const digestState = useDagDigest(owner.channeloid ?? "", owner.id, oref);
+    const mergeReady = useMemo(
+        () => mergeReadyIds(digestState.digest, digestState.stale),
+        [digestState.digest, digestState.stale]
+    );
 
     const { nodes, edges, byId } = useMemo(() => {
         if (loading || !group)
             return { nodes: [] as Node[], edges: [] as Edge[], byId: new Map<string, DagViewNode>() };
-        const { nodes: vnodes, edges: vedges } = buildViewData(group, owner, harnesses);
+        const { nodes: vnodes, edges: vedges } = buildViewData(group, owner, harnesses, mergeReady);
         const pos = computeLayeredLayout(group.tasks);
         const viewById = new Map(vnodes.map((n) => [n.id, n]));
         const reactNodes: Node[] = vnodes.map((n) => ({
@@ -215,7 +222,7 @@ function DagGraphInner({ oref, owner, harnesses }: { oref: string; owner: Run; h
             },
         }));
         return { nodes: reactNodes, edges: reactEdges, byId: viewById };
-    }, [group, harnesses, loading, owner, selectedId]);
+    }, [group, harnesses, loading, mergeReady, owner, selectedId]);
 
     const orderedIds = useMemo(() => (group ? group.tasks.map((t) => t.id) : []), [group]);
     const [escalating, setEscalating] = useState(false);

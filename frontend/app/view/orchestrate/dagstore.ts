@@ -36,14 +36,27 @@ const ACTION_BY_STATE: Record<string, string[]> = {
 };
 const GATE_DONE_ACTIONS = ["approve", "sendback"];
 
+// mergeReadyIds is the set of tasks a merge can be started from now, read from the digest: a lane merges as
+// one, at its tip, and only the engine derives lanes. Empty while the digest is missing or stale, because the
+// engine lands merges on its own and a missing button costs nothing.
+export function mergeReadyIds(digest: DagStatusDigest | undefined, stale: boolean): Set<string> {
+    if (digest == null || stale) return new Set();
+    return new Set((digest.tasks ?? []).filter((row) => row.mergestate === "ready").map((row) => row.taskid));
+}
+
 // buildViewData maps the persisted group onto graph nodes/edges plus the action set each
-// node offers. Pure: the view renders exactly this.
-export function buildViewData(group: TaskGroup, owner: Run, harnesses: HarnessInfo[]): { nodes: DagViewNode[]; edges: DagViewEdge[] } {
+// node offers. Pure: the view renders exactly this. mergeReady comes from mergeReadyIds.
+export function buildViewData(
+    group: TaskGroup,
+    owner: Run,
+    harnesses: HarnessInfo[],
+    mergeReady: ReadonlySet<string>
+): { nodes: DagViewNode[]; edges: DagViewEdge[] } {
     const ownerPin = normalizeRunPin(owner);
     const nodes: DagViewNode[] = group.tasks.map((t) => {
         let actions = ACTION_BY_STATE[t.state] ?? [];
         if (t.gate && t.state === "done") actions = GATE_DONE_ACTIONS;
-        if (t.state === "done" && !t.gate && !t.merged) actions = ["merge"];
+        if (mergeReady.has(t.id)) actions = ["merge"];
         if (canEscalate(t)) actions = [...new Set([...actions, "escalate"])];
         const taskPin = t.runspec?.runtime || t.runspec?.model ? normalizeSpecPin(t.runspec, owner) : null;
         const effective: RoutePin = taskPin ?? ownerPin ?? { runtime: "" };

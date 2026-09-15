@@ -376,11 +376,13 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		// fixable (a warm tree vs. a warm worker), so they are measured separately rather than
 		// folded into the child's wall clock where neither can be told apart.
 		cwd := owner.ProjectPath
+		taskBase := spawnBase
 		var worktreeMs, setupMs int64
 		if IsGitRepo(owner.ProjectPath) {
-			key := TaskWorktreeKey(owner.ID, taskID)
+			// a lane's tasks share one tree, so each starts from the commits of the task before it
+			key := LaneWorktreeKey(g, taskID)
 			wtStart := time.Now()
-			wt, created, werr := EnsureRunWorktree(spawnCtx, owner.ProjectPath, key, spawnBase)
+			wt, head, created, werr := EnsureRunWorktree(spawnCtx, owner.ProjectPath, key, spawnBase)
 			worktreeMs = time.Since(wtStart).Milliseconds()
 			if werr != nil {
 				failDispatch(ctx, g, taskID, FailureKindWorktree, werr, &afterCommit)
@@ -391,8 +393,9 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 				serr := runPlanCommand(context.WithoutCancel(ctx), wt, g.Setup, SetupTimeout)
 				setupMs = time.Since(setupStart).Milliseconds()
 				if serr != nil {
-					// only a new tree is set up, so a retry would reuse this half-prepared one as-is
-					if rerr := RemoveRunWorktree(context.WithoutCancel(ctx), owner.ProjectPath, key); rerr != nil {
+					// only a new tree is set up, so a retry must not reuse this half-prepared one. The branch
+					// stays: it holds the lane's earlier commits, and the retry checks it out again.
+					if rerr := removeWorktreeDir(context.WithoutCancel(ctx), owner.ProjectPath, wt); rerr != nil {
 						log.Printf("schedule dag %s task %s: removing worktree after setup failure: %v", g.OID, taskID, rerr)
 					}
 					failDispatch(ctx, g, taskID, FailureKindSetup, serr, &afterCommit)
@@ -400,6 +403,7 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 				}
 			}
 			cwd = wt
+			taskBase = head
 		}
 		prompt := taskPrompt(task, owner, predecessorHandoff(task, g, runs))
 		// a new session per dispatch: its transcript is named by the id, so liveness and evidence never
@@ -412,7 +416,7 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 			failDispatch(ctx, g, taskID, FailureKindSpawn, err, &afterCommit)
 			continue
 		}
-		childRun := childRunFromSpec(g, task, owner, pin, cwd, spawnBase, prompt)
+		childRun := childRunFromSpec(g, task, owner, pin, cwd, taskBase, prompt)
 		childRun.SessionId = sessionId
 		// attach worker to child run before persisting
 		attached := false
@@ -562,8 +566,9 @@ const (
 // already made and committed. Everything here is already loaded at dispatch time — runs is the map
 // scheduleLocked built for DeriveTaskStates, keyed by child run id.
 //
-// The commit is citable from the dependent's own tree: a dep is only satisfied once merged
-// (depSatisfied), and that merge squashes onto the project branch its worktree branches from.
+// The commit is citable from the dependent's own tree: a dependency in the same lane committed it in the
+// tree the dependent now works in, and one in another lane is satisfied only once its lane merged onto the
+// project branch the dependent's tree branches from (depSatisfied).
 // Evidence can still be nil — cleanup or the seal may have failed and the backfill retries — so the
 // files and the note degrade to the commit line alone.
 func predecessorHandoff(task *waveobj.TaskNode, g *waveobj.TaskGroup, runs map[string]*waveobj.Run) string {

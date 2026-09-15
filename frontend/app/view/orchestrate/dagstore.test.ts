@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildViewData } from "./dagstore";
+import { buildViewData, mergeReadyIds } from "./dagstore";
 
 const group = {
     id: "dag-1",
@@ -18,17 +18,18 @@ const harnesses = [
     { runtime: "claude", routecapabilities: [{ runtime: "claude", model: "sonnet", resolvedmodel: "claude-sonnet-4-6" }, { runtime: "claude", resolvedmodel: "operator default" }] },
     { runtime: "pi", routecapabilities: [{ runtime: "pi", resolvedmodel: "operator default" }] },
 ] as HarnessInfo[];
+const none = new Set<string>();
 
 describe("buildViewData", () => {
     it("maps tasks to nodes and deps to edges", () => {
-        const { nodes, edges } = buildViewData(group, owner, harnesses);
+        const { nodes, edges } = buildViewData(group, owner, harnesses, new Set(["t-0"]));
         expect(nodes).toHaveLength(4);
         expect(edges).toEqual([
             { source: "t-0", target: "t-1" },
             { source: "t-1", target: "t-2" },
             { source: "t-2", target: "t-3" },
         ]);
-        // done, non-gate, unreleased -> merge action
+        // the digest says t-0 can merge -> merge action
         expect(nodes[0].actions).toEqual(["merge"]);
     });
     it("drops the merge action once a task is merged", () => {
@@ -36,12 +37,25 @@ describe("buildViewData", () => {
             ...group,
             tasks: [{ id: "t-0", label: "setup", state: "done", merged: true }],
         } as any;
-        const { nodes } = buildViewData(mergedGroup, owner, harnesses);
+        const { nodes } = buildViewData(mergedGroup, owner, harnesses, none);
         expect(nodes[0].actions).toEqual([]);
     });
 
+    it("offers merge only where the digest says a lane is ready", () => {
+        const lane = {
+            ...group,
+            tasks: [
+                { id: "t-0", label: "schema", state: "done", runid: "r-0" },
+                { id: "t-1", label: "api", deps: ["t-0"], state: "done", runid: "r-1" },
+            ],
+        } as any;
+        const { nodes } = buildViewData(lane, owner, harnesses, new Set(["t-1"]));
+        expect(nodes[0].actions).toEqual([]);
+        expect(nodes[1].actions).toEqual(["merge"]);
+    });
+
     it("flags gate and failure states", () => {
-        const { nodes } = buildViewData(group, owner, harnesses);
+        const { nodes } = buildViewData(group, owner, harnesses, none);
         const ship = nodes.find((n) => n.id === "t-2")!;
         expect(ship.gate).toBe(true);
         expect(ship.actions).toEqual(["approve", "sendback"]);
@@ -54,7 +68,7 @@ describe("buildViewData", () => {
             ...group,
             tasks: [{ id: "t-0", label: "setup", state: "verify-failed", merged: true }],
         } as any;
-        expect(buildViewData(failed, owner, harnesses).nodes[0].actions).toEqual(["resolve"]);
+        expect(buildViewData(failed, owner, harnesses, none).nodes[0].actions).toEqual(["resolve"]);
     });
 
     it("projects pinned, inherited, runtime-default, and unavailable routes", () => {
@@ -68,7 +82,7 @@ describe("buildViewData", () => {
                 { id: "modelonly", label: "ModelOnly", state: "running", runspec: { model: "sonnet" } },
             ],
         } as any;
-        const { nodes } = buildViewData(routed, owner, harnesses);
+        const { nodes } = buildViewData(routed, owner, harnesses, none);
         expect(nodes.find((n) => n.id === "pinned")!.route).toEqual({ source: "pinned", runtime: "claude", model: "sonnet", resolvedModel: "claude-sonnet-4-6" });
         expect(nodes.find((n) => n.id === "inherited")!.route).toEqual({ source: "inherited", runtime: "claude", model: "sonnet", resolvedModel: "claude-sonnet-4-6" });
         // a runtime-only pin is that runtime's default, never the owner's model
@@ -76,5 +90,23 @@ describe("buildViewData", () => {
         expect(nodes.find((n) => n.id === "missing")!.route).toEqual({ source: "pinned", runtime: "missing", model: "", resolvedModel: "unavailable" });
         // a model-only pin inherits the owner's runtime
         expect(nodes.find((n) => n.id === "modelonly")!.route).toEqual({ source: "pinned", runtime: "claude", model: "sonnet", resolvedModel: "claude-sonnet-4-6" });
+    });
+});
+
+describe("mergeReadyIds", () => {
+    const digest = {
+        tasks: [
+            { taskid: "t-0", waitreason: "terminal", mergestate: "waiting", cleanupstate: "clear" },
+            { taskid: "t-1", waitreason: "terminal", mergestate: "ready", cleanupstate: "clear" },
+        ],
+    } as DagStatusDigest;
+
+    it("reads the rows the digest marks ready", () => {
+        expect([...mergeReadyIds(digest, false)]).toEqual(["t-1"]);
+    });
+
+    it("offers nothing from a stale or missing digest", () => {
+        expect(mergeReadyIds(digest, true).size).toBe(0);
+        expect(mergeReadyIds(undefined, false).size).toBe(0);
     });
 });

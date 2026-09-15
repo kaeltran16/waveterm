@@ -4,16 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 )
 
 var ErrMergeConflict = errors.New("merge conflict")
 
 // MergeRunWorktree squash-merges wave/<runID> into the project branch and returns the merge commit
-// sha. Worktree removal is the caller's step (CleanupTaskWorktree) so a cleanup failure can never
-// obscure an already-landed merge. On conflict the tree is left mid-merge (ErrMergeConflict) and the
-// caller resolves then calls MergeContinue.
-func MergeRunWorktree(ctx context.Context, projectPath, runID, goal string) (string, error) {
+// sha. fold names uncommitted files in the project checkout that belong in the same commit: the run's spec
+// and plan, on its first merge. Worktree removal is the caller's step (CleanupTaskWorktree) so a cleanup
+// failure can never obscure an already-landed merge. On conflict the tree is left mid-merge
+// (ErrMergeConflict) and the caller resolves then calls MergeContinue.
+func MergeRunWorktree(ctx context.Context, projectPath, runID, goal string, fold []string) (string, error) {
 	if !IsGitRepo(projectPath) {
 		return "", ErrNotGitRepo
 	}
@@ -40,11 +42,11 @@ func MergeRunWorktree(ctx context.Context, projectPath, runID, goal string) (str
 		}
 		return "", fmt.Errorf("squash merge: %w", err)
 	}
-	return finishMerge(ctx, projectPath, runID, goal)
+	return finishMerge(ctx, projectPath, runID, goal, fold)
 }
 
 // MergeContinue completes a merge after the caller resolved conflicts in the project tree.
-func MergeContinue(ctx context.Context, projectPath, runID, goal string) (string, error) {
+func MergeContinue(ctx context.Context, projectPath, runID, goal string, fold []string) (string, error) {
 	status, err := git(ctx, projectPath, "status", "--porcelain")
 	if err != nil {
 		return "", err
@@ -54,10 +56,18 @@ func MergeContinue(ctx context.Context, projectPath, runID, goal string) (string
 			return "", fmt.Errorf("unresolved conflict: %s", line)
 		}
 	}
-	return finishMerge(ctx, projectPath, runID, goal)
+	return finishMerge(ctx, projectPath, runID, goal, fold)
 }
 
-func finishMerge(ctx context.Context, projectPath, runID, goal string) (string, error) {
+// finishMerge stages fold after the squash, where the automatic path's clean-index check is already behind
+// it, then commits. A path git refuses to stage, because it is ignored or outside the repository, is logged
+// and left out: the docs are not worth failing a merge over.
+func finishMerge(ctx context.Context, projectPath, runID, goal string, fold []string) (string, error) {
+	for _, path := range fold {
+		if _, err := git(ctx, projectPath, "add", "--", path); err != nil {
+			log.Printf("merge %s: not committing %s with the squash: %v", runID, path, err)
+		}
+	}
 	msg := fmt.Sprintf("run %s: %s", runID, firstLine(goal))
 	if _, err := git(ctx, projectPath, "commit", "-m", msg); err != nil {
 		// Idempotent retry: the squash commit already landed but the prior
