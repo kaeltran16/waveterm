@@ -287,6 +287,10 @@ type Run struct {
 	// DagORef links an orchestrator run to its TaskGroup ("dag:<id>"); set by DagSubmitCommand,
 	// copied onto child runs so the engine can resolve the group from any run in the DAG.
 	DagORef string `json:"dagoref,omitempty"`
+	// SessionId is the session id the engine launched a dag child's worker with (--session-id). The
+	// worker's transcript is named by it, so liveness and evidence open that file. Empty for runs the
+	// engine did not launch.
+	SessionId string `json:"sessionid,omitempty"`
 	// WorkerRoute is the default worker route for orchestrator children (nil = inherit lead); B1b stores it here at CreateRun so `dag import-tasks` can submit the group with it.
 	WorkerRoute *RoutePin `json:"workerroute,omitempty"`
 	// Orchestration selects which machine an orchestrator lead drives: "engine" publishes a TaskGroup

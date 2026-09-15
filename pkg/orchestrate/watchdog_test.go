@@ -5,8 +5,6 @@ package orchestrate
 
 import (
 	"context"
-	"encoding/json"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -17,107 +15,6 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wps"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
-
-// writePiSession writes a fake pi v3 session file (first line = header with cwd) under the sessions
-// root with the given mtime, returning its path.
-func writePiSession(t *testing.T, root, dir, cwd string, mtime time.Time) string {
-	return writePiSessionWithBody(t, root, dir, cwd, mtime, "")
-}
-
-// writePiSessionWithBody writes a fake pi v3 session (header line + extra body text) under the
-// sessions root with the given mtime.
-func writePiSessionWithBody(t *testing.T, root, dir, cwd string, mtime time.Time, body string) string {
-	t.Helper()
-	path := filepath.Join(root, dir, "session.jsonl")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	header, _ := json.Marshal(map[string]string{"id": "s1", "cwd": cwd})
-	content := header
-	if body != "" {
-		content = append(content, '\n')
-		content = append(content, body...)
-	} else {
-		content = append(content, '\n')
-	}
-	if err := os.WriteFile(path, content, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chtimes(path, mtime, mtime); err != nil {
-		t.Fatal(err)
-	}
-	return path
-}
-
-func TestLastActivityForRunMatchesWorktreeSession(t *testing.T) {
-	ctx := context.Background()
-	oldRoot := sessionsRootFor
-	root := t.TempDir()
-	sessionsRootFor = func(string) string { return root }
-	defer func() { sessionsRootFor = oldRoot }()
-
-	worktree := filepath.Join(t.TempDir(), "wt-ev-1")
-	old := time.Now().Add(-20 * time.Minute)
-	fresh := time.Now().Add(-1 * time.Minute)
-	writePiSession(t, root, "other-proj", filepath.Join(t.TempDir(), "elsewhere"), old)
-	writePiSession(t, root, "wt-session", worktree, fresh)
-	writePiSession(t, root, "wt-session-old", worktree, old)
-
-	ch, err := wstore.CreateChannel(ctx, "liveness", t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	tabId := "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
-	blockId := "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
-	run := jarvis.NewRun("g", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), 1)
-	run.ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
-	run.Runtime = "pi"
-	run.Phases[0].WorkerOrefs = []string{"tab:" + tabId}
-	runPtr := &run
-	tab := &waveobj.Tab{OID: tabId, BlockIds: []string{blockId}}
-	if err := wstore.DBInsert(ctx, tab); err != nil {
-		t.Fatal(err)
-	}
-	block := &waveobj.Block{OID: blockId, ParentORef: "tab:" + tabId, Meta: waveobj.MetaMapType{waveobj.MetaKey_CmdCwd: worktree}}
-	if err := wstore.DBInsert(ctx, block); err != nil {
-		t.Fatal(err)
-	}
-
-	got, tracked := lastActivityForRun(runPtr, "")
-	if !tracked {
-		t.Fatal("pi must be a tracked runtime")
-	}
-	if got != fresh.UnixMilli() {
-		t.Fatalf("want newest matching session mtime %d, got %d", fresh.UnixMilli(), got)
-	}
-	if got, tracked := lastActivityForRun(nil, ""); got != 0 || tracked {
-		t.Fatalf("nil run must be (0,false), got (%d,%v)", got, tracked)
-	}
-}
-
-// TestLastActivityMarkerExcludesSiblings: two children spawned into the same cwd (non-git project)
-// must not refresh each other's heartbeat — only the session whose transcript mentions this task's
-// marker counts.
-func TestLastActivityMarkerExcludesSiblings(t *testing.T) {
-	oldRoot := sessionsRootFor
-	root := t.TempDir()
-	sessionsRootFor = func(string) string { return root }
-	defer func() { sessionsRootFor = oldRoot }()
-
-	shared := t.TempDir()
-	fresh := time.Now().Add(-1 * time.Minute)
-	writePiSessionWithBody(t, root, "sib-a", shared, fresh, dagSessionMarker("dag-1", "t-a")+"\n")
-	writePiSession(t, root, "sib-b", shared, fresh)
-
-	run := &waveobj.Run{Runtime: "pi", DagORef: "dag-1", ProjectPath: shared}
-	got, _ := lastActivityForRun(run, dagSessionMarker("dag-1", "t-a"))
-	if got == 0 {
-		t.Fatal("own marker session must match")
-	}
-	if got, _ := lastActivityForRun(run, dagSessionMarker("dag-1", "t-b")); got != 0 {
-		t.Fatalf("sibling-only sessions must not satisfy a task marker, got %d", got)
-	}
-}
 
 func TestScheduleOnceFlagsStalledChild(t *testing.T) {
 	allowWorkerHarnessForTest(t)
@@ -154,14 +51,15 @@ func TestScheduleOnceFlagsStalledChild(t *testing.T) {
 	if err := wstore.AppendDag(ctx, &g); err != nil {
 		t.Fatal(err)
 	}
-	writeClaudeSession(t, root, ch.ProjectPath, "claude-quiet", "Goal: a\n\n"+dagSessionMarker(g.OID, "t-0"), quiet)
+	writeClaudeSession(t, root, ch.ProjectPath, liveSession, quiet)
 	child := jarvis.NewRun("child", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), 1)
 	child.ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
-	// as childRunFromSpec builds it: a tracked runtime whose worktree cwd resolves, so the probe has
-	// somewhere to look and its silence is a real verdict. claude, because the first-token deadline is
-	// not armed for it: only the aging transcript can flag this child.
+	// as childRunFromSpec builds it: a tracked runtime launched under a session id, so the probe has a
+	// file to read and its silence is a real verdict. claude, because the first-token deadline is not
+	// armed for it: only the aging transcript can flag this child.
 	child.Runtime = "claude"
 	child.DagORef = g.OID
+	child.SessionId = liveSession
 	if err := wstore.AppendRun(ctx, ch.OID, child); err != nil {
 		t.Fatal(err)
 	}
@@ -207,15 +105,10 @@ func TestScheduleOnceDoesNotStallActiveChild(t *testing.T) {
 	sessionsRootFor = func(string) string { return root }
 	defer func() { sessionsRootFor = oldRoot }()
 
-	worktree := filepath.Join(t.TempDir(), "wt-ev-3")
-	writePiSession(t, root, "wt-session", worktree, time.Now().Add(-1*time.Minute))
-
 	ch, err := wstore.CreateChannel(ctx, "active", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	tabId := "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
-	blockId := "ffffffff-ffff-4fff-8fff-ffffffffffff"
 	owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
 	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
 		t.Fatal(err)
@@ -230,22 +123,13 @@ func TestScheduleOnceDoesNotStallActiveChild(t *testing.T) {
 	if err := wstore.AppendDag(ctx, &g); err != nil {
 		t.Fatal(err)
 	}
-	// schedule probes with this dag's task marker; the fixture session must mention it to count
-	writePiSessionWithBody(t, root, "wt-session-marker", worktree, time.Now().Add(-1*time.Minute),
-		dagSessionMarker(g.OID, "t-0"))
+	writePiSession(t, root, liveSession, time.Now().Add(-1*time.Minute))
 	child := jarvis.NewRun("child", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), 1)
 	child.ID = "11111111-1111-4111-8111-111111111111"
 	child.Runtime = "pi"
-	child.Phases[0].WorkerOrefs = []string{"tab:" + tabId}
+	child.DagORef = g.OID
+	child.SessionId = liveSession
 	if err := wstore.AppendRun(ctx, ch.OID, child); err != nil {
-		t.Fatal(err)
-	}
-	tab := &waveobj.Tab{OID: tabId, BlockIds: []string{blockId}}
-	if err := wstore.DBInsert(ctx, tab); err != nil {
-		t.Fatal(err)
-	}
-	block := &waveobj.Block{OID: blockId, ParentORef: "tab:" + tabId, Meta: waveobj.MetaMapType{waveobj.MetaKey_CmdCwd: worktree}}
-	if err := wstore.DBInsert(ctx, block); err != nil {
 		t.Fatal(err)
 	}
 	g.Tasks[0].RunID = child.ID
@@ -297,12 +181,13 @@ func TestScheduleOnceDoesNotStallActiveClaudeChild(t *testing.T) {
 		t.Fatal(err)
 	}
 	fresh := time.Now().Add(-1 * time.Minute)
-	writeClaudeSession(t, root, worktree, "claude-sess", "Goal: a\n\n"+dagSessionMarker(g.OID, "t-0"), fresh)
+	writeClaudeSession(t, root, worktree, liveSession, fresh)
 
 	child := jarvis.NewRun("child", "ws-1", worktree, nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), 1)
 	child.ID = "22222222-2222-4222-8222-222222222222"
 	child.Runtime = "claude"
 	child.DagORef = g.OID
+	child.SessionId = liveSession
 	if err := wstore.AppendRun(ctx, ch.OID, child); err != nil {
 		t.Fatal(err)
 	}
@@ -326,10 +211,10 @@ func TestScheduleOnceDoesNotStallActiveClaudeChild(t *testing.T) {
 	}
 }
 
-// A runtime liveness cannot read has no heartbeat to age, so its task must report freshness unknown
+// A child liveness cannot read has no heartbeat to age, so its task must report freshness unknown
 // rather than stall: the lead's answer to a stall is retry, which kills the child it was told about.
 // The first-token deadline is no exception - an unreadable pi child has written nothing as far as the
-// probe can tell, however hard it is working.
+// probe can tell, however hard it is working. A child launched without a session id has no file to open.
 func TestScheduleOnceLeavesUntrackedRuntimeFreshnessUnknown(t *testing.T) {
 	allowWorkerHarnessForTest(t)
 	ctx := context.Background()
@@ -337,9 +222,11 @@ func TestScheduleOnceLeavesUntrackedRuntimeFreshnessUnknown(t *testing.T) {
 		name    string
 		runtime string
 		root    string
+		session string
 	}{
-		{name: "runtime without a transcript reader", runtime: "opencode", root: t.TempDir()},
-		{name: "pi child with no session root", runtime: "pi", root: ""},
+		{name: "runtime without a transcript reader", runtime: "opencode", root: t.TempDir(), session: liveSession},
+		{name: "pi child with no session root", runtime: "pi", root: "", session: liveSession},
+		{name: "pi child launched without a session id", runtime: "pi", root: t.TempDir(), session: ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -367,6 +254,7 @@ func TestScheduleOnceLeavesUntrackedRuntimeFreshnessUnknown(t *testing.T) {
 			child := jarvis.NewRun("child", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), 1)
 			child.Runtime = tc.runtime
 			child.DagORef = g.OID
+			child.SessionId = tc.session
 			if err := wstore.AppendRun(ctx, ch.OID, child); err != nil {
 				t.Fatal(err)
 			}
@@ -454,7 +342,8 @@ func TestScheduleOnceFirstTokenDeadlineIsPerRuntime(t *testing.T) {
 	allowWorkerHarnessForTest(t)
 	ctx := context.Background()
 
-	// no sessions anywhere: the probe is tracked (liveness-capable runtime, resolvable cwd) but finds nothing
+	// no sessions anywhere: the probe is tracked (liveness-capable runtime, launched under a session id)
+	// but finds nothing
 	oldRoot := sessionsRootFor
 	sessionsRootFor = func(string) string { return t.TempDir() }
 	defer func() { sessionsRootFor = oldRoot }()
@@ -491,6 +380,7 @@ func TestScheduleOnceFirstTokenDeadlineIsPerRuntime(t *testing.T) {
 			child := jarvis.NewRun("child", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), spawnedTs)
 			child.Runtime = tc.runtime
 			child.DagORef = g.OID
+			child.SessionId = liveSession
 			if err := wstore.AppendRun(ctx, ch.OID, child); err != nil {
 				t.Fatal(err)
 			}
@@ -544,6 +434,7 @@ func TestScheduleOnceLeavesFreshSpawnRunning(t *testing.T) {
 	child.ID = "ffffffff-ffff-4fff-8fff-ffffffffffff"
 	child.Runtime = "pi"
 	child.DagORef = g.OID
+	child.SessionId = liveSession
 	if err := wstore.AppendRun(ctx, ch.OID, child); err != nil {
 		t.Fatal(err)
 	}

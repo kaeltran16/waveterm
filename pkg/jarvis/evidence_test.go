@@ -429,6 +429,88 @@ func TestSealEvidenceIdempotent(t *testing.T) {
 	}
 }
 
+// piWorkerEntries is a pi v3 session's records after its header, each parented on the one before as pi
+// writes them: the task, an assistant turn running a bash command, its result, and a closing message.
+func piWorkerEntries(command string, isError bool, summary string) []string {
+	entry := func(id string, parent any, message map[string]any) string {
+		b, _ := json.Marshal(map[string]any{"type": "message", "id": id, "parentId": parent, "timestamp": "2026-09-15T03:10:10.831Z", "message": message})
+		return string(b)
+	}
+	text := func(s string) []any { return []any{map[string]any{"type": "text", "text": s}} }
+	return []string{
+		entry("e1", nil, map[string]any{"role": "user", "content": text("do the task")}),
+		entry("e2", "e1", map[string]any{"role": "assistant", "content": []any{
+			map[string]any{"type": "text", "text": "running the tests"},
+			map[string]any{"type": "toolCall", "id": "call_1", "name": "bash", "arguments": map[string]any{"command": command}},
+		}}),
+		entry("e3", "e2", map[string]any{"role": "toolResult", "toolCallId": "call_1", "toolName": "bash", "isError": isError, "content": text("FAIL\tpkg/x\t0.4s")}),
+		entry("e4", "e3", map[string]any{"role": "assistant", "content": text(summary)}),
+	}
+}
+
+// pi records a turn as a message entry: the assistant's content carries text and toolCall blocks, and a
+// tool's output comes back as its own toolResult message. Evidence reads the same summary and
+// verifications from it that it reads from a claude transcript.
+func TestPiTranscriptProjectsToEvidence(t *testing.T) {
+	lines := piWorkerEntries("go test ./...", true, "all done")
+	if got := finalAssistantText(lines); got != "all done" {
+		t.Errorf("finalAssistantText = %q", got)
+	}
+	v := verificationCommands(lines)
+	if len(v) != 1 || v[0].Cmd != "go test ./..." || v[0].Result != "fail" {
+		t.Fatalf("verifs = %+v, want the failed go test", v)
+	}
+}
+
+func writeSessionLines(t *testing.T, path string, lines []string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A worker launched with --session-id is read from the transcript named by that id, for either runtime,
+// without going through its tab.
+func TestSealEvidenceReadsTheSessionTranscript(t *testing.T) {
+	const sessionId = "0b6f7c1e-4d2a-4f3b-9c8d-1a2b3c4d5e6f"
+	for _, runtime := range []string{"claude", "pi"} {
+		t.Run(runtime, func(t *testing.T) {
+			root := t.TempDir()
+			prev := transcriptRootFor
+			transcriptRootFor = func(string) string { return root }
+			t.Cleanup(func() { transcriptRootFor = prev })
+			proj := t.TempDir()
+			if runtime == "claude" {
+				writeSessionLines(t, filepath.Join(root, agentobserve.SlugifyCwd(proj), sessionId+".jsonl"), []string{
+					verifToolUseLine("b1", "go test ./..."),
+					verifResultLine("b1", true, "FAIL\tpkg/x\t0.4s"),
+					textLine("all done"),
+				})
+			} else {
+				header, _ := json.Marshal(map[string]any{"type": "session", "version": 3, "id": sessionId, "timestamp": "2026-09-15T03:10:10.831Z", "cwd": proj})
+				writeSessionLines(t, filepath.Join(root, "--proj--", "2026-09-15T03-10-10-831Z_"+sessionId+".jsonl"),
+					append([]string{string(header)}, piWorkerEntries("go test ./...", true, "all done")...))
+			}
+			run := &waveobj.Run{
+				ID: "r1", Status: RunStatus_Done, ProjectPath: proj, CreatedTs: 1000, Runtime: runtime, SessionId: sessionId,
+				Phases: []waveobj.RunPhase{{Kind: PhaseKind_Execute, State: PhaseState_Done, DoneTs: 5000, WorkerOrefs: []string{"tab:" + uuid.NewString()}}},
+			}
+			if err := SealEvidence(context.Background(), run); err != nil {
+				t.Fatal(err)
+			}
+			if run.Evidence.Summary != "all done" {
+				t.Errorf("summary = %q, want the worker's last message", run.Evidence.Summary)
+			}
+			if len(run.Evidence.Verifs) != 1 || run.Evidence.Verifs[0].Result != "fail" {
+				t.Errorf("verifs = %+v, want the failed go test", run.Evidence.Verifs)
+			}
+		})
+	}
+}
+
 // TestSealEvidenceScopesToEndCommit is the fan-out over-attribution guard: with EndCommit set, evidence
 // must reflect only the run's own commit (mine.txt), never a sibling that merged into the shared tree
 // afterward (sibling.txt) — which a working-tree-vs-baseline diff (today's behavior) would wrongly list.

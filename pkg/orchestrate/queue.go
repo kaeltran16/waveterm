@@ -27,6 +27,12 @@ func taskFailedWake(taskID, kind string) string {
 	return fmt.Sprintf("wake: task %s failed (%s), retry spent. wsh jarvis dag status", taskID, kind)
 }
 
+// taskHungWake says how long the worker has been silent, so the lead can weigh a slow task against a
+// stuck one before reading the digest.
+func taskHungWake(taskID string, silentMin int64) string {
+	return fmt.Sprintf("wake: task %s hung: silent %dm, process alive, no ask pending. wsh jarvis dag status", taskID, silentMin)
+}
+
 func mergeConflictWake(taskID string) string {
 	return fmt.Sprintf("wake: merge conflict landing task %s. git status", taskID)
 }

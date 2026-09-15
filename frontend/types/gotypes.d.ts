@@ -3157,6 +3157,7 @@ declare global {
         parentleadoref?: string;
         effortref?: RunEffortRef;
         dagoref?: string;
+        sessionid?: string;
         workerroute?: RoutePin;
         orchestration?: string;
         parallelism?: number;

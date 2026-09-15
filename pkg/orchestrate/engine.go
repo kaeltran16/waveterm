@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/harness"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/runroute"
@@ -247,7 +248,7 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		if t.RunID == "" {
 			continue
 		}
-		activity, tracked := lastActivityForRun(runs[t.RunID], dagSessionMarker(g.OID, t.ID))
+		activity, tracked := lastActivityForRun(runs[t.RunID])
 		if activity > t.LastActivity {
 			t.LastActivity = activity
 		}
@@ -306,9 +307,18 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		}
 		if t.State == TaskState_Stalled && prevStates[t.ID] == TaskState_Running {
 			taskID := t.ID
+			// silence runs from the last write, or from spawn for a child that never wrote (the first-token stall)
+			since := t.LastActivity
+			if since == 0 {
+				since = spawnTs(runs[t.RunID])
+			}
+			hung := hungWake(ctx, taskID, runs[t.RunID], now-since)
 			afterCommit = append(afterCommit, func() {
 				publishDagEvent(DagEventTaskStalled, g, taskID)
 				appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskStalled, nil, map[string]any{"taskid": taskID})
+				if hung != "" {
+					PostWake(ctx, g.ChannelId, g.RunID, hung)
+				}
 			})
 		}
 	}
@@ -377,18 +387,19 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 			}
 			cwd = wt
 		}
-		prompt := taskPrompt(task, owner, predecessorHandoff(task, g, runs)) + "\n\n" + dagSessionMarker(g.OID, taskID)
+		prompt := taskPrompt(task, owner, predecessorHandoff(task, g, runs))
+		// a new session per dispatch: its transcript is named by the id, so liveness and evidence never
+		// read a previous attempt's file as this one's.
+		sessionId := uuid.NewString()
 		spawnStart := time.Now()
-		oref, err := spawnWorker(spawnCtx, capability, owner.WorkspaceId, "", cwd, prompt, jarvis.RunWorkerOptions{})
+		oref, err := spawnWorker(spawnCtx, capability, owner.WorkspaceId, "", cwd, prompt, jarvis.RunWorkerOptions{SessionId: sessionId})
 		spawnMs := time.Since(spawnStart).Milliseconds()
 		if err != nil {
 			failDispatch(ctx, g, taskID, FailureKindSpawn, err, &afterCommit)
 			continue
 		}
-		// a fresh dispatch writes a new transcript; drop any cached path from a prior attempt so
-		// liveness never reads the dead session's mtime as this one's heartbeat.
-		sessionPathCache.Delete(dagSessionMarker(g.OID, taskID))
 		childRun := childRunFromSpec(g, task, owner, pin, cwd, spawnBase, prompt)
+		childRun.SessionId = sessionId
 		// attach worker to child run before persisting
 		attached := false
 		for i := range childRun.Phases {

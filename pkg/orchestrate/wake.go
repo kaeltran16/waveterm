@@ -287,7 +287,7 @@ func readLeadState(ctx context.Context, channelId, runId string) leadState {
 	if err != nil || run == nil {
 		return leadState{}
 	}
-	tabId := leadTabID(run)
+	tabId := runTabID(run)
 	if tabId == "" {
 		return leadState{}
 	}

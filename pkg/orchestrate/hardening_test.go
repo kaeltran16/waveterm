@@ -7,8 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -215,27 +213,6 @@ func TestCleanupProjectPathPrefersOwningRun(t *testing.T) {
 	}
 	if got != channelDir {
 		t.Fatalf("fallback project path = %q, want %q", got, channelDir)
-	}
-}
-
-// pi writes whole tool results as one JSONL line; a scan that dies on an oversized line reports the
-// marker absent, which flags a live child stalled.
-func TestSessionMentionsSurvivesOversizedLine(t *testing.T) {
-	marker := dagSessionMarker("dag-1", "t-0")
-	path := filepath.Join(t.TempDir(), "session.jsonl")
-	lines := []string{
-		`{"cwd":"/tmp/wt"}`,
-		`{"role":"tool","content":"` + strings.Repeat("x", 300*1024) + `"}`,
-		`{"role":"user","content":"do the thing ` + marker + `"}`,
-	}
-	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if !sessionMentions(path, marker) {
-		t.Fatal("marker after an oversized line must still be found")
-	}
-	if sessionMentions(path, dagSessionMarker("dag-1", "t-9")) {
-		t.Fatal("a marker that is not present must not match")
 	}
 }
 

@@ -45,8 +45,10 @@ func silentSiblingDag(t *testing.T, name string, mutate func(*waveobj.TaskGroup)
 		t.Fatal(err)
 	}
 	child := jarvis.NewRun("child", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), 1)
-	child.Runtime = "pi" // tracked runtime: the probe has somewhere to look, so silence is a verdict
+	// tracked runtime launched under a session id: the probe has a file to look for, so silence is a verdict
+	child.Runtime = "pi"
 	child.DagORef = g.OID
+	child.SessionId = liveSession
 	if err := wstore.AppendRun(ctx, ch.OID, child); err != nil {
 		t.Fatal(err)
 	}

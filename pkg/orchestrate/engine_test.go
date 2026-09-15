@@ -514,9 +514,12 @@ func TestScheduleStampsDispatchAndFirstActivityTimings(t *testing.T) {
 	}
 
 	// the child writes its first transcript line; the next tick is the first that can observe it
-	marker := dagSessionMarker(g.OID, "t-0")
+	child, err := wstore.GetRun(ctx, ch.OID, g.Tasks[0].RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	first := time.Now().Add(-1 * time.Minute)
-	writeClaudeSession(t, root, ch.ProjectPath, "sess-1", "goal\n\n"+marker, first)
+	writeClaudeSession(t, root, ch.ProjectPath, child.SessionId, first)
 	if err := ScheduleOnce(ctx, &g); err != nil {
 		t.Fatal(err)
 	}
@@ -529,7 +532,7 @@ func TestScheduleStampsDispatchAndFirstActivityTimings(t *testing.T) {
 
 	// stamped once: a later write moves LastActivity, never FirstActivity, and emits no second row
 	later := time.Now()
-	writeClaudeSession(t, root, ch.ProjectPath, "sess-1", "goal\n\n"+marker, later)
+	writeClaudeSession(t, root, ch.ProjectPath, child.SessionId, later)
 	if err := ScheduleOnce(ctx, &g); err != nil {
 		t.Fatal(err)
 	}
