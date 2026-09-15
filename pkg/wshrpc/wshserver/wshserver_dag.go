@@ -8,6 +8,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -22,7 +24,42 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
+// loadDagPlan fills a submit's tasks, and its title and width when unset, from its plan file. wavesrv
+// does not share the caller's cwd, so only an absolute path names the file the caller meant.
+func loadDagPlan(data *wshrpc.CommandDagSubmitData) error {
+	if !filepath.IsAbs(data.PlanPath) {
+		return fmt.Errorf("planpath %q must be absolute", data.PlanPath)
+	}
+	if len(data.Tasks) > 0 {
+		return fmt.Errorf("pass tasks or planpath, not both")
+	}
+	src, err := os.ReadFile(data.PlanPath)
+	if err != nil {
+		return fmt.Errorf("reading plan: %w", err)
+	}
+	plan, err := jarvis.ParsePlan(string(src))
+	if err != nil {
+		return fmt.Errorf("plan %s: %w", data.PlanPath, err)
+	}
+	data.Tasks = plan.Tasks
+	if data.Title == "" {
+		data.Title = plan.Title
+	}
+	if data.Title == "" {
+		data.Title = strings.TrimSuffix(filepath.Base(data.PlanPath), filepath.Ext(data.PlanPath))
+	}
+	if data.Parallelism == 0 {
+		data.Parallelism = orchestrate.DefaultParallelism(plan.Tasks)
+	}
+	return nil
+}
+
 func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDagSubmitData) (*waveobj.TaskGroup, error) {
+	if data.PlanPath != "" {
+		if err := loadDagPlan(&data); err != nil {
+			return nil, err
+		}
+	}
 	if data.ChannelId == "" || data.RunId == "" || len(data.Tasks) == 0 {
 		return nil, fmt.Errorf("channelid, runid and tasks are required")
 	}

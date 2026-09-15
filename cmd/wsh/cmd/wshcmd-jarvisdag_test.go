@@ -262,3 +262,26 @@ func TestDagSubmitSource(t *testing.T) {
 		t.Fatal("missing file must be rejected")
 	}
 }
+
+func TestDagSubmitExposesPlanFlag(t *testing.T) {
+	if dagSubmitCmd.Flags().Lookup("plan") == nil {
+		t.Fatal("dag submit must expose --plan for submitting a plan file")
+	}
+}
+
+func TestDagPlanPath(t *testing.T) {
+	if got, err := dagPlanPath(nil, "", ""); err != nil || got != "" {
+		t.Fatalf("no --plan = %q, %v", got, err)
+	}
+	// wavesrv does not share the lead's cwd, so a relative --plan has to be resolved here
+	got, err := dagPlanPath(nil, "", filepath.Join("docs", "plan.md"))
+	if err != nil || !filepath.IsAbs(got) || !strings.HasSuffix(got, filepath.Join("docs", "plan.md")) {
+		t.Fatalf("relative --plan = %q, %v", got, err)
+	}
+	if _, err := dagPlanPath([]string{`{}`}, "", "plan.md"); err == nil {
+		t.Fatal("--plan + inline JSON must be rejected")
+	}
+	if _, err := dagPlanPath(nil, "dag.json", "plan.md"); err == nil {
+		t.Fatal("--plan + --file must be rejected")
+	}
+}

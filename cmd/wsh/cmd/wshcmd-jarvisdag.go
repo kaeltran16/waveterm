@@ -17,6 +17,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/wavetermdev/waveterm/pkg/agentask"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
+	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/pitasks"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -58,25 +59,46 @@ func dagSubmitSource(args []string, file string, stdin io.Reader) ([]byte, error
 	return nil, fmt.Errorf("dag JSON required: pass it inline or with --file <path>")
 }
 
+// dagPlanPath resolves --plan to an absolute path, because wavesrv parses the file and does not share
+// this process's cwd. A plan is a whole dag on its own, so combining it with dag JSON is a mistake.
+func dagPlanPath(args []string, file, plan string) (string, error) {
+	if plan == "" {
+		return "", nil
+	}
+	if len(args) == 1 || file != "" {
+		return "", fmt.Errorf("pass --plan alone, not with dag JSON or --file")
+	}
+	return filepath.Abs(plan)
+}
+
 var dagSubmitCmd = &cobra.Command{
 	Use:     "submit [dag-json]",
-	Short:   "validate and submit a DAG for the current run (inline JSON, or --file <path>|-)",
-	Long:    "Validate and submit a DAG for the current run (inline JSON, or --file <path>|-)." + dagOneDagPerRunNote,
+	Short:   "validate and submit a DAG for the current run (--plan <plan.md>, inline JSON, or --file <path>|-)",
+	Long:    "Validate and submit a DAG for the current run (--plan <plan.md>, inline JSON, or --file <path>|-).\n\n" + jarvis.PlanFormat + dagOneDagPerRunNote,
 	Args:    cobra.MaximumNArgs(1),
 	PreRunE: preRunSetupRpcClient,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		file, _ := cmd.Flags().GetString("file")
-		raw, err := dagSubmitSource(args, file, cmd.InOrStdin())
-		if err != nil {
-			return err
-		}
-		channelId, runId, err := dagIds(cmd)
+		plan, _ := cmd.Flags().GetString("plan")
+		planPath, err := dagPlanPath(args, file, plan)
 		if err != nil {
 			return err
 		}
 		var data wshrpc.CommandDagSubmitData
-		if err := json.Unmarshal(raw, &data); err != nil {
-			return fmt.Errorf("dag json: %w", err)
+		if planPath != "" {
+			data.PlanPath = planPath
+		} else {
+			raw, err := dagSubmitSource(args, file, cmd.InOrStdin())
+			if err != nil {
+				return err
+			}
+			if err := json.Unmarshal(raw, &data); err != nil {
+				return fmt.Errorf("dag json: %w", err)
+			}
+		}
+		channelId, runId, err := dagIds(cmd)
+		if err != nil {
+			return err
 		}
 		data.ChannelId = channelId
 		data.RunId = runId
@@ -84,7 +106,7 @@ var dagSubmitCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		fmt.Printf("dag %s submitted (%d tasks, parallelism %d)\n", g.ID, len(g.Tasks), g.Parallelism)
+		fmt.Printf("dag %s submitted (%d tasks, %d lanes, longest chain %d, parallelism %d)\n", g.ID, len(g.Tasks), len(jarvis.Lanes(g.Tasks)), jarvis.LongestChain(g.Tasks), g.Parallelism)
 		return nil
 	},
 }
@@ -512,6 +534,7 @@ func init() {
 		c.Flags().String("channel", "", "channel id")
 	}
 	dagSubmitCmd.Flags().String("file", "", "read the dag JSON from a file (\"-\" for stdin)")
+	dagSubmitCmd.Flags().String("plan", "", "submit a plan file in the plan format below; its tasks become the dag")
 	dagImportCmd.Flags().String("dir", "", "pi-tasks dir (default .)")
 	dagImportCmd.Flags().String("title", "", "dag title (shown in the ui; default runs the first task's label)")
 	dagImportCmd.Flags().Int("parallelism", 0, fmt.Sprintf("concurrent children (1-%d); default is the dag's ready width", orchestrate.MaxParallelism))
