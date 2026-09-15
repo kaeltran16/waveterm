@@ -791,31 +791,22 @@ const briefSurface = {
         });
 
         // Review reveals the existing actionable rows; the disclosure changes presentation, not where a
-        // decision lands or whether the inert action word is honestly styled as a label.
+        // decision lands.
         await h.ev(`document.querySelector('[data-jarvis-brief-attention-summary]')?.click()`);
         await h.ev("new Promise((r) => setTimeout(r, 300))");
         const q = await h.ev(`(() => {
             const summary = document.querySelector('[data-jarvis-brief-attention-summary]');
             const rows = [...document.querySelectorAll('[data-jarvis-brief-row="queue"]')];
-            const actions = rows.map((r) => r.querySelector('[data-jarvis-brief-action]')).filter(Boolean);
             return {
                 expanded: summary?.getAttribute('aria-expanded') ?? null,
                 rows: rows.length,
                 openable: rows.filter((r) => r.tagName === 'BUTTON').length,
                 nested: rows.reduce((n, r) => n + r.querySelectorAll('button, a, input, select, textarea').length, 0),
-                actionLabels: actions.length,
-                actionsAreSpans: actions.every((a) => a.tagName === 'SPAN'),
             };
         })()`);
         steps.push({
             step: "4. Review reveals queue rows that open what they name",
-            ok:
-                q.expanded === "true" &&
-                q.rows > 0 &&
-                q.openable === q.rows &&
-                q.nested === 0 &&
-                q.actionLabels > 0 &&
-                q.actionsAreSpans === true,
+            ok: q.expanded === "true" && q.rows > 0 && q.openable === q.rows && q.nested === 0,
             detail: JSON.stringify(q),
         });
 
@@ -869,42 +860,37 @@ const briefSurface = {
             detail: JSON.stringify(trail.map((t) => (t == null ? null : `${t.row}/${t.text}`))),
         });
 
-        // The initiatives region is the one B5 left with no way in: the effort sheet it built was reachable
-        // only sideways, through a blocked chunk's queue row. The row is the effort card itself now, so the
-        // way in is the card's own header — it expands the chunk tracker, its writes and its "full record"
-        // in place. A row nesting controls is the point of that, not the defect the compact row was checked
-        // for. The fixture's efforts are fabricated, so what the expanded body can prove here is the other
+        // An initiative row is one line, and a click opens the initiative's own sheet, where the notes, the
+        // plan and every write live. A row nesting no control of its own is the point: the row is the one
+        // affordance. The fixture's efforts are fabricated, so what the sheet can prove here is the other
         // half of the contract: it says the detail could not be fetched and offers a retry, rather than
-        // sitting on a spinner or drawing an empty tracker as if the initiative had no chunks.
-        // which card is open is module state that outlives a scenario run, so start from closed rather
-        // than from whatever the previous run left behind — otherwise this click collapses instead.
-        await h.ev(`document.querySelector('[data-jarvis-brief-row="initiative"] button[aria-expanded="true"]')?.click()`);
-        await h.ev("new Promise((r) => setTimeout(r, 200))");
-        await h.ev(`document.querySelector('[data-jarvis-brief-row="initiative"] button[aria-expanded]')?.click()`);
+        // sitting on a skeleton or drawing an empty initiative.
+        await h.ev(`document.querySelector('[data-jarvis-brief-row="initiative"]')?.click()`);
         await h.ev("new Promise((r) => setTimeout(r, 900))");
         const card = await h.ev(`(() => {
             const rows = [...document.querySelectorAll('[data-jarvis-brief-row="initiative"]')];
-            const open = rows.find((r) => r.querySelector('button[aria-expanded="true"]') != null);
-            const txt = (e) => (e.innerText || "").replace(/\\s+/g, " ").trim();
+            const sheet = document.querySelector('[data-jarvis-brief-sheet]');
+            const txt = (e) => (e?.innerText || "").replace(/\\s+/g, " ").trim();
             return {
                 rows: rows.length,
-                expandable: rows.filter((r) => r.querySelector("button[aria-expanded]") != null).length,
-                opened: open != null,
-                // collapsed cards keep their status lines; only the opened one grows a body
-                body: open == null ? null : txt(open).slice(0, 80),
+                buttons: rows.filter((r) => r.tagName === 'BUTTON').length,
+                nested: rows.reduce((n, r) => n + r.querySelectorAll('button, a, input, select, textarea').length, 0),
+                face: sheet ? sheet.dataset.jarvisBriefSheet : null,
+                body: txt(sheet).slice(0, 160),
             };
         })()`);
         steps.push({
-            step: "7. an initiative row is the effort card, expanding its tracker in place",
+            step: "7. an initiative row is one line that opens the initiative's sheet",
             ok:
                 card.rows > 0 &&
-                card.expandable === card.rows &&
-                card.opened === true &&
-                /retry/.test(card.body ?? ""),
+                card.buttons === card.rows &&
+                card.nested === 0 &&
+                card.face === "effort" &&
+                /retry/i.test(card.body ?? ""),
             detail: JSON.stringify(card),
         });
-        // the expansion is module state that outlives the run, and step 6 reads the collapsed row's text
-        await h.ev(`document.querySelector('[data-jarvis-brief-row="initiative"] button[aria-expanded="true"]')?.click()`);
+        await h.ev(`[...document.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === 'Close detail sheet')?.click()`);
+        await h.ev("new Promise((r) => setTimeout(r, 300))");
 
         // The sideways arm into the effort sheet is still the one a blocked chunk takes, and it is still
         // the only arm the fixture can drive end to end: the sheet's own chrome names the record it is
@@ -926,45 +912,30 @@ const briefSurface = {
         await h.ev(`[...document.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === 'Close detail sheet')?.click()`);
         await h.ev("new Promise((r) => setTimeout(r, 300))");
 
-        // F8: the row states what it is waiting on, what it belongs to and what the decision rests on.
-        // The "attention" fixture is the one that carries wire attention items; "normal" has none, so
-        // the queue there is only blocked chunks, which carry no attribution by design. Every added
-        // element must be a span: the row itself is the button (step 4), and a bordered chip inside it
-        // would be a second affordance for one decision.
+        // F8: the row states what it is waiting on and what it belongs to, on its one line. The "attention"
+        // fixture is the one that carries wire attention items; "normal" has none, so the queue there is only
+        // blocked chunks, which carry no attribution by design. The row itself is the button (step 4), so it
+        // nests no control of its own. A one-line row has no room for cites, so it no longer draws them.
         await h.ev(`document.querySelector('[data-briefing-fixture="attention"]')?.click()`);
         await h.ev("new Promise((r) => setTimeout(r, 600))");
         const ctx = await h.ev(`(() => {
             const rows = [...document.querySelectorAll('[data-jarvis-brief-row="queue"]')];
-            const pick = (sel) => rows.map((r) => r.querySelector(sel)).filter(Boolean);
-            const attribs = pick('[data-jarvis-brief-attrib]');
-            const whys = pick('[data-jarvis-brief-why]');
-            const cites = rows.flatMap((r) => [...r.querySelectorAll('[data-jarvis-brief-cite]')]);
             const txt = (e) => (e.innerText || "").replace(/\\s+/g, " ").trim();
             return {
                 rows: rows.length,
                 nested: rows.reduce((n, r) => n + r.querySelectorAll('button, a, input, select, textarea').length, 0),
-                attribs: attribs.length,
-                firstAttrib: attribs.length ? txt(attribs[0]) : null,
-                whys: whys.length,
-                firstWhy: whys.length ? txt(whys[0]) : null,
-                cites: cites.length,
-                firstCite: cites.length ? txt(cites[0]) : null,
-                allSpans: [...attribs, ...whys, ...cites].every((e) => e.tagName === 'SPAN'),
+                first: rows.length ? txt(rows[0]) : null,
             };
         })()`);
         steps.push({
-            step: "9. a queue row names its initiative, why it is waiting and what it rests on, all as labels",
+            step: "9. a queue row names its initiative and why it is waiting, on one line",
             ok:
                 ctx.rows >= 3 &&
                 ctx.nested === 0 &&
-                ctx.allSpans === true &&
                 // the effort title is joined on the frontend from the efforts already on the surface,
                 // so a raw oid here would mean the join silently failed
-                ctx.firstAttrib === "\u2726 Scenario gate clearance \u00b7 Phase 3" &&
-                ctx.whys === 3 &&
-                /2 of 4 done/.test(ctx.firstWhy ?? "") &&
-                ctx.cites === 2 &&
-                ctx.firstCite === "[1] docs/superpowers/plans/ask-bridge.md",
+                (ctx.first ?? "").includes("Scenario gate clearance \u00b7 Phase 3") &&
+                /2 of 4 done/.test(ctx.first ?? ""),
             detail: JSON.stringify(ctx),
         });
         await h.shot("cdp-shots/brief-queue-context.png");
@@ -980,10 +951,10 @@ const briefSurface = {
 
 // --- brief-peek: a record oref lands in the Brief's peek, not on a Stage that is not there ------
 // The only in-app path from the Brief to a record is the palette's Records group (B1's palette
-// extension), because nothing on the Brief itself names a record: the Behind-you rows are static and the
-// queue's rows address channels, runs and scan reports. So this drives that path. A profile with zero
-// records fails step 2 with that stated in the detail rather than passing vacuously — read it as an
-// environment gap, not a regression.
+// extension), because nothing on the Brief itself names a record: the Behind-you rows open runs, channels
+// and initiatives, and the queue's rows address channels, runs and scan reports. So this drives that path.
+// A profile with zero records fails step 2 with that stated in the detail rather than passing vacuously —
+// read it as an environment gap, not a regression.
 const briefPeek = {
     name: "brief-peek",
     surface: "jarvis",

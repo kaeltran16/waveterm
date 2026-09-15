@@ -257,6 +257,14 @@ describe("jarvis surface bindings", () => {
         expect(byId("jarvis:new-thread").when!(jarvisCtx)).toBe(true);
     });
 
+    // the Brief's filter takes / the way the Diff history's does, on its own surface
+    it("focuses the Brief filter with /", () => {
+        globalStore.set(graphPeekOpenAtom, false);
+        const f = byId("jarvis:filter");
+        expect(f.keys).toBe("/");
+        expect(f.when!(jarvisCtx)).toBe(true);
+    });
+
     it("guards every key on the surface, the typing state and modals", () => {
         globalStore.set(graphPeekOpenAtom, false);
         for (const b of buildJarvisBindings()) {

@@ -606,6 +606,20 @@ export function buildJarvisBindings(): Binding[] {
             },
         },
         {
+            id: "jarvis:filter",
+            keys: "/",
+            group: "Jarvis",
+            label: "Filter the Brief",
+            when: onStage,
+            run: () => {
+                const el = document.querySelector<HTMLInputElement>("[data-jarvis-brief-filter]");
+                if (el == null) {
+                    return false;
+                }
+                el.focus();
+            },
+        },
+        {
             id: "jarvis:blur-composer",
             keys: "Escape",
             group: "Jarvis",

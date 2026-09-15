@@ -87,6 +87,8 @@ Settings has no `Ctrl`+number slot — the eight positions are bound to `SURFACE
 | Keys | Action |
 |---|---|
 | `i` | Focus the composer |
+| `/` | Filter the Brief's rows (`Esc` clears) |
+| `Enter` | Open the row under the cursor |
 | `d` | Toggle the context rail |
 | `e` | Expand / collapse the record band |
 | `n` | New thread |

@@ -58,7 +58,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { RunSettingsPanel, SheetShell } from "./briefrunsheet";
 import { sheetFace, type SheetFace } from "./briefsheetmodel";
 import { EffortDetailView } from "./effortdetailview";
-import { effortDetailAtom } from "./effortstore";
 import { briefSheetOpenAtom } from "./jarvisstore";
 import {
     activeSubjectAtom,
@@ -266,7 +265,6 @@ export function BriefSheet({ model }: { model: AgentsViewModel }) {
     const ambient = useAtomValue(ambientProviderAtom);
     const recordDetails = useAtomValue(recordDetailAtom);
     const bandsOpen = useAtomValue(recordBandOpenAtom);
-    const effortCache = useAtomValue(effortDetailAtom);
     const projects = useAtomValue(projectsAtom);
 
     useEffect(() => ensureAmbient(), []);
@@ -298,14 +296,9 @@ export function BriefSheet({ model }: { model: AgentsViewModel }) {
         globalStore.set(briefSheetOpenAtom, false);
         clearSubject();
     };
-    // "none" is never drawn — `visible` below excludes it, so it is never latched — but it is in the union
-    // now that the early return is gone, so it needs a branch rather than a non-null assertion.
-    const title =
-        face.kind === "channel"
-            ? channelProjectLabel(channel, projects)
-            : face.kind === "effort"
-              ? (effortCache.get("effort:" + face.effortId)?.title ?? "Initiative")
-              : "";
+    // an initiative's body leads with its own title, so the header naming it again would be a second one.
+    // "none" is never drawn — `visible` below excludes it, so it is never latched.
+    const title = face.kind === "channel" ? channelProjectLabel(channel, projects) : "";
 
     const visible = open && face.kind !== "none";
     // the exit animation still needs something to draw after the subject clears, so the last shown

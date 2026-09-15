@@ -282,11 +282,11 @@ func ApplyEffortOps(e *waveobj.Effort, ops []wshrpc.EffortOp, cmdNote string, no
 			if op.Status == "done" {
 				kind = "chunk-done"
 			}
-			effortEvent(e, kind, op.Chunk, note, now)
+			effortEvent(e, kind, e.Chunks[idx].Label, note, now)
 		case "appendNote":
 			idx, _ := ResolveChunkIndex(e, op.Chunk)
 			chunkNote(e, idx, note, now)
-			effortEvent(e, "effort-note", op.Chunk, note, now)
+			effortEvent(e, "effort-note", e.Chunks[idx].Label, note, now)
 		case "setChunkStage":
 			// trail-only, like rename/move/owner: a stage is a grouping label, so changing it moves
 			// nothing and completes nothing. The delta stays "what changed that matters".
@@ -372,7 +372,7 @@ func advance(e *waveobj.Effort, note string, now int64) {
 			text += " · " + note
 		}
 		chunkNote(e, active, text, now)
-		effortEvent(e, "chunk-done", e.Chunks[active].Label, "", now)
+		effortEvent(e, "chunk-done", e.Chunks[active].Label, note, now)
 	}
 	for i, c := range e.Chunks {
 		if c.Status == "pending" || c.Status == "blocked" || c.Status == "deferred" {

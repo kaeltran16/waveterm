@@ -150,6 +150,32 @@ func TestApplyOpsAppendNoteToChunk(t *testing.T) {
 	}
 }
 
+// an index ref names a position, and positions shift when the plan is reordered
+func TestApplyOpsEventsNameTheResolvedChunk(t *testing.T) {
+	e := mkEffort()
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{
+		{Op: "setChunkStatus", Chunk: "3", Status: "blocked"},
+		{Op: "appendNote", Chunk: "1", Note: "soak accepted"},
+	}, "", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(e.Events) != 2 || e.Events[0].Label != "Phase 3" || e.Events[1].Label != "Phase 1" {
+		t.Fatalf("events: %+v", e.Events)
+	}
+}
+
+func TestApplyOpsAdvanceEventCarriesNote(t *testing.T) {
+	e := mkEffort()
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "advance", Note: "plan written"}}, "", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(e.Events) != 1 || e.Events[0].Kind != "chunk-done" || e.Events[0].Text != "plan written" {
+		t.Fatalf("events: %+v", e.Events)
+	}
+}
+
 func TestApplyOpsAtomicBatchRollback(t *testing.T) {
 	e := mkEffort()
 	err := ApplyEffortOps(e, []wshrpc.EffortOp{

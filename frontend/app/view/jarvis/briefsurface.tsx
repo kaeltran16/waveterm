@@ -11,10 +11,10 @@
 // with whatever the projection's caps hid stated separately as "+N more" — so no line here can claim
 // more work than the surface is showing.
 //
-// The record peek is here (BriefPeek, opened by a record oref) and the palette extends the app's own. A
-// queue row's action word stays a label because the row itself already opens what the word names; a
-// session or record row opens its own sheet, an initiative row is the effort card and opens itself in
-// place, and a region's overflow opens in place too. The composer and the thread it grows into are here.
+// The record peek is here (BriefPeek, opened by a record oref) and the palette extends the app's own. Every
+// row is one line that opens its sheet in a click (briefrows.ts), because the sheet is where the actions
+// live; a region's overflow and its folded stale runs open in place. The composer and the thread it grows
+// into are here.
 //
 // One presentation rule runs through the whole file and decides every border below: a bordered chip is
 // the control recipe, a borderless one is a label. Dressing something inert as a control and camouflaging
@@ -55,20 +55,15 @@ import { drewOn, type DrewRow } from "./briefdrew";
 import { briefFleet } from "./brieffleet";
 import { BRIEFING_FIXTURES } from "./briefingfixtures";
 import {
-    ACTIVE_CAP,
     buildAttentionQueue,
     capRegion,
     DELTA_CAP,
     EFFORT_CAP,
     groupDelta,
-    mergeActiveWork,
     projectBriefing,
-    queueOpenTarget,
     SEVEN_DAYS_MS,
     SHIPPED_CAP,
     summarizeAttentionQueue,
-    type ActiveWorkRow,
-    type QueueRow,
     type QueueSummary,
 } from "./briefingmodel";
 import {
@@ -89,16 +84,26 @@ import {
     type BriefExchange,
     type BriefingAnswer,
 } from "./briefingstore";
-import { briefNavIds, resolveBriefCursor } from "./briefnav";
+import { resolveBriefCursor } from "./briefnav";
 import { BriefPeek } from "./briefpeekview";
 import { BriefProfileModal } from "./briefprofileview";
 import { briefRestorePlan } from "./briefrestore";
+import {
+    behindGroups,
+    filterLines,
+    initiativeLine,
+    queueLine,
+    sessionLine,
+    sessionWindow,
+    SHIPPED_LABEL,
+    type BriefLine,
+    type LineTarget,
+    type LineTone,
+} from "./briefrows";
 import { BriefSheet } from "./briefsheet";
 import { sheetFace } from "./briefsheetmodel";
 import { openJarvisWithSource } from "./contextualentry";
-import { EffortCard } from "./effortcard";
-import type { EffortCardModel } from "./effortmodel";
-import { effortDetailAtom, expandedEffortOrefAtom, toggleEffort } from "./effortstore";
+import { effortDetailAtom } from "./effortstore";
 import { freshKeys } from "./freshrows";
 import { peekFocus, type PeekFocus } from "./graphfocus";
 import { GraphPeek } from "./graphpeek";
@@ -124,8 +129,9 @@ import { activeSubjectAtom, persistedSubjectAtom, setActiveRunId, stageRunAtom }
 import { mentionedDossierIds } from "./mentions";
 import { NewInitiativeControl } from "./newinitiativecontrol";
 import { NewRunControl } from "./newruncontrol";
-import { openChannelSheet, openORef, openQueueTarget, openRunSheet, orefNavPlan } from "./openref";
+import { openChannelSheet, openORef, openQueueTarget, orefNavPlan } from "./openref";
 import { reducePrinciplePatch } from "./profilemodel";
+import { ProgressBar } from "./progressbar";
 import { ageLabel, freshnessLabel } from "./recallderive";
 import { loadTaskList, taskListAtom } from "./tasksstore";
 
@@ -146,29 +152,53 @@ const SUB_LABEL = "px-2.5 pb-0.5 pt-1.5 font-mono text-[9px] font-bold uppercase
 
 // The j/k cursor. A ring rather than a fill: the cursor says "the keys are here", not "this is
 // selected" — nothing on the Brief is selectable yet, and the rows carry their own tone (a waiting row
-// is already asking-coloured) which a background swap would overwrite.
-const CURSOR_RING = "ring-1 ring-accent/70";
+// is already asking-coloured) which a background swap would overwrite. Inset, because the Waiting rows sit
+// in the reveal's overflow-hidden wrapper, which cuts an outer ring down to its four rounded corners.
+const CURSOR_RING = "ring-1 ring-inset ring-accent/70";
 
 // Every row takes the same two, so the four renderers stay uniform and the scroller can find the cursor.
 function cursorAttrs(focused: boolean) {
     return { "data-jarvis-brief-cursor": focused ? "true" : undefined };
 }
 
-function RegionHead({ label, meta, count, alert }: { label: string; meta: string; count?: number; alert?: boolean }) {
+// A heading is also how one region is read alone: pressing it hides the other regions, pressing it again
+// brings them back. The count is a plain label inside it, because a bordered pill inside a button would
+// read as a second control.
+function RegionHead({
+    label,
+    meta,
+    count,
+    alert,
+    only,
+    onOnly,
+}: {
+    label: string;
+    meta: string;
+    count?: number;
+    alert?: boolean;
+    only: boolean;
+    onOnly: () => void;
+}) {
     return (
-        <div className="flex items-center gap-[9px]">
+        <button
+            type="button"
+            aria-pressed={only}
+            title={only ? "Show every region" : "Show only this region"}
+            onClick={onOnly}
+            className="flex w-full cursor-pointer items-center gap-[9px] text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
             {alert ? (
                 <span className="h-1.5 w-1.5 flex-none animate-pulse rounded-full bg-asking motion-reduce:animate-none" />
             ) : null}
             <span className={cn(REGION_LABEL, alert ? "text-asking" : "text-feed-label")}>{label}</span>
             {count != null ? (
-                <span className="flex-none rounded-full border border-border px-2 py-px font-mono text-[9.5px] font-semibold text-muted">
-                    {count}
-                </span>
+                <span className="flex-none font-mono text-[10.5px] font-medium tabular-nums text-muted">{count}</span>
             ) : null}
             <span className="h-px min-w-3 flex-1 bg-edge-faint" />
-            <span className="flex-none font-mono text-[10px] text-ink-faint">{meta}</span>
-        </div>
+            <span className="flex-none font-mono text-[10px] text-ink-faint">
+                {only ? "showing only this · press to show all" : meta}
+            </span>
+        </button>
     );
 }
 
@@ -179,6 +209,8 @@ function Region({
     alert,
     empty,
     gap,
+    only,
+    onOnly,
     children,
 }: {
     id: RegionId;
@@ -187,12 +219,14 @@ function Region({
     alert?: boolean;
     empty: boolean;
     gap: string;
+    only: boolean;
+    onOnly: () => void;
     children: ReactNode;
 }) {
     const region = REGIONS[id];
     return (
         <section data-jarvis-brief-region={id} className={cn("flex flex-col", gap)}>
-            <RegionHead label={region.label} meta={meta} count={count} alert={alert} />
+            <RegionHead label={region.label} meta={meta} count={count} alert={alert} only={only} onOnly={onOnly} />
             {empty ? (
                 <div className="flex items-center gap-[11px] rounded-[10px] border border-dashed border-edge-strong bg-surface px-4 py-3">
                     {region.ok ? (
@@ -263,100 +297,89 @@ function QueueSummaryView({
     );
 }
 
-function QueueRowView({
-    row,
+const TONE_FG: Record<LineTone, string> = {
+    ok: "text-success",
+    active: "text-accent-soft",
+    asking: "text-asking",
+    error: "text-error",
+    muted: "text-muted",
+};
+
+// the key the fresh and entrance sets are built with: a line's id minus its region prefix
+const keyOf = (line: BriefLine) => line.id.slice(line.id.indexOf(":") + 1);
+
+// a filter that matched nothing in a region leaves a sentence, not a heading over an empty frame
+function NoMatch() {
+    return (
+        <span className="px-[11px] py-1 font-mono text-[10.5px] text-ink-faint">Nothing here matches the filter.</span>
+    );
+}
+
+// Every region's row: one line that opens its sheet (briefrows.ts builds them). A line with no destination
+// stays a row rather than becoming a control that navigates nowhere. The padding and border are the same
+// under the cursor as off it, so moving the cursor never shifts the rows below.
+function LineRow({
+    line,
+    hook,
     focused,
     fresh,
     onOpen,
 }: {
-    row: QueueRow;
+    line: BriefLine;
+    hook: string;
     focused: boolean;
     fresh: boolean;
     onOpen?: () => void;
 }) {
-    const err = row.tone === "error";
-    const hasMeta = row.attrib !== "" || row.detail !== "" || row.ts != null;
-    const base =
-        "grid grid-cols-[3px_minmax(0,1fr)] gap-[13px] rounded-[10px] border border-border bg-surface py-[13px] pl-3 pr-[15px]";
     const face = (
         <>
-            <span className={cn("self-stretch rounded-[2px]", err ? "bg-error" : "bg-asking")} />
-            <div className="flex min-w-0 flex-col gap-2">
-                <div className="flex min-w-0 flex-wrap items-center gap-[9px]">
-                    <span
-                        className={cn(
-                            "flex-none font-mono text-[9.5px] font-bold uppercase tracking-[.1em]",
-                            err ? "text-error" : "text-asking"
-                        )}
-                    >
-                        {row.kind}
+            {line.progress != null ? (
+                <span className="flex w-[92px] flex-none items-center gap-[7px]">
+                    <ProgressBar pct={line.progress.pct} className="min-w-0 flex-1" />
+                    <span className="flex-none font-mono text-[9.5px] text-muted">
+                        {line.progress.done}/{line.progress.total}
                     </span>
-                    <span className="min-w-[220px] flex-1 text-[15px] font-semibold text-ink-hi">{row.title}</span>
-                    {row.action != null ? (
-                        // The action word names what the row is waiting on; the row opens the run body that
-                        // resolves it. So the word stays a label rather than becoming a second control: a
-                        // bordered chip beside an already-clickable row is two affordances for one action,
-                        // and the one that only names the decision would be the one that looks pressable.
-                        <span
-                            data-jarvis-brief-action
-                            className="flex-none font-mono text-[10px] font-semibold uppercase tracking-wide text-ink-faint"
-                        >
-                            {row.action}
-                        </span>
-                    ) : null}
-                </div>
-                {hasMeta ? (
-                    <div className="flex min-w-0 flex-wrap items-center gap-2 font-mono text-[10.5px] text-muted">
-                        {row.attrib !== "" ? (
-                            // the initiative the waiting thing belongs to. A label, not a link to the
-                            // effort sheet: the row is already a button, and nesting a second one inside
-                            // it is the affordance defect invariant 4 names.
-                            <span data-jarvis-brief-attrib className="min-w-0 truncate text-secondary">
-                                <span aria-hidden>✦ </span>
-                                {row.attrib}
-                            </span>
-                        ) : null}
-                        {row.detail !== "" ? <span className="min-w-0 truncate">{row.detail}</span> : null}
-                        {row.ts != null ? (
-                            <span className="flex-none text-ink-faint">waiting {formatAge(Date.now() - row.ts)}</span>
-                        ) : null}
-                    </div>
-                ) : null}
-                {row.why !== "" ? (
-                    // what the title cannot say: how much is already behind this, and what stays
-                    // stopped. Composed server-side from counts, never generated prose.
-                    <span data-jarvis-brief-why className="text-[13px]/[1.55] text-pretty text-secondary">
-                        {row.why}
-                    </span>
-                ) : null}
-                {row.cites.length > 0 ? (
-                    <div className="flex flex-wrap gap-[7px]">
-                        {row.cites.map((c, i) => (
-                            // borderless on purpose: invariant 4 reads a bordered chip as a control, and
-                            // a citation here is a label — the row is what you press.
-                            <span
-                                key={i + ":" + c}
-                                data-jarvis-brief-cite
-                                className="flex max-w-full items-center gap-[7px] truncate rounded-[6px] bg-surface-raised px-2.5 py-[5px] font-mono text-[10px] font-medium text-muted"
-                            >
-                                <span className="flex-none font-bold text-accent-soft">[{i + 1}]</span>
-                                <span className="min-w-0 truncate">{c}</span>
-                            </span>
-                        ))}
-                    </div>
-                ) : null}
-            </div>
+                </span>
+            ) : (
+                <span
+                    className={cn(
+                        "w-[92px] flex-none truncate font-mono text-[10px] font-semibold tracking-[.04em]",
+                        TONE_FG[line.kindTone]
+                    )}
+                >
+                    {line.kind}
+                </span>
+            )}
+            <span
+                title={line.note !== "" ? `${line.title} — ${line.note}` : line.title}
+                className="min-w-0 flex-1 truncate text-[13px] text-ink-hi"
+            >
+                {line.title}
+                {line.note !== "" ? <span className="text-muted"> — {line.note}</span> : null}
+            </span>
+            <span className="w-[210px] flex-none truncate text-right font-mono text-[10.5px] text-muted">
+                {line.meta}
+            </span>
+            <span
+                className={cn(
+                    "w-[76px] flex-none truncate text-right font-mono text-[10.5px]",
+                    focused && "font-semibold",
+                    TONE_FG[line.stateTone]
+                )}
+            >
+                {line.state}
+            </span>
         </>
     );
-    // A standalone item names nothing to open, so it stays static info rather than a control that
-    // navigates nowhere (the rule this region has always followed for a channel-less row).
+    const base = cn(
+        "flex w-full min-w-0 items-center gap-[13px] rounded-[9px] border-b px-[11px] py-1.5 text-left",
+        // the fill stops at the padding box, where the inset ring is drawn, not under the transparent divider
+        focused ? cn("border-transparent bg-surface-raised bg-clip-padding", CURSOR_RING) : "border-edge-faint",
+        fresh && "fresh-mark"
+    );
     if (onOpen == null) {
         return (
-            <div
-                data-jarvis-brief-row="queue"
-                {...cursorAttrs(focused)}
-                className={cn(base, focused && CURSOR_RING, fresh && "fresh-mark")}
-            >
+            <div data-jarvis-brief-row={hook} {...cursorAttrs(focused)} className={base}>
                 {face}
             </div>
         );
@@ -364,161 +387,17 @@ function QueueRowView({
     return (
         <button
             type="button"
-            aria-label={`Open ${row.title}`}
+            aria-label={`Open ${line.title}`}
             onClick={onOpen}
-            data-jarvis-brief-row="queue"
+            data-jarvis-brief-row={hook}
             {...cursorAttrs(focused)}
             className={cn(
                 base,
-                "w-full cursor-pointer text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
-                focused && CURSOR_RING,
-                fresh && "fresh-mark"
+                "cursor-pointer hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
             )}
         >
             {face}
         </button>
-    );
-}
-
-// An initiative row is the effort card itself, collapsed to its header and status lines and expanding
-// in place for the chunk tracker. The Brief's sketch drew these compact, but a compact row can only be
-// opened, and the card's own writes (mark done, reopen, + chunk, note, stage) are most of what putting
-// initiatives on a queue surface is for; the sheet stays one click away behind "full record".
-//
-// The card is a div with buttons inside it, so the region's row hook and the cursor ring sit on a
-// wrapper rather than on the card.
-function InitiativeRow({
-    effort,
-    focused,
-    fresh,
-    expanded,
-    onToggle,
-    onOpen,
-}: {
-    effort: EffortCardModel;
-    focused: boolean;
-    fresh: boolean;
-    expanded: boolean;
-    onToggle: () => void;
-    onOpen: () => void;
-}) {
-    return (
-        <div
-            data-jarvis-brief-row="initiative"
-            {...cursorAttrs(focused)}
-            className={cn("rounded-[10px]", focused && CURSOR_RING, fresh && "fresh-mark")}
-        >
-            <EffortCard model={effort} expanded={expanded} onToggle={onToggle} onOpenDetail={onOpen} />
-        </div>
-    );
-}
-
-// mergeActiveWork sorts needs-eyes first; the mark repeats that tiering per row so a row's state is a
-// glyph and a word, never a color alone. (briefingview keeps the same rule in its local `needsEyes`.)
-function sessionMark(row: ActiveWorkRow): { glyph: string; fg: string } {
-    if (row.kind === "blocker" || row.chip?.tone === "blocked" || row.chip?.tone === "asking") {
-        return { glyph: "!", fg: "text-asking" };
-    }
-    if (row.chip?.tone === "running") {
-        return { glyph: "▶", fg: "text-accent-soft" };
-    }
-    return { glyph: "·", fg: "text-muted" };
-}
-
-// A run row is the one session row with a destination: B4's session sheet. A blocker or a direct agent
-// has no sheet yet, so it stays a row rather than becoming a control that opens nothing (the same rule the
-// wait queue follows for its channel-less items).
-function SessionRow({
-    row,
-    focused,
-    fresh,
-    onOpen,
-}: {
-    row: ActiveWorkRow;
-    focused: boolean;
-    fresh: boolean;
-    onOpen?: () => void;
-}) {
-    const mark = sessionMark(row);
-    const openable = row.kind === "run" && onOpen != null;
-    const face = (
-        <>
-            <span aria-hidden className={cn("w-3 flex-none text-center font-mono text-[10px] font-bold", mark.fg)}>
-                {mark.glyph}
-            </span>
-            <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink-hi">{row.name}</span>
-            <span className="flex-none rounded-[5px] border border-border px-[7px] py-px font-mono text-[9.5px] text-muted">
-                {row.kind}
-            </span>
-            {row.meta !== "" ? (
-                <span className="max-w-[220px] flex-none truncate font-mono text-[10px] text-muted">{row.meta}</span>
-            ) : null}
-            <span className="flex-none font-mono text-[10px] text-ink-faint">{formatAge(Date.now() - row.ts)}</span>
-            <span className={cn("min-w-24 flex-none text-right font-mono text-[9.5px] font-semibold", mark.fg)}>
-                {row.chip?.label ?? row.kind}
-            </span>
-        </>
-    );
-    const base = "flex items-center gap-3 rounded-[7px] border-b border-edge-faint px-2.5 py-[9px]";
-    if (openable) {
-        return (
-            <button
-                type="button"
-                aria-label={`Open session sheet for ${row.name}`}
-                onClick={onOpen}
-                data-jarvis-brief-row="session"
-                {...cursorAttrs(focused)}
-                className={cn(
-                    base,
-                    "w-full cursor-pointer text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
-                    focused && CURSOR_RING,
-                    fresh && "fresh-mark"
-                )}
-            >
-                {face}
-            </button>
-        );
-    }
-    return (
-        <div
-            data-jarvis-brief-row="session"
-            {...cursorAttrs(focused)}
-            className={cn(base, focused && CURSOR_RING, fresh && "fresh-mark")}
-        >
-            {face}
-        </div>
-    );
-}
-
-function PastRow({
-    hook,
-    at,
-    verb,
-    verbFg,
-    what,
-    tail,
-    focused,
-}: {
-    hook: string;
-    at: string;
-    verb: string;
-    verbFg: string;
-    what: string;
-    tail?: ReactNode;
-    focused: boolean;
-}) {
-    return (
-        <div
-            data-jarvis-brief-row={hook}
-            {...cursorAttrs(focused)}
-            className={cn("flex min-w-0 items-baseline gap-[13px] rounded-[5px] px-2.5 py-1", focused && CURSOR_RING)}
-        >
-            <span className="w-[46px] flex-none font-mono text-[10px] text-ink-faint">{at}</span>
-            <span className="min-w-0 flex-1 truncate text-[12.5px] text-ink-mid">
-                <span className={verbFg}>{verb}</span> · {what}
-            </span>
-            {tail}
-        </div>
     );
 }
 
@@ -541,6 +420,9 @@ const briefCursorAtom = atom<string | undefined>(undefined);
 // the Brief unmounts on every surface switch, and a region that silently re-collapsed while you were
 // reading a record would be worse than one that never opened.
 const briefExpandedAtom = atom<Partial<Record<RegionId, boolean>>>({});
+
+// Whether Sessions shows its runs older than seven days. Module scope for the same reason as the two above.
+const briefStaleOpenAtom = atom(false);
 
 const COMPOSER_CHIP = "flex-none font-mono text-[9.5px] font-semibold";
 const TURN_WHO = "flex-none font-mono text-[9px] font-bold uppercase tracking-[.11em]";
@@ -1152,8 +1034,6 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         (id: RegionId) => setExpanded((prev) => ({ ...prev, [id]: prev[id] !== true })),
         [setExpanded]
     );
-    // which card is open in the Initiatives region; module-level so it survives the surface unmounting
-    const expandedEffort = useAtomValue(expandedEffortOrefAtom);
     const waitingOpen = expanded.waiting === true;
     const initiativesOpen = expanded.initiatives === true;
     const sessionsOpen = expanded.sessions === true;
@@ -1161,24 +1041,10 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     const queueSummary = useMemo(() => summarizeAttentionQueue(queue), [queue]);
 
     const effortWindow = useMemo(() => capRegion(efforts, EFFORT_CAP, initiativesOpen), [efforts, initiativesOpen]);
-    // the three legs cap independently — the merge is a triage order, not a page — so the region's
-    // overflow is what all three hid between them.
-    const sessions = useMemo(() => {
-        if (model_ == null) {
-            return { rows: [] as ActiveWorkRow[], more: 0 };
-        }
-        const runs = capRegion(model_.activeRuns, ACTIVE_CAP, sessionsOpen);
-        const blockers = capRegion(model_.blockers, ACTIVE_CAP, sessionsOpen);
-        const direct = capRegion(model_.directAgents, ACTIVE_CAP, sessionsOpen);
-        return {
-            rows: mergeActiveWork({
-                activeRuns: runs.rows,
-                blockers: blockers.rows,
-                directAgents: direct.rows,
-            }),
-            more: runs.more + blockers.more + direct.more,
-        };
-    }, [model_, sessionsOpen]);
+    const sessions = useMemo(
+        () => (model_ == null ? { rows: [], more: 0 } : sessionWindow(model_, sessionsOpen, Date.now())),
+        [model_, sessionsOpen]
+    );
     // moment 1: which rows are new to YOU. Excludes `behind` deliberately — that region is entirely
     // since-your-last-visit by construction, so marking it would mark every row and its own label
     // already states the fact.
@@ -1214,7 +1080,9 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     // effect rather than during render because the render pass can run twice (motiontokens.ts).
     const entranceIds = [
         ...queue.map((q) => q.key),
-        ...effortWindow.rows.map((e) => e.oref),
+        // every effort rather than the window: opening the region is not news arriving, so the rows it
+        // adds must not animate in as if they had
+        ...efforts.map((e) => e.oref),
         ...sessions.rows.map((r) => r.key),
     ];
     const entranceKey = snapshot?.queryStartedAt?.toString();
@@ -1230,28 +1098,75 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     const deltaGroups = useMemo(() => groupDelta(deltaWindow.rows, Date.now()), [deltaWindow]);
     const shipped = useMemo(() => capRegion(model_?.shipped ?? [], SHIPPED_CAP, behindOpen), [model_, behindOpen]);
 
-    // j/k across every region in render order. subjectscolumn.tsx publishes the same controller for this
-    // surface in the three-pane composition, but the two compositions never mount together so there is no
-    // contest for it. Deliberately no `activate`: nothing on the Brief has a primary action yet, and
-    // claiming Enter would swallow it for the composer below — bindings.ts only lets Enter through while
-    // the controller leaves it unset.
-    const navIds = useMemo(
-        () =>
-            briefNavIds({
-                queue: waitingOpen ? queue : [],
-                efforts: effortWindow.rows,
-                sessions: sessions.rows,
-                deltaGroups,
-                shipped: shipped.rows,
-            }),
-        [waitingOpen, queue, effortWindow, sessions, deltaGroups, shipped]
-    );
+    // The filter and the one-region view narrow what is drawn, and the nav ids are the drawn lines' own, so
+    // j/k can never land on a row the filter hid.
+    const [query, setQuery] = useState("");
+    const [only, setOnly] = useState<RegionId | null>(null);
+    const [staleOpen, setStaleOpen] = useAtom(briefStaleOpenAtom);
+    const toggleOnly = (id: RegionId) => setOnly((cur) => (cur === id ? null : id));
+    const filtering = query.trim() !== "";
+    const lines = useMemo(() => {
+        const now = Date.now();
+        return {
+            waiting: filterLines(
+                queue.map((q) => queueLine(q, now)),
+                query
+            ),
+            initiatives: filterLines(effortWindow.rows.map(initiativeLine), query),
+            sessions: filterLines(
+                sessions.rows.map((r) => sessionLine(r, now)),
+                query
+            ),
+            behind: behindGroups(deltaGroups, shipped.rows, now)
+                .map((g) => ({ ...g, lines: filterLines(g.lines, query) }))
+                .filter((g) => g.lines.length > 0),
+        };
+    }, [queue, effortWindow, sessions, deltaGroups, shipped, query]);
+    const staleCount = lines.sessions.filter((l) => l.stale).length;
+    const waitingShown = waitingOpen || filtering;
+    const view = useMemo(() => {
+        const shows = (id: RegionId) => only == null || only === id;
+        // a search reaches the folded runs too: a match hidden behind the fold would read as no match
+        const sessionLines = staleOpen || filtering ? lines.sessions : lines.sessions.filter((l) => !l.stale);
+        const visible: BriefLine[] = [
+            ...(shows("waiting") && waitingShown ? lines.waiting : []),
+            ...(shows("initiatives") ? lines.initiatives : []),
+            ...(shows("sessions") ? sessionLines : []),
+            ...(shows("behind") ? lines.behind.flatMap((g) => g.lines) : []),
+        ];
+        return { shows, sessionLines, visible, navIds: visible.map((l) => l.id) };
+    }, [lines, only, staleOpen, filtering, waitingShown]);
+
     const [storedCursor, setCursor] = useAtom(briefCursorAtom);
-    const cursor = resolveBriefCursor(navIds, storedCursor);
+    const cursor = resolveBriefCursor(view.navIds, storedCursor);
+    const sheetOpen = useAtomValue(briefSheetOpenAtom);
+    const openLine = useCallback(
+        (target: LineTarget) => {
+            if (target == null) {
+                return;
+            }
+            if ("queue" in target) {
+                openQueueTarget(model, target.queue);
+                return;
+            }
+            fireAndForget(() => openORef(model, target.oref));
+        },
+        [model]
+    );
+    const cursorTarget = view.visible.find((l) => l.id === cursor)?.target ?? null;
+    // j/k across every region in render order, and Enter opens the row under the cursor. Enter is left alone
+    // while a sheet is open, because the sheet's own Enter (an ask's submit) is the one on screen, and on a
+    // row that opens nothing, so the key passes through. Typing never reaches here: list keys are off in a field.
     useSurfaceListNav(
         useMemo<ListNavController>(
-            () => ({ surface: "jarvis", navigableIds: navIds, cursorId: cursor, setCursor }),
-            [navIds, cursor, setCursor]
+            () => ({
+                surface: "jarvis",
+                navigableIds: view.navIds,
+                cursorId: cursor,
+                setCursor,
+                activate: sheetOpen || cursorTarget == null ? undefined : () => openLine(cursorTarget),
+            }),
+            [view.navIds, cursor, setCursor, sheetOpen, cursorTarget, openLine]
         )
     );
     // the four regions scroll as one column, so a cursor moved off-screen has to be brought back
@@ -1311,17 +1226,6 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     // describing the control rather than the work.
     const pastRows = (model_?.delta.length ?? 0) + (model_?.shipped.length ?? 0);
     const pastMore = deltaWindow.more + shipped.more;
-    // shared by the capped head and the overflow pane below it, which render the same row in two places
-    const renderInitiative = (e: EffortCardModel) => (
-        <InitiativeRow
-            effort={e}
-            focused={cursor === `initiatives:${e.oref}`}
-            fresh={freshInitiatives.has(e.oref)}
-            expanded={expandedEffort === e.oref}
-            onToggle={() => fireAndForget(() => toggleEffort(e.oref))}
-            onOpen={() => fireAndForget(() => openORef(model, e.oref))}
-        />
-    );
     const firstLoad = snapshot == null && loading;
     const loadFailed = snapshot == null && error != null;
     const staleSnapshot = snapshot != null && error != null;
@@ -1339,6 +1243,30 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                     </span>
                 ) : null}
                 <span className="flex-1" />
+                <label className="flex h-[27px] w-[200px] flex-none items-center gap-2 rounded-[8px] border border-border px-2.5 focus-within:border-accent/60">
+                    <span aria-hidden className="flex-none font-mono text-[10px] font-medium text-ink-faint">
+                        /
+                    </span>
+                    <input
+                        data-jarvis-brief-filter
+                        aria-label="Filter the Brief"
+                        placeholder="filter"
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === "Escape") {
+                                setQuery("");
+                                e.currentTarget.blur();
+                            }
+                        }}
+                        className="min-w-0 flex-1 bg-transparent text-[12.5px] text-ink-hi outline-none placeholder:text-ink-faint"
+                    />
+                    {filtering ? (
+                        <span className="flex-none font-mono text-[9.5px] text-ink-faint">
+                            {view.visible.length} {view.visible.length === 1 ? "hit" : "hits"}
+                        </span>
+                    ) : null}
+                </label>
                 {/* the chip needs a snapshot: "all clear" over a load that has not landed is a lie */}
                 {model_ != null ? (
                     <span
@@ -1467,47 +1395,49 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                             transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
                             className="flex flex-col gap-[26px]"
                         >
-                            <Region
-                                id="waiting"
-                                alert={queue.length > 0}
-                                count={queue.length > 0 ? queue.length : undefined}
-                                empty={queue.length === 0}
-                                gap="gap-[9px]"
-                                meta={
-                                    !waitingOpen && queueSummary?.oldestTs != null
-                                        ? `oldest ${formatAge(Date.now() - queueSummary.oldestTs)}`
-                                        : "gates before asks"
-                                }
-                            >
-                                {queueSummary != null ? (
-                                    <div className="flex flex-col gap-[9px]">
-                                        <QueueSummaryView
-                                            summary={queueSummary}
-                                            count={queue.length}
-                                            expanded={waitingOpen}
-                                            error={queue.some((q) => q.tone === "error")}
-                                            onToggle={() => toggleRegion("waiting")}
-                                        />
-                                        <MotionConfig reducedMotion="user">
-                                            <AnimatePresence initial={false}>
-                                                {waitingOpen ? (
-                                                    <motion.div
-                                                        id="jarvis-attention-details"
-                                                        key="attention-details"
-                                                        variants={paneReveal}
-                                                        initial="initial"
-                                                        animate="animate"
-                                                        exit="exit"
-                                                        className="flex flex-col gap-[9px] overflow-hidden"
-                                                    >
-                                                        {queue.map((q) => {
-                                                            const target = queueOpenTarget(q.nav);
-                                                            return (
+                            {view.shows("waiting") ? (
+                                <Region
+                                    id="waiting"
+                                    alert={queue.length > 0}
+                                    count={queue.length > 0 ? queue.length : undefined}
+                                    empty={queue.length === 0}
+                                    gap="gap-[9px]"
+                                    meta={
+                                        !waitingOpen && queueSummary?.oldestTs != null
+                                            ? `oldest ${formatAge(Date.now() - queueSummary.oldestTs)}`
+                                            : "gates before asks"
+                                    }
+                                    only={only === "waiting"}
+                                    onOnly={() => toggleOnly("waiting")}
+                                >
+                                    {queueSummary != null ? (
+                                        <div className="flex flex-col gap-[9px]">
+                                            <QueueSummaryView
+                                                summary={queueSummary}
+                                                count={queue.length}
+                                                expanded={waitingOpen}
+                                                error={queue.some((q) => q.tone === "error")}
+                                                onToggle={() => toggleRegion("waiting")}
+                                            />
+                                            <MotionConfig reducedMotion="user">
+                                                <AnimatePresence initial={false}>
+                                                    {waitingShown ? (
+                                                        <motion.div
+                                                            id="jarvis-attention-details"
+                                                            key="attention-details"
+                                                            variants={paneReveal}
+                                                            initial="initial"
+                                                            animate="animate"
+                                                            exit="exit"
+                                                            className="flex flex-col overflow-hidden"
+                                                        >
+                                                            {lines.waiting.length === 0 ? <NoMatch /> : null}
+                                                            {lines.waiting.map((l) => (
                                                                 <motion.div
-                                                                    key={q.key}
+                                                                    key={l.id}
                                                                     layout
                                                                     variants={cardVariants}
-                                                                    initial={entering.has(q.key) ? "initial" : false}
+                                                                    initial={entering.has(keyOf(l)) ? "initial" : false}
                                                                     animate="animate"
                                                                     exit="exit"
                                                                     transition={{
@@ -1515,173 +1445,172 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                                                         ease: MOTION.easeFluid,
                                                                     }}
                                                                 >
-                                                                    <QueueRowView
-                                                                        row={q}
-                                                                        focused={cursor === `waiting:${q.key}`}
-                                                                        fresh={freshWaiting.has(q.key)}
+                                                                    <LineRow
+                                                                        line={l}
+                                                                        hook="queue"
+                                                                        focused={cursor === l.id}
+                                                                        fresh={freshWaiting.has(keyOf(l))}
                                                                         onOpen={
-                                                                            target == null
-                                                                                ? undefined
-                                                                                : () => openQueueTarget(model, target)
+                                                                            l.target != null
+                                                                                ? () => openLine(l.target)
+                                                                                : undefined
                                                                         }
                                                                     />
                                                                 </motion.div>
-                                                            );
-                                                        })}
+                                                            ))}
+                                                        </motion.div>
+                                                    ) : null}
+                                                </AnimatePresence>
+                                            </MotionConfig>
+                                        </div>
+                                    ) : null}
+                                </Region>
+                            ) : null}
+                            {view.shows("initiatives") ? (
+                                <Region
+                                    id="initiatives"
+                                    count={efforts.length}
+                                    empty={efforts.length === 0}
+                                    gap="gap-[9px]"
+                                    meta={stalled > 0 ? `${stalled} stalled` : "all moving"}
+                                    only={only === "initiatives"}
+                                    onOnly={() => toggleOnly("initiatives")}
+                                >
+                                    <div className="flex flex-col">
+                                        {lines.initiatives.length === 0 ? <NoMatch /> : null}
+                                        <MotionConfig reducedMotion="user">
+                                            <AnimatePresence initial={false}>
+                                                {lines.initiatives.map((l) => (
+                                                    <motion.div
+                                                        key={l.id}
+                                                        layout
+                                                        variants={cardVariants}
+                                                        initial={entering.has(keyOf(l)) ? "initial" : false}
+                                                        animate="animate"
+                                                        exit="exit"
+                                                        transition={{
+                                                            duration: MOTION.durMacro,
+                                                            ease: MOTION.easeFluid,
+                                                        }}
+                                                    >
+                                                        <LineRow
+                                                            line={l}
+                                                            hook="initiative"
+                                                            focused={cursor === l.id}
+                                                            fresh={freshInitiatives.has(keyOf(l))}
+                                                            onOpen={() => openLine(l.target)}
+                                                        />
                                                     </motion.div>
-                                                ) : null}
+                                                ))}
                                             </AnimatePresence>
                                         </MotionConfig>
+                                        <MoreControl
+                                            n={effortWindow.more}
+                                            expanded={initiativesOpen}
+                                            onToggle={() => toggleRegion("initiatives")}
+                                        />
                                     </div>
-                                ) : null}
-                            </Region>
-                            <Region
-                                id="initiatives"
-                                count={efforts.length}
-                                empty={efforts.length === 0}
-                                gap="gap-2.5"
-                                meta={stalled > 0 ? `${stalled} stalled` : "all moving"}
-                            >
-                                <div className="flex flex-col gap-2.5">
-                                    <MotionConfig reducedMotion="user">
-                                        <AnimatePresence initial={false}>
-                                            {effortWindow.rows.slice(0, EFFORT_CAP).map((e) => (
-                                                <motion.div
-                                                    key={e.oref}
-                                                    layout
-                                                    variants={cardVariants}
-                                                    initial={entering.has(e.oref) ? "initial" : false}
-                                                    animate="animate"
-                                                    exit="exit"
-                                                    transition={{ duration: MOTION.durMacro, ease: MOTION.easeFluid }}
-                                                >
-                                                    {renderInitiative(e)}
-                                                </motion.div>
-                                            ))}
-                                        </AnimatePresence>
-                                        {/* the rows the expansion adds reveal as one pane rather than N entrances:
-                                        opening a disclosure is not news arriving. overflow-hidden is required —
-                                        paneReveal animates height, and the rows spill without it. */}
-                                        <AnimatePresence initial={false}>
-                                            {effortWindow.rows.length > EFFORT_CAP ? (
-                                                <motion.div
-                                                    key="initiatives-overflow"
-                                                    variants={paneReveal}
-                                                    initial="initial"
-                                                    animate="animate"
-                                                    exit="exit"
-                                                    className="flex flex-col gap-2.5 overflow-hidden"
-                                                >
-                                                    {effortWindow.rows.slice(EFFORT_CAP).map((e) => (
-                                                        <Fragment key={e.oref}>{renderInitiative(e)}</Fragment>
-                                                    ))}
-                                                </motion.div>
-                                            ) : null}
-                                        </AnimatePresence>
-                                    </MotionConfig>
-                                    <MoreControl
-                                        n={effortWindow.more}
-                                        expanded={initiativesOpen}
-                                        onToggle={() => toggleRegion("initiatives")}
-                                    />
-                                </div>
-                            </Region>
-                            <Region
-                                id="sessions"
-                                empty={sessions.rows.length === 0}
-                                gap="gap-1"
-                                meta="run on their own"
-                            >
-                                <div className="flex flex-col gap-1">
-                                    <MotionConfig reducedMotion="user">
-                                        <AnimatePresence initial={false}>
-                                            {sessions.rows.map((r) => (
-                                                <motion.div
-                                                    key={r.key}
-                                                    layout
-                                                    variants={cardVariants}
-                                                    initial={entering.has(r.key) ? "initial" : false}
-                                                    animate="animate"
-                                                    exit="exit"
-                                                    transition={{ duration: MOTION.durMacro, ease: MOTION.easeFluid }}
-                                                >
-                                                    <SessionRow
-                                                        row={r}
-                                                        focused={cursor === `sessions:${r.key}`}
-                                                        fresh={freshSessions.has(r.key)}
-                                                        onOpen={
-                                                            r.kind === "run"
-                                                                ? () =>
-                                                                      fireAndForget(() =>
-                                                                          openRunSheet(r.oref.replace(/^run:/, ""))
-                                                                      )
-                                                                : undefined
-                                                        }
+                                </Region>
+                            ) : null}
+                            {view.shows("sessions") ? (
+                                <Region
+                                    id="sessions"
+                                    empty={sessions.rows.length === 0}
+                                    gap="gap-[9px]"
+                                    meta={
+                                        staleCount > 0 && !staleOpen && !filtering
+                                            ? `${staleCount} stale hidden`
+                                            : "run on their own"
+                                    }
+                                    only={only === "sessions"}
+                                    onOnly={() => toggleOnly("sessions")}
+                                >
+                                    <div className="flex flex-col">
+                                        {filtering && view.sessionLines.length === 0 ? <NoMatch /> : null}
+                                        <MotionConfig reducedMotion="user">
+                                            <AnimatePresence initial={false}>
+                                                {view.sessionLines.map((l) => (
+                                                    <motion.div
+                                                        key={l.id}
+                                                        layout
+                                                        variants={cardVariants}
+                                                        initial={entering.has(keyOf(l)) ? "initial" : false}
+                                                        animate="animate"
+                                                        exit="exit"
+                                                        transition={{
+                                                            duration: MOTION.durMacro,
+                                                            ease: MOTION.easeFluid,
+                                                        }}
+                                                    >
+                                                        <LineRow
+                                                            line={l}
+                                                            hook="session"
+                                                            focused={cursor === l.id}
+                                                            fresh={freshSessions.has(keyOf(l))}
+                                                            onOpen={
+                                                                l.target != null ? () => openLine(l.target) : undefined
+                                                            }
+                                                        />
+                                                    </motion.div>
+                                                ))}
+                                            </AnimatePresence>
+                                        </MotionConfig>
+                                        {/* runs the lead marked executing and then never touched again: they are
+                                            real rows, but a week of silence reads as dead, so they fold */}
+                                        {staleCount > 0 && !filtering ? (
+                                            <button
+                                                type="button"
+                                                aria-expanded={staleOpen}
+                                                data-jarvis-brief-stale
+                                                onClick={() => setStaleOpen(!staleOpen)}
+                                                className="mt-0.5 cursor-pointer self-start rounded-[6px] border border-border px-2.5 py-1 font-mono text-[10.5px] font-medium text-accent-soft hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                                            >
+                                                {staleOpen ? `Hide ${staleCount}` : `+${staleCount}`}{" "}
+                                                {staleCount === 1 ? "run" : "runs"} older than 7 days
+                                            </button>
+                                        ) : null}
+                                        <MoreControl
+                                            n={sessions.more}
+                                            expanded={sessionsOpen}
+                                            onToggle={() => toggleRegion("sessions")}
+                                        />
+                                    </div>
+                                </Region>
+                            ) : null}
+                            {view.shows("behind") ? (
+                                <Region
+                                    id="behind"
+                                    empty={pastRows === 0}
+                                    gap="gap-[5px]"
+                                    meta={`${pastRows} ${pastRows === 1 ? "event" : "events"}`}
+                                    only={only === "behind"}
+                                    onOnly={() => toggleOnly("behind")}
+                                >
+                                    <div className="flex flex-col pb-1.5">
+                                        {lines.behind.length === 0 ? <NoMatch /> : null}
+                                        {lines.behind.map((g) => (
+                                            <Fragment key={g.label}>
+                                                <span className={SUB_LABEL}>{g.label}</span>
+                                                {g.lines.map((l) => (
+                                                    <LineRow
+                                                        key={l.id}
+                                                        line={l}
+                                                        hook={g.label === SHIPPED_LABEL ? "shipped" : "delta"}
+                                                        focused={cursor === l.id}
+                                                        fresh={false}
+                                                        onOpen={l.target != null ? () => openLine(l.target) : undefined}
                                                     />
-                                                </motion.div>
-                                            ))}
-                                        </AnimatePresence>
-                                    </MotionConfig>
-                                    <MoreControl
-                                        n={sessions.more}
-                                        expanded={sessionsOpen}
-                                        onToggle={() => toggleRegion("sessions")}
-                                    />
-                                </div>
-                            </Region>
-                            <Region
-                                id="behind"
-                                empty={pastRows === 0}
-                                gap="gap-[5px]"
-                                meta={`${pastRows} ${pastRows === 1 ? "event" : "events"}`}
-                            >
-                                <div className="flex flex-col gap-[5px] pb-1.5">
-                                    {deltaGroups.map((g) => (
-                                        <Fragment key={g.label}>
-                                            <span className={SUB_LABEL}>{g.label}</span>
-                                            {g.rows.map((d) => (
-                                                <PastRow
-                                                    key={d.key}
-                                                    hook="delta"
-                                                    at={formatAge(Date.now() - d.ts)}
-                                                    verb={d.wording}
-                                                    verbFg="text-muted"
-                                                    what={d.title}
-                                                    focused={cursor === `behind:${d.key}`}
-                                                />
-                                            ))}
-                                        </Fragment>
-                                    ))}
-                                    {shipped.rows.length > 0 ? (
-                                        <>
-                                            <span className={SUB_LABEL}>Shipped · 7 days</span>
-                                            {shipped.rows.map((s) => (
-                                                <PastRow
-                                                    key={s.oref}
-                                                    hook="shipped"
-                                                    at={formatAge(Date.now() - s.completedTs)}
-                                                    verb="Shipped"
-                                                    verbFg="text-success"
-                                                    what={[s.goal, s.project].filter((p) => p !== "").join(" · ")}
-                                                    focused={cursor === `behind:shipped:${s.oref}`}
-                                                    tail={
-                                                        s.fresh ? (
-                                                            <span className="flex-none rounded-[4px] bg-success/15 px-1.5 py-px font-mono text-[9.5px] font-semibold uppercase text-success">
-                                                                New
-                                                            </span>
-                                                        ) : null
-                                                    }
-                                                />
-                                            ))}
-                                        </>
-                                    ) : null}
-                                    <MoreControl
-                                        n={pastMore}
-                                        expanded={behindOpen}
-                                        onToggle={() => toggleRegion("behind")}
-                                    />
-                                </div>
-                            </Region>
+                                                ))}
+                                            </Fragment>
+                                        ))}
+                                        <MoreControl
+                                            n={pastMore}
+                                            expanded={behindOpen}
+                                            onToggle={() => toggleRegion("behind")}
+                                        />
+                                    </div>
+                                </Region>
+                            ) : null}
                         </motion.div>
                     ) : null}
                 </AnimatePresence>

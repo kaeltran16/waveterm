@@ -1,8 +1,8 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The inline effort tracker's store: one expanded effort at a time, an on-demand full-effort cache,
-// and the mutate helpers that write through and refresh the briefing's summary leg.
+// The effort store: an on-demand full-effort cache, and the mutate helpers that write through and
+// refresh the briefing's summary leg.
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
@@ -11,10 +11,7 @@ import { atom, type PrimitiveAtom } from "jotai";
 import { loadBriefingAsync, stateRpcTimeoutMs } from "./briefingstore";
 import { chunkTone, type ChunkTone } from "./effortmodel";
 
-export const expandedEffortOrefAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 export const effortDetailAtom = atom<Map<string, Effort>>(new Map()) as PrimitiveAtom<Map<string, Effort>>;
-// fetch failures surface inline on the card/detail instead of a dead click; cleared on success.
-export const effortDetailErrorAtom = atom<Map<string, string>>(new Map()) as PrimitiveAtom<Map<string, string>>;
 
 export type ChunkRowModel = {
     label: string;
@@ -44,27 +41,6 @@ export function effortChunkRows(effort: Effort): ChunkRowModel[] {
     });
 }
 
-// rebuild the wire summary from the full record (same derivation as the backend's summary leg) so
-// the detail subject reuses the card math — count line, progress, tones — without a second fetch.
-export function effortSummaryOf(effort: Effort): EffortSummary {
-    const active =
-        effort.chunks.find((c) => c.status === "active")?.label ??
-        effort.chunks.find((c) => c.status !== "done" && c.status !== "skipped")?.label;
-    return {
-        oref: "effort:" + effort.oid,
-        title: effort.title,
-        project: effort.project,
-        ticket: effort.ticket,
-        status: effort.status,
-        parentoid: effort.parentoid,
-        chunks: effort.chunks.map((c) => ({ label: c.label, status: c.status, stage: c.stage, owner: c.owner })),
-        done: effort.chunks.filter((c) => c.status === "done").length,
-        total: effort.chunks.length,
-        activechunk: active,
-        updatedts: effort.updatedts,
-    };
-}
-
 const effortOid = (oref: string) => oref.replace(/^effort:/, "");
 
 async function mutateEffort(oref: string, ops: EffortOp[]): Promise<void> {
@@ -89,47 +65,21 @@ export function effortDetailIsFresh(cached: Effort | undefined, freshTs?: number
     return cached != null && (freshTs == null || cached.updatedts >= freshTs);
 }
 
-// Cache fill shared by the card expand, the detail subject, and re-entry paths; a successful mutate has
-// already replaced the cache entry, so callers may skip this. Failures are recorded in
-// effortDetailErrorAtom and re-thrown so callers can decide (the expand helpers swallow). The stale entry
-// is left in place across a refetch on purpose — dropping it first would blank an open tracker's rows.
+// Cache fill for the sheet and the composer; a successful mutate has already replaced the cache entry, so
+// callers may skip this. Failures throw to the caller, which owns the error state. The stale entry is left
+// in place across a refetch on purpose — dropping it first would blank an open sheet's rows.
 export async function loadEffortDetail(oref: string, freshTs?: number): Promise<void> {
     if (effortDetailIsFresh(globalStore.get(effortDetailAtom).get(oref), freshTs)) {
         return;
     }
-    try {
-        const rtn = await RpcApi.EffortGetCommand(
-            TabRpcClient,
-            { effortoid: effortOid(oref) },
-            { timeout: stateRpcTimeoutMs }
-        );
-        const cache = new Map(globalStore.get(effortDetailAtom));
-        cache.set(oref, rtn.effort);
-        globalStore.set(effortDetailAtom, cache);
-        const errs = new Map(globalStore.get(effortDetailErrorAtom));
-        errs.delete(oref);
-        globalStore.set(effortDetailErrorAtom, errs);
-    } catch (e) {
-        const errs = new Map(globalStore.get(effortDetailErrorAtom));
-        errs.set(oref, e instanceof Error ? e.message : String(e));
-        globalStore.set(effortDetailErrorAtom, errs);
-        throw e;
-    }
-}
-
-export async function expandEffort(oref: string): Promise<void> {
-    // expand first so the card opens immediately; the fetch fills it in, or the recorded error shows
-    // inline with a retry. A failed fetch must not read as a dead click.
-    globalStore.set(expandedEffortOrefAtom, oref);
-    await loadEffortDetail(oref).catch(() => {});
-}
-
-export async function toggleEffort(oref: string): Promise<void> {
-    if (globalStore.get(expandedEffortOrefAtom) === oref) {
-        globalStore.set(expandedEffortOrefAtom, null);
-        return;
-    }
-    await expandEffort(oref);
+    const rtn = await RpcApi.EffortGetCommand(
+        TabRpcClient,
+        { effortoid: effortOid(oref) },
+        { timeout: stateRpcTimeoutMs }
+    );
+    const cache = new Map(globalStore.get(effortDetailAtom));
+    cache.set(oref, rtn.effort);
+    globalStore.set(effortDetailAtom, cache);
 }
 
 export async function advanceChunk(oref: string, note?: string): Promise<void> {
@@ -173,8 +123,5 @@ export async function deleteEffort(oref: string): Promise<void> {
     const cache = new Map(globalStore.get(effortDetailAtom));
     cache.delete(oref);
     globalStore.set(effortDetailAtom, cache);
-    if (globalStore.get(expandedEffortOrefAtom) === oref) {
-        globalStore.set(expandedEffortOrefAtom, null);
-    }
     void loadBriefingAsync();
 }

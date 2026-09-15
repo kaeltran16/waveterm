@@ -7,7 +7,7 @@
 // A Set of keys rather than a field on each row type, because the three marked regions build their
 // rows in three different places and none of them holds the cursor: the waiting queue comes from
 // buildAttentionQueue (the live attention poll), initiatives from buildEffortCard (also called by
-// effortdetailview and the list splitter, neither of which has a cursor to give), and sessions from
+// the list splitter, which has no cursor to give), and sessions from
 // mergeActiveWork in the view. One helper keeps the comparison and the cap in a single tested place
 // instead of widening three signatures and a shared card model.
 

@@ -222,10 +222,10 @@ control, not rebuilding it. Re-verified by a fresh module sweep on 2026-09-11:
   (there is no global tier in the backend — `gatekeeper:enabled` / `delegator:*` are per-channel meta — so the
   chip states "Mixed · N of M <tier>" when projects disagree), and its popover edits one project's rungs.
 - **Initiative creation — re-homed (F7).** `EffortCreateForm` is mounted by a new `newinitiativecontrol.tsx`
-  beside `+ Channel`, with a `Shift+N` binding. **The rest of the effort card is still orphaned**: `EffortCard`,
-  `expandEffort`, `toggleEffort`, `unarchiveEffort` and `deleteEffort` have no consumer outside their own
-  modules, so an initiative can now be started and inspected but still not archived, unarchived or deleted.
-  Reading one did get a way in — F6 made the Initiatives region's row a button that opens the effort sheet.
+  beside `+ Channel`, with a `Shift+N` binding. Reading one got a way in when F6 made the Initiatives region's
+  row a button that opens the effort sheet, and B6d moved the card's Archive into that sheet and deleted
+  `EffortCard`, `expandEffort` and `toggleEffort`. **Still orphaned**: `unarchiveEffort` and `deleteEffort`
+  have no consumer outside their own module, so an initiative can be archived but not unarchived or deleted.
 - **The playbook and global-profile sections — re-homed (F4).** `BriefProfileModal` now opens on a
   project/global scope toggle: project scope gained the playbook section the deleted `profilepanel.tsx` owned,
   and global scope edits the `JarvisProfile` every project inherits. This matters beyond tidiness —

@@ -1,15 +1,5 @@
 export type ChunkTone = "done" | "active" | "blocked" | "deferred" | "skipped" | "pending";
 
-// single source of truth for chips, detail-row status pills, and mark squares
-export const CHUNK_CHIP_CLASSES: Record<ChunkTone, string> = {
-    done: "bg-success/15 text-success",
-    active: "bg-accent/15 text-accent-soft",
-    blocked: "bg-asking/15 text-asking",
-    deferred: "text-muted border border-dashed border-edge-strong",
-    skipped: "text-ink-faint line-through",
-    pending: "bg-surface-raised text-muted",
-};
-
 const TONES: Record<string, ChunkTone> = {
     done: "done", active: "active", blocked: "blocked",
     deferred: "deferred", skipped: "skipped", pending: "pending",
@@ -36,6 +26,8 @@ export type EffortCardModel = {
     progressPct: number;
     countLine: string;
     activeChunk?: string;
+    // the next chunk's tone, so a row can say the only work left is deferred
+    activeTone?: ChunkTone;
     chips: ChunkChip[];
     chipOverflow: number;
     blockedChunks: string[];
@@ -73,6 +65,8 @@ export function buildEffortCard(e: EffortSummary): EffortCardModel {
         progressPct: Math.min(100, pct),
         countLine,
         activeChunk: e.activechunk,
+        activeTone:
+            e.activechunk != null ? chunkTone(chunks.find((c) => c.label === e.activechunk)?.status ?? "") : undefined,
         chips,
         chipOverflow: Math.max(0, chunks.length - CHIP_CAP),
         blockedChunks: chunks.filter((c) => c.status === "blocked").map((c) => c.label),
@@ -121,15 +115,57 @@ export function stageOptions(rows: { stage: string }[]): string[] {
     return seen;
 }
 
-export type ChunkTrailView = { notes: EffortNote[]; hidden: number };
+// the chunk an initiative picks up next: the active one, else the first not yet settled. It is the rule
+// the backend's summary leg applies, so every surface that names "next" names the same chunk.
+export function nextChunk<T extends { status: string }>(chunks: T[]): T | undefined {
+    return (
+        chunks.find((c) => c.status === "active") ?? chunks.find((c) => c.status !== "done" && c.status !== "skipped")
+    );
+}
 
-// a done chunk's trail is history and reads as a wall; a live one's is the reason someone opened the
-// record. So only the settled rows fold, down to their newest note, and never for a lone note.
-export function chunkTrailView(row: { status: string; trail: EffortNote[] }, expanded: boolean): ChunkTrailView {
-    if (expanded || row.status !== "done" || row.trail.length <= 1) {
-        return { notes: row.trail, hidden: 0 };
+const TALLY_STATUSES = ["pending", "active", "blocked", "deferred", "skipped"];
+
+export type EffortFacts = { facts: [string, string][]; next: string };
+
+// The quiet line under the sheet's title, and the sentence that says what comes next. Parent and children
+// come off the briefing's summaries because that is the one list holding every effort; the updated age is
+// left to the caller, which owns the clock.
+export function effortFacts(effort: Effort, all: EffortSummary[]): EffortFacts {
+    const chunks = effort.chunks ?? [];
+    const facts: [string, string][] = [["project", effort.project ?? "none"]];
+    if (effort.ticket != null && effort.ticket !== "") {
+        facts.push(["ticket", effort.ticket]);
     }
-    return { notes: row.trail.slice(-1), hidden: row.trail.length - 1 };
+    const done = chunks.filter((c) => c.status === "done").length;
+    const skipped = chunks.filter((c) => c.status === "skipped").length;
+    const tally = TALLY_STATUSES.map((s) => [s, chunks.filter((c) => c.status === s).length] as const).filter(
+        ([, n]) => n > 0
+    );
+    // skips shrink the total, as on the Brief's row and the stage headers
+    facts.push([
+        "chunks",
+        `${done} of ${chunks.length - skipped} done` + tally.map(([s, n]) => ` · ${n} ${s}`).join(""),
+    ]);
+    const next = nextChunk(chunks);
+    if (next?.stage) {
+        facts.push(["stage", next.stage]);
+    }
+    const parent = effort.parentoid ? all.find((e) => e.oref === "effort:" + effort.parentoid) : undefined;
+    if (parent != null) {
+        facts.push(["parent", parent.title]);
+    }
+    for (const k of all) {
+        if (k.parentoid === effort.oid && k.status !== "archived") {
+            facts.push(["child", `${k.title} · ${k.done} of ${k.total} · ${k.status}`]);
+        }
+    }
+    const nextLine =
+        next != null
+            ? (next.status === "deferred" ? "Next (deferred): " : "Next: ") + next.label
+            : chunks.length === 0
+              ? "No chunks yet."
+              : "No open chunk.";
+    return { facts, next: nextLine };
 }
 
 const EFFORT_DELTA_KINDS = new Set(["effort-created", "chunk-done", "chunk-added", "chunk-status", "effort-status", "effort-note"]);
@@ -142,45 +178,6 @@ export function effortDeltaRow(ev: { kind: string; title: string; detail?: strin
 } | null {
     if (!EFFORT_DELTA_KINDS.has(ev.kind)) return null;
     return { title: ev.title, meta: ev.detail ?? "" };
-}
-
-// The collapsed card's one-to-three informative lines, replacing the chip cloud: what is moving and
-// what is stuck. Chips showed every chunk's tone and said nothing about which one matters; these say
-// it in words. A card with neither an active nor a blocked chunk states that rather than rendering
-// nothing, so a stalled initiative is visibly stalled.
-export const STATUS_LINE_CAP = 3;
-export type EffortStatusLine = { mark: string; tone: ChunkTone; text: string; reading: string };
-
-export function effortStatusLines(card: EffortCardModel): EffortStatusLine[] {
-    const lines: EffortStatusLine[] = [];
-    if (card.activeChunk != null && card.activeChunk !== "") {
-        lines.push({ mark: "▶", tone: "active", text: card.activeChunk, reading: "active" });
-    }
-    // "in your queue" is a claim about the briefing above, and it holds: buildAttentionQueue folds
-    // every blocked chunk into that queue from the same blockedChunks list.
-    for (const label of card.blockedChunks) {
-        lines.push({ mark: "!", tone: "blocked", text: label, reading: "in your queue" });
-    }
-    if (lines.length === 0) {
-        return [{ mark: "⏸", tone: "deferred", text: "no chunk active", reading: card.countLine }];
-    }
-    if (lines.length > STATUS_LINE_CAP) {
-        const hidden = lines.length - (STATUS_LINE_CAP - 1);
-        return [
-            ...lines.slice(0, STATUS_LINE_CAP - 1),
-            { mark: "!", tone: "blocked", text: `+${hidden} more blocked`, reading: "in your queue" },
-        ];
-    }
-    return lines;
-}
-
-// the square that leads the collapsed header: blocked beats done beats moving, so the colour reads
-// as "does this need me" rather than "how far along is it" — the count and bar already say that.
-export function effortTone(card: EffortCardModel): "blocked" | "done" | "active" {
-    if (card.blockedChunks.length > 0) {
-        return "blocked";
-    }
-    return card.status === "done" ? "done" : "active";
 }
 
 // The efforts list splits archived rows into their own group so "show archived" is a render toggle
