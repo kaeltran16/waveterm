@@ -8,6 +8,7 @@ import {
     effectiveRunConfig,
     engineDefaultsPatch,
     parallelismInvalid,
+    runMachine,
     runSettingsDraft,
     runSettingsPanelState,
     settingsPayload,
@@ -71,6 +72,27 @@ describe("sheetFace", () => {
 
     it("is editable for a live engine run", () => {
         expect(sheetFace(engineRun())).toEqual({ kind: "editable" });
+    });
+});
+
+describe("runMachine", () => {
+    it("takes a stored orchestration at its word", () => {
+        expect(runMachine(engineRun({ orchestration: "engine" }))).toBe("engine");
+        expect(runMachine(engineRun({ orchestration: "adaptive" }))).toBe("adaptive");
+    });
+
+    // a run launched before slice 5c added the control names no machine; the runtime decided then, and
+    // only pi led an engine run. Defaulting these to engine would label a stored adaptive run as the one
+    // thing it is not, in the same sheet whose settings panel refuses it for being adaptive.
+    it("reads a pre-control run from the runtime that led it", () => {
+        expect(runMachine(engineRun({ orchestration: "", runtime: "pi" }))).toBe("engine");
+        expect(runMachine(engineRun({ orchestration: "", runtime: "claude" }))).toBe("adaptive");
+    });
+
+    it("agrees with the face the same run gets", () => {
+        const stored = engineRun({ orchestration: "", runtime: "claude" });
+        expect(runMachine(stored)).toBe("adaptive");
+        expect(sheetFace(stored)).toEqual({ kind: "readonly", reason: "an adaptive lead runs its own subagents" });
     });
 });
 

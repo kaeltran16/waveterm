@@ -58,6 +58,14 @@ export function runSettingsPanelState(
     return sheetFace(run);
 }
 
+// The machine a run's lead drives. An empty orchestration predates the control slice 5c deleted, where the
+// runtime decided and only pi led an engine run; pkg/jarvis.IsEngineRun applies this same rule server-side.
+// Both the sheet's receipt and its face read it here, because a receipt saying engine over a face saying
+// adaptive is the run contradicting itself on one screen.
+export function runMachine(run: Run): string {
+    return run.orchestration || (run.runtime === "pi" ? "engine" : "adaptive");
+}
+
 export function sheetFace(run: Run | null | undefined): SheetFace {
     if (run == null) {
         return { kind: "missing" };
@@ -68,9 +76,7 @@ export function sheetFace(run: Run | null | undefined): SheetFace {
     if (run.mode !== "orchestrator") {
         return { kind: "readonly", reason: `a ${run.mode} run has no scheduler to reconfigure` };
     }
-    // an empty orchestration predates the control; the runtime decided then, exactly as the prompt does.
-    const machine = run.orchestration || (run.runtime === "pi" ? "engine" : "adaptive");
-    if (machine !== "engine") {
+    if (runMachine(run) !== "engine") {
         return { kind: "readonly", reason: "an adaptive lead runs its own subagents" };
     }
     return { kind: "editable" };

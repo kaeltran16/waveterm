@@ -31,6 +31,7 @@ import {
     effectiveRunConfig,
     engineDefaultsPatch,
     parallelismInvalid,
+    runMachine,
     runSettingsDraft,
     runSettingsPanelState,
     settingsPayload,
@@ -167,7 +168,7 @@ function LoadedSettings({ run, group, groupRead }: { run: Run; group: TaskGroup 
         });
     };
 
-    const machine = run.orchestration || "engine";
+    const machine = runMachine(run);
 
     return (
         <>
