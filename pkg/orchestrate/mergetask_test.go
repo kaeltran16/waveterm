@@ -5,8 +5,11 @@ package orchestrate
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
@@ -239,5 +242,145 @@ func TestScheduleDoesNotRemergeALandedTask(t *testing.T) {
 	}
 	if *calls != 1 {
 		t.Fatalf("want exactly 1 merge across repeated ticks, got %d", *calls)
+	}
+}
+
+// refusedMergeErr is what git says when something in the project checkout is in the way — the S5b live
+// check's actual failure. It is not ErrMergeConflict: nothing was applied and the tree is not mid-merge.
+func refusedMergeErr() error {
+	return fmt.Errorf("squash merge: error: The following untracked working tree files would be overwritten by merge:\n\tnote.txt")
+}
+
+// Below the limit a refusal stays retryable — the S5b case cleared itself when the human removed the
+// file — but it must no longer be silent while it does.
+func TestRefusedMergeIsReportedAndStillRetryable(t *testing.T) {
+	// two dependents make t-0 a lane of its own, so it is merge-ready while they are not
+	f := newMergeFixture(t, []waveobj.TaskNode{
+		{ID: "t-0", Label: "first"},
+		{ID: "t-1", Label: "second", Deps: []string{"t-0"}},
+		{ID: "t-2", Label: "third", Deps: []string{"t-0"}},
+	})
+	f.finish(t, "t-0")
+	stubMerge(t, func(context.Context, string, string, string) (string, error) { return "", refusedMergeErr() })
+
+	if err := MergeTask(f.ctx, f.channel, f.ownerID, "t-0"); err == nil {
+		t.Fatal("a refused merge must return its error")
+	}
+
+	g := f.dag(t)
+	if g.Tasks[0].State != TaskState_Done {
+		t.Fatalf("one refusal must leave the task retryable, got %s", g.Tasks[0].State)
+	}
+	if g.Tasks[0].MergeFailures != 1 {
+		t.Fatalf("want 1 recorded failure, got %d", g.Tasks[0].MergeFailures)
+	}
+	if !strings.Contains(g.Tasks[0].MergeError, "untracked working tree files") {
+		t.Fatalf("the task must carry git's reason, got %q", g.Tasks[0].MergeError)
+	}
+	detail := firstEventDetail(t, f.ctx, f.channel, f.ownerID, waveobj.RunEventKindTaskMergeFailed)
+	if !strings.Contains(detail["error"].(string), "untracked working tree files") {
+		t.Fatalf("the event must carry git's reason, got %v", detail["error"])
+	}
+	if detail["blocked"] != false {
+		t.Fatalf("a first refusal is not blocked, got %v", detail["blocked"])
+	}
+}
+
+// The actual bug: the scheduler re-claimed a refused merge every tick forever. It must stop, and stop
+// somewhere a human or the lead can see.
+func TestRefusedMergeBlocksAtTheLimitAndStopsRetrying(t *testing.T) {
+	// two dependents make t-0 a lane of its own, so it is merge-ready while they are not
+	f := newMergeFixture(t, []waveobj.TaskNode{
+		{ID: "t-0", Label: "first"},
+		{ID: "t-1", Label: "second", Deps: []string{"t-0"}},
+		{ID: "t-2", Label: "third", Deps: []string{"t-0"}},
+	})
+	f.finish(t, "t-0")
+	calls := stubMerge(t, func(context.Context, string, string, string) (string, error) { return "", refusedMergeErr() })
+	var spawned []string
+	stubSpawn(t, &spawned)
+
+	for i := 0; i < mergeFailureLimit+3; i++ {
+		if err := Schedule(f.ctx, f.dagID); err != nil {
+			t.Fatalf("tick %d: %v", i, err)
+		}
+	}
+
+	if *calls != mergeFailureLimit {
+		t.Fatalf("the automatic path must stop after %d refusals, got %d attempts", mergeFailureLimit, *calls)
+	}
+	g := f.dag(t)
+	if g.Tasks[0].State != TaskState_BlockedMerge {
+		t.Fatalf("want blocked-merge at the limit, got %s", g.Tasks[0].State)
+	}
+	if n := countEvents(t, f.ctx, f.channel, f.ownerID, waveobj.RunEventKindTaskMergeFailed); n != mergeFailureLimit {
+		t.Fatalf("want one reported refusal per attempt, got %d", n)
+	}
+	// row order is the store's, so the block is identified by its attempt number rather than position
+	blockedAt := 0.0
+	for _, row := range runEventsOfKind(t, f.ctx, f.channel, f.ownerID, waveobj.RunEventKindTaskMergeFailed) {
+		var d map[string]any
+		if err := json.Unmarshal(row.Detail, &d); err != nil {
+			t.Fatal(err)
+		}
+		if d["blocked"] == true {
+			if blockedAt != 0 {
+				t.Fatal("only the refusal that reached the limit reports the block")
+			}
+			blockedAt = d["attempt"].(float64)
+		}
+	}
+	if int(blockedAt) != mergeFailureLimit {
+		t.Fatalf("the block must be reported on attempt %d, got %v", mergeFailureLimit, blockedAt)
+	}
+}
+
+// --continue on a refusal must re-run the whole squash. Continuing it instead would commit an index the
+// merge never touched, which finishMerge reads as an idempotent retry — stamping the task merged with
+// none of its content.
+func TestContinueRetriesARefusedMerge(t *testing.T) {
+	// two dependents make t-0 a lane of its own, so it is merge-ready while they are not
+	f := newMergeFixture(t, []waveobj.TaskNode{
+		{ID: "t-0", Label: "first"},
+		{ID: "t-1", Label: "second", Deps: []string{"t-0"}},
+		{ID: "t-2", Label: "third", Deps: []string{"t-0"}},
+	})
+	f.finish(t, "t-0")
+	refuse := true
+	stubMerge(t, func(context.Context, string, string, string) (string, error) {
+		if refuse {
+			return "", refusedMergeErr()
+		}
+		return "sha-1", nil
+	})
+	continued := 0
+	oldContinue := continueMerge
+	continueMerge = func(context.Context, string, string, string, []string) (string, error) {
+		continued++
+		return "sha-continue", nil
+	}
+	t.Cleanup(func() { continueMerge = oldContinue })
+
+	for i := 0; i < mergeFailureLimit; i++ {
+		_ = MergeTask(f.ctx, f.channel, f.ownerID, "t-0")
+	}
+	if f.dag(t).Tasks[0].State != TaskState_BlockedMerge {
+		t.Fatal("setup: the task must be blocked before --continue")
+	}
+
+	refuse = false
+	if err := ContinueMerge(f.ctx, f.channel, f.ownerID, "t-0"); err != nil {
+		t.Fatalf("continue after a refusal: %v", err)
+	}
+
+	if continued != 0 {
+		t.Fatal("a refused merge has no resolved tree to continue; it must re-run the squash")
+	}
+	g := f.dag(t)
+	if !g.Tasks[0].Merged {
+		t.Fatal("the retried merge must land")
+	}
+	if g.Tasks[0].MergeFailures != 0 || g.Tasks[0].MergeError != "" {
+		t.Fatalf("a landed merge clears the refusal, got %d / %q", g.Tasks[0].MergeFailures, g.Tasks[0].MergeError)
 	}
 }

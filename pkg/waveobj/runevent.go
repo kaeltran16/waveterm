@@ -36,7 +36,10 @@ const (
 	//   task-done / task-failed       child ran to its end (task + child run id + failure detail)
 	//   dag-cancelled / dag-gate-open orchestration boundaries the run status alone cannot explain
 	//   child-ask / -answered / -cleared  one ask id survives across every answer path
-	//   task-merge-*                  merge lifecycle at persisted content-integration boundaries
+	//   task-merge-*                  merge lifecycle at persisted content-integration boundaries.
+	//                                 -blocked is a conflict, which is the human's; -failed is git
+	//                                 refusing the squash outright, which is retried a bounded number
+	//                                 of times and then blocks rather than looping unseen
 	//   task-cleanup-*                durable worktree cleanup at persisted transition boundaries
 	RunEventKindTaskDone             = "task-done"
 	RunEventKindTaskFailed           = "task-failed"
@@ -47,6 +50,7 @@ const (
 	RunEventKindChildAskCleared      = "child-ask-cleared"
 	RunEventKindTaskMergeStarted     = "task-merge-started"
 	RunEventKindTaskMergeBlocked     = "task-merge-blocked"
+	RunEventKindTaskMergeFailed      = "task-merge-failed"
 	RunEventKindTaskMergeContinued   = "task-merge-continued"
 	RunEventKindTaskMerged           = "task-merged"
 	RunEventKindTaskCleanupPending   = "task-cleanup-pending"
@@ -88,6 +92,7 @@ const (
 //   evidence-sealed:  "files" int, "addtotal" int, "deltotal" int
 //   task/dag events:  "taskid" string, "failures" int
 //   task-retried:     "taskid" string, "kind" string, "attempt" int
+//   task-merge-failed: "taskid" string, "error" string (the git refusal), "attempt" int, "blocked" bool
 //   task-spawned:     "taskid" string, "worktreems" int64, "setupms" int64, "spawnms" int64
 //   task-first-activity: "taskid" string, "sincespawnms" int64
 //   created:          "runtime" string, "mode" string

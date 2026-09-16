@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { depText, leadRouteText, planGateView, planLayers, workerRouteText } from "./plangate";
+import { depText, leadRouteText, planGateView, planGated, planLayers, workerRouteText } from "./plangate";
 
 function task(id: string, deps: string[] = [], label?: string): TaskNode {
     return { id, label: label ?? id, deps, state: "pending", runspec: {} } as TaskNode;
@@ -122,5 +122,24 @@ describe("workerRouteText", () => {
         expect(workerRouteText(run, { mergerequired: false } as TaskGroup)).toBe(
             "workers same as lead · in the project directory"
         );
+    });
+});
+
+// the run body and the gate card both key off this, so they can never disagree about whether the gate
+// is up — one drawing the plan while the other draws the execution over it.
+describe("planGated", () => {
+    it("is up for a published plan nobody has answered", () => {
+        expect(planGated({ plangate: true } as TaskGroup)).toBe(true);
+    });
+
+    it("is down once approved, and for a dag that never gated", () => {
+        expect(planGated({ plangate: true, planapprovedts: 1 } as TaskGroup)).toBe(false);
+        expect(planGated({} as TaskGroup)).toBe(false);
+    });
+
+    // a run whose dag has not been read yet must not read as ungated: the overview would flash in
+    // above a gate that is about to draw
+    it("is down for a group that has not loaded", () => {
+        expect(planGated(undefined)).toBe(false);
     });
 });

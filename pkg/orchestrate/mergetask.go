@@ -22,6 +22,12 @@ var mergeWorktree = MergeRunWorktree
 // continueMerge commits a squash merge the caller resolved; a seam so tests skip the real conflict.
 var continueMerge = MergeContinue
 
+// mergeFailureLimit is how many consecutive refusals the automatic path absorbs before the task blocks
+// and asks. Three ticks is ~90s: long enough to ride out the case that motivated this — a stray file in
+// the project tree that a human removes moments later — and short enough that nobody watches a run make
+// no progress for long.
+const mergeFailureLimit = 3
+
 // MergeTask lands the finished lane holding a task on the project branch, stamps the merge and removes the
 // lane's tree. It holds the dag mutation lock across reload -> merge -> stamp -> cleanup for two reasons:
 // the engine persists a tick as a whole-object replace of a snapshot taken under that lock, so a
@@ -64,10 +70,29 @@ func ContinueMerge(ctx context.Context, channelID, ownerRunID, taskID string) er
 		return withDagMutation(owner.DagORef, func() error {
 			return CleanupMergedTask(ctx, channelID, g, taskID)
 		})
+	case task.State == TaskState_BlockedMerge && task.MergeError != "":
+		return retryRefusedMerge(ctx, channelID, owner, taskID)
 	case task.State == TaskState_BlockedMerge:
 		return continueBlockedMerge(ctx, channelID, owner, g, task)
 	}
 	return fmt.Errorf("task %s is %s, want blocked-merge or verify-failed", taskID, task.State)
+}
+
+// retryRefusedMerge is `--continue` for a merge git refused outright rather than conflicted. The squash
+// never applied, so there is no resolved tree to commit: continuing it would run `git commit` over an
+// index the merge never touched, and finishMerge reads an empty commit as an idempotent retry and stamps
+// the task merged with none of its content. The only correct continuation is the whole merge again.
+//
+// The retry budget is cleared first so the timeline numbers the human's attempt 1 rather than 4. The task
+// stays blocked-merge until it lands: once it has been handed over, the scheduler does not take it back.
+func retryRefusedMerge(ctx context.Context, channelID string, owner *waveobj.Run, taskID string) error {
+	if err := withDagMutation(owner.DagORef, func() error {
+		return clearMergeFailureLocked(ctx, owner.DagORef, taskID)
+	}); err != nil {
+		return err
+	}
+	appendRunEvent(ctx, channelID, owner.ID, waveobj.RunEventKindTaskMergeContinued, nil, map[string]any{"taskid": taskID})
+	return mergeTaskEntry(ctx, channelID, owner.ID, taskID, false)
 }
 
 // continueBlockedMerge commits the resolved project state of a conflicted squash merge, stamps it like
@@ -195,6 +220,13 @@ func mergeTaskLocked(ctx context.Context, channelID string, owner *waveobj.Run, 
 			if derr := markBlockedMergeLocked(ctx, owner.DagORef, childRunID); derr != nil {
 				return "", derr
 			}
+			return "", err
+		}
+		// every other refusal is git declining the squash over the state of the project checkout. It is
+		// recorded rather than only returned, because the caller is usually the scheduler, whose only
+		// report is a server log line nobody is reading during a run.
+		if rerr := recordMergeFailureLocked(ctx, owner.DagORef, task.ID, err.Error(), mergeFailureLimit); rerr != nil {
+			return "", errors.Join(err, rerr)
 		}
 		return "", err
 	}
@@ -264,6 +296,9 @@ func persistMergedTask(ctx context.Context, channelID, dagID, childRunID, taskID
 			task.Merged = true
 			task.CleanupPending = true
 			task.CleanupError = ""
+			// the squash landed, so whatever git was refusing over is gone; a later lane must not
+			// inherit this one's spent retry budget
+			task.MergeFailures, task.MergeError = 0, ""
 			// written here, not derived: a continued conflict leaves blocked-merge, which nothing re-derives
 			task.State = TaskState_Done
 			if cur.Verify != "" {

@@ -32,6 +32,7 @@ export const ATTENTION_KINDS = new Set<string>([
     "task-stalled",
     "dag-blocked",
     "task-merge-blocked",
+    "task-merge-failed",
     "task-verify-failed",
     "task-cleanup-failed",
     "task-forwarded",

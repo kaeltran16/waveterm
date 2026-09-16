@@ -3715,6 +3715,8 @@ declare global {
         cleanuppending?: boolean;
         cleanuperror?: string;
         verifyerror?: string;
+        mergeerror?: string;
+        mergefailures?: number;
     };
 
     // waveobj.TermSize

@@ -73,7 +73,7 @@ export function DagOverview({
     const refreshFailed = digestState.error != null && !digestState.loading;
 
     return (
-        <div className="mb-4 overflow-hidden rounded-xl border border-edge-mid bg-surface">
+        <div data-run-overview className="mb-4 overflow-hidden rounded-xl border border-edge-mid bg-surface">
             {/* health strip: aria-live so a health/attention transition is announced, not every tick */}
             <div className="flex items-center gap-3 border-b border-edge-mid px-3.5 py-2.5">
                 <span aria-live="polite" className={health.tone + " text-[13px] font-bold"}>

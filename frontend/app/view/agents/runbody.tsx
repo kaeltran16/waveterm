@@ -23,6 +23,9 @@ import { useAtomValue } from "jotai";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { openDagLive } from "../orchestrate/dagmodalstate";
+import { DagOverview } from "../orchestrate/dagoverview";
+import { useDagGroup } from "../orchestrate/dagstore";
+import { planGated } from "../orchestrate/plangate";
 import { PlanGateCard } from "../orchestrate/plangatecard";
 import type { AgentsViewModel } from "./agents";
 import { streamableTranscriptAgents, type AgentVM } from "./agentsviewmodel";
@@ -341,6 +344,30 @@ function DispatchedAgents({ model, leadId }: { model: AgentsViewModel; leadId: s
     );
 }
 
+// RunExecutionOverview is the run's execution overview (spec 6.1) placed in the body. The dag read lives
+// here rather than at the call site so the hook is unconditional: a run without a dag never mounts this.
+//
+// It renders nothing while the plan gate is still up — the gate card above is already showing the whole
+// decomposition, and the engine has not moved yet, so an overview there would only restate the shape.
+function RunExecutionOverview({
+    model,
+    channelId,
+    run,
+    agents,
+}: {
+    model: AgentsViewModel;
+    channelId: string;
+    run: Run;
+    agents: AgentVM[];
+}) {
+    const dagOref = "dag:" + run.dagoref;
+    const [group] = useDagGroup(dagOref);
+    if (planGated(group)) {
+        return null;
+    }
+    return <DagOverview channelId={channelId} runId={run.id} dagOref={dagOref} model={model} agents={agents} />;
+}
+
 // Dedicated body for an orchestrator run: one long-lived lead in one phase. A flex-fill column so the
 // lead transcript grows to the viewport (RunWorkerCard fill), with its dispatched subagents beneath it.
 // Reuses the same header/gate/ask/blocked/ship/cancel pieces as the pipeline rail — only the layout is
@@ -405,6 +432,12 @@ export function OrchestratorBody({
                 {thread.showGate ? <ReviewGateCard channelId={channel.oid} run={run} gateIdx={idx} /> : null}
                 {thread.showAsk && thread.askAgent && thread.askKind ? (
                     <AskCard model={model} agent={thread.askAgent} kind={thread.askKind} />
+                ) : null}
+                {/* above the lead card, not inside it: since S5b a plan-path run has no lead until the
+                    first judgment event, and this is the only thing that says what the engine is doing
+                    while there is none */}
+                {run.dagoref ? (
+                    <RunExecutionOverview model={model} channelId={channel.oid} run={run} agents={agents} />
                 ) : null}
                 {thread.showWorkers && lead ? (
                     <div className="mt-3 flex min-h-0 flex-1 flex-col">

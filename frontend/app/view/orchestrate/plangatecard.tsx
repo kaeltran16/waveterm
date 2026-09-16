@@ -13,14 +13,7 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { fireAndForget } from "@/util/util";
 import { useState } from "react";
 import { useDagGroup } from "./dagstore";
-import { leadRouteText, planGateView, workerRouteText } from "./plangate";
-
-// planGateGroup is the group a gate should be drawn for, or null. Keyed on the persisted gate fields
-// rather than the status string: status is derived from task state on every mutation, and a card that
-// keyed off it would blink out on any recompute that ran before the reader answered.
-function gated(group: TaskGroup | undefined): boolean {
-    return group != null && !!group.plangate && !group.planapprovedts;
-}
+import { leadRouteText, planGateView, planGated, workerRouteText } from "./plangate";
 
 // dagOref is a required prop rather than derived from the run: useDagGroup resolves it into a fetched
 // wave object, so a run with no dag must not reach this component at all.
@@ -30,7 +23,7 @@ export function PlanGateCard({ channelId, run, dagOref }: { channelId: string; r
     const [notes, setNotes] = useState("");
     const [busy, setBusy] = useState(false);
 
-    if (!gated(group)) {
+    if (!planGated(group)) {
         return null;
     }
     const view = planGateView(group!);

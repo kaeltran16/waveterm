@@ -244,6 +244,10 @@ func dagStatusLines(rtn *wshrpc.CommandDagStatusRtnData, now int64) []string {
 		if t.State == orchestrate.TaskState_VerifyFailed && t.VerifyError != "" {
 			lines = append(lines, fmt.Sprintf("%s verify failed: %s", t.ID, t.VerifyError))
 		}
+		// a refused merge wakes the lead here, so git's own words have to be here too
+		if t.MergeError != "" {
+			lines = append(lines, fmt.Sprintf("%s merge refused (attempt %d): %s", t.ID, t.MergeFailures, t.MergeError))
+		}
 	}
 	return lines
 }

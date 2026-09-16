@@ -37,6 +37,16 @@ func mergeConflictWake(taskID string) string {
 	return fmt.Sprintf("wake: merge conflict landing lane ending at task %s. git status", taskID)
 }
 
+// mergeFailedWake carries git's own refusal, because the fix is almost never in the lane: the squash was
+// refused by the state of the project checkout (an untracked file in the way, a lock, a dirty index), and
+// the error text is the only thing that says which.
+func mergeFailedWake(taskID, errText string) string {
+	// not merge.go's firstLine: that one substitutes "merge" for empty input, which would read here as
+	// git having refused for a reason called "merge"
+	line, _, _ := strings.Cut(strings.TrimSpace(errText), "\n")
+	return fmt.Sprintf("wake: git refused the merge landing lane ending at task %s (%s). wsh jarvis dag status", taskID, line)
+}
+
 // verifyFailedWake names the exit code or the timeout, so the lead knows whether to read a failing test or
 // look for a hang before it reads the digest.
 func verifyFailedWake(taskID, reason string) string {

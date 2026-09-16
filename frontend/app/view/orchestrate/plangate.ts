@@ -114,3 +114,10 @@ export function planGateView(group: TaskGroup): PlanGateView {
         width: `parallelism ${width} · ${MAX_DAG_TASKS} max`,
     };
 }
+
+// planGated is whether a gate should be drawn for this group. Keyed on the persisted gate fields rather
+// than the status string: status is derived from task state on every mutation, and a caller that keyed
+// off it would blink on any recompute that ran before the reader answered.
+export function planGated(group: TaskGroup | undefined): boolean {
+    return group != null && !!group.plangate && !group.planapprovedts;
+}

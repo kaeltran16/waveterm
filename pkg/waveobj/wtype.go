@@ -349,6 +349,12 @@ type TaskNode struct {
 	// VerifyError is why the plan's Verify failed after this task merged: the exit code or the timeout,
 	// then the tail of the command's output. Cleared when Verify passes.
 	VerifyError string `json:"verifyerror,omitempty"`
+	// MergeError is why git refused this lane's squash merge, for a refusal that is not a conflict (a
+	// conflict leaves the tree mid-merge and is its own state). MergeFailures is the consecutive count
+	// of those refusals; the automatic path stops retrying and blocks at the limit. Both are cleared
+	// when the merge lands.
+	MergeError    string `json:"mergeerror,omitempty"`
+	MergeFailures int    `json:"mergefailures,omitempty"`
 }
 
 // RunSpec is the child-run launch form a task wants (runtime/mode/goal override).

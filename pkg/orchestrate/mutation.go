@@ -242,6 +242,64 @@ func markBlockedMergeLocked(ctx context.Context, dagID, childRunID string) error
 	return nil
 }
 
+// recordMergeFailureLocked stamps a squash git refused outright — not a conflict, which leaves the tree
+// mid-merge and has its own state. The automatic path re-claims a merge-ready lane every tick, so a
+// refusal that is only returned to the caller is a loop nobody can see: the S5b live check spent five
+// minutes retrying a squash an untracked file was blocking, with ten identical task-merge-started rows
+// and a healthy-looking run. The count is what ends it. Up to the limit the refusal stays retryable,
+// because the refusals worth retrying are exactly the ones a human clears out from under the run; at the
+// limit the task blocks, which takes it out of autoMergeable and puts it in front of the lead.
+// The caller holds the dag mutation lock.
+func recordMergeFailureLocked(ctx context.Context, dagID, taskID, errText string, limit int) error {
+	g, err := wstore.GetDag(ctx, dagID)
+	if err != nil {
+		return fmt.Errorf("loading dag: %w", err)
+	}
+	task := taskByID(g, taskID)
+	if task == nil {
+		return fmt.Errorf("no task %q", taskID)
+	}
+	task.MergeFailures++
+	task.MergeError = errText
+	blocked := task.MergeFailures >= limit
+	if blocked {
+		task.State = TaskState_BlockedMerge
+	}
+	RecomputeDagStatus(g)
+	g.UpdatedTs = time.Now().UnixMilli()
+	if err := wstore.UpdateDag(ctx, dagID, func(cur *waveobj.TaskGroup) error {
+		*cur = *g
+		return nil
+	}); err != nil {
+		return err
+	}
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, g.OID))
+	appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskMergeFailed, nil, map[string]any{
+		"taskid":  taskID,
+		"error":   errText,
+		"attempt": task.MergeFailures,
+		"blocked": blocked,
+	})
+	if blocked {
+		PostWake(ctx, g.ChannelId, g.RunID, mergeFailedWake(taskID, errText))
+	}
+	return nil
+}
+
+// clearMergeFailureLocked gives a task its full retry budget back, for the human's explicit
+// `dag merge --continue` after they cleared whatever git was refusing over. Without it a retry starts
+// already at the limit and blocks again on its first refusal. The caller holds the dag mutation lock.
+func clearMergeFailureLocked(ctx context.Context, dagID, taskID string) error {
+	return wstore.UpdateDag(ctx, dagID, func(cur *waveobj.TaskGroup) error {
+		task := taskByID(cur, taskID)
+		if task == nil {
+			return fmt.Errorf("no task %q", taskID)
+		}
+		task.MergeFailures, task.MergeError = 0, ""
+		return nil
+	})
+}
+
 // ApprovePlan releases a plan-gated dag and lets the engine dispatch. Idempotent: the gate card and
 // the DAG modal can both send it, and a second approval must not read as an error to whichever lost
 // the race. A cancelled dag is refused rather than silently approved.
