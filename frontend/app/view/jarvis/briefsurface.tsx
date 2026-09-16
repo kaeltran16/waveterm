@@ -20,7 +20,14 @@
 // the control recipe, a borderless one is a label. Dressing something inert as a control and camouflaging
 // a real control among labels are the same lie, so neither happens here.
 
-import { cardVariants, computeEntrances, initialEntranceState, MOTION, paneReveal } from "@/app/element/motiontokens";
+import {
+    cardVariants,
+    computeEntrances,
+    easeFluidCss,
+    initialEntranceState,
+    MOTION,
+    paneReveal,
+} from "@/app/element/motiontokens";
 import { globalStore } from "@/app/store/jotaiStore";
 import { buildJarvisBindings } from "@/app/store/keybindings/bindings";
 import { useSurfaceListNav, type ListNavController } from "@/app/store/keybindings/listnav";
@@ -46,8 +53,18 @@ import { DagModal } from "@/app/view/orchestrate/dagmodal";
 import { setDagModalAgentsContext } from "@/app/view/orchestrate/dagmodalstate";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtom, useAtomValue, useSetAtom, type PrimitiveAtom } from "jotai";
-import { AnimatePresence, motion, MotionConfig } from "motion/react";
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { AnimatePresence, motion, MotionConfig, useReducedMotion } from "motion/react";
+import {
+    Fragment,
+    useCallback,
+    useEffect,
+    useLayoutEffect,
+    useMemo,
+    useRef,
+    useState,
+    type CSSProperties,
+    type ReactNode,
+} from "react";
 import { AutonomyLadder } from "./autonomyladderview";
 import { resolveComposerLabels, type BriefComposeState } from "./briefcompose";
 import { resolveBriefComposerTarget } from "./briefcomposertarget";
@@ -348,6 +365,7 @@ function LineRow({
     expanded?: boolean;
     onOpen?: () => void;
 }) {
+    const reduce = useReducedMotion();
     const face = (
         <>
             {line.progress != null ? (
@@ -395,9 +413,16 @@ function LineRow({
         expanded && "rounded-b-none border-transparent bg-surface-selected",
         fresh && "fresh-mark"
     );
+    // A disclosure row's bottom corners have to reopen as slowly as the pane below them leaves, or the
+    // row snaps back to a full card while the plan is still on screen. Radius only: easing the fill too
+    // would put the same lag on the j/k cursor, and the cursor has to feel instant.
+    const cornerTween: CSSProperties | undefined =
+        expanded === undefined || reduce
+            ? undefined
+            : { transition: `border-radius ${MOTION.durExit}s ${easeFluidCss}` };
     if (onOpen == null) {
         return (
-            <div data-jarvis-brief-row={hook} {...cursorAttrs(focused)} className={base}>
+            <div data-jarvis-brief-row={hook} {...cursorAttrs(focused)} className={base} style={cornerTween}>
                 {face}
             </div>
         );
@@ -409,6 +434,7 @@ function LineRow({
             aria-expanded={expanded}
             onClick={onOpen}
             data-jarvis-brief-row={hook}
+            style={cornerTween}
             {...cursorAttrs(focused)}
             className={cn(
                 base,
@@ -1617,7 +1643,10 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                                     {lines.initiatives.map((l) => (
                                                         <motion.div
                                                             key={l.id}
-                                                            layout
+                                                            // position, not full layout: the pane below owns its own height
+                                                            // animation, and a size-animating parent would re-project that
+                                                            // growth as a scale — stretching the rows it just revealed.
+                                                            layout="position"
                                                             variants={cardVariants}
                                                             initial={entering.has(keyOf(l)) ? "initial" : false}
                                                             animate="animate"
@@ -1638,41 +1667,57 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                                                     toggleInitiative(l.id);
                                                                 }}
                                                             />
-                                                            {l.id === openInitiative ? (
-                                                                <InitiativeDetail
-                                                                    rows={tracker.detail}
-                                                                    cursor={cursor}
-                                                                    onSelectChunk={(id) => {
-                                                                        setCursor(id);
-                                                                        setNoteChunk(id);
-                                                                        setReadingNote(null);
-                                                                    }}
-                                                                    archived={openCard?.status === "archived"}
-                                                                    onToggleStage={(id, open) =>
-                                                                        setStageOverrides((cur) => ({
-                                                                            ...cur,
-                                                                            [id]: open,
-                                                                        }))
-                                                                    }
-                                                                    onAddChunk={(label) => {
-                                                                        if (openEffortORef != null) {
-                                                                            runMutation(() =>
-                                                                                addChunkOp(openEffortORef, label)
-                                                                            );
-                                                                        }
-                                                                    }}
-                                                                    onArchive={() => {
-                                                                        if (openEffortORef != null) {
-                                                                            runMutation(() =>
-                                                                                setEffortStatus(
-                                                                                    openEffortORef,
-                                                                                    "archived"
-                                                                                )
-                                                                            );
-                                                                        }
-                                                                    }}
-                                                                />
-                                                            ) : null}
+                                                            {/* the plan reveal: height+opacity on the macro duration, and NOT a
+                                                                layout node, so the reveal and the list's reflow don't fight. */}
+                                                            <AnimatePresence initial={false}>
+                                                                {l.id === openInitiative ? (
+                                                                    <motion.div
+                                                                        key="detail"
+                                                                        variants={paneReveal}
+                                                                        initial="initial"
+                                                                        animate="animate"
+                                                                        exit="exit"
+                                                                        className="overflow-hidden"
+                                                                    >
+                                                                        <InitiativeDetail
+                                                                            rows={tracker.detail}
+                                                                            cursor={cursor}
+                                                                            onSelectChunk={(id) => {
+                                                                                setCursor(id);
+                                                                                setNoteChunk(id);
+                                                                                setReadingNote(null);
+                                                                            }}
+                                                                            archived={openCard?.status === "archived"}
+                                                                            onToggleStage={(id, open) =>
+                                                                                setStageOverrides((cur) => ({
+                                                                                    ...cur,
+                                                                                    [id]: open,
+                                                                                }))
+                                                                            }
+                                                                            onAddChunk={(label) => {
+                                                                                if (openEffortORef != null) {
+                                                                                    runMutation(() =>
+                                                                                        addChunkOp(
+                                                                                            openEffortORef,
+                                                                                            label
+                                                                                        )
+                                                                                    );
+                                                                                }
+                                                                            }}
+                                                                            onArchive={() => {
+                                                                                if (openEffortORef != null) {
+                                                                                    runMutation(() =>
+                                                                                        setEffortStatus(
+                                                                                            openEffortORef,
+                                                                                            "archived"
+                                                                                        )
+                                                                                    );
+                                                                                }
+                                                                            }}
+                                                                        />
+                                                                    </motion.div>
+                                                                ) : null}
+                                                            </AnimatePresence>
                                                         </motion.div>
                                                     ))}
                                                 </AnimatePresence>
