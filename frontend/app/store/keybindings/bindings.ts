@@ -55,7 +55,7 @@ import {
 } from "@/app/view/code/codestore";
 import { treeKeyAction, type TreeKey } from "@/app/view/code/codetreekeys";
 import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
-import { briefPeekRecordAtom, graphPeekOpenAtom } from "@/app/view/jarvis/jarvisstore";
+import { briefPeekRecordAtom, graphPeekOpenAtom, noteChunkAtom, readingNoteAtom } from "@/app/view/jarvis/jarvisstore";
 import {
     activeRunIdAtom,
     activeSubjectAtom,
@@ -338,7 +338,10 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
                 // own state was never cleared, so coming back showed it open again
                 globalStore.get(briefPeekRecordAtom) == null &&
                 // the DAG modal takes Escape itself too, and the Brief mounts it as well as Channels
-                globalStore.get(dagModalStateAtom) == null,
+                globalStore.get(dagModalStateAtom) == null &&
+                // and the Brief's note sidebar, for the Vault reader's reason: while a note is open,
+                // Escape means "back out of the note", and going home too would do both at once
+                globalStore.get(noteChunkAtom) == null,
             run: () => globalStore.set(model.surfaceAtom, "cockpit"),
         },
     ];
@@ -508,6 +511,24 @@ export function buildJarvisBindings(): Binding[] {
     // see. Only its own toggle stays live (the peek also closes on Escape, which it owns while open).
     const onStage = (ctx: KeyContext) => onJarvis(ctx) && !globalStore.get(graphPeekOpenAtom);
 
+    // One rung per press: the reader returns to the previews, the previews close. Only then does Escape
+    // fall through to esc-home, which is guarded on the same atom — otherwise a single press would close
+    // the note AND leave the surface. Same rule the Vault's reader overlay follows.
+    const noteSidebarEscape: Binding = {
+        id: "jarvis:close-notes",
+        keys: "Escape",
+        group: "Jarvis",
+        label: "Back out of the note sidebar",
+        when: (ctx) => onJarvis(ctx) && globalStore.get(noteChunkAtom) != null,
+        run: () => {
+            if (globalStore.get(readingNoteAtom) != null) {
+                globalStore.set(readingNoteAtom, null);
+                return;
+            }
+            globalStore.set(noteChunkAtom, null);
+        },
+    };
+
     const clickThrough = (selector: string): boolean | void => {
         const el = document.querySelector<HTMLElement>(selector);
         if (el == null) {
@@ -540,6 +561,7 @@ export function buildJarvisBindings(): Binding[] {
     };
 
     return [
+        noteSidebarEscape,
         {
             id: "jarvis:new-thread",
             keys: "n",

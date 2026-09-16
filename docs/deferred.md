@@ -1253,3 +1253,28 @@ Two ways out were considered and both declined:
 
 The serialization is the price of per-lane attribution. Revive either option on evidence that a real
 plan's wall clock, not its worker time, is what a user is waiting on.
+
+## Dropped from the initiative sheet by the inline tracker (2026-09-16)
+
+The Brief's initiative rows now expand in place (`inlinetracker.ts` / `inlinetrackerview.tsx`) and the
+detail sheet's plan section was removed rather than kept in sync with a second copy of the same plan. The
+sheet survives as the **initiative activity** escape hatch (every note on every chunk in one stream), which
+the inline sidebar deliberately does not show — the sidebar is scoped to one chunk.
+
+Carried over into the inline tracker: per-chunk notes, add note, set chunk status (which covers what
+`reopen` did), add chunk, archive, the `wsh effort show` handle.
+
+Deliberately dropped, with nothing left in the code that half-implements them:
+
+- **Stage renaming and per-chunk stage moves** (`StageInput`, `StageHeader`, `StageTag` and the
+  `setChunkStage` run-tail edit). A stage is a label on a consecutive run of chunks, so the editor had to
+  express "this chunk down to the next boundary", which is a heavier interaction than a one-line inline row
+  can hold. `wsh effort` remains the way to restage. `setChunkStage` is still exported from `effortstore.ts`
+  and is now unused by the frontend — keep it or delete it with the next effortstore pass, but do not
+  re-add a stage editor without deciding where a multi-chunk selection lives first.
+- **Per-chunk `owner` and `workrefs`** (the agent/run links under a chunk row). These were two extra lines
+  under an expanded chunk in the sheet; the inline row is one line by design and the sidebar is about prose.
+  The data is still on `ChunkRowModel`, so restoring them is a render change, not a plumbing one.
+
+Recovery: `git show 7371424e:frontend/app/view/jarvis/effortdetailview.tsx` has the full pre-slim file
+(746 lines) with all of the above.

@@ -45,7 +45,7 @@ import {
 import { DagModal } from "@/app/view/orchestrate/dagmodal";
 import { setDagModalAgentsContext } from "@/app/view/orchestrate/dagmodalstate";
 import { cn, fireAndForget } from "@/util/util";
-import { atom, useAtom, useAtomValue, useSetAtom } from "jotai";
+import { atom, useAtom, useAtomValue, useSetAtom, type PrimitiveAtom } from "jotai";
 import { AnimatePresence, motion, MotionConfig } from "motion/react";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AutonomyLadder } from "./autonomyladderview";
@@ -103,10 +103,21 @@ import {
 import { BriefSheet } from "./briefsheet";
 import { sheetFace } from "./briefsheetmodel";
 import { openJarvisWithSource } from "./contextualentry";
-import { effortDetailAtom } from "./effortstore";
+import { effortFeed, feedNoteCounts } from "./effortfeed";
+import {
+    addChunkOp,
+    appendChunkNote,
+    effortChunkRows,
+    effortDetailAtom,
+    loadEffortDetail,
+    setChunkStatus,
+    setEffortStatus,
+} from "./effortstore";
 import { freshKeys } from "./freshrows";
 import { peekFocus, type PeekFocus } from "./graphfocus";
 import { GraphPeek } from "./graphpeek";
+import { expandableORef, trackerNavIds, trackerRows, type DetailRow } from "./inlinetracker";
+import { InitiativeDetail, NoteSidebar } from "./inlinetrackerview";
 import {
     isAnswerTurn,
     type Freshness,
@@ -122,7 +133,9 @@ import {
     conversationsByIdAtom,
     graphPeekOpenAtom,
     loadJarvisConversations,
+    noteChunkAtom,
     persistedSummariesAtom,
+    readingNoteAtom,
     selectConversation,
 } from "./jarvisstore";
 import { activeSubjectAtom, persistedSubjectAtom, setActiveRunId, stageRunAtom } from "./jarvissubjectstore";
@@ -323,12 +336,16 @@ function LineRow({
     hook,
     focused,
     fresh,
+    expanded,
     onOpen,
 }: {
     line: BriefLine;
     hook: string;
     focused: boolean;
     fresh: boolean;
+    // an initiative row opens in place rather than into a sheet; it keeps its top corners and gives up
+    // its bottom ones to the plan block that follows, so the two read as one card
+    expanded?: boolean;
     onOpen?: () => void;
 }) {
     const face = (
@@ -375,6 +392,7 @@ function LineRow({
         "flex w-full min-w-0 items-center gap-[13px] rounded-[9px] border-b px-[11px] py-1.5 text-left",
         // the fill stops at the padding box, where the inset ring is drawn, not under the transparent divider
         focused ? cn("border-transparent bg-surface-raised bg-clip-padding", CURSOR_RING) : "border-edge-faint",
+        expanded && "rounded-b-none border-transparent bg-surface-selected",
         fresh && "fresh-mark"
     );
     if (onOpen == null) {
@@ -387,7 +405,8 @@ function LineRow({
     return (
         <button
             type="button"
-            aria-label={`Open ${line.title}`}
+            aria-label={expanded === true ? `Collapse ${line.title}` : `Open ${line.title}`}
+            aria-expanded={expanded}
             onClick={onOpen}
             data-jarvis-brief-row={hook}
             {...cursorAttrs(focused)}
@@ -414,7 +433,16 @@ function LineRow({
 
 // module scope, not useState: a j/k cursor that reset on every glance at another surface would be worse
 // than none. Composer state lives in briefingstore so contextual entry can seed it before this mounts.
-const briefCursorAtom = atom<string | undefined>(undefined);
+// Cast per this repo's convention: under the pinned jotai, atom<T | undefined>(undefined) infers a
+// read-only Atom, and the setter is only callable once it is a PrimitiveAtom.
+const briefCursorAtom = atom<string | undefined>(undefined) as PrimitiveAtom<string | undefined>;
+
+// The inline tracker's state, module scope for the cursor's reason: the Brief unmounts on every surface
+// switch, and an initiative that silently re-collapsed while you were away would be worse than none.
+// Keyed by BRIEF LINE id rather than oref, because the same effort can also sit in Behind you and only
+// its Initiatives row expands.
+const openInitiativeAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
+const stageOverridesAtom = atom<Record<string, boolean>>({});
 
 // Which regions the user has opened past their window. Module scope for the same reason as the cursor:
 // the Brief unmounts on every surface switch, and a region that silently re-collapsed while you were
@@ -1134,11 +1162,78 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
             ...(shows("sessions") ? sessionLines : []),
             ...(shows("behind") ? lines.behind.flatMap((g) => g.lines) : []),
         ];
-        return { shows, sessionLines, visible, navIds: visible.map((l) => l.id) };
+        return { shows, sessionLines, visible };
     }, [lines, only, staleOpen, filtering, waitingShown]);
 
-    const [storedCursor, setCursor] = useAtom(briefCursorAtom);
-    const cursor = resolveBriefCursor(view.navIds, storedCursor);
+    // --- inline tracker -----------------------------------------------------------------------------
+    // The expanded initiative's plan is spliced into the SAME row list the cursor walks, so j/k falls
+    // into the chunks and back out. A second ↑/↓ handler here would be a second cursor fighting the first.
+    const [openInitiative, setOpenInitiative] = useAtom(openInitiativeAtom);
+    const [stageOverrides, setStageOverrides] = useAtom(stageOverridesAtom);
+    const [noteChunk, setNoteChunk] = useAtom(noteChunkAtom);
+    const [readingNote, setReadingNote] = useAtom(readingNoteAtom);
+    const effortCache = useAtomValue(effortDetailAtom);
+    const expandedLine = view.visible.find((l) => l.id === openInitiative) ?? null;
+    const openEffortORef = expandedLine != null ? expandableORef(expandedLine) : null;
+    const openEffort = openEffortORef != null ? (effortCache.get(openEffortORef) ?? null) : null;
+    // the freshest updatedts the app knows, so a chunk ticked by `wsh effort` out of band still refreshes
+    const openCard = efforts.find((e) => e.oref === openEffortORef) ?? null;
+    const openFreshTs = openCard?.updatedts;
+    useEffect(() => {
+        if (openEffortORef == null) {
+            return;
+        }
+        // a failure here leaves the row expanded on its "loading" line rather than collapsing under the
+        // click; the next snapshot refresh retries.
+        fireAndForget(() => loadEffortDetail(openEffortORef, openFreshTs));
+    }, [openEffortORef, openFreshTs]);
+
+    const tracker = useMemo(() => {
+        const feed = openEffort != null ? effortFeed(openEffort) : [];
+        const rows = trackerRows({
+            lines: view.visible,
+            openLineId: openInitiative,
+            chunks: openEffort != null ? effortChunkRows(openEffort) : null,
+            noteCounts: feedNoteCounts(feed),
+            countLine: openCard?.countLine ?? "",
+            stageOverrides,
+        });
+        return {
+            rows,
+            feed,
+            navIds: trackerNavIds(rows),
+            detail: rows.filter((r): r is DetailRow => r.kind !== "line"),
+        };
+    }, [view.visible, openInitiative, openEffort, openCard, stageOverrides]);
+
+    const [storedCursor, setStoredCursor] = useAtom(briefCursorAtom);
+    const cursor = resolveBriefCursor(tracker.navIds, storedCursor);
+    // cursor == selection: landing on a chunk is what shows its notes, so j/k reads the plan as it walks.
+    const setCursor = useCallback(
+        (id: string) => {
+            setStoredCursor(id);
+            if (id.includes("/chunk:")) {
+                setNoteChunk(id);
+                setReadingNote(null);
+            }
+        },
+        [setStoredCursor, setNoteChunk, setReadingNote]
+    );
+    const selected = tracker.rows.find((r) => r.kind === "chunk" && r.id === noteChunk);
+    const selectedChunk = selected?.kind === "chunk" ? selected : null;
+    const closeNotes = useCallback(() => {
+        setNoteChunk(null);
+        setReadingNote(null);
+    }, [setNoteChunk, setReadingNote]);
+
+    // Every write goes through here so a failure is SHOWN rather than swallowed: the mutate helpers
+    // write through and refresh the briefing's summary leg, and a rejected op would otherwise leave the
+    // row looking unchanged with no explanation.
+    const [mutateError, setMutateError] = useState<string | null>(null);
+    const runMutation = useCallback((fn: () => Promise<void>) => {
+        setMutateError(null);
+        fn().catch((e) => setMutateError(e instanceof Error ? e.message : String(e)));
+    }, []);
     const sheetOpen = useAtomValue(briefSheetOpenAtom);
     const openLine = useCallback(
         (target: LineTarget) => {
@@ -1153,7 +1248,35 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         },
         [model]
     );
-    const cursorTarget = view.visible.find((l) => l.id === cursor)?.target ?? null;
+    const cursorRow = tracker.rows.find((r) => r.id === cursor) ?? null;
+    const cursorTarget = cursorRow?.kind === "line" ? cursorRow.line.target : null;
+    // Enter's primary action, by what the cursor is on: an initiative expands in place (it no longer has
+    // a sheet to open), a chunk opens its newest note in the reader, every other row opens its target.
+    const toggleInitiative = useCallback(
+        (lineId: string) => {
+            setOpenInitiative((cur) => (cur === lineId ? null : lineId));
+            setNoteChunk(null);
+            setReadingNote(null);
+        },
+        [setOpenInitiative, setNoteChunk, setReadingNote]
+    );
+    const activateCursor = useCallback(() => {
+        if (cursorRow == null) {
+            return;
+        }
+        if (cursorRow.kind === "chunk") {
+            setNoteChunk(cursorRow.id);
+            setReadingNote(0);
+            return;
+        }
+        if (cursorRow.kind === "line" && expandableORef(cursorRow.line) != null) {
+            toggleInitiative(cursorRow.id);
+            return;
+        }
+        if (cursorTarget != null) {
+            openLine(cursorTarget);
+        }
+    }, [cursorRow, cursorTarget, openLine, setNoteChunk, setReadingNote, toggleInitiative]);
     // j/k across every region in render order, and Enter opens the row under the cursor. Enter is left alone
     // while a sheet is open, because the sheet's own Enter (an ask's submit) is the one on screen, and on a
     // row that opens nothing, so the key passes through. Typing never reaches here: list keys are off in a field.
@@ -1161,12 +1284,12 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         useMemo<ListNavController>(
             () => ({
                 surface: "jarvis",
-                navigableIds: view.navIds,
+                navigableIds: tracker.navIds,
                 cursorId: cursor,
                 setCursor,
-                activate: sheetOpen || cursorTarget == null ? undefined : () => openLine(cursorTarget),
+                activate: sheetOpen || cursorRow == null ? undefined : activateCursor,
             }),
-            [view.navIds, cursor, setCursor, sheetOpen, cursorTarget, openLine]
+            [tracker.navIds, cursor, setCursor, sheetOpen, cursorRow, activateCursor]
         )
     );
     // the four regions scroll as one column, so a cursor moved off-screen has to be brought back
@@ -1335,285 +1458,370 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                     </motion.div>
                 ) : null}
             </AnimatePresence>
-            <div
-                className="flex min-h-0 flex-1 flex-col gap-[26px] overflow-y-auto px-[22px] pb-2.5 pt-5"
-                aria-live="polite"
-            >
-                <AnimatePresence initial={false}>
-                    {loadFailed ? (
-                        <motion.div
-                            key="load-error"
-                            variants={paneReveal}
-                            initial="initial"
-                            animate="animate"
-                            exit="exit"
-                            data-jarvis-brief-state="error"
-                            className="flex flex-col gap-2 overflow-hidden rounded-[10px] border border-border bg-surface px-4 py-3"
-                        >
-                            <span className="text-[13px] font-semibold text-ink-hi">
-                                Couldn't load your work state.
-                            </span>
-                            <span className="text-[12px] text-secondary">{error}</span>
-                            <button
-                                type="button"
-                                onClick={refreshBriefing}
-                                className="mt-1 w-fit cursor-pointer rounded-[7px] border border-border bg-surface-raised px-2.5 py-1 text-[11px] font-semibold text-secondary hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            {/* @container, not a media query: the sidebar's width rule is about how much SURFACE the
+                index has left, and the window is not the surface. */}
+            <div className="@container relative flex min-h-0 flex-1">
+                <div
+                    className={cn(
+                        "flex min-h-0 flex-1 flex-col gap-[26px] overflow-y-auto px-[22px] pb-2.5 pt-5",
+                        // the index reserves the PREVIEW's width and does not reflow when a note opens;
+                        // only the wide band lets the reader push it further.
+                        selectedChunk != null && "pr-[380px]",
+                        selectedChunk != null && readingNote != null && "@min-[1281px]:pr-[580px]"
+                    )}
+                    aria-live="polite"
+                >
+                    <AnimatePresence initial={false}>
+                        {loadFailed ? (
+                            <motion.div
+                                key="load-error"
+                                variants={paneReveal}
+                                initial="initial"
+                                animate="animate"
+                                exit="exit"
+                                data-jarvis-brief-state="error"
+                                className="flex flex-col gap-2 overflow-hidden rounded-[10px] border border-border bg-surface px-4 py-3"
                             >
-                                Retry
-                            </button>
-                        </motion.div>
-                    ) : null}
-                </AnimatePresence>
-                {/* mode="wait" so the skeleton is gone before the regions arrive: the two cross-faded in
+                                <span className="text-[13px] font-semibold text-ink-hi">
+                                    Couldn't load your work state.
+                                </span>
+                                <span className="text-[12px] text-secondary">{error}</span>
+                                <button
+                                    type="button"
+                                    onClick={refreshBriefing}
+                                    className="mt-1 w-fit cursor-pointer rounded-[7px] border border-border bg-surface-raised px-2.5 py-1 text-[11px] font-semibold text-secondary hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                                >
+                                    Retry
+                                </button>
+                            </motion.div>
+                        ) : null}
+                    </AnimatePresence>
+                    {/* mode="wait" so the skeleton is gone before the regions arrive: the two cross-faded in
                     place would read as a double exposure of the same four headings. The skeleton blocks'
                     own animate-pulse is unchanged. */}
-                <AnimatePresence mode="wait" initial={false}>
-                    {firstLoad ? (
-                        <motion.div
-                            key="skeleton"
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
-                            data-jarvis-brief-state="loading"
-                            className="flex flex-col gap-[26px]"
-                        >
-                            {Object.entries(REGIONS).map(([id, r]) => (
-                                <div key={id} className="flex flex-col gap-2">
-                                    <span className={cn(REGION_LABEL, "text-feed-label")}>{r.label}</span>
-                                    <div className="h-12 animate-pulse rounded-[10px] bg-surface motion-reduce:animate-none" />
-                                </div>
-                            ))}
-                        </motion.div>
-                    ) : null}
-                    {model_ != null ? (
-                        <motion.div
-                            key="regions"
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
-                            className="flex flex-col gap-[26px]"
-                        >
-                            {view.shows("waiting") ? (
-                                <Region
-                                    id="waiting"
-                                    alert={queue.length > 0}
-                                    count={queue.length > 0 ? queue.length : undefined}
-                                    empty={queue.length === 0}
-                                    gap="gap-[9px]"
-                                    meta={
-                                        !waitingOpen && queueSummary?.oldestTs != null
-                                            ? `oldest ${formatAge(Date.now() - queueSummary.oldestTs)}`
-                                            : "gates before asks"
-                                    }
-                                    only={only === "waiting"}
-                                    onOnly={() => toggleOnly("waiting")}
-                                >
-                                    {queueSummary != null ? (
-                                        <div className="flex flex-col gap-[9px]">
-                                            <QueueSummaryView
-                                                summary={queueSummary}
-                                                count={queue.length}
-                                                expanded={waitingOpen}
-                                                error={queue.some((q) => q.tone === "error")}
-                                                onToggle={() => toggleRegion("waiting")}
-                                            />
+                    <AnimatePresence mode="wait" initial={false}>
+                        {firstLoad ? (
+                            <motion.div
+                                key="skeleton"
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
+                                data-jarvis-brief-state="loading"
+                                className="flex flex-col gap-[26px]"
+                            >
+                                {Object.entries(REGIONS).map(([id, r]) => (
+                                    <div key={id} className="flex flex-col gap-2">
+                                        <span className={cn(REGION_LABEL, "text-feed-label")}>{r.label}</span>
+                                        <div className="h-12 animate-pulse rounded-[10px] bg-surface motion-reduce:animate-none" />
+                                    </div>
+                                ))}
+                            </motion.div>
+                        ) : null}
+                        {model_ != null ? (
+                            <motion.div
+                                key="regions"
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
+                                className="flex flex-col gap-[26px]"
+                            >
+                                {view.shows("waiting") ? (
+                                    <Region
+                                        id="waiting"
+                                        alert={queue.length > 0}
+                                        count={queue.length > 0 ? queue.length : undefined}
+                                        empty={queue.length === 0}
+                                        gap="gap-[9px]"
+                                        meta={
+                                            !waitingOpen && queueSummary?.oldestTs != null
+                                                ? `oldest ${formatAge(Date.now() - queueSummary.oldestTs)}`
+                                                : "gates before asks"
+                                        }
+                                        only={only === "waiting"}
+                                        onOnly={() => toggleOnly("waiting")}
+                                    >
+                                        {queueSummary != null ? (
+                                            <div className="flex flex-col gap-[9px]">
+                                                <QueueSummaryView
+                                                    summary={queueSummary}
+                                                    count={queue.length}
+                                                    expanded={waitingOpen}
+                                                    error={queue.some((q) => q.tone === "error")}
+                                                    onToggle={() => toggleRegion("waiting")}
+                                                />
+                                                <MotionConfig reducedMotion="user">
+                                                    <AnimatePresence initial={false}>
+                                                        {waitingShown ? (
+                                                            <motion.div
+                                                                id="jarvis-attention-details"
+                                                                key="attention-details"
+                                                                variants={paneReveal}
+                                                                initial="initial"
+                                                                animate="animate"
+                                                                exit="exit"
+                                                                className="flex flex-col overflow-hidden"
+                                                            >
+                                                                {lines.waiting.length === 0 ? <NoMatch /> : null}
+                                                                {lines.waiting.map((l) => (
+                                                                    <motion.div
+                                                                        key={l.id}
+                                                                        layout
+                                                                        variants={cardVariants}
+                                                                        initial={
+                                                                            entering.has(keyOf(l)) ? "initial" : false
+                                                                        }
+                                                                        animate="animate"
+                                                                        exit="exit"
+                                                                        transition={{
+                                                                            duration: MOTION.durMacro,
+                                                                            ease: MOTION.easeFluid,
+                                                                        }}
+                                                                    >
+                                                                        <LineRow
+                                                                            line={l}
+                                                                            hook="queue"
+                                                                            focused={cursor === l.id}
+                                                                            fresh={freshWaiting.has(keyOf(l))}
+                                                                            onOpen={
+                                                                                l.target != null
+                                                                                    ? () => openLine(l.target)
+                                                                                    : undefined
+                                                                            }
+                                                                        />
+                                                                    </motion.div>
+                                                                ))}
+                                                            </motion.div>
+                                                        ) : null}
+                                                    </AnimatePresence>
+                                                </MotionConfig>
+                                            </div>
+                                        ) : null}
+                                    </Region>
+                                ) : null}
+                                {view.shows("initiatives") ? (
+                                    <Region
+                                        id="initiatives"
+                                        count={efforts.length}
+                                        empty={efforts.length === 0}
+                                        gap="gap-[9px]"
+                                        meta={stalled > 0 ? `${stalled} stalled` : "all moving"}
+                                        only={only === "initiatives"}
+                                        onOnly={() => toggleOnly("initiatives")}
+                                    >
+                                        <div className="flex flex-col">
+                                            {lines.initiatives.length === 0 ? <NoMatch /> : null}
                                             <MotionConfig reducedMotion="user">
                                                 <AnimatePresence initial={false}>
-                                                    {waitingShown ? (
+                                                    {lines.initiatives.map((l) => (
                                                         <motion.div
-                                                            id="jarvis-attention-details"
-                                                            key="attention-details"
-                                                            variants={paneReveal}
-                                                            initial="initial"
+                                                            key={l.id}
+                                                            layout
+                                                            variants={cardVariants}
+                                                            initial={entering.has(keyOf(l)) ? "initial" : false}
                                                             animate="animate"
                                                             exit="exit"
-                                                            className="flex flex-col overflow-hidden"
+                                                            transition={{
+                                                                duration: MOTION.durMacro,
+                                                                ease: MOTION.easeFluid,
+                                                            }}
                                                         >
-                                                            {lines.waiting.length === 0 ? <NoMatch /> : null}
-                                                            {lines.waiting.map((l) => (
-                                                                <motion.div
-                                                                    key={l.id}
-                                                                    layout
-                                                                    variants={cardVariants}
-                                                                    initial={entering.has(keyOf(l)) ? "initial" : false}
-                                                                    animate="animate"
-                                                                    exit="exit"
-                                                                    transition={{
-                                                                        duration: MOTION.durMacro,
-                                                                        ease: MOTION.easeFluid,
+                                                            <LineRow
+                                                                line={l}
+                                                                hook="initiative"
+                                                                focused={cursor === l.id}
+                                                                fresh={freshInitiatives.has(keyOf(l))}
+                                                                expanded={l.id === openInitiative}
+                                                                onOpen={() => {
+                                                                    setCursor(l.id);
+                                                                    toggleInitiative(l.id);
+                                                                }}
+                                                            />
+                                                            {l.id === openInitiative ? (
+                                                                <InitiativeDetail
+                                                                    rows={tracker.detail}
+                                                                    cursor={cursor}
+                                                                    onSelectChunk={(id) => {
+                                                                        setCursor(id);
+                                                                        setNoteChunk(id);
+                                                                        setReadingNote(null);
                                                                     }}
-                                                                >
-                                                                    <LineRow
-                                                                        line={l}
-                                                                        hook="queue"
-                                                                        focused={cursor === l.id}
-                                                                        fresh={freshWaiting.has(keyOf(l))}
-                                                                        onOpen={
-                                                                            l.target != null
-                                                                                ? () => openLine(l.target)
-                                                                                : undefined
+                                                                    archived={openCard?.status === "archived"}
+                                                                    onToggleStage={(id, open) =>
+                                                                        setStageOverrides((cur) => ({
+                                                                            ...cur,
+                                                                            [id]: open,
+                                                                        }))
+                                                                    }
+                                                                    onAddChunk={(label) => {
+                                                                        if (openEffortORef != null) {
+                                                                            runMutation(() =>
+                                                                                addChunkOp(openEffortORef, label)
+                                                                            );
                                                                         }
-                                                                    />
-                                                                </motion.div>
-                                                            ))}
+                                                                    }}
+                                                                    onArchive={() => {
+                                                                        if (openEffortORef != null) {
+                                                                            runMutation(() =>
+                                                                                setEffortStatus(
+                                                                                    openEffortORef,
+                                                                                    "archived"
+                                                                                )
+                                                                            );
+                                                                        }
+                                                                    }}
+                                                                />
+                                                            ) : null}
                                                         </motion.div>
-                                                    ) : null}
+                                                    ))}
                                                 </AnimatePresence>
                                             </MotionConfig>
+                                            <MoreControl
+                                                n={effortWindow.more}
+                                                expanded={initiativesOpen}
+                                                onToggle={() => toggleRegion("initiatives")}
+                                            />
                                         </div>
-                                    ) : null}
-                                </Region>
-                            ) : null}
-                            {view.shows("initiatives") ? (
-                                <Region
-                                    id="initiatives"
-                                    count={efforts.length}
-                                    empty={efforts.length === 0}
-                                    gap="gap-[9px]"
-                                    meta={stalled > 0 ? `${stalled} stalled` : "all moving"}
-                                    only={only === "initiatives"}
-                                    onOnly={() => toggleOnly("initiatives")}
-                                >
-                                    <div className="flex flex-col">
-                                        {lines.initiatives.length === 0 ? <NoMatch /> : null}
-                                        <MotionConfig reducedMotion="user">
-                                            <AnimatePresence initial={false}>
-                                                {lines.initiatives.map((l) => (
-                                                    <motion.div
-                                                        key={l.id}
-                                                        layout
-                                                        variants={cardVariants}
-                                                        initial={entering.has(keyOf(l)) ? "initial" : false}
-                                                        animate="animate"
-                                                        exit="exit"
-                                                        transition={{
-                                                            duration: MOTION.durMacro,
-                                                            ease: MOTION.easeFluid,
-                                                        }}
-                                                    >
+                                    </Region>
+                                ) : null}
+                                {view.shows("sessions") ? (
+                                    <Region
+                                        id="sessions"
+                                        empty={sessions.rows.length === 0}
+                                        gap="gap-[9px]"
+                                        meta={
+                                            staleCount > 0 && !staleOpen && !filtering
+                                                ? `${staleCount} stale hidden`
+                                                : "run on their own"
+                                        }
+                                        only={only === "sessions"}
+                                        onOnly={() => toggleOnly("sessions")}
+                                    >
+                                        <div className="flex flex-col">
+                                            {filtering && view.sessionLines.length === 0 ? <NoMatch /> : null}
+                                            <MotionConfig reducedMotion="user">
+                                                <AnimatePresence initial={false}>
+                                                    {view.sessionLines.map((l) => (
+                                                        <motion.div
+                                                            key={l.id}
+                                                            layout
+                                                            variants={cardVariants}
+                                                            initial={entering.has(keyOf(l)) ? "initial" : false}
+                                                            animate="animate"
+                                                            exit="exit"
+                                                            transition={{
+                                                                duration: MOTION.durMacro,
+                                                                ease: MOTION.easeFluid,
+                                                            }}
+                                                        >
+                                                            <LineRow
+                                                                line={l}
+                                                                hook="session"
+                                                                focused={cursor === l.id}
+                                                                fresh={freshSessions.has(keyOf(l))}
+                                                                onOpen={
+                                                                    l.target != null
+                                                                        ? () => openLine(l.target)
+                                                                        : undefined
+                                                                }
+                                                            />
+                                                        </motion.div>
+                                                    ))}
+                                                </AnimatePresence>
+                                            </MotionConfig>
+                                            {/* runs the lead marked executing and then never touched again: they are
+                                            real rows, but a week of silence reads as dead, so they fold */}
+                                            {staleCount > 0 && !filtering ? (
+                                                <button
+                                                    type="button"
+                                                    aria-expanded={staleOpen}
+                                                    data-jarvis-brief-stale
+                                                    onClick={() => setStaleOpen(!staleOpen)}
+                                                    className="mt-0.5 cursor-pointer self-start rounded-[6px] border border-border px-2.5 py-1 font-mono text-[10.5px] font-medium text-accent-soft hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                                                >
+                                                    {staleOpen ? `Hide ${staleCount}` : `+${staleCount}`}{" "}
+                                                    {staleCount === 1 ? "run" : "runs"} older than 7 days
+                                                </button>
+                                            ) : null}
+                                            <MoreControl
+                                                n={sessions.more}
+                                                expanded={sessionsOpen}
+                                                onToggle={() => toggleRegion("sessions")}
+                                            />
+                                        </div>
+                                    </Region>
+                                ) : null}
+                                {view.shows("behind") ? (
+                                    <Region
+                                        id="behind"
+                                        empty={pastRows === 0}
+                                        gap="gap-[5px]"
+                                        meta={`${pastRows} ${pastRows === 1 ? "event" : "events"}`}
+                                        only={only === "behind"}
+                                        onOnly={() => toggleOnly("behind")}
+                                    >
+                                        <div className="flex flex-col pb-1.5">
+                                            {lines.behind.length === 0 ? <NoMatch /> : null}
+                                            {lines.behind.map((g) => (
+                                                <Fragment key={g.label}>
+                                                    <span className={SUB_LABEL}>{g.label}</span>
+                                                    {g.lines.map((l) => (
                                                         <LineRow
+                                                            key={l.id}
                                                             line={l}
-                                                            hook="initiative"
+                                                            hook={g.label === SHIPPED_LABEL ? "shipped" : "delta"}
                                                             focused={cursor === l.id}
-                                                            fresh={freshInitiatives.has(keyOf(l))}
-                                                            onOpen={() => openLine(l.target)}
-                                                        />
-                                                    </motion.div>
-                                                ))}
-                                            </AnimatePresence>
-                                        </MotionConfig>
-                                        <MoreControl
-                                            n={effortWindow.more}
-                                            expanded={initiativesOpen}
-                                            onToggle={() => toggleRegion("initiatives")}
-                                        />
-                                    </div>
-                                </Region>
-                            ) : null}
-                            {view.shows("sessions") ? (
-                                <Region
-                                    id="sessions"
-                                    empty={sessions.rows.length === 0}
-                                    gap="gap-[9px]"
-                                    meta={
-                                        staleCount > 0 && !staleOpen && !filtering
-                                            ? `${staleCount} stale hidden`
-                                            : "run on their own"
-                                    }
-                                    only={only === "sessions"}
-                                    onOnly={() => toggleOnly("sessions")}
-                                >
-                                    <div className="flex flex-col">
-                                        {filtering && view.sessionLines.length === 0 ? <NoMatch /> : null}
-                                        <MotionConfig reducedMotion="user">
-                                            <AnimatePresence initial={false}>
-                                                {view.sessionLines.map((l) => (
-                                                    <motion.div
-                                                        key={l.id}
-                                                        layout
-                                                        variants={cardVariants}
-                                                        initial={entering.has(keyOf(l)) ? "initial" : false}
-                                                        animate="animate"
-                                                        exit="exit"
-                                                        transition={{
-                                                            duration: MOTION.durMacro,
-                                                            ease: MOTION.easeFluid,
-                                                        }}
-                                                    >
-                                                        <LineRow
-                                                            line={l}
-                                                            hook="session"
-                                                            focused={cursor === l.id}
-                                                            fresh={freshSessions.has(keyOf(l))}
+                                                            fresh={false}
                                                             onOpen={
                                                                 l.target != null ? () => openLine(l.target) : undefined
                                                             }
                                                         />
-                                                    </motion.div>
-                                                ))}
-                                            </AnimatePresence>
-                                        </MotionConfig>
-                                        {/* runs the lead marked executing and then never touched again: they are
-                                            real rows, but a week of silence reads as dead, so they fold */}
-                                        {staleCount > 0 && !filtering ? (
-                                            <button
-                                                type="button"
-                                                aria-expanded={staleOpen}
-                                                data-jarvis-brief-stale
-                                                onClick={() => setStaleOpen(!staleOpen)}
-                                                className="mt-0.5 cursor-pointer self-start rounded-[6px] border border-border px-2.5 py-1 font-mono text-[10.5px] font-medium text-accent-soft hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                                            >
-                                                {staleOpen ? `Hide ${staleCount}` : `+${staleCount}`}{" "}
-                                                {staleCount === 1 ? "run" : "runs"} older than 7 days
-                                            </button>
-                                        ) : null}
-                                        <MoreControl
-                                            n={sessions.more}
-                                            expanded={sessionsOpen}
-                                            onToggle={() => toggleRegion("sessions")}
-                                        />
-                                    </div>
-                                </Region>
-                            ) : null}
-                            {view.shows("behind") ? (
-                                <Region
-                                    id="behind"
-                                    empty={pastRows === 0}
-                                    gap="gap-[5px]"
-                                    meta={`${pastRows} ${pastRows === 1 ? "event" : "events"}`}
-                                    only={only === "behind"}
-                                    onOnly={() => toggleOnly("behind")}
-                                >
-                                    <div className="flex flex-col pb-1.5">
-                                        {lines.behind.length === 0 ? <NoMatch /> : null}
-                                        {lines.behind.map((g) => (
-                                            <Fragment key={g.label}>
-                                                <span className={SUB_LABEL}>{g.label}</span>
-                                                {g.lines.map((l) => (
-                                                    <LineRow
-                                                        key={l.id}
-                                                        line={l}
-                                                        hook={g.label === SHIPPED_LABEL ? "shipped" : "delta"}
-                                                        focused={cursor === l.id}
-                                                        fresh={false}
-                                                        onOpen={l.target != null ? () => openLine(l.target) : undefined}
-                                                    />
-                                                ))}
-                                            </Fragment>
-                                        ))}
-                                        <MoreControl
-                                            n={pastMore}
-                                            expanded={behindOpen}
-                                            onToggle={() => toggleRegion("behind")}
-                                        />
-                                    </div>
-                                </Region>
-                            ) : null}
-                        </motion.div>
-                    ) : null}
-                </AnimatePresence>
+                                                    ))}
+                                                </Fragment>
+                                            ))}
+                                            <MoreControl
+                                                n={pastMore}
+                                                expanded={behindOpen}
+                                                onToggle={() => toggleRegion("behind")}
+                                            />
+                                        </div>
+                                    </Region>
+                                ) : null}
+                            </motion.div>
+                        ) : null}
+                    </AnimatePresence>
+                </div>
+                {/* the scrim is what makes the reader's overlap read as a layer instead of a clipped row.
+                It never takes a click, so the Brief behind it stays live — this is not a modal. */}
+                {selectedChunk != null && readingNote != null ? (
+                    <div
+                        aria-hidden
+                        className="pointer-events-none absolute inset-0 z-[3] hidden bg-background/60 @max-[1280px]:block"
+                    />
+                ) : null}
+                {selectedChunk != null ? (
+                    <NoteSidebar
+                        label={selectedChunk.row.label}
+                        stage={selectedChunk.row.stage}
+                        status={selectedChunk.row.status}
+                        feed={tracker.feed}
+                        reading={readingNote}
+                        now={Date.now()}
+                        handle={"wsh effort show " + selectedChunk.oref.replace(/^effort:/, "")}
+                        error={mutateError}
+                        onRead={setReadingNote}
+                        onBack={() => setReadingNote(null)}
+                        onClose={closeNotes}
+                        onActivity={() => openLine({ oref: selectedChunk.oref })}
+                        onAddNote={(text) =>
+                            runMutation(() => appendChunkNote(selectedChunk.oref, selectedChunk.row.label, text))
+                        }
+                        onSetStatus={(status) =>
+                            runMutation(() => setChunkStatus(selectedChunk.oref, selectedChunk.row.label, status))
+                        }
+                    />
+                ) : null}
             </div>
             <BriefComposer model={model} />
             {/* the Brief's destination for a record oref: openref.ts's task arm sets the atom this reads.

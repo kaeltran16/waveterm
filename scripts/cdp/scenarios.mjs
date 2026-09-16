@@ -5049,6 +5049,113 @@ const briefProfile = {
 // structure each moment depends on, which is also the half a later refactor can quietly break with
 // nothing failing: the detail sheet's surface scoping, the freshness mark's presence and its cap, and
 // the updates drawer's split between the element whose height animates and the inner scroller.
+// --- the Brief's inline initiative tracker ------------------------------------------------------
+// An initiative expands IN PLACE instead of opening the detail sheet, and its chunks join the Brief's
+// own j/k list so one cursor walks rows and chunks alike. The chunk rows need the effort DETAIL, which
+// the briefing fixture does not carry (it seeds summaries only) — so the plan-dependent steps SKIP when
+// the dev store has no real initiative with chunks, rather than failing on an empty dev database.
+const briefInlineTracker = {
+    name: "brief-inline-tracker",
+    surface: "jarvis",
+    async arrange() {
+        return {};
+    },
+    async assert(h) {
+        const steps = [];
+        await h.goto("jarvis");
+        await h.ev(`document.querySelector('[data-briefing-fixture="normal"]')?.click()`);
+        await h.ev("new Promise((r) => setTimeout(r, 900))");
+
+        // 1. an initiative row no longer opens the modal sheet
+        const row = `[...document.querySelectorAll('[data-jarvis-brief-row="initiative"]')][0]`;
+        const before = await h.ev(`(() => ({
+            rows: document.querySelectorAll('[data-jarvis-brief-row="initiative"]').length,
+            expanded: !!document.querySelector('[data-jarvis-initiative-detail]'),
+        }))()`);
+        await h.ev(`${row}?.click()`);
+        await h.ev("new Promise((r) => setTimeout(r, 700))");
+        const after = await h.ev(`(() => ({
+            detail: !!document.querySelector('[data-jarvis-initiative-detail]'),
+            sheet: !!document.querySelector('[data-jarvis-brief-sheet-face]'),
+            aria: document.querySelector('[data-jarvis-brief-row="initiative"]')?.getAttribute('aria-expanded') ?? null,
+        }))()`);
+        steps.push({
+            step: "1. clicking an initiative expands it in place and opens no sheet",
+            ok: before.rows > 0 && after.detail === true && after.sheet === false && after.aria === "true",
+            detail: JSON.stringify({ before, after }),
+        });
+        await h.shot("cdp-shots/brief-inline-tracker-expanded.png");
+
+        // 2. only the stage holding the next chunk starts open
+        const stages = await h.ev(`[...document.querySelectorAll('[data-jarvis-tracker-stage]')].map((b) => b.getAttribute('aria-expanded'))`);
+        const chunks = await h.ev(`[...document.querySelectorAll('[data-jarvis-tracker-chunk]')].length`);
+        const hasPlan = Array.isArray(stages) && stages.length > 0;
+        steps.push({
+            step: "2. exactly one stage starts expanded, and it is the only one contributing chunk rows",
+            ok: !hasPlan || (stages.filter((a) => a === "true").length === 1 && chunks > 0),
+            detail: hasPlan
+                ? JSON.stringify({ stages, chunks })
+                : "SKIP: no initiative with chunks in this dev store (fixture seeds summaries only)",
+        });
+
+        // 3. a chunk row takes the Brief's cursor and opens its note sidebar
+        let sidebar = { panel: false, cursorOnChunk: false };
+        if (hasPlan && chunks > 0) {
+            await h.ev(`[...document.querySelectorAll('[data-jarvis-tracker-chunk]')][0]?.click()`);
+            await h.ev("new Promise((r) => setTimeout(r, 500))");
+            sidebar = await h.ev(`(() => ({
+                panel: document.querySelector('[data-jarvis-note-sidebar]')?.dataset.jarvisNoteSidebar ?? null,
+                cursorOnChunk: !!document.querySelector('[data-jarvis-tracker-chunk][aria-pressed="true"]'),
+            }))()`);
+        }
+        steps.push({
+            step: "3. selecting a chunk opens the note previews and marks that row selected",
+            ok: !hasPlan || chunks === 0 || (sidebar.panel === "previews" && sidebar.cursorOnChunk === true),
+            detail: hasPlan && chunks > 0 ? JSON.stringify(sidebar) : "SKIP: no chunk rows to select",
+        });
+        await h.shot("cdp-shots/brief-inline-tracker-notes.png");
+
+        // 4. Escape backs out one rung at a time and never leaves the surface while a note is open
+        let esc = { afterFirst: null, surface: null };
+        if (hasPlan && chunks > 0) {
+            // real key events, not synthetic DOM ones: the binding registry listens on the window
+            for (const type of ["keyDown", "keyUp"]) {
+                await h.cdp("Input.dispatchKeyEvent", {
+                    type,
+                    key: "Escape",
+                    code: "Escape",
+                    windowsVirtualKeyCode: 27,
+                });
+            }
+            await h.ev("new Promise((r) => setTimeout(r, 400))");
+            esc = await h.ev(`(() => ({
+                afterFirst: !!document.querySelector('[data-jarvis-note-sidebar]'),
+                surface: !!document.querySelector('[data-jarvis-region="brief"]'),
+            }))()`);
+        }
+        steps.push({
+            step: "4. Escape closes the sidebar and stays on the Brief",
+            ok: !hasPlan || chunks === 0 || (esc.afterFirst === false && esc.surface === true),
+            detail: hasPlan && chunks > 0 ? JSON.stringify(esc) : "SKIP: sidebar never opened",
+        });
+
+        // 5. collapsing removes the chunk rows again, so a stale cursor cannot survive on one
+        await h.ev(`[...document.querySelectorAll('[data-jarvis-brief-row="initiative"]')][0]?.click()`);
+        await h.ev("new Promise((r) => setTimeout(r, 500))");
+        const collapsed = await h.ev(`(() => ({
+            detail: !!document.querySelector('[data-jarvis-initiative-detail]'),
+            chunks: document.querySelectorAll('[data-jarvis-tracker-chunk]').length,
+        }))()`);
+        steps.push({
+            step: "5. collapsing the initiative removes its plan rows",
+            ok: collapsed.detail === false && collapsed.chunks === 0,
+            detail: JSON.stringify(collapsed),
+        });
+
+        return steps;
+    },
+};
+
 const jarvisMotion = {
     name: "jarvis-motion",
     surface: "jarvis",
@@ -5268,4 +5375,5 @@ export const SCENARIOS = [
     dagLifecycle,
     routePickerFlat,
     jarvisMotion,
+    briefInlineTracker,
 ];

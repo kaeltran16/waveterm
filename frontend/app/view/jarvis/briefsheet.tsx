@@ -350,7 +350,7 @@ export function BriefSheet({ model }: { model: AgentsViewModel }) {
                     ) : null}
                     {face.kind === "effort" ? (
                         <div className="flex min-h-0 flex-1 flex-col">
-                            <EffortDetailView model={model} />
+                            <EffortDetailView />
                         </div>
                     ) : null}
                     {/* the settings face is a fixed-height band under the body: RunBody scrolls itself, and a
