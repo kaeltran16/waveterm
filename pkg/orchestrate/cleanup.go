@@ -6,6 +6,7 @@ package orchestrate
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -65,6 +66,7 @@ func CleanupTaskWorktree(ctx context.Context, g *waveobj.TaskGroup, taskID strin
 		task.CleanupError = boundedCleanupError(err)
 		return err
 	}
+	reapLaneWorkers(ctx, g, taskID)
 	err = RemoveTaskWorktree(ctx, projectPath, LaneWorktreeKey(g, taskID))
 	task.CleanupPending = false
 	if err != nil {
@@ -73,6 +75,28 @@ func CleanupTaskWorktree(ctx context.Context, g *waveobj.TaskGroup, taskID strin
 	}
 	task.CleanupError = ""
 	return nil
+}
+
+// reapLaneWorkers stops the workers that ran in the tree about to be removed. A worker harness sits at
+// its prompt after reporting done instead of exiting, and on Windows a live process holding the tree as
+// its cwd is what makes git's removal leave the directory behind. Every task in the lane ran in the one
+// shared tree, so the whole lane is reaped, not just the tip that was merged. Best effort: the removal
+// below is what decides whether cleanup succeeded.
+func reapLaneWorkers(ctx context.Context, g *waveobj.TaskGroup, taskID string) {
+	for _, id := range laneOf(g, taskID) {
+		task := taskByID(g, id)
+		if task == nil || task.RunID == "" {
+			continue
+		}
+		child, err := wstore.GetRun(ctx, g.ChannelId, task.RunID)
+		if err != nil {
+			log.Printf("dag %s task %s: loading child run to stop its worker: %v", g.OID, id, err)
+			continue
+		}
+		if err := stopRunWorkers(ctx, child); err != nil {
+			log.Printf("dag %s task %s: stopping worker: %v", g.OID, id, err)
+		}
+	}
 }
 
 // cleanupProjectPath resolves the repo a task's worktree belongs to. The owning run is the authority

@@ -17,7 +17,10 @@ import (
 // parsed by TestPlanFormatParses, so the prose and the parser cannot drift apart.
 const PlanFormat = "Plan format. Verify and Setup are optional, go before the first task, and each hold one command in backticks. " +
 	"Number tasks 1, 2, 3... in order under `##` or `###` headings. A Depends on line must be the first line under its heading: " +
-	"leave it out to run after the previous task, write `none` for no dependencies, or list earlier tasks (`Task 1, Task 3`).\n\n" +
+	"leave it out to run after the previous task, write `none` for no dependencies, or list earlier tasks (`Task 1, Task 3`).\n" +
+	"The engine runs tasks at the same time whenever nothing makes them wait, so the Depends on lines are what set a plan's width. " +
+	"Split the work by what can proceed independently, and make a task wait only when it truly builds on another's output — a plan " +
+	"with no Depends on lines is one serial chain and gets none of that.\n\n" +
 	"# <plan title>\n\n" +
 	"**Verify:** `<command that runs the tests>`\n" +
 	"**Setup:** `<command that prepares a fresh worktree>`\n\n" +

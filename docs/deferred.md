@@ -1221,3 +1221,35 @@ two top corners were dropped on 2026-08-04 (`PET_CORNERS` is now the bottom pair
 surface heading band — the page title on the left, the header's action buttons on the right. Do not re-add
 them without a placement that clears a band whose height varies per surface. Design §9 carries the
 measurements.
+
+## Orchestrator merge queue — one Verify per lane, serialized (2026-09-16)
+
+**Batching the merge queue declined 2026-09-16.** The engine lands one lane at a time and holds the
+project checkout from that lane's squash merge through the Verify after it
+(`landings.byProject` in `pkg/orchestrate/verify.go`; `AutoMergeReady` returns on the first
+`errProjectBusy`). So merges do not overlap Verifies, and on a wide plan the queue, not the work,
+sets the wall clock.
+
+Measured on live acceptance runs against a clone of this repo:
+
+- **Acceptance 3** (3 independent tasks, 3 lanes): all three workers were done at 11:07:17, 173s
+  after the run was created — and the run did not close until 11:12:46. 329s of the 502s run was
+  the queue. The three Verifies ran back to back at 150s + 116s + 72s = 338s.
+- **Acceptance 1** (6 tasks, 6 lanes): 762s of the 1199s dag elapsed was merge wait; task t-5 alone
+  waited 4m35s to be landed.
+
+Two ways out were considered and both declined:
+
+- **Land every ready lane under one claim, then Verify once.** Would have cut acceptance 3 from
+  ~502s to ~320s. Declined because one lane per Verify is what makes `task-verify-failed` and
+  `verifyFailedWake` ("Verify failed after merging task X") *true*. Batching turns that into "one of
+  these three lanes broke it" and pushes the bisect onto the lead. It also reaches into
+  `recordVerifyLocked`, `resumeVerify`, the digest's per-task verify durations, the wake text and the
+  frontend timeline — a wide change to buy wall clock on a path that is already correct.
+- **Run Verify in its own worktree at the merged commit,** so landing never waits on verifying.
+  Keeps per-lane attribution and removes nearly all the wait, but a Verify failure is then found
+  after later lanes have already landed on top, which needs a rollback story the engine does not
+  have. Revisit as its own chunk if the wait becomes the complaint.
+
+The serialization is the price of per-lane attribution. Revive either option on evidence that a real
+plan's wall clock, not its worker time, is what a user is waiting on.

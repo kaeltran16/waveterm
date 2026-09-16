@@ -108,3 +108,18 @@ func TestPlanLeadPromptStartsFromTheRulesAndTheWake(t *testing.T) {
 		t.Fatalf("the run's principles lead the prompt, as they do for a goal-run lead:\n%s", principled)
 	}
 }
+
+// A lead told only the Depends on SYNTAX writes whatever shape it happens to think of: the same goal
+// produced six lanes from one harness and one serial chain from another. Both surfaces a plan author
+// reads have to say that independent tasks run at the same time.
+func TestPlanAuthorIsToldToSplitByIndependentWork(t *testing.T) {
+	if !strings.Contains(PlanFormat, "at the same time") || !strings.Contains(PlanFormat, "independently") {
+		t.Fatalf("the plan format must say independent tasks run at the same time:\n%s", PlanFormat)
+	}
+	for _, runtime := range []string{"claude", "pi"} {
+		p := BuildOrchestratePrompt("ship auth", nil, runtime, Orchestration_Engine)
+		if !strings.Contains(p, "what can proceed independently") {
+			t.Fatalf("%s launch prompt does not tell the lead to split the plan by independent work:\n%s", runtime, p)
+		}
+	}
+}

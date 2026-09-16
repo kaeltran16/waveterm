@@ -82,13 +82,21 @@ func removeWorktreeDir(ctx context.Context, projectPath, wt string) error {
 	}
 	if _, err := git(ctx, projectPath, "worktree", "remove", "--force", wt); err != nil {
 		// On Windows the dir can remain locked by an idle child shell or by
-		// junctioned node_modules/src-tauri/target/dist/bin. If git no longer
-		// lists the worktree, the registration is gone and the lingering dir
-		// should be treated as already removed.
-		if !isWorktreeRegistered(ctx, projectPath, wt) {
-			return nil
+		// junctioned node_modules/src-tauri/target/dist/bin. Git unregisters the
+		// worktree before it deletes the tree, so a still-registered worktree is
+		// a removal that never started and belongs to the caller.
+		if isWorktreeRegistered(ctx, projectPath, wt) {
+			return fmt.Errorf("removing worktree: %w", err)
 		}
-		return fmt.Errorf("removing worktree: %w", err)
+	}
+	// unregistered is not removed: git drops the registration first and can then fail to delete the
+	// directory. Finish the delete here and report what is on disk, never what git's exit code implied —
+	// a directory reported as cleaned up and still present is worse than a cleanup that admits it failed.
+	if _, err := os.Stat(wt); err != nil {
+		return nil
+	}
+	if err := os.RemoveAll(wt); err != nil {
+		return fmt.Errorf("removing worktree dir %s: %w", wt, err)
 	}
 	return nil
 }

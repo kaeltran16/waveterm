@@ -6,6 +6,7 @@ package orchestrate
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -250,5 +251,58 @@ func TestPendingCleanupTasksOrder(t *testing.T) {
 	g.Status = DagStatus_Cancelled
 	if got := PendingCleanupTasks(g); len(got) != 1 || got[0].ID != "t-0" {
 		t.Fatalf("cancelled unmerged debt must be retryable, got %v", got)
+	}
+}
+
+// A worker harness sits at its prompt after reporting done instead of exiting, and its live cwd is what
+// keeps the tree busy. Every task in a lane ran in the one shared tree, so the whole lane is reaped, and
+// it happens before the removal, not after.
+func TestCleanupTaskWorktreeReapsTheLanesWorkersFirst(t *testing.T) {
+	ctx := context.Background()
+	projectDir := newGitRepo(t)
+	ch, err := wstore.CreateChannel(ctx, "cleanup-reap", projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, err := NewTaskGroup("run-1", ch.OID, "reap group", 2, false, []waveobj.TaskNode{
+		{ID: "t-1", Label: "one"},
+		{ID: "t-2", Label: "two", Deps: []string{"t-1"}}, // same lane, same worktree, own worker
+		{ID: "t-3", Label: "three"},                      // a lane of its own: must not be reaped
+	}, time.Now().UnixMilli(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range g.Tasks {
+		runID := "child-" + g.Tasks[i].ID
+		g.Tasks[i].RunID = runID
+		g.Tasks[i].State = TaskState_Done
+		g.Tasks[i].Merged = true
+		if err := wstore.AppendRun(ctx, ch.OID, waveobj.Run{
+			ID:     runID,
+			Phases: []waveobj.RunPhase{{WorkerOrefs: []string{"tab:" + runID}}},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	g.Tasks[1].CleanupPending = true
+
+	var order []string
+	oldStop := stopRunWorkers
+	stopRunWorkers = func(_ context.Context, run *waveobj.Run) error {
+		order = append(order, "stop:"+run.ID)
+		return nil
+	}
+	t.Cleanup(func() { stopRunWorkers = oldStop })
+	stubCleanupRemover(t, func(context.Context, string, string) error {
+		order = append(order, "remove")
+		return nil
+	})
+
+	if err := CleanupTaskWorktree(ctx, &g, "t-2"); err != nil {
+		t.Fatalf("cleanup: %v", err)
+	}
+	want := []string{"stop:child-t-1", "stop:child-t-2", "remove"}
+	if !slices.Equal(order, want) {
+		t.Fatalf("cleanup of lane tip t-2 did %v, want %v", order, want)
 	}
 }

@@ -50,3 +50,31 @@ func TestRemoveRunWorktreeLeavesJunctionTargetsIntact(t *testing.T) {
 		t.Fatalf("a junction target must survive worktree removal, got %q err %v", b, err)
 	}
 }
+
+// The whole point of the unregistered-dir delete is that it reports what is on disk. A live worker
+// process holding the tree is what made the delete fail in the first place, and a cleanup that cannot
+// remove the directory has to say so rather than emit task-cleanup-completed over it.
+func TestRemoveRunWorktreeReportsADirItCannotDelete(t *testing.T) {
+	dir := newGitRepo(t)
+	base := gitCmd(t, dir, "rev-parse", "HEAD")
+	wt, err := CreateRunWorktree(context.Background(), dir, "run-1", base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(dir, ".git", "worktrees")); err != nil {
+		t.Fatal(err)
+	}
+	gitCmd(t, dir, "worktree", "prune")
+	held, err := os.Create(filepath.Join(wt, "held.txt")) // stands in for the worker's open handle
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+
+	if err := RemoveRunWorktree(context.Background(), dir, "run-1"); err == nil {
+		t.Fatal("a worktree dir that could not be deleted must be reported, not swallowed")
+	}
+	if _, err := os.Stat(wt); err != nil {
+		t.Fatalf("the reported failure must match disk: worktree stat err = %v", err)
+	}
+}

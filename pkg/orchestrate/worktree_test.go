@@ -277,3 +277,27 @@ func TestRemoveWorktreeDirKeepsTheBranch(t *testing.T) {
 		t.Fatalf("the branch must stay, got %q", got)
 	}
 }
+
+// Git drops a worktree's registration before it deletes the tree, so a removal that fails part-way
+// leaves an unregistered directory on disk. Cleanup used to read unregistered as removed and report
+// task-cleanup-completed over a worktree that was still there.
+func TestRemoveRunWorktreeDeletesAnUnregisteredDir(t *testing.T) {
+	dir := newGitRepo(t)
+	base := gitCmd(t, dir, "rev-parse", "HEAD")
+	wt, err := CreateRunWorktree(context.Background(), dir, "run-1", base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// drop the registration without touching the tree: the state git leaves behind when its delete fails
+	if err := os.RemoveAll(filepath.Join(dir, ".git", "worktrees")); err != nil {
+		t.Fatal(err)
+	}
+	gitCmd(t, dir, "worktree", "prune")
+
+	if err := RemoveRunWorktree(context.Background(), dir, "run-1"); err != nil {
+		t.Fatalf("removing an unregistered worktree dir: %v", err)
+	}
+	if _, err := os.Stat(wt); !os.IsNotExist(err) {
+		t.Fatalf("unregistered worktree dir must be deleted, stat err = %v", err)
+	}
+}
