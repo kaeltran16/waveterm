@@ -30,8 +30,23 @@ function channels(meta: Record<string, unknown>): Channel[] {
     return [{ otype: "channel", oid: CH, version: 1, name: "wave-core", meta }] as Channel[];
 }
 
+const RADAR = item({ kind: "radar-triage", key: "radar:rep-1", source: "waveterm", action: "Triage", text: "4 findings need triage.", channelid: "", runid: "", oref: "radarreport:rep-1" } as Partial<AttentionItem> & Pick<AttentionItem, "kind" | "key">); // prettier-ignore
+
 const CONCIERGE = channels({});
 const DELEGATOR = channels({ "delegator:enabled": true });
+
+describe("queueRows — the creature only holds what it can resolve", () => {
+    // Radar triage names no channel and no run, so actsForAttention has nothing to offer it and the row
+    // rendered as a project name, an age, and nothing to press. The Radar rail's badge and the Brief's
+    // queue both address it through its ORef; the peek cannot, so it must not claim it is waiting here.
+    it("drops radar triage, whose destination the peek cannot reach", () => {
+        expect(queueRows([RADAR], CONCIERGE)).toEqual([]);
+    });
+
+    it("keeps every other waiting kind in wire order", () => {
+        expect(queueRows([GATE, RADAR, ESCALATION], CONCIERGE).map((r) => r.kind)).toEqual(["gate", "escalation"]);
+    });
+});
 
 describe("queueRows — detail earns its line, it is not given one", () => {
     // The row's scarcest resource is horizontal space, and four of the five kinds spend it on a constant

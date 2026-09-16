@@ -1,8 +1,9 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// What the peek's body shows: one row per waiting item, and the spoken updates that are not already one of
-// those rows. Pure, like petcondition.ts — petpeek.tsx is a renderer, not the thing that decides.
+// What the peek's body shows: one row per waiting item the creature can act on, and the spoken updates that
+// are not already one of those rows. Pure, like petcondition.ts — petpeek.tsx is a renderer, not the thing
+// that decides.
 
 import { tierFromMeta } from "@/app/view/agents/channelmessages";
 import { actsForAttention, actsForRecall, actsForVault, type PetAct } from "./petacts";
@@ -29,23 +30,32 @@ export interface PeekRow {
 // sentence that Action already encodes; brief §7 rules backend changes out of this pass.)
 const DETAIL_KINDS = new Set(["escalation", "dag-blocked"]);
 
+// Radar triage is the one attention kind the creature has no business holding. It names no channel and no
+// run, so it arrives with no act behind it (petacts.actsForAttention) and renders as a project name, an age
+// and nothing to press; the avatar's own signals never counted it either (petview.usePetSignals reads
+// gates, escalations and asks). It is addressed through its ORef by the Radar rail's badge and the Brief's
+// queue, which is the same routing splitAttention already does to keep it off Cockpit.
+const PEEK_EXCLUDED_KIND = "radar-triage";
+
 export function queueRows(items: AttentionItem[], channels: Channel[] | null): PeekRow[] {
-    return (items ?? []).map((item) => {
-        const channel = (channels ?? []).find((candidate) => candidate.oid === item.channelid);
-        // actsForAttention returns [] with no runid, [Open] normally, and [Open, Approve, Send back] for a
-        // gate a delegator may resolve in place. The escort is always first.
-        const [escort, ...more] = actsForAttention(item, tierFromMeta(channel?.meta));
-        return {
-            key: item.key,
-            kind: item.kind,
-            source: item.source,
-            detail: DETAIL_KINDS.has(item.kind) ? item.text : null,
-            waitingsince: item.waitingsince,
-            // "Review" / "Decide" / "Answer" is the same navigation as "Open", named by what it is for.
-            primary: escort != null ? ({ ...escort, label: item.action } as PetAct) : null,
-            more,
-        };
-    });
+    return (items ?? [])
+        .filter((item) => item.kind !== PEEK_EXCLUDED_KIND)
+        .map((item) => {
+            const channel = (channels ?? []).find((candidate) => candidate.oid === item.channelid);
+            // actsForAttention returns [] with no runid, [Open] normally, and [Open, Approve, Send back] for a
+            // gate a delegator may resolve in place. The escort is always first.
+            const [escort, ...more] = actsForAttention(item, tierFromMeta(channel?.meta));
+            return {
+                key: item.key,
+                kind: item.kind,
+                source: item.source,
+                detail: DETAIL_KINDS.has(item.kind) ? item.text : null,
+                waitingsince: item.waitingsince,
+                // "Review" / "Decide" / "Answer" is the same navigation as "Open", named by what it is for.
+                primary: escort != null ? ({ ...escort, label: item.action } as PetAct) : null,
+                more,
+            };
+        });
 }
 
 // An ask waiting on the user is both an AttentionItem keyed "ask:<block oref>" and a PetEvent carrying that
