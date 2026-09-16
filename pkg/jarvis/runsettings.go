@@ -43,6 +43,9 @@ func EngineSettingsBlocker(r *waveobj.Run) string {
 	if r.Mode != RunMode_Orchestrator {
 		return fmt.Sprintf("only an orchestrator run has a scheduler to reconfigure (this run is %s)", r.Mode)
 	}
+	if !IsEngineRun(r) {
+		return "an adaptive lead runs its own subagents, so there is no scheduler to reconfigure"
+	}
 	return ""
 }
 

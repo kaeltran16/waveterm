@@ -11,20 +11,6 @@
 export const DIAGNOSTIC_MISSING_REPLACEMENT = "missing-replacement";
 export const DIAGNOSTIC_MISSING_DISABLED = "missing-disabled";
 
-export type SectionSource = "global" | "project";
-
-// A section is "project" when the override carries it (non-null), else "global". Uses != null so an
-// explicit empty override (an empty principles patch) still counts as project.
-export function sectionSource(override: ProfileOverride | null | undefined): {
-    principles: SectionSource;
-    route: SectionSource;
-} {
-    return {
-        principles: override?.principles != null ? "project" : "global",
-        route: override?.route != null ? "project" : "global",
-    };
-}
-
 export type PrinciplePatchAction =
     | { type: "override"; id: string; text: string }
     | { type: "reset"; id: string }

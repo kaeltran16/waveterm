@@ -738,7 +738,6 @@ declare global {
     type CommandDagStatusRtnData = {
         group: TaskGroup;
         digest: DagStatusDigest;
-        planfeedback?: string;
     };
 
     // wshrpc.CommandDagSubmitData

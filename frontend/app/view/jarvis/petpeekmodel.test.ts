@@ -26,25 +26,18 @@ const ESCALATION = item({ kind: "escalation", key: "esc:m1", source: "gatekeeper
 const DAG_BLOCKED = item({ kind: "dag-blocked", key: "dag-blocked:g2", text: "3 consecutive failures — decide retry/skip." }); // prettier-ignore
 const ASK = item({ kind: "ask", key: "ask:block:b1", source: "phase-2 worker", action: "Answer", text: "Waiting on your reply" }); // prettier-ignore
 
-function channels(meta: Record<string, unknown>): Channel[] {
-    return [{ otype: "channel", oid: CH, version: 1, name: "wave-core", meta }] as Channel[];
-}
-
 const RADAR = item({ kind: "radar-triage", key: "radar:rep-1", source: "waveterm", action: "Triage", text: "4 findings need triage.", channelid: "", runid: "", oref: "radarreport:rep-1" } as Partial<AttentionItem> & Pick<AttentionItem, "kind" | "key">); // prettier-ignore
-
-const CONCIERGE = channels({});
-const DELEGATOR = channels({ "delegator:enabled": true });
 
 describe("queueRows — the creature only holds what it can resolve", () => {
     // Radar triage names no channel and no run, so actsForAttention has nothing to offer it and the row
     // rendered as a project name, an age, and nothing to press. The Radar rail's badge and the Brief's
     // queue both address it through its ORef; the peek cannot, so it must not claim it is waiting here.
     it("drops radar triage, whose destination the peek cannot reach", () => {
-        expect(queueRows([RADAR], CONCIERGE)).toEqual([]);
+        expect(queueRows([RADAR])).toEqual([]);
     });
 
     it("keeps every other waiting kind in wire order", () => {
-        expect(queueRows([GATE, RADAR, ESCALATION], CONCIERGE).map((r) => r.kind)).toEqual(["gate", "escalation"]);
+        expect(queueRows([GATE, RADAR, ESCALATION]).map((r) => r.kind)).toEqual(["gate", "escalation"]);
     });
 });
 
@@ -52,12 +45,12 @@ describe("queueRows — detail earns its line, it is not given one", () => {
     // The row's scarcest resource is horizontal space, and four of the five kinds spend it on a constant
     // string that the verb button already implies. Only a question is worth the width.
     it("drops the detail of kinds whose text is boilerplate", () => {
-        const rows = queueRows([GATE, DAG_GATE, ASK], CONCIERGE);
+        const rows = queueRows([GATE, DAG_GATE, ASK]);
         expect(rows.map((r) => r.detail)).toEqual([null, null, null]);
     });
 
     it("keeps the detail of kinds whose text is the payload", () => {
-        const rows = queueRows([ESCALATION, DAG_BLOCKED], CONCIERGE);
+        const rows = queueRows([ESCALATION, DAG_BLOCKED]);
         expect(rows[0].detail).toBe("Phase 3 wants to rewrite peterrandmodel.ts — the tier only covers reads. Allow?");
         expect(rows[1].detail).toBe("3 consecutive failures — decide retry/skip.");
     });
@@ -65,11 +58,11 @@ describe("queueRows — detail earns its line, it is not given one", () => {
     // the row's left bar is toned by kind, and the renderer must not have to re-look-up the item to know
     // which — a second lookup is how the bar and the verb get to disagree about what a row is.
     it("carries the kind through, so the row can be toned without a second lookup", () => {
-        expect(queueRows([GATE, ESCALATION, ASK], CONCIERGE).map((r) => r.kind)).toEqual(["gate", "escalation", "ask"]);
+        expect(queueRows([GATE, ESCALATION, ASK]).map((r) => r.kind)).toEqual(["gate", "escalation", "ask"]);
     });
 
     it("still carries the source of every row, boilerplate or not", () => {
-        expect(queueRows([GATE, ASK], CONCIERGE).map((r) => r.source)).toEqual([
+        expect(queueRows([GATE, ASK]).map((r) => r.source)).toEqual([
             "Ship autonomy ladder tier gating",
             "phase-2 worker",
         ]);
@@ -80,13 +73,13 @@ describe("queueRows — the button says what the item needs, not how to get ther
     // actsForAttention returns exactly one act for everything but a delegator-tier gate, and it is
     // labelled "Open". "Review" / "Decide" / "Answer" is the same navigation named by its purpose.
     it("labels the primary act from the item's own action verb", () => {
-        expect(queueRows([GATE], CONCIERGE)[0].primary?.label).toBe("Review");
-        expect(queueRows([ESCALATION], CONCIERGE)[0].primary?.label).toBe("Decide");
-        expect(queueRows([ASK], CONCIERGE)[0].primary?.label).toBe("Answer");
+        expect(queueRows([GATE])[0].primary?.label).toBe("Review");
+        expect(queueRows([ESCALATION])[0].primary?.label).toBe("Decide");
+        expect(queueRows([ASK])[0].primary?.label).toBe("Answer");
     });
 
     it("keeps the relabelled act pointed at the run it came from", () => {
-        const primary = queueRows([GATE], CONCIERGE)[0].primary;
+        const primary = queueRows([GATE])[0].primary;
         if (primary?.verb !== "open") {
             throw new Error(`expected an open escort, got ${primary?.verb}`);
         }
@@ -95,26 +88,9 @@ describe("queueRows — the button says what the item needs, not how to get ther
 
     it("offers no button at all for an item with nothing addressable behind it", () => {
         const orphan = item({ kind: "ask", key: "ask:block:b9", runid: undefined, action: "Answer" });
-        const row = queueRows([orphan], CONCIERGE)[0];
+        const row = queueRows([orphan])[0];
         expect(row.primary).toBeNull();
-        expect(row.more).toEqual([]);
         expect(row.source).toBe("a source");
-    });
-});
-
-describe("queueRows — secondary acts stay behind the row's own disclosure", () => {
-    it("puts a delegator gate's resolving verbs in more, leaving the primary the escort", () => {
-        const row = queueRows([GATE], DELEGATOR)[0];
-        expect(row.primary?.label).toBe("Review");
-        expect(row.more.map((a) => a.label)).toEqual(["Approve", "Send back"]);
-    });
-
-    it("has nothing to disclose for the same gate at a lower tier", () => {
-        expect(queueRows([GATE], CONCIERGE)[0].more).toEqual([]);
-    });
-
-    it("has nothing to disclose for a non-gate even at delegator tier", () => {
-        expect(queueRows([ESCALATION], DELEGATOR)[0].more).toEqual([]);
     });
 });
 
@@ -122,14 +98,13 @@ describe("queueRows — the server's ranking is authoritative", () => {
     // BuildAttention already sorts gates, then escalations, then asks, oldest first within a kind.
     // Re-sorting here would make the peek and the nav badge disagree about which waiting matters most.
     it("preserves the order it is given", () => {
-        const rows = queueRows([GATE, ESCALATION, ASK], CONCIERGE);
+        const rows = queueRows([GATE, ESCALATION, ASK]);
         expect(rows.map((r) => r.key)).toEqual([GATE.key, ESCALATION.key, ASK.key]);
     });
 
-    it("survives a channel list that has not loaded yet, at the lowest tier", () => {
-        const rows = queueRows([GATE], null);
+    it("gives every waiting row its escort, relabelled by what the item needs", () => {
+        const rows = queueRows([GATE]);
         expect(rows[0].primary?.label).toBe("Review");
-        expect(rows[0].more).toEqual([]);
     });
 });
 
@@ -167,15 +142,17 @@ describe("peekKeyCommand", () => {
         expect(peekKeyCommand("Enter")).toBe("open");
     });
 
-    it("maps actions and panel controls", () => {
-        expect(peekKeyCommand("a")).toBe("approve");
-        expect(peekKeyCommand("s")).toBe("sendback");
+    it("maps panel controls", () => {
         expect(peekKeyCommand("c")).toBe("conditions");
         expect(peekKeyCommand("/")).toBe("composer");
         expect(peekKeyCommand("Escape")).toBe("close");
     });
 
+    // a/s were the gate's approve and send back; slice 5c deleted both, so the keys are free again and must
+    // not silently keep firing something
     it("ignores unrelated and uppercase keys", () => {
+        expect(peekKeyCommand("a")).toBeNull();
+        expect(peekKeyCommand("s")).toBeNull();
         expect(peekKeyCommand("x")).toBeNull();
         expect(peekKeyCommand("A")).toBeNull();
     });
@@ -183,16 +160,16 @@ describe("peekKeyCommand", () => {
 
 describe("peekActForCommand", () => {
     it("opens the focused row through its primary act", () => {
-        const row = queueRows([ASK], CONCIERGE)[0];
+        const row = queueRows([ASK])[0];
         expect(peekActForCommand(row, "open")).toBe(row.primary);
     });
 
-    it("finds delegator gate decisions and rejects unavailable ones", () => {
-        const gate = queueRows([GATE], DELEGATOR)[0];
-        expect(peekActForCommand(gate, "approve")?.id).toBe(`${GATE.key}:approve`);
-        expect(peekActForCommand(gate, "sendback")?.id).toBe(`${GATE.key}:sendback`);
-        expect(peekActForCommand(queueRows([GATE], CONCIERGE)[0], "approve")).toBeNull();
-        expect(peekActForCommand(queueRows([ASK], DELEGATOR)[0], "sendback")).toBeNull();
+    // open is the only command that resolves to an act: no attention kind carries a verb a key could fire.
+    it("returns no act for every other command", () => {
+        const row = queueRows([GATE])[0];
+        for (const command of ["next", "previous", "conditions", "composer", "close"] as const) {
+            expect(peekActForCommand(row, command)).toBeNull();
+        }
     });
 
     it("returns no act without a focused row", () => {

@@ -27,6 +27,16 @@ squash conflict, or a project tree with staged edits the engine will not commit 
 >   drafts. After any compaction the lead gets its orchestration rules back (`wsh jarvis dag rules`).
 > - **Workers:** every worker's prompt opens with a contract that names its task in the plan.
 > - **Dead lead:** a lead that exits before submitting fails the run with a `Lead exited` row.
+>
+> **Update 2026-09-16 (orchestrator redesign, slice 5c):** the plan gate is **gone**, and with it the
+> pipeline and adaptive shapes, the `MaxDagTasks` cap, `wsh jarvis triage` / `hold`, and `dag init` /
+> `dag import-tasks`. A submitted plan now dispatches its first layer immediately — there is no
+> approval step between submit and the first child, and no card to approve. There is one shape that
+> fans out (Orchestrator), one machine (the engine), and `dag submit` takes `--plan` only.
+>
+> **Everything below Phase 2 is a record of a run driven on 2026-09-09, not instructions for today.**
+> The screenshots and the gate narrative are kept because the failure analysis in Phases 5–8 is still
+> the best account of how the engine behaves under load; read the gate steps as history.
 
 Everything else is machinery. The rest of this document is what that machinery looks like from the
 outside, and what to do when it stops.
@@ -113,26 +123,19 @@ The general lesson is the one worth carrying: **before the first merge, know wha
 and what it deletes through.** The destructive step runs unattended, after the part you were
 watching.
 
-### 3. The machine must be the one you think it is
+### 3. The machine must be the one you think it is — *resolved in slice 5c*
 
-This is the one that silently does nothing. The plan gate, the DAG, the managed worktrees and the
-child spawning described in this document are all properties of the **engine** machine. An
-**adaptive** run gets none of them: no gate, no worktrees, one lead working with its own subagents.
-Nothing in the run panel afterwards says "you asked for the other thing".
+**This trap is gone.** It was the one that silently did nothing: the DAG, the managed worktrees and the
+child spawning described in this document were all properties of the **engine** machine, an **adaptive**
+run got none of them, and two disagreeing defaults decided which you got — the `+ Run` modal always sent
+the machine explicitly, while any launch that omitted it fell to a backend rule that gave engine to a `pi`
+route and adaptive to every other runtime. A claude-routed launch that said nothing got an adaptive lead,
+and nothing in the run panel afterwards said "you asked for the other thing".
 
-Two different defaults decide which you get, and they disagree.
-
-- **From `+ Run`**, the machine is always sent explicitly. The modal seeds it from the Jarvis
-  profile's `machine` field (`profileRunDefaults`, `frontend/app/view/agents/runconfig.ts:56`), and
-  when the profile says nothing it falls back to `LAUNCH_ORCHESTRATION = "engine"`
-  (`frontend/app/view/agents/runconfigstore.ts:19`). This dev install has no `jarvis-profile.json`,
-  so the builtin profile applied and the modal opened with **Engine** already selected.
-- **From anywhere that sends no machine at all**, the backend decides:
-  `ResolveOrchestration` (`pkg/jarvis/run.go:394`) returns engine for a `pi` route and **adaptive for
-  every other runtime**. A claude-routed launch that omits the field gets an adaptive lead.
-
-So the modal is safe by default and everything else is not. Read the machine off the launch summary
-after the run starts (`MACHINE engine` in the run panel) rather than trusting that you chose it.
+Slice 5c deleted the adaptive machine and the control that chose it. Every orchestrator is an engine run,
+so there is nothing left to pick wrong. A run stored before the deletion keeps whatever machine it was
+created with and still renders; its settings sheet is read-only, because an adaptive lead has no scheduler
+to reconfigure.
 
 ### 4. The lead's harness must be claude or pi, with its packages installed
 
@@ -192,7 +195,7 @@ Six controls, all of them load-bearing:
 | Project | `review-fixes` | The list comes from `projects.json`, not from your channels. A repo you have only talked about in Jarvis will not appear here — register it first. |
 | Shape | Orchestrator | Quick is one worker, no lead, no plan. Only Orchestrator fans out. |
 | Start from | A goal | A goal gets a lead that brainstorms it with you. A plan file starts the engine at once, and a lead appears only when something needs judgment (`runLauncherFace`, `runconfig.ts`). |
-| Parallelism | 3 | Ceiling is `MaxParallelism = 8`, DAG ceiling is `MaxDagTasks = 16`. 3 is a deliberate choice: enough overlap to be worth it, few enough merges to stay legible. |
+| Parallelism | 3 | Ceiling is `MaxParallelism = 8`. (There is no cap on plan size: `MaxDagTasks` was deleted in slice 5c — a plan is bounded by what it expresses.) 3 is a deliberate choice: enough overlap to be worth it, few enough merges to stay legible. |
 | Lead route | `Claude Code · opus` | The lead writes the plan, answers the children's asks and resolves the merges the engine stops on. It is the one worker whose judgment is not recoverable by a retry. |
 | Worker route | Inherit the lead | Children inherit unless told otherwise. |
 
@@ -1234,14 +1237,15 @@ Everything above, as the short form I would actually follow next time.
    closed their chunks; the third completed and went quiet with the close line unrun, and I closed
    that chunk by hand.
 
-**At the plan gate**
+**Before you submit** (slice 5c removed the gate, so this is now read-the-plan-first, not approve-after)
 
-7. Read the plan in the DAG view, where you can act on it — not only in the digest. The approve
-   button is on the run transcript's plan-gate card; the Brief's `WAITING ON YOU` card only offers
-   `REVIEW`.
-8. Check task count against `MaxDagTasks` (16), check that dependency edges match what actually
-   shares a file, and check that the lead passed your constraints down into the task descriptions.
-9. Check the DAG again *after* you approve. A blocked DAG with failed tasks that carry no failure
+7. Read the plan file before handing it to the engine. Submission dispatches the first layer
+   immediately — there is no approval step between `dag submit --plan` and the first child, so the
+   plan file itself is the last point at which a wrong decomposition is cheap.
+8. Check that dependency edges match what actually shares a file, and that the lead passed your
+   constraints down into the task descriptions. Task count is not capped; judge it by the per-child
+   overhead in item 18, not by a ceiling.
+9. Check the DAG again *after* submitting. A blocked DAG with failed tasks that carry no failure
    kind means the dispatch batch failed and said nothing (Phase 6); retry those tasks.
 
 **During execution**
@@ -1284,7 +1288,7 @@ Everything above, as the short form I would actually follow next time.
     child's fixed cost, not four short tasks. Measure that cost before you size anything:
     `task-spawned` carries `worktreems` and `spawnms`, `task-first-activity` carries `sincespawnms`,
     which splits a child into dispatch, cold orientation and work. Phase 7 has the measured spans.
-    `MaxDagTasks` (16) and `MaxParallelism` (8) are ceilings, not targets.
+    `MaxParallelism` (8) is a ceiling, not a target.
 19. Use the DAG when all three hold: the decomposition is genuinely open, the tasks touch disjoint
     subsystems, and each task is a large multiple of the per-child overhead in item 18. Do not use it
     when the spec already exists chunk by chunk (item 17), when the tasks share files — the merges

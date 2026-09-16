@@ -85,8 +85,8 @@ face `Enter` spawns workers and spends money, while `Jarvis · consult` (what th
 
 Three things to read here:
 
-- the footer states the channel's strategy, not a per-dispatch choice: `→ pipeline run · stops at a review
-  gate · set in ⚙`;
+- the footer states what the selected shape will do, not a per-dispatch choice — for an orchestrator,
+  `→ engine DAG · lead <model> · workers <model>`;
 - the hint on the right of the box is the whole vocabulary;
 - the selected channel expands inline into its **run switcher** — one row per run with a status dot. This
   is the only run list; there is no run tab.
@@ -95,7 +95,7 @@ Three things to read here:
 
 | Input | Result |
 |---|---|
-| a bare goal | managed run using the channel's `defaultmode` + `defaultplangate` |
+| a bare goal | managed run using the channel's `defaultmode` |
 | `@run <goal>` | the same, explicit |
 | `@quick <goal>` | one worker, no phases |
 | `@ask <goal>` | one-shot consult, **no run** — lands in the rail's **Consults** |
@@ -192,8 +192,9 @@ force-collapses while the drawer is open so the two never stack — so the trip 
 
 - **Global defaults / This project** at the top is the scope, and the **Save** button's label follows it
   (`Save` vs `Save global defaults`) — read the button before pressing it.
-- **Playbook** — the ordered phases with their skills and `GATE` / `FRESH-CTX` flags.
-- **Run defaults** — `pipeline` / `orchestrator` + the plan gate. This is what the Launch footer states.
+- **Run defaults** — the default shape (`quick` / `orchestrator`), the engine's width and its worker
+  route. This is what the Launch footer states. (The editable playbook and the plan-gate default were
+  removed in slice 5c: there are two shapes, neither of which gates a phase.)
 
 Each section badges `GLOBAL` or `PROJECT`, with **customize** (copy the inherited section down into an
 editable override) and **reset to global**. Save stays disabled until something is dirty.

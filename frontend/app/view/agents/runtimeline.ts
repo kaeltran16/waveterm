@@ -228,8 +228,6 @@ export type TimelineClick =
     | { kind: "select-child"; childRunId: string }
     | { kind: "open-dag"; taskId: string }
     | { kind: "focus-phase"; phaseIdx: number }
-    | { kind: "approve-gate"; phaseIdx: number }
-    | { kind: "sendback-gate"; phaseIdx: number }
     | { kind: "open-diff" }
     | { kind: "none" };
 
@@ -242,11 +240,12 @@ export function clickTargetFor(event: RunEvent): TimelineClick {
         case "task-stalled":
         case "dag-blocked":
             return { kind: "open-dag", taskId: detail?.taskid ?? "" };
+        // phase-held, gate-approved and gate-sent-back are rows only a run stored before slice 5c can
+        // carry. They scroll to the phase they name like any other phase row; the verbs that resolved
+        // them are gone.
         case "phase-started":
         case "phase-complete":
-            return event.phaseidx != null ? { kind: "focus-phase", phaseIdx: event.phaseidx } : { kind: "none" };
         case "phase-held":
-            return event.phaseidx != null ? { kind: "approve-gate", phaseIdx: event.phaseidx } : { kind: "none" };
         case "gate-approved":
         case "gate-sent-back":
             return event.phaseidx != null ? { kind: "focus-phase", phaseIdx: event.phaseidx } : { kind: "none" };

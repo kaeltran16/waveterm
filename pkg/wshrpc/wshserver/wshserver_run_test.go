@@ -206,29 +206,26 @@ func TestApplyRunActionUnknown(t *testing.T) {
 	}
 }
 
-func TestResolveRunPlanDefaultsToQuickRegardlessOfProfile(t *testing.T) {
-	for _, savedMode := range []string{"", jarvis.RunMode_Quick, jarvis.RunMode_Pipeline, jarvis.RunMode_Orchestrator} {
-		t.Run("saved="+savedMode, func(t *testing.T) {
-			profile := waveobj.JarvisProfile{DefaultMode: savedMode}
-			mode, phases := resolveRunPlan(profile, "")
-			if mode != jarvis.RunMode_Quick || len(phases) != 1 || phases[0].Kind != jarvis.PhaseKind_Execute || phases[0].Gate || phases[0].Skill != "" {
-				t.Fatalf("default launch must be one ungated bare worker: mode=%q phases=%+v", mode, phases)
-			}
-		})
+// A top-level launch with no stated shape is a quick run. No stored default can reach this: the launcher
+// hydrates its shape control from the profile and sends the choice explicitly, so the only caller that
+// consults a saved default is childRunPlan, which resolves it before calling in.
+func TestResolveRunPlanDefaultsToQuick(t *testing.T) {
+	mode, phases := resolveRunPlan("")
+	if mode != jarvis.RunMode_Quick || len(phases) != 1 || phases[0].Kind != jarvis.PhaseKind_Execute || phases[0].Gate || phases[0].Skill != "" {
+		t.Fatalf("default launch must be one ungated bare worker: mode=%q phases=%+v", mode, phases)
 	}
 }
 
 // Two shapes survive: an explicit orchestrator, and a quick run for everything else — including
 // the pipeline a saved profile may still name.
 func TestResolveRunPlanHonorsExplicitMode(t *testing.T) {
-	profile := waveobj.JarvisProfile{DefaultMode: jarvis.RunMode_Orchestrator}
 	for requested, want := range map[string]string{
 		jarvis.RunMode_Quick:        jarvis.RunMode_Quick,
 		jarvis.RunMode_Pipeline:     jarvis.RunMode_Quick,
 		jarvis.RunMode_Orchestrator: jarvis.RunMode_Orchestrator,
 	} {
 		t.Run(requested, func(t *testing.T) {
-			mode, phases := resolveRunPlan(profile, requested)
+			mode, phases := resolveRunPlan(requested)
 			if mode != want || len(phases) != 1 {
 				t.Fatalf("requested %q: mode=%q phases=%+v, want %q", requested, mode, phases, want)
 			}
@@ -751,5 +748,51 @@ func TestCreateRunCommand_PersistsOrchestration(t *testing.T) {
 	}
 	if rtn.Run.Orchestration != jarvis.Orchestration_Engine {
 		t.Fatalf("persisted orchestration = %q, want engine", rtn.Run.Orchestration)
+	}
+}
+
+// A multi-phase run driven end-to-end through the real AdvanceRunCommand must leave a lifecycle log whose
+// ORDER narrates the run the way the focused card renders it: every phase started, each completion released
+// its successor, and the cancel lands last. Slice 5c deleted the review gate that used to interrupt this
+// sequence, so nothing between the phases pauses any more — which is exactly what the exact-order assert
+// has to keep true, because a phase that silently failed to start reads as a run that is still working.
+func TestRunLifecycleEventsAppended(t *testing.T) {
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "events-run", t.TempDir())
+	if err != nil {
+		t.Fatalf("CreateChannel: %v", err)
+	}
+	run := jarvis.NewRun("finish it", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Pipeline, storedPipelinePhases(), 1)
+	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
+		t.Fatalf("AppendRun: %v", err)
+	}
+	// the RPC create path writes phase-started(0); the direct handler test seeds it the same way
+	phase0 := 0
+	if _, err := wstore.AppendRunEvent(ctx, ch.OID, run.ID, waveobj.RunEventKindPhaseStarted, &phase0, map[string]any{}); err != nil {
+		t.Fatalf("append phase-started: %v", err)
+	}
+	// AdvanceRunCommand spawns workers for newly-running phases at its tail; stub the spawn seam so the
+	// test never touches real tabs/PTYs
+	origSpawn := jarvis.SpawnRunWorker
+	jarvis.SpawnRunWorker = func(_ context.Context, _ runroute.Capability, _, _, _, _ string, _ jarvis.RunWorkerOptions) (string, error) {
+		return waveobj.MakeORef(waveobj.OType_Tab, "x").String(), nil
+	}
+	defer func() { jarvis.SpawnRunWorker = origSpawn }()
+
+	ws := &WshServer{}
+	if err := ws.AdvanceRunCommand(ctx, wshrpc.CommandAdvanceRunData{
+		ChannelId: ch.OID, RunId: run.ID, PhaseIdx: 0, Action: jarvis.RunAction_Complete,
+	}); err != nil {
+		t.Fatalf("AdvanceRunCommand(complete): %v", err)
+	}
+	// cancel the running execute phase so the terminal row lands without the done-transition seal
+	if err := ws.CancelRunCommand(ctx, wshrpc.CommandCancelRunData{ChannelId: ch.OID, RunId: run.ID}); err != nil {
+		t.Fatalf("CancelRunCommand: %v", err)
+	}
+
+	want := []string{"phase-started@0", "phase-complete@0", "phase-started@1", "run-cancelled"}
+	got := mustSeq(t, ch.OID, run.ID)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("events %v:\n want %v", got, want)
 	}
 }

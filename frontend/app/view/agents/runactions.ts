@@ -94,24 +94,6 @@ export async function createRun(
     return rtn.run;
 }
 
-export async function approveGate(channelId: string, runId: string, gateIdx: number): Promise<void> {
-    await RpcApi.AdvanceRunCommand(TabRpcClient, {
-        channelid: channelId,
-        runid: runId,
-        phaseidx: gateIdx,
-        action: "approve",
-    });
-}
-
-export async function sendBackGate(channelId: string, runId: string, gateIdx: number): Promise<void> {
-    await RpcApi.AdvanceRunCommand(TabRpcClient, {
-        channelid: channelId,
-        runid: runId,
-        phaseidx: gateIdx,
-        action: "sendback",
-    });
-}
-
 export async function cancelRun(channelId: string, runId: string): Promise<void> {
     globalStore.set(cancellingRunIdsAtom, (prev) => new Set(prev).add(runId));
     try {

@@ -5,7 +5,6 @@
 // are not already one of those rows. Pure, like petcondition.ts — petpeek.tsx is a renderer, not the thing
 // that decides.
 
-import { tierFromMeta } from "@/app/view/agents/channelmessages";
 import { actsForAttention, actsForRecall, actsForVault, type PetAct } from "./petacts";
 import { conditionsFor, type PetExpression, type PetSignals } from "./petcondition";
 import type { PetEvent } from "./petvoice";
@@ -18,9 +17,9 @@ export interface PeekRow {
     detail: string | null;
     waitingsince: number;
     // the escort, relabelled with the item's own verb. null when nothing is addressable behind the item.
+    // It is the only act a row can carry: slice 5c deleted the review gate, the one attention kind a
+    // button could settle, so nothing is left to show behind a disclosure.
     primary: PetAct | null;
-    // resolving acts, shown only behind the row's disclosure. Empty for all but a delegator-tier gate.
-    more: PetAct[];
 }
 
 // pkg/jarvis/attention.go writes Text per kind, and only these two put anything in it that the row's own
@@ -37,14 +36,13 @@ const DETAIL_KINDS = new Set(["escalation", "dag-blocked"]);
 // queue, which is the same routing splitAttention already does to keep it off Cockpit.
 const PEEK_EXCLUDED_KIND = "radar-triage";
 
-export function queueRows(items: AttentionItem[], channels: Channel[] | null): PeekRow[] {
+export function queueRows(items: AttentionItem[]): PeekRow[] {
     return (items ?? [])
         .filter((item) => item.kind !== PEEK_EXCLUDED_KIND)
         .map((item) => {
-            const channel = (channels ?? []).find((candidate) => candidate.oid === item.channelid);
-            // actsForAttention returns [] with no runid, [Open] normally, and [Open, Approve, Send back] for a
-            // gate a delegator may resolve in place. The escort is always first.
-            const [escort, ...more] = actsForAttention(item, tierFromMeta(channel?.meta));
+            // actsForAttention returns [] with no runid and [Open] otherwise: no attention kind carries a
+            // resolving verb, so the escort is the only act and `more` is always empty.
+            const [escort] = actsForAttention(item);
             return {
                 key: item.key,
                 kind: item.kind,
@@ -53,7 +51,6 @@ export function queueRows(items: AttentionItem[], channels: Channel[] | null): P
                 waitingsince: item.waitingsince,
                 // "Review" / "Decide" / "Answer" is the same navigation as "Open", named by what it is for.
                 primary: escort != null ? ({ ...escort, label: item.action } as PetAct) : null,
-                more,
             };
         });
 }
@@ -68,15 +65,7 @@ export function dedupeUpdates(events: PetEvent[], items: AttentionItem[]): PetEv
     );
 }
 
-export type PeekKeyCommand =
-    | "next"
-    | "previous"
-    | "open"
-    | "approve"
-    | "sendback"
-    | "conditions"
-    | "composer"
-    | "close";
+export type PeekKeyCommand = "next" | "previous" | "open" | "conditions" | "composer" | "close";
 
 export function peekKeyCommand(key: string): PeekKeyCommand | null {
     switch (key) {
@@ -88,10 +77,6 @@ export function peekKeyCommand(key: string): PeekKeyCommand | null {
             return "previous";
         case "Enter":
             return "open";
-        case "a":
-            return "approve";
-        case "s":
-            return "sendback";
         case "c":
             return "conditions";
         case "/":
@@ -107,13 +92,7 @@ export function peekActForCommand(row: PeekRow | undefined, command: PeekKeyComm
     if (row == null) {
         return null;
     }
-    if (command === "open") {
-        return row.primary;
-    }
-    if (command !== "approve" && command !== "sendback") {
-        return null;
-    }
-    return row.more.find((act) => act.verb === "do" && act.op.kind === "gate" && act.op.action === command) ?? null;
+    return command === "open" ? row.primary : null;
 }
 
 export interface ConditionSources {

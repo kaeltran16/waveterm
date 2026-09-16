@@ -95,31 +95,23 @@ function gate(): AttentionItem {
 }
 
 describe("actsForAttention", () => {
-    it("always escorts to the waiting thing, whatever the tier", () => {
-        expect(actsForAttention(gate(), "concierge").map((a) => a.label)).toEqual(["Open"]);
+    it("escorts to the waiting thing", () => {
+        expect(actsForAttention(gate()).map((a) => a.label)).toEqual(["Open"]);
+        expect(actsForAttention(gate())[0]).toMatchObject({ verb: "open", target: { kind: "oref", ref: "run:run1" } });
     });
 
-    it("adds the resolving verbs only where the target channel granted that authority", () => {
-        expect(actsForAttention(gate(), "delegator").map((a) => a.label)).toEqual(["Open", "Approve", "Send back"]);
-        expect(actsForAttention(gate(), "gatekeeper").map((a) => a.label)).toEqual(["Open"]);
-    });
-
-    it("addresses the run through the phase the server named", () => {
-        const acts = actsForAttention(gate(), "delegator");
-        expect(acts[1]).toMatchObject({
-            verb: "do",
-            op: { kind: "gate", channelId: "ch1", runId: "run1", phaseIdx: 1, action: "approve" },
-        });
-    });
-
-    it("offers only an escort for a kind that has no resolving verb", () => {
-        const esc = { ...gate(), kind: "escalation", key: "esc:m1" } as AttentionItem;
-        expect(actsForAttention(esc, "delegator").map((a) => a.label)).toEqual(["Open"]);
+    // Slice 5c deleted the review gate, the one attention kind a button could settle. Nothing is left that
+    // a click resolves in place, so no kind may offer a second act.
+    it("offers an escort and nothing else, whatever the kind", () => {
+        for (const kind of ["gate", "escalation", "ask", "dag-blocked"]) {
+            const it = { ...gate(), kind, key: `${kind}:m1` } as AttentionItem;
+            expect(actsForAttention(it).map((a) => a.label)).toEqual(["Open"]);
+        }
     });
 
     it("offers nothing at all for an item with no run to address", () => {
         const orphan = { ...gate(), runid: "" } as AttentionItem;
-        expect(actsForAttention(orphan, "delegator")).toEqual([]);
+        expect(actsForAttention(orphan)).toEqual([]);
     });
 });
 

@@ -43,6 +43,20 @@ const (
 // plan file and the engine runs the dag. It is still written to Run.Orchestration and read back.
 const Orchestration_Engine = "engine"
 
+// IsEngineRun reports whether a run's lead drives pkg/orchestrate. Every orchestrator started since
+// slice 5c carries Orchestration_Engine; an empty orchestration predates the control, where the runtime
+// decided and only pi led an engine run. A stored adaptive lead ran its own subagents, so it has no
+// scheduler to read or reconfigure. The frontend's sheetFace applies this same rule.
+func IsEngineRun(r *waveobj.Run) bool {
+	if r == nil {
+		return false
+	}
+	if r.Orchestration != "" {
+		return r.Orchestration == Orchestration_Engine
+	}
+	return r.Runtime == "pi"
+}
+
 // Phase kinds.
 const (
 	PhaseKind_Brainstorm  = "brainstorm"
@@ -152,9 +166,10 @@ func recomputeStatus(r *waveobj.Run) {
 	r.Status = RunStatus_Planning
 }
 
-// CompletePhase marks phaseIdx done, records the reported artifacts, and advances: a non-gated phase
-// auto-starts its successor; a gated phase halts (recomputeStatus derives awaiting-review). Completion
-// is reported in by the caller (UI action or the ~/.claude hook) — the engine does not detect it.
+// CompletePhase marks phaseIdx done, records the reported artifacts, and starts its successor. A stored
+// phase may still carry Gate from before slice 5c deleted the plan gate; it no longer halts here, because
+// nothing can approve it any more and a halted phase would strand the run. Completion is reported in by
+// the caller (UI action or the ~/.claude hook) — the engine does not detect it.
 func CompletePhase(run waveobj.Run, phaseIdx int, artifacts []string, ts int64) (waveobj.Run, error) {
 	if phaseIdx < 0 || phaseIdx >= len(run.Phases) {
 		return run, fmt.Errorf("phase index %d out of range", phaseIdx)
@@ -165,7 +180,7 @@ func CompletePhase(run waveobj.Run, phaseIdx int, artifacts []string, ts int64) 
 	run.Phases[phaseIdx].State = PhaseState_Done
 	run.Phases[phaseIdx].DoneTs = ts
 	run.Phases[phaseIdx].Artifacts = append(run.Phases[phaseIdx].Artifacts, artifacts...)
-	if !run.Phases[phaseIdx].Gate && phaseIdx+1 < len(run.Phases) {
+	if phaseIdx+1 < len(run.Phases) {
 		run.Phases[phaseIdx+1].State = PhaseState_Running
 		run.Phases[phaseIdx+1].StartedTs = ts
 	}

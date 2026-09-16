@@ -417,7 +417,7 @@ export function OrchestratorBody({
                 />
                 <RunTimeline channel={channel} run={run} />
                 <CancelSurvivorsCard model={model} channelId={channel.oid} run={run} agents={agents} />
-                {thread.showGate ? <ReviewGateCard channelId={channel.oid} run={run} gateIdx={idx} /> : null}
+                {thread.showGate ? <ReviewGateCard run={run} gateIdx={idx} /> : null}
                 {thread.showAsk && thread.askAgent && thread.askKind ? (
                     <AskCard model={model} agent={thread.askAgent} kind={thread.askKind} />
                 ) : null}
@@ -551,9 +551,7 @@ export function PhaseRail({
                                     </div>
                                 ) : null}
                                 {p.state === "done" ? <PhaseHistory tabIds={recordedWorkerTabs(p)} /> : null}
-                                {thread.showGate ? (
-                                    <ReviewGateCard channelId={channelId} run={run} gateIdx={i} />
-                                ) : null}
+                                {thread.showGate ? <ReviewGateCard run={run} gateIdx={i} /> : null}
                                 {thread.showAsk && thread.askAgent && thread.askKind ? (
                                     <AskCard model={model} agent={thread.askAgent} kind={thread.askKind} />
                                 ) : null}

@@ -304,9 +304,9 @@ type Run struct {
 	Parallelism int `json:"parallelism,omitempty"`
 	// historical: slice 5c removed the plan gate; kept so a stored run still decodes as it was written.
 	PlanGatePending *bool `json:"plangatepending,omitempty"`
-	// PlanFeedback is what the human wrote when they sent this run's gated plan back. The lead is
-	// handed it in its terminal and from `wsh jarvis dag status`, and redrafts; the next accepted
-	// submission clears it, so a redraft is never answered with the notes that produced it.
+	// historical: what the human wrote when they sent this run's gated plan back. Slice 5c removed the
+	// plan gate, so nothing writes or reads this any more; kept so a stored run still decodes as it was
+	// written.
 	PlanFeedback string      `json:"planfeedback,omitempty"`
 	Meta         MetaMapType `json:"meta"`
 }

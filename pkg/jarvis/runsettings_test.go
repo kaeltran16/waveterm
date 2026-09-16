@@ -138,3 +138,25 @@ func TestRunEngineSettingsPrefersGroupAfterSubmit(t *testing.T) {
 		t.Errorf("parallelism = %v, want the group's 2", got.Parallelism)
 	}
 }
+
+// A stored adaptive lead ran its own subagents: there is no engine scheduler behind it, so its width and
+// worker route are not dials this sheet can move. The frontend's sheetFace applies the same rule, and the
+// server is the one that has to enforce it.
+func TestEngineSettingsBlockerRejectsAStoredAdaptiveRun(t *testing.T) {
+	adaptive := engineRun()
+	adaptive.Orchestration = "adaptive"
+	if got := EngineSettingsBlocker(&adaptive); got == "" {
+		t.Error("a stored adaptive orchestrator has no scheduler to reconfigure")
+	}
+	// an empty orchestration predates the control: the runtime decided then, and only pi led an engine run
+	legacyClaude := engineRun()
+	legacyClaude.Orchestration, legacyClaude.Runtime = "", "claude"
+	if got := EngineSettingsBlocker(&legacyClaude); got == "" {
+		t.Error("a pre-control claude orchestrator was adaptive, so it has no scheduler either")
+	}
+	legacyPi := engineRun()
+	legacyPi.Orchestration, legacyPi.Runtime = "", "pi"
+	if got := EngineSettingsBlocker(&legacyPi); got != "" {
+		t.Errorf("a pre-control pi orchestrator drove the engine: blocker = %q, want none", got)
+	}
+}

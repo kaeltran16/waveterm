@@ -22,12 +22,17 @@ type DagCommands interface {
 	DagAnswerCommand(ctx context.Context, data CommandDagAnswerData) error                                            // deliver an answer to a child's pending ask
 }
 
+// A submission is a plan file or a typed task list. Every shipped caller sends a plan file — `wsh jarvis
+// dag submit --plan` and + Run are the only two, and slice 5c removed the rest. The typed form stays
+// because it is the only one that can carry a per-task RunSpec: the plan format has no syntax for pinning
+// a task to a runtime or model, and the engine validates and dispatches on that pin. Deleting it would
+// delete that capability, not dead code.
 type CommandDagSubmitData struct {
 	ChannelId   string             `json:"channelid"`
 	RunId       string             `json:"runid"`
 	Title       string             `json:"title,omitempty"`
 	Parallelism int                `json:"parallelism"`
-	Tasks       []waveobj.TaskNode `json:"tasks"`
+	Tasks       []waveobj.TaskNode `json:"tasks"`                 // per-task RunSpec routing; a plan file cannot express it
 	WorkerRoute *waveobj.RoutePin  `json:"workerroute,omitempty"` // nil = inherit lead; B1b workers default
 	PlanPath    string             `json:"planpath,omitempty"`    // absolute path to a plan in jarvis.PlanFormat; replaces tasks
 	SpecPath    string             `json:"specpath,omitempty"`    // absolute path to the spec the plan implements; only with planpath
@@ -107,9 +112,6 @@ type CommandDagAnswerData struct {
 type CommandDagStatusRtnData struct {
 	Group  *waveobj.TaskGroup `json:"group"`
 	Digest DagStatusDigest    `json:"digest"`
-	// PlanFeedback is set, with a nil Group, when the human sent this run's plan back: the dag it
-	// describes no longer exists, and what the lead needs is the reason, not a status.
-	PlanFeedback string `json:"planfeedback,omitempty"`
 }
 
 type DagStatusDigest struct {

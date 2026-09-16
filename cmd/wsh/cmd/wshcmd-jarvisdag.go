@@ -115,9 +115,6 @@ func dagStatusLines(rtn *wshrpc.CommandDagStatusRtnData, now int64) []string {
 	g := rtn.Group
 	d := rtn.Digest
 	if g == nil {
-		if rtn.PlanFeedback != "" {
-			return []string{"plan sent back — submit a revised dag", rtn.PlanFeedback}
-		}
 		return []string{"dag status unavailable"}
 	}
 	line := fmt.Sprintf("dag %s  status=%s  tasks=%d/%d  failures=%d  parallelism=%d",

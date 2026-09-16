@@ -54,8 +54,10 @@ describe("buildRunTimeline", () => {
 });
 
 describe("clickTargetFor", () => {
-    it("maps phase-held to approve-gate and child events to select-child", () => {
-        expect(clickTargetFor(ev("phase-held", 4, 1))).toEqual({ kind: "approve-gate", phaseIdx: 1 });
+    // phase-held is a row only a run stored before slice 5c can carry. It scrolls to the phase it names
+    // like any other phase row — the verb that released a held phase is gone.
+    it("maps phase-held to focus-phase and child events to select-child", () => {
+        expect(clickTargetFor(ev("phase-held", 4, 1))).toEqual({ kind: "focus-phase", phaseIdx: 1 });
         const childEv = { ...ev("child-done", 5), detail: JSON.stringify({ childrunid: "run-9", goal: "t" }) };
         expect(clickTargetFor(childEv)).toEqual({ kind: "select-child", childRunId: "run-9" });
     });

@@ -9,7 +9,6 @@ import {
     reducePlaybook,
     reducePrinciplePatch,
     resetActionState,
-    sectionSource,
 } from "./profilemodel";
 
 const G: Principle[] = [
@@ -17,17 +16,6 @@ const G: Principle[] = [
     { id: "b", text: "Bravo" },
     { id: "c", text: "Charlie" },
 ];
-
-describe("sectionSource", () => {
-    it("is global for null/undefined and empty override", () => {
-        expect(sectionSource(null)).toEqual({ principles: "global", route: "global" });
-        expect(sectionSource({})).toEqual({ principles: "global", route: "global" });
-    });
-    it("is project for the section that is present", () => {
-        expect(sectionSource({ principles: {} })).toEqual({ principles: "project", route: "global" });
-        expect(sectionSource({ route: { runtime: "pi" } })).toEqual({ principles: "global", route: "project" });
-    });
-});
 
 describe("reducePrinciplePatch", () => {
     it("override adds a replacement immutably", () => {
@@ -110,7 +98,6 @@ describe("isDirty", () => {
         expect(isDirty({ principles: { additions: [], disabled: [] } }, {})).toBe(false);
     });
     it("treats a route-only override as project-scoped and dirty", () => {
-        expect(sectionSource({ route: { runtime: "pi" } }).route).toBe("project");
         expect(isDirty({}, { route: { runtime: "pi" } })).toBe(true);
         expect(isDirty({ route: undefined }, { route: undefined })).toBe(false);
     });

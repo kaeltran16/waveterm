@@ -264,9 +264,10 @@ func stopRunWorkers(ctx context.Context, run *waveobj.Run) {
 }
 
 // top-level launches opt into the orchestrator explicitly; an unset mode is a quick run. A profile's
-// defaultmode reaches a launch through the launcher's own hydrated control (which sends its choice
-// explicitly), not through this fallback — TestResolveRunPlanDefaultsToQuickRegardlessOfProfile pins that.
-func resolveRunPlan(resolved waveobj.JarvisProfile, reqMode string) (string, []waveobj.RunPhase) {
+// defaultmode reaches a launch through the launcher's own hydrated control, which sends its choice
+// explicitly — it cannot reach this fallback, which is why no profile is in scope here. Only childRunPlan
+// consults a stored default, and it resolves it before calling in.
+func resolveRunPlan(reqMode string) (string, []waveobj.RunPhase) {
 	if reqMode == jarvis.RunMode_Orchestrator {
 		return reqMode, jarvis.DefaultOrchestratorPlaybook()
 	}
@@ -281,7 +282,7 @@ func childRunPlan(resolved waveobj.JarvisProfile, reqMode string) (string, []wav
 	if reqMode == "" {
 		reqMode = resolved.DefaultMode
 	}
-	return resolveRunPlan(resolved, reqMode)
+	return resolveRunPlan(reqMode)
 }
 
 func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCreateRunData) (*wshrpc.CommandCreateRunRtnData, error) {
@@ -335,7 +336,7 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 	// Shape first, then machine: the engine dials exist only on an engine launch, so a profile's stored
 	// worker route (which can name a harness this machine does not have) must not be hydrated onto a
 	// quick or pipeline run and refuse it.
-	mode, playbook := resolveRunPlan(resolved, data.Mode)
+	mode, playbook := resolveRunPlan(data.Mode)
 	engineLaunch := mode == jarvis.RunMode_Orchestrator
 	orchestration := ""
 	if engineLaunch {

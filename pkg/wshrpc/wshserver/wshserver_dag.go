@@ -175,9 +175,6 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 			return fmt.Errorf("dag run %s is %s, want planning or executing", run.ID, run.Status)
 		}
 		run.Status = jarvis.RunStatus_Executing
-		// the notes that produced this draft are answered by it; leaving them would hand the lead
-		// feedback it has already acted on the next time it reads `dag status`.
-		run.PlanFeedback = ""
 		return nil
 	})
 	if err != nil {
@@ -234,11 +231,6 @@ func (ws *WshServer) DagStatusCommand(ctx context.Context, data wshrpc.CommandDa
 		return nil, fmt.Errorf("loading run: %w", err)
 	}
 	if run.DagORef == "" {
-		// a sent-back plan leaves the run with no dag on purpose. The lead is polling here, and what
-		// it needs is the reason it has nothing to wait on, not "run has no dag".
-		if run.PlanFeedback != "" {
-			return &wshrpc.CommandDagStatusRtnData{PlanFeedback: run.PlanFeedback}, nil
-		}
 		return nil, fmt.Errorf("run has no dag")
 	}
 	g, err := wstore.GetDag(ctx, run.DagORef)

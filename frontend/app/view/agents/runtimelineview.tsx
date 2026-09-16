@@ -4,11 +4,9 @@
 // decisions live in runtimeline.ts; this component only maps rows to DOM and click targets.
 
 import { getApi } from "@/app/store/global";
-import { fireAndForget } from "@/util/util";
 import { useState } from "react";
 import { setActiveRunId } from "../jarvis/jarvissubjectstore";
 import { openDagLive } from "../orchestrate/dagmodalstate";
-import { approveGate, sendBackGate } from "./runactions";
 import { useRunEvents } from "./runeventstore";
 import {
     artifactsOf,
@@ -133,10 +131,6 @@ function clickTarget(event: RunEvent, channel: Channel, run: Run): (() => void) 
             };
         case "focus-phase":
             return () => scrollToPhase(t.phaseIdx);
-        case "approve-gate":
-            return () => fireAndForget(() => approveGate(channel.oid, run.id, t.phaseIdx));
-        case "sendback-gate":
-            return () => fireAndForget(() => sendBackGate(channel.oid, run.id, t.phaseIdx));
         case "open-diff":
             return () =>
                 document.querySelector("[data-evidence-block]")?.scrollIntoView({ behavior: "smooth", block: "start" });

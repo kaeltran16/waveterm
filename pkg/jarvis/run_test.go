@@ -248,3 +248,30 @@ func TestFailPhaseDerivesBlocked(t *testing.T) {
 		t.Fatal("failing a non-running phase must error rather than double-write")
 	}
 }
+
+// A run stored before slice 5c can still carry a gated phase. Completing it must release its successor
+// like any other phase: nothing can approve a gate any more, so halting there would leave the run with no
+// running phase and no verb that starts one.
+func TestCompletePhaseReleasesAStoredGate(t *testing.T) {
+	r := NewRun("g", "ws", "/p", nil, RunMode_Pipeline, storedPipeline(), 1)
+	r, err := CompletePhase(r, 0, nil, 2)
+	if err != nil {
+		t.Fatalf("complete brainstorm: %v", err)
+	}
+	if r.Phases[1].State != PhaseState_Running {
+		t.Fatalf("the gated plan phase should have started, got %q", r.Phases[1].State)
+	}
+	r, err = CompletePhase(r, 1, nil, 3)
+	if err != nil {
+		t.Fatalf("complete the gate: %v", err)
+	}
+	if !r.Phases[1].Gate {
+		t.Fatal("the fixture must still carry the stored gate, or this proves nothing")
+	}
+	if r.Phases[2].State != PhaseState_Running {
+		t.Fatalf("completing a stored gate must release execute, got %q", r.Phases[2].State)
+	}
+	if r.Status != RunStatus_Executing {
+		t.Fatalf("status = %q, want the run to be running its next phase rather than parked", r.Status)
+	}
+}

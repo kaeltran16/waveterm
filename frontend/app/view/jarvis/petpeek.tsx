@@ -163,8 +163,7 @@ function QueueRow({
     focused: boolean;
     onLeave: () => void;
 }) {
-    const [open, setOpen] = useState(false);
-    const acts = row.primary != null ? [row.primary, ...row.more] : row.more;
+    const acts = row.primary != null ? [row.primary] : [];
     return (
         <div data-pet-row={row.key} className="border-b border-border last:border-b-0">
             <div
@@ -186,30 +185,12 @@ function QueueRow({
                         {row.primary != null ? (
                             <ActButton model={model} act={row.primary} tone="primary" onLeave={onLeave} />
                         ) : null}
-                        {row.more.length > 0 ? (
-                            <button
-                                type="button"
-                                aria-expanded={open}
-                                aria-label={`More on ${row.source}`}
-                                onClick={() => setOpen((prior) => !prior)}
-                                className="flex h-6 w-6 flex-none items-center justify-center rounded-md border border-border font-mono text-[11px] font-bold text-muted hover:border-edge-mid hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                            >
-                                {open ? "−" : "›"}
-                            </button>
-                        ) : null}
                     </div>
                     {/* only kinds whose text is the payload get a detail line — see DETAIL_KINDS. It wraps
                         rather than truncating: an escalation IS its question, and hiding it behind the
                         disclosure would make every escalation cost a click to read. */}
                     {row.detail != null ? (
                         <p className="pb-0.5 pr-1 text-[11px] leading-[1.45] text-ink-mid">{row.detail}</p>
-                    ) : null}
-                    {open ? (
-                        <div className="flex flex-wrap gap-1.5 pb-1.5 pt-1">
-                            {row.more.map((act) => (
-                                <ActButton key={act.id} model={model} act={act} tone="quiet" onLeave={onLeave} />
-                            ))}
-                        </div>
                     ) : null}
                     <ActOutcome acts={acts} className="pb-1.5 pr-1" />
                 </div>
@@ -388,7 +369,7 @@ export function PetPeek({
         memLoaded ? memNotes.some((note) => note.id === id) : undefined;
 
     const conditions = peekConditions(signals, { index: indexStatus, prune: pruneCandidates });
-    const rows = queueRows(items, channels);
+    const rows = queueRows(items);
     const updates = dedupeUpdates(said, items);
     const quiet = rows.length === 0;
     const focusedRow = rows[Math.min(cursor, Math.max(0, rows.length - 1))];
@@ -771,7 +752,6 @@ export function PetPeek({
                                             ) : (
                                                 <>
                                                     {rows.length} waiting · j/k move · ↵ open
-                                                    {focusedRow?.more.length ? " · a/s gate" : ""}
                                                     {conditions.length > 0 ? " · c conditions" : ""} · / ask · esc close
                                                 </>
                                             )}

@@ -8,64 +8,28 @@
 
 import { fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { useRef } from "react";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
 import { AttentionBanner, AttentionCard } from "./attentioncard";
 import { AskRow, jumpToAgent } from "./channelsprimitives";
 import { PlanPreview } from "./planpreview";
-import {
-    approveGate,
-    cancellingRunIdsAtom,
-    confirmCancelRun,
-    sendBackGate,
-    stopRunWorker,
-    stoppingWorkerIdsAtom,
-} from "./runactions";
+import { cancellingRunIdsAtom, confirmCancelRun, stopRunWorker, stoppingWorkerIdsAtom } from "./runactions";
 import { cancelSurvivors, liveWorkers, resolveArtifactPath } from "./runmodel";
 
-export function ReviewGateCard({ channelId, run, gateIdx }: { channelId: string; run: Run; gateIdx: number }) {
+// A run stored before slice 5c deleted the plan gate can still carry status awaiting-review. Nothing can
+// approve it any more — the actions are gone — so this card explains the stall and shows the plan the run
+// was parked on. Cancelling is the only thing left to do with it.
+export function ReviewGateCard({ run, gateIdx }: { run: Run; gateIdx: number }) {
     const gatePhase = run.phases[gateIdx];
     const artifact = (gatePhase.artifacts ?? [])[0];
-    const flushRef = useRef<() => Promise<void>>(async () => {});
     return (
         <AttentionCard className="mt-3 max-w-[760px]">
-            <AttentionBanner glyph="diamond" label="Review gate — your approval needed" meta={artifact ?? undefined} />
-            <div className="px-3.5 pt-2.5 text-[11.5px] text-ink-mid">
-                {run.mode === "orchestrator"
-                    ? "Plan ready — approve to let the lead proceed."
-                    : "Approve before execution starts."}
+            <AttentionBanner glyph="diamond" label="Parked at a review gate" meta={artifact ?? undefined} />
+            <div className="px-3.5 py-2.5 text-[11.5px] text-ink-mid">
+                This run stopped at a plan gate that no longer exists. Nothing will release it; cancel it, or start a
+                new run from its plan.
             </div>
-            {artifact ? (
-                <PlanPreview
-                    path={resolveArtifactPath(run.projectpath, artifact)}
-                    onEditorReady={(flush) => {
-                        flushRef.current = flush;
-                    }}
-                />
-            ) : null}
-            <div className="flex items-center gap-2.5 px-3.5 py-3">
-                <button
-                    type="button"
-                    onClick={() =>
-                        fireAndForget(async () => {
-                            await flushRef.current(); // persist any unsaved plan edit first
-                            await approveGate(channelId, run.id, gateIdx);
-                        })
-                    }
-                    className="rounded bg-accent px-4 py-2 text-[12px] font-bold text-background hover:bg-accent/90"
-                >
-                    {run.mode === "orchestrator" ? "Approve & proceed" : "Approve & execute"}
-                </button>
-                <div className="flex-1" />
-                <button
-                    type="button"
-                    onClick={() => fireAndForget(() => sendBackGate(channelId, run.id, gateIdx))}
-                    className="rounded border border-edge-mid px-3 py-2 text-[12px] font-semibold text-secondary hover:border-asking hover:text-asking"
-                >
-                    Send back
-                </button>
-            </div>
+            {artifact ? <PlanPreview path={resolveArtifactPath(run.projectpath, artifact)} /> : null}
         </AttentionCard>
     );
 }

@@ -5,11 +5,13 @@ package wshserver
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/wavetermdev/waveterm/pkg/harness"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -104,6 +106,46 @@ func TestCreateRunFromPlanPath(t *testing.T) {
 		}
 		if runs := channelRuns(t, ch); len(runs) != 0 {
 			t.Fatalf("a refused plan leaves no run, got %d", len(runs))
+		}
+	})
+
+	// The refusals above all happen before anything persists. This is the other half: the plan parses, the
+	// run is created, and the engine then refuses the submission. A run with no dag and no lead would wait
+	// in planning forever, so CreateRun has to take it back down.
+	//
+	// The refusal is staged through the harness seam because that is where create and submit genuinely
+	// differ: CreateRun validates the lead's own route, then DagSubmit validates every task's pin. Failing
+	// the pin — and only once a run exists to fail it against — is a refusal that can land no earlier.
+	t.Run("a submit the engine refuses cancels the run it started", func(t *testing.T) {
+		ch := newChannel(t)
+		oldValidate := validateHarness
+		validateHarness = func(runtime string, op harness.Operation) (harness.Spec, error) {
+			runs, err := wstore.GetChannelRuns(ctx, ch.OID)
+			if err != nil {
+				t.Fatalf("GetChannelRuns: %v", err)
+			}
+			if len(runs) > 0 {
+				return harness.Spec{}, fmt.Errorf("harness %q cannot run workers here", runtime)
+			}
+			spec, _ := harness.Lookup(runtime)
+			return spec, nil
+		}
+		t.Cleanup(func() { validateHarness = oldValidate })
+
+		if _, err := start(ch, wshrpc.CommandCreateRunData{Mode: jarvis.RunMode_Orchestrator, PlanPath: writePlan(t, plan)}); err == nil {
+			t.Fatal("the engine refused the submission; the start must report it")
+		} else if !strings.Contains(err.Error(), "submitting plan") {
+			t.Fatalf("error %v should name the submission it failed", err)
+		}
+		runs := channelRuns(t, ch)
+		if len(runs) != 1 {
+			t.Fatalf("the run was created before the refusal, so it must still be on record: got %d", len(runs))
+		}
+		if runs[0].Status != jarvis.RunStatus_Cancelled {
+			t.Fatalf("status = %q, want the run cancelled rather than waiting in planning forever", runs[0].Status)
+		}
+		if runs[0].DagORef != "" {
+			t.Fatalf("a refused submission links no dag, got %q", runs[0].DagORef)
 		}
 	})
 }
