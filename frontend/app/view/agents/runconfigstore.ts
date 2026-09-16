@@ -9,7 +9,6 @@
 import { globalStore } from "@/app/store/jotaiStore";
 import { atom, type PrimitiveAtom } from "jotai";
 import type { RunShape } from "./composercommand";
-import type { Orchestration } from "./orchestratorpicker";
 import {
     DEFAULT_PARALLELISM,
     DEFAULT_START,
@@ -23,10 +22,8 @@ import {
 // field the profile has stopped stating to this baseline rather than leaving the value it used to state
 // standing; resetRunConfig returns there too, so the two cannot drift.
 const LAUNCH_SHAPE: RunShape = "quick";
-const LAUNCH_ORCHESTRATION: Orchestration = "engine";
 
 export const runShapeAtom = atom<RunShape>(LAUNCH_SHAPE) as PrimitiveAtom<RunShape>;
-export const orchestrationAtom = atom<Orchestration>(LAUNCH_ORCHESTRATION) as PrimitiveAtom<Orchestration>;
 export const runRouteAtom = atom<RoutePin | null>(null) as PrimitiveAtom<RoutePin | null>;
 export const workerRouteAtom = atom<RoutePin | null>(null) as PrimitiveAtom<RoutePin | null>;
 export const parallelismAtom = atom<number>(DEFAULT_PARALLELISM) as PrimitiveAtom<number>;
@@ -68,11 +65,6 @@ export function setPlanPath(next: string): void {
     globalStore.set(planPathAtom, next);
 }
 
-export function setOrchestration(next: Orchestration): void {
-    globalStore.set(configTouchedAtom, true);
-    globalStore.set(orchestrationAtom, next);
-}
-
 export function setWorkerRoute(next: RoutePin | null): void {
     globalStore.set(configTouchedAtom, true);
     globalStore.set(workerRouteAtom, next);
@@ -91,7 +83,6 @@ export function hydrateRunConfigFromProfile(profile: JarvisProfile | null | unde
     }
     const defaults = profileRunDefaults(profile);
     globalStore.set(runShapeAtom, defaults.shape ?? LAUNCH_SHAPE);
-    globalStore.set(orchestrationAtom, defaults.orchestration ?? LAUNCH_ORCHESTRATION);
     globalStore.set(parallelismAtom, defaults.parallelism ?? DEFAULT_PARALLELISM);
     globalStore.set(startAtom, DEFAULT_START);
     globalStore.set(planPathAtom, "");
@@ -140,7 +131,6 @@ export function requestRouteOpen(): void {
 // would silently arm a dispatch the user configured somewhere else.
 export function resetRunConfig(): void {
     globalStore.set(runShapeAtom, LAUNCH_SHAPE);
-    globalStore.set(orchestrationAtom, LAUNCH_ORCHESTRATION);
     globalStore.set(runRouteAtom, null);
     globalStore.set(workerRouteAtom, null);
     globalStore.set(parallelismAtom, DEFAULT_PARALLELISM);

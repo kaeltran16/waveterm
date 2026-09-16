@@ -30,7 +30,6 @@ import {
     draftSeedKey,
     effectiveRunConfig,
     engineDefaultsPatch,
-    gateLockReason,
     parallelismInvalid,
     runSettingsDraft,
     runSettingsPanelState,
@@ -130,10 +129,7 @@ function LoadedSettings({ run, group, groupRead }: { run: Run; group: TaskGroup 
         setNotice(null);
         fireAndForget(async () => {
             try {
-                await RpcApi.SetRunSettingsCommand(
-                    TabRpcClient,
-                    settingsPayload(channelId, runId, draft, { includeGate: state.gateEditable })
-                );
+                await RpcApi.SetRunSettingsCommand(TabRpcClient, settingsPayload(channelId, runId, draft));
                 // only a successful write re-seeds: a refused save must leave the user's draft alone.
                 setBaseline(draft);
                 setNotice("Saved. Applies to future dispatches.");
@@ -171,7 +167,7 @@ function LoadedSettings({ run, group, groupRead }: { run: Run; group: TaskGroup 
         });
     };
 
-    const machine = run.orchestration || (run.runtime === "pi" ? "engine" : "adaptive");
+    const machine = run.orchestration || "engine";
 
     return (
         <>
@@ -248,22 +244,6 @@ function LoadedSettings({ run, group, groupRead }: { run: Run; group: TaskGroup 
                             Applies to workers dispatched from now on. Nothing already running changes.
                         </span>
                     </div>
-                    <label className="flex flex-col gap-1">
-                        <span className="flex items-center gap-2 text-[11.5px] font-semibold text-secondary">
-                            <input
-                                type="checkbox"
-                                checked={draft.planGate}
-                                disabled={busy || !state.gateEditable}
-                                onChange={(e) => setDraft({ ...draft, planGate: e.target.checked })}
-                            />
-                            Hold the plan for review
-                        </span>
-                        <span className="text-[11px] text-muted">
-                            {state.gateEditable
-                                ? "A gated plan waits for you before a single worker is dispatched."
-                                : `This can no longer change — ${gateLockReason(group)}.`}
-                        </span>
-                    </label>
                     {error != null ? (
                         <p data-jarvis-brief-sheet-state="error" className="text-[11.5px] text-error">
                             {error}

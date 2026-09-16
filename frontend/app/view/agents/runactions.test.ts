@@ -116,7 +116,6 @@ describe("createRun", () => {
             goal: "ship",
             runtime: "pi",
             mode: "orchestrator",
-            plangate: undefined,
             deferstart: true,
             radarorigin: undefined,
         });

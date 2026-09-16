@@ -170,26 +170,13 @@ func initialWorkerStatusEvent(blockId, runtime string, ts int64) wps.WaveEvent {
 	return blockcontroller.AgentStatusEvent(blockId, baseds.AgentState_Working, runtime, ts)
 }
 
-// priorArtifacts collects the artifacts of all phases before idx (in order).
-func priorArtifacts(run *waveobj.Run, idx int) []string {
-	var out []string
-	for i := 0; i < idx && i < len(run.Phases); i++ {
-		out = append(out, run.Phases[i].Artifacts...)
-	}
-	return out
-}
-
-// phasePrompt builds the initial worker prompt for a phase, mode-aware: orchestrator runs get the
-// adaptive lead prompt; pipeline runs get the per-phase skill prompt.
-func phasePrompt(run *waveobj.Run, idx int) string {
-	p := run.Phases[idx]
-	if run.Mode == RunMode_Quick {
-		return BuildQuickPrompt(run.Goal, run.Principles, run.Runtime)
-	}
+// phasePrompt builds the initial worker prompt for a run's phase: an orchestrator run gets the lead
+// prompt, every other shape the bare worker prompt.
+func phasePrompt(run *waveobj.Run) string {
 	if run.Mode == RunMode_Orchestrator {
-		return BuildOrchestratePrompt(run.Goal, run.Principles, run.Runtime, run.Orchestration)
+		return BuildOrchestratePrompt(run.Goal, run.Principles, run.Runtime)
 	}
-	return BuildPhasePrompt(p, run.Goal, priorArtifacts(run, idx), run.Principles)
+	return BuildQuickPrompt(run.Goal, run.Principles, run.Runtime)
 }
 
 // EnsureWorkers spawns a worker for each running phase that has none yet, returning the phase
@@ -207,7 +194,7 @@ func EnsureWorkers(ctx context.Context, run *waveobj.Run, cap runroute.Capabilit
 		}
 		workerPrompt := prompt
 		if workerPrompt == "" {
-			workerPrompt = phasePrompt(run, i)
+			workerPrompt = phasePrompt(run)
 		}
 		opts := RunWorkerOptions{KeepOnExit: run.Mode == RunMode_Orchestrator}
 		oref, err := SpawnRunWorker(ctx, cap, run.WorkspaceId, projectName, run.ProjectPath, workerPrompt, opts)

@@ -20,16 +20,12 @@ const G: Principle[] = [
 
 describe("sectionSource", () => {
     it("is global for null/undefined and empty override", () => {
-        expect(sectionSource(null)).toEqual({ playbook: "global", principles: "global", route: "global" });
-        expect(sectionSource({})).toEqual({ playbook: "global", principles: "global", route: "global" });
+        expect(sectionSource(null)).toEqual({ principles: "global", route: "global" });
+        expect(sectionSource({})).toEqual({ principles: "global", route: "global" });
     });
     it("is project for the section that is present", () => {
-        expect(sectionSource({ principles: {} })).toEqual({
-            playbook: "global",
-            principles: "project",
-            route: "global",
-        });
-        expect(sectionSource({ playbook: [] })).toEqual({ playbook: "project", principles: "global", route: "global" });
+        expect(sectionSource({ principles: {} })).toEqual({ principles: "project", route: "global" });
+        expect(sectionSource({ route: { runtime: "pi" } })).toEqual({ principles: "global", route: "project" });
     });
 });
 
@@ -123,7 +119,7 @@ describe("isDirty", () => {
         expect(
             isDirty({ principles: { replacements: { a: "x" } } }, { principles: { replacements: { a: "y" } } })
         ).toBe(true);
-        expect(isDirty({ playbook: [] }, {})).toBe(true);
+        expect(isDirty({ defaultmode: "quick" }, {})).toBe(true);
     });
 });
 
@@ -162,13 +158,10 @@ describe("profileOverrideIsEmpty", () => {
         ["nil", null, true],
         ["bare", {}, true],
         ["empty patch", { principles: {} }, true],
-        ["machine", { machine: "engine" }, false],
         ["parallelism", { parallelism: 3 }, false],
         ["worker route", { workerroute: { runtime: "pi" } }, false],
-        ["default plan gate", { defaultplangate: false }, false],
         ["lead route", { route: { runtime: "pi" } }, false],
         ["default mode", { defaultmode: "orchestrator" }, false],
-        ["playbook", { playbook: [] }, false],
         ["patch with a disable", { principles: { disabled: ["a"] } }, false],
     ];
     for (const [name, override, want] of cases) {

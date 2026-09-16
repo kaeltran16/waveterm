@@ -108,19 +108,16 @@ func TestRunWorkerSpecForSessionId(t *testing.T) {
 	}
 }
 
-func TestPhasePrompt_ModeAware(t *testing.T) {
-	orch := NewRun("do X", "ws", "/p", waveobj.PrincipleList{{ID: "clean", Text: "be clean"}}, RunMode_Orchestrator, DefaultOrchestratorPlaybook(true), 1)
-	if p := phasePrompt(&orch, 0); !strings.Contains(p, "wsh jarvis triage") || strings.Contains(p, "wsh jarvis hold") {
-		t.Fatalf("orchestrator prompt should be adaptive and ungated:\n%s", p)
+func TestPhasePromptModeAware(t *testing.T) {
+	orch := NewRun("do X", "ws", "/p", waveobj.PrincipleList{{ID: "clean", Text: "be clean"}}, RunMode_Orchestrator, DefaultOrchestratorPlaybook(), 1)
+	if p := phasePrompt(&orch); !strings.Contains(p, "wsh jarvis dag submit --plan") {
+		t.Fatalf("orchestrator prompt should hand the engine a plan:\n%s", p)
 	}
 
-	pipe := NewRun("do X", "ws", "/p", waveobj.PrincipleList{{ID: "clean", Text: "be clean"}}, RunMode_Pipeline, DefaultPlaybook(), 1)
-	pp := phasePrompt(&pipe, 0)
-	if !strings.Contains(pp, "wsh jarvis complete") {
-		t.Fatalf("pipeline prompt should tell the worker to self-report completion:\n%s", pp)
-	}
-	if strings.Contains(pp, "wsh jarvis hold") {
-		t.Fatalf("pipeline prompt must not hold-gate (gate is structural):\n%s", pp)
+	// every other shape, including a stored pipeline run, gets the bare worker prompt
+	quick := NewRun("do X", "ws", "/p", waveobj.PrincipleList{{ID: "clean", Text: "be clean"}}, RunMode_Quick, QuickPlaybook(), 1)
+	if pp := phasePrompt(&quick); !strings.Contains(pp, "wsh jarvis complete") {
+		t.Fatalf("worker prompt should tell the worker to self-report completion:\n%s", pp)
 	}
 }
 
@@ -150,11 +147,11 @@ func TestEnsureWorkersPassesKeepOnExitOnlyForOrchestrator(t *testing.T) {
 		t.Fatalf("resolve: %v", err)
 	}
 
-	orch := NewRun("orchestrate", "ws", "/p", nil, RunMode_Orchestrator, DefaultOrchestratorPlaybook(false), 1)
+	orch := NewRun("orchestrate", "ws", "/p", nil, RunMode_Orchestrator, DefaultOrchestratorPlaybook(), 1)
 	if _, err := EnsureWorkers(context.Background(), &orch, cap, "project", ""); err != nil {
 		t.Fatal(err)
 	}
-	pipe := NewRun("pipeline", "ws", "/p", nil, RunMode_Pipeline, DefaultPlaybook(), 1)
+	pipe := NewRun("quick", "ws", "/p", nil, RunMode_Quick, QuickPlaybook(), 1)
 	if _, err := EnsureWorkers(context.Background(), &pipe, cap, "project", ""); err != nil {
 		t.Fatal(err)
 	}
@@ -178,16 +175,16 @@ func TestEnsureWorkersUsesAGivenPrompt(t *testing.T) {
 		t.Fatalf("resolve: %v", err)
 	}
 
-	given := NewRun("orchestrate", "ws", "/p", nil, RunMode_Orchestrator, DefaultOrchestratorPlaybook(false), 1)
+	given := NewRun("orchestrate", "ws", "/p", nil, RunMode_Orchestrator, DefaultOrchestratorPlaybook(), 1)
 	if _, err := EnsureWorkers(context.Background(), &given, cap, "project", "the rules, then the wake"); err != nil {
 		t.Fatal(err)
 	}
-	derived := NewRun("orchestrate", "ws", "/p", nil, RunMode_Orchestrator, DefaultOrchestratorPlaybook(false), 1)
+	derived := NewRun("orchestrate", "ws", "/p", nil, RunMode_Orchestrator, DefaultOrchestratorPlaybook(), 1)
 	if _, err := EnsureWorkers(context.Background(), &derived, cap, "project", ""); err != nil {
 		t.Fatal(err)
 	}
 
-	if len(prompts) != 2 || prompts[0] != "the rules, then the wake" || prompts[1] != phasePrompt(&derived, 0) {
+	if len(prompts) != 2 || prompts[0] != "the rules, then the wake" || prompts[1] != phasePrompt(&derived) {
 		t.Fatalf("a given prompt replaces the phase's, an empty one derives it; got %q", prompts)
 	}
 }

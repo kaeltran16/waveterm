@@ -18,17 +18,9 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
 
-// dag statuses mirror orchestrate.DagStatus_* but are spelled here because pkg/orchestrate imports
-// pkg/jarvis, never the reverse (the same reason MaxDagTasks lives in this package).
-const (
-	dagStatusDone      = "done"
-	dagStatusCancelled = "cancelled"
-)
-
 // PendingEngineSettings is the prospective engine configuration the session sheet writes. Parallelism nil
 // means the caller is not touching the width, which is how omission and inheritance are expressed — an
-// explicit value is always a width and must be inside the engine's range. PlanGate nil likewise means the
-// caller is not touching the gate, which is what lets a spent gate still accept a width change.
+// explicit value is always a width and must be inside the engine's range.
 //
 // WorkerRoute is deliberately not symmetric with those two: a nil route is itself a value (inherit the
 // lead), so it is always applied. A caller that omits it is asking for inheritance, not asking for the
@@ -37,7 +29,6 @@ const (
 type PendingEngineSettings struct {
 	Parallelism *int
 	WorkerRoute *waveobj.RoutePin
-	PlanGate    *bool
 }
 
 // EngineSettingsBlocker returns the reason a run's engine settings can no longer change, or "" when they
@@ -52,30 +43,6 @@ func EngineSettingsBlocker(r *waveobj.Run) string {
 	if r.Mode != RunMode_Orchestrator {
 		return fmt.Sprintf("only an orchestrator run has a scheduler to reconfigure (this run is %s)", r.Mode)
 	}
-	if ResolveOrchestration(r.Orchestration, r.Runtime) != Orchestration_Engine {
-		return "only an engine orchestrator schedules children; an adaptive lead runs its own subagents"
-	}
-	return ""
-}
-
-// GateSettingsBlocker returns the reason the plan gate can no longer be flipped, or "" when it can. The
-// test is "has anything crossed the gate", not "which direction": a nil group means nothing was submitted
-// yet, which is the widest window; an approved or dispatched group has spent it.
-func GateSettingsBlocker(r *waveobj.Run, g *waveobj.TaskGroup) string {
-	if g == nil {
-		return ""
-	}
-	if g.Status == dagStatusDone || g.Status == dagStatusCancelled {
-		return fmt.Sprintf("the plan is %s", g.Status)
-	}
-	if g.PlanApprovedTs != 0 {
-		return "the plan gate has already been approved"
-	}
-	for _, task := range g.Tasks {
-		if task.RunID != "" {
-			return "work has already been dispatched"
-		}
-	}
 	return ""
 }
 
@@ -86,10 +53,6 @@ func ApplyPendingEngineSettings(r waveobj.Run, s PendingEngineSettings) waveobj.
 		r.Parallelism = *s.Parallelism
 	}
 	r.WorkerRoute = s.WorkerRoute
-	if s.PlanGate != nil {
-		gate := *s.PlanGate
-		r.PlanGatePending = &gate
-	}
 	return r
 }
 
@@ -101,25 +64,16 @@ func ApplyLiveEngineSettings(g waveobj.TaskGroup, s PendingEngineSettings) waveo
 		g.Parallelism = *s.Parallelism
 	}
 	g.WorkerRoute = s.WorkerRoute
-	if s.PlanGate != nil {
-		g.PlanGate = *s.PlanGate
-	}
 	return g
 }
 
 // RunEngineSettings is what the sheet starts from: the effective configuration. Before submission that is
-// the run's own launch form; after, it is the group's, because that is what the scheduler will honour. The
-// pending gate defaults to DagSubmit's own rule — a top-level plan is gated, a child's never is.
+// the run's own launch form; after, it is the group's, because that is what the scheduler will honour.
 func RunEngineSettings(r waveobj.Run, g *waveobj.TaskGroup) PendingEngineSettings {
 	if g != nil {
 		width := g.Parallelism
-		gate := g.PlanGate
-		return PendingEngineSettings{Parallelism: &width, WorkerRoute: g.WorkerRoute, PlanGate: &gate}
-	}
-	gate := r.ParentLeadORef == ""
-	if r.PlanGatePending != nil {
-		gate = *r.PlanGatePending
+		return PendingEngineSettings{Parallelism: &width, WorkerRoute: g.WorkerRoute}
 	}
 	width := r.Parallelism
-	return PendingEngineSettings{Parallelism: &width, WorkerRoute: r.WorkerRoute, PlanGate: &gate}
+	return PendingEngineSettings{Parallelism: &width, WorkerRoute: r.WorkerRoute}
 }

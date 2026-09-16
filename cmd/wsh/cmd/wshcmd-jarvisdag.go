@@ -6,7 +6,6 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -19,7 +18,6 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/orchestrate"
-	"github.com/wavetermdev/waveterm/pkg/pitasks"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc/wshclient"
 	"github.com/wavetermdev/waveterm/pkg/wshutil"
@@ -32,45 +30,14 @@ var jarvisDagCmd = &cobra.Command{
 	RunE:  func(cmd *cobra.Command, args []string) error { return cmd.Help() },
 }
 
-// dagOneDagPerRunNote states the constraint both submit paths hit at the same moment — after
-// the planning cost is already spent. Stating it in help is the cheap half of the fix: a lead
-// that reads it while planning never proposes the two-phase import the engine refuses.
-var dagOneDagPerRunNote = fmt.Sprintf(`
+// dagOneDagPerRunNote states the constraint a lead hits at the moment it submits — after the
+// planning cost is already spent. Stating it in help is the cheap half of the fix: a lead that
+// reads it while planning never proposes the two-phase import the engine refuses.
+const dagOneDagPerRunNote = `
 
 A run holds exactly one dag for its whole lifetime: the first submission wins and a later,
 differing one is rejected as a dag conflict. There is no multi-phase import, so a plan that
-does not fit in %d tasks must be compressed, or split across two runs.`, orchestrate.MaxTasks)
-
-// dagSubmitSource reads the DAG payload from exactly one source: inline argv JSON, or --file (a path,
-// or "-" for stdin). A lead writing a large DAG cannot reliably quote it through argv on Windows,
-// which is what --file is for.
-func dagSubmitSource(args []string, file string, stdin io.Reader) ([]byte, error) {
-	if len(args) == 1 && file != "" {
-		return nil, fmt.Errorf("pass the dag JSON inline or with --file, not both")
-	}
-	if len(args) == 1 {
-		return []byte(args[0]), nil
-	}
-	if file == "-" {
-		return io.ReadAll(stdin)
-	}
-	if file != "" {
-		return os.ReadFile(file)
-	}
-	return nil, fmt.Errorf("dag JSON required: pass it inline or with --file <path>")
-}
-
-// dagPlanPath resolves --plan to an absolute path, because wavesrv parses the file and does not share
-// this process's cwd. A plan is a whole dag on its own, so combining it with dag JSON is a mistake.
-func dagPlanPath(args []string, file, plan string) (string, error) {
-	if plan == "" {
-		return "", nil
-	}
-	if len(args) == 1 || file != "" {
-		return "", fmt.Errorf("pass --plan alone, not with dag JSON or --file")
-	}
-	return filepath.Abs(plan)
-}
+does not fit in one dag must be split across two runs.`
 
 // dagSpecPath resolves --spec to an absolute path. A spec is committed with the plan it produced, so it is
 // only accepted beside --plan.
@@ -85,88 +52,38 @@ func dagSpecPath(planPath, spec string) (string, error) {
 }
 
 var dagSubmitCmd = &cobra.Command{
-	Use:     "submit [dag-json]",
-	Short:   "validate and submit a DAG for the current run (--plan <plan.md>, inline JSON, or --file <path>|-)",
-	Long:    "Validate and submit a DAG for the current run (--plan <plan.md>, inline JSON, or --file <path>|-).\n\n" + jarvis.PlanFormat + dagOneDagPerRunNote,
-	Args:    cobra.MaximumNArgs(1),
+	Use:     "submit --plan <plan.md>",
+	Short:   "validate and submit a plan file as this run's DAG",
+	Long:    "Validate and submit a plan file as this run's DAG.\n\n" + jarvis.PlanFormat + dagOneDagPerRunNote,
+	Args:    cobra.NoArgs,
 	PreRunE: preRunSetupRpcClient,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		file, _ := cmd.Flags().GetString("file")
 		plan, _ := cmd.Flags().GetString("plan")
-		spec, _ := cmd.Flags().GetString("spec")
-		planPath, err := dagPlanPath(args, file, plan)
+		if plan == "" {
+			return fmt.Errorf("--plan <plan.md> is required")
+		}
+		// wavesrv parses the file and does not share this process's cwd
+		planPath, err := filepath.Abs(plan)
 		if err != nil {
 			return err
 		}
+		spec, _ := cmd.Flags().GetString("spec")
 		specPath, err := dagSpecPath(planPath, spec)
 		if err != nil {
 			return err
-		}
-		var data wshrpc.CommandDagSubmitData
-		if planPath != "" {
-			data.PlanPath, data.SpecPath = planPath, specPath
-		} else {
-			raw, err := dagSubmitSource(args, file, cmd.InOrStdin())
-			if err != nil {
-				return err
-			}
-			if err := json.Unmarshal(raw, &data); err != nil {
-				return fmt.Errorf("dag json: %w", err)
-			}
 		}
 		channelId, runId, err := dagIds(cmd)
 		if err != nil {
 			return err
 		}
-		data.ChannelId = channelId
-		data.RunId = runId
+		data := wshrpc.CommandDagSubmitData{
+			ChannelId: channelId, RunId: runId, PlanPath: planPath, SpecPath: specPath,
+		}
 		g, err := wshclient.DagSubmitCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: 20_000})
 		if err != nil {
 			return err
 		}
 		fmt.Printf("dag %s submitted (%d tasks, %d lanes, longest chain %d, parallelism %d)\n", g.ID, len(g.Tasks), len(jarvis.Lanes(g.Tasks)), jarvis.LongestChain(g.Tasks), g.Parallelism)
-		return nil
-	},
-}
-
-var dagImportCmd = &cobra.Command{
-	Use:     "import-tasks",
-	Short:   "submit a DAG from the pi-tasks store in <cwd> (default .)",
-	Long:    "Submit a DAG from the pi-tasks store in <cwd> (default .)." + dagOneDagPerRunNote,
-	Args:    cobra.NoArgs,
-	PreRunE: preRunSetupRpcClient,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		dir, _ := cmd.Flags().GetString("dir")
-		if dir == "" {
-			dir = "."
-		}
-		title, _ := cmd.Flags().GetString("title")
-		tasks, err := pitasks.Read(dir)
-		if err != nil {
-			return fmt.Errorf("reading pi-tasks: %w", err)
-		}
-		nodes, err := orchestrate.ImportPitasks(tasks)
-		if err != nil {
-			return err
-		}
-		if title == "" && len(nodes) > 0 {
-			title = nodes[0].Label
-		}
-		channelId, runId, err := dagIds(cmd)
-		if err != nil {
-			return err
-		}
-		parallelism, _ := cmd.Flags().GetInt("parallelism")
-		if parallelism == 0 {
-			parallelism = orchestrate.DefaultParallelism(nodes)
-		}
-		g, err := wshclient.DagSubmitCommand(RpcClient, wshrpc.CommandDagSubmitData{
-			ChannelId: channelId, RunId: runId, Title: title, Parallelism: parallelism, Tasks: nodes,
-		}, &wshrpc.RpcOpts{Timeout: 20_000})
-		if err != nil {
-			return err
-		}
-		fmt.Printf("dag %s submitted from %d pi-tasks (parallelism %d)\n", g.ID, len(g.Tasks), g.Parallelism)
 		return nil
 	},
 }
@@ -546,43 +463,6 @@ var dagForwardCmd = &cobra.Command{
 	},
 }
 
-var dagInitCmd = &cobra.Command{
-	Use:   "init",
-	Short: "scaffold a .pi/tasks/tasks.json store for a DAG (edit the sample, then import-tasks)",
-	Args:  cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		dir, _ := cmd.Flags().GetString("dir")
-		if dir == "" {
-			dir = "."
-		}
-		path := filepath.Join(dir, ".pi", "tasks", "tasks.json")
-		if _, err := os.Stat(path); err == nil {
-			return fmt.Errorf("%s already exists — edit it, or run import-tasks on it as-is", path)
-		}
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return err
-		}
-		now := time.Now().UnixMilli()
-		template := fmt.Sprintf(`{
-  "nextId": 2,
-  "tasks": [
-    {
-      "id": "1",
-      "subject": "Example task: replace with your first unit of work",
-      "description": "Plan context the child needs: file paths, pinned decisions, test commands. The engine passes label + description + the headless contract to the child, so pin here everything the child must not re-ask.",
-      "status": "pending",
-      "owner": "",
-      "blocks": [],
-      "blockedBy": [],
-      "createdAt": %d,
-      "updatedAt": %d
-    }
-  ]
-}`, now, now)
-		return os.WriteFile(path, []byte(template), 0o644)
-	},
-}
-
 var dagRulesInject bool
 
 // dagRulesCmd prints the orchestration rules for the caller's lead session (spec §7). It runs from a
@@ -641,20 +521,14 @@ func dagRulesText(ctx *wshrpc.CommandJarvisCtxRtnData, st *wshrpc.CommandDagStat
 }
 
 func init() {
-	jarvisDagCmd.AddCommand(dagSubmitCmd, dagImportCmd, dagStatusCmd, dagMergeCmd, dagAsksCmd, dagAnswerCmd, dagForwardCmd, dagRulesCmd)
+	jarvisDagCmd.AddCommand(dagSubmitCmd, dagStatusCmd, dagMergeCmd, dagAsksCmd, dagAnswerCmd, dagForwardCmd, dagRulesCmd)
 	jarvisDagCmd.AddCommand(dagAction("approve"), dagAction("sendback"), dagAction("retry"), dagAction("skip"), dagEscalateCmd, dagAction("cancel"))
-	jarvisDagCmd.AddCommand(dagInitCmd)
 	for _, c := range jarvisDagCmd.Commands() {
 		c.Flags().String("runid", "", "run id")
 		c.Flags().String("channel", "", "channel id")
 	}
-	dagSubmitCmd.Flags().String("file", "", "read the dag JSON from a file (\"-\" for stdin)")
-	dagSubmitCmd.Flags().String("plan", "", "submit a plan file in the plan format below; its tasks become the dag")
+	dagSubmitCmd.Flags().String("plan", "", "the plan file to submit, in the plan format below; its tasks become the dag")
 	dagSubmitCmd.Flags().String("spec", "", "the spec the plan implements; committed with the plan in the run's first merge")
-	dagImportCmd.Flags().String("dir", "", "pi-tasks dir (default .)")
-	dagImportCmd.Flags().String("title", "", "dag title (shown in the ui; default runs the first task's label)")
-	dagImportCmd.Flags().Int("parallelism", 0, fmt.Sprintf("concurrent children (1-%d); default is the dag's ready width", orchestrate.MaxParallelism))
-	dagInitCmd.Flags().String("dir", "", "pi-tasks dir (default .)")
 	dagEscalateCmd.Flags().String("model", "", "exact model id to retry on (e.g. sonnet, or opencode/deepseek-v4-pro for pi)")
 	dagEscalateCmd.Flags().String("runtime", "", "runtime to retry on; empty keeps the task's current runtime")
 	dagMergeCmd.Flags().Bool("continue", false, "finish a resolved squash merge, or re-run a failed Verify after committing the fix")

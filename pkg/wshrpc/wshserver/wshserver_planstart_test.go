@@ -5,14 +5,12 @@ package wshserver
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
-	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
@@ -72,8 +70,8 @@ func TestCreateRunFromPlanPath(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if g.PlanPath != planPath || len(g.Tasks) != 2 || orchestrate.PlanGatePending(g) {
-			t.Fatalf("the dag is the plan, ungated: planpath %q, %d tasks, gated %v", g.PlanPath, len(g.Tasks), orchestrate.PlanGatePending(g))
+		if g.PlanPath != planPath || len(g.Tasks) != 2 {
+			t.Fatalf("the dag is the plan: planpath %q, %d tasks", g.PlanPath, len(g.Tasks))
 		}
 	})
 
@@ -98,7 +96,6 @@ func TestCreateRunFromPlanPath(t *testing.T) {
 			{"unparseable plan", wshrpc.CommandCreateRunData{Mode: jarvis.RunMode_Orchestrator, PlanPath: writePlan(t, "just prose\n")}, "no tasks"},
 			{"relative path", wshrpc.CommandCreateRunData{Mode: jarvis.RunMode_Orchestrator, PlanPath: "plan.md"}, "absolute"},
 			{"quick shape", wshrpc.CommandCreateRunData{Mode: jarvis.RunMode_Quick, PlanPath: writePlan(t, plan)}, "orchestrator"},
-			{"adaptive lead", wshrpc.CommandCreateRunData{Mode: jarvis.RunMode_Orchestrator, Orchestration: jarvis.Orchestration_Adaptive, PlanPath: writePlan(t, plan)}, "engine"},
 		}
 		for _, c := range cases {
 			if _, err := start(ch, c.data); err == nil || !strings.Contains(err.Error(), c.errPart) {
@@ -107,24 +104,6 @@ func TestCreateRunFromPlanPath(t *testing.T) {
 		}
 		if runs := channelRuns(t, ch); len(runs) != 0 {
 			t.Fatalf("a refused plan leaves no run, got %d", len(runs))
-		}
-	})
-
-	// the one submit-time refusal a parsed plan can still hit is the task cap; slice 5c deletes the cap, and
-	// this case must then move to another refusal DagSubmitCommand still makes
-	t.Run("a plan the engine refuses at submit cancels the run it started", func(t *testing.T) {
-		ch := newChannel(t)
-		var big strings.Builder
-		for n := 1; n <= jarvis.MaxDagTasks+1; n++ {
-			fmt.Fprintf(&big, "### Task %d: step %d\n**Depends on:** none\n\n", n, n)
-		}
-		_, err := start(ch, wshrpc.CommandCreateRunData{Mode: jarvis.RunMode_Orchestrator, PlanPath: writePlan(t, big.String())})
-		if err == nil || !strings.Contains(err.Error(), "submitting plan") {
-			t.Fatalf("want the submit refusal, got %v", err)
-		}
-		runs := channelRuns(t, ch)
-		if len(runs) != 1 || runs[0].Status != jarvis.RunStatus_Cancelled {
-			t.Fatalf("the started run is cancelled rather than left waiting for a dag, got %+v", runs)
 		}
 	})
 }

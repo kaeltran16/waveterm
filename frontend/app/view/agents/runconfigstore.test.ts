@@ -9,7 +9,6 @@ import {
     endRunConfigDraft,
     forgetConfiguredChannel,
     hydrateRunConfigFromProfile,
-    orchestrationAtom,
     parallelismAtom,
     planPathAtom,
     planPreviewAtom,
@@ -20,7 +19,6 @@ import {
     routeTouchedAtom,
     runRouteAtom,
     runShapeAtom,
-    setOrchestration,
     setParallelism,
     setPlanPath,
     setRunRoute,
@@ -42,7 +40,6 @@ beforeEach(() => {
 describe("resetRunConfig", () => {
     it("returns every control to its launch default", () => {
         globalStore.set(runShapeAtom, "orchestrator");
-        globalStore.set(orchestrationAtom, "adaptive");
         globalStore.set(workerRouteAtom, pin("opus"));
         setRunRoute(pin("sonnet"));
         setParallelism(7);
@@ -50,13 +47,12 @@ describe("resetRunConfig", () => {
         resetRunConfig();
 
         expect(globalStore.get(runShapeAtom)).toBe("quick");
-        expect(globalStore.get(orchestrationAtom)).toBe("engine");
         expect(globalStore.get(runRouteAtom)).toBeNull();
         expect(globalStore.get(workerRouteAtom)).toBeNull();
         expect(globalStore.get(parallelismAtom)).toBe(DEFAULT_PARALLELISM);
     });
 
-    // carrying "orchestrator, adaptive, 6 wide" onto the next channel would arm a dispatch the user
+    // carrying "orchestrator, 6 wide" onto the next channel would arm a dispatch the user
     // configured somewhere else — the reset is what makes the config per-channel
     it("clears the manual-route flag so the next channel's preference flows in again", () => {
         setRunRoute(pin("opus"));
@@ -171,7 +167,7 @@ describe("resetRunConfigForChannel", () => {
 // touched flag stayed set forever, and every later profile save was silently ignored on that channel.
 describe("endRunConfigDraft", () => {
     it("clears the touched flag so a later profile save hydrates", () => {
-        setRunShape("pipeline");
+        setRunShape("orchestrator");
         setParallelism(6);
         expect(globalStore.get(configTouchedAtom)).toBe(true);
 
@@ -182,30 +178,25 @@ describe("endRunConfigDraft", () => {
         hydrateRunConfigFromProfile({
             playbook: [],
             defaultmode: "orchestrator",
-            machine: "adaptive",
             parallelism: 2,
         } as JarvisProfile);
         expect(globalStore.get(runShapeAtom)).toBe("orchestrator");
-        expect(globalStore.get(orchestrationAtom)).toBe("adaptive");
         expect(globalStore.get(parallelismAtom)).toBe(2);
     });
 
     it("returns the next draft to the channel's saved defaults, not to the launched one", () => {
-        setRunShape("pipeline");
-        setOrchestration("adaptive");
+        setRunShape("orchestrator");
         setWorkerRoute(pin("haiku"));
         setParallelism(6);
 
         endRunConfigDraft({
             playbook: [],
             defaultmode: "orchestrator",
-            machine: "engine",
             parallelism: 5,
             workerroute: pin("opus"),
         } as JarvisProfile);
 
         expect(globalStore.get(runShapeAtom)).toBe("orchestrator");
-        expect(globalStore.get(orchestrationAtom)).toBe("engine");
         expect(globalStore.get(parallelismAtom)).toBe(5);
         expect(globalStore.get(workerRouteAtom)).toEqual(pin("opus"));
     });
@@ -218,7 +209,6 @@ describe("endRunConfigDraft", () => {
         endRunConfigDraft(null);
 
         expect(globalStore.get(runShapeAtom)).toBe("quick");
-        expect(globalStore.get(orchestrationAtom)).toBe("engine");
         expect(globalStore.get(parallelismAtom)).toBe(DEFAULT_PARALLELISM);
         expect(globalStore.get(workerRouteAtom)).toBeNull();
         expect(globalStore.get(configTouchedAtom)).toBe(false);
@@ -233,13 +223,11 @@ describe("hydrateRunConfigFromProfile", () => {
         hydrateRunConfigFromProfile({
             playbook: [],
             defaultmode: "orchestrator",
-            machine: "engine",
             parallelism: 5,
             workerroute: pin("opus"),
         } as JarvisProfile);
 
         expect(globalStore.get(runShapeAtom)).toBe("orchestrator");
-        expect(globalStore.get(orchestrationAtom)).toBe("engine");
         expect(globalStore.get(parallelismAtom)).toBe(5);
         expect(globalStore.get(workerRouteAtom)).toEqual(pin("opus"));
     });
@@ -247,28 +235,24 @@ describe("hydrateRunConfigFromProfile", () => {
     it("leaves the launcher's defaults alone where the profile is silent", () => {
         hydrateRunConfigFromProfile({ playbook: [] } as JarvisProfile);
         expect(globalStore.get(runShapeAtom)).toBe("quick");
-        expect(globalStore.get(orchestrationAtom)).toBe("engine");
         expect(globalStore.get(parallelismAtom)).toBe(DEFAULT_PARALLELISM);
         expect(globalStore.get(workerRouteAtom)).toBeNull();
     });
 
     // a save while the user is mid-composition must not repaint the controls under them
     it("never overwrites a configuration the user has edited by hand", () => {
-        setRunShape("pipeline");
-        setOrchestration("adaptive");
+        setRunShape("orchestrator");
         setParallelism(2);
         setWorkerRoute(pin("haiku"));
 
         hydrateRunConfigFromProfile({
             playbook: [],
             defaultmode: "orchestrator",
-            machine: "engine",
             parallelism: 8,
             workerroute: pin("opus"),
         } as JarvisProfile);
 
-        expect(globalStore.get(runShapeAtom)).toBe("pipeline");
-        expect(globalStore.get(orchestrationAtom)).toBe("adaptive");
+        expect(globalStore.get(runShapeAtom)).toBe("orchestrator");
         expect(globalStore.get(parallelismAtom)).toBe(2);
         expect(globalStore.get(workerRouteAtom)).toEqual(pin("haiku"));
     });
@@ -279,7 +263,6 @@ describe("hydrateRunConfigFromProfile", () => {
         hydrateRunConfigFromProfile({
             playbook: [],
             defaultmode: "orchestrator",
-            machine: "adaptive",
             parallelism: 5,
             workerroute: pin("opus"),
         } as JarvisProfile);
@@ -288,13 +271,12 @@ describe("hydrateRunConfigFromProfile", () => {
         hydrateRunConfigFromProfile({ playbook: [], defaultmode: "quick" } as JarvisProfile);
 
         expect(globalStore.get(runShapeAtom)).toBe("quick");
-        expect(globalStore.get(orchestrationAtom)).toBe("engine");
         expect(globalStore.get(parallelismAtom)).toBe(DEFAULT_PARALLELISM);
         expect(globalStore.get(workerRouteAtom)).toBeNull();
     });
 
     it("hydrates again for the next channel, whose own profile is the default there", () => {
-        setRunShape("pipeline");
+        setRunShape("orchestrator");
         expect(globalStore.get(configTouchedAtom)).toBe(true);
 
         resetRunConfigForChannel("chan-a");

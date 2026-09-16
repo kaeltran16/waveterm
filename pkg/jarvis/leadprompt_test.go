@@ -23,7 +23,7 @@ func TestAskToolByRuntime(t *testing.T) {
 // the plan format either never reaches the engine or reaches it with a plan the parser rejects.
 func TestEngineLaunchPromptCarriesTheGoalRunProtocol(t *testing.T) {
 	for runtime, tool := range map[string]string{"claude": "AskUserQuestion", "pi": "ask_user_question"} {
-		p := BuildOrchestratePrompt("ship auth", nil, runtime, Orchestration_Engine)
+		p := BuildOrchestratePrompt("ship auth", nil, runtime)
 		for _, want := range []string{
 			"Goal: ship auth",
 			"superpowers:brainstorming",
@@ -48,7 +48,7 @@ func TestEngineLaunchPromptCarriesTheGoalRunProtocol(t *testing.T) {
 // and the human's width all belong to a lead that planned the dag itself, which a plan file replaces.
 func TestEngineLaunchPromptDropsTheOldPlanningProtocol(t *testing.T) {
 	for _, runtime := range []string{"claude", "pi"} {
-		p := BuildOrchestratePrompt("ship auth", nil, runtime, Orchestration_Engine)
+		p := BuildOrchestratePrompt("ship auth", nil, runtime)
 		for _, gone := range []string{"--file", "import-tasks", "triage", "16 tasks", "parallelism", "resolve-merge"} {
 			if strings.Contains(p, gone) {
 				t.Fatalf("%s launch prompt still carries %q:\n%s", runtime, gone, p)
@@ -117,7 +117,7 @@ func TestPlanAuthorIsToldToSplitByIndependentWork(t *testing.T) {
 		t.Fatalf("the plan format must say independent tasks run at the same time:\n%s", PlanFormat)
 	}
 	for _, runtime := range []string{"claude", "pi"} {
-		p := BuildOrchestratePrompt("ship auth", nil, runtime, Orchestration_Engine)
+		p := BuildOrchestratePrompt("ship auth", nil, runtime)
 		if !strings.Contains(p, "what can proceed independently") {
 			t.Fatalf("%s launch prompt does not tell the lead to split the plan by independent work:\n%s", runtime, p)
 		}

@@ -6,12 +6,10 @@
 // given shape actually has are decided here so the view stays a renderer.
 
 import type { RunShape } from "./composercommand";
-import type { Orchestration } from "./orchestratorpicker";
 
-// Mirrors of the two Go ceilings the launcher states in prose. They are consts, not wire types, so codegen
-// does not carry them; runconfig.test.ts reads the Go source and fails if either drifts.
+// Mirror of the Go ceiling the launcher states in prose. It is a const, not a wire type, so codegen
+// does not carry it; runconfig.test.ts reads the Go source and fails if it drifts.
 export const MAX_PARALLELISM = 8; // orchestrate.MaxParallelism (pkg/orchestrate/dag.go)
-export const MAX_DAG_TASKS = 16; // jarvis.MaxDagTasks (pkg/jarvis/run.go)
 
 export const DEFAULT_PARALLELISM = 3;
 
@@ -34,8 +32,7 @@ export interface ShapeCard {
     desc: string;
 }
 
-// The descriptions say what the machine does, not what the word means. Pipeline is not offered: slice 5c of
-// the orchestrator redesign deletes it, and + Run stops starting it first.
+// The descriptions say what the machine does, not what the word means. There are two shapes to start.
 export const SHAPE_CARDS: ShapeCard[] = [
     { id: "orchestrator", desc: "A lead and the engine: from a goal you shape together, or from your plan file." },
     { id: "quick", desc: "One worker, no lead, no plan. It stops and asks if the goal turns out bigger." },
@@ -53,19 +50,16 @@ export function clampParallelism(n: number): number {
 // same "no opinion" rule the lead route already follows.
 export interface ProfileRunDefaults {
     shape: RunShape | null;
-    orchestration: Orchestration | null;
     parallelism: number | null;
     workerRoute: RoutePin | null;
 }
 
 export function profileRunDefaults(profile: JarvisProfile | null | undefined): ProfileRunDefaults {
     const mode = profile?.defaultmode ?? "";
-    const machine = profile?.machine ?? "";
     const width = profile?.parallelism ?? 0;
     return {
         // a pipeline default has no card to land on, so it leaves the launcher's baseline standing
         shape: mode === "quick" || mode === "orchestrator" ? mode : null,
-        orchestration: machine === "engine" || machine === "adaptive" ? machine : null,
         // a width only counts when it is a width; anything else is the profile saying nothing
         parallelism: width > 0 ? clampParallelism(width) : null,
         workerRoute: profile?.workerroute ?? null,

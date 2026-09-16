@@ -58,7 +58,6 @@ describe("launchOptsFromConfig", () => {
     it("always launches an orchestrator on the engine, with its width and worker route", () => {
         expect(launchOptsFromConfig({ ...base, shape: "orchestrator", parallelism: 4, workerRoute })).toEqual({
             mode: "orchestrator",
-            orchestration: "engine",
             parallelism: 4,
             workerRoute,
         });
@@ -67,7 +66,6 @@ describe("launchOptsFromConfig", () => {
     it("omits a worker route the launcher left inheriting the lead", () => {
         expect(launchOptsFromConfig({ ...base, shape: "orchestrator", parallelism: 2 })).toEqual({
             mode: "orchestrator",
-            orchestration: "engine",
             parallelism: 2,
         });
     });
@@ -77,7 +75,6 @@ describe("launchOptsFromConfig", () => {
             launchOptsFromConfig({ ...base, shape: "orchestrator", start: "plan", planPath: "  /repo/plan.md " })
         ).toEqual({
             mode: "orchestrator",
-            orchestration: "engine",
             parallelism: 3,
             planPath: "/repo/plan.md",
         });

@@ -145,7 +145,7 @@ func TestWorkerContractNamesPlanSpecVerifyAndTool(t *testing.T) {
 	}
 }
 
-// until slice 5c a dag can still arrive as JSON, with no plan file to point at
+// a dag built from tasks rather than a plan file has no plan path to point the worker at
 func TestWorkerContractWithoutPlanOrVerify(t *testing.T) {
 	c := workerContract(&waveobj.TaskGroup{}, &waveobj.TaskNode{ID: "t-3"}, "claude")
 	for _, want := range []string{
@@ -251,7 +251,7 @@ func TestScheduleOnceSpawnsUpToCap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner := jarvis.NewRun("owner goal", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	owner := jarvis.NewRun("owner goal", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
 	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
 		t.Fatal(err)
 	}
@@ -331,7 +331,7 @@ func TestCleanupPublishTransitions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner := jarvis.NewRun("owner goal", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	owner := jarvis.NewRun("owner goal", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
 	owner.BaseCommit = gitCmd(t, projectDir, "rev-parse", "HEAD")
 	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
 		t.Fatal(err)
@@ -445,7 +445,7 @@ func TestScheduleOncePublishesChildDone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner := jarvis.NewRun("owner goal", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	owner := jarvis.NewRun("owner goal", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
 	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
 		t.Fatal(err)
 	}
@@ -521,7 +521,7 @@ func TestScheduleStampsDispatchAndFirstActivityTimings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner := jarvis.NewRun("owner goal", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	owner := jarvis.NewRun("owner goal", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
 	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
 		t.Fatal(err)
 	}
@@ -622,7 +622,7 @@ func TestScheduleOnceUsesTaskRouteForSpawnAndChild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
 	owner.Runtime = "claude"
 	owner.Model = "sonnet"
 	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
@@ -666,7 +666,7 @@ func TestScheduleOnceRejectsUnavailableTaskRouteBeforeSpawn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
 	owner.Runtime = "claude"
 	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
 		t.Fatal(err)
@@ -706,7 +706,7 @@ func TestScheduleOnceLegacyRuntimeOnlyAndInheritedRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
 	owner.Runtime = "pi"
 	owner.Model = "opencode/deepseek-v4-pro"
 	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
@@ -903,7 +903,7 @@ func TestSchedulePersistenceFailureCancelsTheWorkerItAlreadySpawned(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner := jarvis.NewRun("owner goal", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 2)
+	owner := jarvis.NewRun("owner goal", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 2)
 	if err := wstore.AppendRun(baseCtx, ch.OID, owner); err != nil {
 		t.Fatal(err)
 	}
@@ -1114,7 +1114,7 @@ func TestScheduleRecordsASpawnEvenWhenTheCallerGaveUp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner := jarvis.NewRun("owner goal", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	owner := jarvis.NewRun("owner goal", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
 	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
 		t.Fatal(err)
 	}

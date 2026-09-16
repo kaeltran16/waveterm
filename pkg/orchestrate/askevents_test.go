@@ -23,7 +23,7 @@ func askTargetFixture(t *testing.T) (*waveobj.TaskGroup, *waveobj.Run, *waveobj.
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
 	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func askTargetFixture(t *testing.T) (*waveobj.TaskGroup, *waveobj.Run, *waveobj.
 	if err := wstore.AppendDag(ctx, &g); err != nil {
 		t.Fatal(err)
 	}
-	child := jarvis.NewRun("child", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Quick, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	child := jarvis.NewRun("child", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Quick, jarvis.DefaultOrchestratorPlaybook(), 1)
 	child.DagORef = g.OID
 	if err := wstore.AppendRun(ctx, ch.OID, child); err != nil {
 		t.Fatal(err)

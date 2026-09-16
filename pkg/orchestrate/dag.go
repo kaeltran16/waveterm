@@ -42,7 +42,6 @@ func taskActive(state string) bool {
 
 // Dag statuses (derived by RecomputeDagStatus; cancelled is a terminal override).
 const (
-	DagStatus_AwaitingPlan   = "awaiting-plan"
 	DagStatus_Running        = "running"
 	DagStatus_AwaitingReview = "awaiting-review"
 	DagStatus_Blocked        = "blocked"
@@ -50,29 +49,11 @@ const (
 	DagStatus_Cancelled      = "cancelled"
 )
 
-// PlanGatePending reports whether the human still has to approve this plan. Every dispatch and every
-// derived status reads this rather than the status string, so the gate cannot be released by a
-// recompute — only by an approval writing PlanApprovedTs.
-func PlanGatePending(g *waveobj.TaskGroup) bool {
-	return g != nil && g.PlanGate && g.PlanApprovedTs == 0
-}
-
-// GatePlan marks a freshly built group as waiting on the human. Called at submit rather than inside
-// NewTaskGroup because whether a plan is gated is a property of the run that owns it (top-level or
-// child), not of the tasks being validated.
-func GatePlan(g *waveobj.TaskGroup) {
-	g.PlanGate = true
-	g.PlanApprovedTs = 0
-	RecomputeDagStatus(g)
-}
-
 // MaxConsecutiveFailures is the circuit-break: the DAG blocks with a "stop and ask" flag.
 const MaxConsecutiveFailures = 3
 
-// MaxTasks is the per-DAG node ceiling, declared in pkg/jarvis so the lead's prompt can state it.
-// See jarvis.MaxDagTasks for what the cap is actually for. MaxParallelism is the limit that governs
-// concurrent cost; this one only bounds how much one lead can fan out.
-const MaxTasks = jarvis.MaxDagTasks
+// MaxParallelism is the limit that governs concurrent cost: N live children are N worktrees
+// and N token streams, a cost the human pays.
 const MaxParallelism = 8
 
 // DefaultParallelism is the width a dag can actually use on its first tick: the tasks with no
@@ -190,12 +171,6 @@ func NewTaskGroup(runID, channelId, title string, parallelism int, mergeRequired
 	if len(tasks) == 0 {
 		return waveobj.TaskGroup{}, fmt.Errorf("dag has no tasks")
 	}
-	if len(tasks) > MaxTasks {
-		// the cap is discovered at submit time, after the planning cost is already spent, so the
-		// message has to carry the constraint that decides what to do next: a second import is not
-		// an option, because the run already owns this dag for good.
-		return waveobj.TaskGroup{}, fmt.Errorf("%d tasks exceeds the limit of %d; a run holds exactly one dag for its whole lifetime, so a second import cannot carry the remainder — compress the plan to fit, or split the goal across two runs", len(tasks), MaxTasks)
-	}
 	if parallelism < 1 || parallelism > MaxParallelism {
 		return waveobj.TaskGroup{}, fmt.Errorf("parallelism must be an integer from 1 through %d", MaxParallelism)
 	}
@@ -311,13 +286,6 @@ func SameDagProposal(a, b *waveobj.TaskGroup) bool {
 // Order matters: cancelled (terminal override) -> done -> blocked -> awaiting-review -> running.
 func RecomputeDagStatus(g *waveobj.TaskGroup) {
 	if g.Status == DagStatus_Cancelled {
-		return
-	}
-	// an unapproved plan has no task that has run, so deriving from task state would report it as an
-	// ordinary running dag that simply has not dispatched yet — which is what the reader is trying to
-	// tell apart from a dag that is waiting on them. Below cancelled so a cancelled gate stays cancelled.
-	if PlanGatePending(g) {
-		g.Status = DagStatus_AwaitingPlan
 		return
 	}
 	cancelled := false

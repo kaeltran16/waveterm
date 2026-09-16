@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
-	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
 
 // dagWithStatus builds the minimal dag group for attention tests. Status strings mirror
@@ -51,63 +50,6 @@ func TestBuildAttentionDagBlocked(t *testing.T) {
 		}
 	}
 	t.Fatalf("dag-blocked attention item missing: %+v", out)
-}
-
-// planGatedDag is a top-level plan the human has not approved yet. dd7f1c72 made every top-level
-// engine plan carry this; BuildAttention did not know the state existed, so a plan waiting on a
-// human was invisible in the queue.
-func planGatedDag() *waveobj.TaskGroup {
-	g := dagWithStatus("awaiting-plan")
-	g.PlanGate = true
-	g.PlanApprovedTs = 0
-	return g
-}
-
-func TestBuildAttentionSurfacesAnUnapprovedPlan(t *testing.T) {
-	in := AttentionInput{
-		Channels: []AttentionChannel{{OID: "ch-1", Name: "proj"}},
-		Dags:     []*waveobj.TaskGroup{planGatedDag()},
-	}
-	out := BuildAttention(in)
-	var got []wshrpc.AttentionItem
-	for _, it := range out {
-		if it.Kind == AttentionPlanGate {
-			got = append(got, it)
-		}
-	}
-	if len(got) != 1 {
-		t.Fatalf("want exactly one plan-gate item, got %d: %+v", len(got), out)
-	}
-	if got[0].Key != "plan-gate:dag-1" || got[0].RunId != "run-1" || got[0].Action != "Review" {
-		t.Fatalf("plan-gate item is not addressable: %+v", got[0])
-	}
-}
-
-// the gate is held by the PlanGate/PlanApprovedTs pair, not by the status string, so a group whose
-// stored status drifted to awaiting-review must still report the plan gate and must NOT also report a
-// review gate for a plan nobody has approved.
-func TestBuildAttentionPrefersThePlanGateOverADriftedStatus(t *testing.T) {
-	g := planGatedDag()
-	g.Status = "awaiting-review"
-	out := BuildAttention(AttentionInput{Dags: []*waveobj.TaskGroup{g}})
-	kinds := map[string]int{}
-	for _, it := range out {
-		kinds[it.Kind]++
-	}
-	if kinds[AttentionPlanGate] != 1 || kinds[AttentionDagGate] != 0 {
-		t.Fatalf("want 1 plan-gate and 0 dag-gate, got %v: %+v", kinds, out)
-	}
-}
-
-func TestBuildAttentionDoesNotHoldAnApprovedPlan(t *testing.T) {
-	g := planGatedDag()
-	g.PlanApprovedTs = 2000
-	g.Status = "running"
-	for _, it := range BuildAttention(AttentionInput{Dags: []*waveobj.TaskGroup{g}}) {
-		if it.Kind == AttentionPlanGate {
-			t.Fatalf("approved plan still reported as gated: %+v", it)
-		}
-	}
 }
 
 // one row per gated task, not one per group: a dag holding three gates used to render a single row

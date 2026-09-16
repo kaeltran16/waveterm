@@ -25,7 +25,7 @@ func TestDagSubmitFromPlanPath(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CreateChannel: %v", err)
 		}
-		run := jarvis.NewRun("ship coupons", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+		run := jarvis.NewRun("ship coupons", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
 		run.Status = jarvis.RunStatus_Planning
 		if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
 			t.Fatalf("AppendRun: %v", err)

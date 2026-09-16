@@ -61,9 +61,6 @@ func validateEngineDefaults(o *waveobj.ProfileOverride) error {
 	if o == nil {
 		return nil
 	}
-	if o.Machine != nil && *o.Machine != jarvis.Orchestration_Engine && *o.Machine != jarvis.Orchestration_Adaptive {
-		return fmt.Errorf("machine must be %q or %q", jarvis.Orchestration_Engine, jarvis.Orchestration_Adaptive)
-	}
 	if o.Parallelism != nil {
 		// a stored default is a width, not an absence: omission is how a profile says "let the lead choose"
 		if err := validateParallelism(*o.Parallelism, false); err != nil {
@@ -103,7 +100,6 @@ func (ws *WshServer) SetRunSettingsCommand(ctx context.Context, data wshrpc.Comm
 	settings := jarvis.PendingEngineSettings{
 		Parallelism: data.Parallelism,
 		WorkerRoute: data.WorkerRoute,
-		PlanGate:    data.PlanGate,
 	}
 
 	for attempt := 0; attempt < runSettingsAttempts; attempt++ {
@@ -170,11 +166,6 @@ func (ws *WshServer) SetRunSettingsCommand(ctx context.Context, data wshrpc.Comm
 			}
 			if blocker := jarvis.EngineSettingsBlocker(freshRun); blocker != "" {
 				return fmt.Errorf("cannot change run settings: %s", blocker)
-			}
-			if data.PlanGate != nil {
-				if blocker := jarvis.GateSettingsBlocker(freshRun, fresh); blocker != "" {
-					return fmt.Errorf("cannot change the plan gate: %s", blocker)
-				}
 			}
 			return wstore.UpdateDag(ctx, group.OID, func(cur *waveobj.TaskGroup) error {
 				*cur = jarvis.ApplyLiveEngineSettings(*cur, settings)

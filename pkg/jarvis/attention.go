@@ -31,7 +31,6 @@ const (
 	// engine's client (orchestrate imports jarvis for run status — importing it back would cycle).
 	AttentionDagGate    = "dag-gate"
 	AttentionDagBlocked = "dag-blocked"
-	AttentionPlanGate   = "plan-gate"
 	// radar triage is the only kind that names no channel: a scan belongs to a project, not a
 	// conversation, so its row addresses the report through ORef instead.
 	AttentionRadarTriage = "radar-triage"
@@ -295,31 +294,6 @@ func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
 	}
 
 	for _, g := range in.Dags {
-		// the field pair, not g.Status: orchestrate/dag.go:48 requires every reader of this gate to read
-		// PlanGate+PlanApprovedTs so that a status recomputed from task state can never release it. That
-		// is also why this is checked BEFORE the status switch — a group whose stored status has drifted
-		// must not report a review gate for a plan nobody has approved yet.
-		if g.PlanGate && g.PlanApprovedTs == 0 {
-			planEffort, planChunk := attribution(findRun(in.Channels, g.RunID))
-			gates = append(gates, wshrpc.AttentionItem{
-				Kind:        AttentionPlanGate,
-				Key:         "plan-gate:" + g.ID,
-				ChannelId:   g.ChannelId,
-				ChannelName: channelNameFor(in.Channels, g.ChannelId),
-				RunId:       g.RunID,
-				Source:      dagSource(in.Channels, g),
-				Text:        "Approve the plan before any worker starts.",
-				Action:      "Review",
-				// nothing records when the plan was handed over. UpdatedTs is the closest honest proxy
-				// and it bumps when a sent-back plan is redrafted, which is the behaviour you want: the
-				// wait restarts when the plan changes. CreatedTs would age a redraft as the original.
-				WaitingSince: g.UpdatedTs,
-				EffortOID:    planEffort,
-				ChunkLabel:   planChunk,
-				Why:          fmt.Sprintf("%s planned, none dispatched. Approving is what spawns the first worker.", plural(len(g.Tasks), "task")),
-			})
-			continue
-		}
 		// statuses mirror orchestrate.DagStatus_AwaitingReview / DagStatus_Blocked (see AttentionDagGate).
 		switch g.Status {
 		case "awaiting-review":

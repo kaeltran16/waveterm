@@ -5,7 +5,6 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
     DEFAULT_PARALLELISM,
-    MAX_DAG_TASKS,
     MAX_PARALLELISM,
     SHAPE_CARDS,
     clampParallelism,
@@ -16,9 +15,9 @@ import {
     type LaunchBlockerInput,
 } from "./runconfig";
 
-// The two ceilings are Go consts the launcher states in prose ("up to 16 tasks", the stepper's bound). Nothing
-// generates them, so this reads the source: a raised cap that only lands in Go would leave the launcher
-// promising a limit the engine no longer enforces.
+// The ceiling is a Go const the launcher states in prose (the stepper's bound). Nothing generates it, so
+// this reads the source: a raised limit that only lands in Go would leave the launcher promising a
+// width the engine no longer enforces.
 describe("go constant mirrors", () => {
     const goSource = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf-8");
 
@@ -27,13 +26,6 @@ describe("go constant mirrors", () => {
         const m = src.match(/const MaxParallelism = (\d+)/);
         expect(m, "MaxParallelism declaration not found in pkg/orchestrate/dag.go").not.toBeNull();
         expect(Number(m![1])).toBe(MAX_PARALLELISM);
-    });
-
-    it("MAX_DAG_TASKS tracks jarvis.MaxDagTasks", () => {
-        const src = goSource("../../../../pkg/jarvis/run.go");
-        const m = src.match(/const MaxDagTasks = (\d+)/);
-        expect(m, "MaxDagTasks declaration not found in pkg/jarvis/run.go").not.toBeNull();
-        expect(Number(m![1])).toBe(MAX_DAG_TASKS);
     });
 });
 
@@ -145,33 +137,28 @@ describe("profileRunDefaults", () => {
         const got = profileRunDefaults({
             playbook: [],
             defaultmode: "orchestrator",
-            machine: "engine",
             parallelism: 5,
             workerroute: route,
         } as JarvisProfile);
-        expect(got).toEqual({ shape: "orchestrator", orchestration: "engine", parallelism: 5, workerRoute: route });
+        expect(got).toEqual({ shape: "orchestrator", parallelism: 5, workerRoute: route });
     });
 
     it("has no opinion where the profile is silent", () => {
         expect(profileRunDefaults({ playbook: [] } as JarvisProfile)).toEqual({
             shape: null,
-            orchestration: null,
             parallelism: null,
             workerRoute: null,
         });
         expect(profileRunDefaults(null)).toEqual({
             shape: null,
-            orchestration: null,
             parallelism: null,
             workerRoute: null,
         });
     });
 
     // + Run no longer offers pipeline, so a stored pipeline default has no card to land on
-    it("leaves a pipeline default to the launcher's baseline, and still maps the machine", () => {
-        const got = profileRunDefaults({ playbook: [], defaultmode: "pipeline", machine: "adaptive" } as JarvisProfile);
-        expect(got.shape).toBeNull();
-        expect(got.orchestration).toBe("adaptive");
+    it("leaves a pipeline default to the launcher's baseline", () => {
+        expect(profileRunDefaults({ playbook: [], defaultmode: "pipeline" } as JarvisProfile).shape).toBeNull();
     });
 
     it("ignores a nonsensical stored width rather than clamping it into a dispatch", () => {

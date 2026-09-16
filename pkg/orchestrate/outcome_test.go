@@ -35,7 +35,7 @@ func newChildOutcomeHarness(t *testing.T, taskCount int) *childOutcomeHarness {
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
 	owner.Runtime = "claude"
 	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
 		t.Fatal(err)
@@ -278,7 +278,7 @@ func newLeadExitRun(t *testing.T, mutate func(*waveobj.Run)) (context.Context, s
 	if err != nil {
 		t.Fatal(err)
 	}
-	run := jarvis.NewRun("goal", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	run := jarvis.NewRun("goal", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
 	run.Phases[0].WorkerOrefs = []string{"tab:lead-tab"}
 	if mutate != nil {
 		mutate(&run)

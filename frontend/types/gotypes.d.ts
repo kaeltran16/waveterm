@@ -655,7 +655,6 @@ declare global {
         parallelism?: number;
         playbookid?: string;
         mode?: string;
-        plangate?: boolean;
         radarorigin?: RunRadarOrigin;
         effortoid?: string;
         chunklabel?: string;
@@ -1843,7 +1842,6 @@ declare global {
         runid: string;
         parallelism?: number;
         workerroute?: RoutePin;
-        plangate?: boolean;
     };
 
     // wshrpc.CommandStartJobData
@@ -2562,11 +2560,8 @@ declare global {
 
     // waveobj.JarvisProfile
     type JarvisProfile = {
-        playbook: RunPhase[];
         principles?: Principle[];
         defaultmode?: string;
-        defaultplangate?: boolean;
-        machine?: string;
         parallelism?: number;
         workerroute?: RoutePin;
     };
@@ -2969,12 +2964,9 @@ declare global {
 
     // waveobj.ProfileOverride
     type ProfileOverride = {
-        playbook?: RunPhase[];
         principles?: PrinciplePatch;
         route?: RoutePin;
         defaultmode?: string;
-        defaultplangate?: boolean;
-        machine?: string;
         parallelism?: number;
         workerroute?: RoutePin;
     };

@@ -22,7 +22,7 @@ import (
 func TestSetRunSettingsSerializedWithSchedulerMutations(t *testing.T) {
 	ctx := context.Background()
 	ch, run := newEngineRun(t, ctx, "rs-lock", jarvis.Orchestration_Engine)
-	g := submitGatedPlan(t, ctx, ch, run.ID)
+	g := submitPlan(t, ctx, ch, run.ID)
 
 	locked := make(chan struct{})
 	release := make(chan struct{})
@@ -69,7 +69,7 @@ func TestSetRunSettingsRetriesAcrossDagSubmission(t *testing.T) {
 	var once sync.Once
 	orig := runSettingsAfterAuthorityRead
 	runSettingsAfterAuthorityRead = func() {
-		once.Do(func() { submitGatedPlan(t, ctx, ch, run.ID) })
+		once.Do(func() { submitPlan(t, ctx, ch, run.ID) })
 	}
 	t.Cleanup(func() { runSettingsAfterAuthorityRead = orig })
 
@@ -94,40 +94,9 @@ func TestSetRunSettingsRetriesAcrossDagSubmission(t *testing.T) {
 	}
 }
 
-// Gate validation has to happen against the group as it is at write time, not as it was when the request
-// was read: an approve that lands in between must refuse the flip rather than be overwritten by it.
-func TestSetRunSettingsRevalidatesTheGateInsideTheCriticalSection(t *testing.T) {
-	ctx := context.Background()
-	ch, run := newEngineRun(t, ctx, "rs-gate-revalidate", jarvis.Orchestration_Engine)
-	g := submitGatedPlan(t, ctx, ch, run.ID)
-
-	orig := runSettingsAfterAuthorityRead
-	runSettingsAfterAuthorityRead = func() {
-		runSettingsAfterAuthorityRead = orig
-		if err := orchestrate.ApprovePlan(ctx, g.OID, 42); err != nil {
-			t.Fatalf("ApprovePlan: %v", err)
-		}
-	}
-	t.Cleanup(func() { runSettingsAfterAuthorityRead = orig })
-
-	gate := false
-	if err := (&WshServer{}).SetRunSettingsCommand(ctx, wshrpc.CommandSetRunSettingsData{
-		ChannelId: ch.OID, RunId: run.ID, PlanGate: &gate,
-	}); err == nil {
-		t.Fatal("expected the approved gate to refuse the flip")
-	}
-	got, err := wstore.GetDag(ctx, g.OID)
-	if err != nil {
-		t.Fatalf("GetDag: %v", err)
-	}
-	if !got.PlanGate {
-		t.Fatal("a refused gate change was persisted")
-	}
-}
-
 // The application path end to end: a saved profile, launched the way the hydrated launcher launches it
 // (shape explicit, the shape control's value having come from the profile), produces the saved machine,
-// width, worker route and gate — and the gate reaches the plan it governs.
+// width and worker route.
 func TestProfileDefaultsDriveNextEngineRun(t *testing.T) {
 	ctx := context.Background()
 	stubRunServer(t, "pi", nil)
@@ -136,14 +105,11 @@ func TestProfileDefaultsDriveNextEngineRun(t *testing.T) {
 		t.Fatalf("CreateChannel: %v", err)
 	}
 	route := &waveobj.RoutePin{Runtime: "pi"}
-	gateOff := false
 	if err := (&WshServer{}).SetChannelProfileCommand(ctx, wshrpc.CommandSetChannelProfileData{
 		ChannelId: ch.OID,
 		Override: &waveobj.ProfileOverride{
-				Machine:         strPtr(jarvis.Orchestration_Engine),
-			Parallelism:     intPtr(3),
-			WorkerRoute:     route,
-			DefaultPlanGate: &gateOff,
+			Parallelism: intPtr(3),
+			WorkerRoute: route,
 		},
 	}); err != nil {
 		t.Fatalf("SetChannelProfileCommand: %v", err)
@@ -169,23 +135,9 @@ func TestProfileDefaultsDriveNextEngineRun(t *testing.T) {
 	if run.WorkerRoute == nil || *run.WorkerRoute != *route {
 		t.Errorf("worker route = %+v, want the profile's", run.WorkerRoute)
 	}
-	if run.PlanGatePending == nil || *run.PlanGatePending {
-		t.Errorf("pending plan gate = %v, want the profile's explicit false", run.PlanGatePending)
-	}
-
-	g, err := (&WshServer{}).DagSubmitCommand(ctx, wshrpc.CommandDagSubmitData{
-		ChannelId: ch.OID, RunId: run.ID, Title: "plan", Parallelism: 2,
-		Tasks: []waveobj.TaskNode{{ID: "t-1", Label: "one"}},
-	})
-	if err != nil {
-		t.Fatalf("DagSubmitCommand: %v", err)
-	}
-	if g.PlanGate {
-		t.Fatal("the profile's plan-gate default did not reach the submitted group")
-	}
 }
 
-// The engine dials belong to the engine: a quick, pipeline or adaptive launch must not inherit a stored
+// The engine dials belong to the engine: a quick or pipeline launch must not inherit a stored
 // worker route (which can name a harness this machine does not have) or a width it will never use.
 func TestEngineDefaultsNotHydratedOntoNonEngineRuns(t *testing.T) {
 	ctx := context.Background()
@@ -194,14 +146,11 @@ func TestEngineDefaultsNotHydratedOntoNonEngineRuns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateChannel: %v", err)
 	}
-	gateOff := false
 	if err := (&WshServer{}).SetChannelProfileCommand(ctx, wshrpc.CommandSetChannelProfileData{
 		ChannelId: ch.OID,
 		Override: &waveobj.ProfileOverride{
-			Machine:         strPtr(jarvis.Orchestration_Engine),
-			Parallelism:     intPtr(5),
-			WorkerRoute:     &waveobj.RoutePin{Runtime: "pi"},
-			DefaultPlanGate: &gateOff,
+			Parallelism: intPtr(5),
+			WorkerRoute: &waveobj.RoutePin{Runtime: "pi"},
 		},
 	}); err != nil {
 		t.Fatalf("SetChannelProfileCommand: %v", err)
@@ -213,7 +162,6 @@ func TestEngineDefaultsNotHydratedOntoNonEngineRuns(t *testing.T) {
 	}{
 		{"quick", jarvis.RunMode_Quick, ""},
 		{"pipeline", jarvis.RunMode_Pipeline, ""},
-		{"adaptive orchestrator", jarvis.RunMode_Orchestrator, jarvis.Orchestration_Adaptive},
 	}
 	for _, l := range launches {
 		rtn, err := (&WshServer{}).CreateRunCommand(ctx, wshrpc.CommandCreateRunData{
@@ -228,9 +176,6 @@ func TestEngineDefaultsNotHydratedOntoNonEngineRuns(t *testing.T) {
 		}
 		if rtn.Run.WorkerRoute != nil {
 			t.Errorf("%s: worker route = %+v, want no engine default", l.name, rtn.Run.WorkerRoute)
-		}
-		if rtn.Run.PlanGatePending != nil {
-			t.Errorf("%s: pending plan gate = %v, want none outside an engine launch", l.name, rtn.Run.PlanGatePending)
 		}
 	}
 }

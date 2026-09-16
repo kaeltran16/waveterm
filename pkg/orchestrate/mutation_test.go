@@ -25,7 +25,7 @@ func seedPendingDag(t *testing.T) (context.Context, *waveobj.TaskGroup) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner := jarvis.NewRun("owner goal", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	owner := jarvis.NewRun("owner goal", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
 	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
 		t.Fatal(err)
 	}
@@ -457,7 +457,7 @@ func TestCancelPersistsCleanupDebtAndRetry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner := jarvis.NewRun("owner", "ws-1", projectDir, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	owner := jarvis.NewRun("owner", "ws-1", projectDir, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
 	owner.BaseCommit = gitCmd(t, projectDir, "rev-parse", "HEAD")
 	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
 		t.Fatal(err)

@@ -28,7 +28,7 @@ func planLeadRun(t *testing.T, state string) (*waveobj.Channel, waveobj.Run) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	run := jarvis.NewRun("ship coupons", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	run := jarvis.NewRun("ship coupons", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
 	run.Runtime = "pi"
 	run.Phases[0].State = state
 	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {

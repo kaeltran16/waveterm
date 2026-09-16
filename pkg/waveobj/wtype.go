@@ -291,7 +291,7 @@ type Run struct {
 	// worker's transcript is named by it, so liveness and evidence open that file. Empty for runs the
 	// engine did not launch.
 	SessionId string `json:"sessionid,omitempty"`
-	// WorkerRoute is the default worker route for orchestrator children (nil = inherit lead); B1b stores it here at CreateRun so `dag import-tasks` can submit the group with it.
+	// WorkerRoute is the default worker route for orchestrator children (nil = inherit lead); stored here at CreateRun so a submit can carry it onto the group.
 	WorkerRoute *RoutePin `json:"workerroute,omitempty"`
 	// Orchestration selects which machine an orchestrator lead drives: "engine" publishes a TaskGroup
 	// that pkg/orchestrate schedules; "adaptive" dispatches the lead's own subagents with no TaskGroup.
@@ -302,9 +302,7 @@ type Run struct {
 	// planning decision, so DagSubmit prefers it over the width the lead asks for. 0 = unset: the lead's
 	// own width stands, which is what every pre-rail run has.
 	Parallelism int `json:"parallelism,omitempty"`
-	// PlanGatePending is the human's prospective choice for the DAG's plan gate, made in the session
-	// sheet before the DAG exists. DagSubmit consumes it at submission; once a group exists the group's
-	// own PlanGate is the only authority and this is never read again, so there is no second live truth.
+	// historical: slice 5c removed the plan gate; kept so a stored run still decodes as it was written.
 	PlanGatePending *bool `json:"plangatepending,omitempty"`
 	// PlanFeedback is what the human wrote when they sent this run's gated plan back. The lead is
 	// handed it in its terminal and from `wsh jarvis dag status`, and redrafts; the next accepted
@@ -383,11 +381,7 @@ type TaskGroup struct {
 	UpdatedTs     int64       `json:"updatedts"`
 	Meta          MetaMapType `json:"meta"`
 
-	// PlanGate is set when the human must read this plan and approve it before any worker spawns.
-	// Every top-level engine plan carries it; a child's does not, because a child that halted for
-	// human review would strand a fan-out nobody is watching (childRunPlan strips phase gates for the
-	// same reason). PlanApprovedTs is when they approved: the pair, not the status, is what holds
-	// dispatch, so a status recomputed from task state can never release the gate by accident.
+	// historical: slice 5c removed the plan gate; kept so a stored dag still decodes as it was written.
 	PlanGate       bool  `json:"plangate,omitempty"`
 	PlanApprovedTs int64 `json:"planapprovedts,omitempty"`
 
@@ -516,18 +510,11 @@ type EffortEvent struct {
 	Text  string `json:"text,omitempty"`
 }
 
-// JarvisProfile is a resolved (or the global) Jarvis profile: the playbook (phase pipeline) and the
-// principles (free-text judgment; injected into worker/orchestrator/quick prompts and the Gatekeeper).
-// Playbook reuses RunPhase so a resolved profile feeds NewRun directly (runtime fields are set at run creation).
+// JarvisProfile is a resolved (or the global) Jarvis profile: the principles (free-text judgment;
+// injected into worker/orchestrator/quick prompts and the Gatekeeper) plus the engine's launch defaults.
 type JarvisProfile struct {
-	Playbook        []RunPhase    `json:"playbook"`
-	Principles      PrincipleList `json:"principles,omitempty"`
-	DefaultMode     string        `json:"defaultmode,omitempty"`     // pipeline | orchestrator (empty = pipeline)
-	DefaultPlanGate *bool         `json:"defaultplangate,omitempty"` // nil = on
-	// Machine is the orchestration machine a new run defaults to: engine (publishes a TaskGroup) or
-	// adaptive (the lead dispatches its own subagents). It is the launch form of Run.Orchestration, and
-	// empty is the pre-2026-09 fold where the runtime alone decided.
-	Machine string `json:"machine,omitempty"`
+	Principles  PrincipleList `json:"principles,omitempty"`
+	DefaultMode string        `json:"defaultmode,omitempty"` // pipeline | orchestrator (empty = pipeline)
 	// Parallelism is the engine width a new run defaults to. 0 = let the lead choose, which is what
 	// every profile written before this field has.
 	Parallelism int `json:"parallelism,omitempty"`
@@ -538,14 +525,11 @@ type JarvisProfile struct {
 // ProfileOverride is a channel's per-project override, stored as JSON on channel meta. Pointer fields:
 // nil = inherit the global section, non-nil = replace it (section-level resolution).
 type ProfileOverride struct {
-	Playbook        *[]RunPhase     `json:"playbook,omitempty"`
-	Principles      *PrinciplePatch `json:"principles,omitempty"`
-	Route           *RoutePin       `json:"route,omitempty"`
-	DefaultMode     *string         `json:"defaultmode,omitempty"`
-	DefaultPlanGate *bool           `json:"defaultplangate,omitempty"`
-	Machine         *string         `json:"machine,omitempty"`
-	Parallelism     *int            `json:"parallelism,omitempty"`
-	WorkerRoute     *RoutePin       `json:"workerroute,omitempty"`
+	Principles  *PrinciplePatch `json:"principles,omitempty"`
+	Route       *RoutePin       `json:"route,omitempty"`
+	DefaultMode *string         `json:"defaultmode,omitempty"`
+	Parallelism *int            `json:"parallelism,omitempty"`
+	WorkerRoute *RoutePin       `json:"workerroute,omitempty"`
 }
 
 type Channel struct {

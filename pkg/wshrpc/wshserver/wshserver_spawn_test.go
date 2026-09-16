@@ -25,7 +25,7 @@ func TestSpawnRunWorkers_ConcurrentSpawnsOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateChannel: %v", err)
 	}
-	run := jarvis.NewRun("do X", "ws-id", "/repo", nil, jarvis.RunMode_Pipeline, jarvis.DefaultPlaybook(), 1)
+	run := jarvis.NewRun("do X", "ws-id", "/repo", nil, jarvis.RunMode_Pipeline, storedPipelinePhases(), 1)
 	run.Runtime = "pi"
 	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
 		t.Fatalf("AppendRun: %v", err)

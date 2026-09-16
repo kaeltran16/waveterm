@@ -66,7 +66,7 @@ func TestMigrateTierPinsRewritesEveryStore(t *testing.T) {
 		Route:       &waveobj.RoutePin{Runtime: "claude", Tier: "capable"},
 		WorkerRoute: &waveobj.RoutePin{Runtime: "claude", Tier: "mid"},
 	})
-	run := NewRun("tier run", "ws-1", t.TempDir(), nil, RunMode_Orchestrator, DefaultOrchestratorPlaybook(false), 1)
+	run := NewRun("tier run", "ws-1", t.TempDir(), nil, RunMode_Orchestrator, DefaultOrchestratorPlaybook(), 1)
 	run.WorkerRoute = &waveobj.RoutePin{Runtime: "claude", Tier: "cheap"}
 	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
 		t.Fatal(err)

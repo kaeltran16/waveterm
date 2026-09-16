@@ -46,20 +46,6 @@ var jarvisCtxCmd = &cobra.Command{
 	},
 }
 
-var jarvisHoldCmd = &cobra.Command{
-	Use:   "hold [plan-file-path]",
-	Short: "pause the current run at its plan gate for review",
-	Args:  cobra.MaximumNArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		var artifacts []string
-		if len(args) > 0 && args[0] != "" {
-			artifacts = []string{args[0]} // the plan path the reviewer previews
-		}
-		return reportRunPhase(wshrpc.CommandReportRunPhaseData{Action: "hold", Artifacts: artifacts})
-	},
-	PreRunE: preRunSetupRpcClient,
-}
-
 var jarvisCompleteCmd = &cobra.Command{
 	Use:   "complete [deliverable-path]",
 	Short: "mark the current run's phase complete (optionally recording its deliverable)",
@@ -71,20 +57,6 @@ var jarvisCompleteCmd = &cobra.Command{
 		}
 		commit, _ := cmd.Flags().GetString("commit")
 		return reportRunPhase(wshrpc.CommandReportRunPhaseData{Action: "complete", Artifacts: artifacts, Commit: commit})
-	},
-	PreRunE: preRunSetupRpcClient,
-}
-
-var jarvisTriageCmd = &cobra.Command{
-	Use:     "triage <quick|plan> [reason]",
-	Short:   "announce the adaptive lead's quick-vs-plan call for this run (non-blocking)",
-	Args:    cobra.RangeArgs(1, 2),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		note := ""
-		if len(args) > 1 {
-			note = args[1]
-		}
-		return reportRunPhase(wshrpc.CommandReportRunPhaseData{Action: "triage", Verdict: args[0], Note: note})
 	},
 	PreRunE: preRunSetupRpcClient,
 }
@@ -116,9 +88,7 @@ var jarvisRunCmd = &cobra.Command{
 func init() {
 	jarvisRunCmd.Flags().String("mode", "", "child run mode: quick|pipeline|orchestrator (default: inherit the channel strategy)")
 	jarvisCompleteCmd.Flags().String("commit", "", "SHA of your finished work (e.g. $(git rev-parse HEAD)); scopes this run's evidence diff to its own commits")
-	jarvisCmd.AddCommand(jarvisHoldCmd)
 	jarvisCmd.AddCommand(jarvisCompleteCmd)
-	jarvisCmd.AddCommand(jarvisTriageCmd)
 	jarvisCmd.AddCommand(jarvisRunCmd)
 	jarvisCmd.AddCommand(jarvisCtxCmd)
 	rootCmd.AddCommand(jarvisCmd)

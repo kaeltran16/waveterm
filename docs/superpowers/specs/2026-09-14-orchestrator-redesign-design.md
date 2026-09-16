@@ -454,17 +454,17 @@ A one-time pass at server start rewrites every pin that has a tier and no model 
 
 | What | Where | Why |
 |---|---|---|
-| `dag wait` | `wshcmd-jarvisdag.go:192` | the lead no longer polls |
-| `dag submit [dag-json]` / `--file` | `wshcmd-jarvisdag.go:61-90` | replaced by `--plan`; it was the Claude lead's planning mechanism |
-| `dag import-tasks`, `dag init` | `wshcmd-jarvisdag.go:93`, `:495` | pi lead planning mechanisms |
-| pi control plumbing | `control.go`, `control_test.go`, `wshrpctypes_picontrol.go`, `wshserver_picontrol.go`, `PiControlAckCommand` (`wshrpctypes_dag.go:22`), hidden `dag ack` (`wshcmd-jarvisdag.go:478`), the watcher and `agent_settled` control handling in `pi/extensions/waveterm-tools.ts` and the installed `pi-tools-extension.ts` | never worked; replaced by the wake adapter |
-| plan gate | `DagStatus_AwaitingPlan`, `approve-plan`/`sendback-plan` actions, `RunEventKindDagPlanGated` (`pkg/waveobj/runevent.go:62`) and its append (`wshserver_dag.go:127`), "Approve & proceed" (`runcards.tsx:58`), `plangate.ts` | no plan gate |
-| engine lead prompt | `buildEngineOrchestratePrompt` (`run.go:440-471`) and its triage, cap, gate, pi import-tasks, submit-and-wait and merge-ready text | replaced by the launch prompt and orchestration rules |
-| `MaxDagTasks` | `run.go:45`, `dag.go:67`, `:185-189` | G3 |
-| pipeline, adaptive | see §1 | two shapes |
-| tiers | see §9 | one way to name a model |
+| ~~`dag wait`~~ **landed (slice 3)** | `wshcmd-jarvisdag.go:192` | the lead no longer polls |
+| ~~`dag submit [dag-json]` / `--file`~~ **landed 5c** | `wshcmd-jarvisdag.go:61-90` | replaced by `--plan`; it was the Claude lead's planning mechanism |
+| ~~`dag import-tasks`, `dag init`~~ **landed 5c** | `wshcmd-jarvisdag.go:93`, `:495` | pi lead planning mechanisms |
+| ~~pi control plumbing~~ **landed (slice 3)** | `control.go`, `control_test.go`, `wshrpctypes_picontrol.go`, `wshserver_picontrol.go`, `PiControlAckCommand` (`wshrpctypes_dag.go:22`), hidden `dag ack` (`wshcmd-jarvisdag.go:478`), the watcher and `agent_settled` control handling in `pi/extensions/waveterm-tools.ts` and the installed `pi-tools-extension.ts` | never worked; replaced by the wake adapter |
+| ~~plan gate~~ **landed 5c** | `DagStatus_AwaitingPlan`, `approve-plan`/`sendback-plan` actions, `RunEventKindDagPlanGated` (`pkg/waveobj/runevent.go:62`) and its append (`wshserver_dag.go:127`), "Approve & proceed" (`runcards.tsx:58`), `plangate.ts` | no plan gate |
+| ~~engine lead prompt~~ **landed 5a** | `buildEngineOrchestratePrompt` (`run.go:440-471`) and its triage, cap, gate, pi import-tasks, submit-and-wait and merge-ready text | replaced by the launch prompt and orchestration rules |
+| ~~`MaxDagTasks`~~ **landed 5c** | `run.go:45`, `dag.go:67`, `:185-189` | G3 |
+| ~~pipeline, adaptive~~ **landed 5c** | see §1 | two shapes |
+| ~~tiers~~ **landed (slice 2)** | see §9 | one way to name a model |
 
-The frontend orchestration-toggle and pipeline-shape code lives in `newruncontrol.tsx`, `newrun.ts`, `briefsheet.tsx`, `briefrunsheet.tsx`, `runlauncher.tsx`, `runconfig.ts`, `runconfigstore.ts`, `runsettings.ts`, `daggraph-header.tsx`, `channelcomposers.tsx`, `runactions.ts`, `agents.tsx`, `orchestratorpicker.ts`, `cockpitsurface.tsx` and `cockpitsurfacemodel.ts`. The plan checks each file for what is toggle code and what is shared.
+**Landed 5c.** The frontend toggle code went with it: `orchestratorpicker.ts`, `plangate.ts`, `plangatecard.tsx` and `playbookeditor.tsx` are deleted; `newrun.ts`, `briefrunsheet.tsx`, `briefprofileview.tsx`, `runlauncher.tsx`, `runconfig.ts`, `runconfigstore.ts`, `runsettings.ts`, `channelcomposers.tsx`, `runactions.ts`, `runbody.tsx` and `profilemodel.ts` lost their toggle halves and kept their shared ones. Every reader a stored run needs to render stays: `PhaseRail`, `runbody.tsx`'s pipeline body, `runcards.tsx`, the `dag-plan-*` and `gate-*` timeline rows, and `RunMode_Pipeline` / `Run.Orchestration` / `RunPhase.Triage` / `TaskGroup.PlanGate` as persisted fields.
 
 ## 11. Fixes
 
@@ -544,9 +544,9 @@ This is too large for one plan. Slice 1 is two small, reversible fixes, made dir
    - **4c. Setup and merge-point Verify:** Setup after `worktree add`, Verify after each squash merge at today's per-task merge points, `verify-failed` and `dag merge --continue`, the per-project merge queue, report numbers. Plan.
    - **4d. Lanes:** lane worktrees and branches, stacked in-lane commits, merges at lane tips, cross-lane waits, the G1 spec and plan fold. Plan.
 5. **Lead flow:** §1, §2, §7, §10, in three sub-slices. The old paths go last, after their replacements pass live acceptance.
-   - **5a. Lead prompt and compaction:** first verify that pi's `/compact` takes instructions (§7). The launch prompt and orchestration rules replace `buildEngineOrchestratePrompt`; the worker contract carries the plan path and task heading; `wsh jarvis dag rules`; the handoff compaction; the Claude `SessionStart` `compact` hook entry and pi's `session_compact` and `context` handlers; a lead that exits before `dag submit` fails the run (G8). Until 5c, a submitted plan still stops at the plan gate, because `DagSubmitCommand` gates every top-level plan. Plan.
+   - **5a. Lead prompt and compaction:** first verify that pi's `/compact` takes instructions (§7). The launch prompt and orchestration rules replace `buildEngineOrchestratePrompt`; the worker contract carries the plan path and task heading; `wsh jarvis dag rules`; the handoff compaction; the Claude `SessionStart` `compact` hook entry and pi's `session_compact` and `context` handlers; a lead that exits before `dag submit` fails the run (G8). Plan.
    - **5b. + Run shapes and plan-path start:** the Quick and Orchestrator shapes, Quick's ask line, the plan-path input with its parse preview, the engine submitting the plan at run start, and the lead launched at the first judgment event with the 5a orchestration rules (G5). Plan: `docs/superpowers/plans/2026-09-15-orchestrator-redesign-s5b-run-shapes-plan-start.md`. + Run also drops its machine toggle and its "Who plans" control here; their code goes with 5c.
-   - **5c. Deletions:** pipeline, adaptive and triage with the frontend toggle, the plan gate, then JSON submit, `import-tasks`, `init` and `MaxDagTasks`, with `dagDigestChildRunLimit` and the frontend's `MAX_DAG_TASKS`. Those four moved here from slice 4 because the old lead prompt told leads to use them. Existing pipeline and adaptive runs stay readable. Plan: mostly the per-file inventory §10 asks for.
+   - **5c. Deletions:** pipeline, adaptive and triage with the frontend toggle, the plan gate, then JSON submit, `import-tasks`, `init` and `MaxDagTasks`, with `dagDigestChildRunLimit` and the frontend's `MAX_DAG_TASKS`. Those four moved here from slice 4 because the old lead prompt told leads to use them. Existing pipeline and adaptive runs stay readable. Plan: `docs/superpowers/plans/2026-09-16-orchestrator-redesign-s5c-deletions.md`. **Landed 2026-09-16.** `dag submit` is plan-only; there is one machine, no plan gate, no task cap and no pipeline shape. `dagDigestChildRunLimit` became a standalone 64 (a snapshot cost bound, not a plan-size limit), and the profile playbook went with pipeline mode.
 
 Slice 5 depends on 3 and 4. Slices 1 and 2 are independent of everything. Within slice 4, 4b is independent; 4c needs 4a, because Setup and Verify come from the plan; 4d needs 4a and 4c. Within slice 5, 5b needs 5a; 5c needs 5a, 5b and live acceptance 1 to 3 (§12), because it deletes the paths they replace.
 

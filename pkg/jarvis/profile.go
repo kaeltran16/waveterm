@@ -33,7 +33,7 @@ var DefaultPrinciples = waveobj.PrincipleList{
 }
 
 func BuiltinProfile() waveobj.JarvisProfile {
-	return waveobj.JarvisProfile{Playbook: DefaultPlaybook(), Principles: clonePrinciples(DefaultPrinciples)}
+	return waveobj.JarvisProfile{Principles: clonePrinciples(DefaultPrinciples)}
 }
 
 func LoadGlobalProfile() waveobj.JarvisProfile {
@@ -62,11 +62,6 @@ func LoadGlobalProfile() waveobj.JarvisProfile {
 func SaveGlobalProfile(profile waveobj.JarvisProfile) error {
 	if err := ValidateGlobalPrinciples(profile.Principles); err != nil {
 		return fmt.Errorf("invalid principles: %w", err)
-	}
-	for i, phase := range profile.Playbook {
-		if strings.TrimSpace(phase.Kind) == "" {
-			return fmt.Errorf("playbook phase %d has a blank kind", i)
-		}
 	}
 	data, err := json.MarshalIndent(profile, "", "  ")
 	if err != nil {
@@ -221,17 +216,8 @@ func ResolveProfileWithDiagnostics(global waveobj.JarvisProfile, override *waveo
 	var patch *waveobj.PrinciplePatch
 	if override != nil {
 		patch = override.Principles
-		if override.Playbook != nil {
-			out.Playbook = *override.Playbook
-		}
 		if override.DefaultMode != nil {
 			out.DefaultMode = *override.DefaultMode
-		}
-		if override.DefaultPlanGate != nil {
-			out.DefaultPlanGate = override.DefaultPlanGate
-		}
-		if override.Machine != nil {
-			out.Machine = *override.Machine
 		}
 		if override.Parallelism != nil {
 			out.Parallelism = *override.Parallelism
@@ -261,8 +247,8 @@ func ProfileOverrideIsEmpty(o *waveobj.ProfileOverride) bool {
 	if patch != nil && patch.IsEmpty() {
 		patch = nil
 	}
-	return o.Playbook == nil && patch == nil && o.Route == nil && o.DefaultMode == nil &&
-		o.DefaultPlanGate == nil && o.Machine == nil && o.Parallelism == nil && o.WorkerRoute == nil
+	return patch == nil && o.Route == nil && o.DefaultMode == nil &&
+		o.Parallelism == nil && o.WorkerRoute == nil
 }
 
 func RenderPrinciples(items waveobj.PrincipleList) string {
@@ -277,14 +263,6 @@ func RenderPrinciples(items waveobj.PrincipleList) string {
 		lines = append(lines, "- "+item.Text)
 	}
 	return strings.Join(lines, "\n")
-}
-
-func ResolvePlaybook(global waveobj.JarvisProfile, override *waveobj.ProfileOverride) []waveobj.RunPhase {
-	playbook := ResolveProfile(global, override).Playbook
-	if len(playbook) == 0 {
-		return DefaultPlaybook()
-	}
-	return playbook
 }
 
 func OverrideFromMeta(ch *waveobj.Channel) *waveobj.ProfileOverride {

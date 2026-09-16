@@ -319,27 +319,6 @@ func TestAskAndEscalationCarryTheWorkerRunsInitiative(t *testing.T) {
 	}
 }
 
-func TestPlanGateWhyCountsTheTasksItWouldSpawn(t *testing.T) {
-	run := &waveobj.Run{ID: "r1", EffortRef: &waveobj.RunEffortRef{EffortOID: "e-1", ChunkLabel: "ship it"}}
-	g := &waveobj.TaskGroup{ID: "d1", RunID: "r1", ChannelId: "c1", PlanGate: true, UpdatedTs: 10,
-		Tasks: []waveobj.TaskNode{{ID: "t-1", State: "pending"}}}
-	items := BuildAttention(AttentionInput{
-		Channels: []AttentionChannel{{OID: "c1", Runs: []*waveobj.Run{run}}},
-		Dags:     []*waveobj.TaskGroup{g},
-	})
-	if len(items) != 1 || items[0].Kind != AttentionPlanGate {
-		t.Fatalf("want one plan gate, got %+v", items)
-	}
-	// singular at one: "1 tasks planned" would read as a bug in the number
-	want := "1 task planned, none dispatched. Approving is what spawns the first worker."
-	if items[0].Why != want {
-		t.Fatalf("why-line:\n got %q\nwant %q", items[0].Why, want)
-	}
-	if items[0].EffortOID != "e-1" || items[0].ChunkLabel != "ship it" {
-		t.Fatalf("a dag item is attributed through its owning run: %+v", items[0])
-	}
-}
-
 func TestDagGateAndBlockedWhyCountSkippedTasksAsFinished(t *testing.T) {
 	tasks := []waveobj.TaskNode{
 		{ID: "t-1", State: "done"},

@@ -157,14 +157,14 @@ describe("resolveRunCreationDecision", () => {
         capability: {} as NonNullable<EffectiveRoute["capability"]>,
     };
 
-    it("creates a pipeline run directly", () => {
+    it("creates an orchestrator run directly", () => {
         expect(
-            resolveRunCreationDecision({ channelId: "channel-1", goal: "fix auth", shape: "pipeline", route })
+            resolveRunCreationDecision({ channelId: "channel-1", goal: "fix auth", shape: "orchestrator", route })
         ).toEqual({
             kind: "create-run",
             channelId: "channel-1",
             goal: "fix auth",
-            mode: "pipeline",
+            mode: "orchestrator",
             route: route.pin,
         });
     });
@@ -203,7 +203,7 @@ describe("resolveRunCreationDecision", () => {
             resolveRunCreationDecision({
                 channelId: "channel-1",
                 goal: "fix auth",
-                shape: "pipeline",
+                shape: "orchestrator",
                 route: { pin: route.pin, source: "settings" },
             })
         ).toEqual({ kind: "blocked", focusRoute: true, reason: "Choose an available route" });

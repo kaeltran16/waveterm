@@ -23,20 +23,6 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
-// mustApprovePlan clears a submitted plan's gate and returns the scheduled group. Every top-level
-// submit now stops at the gate, so a test about what happens *after* dispatch has to pass through it.
-func mustApprovePlan(t *testing.T, ctx context.Context, ws *WshServer, channelId, runId string) *waveobj.TaskGroup {
-	t.Helper()
-	if err := ws.DagActionCommand(ctx, wshrpc.CommandDagActionData{ChannelId: channelId, RunId: runId, Action: "approve-plan"}); err != nil {
-		t.Fatalf("approve-plan: %v", err)
-	}
-	rtn, err := ws.DagStatusCommand(ctx, wshrpc.CommandDagStatusData{ChannelId: channelId, RunId: runId})
-	if err != nil {
-		t.Fatalf("status after approve-plan: %v", err)
-	}
-	return rtn.Group
-}
-
 func TestDagSubmitAndAction(t *testing.T) {
 	ctx := context.Background()
 	oldSpawn := jarvis.SpawnRunWorker
@@ -54,7 +40,7 @@ func TestDagSubmitAndAction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateChannel: %v", err)
 	}
-	run := jarvis.NewRun("do the thing", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	run := jarvis.NewRun("do the thing", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
 	run.Status = jarvis.RunStatus_Planning
 	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
 		t.Fatalf("AppendRun: %v", err)
@@ -71,26 +57,12 @@ func TestDagSubmitAndAction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// a top-level plan waits for the human before anything spawns
-	if g.Status != orchestrate.DagStatus_AwaitingPlan {
-		t.Fatalf("want awaiting-plan, got %s", g.Status)
-	}
-	if g.Tasks[0].State != orchestrate.TaskState_Pending || g.Tasks[0].RunID != "" {
-		t.Fatalf("a gated plan must not dispatch: got %+v", g.Tasks[0])
-	}
-	if err := ws.DagActionCommand(ctx, wshrpc.CommandDagActionData{ChannelId: ch.OID, RunId: run.ID, Action: "approve-plan"}); err != nil {
-		t.Fatalf("approve-plan: %v", err)
-	}
-	approved, err := ws.DagStatusCommand(ctx, wshrpc.CommandDagStatusData{ChannelId: ch.OID, RunId: run.ID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	g = approved.Group
 	if g.Status != "running" {
 		t.Fatalf("want running, got %s", g.Status)
 	}
+	// submitting is what dispatches: the first layer is live in the group submit returns
 	if g.Tasks[0].State != orchestrate.TaskState_Running || g.Tasks[0].RunID == "" {
-		t.Fatalf("approval must schedule the first step: t-0 running with child run, got %+v", g.Tasks[0])
+		t.Fatalf("submit must schedule the first step: t-0 running with child run, got %+v", g.Tasks[0])
 	}
 	// approve on a non-gate task errors (targeted actions must not silently no-op):
 	if err := ws.DagActionCommand(ctx, wshrpc.CommandDagActionData{ChannelId: ch.OID, RunId: run.ID, TaskId: "t-0", Action: "approve"}); err == nil {
@@ -185,7 +157,7 @@ func TestDagSubmitOnLiveLeadRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateChannel: %v", err)
 	}
-	run := jarvis.NewRun("do the thing", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	run := jarvis.NewRun("do the thing", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
 	if run.Status != jarvis.RunStatus_Executing {
 		t.Fatalf("new orchestrator run status = %q, want executing (adaptive lead started)", run.Status)
 	}
@@ -246,8 +218,8 @@ func TestDagSubmitDeferredRun(t *testing.T) {
 	if got.DagORef != g.OID {
 		t.Fatalf("dagoref not linked")
 	}
-	// the plan is published and gated, so the lifecycle stops at the gate — no task-spawned yet
-	wantEvents := []string{waveobj.RunEventKindCreated, waveobj.RunEventKindPhaseStarted + "@0", waveobj.RunEventKindDagPlanGated}
+	// publishing the plan is what dispatches it, so the first task spawns on the submit itself
+	wantEvents := []string{waveobj.RunEventKindCreated, waveobj.RunEventKindPhaseStarted + "@0", waveobj.RunEventKindTaskSpawned}
 	if gotEvents := mustSeq(t, ch.OID, rtn.Run.ID); !reflect.DeepEqual(gotEvents, wantEvents) {
 		t.Fatalf("deferred lifecycle events = %v, want %v", gotEvents, wantEvents)
 	}
@@ -275,11 +247,7 @@ func TestDagSubmitDeferredRun(t *testing.T) {
 	}
 }
 
-func TestDagSubmitRejectsEngineStateAndLimitsBeforePersistence(t *testing.T) {
-	tooManyTasks := make([]waveobj.TaskNode, orchestrate.MaxTasks+1)
-	for i := range tooManyTasks {
-		tooManyTasks[i] = waveobj.TaskNode{ID: fmt.Sprintf("t-%d", i), Label: "task"}
-	}
+func TestDagSubmitRejectsEngineStateBeforePersistence(t *testing.T) {
 	cases := []struct {
 		name        string
 		title       string
@@ -293,7 +261,6 @@ func TestDagSubmitRejectsEngineStateAndLimitsBeforePersistence(t *testing.T) {
 		{name: "attempts", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "a", Attempts: 1}}},
 		{name: "lastfailurekind", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "a", LastFailureKind: "timeout"}}},
 		{name: "escalations", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "a", Escalations: 1}}},
-		{name: "too-many-tasks", title: "g", parallelism: 1, tasks: tooManyTasks},
 		{name: "zero-parallelism", title: "g", parallelism: 0, tasks: []waveobj.TaskNode{{ID: "t", Label: "a"}}},
 		{name: "excess-parallelism", title: "g", parallelism: 9, tasks: []waveobj.TaskNode{{ID: "t", Label: "a"}}},
 	}
@@ -313,7 +280,7 @@ func TestDagSubmitRejectsEngineStateAndLimitsBeforePersistence(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			owner := jarvis.NewRun("owner", "ws", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+			owner := jarvis.NewRun("owner", "ws", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
 			owner.Status = jarvis.RunStatus_Planning
 			owner.Runtime = "claude"
 			if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
@@ -354,7 +321,7 @@ func TestDagSubmitRejectsInvalidTaskRoutesBeforePersistence(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+			owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
 			owner.Runtime = "claude"
 			if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
 				t.Fatal(err)
@@ -416,7 +383,7 @@ func TestDagSubmitAcceptsPinnedAndInheritedRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
 	owner.Runtime = "claude"
 	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
 		t.Fatal(err)
@@ -470,7 +437,7 @@ func seedDagActionEscalation(t *testing.T) (context.Context, *waveobj.Channel, w
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
 	owner.Status = jarvis.RunStatus_Executing
 	owner.Runtime = "pi"
 	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
@@ -592,7 +559,7 @@ func TestDagMergeTargetsChildWorktree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	run := jarvis.NewRun("do the thing", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	run := jarvis.NewRun("do the thing", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
 	run.Status = jarvis.RunStatus_Planning
 	run.BaseCommit = baseSha
 	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
@@ -617,8 +584,6 @@ func TestDagMergeTargetsChildWorktree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	g = mustApprovePlan(t, ctx, ws, ch.OID, run.ID)
-
 	// child commits feature work in its own worktree
 	key := orchestrate.TaskWorktreeKey(run.ID, "t-0")
 	wtPath := filepath.Join(projectDir, ".waveterm", "worktrees", key)
@@ -702,7 +667,7 @@ func TestDagMergeContinueFinishesBlockedMerge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	run := jarvis.NewRun("do the thing", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	run := jarvis.NewRun("do the thing", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
 	run.Status = jarvis.RunStatus_Planning
 	run.BaseCommit = baseSha
 	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
@@ -727,8 +692,6 @@ func TestDagMergeContinueFinishesBlockedMerge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	g = mustApprovePlan(t, ctx, ws, ch.OID, run.ID)
-
 	// child edits base.txt in its worktree; the project main diverges on the same file so the
 	// eventual squash merge conflicts
 	key := orchestrate.TaskWorktreeKey(run.ID, "t-0")
@@ -839,7 +802,7 @@ func TestDagMergeCleanupFailurePersistsDebt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	run := jarvis.NewRun("do the thing", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	run := jarvis.NewRun("do the thing", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
 	run.Status = jarvis.RunStatus_Planning
 	run.BaseCommit = baseSha
 	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
@@ -864,7 +827,6 @@ func TestDagMergeCleanupFailurePersistsDebt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	g = mustApprovePlan(t, ctx, ws, ch.OID, run.ID)
 	key := orchestrate.TaskWorktreeKey(run.ID, "t-0")
 	wtPath := filepath.Join(projectDir, ".waveterm", "worktrees", key)
 	if _, err := os.Stat(wtPath); err != nil {
@@ -961,14 +923,6 @@ func TestDagMergeCleanupFailurePersistsDebt(t *testing.T) {
 	}
 }
 
-// The digest loads at most one child run per task, so a limit below the task ceiling silently
-// degrades durations to Partial on exactly the wide dags the ceiling was raised for.
-func TestDagDigestChildRunLimitCoversTaskCap(t *testing.T) {
-	if dagDigestChildRunLimit != jarvis.MaxDagTasks {
-		t.Fatalf("dagDigestChildRunLimit must follow jarvis.MaxDagTasks: %d vs %d", dagDigestChildRunLimit, jarvis.MaxDagTasks)
-	}
-}
-
 func TestDagSubmitHandsOffOnlyToALead(t *testing.T) {
 	ctx := context.Background()
 	var handed []string
@@ -982,7 +936,7 @@ func TestDagSubmitHandsOffOnlyToALead(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateChannel: %v", err)
 	}
-	lead := jarvis.NewRun("do the thing", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	lead := jarvis.NewRun("do the thing", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
 	lead.Phases[0].WorkerOrefs = []string{"tab:lead-tab"}
 	if err := wstore.AppendRun(ctx, ch.OID, lead); err != nil {
 		t.Fatalf("AppendRun: %v", err)

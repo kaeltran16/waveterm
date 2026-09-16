@@ -164,19 +164,6 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 	}
 	proposed.Verify, proposed.Setup = plan.Verify, plan.Setup
 	proposed.PlanPath, proposed.SpecPath = data.PlanPath, data.SpecPath
-	// Every top-level plan is read by the human before a single worker spawns: the decomposition is
-	// the run's most consequential decision and the cheapest point to correct it, and once children
-	// are live the correction costs N worktrees. A child's plan is not gated — its parent's already
-	// was, and a child halting for review would strand a fan-out nobody is watching.
-	planGate := run.ParentLeadORef == ""
-	// the session sheet can decide the gate before the plan exists; the run carries that pending choice
-	// and it wins here, because submitting is exactly the moment the choice becomes the group's.
-	if run.PlanGatePending != nil {
-		planGate = *run.PlanGatePending
-	}
-	if planGate {
-		orchestrate.GatePlan(&proposed)
-	}
 	stored, created, err := wstore.CreateDagForRun(ctx, data.ChannelId, data.RunId, &proposed, func(run *waveobj.Run) error {
 		if run.Mode != jarvis.RunMode_Orchestrator {
 			return fmt.Errorf("dag requires an orchestrator-mode run")
@@ -203,11 +190,6 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 	} else {
 		zero := 0
 		appendRunEvent(ctx, data.ChannelId, data.RunId, waveobj.RunEventKindPhaseStarted, &zero, map[string]any{})
-		if orchestrate.PlanGatePending(stored) {
-			appendRunEvent(ctx, data.ChannelId, data.RunId, waveobj.RunEventKindDagPlanGated, nil, map[string]any{
-				"tasks": len(stored.Tasks), "parallelism": stored.Parallelism,
-			})
-		}
 		// a lead that just handed its plan over compacts at that boundary (spec §7); a run with no lead
 		// worker, a human-planned one, has nobody to compact
 		if leadORef(run) != "" {
@@ -217,9 +199,7 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, stored.OID))
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Run, data.RunId))
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
-	// Schedule is still called on a gated plan: it is the tick that derives and publishes, and its
-	// dispatch guard (NextToSpawn) is what holds the workers. Skipping it here would only mean the
-	// first thing the reader sees is a group nothing has looked at.
+	// the submitting tick: it derives the group's status, publishes it and dispatches the first layer.
 	if serr := orchestrate.Schedule(ctx, stored.OID); serr != nil {
 		log.Printf("dag submit schedule error: %v", serr)
 	}
@@ -230,9 +210,8 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 }
 
 // dagDigestChildRunLimit bounds the child runs a status snapshot loads; the digest never pages the
-// whole fan-out, and missing runs just mark partial durations. Derived from the task ceiling so a
-// raised cap cannot leave the tail of a full dag reporting partial durations.
-const dagDigestChildRunLimit = jarvis.MaxDagTasks
+// list, so this is a cost bound on one snapshot, not a limit on how large a plan may be.
+const dagDigestChildRunLimit = 64
 
 // dagDigestRetainedKinds are the lifecycle rows the digest derives durations, retries and the report's counts from.
 // The UI's 200-row window is not consulted.
@@ -321,23 +300,6 @@ func (ws *WshServer) DagActionCommand(ctx context.Context, data wshrpc.CommandDa
 	switch data.Action {
 	case "cancel":
 		return orchestrate.Cancel(ctx, run.DagORef)
-	case "approve-plan":
-		if err := orchestrate.ApprovePlan(ctx, run.DagORef, time.Now().UnixMilli()); err != nil {
-			return err
-		}
-		appendRunEvent(ctx, data.ChannelId, data.RunId, waveobj.RunEventKindDagPlanApproved, nil, map[string]any{})
-		return nil
-	case "sendback-plan":
-		if err := orchestrate.DiscardPlan(ctx, run.DagORef, strings.TrimSpace(data.Notes)); err != nil {
-			return err
-		}
-		appendRunEvent(ctx, data.ChannelId, data.RunId, waveobj.RunEventKindDagPlanSentBack, nil, map[string]any{
-			"notes": strings.TrimSpace(data.Notes),
-		})
-		// the lead no longer polls, so typing the notes into its terminal is how it learns of the
-		// rejection. Best effort: `dag status` carries the same feedback.
-		steerRunLead(ctx, leadORef(run), planSendBackLine(strings.TrimSpace(data.Notes)))
-		return nil
 	case "forward":
 		return orchestrate.ForwardTask(ctx, run.DagORef, data.TaskId, data.Notes)
 	}
@@ -356,17 +318,6 @@ func leadORef(run *waveobj.Run) string {
 		}
 	}
 	return ""
-}
-
-// planSendBackLine is what a lead reads when its plan is rejected. It names the one recovery — submit
-// a revised dag — because the group it was waiting on no longer exists, and a lead told only "sent
-// back" tends to poll a dag that is gone.
-func planSendBackLine(notes string) string {
-	line := "Your plan was sent back. The submitted dag has been discarded; revise it and run `wsh jarvis dag submit` again."
-	if notes != "" {
-		line += " What to change: " + strings.ReplaceAll(notes, "\n", " ")
-	}
-	return line + "\r"
 }
 
 // gatherDagAsks lists the dag's question queue: every pending ask of its children, whoever holds it.

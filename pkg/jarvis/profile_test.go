@@ -16,7 +16,6 @@ import (
 )
 
 func principles(items ...waveobj.Principle) waveobj.PrincipleList { return items }
-func ptrPhases(p []waveobj.RunPhase) *[]waveobj.RunPhase          { return &p }
 
 func TestResolvePrinciples(t *testing.T) {
 	global := principles(
@@ -133,10 +132,10 @@ func TestRenderPrinciples(t *testing.T) {
 }
 
 func TestResolveProfile(t *testing.T) {
-	global := waveobj.JarvisProfile{Playbook: DefaultPlaybook(), Principles: principles(waveobj.Principle{ID: "simple", Text: "Simple."})}
+	global := waveobj.JarvisProfile{Principles: principles(waveobj.Principle{ID: "simple", Text: "Simple."})}
 	patch := &waveobj.PrinciplePatch{Additions: []waveobj.Principle{{ID: "project", Text: "Project."}}}
 	got, diagnostics := ResolveProfileWithDiagnostics(global, &waveobj.ProfileOverride{Principles: patch})
-	if len(diagnostics) != 0 || len(got.Principles) != 2 || len(got.Playbook) != len(DefaultPlaybook()) {
+	if len(diagnostics) != 0 || len(got.Principles) != 2 {
 		t.Fatalf("resolved profile mismatch: %+v diagnostics %#v", got, diagnostics)
 	}
 	if plain := ResolveProfile(global, nil); !reflect.DeepEqual(plain.Principles, global.Principles) {
@@ -144,20 +143,9 @@ func TestResolveProfile(t *testing.T) {
 	}
 }
 
-func TestResolvePlaybook(t *testing.T) {
-	global := waveobj.JarvisProfile{Playbook: DefaultPlaybook()}
-	pb := []waveobj.RunPhase{{Kind: PhaseKind_Execute, State: PhaseState_Pending}}
-	if got := ResolvePlaybook(global, &waveobj.ProfileOverride{Playbook: ptrPhases(pb)}); len(got) != 1 || got[0].Kind != PhaseKind_Execute {
-		t.Fatalf("override playbook mismatch: %+v", got)
-	}
-	if got := ResolvePlaybook(global, &waveobj.ProfileOverride{Playbook: ptrPhases(nil)}); len(got) != len(DefaultPlaybook()) {
-		t.Fatalf("empty playbook should fall back: %+v", got)
-	}
-}
-
 func TestBuiltinProfile(t *testing.T) {
 	builtin := BuiltinProfile()
-	if len(builtin.Playbook) != len(DefaultPlaybook()) || !reflect.DeepEqual(builtin.Principles, DefaultPrinciples) {
+	if !reflect.DeepEqual(builtin.Principles, DefaultPrinciples) {
 		t.Fatalf("builtin profile mismatch: %+v", builtin)
 	}
 	if err := ValidateGlobalPrinciples(builtin.Principles); err != nil {
@@ -193,7 +181,7 @@ func TestLoadGlobalProfile(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := LoadGlobalProfile()
-	if len(got.Playbook) != 1 || RenderPrinciples(got.Principles) != "custom\nlegacy" {
+	if RenderPrinciples(got.Principles) != "custom\nlegacy" {
 		t.Fatalf("valid legacy file should parse exactly: %+v", got)
 	}
 }
@@ -263,32 +251,18 @@ func TestSaveGlobalProfileRejectsBlankPrinciple(t *testing.T) {
 	}
 }
 
-func TestSaveGlobalProfileRejectsBlankPhaseKind(t *testing.T) {
-	dir := t.TempDir()
-	withConfigHome(t, dir)
-	profile := BuiltinProfile()
-	profile.Playbook = []waveobj.RunPhase{{Kind: "   ", State: "pending"}}
-	if err := SaveGlobalProfile(profile); err == nil {
-		t.Fatal("expected validation error for blank phase kind")
-	}
-}
-
 func intPtr(n int) *int { return &n }
 
 // Future-run engine defaults resolve section-by-section like every other profile section: an absent
 // override field inherits the global value, a present one replaces it.
 func TestResolveProfileAppliesEngineDefaults(t *testing.T) {
 	globalRoute := &waveobj.RoutePin{Runtime: "pi"}
-	global := waveobj.JarvisProfile{Machine: Orchestration_Engine, Parallelism: 2, WorkerRoute: globalRoute}
+	global := waveobj.JarvisProfile{Parallelism: 2, WorkerRoute: globalRoute}
 	overrideRoute := &waveobj.RoutePin{Runtime: "claude", Model: "opus"}
 	got := ResolveProfile(global, &waveobj.ProfileOverride{
-		Machine:     strPtr(Orchestration_Adaptive),
 		Parallelism: intPtr(6),
 		WorkerRoute: overrideRoute,
 	})
-	if got.Machine != Orchestration_Adaptive {
-		t.Errorf("machine = %q, want the override's", got.Machine)
-	}
 	if got.Parallelism != 6 {
 		t.Errorf("parallelism = %d, want the override's 6", got.Parallelism)
 	}
@@ -299,9 +273,9 @@ func TestResolveProfileAppliesEngineDefaults(t *testing.T) {
 
 func TestResolveProfileInheritsEngineDefaults(t *testing.T) {
 	globalRoute := &waveobj.RoutePin{Runtime: "pi"}
-	global := waveobj.JarvisProfile{Machine: Orchestration_Engine, Parallelism: 2, WorkerRoute: globalRoute}
+	global := waveobj.JarvisProfile{Parallelism: 2, WorkerRoute: globalRoute}
 	got := ResolveProfile(global, &waveobj.ProfileOverride{DefaultMode: strPtr(RunMode_Orchestrator)})
-	if got.Machine != Orchestration_Engine || got.Parallelism != 2 {
+	if got.Parallelism != 2 {
 		t.Errorf("engine defaults not inherited: %+v", got)
 	}
 	if got.WorkerRoute == nil || *got.WorkerRoute != *globalRoute {
@@ -319,7 +293,6 @@ func TestProfileOverrideIsEmptyUnderstandsEngineDefaults(t *testing.T) {
 	}{
 		{"nil", nil, true},
 		{"bare", &waveobj.ProfileOverride{}, true},
-		{"machine", &waveobj.ProfileOverride{Machine: strPtr(Orchestration_Engine)}, false},
 		{"parallelism", &waveobj.ProfileOverride{Parallelism: intPtr(3)}, false},
 		{"workerroute", &waveobj.ProfileOverride{WorkerRoute: &waveobj.RoutePin{Runtime: "pi"}}, false},
 		{"empty patch is empty", &waveobj.ProfileOverride{Principles: &waveobj.PrinciplePatch{}}, true},

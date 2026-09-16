@@ -10,29 +10,18 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
 
-func TestDefaultPlaybookShape(t *testing.T) {
-	pb := DefaultPlaybook()
-	if len(pb) != 3 {
-		t.Fatalf("want 3 phases, got %d", len(pb))
-	}
-	if pb[0].Kind != PhaseKind_Brainstorm || pb[1].Kind != PhaseKind_Plan || pb[2].Kind != PhaseKind_Execute {
-		t.Fatalf("wrong kinds: %+v", pb)
-	}
-	if pb[0].Gate || !pb[1].Gate || pb[2].Gate {
-		t.Errorf("only the plan phase should gate: %+v", pb)
-	}
-	if pb[0].FreshCtx || pb[1].FreshCtx || !pb[2].FreshCtx {
-		t.Errorf("only the execute phase should be fresh-ctx: %+v", pb)
-	}
-	for i, p := range pb {
-		if p.State != PhaseState_Pending {
-			t.Errorf("phase %d should start pending, got %q", i, p.State)
-		}
+// storedPipeline is the shape a pipeline run was created with before 5c deleted the mode. The
+// multi-phase operations below still run on one, because the store still holds them.
+func storedPipeline() []waveobj.RunPhase {
+	return []waveobj.RunPhase{
+		{Kind: PhaseKind_Brainstorm, Skill: "superpowers:brainstorming", State: PhaseState_Pending},
+		{Kind: PhaseKind_Plan, Skill: "superpowers:writing-plans", State: PhaseState_Pending, Gate: true},
+		{Kind: PhaseKind_Execute, Skill: "superpowers:executing-plans", State: PhaseState_Pending, FreshCtx: true},
 	}
 }
 
 func TestNewRunStartsFirstPhaseRunning(t *testing.T) {
-	r := NewRun("ship coupons", "ws1", "/repo", nil, RunMode_Pipeline, DefaultPlaybook(), 1717000000000)
+	r := NewRun("ship coupons", "ws1", "/repo", nil, RunMode_Pipeline, storedPipeline(), 1717000000000)
 	if r.ID == "" {
 		t.Fatalf("expected a generated ID")
 	}
@@ -52,7 +41,7 @@ func TestNewRunStartsFirstPhaseRunning(t *testing.T) {
 
 func TestNewRunSnapshotsPrinciples(t *testing.T) {
 	source := waveobj.PrincipleList{{ID: "simple", Text: "Prefer simple solutions."}}
-	r := NewRun("g", "ws", "/r", source, RunMode_Pipeline, DefaultPlaybook(), 1)
+	r := NewRun("g", "ws", "/r", source, RunMode_Pipeline, storedPipeline(), 1)
 	source[0].Text = "changed later"
 	if got := r.Principles[0].Text; got != "Prefer simple solutions." {
 		t.Fatalf("want snapshotted principles, got %q", got)
@@ -60,7 +49,7 @@ func TestNewRunSnapshotsPrinciples(t *testing.T) {
 }
 
 func TestNewRunCopiesPlaybook(t *testing.T) {
-	pb := DefaultPlaybook()
+	pb := storedPipeline()
 	r := NewRun("g", "ws", "/r", nil, RunMode_Pipeline, pb, 1)
 	r.Phases[0].State = PhaseState_Done
 	if pb[0].State != PhaseState_Pending {
@@ -69,7 +58,7 @@ func TestNewRunCopiesPlaybook(t *testing.T) {
 }
 
 func TestCompletePhaseAdvancesLinear(t *testing.T) {
-	r := NewRun("g", "ws", "/r", nil, RunMode_Pipeline, DefaultPlaybook(), 1)
+	r := NewRun("g", "ws", "/r", nil, RunMode_Pipeline, storedPipeline(), 1)
 	r, err := CompletePhase(r, 0, []string{"docs/spec.md"}, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -86,7 +75,7 @@ func TestCompletePhaseAdvancesLinear(t *testing.T) {
 }
 
 func TestCompletePhaseRecordsTimestamps(t *testing.T) {
-	r := NewRun("g", "ws", "/p", nil, RunMode_Pipeline, DefaultPlaybook(), 1000)
+	r := NewRun("g", "ws", "/p", nil, RunMode_Pipeline, storedPipeline(), 1000)
 	if r.Phases[0].StartedTs != 1000 {
 		t.Fatalf("first phase StartedTs = %d, want 1000", r.Phases[0].StartedTs)
 	}
@@ -102,26 +91,8 @@ func TestCompletePhaseRecordsTimestamps(t *testing.T) {
 	}
 }
 
-func TestCompletePhaseHaltsAtGate(t *testing.T) {
-	r := NewRun("g", "ws", "/r", nil, RunMode_Pipeline, DefaultPlaybook(), 1)
-	r, _ = CompletePhase(r, 0, nil, 0)
-	r, err := CompletePhase(r, 1, []string{"docs/plan.md"}, 0)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if r.Phases[1].State != PhaseState_Done {
-		t.Errorf("plan should be done, got %q", r.Phases[1].State)
-	}
-	if r.Phases[2].State != PhaseState_Pending {
-		t.Errorf("execute must NOT auto-start after a gate, got %q", r.Phases[2].State)
-	}
-	if r.Status != RunStatus_AwaitingReview {
-		t.Errorf("want awaiting-review, got %q", r.Status)
-	}
-}
-
 func TestCompletePhaseRejectsNonRunning(t *testing.T) {
-	r := NewRun("g", "ws", "/r", nil, RunMode_Pipeline, DefaultPlaybook(), 1)
+	r := NewRun("g", "ws", "/r", nil, RunMode_Pipeline, storedPipeline(), 1)
 	if _, err := CompletePhase(r, 1, nil, 0); err == nil {
 		t.Errorf("expected error completing a pending phase")
 	}
@@ -130,57 +101,8 @@ func TestCompletePhaseRejectsNonRunning(t *testing.T) {
 	}
 }
 
-func runAtGate(t *testing.T) waveobj.Run {
-	t.Helper()
-	r := NewRun("g", "ws", "/r", nil, RunMode_Pipeline, DefaultPlaybook(), 1)
-	r, _ = CompletePhase(r, 0, nil, 0)
-	r, _ = CompletePhase(r, 1, []string{"docs/plan.md"}, 0)
-	if r.Status != RunStatus_AwaitingReview {
-		t.Fatalf("setup: expected awaiting-review, got %q", r.Status)
-	}
-	return r
-}
-
-func TestApproveGateStartsExecute(t *testing.T) {
-	r := runAtGate(t)
-	r, err := ApproveGate(r, 0)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if r.Phases[2].State != PhaseState_Running {
-		t.Errorf("execute should be running, got %q", r.Phases[2].State)
-	}
-	if r.Status != RunStatus_Executing {
-		t.Errorf("want executing, got %q", r.Status)
-	}
-}
-
-func TestApproveGateRejectsWhenNotAwaiting(t *testing.T) {
-	r := NewRun("g", "ws", "/r", nil, RunMode_Pipeline, DefaultPlaybook(), 1)
-	if _, err := ApproveGate(r, 0); err == nil {
-		t.Errorf("expected error approving a run not awaiting-review")
-	}
-}
-
-func TestSendBackReopensPlan(t *testing.T) {
-	r := runAtGate(t)
-	r, err := SendBackGate(r, 0)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if r.Phases[1].State != PhaseState_Running {
-		t.Errorf("plan should be running again, got %q", r.Phases[1].State)
-	}
-	if r.Phases[2].State != PhaseState_Pending {
-		t.Errorf("execute should stay pending, got %q", r.Phases[2].State)
-	}
-	if r.Status != RunStatus_Planning {
-		t.Errorf("want planning, got %q", r.Status)
-	}
-}
-
 func TestCancelRunSkipsOpenPhases(t *testing.T) {
-	r := NewRun("g", "ws", "/r", nil, RunMode_Pipeline, DefaultPlaybook(), 1)
+	r := NewRun("g", "ws", "/r", nil, RunMode_Pipeline, storedPipeline(), 1)
 	r, _ = CompletePhase(r, 0, nil, 0)
 	r = CancelRun(r)
 	if r.Status != RunStatus_Cancelled {
@@ -194,188 +116,14 @@ func TestCancelRunSkipsOpenPhases(t *testing.T) {
 	}
 }
 
-func TestBuildPhasePromptMentionsSkillGoalAndArtifacts(t *testing.T) {
-	p := waveobj.RunPhase{Kind: PhaseKind_Plan, Skill: "superpowers:writing-plans"}
-	got := BuildPhasePrompt(p, "ship coupons", []string{"docs/spec.md"}, nil)
-	for _, want := range []string{"superpowers:writing-plans", "ship coupons", "docs/spec.md"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("prompt missing %q: %s", want, got)
-		}
-	}
-}
-
-func TestBuildPhasePromptTellsWorkerToSelfServeAndEscalate(t *testing.T) {
-	p := waveobj.RunPhase{Kind: PhaseKind_Brainstorm, Skill: "superpowers:brainstorming"}
-	got := BuildPhasePrompt(p, "write a haiku", nil, nil)
-	// headless workers must not stall on a skill's clarifying questions: proceed on assumptions,
-	// escalate only hard calls via AskUserQuestion (routed to the cockpit).
-	for _, want := range []string{"headless", "AskUserQuestion"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("prompt missing autonomy guidance %q: %s", want, got)
-		}
-	}
-}
-
-func TestBuildPhasePromptTellsWorkerToSelfReportComplete(t *testing.T) {
-	p := waveobj.RunPhase{Kind: PhaseKind_Brainstorm, Skill: "superpowers:brainstorming"}
-	got := BuildPhasePrompt(p, "write a haiku", nil, nil)
-	if !strings.Contains(got, "wsh jarvis complete") {
-		t.Errorf("prompt missing self-report instruction: %s", got)
-	}
-}
-
-func TestBuildPhasePromptIncludesPrinciplesWhenPresent(t *testing.T) {
-	p := waveobj.RunPhase{Kind: PhaseKind_Execute, Skill: "superpowers:executing-plans"}
-	got := BuildPhasePrompt(p, "ship coupons", nil, waveobj.PrincipleList{{ID: "clean", Text: "prefer the clean fix"}})
-	if !strings.Contains(got, "prefer the clean fix") {
-		t.Errorf("prompt missing principles: %s", got)
-	}
-}
-
-func TestBuildPhasePromptRendersEffectivePrinciplesOnly(t *testing.T) {
-	p := waveobj.RunPhase{Kind: PhaseKind_Execute, Skill: "superpowers:executing-plans"}
-	global := waveobj.PrincipleList{
-		{ID: "simple", Text: "Prefer simple solutions."},
-		{ID: "measure", Text: "Measure first."},
-	}
-	resolved, _ := ResolvePrinciples(global, &waveobj.PrinciplePatch{
-		Replacements: map[string]string{"simple": "Prefer the clean fix."},
-		Disabled:     []string{"measure"},
-		Additions:    waveobj.PrincipleList{{ID: "project", Text: "Keep project compatibility."}},
-	})
-	got := BuildPhasePrompt(p, "ship coupons", nil, resolved)
-	if strings.Contains(got, "Prefer simple solutions.") || strings.Contains(got, "Measure first.") {
-		t.Fatalf("prompt contains superseded principles:\n%s", got)
-	}
-	want := "- Prefer the clean fix.\n- Keep project compatibility."
-	if !strings.Contains(got, want) {
-		t.Fatalf("prompt does not preserve effective order %q:\n%s", want, got)
-	}
-}
-
-func TestBuildPhasePromptPreservesLegacyText(t *testing.T) {
-	p := waveobj.RunPhase{Kind: PhaseKind_Execute, Skill: "superpowers:executing-plans"}
-	legacy := "first legacy line\nsecond legacy line"
-	got := BuildPhasePrompt(p, "ship coupons", nil, waveobj.PrincipleList{{ID: waveobj.LegacyGlobalPrincipleID, Text: legacy}})
-	if !strings.Contains(got, "Work by these principles:\n"+legacy+"\n\nUse the") {
-		t.Fatalf("legacy principle text changed:\n%s", got)
-	}
-}
-
-func TestBuildPhasePromptOmitsPrinciplesWhenEmpty(t *testing.T) {
-	p := waveobj.RunPhase{Kind: PhaseKind_Plan, Skill: "superpowers:writing-plans"}
-	withEmpty := BuildPhasePrompt(p, "g", nil, nil)
-	if strings.Contains(withEmpty, "principles") {
-		t.Errorf("empty principles should add no principles text: %s", withEmpty)
-	}
-}
-
-func orchRun(gate bool) waveobj.Run {
-	return NewRun("ship it", "ws1", "/p", waveobj.PrincipleList{{ID: "clean", Text: "be clean"}}, RunMode_Orchestrator, DefaultOrchestratorPlaybook(gate), 1)
-}
-
+// the lead hands the engine a plan, so its one phase names no skill and never gates.
 func TestDefaultOrchestratorPlaybook(t *testing.T) {
-	pb := DefaultOrchestratorPlaybook(true)
-	if len(pb) != 1 || pb[0].Kind != PhaseKind_Orchestrate || !pb[0].Gate {
-		t.Fatalf("gate playbook: %+v", pb)
+	pb := DefaultOrchestratorPlaybook()
+	if len(pb) != 1 || pb[0].Kind != PhaseKind_Orchestrate {
+		t.Fatalf("orchestrator playbook: %+v", pb)
 	}
-	if DefaultOrchestratorPlaybook(false)[0].Gate {
-		t.Fatalf("no-gate playbook should not be gated")
-	}
-}
-
-func TestHoldPhase_AwaitingReview(t *testing.T) {
-	r := orchRun(true) // phase 0 running, gated
-	r, err := HoldPhase(r, 0, []string{"docs/plan.md"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !r.Phases[0].Held || r.Status != RunStatus_AwaitingReview {
-		t.Fatalf("held=%v status=%q", r.Phases[0].Held, r.Status)
-	}
-	if len(r.Phases[0].Artifacts) != 1 || r.Phases[0].Artifacts[0] != "docs/plan.md" {
-		t.Fatalf("hold should record the plan artifact, got %v", r.Phases[0].Artifacts)
-	}
-}
-
-func TestHoldPhase_RejectsUngated(t *testing.T) {
-	r := orchRun(false)
-	if _, err := HoldPhase(r, 0, nil); err == nil {
-		t.Fatal("expected error holding an ungated phase")
-	}
-}
-
-func TestApproveGate_ResumesHeldInPlace(t *testing.T) {
-	r := orchRun(true)
-	r, _ = HoldPhase(r, 0, nil)
-	r, err := ApproveGate(r, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r.Phases[0].Held {
-		t.Fatal("approve should clear Held")
-	}
-	if r.Phases[0].State != PhaseState_Running || r.Status != RunStatus_Executing {
-		t.Fatalf("after approve: state=%q status=%q", r.Phases[0].State, r.Status)
-	}
-}
-
-func TestBuildOrchestratePromptAdaptive(t *testing.T) {
-	principles := waveobj.PrincipleList{{ID: "clean", Text: "be clean"}}
-	// explicit adaptive, and the legacy empty-on-claude that must resolve to it
-	for _, orch := range []string{Orchestration_Adaptive, ""} {
-		p := BuildOrchestratePrompt("do X", principles, "claude", orch)
-		for _, want := range []string{"do X", "be clean", "wsh jarvis triage", "wsh jarvis complete", "subagent", "AskUserQuestion", "prose"} {
-			if !strings.Contains(p, want) {
-				t.Fatalf("orch=%q prompt missing %q:\n%s", orch, want, p)
-			}
-		}
-		if strings.Contains(p, "wsh jarvis hold") {
-			t.Fatalf("orch=%q: orchestrator prompt must not tell the lead to hold", orch)
-		}
-		if strings.Contains(p, "dag submit") || strings.Contains(p, "import-tasks") {
-			t.Fatalf("orch=%q: adaptive prompt must not mention the engine:\n%s", orch, p)
-		}
-	}
-}
-
-func TestResolveOrchestrationLegacyFork(t *testing.T) {
-	cases := []struct{ orch, runtime, want string }{
-		{"", "pi", Orchestration_Engine},
-		{"", "claude", Orchestration_Adaptive},
-		{"", "codex", Orchestration_Adaptive},
-		{"", "", Orchestration_Adaptive},
-		{Orchestration_Engine, "claude", Orchestration_Engine},
-		{Orchestration_Adaptive, "pi", Orchestration_Adaptive},
-	}
-	for _, c := range cases {
-		if got := ResolveOrchestration(c.orch, c.runtime); got != c.want {
-			t.Fatalf("ResolveOrchestration(%q, %q) = %q, want %q", c.orch, c.runtime, got, c.want)
-		}
-	}
-}
-
-func TestRecordTriageIsNonBlocking(t *testing.T) {
-	r := orchRun(false) // phase 0 running, status executing
-	if r.Status != RunStatus_Executing {
-		t.Fatalf("setup: want executing, got %q", r.Status)
-	}
-	r, err := RecordTriage(r, 0, "quick", "one-line config change")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if r.Phases[0].Triage == nil || r.Phases[0].Triage.Verdict != "quick" || r.Phases[0].Triage.Note != "one-line config change" {
-		t.Errorf("triage not recorded: %+v", r.Phases[0].Triage)
-	}
-	if r.Phases[0].State != PhaseState_Running || r.Status != RunStatus_Executing {
-		t.Errorf("triage must not change progress: state=%q status=%q", r.Phases[0].State, r.Status)
-	}
-}
-
-func TestRecordTriageRejectsOutOfRange(t *testing.T) {
-	r := orchRun(false)
-	if _, err := RecordTriage(r, 9, "quick", ""); err == nil {
-		t.Error("expected error for out-of-range index")
+	if pb[0].Gate || pb[0].Skill != "" {
+		t.Fatalf("the orchestrate phase must be ungated and skill-less: %+v", pb[0])
 	}
 }
 
@@ -442,29 +190,6 @@ func TestBuildQuickPromptNamesTheRuntimeAskTool(t *testing.T) {
 	}
 }
 
-func TestStripPhaseGates(t *testing.T) {
-	in := []waveobj.RunPhase{
-		{Kind: PhaseKind_Brainstorm},
-		{Kind: PhaseKind_Plan, Gate: true},
-		{Kind: PhaseKind_Execute, FreshCtx: true},
-	}
-	out := StripPhaseGates(in)
-	if len(out) != len(in) {
-		t.Fatalf("len = %d, want %d", len(out), len(in))
-	}
-	for i, p := range out {
-		if p.Gate {
-			t.Errorf("out[%d].Gate = true, want false", i)
-		}
-	}
-	if !in[1].Gate {
-		t.Error("input was mutated: in[1].Gate cleared")
-	}
-	if out[2].Kind != PhaseKind_Execute || !out[2].FreshCtx {
-		t.Error("non-Gate fields must be preserved")
-	}
-}
-
 func TestParentNotifyLine(t *testing.T) {
 	// no parent -> not ok
 	if _, ok := ParentNotifyLine(&waveobj.Run{ID: "c1", Status: RunStatus_Done}); ok {
@@ -500,7 +225,7 @@ func TestParentNotifyLine(t *testing.T) {
 // Nothing in the engine ever wrote PhaseState_Failed, which is why a lead whose process died kept
 // reading "executing": status is derived from the phases, and no phase ever failed.
 func TestFailPhaseDerivesBlocked(t *testing.T) {
-	run := NewRun("goal", "ws-1", "/p", nil, RunMode_Orchestrator, DefaultOrchestratorPlaybook(false), 1000)
+	run := NewRun("goal", "ws-1", "/p", nil, RunMode_Orchestrator, DefaultOrchestratorPlaybook(), 1000)
 	if run.Status != RunStatus_Executing {
 		t.Fatalf("fixture must start executing, got %q", run.Status)
 	}

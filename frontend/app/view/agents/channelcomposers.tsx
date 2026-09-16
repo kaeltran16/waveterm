@@ -21,9 +21,8 @@ import {
 } from "./composercommand";
 import { HarnessPicker, harnessRuntimeIds } from "./harnesspicker";
 import { harnessPreferenceAtom, harnessesAtom } from "./harnessstore";
-import { orchestratorBehaviorFace } from "./orchestratorpicker";
 import { modelFace } from "./route";
-import { orchestrationAtom, runRouteAtom, runShapeAtom, workerRouteAtom } from "./runconfigstore";
+import { runRouteAtom, runShapeAtom, workerRouteAtom } from "./runconfigstore";
 import { runtimeMeta } from "./runtimemeta";
 
 // Launch face: a plain goal input driven by typed @quick/@run/@ask commands (a bare goal defaults to
@@ -51,7 +50,6 @@ export function LaunchComposer({
     harnessOpenRequest?: number;
 }) {
     const shape = useAtomValue(runShapeAtom);
-    const orchestration = useAtomValue(orchestrationAtom);
     const route = useAtomValue(runRouteAtom);
     const workerRoute = useAtomValue(workerRouteAtom);
     const taRef = useRef<HTMLTextAreaElement>(null);
@@ -129,11 +127,7 @@ export function LaunchComposer({
 
     const runBehavior =
         selectedShape === "orchestrator"
-            ? orchestratorBehaviorFace({
-                  orchestration,
-                  leadFace: route ? modelFace(route) : "unset",
-                  workerFace: workerRoute ? modelFace(workerRoute) : null,
-              })
+            ? `→ engine DAG · lead ${route ? modelFace(route) : "unset"} · workers ${workerRoute ? modelFace(workerRoute) : "same as lead"}`
             : selectedShape === "quick"
               ? `→ direct quick launch in #${channelName}`
               : "→ direct pipeline launch";

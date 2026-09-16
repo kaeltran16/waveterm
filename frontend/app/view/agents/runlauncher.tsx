@@ -20,15 +20,7 @@ import { useAtomValue } from "jotai";
 import { useEffect } from "react";
 import { planShapeText, planWarnings } from "../orchestrate/dagdigest";
 import { RoutePicker } from "./routepicker";
-import {
-    MAX_DAG_TASKS,
-    MAX_PARALLELISM,
-    SHAPE_CARDS,
-    START_OPTIONS,
-    runLauncherFace,
-    startNote,
-    type StartFrom,
-} from "./runconfig";
+import { MAX_PARALLELISM, SHAPE_CARDS, START_OPTIONS, runLauncherFace, startNote, type StartFrom } from "./runconfig";
 import {
     parallelismAtom,
     planPathAtom,
@@ -219,9 +211,7 @@ function ParallelismStepper() {
                 >
                     ＋
                 </button>
-                <span className="text-[11px] leading-[1.35] text-muted">
-                    concurrent children · {MAX_DAG_TASKS} tasks max
-                </span>
+                <span className="text-[11px] leading-[1.35] text-muted">concurrent children</span>
             </div>
         </Section>
     );

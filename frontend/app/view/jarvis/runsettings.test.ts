@@ -33,7 +33,7 @@ function engineRun(over: Partial<Run> = {}): Run {
     } as Run;
 }
 
-function gatedGroup(over: Partial<TaskGroup> = {}): TaskGroup {
+function submittedGroup(over: Partial<TaskGroup> = {}): TaskGroup {
     return {
         oid: "d1",
         version: 1,
@@ -42,51 +42,35 @@ function gatedGroup(over: Partial<TaskGroup> = {}): TaskGroup {
         channelid: "c1",
         parallelism: 2,
         tasks: [{ id: "t-1", state: "pending" }],
-        status: "awaiting-plan",
+        status: "running",
         failures: 0,
         createdts: 1,
         updatedts: 1,
-        plangate: true,
         ...over,
     } as TaskGroup;
 }
 
 describe("sheetFace", () => {
     it("states unavailability for a run that is gone", () => {
-        expect(sheetFace(undefined, null).kind).toBe("missing");
-        expect(sheetFace(null, null).kind).toBe("missing");
+        expect(sheetFace(undefined).kind).toBe("missing");
+        expect(sheetFace(null).kind).toBe("missing");
     });
 
     // a control that changes nothing is worse than its absence
     it("is read-only for terminal runs", () => {
         for (const status of ["done", "cancelled"]) {
-            const face = sheetFace(engineRun({ status }), null);
+            const face = sheetFace(engineRun({ status }));
             expect(face.kind).toBe("readonly");
         }
     });
 
     it("is read-only for a run with no engine scheduler", () => {
-        expect(sheetFace(engineRun({ mode: "pipeline", orchestration: "" }), null).kind).toBe("readonly");
-        expect(sheetFace(engineRun({ orchestration: "adaptive" }), null).kind).toBe("readonly");
+        expect(sheetFace(engineRun({ mode: "pipeline", orchestration: "" })).kind).toBe("readonly");
+        expect(sheetFace(engineRun({ orchestration: "adaptive" })).kind).toBe("readonly");
     });
 
-    it("is editable while the plan gate is still ahead", () => {
-        const face = sheetFace(engineRun(), gatedGroup());
-        expect(face).toEqual({ kind: "editable", gateEditable: true });
-    });
-
-    // once work has crossed the gate, the width and route still change but the gate does not
-    it("locks the gate once the plan was approved or work dispatched", () => {
-        expect(sheetFace(engineRun(), gatedGroup({ planapprovedts: 5 }))).toEqual({
-            kind: "editable",
-            gateEditable: false,
-        });
-        const dispatched = gatedGroup({ tasks: [{ id: "t-1", state: "running", runid: "child-1" }] as TaskNode[] });
-        expect(sheetFace(engineRun(), dispatched)).toEqual({ kind: "editable", gateEditable: false });
-    });
-
-    it("is editable with the gate unlocked before a dag exists", () => {
-        expect(sheetFace(engineRun(), null)).toEqual({ kind: "editable", gateEditable: true });
+    it("is editable for a live engine run", () => {
+        expect(sheetFace(engineRun())).toEqual({ kind: "editable" });
     });
 });
 
@@ -94,60 +78,35 @@ describe("runSettingsDraft", () => {
     it("reads the run's own launch form before submission", () => {
         const route = { runtime: "pi" } as RoutePin;
         const run = engineRun({ parallelism: 4, workerroute: route });
-        expect(runSettingsDraft(run, null)).toEqual({ parallelism: 4, workerRoute: route, planGate: true });
+        expect(runSettingsDraft(run, null)).toEqual({ parallelism: 4, workerRoute: route });
     });
 
     // the group, not the run, is what the scheduler will read
     it("prefers the group once a dag exists", () => {
         const route = { runtime: "claude" } as RoutePin;
         const run = engineRun({ parallelism: 4 });
-        const group = gatedGroup({ parallelism: 2, workerroute: route, plangate: false });
-        expect(runSettingsDraft(run, group)).toEqual({ parallelism: 2, workerRoute: route, planGate: false });
-    });
-
-    it("honours a pending gate the human already chose", () => {
-        expect(runSettingsDraft(engineRun({ plangatepending: false }), null).planGate).toBe(false);
-    });
-
-    it("defaults the gate off for a child plan, which is never gated", () => {
-        expect(runSettingsDraft(engineRun({ parentleadoref: "tab:lead" }), null).planGate).toBe(false);
+        const group = submittedGroup({ parallelism: 2, workerroute: route });
+        expect(runSettingsDraft(run, group)).toEqual({ parallelism: 2, workerRoute: route });
     });
 });
 
 describe("draftIsDirty", () => {
     it("compares the effective values", () => {
-        const base = { parallelism: 2, workerRoute: null, planGate: true };
-        expect(draftIsDirty(base, { parallelism: 2, workerRoute: null, planGate: true })).toBe(false);
-        expect(draftIsDirty(base, { parallelism: 3, workerRoute: null, planGate: true })).toBe(true);
-        expect(draftIsDirty(base, { parallelism: 2, workerRoute: null, planGate: false })).toBe(true);
-        expect(
-            draftIsDirty(base, {
-                parallelism: 2,
-                workerRoute: { runtime: "pi" } as RoutePin,
-                planGate: true,
-            })
-        ).toBe(true);
+        const base = { parallelism: 2, workerRoute: null };
+        expect(draftIsDirty(base, { parallelism: 2, workerRoute: null })).toBe(false);
+        expect(draftIsDirty(base, { parallelism: 3, workerRoute: null })).toBe(true);
+        expect(draftIsDirty(base, { parallelism: 2, workerRoute: { runtime: "pi" } as RoutePin })).toBe(true);
     });
 });
 
 describe("settingsPayload", () => {
     it("sends only the mutable settings, addressed to the run", () => {
-        const draft = { parallelism: 3, workerRoute: { runtime: "pi" } as RoutePin, planGate: false };
+        const draft = { parallelism: 3, workerRoute: { runtime: "pi" } as RoutePin };
         expect(settingsPayload("c1", "r1", draft)).toEqual({
             channelid: "c1",
             runid: "r1",
             parallelism: 3,
             workerroute: { runtime: "pi" },
-            plangate: false,
-        });
-    });
-
-    it("omits the gate when the sheet was not allowed to touch it", () => {
-        const draft = { parallelism: 3, workerRoute: null, planGate: true };
-        expect(settingsPayload("c1", "r1", draft, { includeGate: false })).toEqual({
-            channelid: "c1",
-            runid: "r1",
-            parallelism: 3,
         });
     });
 });
@@ -190,14 +149,13 @@ describe("runSettingsPanelState", () => {
     });
 
     it("is editable once the linked group is here", () => {
-        expect(runSettingsPanelState(engineRun({ dagoref: "d1" }), gatedGroup(), "ready")).toEqual({
+        expect(runSettingsPanelState(engineRun({ dagoref: "d1" }), submittedGroup(), "ready")).toEqual({
             kind: "editable",
-            gateEditable: true,
         });
     });
 
     it("treats a run with no dag as pre-submission, not as loading", () => {
-        expect(runSettingsPanelState(engineRun(), null, "ready")).toEqual({ kind: "editable", gateEditable: true });
+        expect(runSettingsPanelState(engineRun(), null, "ready")).toEqual({ kind: "editable" });
     });
 
     it("still states unavailability for a missing run", () => {
@@ -210,8 +168,8 @@ describe("runSettingsPanelState", () => {
 describe("draftSeedKey", () => {
     it("changes on a route-only group update", () => {
         const linked = engineRun({ dagoref: "d1" });
-        const before = draftSeedKey(linked, gatedGroup());
-        const after = draftSeedKey(linked, gatedGroup({ workerroute: { runtime: "pi" } as RoutePin }));
+        const before = draftSeedKey(linked, submittedGroup());
+        const after = draftSeedKey(linked, submittedGroup({ workerroute: { runtime: "pi" } as RoutePin }));
         expect(after).not.toBe(before);
     });
 
@@ -223,14 +181,10 @@ describe("draftSeedKey", () => {
         );
     });
 
-    it("moves with a pending gate a human set before submission", () => {
-        expect(draftSeedKey(engineRun({ plangatepending: false }), null)).not.toBe(draftSeedKey(engineRun(), null));
-    });
-
     it("ignores an update that leaves the effective settings alone", () => {
         const run = engineRun({ dagoref: "d1" });
-        expect(draftSeedKey(run, gatedGroup({ status: "executing" }))).toBe(
-            draftSeedKey(run, gatedGroup({ status: "done" }))
+        expect(draftSeedKey(run, submittedGroup({ status: "executing" }))).toBe(
+            draftSeedKey(run, submittedGroup({ status: "done" }))
         );
     });
 });
@@ -240,14 +194,12 @@ describe("effectiveRunConfig", () => {
         const lead = { runtime: "claude", model: "opus" } as RoutePin;
         const worker = { runtime: "pi" } as RoutePin;
         const run = engineRun({ runtime: "claude", model: "opus", workerroute: lead });
-        const got = effectiveRunConfig(run, { parallelism: 4, workerRoute: worker, planGate: false });
+        const got = effectiveRunConfig(run, { parallelism: 4, workerRoute: worker });
         expect(got).toEqual({
             shape: "orchestrator",
-            machine: "engine",
             parallelism: 4,
             leadRoute: { runtime: "claude", model: "opus" },
             workerRoute: worker,
-            planGate: false,
         });
     });
 });
@@ -259,20 +211,16 @@ describe("engineDefaultsPatch", () => {
         const existing = { principles: { disabled: ["p1"] } } as ProfileOverride;
         const config = {
             shape: "orchestrator",
-            machine: "engine",
             parallelism: 5,
             leadRoute: { runtime: "claude", model: "opus" } as RoutePin,
             workerRoute: { runtime: "pi" } as RoutePin,
-            planGate: false,
         };
         expect(engineDefaultsPatch(existing, config)).toEqual({
             principles: { disabled: ["p1"] },
             defaultmode: "orchestrator",
-            machine: "engine",
             parallelism: 5,
             route: { runtime: "claude", model: "opus" },
             workerroute: { runtime: "pi" },
-            defaultplangate: false,
         });
     });
 
@@ -280,16 +228,12 @@ describe("engineDefaultsPatch", () => {
         const existing = { workerroute: { runtime: "pi" } } as ProfileOverride;
         const patched = engineDefaultsPatch(existing, {
             shape: "pipeline",
-            machine: "adaptive",
             parallelism: 2,
             leadRoute: null,
             workerRoute: null,
-            planGate: true,
         });
         expect(patched.route).toBeUndefined();
         expect(patched.workerroute).toBeUndefined();
         expect(patched.defaultmode).toBe("pipeline");
-        expect(patched.machine).toBe("adaptive");
-        expect(patched.defaultplangate).toBe(true);
     });
 });

@@ -63,10 +63,10 @@ type CommandDagActionData struct {
 	ChannelId string `json:"channelid"`
 	RunId     string `json:"runid"`
 	TaskId    string `json:"taskid"`
-	Action    string `json:"action"`            // approve | sendback | retry | skip | escalate | cancel | forward | approve-plan | sendback-plan
+	Action    string `json:"action"`            // approve | sendback | retry | skip | escalate | cancel | forward
 	Model     string `json:"model,omitempty"`   // escalate target model (exact id); required
 	Runtime   string `json:"runtime,omitempty"` // escalate target runtime; empty = task's current runtime
-	Notes     string `json:"notes,omitempty"`   // sendback-plan: what the human wants changed, delivered to the lead. forward: what the lead checked and recommends, shown to the human
+	Notes     string `json:"notes,omitempty"`   // forward: what the lead checked and recommends, shown to the human
 }
 
 type CommandDagMergeData struct {

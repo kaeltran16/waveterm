@@ -19,7 +19,7 @@ func TestJarvisCtxResolvesOwnerRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner := jarvis.NewRun("owner goal", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	owner := jarvis.NewRun("owner goal", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
 	owner.ID = "11111111-1111-4111-8111-111111111111"
 	owner.Phases[0].WorkerOrefs = []string{"tab:22222222-2222-4222-8222-222222222222"}
 	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
@@ -46,7 +46,7 @@ func TestJarvisCtxEmptyForUnrelatedBlock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner := jarvis.NewRun("owner goal", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	owner := jarvis.NewRun("owner goal", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
 	owner.Phases[0].WorkerOrefs = []string{"tab:55555555-5555-4555-8555-555555555555"}
 	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
 		t.Fatal(err)

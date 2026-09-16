@@ -14,14 +14,12 @@ export const DIAGNOSTIC_MISSING_DISABLED = "missing-disabled";
 export type SectionSource = "global" | "project";
 
 // A section is "project" when the override carries it (non-null), else "global". Uses != null so an
-// explicit empty override (empty principles patch / empty playbook array) still counts as project.
+// explicit empty override (an empty principles patch) still counts as project.
 export function sectionSource(override: ProfileOverride | null | undefined): {
-    playbook: SectionSource;
     principles: SectionSource;
     route: SectionSource;
 } {
     return {
-        playbook: override?.playbook != null ? "project" : "global",
         principles: override?.principles != null ? "project" : "global",
         route: override?.route != null ? "project" : "global",
     };
@@ -139,12 +137,9 @@ export function profileOverrideIsEmpty(o: ProfileOverride | null | undefined): b
         return true;
     }
     return (
-        o.playbook == null &&
         cleanPatch(o.principles) == null &&
         o.route == null &&
         o.defaultmode == null &&
-        o.defaultplangate == null &&
-        o.machine == null &&
         o.parallelism == null &&
         o.workerroute == null
     );

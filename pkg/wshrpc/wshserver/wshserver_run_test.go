@@ -187,20 +187,6 @@ func TestAdvanceRunDispatchesContinuityCapture(t *testing.T) {
 	}
 }
 
-func TestApplyRunActionTriage(t *testing.T) {
-	r := jarvis.NewRun("do X", "ws", "/p", nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
-	next, err := applyRunAction(r, wshrpc.CommandAdvanceRunData{Action: jarvis.RunAction_Triage, PhaseIdx: 0, Verdict: "quick", Note: "tiny fix"}, 0)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if next.Phases[0].Triage == nil || next.Phases[0].Triage.Verdict != "quick" || next.Phases[0].Triage.Note != "tiny fix" {
-		t.Errorf("triage not recorded: %+v", next.Phases[0].Triage)
-	}
-	if next.Status != jarvis.RunStatus_Executing {
-		t.Errorf("triage must leave the run executing, got %q", next.Status)
-	}
-}
-
 func TestApplyRunActionCompleteStoresEndCommit(t *testing.T) {
 	r := jarvis.NewRun("do X", "ws", "/p", nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), 1)
 	// complete with a reported commit -> stored on the run as EndCommit (scopes the sealed evidence diff)
@@ -211,30 +197,20 @@ func TestApplyRunActionCompleteStoresEndCommit(t *testing.T) {
 	if next.EndCommit != "abc123" {
 		t.Errorf("EndCommit = %q, want abc123", next.EndCommit)
 	}
-	// a non-complete action must never set EndCommit even if a commit is (spuriously) supplied
-	r2 := jarvis.NewRun("do Y", "ws", "/p", nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
-	next2, err := applyRunAction(r2, wshrpc.CommandAdvanceRunData{Action: jarvis.RunAction_Triage, PhaseIdx: 0, Verdict: "quick", Commit: "deadbeef"}, 0)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if next2.EndCommit != "" {
-		t.Errorf("triage must not set EndCommit, got %q", next2.EndCommit)
-	}
 }
 
 func TestApplyRunActionUnknown(t *testing.T) {
-	r := jarvis.NewRun("g", "ws", "/p", nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	r := jarvis.NewRun("g", "ws", "/p", nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
 	if _, err := applyRunAction(r, wshrpc.CommandAdvanceRunData{Action: "bogus"}, 0); err == nil {
 		t.Error("expected error for unknown action")
 	}
 }
 
 func TestResolveRunPlanDefaultsToQuickRegardlessOfProfile(t *testing.T) {
-	gate := true
 	for _, savedMode := range []string{"", jarvis.RunMode_Quick, jarvis.RunMode_Pipeline, jarvis.RunMode_Orchestrator} {
 		t.Run("saved="+savedMode, func(t *testing.T) {
-			profile := waveobj.JarvisProfile{DefaultMode: savedMode, Playbook: jarvis.DefaultPlaybook()}
-			mode, phases := resolveRunPlan(profile, "", &gate)
+			profile := waveobj.JarvisProfile{DefaultMode: savedMode}
+			mode, phases := resolveRunPlan(profile, "")
 			if mode != jarvis.RunMode_Quick || len(phases) != 1 || phases[0].Kind != jarvis.PhaseKind_Execute || phases[0].Gate || phases[0].Skill != "" {
 				t.Fatalf("default launch must be one ungated bare worker: mode=%q phases=%+v", mode, phases)
 			}
@@ -242,17 +218,19 @@ func TestResolveRunPlanDefaultsToQuickRegardlessOfProfile(t *testing.T) {
 	}
 }
 
+// Two shapes survive: an explicit orchestrator, and a quick run for everything else — including
+// the pipeline a saved profile may still name.
 func TestResolveRunPlanHonorsExplicitMode(t *testing.T) {
-	custom := []waveobj.RunPhase{{Kind: jarvis.PhaseKind_Execute, Gate: true}}
-	profile := waveobj.JarvisProfile{DefaultMode: jarvis.RunMode_Orchestrator, Playbook: custom}
-	for _, requested := range []string{jarvis.RunMode_Quick, jarvis.RunMode_Pipeline, jarvis.RunMode_Orchestrator} {
+	profile := waveobj.JarvisProfile{DefaultMode: jarvis.RunMode_Orchestrator}
+	for requested, want := range map[string]string{
+		jarvis.RunMode_Quick:        jarvis.RunMode_Quick,
+		jarvis.RunMode_Pipeline:     jarvis.RunMode_Quick,
+		jarvis.RunMode_Orchestrator: jarvis.RunMode_Orchestrator,
+	} {
 		t.Run(requested, func(t *testing.T) {
-			mode, phases := resolveRunPlan(profile, requested, nil)
-			if mode != requested {
-				t.Fatalf("mode=%q, want explicit %q", mode, requested)
-			}
-			if requested == jarvis.RunMode_Pipeline && !reflect.DeepEqual(phases, custom) {
-				t.Fatalf("explicit pipeline lost custom playbook: %+v", phases)
+			mode, phases := resolveRunPlan(profile, requested)
+			if mode != want || len(phases) != 1 {
+				t.Fatalf("requested %q: mode=%q phases=%+v, want %q", requested, mode, phases, want)
 			}
 		})
 	}
@@ -260,8 +238,8 @@ func TestResolveRunPlanHonorsExplicitMode(t *testing.T) {
 
 func TestChildRunPlanPreservesInheritedStrategy(t *testing.T) {
 	for _, tc := range []struct{ saved, requested, want string }{
-		{"", "", jarvis.RunMode_Pipeline},
-		{jarvis.RunMode_Pipeline, "", jarvis.RunMode_Pipeline},
+		{"", "", jarvis.RunMode_Quick},
+		{jarvis.RunMode_Pipeline, "", jarvis.RunMode_Quick},
 		{jarvis.RunMode_Orchestrator, "", jarvis.RunMode_Orchestrator},
 		{jarvis.RunMode_Orchestrator, jarvis.RunMode_Quick, jarvis.RunMode_Quick},
 		{jarvis.RunMode_Quick, jarvis.RunMode_Orchestrator, jarvis.RunMode_Orchestrator},
@@ -275,29 +253,6 @@ func TestChildRunPlanPreservesInheritedStrategy(t *testing.T) {
 				if phase.Gate {
 					t.Fatalf("child phase must remain ungated: %+v", phase)
 				}
-			}
-		})
-	}
-}
-
-func TestResolveRunPlanOrchestratorIsAlwaysUngated(t *testing.T) {
-	enabled := true
-	disabled := false
-	cases := []struct {
-		name    string
-		profile waveobj.JarvisProfile
-		request *bool
-	}{
-		{name: "request enabled", request: &enabled},
-		{name: "profile enabled", profile: waveobj.JarvisProfile{DefaultPlanGate: &enabled}},
-		{name: "request disabled", request: &disabled},
-		{name: "unset"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			mode, phases := resolveRunPlan(tc.profile, jarvis.RunMode_Orchestrator, tc.request)
-			if mode != jarvis.RunMode_Orchestrator || len(phases) != 1 || phases[0].Gate {
-				t.Fatalf("mode=%q phases=%+v", mode, phases)
 			}
 		})
 	}
@@ -466,6 +421,15 @@ func TestCreateRunCommand_UnknownRuntimeRejected(t *testing.T) {
 	}
 }
 
+// storedPipelinePhases is the shape a pipeline run was created with before 5c deleted the mode. The
+// store still holds them, and advancing one is still what spawns the next phase's worker.
+func storedPipelinePhases() []waveobj.RunPhase {
+	return []waveobj.RunPhase{
+		{Kind: jarvis.PhaseKind_Brainstorm, Skill: "superpowers:brainstorming", State: jarvis.PhaseState_Pending},
+		{Kind: jarvis.PhaseKind_Execute, Skill: "superpowers:executing-plans", State: jarvis.PhaseState_Pending, FreshCtx: true},
+	}
+}
+
 // AdvanceRun must spawn the next phase with the run's persisted runtime, never a request-side value.
 func TestAdvanceRun_SpawnsPersistedRuntime(t *testing.T) {
 	ctx := context.Background()
@@ -473,7 +437,7 @@ func TestAdvanceRun_SpawnsPersistedRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateChannel: %v", err)
 	}
-	run := jarvis.NewRun("do it", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Pipeline, jarvis.DefaultPlaybook(), 1)
+	run := jarvis.NewRun("do it", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Pipeline, storedPipelinePhases(), 1)
 	run.Runtime = "claude"
 	run.Model = consult.CheapModel
 	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
@@ -516,7 +480,7 @@ func TestAdvanceRun_LegacyRouteNormalizesOnlyForSpawn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateChannel: %v", err)
 	}
-	run := jarvis.NewRun("do it", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Pipeline, jarvis.DefaultPlaybook(), 1)
+	run := jarvis.NewRun("do it", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Pipeline, storedPipelinePhases(), 1)
 	run.Runtime = "claude"
 	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
 		t.Fatalf("AppendRun: %v", err)
@@ -601,116 +565,6 @@ func mustSeq(t *testing.T, channelId, runID string) []string {
 
 // A pipeline run driven end-to-end through the real AdvanceRunCommand must leave a lifecycle log whose
 // ORDER narrates the run the way the focused card renders it: every phase started, completing the gate
-// halts the run in review, approving releases the next phase, and the cancel lands last. approve passes
-// NO caller phase index (the FE's approve path never does) — the write must land at the engine-resolved
-// gate, which this exact-order assert pins.
-func TestRunLifecycleEventsAppended(t *testing.T) {
-	ctx := context.Background()
-	ch, err := wstore.CreateChannel(ctx, "events-run", t.TempDir())
-	if err != nil {
-		t.Fatalf("CreateChannel: %v", err)
-	}
-	run := jarvis.NewRun("finish it", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Pipeline, jarvis.DefaultPlaybook(), 1)
-	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
-		t.Fatalf("AppendRun: %v", err)
-	}
-	// the RPC create path writes phase-started(0); the direct handler test seeds it the same way
-	phase0 := 0
-	if _, err := wstore.AppendRunEvent(ctx, ch.OID, run.ID, waveobj.RunEventKindPhaseStarted, &phase0, map[string]any{}); err != nil {
-		t.Fatalf("append phase-started: %v", err)
-	}
-	ws := &WshServer{}
-	// AdvanceRunCommand spawns workers for newly-running phases at its tail; stub the spawn seam like
-	// TestCompleteDefersEvidenceSeal does so the test never touches real tabs/PTYs
-	origSpawn := jarvis.SpawnRunWorker
-	jarvis.SpawnRunWorker = func(_ context.Context, _ runroute.Capability, _, _, _, _ string, _ jarvis.RunWorkerOptions) (string, error) {
-		return waveobj.MakeORef(waveobj.OType_Tab, "x").String(), nil
-	}
-	defer func() { jarvis.SpawnRunWorker = origSpawn }()
-	advance := func(idx int, action string) {
-		t.Helper()
-		if err := ws.AdvanceRunCommand(ctx, wshrpc.CommandAdvanceRunData{ChannelId: ch.OID, RunId: run.ID, PhaseIdx: idx, Action: action}); err != nil {
-			t.Fatalf("AdvanceRunCommand(%s): %v", action, err)
-		}
-	}
-	// DefaultPlaybook: brainstorm(0) -> plan(1, gate) -> execute(2). Completing the gate halts the run
-	// in review; approving releases execute.
-	advance(0, jarvis.RunAction_Complete) // phase-complete(0); plan auto-runs -> phase-started(1)
-	advance(1, jarvis.RunAction_Complete) // phase-complete(1); gate completes -> run awaiting-review also writes phase-held(1)
-	advance(0, jarvis.RunAction_Approve)  // the caller passes no usable index (absent ints decode 0) — approve resolves the gate itself -> gate-approved(1) + phase-started(2)
-	// cancel the running execute phase so the terminal row lands without the done-transition seal
-	if err := ws.CancelRunCommand(ctx, wshrpc.CommandCancelRunData{ChannelId: ch.OID, RunId: run.ID}); err != nil {
-		t.Fatalf("CancelRunCommand: %v", err)
-	}
-	want := []string{
-		"phase-started@0", "phase-complete@0", "phase-started@1",
-		"phase-complete@1", "phase-held@1",
-		"gate-approved@1", "phase-started@2",
-		"run-cancelled",
-	}
-	got := mustSeq(t, ch.OID, run.ID)
-	if len(got) != len(want) {
-		t.Fatalf("events %v:\n want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("event[%d] = %q, want %q (events %v)", i, got[i], want[i], got)
-		}
-	}
-}
-
-// The remaining transition classes (sendback re-opening a completed gate, an explicit hold, an approve
-// that resumes a held phase in place, triage) must each leave their kind on the log.
-func TestRunLifecycleEventClassesPresent(t *testing.T) {
-	ctx := context.Background()
-	ch, err := wstore.CreateChannel(ctx, "events-run", t.TempDir())
-	if err != nil {
-		t.Fatalf("CreateChannel: %v", err)
-	}
-	run := jarvis.NewRun("finish it", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Pipeline, jarvis.DefaultPlaybook(), 1)
-	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
-		t.Fatalf("AppendRun: %v", err)
-	}
-	phase0 := 0
-	if _, err := wstore.AppendRunEvent(ctx, ch.OID, run.ID, waveobj.RunEventKindPhaseStarted, &phase0, map[string]any{}); err != nil {
-		t.Fatalf("append phase-started: %v", err)
-	}
-	ws := &WshServer{}
-	origSpawn := jarvis.SpawnRunWorker
-	jarvis.SpawnRunWorker = func(_ context.Context, _ runroute.Capability, _, _, _, _ string, _ jarvis.RunWorkerOptions) (string, error) {
-		return waveobj.MakeORef(waveobj.OType_Tab, "x").String(), nil
-	}
-	defer func() { jarvis.SpawnRunWorker = origSpawn }()
-	advance := func(idx int, action string) {
-		t.Helper()
-		if err := ws.AdvanceRunCommand(ctx, wshrpc.CommandAdvanceRunData{ChannelId: ch.OID, RunId: run.ID, PhaseIdx: idx, Action: action}); err != nil {
-			t.Fatalf("AdvanceRunCommand(%s): %v", action, err)
-		}
-	}
-	// DefaultPlaybook: brainstorm(0) -> plan(1, gate) -> execute(2). A gated phase halts awaiting
-	// review when completed; sending back re-opens it; approving a HELD phase resumes it in place.
-	advance(0, jarvis.RunAction_Complete) // plan auto-runs
-	advance(1, jarvis.RunAction_Complete) // gate done -> awaiting-review
-	advance(1, jarvis.RunAction_SendBack) // gate-sent-back(1); plan re-opens
-	advance(1, jarvis.RunAction_Hold)     // phase-held(1); awaiting-review
-	advance(1, jarvis.RunAction_Approve)  // gate-approved(1); plan resumes (held cleared)
-	advance(1, jarvis.RunAction_Complete) // phase-complete(1); awaiting-review again
-	advance(0, jarvis.RunAction_Approve)  // gate-approved(1); execute(2) runs
-	advance(2, jarvis.RunAction_Triage)   // triage on the running execute phase
-	advance(2, jarvis.RunAction_Complete) // run done
-
-	kinds := mustKinds(t, ch.OID, run.ID)
-	for _, want := range []string{
-		waveobj.RunEventKindPhaseStarted, waveobj.RunEventKindPhaseComplete,
-		waveobj.RunEventKindPhaseHeld, waveobj.RunEventKindGateSentBack,
-		waveobj.RunEventKindGateApproved, waveobj.RunEventKindTriage,
-	} {
-		if !containsKind(kinds, want) {
-			t.Fatalf("events %v missing %q", kinds, want)
-		}
-	}
-}
-
 // Cancelling a run must record the terminal event on its log (written after the cancelled state is
 // persisted, so the row is durable).
 func TestRunCancelWritesRunCancelledEvent(t *testing.T) {
@@ -765,7 +619,7 @@ func TestCancelOwningRunCascadesThroughDag(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
 	child := jarvis.NewRun("child", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), 1)
 	dag, err := orchestrate.NewTaskGroup(owner.ID, ch.OID, "g", 1, false, []waveobj.TaskNode{{ID: "t", Label: "task"}}, 1, nil)
 	if err != nil {
@@ -802,7 +656,7 @@ func TestCancelRunDoesNotBypassMissingLinkedDag(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	run := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	run := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
 	run.DagORef = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
 		t.Fatal(err)

@@ -76,21 +76,6 @@ func phaseIdxOf(idx int) *int { return &idx }
 // gatePhaseIdx mirrors jarvis.gateIndex: the completed gate phase a halted run waits on, or -1. Kept
 // in-file so the event mapping can stamp gate actions at the engine-resolved gate without exporting
 // the jarvis helper.
-func gatePhaseIdx(r *waveobj.Run) int {
-	if r == nil {
-		return -1
-	}
-	for i, p := range r.Phases {
-		if p.State != jarvis.PhaseState_Done && p.State != jarvis.PhaseState_Skipped {
-			if i > 0 && r.Phases[i-1].Gate && r.Phases[i-1].State == jarvis.PhaseState_Done {
-				return i - 1
-			}
-			return -1
-		}
-	}
-	return -1
-}
-
 // captureAsync dispatches the continuity boundary summary (sub-project E) off the RPC handler's
 // goroutine — it makes a model call and must never sit on the 5s RPC budget. A seam so tests capture
 // the dispatch without running it.
@@ -278,45 +263,25 @@ func stopRunWorkers(ctx context.Context, run *waveobj.Run) {
 	}
 }
 
-// top-level launches opt into heavier modes explicitly; saved profiles still supply custom playbooks
-// and principles, but must not silently turn an ordinary goal into an orchestrator or pipeline. The
-// profile's defaultmode reaches a launch through the launcher's own hydrated control (which sends its
-// choice explicitly), not through this fallback — TestResolveRunPlanDefaultsToQuickRegardlessOfProfile
-// pins that.
-// legacy gate fields remain readable for RPC compatibility but do not affect orchestrator creation.
-func resolveRunPlan(resolved waveobj.JarvisProfile, reqMode string, reqPlanGate *bool) (string, []waveobj.RunPhase) {
-	mode := reqMode
-	if mode == "" {
-		mode = jarvis.RunMode_Quick
+// top-level launches opt into the orchestrator explicitly; an unset mode is a quick run. A profile's
+// defaultmode reaches a launch through the launcher's own hydrated control (which sends its choice
+// explicitly), not through this fallback — TestResolveRunPlanDefaultsToQuickRegardlessOfProfile pins that.
+func resolveRunPlan(resolved waveobj.JarvisProfile, reqMode string) (string, []waveobj.RunPhase) {
+	if reqMode == jarvis.RunMode_Orchestrator {
+		return reqMode, jarvis.DefaultOrchestratorPlaybook()
 	}
-	if mode == jarvis.RunMode_Quick {
-		// quick is a bare single-phase run; it has no plan gate, so reqPlanGate is ignored.
-		return mode, jarvis.QuickPlaybook()
-	}
-	if mode == jarvis.RunMode_Orchestrator {
-		return mode, jarvis.DefaultOrchestratorPlaybook(false)
-	}
-	playbook := resolved.Playbook
-	if len(playbook) == 0 {
-		playbook = jarvis.DefaultPlaybook()
-	}
-	return mode, playbook
+	return jarvis.RunMode_Quick, jarvis.QuickPlaybook()
 }
 
-// childRunPlan derives a hands-off playbook for a child run: resolve the plan for the requested (or inherited)
-// mode with the plan gate off, then strip any phase-level gates. A child never halts for human review; any
-// consequential pause must be an explicit task decision gate.
+// childRunPlan resolves a child's shape from the requested (or inherited) mode. Neither surviving
+// playbook gates a phase, so a child never halts for human review; any consequential pause must be an
+// explicit task decision gate.
 func childRunPlan(resolved waveobj.JarvisProfile, reqMode string) (string, []waveobj.RunPhase) {
 	// child inheritance is independent of the top-level launch default.
 	if reqMode == "" {
 		reqMode = resolved.DefaultMode
 	}
-	if reqMode == "" {
-		reqMode = jarvis.RunMode_Pipeline
-	}
-	gateOff := false
-	mode, pb := resolveRunPlan(resolved, reqMode, &gateOff)
-	return mode, jarvis.StripPhaseGates(pb)
+	return resolveRunPlan(resolved, reqMode)
 }
 
 func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCreateRunData) (*wshrpc.CommandCreateRunRtnData, error) {
@@ -325,9 +290,6 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 	if data.PlanPath != "" {
 		if data.Mode != jarvis.RunMode_Orchestrator {
 			return nil, fmt.Errorf("planpath needs an orchestrator run: only the engine runs a plan")
-		}
-		if data.Orchestration == jarvis.Orchestration_Adaptive {
-			return nil, fmt.Errorf("planpath needs the engine: an adaptive lead has no dag to run it")
 		}
 		plan, err := readPlanFile(data.PlanPath)
 		if err != nil {
@@ -371,15 +333,14 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 	global := jarvis.LoadGlobalProfile()
 	resolved := jarvis.ResolveProfile(global, jarvis.OverrideFromMeta(ch))
 	// Shape first, then machine: the engine dials exist only on an engine launch, so a profile's stored
-	// worker route (which can name a harness this machine does not have) must not be hydrated onto a quick,
-	// pipeline or adaptive run and refuse it.
-	mode, playbook := resolveRunPlan(resolved, data.Mode, data.PlanGate)
-	orchestration := data.Orchestration
-	if orchestration == "" && mode == jarvis.RunMode_Orchestrator {
-		orchestration = resolved.Machine
+	// worker route (which can name a harness this machine does not have) must not be hydrated onto a
+	// quick or pipeline run and refuse it.
+	mode, playbook := resolveRunPlan(resolved, data.Mode)
+	engineLaunch := mode == jarvis.RunMode_Orchestrator
+	orchestration := ""
+	if engineLaunch {
+		orchestration = jarvis.Orchestration_Engine
 	}
-	engineLaunch := mode == jarvis.RunMode_Orchestrator &&
-		jarvis.ResolveOrchestration(orchestration, cap.Runtime) == jarvis.Orchestration_Engine
 	if engineLaunch {
 		if data.Parallelism == 0 {
 			data.Parallelism = resolved.Parallelism
@@ -399,20 +360,6 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 	run.Model = cap.Model
 	run.WorkerRoute = data.WorkerRoute
 	run.Orchestration = orchestration // prompt-shaping only; DagSubmit stays open to either choice
-	// The plan gate is a launch decision the profile already states, and DagSubmit reads it off the run as
-	// its pending choice. Carrying it here is what makes a saved gate default affect the next engine plan.
-	if engineLaunch {
-		switch {
-		case data.PlanPath != "":
-			// the human picked this plan and saw its shape at + Run; that was the review
-			gateOff := false
-			run.PlanGatePending = &gateOff
-		case data.PlanGate != nil:
-			run.PlanGatePending = data.PlanGate
-		case resolved.DefaultPlanGate != nil:
-			run.PlanGatePending = resolved.DefaultPlanGate
-		}
-	}
 	// out-of-band widths are rejected rather than clamped: a caller asking for 40 workers has a wrong
 	// model of the engine, and silently running 8 would hide that.
 	if err := validateParallelism(data.Parallelism, true); err != nil {
@@ -584,14 +531,6 @@ func applyRunAction(r waveobj.Run, data wshrpc.CommandAdvanceRunData, ts int64) 
 			next.EndCommit = data.Commit // the run's reported result commit; scopes the sealed evidence diff
 		}
 		return next, err
-	case jarvis.RunAction_Approve:
-		return jarvis.ApproveGate(r, ts)
-	case jarvis.RunAction_SendBack:
-		return jarvis.SendBackGate(r, ts)
-	case jarvis.RunAction_Hold:
-		return jarvis.HoldPhase(r, data.PhaseIdx, data.Artifacts)
-	case jarvis.RunAction_Triage:
-		return jarvis.RecordTriage(r, data.PhaseIdx, data.Verdict, data.Note)
 	default:
 		return r, fmt.Errorf("unknown run action %q", data.Action)
 	}
@@ -607,18 +546,6 @@ func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandA
 		preStatus = pre.Status
 		preRun = pre
 	}
-	// approve-in-place: an orchestrator lead held at the plan gate resumes via steer, not a fresh worker.
-	leadToSteer := ""
-	if data.Action == jarvis.RunAction_Approve {
-		if pre, perr := wstore.GetRun(ctx, data.ChannelId, data.RunId); perr == nil {
-			for i := range pre.Phases {
-				if pre.Phases[i].State == jarvis.PhaseState_Running && pre.Phases[i].Held && len(pre.Phases[i].WorkerOrefs) > 0 {
-					leadToSteer = pre.Phases[i].WorkerOrefs[0]
-					break
-				}
-			}
-		}
-	}
 	ts := time.Now().UnixMilli()
 	err := wstore.UpdateRun(ctx, data.ChannelId, data.RunId, func(r *waveobj.Run) error {
 		next, e := applyRunAction(*r, data, ts)
@@ -631,34 +558,10 @@ func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandA
 	if err != nil {
 		return fmt.Errorf("advancing run: %w", err)
 	}
-	// map the applied action to a lifecycle event (the transition above already persisted) — the
-	// focused run card renders these rows under the affected phase. approve/sendback act on the gate
-	// the ENGINE resolved (the caller may not name it — the FE's approve path never passes an index),
-	// so stamp those rows at that gate, not at a possibly-absent caller index.
-	gateIdx := gatePhaseIdx(preRun)
-	gateIdxOr := func(fallback int) *int {
-		if gateIdx >= 0 {
-			return phaseIdxOf(gateIdx)
-		}
-		return phaseIdxOf(fallback)
-	}
 	post, _ := wstore.GetRun(ctx, data.ChannelId, data.RunId)
 	switch data.Action {
 	case jarvis.RunAction_Complete:
 		appendRunEvent(ctx, data.ChannelId, data.RunId, waveobj.RunEventKindPhaseComplete, phaseIdxOf(data.PhaseIdx), map[string]any{"artifacts": data.Artifacts, "commit": data.Commit})
-		// completing a GATE phase halts the run in review (no explicit hold needed) — narrate the gate
-		// hold so the row appears next to the completion and the approve click target makes sense.
-		if post != nil && post.Status == jarvis.RunStatus_AwaitingReview {
-			appendRunEvent(ctx, data.ChannelId, data.RunId, waveobj.RunEventKindPhaseHeld, phaseIdxOf(data.PhaseIdx), map[string]any{"artifacts": data.Artifacts})
-		}
-	case jarvis.RunAction_Hold:
-		appendRunEvent(ctx, data.ChannelId, data.RunId, waveobj.RunEventKindPhaseHeld, phaseIdxOf(data.PhaseIdx), map[string]any{"artifacts": data.Artifacts})
-	case jarvis.RunAction_Approve:
-		appendRunEvent(ctx, data.ChannelId, data.RunId, waveobj.RunEventKindGateApproved, gateIdxOr(data.PhaseIdx), map[string]any{})
-	case jarvis.RunAction_SendBack:
-		appendRunEvent(ctx, data.ChannelId, data.RunId, waveobj.RunEventKindGateSentBack, gateIdxOr(data.PhaseIdx), map[string]any{})
-	case jarvis.RunAction_Triage:
-		appendRunEvent(ctx, data.ChannelId, data.RunId, waveobj.RunEventKindTriage, phaseIdxOf(data.PhaseIdx), map[string]any{"verdict": data.Verdict, "note": data.Note})
 	}
 	// record phase-started for every phase the transition just put in the running state (complete
 	// auto-starts the successor; approve starts the phase after the gate). The rows land under the
@@ -752,9 +655,6 @@ func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandA
 	if err := spawnRunWorkers(ctx, data.ChannelId, data.RunId, ch.Name); err != nil {
 		publishRunUpdate(data.ChannelId, data.RunId)
 		return fmt.Errorf("spawning next worker: %w", err)
-	}
-	if leadToSteer != "" {
-		steerRunLead(ctx, leadToSteer, "approved, proceed\r")
 	}
 	publishRunUpdate(data.ChannelId, data.RunId)
 	// auto-close orchestrator lead when both run and DAG are terminal

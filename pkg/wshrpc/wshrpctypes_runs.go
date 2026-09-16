@@ -31,7 +31,6 @@ type CommandCreateRunData struct {
 	Parallelism   int                     `json:"parallelism,omitempty"`   // engine width the user picked in the Run rail; 0 = let the lead choose
 	PlaybookId    string                  `json:"playbookid,omitempty"`
 	Mode          string                  `json:"mode,omitempty"`        // quick | pipeline | orchestrator (empty = resolved profile default)
-	PlanGate      *bool                   `json:"plangate,omitempty"`    // orchestrator plan gate; nil = resolved profile default
 	RadarOrigin   *waveobj.RunRadarOrigin `json:"radarorigin,omitempty"` // set when started from a Radar finding
 	EffortOID     string                  `json:"effortoid,omitempty"`   // optional effort tracker link (composer picker)
 	ChunkLabel    string                  `json:"chunklabel,omitempty"`
@@ -95,7 +94,7 @@ type CommandCreateChildRunRtnData struct {
 
 // CommandSetRunSettingsData is the session sheet's prospective engine configuration. Parallelism is a
 // pointer because omission is how a caller says "leave the width alone": a supplied value is always a real
-// width and must be inside 1..orchestrate.MaxParallelism. PlanGate nil leaves the gate untouched. The
+// width and must be inside 1..orchestrate.MaxParallelism. The
 // launched shape, machine and lead route are absent on purpose: they are immutable after launch, so there
 // is nothing to send.
 type CommandSetRunSettingsData struct {
@@ -103,5 +102,4 @@ type CommandSetRunSettingsData struct {
 	RunId       string            `json:"runid"`
 	Parallelism *int              `json:"parallelism,omitempty"`
 	WorkerRoute *waveobj.RoutePin `json:"workerroute,omitempty"`
-	PlanGate    *bool             `json:"plangate,omitempty"`
 }

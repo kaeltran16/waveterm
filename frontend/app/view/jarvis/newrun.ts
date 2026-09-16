@@ -43,15 +43,14 @@ export interface RunConfig {
 
 export interface LaunchOpts {
     mode: string;
-    orchestration?: string;
     parallelism?: number;
     workerRoute?: RoutePin;
     planPath?: string;
 }
 
 // What the launcher's controls mean as CreateRun's arguments. The mode cannot simply be omitted: the server
-// reads an unset mode as `quick` (resolveRunPlan). + Run's orchestrator is the engine (spec §1); the adaptive
-// lead stays reachable only from the cockpit composer until slice 5c deletes it.
+// reads an unset mode as `quick` (resolveRunPlan). Every orchestrator run is an engine run, so the machine
+// is the server's to set.
 export function launchOptsFromConfig(config: RunConfig): LaunchOpts {
     const { shape, parallelism, workerRoute, start, planPath } = config;
     if (shape !== "orchestrator") {
@@ -59,7 +58,6 @@ export function launchOptsFromConfig(config: RunConfig): LaunchOpts {
     }
     return {
         mode: shape,
-        orchestration: "engine",
         parallelism,
         ...(workerRoute != null ? { workerRoute } : {}),
         ...(start === "plan" ? { planPath: planPath.trim() } : {}),

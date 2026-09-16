@@ -13,29 +13,19 @@
 
 import { MAX_PARALLELISM } from "../agents/runconfig";
 
-export const PLAN_GATE_SPENT_APPROVED = "the plan was approved";
-export const PLAN_GATE_SPENT_DISPATCHED = "work is already running";
-
-export type SheetFace =
-    | { kind: "missing" }
-    | { kind: "readonly"; reason: string }
-    | { kind: "editable"; gateEditable: boolean };
+export type SheetFace = { kind: "missing" } | { kind: "readonly"; reason: string } | { kind: "editable" };
 
 export type RunSettingsDraft = {
     parallelism: number;
     workerRoute: RoutePin | null;
-    planGate: boolean;
 };
-
-// the engine resolves every dispatch width through this, not just CreateRun.
-const TERMINAL_DAG = new Set(["done", "cancelled"]);
 
 export type RunSettingsPanelState =
     | { kind: "missing" }
     | { kind: "loading" }
     | { kind: "unavailable"; reason: "missing" | "error" }
     | { kind: "readonly"; reason: string }
-    | { kind: "editable"; gateEditable: boolean };
+    | { kind: "editable" };
 
 // How far the sheet has got with the TaskGroup a run links. "missing" is a loaded read that found nothing
 // (the group was deleted); "error" is a read that failed. Neither may fall back to the run's launch
@@ -65,10 +55,10 @@ export function runSettingsPanelState(
             return { kind: "unavailable", reason: "missing" };
         }
     }
-    return sheetFace(run, group);
+    return sheetFace(run);
 }
 
-export function sheetFace(run: Run | null | undefined, group: TaskGroup | null): SheetFace {
+export function sheetFace(run: Run | null | undefined): SheetFace {
     if (run == null) {
         return { kind: "missing" };
     }
@@ -83,30 +73,7 @@ export function sheetFace(run: Run | null | undefined, group: TaskGroup | null):
     if (machine !== "engine") {
         return { kind: "readonly", reason: "an adaptive lead runs its own subagents" };
     }
-    return { kind: "editable", gateEditable: gateEditable(group) };
-}
-
-// The mirror of jarvis.GateSettingsBlocker: a nil group has its whole gate ahead of it, an approved or
-// terminal one has spent it, and a dispatched task proves it was spent whether or not it was recorded.
-export function gateEditable(group: TaskGroup | null): boolean {
-    if (group == null) {
-        return true;
-    }
-    if (TERMINAL_DAG.has(group.status) || (group.planapprovedts ?? 0) !== 0) {
-        return false;
-    }
-    return !(group.tasks ?? []).some((t) => (t.runid ?? "") !== "");
-}
-
-// Why the gate is locked, for the line the sheet prints beside the disabled control.
-export function gateLockReason(group: TaskGroup | null): string {
-    if (group == null) {
-        return "";
-    }
-    if ((group.planapprovedts ?? 0) !== 0) {
-        return PLAN_GATE_SPENT_APPROVED;
-    }
-    return PLAN_GATE_SPENT_DISPATCHED;
+    return { kind: "editable" };
 }
 
 // The sheet's starting values. After submission the group wins: reading the run there would print the
@@ -116,19 +83,16 @@ export function runSettingsDraft(run: Run, group: TaskGroup | null): RunSettings
         return {
             parallelism: group.parallelism,
             workerRoute: group.workerroute ?? null,
-            planGate: group.plangate ?? false,
         };
     }
-    const topLevel = run.parentleadoref == null || run.parentleadoref === "";
     return {
         parallelism: run.parallelism ?? 0,
         workerRoute: run.workerroute ?? null,
-        planGate: run.plangatepending ?? topLevel,
     };
 }
 
 export function draftIsDirty(a: RunSettingsDraft, b: RunSettingsDraft): boolean {
-    return a.parallelism !== b.parallelism || a.planGate !== b.planGate || !sameRoute(a.workerRoute, b.workerRoute);
+    return a.parallelism !== b.parallelism || !sameRoute(a.workerRoute, b.workerRoute);
 }
 
 // What the sheet re-seeds its draft on: every effective mutable input, from whichever object currently owns
@@ -137,12 +101,7 @@ export function draftIsDirty(a: RunSettingsDraft, b: RunSettingsDraft): boolean 
 export function draftSeedKey(run: Run, group: TaskGroup | null): string {
     const draft = runSettingsDraft(run, group);
     const route = draft.workerRoute;
-    return [
-        draft.parallelism,
-        draft.planGate ? "gate" : "nogate",
-        route?.runtime ?? "",
-        route?.model ?? "",
-    ].join("|");
+    return [draft.parallelism, route?.runtime ?? "", route?.model ?? ""].join("|");
 }
 
 function sameRoute(a: RoutePin | null, b: RoutePin | null): boolean {
@@ -157,14 +116,7 @@ export function parallelismInvalid(n: number): boolean {
     return !Number.isInteger(n) || n < 1 || n > MAX_PARALLELISM;
 }
 
-// includeGate is false when the sheet was not allowed to touch the gate: sending it anyway would ask the
-// server to re-assert a value the user never edited, and turn a spent gate into a refused save.
-export function settingsPayload(
-    channelId: string,
-    runId: string,
-    draft: RunSettingsDraft,
-    opts: { includeGate?: boolean } = {}
-): CommandSetRunSettingsData {
+export function settingsPayload(channelId: string, runId: string, draft: RunSettingsDraft): CommandSetRunSettingsData {
     const payload: CommandSetRunSettingsData = {
         channelid: channelId,
         runid: runId,
@@ -173,32 +125,25 @@ export function settingsPayload(
     if (draft.workerRoute != null) {
         payload.workerroute = draft.workerRoute;
     }
-    if (opts.includeGate !== false) {
-        payload.plangate = draft.planGate;
-    }
     return payload;
 }
 
 // Everything about a run that a future launch could inherit: the launched facts from the run, the mutable
-// dials from the draft. Shape, machine and the lead route are immutable here, which is exactly why they are
-// the run's own values rather than anything the sheet could have edited.
+// dials from the draft. Shape and the lead route are immutable here, which is exactly why they are the
+// run's own values rather than anything the sheet could have edited.
 export type EffectiveRunConfig = {
     shape: string;
-    machine: string;
     parallelism: number;
     leadRoute: RoutePin | null;
     workerRoute: RoutePin | null;
-    planGate: boolean;
 };
 
 export function effectiveRunConfig(run: Run, draft: RunSettingsDraft): EffectiveRunConfig {
     return {
         shape: run.mode || "quick",
-        machine: run.orchestration || (run.runtime === "pi" ? "engine" : "adaptive"),
         parallelism: draft.parallelism,
         leadRoute: leadRouteOf(run),
         workerRoute: draft.workerRoute,
-        planGate: draft.planGate,
     };
 }
 
@@ -216,11 +161,9 @@ export function engineDefaultsPatch(override: ProfileOverride, config: Effective
     return {
         ...override,
         defaultmode: config.shape,
-        machine: config.machine,
         parallelism: config.parallelism,
         route: config.leadRoute ?? undefined,
         workerroute: config.workerRoute ?? undefined,
-        defaultplangate: config.planGate,
     };
 }
 

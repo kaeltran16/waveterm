@@ -190,7 +190,7 @@ func seedDagRunWorker(t *testing.T, ctx context.Context, child bool) (*waveobj.C
 		t.Fatalf("seed worker block: %v", err)
 	}
 	dagId := uuid.NewString()
-	lead := NewRun("lead", "ws-1", ch.ProjectPath, nil, RunMode_Orchestrator, DefaultOrchestratorPlaybook(false), 1)
+	lead := NewRun("lead", "ws-1", ch.ProjectPath, nil, RunMode_Orchestrator, DefaultOrchestratorPlaybook(), 1)
 	lead.ID, lead.DagORef = uuid.NewString(), dagId
 	if err := wstore.AppendDag(ctx, &waveobj.TaskGroup{OID: dagId, ID: dagId, RunID: lead.ID, ChannelId: ch.OID, Meta: waveobj.MetaMapType{}}); err != nil {
 		t.Fatalf("seed dag: %v", err)

@@ -5,7 +5,6 @@ package wshserver
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
@@ -61,7 +60,7 @@ func captureBroadcasts(t *testing.T) *captureClient {
 	return cc
 }
 
-func submitGatedPlan(t *testing.T, ctx context.Context, ch *waveobj.Channel, runId string) *waveobj.TaskGroup {
+func submitPlan(t *testing.T, ctx context.Context, ch *waveobj.Channel, runId string) *waveobj.TaskGroup {
 	t.Helper()
 	g, err := (&WshServer{}).DagSubmitCommand(ctx, wshrpc.CommandDagSubmitData{
 		ChannelId: ch.OID, RunId: runId, Title: "plan", Parallelism: 2,
@@ -79,9 +78,8 @@ func TestSetRunSettingsPersistsPendingOnRunBeforeDag(t *testing.T) {
 	ctx := context.Background()
 	ch, run := newEngineRun(t, ctx, "rs-pending", jarvis.Orchestration_Engine)
 	route := &waveobj.RoutePin{Runtime: "pi"}
-	gate := false
 	if err := (&WshServer{}).SetRunSettingsCommand(ctx, wshrpc.CommandSetRunSettingsData{
-		ChannelId: ch.OID, RunId: run.ID, Parallelism: intPtr(3), WorkerRoute: route, PlanGate: &gate,
+		ChannelId: ch.OID, RunId: run.ID, Parallelism: intPtr(3), WorkerRoute: route,
 	}); err != nil {
 		t.Fatalf("SetRunSettingsCommand: %v", err)
 	}
@@ -91,9 +89,6 @@ func TestSetRunSettingsPersistsPendingOnRunBeforeDag(t *testing.T) {
 	}
 	if got.WorkerRoute == nil || *got.WorkerRoute != *route {
 		t.Errorf("worker route = %+v, want %+v", got.WorkerRoute, route)
-	}
-	if got.PlanGatePending == nil || *got.PlanGatePending {
-		t.Errorf("pending plan gate = %v, want an explicit false", got.PlanGatePending)
 	}
 }
 
@@ -114,16 +109,6 @@ func TestSetRunSettingsRejectsTerminalRun(t *testing.T) {
 	}
 	if got := mustRun(t, ctx, ch.OID, run.ID).Parallelism; got != before {
 		t.Fatalf("terminal run was rewritten: parallelism = %d", got)
-	}
-}
-
-func TestSetRunSettingsRejectsNonEngineRun(t *testing.T) {
-	ctx := context.Background()
-	ch, run := newEngineRun(t, ctx, "rs-adaptive", jarvis.Orchestration_Adaptive)
-	if err := (&WshServer{}).SetRunSettingsCommand(ctx, wshrpc.CommandSetRunSettingsData{
-		ChannelId: ch.OID, RunId: run.ID, Parallelism: intPtr(3),
-	}); err == nil || !strings.Contains(err.Error(), "engine") {
-		t.Fatalf("expected an engine-only rejection, got %v", err)
 	}
 }
 
@@ -168,7 +153,7 @@ func TestSetRunSettingsRejectsInvalidWorkerRoute(t *testing.T) {
 func TestSetRunSettingsPersistsLiveOnTaskGroupAfterSubmit(t *testing.T) {
 	ctx := context.Background()
 	ch, run := newEngineRun(t, ctx, "rs-live", jarvis.Orchestration_Engine)
-	g := submitGatedPlan(t, ctx, ch, run.ID)
+	g := submitPlan(t, ctx, ch, run.ID)
 	if err := (&WshServer{}).SetRunSettingsCommand(ctx, wshrpc.CommandSetRunSettingsData{
 		ChannelId: ch.OID, RunId: run.ID, Parallelism: intPtr(5),
 	}); err != nil {
@@ -188,7 +173,7 @@ func TestSetRunSettingsPersistsLiveOnTaskGroupAfterSubmit(t *testing.T) {
 func TestSetRunSettingsKeepsRunLaunchSnapshotAfterSubmit(t *testing.T) {
 	ctx := context.Background()
 	ch, run := newEngineRun(t, ctx, "rs-snapshot", jarvis.Orchestration_Engine)
-	submitGatedPlan(t, ctx, ch, run.ID)
+	submitPlan(t, ctx, ch, run.ID)
 	if err := (&WshServer{}).SetRunSettingsCommand(ctx, wshrpc.CommandSetRunSettingsData{
 		ChannelId: ch.OID, RunId: run.ID, Parallelism: intPtr(5),
 	}); err != nil {
@@ -203,7 +188,7 @@ func TestSetRunSettingsKeepsRunLaunchSnapshotAfterSubmit(t *testing.T) {
 func TestSetRunSettingsRejectsZeroParallelismAfterSubmit(t *testing.T) {
 	ctx := context.Background()
 	ch, run := newEngineRun(t, ctx, "rs-zero-after", jarvis.Orchestration_Engine)
-	g := submitGatedPlan(t, ctx, ch, run.ID)
+	g := submitPlan(t, ctx, ch, run.ID)
 	if err := (&WshServer{}).SetRunSettingsCommand(ctx, wshrpc.CommandSetRunSettingsData{
 		ChannelId: ch.OID, RunId: run.ID, Parallelism: intPtr(0),
 	}); err == nil {
@@ -224,40 +209,11 @@ func TestSetRunSettingsRejectsZeroParallelismAfterSubmit(t *testing.T) {
 	}
 }
 
-// Once work has crossed the gate, flipping it would be a promise the engine cannot keep.
-func TestSetRunSettingsRejectsGateChangeAfterDispatch(t *testing.T) {
-	ctx := context.Background()
-	ch, run := newEngineRun(t, ctx, "rs-gate-spent", jarvis.Orchestration_Engine)
-	g := submitGatedPlan(t, ctx, ch, run.ID)
-	if err := wstore.UpdateDag(ctx, g.OID, func(d *waveobj.TaskGroup) error {
-		d.PlanApprovedTs = 1
-		d.Tasks[0].State = orchestrate.TaskState_Running
-		d.Tasks[0].RunID = "child-1"
-		return nil
-	}); err != nil {
-		t.Fatalf("UpdateDag: %v", err)
-	}
-	gate := false
-	err := (&WshServer{}).SetRunSettingsCommand(ctx, wshrpc.CommandSetRunSettingsData{
-		ChannelId: ch.OID, RunId: run.ID, PlanGate: &gate,
-	})
-	if err == nil {
-		t.Fatal("expected a gate change after dispatch to be rejected")
-	}
-	got, err := wstore.GetDag(ctx, g.OID)
-	if err != nil {
-		t.Fatalf("GetDag: %v", err)
-	}
-	if !got.PlanGate {
-		t.Fatal("rejected gate change was persisted")
-	}
-}
-
 // Parallelism may be lowered below current occupancy: the scheduler waits, it does not cancel.
 func TestSetRunSettingsAllowsLoweringBelowOccupancy(t *testing.T) {
 	ctx := context.Background()
 	ch, run := newEngineRun(t, ctx, "rs-lower", jarvis.Orchestration_Engine)
-	g := submitGatedPlan(t, ctx, ch, run.ID)
+	g := submitPlan(t, ctx, ch, run.ID)
 	if err := wstore.UpdateDag(ctx, g.OID, func(d *waveobj.TaskGroup) error {
 		d.Tasks[0].State = orchestrate.TaskState_Running
 		d.Tasks[0].RunID = "child-1"
@@ -306,22 +262,6 @@ func TestSetRunSettingsPublishesOnlyAfterSuccess(t *testing.T) {
 	}
 }
 
-// The pending gate is a promise to DagSubmit, so it has to actually reach the group.
-func TestSetRunSettingsPendingGateFeedsDagSubmit(t *testing.T) {
-	ctx := context.Background()
-	ch, run := newEngineRun(t, ctx, "rs-gate-pending", jarvis.Orchestration_Engine)
-	gate := false
-	if err := (&WshServer{}).SetRunSettingsCommand(ctx, wshrpc.CommandSetRunSettingsData{
-		ChannelId: ch.OID, RunId: run.ID, PlanGate: &gate,
-	}); err != nil {
-		t.Fatalf("SetRunSettingsCommand: %v", err)
-	}
-	g := submitGatedPlan(t, ctx, ch, run.ID)
-	if g.PlanGate {
-		t.Fatal("submitted plan gated itself after the human turned the gate off")
-	}
-}
-
 // A missing run is a real error, not a silent no-op.
 func TestSetRunSettingsRejectsUnknownRun(t *testing.T) {
 	ctx := context.Background()
@@ -344,7 +284,6 @@ func TestCreateRunHydratesEngineDefaultsFromProfile(t *testing.T) {
 	}
 	route := &waveobj.RoutePin{Runtime: "pi"}
 	seedProfileMeta(t, ctx, ch.OID, &waveobj.ProfileOverride{
-		Machine:     strPtr(jarvis.Orchestration_Engine),
 		Parallelism: intPtr(3),
 		WorkerRoute: route,
 	})
@@ -375,17 +314,16 @@ func TestCreateRunExplicitValuesBeatProfileDefaults(t *testing.T) {
 		t.Fatalf("CreateChannel: %v", err)
 	}
 	seedProfileMeta(t, ctx, ch.OID, &waveobj.ProfileOverride{
-		Machine: strPtr(jarvis.Orchestration_Engine), Parallelism: intPtr(3),
+		Parallelism: intPtr(3),
 	})
 	rtn, err := (&WshServer{}).CreateRunCommand(ctx, wshrpc.CommandCreateRunData{
 		ChannelId: ch.OID, WorkspaceId: "ws", Goal: "g", Runtime: "pi",
-		Mode: jarvis.RunMode_Orchestrator, Orchestration: jarvis.Orchestration_Adaptive,
-		Parallelism: 7, DeferStart: true,
+		Mode: jarvis.RunMode_Orchestrator, Parallelism: 7, DeferStart: true,
 	})
 	if err != nil {
 		t.Fatalf("CreateRunCommand: %v", err)
 	}
-	if rtn.Run.Orchestration != jarvis.Orchestration_Adaptive || rtn.Run.Parallelism != 7 {
+	if rtn.Run.Parallelism != 7 {
 		t.Fatalf("explicit launch args overridden by the profile: %+v", rtn.Run)
 	}
 }
@@ -402,11 +340,6 @@ func TestSetChannelProfileValidatesEngineDefaults(t *testing.T) {
 		ChannelId: ch.OID, Override: &waveobj.ProfileOverride{Parallelism: intPtr(orchestrate.MaxParallelism + 1)},
 	}); err == nil {
 		t.Fatal("expected out-of-range profile parallelism to be rejected")
-	}
-	if err := ws.SetChannelProfileCommand(ctx, wshrpc.CommandSetChannelProfileData{
-		ChannelId: ch.OID, Override: &waveobj.ProfileOverride{Machine: strPtr("telepathy")},
-	}); err == nil {
-		t.Fatal("expected an unknown machine to be rejected")
 	}
 	if err := ws.SetChannelProfileCommand(ctx, wshrpc.CommandSetChannelProfileData{
 		ChannelId: ch.OID, Override: &waveobj.ProfileOverride{
@@ -430,7 +363,7 @@ func TestSetChannelProfileStoresEngineDefaults(t *testing.T) {
 	route := &waveobj.RoutePin{Runtime: "pi"}
 	if err := (&WshServer{}).SetChannelProfileCommand(ctx, wshrpc.CommandSetChannelProfileData{
 		ChannelId: ch.OID, Override: &waveobj.ProfileOverride{
-			Machine: strPtr(jarvis.Orchestration_Engine), Parallelism: intPtr(4), WorkerRoute: route,
+			Parallelism: intPtr(4), WorkerRoute: route,
 		},
 	}); err != nil {
 		t.Fatalf("SetChannelProfileCommand: %v", err)
@@ -439,7 +372,7 @@ func TestSetChannelProfileStoresEngineDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetJarvisProfileCommand: %v", err)
 	}
-	if got.Resolved.Machine != jarvis.Orchestration_Engine || got.Resolved.Parallelism != 4 {
+	if got.Resolved.Parallelism != 4 {
 		t.Fatalf("resolved engine defaults missing: %+v", got.Resolved)
 	}
 	if got.Resolved.WorkerRoute == nil || *got.Resolved.WorkerRoute != *route {

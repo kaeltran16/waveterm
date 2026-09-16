@@ -19,7 +19,7 @@ export interface ComposerCommand {
     body: string;
 }
 
-export type RunShape = "pipeline" | "orchestrator" | "quick";
+export type RunShape = "orchestrator" | "quick";
 
 export type RunCreationDecision =
     | {

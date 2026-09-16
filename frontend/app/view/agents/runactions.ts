@@ -67,7 +67,6 @@ export async function createRun(
     route: RoutePin,
     opts?: {
         mode?: string;
-        planGate?: boolean;
         deferStart?: boolean;
         radarOrigin?: { reportid: string; findingid: string; fingerprint: string };
         workerRoute?: RoutePin | null;
@@ -89,7 +88,6 @@ export async function createRun(
         ...(opts?.mode === "orchestrator" && opts.parallelism ? { parallelism: opts.parallelism } : {}),
         ...(opts?.mode === "orchestrator" && opts.planPath ? { planpath: opts.planPath } : {}),
         mode: opts?.mode,
-        plangate: opts?.planGate,
         deferstart: opts?.deferStart,
         ...(opts?.radarOrigin ? { radarorigin: opts.radarOrigin } : {}),
     });

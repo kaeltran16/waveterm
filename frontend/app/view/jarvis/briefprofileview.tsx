@@ -9,8 +9,8 @@
 // Two scopes, because the backend has two. Project scope edits a ProfileOverride: every field is a
 // section-level override with the same two affordances the drawer's editor had — Customize copies the
 // inherited value in, Reset drops the key so it inherits again. Global scope edits the JarvisProfile every
-// project inherits from. The global face and the playbook editor both lost their mount when B5 deleted
-// profilepanel.tsx, which left custom playbooks and global principles reachable only over the RPC; this is
+// project inherits from. The global face lost its mount when B5 deleted profilepanel.tsx, which left
+// global principles reachable only over the RPC; this is
 // the re-home meta-spec 4a item 10 asked for.
 //
 // Nothing is written until Save, and a refused save leaves the draft standing with the server's message.
@@ -33,7 +33,6 @@ import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect, useState, type ReactNode } from "react";
 import { GlobalPrinciplesEditor } from "./globalprincipleseditor";
-import { PlaybookEditor, PlaybookSummary } from "./playbookeditor";
 import { PrinciplesEditor } from "./principleseditor";
 import { globalProfileIsDirty, isDirty, profileOverrideIsEmpty, resetActionState } from "./profilemodel";
 
@@ -51,7 +50,7 @@ type Scope = "project" | "global";
 type Loaded = { global: JarvisProfile; override: ProfileOverride; diagnostics: PrincipleDiagnostic[] };
 // the fields both scopes share. ProfileOverride and JarvisProfile agree on all of them; `route` is the one
 // that does not exist globally, which is why the lead-route row is passed in rather than rendered here.
-type Defaults = Pick<ProfileOverride, "defaultmode" | "defaultplangate" | "machine" | "parallelism" | "workerroute">;
+type Defaults = Pick<ProfileOverride, "defaultmode" | "parallelism" | "workerroute">;
 
 // one row per run default: a labelled control, where the value comes from, and the two ways back to
 // inheriting. disabled is the whole modal's save flag, so a reset cannot mutate the draft mid-write.
@@ -135,29 +134,13 @@ function DefaultsFields({
         <>
             <DefaultRow {...row("defaultmode")} label="Shape" hint="How a new run in this project is composed.">
                 <select
-                    value={draft.defaultmode ?? base.defaultmode ?? "pipeline"}
+                    value={draft.defaultmode ?? base.defaultmode ?? "quick"}
                     disabled={saving}
                     onChange={(e) => set({ defaultmode: e.target.value })}
                     className={cn(FIELD, CONTROL)}
                 >
                     <option value="quick">quick</option>
-                    <option value="pipeline">pipeline</option>
                     <option value="orchestrator">orchestrator</option>
-                </select>
-            </DefaultRow>
-            <DefaultRow
-                {...row("machine")}
-                label="Orchestrator machine"
-                hint="Engine schedules a DAG into managed worktrees; adaptive lets the lead dispatch its own subagents."
-            >
-                <select
-                    value={draft.machine ?? base.machine ?? "adaptive"}
-                    disabled={saving}
-                    onChange={(e) => set({ machine: e.target.value })}
-                    className={cn(FIELD, CONTROL)}
-                >
-                    <option value="adaptive">adaptive</option>
-                    <option value="engine">engine</option>
                 </select>
             </DefaultRow>
             <DefaultRow
@@ -189,21 +172,6 @@ function DefaultsFields({
                     disabled={saving}
                     onChange={(route) => (route == null ? drop("workerroute") : set({ workerroute: route }))}
                 />
-            </DefaultRow>
-            <DefaultRow
-                {...row("defaultplangate")}
-                label="Plan gate"
-                hint="Hold a new plan for review before its first worker is dispatched."
-            >
-                <label className="flex items-center gap-2 text-[11.5px] text-secondary">
-                    <input
-                        type="checkbox"
-                        disabled={saving}
-                        checked={draft.defaultplangate ?? base.defaultplangate ?? true}
-                        onChange={(e) => set({ defaultplangate: e.target.checked })}
-                    />
-                    hold the plan for review
-                </label>
             </DefaultRow>
         </>
     );
@@ -460,17 +428,6 @@ export function BriefProfileModal({ open, onClose }: { open: boolean; onClose: (
                                 />
                             </section>
                             <section className={SECTION}>
-                                <span className={LABEL}>playbook</span>
-                                <span className="text-[11px] text-muted">
-                                    The phases a pipeline run is composed from, in order.
-                                </span>
-                                <PlaybookEditor
-                                    phases={globalDraft.playbook ?? []}
-                                    disabled={saving}
-                                    onChange={(playbook) => setGlobal({ playbook })}
-                                />
-                            </section>
-                            <section className={SECTION}>
                                 <span className={LABEL}>standing rules</span>
                                 <GlobalPrinciplesEditor
                                     principles={globalDraft.principles ?? []}
@@ -493,55 +450,6 @@ export function BriefProfileModal({ open, onClose }: { open: boolean; onClose: (
                                     drop={drop}
                                     routeRow={leadRouteRow}
                                 />
-                            </section>
-                            <section className={SECTION}>
-                                <div className="flex items-center gap-2">
-                                    <span className={LABEL}>playbook</span>
-                                    <span
-                                        className={cn(
-                                            BADGE,
-                                            draft.playbook == null
-                                                ? "border border-edge-mid text-muted"
-                                                : "bg-accentbg/50 text-accent-soft"
-                                        )}
-                                    >
-                                        {draft.playbook == null ? "global" : "project"}
-                                    </span>
-                                    <div className="flex-1" />
-                                    {/* the whole playbook is one section-level override: a project either
-                                        states its own phase list or inherits the global one. Customize copies
-                                        the inherited phases in, so the edit starts from what runs today. */}
-                                    {draft.playbook == null ? (
-                                        <button
-                                            type="button"
-                                            disabled={saving}
-                                            onClick={() =>
-                                                set({ playbook: (loaded.global.playbook ?? []).map((p) => ({ ...p })) })
-                                            }
-                                            className="cursor-pointer text-[10px] text-accent-soft hover:text-accent disabled:cursor-default disabled:opacity-40"
-                                        >
-                                            customize
-                                        </button>
-                                    ) : (
-                                        <button
-                                            type="button"
-                                            disabled={saving}
-                                            onClick={() => drop("playbook")}
-                                            className="cursor-pointer text-[10px] text-muted hover:text-secondary disabled:cursor-default disabled:opacity-40"
-                                        >
-                                            reset
-                                        </button>
-                                    )}
-                                </div>
-                                {draft.playbook == null ? (
-                                    <PlaybookSummary phases={loaded.global.playbook ?? []} />
-                                ) : (
-                                    <PlaybookEditor
-                                        phases={draft.playbook}
-                                        disabled={saving}
-                                        onChange={(playbook) => set({ playbook })}
-                                    />
-                                )}
                             </section>
                             <section className={SECTION}>
                                 <span className={LABEL}>standing rules</span>
