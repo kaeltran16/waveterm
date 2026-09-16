@@ -8,7 +8,14 @@
 //
 // The derivations live in petpeekmodel.ts and petcondition.ts. This file is a renderer.
 
-import { cardVariants, computeEntrances, initialEntranceState, MOTION, paneReveal } from "@/app/element/motiontokens";
+import {
+    cardVariants,
+    computeEntrances,
+    initialEntranceState,
+    MOTION,
+    paneReveal,
+    popoverReveal,
+} from "@/app/element/motiontokens";
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { attentionAtom } from "@/app/view/agents/attentionstore";
@@ -475,13 +482,11 @@ export function PetPeek({
                             {open ? (
                                 <motion.div
                                     layout="size"
-                                    initial={{ opacity: 0 }}
-                                    animate={{ opacity: 1 }}
-                                    exit={{ opacity: 0 }}
-                                    transition={{
-                                        opacity: { duration: MOTION.durMicro, ease: MOTION.easeFluid },
-                                        layout: { duration: MOTION.durMacro, ease: MOTION.easeFluid },
-                                    }}
+                                    variants={popoverReveal}
+                                    initial="initial"
+                                    animate="animate"
+                                    exit="exit"
+                                    transition={{ layout: { duration: MOTION.durMacro, ease: MOTION.easeFluid } }}
                                     style={{ transformOrigin: ORIGIN[corner] }}
                                     className={cn(
                                         "flex max-h-[calc(100vh-16px)] w-[calc(100vw-16px)] flex-col overflow-hidden rounded-[12px] border border-border bg-surface-raised shadow-popover",
