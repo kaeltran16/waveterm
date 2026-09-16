@@ -90,3 +90,44 @@ func TestStopRunWorkersJoinsErrors(t *testing.T) {
 		t.Fatalf("joined error %q missing orefs", msg)
 	}
 }
+
+// A stop that only clears runonstart is not durable: the block keeps its controller name, so the next
+// ResyncController builds a fresh controller and runs the command again (a forced resync does not even
+// consult runonstart). Clearing the controller makes resync destroy instead of create.
+func TestStopRunWorkerDisarmsTheBlockForResync(t *testing.T) {
+	ctx := context.Background()
+	tabId := "1a2b3c4d-0001-4000-8000-000000000001"
+	blockId := "1a2b3c4d-0002-4000-8000-000000000002"
+	if err := wstore.DBInsert(ctx, &waveobj.Tab{OID: tabId, BlockIds: []string{blockId}}); err != nil {
+		t.Fatal(err)
+	}
+	block := &waveobj.Block{OID: blockId, ParentORef: "tab:" + tabId, Meta: waveobj.MetaMapType{
+		waveobj.MetaKey_Controller:    "cmd",
+		waveobj.MetaKey_CmdRunOnStart: true,
+		waveobj.MetaKey_CmdRunOnce:    true,
+		waveobj.MetaKey_Cmd:           "claude",
+	}}
+	if err := wstore.DBInsert(ctx, block); err != nil {
+		t.Fatal(err)
+	}
+	if err := StopRunWorker(ctx, waveobj.MakeORef(waveobj.OType_Tab, tabId).String()); err != nil {
+		t.Fatalf("StopRunWorker: %v", err)
+	}
+	got, err := wstore.DBMustGet[*waveobj.Block](ctx, blockId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// ResyncController reads this with GetString(MetaKey_Controller, "") and returns early on empty
+	if name := got.Meta.GetString(waveobj.MetaKey_Controller, ""); name != "" {
+		t.Fatalf("controller = %q, want empty so a resync cannot restart the worker", name)
+	}
+	for _, key := range []string{waveobj.MetaKey_CmdRunOnStart, waveobj.MetaKey_CmdRunOnce} {
+		if got.Meta[key] != false {
+			t.Fatalf("%s = %#v, want false", key, got.Meta[key])
+		}
+	}
+	// the scrollback the evidence snapshot reads must survive the stop
+	if got.Meta.GetString(waveobj.MetaKey_Cmd, "") != "claude" {
+		t.Fatalf("stopping a worker must not erase the block's command, got %#v", got.Meta[waveobj.MetaKey_Cmd])
+	}
+}

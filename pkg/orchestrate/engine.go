@@ -58,6 +58,11 @@ var stampSpawnedWorker = wstore.StampWorkerOwner
 
 const scheduleCleanupTimeout = 10 * time.Second
 
+// scheduleTickTimeout bounds one detached tick. A tick dispatches up to MaxParallelism workers in
+// sequence, each bounded by jarvis.RunWorkerSpawnTimeout, so the bound is that worst case with room to
+// spare — it exists to stop a wedged tick living forever, not to pace a healthy one.
+const scheduleTickTimeout = 10 * time.Minute
+
 type spawnedWorkerInfo struct {
 	childRun  waveobj.Run
 	oref      string
@@ -173,12 +178,18 @@ func failDispatch(ctx context.Context, g *waveobj.TaskGroup, taskID, kind string
 // persist, and publish waveobj + event updates. Idempotent — safe to call repeatedly.
 // It is authoritative: it reloads the DAG after acquiring the per-DAG mutation lock.
 func Schedule(ctx context.Context, dagID string) error {
+	// the whole tick owns its lifetime, not just the merge half. Two of the three callers are RPC
+	// handlers, and every write a tick makes - the squash commit, the child run rows, the lifecycle
+	// events - has to finish whether or not the client that poked it is still waiting. A cancelled tick
+	// kills git mid-commit and leaves an index.lock no later tick gets past, spawns workers it cannot
+	// record, and drops the task-spawned rows that are the only account of what it did.
+	ctx = context.WithoutCancel(ctx)
+	ctx, cancel := context.WithTimeout(ctx, scheduleTickTimeout)
+	defer cancel()
 	// before the tick, not inside it: the merge takes the same lock and it is not reentrant. A
 	// landed merge is what makes a dependent's dep satisfied, so merging first lets one tick both
-	// land the predecessor and dispatch what it unblocked. Detached from the caller's ctx for the
-	// same reason the spawn path is (spawnCtx below): two of the three callers are RPC handlers, and
-	// a cancelled ctx that kills git mid-commit leaves an index.lock no later tick can get past.
-	AutoMergeReady(context.WithoutCancel(ctx), dagID)
+	// land the predecessor and dispatch what it unblocked.
+	AutoMergeReady(ctx, dagID)
 	return withDagMutation(dagID, func() error {
 		return scheduleLocked(ctx, dagID)
 	})
@@ -431,7 +442,10 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		if !attached {
 			return cleanupScheduleFailure(ctx, spawnCtx, g, spawned, fmt.Errorf("child run for task %s has no running phase", taskID))
 		}
-		if err := appendChildRun(ctx, g.ChannelId, childRun); err != nil {
+		// spawnCtx, not ctx: the row that records a spawned worker must outlive exactly as long as the
+		// spawn it records. Persisting on the caller's budget is what leaves a live process with no run
+		// row, and the task's RunID is cleared on this failure, so nothing can ever reap it.
+		if err := appendChildRun(spawnCtx, g.ChannelId, childRun); err != nil {
 			return cleanupScheduleFailure(ctx, spawnCtx, g, spawned, fmt.Errorf("persisting child run for task %s: %w", taskID, err))
 		}
 		spawned[len(spawned)-1].persisted = true

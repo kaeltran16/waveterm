@@ -32,9 +32,19 @@ func StopRunWorker(ctx context.Context, workerORef string) error {
 	}
 	var errs []error
 	for _, blockId := range tab.BlockIds {
-		meta := waveobj.MetaMapType{waveobj.MetaKey_CmdRunOnStart: false}
+		// clearing runonstart alone is not a durable stop: the block keeps its controller name, and any
+		// ResyncController - the frontend issues one whenever the block renders - builds a fresh
+		// controller that starts the command again, a forced resync ignoring runonstart entirely. With no
+		// controller name resync destroys instead of creating, so a stopped worker cannot come back. Every
+		// caller here is abandoning the worker for good (dispatch failure, retry, cancel, merged cleanup);
+		// a retry spawns a new tab rather than restarting this block.
+		meta := waveobj.MetaMapType{
+			waveobj.MetaKey_Controller:    "",
+			waveobj.MetaKey_CmdRunOnStart: false,
+			waveobj.MetaKey_CmdRunOnce:    false,
+		}
 		if err := wstore.UpdateObjectMeta(ctx, waveobj.MakeORef(waveobj.OType_Block, blockId), meta, false); err != nil {
-			errs = append(errs, fmt.Errorf("clearing runonstart on block %s: %w", blockId, err))
+			errs = append(errs, fmt.Errorf("disarming block %s: %w", blockId, err))
 			continue
 		}
 		destroyBlockController(blockId)

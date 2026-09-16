@@ -892,10 +892,32 @@ func TestScheduleCleansAllWorkersWhenLaterChildPersistFails(t *testing.T) {
 	}
 }
 
-func TestScheduleUsesDetachedContextForPersistenceCleanup(t *testing.T) {
-	baseCtx, dag := seedPendingDag(t)
-	ctx, cancel := context.WithCancel(baseCtx)
+// A tick that fails partway has to clean up the workers it already spawned, on a context that still
+// works. The trigger used to be cancelling the caller mid-tick, which a detached tick now ignores by
+// design (see TestScheduleRecordsASpawnEvenWhenTheCallerGaveUp); the invariant is reached here through a
+// second task whose child run will not persist, so the first task's worker is the one needing cleanup.
+func TestSchedulePersistenceFailureCancelsTheWorkerItAlreadySpawned(t *testing.T) {
+	baseCtx := context.Background()
 	allowWorkerHarnessForTest(t)
+	ch, err := wstore.CreateChannel(baseCtx, "schedule-persist-failure", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := jarvis.NewRun("owner goal", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 2)
+	if err := wstore.AppendRun(baseCtx, ch.OID, owner); err != nil {
+		t.Fatal(err)
+	}
+	dagGroup, err := NewTaskGroup(owner.ID, ch.OID, "g", 2, false, []waveobj.TaskNode{
+		{ID: "t-0", Label: "a"},
+		{ID: "t-1", Label: "b"},
+	}, 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := wstore.AppendDag(baseCtx, &dagGroup); err != nil {
+		t.Fatal(err)
+	}
+	dag := &dagGroup
 	worker := "tab:worker-detached-cleanup"
 	cc := &captureClient{}
 	prevClient := wps.Broker.GetClient()
@@ -908,11 +930,13 @@ func TestScheduleUsesDetachedContextForPersistenceCleanup(t *testing.T) {
 	oldAppend, oldStop, oldStamp := appendChildRun, stopSpawnedWorker, stampSpawnedWorker
 	var childID string
 	appendChildRun = func(ctx context.Context, channelID string, run waveobj.Run) error {
+		if childID != "" {
+			return errors.New("child run persist failed")
+		}
 		if err := oldAppend(ctx, channelID, run); err != nil {
 			return err
 		}
 		childID = run.ID
-		cancel()
 		return nil
 	}
 	stopSpawnedWorker = func(context.Context, string) error { return nil }
@@ -922,9 +946,9 @@ func TestScheduleUsesDetachedContextForPersistenceCleanup(t *testing.T) {
 	})
 	stubSpawnWorker(t, worker, nil)
 
-	err := Schedule(ctx, dag.OID)
+	err = Schedule(baseCtx, dag.OID)
 	if err == nil {
-		t.Fatal("want persistence failure after caller cancellation")
+		t.Fatal("want the persistence failure surfaced")
 	}
 	scope := waveobj.MakeORef(waveobj.OType_Dag, dag.OID).String()
 	if cc.saw(DagEventTaskSpawned, scope) {
@@ -1078,4 +1102,58 @@ func stubSpawnWorker(t *testing.T, worker string, err error) {
 		return worker, err
 	}
 	t.Cleanup(func() { spawnWorker = old })
+}
+
+// The worker process is spawned on a detached context, so the row recording it must be too. Persisting
+// on the caller's budget is what leaves a live claude.exe with no run row: the task fails
+// dispatch-unrecorded, its RunID is cleared, and nothing can ever find that process to reap it.
+func TestScheduleRecordsASpawnEvenWhenTheCallerGaveUp(t *testing.T) {
+	allowWorkerHarnessForTest(t)
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "engine-detach", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := jarvis.NewRun("owner goal", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
+		t.Fatal(err)
+	}
+	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 1, false, []waveobj.TaskNode{{ID: "t-0", Label: "a"}}, 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := wstore.AppendDag(ctx, &g); err != nil {
+		t.Fatal(err)
+	}
+	stubSpawnWorker(t, "tab:worker", nil)
+
+	var persistErr error
+	persisted := false
+	oldAppend := appendChildRun
+	appendChildRun = func(runCtx context.Context, channelID string, run waveobj.Run) error {
+		persistErr = runCtx.Err()
+		persisted = true
+		return wstore.AppendRun(runCtx, channelID, run)
+	}
+	t.Cleanup(func() { appendChildRun = oldAppend })
+
+	// the client gave up before the tick ran, exactly as a timed-out CreateRun RPC leaves its handler
+	dead, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := Schedule(dead, g.OID); err != nil {
+		t.Fatalf("a tick must not fail because its caller went away: %v", err)
+	}
+	if !persisted {
+		t.Fatal("the child run was never persisted")
+	}
+	if persistErr != nil {
+		t.Fatalf("child run persisted on a dead context: %v", persistErr)
+	}
+	stored, err := wstore.GetDag(ctx, g.OID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Tasks[0].State != TaskState_Running || stored.Tasks[0].RunID == "" {
+		t.Fatalf("t-0 must be running with a recorded child run, got state %q runid %q", stored.Tasks[0].State, stored.Tasks[0].RunID)
+	}
 }
