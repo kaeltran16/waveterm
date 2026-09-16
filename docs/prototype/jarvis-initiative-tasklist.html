@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<!--
+  Jarvis — initiative sheet, starting from the ORIGINAL task list.
+
+  Panel 1 is effortdetailview.tsx as it stood at 65bbfd7f^ (the version deleted by the
+  notes-first rewrite), rebuilt here pixel-for-pixel from that source: progress bar,
+  Mark glyphs, stage headers with fraction pills, CHUNK_CHIP_CLASSES status chips,
+  dated trail gutter, and chunkTrailView's "N earlier notes" fold.
+
+  Panel 2 keeps every one of those and changes three rules.
+
+  Content is REAL — titles, chunk labels, stages, statuses and note bodies are dumped
+  verbatim from the running app's db_effort row for SIEM-1707 (34 chunks, 137 events,
+  106 notes averaging 1107 chars).
+
+  AUDIT (mockup-template.html checklist): tokens only, no hand-added hex; text >= muted
+  on the ink ramp; every status carries its word, never colour alone; focus-visible on
+  all controls; prefers-reduced-motion honoured; raised-panel recipe inside the sheet;
+  one accent CTA per panel; motion only 140ms / curve-out.
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jarvis — initiative task list</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  /* MOCKUP-TOKENS:START */
+:root {
+    --color-background: #0c0e11;
+    --color-surface: #0e1116;
+    --color-surface-raised: #13171d;
+    --color-surface-hover: #171c22;
+    --color-surface-code: #0b0d10;
+    --color-surface-selected: #1a222c;
+    --color-panel: rgba(19, 23, 29, 0.6);
+    --color-modalbg: #13171d;
+    --color-lane: #12161b;
+    --color-foreground: #e6e9ed;
+    --color-white: #e6e9ed;
+    --color-primary: #e6e9ed;
+    --color-secondary: #cfd5db;
+    --color-muted-foreground: #c3cad1;
+    --color-ink-hi: #dfe4ea;
+    --color-ink-mid: #9aa3ad;
+    --color-muted: #7f858b;
+    --color-ink-faint: #646a72;
+    --color-border: #1c2128;
+    --color-edge-mid: #20262e;
+    --color-edge-strong: #2a313a;
+    --color-edge-faint: #161a20;
+    --color-accent-50: #e8ecff;
+    --color-accent-100: #cdd6ff;
+    --color-accent-200: #aebfff;
+    --color-accent-300: #8da3ff;
+    --color-accent-400: #5e9cff;
+    --color-accent-500: #5f74e0;
+    --color-accent-600: #4f61c4;
+    --color-accent-700: #3f4ea0;
+    --color-accent-800: #2f3b7a;
+    --color-accent-900: #232c5c;
+    --color-accent: #5e9cff;
+    --color-accenthover: #8da3ff;
+    --color-accent-soft: #aebfff;
+    --color-accentbg: rgba(94, 156, 255, 0.12);
+    --color-skill: #c58cff;
+    --color-skill-soft: #dcc0ff;
+    --color-error: #e0726c;
+    --color-warning: #e6b450;
+    --color-asking: #e6b450;
+    --color-success: #54c79a;
+    --color-cacheread: #5b6675;
+    --color-on-warning: #1a1306;
+    --color-provider-claude: #d97757;
+    --color-provider-codex: #96aacd;
+    --color-provider-opencode: #a78bfa;
+    --color-provider-pi: #ececec;
+    --color-success-soft: #bfe6d6;
+    --color-error-soft: #f0a9a4;
+    --color-warning-soft: #f0d79f;
+    --color-feed-label: #777f89;
+    --color-feed-summary: #9aa3ad;
+    --color-feed-time: #4f565f;
+    --color-feed-glyph: #454c55;
+    --color-working: #54c79a;
+    --color-avatar-1: #7c95ff;
+    --color-avatar-2: #54c79a;
+    --color-avatar-3: #e0726c;
+    --color-avatar-4: #e6b450;
+    --color-avatar-5: #c98fe6;
+    --color-avatar-6: #9aa3ad;
+    --color-conn-1: #53b4ea;
+    --color-conn-2: #aa67ff;
+    --color-conn-3: #fda7fd;
+    --color-conn-4: #ef476f;
+    --color-conn-5: #497bf8;
+    --color-conn-6: #ffa24e;
+    --color-conn-7: #dbde52;
+    --color-conn-8: #58c142;
+    --color-graphlane-1: #7c95ff;
+    --color-graphlane-2: #54c79a;
+    --color-graphlane-3: #e6b450;
+    --color-graphlane-4: #c9a4ff;
+    --color-graphlane-5: #e0726c;
+    --color-graphlane-6: #5cc8d8;
+    --color-graphlane-fold: #6b7178;
+    --color-rt-claude: #d97757;
+    --color-rt-claude-soft: rgba(217, 119, 87, 0.13);
+    --color-rt-claude-line: rgba(217, 119, 87, 0.34);
+    --color-rt-codex: #ececec;
+    --color-rt-codex-soft: rgba(236, 236, 236, 0.13);
+    --color-rt-codex-line: rgba(236, 236, 236, 0.32);
+    --color-rt-opencode: #a78bfa;
+    --color-rt-opencode-soft: rgba(167, 139, 250, 0.13);
+    --color-rt-opencode-line: rgba(167, 139, 250, 0.34);
+    --color-rt-pi: #ececec;
+    --color-rt-pi-soft: rgba(236, 236, 236, 0.13);
+    --color-rt-pi-line: rgba(236, 236, 236, 0.32);
+    --color-rt-terminal: #9aa3ad;
+    --color-rt-terminal-soft: rgba(154, 163, 173, 0.1);
+    --color-rt-terminal-line: rgba(154, 163, 173, 0.28);
+    --color-mem-project: #8aa0ff;
+    --color-mem-reference: #54c79a;
+    --color-mem-feedback: #e6b450;
+    --color-mem-user: #a78bfa;
+    --color-graph-task: #8aa0ff;
+    --color-graph-decision: #54c79a;
+    --color-graph-memory: #a78bfa;
+    --color-graph-run: #e6b450;
+    --color-graph-semantic: #d98cff;
+    --color-hover: rgba(255, 255, 255, 0.1);
+    --color-hoverbg: rgba(255, 255, 255, 0.2);
+    --color-highlightbg: rgba(255, 255, 255, 0.2);
+    --color-syntax-keyword: #aebfff;
+    --color-syntax-string: #7fd6ab;
+    --color-syntax-number: #e6b450;
+    --color-syntax-comment: #6b7178;
+    --color-syntax-punct: #8b939d;
+    --color-syntax-ident: #cdd3da;
+}
+/* MOCKUP-TOKENS:END */
+
+  :root { --dur-micro: 140ms; --curve-out: cubic-bezier(0.22, 1, 0.36, 1); }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { background: var(--color-background); }
+  body {
+    font-family: 'Hanken Grotesk', system-ui, -apple-system, sans-serif;
+    background: var(--color-background); color: var(--color-primary);
+    font-size: 14px; line-height: 1.45; -webkit-font-smoothing: antialiased;
+    padding: 16px 24px 48px;
+  }
+  .stage { max-width: 1480px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+  button { font-family: inherit; cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+
+  .page-head { display: flex; align-items: end; justify-content: space-between; gap: 24px; }
+  .page-head h1 { font-size: 22px; line-height: 1.15; font-weight: 700; color: var(--color-ink-hi); }
+  .page-head p { margin-top: 5px; font-size: 13px; color: var(--color-muted); max-width: 900px; }
+  .recommendation { flex: none; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; color: var(--color-success); }
+  .comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+  .choice { padding: 12px; border: 1px solid var(--color-edge-mid); border-radius: 10px; background: var(--color-surface-raised); }
+  .choice.recommended { border-color: var(--color-accent-700); }
+  .choice-head { display: flex; align-items: center; gap: 9px; margin: 0 2px 9px; }
+  .choice-kicker { font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--color-muted); }
+  .choice.recommended .choice-kicker { color: var(--color-accent-soft); }
+  .choice-title { font-size: 13px; font-weight: 600; color: var(--color-secondary); }
+  .choice-note { margin-left: auto; font-family: 'JetBrains Mono', monospace; font-size: 9px; color: var(--color-muted); }
+  .rules { margin: 10px 2px 0; display: flex; flex-direction: column; gap: 4px; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; line-height: 1.6; color: var(--color-muted); }
+  .rules b { color: var(--color-secondary); font-weight: 600; }
+  .rules em { color: var(--color-success); font-style: normal; }
+  .rules s { color: var(--color-ink-faint); }
+
+  /* the sheet: 640px, briefsheet.tsx geometry */
+  .viewport { width: 640px; max-width: 100%; height: 880px; overflow: hidden; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-background); }
+  .sheet { display: flex; flex-direction: column; height: 100%; background: var(--color-surface); }
+  .sheet-head { flex: none; display: flex; align-items: center; gap: 12px; height: 52px; padding: 0 20px; border-bottom: 1px solid var(--color-border); }
+  .sheet-kind { font-family: 'JetBrains Mono', monospace; font-size: 9.5px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--color-accent-soft); }
+  .sheet-id { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--color-accent); }
+  .sheet-body { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; gap: 16px; padding: 18px 20px; }
+  .btn-small { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--color-muted); background: transparent; border: 1px solid var(--color-border); border-radius: 6px; padding: 3px 8px; }
+  .btn-small:hover { color: var(--color-primary); }
+  .spacer { flex: 1; }
+
+  /* ── original header: title + pills + count line + progress bar ─────── */
+  .ehead { display: flex; flex-direction: column; gap: 4px; }
+  .etitle-row { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex-wrap: wrap; }
+  .etitle { min-width: 0; font-size: 15px; font-weight: 600; color: var(--color-primary); }
+  .pill { flex: none; border-radius: 999px; background: var(--color-surface-raised); padding: 1px 6px; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; color: var(--color-muted); }
+  .countline { font-family: 'JetBrains Mono', monospace; font-size: 10px; line-height: 1.5; color: var(--color-muted); }
+  .track { height: 5px; margin-top: 7px; border-radius: 999px; background: var(--color-border); overflow: hidden; }
+  .track .fill { height: 100%; border-radius: 999px; background: linear-gradient(to right, var(--color-accent-600), var(--color-accent)); }
+
+  /* ── original Mark glyph (effortcard.tsx MARKS + tone classes) ──────── */
+  .mark { display: flex; align-items: center; justify-content: center; width: 14px; height: 14px; flex: none; border-radius: 4px; border: 1px solid; line-height: 1; font-size: 8.5px; }
+  .mark.done { border-color: color-mix(in srgb, var(--color-success) 40%, transparent); background: color-mix(in srgb, var(--color-success) 15%, transparent); color: var(--color-success); }
+  .mark.active { border-color: color-mix(in srgb, var(--color-accent) 60%, transparent); color: var(--color-accent-soft); box-shadow: 0 0 0 3px var(--color-accentbg); font-size: 7px; }
+  .mark.blocked { border-color: color-mix(in srgb, var(--color-asking) 60%, transparent); color: var(--color-asking); box-shadow: 0 0 0 3px var(--color-askingbg); }
+  .mark.deferred { border-style: dashed; border-color: var(--color-edge-strong); color: var(--color-muted); }
+  .mark.skipped { border-color: transparent; color: var(--color-ink-faint); }
+  .mark.pending { border-color: var(--color-edge-strong); }
+
+  /* ── original status chip (CHUNK_CHIP_CLASSES) ──────────────────────── */
+  .chip { flex: none; border-radius: 4px; padding: 1px 5px; font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 600; text-transform: uppercase; }
+  .chip.done { background: color-mix(in srgb, var(--color-success) 15%, transparent); color: var(--color-success); }
+  .chip.active { background: color-mix(in srgb, var(--color-accent) 15%, transparent); color: var(--color-accent-soft); }
+  .chip.blocked { background: color-mix(in srgb, var(--color-asking) 15%, transparent); color: var(--color-asking); }
+  .chip.deferred { color: var(--color-muted); border: 1px dashed var(--color-edge-strong); }
+  .chip.skipped { color: var(--color-ink-faint); text-decoration: line-through; }
+  .chip.pending { background: var(--color-surface-raised); color: var(--color-muted); }
+
+  /* ── original stage header ──────────────────────────────────────────── */
+  .st { display: flex; align-items: center; gap: 8px; padding: 9px 6px 4px; }
+  .st .label, .st-btn .label { min-width: 0; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--color-feed-label); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .st .frac, .st-btn .frac { flex: none; border-radius: 999px; border: 1px solid var(--color-edge-faint); background: var(--color-surface-raised); padding: 1px 8px; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; font-weight: 600; color: var(--color-muted); }
+  .st .rule, .st-btn .rule { flex: 1; min-width: 12px; height: 1px; background: var(--color-edge-faint); }
+  .st-btn { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 6px 4px; border: 0; background: transparent; border-radius: 6px; text-align: left; transition: background var(--dur-micro) var(--curve-out); }
+  .st-btn:hover { background: var(--color-surface-hover); }
+  .st-btn .label { color: var(--color-ink-mid); }
+  .st-caret { flex: none; width: 10px; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--color-muted); }
+
+  /* ── original chunk row ─────────────────────────────────────────────── */
+  .ck { display: flex; flex-direction: column; gap: 2px; border-radius: 8px; padding: 8px 10px; }
+  .ck.divider { border-top: 1px solid var(--color-edge-faint); border-radius: 0; }
+  .ck-line { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .ck-label { min-width: 0; flex: 1; font-size: 12.5px; font-weight: 500; color: var(--color-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* labels are sentences, not identifiers: two lines beats an ellipsis at 60 chars */
+  .ck-label.wrap { white-space: normal; overflow: visible; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .ck-notes { flex: none; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--color-muted); }
+  .ck-ghost { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--color-muted); border: 1px solid var(--color-border); border-radius: 4px; padding: 0 5px; background: transparent; }
+
+  /* ── original trail: 34px dated gutter + pre-wrap body ──────────────── */
+  .trail { display: flex; flex-direction: column; gap: 8px; padding: 4px 0 0 22px; }
+  .fold { width: fit-content; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--color-muted); background: none; border: 0; padding: 0; }
+  .fold:hover { color: var(--color-primary); }
+  .tnote { display: flex; gap: 10px; }
+  .tday { flex: none; width: 34px; padding-top: 2px; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--color-muted); }
+  .tbody { min-width: 0; max-width: 72ch; white-space: pre-wrap; font-size: 12px; line-height: 1.6; color: var(--color-secondary); }
+
+  /* ── panel 2 additions: the reading pane + one-line older notes ─────── */
+  .read { margin: 5px 0 2px 22px; border-left: 2px solid var(--color-accent-800); padding: 2px 0 2px 11px; display: flex; flex-direction: column; gap: 7px; }
+  .read-stamp { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--color-muted); }
+  .read-body { font-size: 12.5px; line-height: 1.65; color: var(--color-secondary); }
+  .older { display: flex; flex-direction: column; padding-left: 22px; }
+  .ol { display: flex; align-items: baseline; gap: 10px; width: 100%; min-width: 0; padding: 2px 6px 2px 0; border: 0; background: transparent; border-radius: 6px; text-align: left; transition: background var(--dur-micro) var(--curve-out); }
+  .ol:hover { background: var(--color-surface-hover); }
+  .ol-day { flex: none; width: 34px; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--color-muted); }
+  .ol-text { min-width: 0; flex: 1; font-size: 12px; line-height: 1.5; color: var(--color-ink-mid); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .sec { display: flex; align-items: center; gap: 10px; padding-bottom: 2px; }
+  .sec .label { font-family: 'JetBrains Mono', monospace; font-size: 9.5px; font-weight: 600; letter-spacing: .13em; text-transform: uppercase; color: var(--color-feed-label); }
+  .sec .meta { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--color-muted); }
+  .sec .rule { flex: 1; height: 1px; background: var(--color-edge-faint); }
+
+  .acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 2px; }
+  .btn-primary { font-size: 11px; font-weight: 600; color: var(--color-background); background: var(--color-accent); border: 1px solid var(--color-accent); border-radius: 7px; padding: 5px 12px; transition: background var(--dur-micro) var(--curve-out); }
+  .btn-primary:hover { background: var(--color-accenthover); }
+  .btn-ghost { font-size: 10px; color: var(--color-secondary); background: transparent; border: 1px solid var(--color-border); border-radius: 6px; padding: 3px 8px; }
+  .btn-ghost:hover { color: var(--color-primary); border-color: var(--color-accent); }
+
+  @media (prefers-reduced-motion: reduce) { .ol, .st-btn, .btn-primary { transition: none; } }
+  @media (max-width: 1420px) { .comparison { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="stage">
+  <header class="page-head">
+    <div>
+      <h1>The original task list, and the three rules it needs</h1>
+      <p>
+        Left is <code>effortdetailview.tsx</code> exactly as it stood before the notes-first rewrite deleted it,
+        rebuilt at the sheet's 640px with SIEM-1707's real chunks and real note trails. Right keeps every piece of
+        its vocabulary — progress bar, marks, stage headers, chips, dated trail — and changes only when things fold.
+      </p>
+    </div>
+    <span class="recommendation">RECOMMENDED · RIGHT</span>
+  </header>
+
+  <div class="comparison">
+
+    <!-- ══ ORIGINAL, RESTORED ══════════════════════════════════════════ -->
+    <section class="choice">
+      <div class="choice-head">
+        <span class="choice-kicker">Original</span>
+        <span class="choice-title">The task list as it was</span>
+        <span class="choice-note">65bbfd7f^ · effortdetailview.tsx</span>
+      </div>
+      <div class="viewport">
+        <div class="sheet">
+          <div class="sheet-head">
+            <span class="sheet-kind">initiative</span>
+            <span class="sheet-id">SIEM-1707</span>
+            <span class="spacer"></span>
+            <button class="btn-small">Close esc</button>
+          </div>
+          <div class="sheet-body" data-measure>
+            <div class="ehead">
+              <div class="etitle-row">
+                <span class="etitle">SIEM-1707 AI Correlation Engine enhancements (Part III)</span>
+                <span class="pill">SIEM-1707</span>
+                <span class="pill">cyber_anomaly_detector</span>
+              </div>
+              <span class="countline">updated 09-16 · 20 of 33 · 1 skipped · active: S8 item #2 deep-dive: campaign-level LLM narration spec</span>
+              <div class="track"><span class="fill" style="width:61%"></span></div>
+            </div>
+
+            <div style="display:flex;flex-direction:column">
+              <div class="st"><span class="label">Ticket #1 detect long-term cyberattacks</span><span class="frac">6 of 9</span><span class="rule"></span></div>
+
+              <div class="ck">
+                <div class="ck-line">
+                  <span class="mark done">✓</span>
+                  <span class="ck-label">S6-P0 persist weak-signal buffer, keep 24h horizon (parity gate)</span>
+                  <span class="chip done">done</span>
+                </div>
+                <div class="trail">
+                  <button class="fold">▸ 8 earlier notes</button>
+                  <div class="tnote"><span class="tday">09-15</span><span class="tbody">stage set to Ticket #1 detect long-term cyberattacks</span></div>
+                </div>
+              </div>
+
+              <div class="ck divider">
+                <div class="ck-line">
+                  <span class="mark done">✓</span>
+                  <span class="ck-label">S6-P2/P3 retention + D5 purge; global LLM budget</span>
+                  <span class="chip done">done</span>
+                </div>
+                <div class="trail">
+                  <button class="fold">▸ 4 earlier notes</button>
+                  <div class="tnote"><span class="tday">09-15</span><span class="tbody">stage set to Ticket #1 detect long-term cyberattacks</span></div>
+                </div>
+              </div>
+
+              <div class="st"><span class="label">Ticket #2 LLM defines the attack scenario</span><span class="frac">0 of 3</span><span class="rule"></span></div>
+
+              <div class="ck">
+                <div class="ck-line">
+                  <span class="mark active">▶</span>
+                  <span class="ck-label">S8 item #2 deep-dive: campaign-level LLM narration spec</span>
+                  <span class="chip active">active</span>
+                </div>
+                <div class="trail">
+                  <div class="tnote"><span class="tday">09-13</span><span class="tbody">marked active · started: brainstorming, architectural path</span></div>
+                  <div class="tnote"><span class="tday">09-14</span><span class="tbody">2026-09-14 scope agreed by Kael: one LLM call per signature card producing (1) explanation and (2) a triage suggestion stored beside the analyst's actual status, which builds the disposition corpus the scoring gate lacks. Needs its own budget counter, not weak_signal:correlations. Card key has no durable id and anomaly_narratives is unique on (anomaly_id, language), so the spec decides the key. Spec paused on the card design. Recorded in meta spec 7 #2 (uncommitted).</span></div>
+                  <div class="tnote"><span class="tday">09-15</span><span class="tbody">2026-09-15 the card design this spec paused on has LANDED as chunk 13 (Plan 1: MP 1224e99f49 + detector 47187345a7, not pushed). The key question from the 09-14 note is now concrete: a card is (tenant_id, detection_date, detection_method, entity_type, signature_field), a NULL column meaning IS NULL, with no durable id and no campaign table, and anomaly_narratives is still unique on (anomaly_id, language) - so this spec still decides how a card narrative is keyed. Plan 2 (S8) not started.</span></div>
+                  <div class="tnote"><span class="tday">09-15</span><span class="tbody">moved to position 11</span></div>
+                  <div class="tnote"><span class="tday">09-15</span><span class="tbody">stage set to Ticket #2 LLM defines the attack scenario</span></div>
+                  <div class="tnote"><span class="tday">09-16</span><span class="tbody">2026-09-16 SPEC WRITTEN (uncommitted): docs/superpowers/specs/2026-09-16-signature-card-narration-design.md. The key question this chunk paused on is ANSWERED, and grounding moved the feature out of the detector entirely. FOUR premises of meta spec 7 #2 are weaker than they read: (1) anomaly_narratives is a DEAD table - no application code writes or reads it repo-wide, only its own DDL, the purge cascade comment (detection_repository.py:635) and two tests, so its UNIQUE(anomaly_id, language) was never a constraint to design around; (2) the card does not exist in the detector at all - Plan 1 made it a read-side GROUP BY</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="rules">
+        <span><b data-note>measuring…</b> — and that is 3 of 34 chunks.</span>
+        <span><s>▸ N earlier notes</s> fires only when <b>status === "done"</b> (chunkTrailView). The active chunk, the one you opened the sheet for, prints its whole trail: 8 notes, 6,382 characters.</span>
+        <span><s>The fold shows the newest note</s> — but the trail is <b>chunk.notes</b>, which carries bookkeeping. After the 09-15 restage, every done chunk's newest note is literally &ldquo;stage set to …&rdquo;.</span>
+      </div>
+    </section>
+
+    <!-- ══ DESIGNED FORWARD ════════════════════════════════════════════ -->
+    <section class="choice recommended">
+      <div class="choice-head">
+        <span class="choice-kicker">Recommended</span>
+        <span class="choice-title">Same vocabulary, three rules changed</span>
+        <span class="choice-note">whole initiative on one screen</span>
+      </div>
+      <div class="viewport">
+        <div class="sheet">
+          <div class="sheet-head">
+            <span class="sheet-kind">initiative</span>
+            <span class="sheet-id">SIEM-1707</span>
+            <span class="spacer"></span>
+            <button class="btn-small">Close esc</button>
+          </div>
+          <div class="sheet-body" data-measure>
+            <div class="ehead">
+              <div class="etitle-row">
+                <span class="etitle">SIEM-1707 AI Correlation Engine enhancements (Part III)</span>
+                <span class="pill">SIEM-1707</span>
+                <span class="pill">cyber_anomaly_detector</span>
+              </div>
+              <span class="countline">updated 09-16 · 20 of 33 · 1 skipped · 106 notes</span>
+              <div class="track"><span class="fill" style="width:61%"></span></div>
+            </div>
+
+            <div class="sec">
+              <span class="label">Plan</span>
+              <span class="meta">34 chunks · 5 stages</span>
+              <span class="rule"></span>
+              <button class="btn-small">By date ▾</button>
+            </div>
+
+            <div style="display:flex;flex-direction:column">
+              <button class="st-btn"><span class="st-caret">▸</span><span class="label">Ticket #1 detect long-term cyberattacks</span><span class="frac">6 of 9</span><span class="rule"></span></button>
+
+              <button class="st-btn"><span class="st-caret">▾</span><span class="label">Ticket #2 LLM defines the attack scenario</span><span class="frac">0 of 3</span><span class="rule"></span></button>
+
+              <div class="ck">
+                <div class="ck-line">
+                  <span class="mark active">▶</span>
+                  <span class="ck-label wrap">S8 item #2 deep-dive: campaign-level LLM narration spec</span>
+                  <button class="ck-ghost">note</button>
+                  <span class="ck-notes">6 notes</span>
+                  <span class="chip active">active</span>
+                </div>
+                <div class="read">
+                  <span class="read-stamp">09-16 · newest</span>
+                  <span class="read-body">2026-09-16 correction to the note above: one word was eaten by shell backtick substitution. Correction (2) reads: the service re-reads the unfiltered card and returns a &ldquo;stale&rdquo; boolean.</span>
+                </div>
+                <div class="older">
+                  <button class="ol"><span class="ol-day">09-16</span><span class="ol-text">PLAN WRITTEN (uncommitted): docs/superpowers/plans/2026-09-16-signature-card-narration.md. 8 tasks, TDD, one commit…</span></button>
+                  <button class="ol"><span class="ol-day">09-16</span><span class="ol-text">SPEC WRITTEN (uncommitted): docs/superpowers/specs/2026-09-16-signature-card-narration-design.md. The key question…</span></button>
+                  <button class="ol"><span class="ol-day">09-15</span><span class="ol-text">the card design this spec paused on has LANDED as chunk 13 (Plan 1: MP 1224e99f49 + detector 47187345a7, not pushed)…</span></button>
+                  <button class="ol"><span class="ol-day">09-14</span><span class="ol-text">scope agreed by Kael: one LLM call per signature card producing (1) explanation and (2) a triage suggestion stored…</span></button>
+                  <button class="ol"><span class="ol-day">09-13</span><span class="ol-text">marked active · started: brainstorming, architectural path</span></button>
+                </div>
+              </div>
+
+              <div class="ck divider">
+                <div class="ck-line">
+                  <span class="mark deferred">⏸</span>
+                  <span class="ck-label wrap">S9 chain campaigns - DEFERRED: DEV co-occurrence join finds only hub stars; re-probe on PROD after deploy</span>
+                  <span class="ck-notes">7 notes</span>
+                  <span class="chip deferred">deferred</span>
+                </div>
+              </div>
+
+              <div class="ck divider">
+                <div class="ck-line">
+                  <span class="mark deferred">⏸</span>
+                  <span class="ck-label wrap">AI follow-ups after S8: ask-about-card, exclusion drafts, cross-card story, shift summary (meta spec 7 #2)</span>
+                  <span class="ck-notes">3 notes</span>
+                  <span class="chip deferred">deferred</span>
+                </div>
+              </div>
+
+              <button class="st-btn"><span class="st-caret">▸</span><span class="label">Ticket #3 hierarchical campaign card + host drill-down</span><span class="frac">2 of 5</span><span class="rule"></span></button>
+              <button class="st-btn"><span class="st-caret">▸</span><span class="label">Ticket #4 correlate ransomware attacks with Ransomware Intel IOCs</span><span class="frac">4 of 5</span><span class="rule"></span></button>
+              <button class="st-btn"><span class="st-caret">▸</span><span class="label">Not in the ticket: defects and noise found while grounding</span><span class="frac">8 of 10</span><span class="rule"></span></button>
+              <button class="st-btn"><span class="st-caret">▸</span><span class="label">Deploy once at the end + post-deploy checks</span><span class="frac">0 of 1</span><span class="rule"></span></button>
+            </div>
+
+            <div class="acts">
+              <button class="btn-primary">Mark active chunk done</button>
+              <button class="btn-ghost">+ chunk</button>
+              <button class="btn-ghost">note</button>
+              <span class="spacer"></span>
+              <button class="btn-ghost">Archive</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="rules">
+        <span><b data-note>measuring…</b> — all 34 chunks, all 5 stages, and the active chunk reading.</span>
+        <span><em>1.</em> <b>Stages fold.</b> Only the stage holding the active chunk opens; the other four are one line and their fraction. 34 rows becomes 4 lines + 3 rows.</span>
+        <span><em>2.</em> <b>Every chunk folds, not just done ones.</b> A row is one line plus its note count. The active chunk is the one thing open on landing — its newest note reads in full, older ones are one line each.</span>
+        <span><em>3.</em> <b>The trail reads events, not chunk.notes</b> — so &ldquo;moved to position 11&rdquo; and &ldquo;stage set to …&rdquo; never surface. This is the one thing the rewrite got right; keep it.</span>
+        <span>Labels wrap to two lines instead of truncating at 60 characters — they are sentences, not identifiers.</span>
+      </div>
+    </section>
+
+  </div>
+</div>
+<script>
+  // the height claims are measured, not asserted
+  for (const body of document.querySelectorAll('[data-measure]')) {
+    const note = body.closest('.choice').querySelector('[data-note]');
+    if (note != null) { note.textContent = Math.round(body.scrollHeight) + 'px of content'; }
+  }
+</script>
+</body>
+</html>

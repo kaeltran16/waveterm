@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<!--
+  Jarvis — initiative task list, starting from the REAL original.
+
+  Panel 1 is effortcard.tsx at b53c7770 ("feat(effort): inline tracker expand/collapse
+  with chunk ops", 2026-08-14) — the first version, rebuilt from that source: whole-card
+  toggle, title + tags + `wsh effort show` handle + countLine, ProgressBar, the chunk-chip
+  row (CHIP_CAP 12 + overflow), and expanded one-line chunk rows carrying Mark + label +
+  latestNote + status chip. The note trail was a native title= tooltip; no prose printed.
+
+  Panel 2 keeps all of that and changes three things that only break at today's data size.
+
+  Content is REAL — dumped verbatim from the running app's db_effort row for SIEM-1707
+  (34 chunks, 5 stages, 137 events, 106 notes averaging 1107 chars). Where a chunk's note
+  is not reproduced here it is ELIDED, never invented.
+
+  AUDIT (mockup-template.html): tokens only; text >= muted on the ink ramp; status always
+  carries its word; focus-visible on every control; reduced motion honoured; one accent
+  CTA per panel; motion only 140ms / curve-out.
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jarvis — the original initiative tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  /* MOCKUP-TOKENS:START */
+:root {
+    --color-background: #0c0e11;
+    --color-surface: #0e1116;
+    --color-surface-raised: #13171d;
+    --color-surface-hover: #171c22;
+    --color-surface-code: #0b0d10;
+    --color-surface-selected: #1a222c;
+    --color-panel: rgba(19, 23, 29, 0.6);
+    --color-modalbg: #13171d;
+    --color-lane: #12161b;
+    --color-foreground: #e6e9ed;
+    --color-white: #e6e9ed;
+    --color-primary: #e6e9ed;
+    --color-secondary: #cfd5db;
+    --color-muted-foreground: #c3cad1;
+    --color-ink-hi: #dfe4ea;
+    --color-ink-mid: #9aa3ad;
+    --color-muted: #7f858b;
+    --color-ink-faint: #646a72;
+    --color-border: #1c2128;
+    --color-edge-mid: #20262e;
+    --color-edge-strong: #2a313a;
+    --color-edge-faint: #161a20;
+    --color-accent-50: #e8ecff;
+    --color-accent-100: #cdd6ff;
+    --color-accent-200: #aebfff;
+    --color-accent-300: #8da3ff;
+    --color-accent-400: #5e9cff;
+    --color-accent-500: #5f74e0;
+    --color-accent-600: #4f61c4;
+    --color-accent-700: #3f4ea0;
+    --color-accent-800: #2f3b7a;
+    --color-accent-900: #232c5c;
+    --color-accent: #5e9cff;
+    --color-accenthover: #8da3ff;
+    --color-accent-soft: #aebfff;
+    --color-accentbg: rgba(94, 156, 255, 0.12);
+    --color-skill: #c58cff;
+    --color-skill-soft: #dcc0ff;
+    --color-error: #e0726c;
+    --color-warning: #e6b450;
+    --color-asking: #e6b450;
+    --color-success: #54c79a;
+    --color-cacheread: #5b6675;
+    --color-on-warning: #1a1306;
+    --color-provider-claude: #d97757;
+    --color-provider-codex: #96aacd;
+    --color-provider-opencode: #a78bfa;
+    --color-provider-pi: #ececec;
+    --color-success-soft: #bfe6d6;
+    --color-error-soft: #f0a9a4;
+    --color-warning-soft: #f0d79f;
+    --color-feed-label: #777f89;
+    --color-feed-summary: #9aa3ad;
+    --color-feed-time: #4f565f;
+    --color-feed-glyph: #454c55;
+    --color-working: #54c79a;
+    --color-avatar-1: #7c95ff;
+    --color-avatar-2: #54c79a;
+    --color-avatar-3: #e0726c;
+    --color-avatar-4: #e6b450;
+    --color-avatar-5: #c98fe6;
+    --color-avatar-6: #9aa3ad;
+    --color-conn-1: #53b4ea;
+    --color-conn-2: #aa67ff;
+    --color-conn-3: #fda7fd;
+    --color-conn-4: #ef476f;
+    --color-conn-5: #497bf8;
+    --color-conn-6: #ffa24e;
+    --color-conn-7: #dbde52;
+    --color-conn-8: #58c142;
+    --color-graphlane-1: #7c95ff;
+    --color-graphlane-2: #54c79a;
+    --color-graphlane-3: #e6b450;
+    --color-graphlane-4: #c9a4ff;
+    --color-graphlane-5: #e0726c;
+    --color-graphlane-6: #5cc8d8;
+    --color-graphlane-fold: #6b7178;
+    --color-rt-claude: #d97757;
+    --color-rt-claude-soft: rgba(217, 119, 87, 0.13);
+    --color-rt-claude-line: rgba(217, 119, 87, 0.34);
+    --color-rt-codex: #ececec;
+    --color-rt-codex-soft: rgba(236, 236, 236, 0.13);
+    --color-rt-codex-line: rgba(236, 236, 236, 0.32);
+    --color-rt-opencode: #a78bfa;
+    --color-rt-opencode-soft: rgba(167, 139, 250, 0.13);
+    --color-rt-opencode-line: rgba(167, 139, 250, 0.34);
+    --color-rt-pi: #ececec;
+    --color-rt-pi-soft: rgba(236, 236, 236, 0.13);
+    --color-rt-pi-line: rgba(236, 236, 236, 0.32);
+    --color-rt-terminal: #9aa3ad;
+    --color-rt-terminal-soft: rgba(154, 163, 173, 0.1);
+    --color-rt-terminal-line: rgba(154, 163, 173, 0.28);
+    --color-mem-project: #8aa0ff;
+    --color-mem-reference: #54c79a;
+    --color-mem-feedback: #e6b450;
+    --color-mem-user: #a78bfa;
+    --color-graph-task: #8aa0ff;
+    --color-graph-decision: #54c79a;
+    --color-graph-memory: #a78bfa;
+    --color-graph-run: #e6b450;
+    --color-graph-semantic: #d98cff;
+    --color-hover: rgba(255, 255, 255, 0.1);
+    --color-hoverbg: rgba(255, 255, 255, 0.2);
+    --color-highlightbg: rgba(255, 255, 255, 0.2);
+    --color-syntax-keyword: #aebfff;
+    --color-syntax-string: #7fd6ab;
+    --color-syntax-number: #e6b450;
+    --color-syntax-comment: #6b7178;
+    --color-syntax-punct: #8b939d;
+    --color-syntax-ident: #cdd3da;
+}
+/* MOCKUP-TOKENS:END */
+
+  :root { --dur-micro: 140ms; --curve-out: cubic-bezier(0.22, 1, 0.36, 1); }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { background: var(--color-background); }
+  body {
+    font-family: 'Hanken Grotesk', system-ui, -apple-system, sans-serif;
+    background: var(--color-background); color: var(--color-primary);
+    font-size: 14px; line-height: 1.45; -webkit-font-smoothing: antialiased;
+    padding: 16px 24px 48px;
+  }
+  .stage { max-width: 1480px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+  button { font-family: inherit; cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+
+  .page-head { display: flex; align-items: end; justify-content: space-between; gap: 24px; }
+  .page-head h1 { font-size: 22px; line-height: 1.15; font-weight: 700; color: var(--color-ink-hi); }
+  .page-head p { margin-top: 5px; font-size: 13px; color: var(--color-muted); max-width: 920px; }
+  .recommendation { flex: none; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; color: var(--color-success); }
+  .comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+  .choice { padding: 12px; border: 1px solid var(--color-edge-mid); border-radius: 10px; background: var(--color-surface-raised); }
+  .choice.recommended { border-color: var(--color-accent-700); }
+  .choice-head { display: flex; align-items: center; gap: 9px; margin: 0 2px 9px; }
+  .choice-kicker { font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--color-muted); }
+  .choice.recommended .choice-kicker { color: var(--color-accent-soft); }
+  .choice-title { font-size: 13px; font-weight: 600; color: var(--color-secondary); }
+  .choice-note { margin-left: auto; font-family: 'JetBrains Mono', monospace; font-size: 9px; color: var(--color-muted); }
+  .rules { margin: 10px 2px 0; display: flex; flex-direction: column; gap: 5px; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; line-height: 1.6; color: var(--color-muted); }
+  .rules b { color: var(--color-secondary); font-weight: 600; }
+  .rules em { color: var(--color-success); font-style: normal; }
+  .rules s { color: var(--color-ink-faint); }
+
+  .viewport { width: 640px; max-width: 100%; height: 1020px; overflow: hidden; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-background); }
+  .sheet { display: flex; flex-direction: column; height: 100%; background: var(--color-surface); }
+  .sheet-head { flex: none; display: flex; align-items: center; gap: 12px; height: 52px; padding: 0 20px; border-bottom: 1px solid var(--color-border); }
+  .sheet-kind { font-family: 'JetBrains Mono', monospace; font-size: 9.5px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--color-accent-soft); }
+  .sheet-id { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--color-accent); }
+  .sheet-body { flex: 1; min-height: 0; overflow: hidden; padding: 16px; }
+  .btn-small { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--color-muted); background: transparent; border: 1px solid var(--color-border); border-radius: 6px; padding: 3px 8px; }
+  .btn-small:hover { color: var(--color-primary); }
+  .spacer { flex: 1; }
+
+  /* ── the card, verbatim from effortcard.tsx b53c7770 ────────────────── */
+  .card { display: block; width: 100%; text-align: left; border: 1px solid var(--color-border); background: var(--color-surface); border-radius: 10px; padding: 11px 13px; transition: background var(--dur-micro) var(--curve-out); }
+  .card:hover { background: var(--color-surface-hover); }
+  .card-top { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+  .card-title { min-width: 0; font-size: 13px; font-weight: 600; color: var(--color-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tag { flex: none; border-radius: 999px; background: var(--color-surface-raised); padding: 1px 6px; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; color: var(--color-muted); }
+  .card-right { margin-left: auto; display: flex; flex: none; align-items: center; gap: 8px; }
+  .handle { border-radius: 999px; border: 1px dotted color-mix(in srgb, var(--color-accent) 40%, transparent); padding: 1px 7px; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; color: var(--color-accent-soft); background: transparent; }
+  .countline { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--color-muted); }
+  .track { height: 5px; margin-top: 8px; border-radius: 999px; background: var(--color-border); overflow: hidden; }
+  .track .fill { height: 100%; border-radius: 999px; background: linear-gradient(to right, var(--color-accent-600), var(--color-accent)); }
+
+  /* ── Mark + chip (MARKS / CHUNK_CHIP_CLASSES) ───────────────────────── */
+  .mark { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; flex: none; border-radius: 4px; border: 1px solid; line-height: 1; font-size: 8.5px; }
+  .mark.done { border-color: color-mix(in srgb, var(--color-success) 40%, transparent); background: color-mix(in srgb, var(--color-success) 15%, transparent); color: var(--color-success); }
+  .mark.active { border-color: color-mix(in srgb, var(--color-accent) 60%, transparent); color: var(--color-accent-soft); box-shadow: 0 0 0 3px var(--color-accentbg); }
+  .mark.blocked { border-color: color-mix(in srgb, var(--color-asking) 60%, transparent); color: var(--color-asking); box-shadow: 0 0 0 3px var(--color-askingbg); }
+  .mark.deferred { border-style: dashed; border-color: var(--color-edge-strong); color: var(--color-muted); }
+  .mark.skipped { border-color: transparent; color: var(--color-ink-faint); }
+  .mark.pending { border-color: var(--color-edge-strong); }
+  .chip { flex: none; border-radius: 4px; padding: 1px 5px; font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 600; text-transform: uppercase; }
+  .chip.done { background: color-mix(in srgb, var(--color-success) 15%, transparent); color: var(--color-success); }
+  .chip.active { background: color-mix(in srgb, var(--color-accent) 15%, transparent); color: var(--color-accent-soft); }
+  .chip.deferred { color: var(--color-muted); border: 1px dashed var(--color-edge-strong); }
+  .chip.skipped { color: var(--color-ink-faint); text-decoration: line-through; }
+  .chip.pending { background: var(--color-surface-raised); color: var(--color-muted); }
+
+  /* ── the original chunk-chip row: one labelled pill per chunk ───────── */
+  .chips { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px; }
+  .chunkchip { display: inline-flex; align-items: center; gap: 3px; border-radius: 999px; border: 1px solid var(--color-border); padding: 1px 7px; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; }
+  .chunkchip.done { background: color-mix(in srgb, var(--color-success) 15%, transparent); color: var(--color-success); }
+  .chunkchip.active { background: color-mix(in srgb, var(--color-accent) 15%, transparent); color: var(--color-accent-soft); }
+  .chunkchip.deferred { color: var(--color-muted); border-style: dashed; border-color: var(--color-edge-strong); }
+  .chunkchip.skipped { color: var(--color-ink-faint); text-decoration: line-through; }
+  .chunkchip.pending { background: var(--color-surface-raised); color: var(--color-muted); }
+  .overflow { display: inline-flex; align-items: center; border-radius: 999px; border: 1px dotted color-mix(in srgb, var(--color-accent) 40%, transparent); padding: 1px 7px; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; color: var(--color-accent-soft); }
+
+  /* ── proposed: the same chips with the label dropped ────────────────── */
+  .strip { margin-top: 9px; display: flex; flex-wrap: wrap; align-items: center; gap: 3px; }
+  .strip .sep { width: 1px; height: 12px; margin: 0 4px; background: var(--color-edge-mid); }
+  .strip .stagename { font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: .1em; text-transform: uppercase; color: var(--color-muted); margin-right: 2px; }
+  .glyph { width: 13px; height: 13px; border-radius: 3px; font-size: 8px; }
+
+  /* ── the expanded chunk rows ────────────────────────────────────────── */
+  .rowset { margin-top: 8px; display: flex; flex-direction: column; }
+  .crow { display: flex; align-items: center; gap: 10px; min-width: 0; border-radius: 7px; padding: 5px 8px; }
+  .crow + .crow, .crow.divider { border-top: 1px solid var(--color-edge-faint); border-radius: 0; }
+  .crow:hover { background: var(--color-surface-hover); }
+  .crow.open { background: var(--color-surface-selected); border-radius: 7px; }
+  .clabel { min-width: 0; flex: 1; font-size: 12px; color: var(--color-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cnote { flex: none; max-width: 30%; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--color-muted); text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .stagerow { display: flex; align-items: center; gap: 8px; padding: 9px 8px 3px; }
+  .stagerow .label { min-width: 0; font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 700; letter-spacing: .11em; text-transform: uppercase; color: var(--color-feed-label); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .stagerow .frac { flex: none; font-family: 'JetBrains Mono', monospace; font-size: 9px; color: var(--color-muted); }
+  .stagerow .rule { flex: 1; min-width: 10px; height: 1px; background: var(--color-edge-faint); }
+
+  /* ── proposed: the trail, opened on one row instead of hovered ──────── */
+  .trail { margin: 2px 0 6px 24px; border-left: 2px solid var(--color-accent-800); padding: 4px 0 4px 11px; display: flex; flex-direction: column; gap: 7px; }
+  .tstamp { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--color-muted); }
+  .tbody { font-size: 12.5px; line-height: 1.6; color: var(--color-secondary); }
+  .told { display: flex; flex-direction: column; margin-top: 1px; }
+  .ol { display: flex; align-items: baseline; gap: 9px; width: 100%; min-width: 0; padding: 2px 6px 2px 0; border: 0; background: transparent; border-radius: 6px; text-align: left; }
+  .ol:hover { background: var(--color-surface-hover); }
+  .ol-day { flex: none; width: 34px; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--color-muted); }
+  .ol-text { min-width: 0; flex: 1; font-size: 12px; line-height: 1.5; color: var(--color-ink-mid); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .acts { margin-top: 9px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .btn-primary { font-size: 11px; font-weight: 600; color: var(--color-background); background: var(--color-accent); border: 1px solid var(--color-accent); border-radius: 7px; padding: 5px 12px; transition: background var(--dur-micro) var(--curve-out); }
+  .btn-primary:hover { background: var(--color-accenthover); }
+  .btn-ghost { font-size: 10px; color: var(--color-secondary); background: transparent; border: 1px solid var(--color-border); border-radius: 6px; padding: 3px 8px; }
+  .btn-ghost:hover { color: var(--color-primary); border-color: var(--color-accent); }
+  .tip { position: absolute; }
+
+  @media (prefers-reduced-motion: reduce) { .card, .btn-primary { transition: none; } }
+  @media (max-width: 1420px) { .comparison { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="stage">
+  <header class="page-head">
+    <div>
+      <h1>The original tracker — and the one thing that outgrew it</h1>
+      <p>
+        Left is <code>effortcard.tsx</code> at <code>b53c7770</code>, the first version: whole-card expand/collapse,
+        progress bar, a labelled chip per chunk, and expanded rows of Mark + label + latest note + status. No note
+        prose anywhere — the trail was a native <code>title=</code> tooltip. Both panels draw SIEM-1707's real
+        34 chunks at the sheet's 640px.
+      </p>
+    </div>
+    <span class="recommendation">RECOMMENDED · RIGHT</span>
+  </header>
+
+  <div class="comparison">
+
+    <!-- ══ THE ORIGINAL ════════════════════════════════════════════════ -->
+    <section class="choice">
+      <div class="choice-head">
+        <span class="choice-kicker">Original</span>
+        <span class="choice-title">Inline tracker, expanded</span>
+        <span class="choice-note">b53c7770 · 2026-08-14</span>
+      </div>
+      <div class="viewport">
+        <div class="sheet">
+          <div class="sheet-head">
+            <span class="sheet-kind">initiative</span><span class="sheet-id">SIEM-1707</span>
+            <span class="spacer"></span><button class="btn-small">Close esc</button>
+          </div>
+          <div class="sheet-body">
+            <div class="card" data-measure>
+              <div class="card-top">
+                <span class="card-title">SIEM-1707 AI Correlation Engine enhancements (Part III)</span>
+                <span class="tag">SIEM-1707</span>
+                <span class="tag">cyber_anomaly_detector</span>
+                <span class="card-right">
+                  <span class="handle">wsh effort show 3f9c…</span>
+                  <span class="countline">▾ collapse</span>
+                </span>
+              </div>
+              <div class="track"><span class="fill" style="width:61%"></span></div>
+
+              <div class="chips">
+                <span class="chunkchip done"><span class="mark-glyph">✓</span>S6-P0 persist weak-signal buffer, keep 24h horizon (parity gate)</span>
+                <span class="chunkchip deferred">⏸ S6-P1 grounding measurement DEV+PROD + the W8 near-miss producer, write-only</span>
+                <span class="chunkchip done">✓ S6-P2/P3 retention + D5 purge; global LLM budget</span>
+                <span class="chunkchip done">✓ S6-P4/P5 long horizon disabled by default; weak_band into ratio_rules.yaml</span>
+                <span class="chunkchip done">✓ S6-P4b cluster on the W8 near-misses - filter flip, gated on P1's numbers (Q6a)</span>
+                <span class="chunkchip pending">S6-P6 per-tenant enablement + FP soak</span>
+                <span class="chunkchip done">✓ #1 buffer-driven long-term pass: one job reads every producer's keys, idempotent signal ids (S6 amendment + plan)</span>
+                <span class="chunkchip pending">#1 persistence pass: count recurrence of values detections flagged as new, annotate the detection/card (spec + plan)</span>
+                <span class="chunkchip done">✓ #1 long-dormant persistence: already covered by the DORMANT tier, no build</span>
+                <span class="chunkchip skipped">– #1 token lifecycle hijacking + process hollowing: out of scope here, no handoff arranged</span>
+                <span class="chunkchip active">▶ S8 item #2 deep-dive: campaign-level LLM narration spec</span>
+                <span class="chunkchip deferred">⏸ AI follow-ups after S8: ask-about-card, exclusion drafts, cross-card story, shift summary (meta spec 7 #2)</span>
+                <span class="overflow">+22</span>
+              </div>
+
+              <div class="rowset">
+                <div class="crow"><span class="mark done">✓</span><span class="clabel">S6-P0 persist weak-signal buffer, keep 24h horizon (parity gate)</span><span class="cnote">stage set to Ticket #1 de…</span><span class="chip done">done</span></div>
+                <div class="crow"><span class="mark deferred">⏸</span><span class="clabel">S6-P1 grounding measurement DEV+PROD + the W8 near-miss producer, write-only</span><span class="cnote">stage set to Ticket #1 de…</span><span class="chip deferred">deferred</span></div>
+                <div class="crow"><span class="mark done">✓</span><span class="clabel">S6-P2/P3 retention + D5 purge; global LLM budget</span><span class="cnote">stage set to Ticket #1 de…</span><span class="chip done">done</span></div>
+                <div class="crow"><span class="mark done">✓</span><span class="clabel">S6-P4/P5 long horizon disabled by default; weak_band into ratio_rules.yaml</span><span class="cnote">stage set to Ticket #1 de…</span><span class="chip done">done</span></div>
+                <div class="crow"><span class="mark done">✓</span><span class="clabel">S6-P4b cluster on the W8 near-misses - filter flip, gated on P1's numbers (Q6a)</span><span class="cnote">stage set to Ticket #1 de…</span><span class="chip done">done</span></div>
+                <div class="crow"><span class="mark pending"></span><span class="clabel">S6-P6 per-tenant enablement + FP soak</span><span class="cnote">stage set to Ticket #1 de…</span><span class="chip pending">pending</span></div>
+                <div class="crow"><span class="mark done">✓</span><span class="clabel">#1 buffer-driven long-term pass: one job reads every producer's keys, idempotent signal ids</span><span class="cnote">stage set to Ticket #1 de…</span><span class="chip done">done</span></div>
+                <div class="crow"><span class="mark pending"></span><span class="clabel">#1 persistence pass: count recurrence of values detections flagged as new, annotate the detection/card</span><span class="cnote">stage set to Ticket #1 de…</span><span class="chip pending">pending</span></div>
+                <div class="crow"><span class="mark active">▶</span><span class="clabel">S8 item #2 deep-dive: campaign-level LLM narration spec</span><span class="cnote">stage set to Ticket #2 LL…</span><span class="chip active">active</span></div>
+              </div>
+
+              <div class="acts">
+                <button class="btn-primary">Mark active chunk done</button>
+                <button class="btn-ghost">+ chunk</button>
+                <button class="btn-ghost">note</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="rules">
+        <span><b data-note>measuring…</b> for 9 of 34 rows — the chip row above them is <b data-chips>…</b> of that, spent before a single row exists.</span>
+        <span><b>The chip row carries the full label.</b> It was written when a chunk was called &ldquo;B1 Brief surface&rdquo;. SIEM's run 80–160 characters, so 12 chips + &ldquo;+22&rdquo; is a paragraph of pills that says less than the rows below it.</span>
+        <span><b>latestNote is chunk.notes' last entry</b> — after the 09-15 restage that is &ldquo;stage set to …&rdquo; on every row. The column is there and it is dead.</span>
+        <span><s>The trail is a title= tooltip</s> — fine for a 60-char note, useless for the 2,586-char one on the active chunk, and invisible to the keyboard.</span>
+      </div>
+    </section>
+
+    <!-- ══ DESIGNED FORWARD ════════════════════════════════════════════ -->
+    <section class="choice recommended">
+      <div class="choice-head">
+        <span class="choice-kicker">Recommended</span>
+        <span class="choice-title">Same tracker, three repairs</span>
+        <span class="choice-note">all 34 chunks + one trail open</span>
+      </div>
+      <div class="viewport">
+        <div class="sheet">
+          <div class="sheet-head">
+            <span class="sheet-kind">initiative</span><span class="sheet-id">SIEM-1707</span>
+            <span class="spacer"></span><button class="btn-small">Close esc</button>
+          </div>
+          <div class="sheet-body">
+            <div class="card" data-measure>
+              <div class="card-top">
+                <span class="card-title">SIEM-1707 AI Correlation Engine enhancements (Part III)</span>
+                <span class="tag">SIEM-1707</span>
+                <span class="tag">cyber_anomaly_detector</span>
+                <span class="card-right">
+                  <span class="handle">wsh effort show 3f9c…</span>
+                  <span class="countline">▾ collapse</span>
+                </span>
+              </div>
+              <div class="track"><span class="fill" style="width:61%"></span></div>
+
+              <!-- the chip row, label dropped: one glyph per chunk, all 34, stage-separated -->
+              <div class="strip">
+                <span class="stagename">T1</span>
+                <span class="mark done glyph">✓</span><span class="mark deferred glyph">⏸</span><span class="mark done glyph">✓</span><span class="mark done glyph">✓</span><span class="mark done glyph">✓</span><span class="mark pending glyph"></span><span class="mark done glyph">✓</span><span class="mark pending glyph"></span><span class="mark done glyph">✓</span><span class="mark skipped glyph">–</span>
+                <span class="sep"></span><span class="stagename">T2</span>
+                <span class="mark active glyph">▶</span><span class="mark deferred glyph">⏸</span><span class="mark deferred glyph">⏸</span>
+                <span class="sep"></span><span class="stagename">T3</span>
+                <span class="mark done glyph">✓</span><span class="mark done glyph">✓</span><span class="mark pending glyph"></span><span class="mark pending glyph"></span><span class="mark pending glyph"></span>
+                <span class="sep"></span><span class="stagename">T4</span>
+                <span class="mark done glyph">✓</span><span class="mark done glyph">✓</span><span class="mark done glyph">✓</span><span class="mark done glyph">✓</span><span class="mark pending glyph"></span>
+                <span class="sep"></span><span class="stagename">Defects</span>
+                <span class="mark done glyph">✓</span><span class="mark done glyph">✓</span><span class="mark done glyph">✓</span><span class="mark done glyph">✓</span><span class="mark done glyph">✓</span><span class="mark done glyph">✓</span><span class="mark done glyph">✓</span><span class="mark done glyph">✓</span><span class="mark deferred glyph">⏸</span><span class="mark pending glyph"></span>
+                <span class="sep"></span><span class="stagename">Deploy</span>
+                <span class="mark pending glyph"></span>
+              </div>
+
+              <div class="rowset">
+                <div class="stagerow"><span class="label">Ticket #1 detect long-term cyberattacks</span><span class="frac">6 of 9</span><span class="rule"></span></div>
+                <div class="crow"><span class="mark done">✓</span><span class="clabel">S6-P0 persist weak-signal buffer, keep 24h horizon (parity gate)</span><span class="cnote">COMMITTED 9641159fb7, not…</span><span class="chip done">done</span></div>
+                <div class="crow"><span class="mark deferred">⏸</span><span class="clabel">S6-P1 grounding measurement DEV+PROD + the W8 near-miss producer, write-only</span><span class="cnote">9 notes</span><span class="chip deferred">deferred</span></div>
+                <div class="crow"><span class="mark done">✓</span><span class="clabel">S6-P2/P3 retention + D5 purge; global LLM budget</span><span class="cnote">COMMITTED as TWO commits…</span><span class="chip done">done</span></div>
+                <div class="crow"><span class="mark done">✓</span><span class="clabel">S6-P4/P5 long horizon disabled by default; weak_band into ratio_rules.yaml</span><span class="cnote">4 notes</span><span class="chip done">done</span></div>
+                <div class="crow"><span class="mark done">✓</span><span class="clabel">S6-P4b cluster on the W8 near-misses - filter flip, gated on P1's numbers (Q6a)</span><span class="cnote">8 notes</span><span class="chip done">done</span></div>
+                <div class="crow"><span class="mark pending"></span><span class="clabel">S6-P6 per-tenant enablement + FP soak</span><span class="cnote">5 notes</span><span class="chip pending">pending</span></div>
+                <div class="crow"><span class="mark done">✓</span><span class="clabel">#1 buffer-driven long-term pass: one job reads every producer's keys, idempotent signal ids</span><span class="cnote">BUILT and COMMITTED, not…</span><span class="chip done">done</span></div>
+                <div class="crow"><span class="mark pending"></span><span class="clabel">#1 persistence pass: count recurrence of values detections flagged as new, annotate the card</span><span class="cnote">DECIDED by Kael: option A…</span><span class="chip pending">pending</span></div>
+                <div class="crow"><span class="mark done">✓</span><span class="clabel">#1 long-dormant persistence: already covered by the DORMANT tier, no build</span><span class="cnote">3 notes</span><span class="chip done">done</span></div>
+                <div class="crow"><span class="mark skipped">–</span><span class="clabel">#1 token lifecycle hijacking + process hollowing: out of scope here</span><span class="cnote">3 notes</span><span class="chip skipped">skipped</span></div>
+
+                <div class="stagerow"><span class="label">Ticket #2 LLM defines the attack scenario</span><span class="frac">0 of 3</span><span class="rule"></span></div>
+                <div class="crow open"><span class="mark active">▶</span><span class="clabel">S8 item #2 deep-dive: campaign-level LLM narration spec</span><span class="cnote">▾ 6 notes</span><span class="chip active">active</span></div>
+                <div class="trail">
+                  <span class="tstamp">09-16 · newest</span>
+                  <span class="tbody">2026-09-16 correction to the note above: one word was eaten by shell backtick substitution. Correction (2) reads: the service re-reads the unfiltered card and returns a &ldquo;stale&rdquo; boolean.</span>
+                  <div class="told">
+                    <button class="ol"><span class="ol-day">09-16</span><span class="ol-text">PLAN WRITTEN (uncommitted): docs/superpowers/plans/2026-09-16-signature-card-narration.md. 8 tasks, TDD…</span></button>
+                    <button class="ol"><span class="ol-day">09-16</span><span class="ol-text">SPEC WRITTEN (uncommitted): docs/superpowers/specs/2026-09-16-signature-card-narration-design.md…</span></button>
+                    <button class="ol"><span class="ol-day">09-15</span><span class="ol-text">the card design this spec paused on has LANDED as chunk 13 (Plan 1: MP 1224e99f49 + detector 47187…</span></button>
+                    <button class="ol"><span class="ol-day">09-14</span><span class="ol-text">scope agreed by Kael: one LLM call per signature card producing (1) explanation and (2) a triage…</span></button>
+                    <button class="ol"><span class="ol-day">09-13</span><span class="ol-text">marked active · started: brainstorming, architectural path</span></button>
+                  </div>
+                </div>
+                <div class="crow"><span class="mark deferred">⏸</span><span class="clabel">AI follow-ups after S8: ask-about-card, exclusion drafts, cross-card story, shift summary</span><span class="cnote">3 notes</span><span class="chip deferred">deferred</span></div>
+                <div class="crow"><span class="mark deferred">⏸</span><span class="clabel">S9 chain campaigns - DEFERRED: DEV co-occurrence join finds only hub stars</span><span class="cnote">DEFERRED by Kael, kept in…</span><span class="chip deferred">deferred</span></div>
+
+                <div class="stagerow"><span class="label">Ticket #3 hierarchical campaign card + host drill-down</span><span class="frac">2 of 5</span><span class="rule"></span></div>
+                <div class="crow"><span class="mark done">✓</span><span class="clabel">S4/S5 identifier on statistical path (+D3), then fan-out campaigns</span><span class="cnote">9 notes</span><span class="chip done">done</span></div>
+                <div class="crow"><span class="mark done">✓</span><span class="clabel">S8 Plan 1 signature cards: one card per signature + inline host table + bulk status</span><span class="cnote">3 notes</span><span class="chip done">done</span></div>
+                <div class="crow"><span class="mark pending"></span><span class="clabel">#3 card evidence: show target IPs beside target domains (dyndns stores none)</span><span class="cnote">3 notes</span><span class="chip pending">pending</span></div>
+              </div>
+
+              <div class="acts">
+                <button class="btn-primary">Mark active chunk done</button>
+                <button class="btn-ghost">+ chunk</button>
+                <button class="btn-ghost">note</button>
+                <span class="spacer"></span>
+                <button class="btn-ghost">Archive</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="rules">
+        <span><b data-note>measuring…</b> — 16 rows, 3 stage dividers and an open trail. The same 34 chunks as a glyph strip: <b data-strip>…</b>.</span>
+        <span><em>1.</em> <b>The chip row drops the label and keeps the mark.</b> Same control, same click-to-scroll, but all 34 fit on two lines with stage separators instead of 12 paragraphs — the label moves to the hover title. That single change is most of the height back.</span>
+        <span><em>2.</em> <b>latestNote reads events, not chunk.notes</b> — real outcomes (&ldquo;COMMITTED 9641159fb7&rdquo;, &ldquo;DECIDED by Kael: option A&rdquo;) instead of &ldquo;stage set to …&rdquo;, and a plain note count when a chunk has no event worth naming.</span>
+        <span><em>3.</em> <b>The tooltip becomes a click.</b> One row opens its trail in place — newest note in full, older ones one line each. Keyboard-reachable, and it is the expand/collapse you remember, just one level lower.</span>
+        <span>Stage rows return as dividers (they arrived later in 7af3735f and are worth keeping).</span>
+      </div>
+    </section>
+
+  </div>
+</div>
+<script>
+  const px = (el) => Math.round(el.getBoundingClientRect().height) + 'px';
+  for (const body of document.querySelectorAll('[data-measure]')) {
+    const choice = body.closest('.choice');
+    const note = choice.querySelector('[data-note]');
+    if (note != null) { note.textContent = Math.round(body.scrollHeight) + 'px of content'; }
+    const chips = choice.querySelector('.chips'), strip = choice.querySelector('.strip');
+    const cs = choice.querySelector('[data-chips]'), ss = choice.querySelector('[data-strip]');
+    if (chips != null && cs != null) { cs.textContent = px(chips); }
+    if (strip != null && ss != null) { ss.textContent = px(strip); }
+  }
+</script>
+</body>
+</html>

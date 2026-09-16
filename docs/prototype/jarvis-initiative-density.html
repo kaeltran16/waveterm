@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<!--
+  Jarvis — initiative sheet density. Built from docs/prototype/mockup-template.html
+  (recipes + generated :root tokens). Content is REAL: every title, chunk label, stage
+  name, status and note body below is dumped verbatim from the running app's
+  db_effort row for "SIEM-1707 AI Correlation Engine enhancements (Part III)".
+
+  Corpus this design has to survive (all 13 initiatives in the local store):
+    SIEM-1707          34 chunks  137 events  106 noted  avg 1107 chars  max 4481
+    Jarvis Brief        9 chunks   49 events   40 noted  avg 1727 chars  max 5465
+    Diff surface       19 chunks   59 events   58 noted  avg  724 chars  max 2950
+  The sheet is 640px wide (briefsheet.tsx:321), so an average note is ~13 wrapped
+  lines and the largest is ~64.
+
+  AUDIT (template checklist): tokens only, no hand-added hex; ink ramp kept
+  (ink-faint gutters only, body >= muted); status carries its word, never colour
+  alone; focus-visible on every control; prefers-reduced-motion honoured; .card for
+  sheet sections; one accent CTA per panel; motion only 140ms/curve-out.
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jarvis — initiative sheet density</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  /* MOCKUP-TOKENS:START */
+:root {
+    --color-background: #0c0e11;
+    --color-surface: #0e1116;
+    --color-surface-raised: #13171d;
+    --color-surface-hover: #171c22;
+    --color-surface-code: #0b0d10;
+    --color-surface-selected: #1a222c;
+    --color-panel: rgba(19, 23, 29, 0.6);
+    --color-modalbg: #13171d;
+    --color-lane: #12161b;
+    --color-foreground: #e6e9ed;
+    --color-white: #e6e9ed;
+    --color-primary: #e6e9ed;
+    --color-secondary: #cfd5db;
+    --color-muted-foreground: #c3cad1;
+    --color-ink-hi: #dfe4ea;
+    --color-ink-mid: #9aa3ad;
+    --color-muted: #7f858b;
+    --color-ink-faint: #646a72;
+    --color-border: #1c2128;
+    --color-edge-mid: #20262e;
+    --color-edge-strong: #2a313a;
+    --color-edge-faint: #161a20;
+    --color-accent-50: #e8ecff;
+    --color-accent-100: #cdd6ff;
+    --color-accent-200: #aebfff;
+    --color-accent-300: #8da3ff;
+    --color-accent-400: #5e9cff;
+    --color-accent-500: #5f74e0;
+    --color-accent-600: #4f61c4;
+    --color-accent-700: #3f4ea0;
+    --color-accent-800: #2f3b7a;
+    --color-accent-900: #232c5c;
+    --color-accent: #5e9cff;
+    --color-accenthover: #8da3ff;
+    --color-accent-soft: #aebfff;
+    --color-accentbg: rgba(94, 156, 255, 0.12);
+    --color-skill: #c58cff;
+    --color-skill-soft: #dcc0ff;
+    --color-error: #e0726c;
+    --color-warning: #e6b450;
+    --color-asking: #e6b450;
+    --color-success: #54c79a;
+    --color-cacheread: #5b6675;
+    --color-on-warning: #1a1306;
+    --color-provider-claude: #d97757;
+    --color-provider-codex: #96aacd;
+    --color-provider-opencode: #a78bfa;
+    --color-provider-pi: #ececec;
+    --color-success-soft: #bfe6d6;
+    --color-error-soft: #f0a9a4;
+    --color-warning-soft: #f0d79f;
+    --color-feed-label: #777f89;
+    --color-feed-summary: #9aa3ad;
+    --color-feed-time: #4f565f;
+    --color-feed-glyph: #454c55;
+    --color-working: #54c79a;
+    --color-avatar-1: #7c95ff;
+    --color-avatar-2: #54c79a;
+    --color-avatar-3: #e0726c;
+    --color-avatar-4: #e6b450;
+    --color-avatar-5: #c98fe6;
+    --color-avatar-6: #9aa3ad;
+    --color-conn-1: #53b4ea;
+    --color-conn-2: #aa67ff;
+    --color-conn-3: #fda7fd;
+    --color-conn-4: #ef476f;
+    --color-conn-5: #497bf8;
+    --color-conn-6: #ffa24e;
+    --color-conn-7: #dbde52;
+    --color-conn-8: #58c142;
+    --color-graphlane-1: #7c95ff;
+    --color-graphlane-2: #54c79a;
+    --color-graphlane-3: #e6b450;
+    --color-graphlane-4: #c9a4ff;
+    --color-graphlane-5: #e0726c;
+    --color-graphlane-6: #5cc8d8;
+    --color-graphlane-fold: #6b7178;
+    --color-rt-claude: #d97757;
+    --color-rt-claude-soft: rgba(217, 119, 87, 0.13);
+    --color-rt-claude-line: rgba(217, 119, 87, 0.34);
+    --color-rt-codex: #ececec;
+    --color-rt-codex-soft: rgba(236, 236, 236, 0.13);
+    --color-rt-codex-line: rgba(236, 236, 236, 0.32);
+    --color-rt-opencode: #a78bfa;
+    --color-rt-opencode-soft: rgba(167, 139, 250, 0.13);
+    --color-rt-opencode-line: rgba(167, 139, 250, 0.34);
+    --color-rt-pi: #ececec;
+    --color-rt-pi-soft: rgba(236, 236, 236, 0.13);
+    --color-rt-pi-line: rgba(236, 236, 236, 0.32);
+    --color-rt-terminal: #9aa3ad;
+    --color-rt-terminal-soft: rgba(154, 163, 173, 0.1);
+    --color-rt-terminal-line: rgba(154, 163, 173, 0.28);
+    --color-mem-project: #8aa0ff;
+    --color-mem-reference: #54c79a;
+    --color-mem-feedback: #e6b450;
+    --color-mem-user: #a78bfa;
+    --color-graph-task: #8aa0ff;
+    --color-graph-decision: #54c79a;
+    --color-graph-memory: #a78bfa;
+    --color-graph-run: #e6b450;
+    --color-graph-semantic: #d98cff;
+    --color-hover: rgba(255, 255, 255, 0.1);
+    --color-hoverbg: rgba(255, 255, 255, 0.2);
+    --color-highlightbg: rgba(255, 255, 255, 0.2);
+    --color-syntax-keyword: #aebfff;
+    --color-syntax-string: #7fd6ab;
+    --color-syntax-number: #e6b450;
+    --color-syntax-comment: #6b7178;
+    --color-syntax-punct: #8b939d;
+    --color-syntax-ident: #cdd3da;
+}
+/* MOCKUP-TOKENS:END */
+  :root { --dur-micro: 140ms; --curve-out: cubic-bezier(0.22, 1, 0.36, 1); }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { background: var(--color-background); }
+  body {
+    font-family: 'Hanken Grotesk', system-ui, -apple-system, sans-serif;
+    background: var(--color-background); color: var(--color-primary);
+    font-size: 14px; line-height: 1.45; -webkit-font-smoothing: antialiased;
+    padding: 16px 24px 48px;
+  }
+  .stage { max-width: 1480px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+  button { font-family: inherit; cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+
+  /* comparison chrome, carried over from jarvis-compact-attention.html */
+  .page-head { display: flex; align-items: end; justify-content: space-between; gap: 24px; }
+  .page-head h1 { font-size: 22px; line-height: 1.15; font-weight: 700; color: var(--color-ink-hi); }
+  .page-head p { margin-top: 5px; font-size: 13px; color: var(--color-muted); max-width: 860px; }
+  .recommendation { flex: none; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; color: var(--color-success); }
+  .comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+  .choice { padding: 12px; border: 1px solid var(--color-edge-mid); border-radius: 10px; background: var(--color-surface-raised); }
+  .choice.recommended { border-color: var(--color-accent-700); }
+  .choice-head { display: flex; align-items: center; gap: 9px; margin: 0 2px 9px; }
+  .choice-kicker { font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--color-muted); }
+  .choice.recommended .choice-kicker { color: var(--color-accent-soft); }
+  .choice-title { font-size: 13px; font-weight: 600; color: var(--color-secondary); }
+  .choice-note { margin-left: auto; font-family: 'JetBrains Mono', monospace; font-size: 9px; color: var(--color-ink-faint); }
+  .height-note { margin: 10px 2px 0; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; line-height: 1.6; color: var(--color-muted); }
+  .height-note strong { color: var(--color-secondary); font-weight: 600; }
+  .height-note em { color: var(--color-success); font-style: normal; }
+
+  /* the sheet itself: 640px wide, briefsheet.tsx geometry */
+  .viewport { width: 640px; max-width: 100%; height: 700px; overflow: hidden; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-background); }
+  .sheet { display: flex; flex-direction: column; height: 100%; background: var(--color-surface); }
+  .sheet-head { flex: none; display: flex; align-items: center; gap: 12px; height: 52px; padding: 0 20px; border-bottom: 1px solid var(--color-border); }
+  .sheet-kind { font-family: 'JetBrains Mono', monospace; font-size: 9.5px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--color-accent-soft); }
+  .sheet-id { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--color-accent); }
+  .sheet-body { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; gap: 18px; padding: 22px 20px; }
+
+  .ititle { font-size: 19px; font-weight: 600; letter-spacing: -.01em; line-height: 1.3; color: var(--color-ink-hi); text-wrap: pretty; }
+  .facts { display: flex; flex-wrap: wrap; gap: 2px 14px; font-family: 'JetBrains Mono', monospace; font-size: 10px; line-height: 1.55; color: var(--color-muted); }
+  .facts k { color: var(--color-ink-faint); }
+  .facts-one { display: flex; gap: 14px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: 'JetBrains Mono', monospace; font-size: 10px; line-height: 1.55; color: var(--color-muted); }
+  .facts-one k { color: var(--color-ink-faint); }
+  .nextline { font-size: 13px; line-height: 1.6; color: var(--color-ink-mid); text-wrap: pretty; }
+  .acts { display: flex; align-items: center; gap: 8px; }
+  .btn-primary { font-size: 12px; font-weight: 600; color: var(--color-background); background: var(--color-accent); border: 1px solid var(--color-accent); border-radius: 7px; padding: 6px 14px; transition: background var(--dur-micro) var(--curve-out); }
+  .btn-primary:hover { background: var(--color-accenthover); }
+  .btn-secondary { font-size: 12px; font-weight: 600; color: var(--color-secondary); background: transparent; border: 1px solid var(--color-edge-strong); border-radius: 7px; padding: 6px 14px; transition: color var(--dur-micro) var(--curve-out); }
+  .btn-secondary:hover { color: var(--color-ink-hi); }
+  .btn-small { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--color-muted); background: transparent; border: 1px solid var(--color-border); border-radius: 6px; padding: 3px 8px; }
+  .btn-small:hover { color: var(--color-primary); }
+  .spacer { flex: 1; }
+
+  .sec { display: flex; align-items: baseline; gap: 10px; padding-bottom: 6px; }
+  .sec .label { font-family: 'JetBrains Mono', monospace; font-size: 9.5px; font-weight: 600; letter-spacing: .13em; text-transform: uppercase; color: var(--color-feed-label); }
+  .sec .meta { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--color-muted); }
+  .sec .rule { flex: 1; height: 1px; background: var(--color-edge-faint); }
+
+  /* status words carry the meaning; colour only reinforces it */
+  .s-done { color: var(--color-success); } .s-active { color: var(--color-accent); }
+  .s-blocked { color: var(--color-asking); } .s-deferred { color: var(--color-ink-mid); }
+  .s-skipped { color: var(--color-ink-faint); } .s-pending { color: var(--color-muted); }
+  .stat { flex: none; font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 600; text-transform: uppercase; }
+  .code { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--color-accent-soft); }
+
+  /* shipped feed row (effortdetailview.tsx FeedLine) */
+  .fr { display: flex; align-items: flex-start; gap: 10px; padding: 3px 0; }
+  .fr.spaced { padding-top: 12px; }
+  .fr-day { flex: none; width: 52px; padding-top: 1px; text-align: left; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--color-ink-faint); background: none; border: 0; }
+  .fr-main { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+  .fr-tag { display: flex; align-items: baseline; gap: 8px; min-width: 0; background: none; border: 0; padding: 0; text-align: left; }
+  .fr-tag .name { min-width: 0; flex: 1; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; font-weight: 500; color: var(--color-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fr-head { font-size: 12.5px; line-height: 1.55; color: var(--color-ink-mid); }
+  .fr-open { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; line-height: 1.65; color: var(--color-secondary); }
+  .fr-more { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--color-ink-faint); }
+
+  /* ledger row: one line, always */
+  .lg-day { display: flex; align-items: center; gap: 8px; padding: 13px 0 4px; }
+  .lg-day.first { padding-top: 0; }
+  .lg-day .label { font-family: 'JetBrains Mono', monospace; font-size: 9.5px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--color-feed-label); }
+  .lg-day .rule { flex: 1; height: 1px; background: var(--color-edge-faint); }
+  .lg-run { display: flex; align-items: baseline; gap: 8px; min-width: 0; padding: 7px 0 1px; }
+  .lg-run .name { min-width: 0; flex: 1; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; font-weight: 500; color: var(--color-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lg-row { display: flex; align-items: baseline; gap: 10px; width: 100%; min-width: 0; padding: 2px 6px 2px 0; border: 0; background: transparent; border-radius: 6px; text-align: left; transition: background var(--dur-micro) var(--curve-out); }
+  .lg-row:hover { background: var(--color-surface-hover); }
+  .lg-time { flex: none; width: 46px; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--color-muted); }
+  .lg-text { min-width: 0; flex: 1; font-size: 12.5px; line-height: 1.5; color: var(--color-ink-mid); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lg-more { flex: none; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--color-muted); }
+
+  /* by-chunk rows */
+  .st-head { display: flex; align-items: center; gap: 8px; padding: 11px 0 3px; }
+  .st-head .label { min-width: 0; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--color-feed-label); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .st-head .frac { flex: none; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; font-weight: 600; color: var(--color-muted); background: var(--color-surface-raised); border: 1px solid var(--color-edge-faint); border-radius: 999px; padding: 1px 8px; }
+  .st-head .rule { flex: 1; min-width: 12px; height: 1px; background: var(--color-edge-faint); }
+  .ck-row { display: flex; align-items: baseline; gap: 8px; width: 100%; min-width: 0; padding: 3px 6px 3px 0; border: 0; background: transparent; border-radius: 6px; text-align: left; transition: background var(--dur-micro) var(--curve-out); }
+  .ck-row:hover { background: var(--color-surface-hover); }
+  .ck-caret { flex: none; width: 11px; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--color-ink-faint); }
+  .ck-label { min-width: 0; flex: 1; font-size: 12px; line-height: 1.45; color: var(--color-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ck-label.next { color: var(--color-accent); }
+  .ck-count { flex: none; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--color-muted); }
+  .ck-open { display: flex; flex-direction: column; padding: 2px 0 8px 19px; margin-left: 5px; border-left: 1px solid var(--color-edge-faint); }
+
+  /* latest card */
+  .panel { border: 1px solid var(--color-edge-mid); background: var(--color-surface-raised); border-radius: 6px; }
+  .latest { padding: 12px 14px; display: flex; flex-direction: column; gap: 7px; }
+  .latest-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+  .latest-head .kicker { flex: none; font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--color-feed-label); }
+  .latest-head .name { min-width: 0; flex: 1; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: var(--color-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .latest-body { position: relative; font-size: 12.5px; line-height: 1.6; color: var(--color-secondary); max-height: 124px; overflow: hidden; }
+  .latest-body::after { content: ''; position: absolute; inset: auto 0 0 0; height: 44px; background: linear-gradient(to bottom, transparent, var(--color-surface-raised)); }
+
+  @media (prefers-reduced-motion: reduce) { .lg-row, .ck-row, .btn-primary, .btn-secondary { transition: none; } }
+  @media (max-width: 1420px) { .comparison { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="stage">
+  <header class="page-head">
+    <div>
+      <h1>Initiative sheet — stop printing the progress, index it</h1>
+      <p>
+        Real data: SIEM-1707, 34 chunks in 5 stages, 137 events, 106 of them carrying a note that averages
+        1107 characters. All four panels draw the same eight newest events in the same 640px sheet, so the
+        heights under each panel are directly comparable.
+      </p>
+    </div>
+    <span class="recommendation">RECOMMENDED · C. BY CHUNK</span>
+  </header>
+
+  <div class="comparison">
+
+    <!-- ══ A. shipped ══════════════════════════════════════════════════ -->
+    <section class="choice">
+      <div class="choice-head">
+        <span class="choice-kicker">A · shipped</span>
+        <span class="choice-title">Notes feed, newest expanded</span>
+        <span class="choice-note">effortdetailview.tsx</span>
+      </div>
+      <div class="viewport">
+        <div class="sheet">
+          <div class="sheet-head">
+            <span class="sheet-kind">initiative</span>
+            <span class="sheet-id">SIEM-1707</span>
+            <span class="spacer"></span>
+            <button class="btn-small">Close esc</button>
+          </div>
+          <div class="sheet-body" data-measure>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <span class="ititle">SIEM-1707 AI Correlation Engine enhancements (Part III)</span>
+              <div class="facts">
+                <span><k>project</k> cyber_anomaly_detector</span>
+                <span><k>ticket</k> SIEM-1707</span>
+                <span><k>chunks</k> 20 of 33 done · 8 pending · 1 active · 4 deferred · 1 skipped</span>
+                <span><k>stage</k> Ticket #2 LLM defines the attack scenario</span>
+                <span><k>updated</k> 17h ago</span>
+              </div>
+            </div>
+            <span class="nextline">Next: S8 item #2 deep-dive: campaign-level LLM narration spec</span>
+            <div class="acts">
+              <button class="btn-primary">Add note</button>
+              <button class="btn-secondary">Mark active chunk done</button>
+              <span class="spacer"></span>
+              <button class="btn-small">Archive</button>
+            </div>
+
+            <div style="display:flex;flex-direction:column">
+              <div class="sec"><span class="label">Notes</span><span class="meta">106 notes · newest first</span></div>
+
+              <div class="fr">
+                <button class="fr-day">09-15</button>
+                <div class="fr-main">
+                  <button class="fr-tag"><span class="name">#1 buffer-driven long-term pass: one job reads every producer's keys, idempotent signal ids (S6 amendment + plan)</span><span class="stat s-done">done</span></button>
+                  <span class="fr-head"><span class="fr-more">marked done</span></span>
+                </div>
+              </div>
+
+              <div class="fr">
+                <button class="fr-day">▾</button>
+                <div class="fr-main">
+                  <div class="fr-open">
+                    <span>BUILT and COMMITTED, not pushed. Detector <span class="code">41f9314f7b</span> (S6-P7 daily weak_signal_pass, one signal per key per data day, producers stamp observation time, model path + redis budget + weak_signal_incident removed; plan and both spec edits folded in), MP <span class="code">9bab7b3866</span> (SIGNATURE_METHODS gains weak_signal_accumulation). Gate: emit-touching list + weak-signal suites 1516 passed 0 failed (the test image lacks tldextract from requirements.txt; installed into the throwaway container, so the image wants a rebuild); <span class="code">test_weak_signal_persistence_flow.py</span> 18 passed on p0-pg; webapp DetectionDetail 18 passed. NOT verified: card never seen in a browser; e2e test_api_anomalies skipped (no ES); PROD incident-table row count unknown; card volume per tenant unmeasured (Q1); full suites not run. No tenant is enabled, so production writes nothing new. OWED AT DEPLOY: name a canary with WEAK_SIGNAL_EMIT_DETECTIONS__&lt;TENANT&gt;=true; measure pass rows per tenant per day (Q1); check the card in a browser.</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="fr">
+                <button class="fr-day">▸</button>
+                <div class="fr-main">
+                  <span class="fr-head">plan written, not executed: docs/superpowers/plans/2026-09-15-weak-signal-buffer-driven-pass.md<span class="fr-more"> 632 more</span></span>
+                </div>
+              </div>
+
+              <div class="fr spaced">
+                <button class="fr-day">▸ 09-15</button>
+                <div class="fr-main">
+                  <button class="fr-tag"><span class="name">DEPLOY once at the end (detector before MP), then the post-deploy checks no other chunk owns</span><span class="stat s-pending">pending</span></button>
+                  <span class="fr-head">from the S6-P7 design (S6 spec 5.9): check (5), new low rows per day per tenant, must EXCLUDE detection_method weak_signal_accumulation - P7 writes low rows, though only for tenants…<span class="fr-more"> 355 more</span></span>
+                </div>
+              </div>
+
+              <div class="fr spaced">
+                <button class="fr-day">▸ 09-15</button>
+                <div class="fr-main">
+                  <button class="fr-tag"><span class="name">#1 buffer-driven long-term pass: one job reads every producer's keys, idempotent signal ids (S6 amendment + plan)</span><span class="stat s-done">done</span></button>
+                  <span class="fr-head">S6 AMENDMENT WRITTEN as design spec 5.9 (phase P7), awaiting Kael review;<span class="fr-more"> 1845 more</span></span>
+                </div>
+              </div>
+
+              <div class="fr spaced">
+                <button class="fr-day">▸ 09-15</button>
+                <div class="fr-main">
+                  <button class="fr-tag"><span class="name">DEPLOY once at the end (detector before MP), then the post-deploy checks no other chunk owns</span><span class="stat s-pending">pending</span></button>
+                  <span class="fr-head">ADDED CHECK (6): re-run the S9 chain probe on PROD with full tiered coverage (scratch %TEMP%/s9_probe/chain_probe.py;<span class="fr-more"> 305 more</span></span>
+                </div>
+              </div>
+
+              <div class="fr spaced">
+                <button class="fr-day">▸ 09-15</button>
+                <div class="fr-main">
+                  <button class="fr-tag"><span class="name">S9 chain campaigns - DEFERRED: DEV co-occurrence join finds only hub stars; re-probe on PROD after deploy</span><span class="stat s-deferred">deferred</span></button>
+                  <span class="fr-head"><span class="fr-more">marked deferred</span> DEFERRED by Kael, kept inside SIEM-1707 on purpose so it is not lost - NOT moved to its own effort.<span class="fr-more"> 1618 more</span></span>
+                </div>
+              </div>
+
+              <div class="fr spaced">
+                <button class="fr-day">▸ 09-15</button>
+                <div class="fr-main">
+                  <button class="fr-tag"><span class="name">DEPLOY once at the end (detector before MP), then the post-deploy checks no other chunk owns</span><span class="stat s-pending">pending</span></button>
+                  <span class="fr-head">check (5) SETTLED by Kael: the S7 severity-ladder fix SHIPS with this deploy (a8f58fd10d + bb2e9b9eaa, option A).<span class="fr-more"> 899 more</span></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="height-note">
+        <strong data-note>measuring…</strong> · 8 of 137 events, and the page loads 25.
+        Every row is 1–3 wrapped lines, the newest is 12, and the 52px gutter says <strong>09-15</strong> six times.
+      </p>
+    </section>
+
+    <!-- ══ B. ledger ═══════════════════════════════════════════════════ -->
+    <section class="choice">
+      <div class="choice-head">
+        <span class="choice-kicker">B · proposed</span>
+        <span class="choice-title">Ledger — one line, always</span>
+        <span class="choice-note">day groups, nothing auto-opens</span>
+      </div>
+      <div class="viewport">
+        <div class="sheet">
+          <div class="sheet-head">
+            <span class="sheet-kind">initiative</span>
+            <span class="sheet-id">SIEM-1707</span>
+            <span class="spacer"></span>
+            <button class="btn-small">Close esc</button>
+          </div>
+          <div class="sheet-body" data-measure>
+            <div style="display:flex;flex-direction:column;gap:7px">
+              <span class="ititle">SIEM-1707 AI Correlation Engine enhancements (Part III)</span>
+              <div class="facts-one">
+                <span>cyber_anomaly_detector</span>
+                <span>20 of 33 done</span>
+                <span><k>stage</k> Ticket #2</span>
+                <span>17h ago</span>
+              </div>
+            </div>
+            <span class="nextline">Next: S8 item #2 deep-dive: campaign-level LLM narration spec</span>
+            <div class="acts">
+              <button class="btn-primary">Add note</button>
+              <button class="btn-secondary">Mark active chunk done</button>
+              <span class="spacer"></span>
+              <button class="btn-small">Archive</button>
+            </div>
+
+            <div style="display:flex;flex-direction:column">
+              <div class="sec"><span class="label">Notes</span><span class="meta">106 notes · newest first</span></div>
+
+              <div class="lg-day first"><span class="label">Yesterday · 09-15</span><span class="rule"></span></div>
+
+              <div class="lg-run"><span class="name">#1 buffer-driven long-term pass: one job reads every producer's keys, idempotent signal ids</span><span class="stat s-done">done</span></div>
+              <button class="lg-row"><span class="lg-time">15:56</span><span class="lg-text">marked done</span></button>
+              <button class="lg-row"><span class="lg-time">15:55</span><span class="lg-text">BUILT and COMMITTED, not pushed. Detector 41f9314f7b (S6-P7 daily weak_signal_pass, one signal per key per data day…</span><span class="lg-more">+12</span></button>
+              <button class="lg-row"><span class="lg-time">15:12</span><span class="lg-text">plan written, not executed: docs/superpowers/plans/2026-09-15-weak-signal-buffer-driven-pass.md (7 tasks: repo keyed…</span><span class="lg-more">+9</span></button>
+
+              <div class="lg-run"><span class="name">DEPLOY once at the end (detector before MP), then the post-deploy checks no other chunk owns</span><span class="stat s-pending">pending</span></div>
+              <button class="lg-row"><span class="lg-time">14:21</span><span class="lg-text">from the S6-P7 design (S6 spec 5.9): check (5), new low rows per day per tenant, must EXCLUDE detection_method…</span><span class="lg-more">+6</span></button>
+
+              <div class="lg-run"><span class="name">#1 buffer-driven long-term pass: one job reads every producer's keys, idempotent signal ids</span><span class="stat s-done">done</span></div>
+              <button class="lg-row"><span class="lg-time">14:21</span><span class="lg-text">S6 AMENDMENT WRITTEN as design spec 5.9 (phase P7), awaiting Kael review; not built, not committed. FIVE DECISIONS…</span><span class="lg-more">+22</span></button>
+
+              <div class="lg-run"><span class="name">DEPLOY once at the end (detector before MP), then the post-deploy checks no other chunk owns</span><span class="stat s-pending">pending</span></div>
+              <button class="lg-row"><span class="lg-time">11:27</span><span class="lg-text">ADDED CHECK (6): re-run the S9 chain probe on PROD with full tiered coverage (scratch %TEMP%/s9_probe…</span><span class="lg-more">+5</span></button>
+
+              <div class="lg-run"><span class="name">S9 chain campaigns - DEFERRED: DEV co-occurrence join finds only hub stars</span><span class="stat s-deferred">deferred</span></div>
+              <button class="lg-row"><span class="lg-time">11:27</span><span class="lg-text">marked deferred · DEFERRED by Kael, kept inside SIEM-1707 on purpose so it is not lost - NOT moved to its own effort.</span><span class="lg-more">+20</span></button>
+
+              <div class="lg-run"><span class="name">DEPLOY once at the end (detector before MP), then the post-deploy checks no other chunk owns</span><span class="stat s-pending">pending</span></div>
+              <button class="lg-row"><span class="lg-time">11:21</span><span class="lg-text">check (5) SETTLED by Kael: the S7 severity-ladder fix SHIPS with this deploy (a8f58fd10d + bb2e9b9eaa, option A).</span><span class="lg-more">+11</span></button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="height-note">
+        <strong data-note>measuring…</strong> · the same eight events. One line each, the fold hint counts
+        <strong>lines</strong> not characters, and the repeated date collapses into one heading that buys back
+        the clock time on every row.
+      </p>
+    </section>
+
+    <!-- ══ C. by chunk (recommended) ═══════════════════════════════════ -->
+    <section class="choice recommended">
+      <div class="choice-head">
+        <span class="choice-kicker">C · recommended</span>
+        <span class="choice-title">By chunk — one list, the fold restored</span>
+        <span class="choice-note">Notes and Plan stop being two lists</span>
+      </div>
+      <div class="viewport">
+        <div class="sheet">
+          <div class="sheet-head">
+            <span class="sheet-kind">initiative</span>
+            <span class="sheet-id">SIEM-1707</span>
+            <span class="spacer"></span>
+            <button class="btn-small">Close esc</button>
+          </div>
+          <div class="sheet-body" data-measure>
+            <div style="display:flex;flex-direction:column;gap:7px">
+              <span class="ititle">SIEM-1707 AI Correlation Engine enhancements (Part III)</span>
+              <div class="facts-one">
+                <span>cyber_anomaly_detector</span>
+                <span>20 of 33 done</span>
+                <span><k>stage</k> Ticket #2</span>
+                <span>17h ago</span>
+              </div>
+            </div>
+            <span class="nextline">Next: S8 item #2 deep-dive: campaign-level LLM narration spec</span>
+            <div class="acts">
+              <button class="btn-primary">Add note</button>
+              <button class="btn-secondary">Mark active chunk done</button>
+              <span class="spacer"></span>
+              <button class="btn-small">Archive</button>
+            </div>
+
+            <div style="display:flex;flex-direction:column">
+              <div class="sec"><span class="label">Progress</span><span class="meta">34 chunks · 106 notes</span><span class="rule"></span><button class="btn-small">Recent ▾</button></div>
+
+              <div class="st-head"><span class="label">Ticket #1 detect long-term cyberattacks</span><span class="frac">6 of 9</span><span class="rule"></span></div>
+              <button class="ck-row"><span class="ck-caret">▸</span><span class="ck-label">S6-P0 persist weak-signal buffer, keep 24h horizon (parity gate)</span><span class="ck-count">9</span><span class="stat s-done">done</span></button>
+              <button class="ck-row"><span class="ck-caret">▸</span><span class="ck-label">S6-P1 grounding measurement DEV+PROD + the W8 near-miss producer, write-only</span><span class="ck-count">9</span><span class="stat s-deferred">deferred</span></button>
+              <button class="ck-row"><span class="ck-caret">▸</span><span class="ck-label">S6-P2/P3 retention + D5 purge; global LLM budget</span><span class="ck-count">5</span><span class="stat s-done">done</span></button>
+              <button class="ck-row"><span class="ck-caret">▾</span><span class="ck-label">#1 buffer-driven long-term pass: one job reads every producer's keys, idempotent signal ids</span><span class="ck-count">9</span><span class="stat s-done">done</span></button>
+              <div class="ck-open">
+                <button class="lg-row"><span class="lg-time">15:56</span><span class="lg-text">marked done</span></button>
+                <button class="lg-row"><span class="lg-time">15:55</span><span class="lg-text">BUILT and COMMITTED, not pushed. Detector 41f9314f7b (S6-P7 daily weak_signal_pass…</span><span class="lg-more">+12</span></button>
+                <button class="lg-row"><span class="lg-time">15:12</span><span class="lg-text">plan written, not executed: docs/superpowers/plans/2026-09-15-weak-signal-buffer…</span><span class="lg-more">+9</span></button>
+                <button class="lg-row"><span class="lg-time">14:21</span><span class="lg-text">S6 AMENDMENT WRITTEN as design spec 5.9 (phase P7), awaiting Kael review…</span><span class="lg-more">+22</span></button>
+                <button class="lg-row"><span class="lg-time">09-12</span><span class="lg-text">S6 spec section 5.9 opened; the buffer keeps 24h and the pass reads it daily…</span><span class="lg-more">+7</span></button>
+                <button class="lg-row"><span class="lg-time">09-11</span><span class="lg-text">added after the S6-P4b numbers landed — one job, not a producer</span></button>
+              </div>
+              <button class="ck-row"><span class="ck-caret">▸</span><span class="ck-label">#1 persistence pass: count recurrence of values detections flagged as new, annotate the detection/card</span><span class="ck-count">5</span><span class="stat s-pending">pending</span></button>
+
+              <div class="st-head"><span class="label">Ticket #2 LLM defines the attack scenario</span><span class="frac">0 of 3</span><span class="rule"></span></div>
+              <button class="ck-row"><span class="ck-caret">▸</span><span class="ck-label next">S8 item #2 deep-dive: campaign-level LLM narration spec</span><span class="ck-count">5</span><span class="stat s-active">active</span></button>
+              <button class="ck-row"><span class="ck-caret">▸</span><span class="ck-label">S9 chain campaigns - DEFERRED: DEV co-occurrence join finds only hub stars; re-probe on PROD</span><span class="ck-count">7</span><span class="stat s-deferred">deferred</span></button>
+
+              <div class="st-head"><span class="label">Ticket #3 hierarchical campaign card + host drill-down</span><span class="frac">2 of 5</span><span class="rule"></span></div>
+              <button class="ck-row"><span class="ck-caret">▸</span><span class="ck-label">S4/S5 identifier on statistical path (+D3), then fan-out campaigns</span><span class="ck-count">9</span><span class="stat s-done">done</span></button>
+              <button class="ck-row"><span class="ck-caret">▸</span><span class="ck-label">#3 card evidence: show target IPs beside target domains (dyndns stores none)</span><span class="ck-count">3</span><span class="stat s-pending">pending</span></button>
+
+              <div class="st-head"><span class="label">Deploy once at the end + post-deploy checks</span><span class="frac">0 of 1</span><span class="rule"></span></div>
+              <button class="ck-row"><span class="ck-caret">▸</span><span class="ck-label">DEPLOY once at the end (detector before MP), then the post-deploy checks no other chunk owns</span><span class="ck-count">5</span><span class="stat s-pending">pending</span></button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="height-note">
+        <strong data-note>measuring…</strong> · <em>14 chunks, 4 stages and one open trail</em> in less height than A spends on eight events.
+        The plan <strong>is</strong> the index: every chunk is one line carrying its status and its note count,
+        and the notes live under the chunk they belong to instead of in a parallel list.
+      </p>
+    </section>
+
+    <!-- ══ D. latest + log ═════════════════════════════════════════════ -->
+    <section class="choice">
+      <div class="choice-head">
+        <span class="choice-kicker">D · alternative</span>
+        <span class="choice-title">Latest in full, then the ledger</span>
+        <span class="choice-note">keeps &ldquo;notes lead&rdquo;</span>
+      </div>
+      <div class="viewport">
+        <div class="sheet">
+          <div class="sheet-head">
+            <span class="sheet-kind">initiative</span>
+            <span class="sheet-id">SIEM-1707</span>
+            <span class="spacer"></span>
+            <button class="btn-small">Close esc</button>
+          </div>
+          <div class="sheet-body" data-measure>
+            <div style="display:flex;flex-direction:column;gap:7px">
+              <span class="ititle">SIEM-1707 AI Correlation Engine enhancements (Part III)</span>
+              <div class="facts-one">
+                <span>cyber_anomaly_detector</span>
+                <span>20 of 33 done</span>
+                <span><k>stage</k> Ticket #2</span>
+                <span>17h ago</span>
+              </div>
+            </div>
+            <span class="nextline">Next: S8 item #2 deep-dive: campaign-level LLM narration spec</span>
+            <div class="acts">
+              <button class="btn-primary">Add note</button>
+              <button class="btn-secondary">Mark active chunk done</button>
+              <span class="spacer"></span>
+              <button class="btn-small">Archive</button>
+            </div>
+
+            <div class="panel latest">
+              <div class="latest-head">
+                <span class="kicker">Latest</span>
+                <span class="name">#1 buffer-driven long-term pass · 17h ago</span>
+                <span class="stat s-done">done</span>
+              </div>
+              <div class="latest-body">
+                BUILT and COMMITTED, not pushed. Detector <span class="code">41f9314f7b</span> (S6-P7 daily
+                weak_signal_pass, one signal per key per data day, producers stamp observation time, model path
+                + redis budget + weak_signal_incident removed; plan and both spec edits folded in), MP
+                <span class="code">9bab7b3866</span> (SIGNATURE_METHODS gains weak_signal_accumulation). Gate:
+                emit-touching list + weak-signal suites 1516 passed 0 failed (the test image lacks tldextract
+                from requirements.txt; installed into the throwaway container, so the image wants a rebuild);
+                <span class="code">test_weak_signal_persistence_flow.py</span> 18 passed on p0-pg; webapp
+                DetectionDetail 18 passed. NOT verified: card never seen in a browser; e2e test_api_anomalies
+                skipped (no ES); PROD incident-table row count unknown.
+              </div>
+              <button class="btn-small" style="align-self:flex-start">Read all · 12 lines</button>
+            </div>
+
+            <div style="display:flex;flex-direction:column">
+              <div class="sec"><span class="label">Log</span><span class="meta">105 more · newest first</span></div>
+              <div class="lg-day first"><span class="label">Yesterday · 09-15</span><span class="rule"></span></div>
+              <button class="lg-row"><span class="lg-time">15:56</span><span class="lg-text">marked done · #1 buffer-driven long-term pass</span></button>
+              <button class="lg-row"><span class="lg-time">15:12</span><span class="lg-text">plan written, not executed: docs/superpowers/plans/2026-09-15-weak-signal-buffer-driven-pass.md…</span><span class="lg-more">+9</span></button>
+              <button class="lg-row"><span class="lg-time">14:21</span><span class="lg-text">from the S6-P7 design (S6 spec 5.9): check (5), new low rows per day per tenant, must EXCLUDE…</span><span class="lg-more">+6</span></button>
+              <button class="lg-row"><span class="lg-time">14:21</span><span class="lg-text">S6 AMENDMENT WRITTEN as design spec 5.9 (phase P7), awaiting Kael review; not built…</span><span class="lg-more">+22</span></button>
+              <button class="lg-row"><span class="lg-time">11:27</span><span class="lg-text">ADDED CHECK (6): re-run the S9 chain probe on PROD with full tiered coverage…</span><span class="lg-more">+5</span></button>
+              <button class="lg-row"><span class="lg-time">11:27</span><span class="lg-text">marked deferred · DEFERRED by Kael, kept inside SIEM-1707 on purpose so it is not lost…</span><span class="lg-more">+20</span></button>
+              <button class="lg-row"><span class="lg-time">11:21</span><span class="lg-text">check (5) SETTLED by Kael: the S7 severity-ladder fix SHIPS with this deploy…</span><span class="lg-more">+11</span></button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="height-note">
+        <strong data-note>measuring…</strong> · the newest note keeps its privileged spot but is capped at six
+        lines behind <strong>Read all</strong>; everything older is a ledger line. Costs one card of height and
+        does not answer &ldquo;where does this initiative stand&rdquo;.
+      </p>
+    </section>
+
+  </div>
+</div>
+<script>
+  // the height claims under each panel are measured, not asserted
+  for (const body of document.querySelectorAll('[data-measure]')) {
+    const note = body.closest('.choice').querySelector('[data-note]');
+    if (note != null) {
+      note.textContent = Math.round(body.scrollHeight) + 'px of content';
+    }
+  }
+</script>
+</body>
+</html>
