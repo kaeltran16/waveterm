@@ -37,6 +37,13 @@ export const briefPeekRecordAtom = atom<string | null>(null) as PrimitiveAtom<st
 // sheet clears it — so what reopens on the next launch is the subject that was left open, not this flag.
 export const briefSheetOpenAtom = atom(false);
 
+// The Brief's inline tracker: the chunk row whose note trail the sidebar is showing, and the index of the
+// note open in its reader. Here rather than inside briefsurface because Escape has to claim them ahead of
+// esc-home (bindings.ts), the same way the Vault's reader overlay does — a single press must close the
+// note you are reading, not the note AND the surface.
+export const noteChunkAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
+export const readingNoteAtom = atom<number | null>(null) as PrimitiveAtom<number | null>;
+
 // The graph peek overlay. Session-scoped, not persisted: a peek is a momentary look at one object's
 // neighbourhood, so reopening the app on top of one would be reopening a destination it is not.
 export const graphPeekOpenAtom = atom(false);
