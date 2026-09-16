@@ -185,14 +185,40 @@ func sealDoneRunEvidence(channelId, runId string) {
 	})
 }
 
-// spawnRunWorkers reads the run back, spawns workers for any newly-running phase, and persists the
+// spawnRunWorkers starts each newly running phase's worker on the prompt its phase derives.
+func spawnRunWorkers(ctx context.Context, channelId, runId, projectName string) error {
+	return spawnRunWorkersWithPrompt(ctx, channelId, runId, projectName, "")
+}
+
+// LaunchPlanLead is the engine's lead spawner for a run submitted with no lead: the run's own lead route,
+// its project checkout, and prompt in place of the goal-run launch prompt. It fails when no lead was
+// attached, so the wake adapter hands the judgment to the human rather than waiting on nobody.
+func LaunchPlanLead(ctx context.Context, channelId, runId, prompt string) error {
+	ch, err := wstore.DBMustGet[*waveobj.Channel](ctx, channelId)
+	if err != nil {
+		return fmt.Errorf("loading channel: %w", err)
+	}
+	if err := spawnRunWorkersWithPrompt(ctx, channelId, runId, ch.Name, prompt); err != nil {
+		return err
+	}
+	run, err := wstore.GetRun(ctx, channelId, runId)
+	if err != nil {
+		return fmt.Errorf("loading run: %w", err)
+	}
+	if leadORef(run) == "" {
+		return fmt.Errorf("run %s has no running phase to start a lead in", runId)
+	}
+	return nil
+}
+
+// spawnRunWorkersWithPrompt reads the run back, spawns workers for any newly-running phase, and persists the
 // attached orefs — a second write, so tab-creation never nests inside the run's state-transition write.
 //
 // EnsureWorkers creates a tab + block per worker (via wcore.CreateTab), which mutates the workspace's
 // tab list and inserts new objects. Those mutations only reach the frontend if this ctx collects and
 // flushes their update events — without that, the workspace atom never gains the worker's tab, the tab
 // never enters the session roster, and the run renders a false "worker exited" until a full reload.
-func spawnRunWorkers(ctx context.Context, channelId, runId, projectName string) error {
+func spawnRunWorkersWithPrompt(ctx context.Context, channelId, runId, projectName, prompt string) error {
 	runSpawnLocks.Lock(runId)
 	defer runSpawnLocks.Unlock(runId)
 	// detach from the caller's RPC budget (a 5s FE-call ctx): worker spawning calls wcore.CreateTab, and a
@@ -213,7 +239,7 @@ func spawnRunWorkers(ctx context.Context, channelId, runId, projectName string) 
 	if _, harnessErr := validateHarness(pin.Runtime, harness.OperationRunWorker); harnessErr != nil {
 		return harnessErr
 	}
-	spawned, spawnErr := jarvis.EnsureWorkers(ctx, run, cap, projectName)
+	spawned, spawnErr := jarvis.EnsureWorkers(ctx, run, cap, projectName, prompt)
 	if len(spawned) > 0 {
 		if uerr := wstore.UpdateRun(ctx, channelId, runId, func(r *waveobj.Run) error {
 			for idx, oref := range spawned {
@@ -294,6 +320,24 @@ func childRunPlan(resolved waveobj.JarvisProfile, reqMode string) (string, []wav
 }
 
 func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCreateRunData) (*wshrpc.CommandCreateRunRtnData, error) {
+	// a plan start is refused before anything persists: a plan that will not parse, or a shape that cannot
+	// run one, must not leave a run behind
+	if data.PlanPath != "" {
+		if data.Mode != jarvis.RunMode_Orchestrator {
+			return nil, fmt.Errorf("planpath needs an orchestrator run: only the engine runs a plan")
+		}
+		if data.Orchestration == jarvis.Orchestration_Adaptive {
+			return nil, fmt.Errorf("planpath needs the engine: an adaptive lead has no dag to run it")
+		}
+		plan, err := readPlanFile(data.PlanPath)
+		if err != nil {
+			return nil, err
+		}
+		if data.Goal == "" {
+			data.Goal = planTitle(plan, data.PlanPath)
+		}
+		data.Orchestration = jarvis.Orchestration_Engine
+	}
 	if data.ChannelId == "" || data.WorkspaceId == "" || data.Goal == "" {
 		return nil, fmt.Errorf("channelid, workspaceid and goal are required")
 	}
@@ -359,6 +403,10 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 	// its pending choice. Carrying it here is what makes a saved gate default affect the next engine plan.
 	if engineLaunch {
 		switch {
+		case data.PlanPath != "":
+			// the human picked this plan and saw its shape at + Run; that was the review
+			gateOff := false
+			run.PlanGatePending = &gateOff
 		case data.PlanGate != nil:
 			run.PlanGatePending = data.PlanGate
 		case resolved.DefaultPlanGate != nil:
@@ -434,7 +482,17 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 			Kind: jarvisvolunteer.TriggerRunCreated, ChannelID: data.ChannelId, RunID: run.ID,
 		})
 	})
-	if !data.DeferStart {
+	switch {
+	case data.PlanPath != "":
+		// the engine starts on the plan now; the lead comes at the first judgment event (spec §1, G5)
+		if _, err := ws.DagSubmitCommand(ctx, wshrpc.CommandDagSubmitData{ChannelId: data.ChannelId, RunId: run.ID, PlanPath: data.PlanPath}); err != nil {
+			// a run with no dag and no lead would wait in planning forever
+			if cerr := ws.CancelRunCommand(ctx, wshrpc.CommandCancelRunData{ChannelId: data.ChannelId, RunId: run.ID}); cerr != nil {
+				log.Printf("CreateRun: cancelling run %s after its plan was refused: %v", run.ID, cerr)
+			}
+			return nil, fmt.Errorf("submitting plan: %w", err)
+		}
+	case !data.DeferStart:
 		phaseZero := 0
 		appendRunEvent(ctx, data.ChannelId, run.ID, waveobj.RunEventKindPhaseStarted, &phaseZero, map[string]any{})
 		if err := spawnRunWorkers(ctx, data.ChannelId, run.ID, ch.Name); err != nil {

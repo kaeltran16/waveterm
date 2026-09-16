@@ -9,6 +9,8 @@ import {
     healthView,
     nextStepText,
     nextStepView,
+    planShapeText,
+    planWarnings,
     reportChips,
     shouldRefreshDigest,
     digestStale,
@@ -234,5 +236,36 @@ describe("nextStepText verify-wait", () => {
     it("names the task whose Verify is running", () => {
         const briefs = new Map([["t-0", { label: "scaffold", state: "verifying" }]]);
         expect(nextStepText({ kind: "verify-wait", taskids: ["t-0"] }, briefs)).toBe("running Verify after scaffold");
+    });
+});
+
+describe("planShapeText", () => {
+    it("reads tasks, lanes and the longest chain", () => {
+        expect(planShapeText({ tasks: 5, lanes: 2, longestchain: 3 })).toBe("5 tasks · 2 lanes · longest chain 3");
+        expect(planShapeText({ tasks: 1, lanes: 1, longestchain: 1 })).toBe("1 task · 1 lane · longest chain 1");
+    });
+
+    it("says nothing for a digest that carries no shape", () => {
+        expect(planShapeText(undefined)).toBeNull();
+        expect(planShapeText({ tasks: 0, lanes: 0, longestchain: 0 })).toBeNull();
+    });
+});
+
+describe("planWarnings", () => {
+    it("calls a multi-task plan that runs in one lane serial", () => {
+        expect(planWarnings({ tasks: 3, lanes: 1, longestchain: 3 }, "task test")).toEqual(["serial"]);
+    });
+
+    it("does not call a one-task plan serial", () => {
+        expect(planWarnings({ tasks: 1, lanes: 1, longestchain: 1 }, "task test")).toEqual([]);
+    });
+
+    it("calls a plan with no Verify line unverified", () => {
+        expect(planWarnings({ tasks: 3, lanes: 3, longestchain: 1 }, "")).toEqual(["unverified"]);
+        expect(planWarnings({ tasks: 3, lanes: 3, longestchain: 1 }, undefined)).toEqual(["unverified"]);
+    });
+
+    it("says both for a plan with neither", () => {
+        expect(planWarnings({ tasks: 3, lanes: 1, longestchain: 3 }, "")).toEqual(["serial", "unverified"]);
     });
 });

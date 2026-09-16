@@ -22,6 +22,7 @@ import {
     healthView,
     lastUpdatedText,
     nextStepView,
+    planShapeText,
     reportChips,
     taskBriefs,
     useDagDigest,
@@ -67,6 +68,8 @@ export function DagOverview({
     const nextMove = nextStepView(digestState, taskBriefs(group));
     const lastUpdated = lastUpdatedText(digestState, now);
     const elapsed = counts ? digest?.durations?.elapsedms : undefined;
+    // spec §1: a goal run's plan shape appears once its dag is submitted, and a plan-path run's from the start
+    const shapeText = counts ? planShapeText(digest?.shape) : null;
     const refreshFailed = digestState.error != null && !digestState.loading;
 
     return (
@@ -78,6 +81,7 @@ export function DagOverview({
                 </span>
                 <div className="flex flex-1 flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10.5px] text-muted">
                     <span>{counts ? `${counts.done}/${counts.total} done` : "…"}</span>
+                    {shapeText ? <span>{shapeText}</span> : null}
                     {elapsed ? <span>{formatElapsed(elapsed)}</span> : null}
                     {(counts ? reportChips(digest?.report) : []).map((chip) => (
                         <span key={chip}>{chip}</span>

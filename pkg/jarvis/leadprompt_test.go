@@ -6,6 +6,8 @@ package jarvis
 import (
 	"strings"
 	"testing"
+
+	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
 
 func TestAskToolByRuntime(t *testing.T) {
@@ -84,5 +86,25 @@ func TestOrchestrationRulesOmitMissingPaths(t *testing.T) {
 	}
 	if !strings.HasPrefix(r, "You are the lead for run run-1. The engine schedules") {
 		t.Fatalf("rules must open with the run:\n%s", r)
+	}
+}
+
+// a lead started after its plan was submitted has no goal to brainstorm: it works by the rules, and its
+// first message is the event that needed it
+func TestPlanLeadPromptStartsFromTheRulesAndTheWake(t *testing.T) {
+	wake := "wake: 1 question waiting. wsh jarvis dag asks"
+	p := PlanLeadPrompt(nil, "run-1", "", "/repo/plan.md", wake)
+	if !strings.HasPrefix(p, OrchestrationRules("run-1", "", "/repo/plan.md")) {
+		t.Fatalf("the rules come first:\n%s", p)
+	}
+	if !strings.HasSuffix(p, "\n\n"+wake) {
+		t.Fatalf("the wake ends the prompt:\n%s", p)
+	}
+	if strings.Contains(p, "brainstorming") {
+		t.Fatalf("a plan-input lead has nothing to brainstorm:\n%s", p)
+	}
+	principled := PlanLeadPrompt(waveobj.PrincipleList{{ID: waveobj.LegacyGlobalPrincipleID, Text: "be tidy"}}, "run-1", "", "/repo/plan.md", wake)
+	if !strings.HasPrefix(principled, "Work by these principles:\nbe tidy\n\n") {
+		t.Fatalf("the run's principles lead the prompt, as they do for a goal-run lead:\n%s", principled)
 	}
 }

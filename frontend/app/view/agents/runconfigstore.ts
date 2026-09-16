@@ -10,7 +10,14 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { atom, type PrimitiveAtom } from "jotai";
 import type { RunShape } from "./composercommand";
 import type { Orchestration } from "./orchestratorpicker";
-import { DEFAULT_PARALLELISM, DEFAULT_PLANNER, clampParallelism, profileRunDefaults, type Planner } from "./runconfig";
+import {
+    DEFAULT_PARALLELISM,
+    DEFAULT_START,
+    clampParallelism,
+    profileRunDefaults,
+    type PlanPreview,
+    type StartFrom,
+} from "./runconfig";
 
 // What the launcher shows for a control the channel's profile does not speak for. Hydration restores a
 // field the profile has stopped stating to this baseline rather than leaving the value it used to state
@@ -23,9 +30,12 @@ export const orchestrationAtom = atom<Orchestration>(LAUNCH_ORCHESTRATION) as Pr
 export const runRouteAtom = atom<RoutePin | null>(null) as PrimitiveAtom<RoutePin | null>;
 export const workerRouteAtom = atom<RoutePin | null>(null) as PrimitiveAtom<RoutePin | null>;
 export const parallelismAtom = atom<number>(DEFAULT_PARALLELISM) as PrimitiveAtom<number>;
-// Not profile-backed: a saved profile says nothing about who plans, and a default that silently
-// launched lead-free runs for a whole channel is not a default anyone asked for.
-export const plannerAtom = atom<Planner>(DEFAULT_PLANNER) as PrimitiveAtom<Planner>;
+// Not profile-backed: a plan file belongs to one launch, never to a project's defaults, and a saved default
+// that silently started lead-free runs is not a default anyone asked for.
+export const startAtom = atom<StartFrom>(DEFAULT_START) as PrimitiveAtom<StartFrom>;
+export const planPathAtom = atom<string>("") as PrimitiveAtom<string>;
+// The launcher's last reading of planPathAtom; launchBlocker holds a plan start until it matches the path.
+export const planPreviewAtom = atom<PlanPreview | null>(null) as PrimitiveAtom<PlanPreview | null>;
 
 // Whether the user has picked a route by hand on this channel. Until they have, the channel's preferred
 // route keeps flowing in; after, it must not be overwritten under them. Was a component ref, and has to
@@ -48,9 +58,14 @@ export function setRunShape(next: RunShape): void {
     globalStore.set(runShapeAtom, next);
 }
 
-export function setPlanner(next: Planner): void {
+export function setStart(next: StartFrom): void {
     globalStore.set(configTouchedAtom, true);
-    globalStore.set(plannerAtom, next);
+    globalStore.set(startAtom, next);
+}
+
+export function setPlanPath(next: string): void {
+    globalStore.set(configTouchedAtom, true);
+    globalStore.set(planPathAtom, next);
 }
 
 export function setOrchestration(next: Orchestration): void {
@@ -78,7 +93,8 @@ export function hydrateRunConfigFromProfile(profile: JarvisProfile | null | unde
     globalStore.set(runShapeAtom, defaults.shape ?? LAUNCH_SHAPE);
     globalStore.set(orchestrationAtom, defaults.orchestration ?? LAUNCH_ORCHESTRATION);
     globalStore.set(parallelismAtom, defaults.parallelism ?? DEFAULT_PARALLELISM);
-    globalStore.set(plannerAtom, DEFAULT_PLANNER);
+    globalStore.set(startAtom, DEFAULT_START);
+    globalStore.set(planPathAtom, "");
     globalStore.set(workerRouteAtom, defaults.workerRoute ?? null);
 }
 
@@ -128,7 +144,9 @@ export function resetRunConfig(): void {
     globalStore.set(runRouteAtom, null);
     globalStore.set(workerRouteAtom, null);
     globalStore.set(parallelismAtom, DEFAULT_PARALLELISM);
-    globalStore.set(plannerAtom, DEFAULT_PLANNER);
+    globalStore.set(startAtom, DEFAULT_START);
+    globalStore.set(planPathAtom, "");
+    globalStore.set(planPreviewAtom, null);
     globalStore.set(routeTouchedAtom, false);
     // a fresh channel has no user choices yet, which is what lets its profile hydrate in
     globalStore.set(configTouchedAtom, false);

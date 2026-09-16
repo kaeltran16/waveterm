@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
@@ -51,10 +52,21 @@ func BuildDigest(sn DagDigestSnapshot) wshrpc.DagStatusDigest {
 		Durations:  buildDurations(sn),
 	}
 	d.Report = buildReport(sn, d.Durations)
+	d.Shape = PlanShapeOf(g.Tasks)
 	for i := range g.Tasks {
 		d.Tasks = append(d.Tasks, buildTaskDigest(g, &g.Tasks[i], askByTask, retried))
 	}
 	return d
+}
+
+// PlanShapeOf is a plan's shape from its tasks. + Run's preview and the run card both read it, so the lanes
+// a human approves are the lanes the engine runs.
+func PlanShapeOf(tasks []waveobj.TaskNode) wshrpc.DagPlanShape {
+	return wshrpc.DagPlanShape{
+		Tasks:        len(tasks),
+		Lanes:        len(jarvis.Lanes(tasks)),
+		LongestChain: jarvis.LongestChain(tasks),
+	}
 }
 
 // askIndex maps task id -> its pending ask. A child may raise multiple asks (one block at a time); the

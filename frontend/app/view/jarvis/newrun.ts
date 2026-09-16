@@ -10,8 +10,7 @@
 import { fuzzyScore } from "@/app/cockpit/palette-match";
 import { resolveTargetChannel } from "@/app/view/agents/channelderive";
 import type { RunShape } from "@/app/view/agents/composercommand";
-import type { Orchestration } from "@/app/view/agents/orchestratorpicker";
-import type { Planner } from "@/app/view/agents/runconfig";
+import type { StartFrom } from "@/app/view/agents/runconfig";
 
 export type ChannelTarget = { kind: "existing"; oid: string } | { kind: "create"; name: string; path: string };
 
@@ -36,10 +35,10 @@ export function resolveChannelTarget(
 
 export interface RunConfig {
     shape: RunShape;
-    orchestration: Orchestration;
     parallelism: number;
     workerRoute: RoutePin | null;
-    planner: Planner;
+    start: StartFrom;
+    planPath: string;
 }
 
 export interface LaunchOpts {
@@ -47,29 +46,30 @@ export interface LaunchOpts {
     orchestration?: string;
     parallelism?: number;
     workerRoute?: RoutePin;
-    deferStart?: boolean;
+    planPath?: string;
 }
 
-// What the launcher's controls mean as CreateRun's arguments. The mode cannot simply be omitted: the
-// server reads an unset mode as `quick` (resolveRunPlan), so a project configured as `pipeline` would
-// silently get a quick run. The dials below the shape describe an engine orchestrator only — an adaptive
-// lead dispatches its own subagents, so a width and a worker route there would promise a fan-out that
-// never happens, which is the same reason runLauncherFace hides them.
+// What the launcher's controls mean as CreateRun's arguments. The mode cannot simply be omitted: the server
+// reads an unset mode as `quick` (resolveRunPlan). + Run's orchestrator is the engine (spec §1); the adaptive
+// lead stays reachable only from the cockpit composer until slice 5c deletes it.
 export function launchOptsFromConfig(config: RunConfig): LaunchOpts {
-    const { shape, orchestration, parallelism, workerRoute, planner } = config;
+    const { shape, parallelism, workerRoute, start, planPath } = config;
     if (shape !== "orchestrator") {
         return { mode: shape };
     }
-    const engine = orchestration === "engine";
     return {
         mode: shape,
-        orchestration,
-        ...(engine ? { parallelism } : {}),
-        ...(engine && workerRoute != null ? { workerRoute } : {}),
-        // deferStart is only ever sent to ask for it: the server reads an absent flag as "start now",
-        // and sending false would still be the default with extra wire noise.
-        ...(engine && planner === "human" ? { deferStart: true } : {}),
+        orchestration: "engine",
+        parallelism,
+        ...(workerRoute != null ? { workerRoute } : {}),
+        ...(start === "plan" ? { planPath: planPath.trim() } : {}),
     };
+}
+
+// The goal a launch sends. A plan start sends none: the server names the run by its plan, and a goal typed
+// before switching to the plan is hidden, so it must not name a run the user can no longer see it on.
+export function launchGoal(config: Pick<RunConfig, "shape" | "start">, goal: string): string {
+    return config.shape === "orchestrator" && config.start === "plan" ? "" : goal.trim();
 }
 
 // Which projects a typed query leaves, best first. Reuses the palette's scorer so one query language

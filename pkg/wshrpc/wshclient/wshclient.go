@@ -351,6 +351,12 @@ func DagMergeContinueCommand(w *wshutil.WshRpc, data wshrpc.CommandDagMergeData,
 	return err
 }
 
+// command "dagplanpreview", wshserver.DagPlanPreviewCommand
+func DagPlanPreviewCommand(w *wshutil.WshRpc, data wshrpc.CommandDagPlanPreviewData, opts *wshrpc.RpcOpts) (*wshrpc.CommandDagPlanPreviewRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandDagPlanPreviewRtnData](w, "dagplanpreview", data, opts)
+	return resp, err
+}
+
 // command "dagstatus", wshserver.DagStatusCommand
 func DagStatusCommand(w *wshutil.WshRpc, data wshrpc.CommandDagStatusData, opts *wshrpc.RpcOpts) (*wshrpc.CommandDagStatusRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandDagStatusRtnData](w, "dagstatus", data, opts)

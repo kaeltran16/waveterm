@@ -24,13 +24,34 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
-// loadDagPlan fills a submit's tasks, and its title and width when unset, from its plan file, and
-// returns the plan for its Verify and Setup commands. wavesrv does not share the caller's cwd, so only an
+// readPlanFile reads and parses the plan at path. wavesrv does not share the caller's cwd, so only an
 // absolute path names the file the caller meant.
-func loadDagPlan(data *wshrpc.CommandDagSubmitData) (jarvis.Plan, error) {
-	if !filepath.IsAbs(data.PlanPath) {
-		return jarvis.Plan{}, fmt.Errorf("planpath %q must be absolute", data.PlanPath)
+func readPlanFile(path string) (jarvis.Plan, error) {
+	if !filepath.IsAbs(path) {
+		return jarvis.Plan{}, fmt.Errorf("planpath %q must be absolute", path)
 	}
+	src, err := os.ReadFile(path)
+	if err != nil {
+		return jarvis.Plan{}, fmt.Errorf("reading plan: %w", err)
+	}
+	plan, err := jarvis.ParsePlan(string(src))
+	if err != nil {
+		return jarvis.Plan{}, fmt.Errorf("plan %s: %w", path, err)
+	}
+	return plan, nil
+}
+
+// planTitle names a plan by its heading, else by its file.
+func planTitle(plan jarvis.Plan, path string) string {
+	if plan.Title != "" {
+		return plan.Title
+	}
+	return strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+}
+
+// loadDagPlan fills a submit's tasks, and its title and width when unset, from its plan file, and
+// returns the plan for its Verify and Setup commands.
+func loadDagPlan(data *wshrpc.CommandDagSubmitData) (jarvis.Plan, error) {
 	if len(data.Tasks) > 0 {
 		return jarvis.Plan{}, fmt.Errorf("pass tasks or planpath, not both")
 	}
@@ -43,25 +64,33 @@ func loadDagPlan(data *wshrpc.CommandDagSubmitData) (jarvis.Plan, error) {
 			return jarvis.Plan{}, fmt.Errorf("reading spec: %w", err)
 		}
 	}
-	src, err := os.ReadFile(data.PlanPath)
+	plan, err := readPlanFile(data.PlanPath)
 	if err != nil {
-		return jarvis.Plan{}, fmt.Errorf("reading plan: %w", err)
-	}
-	plan, err := jarvis.ParsePlan(string(src))
-	if err != nil {
-		return jarvis.Plan{}, fmt.Errorf("plan %s: %w", data.PlanPath, err)
+		return jarvis.Plan{}, err
 	}
 	data.Tasks = plan.Tasks
 	if data.Title == "" {
-		data.Title = plan.Title
-	}
-	if data.Title == "" {
-		data.Title = strings.TrimSuffix(filepath.Base(data.PlanPath), filepath.Ext(data.PlanPath))
+		data.Title = planTitle(plan, data.PlanPath)
 	}
 	if data.Parallelism == 0 {
 		data.Parallelism = orchestrate.DefaultParallelism(plan.Tasks)
 	}
 	return plan, nil
+}
+
+// DagPlanPreviewCommand parses a plan for + Run before a run exists, so a plan that will not run is refused
+// before start and the human sees the shape the engine will run.
+func (ws *WshServer) DagPlanPreviewCommand(ctx context.Context, data wshrpc.CommandDagPlanPreviewData) (*wshrpc.CommandDagPlanPreviewRtnData, error) {
+	plan, err := readPlanFile(data.PlanPath)
+	if err != nil {
+		return nil, err
+	}
+	return &wshrpc.CommandDagPlanPreviewRtnData{
+		Title:  planTitle(plan, data.PlanPath),
+		Verify: plan.Verify,
+		Setup:  plan.Setup,
+		Shape:  orchestrate.PlanShapeOf(plan.Tasks),
+	}, nil
 }
 
 // postHandoff is a var so tests can see which submits hand a lead its compaction.

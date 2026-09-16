@@ -73,6 +73,7 @@ export async function createRun(
         workerRoute?: RoutePin | null;
         orchestration?: string;
         parallelism?: number;
+        planPath?: string;
     }
 ): Promise<Run> {
     if (!route.runtime) throw new Error("Choose a route");
@@ -86,6 +87,7 @@ export async function createRun(
         ...(opts?.mode === "orchestrator" && opts.workerRoute ? { workerroute: opts.workerRoute } : {}),
         ...(opts?.mode === "orchestrator" && opts.orchestration ? { orchestration: opts.orchestration } : {}),
         ...(opts?.mode === "orchestrator" && opts.parallelism ? { parallelism: opts.parallelism } : {}),
+        ...(opts?.mode === "orchestrator" && opts.planPath ? { planpath: opts.planPath } : {}),
         mode: opts?.mode,
         plangate: opts?.planGate,
         deferstart: opts?.deferStart,

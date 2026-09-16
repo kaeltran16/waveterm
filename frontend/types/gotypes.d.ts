@@ -660,6 +660,7 @@ declare global {
         effortoid?: string;
         chunklabel?: string;
         deferstart?: boolean;
+        planpath?: string;
     };
 
     // wshrpc.CommandCreateRunRtnData
@@ -713,6 +714,19 @@ declare global {
         channelid: string;
         runid: string;
         taskid: string;
+    };
+
+    // wshrpc.CommandDagPlanPreviewData
+    type CommandDagPlanPreviewData = {
+        planpath: string;
+    };
+
+    // wshrpc.CommandDagPlanPreviewRtnData
+    type CommandDagPlanPreviewRtnData = {
+        title?: string;
+        verify?: string;
+        setup?: string;
+        shape: DagPlanShape;
     };
 
     // wshrpc.CommandDagStatusData
@@ -2095,6 +2109,13 @@ declare global {
         terminalstatus?: string;
     };
 
+    // wshrpc.DagPlanShape
+    type DagPlanShape = {
+        tasks: number;
+        lanes: number;
+        longestchain: number;
+    };
+
     // wshrpc.DagReportDigest
     type DagReportDigest = {
         workerms: number;
@@ -2125,6 +2146,7 @@ declare global {
         tasks: DagTaskDigest[];
         durations: DagDurationDigest;
         report: DagReportDigest;
+        shape?: DagPlanShape;
     };
 
     // wshrpc.DagTaskDigest

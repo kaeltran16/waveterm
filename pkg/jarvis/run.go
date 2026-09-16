@@ -375,13 +375,16 @@ func BuildPhasePrompt(phase waveobj.RunPhase, goal string, priorArtifacts []stri
 }
 
 // BuildQuickPrompt is the worker prompt for a quick run: same headless guidance as a pipeline execute
-// phase but no skill directive — just do the goal directly and report completion.
-func BuildQuickPrompt(goal string, principles waveobj.PrincipleList) string {
+// phase but no skill directive — just do the goal directly and report completion. A quick goal that turns
+// out to need a plan stops and asks rather than improvising one, and runtime names the tool it asks with.
+func BuildQuickPrompt(goal string, principles waveobj.PrincipleList, runtime string) string {
+	tool := AskTool(runtime)
 	var b strings.Builder
 	if rendered := RenderPrinciples(principles); rendered != "" {
 		fmt.Fprintf(&b, "Work by these principles:\n%s\n\n", rendered)
 	}
-	b.WriteString("You are running headless with no human at your terminal. Make reasonable assumptions for low-stakes or easily-reversible choices and keep going — do not ask about them. Only when a decision is genuinely consequential and a wrong assumption would waste real work, pause and use the AskUserQuestion tool (it reaches the human in the cockpit); otherwise proceed to the deliverable.\n")
+	fmt.Fprintf(&b, "You are running headless with no human at your terminal. Make reasonable assumptions for low-stakes or easily-reversible choices and keep going — do not ask about them. Only when a decision is genuinely consequential and a wrong assumption would waste real work, pause and use the %s tool (it reaches the human in the cockpit); otherwise proceed to the deliverable.\n", tool)
+	fmt.Fprintf(&b, "If this turns out to be more than one change or needs a design decision, stop and ask with %s instead of pushing on.\n", tool)
 	fmt.Fprintf(&b, "Goal: %s\n", goal)
 	b.WriteString("When the goal is fully accomplished, commit your work and run `wsh jarvis complete --commit $(git rev-parse HEAD)` from your working tree (the SHA of your own final commit), so the run's evidence reflects exactly your changes.\n")
 	return strings.TrimRight(b.String(), "\n")

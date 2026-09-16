@@ -6,6 +6,8 @@ package jarvis
 import (
 	"fmt"
 	"strings"
+
+	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
 
 // AskTool names the structured question tool a runtime's agent calls. A question asked in plain text
@@ -47,5 +49,19 @@ func OrchestrationRules(runId, specPath, planPath string) string {
 	b.WriteString("- merge conflict, or tests failed at a merge point: fix it in the project tree, commit, `wsh jarvis dag merge <task> --continue` (the engine re-runs Verify).\n")
 	b.WriteString("- run finished: write the report from `wsh jarvis dag status` (landed, unverified, answered, forwarded), then `wsh jarvis complete`. If the goal isn't fully met, say what's missing and ask the human; don't add tasks.\n")
 	b.WriteString("Never re-plan and never do a task's own work.")
+	return b.String()
+}
+
+// PlanLeadPrompt is the launch prompt of a lead started after its plan was submitted (spec §1, G5). There is
+// no goal to brainstorm, so it starts from the orchestration rules, and the wake that needed a lead is its
+// first message: one turn, with nothing typed after it.
+func PlanLeadPrompt(principles waveobj.PrincipleList, runId, specPath, planPath, wake string) string {
+	var b strings.Builder
+	if rendered := RenderPrinciples(principles); rendered != "" {
+		fmt.Fprintf(&b, "Work by these principles:\n%s\n\n", rendered)
+	}
+	b.WriteString(OrchestrationRules(runId, specPath, planPath))
+	b.WriteString("\n\n")
+	b.WriteString(wake)
 	return b.String()
 }

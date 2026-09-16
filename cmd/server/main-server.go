@@ -626,6 +626,7 @@ func main() {
 	go tempAttachmentCleanupLoop()
 	go startupActivityUpdate(firstLaunch)                                // must be after startConfigWatcher()
 	orchestrate.SealRunEvidenceHook = wshserver.SealDoneRunEvidenceAsync // a run the engine closed itself gets the same evidence snapshot `wsh jarvis complete` produces; before StartWatchdog, whose first tick is immediate and can be the tick that closes one
+	orchestrate.LaunchLeadHook = wshserver.LaunchPlanLead                // a run submitted with no lead gets one at its first judgment event; before StartWatchdog, whose first tick can deliver one
 	orchestrate.StartWatchdog(context.Background())                      // dag advance + stall detection tick
 	agentask.AnswerHook = wshserver.RecordAskAnswered                    // one ask lifecycle row per delivered answer, whichever surface delivered it
 	if err := agentask.InitDurablePendingAsks(context.Background()); err != nil {

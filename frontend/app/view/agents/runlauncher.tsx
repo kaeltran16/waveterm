@@ -1,7 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The run launcher: shape, which machine fans out, how wide, and the two routes. It fills the Stage's
+// The run launcher: shape, where an orchestrator starts, how wide, and the two routes. It fills the Stage's
 // thread slot while a run is being composed, directly above the goal box it configures.
 //
 // It lived in the right rail for one iteration and that was wrong twice over. The rail is 300px, so the
@@ -12,39 +12,43 @@
 //
 // Which sections a given shape actually has is decided by runconfig.runLauncherFace; this file renders.
 
+import { globalStore } from "@/app/store/jotaiStore";
+import { RpcApi } from "@/app/store/wshclientapi";
+import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { ORCHESTRATION_OPTIONS, type Orchestration } from "./orchestratorpicker";
+import { useEffect } from "react";
+import { planShapeText, planWarnings } from "../orchestrate/dagdigest";
 import { RoutePicker } from "./routepicker";
 import {
     MAX_DAG_TASKS,
     MAX_PARALLELISM,
-    PLANNER_OPTIONS,
     SHAPE_CARDS,
-    machineNote,
-    plannerNote,
+    START_OPTIONS,
     runLauncherFace,
-    type Planner,
+    startNote,
+    type StartFrom,
 } from "./runconfig";
 import {
-    orchestrationAtom,
     parallelismAtom,
-    plannerAtom,
+    planPathAtom,
+    planPreviewAtom,
     routeOpenRequestAtom,
     runRouteAtom,
     runShapeAtom,
-    setOrchestration,
-    setPlanner,
+    setPlanPath,
     setRunRoute,
     setRunShape,
+    setStart,
     setWorkerRoute,
+    startAtom,
     stepParallelism,
     workerRouteAtom,
 } from "./runconfigstore";
 
 export const EYEBROW = "font-mono text-[9px] font-bold uppercase tracking-[.12em] text-muted";
 
-// One selectable card treatment for both pickers, so the shape and the machine read as the same kind of
+// One selectable card treatment for both pickers, so the shape and the start read as the same kind of
 // choice. Tokens only — a literal colour here would opt the launcher out of every runtime theme.
 function pickTone(active: boolean): string {
     return active
@@ -61,13 +65,13 @@ function Section({ label, children }: { label: string; children: React.ReactNode
     );
 }
 
-// Side by side rather than stacked: the three shapes are alternatives to one another, and a column made
+// Side by side rather than stacked: the two shapes are alternatives to one another, and a column made
 // the reader compare them in sequence instead of at a glance.
 function ShapeCards() {
     const shape = useAtomValue(runShapeAtom);
     return (
         <Section label="Shape">
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2">
                 {SHAPE_CARDS.map((card) => (
                     <button
                         key={card.id}
@@ -88,58 +92,102 @@ function ShapeCards() {
     );
 }
 
-function MachineCards() {
-    const orchestration = useAtomValue(orchestrationAtom);
+const START_LABEL: Record<StartFrom, string> = { goal: "A goal", plan: "A plan file" };
+
+// Where an orchestrator starts. It sits under the shape because it decides whether a lead runs at all: a plan
+// file hands the engine work you already decomposed, and a lead appears only when something needs judgment.
+function StartSection() {
+    const start = useAtomValue(startAtom);
     return (
-        <Section label="Who fans out">
+        <Section label="Start from">
             <div className="flex gap-2">
-                {ORCHESTRATION_OPTIONS.map((option: Orchestration) => (
+                {START_OPTIONS.map((option) => (
                     <button
                         key={option}
                         type="button"
-                        aria-pressed={orchestration === option}
-                        onClick={() => setOrchestration(option)}
+                        aria-pressed={start === option}
+                        onClick={() => setStart(option)}
                         className={cn(
-                            "cursor-pointer rounded-[7px] border px-3 py-1.5 font-mono text-[11.5px] font-semibold capitalize",
-                            pickTone(orchestration === option)
+                            "cursor-pointer rounded-[7px] border px-3 py-1.5 font-mono text-[11.5px] font-semibold",
+                            pickTone(start === option)
                         )}
                     >
-                        {option}
+                        {START_LABEL[option]}
                     </button>
                 ))}
             </div>
-            <span className="text-[11px] leading-[1.45] text-muted">{machineNote(orchestration)}</span>
+            <span className="text-[11px] leading-[1.45] text-muted">{startNote(start)}</span>
+            {start === "plan" ? <PlanPathField /> : null}
         </Section>
     );
 }
 
-// Who drafts the DAG. It sits directly under the machine because it only means anything for the engine,
-// and above the width because choosing to write the plan yourself is the decision that makes the width a
-// property of your own plan rather than of a lead's.
-const PLANNER_LABEL: Record<Planner, string> = { lead: "A lead", human: "You" };
+// lets a typed or pasted path finish arriving before wavesrv reads the file
+const PLAN_PREVIEW_DELAY_MS = 300;
 
-function PlannerCards() {
-    const planner = useAtomValue(plannerAtom);
+// The plan is parsed here, before anything is created (spec §1): a plan that will not run shows the parser's
+// message and holds the start, and one that will shows the shape the engine is about to run.
+function PlanPathField() {
+    const path = useAtomValue(planPathAtom);
+    const preview = useAtomValue(planPreviewAtom);
+    useEffect(() => {
+        const trimmed = path.trim();
+        if (trimmed === "") {
+            globalStore.set(planPreviewAtom, null);
+            return;
+        }
+        let live = true;
+        const timer = setTimeout(() => {
+            RpcApi.DagPlanPreviewCommand(TabRpcClient, { planpath: trimmed })
+                .then((result) => {
+                    if (live) {
+                        globalStore.set(planPreviewAtom, { path: trimmed, result });
+                    }
+                })
+                .catch((e) => {
+                    if (live) {
+                        globalStore.set(planPreviewAtom, {
+                            path: trimmed,
+                            error: e instanceof Error ? e.message : String(e),
+                        });
+                    }
+                });
+        }, PLAN_PREVIEW_DELAY_MS);
+        return () => {
+            live = false;
+            clearTimeout(timer);
+        };
+    }, [path]);
+    const current = preview != null && preview.path === path.trim() ? preview : null;
     return (
-        <Section label="Who plans">
-            <div className="flex gap-2">
-                {PLANNER_OPTIONS.map((option: Planner) => (
-                    <button
-                        key={option}
-                        type="button"
-                        aria-pressed={planner === option}
-                        onClick={() => setPlanner(option)}
-                        className={cn(
-                            "cursor-pointer rounded-[7px] border px-3 py-1.5 font-mono text-[11.5px] font-semibold",
-                            pickTone(planner === option)
-                        )}
-                    >
-                        {PLANNER_LABEL[option]}
-                    </button>
-                ))}
-            </div>
-            <span className="text-[11px] leading-[1.45] text-muted">{plannerNote(planner)}</span>
-        </Section>
+        <div className="flex flex-col gap-1">
+            <input
+                data-jarvis-plan-path
+                value={path}
+                aria-label="Plan file path"
+                onChange={(e) => setPlanPath(e.target.value)}
+                placeholder="Absolute path to the plan"
+                className="w-full rounded-[7px] border border-edge-mid bg-background px-2.5 py-1.5 font-mono text-[11.5px] text-primary placeholder:text-muted outline-none focus:border-accent/60"
+            />
+            {current?.error != null ? (
+                <span data-jarvis-plan-preview="error" className="text-[11px] leading-[1.45] text-error">
+                    {current.error}
+                </span>
+            ) : current?.result != null ? (
+                <span
+                    data-jarvis-plan-preview="ready"
+                    className="flex flex-wrap gap-x-2 font-mono text-[10.5px] text-secondary"
+                >
+                    {current.result.title ? <span>{current.result.title}</span> : null}
+                    <span>{planShapeText(current.result.shape)}</span>
+                    {planWarnings(current.result.shape, current.result.verify).map((warning) => (
+                        <span key={warning} className="text-warning">
+                            {warning}
+                        </span>
+                    ))}
+                </span>
+            ) : null}
+        </div>
     );
 }
 
@@ -213,13 +261,11 @@ function RoutingSection({ showWorkerRoute }: { showWorkerRoute: boolean }) {
 // header, so it renders these directly rather than printing a second heading over the same three sections.
 export function RunLauncherSections() {
     const shape = useAtomValue(runShapeAtom);
-    const orchestration = useAtomValue(orchestrationAtom);
-    const face = runLauncherFace(shape, orchestration);
+    const face = runLauncherFace(shape);
     return (
         <>
             <ShapeCards />
-            {face.showMachine ? <MachineCards /> : null}
-            {face.showPlanner ? <PlannerCards /> : null}
+            {face.showStart ? <StartSection /> : null}
             {face.showParallelism ? <ParallelismStepper /> : null}
             <RoutingSection showWorkerRoute={face.showWorkerRoute} />
         </>

@@ -15,6 +15,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/agentask"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
+	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/util/utilfn"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wps"
@@ -31,9 +32,10 @@ const (
 
 // why a lead stopped getting wakes; each lands on the lead-wake-failed row and on every ask it hands over.
 const (
-	leadNotRunningNote  = "lead process is not running"
-	wakeUnconfirmedNote = "lead did not respond to a wake"
-	leadDeadNote        = "lead is not taking wakes"
+	leadNotRunningNote   = "lead process is not running"
+	wakeUnconfirmedNote  = "lead did not respond to a wake"
+	leadDeadNote         = "lead is not taking wakes"
+	leadLaunchFailedNote = "lead could not be started"
 )
 
 // HandoffCompact is typed into a lead once its plan is handed over (spec §7): the compaction lands at the
@@ -45,6 +47,8 @@ type leadState struct {
 	TabId   string
 	Alive   bool
 	State   string
+	// NoLead is a dag-holding run that has never had a lead worker, as opposed to one whose lead exited.
+	NoLead bool
 }
 
 // leadStateFn reads the lead's block, whether its process runs and its latest agent state. A var so
@@ -55,6 +59,28 @@ var leadStateFn = readLeadState
 var sendWakeFn = typeWake
 
 var wakeNow = func() int64 { return time.Now().UnixMilli() }
+
+// LaunchLeadHook spawns runId's lead with prompt. Wired to wshserver at startup; the default refuses,
+// because wsh and the tests link this package without the server.
+var LaunchLeadHook = func(ctx context.Context, channelId, runId, prompt string) error {
+	return fmt.Errorf("no lead launcher in this process")
+}
+
+// launchLeadFn starts runId's first lead with wake as its first message. The spawn creates a tab and starts
+// a process, so it runs off the waker lock and settles through leadLaunched. A var for tests.
+var launchLeadFn = func(ctx context.Context, channelId, runId, wake string) {
+	go func() {
+		lctx := context.WithoutCancel(ctx)
+		leadLaunched(lctx, channelId, runId, startLead(lctx, channelId, runId, wake))
+	}()
+}
+
+// SetLaunchLeadForTest replaces the lead launch for tests in other packages and returns the restore.
+func SetLaunchLeadForTest(fn func(ctx context.Context, channelId, runId, wake string)) func() {
+	old := launchLeadFn
+	launchLeadFn = fn
+	return func() { launchLeadFn = old }
+}
 
 type runWake struct {
 	channelId string
@@ -68,6 +94,9 @@ type runWake struct {
 	told    map[string]bool
 	// handoff is a handoff compaction not yet typed.
 	handoff bool
+	// launching is a first lead still starting; launchLines are the events it was started with.
+	launching   bool
+	launchLines []string
 }
 
 type waker struct {
@@ -200,7 +229,7 @@ func atPrompt(state string) bool {
 }
 
 func (w *waker) flushLocked(ctx context.Context, runId string, rw *runWake) {
-	if rw.sentAt != 0 || rw.dead {
+	if rw.sentAt != 0 || rw.dead || rw.launching {
 		return
 	}
 	asks := leadAsks(runId)
@@ -215,6 +244,10 @@ func (w *waker) flushLocked(ctx context.Context, runId string, rw *runWake) {
 	}
 	st := leadStateFn(ctx, rw.channelId, runId)
 	rw.blockId, rw.tabId = st.BlockId, st.TabId
+	if st.NoLead {
+		w.launchLocked(ctx, runId, rw, asks, untold)
+		return
+	}
 	if !st.Alive {
 		w.leadDiedLocked(ctx, runId, rw, leadNotRunningNote)
 		return
@@ -241,6 +274,65 @@ func (w *waker) flushLocked(ctx context.Context, runId string, rw *runWake) {
 		rw.told[askTold(p)] = true
 	}
 	appendRunEvent(ctx, rw.channelId, runId, waveobj.RunEventKindLeadWoken, nil, map[string]any{"text": text})
+}
+
+// launchLocked starts the first lead of a run submitted with no lead, with the pending events as its first
+// message (spec §1, G5). A clean finish is not a judgment: the engine closes a run nobody has to judge
+// (MaybeCompleteLeadFreeRun), so run finished alone starts nothing.
+func (w *waker) launchLocked(ctx context.Context, runId string, rw *runWake, asks map[string]agentask.PendingAsk, untold bool) {
+	if !untold && onlyRunFinished(rw.lines) {
+		rw.lines, rw.handoff = nil, false
+		return
+	}
+	lines := append([]string{}, rw.lines...)
+	if untold {
+		lines = append(lines, questionsLine(asks))
+	}
+	text := strings.Join(lines, "\n")
+	rw.launching, rw.launchLines, rw.lines = true, rw.lines, nil
+	for _, p := range asks {
+		rw.told[askTold(p)] = true
+	}
+	appendRunEvent(ctx, rw.channelId, runId, waveobj.RunEventKindLeadLaunched, nil, map[string]any{"text": text})
+	launchLeadFn(ctx, rw.channelId, runId, text)
+}
+
+// onlyRunFinished reports held lines that say nothing but that the run finished.
+func onlyRunFinished(lines []string) bool {
+	for _, l := range lines {
+		if l != runFinishedWake {
+			return false
+		}
+	}
+	return true
+}
+
+// leadLaunched settles a launch. A started lead took its first wake as its launch prompt, and events held
+// meanwhile are typed once it reports it is at its prompt. A lead that could not be started hands its
+// judgment to the human (G8).
+func leadLaunched(ctx context.Context, channelId, runId string, err error) {
+	wakes.lock.Lock()
+	defer wakes.lock.Unlock()
+	rw := wakes.runLocked(channelId, runId)
+	rw.launching = false
+	if err != nil {
+		rw.lines = append(rw.launchLines, rw.lines...)
+		wakes.leadDiedLocked(ctx, runId, rw, leadLaunchFailedNote+": "+err.Error())
+	}
+	rw.launchLines = nil
+}
+
+// startLead builds a plan-input lead's launch prompt from its run and dag and hands it to the spawner.
+func startLead(ctx context.Context, channelId, runId, wake string) error {
+	run, err := wstore.GetRun(ctx, channelId, runId)
+	if err != nil {
+		return fmt.Errorf("loading run: %w", err)
+	}
+	g, err := wstore.GetDag(ctx, run.DagORef)
+	if err != nil {
+		return fmt.Errorf("loading dag: %w", err)
+	}
+	return LaunchLeadHook(ctx, channelId, runId, jarvis.PlanLeadPrompt(run.Principles, runId, g.SpecPath, g.PlanPath, wake))
 }
 
 // leadDiedLocked hands the lead's judgment to the human (G8): held events go on the lead-wake-failed
@@ -316,7 +408,8 @@ func readLeadState(ctx context.Context, channelId, runId string) leadState {
 	}
 	tabId := runTabID(run)
 	if tabId == "" {
-		return leadState{}
+		// a run submitted with a plan and no lead has never had one: its first judgment event starts it
+		return leadState{NoLead: run.DagORef != ""}
 	}
 	tab, err := wstore.DBGet[*waveobj.Tab](ctx, tabId)
 	if err != nil || tab == nil || len(tab.BlockIds) == 0 {

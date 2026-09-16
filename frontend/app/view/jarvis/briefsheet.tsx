@@ -38,16 +38,18 @@ import {
     resolvedProfileAtom,
 } from "@/app/view/agents/runactions";
 import { RunBody } from "@/app/view/agents/runbody";
+import { launchBlocker } from "@/app/view/agents/runconfig";
 import {
     endRunConfigDraft,
     hydrateRunConfigFromProfile,
-    orchestrationAtom,
     parallelismAtom,
-    plannerAtom,
+    planPathAtom,
+    planPreviewAtom,
     resetRunConfigForChannel,
     routeTouchedAtom,
     runRouteAtom,
     runShapeAtom,
+    startAtom,
     workerRouteAtom,
 } from "@/app/view/agents/runconfigstore";
 import { RunLauncher } from "@/app/view/agents/runlauncher";
@@ -70,7 +72,7 @@ import {
     stageRunAtom,
     toggleRecordBand,
 } from "./jarvissubjectstore";
-import { launchOptsFromConfig } from "./newrun";
+import { launchGoal, launchOptsFromConfig } from "./newrun";
 import { recordBandCase } from "./recordband";
 import { RecordBand } from "./recordbandview";
 
@@ -82,10 +84,11 @@ const FIELD =
 // would be a control that does nothing.
 function ChannelLaunch({ channel }: { channel: Channel }) {
     const shape = useAtomValue(runShapeAtom);
-    const orchestration = useAtomValue(orchestrationAtom);
     const workerRoute = useAtomValue(workerRouteAtom);
     const parallelism = useAtomValue(parallelismAtom);
-    const planner = useAtomValue(plannerAtom);
+    const startFrom = useAtomValue(startAtom);
+    const planPath = useAtomValue(planPathAtom);
+    const preview = useAtomValue(planPreviewAtom);
     const runRoute = useAtomValue(runRouteAtom);
     const routeTouched = useAtomValue(routeTouchedAtom);
     const pref = useAtomValue(harnessPreferenceAtom);
@@ -104,6 +107,9 @@ function ChannelLaunch({ channel }: { channel: Channel }) {
     const target = pendingDraft != null ? resolveTargetChannel(channels ?? [], pendingDraft.projectPath) : undefined;
     const radarDraft = pendingDraft != null && target?.oid === channel.oid ? pendingDraft : null;
     const value = radarDraft != null ? radarDraft.goal : goal;
+    const config = { shape, parallelism, workerRoute, start: startFrom, planPath };
+    const planStart = shape === "orchestrator" && startFrom === "plan";
+    const blocker = launchBlocker({ shape, start: startFrom, goal: value, planPath, preview });
 
     const channelId = channel.oid;
     useEffect(() => {
@@ -125,8 +131,7 @@ function ChannelLaunch({ channel }: { channel: Channel }) {
     }, [channelId, profileRoute, routeTouched]);
 
     const launch = () => {
-        const text = value.trim();
-        if (text === "" || runRoute == null || launching) {
+        if (blocker != null || runRoute == null || launching) {
             return;
         }
         setLaunching(true);
@@ -135,8 +140,8 @@ function ChannelLaunch({ channel }: { channel: Channel }) {
             try {
                 // one translation from launcher state to CreateRun arguments, shared with the + Run
                 // modal and unit-tested there; this had its own inline copy and they drifted.
-                const created = await createRun(channelId, text, runRoute, {
-                    ...launchOptsFromConfig({ shape, orchestration, parallelism, workerRoute, planner }),
+                const created = await createRun(channelId, launchGoal(config, value), runRoute, {
+                    ...launchOptsFromConfig(config),
                     ...(radarDraft != null ? { radarOrigin: radarDraft.radarOrigin } : {}),
                 });
                 // the launch consumed this draft, so the next one starts from the channel's saved defaults
@@ -161,9 +166,9 @@ function ChannelLaunch({ channel }: { channel: Channel }) {
             <div className="flex items-center gap-2">
                 <input
                     data-jarvis-launch-goal
-                    value={value}
-                    disabled={launching}
-                    placeholder="What should it do?"
+                    value={planStart ? "" : value}
+                    disabled={launching || planStart}
+                    placeholder={planStart ? "Starts from the plan above" : "What should it do?"}
                     onChange={(e) => {
                         if (radarDraft != null) {
                             setPendingDraft({ ...radarDraft, goal: e.target.value });
@@ -184,7 +189,7 @@ function ChannelLaunch({ channel }: { channel: Channel }) {
                     onClick={launch}
                     // no route is a real block, not a slow state: nothing dispatches without one, so the
                     // control states that instead of accepting a goal it would have to refuse.
-                    disabled={launching || value.trim() === "" || runRoute == null}
+                    disabled={launching || blocker != null || runRoute == null}
                     className="flex-none cursor-pointer rounded-[7px] border border-accent/40 bg-surface-raised px-2.5 py-1.5 text-[11.5px] font-semibold text-accent-soft hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-default disabled:opacity-40"
                 >
                     {launching ? "Starting…" : "Run ⏎"}
@@ -195,7 +200,9 @@ function ChannelLaunch({ channel }: { channel: Channel }) {
                     ? "Pick a lead route in the launcher above — nothing dispatches without one."
                     : radarDraft != null
                       ? "A Radar investigation, awaiting your review. Its finding's outcome is written back when this run ends."
-                      : "The shape and machine above are what this dispatches with."}
+                      : planStart && blocker != null
+                        ? blocker
+                        : "The shape and start above are what this dispatches with."}
             </span>
             {error != null ? (
                 <p data-jarvis-brief-sheet-state="error" className="text-[11.5px] text-error">

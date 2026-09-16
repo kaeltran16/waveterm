@@ -33,20 +33,22 @@ import {
     resolveChannelLaunchRoute,
     resolvedProfileAtom,
 } from "../agents/runactions";
+import { launchBlocker } from "../agents/runconfig";
 import {
     endRunConfigDraft,
     hydrateRunConfigFromProfile,
-    orchestrationAtom,
     parallelismAtom,
-    plannerAtom,
+    planPathAtom,
+    planPreviewAtom,
     resetRunConfigForChannel,
     routeTouchedAtom,
     runRouteAtom,
     runShapeAtom,
+    startAtom,
     workerRouteAtom,
 } from "../agents/runconfigstore";
 import { RunLauncherSections } from "../agents/runlauncher";
-import { launchOptsFromConfig, rankProjects, resolveChannelTarget, stepPick } from "./newrun";
+import { launchGoal, launchOptsFromConfig, rankProjects, resolveChannelTarget, stepPick } from "./newrun";
 import { openChannelSheet } from "./openref";
 
 const FIELD_LABEL = "font-mono text-[9.5px] font-bold uppercase tracking-[.12em] text-muted";
@@ -60,10 +62,11 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
     const overrides = useAtomValue(channelOverrideAtom);
     const pref = useAtomValue(harnessPreferenceAtom);
     const shape = useAtomValue(runShapeAtom);
-    const orchestration = useAtomValue(orchestrationAtom);
     const parallelism = useAtomValue(parallelismAtom);
     const workerRoute = useAtomValue(workerRouteAtom);
-    const planner = useAtomValue(plannerAtom);
+    const startFrom = useAtomValue(startAtom);
+    const planPath = useAtomValue(planPathAtom);
+    const preview = useAtomValue(planPreviewAtom);
     const runRoute = useAtomValue(runRouteAtom);
     const routeTouched = useAtomValue(routeTouchedAtom);
     const entries = Object.entries(projects ?? {});
@@ -81,6 +84,10 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
         entries.map(([name]) => name),
         query
     );
+    const config = { shape, parallelism, workerRoute, start: startFrom, planPath };
+    // a plan start is named by its plan, so it has no goal field to fill
+    const planStart = shape === "orchestrator" && startFrom === "plan";
+    const blocker = launchBlocker({ shape, start: startFrom, goal, planPath, preview });
 
     // The project's own channel is where its profile lives, and a project that has never run has no channel
     // yet — hydrating from `undefined` then leaves the launcher on its baselines, which is the right answer
@@ -132,8 +139,7 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
     };
 
     const start = () => {
-        const text = goal.trim();
-        if (picked == null || text === "" || starting) {
+        if (picked == null || blocker != null || starting) {
             return;
         }
         if (target == null) {
@@ -150,12 +156,7 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
                 // a route the user picked in the Routing section is the answer; otherwise resolve the
                 // project's own, which also validates that the route is actually available right now
                 const route = routeTouched && runRoute != null ? runRoute : await resolveChannelLaunchRoute(oid);
-                const run = await createRun(
-                    oid,
-                    text,
-                    route,
-                    launchOptsFromConfig({ shape, orchestration, parallelism, workerRoute, planner })
-                );
+                const run = await createRun(oid, launchGoal(config, goal), route, launchOptsFromConfig(config));
                 // the launch consumed this draft, so the next one starts from the project's saved defaults
                 endRunConfigDraft(globalStore.get(resolvedProfileAtom)[oid]);
                 await openChannelSheet(oid, run.id);
@@ -242,25 +243,31 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
                             </div>
                         </div>
                         <RunLauncherSections />
-                        <div className="flex flex-col gap-1">
-                            <span className={FIELD_LABEL}>Goal</span>
-                            <textarea
-                                ref={goalRef}
-                                autoFocus={entries.length === 1}
-                                rows={3}
-                                value={goal}
-                                onChange={(e) => setGoal(e.target.value)}
-                                placeholder="What should it do?"
-                                className="w-full resize-none rounded-[7px] border border-edge-mid bg-background px-2.5 py-1.5 text-[12.5px] leading-[1.5] text-primary placeholder:text-muted outline-none focus:border-accent/60"
-                            />
-                        </div>
+                        {planStart ? null : (
+                            <div className="flex flex-col gap-1">
+                                <span className={FIELD_LABEL}>Goal</span>
+                                <textarea
+                                    ref={goalRef}
+                                    autoFocus={entries.length === 1}
+                                    rows={3}
+                                    value={goal}
+                                    onChange={(e) => setGoal(e.target.value)}
+                                    placeholder="What should it do?"
+                                    className="w-full resize-none rounded-[7px] border border-edge-mid bg-background px-2.5 py-1.5 text-[12.5px] leading-[1.5] text-primary placeholder:text-muted outline-none focus:border-accent/60"
+                                />
+                            </div>
+                        )}
                     </div>
                     <div className="flex shrink-0 items-center gap-2 border-t border-border px-[18px] py-3">
                         {error != null ? (
                             <span className="min-w-0 flex-1 truncate text-[11px] text-error">{error}</span>
                         ) : (
                             <span className="flex-1 truncate font-mono text-[10px] text-muted">
-                                {picked == null ? "pick a project" : `${shape} in ${picked}`}
+                                {picked == null
+                                    ? "pick a project"
+                                    : planStart && blocker != null
+                                      ? blocker
+                                      : `${shape} in ${picked}`}
                             </span>
                         )}
                         <button type="button" onClick={onClose} className={CANCEL_BTN}>
@@ -268,7 +275,7 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
                         </button>
                         <button
                             type="button"
-                            disabled={picked == null || goal.trim() === "" || starting}
+                            disabled={picked == null || blocker != null || starting}
                             onClick={start}
                             className="cursor-pointer rounded-[7px] bg-accent px-3.5 py-1.5 text-[11.5px] font-semibold text-background hover:bg-accenthover disabled:cursor-default disabled:opacity-40"
                         >

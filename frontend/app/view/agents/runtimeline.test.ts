@@ -94,6 +94,7 @@ describe("toneFor", () => {
         expect(toneFor("lead-wake-failed")).toBe("text-warning");
         expect(toneFor("lead-exited")).toBe("text-warning");
         expect(toneFor("lead-woken")).toBe("text-muted");
+        expect(toneFor("lead-launched")).toBe("text-muted");
     });
 });
 
@@ -101,6 +102,7 @@ describe("eventKindTitle", () => {
     it("names the queue and wake rows", () => {
         expect(eventKindTitle("task-forwarded")).toBe("Handed to you");
         expect(eventKindTitle("lead-woken")).toBe("Lead woken");
+        expect(eventKindTitle("lead-launched")).toBe("Lead started");
         expect(eventKindTitle("lead-wake-failed")).toBe("Lead wake failed");
         expect(eventKindTitle("lead-exited")).toBe("Lead exited");
     });

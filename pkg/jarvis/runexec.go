@@ -184,7 +184,7 @@ func priorArtifacts(run *waveobj.Run, idx int) []string {
 func phasePrompt(run *waveobj.Run, idx int) string {
 	p := run.Phases[idx]
 	if run.Mode == RunMode_Quick {
-		return BuildQuickPrompt(run.Goal, run.Principles)
+		return BuildQuickPrompt(run.Goal, run.Principles, run.Runtime)
 	}
 	if run.Mode == RunMode_Orchestrator {
 		return BuildOrchestratePrompt(run.Goal, run.Principles, run.Runtime, run.Orchestration)
@@ -196,17 +196,21 @@ func phasePrompt(run *waveobj.Run, idx int) string {
 // index -> tab oref it created. It does not mutate/persist the run; the caller attaches the orefs.
 // The runtime comes from the persisted run; an empty runtime (legacy Run) resolves to Claude, the
 // historical worker implementation. On a spawn error it returns what it has so far plus the error
-// (the caller still persists partial work).
-func EnsureWorkers(ctx context.Context, run *waveobj.Run, cap runroute.Capability, projectName string) (map[int]string, error) {
+// (the caller still persists partial work). A non-empty prompt replaces the phase's own: a lead started
+// after its plan was submitted works from the orchestration rules, not the goal-run launch prompt.
+func EnsureWorkers(ctx context.Context, run *waveobj.Run, cap runroute.Capability, projectName, prompt string) (map[int]string, error) {
 	spawned := map[int]string{}
 	for i := range run.Phases {
 		p := run.Phases[i]
 		if p.State != PhaseState_Running || len(p.WorkerOrefs) > 0 {
 			continue
 		}
-		prompt := phasePrompt(run, i)
+		workerPrompt := prompt
+		if workerPrompt == "" {
+			workerPrompt = phasePrompt(run, i)
+		}
 		opts := RunWorkerOptions{KeepOnExit: run.Mode == RunMode_Orchestrator}
-		oref, err := SpawnRunWorker(ctx, cap, run.WorkspaceId, projectName, run.ProjectPath, prompt, opts)
+		oref, err := SpawnRunWorker(ctx, cap, run.WorkspaceId, projectName, run.ProjectPath, workerPrompt, opts)
 		if err != nil {
 			return spawned, fmt.Errorf("spawning worker for phase %d: %w", i, err)
 		}

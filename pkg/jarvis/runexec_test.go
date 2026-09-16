@@ -151,16 +151,44 @@ func TestEnsureWorkersPassesKeepOnExitOnlyForOrchestrator(t *testing.T) {
 	}
 
 	orch := NewRun("orchestrate", "ws", "/p", nil, RunMode_Orchestrator, DefaultOrchestratorPlaybook(false), 1)
-	if _, err := EnsureWorkers(context.Background(), &orch, cap, "project"); err != nil {
+	if _, err := EnsureWorkers(context.Background(), &orch, cap, "project", ""); err != nil {
 		t.Fatal(err)
 	}
 	pipe := NewRun("pipeline", "ws", "/p", nil, RunMode_Pipeline, DefaultPlaybook(), 1)
-	if _, err := EnsureWorkers(context.Background(), &pipe, cap, "project"); err != nil {
+	if _, err := EnsureWorkers(context.Background(), &pipe, cap, "project", ""); err != nil {
 		t.Fatal(err)
 	}
 
 	if len(got) != 2 || !got[0].KeepOnExit || got[1].KeepOnExit {
 		t.Fatalf("worker options = %+v", got)
+	}
+}
+
+func TestEnsureWorkersUsesAGivenPrompt(t *testing.T) {
+	old := SpawnRunWorker
+	defer func() { SpawnRunWorker = old }()
+
+	var prompts []string
+	SpawnRunWorker = func(_ context.Context, _ runroute.Capability, _, _, _, prompt string, _ RunWorkerOptions) (string, error) {
+		prompts = append(prompts, prompt)
+		return "tab:worker", nil
+	}
+	cap, err := runroute.Resolve(waveobj.RoutePin{Runtime: "pi"})
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+
+	given := NewRun("orchestrate", "ws", "/p", nil, RunMode_Orchestrator, DefaultOrchestratorPlaybook(false), 1)
+	if _, err := EnsureWorkers(context.Background(), &given, cap, "project", "the rules, then the wake"); err != nil {
+		t.Fatal(err)
+	}
+	derived := NewRun("orchestrate", "ws", "/p", nil, RunMode_Orchestrator, DefaultOrchestratorPlaybook(false), 1)
+	if _, err := EnsureWorkers(context.Background(), &derived, cap, "project", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(prompts) != 2 || prompts[0] != "the rules, then the wake" || prompts[1] != phasePrompt(&derived, 0) {
+		t.Fatalf("a given prompt replaces the phase's, an empty one derives it; got %q", prompts)
 	}
 }
 

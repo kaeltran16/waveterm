@@ -12,13 +12,14 @@ import (
 
 // DagCommands is the deterministic orchestration engine surface (pkg/orchestrate).
 type DagCommands interface {
-	DagSubmitCommand(ctx context.Context, data CommandDagSubmitData) (*waveobj.TaskGroup, error)       // validate + persist a TaskGroup for an orchestrator run
-	DagStatusCommand(ctx context.Context, data CommandDagStatusData) (*CommandDagStatusRtnData, error) // engine-owned status snapshot: group + typed digest
-	DagActionCommand(ctx context.Context, data CommandDagActionData) error                             // approve | sendback | retry | skip | escalate | cancel | forward
-	DagMergeCommand(ctx context.Context, data CommandDagMergeData) error                               // squash-merge a finished child's worktree back
-	DagMergeContinueCommand(ctx context.Context, data CommandDagMergeData) error                       // finish a resolved squash merge, or re-run a failed Verify
-	DagAsksCommand(ctx context.Context, data CommandDagStatusData) (*CommandDagAsksRtnData, error)     // pending child asks (children block on one at a time)
-	DagAnswerCommand(ctx context.Context, data CommandDagAnswerData) error                             // deliver an answer to a child's pending ask
+	DagSubmitCommand(ctx context.Context, data CommandDagSubmitData) (*waveobj.TaskGroup, error)                      // validate + persist a TaskGroup for an orchestrator run
+	DagPlanPreviewCommand(ctx context.Context, data CommandDagPlanPreviewData) (*CommandDagPlanPreviewRtnData, error) // parse a plan file for + Run before any run exists
+	DagStatusCommand(ctx context.Context, data CommandDagStatusData) (*CommandDagStatusRtnData, error)                // engine-owned status snapshot: group + typed digest
+	DagActionCommand(ctx context.Context, data CommandDagActionData) error                                            // approve | sendback | retry | skip | escalate | cancel | forward
+	DagMergeCommand(ctx context.Context, data CommandDagMergeData) error                                              // squash-merge a finished child's worktree back
+	DagMergeContinueCommand(ctx context.Context, data CommandDagMergeData) error                                      // finish a resolved squash merge, or re-run a failed Verify
+	DagAsksCommand(ctx context.Context, data CommandDagStatusData) (*CommandDagAsksRtnData, error)                    // pending child asks (children block on one at a time)
+	DagAnswerCommand(ctx context.Context, data CommandDagAnswerData) error                                            // deliver an answer to a child's pending ask
 }
 
 type CommandDagSubmitData struct {
@@ -30,6 +31,27 @@ type CommandDagSubmitData struct {
 	WorkerRoute *waveobj.RoutePin  `json:"workerroute,omitempty"` // nil = inherit lead; B1b workers default
 	PlanPath    string             `json:"planpath,omitempty"`    // absolute path to a plan in jarvis.PlanFormat; replaces tasks
 	SpecPath    string             `json:"specpath,omitempty"`    // absolute path to the spec the plan implements; only with planpath
+}
+
+type CommandDagPlanPreviewData struct {
+	PlanPath string `json:"planpath"` // absolute path to a plan in jarvis.PlanFormat
+}
+
+// CommandDagPlanPreviewRtnData is what + Run shows before it starts a plan: its name, its two plan-level
+// commands, and its shape.
+type CommandDagPlanPreviewRtnData struct {
+	Title  string       `json:"title,omitempty"`
+	Verify string       `json:"verify,omitempty"`
+	Setup  string       `json:"setup,omitempty"`
+	Shape  DagPlanShape `json:"shape"`
+}
+
+// DagPlanShape is how a plan decomposes: how many tasks, how many lanes they run in, and the longest chain
+// of tasks that wait on one another.
+type DagPlanShape struct {
+	Tasks        int `json:"tasks"`
+	Lanes        int `json:"lanes"`
+	LongestChain int `json:"longestchain"`
 }
 
 type CommandDagStatusData struct {
@@ -98,6 +120,9 @@ type DagStatusDigest struct {
 	Tasks      []DagTaskDigest   `json:"tasks"`
 	Durations  DagDurationDigest `json:"durations"`
 	Report     DagReportDigest   `json:"report"`
+	// omitempty makes the generated TS field optional, so the typed digest fixtures in the frontend tests
+	// keep compiling; Go still sends it
+	Shape DagPlanShape `json:"shape,omitempty"`
 }
 
 // DagReportDigest is what the lead writes its run-end report from, and what the run card shows.

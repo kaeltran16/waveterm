@@ -190,8 +190,8 @@ Six controls, all of them load-bearing:
 | Control | Set to | Why |
 |---|---|---|
 | Project | `review-fixes` | The list comes from `projects.json`, not from your channels. A repo you have only talked about in Jarvis will not appear here — register it first. |
-| Shape | Orchestrator | Pipeline is phases in order, one worker each. Quick is one worker, no plan. Only Orchestrator fans out. |
-| Who fans out | Engine | See Phase 0.3. Parallelism and the worker route only exist for Engine (`runLauncherFace`, `runconfig.ts:78`). |
+| Shape | Orchestrator | Quick is one worker, no lead, no plan. Only Orchestrator fans out. |
+| Start from | A goal | A goal gets a lead that brainstorms it with you. A plan file starts the engine at once, and a lead appears only when something needs judgment (`runLauncherFace`, `runconfig.ts`). |
 | Parallelism | 3 | Ceiling is `MaxParallelism = 8`, DAG ceiling is `MaxDagTasks = 16`. 3 is a deliberate choice: enough overlap to be worth it, few enough merges to stay legible. |
 | Lead route | `Claude Code · opus` | The lead writes the plan, answers the children's asks and resolves the merges the engine stops on. It is the one worker whose judgment is not recoverable by a retry. |
 | Worker route | Inherit the lead | Children inherit unless told otherwise. |
@@ -1274,12 +1274,9 @@ Everything above, as the short form I would actually follow next time.
 17. Price the planning turn against the work. A lead earns its keep when decomposition is genuinely
     open — when you do not yet know what the tasks are. If you already have the task list, the lead's
     turn is a transcription and it will cost you tens of minutes (45 in Run 1b) to produce a DAG you
-    could have written yourself. Pick **You** under *Who plans* in the launcher — that sends
-    `DeferStart`, so the run persists in `planning` with no lead and no workers — then write the DAG
-    and submit it. Pass the ids explicitly: a run with no DAG and no running phase cannot be resolved
-    from a terminal block (`ownerRunForBlock`, `wshserver_ctx.go:55`), so the bare command fails with
-    "no run context for this block". The form that works is
-    `wsh jarvis dag submit --file <path> --channel <id> --runid <id>`.
+    could have written yourself. Write the plan in `jarvis.PlanFormat` instead and pick
+    **Orchestrator → A plan file** in + Run: it parses the plan and shows its shape before start, the
+    engine runs it at once, and a lead starts only if something needs judgment.
 18. Size tasks by wall clock, not by chunk — and not below a per-child overhead you have not
     measured. Aim at a short critical path: Run 1b's was a single 40-minute child and nothing in the
     DAG could finish sooner. But treat the smallest child you have seen as an observation, not a

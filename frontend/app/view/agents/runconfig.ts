@@ -15,21 +15,18 @@ export const MAX_DAG_TASKS = 16; // jarvis.MaxDagTasks (pkg/jarvis/run.go)
 
 export const DEFAULT_PARALLELISM = 3;
 
-// Who writes the DAG. A lead planning turn is a whole model turn spent transcribing a goal into tasks,
-// and it is the single largest cost in an engine run when the decomposition is already settled: the
-// measured run spent 45m19s there with no intervening events. `human` defers the start so the run holds
-// its spec and waits for a DAG instead of spawning a lead to invent one. The engine has supported this
-// since DeferStart landed; until now nothing in the app could ask for it.
-export type Planner = "lead" | "human";
-export const PLANNER_OPTIONS: Planner[] = ["lead", "human"];
-export const DEFAULT_PLANNER: Planner = "lead";
+// Where an orchestrator starts. A goal gets a lead that works it with you and hands the engine a plan; a plan
+// file skips that turn, because a plan you already wrote does not need a lead to transcribe it.
+export type StartFrom = "goal" | "plan";
+export const START_OPTIONS: StartFrom[] = ["goal", "plan"];
+export const DEFAULT_START: StartFrom = "goal";
 
-// Said in full because choosing `human` leaves the run deliberately idle, and a user who is not told
-// how to hand it a plan reads that as a broken launch.
-export function plannerNote(planner: Planner): string {
-    return planner === "lead"
-        ? "A lead reads the goal and drafts the DAG, then you approve it at the plan gate."
-        : "The run waits with no lead and no workers. Write the DAG yourself, then `wsh jarvis dag submit --file <path> --channel <id> --runid <id>` — a run with no dag cannot be resolved from a terminal block, so both ids are required.";
+// Said in full because a plan start runs with no lead, and a user who is not told when one appears reads its
+// absence as a broken launch.
+export function startNote(start: StartFrom): string {
+    return start === "goal"
+        ? "A lead works the goal with you in its terminal, then hands the engine a plan."
+        : "The engine runs the plan now. A lead starts only if something needs judgment: a question, a failure, a hung worker, a conflict or a failed Verify.";
 }
 
 export interface ShapeCard {
@@ -37,12 +34,11 @@ export interface ShapeCard {
     desc: string;
 }
 
-// Ordered widest-to-narrowest commitment. The descriptions say what the machine does, not what the word
-// means: "orchestrator" alone never told anyone that a lead plans first and workers come after.
+// The descriptions say what the machine does, not what the word means. Pipeline is not offered: slice 5c of
+// the orchestrator redesign deletes it, and + Run stops starting it first.
 export const SHAPE_CARDS: ShapeCard[] = [
-    { id: "pipeline", desc: "Phases in order, one worker each, gate between." },
-    { id: "orchestrator", desc: "A lead plans the work, then work fans out." },
-    { id: "quick", desc: "One worker, no phases, no plan gate." },
+    { id: "orchestrator", desc: "A lead and the engine: from a goal you shape together, or from your plan file." },
+    { id: "quick", desc: "One worker, no lead, no plan. It stops and asks if the goal turns out bigger." },
 ];
 
 export function clampParallelism(n: number): number {
@@ -50,14 +46,6 @@ export function clampParallelism(n: number): number {
         return DEFAULT_PARALLELISM;
     }
     return Math.min(MAX_PARALLELISM, Math.max(1, Math.round(n)));
-}
-
-// Which machine fans the work out. Stated in full because it is the most consequential choice in the
-// flow and the least visible: engine and adaptive share a shape name and produce different systems.
-export function machineNote(orchestration: Orchestration): string {
-    return orchestration === "engine"
-        ? `A DAG the engine schedules into managed worktrees, up to ${MAX_DAG_TASKS} tasks.`
-        : "The lead dispatches its own subagents as it goes.";
 }
 
 // What a channel's saved profile says about the launcher. Every field is nullable because a profile that is
@@ -75,7 +63,8 @@ export function profileRunDefaults(profile: JarvisProfile | null | undefined): P
     const machine = profile?.machine ?? "";
     const width = profile?.parallelism ?? 0;
     return {
-        shape: mode === "quick" || mode === "pipeline" || mode === "orchestrator" ? mode : null,
+        // a pipeline default has no card to land on, so it leaves the launcher's baseline standing
+        shape: mode === "quick" || mode === "orchestrator" ? mode : null,
         orchestration: machine === "engine" || machine === "adaptive" ? machine : null,
         // a width only counts when it is a width; anything else is the profile saying nothing
         parallelism: width > 0 ? clampParallelism(width) : null,
@@ -84,19 +73,45 @@ export function profileRunDefaults(profile: JarvisProfile | null | undefined): P
 }
 
 export interface RunLauncherFace {
-    showMachine: boolean;
-    showPlanner: boolean;
+    showStart: boolean;
     showParallelism: boolean;
     showWorkerRoute: boolean;
 }
 
-// Parallelism and the worker route are engine-only: WorkerRoute is read solely when the engine spawns
-// DAG children, and an adaptive lead's subagents never occupy a scheduler slot. Offering either for an
-// adaptive lead would promise a control that does nothing (see orchestratorPickerState, same rule).
-export function runLauncherFace(shape: RunShape, orchestration: Orchestration): RunLauncherFace {
+// The start, the width and the worker route belong to the orchestrator: parallelism and WorkerRoute are read
+// only when the engine spawns dag children, and a quick run has no plan to start from.
+export function runLauncherFace(shape: RunShape): RunLauncherFace {
     const orchestrator = shape === "orchestrator";
-    const engine = orchestrator && orchestration === "engine";
-    // engine-only for the same reason as the dials: `wsh jarvis dag submit` hands a DAG to the engine
-    // scheduler, and an adaptive lead has no DAG for a human-written plan to replace.
-    return { showMachine: orchestrator, showPlanner: engine, showParallelism: engine, showWorkerRoute: engine };
+    return { showStart: orchestrator, showParallelism: orchestrator, showWorkerRoute: orchestrator };
+}
+
+// PlanPreview is the launcher's last reading of a plan path: its parsed shape, or the parser's refusal.
+export interface PlanPreview {
+    path: string;
+    result?: CommandDagPlanPreviewRtnData;
+    error?: string;
+}
+
+export interface LaunchBlockerInput {
+    shape: RunShape;
+    start: StartFrom;
+    goal: string;
+    planPath: string;
+    preview: PlanPreview | null;
+}
+
+// launchBlocker says why a launch cannot start yet, or null when it can. A plan start waits for a preview of
+// the exact path it will send, so a plan that will not parse is refused before anything is created.
+export function launchBlocker(input: LaunchBlockerInput): string | null {
+    if (input.shape === "orchestrator" && input.start === "plan") {
+        const path = input.planPath.trim();
+        if (path === "") {
+            return "Give the plan's absolute path";
+        }
+        if (input.preview == null || input.preview.path !== path) {
+            return "Reading the plan…";
+        }
+        return input.preview.error ?? null;
+    }
+    return input.goal.trim() === "" ? "Write the goal" : null;
 }

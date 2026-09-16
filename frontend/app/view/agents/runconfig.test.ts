@@ -9,10 +9,11 @@ import {
     MAX_PARALLELISM,
     SHAPE_CARDS,
     clampParallelism,
-    machineNote,
-    plannerNote,
+    launchBlocker,
     profileRunDefaults,
     runLauncherFace,
+    startNote,
+    type LaunchBlockerInput,
 } from "./runconfig";
 
 // The two ceilings are Go consts the launcher states in prose ("up to 16 tasks", the stepper's bound). Nothing
@@ -58,8 +59,8 @@ describe("clampParallelism", () => {
 });
 
 describe("shape cards", () => {
-    it("covers every shape the composer can dispatch, once", () => {
-        expect(SHAPE_CARDS.map((s) => s.id)).toEqual(["pipeline", "orchestrator", "quick"]);
+    it("offers the two shapes a launch can start, once", () => {
+        expect(SHAPE_CARDS.map((s) => s.id)).toEqual(["orchestrator", "quick"]);
     });
 
     it("describes the machine rather than restating the name", () => {
@@ -70,68 +71,69 @@ describe("shape cards", () => {
     });
 });
 
-describe("machineNote", () => {
-    it("names the task ceiling the engine actually enforces", () => {
-        expect(machineNote("engine")).toContain(String(MAX_DAG_TASKS));
-    });
-
-    it("says the adaptive lead owns its own fan-out", () => {
-        expect(machineNote("adaptive")).not.toContain(String(MAX_DAG_TASKS));
-        expect(machineNote("adaptive")).toMatch(/subagents/);
-    });
-});
-
 describe("runLauncherFace", () => {
-    it("shows the machine choice only for an orchestrator", () => {
-        expect(runLauncherFace("orchestrator", "engine").showMachine).toBe(true);
-        expect(runLauncherFace("pipeline", "engine").showMachine).toBe(false);
-        expect(runLauncherFace("quick", "engine").showMachine).toBe(false);
+    it("gives the orchestrator its start, its width and its worker route", () => {
+        expect(runLauncherFace("orchestrator")).toEqual({
+            showStart: true,
+            showParallelism: true,
+            showWorkerRoute: true,
+        });
     });
 
-    it("gates parallelism and the worker route on the engine", () => {
-        const engine = runLauncherFace("orchestrator", "engine");
-        expect(engine.showParallelism).toBe(true);
-        expect(engine.showWorkerRoute).toBe(true);
-
-        // adaptive subagents never occupy a scheduler slot and never read WorkerRoute
-        const adaptive = runLauncherFace("orchestrator", "adaptive");
-        expect(adaptive.showParallelism).toBe(false);
-        expect(adaptive.showWorkerRoute).toBe(false);
-    });
-
-    it("never offers engine controls off the orchestrator shape", () => {
-        for (const shape of ["pipeline", "quick"] as const) {
-            const face = runLauncherFace(shape, "engine");
-            expect(face.showParallelism).toBe(false);
-            expect(face.showWorkerRoute).toBe(false);
-        }
-    });
-
-    // only the engine reads a submitted DAG, so only the engine can be launched without a lead
-    it("offers the planner choice only where a hand-written DAG can be submitted", () => {
-        expect(runLauncherFace("orchestrator", "engine").showPlanner).toBe(true);
-        expect(runLauncherFace("orchestrator", "adaptive").showPlanner).toBe(false);
-        expect(runLauncherFace("pipeline", "engine").showPlanner).toBe(false);
-        expect(runLauncherFace("quick", "engine").showPlanner).toBe(false);
+    // a quick run has no plan to start from and no dag children to route or widen
+    it("gives quick none of them", () => {
+        expect(runLauncherFace("quick")).toEqual({ showStart: false, showParallelism: false, showWorkerRoute: false });
     });
 });
 
-describe("plannerNote", () => {
-    it("names the plan gate for a lead", () => {
-        expect(plannerNote("lead")).toMatch(/plan gate/);
+describe("startNote", () => {
+    // a plan start runs with no lead, and a user not told when one appears reads that as a broken launch
+    it("tells a plan start when a lead appears", () => {
+        expect(startNote("plan")).toMatch(/judgment/);
+        expect(startNote("goal")).toMatch(/lead/);
+    });
+});
+
+describe("launchBlocker", () => {
+    const ready = { title: "Coupons", shape: { tasks: 2, lanes: 1, longestchain: 2 } } as CommandDagPlanPreviewRtnData;
+    const input = (over: Partial<LaunchBlockerInput>): LaunchBlockerInput => ({
+        shape: "orchestrator",
+        start: "goal",
+        goal: "",
+        planPath: "",
+        preview: null,
+        ...over,
     });
 
-    // choosing "you" starts a run with nothing running in it; the note is the only place the launcher
-    // says how to hand the DAG over, so a missing command reads as a broken launch
-    it("gives the human the command that hands the DAG over", () => {
-        expect(plannerNote("human")).toContain("wsh jarvis dag submit --file");
+    it("needs a goal to start from a goal", () => {
+        expect(launchBlocker(input({}))).toBe("Write the goal");
+        expect(launchBlocker(input({ goal: "ship coupons" }))).toBeNull();
     });
 
-    // a deferred run has no dag and no running phase, so ownerRunForBlock cannot resolve it and the
-    // bare command fails; a note that omits the ids strands exactly the person it is written for
-    it("keeps the ids the deferred run cannot resolve from a block", () => {
-        expect(plannerNote("human")).toContain("--channel");
-        expect(plannerNote("human")).toContain("--runid");
+    it("needs no goal to start from a plan it has read", () => {
+        expect(
+            launchBlocker(input({ start: "plan", planPath: "/p.md", preview: { path: "/p.md", result: ready } }))
+        ).toBeNull();
+    });
+
+    it("holds a plan start until the preview has read this exact path", () => {
+        expect(launchBlocker(input({ start: "plan", planPath: "  " }))).toBe("Give the plan's absolute path");
+        expect(launchBlocker(input({ start: "plan", planPath: "/p.md" }))).toBe("Reading the plan…");
+        expect(
+            launchBlocker(input({ start: "plan", planPath: "/new.md", preview: { path: "/p.md", result: ready } }))
+        ).toBe("Reading the plan…");
+    });
+
+    it("blocks on the parser's message", () => {
+        expect(
+            launchBlocker(
+                input({ start: "plan", planPath: "/p.md", preview: { path: "/p.md", error: "plan has no tasks" } })
+            )
+        ).toBe("plan has no tasks");
+    });
+
+    it("ignores a plan start left over on quick, which has no plan", () => {
+        expect(launchBlocker(input({ shape: "quick", start: "plan", goal: "fix the flake" }))).toBeNull();
     });
 });
 
@@ -165,9 +167,10 @@ describe("profileRunDefaults", () => {
         });
     });
 
-    it("maps the pipeline default and the adaptive machine", () => {
+    // + Run no longer offers pipeline, so a stored pipeline default has no card to land on
+    it("leaves a pipeline default to the launcher's baseline, and still maps the machine", () => {
         const got = profileRunDefaults({ playbook: [], defaultmode: "pipeline", machine: "adaptive" } as JarvisProfile);
-        expect(got.shape).toBe("pipeline");
+        expect(got.shape).toBeNull();
         expect(got.orchestration).toBe("adaptive");
     });
 

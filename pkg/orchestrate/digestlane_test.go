@@ -62,3 +62,20 @@ func TestDigestReportListsOneCommitPerLane(t *testing.T) {
 		t.Fatalf("a lane lands one commit, got %+v", r.Commits)
 	}
 }
+
+func TestDigestShapeCountsTasksLanesAndLongestChain(t *testing.T) {
+	cases := []struct {
+		name  string
+		tasks []waveobj.TaskNode
+		want  wshrpc.DagPlanShape
+	}{
+		{"one chain is one lane", chainTasks(), wshrpc.DagPlanShape{Tasks: 3, Lanes: 1, LongestChain: 3}},
+		{"independent tasks are a lane each", plainTasks(), wshrpc.DagPlanShape{Tasks: 3, Lanes: 3, LongestChain: 1}},
+	}
+	for _, c := range cases {
+		g := digestGroup(t, true, c.tasks)
+		if got := BuildDigest(digestSnapshot(g, nil, nil, nil, digestNow)).Shape; got != c.want {
+			t.Fatalf("%s: shape = %+v, want %+v", c.name, got, c.want)
+		}
+	}
+}

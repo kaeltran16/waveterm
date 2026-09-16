@@ -11,6 +11,8 @@ import {
     hydrateRunConfigFromProfile,
     orchestrationAtom,
     parallelismAtom,
+    planPathAtom,
+    planPreviewAtom,
     requestRouteOpen,
     resetRunConfig,
     resetRunConfigForChannel,
@@ -20,9 +22,12 @@ import {
     runShapeAtom,
     setOrchestration,
     setParallelism,
+    setPlanPath,
     setRunRoute,
     setRunShape,
+    setStart,
     setWorkerRoute,
+    startAtom,
     stepParallelism,
     workerRouteAtom,
 } from "./runconfigstore";
@@ -296,5 +301,35 @@ describe("hydrateRunConfigFromProfile", () => {
         hydrateRunConfigFromProfile({ playbook: [], defaultmode: "orchestrator", parallelism: 4 } as JarvisProfile);
         expect(globalStore.get(runShapeAtom)).toBe("orchestrator");
         expect(globalStore.get(parallelismAtom)).toBe(4);
+    });
+});
+
+describe("plan start", () => {
+    it("is a choice the user made, so a profile arriving does not replace it", () => {
+        setStart("plan");
+        setPlanPath("/repo/plan.md");
+        hydrateRunConfigFromProfile({ playbook: [], defaultmode: "orchestrator" } as JarvisProfile);
+        expect(globalStore.get(configTouchedAtom)).toBe(true);
+        expect(globalStore.get(startAtom)).toBe("plan");
+        expect(globalStore.get(planPathAtom)).toBe("/repo/plan.md");
+    });
+
+    // a plan file belongs to one launch; the next draft starts from a goal again
+    it("ends with the draft", () => {
+        setStart("plan");
+        setPlanPath("/repo/plan.md");
+        endRunConfigDraft(null);
+        expect(globalStore.get(startAtom)).toBe("goal");
+        expect(globalStore.get(planPathAtom)).toBe("");
+    });
+
+    it("resets with the rest of the configuration", () => {
+        setStart("plan");
+        setPlanPath("/repo/plan.md");
+        globalStore.set(planPreviewAtom, { path: "/repo/plan.md", error: "plan has no tasks" });
+        resetRunConfig();
+        expect(globalStore.get(startAtom)).toBe("goal");
+        expect(globalStore.get(planPathAtom)).toBe("");
+        expect(globalStore.get(planPreviewAtom)).toBeNull();
     });
 });

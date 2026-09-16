@@ -127,3 +127,59 @@ func TestDagSubmitFromPlanPath(t *testing.T) {
 		}
 	})
 }
+
+func TestDagPlanPreview(t *testing.T) {
+	ctx := context.Background()
+	write := func(t *testing.T, name, src string) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), name)
+		if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+
+	t.Run("reports the plan's name, commands and shape", func(t *testing.T) {
+		src := "# Coupons\n\n**Verify:** `task test`\n\n### Task 1: input\n**Depends on:** none\n\n### Task 2: totals\n**Depends on:** none\n\n### Task 3: tests\n**Depends on:** Task 1, Task 2\n"
+		got, err := (&WshServer{}).DagPlanPreviewCommand(ctx, wshrpc.CommandDagPlanPreviewData{PlanPath: write(t, "plan.md", src)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := wshrpc.CommandDagPlanPreviewRtnData{
+			Title:  "Coupons",
+			Verify: "task test",
+			Shape:  wshrpc.DagPlanShape{Tasks: 3, Lanes: 3, LongestChain: 2},
+		}
+		if !reflect.DeepEqual(*got, want) {
+			t.Fatalf("preview = %+v, want %+v", *got, want)
+		}
+	})
+
+	t.Run("a plan with no title is named by its file", func(t *testing.T) {
+		got, err := (&WshServer{}).DagPlanPreviewCommand(ctx, wshrpc.CommandDagPlanPreviewData{PlanPath: write(t, "2026-09-15-coupons.md", "### Task 1: input\n")})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Title != "2026-09-15-coupons" {
+			t.Fatalf("title = %q", got.Title)
+		}
+	})
+
+	t.Run("a plan that will not run is refused with the parser's message", func(t *testing.T) {
+		cases := []struct {
+			name    string
+			path    string
+			errPart string
+		}{
+			{"relative path", "plan.md", "absolute"},
+			{"missing file", filepath.Join(t.TempDir(), "missing.md"), "missing.md"},
+			{"no tasks", write(t, "prose.md", "just prose\n"), "no tasks"},
+		}
+		for _, c := range cases {
+			_, err := (&WshServer{}).DagPlanPreviewCommand(ctx, wshrpc.CommandDagPlanPreviewData{PlanPath: c.path})
+			if err == nil || !strings.Contains(err.Error(), c.errPart) {
+				t.Fatalf("%s: error %v should name %q", c.name, err, c.errPart)
+			}
+		}
+	})
+}

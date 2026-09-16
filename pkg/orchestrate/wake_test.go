@@ -5,6 +5,8 @@ package orchestrate
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/agentask"
@@ -20,6 +22,25 @@ const (
 	wakeLeadTab   = "7c2f1b63-3e6d-4d4c-8e9f-1a4c8d2b0f12"
 	finishedLine  = "wake: run finished. wsh jarvis dag status"
 )
+
+// the engine and merge fixtures build store-backed runs with a dag and no lead worker; each of their
+// judgment events would otherwise start a real launch goroutine that outlives its test
+func init() {
+	launchLeadFn = func(context.Context, string, string, string) {}
+}
+
+// stubLaunch records the wakes each started lead was launched with. The launch stays open until the test
+// settles it with leadLaunched.
+func stubLaunch(t *testing.T) *[]string {
+	t.Helper()
+	var launched []string
+	old := launchLeadFn
+	launchLeadFn = func(_ context.Context, _, _, wake string) { launched = append(launched, wake) }
+	t.Cleanup(func() { launchLeadFn = old })
+	return &launched
+}
+
+const failedLine = "wake: task t-1 failed (tests), retry spent. wsh jarvis dag status"
 
 // fakeLead scripts the lead's block and records what the adapter typed and appended.
 type fakeLead struct {
@@ -278,5 +299,96 @@ func TestHandoffUnconfirmedIsRetriedLikeAWake(t *testing.T) {
 	tickWakes(ctx)
 	if len(f.sends) != 2 || LeadDead(wakeRun) {
 		t.Fatalf("a confirmed handoff is done, sends=%q dead=%v", f.sends, LeadDead(wakeRun))
+	}
+}
+
+func TestNoLeadRunLaunchesItsLeadAtTheFirstJudgmentEvent(t *testing.T) {
+	f := newFakeLead(t)
+	f.state = leadState{NoLead: true}
+	launched := stubLaunch(t)
+
+	PostWake(context.Background(), wakeChannel, wakeRun, failedLine)
+
+	if len(*launched) != 1 || (*launched)[0] != failedLine {
+		t.Fatalf("the first judgment event launches the lead with the wake as its first message, got %q", *launched)
+	}
+	if len(f.sends) != 0 || LeadDead(wakeRun) {
+		t.Fatalf("a lead never launched is not dead and gets nothing typed, dead=%v sends=%q", LeadDead(wakeRun), f.sends)
+	}
+	if f.countKind(waveobj.RunEventKindLeadLaunched) != 1 || f.countKind(waveobj.RunEventKindLeadWakeFailed) != 0 {
+		t.Fatalf("want one lead-launched row and no lead-wake-failed row, got %+v", f.rows)
+	}
+}
+
+func TestNoLeadQuestionLaunchesTheLeadAndStaysItsQuestion(t *testing.T) {
+	f := newFakeLead(t)
+	f.state = leadState{NoLead: true}
+	launched := stubLaunch(t)
+	seedLeadAsk("block:child-1", "a1", 1)
+
+	PokeWake(context.Background(), wakeChannel, wakeRun)
+
+	if len(*launched) != 1 || (*launched)[0] != "wake: 1 question waiting. wsh jarvis dag asks" {
+		t.Fatalf("a question launches the lead with the question line, got %q", *launched)
+	}
+	if p, _ := agentask.GlobalRegistry.Get("block:child-1"); p.Owner != agentask.AskOwner_Lead {
+		t.Fatalf("a question raised before the lead exists is still the lead's, got %+v", p)
+	}
+}
+
+// decision 1: nobody has a judgment to make about a clean finish, and the engine closes the run itself
+func TestCleanFinishWithNoLeadLaunchesNothing(t *testing.T) {
+	f := newFakeLead(t)
+	f.state = leadState{NoLead: true}
+	launched := stubLaunch(t)
+
+	PostWake(context.Background(), wakeChannel, wakeRun, finishedLine)
+
+	if len(*launched) != 0 || len(f.rows) != 0 || LeadDead(wakeRun) {
+		t.Fatalf("a clean finish starts no lead and records nothing: launched=%q rows=%+v dead=%v", *launched, f.rows, LeadDead(wakeRun))
+	}
+}
+
+func TestEventsDuringALaunchWaitForTheLead(t *testing.T) {
+	f := newFakeLead(t)
+	f.state = leadState{NoLead: true}
+	launched := stubLaunch(t)
+	ctx := context.Background()
+
+	PostWake(ctx, wakeChannel, wakeRun, failedLine)
+	PostWake(ctx, wakeChannel, wakeRun, finishedLine)
+	tickWakes(ctx)
+	if len(*launched) != 1 {
+		t.Fatalf("one launch per lead while it starts, got %q", *launched)
+	}
+
+	f.state = leadState{BlockId: wakeLeadBlock, TabId: wakeLeadTab, Alive: true, State: baseds.AgentState_Idle}
+	leadLaunched(ctx, wakeChannel, wakeRun, nil)
+	tickWakes(ctx)
+
+	if len(f.sends) != 1 || f.sends[0] != finishedLine {
+		t.Fatalf("an event held while the lead started is typed once it is at its prompt, got %q", f.sends)
+	}
+}
+
+func TestFailedLaunchHandsJudgmentToTheUser(t *testing.T) {
+	f := newFakeLead(t)
+	f.state = leadState{NoLead: true}
+	stubLaunch(t)
+	ctx := context.Background()
+	seedLeadAsk("block:child-1", "a1", 1)
+	PokeWake(ctx, wakeChannel, wakeRun)
+
+	leadLaunched(ctx, wakeChannel, wakeRun, errors.New("no route for pi"))
+
+	if !LeadDead(wakeRun) {
+		t.Fatal("a lead that could not be started takes no wakes")
+	}
+	p, _ := agentask.GlobalRegistry.Get("block:child-1")
+	if p.Owner != agentask.AskOwner_User || !strings.Contains(p.Note, leadLaunchFailedNote) || !strings.Contains(p.Note, "no route for pi") {
+		t.Fatalf("its questions go to the user with why, got %+v", p)
+	}
+	if f.countKind(waveobj.RunEventKindLeadWakeFailed) != 1 {
+		t.Fatalf("want one lead-wake-failed row, got %+v", f.rows)
 	}
 }

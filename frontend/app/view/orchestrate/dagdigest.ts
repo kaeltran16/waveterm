@@ -157,6 +157,33 @@ export function reportChips(report: DagReportDigest | undefined): string[] {
     return chips;
 }
 
+function plural(n: number, word: string): string {
+    return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+
+// planShapeText is how a plan reads before and after it starts: how much work, how many lanes it runs in,
+// and the longest chain of tasks that wait on one another. Go computes the numbers (PlanShapeOf), so + Run
+// and the run card cannot disagree about a plan's lanes.
+export function planShapeText(shape: DagPlanShape | undefined): string | null {
+    if (shape == null || shape.tasks === 0) {
+        return null;
+    }
+    return `${plural(shape.tasks, "task")} · ${plural(shape.lanes, "lane")} · longest chain ${shape.longestchain}`;
+}
+
+// planWarnings names the two things a hand-written plan most often leaves out (spec §1): dependencies, so
+// every task queues in one lane, and a Verify line, so nothing is tested where lanes merge.
+export function planWarnings(shape: DagPlanShape, verify: string | undefined): string[] {
+    const out: string[] = [];
+    if (shape.lanes === 1 && shape.tasks > 1) {
+        out.push("serial");
+    }
+    if (!verify) {
+        out.push("unverified");
+    }
+    return out;
+}
+
 // --- degradation views (spec 8): what the overview may claim, given the digest's state ---------
 
 // HEALTH_TONE maps the digest's health enum onto tone tokens. Absent from the map means the digest

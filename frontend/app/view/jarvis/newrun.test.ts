@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { RunConfig } from "./newrun";
-import { launchOptsFromConfig, rankProjects, resolveChannelTarget, stepPick } from "./newrun";
+import { launchGoal, launchOptsFromConfig, rankProjects, resolveChannelTarget, stepPick } from "./newrun";
 
 const ch = (oid: string, projectpath: string): Channel => ({ oid, projectpath }) as Channel;
 
@@ -39,79 +39,66 @@ describe("resolveChannelTarget", () => {
 });
 
 describe("launchOptsFromConfig", () => {
-    const base = {
-        shape: "quick",
-        orchestration: "adaptive",
-        parallelism: 3,
-        workerRoute: null,
-        planner: "lead",
-    } as RunConfig;
+    const base: RunConfig = { shape: "quick", parallelism: 3, workerRoute: null, start: "goal", planPath: "" };
+    const workerRoute: RoutePin = { runtime: "claude" };
 
     it("names the mode rather than leaving the server to default it to quick", () => {
-        expect(launchOptsFromConfig({ ...base, shape: "pipeline" })).toEqual({ mode: "pipeline" });
+        expect(launchOptsFromConfig(base)).toEqual({ mode: "quick" });
     });
 
-    it("drops the engine dials on a shape that has no fan-out", () => {
-        const workerRoute: RoutePin = { runtime: "claude" };
-        expect(launchOptsFromConfig({ ...base, shape: "pipeline", parallelism: 6, workerRoute })).toEqual({
-            mode: "pipeline",
+    it("drops every orchestrator dial from quick", () => {
+        expect(
+            launchOptsFromConfig({ ...base, parallelism: 6, workerRoute, start: "plan", planPath: "/p.md" })
+        ).toEqual({
+            mode: "quick",
         });
     });
 
-    it("carries the width and the worker route for an engine orchestrator", () => {
-        const workerRoute: RoutePin = { runtime: "claude" };
-        expect(
-            launchOptsFromConfig({
-                ...base,
-                shape: "orchestrator",
-                orchestration: "engine",
-                parallelism: 4,
-                workerRoute,
-            })
-        ).toEqual({ mode: "orchestrator", orchestration: "engine", parallelism: 4, workerRoute });
-    });
-
-    it("withholds the width and the worker route from an adaptive lead, which fans out on its own", () => {
-        const workerRoute: RoutePin = { runtime: "claude" };
-        expect(
-            launchOptsFromConfig({
-                ...base,
-                shape: "orchestrator",
-                orchestration: "adaptive",
-                parallelism: 4,
-                workerRoute,
-            })
-        ).toEqual({ mode: "orchestrator", orchestration: "adaptive" });
-    });
-
-    it("defers the start when the human is writing the plan, so no lead is spawned to transcribe it", () => {
-        expect(
-            launchOptsFromConfig({ ...base, shape: "orchestrator", orchestration: "engine", planner: "human" })
-        ).toEqual({ mode: "orchestrator", orchestration: "engine", parallelism: 3, deferStart: true });
-    });
-
-    it("never sends deferStart for a lead-planned run, which the server already reads as start now", () => {
-        expect(
-            launchOptsFromConfig({ ...base, shape: "orchestrator", orchestration: "engine", planner: "lead" })
-        ).not.toHaveProperty("deferStart");
-    });
-
-    it("ignores the planner for an adaptive lead, which has no DAG to hand it", () => {
-        expect(
-            launchOptsFromConfig({ ...base, shape: "orchestrator", orchestration: "adaptive", planner: "human" })
-        ).toEqual({ mode: "orchestrator", orchestration: "adaptive" });
+    // spec §1: + Run has two shapes, and its orchestrator is the engine
+    it("always launches an orchestrator on the engine, with its width and worker route", () => {
+        expect(launchOptsFromConfig({ ...base, shape: "orchestrator", parallelism: 4, workerRoute })).toEqual({
+            mode: "orchestrator",
+            orchestration: "engine",
+            parallelism: 4,
+            workerRoute,
+        });
     });
 
     it("omits a worker route the launcher left inheriting the lead", () => {
+        expect(launchOptsFromConfig({ ...base, shape: "orchestrator", parallelism: 2 })).toEqual({
+            mode: "orchestrator",
+            orchestration: "engine",
+            parallelism: 2,
+        });
+    });
+
+    it("sends the trimmed plan path for a plan start", () => {
         expect(
-            launchOptsFromConfig({
-                ...base,
-                shape: "orchestrator",
-                orchestration: "engine",
-                parallelism: 2,
-                workerRoute: null,
-            })
-        ).toEqual({ mode: "orchestrator", orchestration: "engine", parallelism: 2 });
+            launchOptsFromConfig({ ...base, shape: "orchestrator", start: "plan", planPath: "  /repo/plan.md " })
+        ).toEqual({
+            mode: "orchestrator",
+            orchestration: "engine",
+            parallelism: 3,
+            planPath: "/repo/plan.md",
+        });
+    });
+
+    it("sends no plan path for a goal start, even with one typed", () => {
+        expect(launchOptsFromConfig({ ...base, shape: "orchestrator", planPath: "/repo/plan.md" })).not.toHaveProperty(
+            "planPath"
+        );
+    });
+});
+
+describe("launchGoal", () => {
+    it("sends the trimmed goal", () => {
+        expect(launchGoal({ shape: "quick", start: "plan" }, "  fix the flake ")).toBe("fix the flake");
+        expect(launchGoal({ shape: "orchestrator", start: "goal" }, " ship it ")).toBe("ship it");
+    });
+
+    // the goal field is hidden for a plan start, so a goal typed before switching must not name the run
+    it("sends none for a plan start, which the run's plan names", () => {
+        expect(launchGoal({ shape: "orchestrator", start: "plan" }, "an old goal")).toBe("");
     });
 });
 
