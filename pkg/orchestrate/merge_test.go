@@ -56,6 +56,70 @@ func TestMergeConflictBlocked(t *testing.T) {
 	}
 }
 
+// a lane that landed nothing must not be credited with whatever commit is the project's tip: acceptance 2's
+// report credited a verify-only task with its predecessor's commit
+func TestMergeOfALaneThatLandedNothingReturnsNoCommit(t *testing.T) {
+	cases := map[string]func(t *testing.T, wt string){
+		"no commits": func(*testing.T, string) {},
+		"commits that net to none": func(t *testing.T, wt string) {
+			os.WriteFile(filepath.Join(wt, "scratch.txt"), []byte("scratch\n"), 0o644)
+			gitCmd(t, wt, "add", ".")
+			gitCmd(t, wt, "commit", "-m", "add scratch")
+			gitCmd(t, wt, "rm", "-q", "scratch.txt")
+			gitCmd(t, wt, "commit", "-m", "drop scratch")
+		},
+	}
+	for name, work := range cases {
+		t.Run(name, func(t *testing.T) {
+			dir := newGitRepo(t)
+			os.WriteFile(filepath.Join(dir, "earlier.txt"), []byte("earlier lane\n"), 0o644)
+			gitCmd(t, dir, "add", ".")
+			gitCmd(t, dir, "commit", "-m", "run run-1: an earlier lane")
+			head := gitCmd(t, dir, "rev-parse", "HEAD")
+			wt, err := CreateRunWorktree(context.Background(), dir, "run-2", head)
+			if err != nil {
+				t.Fatal(err)
+			}
+			work(t, wt)
+
+			sha, err := MergeRunWorktree(context.Background(), dir, "run-2", "verify only", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if sha != "" {
+				t.Fatalf("want no commit, got %q", sha)
+			}
+			if got := gitCmd(t, dir, "rev-parse", "HEAD"); got != head {
+				t.Fatalf("nothing may be committed, HEAD moved to %s", got)
+			}
+		})
+	}
+}
+
+// a merge retried after its squash already landed still reports that squash, whether the branch survived the
+// earlier attempt or cleanup already deleted it
+func TestMergeRetryAfterTheSquashLandedReturnsItsCommit(t *testing.T) {
+	dir := newGitRepo(t)
+	base := gitCmd(t, dir, "rev-parse", "HEAD")
+	wt, _ := CreateRunWorktree(context.Background(), dir, "run-1", base)
+	os.WriteFile(filepath.Join(wt, "feature.txt"), []byte("feat\n"), 0o644)
+	gitCmd(t, wt, "add", ".")
+	gitCmd(t, wt, "commit", "-m", "feature")
+	landed, err := MergeRunWorktree(context.Background(), dir, "run-1", "do the thing", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if sha, err := MergeRunWorktree(context.Background(), dir, "run-1", "do the thing", nil); err != nil || sha != landed {
+		t.Fatalf("branch still present: want %s, got %q (%v)", landed, sha, err)
+	}
+	gitCmd(t, dir, "worktree", "remove", "--force", wt)
+	gitCmd(t, dir, "branch", "-D", "wave/run-1")
+	if sha, err := MergeRunWorktree(context.Background(), dir, "run-1", "do the thing", nil); err != nil || sha != landed {
+		t.Fatalf("branch deleted: want %s, got %q (%v)", landed, sha, err)
+	}
+}
+
 func TestMergeRunWorktreeNonGit(t *testing.T) {
 	dir := t.TempDir()
 	_, err := MergeRunWorktree(context.Background(), dir, "run-1", "x", nil)

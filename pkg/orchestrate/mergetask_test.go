@@ -146,6 +146,35 @@ func TestScheduleMergesDoneTaskAndUnblocksDependent(t *testing.T) {
 	}
 }
 
+// the commit a worker reports for a lane that landed nothing is only the tip it started from, so the merge
+// clears it: the run report and a dependent's handoff read EndCommit as the work the task landed
+func TestMergeThatLandedNothingLeavesNoCommitOnTheChild(t *testing.T) {
+	f := newMergeFixture(t, []waveobj.TaskNode{{ID: "t-0", Label: "verify only"}})
+	child := f.finish(t, "t-0")
+	if err := wstore.UpdateRun(f.ctx, f.channel, child, func(r *waveobj.Run) error {
+		r.EndCommit = "tip-it-started-from"
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stubMerge(t, func(context.Context, string, string, string) (string, error) { return "", nil })
+
+	if err := Schedule(f.ctx, f.dagID); err != nil {
+		t.Fatal(err)
+	}
+
+	if !f.dag(t).Tasks[0].Merged {
+		t.Fatal("a lane that landed nothing is still merged")
+	}
+	run, err := wstore.GetRun(f.ctx, f.channel, child)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.EndCommit != "" {
+		t.Fatalf("want no commit on the child, got %q", run.EndCommit)
+	}
+}
+
 // a gate is the human's checkpoint; automatic merging must not step over it.
 func TestScheduleLeavesGatedTaskUnmergedUntilReleased(t *testing.T) {
 	f := newMergeFixture(t, []waveobj.TaskNode{{ID: "t-0", Label: "gated", Gate: true}})
