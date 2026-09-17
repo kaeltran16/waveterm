@@ -179,28 +179,26 @@ func TestRunOwnsWorker(t *testing.T) {
 	}
 }
 
-// DAG-spawned children have no phase workerorefs; their worker tab runs in the child's own
-// worktree (run.ProjectPath). The scan must resolve them via the tab's cwd, otherwise the
-// child's `wsh jarvis complete` is a silent no-op and the DAG never advances.
-func TestResolveRunWorker_MatchesDagChildByCwd(t *testing.T) {
-	run := waveobj.Run{
-		ID:          "r-dag-child",
-		Goal:        "g",
-		DagORef:     "dag:g1",
-		ProjectPath: `C:\repo\.waveterm\worktrees\run1-t-1`,
-		Phases:      []waveobj.RunPhase{{Kind: PhaseKind_Execute, State: PhaseState_Running}},
-	}
-	c := chWithRun("c1", true, run)
-	// the asking tab's first block carries cmd:cwd = the worktree (UUID ids: ParseORef validates)
+// a lead works in the project checkout, which is also the project path of every other running dag run of that
+// project, so the scan must resolve its tab to the run that lists it even when another run comes first.
+func TestResolveRunWorker_ResolvesALeadToItsOwnRunBesideAnotherRunOfTheSameProject(t *testing.T) {
+	const project = `C:\repo`
 	tabOID := uuid.NewString()
 	blockOID := uuid.NewString()
+	other := waveobj.Run{ID: "r-other", DagORef: "g1", ProjectPath: project, Phases: []waveobj.RunPhase{
+		{Kind: PhaseKind_Execute, State: PhaseState_Running, WorkerOrefs: []string{"tab:other-lead"}},
+	}}
+	own := waveobj.Run{ID: "r-own", DagORef: "g2", ProjectPath: project, Phases: []waveobj.RunPhase{
+		{Kind: PhaseKind_Execute, State: PhaseState_Running, WorkerOrefs: []string{"tab:" + tabOID}},
+	}}
+	c := ch("c1", true)
+	c.Runs = []waveobj.Run{other, own}
+	// the lead tab's first block carries cmd:cwd = the project checkout (UUID ids: ParseORef validates)
 	tab := &waveobj.Tab{OID: tabOID, BlockIds: []string{blockOID}}
 	if err := wstore.DBInsert(context.Background(), tab); err != nil {
 		t.Fatal(err)
 	}
-	block := &waveobj.Block{OID: blockOID, Meta: waveobj.MetaMapType{
-		waveobj.MetaKey_CmdCwd: `C:\repo\.waveterm\worktrees\run1-t-1`,
-	}}
+	block := &waveobj.Block{OID: blockOID, Meta: waveobj.MetaMapType{waveobj.MetaKey_CmdCwd: project}}
 	if err := wstore.DBInsert(context.Background(), block); err != nil {
 		t.Fatal(err)
 	}
@@ -209,11 +207,7 @@ func TestResolveRunWorker_MatchesDagChildByCwd(t *testing.T) {
 		wstore.DBDelete(context.Background(), waveobj.OType_Block, blockOID)
 	})
 	m := ResolveRunWorker([]*waveobj.Channel{c}, "tab:"+tabOID)
-	if m == nil || m.Run.ID != "r-dag-child" {
-		t.Fatalf("dag child must resolve by worktree cwd, got %+v", m)
-	}
-	// a tab with a different cwd must not match
-	if m := ResolveRunWorker([]*waveobj.Channel{c}, "tab:nope"); m != nil {
-		t.Fatalf("want nil for unknown tab, got %+v", m)
+	if m == nil || m.Run.ID != "r-own" {
+		t.Fatalf("lead must resolve to its own run, got %+v", m)
 	}
 }

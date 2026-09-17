@@ -5,9 +5,7 @@ package wshserver
 
 import (
 	"context"
-	"path/filepath"
 
-	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
@@ -33,7 +31,6 @@ func ownerRunForBlock(ctx context.Context, blockOrefStr string) (*waveobj.Run, s
 		return nil, "", false
 	}
 	tabOrefStr := "tab:" + tabORef.OID
-	cwd := block.Meta.GetString(waveobj.MetaKey_CmdCwd, "")
 	channels, err := wstore.GetChannels(ctx)
 	if err != nil {
 		return nil, "", false
@@ -51,12 +48,6 @@ func ownerRunForBlock(ctx context.Context, blockOrefStr string) (*waveobj.Run, s
 					}
 				}
 			}
-			// DAG-spawned children have no phase workerorefs; their block runs in the child's own
-			// worktree (run.ProjectPath), so match the block's cwd against it. Only executing runs
-			// match — a cancelled attempt shares the worktree with its respawn.
-			if run.DagORef != "" && run.ProjectPath != "" && cwd != "" && runPhaseRunning(run) && filepath.Clean(cwd) == filepath.Clean(run.ProjectPath) {
-				return run, ch.OID, true
-			}
 		}
 	}
 	return nil, "", false
@@ -66,15 +57,6 @@ func ownerRunForBlock(ctx context.Context, blockOrefStr string) (*waveobj.Run, s
 // the run whose phases list that tab as a worker. Empty for an unresolvable caller — the lead's
 // `wsh jarvis dag` commands fall back on this so the engine's own session never needs to dig ids out
 // of the database (the "run context is not injected" flaw).
-func runPhaseRunning(run *waveobj.Run) bool {
-	for _, p := range run.Phases {
-		if p.State == jarvis.PhaseState_Running {
-			return true
-		}
-	}
-	return false
-}
-
 func (ws *WshServer) JarvisCtxCommand(ctx context.Context, data wshrpc.CommandJarvisCtxData) (*wshrpc.CommandJarvisCtxRtnData, error) {
 	rtn := &wshrpc.CommandJarvisCtxRtnData{}
 	run, channelId, ok := ownerRunForBlock(ctx, data.BlockORef)

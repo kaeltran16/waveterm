@@ -7,6 +7,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -37,6 +38,43 @@ func TestJarvisCtxResolvesOwnerRun(t *testing.T) {
 	}
 	if rtn.ChannelId != ch.OID || rtn.RunId != "11111111-1111-4111-8111-111111111111" || rtn.Goal != "owner goal" {
 		t.Fatalf("ctx mismatch: %+v", rtn)
+	}
+}
+
+// a lead works in the project checkout, which is also the project path of every other running run of that
+// project, so its dag commands must act on the run that lists its tab even when another run comes first.
+func TestJarvisCtxResolvesALeadToItsOwnRunBesideAnotherRunOfTheSameProject(t *testing.T) {
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "ctx-test3", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var runIds []string
+	for i, tab := range []string{"tab:88888888-8888-4888-8888-888888888888", "tab:99999999-9999-4999-8999-999999999999"} {
+		run := jarvis.NewRun("goal", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), int64(i+1))
+		run.DagORef = uuid.NewString()
+		run.Phases[0].WorkerOrefs = []string{tab}
+		if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
+			t.Fatal(err)
+		}
+		runIds = append(runIds, run.ID)
+	}
+	block := &waveobj.Block{
+		OID:        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+		ParentORef: "tab:99999999-9999-4999-8999-999999999999",
+		Meta:       waveobj.MetaMapType{waveobj.MetaKey_CmdCwd: ch.ProjectPath},
+	}
+	if err := wstore.DBInsert(ctx, block); err != nil {
+		t.Fatal(err)
+	}
+
+	ws := &WshServer{}
+	rtn, err := ws.JarvisCtxCommand(ctx, wshrpc.CommandJarvisCtxData{BlockORef: "block:" + block.OID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rtn.RunId != runIds[1] {
+		t.Fatalf("lead resolved to run %q, want its own run %q", rtn.RunId, runIds[1])
 	}
 }
 
