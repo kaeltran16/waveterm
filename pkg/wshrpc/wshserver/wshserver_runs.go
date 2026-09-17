@@ -227,9 +227,10 @@ func spawnRunWorkersWithPrompt(ctx context.Context, channelId, runId, projectNam
 	spawned, spawnErr := jarvis.EnsureWorkers(ctx, run, cap, projectName, prompt)
 	if len(spawned) > 0 {
 		if uerr := wstore.UpdateRun(ctx, channelId, runId, func(r *waveobj.Run) error {
-			for idx, oref := range spawned {
+			for idx, w := range spawned {
 				if idx >= 0 && idx < len(r.Phases) {
-					r.Phases[idx].WorkerOrefs = append(r.Phases[idx].WorkerOrefs, oref)
+					r.Phases[idx].WorkerOrefs = append(r.Phases[idx].WorkerOrefs, w.ORef)
+					r.SessionId = w.SessionId
 				}
 			}
 			return nil
@@ -240,9 +241,9 @@ func spawnRunWorkersWithPrompt(ctx context.Context, channelId, runId, projectNam
 		// direct meta read (channel-scaling design call 1); best-effort, never fatal to the spawn.
 		channelORef := waveobj.MakeORef(waveobj.OType_Channel, channelId).String()
 		runORef := waveobj.MakeORef(waveobj.OType_Run, runId).String()
-		for _, oref := range spawned {
-			if serr := wstore.StampWorkerOwner(ctx, oref, runORef, channelORef); serr != nil {
-				log.Printf("spawnRunWorkers: stamp worker %s: %v", oref, serr)
+		for _, w := range spawned {
+			if serr := wstore.StampWorkerOwner(ctx, w.ORef, runORef, channelORef); serr != nil {
+				log.Printf("spawnRunWorkers: stamp worker %s: %v", w.ORef, serr)
 			}
 		}
 	}

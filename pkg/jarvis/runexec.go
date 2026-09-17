@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
 	"github.com/wavetermdev/waveterm/pkg/harness"
@@ -179,14 +180,21 @@ func phasePrompt(run *waveobj.Run) string {
 	return BuildQuickPrompt(run.Goal, run.Principles, run.Runtime)
 }
 
+// SpawnedWorker is one worker EnsureWorkers launched: its tab oref and the session id its transcript is
+// named by.
+type SpawnedWorker struct {
+	ORef      string
+	SessionId string
+}
+
 // EnsureWorkers spawns a worker for each running phase that has none yet, returning the phase
-// index -> tab oref it created. It does not mutate/persist the run; the caller attaches the orefs.
-// The runtime comes from the persisted run; an empty runtime (legacy Run) resolves to Claude, the
-// historical worker implementation. On a spawn error it returns what it has so far plus the error
-// (the caller still persists partial work). A non-empty prompt replaces the phase's own: a lead started
-// after its plan was submitted works from the orchestration rules, not the goal-run launch prompt.
-func EnsureWorkers(ctx context.Context, run *waveobj.Run, cap runroute.Capability, projectName, prompt string) (map[int]string, error) {
-	spawned := map[int]string{}
+// index -> worker it created. It does not mutate/persist the run; the caller attaches the orefs and
+// records the session id. The runtime comes from the persisted run; an empty runtime (legacy Run) resolves
+// to Claude, the historical worker implementation. On a spawn error it returns what it has so far plus the
+// error (the caller still persists partial work). A non-empty prompt replaces the phase's own: a lead
+// started after its plan was submitted works from the orchestration rules, not the goal-run launch prompt.
+func EnsureWorkers(ctx context.Context, run *waveobj.Run, cap runroute.Capability, projectName, prompt string) (map[int]SpawnedWorker, error) {
+	spawned := map[int]SpawnedWorker{}
 	for i := range run.Phases {
 		p := run.Phases[i]
 		if p.State != PhaseState_Running || len(p.WorkerOrefs) > 0 {
@@ -196,12 +204,14 @@ func EnsureWorkers(ctx context.Context, run *waveobj.Run, cap runroute.Capabilit
 		if workerPrompt == "" {
 			workerPrompt = phasePrompt(run)
 		}
-		opts := RunWorkerOptions{KeepOnExit: run.Mode == RunMode_Orchestrator}
+		// without a session id the evidence seal can only guess the transcript from the worker's cwd, where
+		// another agent's session may be newer
+		opts := RunWorkerOptions{KeepOnExit: run.Mode == RunMode_Orchestrator, SessionId: uuid.NewString()}
 		oref, err := SpawnRunWorker(ctx, cap, run.WorkspaceId, projectName, run.ProjectPath, workerPrompt, opts)
 		if err != nil {
 			return spawned, fmt.Errorf("spawning worker for phase %d: %w", i, err)
 		}
-		spawned[i] = oref
+		spawned[i] = SpawnedWorker{ORef: oref, SessionId: opts.SessionId}
 	}
 	return spawned, nil
 }

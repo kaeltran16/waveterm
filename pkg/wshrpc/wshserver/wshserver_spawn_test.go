@@ -68,3 +68,38 @@ func TestSpawnRunWorkers_ConcurrentSpawnsOnce(t *testing.T) {
 		t.Fatalf("phase 0 WorkerOrefs = %d, want 1", n)
 	}
 }
+
+// A run's worker is launched under a session id the run records, so the sealed evidence reads that worker's
+// own transcript. Without one the seal took the newest Claude transcript in the project directory, and
+// acceptance 2's pi lead was summarised from another run's session.
+func TestSpawnRunWorkers_RecordsTheWorkersSessionId(t *testing.T) {
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "spawn-session", "/repo")
+	if err != nil {
+		t.Fatalf("CreateChannel: %v", err)
+	}
+	run := jarvis.NewRun("ship it", "ws-id", "/repo", nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
+	run.Runtime = "pi"
+	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
+		t.Fatalf("AppendRun: %v", err)
+	}
+	var launchedWith string
+	origSpawn := jarvis.SpawnRunWorker
+	jarvis.SpawnRunWorker = func(_ context.Context, _ runroute.Capability, _, _, _, _ string, opts jarvis.RunWorkerOptions) (string, error) {
+		launchedWith = opts.SessionId
+		return waveobj.MakeORef(waveobj.OType_Tab, "leadtab").String(), nil
+	}
+	defer func() { jarvis.SpawnRunWorker = origSpawn }()
+
+	if err := spawnRunWorkers(ctx, ch.OID, run.ID, ch.Name); err != nil {
+		t.Fatalf("spawnRunWorkers: %v", err)
+	}
+
+	out, err := wstore.GetRun(ctx, ch.OID, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if launchedWith == "" || out.SessionId != launchedWith {
+		t.Fatalf("launched with session %q, run records %q; want one id in both", launchedWith, out.SessionId)
+	}
+}
