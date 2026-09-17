@@ -17,7 +17,7 @@ import type { PetEventSource } from "./petvoice";
 // exhaustive and a new operation cannot be added without wiring it.
 export type PetOp = { kind: "reconcile-index" } | { kind: "clear-superseded"; count: number };
 
-// Where an escort lands. An oref goes through the existing openORef; the two surface targets exist because
+// Where an escort lands. An oref goes through openAddress; the two surface targets exist because
 // the Memory cleanup queue and the Settings embeddings section are not addressable as orefs.
 export type PetTarget =
     | { kind: "oref"; ref: string; anchor?: string }
@@ -128,7 +128,7 @@ export function actsForEvent(
     for (const s of event.sources ?? []) {
         const noteId = s.ref.startsWith(MEMNOTE_PREFIX) ? s.ref.slice(MEMNOTE_PREFIX.length) : null;
         if (noteId != null && noteExists(noteId) === false) {
-            continue; // known absent: openORef would no-op, and a dead click target is worse than none
+            continue; // known absent: the landing would only report it, and hiding a dead Open beats offering one
         }
         acts.push({
             id: `${event.id}:${s.ref}:open`,

@@ -368,15 +368,6 @@ export interface BriefingModel {
     counts: { runs: number; agents: number; delta: number; shipped: number };
 }
 
-// The ledger's dossier/blocker targets arrive as vault:<id> while the native record subject is
-// task:<id>. Briefing normalizes that one alias; it does not make vault: a global alias.
-export function normalizeBriefingNav(oref: string | undefined | null): string | null {
-    if (oref == null || oref === "") {
-        return null;
-    }
-    return oref.startsWith("vault:") ? "task:" + oref.slice("vault:".length) : oref;
-}
-
 // the ledger retains no dossier status-transition history; "Record updated · current status: X" is
 // the honest shape of a dossier's UpdatedTs event (detail arrives as "status: X").
 function dossierWording(detail: string | undefined): string {
@@ -444,7 +435,7 @@ export function projectBriefing(input: BriefingModelInput): BriefingModel {
     const blockerItems = projects.flatMap((p) => p.active ?? []).filter((a) => a.kind === "blocker");
     const blockers: BlockerRow[] = sortBy(
         blockerItems.map((a) => ({
-            oref: normalizeBriefingNav(a.navtarget) ?? "",
+            oref: a.navtarget ?? "",
             objective: a.title,
             blockers: a.detail ?? "",
             project: (a.project ?? "") === "" ? null : a.project,
@@ -504,7 +495,7 @@ export function projectBriefing(input: BriefingModelInput): BriefingModel {
                 title: ev.title,
                 wording,
                 detail: ev.detail ?? null,
-                oref: normalizeBriefingNav(ev.navtarget),
+                oref: ev.navtarget || null,
             };
         });
 

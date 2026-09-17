@@ -7,7 +7,7 @@
 // stays informational. Marked visually as ambient so it never reads as a confirmed edge.
 
 import { useAtomValue } from "jotai";
-import { openORef } from "@/app/view/jarvis/openref";
+import { openAddress } from "@/app/view/jarvis/openref";
 import type { AgentsViewModel } from "./agents";
 import { AmbientCard } from "./ambientcard";
 import { dismissProactive, dismissedProactiveAtom, proactiveNavOref, readProactiveSuggestion } from "./proactive";
@@ -24,7 +24,7 @@ export function ProactiveCard({ model, run }: { model: AgentsViewModel; run: Run
             eyebrow={`Related prior work · ${vm.sourceType}`}
             dismissLabel="Dismiss suggestion"
             onDismiss={() => dismissProactive(run)}
-            onClick={oref != null ? () => void openORef(model, oref) : undefined}
+            onClick={oref != null ? () => void openAddress(model, oref) : undefined}
         >
             <div className="truncate text-[12.5px] font-semibold text-secondary" title={vm.title}>
                 {vm.title}

@@ -5342,6 +5342,267 @@ const jarvisMotion = {
     },
 };
 
+// --- resource linking: an address opens what it names --------------------------------------------------------
+// The router's live check. A citation chip exists only after a live synthesis, so the DEV hook in
+// linkingdevhooks.ts seeds one answered exchange and the click under test is the real chip's. The chips point at
+// real objects read from this profile, because every landing proves its target exists first — invented ids
+// would only ever exercise the failure path. Nothing here writes. A profile missing a kind (no record holding a
+// decision, no memory, no investigated finding) fails that step and names what to seed, rather than passing on
+// a landing it never made.
+const resourceLinking = {
+    name: "resource-linking",
+    surface: "jarvis",
+    async arrange(h) {
+        const dossiers = (await h.rpc("listtaskdossiers", null))?.dossiers ?? [];
+        let decided = null;
+        for (const d of dossiers.slice(0, 25)) {
+            const detail = await h.rpc("getdossier", { dossierid: d.id }).catch(() => null);
+            const decision = detail?.decisions?.[0];
+            if (decision) {
+                decided = { dossierId: d.id, objective: d.objective, decisionId: decision.id };
+                break;
+            }
+        }
+        const note = ((await h.rpc("memoryscan", null))?.notes ?? [])[0] ?? null;
+        const reports = (await h.rpc("listradarreports", { projectpath: "" }))?.reports ?? [];
+        const newest = new Map();
+        for (const r of reports) {
+            const prior = newest.get(r.projectpath);
+            if (!prior || r.startedts > prior.startedts) newest.set(r.projectpath, r);
+        }
+        const scanned = reports.filter((r) => (r.findings ?? []).length > 0);
+        // an older report is the case the Radar landing exists for: initRadarScope selects the NEWEST, so only
+        // an older one tells a landing that held apart from one that was overwritten
+        const cited = scanned.find((r) => newest.get(r.projectpath)?.oid !== r.oid) ?? scanned[0] ?? null;
+        let investigated = null;
+        for (const r of reports) {
+            const f = (r.findings ?? []).find((x) => x.investigation && x.investigation.status !== "orphaned");
+            if (f) {
+                investigated = { reportId: r.oid, findingId: f.id };
+                break;
+            }
+        }
+        return {
+            dossier: dossiers[0] ? { id: dossiers[0].id, objective: dossiers[0].objective } : null,
+            decided,
+            note: note ? { id: note.id, title: note.title } : null,
+            radar: cited
+                ? {
+                      reportId: cited.oid,
+                      findingId: cited.findings[0].id,
+                      newest: newest.get(cited.projectpath)?.oid === cited.oid,
+                  }
+                : null,
+            investigated,
+        };
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
+        const waitFor = async (expr, ms) => {
+            for (let waited = 0; waited < ms; waited += 250) {
+                if ((await h.ev(expr)) === true) return true;
+                await settle(250);
+            }
+            return false;
+        };
+        const present = (selector) => `!!document.querySelector(${JSON.stringify(selector)})`;
+        const toastText = () =>
+            h.ev(`[...document.querySelectorAll('[data-notification-toast]')].map((t) => t.innerText).join(' | ')`);
+        const card = (n, sourceType, title, navTarget, anchor) => ({
+            n,
+            sourceType,
+            title,
+            project: "",
+            ageMs: 0,
+            freshness: "fresh",
+            navTarget,
+            anchor,
+        });
+        const cards = [];
+        if (ctx.dossier) cards.push(card(1, "dossier", ctx.dossier.objective, `task:${ctx.dossier.id}`));
+        if (ctx.decided) {
+            cards.push(card(2, "decision", "a decision", `task:${ctx.decided.dossierId}`, ctx.decided.decisionId));
+        }
+        if (ctx.note) cards.push(card(3, "memory", ctx.note.title, `memnote:${ctx.note.id}`));
+        if (ctx.radar) {
+            cards.push(card(4, "radar", "a finding", `radarreport:${ctx.radar.reportId}`, ctx.radar.findingId));
+        }
+        if (ctx.investigated) {
+            const { reportId, findingId } = ctx.investigated;
+            cards.push(card(5, "radar", "an investigated finding", `radarreport:${reportId}`, findingId));
+        }
+        // the hooks install when the Brief mounts, and a reload undoes them; seeding again before every click also
+        // means a peek or thread collapse from the previous step cannot take the chips with it
+        const seed = async () => {
+            await h.goto("jarvis");
+            if (!(await waitFor(`typeof window.__seedBriefCitations === 'function'`, 5000))) return false;
+            await h.ev(`window.__seedBriefCitations(${JSON.stringify(cards)})`);
+            return waitFor(
+                `document.querySelectorAll('button[data-jarvis-brief-row="cite"]').length >= ${cards.length}`,
+                3000
+            );
+        };
+        const clickCite = (n) =>
+            h.ev(`(() => {
+                const chip = [...document.querySelectorAll('button[data-jarvis-brief-row="cite"]')]
+                    .find((b) => (b.innerText || '').trim().startsWith('[${n}]'));
+                if (!chip) return false;
+                chip.click();
+                return true;
+            })()`);
+        const peekShows = (objective) =>
+            waitFor(
+                `(document.querySelector('[data-jarvis-brief-band="peek"]')?.innerText || '').includes(${JSON.stringify(
+                    (objective || "").slice(0, 40)
+                )})`,
+                5000
+            );
+        // Escape closes the peek (and the run sheet in step 6); waiting on the peek band keeps the next step from
+        // reading the previous step's overlay
+        const dismissOverlay = async () => {
+            await h.ev(
+                `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }))`
+            );
+            await waitFor(`!document.querySelector('[data-jarvis-brief-band="peek"]')`, 2000);
+        };
+
+        rec(
+            "1. the DEV hook seeds a citation chip per kind this profile holds",
+            (await seed()) === true,
+            `chips=${cards.map((c) => c.n).join(",")}`
+        );
+
+        if (!ctx.dossier) {
+            rec(
+                "2. a record citation opens the record's peek",
+                false,
+                "no record in this profile - seed one before reading this as a pass"
+            );
+        } else {
+            const clicked = (await seed()) && (await clickCite(1));
+            const shown = await peekShows(ctx.dossier.objective);
+            rec(
+                "2. a record citation opens the record's peek",
+                clicked && shown,
+                JSON.stringify({ clicked, shown, toasts: await toastText() })
+            );
+            await dismissOverlay();
+        }
+
+        if (!ctx.decided) {
+            rec(
+                "3. a decision citation opens its record's peek",
+                false,
+                "no record with a decision among the first 25 - seed one before reading this as a pass"
+            );
+        } else {
+            const clicked = (await seed()) && (await clickCite(2));
+            const shown = await peekShows(ctx.decided.objective);
+            rec(
+                "3. a decision citation opens its record's peek",
+                clicked && shown,
+                JSON.stringify({ clicked, shown, toasts: await toastText() })
+            );
+            await dismissOverlay();
+        }
+
+        if (!ctx.note) {
+            rec("4. a memory citation opens the note in the Vault", false, "no memory notes in this profile");
+        } else {
+            const clicked = (await seed()) && (await clickCite(3));
+            const shown = await waitFor(present(`[data-vault-note-detail="${ctx.note.id}"]`), 6000);
+            const surface = await h.activeSurfaceLabel();
+            rec(
+                "4. a memory citation opens the note in the Vault",
+                clicked && shown && surface === SURFACE_LABEL.vault,
+                JSON.stringify({ clicked, shown, surface, toasts: await toastText() })
+            );
+        }
+
+        if (!ctx.radar) {
+            rec(
+                "5. a finding citation lands on that finding on a first Radar visit",
+                false,
+                "no scan report with findings in this profile"
+            );
+        } else {
+            // a reload is what makes this Radar's first visit: its scope lives in module state
+            await h.ev("location.reload()");
+            await settle(2800);
+            const clicked = (await seed()) && (await clickCite(4));
+            const selector = `[data-radar-finding-detail="${ctx.radar.findingId}"][data-radar-report="${ctx.radar.reportId}"]`;
+            const shown = await waitFor(present(selector), 8000);
+            const surface = await h.activeSurfaceLabel();
+            rec(
+                "5. a finding citation lands on that finding on a first Radar visit",
+                clicked && shown && surface === SURFACE_LABEL.radar,
+                JSON.stringify({ clicked, shown, surface, olderThanNewest: !ctx.radar.newest, toasts: await toastText() })
+            );
+        }
+
+        if (!ctx.investigated) {
+            rec(
+                "6. Radar's Open run lands on the run's sheet",
+                false,
+                "no investigated finding in this profile - start an investigation from Radar before reading this as a pass"
+            );
+        } else {
+            const clicked = (await seed()) && (await clickCite(5));
+            const detail = `[data-radar-finding-detail="${ctx.investigated.findingId}"]`;
+            const onFinding = await waitFor(present(detail), 8000);
+            const opened =
+                onFinding &&
+                (await h.ev(`(() => {
+                    const b = [...document.querySelectorAll(${JSON.stringify(`${detail} button`)})]
+                        .find((x) => (x.textContent || '').trim() === 'Open run');
+                    if (!b) return false;
+                    b.click();
+                    return true;
+                })()`));
+            const runBody = await waitFor(
+                present('[data-jarvis-brief-sheet="channel"] [data-jarvis-brief-sheet-face="settings"]'),
+                10000
+            );
+            const surface = await h.activeSurfaceLabel();
+            rec(
+                "6. Radar's Open run lands on the run's sheet",
+                clicked && opened && runBody && surface === SURFACE_LABEL.jarvis,
+                JSON.stringify({ clicked, onFinding, opened, runBody, surface, toasts: await toastText() })
+            );
+            await dismissOverlay();
+        }
+
+        await h.goto("jarvis");
+        await waitFor(`typeof window.__openAddress === 'function'`, 5000);
+        const result = await h.ev(`window.__openAddress("bogus:resource-linking-probe")`);
+        await settle(400);
+        const toasts = await toastText();
+        const surface = await h.activeSurfaceLabel();
+        rec(
+            "7. an address nothing can open shows the toast and leaves the surface where it was",
+            result?.reason === "unsupported" &&
+                toasts.includes("This item can't be opened") &&
+                surface === SURFACE_LABEL.jarvis,
+            JSON.stringify({ result, toasts, surface })
+        );
+        await h.shot("cdp-shots/resource-linking.png");
+        return steps;
+    },
+    async teardown(h) {
+        await h.goto("jarvis");
+        // the seeded exchange is launch-local, but a later scenario reading the Brief should not find it
+        await h.ev(`(() => {
+            const b = [...document.querySelectorAll('[data-jarvis-brief-thread] button')]
+                .find((x) => (x.textContent || '').includes('Collapse'));
+            if (b) b.click();
+            return true;
+        })()`);
+        await h.goto("cockpit");
+    },
+};
+
 export const SCENARIOS = [
     vaultSteering,
     vaultRecords,
@@ -5376,4 +5637,5 @@ export const SCENARIOS = [
     routePickerFlat,
     jarvisMotion,
     briefInlineTracker,
+    resourceLinking,
 ];

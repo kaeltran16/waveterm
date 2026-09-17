@@ -7,6 +7,29 @@ where it would plug in, and how to pick it back up. Append new entries at the to
 > append-only rationale log — append the full deferral here, then mirror a one-line row there. Entries
 > marked RESOLVED/DECLINED below are kept for the reasoning, not as pending work.
 
+## Resource linking beyond navigation: relationships, trail, structured refs, wider targets (2026-09-17)
+
+The resource-linking slice shipped canonical addresses, one parser and one `openTarget`
+(`docs/superpowers/specs/2026-09-15-cross-surface-resource-linking-design.md`). The spec was cut to that core at
+review; everything else it designed waits for evidence, with each settled decision kept in the spec's
+"Deferred until evidence" section so it is not re-derived.
+
+- **What was deferred:**
+  - Related Work: forward links and backlinks derived from authoritative Run/DAG/Radar/effort data and
+    attribution edges, no persisted link table, inferred edges showing `jarvisattrib`'s own provenance. Needs a
+    mockup per `DESIGN.md`.
+  - The Work Trail strip: explicit lineage only (finding → Run → task → worker → files), stopping at a branch.
+  - Structured resource refs on the wire (file revisions, nested parents) — nothing persists a file revision yet.
+  - File, diff, commit and session targets in `openTarget`; `openInCode` and `openDiff` stay the landings.
+  - A shared contextual-action builder across buttons, menus and the palette.
+  - Usage-to-work links, which need per-session or per-run attribution in the usage scanner first.
+  - Unifying the attachment oref namespace (`resolveAttached`'s `run:`/`memory:`/`radar:`) with addresses.
+  - Cross-surface Back is the entry below.
+- **Why:** no flow has yet shown the need; each item names its trigger in the spec.
+- **Where to pick it up:** the spec's "Deferred until evidence" section; the router is
+  `frontend/app/view/jarvis/openref.ts` and the parser `frontend/app/view/jarvis/address.ts`. A new target kind
+  is a union member in `address.ts`, a landing in `openref.ts`, and a row in `openref.test.ts`.
+
 ## Cross-surface Back history, its context strip, and a Space filter on the Brief (2026-09-17)
 
 The first cross-surface plan (`effort:2450d93e`) built typed surface navigation and a Space filter in

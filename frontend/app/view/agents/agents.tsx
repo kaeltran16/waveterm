@@ -71,8 +71,6 @@ export class AgentsViewModel implements ViewModel {
     // + focus pane). Always live (reads the workspace session sidebar), independent of the dev mock roster.
     terminalsAtom: Atom<AgentVM[]> = liveTerminalsAtom;
     pendingLaunchesAtom = atom<PendingLaunch[]>([]) as PrimitiveAtom<PendingLaunch[]>;
-    // the term blockId the Agent surface renders; undefined = no terminal open
-    terminalTargetAtom = atom<string | undefined>(undefined) as PrimitiveAtom<string | undefined>;
 
     // orchestration state lifted off the surface's useStates (spec §4); surfaces read/write via globalStore
     surfaceAtom = atom<SurfaceKey>("cockpit");
@@ -155,11 +153,9 @@ export class AgentsViewModel implements ViewModel {
         this.agentsAtom = atom((get) => mergePendingLaunches(get(base), get(pendingAtom), Date.now()));
     }
 
-    // openTerminal routes to the interim Agent surface (spec §6): set the target block, clear any focused
-    // transcript, switch surface. The Agent surface renders CockpitFocusPane; the controller starts on render.
+    // openTerminal routes to the Agent surface (spec §6): focus the agent and switch surface. The Agent surface
+    // renders the focused agent's live terminal; the controller starts on render.
     openTerminal(agentId: string) {
-        const agent = globalStore.get(this.agentsAtom).find((a) => a.id === agentId);
-        globalStore.set(this.terminalTargetAtom, agent?.blockId);
         globalStore.set(this.focusIdAtom, agentId);
         globalStore.set(this.surfaceAtom, "agent");
     }

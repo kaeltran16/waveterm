@@ -285,6 +285,9 @@ Other held items (each names its own revive condition in `docs/deferred.md`):
   need); a Space filter on the Brief (needs a decision on what a Space hides among inline tracker rows);
   reverse links; palette Open versus Execute. Parked as `faba2ade` on `feat/surface-integration`
   (2026-09-17).
+- **Resource linking beyond navigation:** Related Work, the Work Trail strip, structured refs, file/diff/commit/
+  session targets, a shared action builder, usage-to-work links, one oref namespace — revive each on the trigger
+  the spec names. Rationale in `docs/deferred.md` (2026-09-17); the navigation core shipped.
 
 ---
 

@@ -76,7 +76,6 @@ const FILTERS: { key: SessionStatusFilter; label: string }[] = [
 function runSessionPrimary(model: AgentsViewModel, session: LiveSession) {
     if (session.live && session.liveId) {
         globalStore.set(model.focusIdAtom, session.liveId);
-        globalStore.set(model.terminalTargetAtom, undefined);
         globalStore.set(model.surfaceAtom, "agent");
         return;
     }

@@ -86,7 +86,7 @@ func ActiveWork(runs []*waveobj.Run, sessions []agentsessions.SessionInfo, atten
 		}
 		out = append(out, wshrpc.ActiveWorkItem{
 			Kind: "blocker", Title: d.Objective, Detail: joinBlockers(d.Blockers),
-			Ts: d.Updated, NavTarget: "vault:" + d.ID,
+			Ts: d.Updated, NavTarget: "task:" + d.ID,
 		})
 	}
 	return out
@@ -160,7 +160,7 @@ func Timeline(runs []*waveobj.Run, sessions []agentsessions.SessionInfo, decisio
 		add(wshrpc.TimelineEvent{Ts: d.CreatedTs, Kind: "decision", Title: d.Summary})
 	}
 	for _, d := range dossiers {
-		add(wshrpc.TimelineEvent{Ts: d.Updated, Kind: "dossier", Title: d.Objective, Detail: "status: " + d.Status, NavTarget: "vault:" + d.ID})
+		add(wshrpc.TimelineEvent{Ts: d.Updated, Kind: "dossier", Title: d.Objective, Detail: "status: " + d.Status, NavTarget: "task:" + d.ID})
 	}
 	for _, e := range efforts {
 		if e.Status == "archived" {

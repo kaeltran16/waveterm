@@ -74,6 +74,7 @@ export function mapWireCard(w: JarvisConvoGroundingCard): GroundingCard {
         ageMs: w.agems,
         freshness: wireFreshness(w.freshness),
         navTarget: w.navtarget,
+        anchor: w.anchor,
     };
 }
 

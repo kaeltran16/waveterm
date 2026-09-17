@@ -37,7 +37,6 @@ export function workerFor(agents: AgentVM[], refORef: string): AgentVM | undefin
 
 export function jumpToAgent(model: AgentsViewModel, id: string) {
     globalStore.set(model.focusIdAtom, id);
-    globalStore.set(model.terminalTargetAtom, undefined);
     globalStore.set(model.surfaceAtom, "agent");
 }
 

@@ -102,6 +102,21 @@ describe("mapWireCard", () => {
             n: 3, sourceType: "memory", title: "t", project: "waveterm", ageMs: 42, freshness: "stale", navTarget: "memory:x",
         });
     });
+
+    it("carries the anchor a citation lands on within its address", () => {
+        const card = mapWireCard({
+            n: 1,
+            sourcetype: "decision",
+            title: "a",
+            project: "p",
+            agems: 0,
+            freshness: "fresh",
+            navtarget: "task:d-1",
+            anchor: "dec-1",
+        });
+        expect(card.navTarget).toBe("task:d-1");
+        expect(card.anchor).toBe("dec-1");
+    });
 });
 
 describe("mapConvoRecord", () => {

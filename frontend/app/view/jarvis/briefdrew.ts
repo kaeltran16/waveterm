@@ -12,7 +12,9 @@ import type { Freshness, JarvisConversation, SourceType } from "./jarviscontract
 import { isAnswerTurn } from "./jarviscontract";
 
 export interface DrewRow {
-    key: string; // navTarget: the source's identity, and the dedupe key
+    key: string; // the source's identity and the dedupe key: its address, plus the anchor within it
+    navTarget: string;
+    anchor?: string;
     sourceType: SourceType;
     title: string;
     project: string;
@@ -50,15 +52,19 @@ export function drewOn(conversation: JarvisConversation): DrewSummary {
             continue;
         }
         for (const card of turn.grounding ?? []) {
-            const key = card.navTarget ?? "";
-            if (key === "") {
+            const navTarget = card.navTarget ?? "";
+            if (navTarget === "") {
                 continue; // a card with no target names no source we could open
             }
+            // a record and a decision within it share an address and are still two sources
+            const key = card.anchor ? `${navTarget}#${card.anchor}` : navTarget;
             cited += 1;
             const prior = byKey.get(key);
             if (prior == null) {
                 byKey.set(key, {
                     key,
+                    navTarget,
+                    anchor: card.anchor,
                     sourceType: card.sourceType,
                     title: card.title,
                     project: card.project,

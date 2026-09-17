@@ -54,6 +54,7 @@ export interface GroundingCard {
     ageMs: number; // age at synthesis time; rendered via recallderive.ageLabel
     freshness: Freshness;
     navTarget: string; // ORef opened in the native surface
+    anchor?: string; // the sub-object to land on within navTarget: a decision in its record, a finding in its report
     expanded?: boolean; // one card may be expanded (state 3)
 }
 

@@ -52,4 +52,5 @@ type JarvisConvoGroundingCard struct {
 	AgeMs      int64  `json:"agems"`
 	Freshness  string `json:"freshness"`
 	NavTarget  string `json:"navtarget"`
+	Anchor     string `json:"anchor,omitempty"` // the sub-object to land on within NavTarget: a decision in its record, a finding in its report
 }

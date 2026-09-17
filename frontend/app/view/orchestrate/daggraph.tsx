@@ -110,12 +110,10 @@ const nodeTypes = { dagTask: DagTaskNode };
 // per spec 6.2. Node clicks still only select — navigation happens through the buttons.
 function SelectedTaskWorker({
     taskNode,
-    channelId,
     model,
     agents,
 }: {
     taskNode: TaskNode;
-    channelId: string;
     model: AgentsViewModel;
     agents: AgentVM[];
 }) {
@@ -139,7 +137,7 @@ function SelectedTaskWorker({
                     type="button"
                     onClick={(e) => {
                         e.stopPropagation();
-                        openTaskWorker(worker, model, channelId);
+                        openTaskWorker(worker, model);
                     }}
                     className="flex-none cursor-pointer rounded-[5px] border border-accent/50 px-1.5 py-0.5 font-mono text-[9.5px] font-semibold text-accent-soft hover:border-accent"
                 >
@@ -156,7 +154,7 @@ function SelectedTaskWorker({
                 type="button"
                 onClick={(e) => {
                     e.stopPropagation();
-                    openTaskWorker(worker, model, channelId);
+                    openTaskWorker(worker, model);
                 }}
                 className="flex-none cursor-pointer rounded-[5px] border border-edge-mid px-1.5 py-0.5 font-mono text-[9.5px] text-secondary hover:border-edge-strong"
             >
@@ -318,7 +316,6 @@ function DagGraphInner({ oref, owner, harnesses }: { oref: string; owner: Run; h
                             {selectedNode && agentsCtx ? (
                                 <SelectedTaskWorker
                                     taskNode={selectedNode}
-                                    channelId={group.channelid}
                                     model={agentsCtx.model}
                                     agents={agentsCtx.agents}
                                 />

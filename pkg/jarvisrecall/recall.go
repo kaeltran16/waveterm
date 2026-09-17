@@ -160,7 +160,7 @@ func assembleSlice(ctx context.Context, v *wavevault.Vault, r *wavevault.Retriev
 		if nb, rerr := r.Read(n.ID); rerr == nil {
 			body = nb.Body
 		}
-		cands = append(cands, nodeCandidate(n, body, seedRank[n.ID]))
+		cands = append(cands, nodeCandidate(n, body, seedRank[n.ID], r.ParentRecord))
 		for _, l := range n.Links {
 			if strings.HasPrefix(l, "run-") && !seenRun[l] {
 				seenRun[l] = true

@@ -4,14 +4,14 @@
 import { globalStore } from "@/app/store/jotaiStore";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const openORef = vi.fn();
+const openAddress = vi.fn();
 const askAboutSource = vi.fn();
 const confirmPruneAllSuperseded = vi.fn();
 const startIndexCatchUp = vi.fn();
 const postMessage = vi.fn();
 const consult = vi.fn();
 
-vi.mock("./openref", () => ({ openORef: (...a: any[]) => openORef(...a) }));
+vi.mock("./openref", () => ({ openAddress: (...a: any[]) => openAddress(...a) }));
 vi.mock("./jarvissubjectstore", () => ({ askAboutSource: (...a: any[]) => askAboutSource(...a) }));
 // real atoms, not stand-in objects: the runner writes them through globalStore, and jotai's set() needs a
 // genuine atom. memstore itself is mocked so this stays a test of the runner rather than of the vault store.
@@ -52,8 +52,9 @@ afterEach(() => {
 });
 
 describe("runAct — escorts", () => {
-    it("closes the peek before navigating, so an anchored overlay is not stranded", async () => {
+    it("closes the peek once the landing succeeds, so an anchored overlay is not stranded", async () => {
         globalStore.set(petPeekOpenAtom, true);
+        openAddress.mockResolvedValue({ ok: true });
         const act: PetAct = {
             id: "x",
             verb: "open",
@@ -62,7 +63,26 @@ describe("runAct — escorts", () => {
         };
         await runAct(model, act);
         expect(globalStore.get(petPeekOpenAtom)).toBe(false);
-        expect(openORef).toHaveBeenCalledWith(model, "memnote:abc", undefined);
+        expect(openAddress).toHaveBeenCalledWith(model, "memnote:abc", { anchor: undefined }, expect.any(Function));
+    });
+
+    // the landing leaves the user where they were, so the act that asked is where its failure is read
+    it("keeps the peek open and reports a failed landing on the act", async () => {
+        globalStore.set(petPeekOpenAtom, true);
+        openAddress.mockImplementation(
+            async (_model: unknown, _address: string, _hint: unknown, report: (r: unknown) => void) => {
+                const result = { ok: false, reason: "unavailable", message: "That memory note no longer exists" };
+                report(result);
+                return result;
+            }
+        );
+        const act: PetAct = { id: "gone", verb: "open", label: "Open", target: { kind: "oref", ref: "memnote:gone" } };
+        await runAct(model, act);
+        expect(globalStore.get(petPeekOpenAtom)).toBe(true);
+        expect(globalStore.get(petActStateAtom)["gone"]).toEqual({
+            status: "error",
+            text: "That memory note no longer exists",
+        });
     });
 
     it("routes the memory escort to the Vault's memory collection in list view, naming the section it wants", async () => {
@@ -72,7 +92,7 @@ describe("runAct — escorts", () => {
         expect(globalStore.get(vaultTabAtom)).toBe("memory");
         expect(globalStore.get(memViewAtom)).toBe("list");
         expect(globalStore.get(pendingMemoryFocusAtom)).toBe("upkeep");
-        expect(openORef).not.toHaveBeenCalled();
+        expect(openAddress).not.toHaveBeenCalled();
     });
 
     it("routes the settings escort to the settings surface, naming the embeddings section", async () => {

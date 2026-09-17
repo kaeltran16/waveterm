@@ -280,9 +280,8 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
         setBackgroundedIds((prev) => toggleInSet(prev, id));
     };
 
-    // open the agent in the Agent surface: clear any open terminal, set focus, switch surface
+    // open the agent in the Agent surface: set focus, switch surface
     const openFocus = (id: string, reply: boolean) => {
-        globalStore.set(model.terminalTargetAtom, undefined);
         globalStore.set(model.focusIdAtom, id);
         globalStore.set(model.focusReplyAtom, reply);
         globalStore.set(model.surfaceAtom, "agent");

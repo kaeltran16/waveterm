@@ -55,43 +55,40 @@ func (p *RecallProducer) Candidates(ctx context.Context, t *Trigger) ([]Candidat
 	}}, nil
 }
 
-// address builds the frontend navigation address for a vault node, plus the sub-object to highlight
-// within it. A decision has no surface of its own — decisionlog.tsx renders it inside its parent
-// record's thread — so a decision resolves to that record and names itself as the anchor. When the
-// parent cannot be resolved the ref is dropped rather than faked: an utterance with no Open button is
-// better than an Open button that navigates to a dossier id that does not exist.
+// address builds the frontend navigation address for a vault node, plus the sub-object to land on within
+// it. wavevault.Address owns the rule, so a volunteered utterance and a recall citation address a node the
+// same way; this only maps the suggestion's source type back to the collection it came from.
 func (p *RecallProducer) address(ctx context.Context, sourceType, nodeID string) (ref, anchor string) {
+	parent := func(decisionID string) string {
+		if p.parentRecord == nil {
+			return ""
+		}
+		return p.parentRecord(ctx, decisionID)
+	}
+	return wavevault.Address(collectionFor(sourceType), nodeID, parent)
+}
+
+// collectionFor inverts jarvisproactive.sourceTypeFor. An unknown source type has no collection, and so no
+// address.
+func collectionFor(sourceType string) string {
 	switch sourceType {
 	case "dossier":
-		return "task:" + nodeID, ""
+		return wavevault.CollTasks
 	case "decision":
-		parent := ""
-		if p.parentRecord != nil {
-			parent = p.parentRecord(ctx, nodeID)
-		}
-		if parent == "" {
-			return "", ""
-		}
-		return "task:" + parent, nodeID
+		return wavevault.CollDecisions
 	case "memory":
-		return "memnote:" + nodeID, ""
+		return wavevault.CollMemory
 	default:
-		return "", ""
+		return ""
 	}
 }
 
-// liveParentRecord finds the dossier whose refs block wikilinks this decision. AppendDecision writes
-// that link on both sides, so this is the same reverse-lookup jarvisproactive.ownDossierID uses.
-// Empty on any failure — the caller drops the address rather than emitting a broken one.
+// liveParentRecord opens the vault for the one decision a trigger can volunteer. Empty on any failure — the
+// caller drops the address rather than emitting a broken one.
 func liveParentRecord(ctx context.Context, decisionID string) string {
 	v, err := wavevault.OpenVault(ctx)
 	if err != nil {
 		return ""
 	}
-	r := v.Retriever(wavevault.Scope{Collections: []string{wavevault.CollTasks}})
-	owners, err := r.Query(wavevault.Filter{HasLink: decisionID})
-	if err != nil || len(owners) == 0 {
-		return ""
-	}
-	return owners[0].ID
+	return v.Retriever(wavevault.Scope{Collections: []string{wavevault.CollTasks}}).ParentRecord(decisionID)
 }

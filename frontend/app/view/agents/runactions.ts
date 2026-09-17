@@ -21,18 +21,6 @@ import { harnessesAtom, harnessPreferenceAtom } from "./harnessstore";
 // (lost on reload, which is fine for a review step); cleared on explicit Start or Discard.
 export const pendingRunDraftAtom = atom<PendingRunDraft | null>(null) as PrimitiveAtom<PendingRunDraft | null>;
 
-// A one-shot request to focus a specific run (e.g. from Radar's "Open run"). The Stage consumes it on
-// landing: select the channel, then select the run once its strip is populated, then clear. `landed`
-// mirrors pendingRunDraftAtom's guard and bounds the navigation to one attempt — a run that never shows up
-// in the channel's list (channel load failed, run gone) must not keep pulling the user back.
-export interface PendingRunFocus {
-    channelId: string;
-    runId: string;
-    landed?: boolean;
-}
-
-export const pendingRunFocusAtom = atom<PendingRunFocus | null>(null) as PrimitiveAtom<PendingRunFocus | null>;
-
 // Run ids whose Cancel RPC is in flight. CancelRunCommand is synchronous — it returns only after each
 // worker's graceful stop completes — so this real interval drives the transient "Cancelling…" button
 // label until the run flips to cancelled. Frontend-only (lost on reload, which lands on the already-

@@ -56,6 +56,12 @@ export function pickInitialScope(
     return { action: "set", scope };
 }
 
+// A report names its own project, so a scope built from it needs no registry — which is what lets Radar land
+// on a report before the project registry has loaded.
+export function scopeOfReport(report: RadarReport): RadarScope {
+    return { name: report.projectname || report.projectpath, path: report.projectpath };
+}
+
 // findNewestScannedProject asks the backend for every radar report (newest-first) and returns a scope for
 // the most-recently-scanned project, so a fresh Radar tab lands on real results instead of an empty picker.
 // Built straight from the report's stored name+path — no registry dependency, so it works before the
@@ -67,7 +73,7 @@ export async function findNewestScannedProject(): Promise<RadarScope | null> {
         if (!newest?.projectpath) {
             return null;
         }
-        return { name: newest.projectname || newest.projectpath, path: newest.projectpath };
+        return scopeOfReport(newest);
     } catch (err) {
         console.error("finding newest scanned project failed", err);
         return null;
@@ -99,16 +105,22 @@ export const currentReportAtom: Atom<RadarReport | null> = atom((get) => {
     return get(WOS.getWaveObjectAtom<RadarReport>(WOS.makeORef("radarreport", id))) ?? null;
 });
 
-let loading = false;
+// In-flight report loads, by path. A repeat for the same path is dropped; a load for another path is not,
+// because a landing that re-scopes Radar has to get its own list rather than return with none.
+const loadingPaths = new Set<string>();
 
 // loadReports fetches the report list for a path (newest-first) and selects the newest.
 export async function loadReports(path: string): Promise<void> {
-    if (loading) {
+    if (loadingPaths.has(path)) {
         return;
     }
-    loading = true;
+    loadingPaths.add(path);
     try {
         const rtn = await RpcApi.ListRadarReportsCommand(TabRpcClient, { projectpath: path });
+        // the scope moved while this was in flight: its newest report would land over the scope that replaced it
+        if (globalStore.get(radarScopeAtom)?.path !== path) {
+            return;
+        }
         const list = (rtn.reports ?? []).slice().sort((a, b) => b.startedts - a.startedts);
         globalStore.set(radarReportsAtom, list);
         if (list.length > 0) {
@@ -118,9 +130,11 @@ export async function loadReports(path: string): Promise<void> {
         }
     } catch (err) {
         console.error("loading radar reports failed", err);
-        globalStore.set(radarReportsAtom, []);
+        if (globalStore.get(radarScopeAtom)?.path === path) {
+            globalStore.set(radarReportsAtom, []);
+        }
     } finally {
-        loading = false;
+        loadingPaths.delete(path);
     }
 }
 

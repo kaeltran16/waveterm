@@ -246,7 +246,7 @@ function NoteMode({ model }: { model: AgentsViewModel }) {
         });
 
     return (
-        <div className="flex flex-col gap-[18px]">
+        <div data-vault-note-detail={sel.id} className="flex flex-col gap-[18px]">
             <div className="flex flex-col gap-[11px]">
                 <div className="flex items-center gap-[9px]">
                     <span

@@ -77,7 +77,7 @@ func TestActiveWorkIncludesLiveSessionsAndBlockers(t *testing.T) {
 			live = &items[i]
 		}
 	}
-	if blocker == nil || blocker.Title != "ship ledger" || blocker.Detail != "needs decision on X" || blocker.NavTarget != "vault:d1" {
+	if blocker == nil || blocker.Title != "ship ledger" || blocker.Detail != "needs decision on X" || blocker.NavTarget != "task:d1" {
 		t.Fatalf("blocker=%+v wrong", blocker)
 	}
 	if live == nil || live.Detail != "pi m" {
@@ -122,7 +122,7 @@ func TestTimelineMergesAndSortsDesc(t *testing.T) {
 			t.Fatalf("not sorted desc: %+v", evs)
 		}
 	}
-	if evs[0].Kind != "dossier" || evs[0].Title != "ship ledger" {
+	if evs[0].Kind != "dossier" || evs[0].Title != "ship ledger" || evs[0].NavTarget != "task:dd" {
 		t.Fatalf("newest=%+v want dossier event", evs[0])
 	}
 	if evs[5].Kind != "run-created" || evs[5].Title != "goal-r1" {

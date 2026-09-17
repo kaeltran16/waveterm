@@ -1,107 +1,412 @@
+// Copyright 2026, Command Line Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const getDossier = vi.fn();
-vi.mock("@/app/store/wshclientapi", () => ({ RpcApi: { GetDossierCommand: (...a: unknown[]) => getDossier(...a) } }));
+const rpc = vi.hoisted(() => ({
+    GetDossierCommand: vi.fn(),
+    ListTaskDossiersCommand: vi.fn(),
+    ListRadarReportsCommand: vi.fn(),
+    MemoryScanCommand: vi.fn(),
+    MemoryReadCommand: vi.fn(),
+    GetChannelRunsCommand: vi.fn(),
+    GetChannelMessagesCommand: vi.fn(),
+    SetChannelReadCommand: vi.fn(),
+    EffortGetCommand: vi.fn(),
+}));
+const loadAndPin = vi.hoisted(() => vi.fn());
+const pushToast = vi.hoisted(() => vi.fn());
+
+vi.mock("@/app/store/wshclientapi", () => ({ RpcApi: rpc }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
+vi.mock("@/app/store/wos", async () => {
+    const { atom } = await import("jotai");
+    return {
+        loadAndPinWaveObject: (...a: unknown[]) => loadAndPin(...a),
+        makeORef: (otype: string, oid: string) => `${otype}:${oid}`,
+        getWaveObjectAtom: () => atom(null),
+    };
+});
+vi.mock("@/app/cockpit/notificationstore", () => ({ pushToast: (...a: unknown[]) => pushToast(...a) }));
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { atom } from "jotai";
 import type { AgentsViewModel, SurfaceKey } from "../agents/agents";
+import type { AgentVM } from "../agents/agentsviewmodel";
+import { memLoadedAtom, memNotesAtom, memSelectedIdAtom } from "../agents/memstore";
+import type { MemNote } from "../agents/memtypes";
+import {
+    currentReportIdAtom,
+    loadReports,
+    radarReportsAtom,
+    radarScopeAtom,
+    radarSelectedIdAtom,
+} from "../agents/radarstore";
 import { vaultRecordIdAtom, vaultRecordPaneAtom, vaultTabAtom } from "../agents/vaultstore";
-import { briefPeekRecordAtom } from "./jarvisstore";
-import { recordDetailAtom } from "./jarvissubjectstore";
-import { openRecordInVault, orefNavPlan } from "./openref";
+import { briefPeekRecordAtom, briefSheetOpenAtom } from "./jarvisstore";
+import { activeRunIdAtom, activeSubjectAtom, recordDetailAtom } from "./jarvissubjectstore";
+import { openAddress, openTarget } from "./openref";
+import { pendingDecisionAnchorAtom } from "./petstore";
+import { taskListAtom, tasksErrorAtom } from "./tasksstore";
 
-describe("orefNavPlan", () => {
-    it("routes channel/run/task/agent to their kinds", () => {
-        expect(orefNavPlan("channel:abc")).toEqual({ kind: "channel", oid: "abc" });
-        // a record became routable when it became a subject on the merged Stage
-        expect(orefNavPlan("task:TASK-418")).toEqual({ kind: "task", oid: "TASK-418" });
-        expect(orefNavPlan("run:11111111-1111-1111-1111-111111111111")).toEqual({
-            kind: "run",
-            oid: "11111111-1111-1111-1111-111111111111",
+const objects = new Map<string, unknown>();
+
+function makeModel(roster: string[] = []): AgentsViewModel {
+    const agents = roster.map((id) => ({ id, name: id, task: "", state: "working" }) as AgentVM);
+    return {
+        surfaceAtom: atom<SurfaceKey>("cockpit"),
+        focusIdAtom: atom<string | undefined>(undefined),
+        agentsAtom: atom(agents),
+        terminalsAtom: atom<AgentVM[]>([]),
+    } as unknown as AgentsViewModel;
+}
+
+function deferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((r) => (resolve = r));
+    return { promise, resolve };
+}
+
+function report(oid: string, path: string, startedts: number, findingIds: string[] = []): RadarReport {
+    return {
+        oid,
+        projectname: path.slice(1),
+        projectpath: path,
+        startedts,
+        findings: findingIds.map((id) => ({ id })),
+    } as unknown as RadarReport;
+}
+
+const REPORTS_B = [report("rb-new", "/b", 2, ["f-1"]), report("rb-old", "/b", 1, ["f-1"])];
+
+function seedReports(): void {
+    for (const r of REPORTS_B) {
+        objects.set(`radarreport:${r.oid}`, r);
+    }
+}
+
+function note(id: string): MemNote {
+    return {
+        id,
+        title: id,
+        description: "",
+        type: "",
+        scope: "shared",
+        source: "vault",
+        path: `/m/${id}.md`,
+        links: [],
+        updatedts: 1,
+        reviewed: true,
+    } as unknown as MemNote;
+}
+
+beforeEach(() => {
+    vi.resetAllMocks();
+    objects.clear();
+    loadAndPin.mockImplementation((oref: string) => Promise.resolve(objects.get(oref) ?? null));
+    rpc.GetChannelRunsCommand.mockResolvedValue({ runs: [] });
+    rpc.GetChannelMessagesCommand.mockResolvedValue({ messages: [] });
+    rpc.SetChannelReadCommand.mockResolvedValue(undefined);
+    rpc.MemoryReadCommand.mockResolvedValue({ body: "", note: { updatedts: 1 } });
+    rpc.EffortGetCommand.mockResolvedValue({ effort: null });
+    globalStore.set(taskListAtom, null);
+    globalStore.set(tasksErrorAtom, null);
+    globalStore.set(memNotesAtom, []);
+    globalStore.set(memLoadedAtom, false);
+    globalStore.set(memSelectedIdAtom, null);
+    globalStore.set(radarScopeAtom, null);
+    globalStore.set(radarReportsAtom, null);
+    globalStore.set(currentReportIdAtom, undefined);
+    globalStore.set(radarSelectedIdAtom, undefined);
+    globalStore.set(briefPeekRecordAtom, null);
+    globalStore.set(briefSheetOpenAtom, false);
+    globalStore.set(pendingDecisionAnchorAtom, null);
+    globalStore.set(activeSubjectAtom, null);
+    globalStore.set(activeRunIdAtom, {});
+    globalStore.set(recordDetailAtom, {});
+    globalStore.set(vaultRecordIdAtom, null);
+    globalStore.set(vaultRecordPaneAtom, "list");
+    globalStore.set(vaultTabAtom, "memory");
+});
+
+describe("run and channel landings", () => {
+    it("lands a run on its channel's sheet, on that run", async () => {
+        const model = makeModel();
+        objects.set("run:r1", { oid: "r1", channeloid: "c1" });
+        objects.set("channel:c1", { oid: "c1" });
+        expect(await openTarget(model, { kind: "run", runId: "r1" })).toEqual({ ok: true });
+        expect(globalStore.get(activeSubjectAtom)).toEqual({ kind: "channel", id: "c1" });
+        expect(globalStore.get(activeRunIdAtom)["c1"]).toBe("r1");
+        expect(globalStore.get(briefSheetOpenAtom)).toBe(true);
+        expect(globalStore.get(model.surfaceAtom)).toBe("jarvis");
+    });
+
+    it("reports a missing run and leaves the user where they were", async () => {
+        const model = makeModel();
+        const result = await openTarget(model, { kind: "run", runId: "r-gone" });
+        expect(result).toEqual({ ok: false, reason: "unavailable", message: "That run no longer exists" });
+        expect(globalStore.get(model.surfaceAtom)).toBe("cockpit");
+        expect(pushToast).toHaveBeenCalledWith({ title: "That run no longer exists", message: "", level: "warn" });
+    });
+
+    it("reports a run that has no channel to open it in", async () => {
+        const model = makeModel();
+        objects.set("run:r1", { oid: "r1", channeloid: "" });
+        expect(await openTarget(model, { kind: "run", runId: "r1" })).toEqual({
+            ok: false,
+            reason: "unavailable",
+            message: "That run has no channel to open it in",
         });
-        expect(orefNavPlan("agent:a1")).toEqual({ kind: "agent", oid: "a1" });
-        // an effort address opens the briefing with that effort expanded
-        expect(orefNavPlan("effort:eff-1")).toEqual({ kind: "effort", oid: "eff-1" });
-    });
-    it("marks types with no clean focus path as unsupported (no throw)", () => {
-        for (const ot of ["memory", "radar", "decision", "commit", "session"]) {
-            expect(orefNavPlan(`${ot}:x`)).toEqual({ kind: "unsupported", otype: ot });
-        }
-    });
-    // a scan report became routable when radar triage entered the attention queue: the row names no
-    // channel, so the oref is its only address. Note "radar" above stays unsupported -- that is a
-    // different otype, and only "radarreport" is a real waveobj type.
-    it("routes a scan report to the radar surface", () => {
-        expect(orefNavPlan("radarreport:r-1")).toEqual({ kind: "radarreport", oid: "r-1" });
-        expect(orefNavPlan("radarreport:").kind).toBe("unsupported");
+        expect(globalStore.get(briefSheetOpenAtom)).toBe(false);
     });
 
-    it("is total on malformed input (never throws)", () => {
-        expect(orefNavPlan("").kind).toBe("unsupported");
-        expect(orefNavPlan("nope").kind).toBe("unsupported");
-        expect(orefNavPlan("run:").kind).toBe("unsupported");
-        expect(orefNavPlan(":x").kind).toBe("unsupported");
+    it("reports a channel that no longer exists", async () => {
+        const model = makeModel();
+        expect(await openTarget(model, { kind: "channel", channelId: "c-gone" })).toEqual({
+            ok: false,
+            reason: "unavailable",
+            message: "That channel no longer exists",
+        });
+        expect(rpc.GetChannelRunsCommand).not.toHaveBeenCalled();
+    });
+
+    it("names the target when a load throws", async () => {
+        const model = makeModel();
+        loadAndPin.mockRejectedValue(new Error("db closed"));
+        expect(await openTarget(model, { kind: "run", runId: "r1" })).toEqual({
+            ok: false,
+            reason: "failed",
+            message: "Couldn't open run r1: db closed",
+        });
+        expect(pushToast).toHaveBeenCalledWith({
+            title: "Couldn't open run r1: db closed",
+            message: "",
+            level: "error",
+        });
     });
 });
 
-describe("volunteered-knowledge routes", () => {
-    it("classifies a memory note address", () => {
-        expect(orefNavPlan("memnote:mem-abc123")).toEqual({ kind: "memnote", oid: "mem-abc123" });
+describe("agent landing", () => {
+    it("focuses an agent still in the roster", async () => {
+        const model = makeModel(["t1"]);
+        expect(await openAddress(model, "tab:t1")).toEqual({ ok: true });
+        expect(globalStore.get(model.focusIdAtom)).toBe("t1");
+        expect(globalStore.get(model.surfaceAtom)).toBe("agent");
     });
 
-    it("still classifies the existing routes", () => {
-        expect(orefNavPlan("task:task-a").kind).toBe("task");
-        expect(orefNavPlan("run:run-9").kind).toBe("run");
-        expect(orefNavPlan("channel:c1").kind).toBe("channel");
-    });
-
-    // a decision stays unroutable on purpose: it is rendered inside its parent record's thread, so the
-    // backend addresses that record and passes the decision id as an anchor instead.
-    it("leaves a bare decision address unsupported", () => {
-        expect(orefNavPlan("decision:dec-abc123").kind).toBe("unsupported");
-    });
-
-    it("treats a malformed address as unsupported rather than throwing", () => {
-        expect(orefNavPlan("memnote:").kind).toBe("unsupported");
-        expect(orefNavPlan("").kind).toBe("unsupported");
-        expect(orefNavPlan("decision").kind).toBe("unsupported");
+    it("reports an agent that has left the roster", async () => {
+        const model = makeModel(["t1"]);
+        expect(await openAddress(model, "agent:t2")).toEqual({
+            ok: false,
+            reason: "unavailable",
+            message: "That agent session has ended",
+        });
+        expect(globalStore.get(model.surfaceAtom)).toBe("cockpit");
     });
 });
 
-describe("openRecordInVault", () => {
-    const model = { surfaceAtom: atom<SurfaceKey>("jarvis") } as unknown as AgentsViewModel;
-
-    beforeEach(() => {
-        getDossier.mockReset();
-        getDossier.mockResolvedValue({ id: "task-a", status: "active", decisions: [] });
-        globalStore.set(recordDetailAtom, {});
-        globalStore.set(briefPeekRecordAtom, null);
-        globalStore.set(vaultRecordIdAtom, null);
-        globalStore.set(vaultRecordPaneAtom, "list");
-        globalStore.set(vaultTabAtom, "memory");
-        globalStore.set(model.surfaceAtom, "jarvis");
+describe("record landing", () => {
+    it("opens a decision's record in the peek with the decision anchored", async () => {
+        const model = makeModel();
+        globalStore.set(taskListAtom, [{ id: "task-a" } as SpaceSummary]);
+        expect(await openAddress(model, "task:task-a", { sourceType: "decision", anchor: "dec-1" })).toEqual({
+            ok: true,
+        });
+        expect(globalStore.get(briefPeekRecordAtom)).toBe("task-a");
+        expect(globalStore.get(pendingDecisionAnchorAtom)).toBe("dec-1");
+        expect(globalStore.get(model.surfaceAtom)).toBe("jarvis");
+        expect(rpc.ListTaskDossiersCommand).not.toHaveBeenCalled();
     });
 
-    it("opens a record in Vault without leaving the Brief peek behind", () => {
+    it("loads the record list before calling a record gone, and says so", async () => {
+        const model = makeModel();
+        rpc.ListTaskDossiersCommand.mockResolvedValue({ dossiers: [{ id: "other" }] });
+        expect(await openAddress(model, "task:task-a")).toEqual({
+            ok: false,
+            reason: "unavailable",
+            message: "That record no longer exists",
+        });
+        expect(rpc.ListTaskDossiersCommand).toHaveBeenCalled();
+        expect(globalStore.get(briefPeekRecordAtom)).toBeNull();
+        expect(globalStore.get(model.surfaceAtom)).toBe("cockpit");
+    });
+
+    // the list loads once per Brief mount, so a record created since is not in it yet
+    it("refreshes a loaded list once before calling a record gone", async () => {
+        const model = makeModel();
+        globalStore.set(taskListAtom, [{ id: "old" } as SpaceSummary]);
+        rpc.ListTaskDossiersCommand.mockResolvedValue({ dossiers: [{ id: "old" }, { id: "task-new" }] });
+        expect(await openAddress(model, "task:task-new")).toEqual({ ok: true });
+        expect(globalStore.get(briefPeekRecordAtom)).toBe("task-new");
+    });
+
+    it("reports a list that failed to load as a failure, not as a missing record", async () => {
+        const model = makeModel();
+        rpc.ListTaskDossiersCommand.mockRejectedValue(new Error("vault locked"));
+        const result = await openAddress(model, "task:task-a");
+        expect(result.ok).toBe(false);
+        expect("reason" in result ? result.reason : null).toBe("failed");
+        expect("reason" in result ? result.message : "").toContain("record task-a");
+    });
+
+    it("opens a record in the Vault, on the detail pane, without leaving the peek behind", async () => {
+        const model = makeModel();
+        globalStore.set(taskListAtom, [{ id: "task-a" } as SpaceSummary]);
         globalStore.set(briefPeekRecordAtom, "task-a");
-        openRecordInVault(model, "task-a");
+        rpc.GetDossierCommand.mockResolvedValue({ id: "task-a", status: "active", decisions: [] });
+        expect(await openTarget(model, { kind: "record", dossierId: "task-a", view: "vault" })).toEqual({ ok: true });
         expect(globalStore.get(vaultRecordIdAtom)).toBe("task-a");
+        expect(globalStore.get(vaultRecordPaneAtom)).toBe("detail");
         expect(globalStore.get(vaultTabAtom)).toBe("records");
         expect(globalStore.get(briefPeekRecordAtom)).toBeNull();
         expect(globalStore.get(model.surfaceAtom)).toBe("vault");
+        await vi.waitFor(() => expect(globalStore.get(recordDetailAtom)["task-a"]).toBeDefined());
+    });
+});
+
+describe("memory note landing", () => {
+    it("scans memory before judging a note, then opens it in the Vault", async () => {
+        const model = makeModel();
+        rpc.MemoryScanCommand.mockResolvedValue({ notes: [note("n1")], edges: [] });
+        expect(await openAddress(model, "memnote:n1")).toEqual({ ok: true });
+        expect(rpc.MemoryScanCommand).toHaveBeenCalledTimes(1);
+        expect(globalStore.get(memSelectedIdAtom)).toBe("n1");
+        expect(globalStore.get(vaultTabAtom)).toBe("memory");
+        expect(globalStore.get(model.surfaceAtom)).toBe("vault");
     });
 
-    // a narrow window shows one pane, so the record the user asked for must be the pane that is showing
-    it("lands on the detail pane of the narrow split ledger", () => {
-        openRecordInVault(model, "task-a");
-        expect(globalStore.get(vaultRecordPaneAtom)).toBe("detail");
+    it("reports a note that is gone after the scan", async () => {
+        const model = makeModel();
+        rpc.MemoryScanCommand.mockResolvedValue({ notes: [note("n1")], edges: [] });
+        expect(await openAddress(model, "memory:n2")).toEqual({
+            ok: false,
+            reason: "unavailable",
+            message: "That memory note no longer exists",
+        });
+        expect(globalStore.get(model.surfaceAtom)).toBe("cockpit");
+    });
+});
+
+describe("radar landing", () => {
+    it("owns the report's project before selecting the report, so the project's newest does not win", async () => {
+        const model = makeModel();
+        seedReports();
+        rpc.ListRadarReportsCommand.mockResolvedValue({ reports: REPORTS_B });
+        expect(await openAddress(model, "radarreport:rb-old", { anchor: "f-1" })).toEqual({ ok: true });
+        expect(rpc.ListRadarReportsCommand).toHaveBeenCalledWith(expect.anything(), { projectpath: "/b" });
+        expect(globalStore.get(radarScopeAtom)).toEqual({ name: "b", path: "/b" });
+        expect(globalStore.get(currentReportIdAtom)).toBe("rb-old");
+        expect(globalStore.get(radarSelectedIdAtom)).toBe("f-1");
+        expect(globalStore.get(model.surfaceAtom)).toBe("radar");
     });
 
-    it("warms the record it is about to show", async () => {
-        openRecordInVault(model, "task-a");
-        await vi.waitFor(() => expect(getDossier).toHaveBeenCalled());
-        expect(globalStore.get(recordDetailAtom)["task-a"]).toBeDefined();
+    it("lands on the report and says so when the finding is no longer in it", async () => {
+        const model = makeModel();
+        seedReports();
+        rpc.ListRadarReportsCommand.mockResolvedValue({ reports: REPORTS_B });
+        expect(await openAddress(model, "radarreport:rb-old", { anchor: "f-gone" })).toEqual({
+            ok: true,
+            notice: "That finding is no longer in this report",
+        });
+        expect(globalStore.get(currentReportIdAtom)).toBe("rb-old");
+        expect(globalStore.get(radarSelectedIdAtom)).toBeUndefined();
+        expect(pushToast).toHaveBeenCalledWith({
+            title: "That finding is no longer in this report",
+            message: "",
+            level: "info",
+        });
+    });
+
+    it("reports a deleted report", async () => {
+        const model = makeModel();
+        expect(await openAddress(model, "radarreport:rr-gone")).toEqual({
+            ok: false,
+            reason: "unavailable",
+            message: "That scan report no longer exists",
+        });
+    });
+
+    it("is not overwritten by another project's report load still in flight", async () => {
+        const model = makeModel();
+        seedReports();
+        globalStore.set(radarScopeAtom, { name: "a", path: "/a" });
+        const slowA = deferred<{ reports: RadarReport[] }>();
+        rpc.ListRadarReportsCommand.mockImplementation((_client: unknown, data: { projectpath: string }) =>
+            data.projectpath === "/a" ? slowA.promise : Promise.resolve({ reports: REPORTS_B })
+        );
+        const loadingA = loadReports("/a");
+
+        expect(await openAddress(model, "radarreport:rb-old", { anchor: "f-1" })).toEqual({ ok: true });
+
+        slowA.resolve({ reports: [report("ra-new", "/a", 9)] });
+        await loadingA;
+        expect(globalStore.get(currentReportIdAtom)).toBe("rb-old");
+        expect(globalStore.get(radarReportsAtom)?.map((r) => r.oid)).toEqual(["rb-new", "rb-old"]);
+    });
+});
+
+describe("effort landing", () => {
+    it("opens the initiative's sheet", async () => {
+        const model = makeModel();
+        expect(await openAddress(model, "effort:e-1")).toEqual({ ok: true });
+        expect(globalStore.get(activeSubjectAtom)).toEqual({ kind: "effort", id: "e-1" });
+        expect(globalStore.get(briefSheetOpenAtom)).toBe(true);
+        expect(globalStore.get(model.surfaceAtom)).toBe("jarvis");
+    });
+});
+
+describe("a newer open", () => {
+    it("supersedes a landing still loading, which then writes and reports nothing", async () => {
+        const model = makeModel(["t1"]);
+        const slow = deferred<unknown>();
+        objects.set("channel:c1", { oid: "c1" });
+        loadAndPin.mockImplementation((oref: string) =>
+            oref === "run:r-slow" ? slow.promise : Promise.resolve(objects.get(oref) ?? null)
+        );
+        const first = openTarget(model, { kind: "run", runId: "r-slow" });
+        expect(await openTarget(model, { kind: "agent", tabId: "t1" })).toEqual({ ok: true });
+
+        slow.resolve({ oid: "r-slow", channeloid: "c1" });
+        expect(await first).toEqual({ ok: false, reason: "superseded", message: "" });
+        expect(globalStore.get(model.surfaceAtom)).toBe("agent");
+        expect(globalStore.get(briefSheetOpenAtom)).toBe(false);
+        expect(rpc.GetChannelRunsCommand).not.toHaveBeenCalled();
+        expect(pushToast).not.toHaveBeenCalled();
+    });
+
+    it("includes a click on an address nothing can open", async () => {
+        const model = makeModel();
+        const slow = deferred<unknown>();
+        loadAndPin.mockImplementation(() => slow.promise);
+        const first = openTarget(model, { kind: "run", runId: "r-slow" });
+        await openAddress(model, "bogus:x");
+        slow.resolve({ oid: "r-slow", channeloid: "c1" });
+        expect(await first).toEqual({ ok: false, reason: "superseded", message: "" });
+        expect(globalStore.get(model.surfaceAtom)).toBe("cockpit");
+    });
+});
+
+describe("unsupported addresses", () => {
+    it("reports an address nothing can open, and stays put", async () => {
+        const model = makeModel();
+        expect(await openAddress(model, "bogus:x")).toEqual({
+            ok: false,
+            reason: "unsupported",
+            message: "This item can't be opened",
+        });
+        expect(pushToast).toHaveBeenCalledWith({ title: "This item can't be opened", message: "", level: "warn" });
+        expect(globalStore.get(model.surfaceAtom)).toBe("cockpit");
+    });
+
+    it("hands the result to a caller that renders failure itself, instead of toasting", async () => {
+        const model = makeModel();
+        const report = vi.fn();
+        await openAddress(model, "vault:dec-1", { sourceType: "decision" }, report);
+        expect(report).toHaveBeenCalledWith({
+            ok: false,
+            reason: "unsupported",
+            message: "This citation can't locate its record",
+        });
+        expect(pushToast).not.toHaveBeenCalled();
     });
 });

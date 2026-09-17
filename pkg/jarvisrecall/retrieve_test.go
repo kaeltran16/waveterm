@@ -87,10 +87,56 @@ func TestNodeCandidateCarriesScopeAsProject(t *testing.T) {
 		Source:     "claude",
 		Scope:      "krypton",
 	}
-	got := nodeCandidate(n, "body text", 0)
+	got := nodeCandidate(n, "body text", 0, nil)
 	if got.project != "krypton" {
 		t.Fatalf("project = %q, want krypton", got.project)
 	}
+}
+
+func TestNodeCandidateAddressesByCollection(t *testing.T) {
+	parent := func(id string) string {
+		if id == "dec-owned" {
+			return "task-owner"
+		}
+		return ""
+	}
+	cases := []struct {
+		collection, id, wantType, wantNav, wantAnchor string
+	}{
+		{wavevault.CollTasks, "task-a", "dossier", "task:task-a", ""},
+		{wavevault.CollMemory, "mem-a", "memory", "memnote:mem-a", ""},
+		{wavevault.CollDecisions, "dec-owned", "decision", "task:task-owner", "dec-owned"},
+		{wavevault.CollDecisions, "dec-orphan", "decision", "", ""},
+	}
+	for _, tc := range cases {
+		got := nodeCandidate(wavevault.Node{ID: tc.id, Collection: tc.collection}, "", 0, parent)
+		if got.sourceType != tc.wantType || got.navTarget != tc.wantNav || got.anchor != tc.wantAnchor {
+			t.Errorf("%s %s = (%q, %q, %q), want (%q, %q, %q)", tc.collection, tc.id,
+				got.sourceType, got.navTarget, got.anchor, tc.wantType, tc.wantNav, tc.wantAnchor)
+		}
+	}
+}
+
+// AppendDecision links the decision from its record's refs, so recall's own retriever finds the record a
+// decision citation lands on.
+func TestNodeCandidateResolvesADecisionsRecordFromTheVault(t *testing.T) {
+	v, dossierID := seedVault(t)
+	r := v.Retriever(wavevault.AllScope())
+	nodes, err := r.Query(wavevault.Filter{})
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	for _, n := range nodes {
+		if n.Collection != wavevault.CollDecisions {
+			continue
+		}
+		got := nodeCandidate(n, "", 0, r.ParentRecord)
+		if got.navTarget != "task:"+dossierID || got.anchor != n.ID {
+			t.Fatalf("decision candidate = (%q, %q), want (%q, %q)", got.navTarget, got.anchor, "task:"+dossierID, n.ID)
+		}
+		return
+	}
+	t.Fatal("seedVault wrote no decision node")
 }
 
 // supersededVault builds a fixture vault with two memory notes that both full-text match "solar":
