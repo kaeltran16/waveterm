@@ -371,6 +371,54 @@ func TestEventsDuringALaunchWaitForTheLead(t *testing.T) {
 	}
 }
 
+// the spawn returns with the lead's tab in place before its process is running. Acceptance 4's second
+// question arrived in that gap, the lead was judged dead three seconds after its launch, and every question
+// went to the human.
+func TestAQuestionWhileTheLaunchedLeadStartsWaitsForIt(t *testing.T) {
+	f := newFakeLead(t)
+	f.state = leadState{NoLead: true}
+	stubLaunch(t)
+	ctx := context.Background()
+	seedLeadAsk("block:child-1", "a1", 1)
+	PokeWake(ctx, wakeChannel, wakeRun)
+
+	f.state = leadState{BlockId: wakeLeadBlock, TabId: wakeLeadTab, Starting: true}
+	leadLaunched(ctx, wakeChannel, wakeRun, nil)
+	seedLeadAsk("block:child-2", "a2", 2)
+	PokeWake(ctx, wakeChannel, wakeRun)
+	tickWakes(ctx)
+
+	if LeadDead(wakeRun) {
+		t.Fatal("a lead whose process is still starting is not dead")
+	}
+	if p, _ := agentask.GlobalRegistry.Get("block:child-2"); p.Owner == agentask.AskOwner_User {
+		t.Fatalf("the question stays with the starting lead, got %+v", p)
+	}
+	f.state = leadState{BlockId: wakeLeadBlock, TabId: wakeLeadTab, Alive: true, State: baseds.AgentState_Idle}
+	tickWakes(ctx)
+	if len(f.sends) != 1 {
+		t.Fatalf("the waiting question is typed once the lead is at its prompt, got %q", f.sends)
+	}
+}
+
+func TestALaunchedLeadThatNeverStartsIsDead(t *testing.T) {
+	f := newFakeLead(t)
+	f.state = leadState{NoLead: true}
+	stubLaunch(t)
+	ctx := context.Background()
+	PostWake(ctx, wakeChannel, wakeRun, failedLine)
+
+	f.state = leadState{BlockId: wakeLeadBlock, TabId: wakeLeadTab, Starting: true}
+	leadLaunched(ctx, wakeChannel, wakeRun, nil)
+	PostWake(ctx, wakeChannel, wakeRun, finishedLine)
+	f.now += WakeConfirmTimeout.Milliseconds()
+	tickWakes(ctx)
+
+	if !LeadDead(wakeRun) {
+		t.Fatal("a lead still not running a wake-confirm timeout after its launch takes no wakes")
+	}
+}
+
 func TestFailedLaunchHandsJudgmentToTheUser(t *testing.T) {
 	f := newFakeLead(t)
 	f.state = leadState{NoLead: true}

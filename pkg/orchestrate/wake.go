@@ -49,6 +49,8 @@ type leadState struct {
 	State   string
 	// NoLead is a dag-holding run that has never had a lead worker, as opposed to one whose lead exited.
 	NoLead bool
+	// Starting is a lead whose process has not run yet: its controller is absent or still initializing.
+	Starting bool
 }
 
 // leadStateFn reads the lead's block, whether its process runs and its latest agent state. A var so
@@ -97,6 +99,8 @@ type runWake struct {
 	// launching is a first lead still starting; launchLines are the events it was started with.
 	launching   bool
 	launchLines []string
+	// launchedAt is the UnixMilli its first lead's spawn returned, 0 for a lead the run started with.
+	launchedAt int64
 }
 
 type waker struct {
@@ -249,6 +253,11 @@ func (w *waker) flushLocked(ctx context.Context, runId string, rw *runWake) {
 		return
 	}
 	if !st.Alive {
+		// the spawn returns before the process runs, so a just-launched lead gets a wake-confirm timeout
+		// to start; the next tick looks again
+		if st.Starting && wakeNow()-rw.launchedAt < WakeConfirmTimeout.Milliseconds() {
+			return
+		}
 		w.leadDiedLocked(ctx, runId, rw, leadNotRunningNote)
 		return
 	}
@@ -318,6 +327,8 @@ func leadLaunched(ctx context.Context, channelId, runId string, err error) {
 	if err != nil {
 		rw.lines = append(rw.launchLines, rw.lines...)
 		wakes.leadDiedLocked(ctx, runId, rw, leadLaunchFailedNote+": "+err.Error())
+	} else {
+		rw.launchedAt = wakeNow()
 	}
 	rw.launchLines = nil
 }
@@ -416,7 +427,9 @@ func readLeadState(ctx context.Context, channelId, runId string) leadState {
 		return leadState{TabId: tabId}
 	}
 	st := leadState{BlockId: tab.BlockIds[0], TabId: tabId}
-	if rs := blockcontroller.GetBlockControllerRuntimeStatus(st.BlockId); rs != nil {
+	rs := blockcontroller.GetBlockControllerRuntimeStatus(st.BlockId)
+	st.Starting = rs == nil || rs.ShellProcStatus == blockcontroller.Status_Init
+	if rs != nil {
 		st.Alive = rs.ShellProcStatus == blockcontroller.Status_Running
 	}
 	st.State = latestAgentState(st.BlockId, tabId)
