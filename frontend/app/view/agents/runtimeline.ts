@@ -191,6 +191,26 @@ export function eventTitle(event: RunEvent): string {
     return eventKindTitle(event.kind);
 }
 
+// eventText is one row as every timeline says it: its title, naming the task it is about and what was asked or told.
+export function eventText(event: RunEvent): string {
+    const d = detailOf<{ taskid?: string; by?: string; note?: string; question?: string; text?: string }>(event);
+    const task = d?.taskid ?? "";
+    switch (event.kind) {
+        case "task-forwarded":
+            return d?.by === "human"
+                ? `you took ${task} over from the lead`
+                : [`${task} handed to you`, d?.note].filter(Boolean).join(" · ");
+        case "child-ask":
+            return [`${task} asked`, d?.question].filter(Boolean).join(" · ");
+        case "child-answered":
+            return `${task} answered`;
+        case "task-told":
+            return [`you told ${task}`, d?.text?.replace(/\s+/g, " ")].filter(Boolean).join(" · ");
+        default:
+            return task ? `${eventTitle(event)} · ${task}` : eventTitle(event);
+    }
+}
+
 // detailOf parses the row's JSON detail payload; undefined on malformed data (a row render must
 // never throw over a telemetry blob).
 export function detailOf<T>(event: RunEvent): T | undefined {

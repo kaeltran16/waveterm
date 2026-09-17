@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { endedLine, laneRows, questionOrder, runElapsedMs, runLog, runLogText, taskFacts } from "./runrail";
+import { endedLine, laneRows, questionOrder, runElapsedMs, runLog, taskFacts } from "./runrail";
 
 const MIN = 60_000;
 const NOW = 100 * MIN;
@@ -107,23 +107,6 @@ describe("run clock and questions", () => {
 describe("runLog", () => {
     const ev = (id: string, ts: number, kind: string, detail?: object): RunEvent =>
         ({ id, ts, kind, detail: detail ? JSON.stringify(detail) : undefined }) as RunEvent;
-
-    it("says a take-over as the human's act and a forward as a hand-off", () => {
-        expect(runLogText(ev("1", 1, "task-forwarded", { taskid: "t-4", by: "human", note: "taken over" }))).toBe(
-            "you took t-4 over from the lead"
-        );
-        expect(runLogText(ev("2", 1, "task-forwarded", { taskid: "t-4", note: "lead unsure" }))).toBe(
-            "t-4 handed to you · lead unsure"
-        );
-        expect(runLogText(ev("3", 1, "child-ask", { taskid: "t-4", question: "hide it?" }))).toBe(
-            "t-4 asked · hide it?"
-        );
-        expect(runLogText(ev("4", 1, "task-merged", { taskid: "t-1" }))).toBe("Task merged · t-1");
-        expect(runLogText(ev("5", 1, "dag-done"))).toBe("DAG complete");
-        expect(
-            runLogText(ev("6", 1, "task-told", { taskid: "t-3", text: "keep closed-session\nlinks clickable" }))
-        ).toBe("you told t-3 · keep closed-session links clickable");
-    });
 
     it("keeps the newest rows first", () => {
         const rows = runLog([ev("a", 1, "dag-done"), ev("b", 3, "dag-done"), ev("c", 2, "dag-done"), ev("d", 0, "x")]);

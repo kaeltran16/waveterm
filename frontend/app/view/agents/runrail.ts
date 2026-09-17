@@ -7,7 +7,7 @@
 import { formatAgeShort } from "./agentsviewmodel";
 import { ASK_OWNER_USER } from "./childaskmodel";
 import { laneLabel, workerAsk } from "./runlineage";
-import { detailOf, eventTitle } from "./runtimeline";
+import { eventText } from "./runtimeline";
 
 export type LaneDot = "done" | "working" | "asking" | "pending" | "failed" | "muted";
 
@@ -150,26 +150,6 @@ export function taskFacts(
     return { ...facts, result: `${(task.attempts ?? 0) + 1} · ${runningFor(task, now)}` };
 }
 
-// runLogText is one timeline row as the Run section's short log says it, naming the task it is about.
-export function runLogText(event: RunEvent): string {
-    const d = detailOf<{ taskid?: string; by?: string; note?: string; question?: string; text?: string }>(event);
-    const task = d?.taskid ?? "";
-    switch (event.kind) {
-        case "task-forwarded":
-            return d?.by === "human"
-                ? `you took ${task} over from the lead`
-                : [`${task} handed to you`, d?.note].filter(Boolean).join(" · ");
-        case "child-ask":
-            return [`${task} asked`, d?.question].filter(Boolean).join(" · ");
-        case "child-answered":
-            return `${task} answered`;
-        case "task-told":
-            return [`you told ${task}`, d?.text?.replace(/\s+/g, " ")].filter(Boolean).join(" · ");
-        default:
-            return task ? `${eventTitle(event)} · ${task}` : eventTitle(event);
-    }
-}
-
 // runElapsedMs is how long the run has gone: the digest's settled figure once it has ended, else a clock
 // read from the dag's start, so it keeps moving between digest loads.
 export function runElapsedMs(dag: TaskGroup | undefined, digest: DagStatusDigest | undefined, now: number): number {
@@ -192,5 +172,5 @@ export function runLog(events: RunEvent[], n = RUN_LOG_LINES): { id: string; ts:
     return [...events]
         .sort((a, b) => b.ts - a.ts)
         .slice(0, n)
-        .map((e) => ({ id: e.id, ts: e.ts, text: runLogText(e) }));
+        .map((e) => ({ id: e.id, ts: e.ts, text: eventText(e) }));
 }

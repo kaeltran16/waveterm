@@ -7,6 +7,7 @@ import {
     buildRunTimeline,
     clickTargetFor,
     eventKindTitle,
+    eventText,
     joinWorkspacePath,
     toneFor,
 } from "./runtimeline";
@@ -114,6 +115,28 @@ describe("eventKindTitle", () => {
         expect(eventKindTitle("lead-wake-failed")).toBe("Lead wake failed");
         expect(eventKindTitle("lead-exited")).toBe("Lead exited");
         expect(eventKindTitle("task-told")).toBe("You told a worker");
+    });
+});
+
+describe("eventText", () => {
+    const eventWith = (id: string, ts: number, kind: string, detail?: object): RunEvent =>
+        ({ id, ts, kind, detail: detail ? JSON.stringify(detail) : undefined }) as RunEvent;
+
+    it("says a take-over as the human's act and a forward as a hand-off", () => {
+        expect(eventText(eventWith("1", 1, "task-forwarded", { taskid: "t-4", by: "human", note: "taken over" }))).toBe(
+            "you took t-4 over from the lead"
+        );
+        expect(eventText(eventWith("2", 1, "task-forwarded", { taskid: "t-4", note: "lead unsure" }))).toBe(
+            "t-4 handed to you · lead unsure"
+        );
+        expect(eventText(eventWith("3", 1, "child-ask", { taskid: "t-4", question: "hide it?" }))).toBe(
+            "t-4 asked · hide it?"
+        );
+        expect(eventText(eventWith("4", 1, "task-merged", { taskid: "t-1" }))).toBe("Task merged · t-1");
+        expect(eventText(eventWith("5", 1, "dag-done"))).toBe("DAG complete");
+        expect(
+            eventText(eventWith("6", 1, "task-told", { taskid: "t-3", text: "keep closed-session\nlinks clickable" }))
+        ).toBe("you told t-3 · keep closed-session links clickable");
     });
 });
 

@@ -12,7 +12,7 @@ import {
     artifactsOf,
     buildRunTimeline,
     clickTargetFor,
-    eventTitle,
+    eventText,
     joinWorkspacePath,
     toneFor,
     tsLabel,
@@ -88,7 +88,7 @@ function EventRow({
         >
             <span className="shrink-0 text-xxxs text-edge-strong">{tsLabel(event.ts)}</span>
             <span className={"shrink-0 text-[10px] " + toneFor(event.kind)}>●</span>
-            <span className="truncate">{eventTitle(event)}</span>
+            <span className="truncate">{eventText(event)}</span>
             {artifacts.length > 0 && (
                 <span
                     className="ml-auto shrink-0 cursor-pointer border-b border-dotted border-edge-strong text-[10px] text-accent-soft hover:text-accent"
