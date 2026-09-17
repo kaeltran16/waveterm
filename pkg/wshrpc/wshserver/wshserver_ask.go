@@ -96,18 +96,19 @@ func (ws *WshServer) AgentAskClearCommand(ctx context.Context, oref string) erro
 	// a dag child clearing its ask is the proof a typed answer reached the picker; without it the sweep
 	// puts an answered question back in front of its owner
 	agentask.GlobalRegistry.ConfirmClear(oref)
-	askId := ""
-	if pending, ok := agentask.GlobalRegistry.Get(oref); ok {
-		askId = pending.AskId
+	pending, found := agentask.GlobalRegistry.Get(oref)
+	if found {
 		// a blocked --wait caller (pi) treats a cockpit dismiss as cancellation; CC's
 		// PostToolUse clear finds no waiter and is unchanged in effect.
-		agentask.GlobalRegistry.ResolveWaiter(askId, agentask.WaitResult{Cancelled: true})
-		// only a clear that found something pending is a lifecycle transition — a repeat clear
-		// (PostToolUse after a cockpit dismiss) must not append a second row.
-		recordAskTransition(oref, askId, waveobj.RunEventKindChildAskCleared, orchestrate.AskClearReasonDismissed)
+		agentask.GlobalRegistry.ResolveWaiter(pending.AskId, agentask.WaitResult{Cancelled: true})
 	}
 	agentask.GlobalRegistry.Drop(oref)
-	publishAgentAsk(baseds.AgentAskData{ORef: oref, AskId: askId, Cleared: true})
+	// only a clear that found something pending is a lifecycle transition — a repeat clear
+	// (PostToolUse after a cockpit dismiss) must not append a second row.
+	if found {
+		recordAskTransition(oref, pending.AskId, waveobj.RunEventKindChildAskCleared, orchestrate.AskClearReasonDismissed)
+	}
+	publishAgentAsk(baseds.AgentAskData{ORef: oref, AskId: pending.AskId, Cleared: true})
 	return nil
 }
 
@@ -176,15 +177,17 @@ func askTargetForBlock(ctx context.Context, blockOref, askId string) (*waveobj.T
 	return orchestrate.ResolveAskTarget(ctx, channelId, run, askId)
 }
 
-// recordAskTransition resolves the dag task behind a block's ask and records one lifecycle row for
-// it. It builds its own bounded context rather than taking one: the clear-on-waiter-end caller's
-// context is already cancelled, and a dead context would silently drop the row. Non-dag blocks
-// resolve to nothing and record nothing.
+// recordAskTransition resolves the dag task behind a block's ask, records one lifecycle row for it and
+// tells the run its question queue changed. Every caller has already taken the ask out of the registry, so
+// the run's question card re-reads a queue without it. It builds its own bounded context rather than taking
+// one: the clear-on-waiter-end caller's context is already cancelled, and a dead context would silently drop
+// the row. Non-dag blocks resolve to nothing and record nothing.
 func recordAskTransition(oref, askId, kind, detail string) {
 	ctx, cancel := context.WithTimeout(context.Background(), askEventTimeout)
 	defer cancel()
-	if _, target, ok := askTargetForBlock(ctx, oref, askId); ok {
+	if g, target, ok := askTargetForBlock(ctx, oref, askId); ok {
 		orchestrate.RecordAskLifecycle(ctx, target, kind, detail)
+		orchestrate.PublishAskQueueChanged(g, target)
 	}
 }
 

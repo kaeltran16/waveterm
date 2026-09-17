@@ -6,6 +6,7 @@ package orchestrate
 import (
 	"context"
 
+	"github.com/wavetermdev/waveterm/pkg/agentask"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
@@ -70,4 +71,10 @@ func RecordAskLifecycle(ctx context.Context, t AskTarget, kind, detail string) {
 		}
 	}
 	appendRunEvent(ctx, t.ChannelId, t.RunID, kind, nil, d)
+}
+
+// PublishAskQueueChanged tells the run's cockpit that a question left its queue, answered or cleared, so its
+// question card re-reads `dag asks` instead of going on showing it.
+func PublishAskQueueChanged(g *waveobj.TaskGroup, t AskTarget) {
+	publishChildAsk(agentask.PendingAsk{DagOID: g.OID, RunId: t.RunID, TaskId: t.TaskId, AskId: t.AskId})
 }

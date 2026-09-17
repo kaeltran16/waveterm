@@ -87,14 +87,48 @@ func dagAskFixture(t *testing.T) (*waveobj.TaskGroup, *waveobj.Run, string) {
 // wsCaptureClient records broker events so tests can assert event publishing (mirrors the capture
 // client in pkg/orchestrate's engine tests).
 type wsCaptureClient struct {
-	mu     sync.Mutex
-	events []wps.WaveEvent
+	mu      sync.Mutex
+	events  []wps.WaveEvent
+	onEvent func(wps.WaveEvent)
 }
 
 func (c *wsCaptureClient) SendEvent(_ string, event wps.WaveEvent) {
+	if c.onEvent != nil {
+		c.onEvent(event)
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.events = append(c.events, event)
+}
+
+// watchAskQueue records, for each dag:child-ask event scoped to runId, whether blockORef still held a pending ask
+// when it was published. The run's question card re-reads the queue as soon as the event lands, so a question
+// still pending at that moment stays on the card.
+func watchAskQueue(t *testing.T, runId, blockORef string) func() []bool {
+	t.Helper()
+	var mu sync.Mutex
+	var pending []bool
+	cc := &wsCaptureClient{onEvent: func(e wps.WaveEvent) {
+		if e.Event != orchestrate.DagEventChildAsk || !e.HasScope(waveobj.MakeORef(waveobj.OType_Run, runId).String()) {
+			return
+		}
+		_, ok := agentask.GlobalRegistry.Get(blockORef)
+		mu.Lock()
+		defer mu.Unlock()
+		pending = append(pending, ok)
+	}}
+	prevClient := wps.Broker.GetClient()
+	wps.Broker.SetClient(cc)
+	wps.Broker.Subscribe("askqueue-events", wps.SubscriptionRequest{Event: orchestrate.DagEventChildAsk, AllScopes: true})
+	t.Cleanup(func() {
+		wps.Broker.Unsubscribe("askqueue-events", orchestrate.DagEventChildAsk)
+		wps.Broker.SetClient(prevClient)
+	})
+	return func() []bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]bool(nil), pending...)
+	}
 }
 
 func (c *wsCaptureClient) saw(kind, scope string) bool {
@@ -241,6 +275,7 @@ func TestDagAnswerRecordsChildAnsweredOnce(t *testing.T) {
 		Ts:        1,
 	})
 	waiter := agentask.GlobalRegistry.RegisterWaiter("ask-answered")
+	published := watchAskQueue(t, g.RunID, blockORef)
 
 	if err := ws.DagAnswerCommand(context.Background(), wshrpc.CommandDagAnswerData{
 		ChannelId: g.ChannelId, RunId: g.RunID, TaskId: "t-0",
@@ -261,6 +296,10 @@ func TestDagAnswerRecordsChildAnsweredOnce(t *testing.T) {
 	if rows[0]["askid"] != "ask-answered" || rows[0]["taskid"] != "t-0" {
 		t.Fatalf("answered row must carry the raised ask id: %+v", rows[0])
 	}
+	// the run's question card would otherwise go on showing the answered question
+	if got := published(); len(got) != 1 || got[0] {
+		t.Fatalf("an answer must tell the run its question queue changed once, after the question left it; pending at each publish: %v", got)
+	}
 }
 
 func TestAgentAskClearRecordsChildAskClearedOnce(t *testing.T) {
@@ -268,6 +307,7 @@ func TestAgentAskClearRecordsChildAskClearedOnce(t *testing.T) {
 	ws := &WshServer{}
 	agentask.GlobalRegistry = agentask.MakeRegistry()
 	agentask.GlobalRegistry.Set(blockORef, agentask.PendingAsk{AskId: "ask-cleared", Ts: 1})
+	published := watchAskQueue(t, g.RunID, blockORef)
 
 	if err := ws.AgentAskClearCommand(context.Background(), blockORef); err != nil {
 		t.Fatal(err)
@@ -278,6 +318,9 @@ func TestAgentAskClearRecordsChildAskClearedOnce(t *testing.T) {
 	}
 	if rows[0]["reason"] != orchestrate.AskClearReasonDismissed || rows[0]["askid"] != "ask-cleared" {
 		t.Fatalf("cleared row = %+v", rows[0])
+	}
+	if got := published(); len(got) != 1 || got[0] {
+		t.Fatalf("a clear must tell the run its question queue changed once, after the question left it; pending at each publish: %v", got)
 	}
 
 	// a repeat clear (CC's PostToolUse after a cockpit dismiss) finds nothing pending
