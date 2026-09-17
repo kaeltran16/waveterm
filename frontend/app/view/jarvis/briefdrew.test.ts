@@ -108,6 +108,22 @@ describe("drewOn", () => {
         expect(out.rows.map((r) => r.sourceType)).toEqual(["task", "memory"]);
     });
 
+    // a decision is addressed through its record, so the address alone would fold the two into one source
+    it("keeps a record and a decision within it as two sources, each with its own target", () => {
+        const out = drewOn(
+            convo([
+                [
+                    card({ navTarget: "task:a", sourceType: "task" }),
+                    card({ navTarget: "task:a", anchor: "dec-1", sourceType: "decision" }),
+                ],
+            ])
+        );
+        expect(out.rows.map((r) => [r.navTarget, r.anchor])).toEqual([
+            ["task:a", undefined],
+            ["task:a", "dec-1"],
+        ]);
+    });
+
     it("ignores a user turn's absence of grounding and a card with no target", () => {
         const c = convo([[card({ navTarget: "task:a" }), card({ navTarget: "" })]]);
         c.turns.push({ role: "user", text: "and?", attachments: [] });

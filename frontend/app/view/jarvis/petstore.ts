@@ -150,8 +150,7 @@ export function markPetSpoke(at: number): void {
 
 // The decision a volunteered utterance pointed at, for decisionlog.tsx to scroll to and flash. A
 // decision has no surface of its own — decisionlog renders it inside its parent record's thread — so
-// navigation lands on the record and this names the card. Cleared by the consumer once honoured, the
-// same shape as pendingRunFocusAtom.
+// navigation lands on the record and this names the card. Cleared by the consumer once honoured.
 export const pendingDecisionAnchorAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 
 // What each act is doing right now, keyed by PetAct.id. Module-level because the peek unmounts and

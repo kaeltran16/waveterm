@@ -27,7 +27,7 @@ import { askBriefThread } from "@/app/view/jarvis/briefingstore";
 import { buildBriefIndex, rankBriefRows, type BriefRow } from "@/app/view/jarvis/briefpalette";
 import { persistedSummariesAtom } from "@/app/view/jarvis/jarvisstore";
 import { selectSubject } from "@/app/view/jarvis/jarvissubjectstore";
-import { openChannelSheet, openORef } from "@/app/view/jarvis/openref";
+import { openAddress, openTarget } from "@/app/view/jarvis/openref";
 import { taskListAtom } from "@/app/view/jarvis/tasksstore";
 import { formatChord } from "@/util/keysym";
 import { cn, fireAndForget } from "@/util/util";
@@ -325,8 +325,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                     title: `#${name}`,
                     subtitle: c.projectpath ? c.projectpath.split(/[\\/]/).pop() : undefined,
                     run: () => {
-                        void openChannelSheet(c.oid, null);
-                        globalStore.set(model.surfaceAtom, "jarvis");
+                        fireAndForget(() => openTarget(model, { kind: "channel", channelId: c.oid }));
                         close();
                     },
                 };
@@ -358,17 +357,17 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         [spaces, activeSpace, model]
     );
 
-    // Selection navigates through the seams that already exist. A record and an initiative are addressable
-    // orefs, so openORef routes them (and flips the surface itself); a thread has no oref route — it is
-    // only ever a Stage subject, which is the same seam the Ask Jarvis row above uses. Sessions are not
-    // sourced here (see BRIEF_GROUP_KINDS), so "thread" is the only remaining kind.
+    // Selection navigates through the seams that already exist. A record and an initiative are addresses, so
+    // openAddress lands them (and flips the surface itself); a thread has no address — it is only ever a Stage
+    // subject, which is the same seam the Ask Jarvis row above uses. Sessions are not sourced here (see
+    // BRIEF_GROUP_KINDS), so "thread" is the only remaining kind.
     const openBriefRow = (row: BriefRow) => {
         if (row.kind === "record") {
-            fireAndForget(() => openORef(model, `task:${row.id}`));
+            fireAndForget(() => openAddress(model, `task:${row.id}`));
             return;
         }
         if (row.kind === "effort") {
-            fireAndForget(() => openORef(model, row.id)); // an effort row's id is already an oref
+            fireAndForget(() => openAddress(model, row.id)); // an effort row's id is already an address
             return;
         }
         selectSubject({ kind: "conversation", id: row.id });

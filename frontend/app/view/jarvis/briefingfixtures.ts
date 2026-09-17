@@ -99,7 +99,7 @@ const normalState: WorkState = {
                     title: "Unify the vault scope model",
                     detail: "needs decision on collection scoping",
                     ts: NOW - DAY,
-                    navtarget: "vault:d-briefing-1",
+                    navtarget: "task:d-briefing-1",
                 },
             ],
             shipped: [

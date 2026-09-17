@@ -38,14 +38,13 @@ import { ambientProviderAtom, ensureAmbient } from "@/app/view/agents/ambientsto
 import { attentionAtom } from "@/app/view/agents/attentionstore";
 import { steerWorker } from "@/app/view/agents/channelactions";
 import { resolveTargetChannel } from "@/app/view/agents/channelderive";
-import { activeChannelAtom, activeChannelRunsAtom, channelsAtom, loadChannels } from "@/app/view/agents/channelsstore";
+import { activeChannelAtom, channelsAtom, loadChannels } from "@/app/view/agents/channelsstore";
 import { channelProjectLabel } from "@/app/view/agents/projectlabel";
 import { projectsAtom } from "@/app/view/agents/projectsstore";
 import { RollingCount } from "@/app/view/agents/rollingcount";
 import {
     getJarvisProfile,
     pendingRunDraftAtom,
-    pendingRunFocusAtom,
     refreshResolvedProfile,
     setChannelProfile,
 } from "@/app/view/agents/runactions";
@@ -65,6 +64,7 @@ import {
     type CSSProperties,
     type ReactNode,
 } from "react";
+import { parseAddress, type AddressHint } from "./address";
 import { AutonomyLadder } from "./autonomyladderview";
 import { resolveComposerLabels, type BriefComposeState } from "./briefcompose";
 import { resolveBriefComposerTarget } from "./briefcomposertarget";
@@ -155,11 +155,11 @@ import {
     readingNoteAtom,
     selectConversation,
 } from "./jarvisstore";
-import { activeSubjectAtom, persistedSubjectAtom, setActiveRunId, stageRunAtom } from "./jarvissubjectstore";
+import { activeSubjectAtom, persistedSubjectAtom, stageRunAtom } from "./jarvissubjectstore";
 import { mentionedDossierIds } from "./mentions";
 import { NewInitiativeControl } from "./newinitiativecontrol";
 import { NewRunControl } from "./newruncontrol";
-import { openChannelSheet, openORef, openQueueTarget, orefNavPlan } from "./openref";
+import { openAddress, openChannelSheet, openTarget } from "./openref";
 import { reducePrinciplePatch } from "./profilemodel";
 import { ProgressBar } from "./progressbar";
 import { ageLabel, freshnessLabel } from "./recallderive";
@@ -520,23 +520,26 @@ function freshnessFg(f: Freshness): string {
     }
 }
 
-// A citation opens its source, so it is bordered; one with no route is a label, because there is nothing
-// to open. `unavailable` and unroutable stay separate reads: a converse thread can report a source stale
-// or gone while its oref still routes, and that row must still be clickable.
+// A citation opens its source, so it is bordered; one the router would refuse is a label, because there is
+// nothing to open. The gate reads the same hint the click passes, so the two cannot disagree. `unavailable`
+// and unopenable stay separate reads: a converse thread can report a source stale or gone while its address
+// still opens, and that row must still be clickable.
 function SourceChip({
     hook,
     target,
+    hint,
     model,
     children,
 }: {
     hook: string;
     target: string;
+    hint?: AddressHint;
     model: AgentsViewModel;
     children: ReactNode;
 }) {
     const shell =
         "flex max-w-[300px] min-w-0 items-center gap-[7px] rounded-[6px] px-[9px] py-1 font-mono text-[10px] text-muted";
-    if (orefNavPlan(target).kind === "unsupported") {
+    if (parseAddress(target, hint).kind === "unsupported") {
         return (
             <span data-jarvis-brief-row={hook} className={shell}>
                 {children}
@@ -547,7 +550,7 @@ function SourceChip({
         <button
             type="button"
             data-jarvis-brief-row={hook}
-            onClick={() => void openORef(model, target)}
+            onClick={() => fireAndForget(() => openAddress(model, target, hint))}
             className={cn(
                 shell,
                 "cursor-pointer border border-border bg-surface hover:border-accent/40 hover:text-ink-mid focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
@@ -578,7 +581,13 @@ function TurnView({ exchange, model }: { exchange: BriefExchange; model: AgentsV
                 // the Drew band below is the thread's footing, deduped and with the freshness on it.
                 <div className="flex min-w-0 flex-wrap gap-[7px]">
                     {refs.map((c) => (
-                        <SourceChip key={c.n} hook="cite" target={c.navTarget} model={model}>
+                        <SourceChip
+                            key={c.n}
+                            hook="cite"
+                            target={c.navTarget}
+                            hint={{ sourceType: c.sourceType, anchor: c.anchor }}
+                            model={model}
+                        >
                             <span className="flex-none font-bold text-accent-soft">[{c.n}]</span>
                             <span className="min-w-0 truncate">{c.title}</span>
                         </SourceChip>
@@ -591,7 +600,12 @@ function TurnView({ exchange, model }: { exchange: BriefExchange; model: AgentsV
 
 function DrewChip({ row, model }: { row: DrewRow; model: AgentsViewModel }) {
     return (
-        <SourceChip hook="drew" target={row.key} model={model}>
+        <SourceChip
+            hook="drew"
+            target={row.navTarget}
+            hint={{ sourceType: row.sourceType, anchor: row.anchor }}
+            model={model}
+        >
             <span className="flex-none text-ink-faint">{row.sourceType}</span>
             <span className="min-w-0 truncate">{row.title}</span>
             {row.citations > 1 ? <span className="flex-none text-ink-faint">×{row.citations}</span> : null}
@@ -923,6 +937,13 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         loadBriefing();
     }, []);
 
+    // DEV-only: the resource-linking scenario's seams (linkingdevhooks.ts)
+    useEffect(() => {
+        if (import.meta.env.DEV) {
+            void import("./linkingdevhooks").then((m) => m.installLinkingDevHooks(model));
+        }
+    }, [model]);
+
     // The lists the Brief's boot restore validates against. Loaded here rather than inherited: in the Brief
     // composition the Subjects column does not mount, and that column is what loads both of these today.
     useEffect(() => {
@@ -932,38 +953,11 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         loadChannels();
     }, []);
 
-    // Two landings moved off the Stage with the panes it drew: a "Open run" focus request and a Radar
-    // draft. Both are one-shot — `landed` bounds them to a single attempt, because a target that never
-    // appears (channel load failed, run gone) must not re-fire on every subject change and yank the user
-    // back to it.
-    const subject = useAtomValue(activeSubjectAtom);
-    const pendingFocus = useAtomValue(pendingRunFocusAtom);
-    const setPendingFocus = useSetAtom(pendingRunFocusAtom);
+    // A Radar draft moved off the Stage with the panes it drew. It is one-shot — `landed` bounds it to a single
+    // attempt, because a channel that never resolves must not re-fire on every change and yank the user back.
     const pendingDraft = useAtomValue(pendingRunDraftAtom);
     const setPendingDraft = useSetAtom(pendingRunDraftAtom);
     const channels = useAtomValue(channelsAtom);
-    const landingRuns = useAtomValue(activeChannelRunsAtom);
-
-    // Radar / graph peek / task correlation asking to show a run: put its channel on the subject, then
-    // select the run once that channel's runs have loaded. Landing on the channel is the useful part.
-    useEffect(() => {
-        if (pendingFocus == null) {
-            return;
-        }
-        if (subject?.kind !== "channel" || subject.id !== pendingFocus.channelId) {
-            if (pendingFocus.landed) {
-                setPendingFocus(null);
-                return;
-            }
-            void openChannelSheet(pendingFocus.channelId, null);
-            setPendingFocus({ ...pendingFocus, landed: true });
-            return;
-        }
-        if (landingRuns.some((r) => r.id === pendingFocus.runId)) {
-            setActiveRunId(pendingFocus.channelId, pendingFocus.runId);
-            setPendingFocus(null);
-        }
-    }, [pendingFocus, subject, landingRuns, setPendingFocus]);
 
     // Radar "Start investigation": put its project's channel on the subject, so the sheet opens on that
     // channel's launcher holding the draft rather than dropping it on the queue.
@@ -1267,10 +1261,19 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                 return;
             }
             if ("queue" in target) {
-                openQueueTarget(model, target.queue);
+                const queue = target.queue;
+                fireAndForget(() =>
+                    queue.kind === "channel"
+                        ? openTarget(model, {
+                              kind: "channel",
+                              channelId: queue.channelId,
+                              runId: queue.runId ?? undefined,
+                          })
+                        : openAddress(model, queue.oref)
+                );
                 return;
             }
-            fireAndForget(() => openORef(model, target.oref));
+            fireAndForget(() => openAddress(model, target.oref));
         },
         [model]
     );
@@ -1869,12 +1872,12 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                 ) : null}
             </div>
             <BriefComposer model={model} />
-            {/* the Brief's destination for a record oref: openref.ts's task arm sets the atom this reads.
+            {/* the Brief's destination for a record address: openref.ts's record landing sets the atom this reads.
                 Mounted here rather than beside the surface switch because it is the Brief's own overlay —
                 the three-pane composition opens a record on the Stage instead. */}
             <BriefPeek model={model} />
             {/* The same overlay the Stage used to mount, with the Brief's own exits. canOpenRuns is true
-                now that a run has a destination: openORef's run arm opens the channel's detail sheet, which
+                now that a run has a destination: openref.ts's run landing opens the channel's detail sheet, which
                 is where the run body and its gate live. A graph-selected record closes into the record
                 peek; an Ask closes into the attached Brief thread. */}
             <AnimatePresence>

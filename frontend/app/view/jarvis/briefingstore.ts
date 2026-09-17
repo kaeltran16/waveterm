@@ -10,7 +10,7 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type Atom, type PrimitiveAtom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import { BRIEFING_FIXTURES, type BriefingFixtureName } from "./briefingfixtures";
-import { normalizeBriefingNav, SEVEN_DAYS_MS } from "./briefingmodel";
+import { SEVEN_DAYS_MS } from "./briefingmodel";
 import type { GroundingCard, JarvisAnswerTurn, JarvisConversation, JarvisScope, JarvisTurn } from "./jarviscontract";
 import { isAnswerTurn } from "./jarviscontract";
 import { mapWireCard } from "./recallderive";
@@ -255,12 +255,7 @@ export async function askAcrossWorkAsync(prompt: string, attachedORefs: string[]
         }
         globalStore.set(briefingAnswerAtom, {
             answer: rtn.answer,
-            // navTarget is normalized here so the atom holds nav-ready targets and no consumer has to
-            // remember to do it — the ledger cites dossiers as vault: orefs, which only route as task:.
-            grounding: (rtn.grounding ?? []).map((c) => {
-                const card = mapWireCard(c);
-                return { ...card, navTarget: normalizeBriefingNav(card.navTarget) ?? "" };
-            }),
+            grounding: (rtn.grounding ?? []).map(mapWireCard),
             terminal: rtn.terminal,
         });
         globalStore.set(briefingAskStateAtom, "answered");

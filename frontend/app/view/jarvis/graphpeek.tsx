@@ -27,7 +27,7 @@ import {
     selectBloomedRun,
     selectNode,
 } from "./jarvisgraphstore";
-import { openORef } from "./openref";
+import { openAddress } from "./openref";
 
 const KIND_TONE: Record<string, string> = {
     task: "text-graph-task",
@@ -135,7 +135,7 @@ export function GraphPeek({
     const matches = q === "" ? [] : merged.nodes.filter((n) => n.label.toLowerCase().includes(q));
 
     const openRun = (runORef: string) => {
-        fireAndForget(() => openORef(model, runORef));
+        fireAndForget(() => openAddress(model, runORef));
         onClose();
     };
 

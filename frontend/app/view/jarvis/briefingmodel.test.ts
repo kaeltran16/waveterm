@@ -12,7 +12,6 @@ import {
     EFFORT_CAP,
     groupDelta,
     mergeActiveWork,
-    normalizeBriefingNav,
     projectBriefing,
     queueOpenTarget,
     SHIPPED_CAP,
@@ -144,7 +143,7 @@ describe("briefing projection", () => {
                 kind: "dossier",
                 title: "ship ledger",
                 detail: "status: active",
-                navtarget: "vault:d-1",
+                navtarget: "task:d-1",
             },
             { ts: T0 - 10 * DAY, kind: "run-created", title: "stale", detail: "", navtarget: "run:r-9" },
             { ts: T0 - 5 * DAY, kind: "session", title: "a session", detail: "pi m" },
@@ -161,7 +160,7 @@ describe("briefing projection", () => {
             "Decision recorded",
             "Record updated · current status: active",
         ]);
-        expect(m.delta.find((d) => d.kind === "dossier")?.oref).toBe("task:d-1"); // vault: -> task:
+        expect(m.delta.find((d) => d.kind === "dossier")?.oref).toBe("task:d-1");
     });
 
     it("promotes in-window completions to New shipped rows and keeps older completions in delta", () => {
@@ -208,7 +207,7 @@ describe("briefing projection", () => {
         expect(m.activeRuns).toHaveLength(0); // attention is queue-only, never an active-work row
     });
 
-    it("labels unscoped blockers and normalizes their target", () => {
+    it("labels unscoped blockers and keeps their target", () => {
         const active: ActiveWorkItem[] = [
             {
                 project: "",
@@ -216,7 +215,7 @@ describe("briefing projection", () => {
                 title: "ship ledger",
                 detail: "needs decision on X",
                 ts: T0 - DAY,
-                navtarget: "vault:d-1",
+                navtarget: "task:d-1",
             },
         ];
         const m = projectBriefing(input(workState([{ project: "", active, shipped: [], events: [], delta: [] }])));
@@ -244,13 +243,6 @@ describe("briefing projection", () => {
             input(workState([{ project: "waveterm", active: [], shipped, events: [], delta: [] }]))
         );
         expect(m.shipped.map((s) => s.oref)).toEqual(["run:r-new"]);
-    });
-
-    it("normalizes only the vault alias", () => {
-        expect(normalizeBriefingNav("vault:d-1")).toBe("task:d-1");
-        expect(normalizeBriefingNav("run:r-1")).toBe("run:r-1");
-        expect(normalizeBriefingNav(undefined)).toBeNull();
-        expect(normalizeBriefingNav("")).toBeNull();
     });
 
     it("projects efforts, non-archived only, and leaves the display window to the view", () => {

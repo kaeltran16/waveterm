@@ -10,7 +10,7 @@ import { cn } from "@/util/util";
 import type { JarvisAnswerTurn } from "./jarviscontract";
 import { isCitation } from "./jarviscontract";
 import { terminalBadge, type TerminalBadge } from "./jarvisturnderive";
-import { openORef } from "./openref";
+import { openAddress } from "./openref";
 import { groundingByN } from "./recallderive";
 
 export function JarvisWorkingSteps({ turn }: { turn: JarvisAnswerTurn }) {
@@ -107,7 +107,12 @@ export function JarvisAnswer({
                             type="button"
                             title={card ? `${card.title} — open source` : undefined}
                             onClick={() => {
-                                if (card) void openORef(model, card.navTarget);
+                                if (card) {
+                                    void openAddress(model, card.navTarget, {
+                                        sourceType: card.sourceType,
+                                        anchor: card.anchor,
+                                    });
+                                }
                             }}
                             className="mx-0.5 inline-flex h-[17px] min-w-[17px] items-center justify-center rounded-[5px] bg-accentbg px-1 align-baseline text-[10.5px] font-bold text-accent-soft hover:bg-accent/25"
                         >

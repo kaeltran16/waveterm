@@ -250,10 +250,10 @@ func selectSeeds(ctx context.Context, v *wavevault.Vault, r *wavevault.Retriever
 	return ids, nil
 }
 
-// nodeCandidate maps a vault node + its body into a grounding candidate. Vault nodes are the
-// canonical source, so freshness is always "fresh"; nav is a best-effort vault: target (G tolerates
-// non-ORef nav targets, same as memory:). seedRank is 0 for a node reached only by expansion.
-func nodeCandidate(n wavevault.Node, body string, seedRank int) candidate {
+// nodeCandidate maps a vault node + its body into a grounding candidate. Vault nodes are the canonical
+// source, so freshness is always "fresh". The address comes from wavevault.Address, with parent finding a
+// decision's record. seedRank is 0 for a node reached only by expansion.
+func nodeCandidate(n wavevault.Node, body string, seedRank int, parent func(decisionID string) string) candidate {
 	st := "memory"
 	switch n.Collection {
 	case wavevault.CollTasks:
@@ -261,13 +261,15 @@ func nodeCandidate(n wavevault.Node, body string, seedRank int) candidate {
 	case wavevault.CollDecisions:
 		st = "decision"
 	}
+	navTarget, anchor := wavevault.Address(n.Collection, n.ID, parent)
 	return candidate{
 		sourceType: st,
 		title:      nodeTitle(n),
 		project:    n.Scope, // a mirrored hub note is another project's — say so rather than imply it is this one's
 		ts:         n.UpdatedTs,
 		freshness:  "fresh",
-		navTarget:  "vault:" + n.ID,
+		navTarget:  navTarget,
+		anchor:     anchor,
 		snippet:    truncate(strings.TrimSpace(body), 240),
 		seedRank:   seedRank,
 	}

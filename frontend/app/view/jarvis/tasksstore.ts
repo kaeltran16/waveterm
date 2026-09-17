@@ -17,13 +17,16 @@ export const taskListAtom = atom<SpaceSummary[] | null>(null) as PrimitiveAtom<S
 export const tasksErrorAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 
 export function loadTaskList(): void {
-    fireAndForget(async () => {
-        try {
-            const rtn = await RpcApi.ListTaskDossiersCommand(TabRpcClient);
-            globalStore.set(taskListAtom, rtn?.dossiers ?? []);
-            globalStore.set(tasksErrorAtom, null);
-        } catch (e) {
-            globalStore.set(tasksErrorAtom, String(e));
-        }
-    });
+    fireAndForget(refreshTaskList);
+}
+
+// awaitable for a caller that has to know the list before it acts; a failure lands in tasksErrorAtom
+export async function refreshTaskList(): Promise<void> {
+    try {
+        const rtn = await RpcApi.ListTaskDossiersCommand(TabRpcClient);
+        globalStore.set(taskListAtom, rtn?.dossiers ?? []);
+        globalStore.set(tasksErrorAtom, null);
+    } catch (e) {
+        globalStore.set(tasksErrorAtom, String(e));
+    }
 }

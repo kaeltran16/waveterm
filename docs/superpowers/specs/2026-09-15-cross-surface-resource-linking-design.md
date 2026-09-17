@@ -1,7 +1,7 @@
 # Cross-Surface Resource Linking — Design
 
 **Date:** 2026-09-15  
-**Status:** Draft — cut to the navigation core after review; awaiting approval  
+**Status:** Approved 2026-09-17 — cut to the navigation core after review  
 **Type:** Cockpit-wide contract, one implementation slice
 
 ## Summary
@@ -32,17 +32,18 @@ unroutable address is "a deliberate no-op" (`openref.ts:104`).
 
 ## Problem
 
-Verified against the code on 2026-09-15.
+Verified against the code on 2026-09-15; line references re-checked against `main` on 2026-09-17.
 
 ### Addresses that open nothing or the wrong thing
 
 1. **Conversation citations to vault and memory sources are dead clicks.** Recall emits `vault:<id>`
    (`pkg/jarvisrecall/retrieve.go:270`) and `memory:<id>` (`pkg/jarvisrecall/cards.go:133`, commented "NOT a
-   parseable ORef"). The conversation stream stores cards unchanged (`jarvisstore.ts:277`), `jarvisturn.tsx:110`
-   passes them to `openORef`, and `orefNavPlan` classifies both as unsupported.
+   parseable ORef"). The conversation stream keeps each card's `navTarget` as emitted (`jarvisstore.ts:283-285`),
+   `jarvisturn.tsx:110` passes it to `openORef`, and `orefNavPlan` classifies both as unsupported.
 2. **The Brief's rewrite misroutes non-dossier nodes.** `normalizeBriefingNav` turns every `vault:` into
-   `task:` (`briefingmodel.ts:371-378`, applied at `briefingstore.ts:258-263`). `retrieve.go` emits `vault:` for
-   decisions and memory-collection nodes too, so those open a dossier peek on an id that is not a dossier.
+   `task:` (`briefingmodel.ts:371-378`), applied to grounding cards at `briefingstore.ts:258-263` and to ledger
+   blocker and delta rows at `briefingmodel.ts:447,507`. `retrieve.go` emits `vault:` for decisions and
+   memory-collection nodes too, so those grounding cards open a dossier peek on an id that is not a dossier.
 3. **A Radar finding citation loses its finding.** `radarCandidate` emits `radarreport:<oid>` only
    (`cards.go:121`).
 4. **Opening a report from outside Radar can land on a different report.** `selectReport` sets the current
@@ -55,13 +56,16 @@ Verified against the code on 2026-09-15.
 
 - **Run.** `openORef("run:…")` → `openRunSheet` → `openChannelSheet`. Radar's "Open run"
   (`radarfindingdetail.tsx:84-90`) and the DAG task fallback (`taskcorrelate.ts:63-71`) instead set
-  `pendingRunFocusAtom`, which an effect in `briefsurface.tsx:893-912` consumes. That effect only works while
+  `pendingRunFocusAtom`, which an effect in `briefsurface.tsx:947-966` consumes. That effect only works while
   the Brief is mounted, and the task fallback never switches surface. It adds nothing `openChannelSheet` lacks:
   `selectChannel` already awaits the runs load (`channelsstore.ts:29-36`, `87-94`) and `setActiveRunId` is a
   plain map write (`jarvissubjectstore.ts:235-238`).
-- **Agent.** `jumpToAgent` opens the transcript (`channelsprimitives.tsx:38-42`); `model.openTerminal` opens
-  the terminal block (`agents.tsx:160-165`). Addresses route to the terminal (`openref.ts:134-135`), run cards
-  to the transcript.
+- **Agent.** Addresses route through `model.openTerminal` (`openref.ts:134-135`, `agents.tsx:160-165`) and run
+  cards through `jumpToAgent` (`channelsprimitives.tsx:38-42`). Both land on the same view: the Agent surface
+  has one, the focused agent's live terminal (`agentsurface.tsx:44-45,96`). The only difference is
+  `terminalTargetAtom`, which `openTerminal` sets and `jumpToAgent` clears, and which nothing reads. It is left
+  over from a transcript view the surface no longer has (`agents.tsx:75,162`, `channelsprimitives.tsx:40`,
+  `cockpitsurface.tsx:285`, `sessionssurface.tsx:74`).
 - **Record.** The Brief peek (`task:`) and `openRecordInVault` are two deliberate destinations
   (`openref.ts:154-160`). They stay, as explicit views of one target.
 
@@ -72,7 +76,7 @@ Verified against the code on 2026-09-15.
 | `run:<oid>` | recall cards, Brief peek, graph peek | Run | yes |
 | `channel:<oid>` | Wave object ORef (the Brief queue and palette pass a channel id, not this string) | Channel | yes |
 | `tab:<id>` | run phase `WorkerORefs`, channel `RefORef` | agent tab | no — callers strip the prefix by hand |
-| `agent:<tabId>` | effort `WorkRefs` (`wshcmd-effort.go:369`), Brief queue, pet sources | agent tab | yes (terminal) |
+| `agent:<tabId>` | effort `WorkRefs` (`wshcmd-effort.go:369`), Brief queue, pet sources | agent tab | yes |
 | `task:<dossierId>` | `jarvisvolunteer`, palette | wavevault record | yes (peek) |
 | `vault:<nodeId>` | `retrieve.go:270` (any collection), `jarvisstate.go:89,163` (dossiers) | wavevault node | no |
 | `memnote:<id>` | `jarvisvolunteer/recall.go:77`, `proactive.ts:76`, `petjoin.ts:114` | memory note | yes |
@@ -97,10 +101,9 @@ Attachment orefs are a separate namespace: `jarvisrecall.resolveAttached` (`reca
 ## Non-goals
 
 - Relationship UI, Back history, and the other items under [Deferred until evidence](#deferred-until-evidence).
-- View targets. The Pet's memory-upkeep and settings escorts (`petactrun.ts:40-51`) stay as they are.
+- View targets. The Pet's memory-upkeep and settings escorts (`petactrun.ts:39-50`) stay as they are.
 - Attachment orefs.
 - New durable data, a link store, or model calls.
-- Changing which Agent view an address opens (see [Open question](#open-question)).
 
 ## Design
 
@@ -142,13 +145,14 @@ No frontend producer changes: the palette, `proactive.ts` and `petjoin.ts` alrea
 
 `parseAddress(address, hint?: { sourceType?: string; anchor?: string }): OpenTarget | Unsupported` is pure
 and total, and replaces `orefNavPlan`. It is the only place a legacy string is understood;
-`normalizeBriefingNav` and the rewrite in `briefingstore.ts` are deleted.
+`normalizeBriefingNav` and its three call sites (`briefingstore.ts:262`, `briefingmodel.ts:447,507`) are
+deleted.
 
 | Input | Target |
 |---|---|
 | `run:<id>` | run |
 | `channel:<id>` | channel |
-| `tab:<id>`, `agent:<id>` | agent, terminal view |
+| `tab:<id>`, `agent:<id>` | agent |
 | `task:<id>` | record, peek view, anchor from hint |
 | `vault:<id>`, sourceType `dossier` or none | record, peek view |
 | `vault:<id>`, sourceType `memory` | memory note |
@@ -167,7 +171,7 @@ maps the new `anchor` field.
 type OpenTarget =
     | { kind: "channel"; channelId: string; runId?: string }
     | { kind: "run"; runId: string }
-    | { kind: "agent"; tabId: string; view: "transcript" | "terminal" }
+    | { kind: "agent"; tabId: string }
     | { kind: "record"; dossierId: string; anchor?: string; view: "peek" | "vault" }
     | { kind: "memory-note"; noteId: string }
     | { kind: "effort"; effortId: string }
@@ -206,7 +210,7 @@ failure (`petactrun.ts:7-8`).
 |---|---|---|
 | channel | `openChannelSheet(channelId, runId)` → jarvis | the channel fails to load |
 | run | load the Run; `openChannelSheet(run.channeloid, runId)` → jarvis | Run missing; Run has no channel |
-| agent | transcript: `jumpToAgent`; terminal: `model.openTerminal` | tab not in the roster |
+| agent | `jumpToAgent` | tab not in the roster |
 | record | peek: `pendingDecisionAnchorAtom` + `briefPeekRecordAtom` → jarvis; vault: `openRecordInVault` | id absent from `taskListAtom` once it has loaded — the peek builds nothing until the detail loads (`briefpeekview.tsx:152-162`), so it cannot report a missing record itself |
 | memory-note | `loadMemory()` unless `memLoadedAtom`; `selectNote`; memory tab, saved focus → vault | id absent from `memNotesAtom` after load |
 | effort | `openEffortSheet` → jarvis | unchanged |
@@ -217,21 +221,31 @@ Radar's scope comes first because `initRadarScope` selects the newest report. Se
 it over the landing. A finding id absent from the report still lands on the report and reports that the
 finding is no longer in it.
 
+`loadReports` drops any call made while another load is in flight (`radarstore.ts:106-108`). A landing during
+a load for another project would therefore return from `initRadarScope` with its own list unloaded, and the
+in-flight load would then select its own newest report over the landing. The slice makes the guard per path
+and discards a result whose path is no longer the owned scope.
+
 ### 4. Caller migration
 
 | Today | After |
 |---|---|
-| `openORef` callers: `briefsurface.tsx:496,1152`, `openQueueTarget` (`openref.ts:95-102`), `jarvisturn.tsx:110`, `graphpeek.tsx:138`, `briefpeekview.tsx:101`, `command-palette.tsx:367,371`, `proactiveviews.tsx:27` | `openAddress` (citations pass the card's hint) |
-| `petactrun.ts:37` | `openAddress` with the Pet's own `report` |
+| `openORef` callers: `SourceChip` (`briefsurface.tsx:550`), the Brief's `openLine` (`briefsurface.tsx:1273`), `openQueueTarget` (`openref.ts:95-102`, called at `briefsurface.tsx:1270`), `jarvisturn.tsx:110`, `graphpeek.tsx:138`, `briefpeekview.tsx:101`, `command-palette.tsx:367,371`, `proactiveviews.tsx:27` | `openAddress` (citations pass the card's hint) |
+| `SourceChip`'s button-or-text gate, `orefNavPlan(target).kind === "unsupported"` (`briefsurface.tsx:539`) | `parseAddress` with the same hint the click passes, so a citation that cannot open still renders as plain text |
+| `petactrun.ts:36` | `openAddress` with the Pet's own `report` |
 | `openRecordInVault` at `briefpeekview.tsx:259` | record target, vault view |
 | `openChannelSheet` + surface write at `command-palette.tsx:327-329` | channel target |
-| `pendingRunFocusAtom` at `radarfindingdetail.tsx:88`, `taskcorrelate.ts:69` | run target; the atom and its effect (`briefsurface.tsx:893-912`) are deleted |
-| `normalizeBriefingNav`, `briefingstore.ts:258-263` | deleted; the parser owns legacy strings |
+| `pendingRunFocusAtom` at `radarfindingdetail.tsx:88`, `taskcorrelate.ts:69` | run target; the atom and its effect (`briefsurface.tsx:947-966`) are deleted |
+| `normalizeBriefingNav` at `briefingstore.ts:262` and `briefingmodel.ts:447,507` | deleted; the parser owns legacy strings |
+| `vault:` in `briefingfixtures.ts:102` | `task:`, matching what the ledger now emits |
+| `terminalTargetAtom` (`agents.tsx:75`) and its writes at `agents.tsx:162`, `channelsprimitives.tsx:40`, `cockpitsurface.tsx:285`, `sessionssurface.tsx:74` | deleted, with the transcript wording in `openTerminal`'s comment (`agents.tsx:158-159`) |
 
 `openRunSheet` folds into the run landing. `openEffortSheet` and `openRecordInVault` have no caller left outside
 the router and become module-private. `openChannelSheet` stays exported for Jarvis's own flows (the Brief's
-restore at `briefsurface.tsx:963`, the investigation draft at `:922`, and `newruncontrol.tsx:161`), not for
-cross-surface callers.
+restore at `briefsurface.tsx:1017`, the investigation draft at `:976`, and `newruncontrol.tsx:162`), not for
+cross-surface callers. Two comments that describe `openORef`'s routing (`petacts.ts:131`, `petsources.tsx:177`)
+are updated to name `openAddress`; the memnote pre-check at `petacts.ts:129-132` stays, since hiding a known-dead
+Open is still better than a button that reports it.
 
 Callers that already hold a live object and call the destination's single landing helper stay as they are:
 `jumpToAgent` and `model.openTerminal` on roster rows, `openDiff`, `openInCode`, and Radar's "Start
@@ -258,11 +272,12 @@ silent path to fix.
 
 - **Parser:** a table test with one case per dialect row, hint handling, and the unsupported rows, replacing
   `orefNavPlan`'s tests in `openref.test.ts` and keeping "is total on malformed input".
-- **Landings:** atom-level tests in the existing `openRecordInVault` pattern (`openref.test.ts:73-110`):
+- **Landings:** atom-level tests in the existing `openRecordInVault` pattern (`openref.test.ts:73-107`):
   - Run missing, and Run with no channel;
   - agent not in the roster, and record absent from the loaded dossier list;
   - memory loads before the absent-id check;
   - Radar scopes before selecting the report and finding;
+  - a Radar load for another project that is still in flight does not overwrite the landing;
   - a superseded landing writes nothing.
 - **Go:**
   - `nodeCandidate` addresses per collection, including a decision with and without a parent;
@@ -285,19 +300,13 @@ One slice, one commit that carries this spec:
 
 When it lands, record the deferrals below in `docs/deferred.md`.
 
-## Open question
-
-Which Agent view should a `tab:` or `agent:` address open? Today addresses open the terminal while run cards
-open the transcript. The parser keeps the terminal so this slice changes no behavior. Choosing is a product
-call, separate from this contract.
-
 ## Deferred until evidence
 
 Each keeps the decision already reached, so it is not re-derived.
 
 - **Cross-surface Back.**
   - Session-only history of successful landings, deduplicated, never recording failures or cursor moves.
-  - Separate from Code's Back/Forward, which owns `Alt+ArrowLeft/Right` (`bindings.ts:1004`), so it needs its
+  - Separate from Code's Back/Forward, which owns `Alt+ArrowLeft/Right` (`bindings.ts:1026,1036`), so it needs its
     own chord.
   - Revive when a real flow shows the need.
 - **Related Work.**

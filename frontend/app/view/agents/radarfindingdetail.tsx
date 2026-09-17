@@ -4,6 +4,7 @@
 import { globalStore } from "@/app/store/jotaiStore";
 import { openInCode } from "@/app/view/code/codestore";
 import { AskJarvisButton, sourceRefForRadar } from "@/app/view/jarvis/contextualentry";
+import { openTarget } from "@/app/view/jarvis/openref";
 import { cn, fireAndForget } from "@/util/util";
 import { ArrowRight, Target } from "lucide-react";
 import type { AgentsViewModel } from "./agents";
@@ -25,7 +26,7 @@ import {
 } from "./radarmodel";
 import { setDisposition } from "./radarstore";
 import { collectorText, modeBadge, severityPill, TONE_DOT, TONE_TEXT } from "./radarstyles";
-import { pendingRunDraftAtom, pendingRunFocusAtom } from "./runactions";
+import { pendingRunDraftAtom } from "./runactions";
 
 // Diff-renderer decision (plan D3 Step 1): RadarSignal.snippet is a plain unified-diff string, and the
 // repo's diff components both require structured input, not a raw patch. Per the plan we render the
@@ -85,13 +86,16 @@ export function RadarFindingDetail({
         if (!inv) {
             return;
         }
-        globalStore.set(pendingRunFocusAtom, { channelId: inv.channelid, runId: inv.runid });
-        globalStore.set(model.surfaceAtom, "jarvis");
+        fireAndForget(() => openTarget(model, { kind: "run", runId: inv.runid }));
     };
     const stillDetected = isDetectedNow(finding);
 
     return (
-        <div className="flex min-w-0 flex-1 flex-col gap-6 overflow-y-auto p-6">
+        <div
+            data-radar-finding-detail={finding.id}
+            data-radar-report={report.oid}
+            className="flex min-w-0 flex-1 flex-col gap-6 overflow-y-auto p-6"
+        >
             {/* status row */}
             <div className="flex flex-col gap-3">
                 <div className="flex flex-wrap items-center gap-2 text-xs">

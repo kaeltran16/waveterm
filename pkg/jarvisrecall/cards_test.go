@@ -47,6 +47,42 @@ func TestAssembleCandidatesDedupesByNavTarget(t *testing.T) {
 	}
 }
 
+// a record and each of its decisions share one address, and are still different sources
+func TestAssembleCandidatesKeepsARecordAndItsDecisionApart(t *testing.T) {
+	scoped := []candidate{
+		{navTarget: "task:t1", title: "record"},
+		{navTarget: "task:t1", anchor: "dec-1", title: "decision"},
+		{navTarget: "task:t1", anchor: "dec-1", title: "the same decision again"},
+		{title: "a decision with no record"},
+		{title: "another decision with no record"},
+	}
+	out := assembleCandidates(nil, scoped, maxCandidates)
+	if len(out) != 4 {
+		t.Fatalf("len = %d, want 4 (only the repeated decision dropped): %+v", len(out), out)
+	}
+}
+
+func TestMemoryCandidateAddressesTheNote(t *testing.T) {
+	c := memoryCandidate(memvault.Note{ID: "mem-1", Title: "a note"})
+	if c.navTarget != "memnote:mem-1" {
+		t.Fatalf("navTarget = %q, want memnote:mem-1", c.navTarget)
+	}
+}
+
+func TestRadarCandidateAnchorsTheFinding(t *testing.T) {
+	c := radarCandidate(&waveobj.RadarReport{OID: "rr-1", ProjectName: "p"}, waveobj.RadarFinding{ID: "f-1", Risk: "r", Why: "w"})
+	if c.navTarget != "radarreport:rr-1" || c.anchor != "f-1" {
+		t.Fatalf("radar candidate = (%q, %q), want (radarreport:rr-1, f-1)", c.navTarget, c.anchor)
+	}
+}
+
+func TestBuildCardsCarriesTheAnchor(t *testing.T) {
+	cards := buildCards([]candidate{{sourceType: "radar", navTarget: "radarreport:rr-1", anchor: "f-1"}}, 0)
+	if cards[0].Anchor != "f-1" {
+		t.Fatalf("Anchor = %q, want f-1", cards[0].Anchor)
+	}
+}
+
 // A node the query actually matched must not be evicted by the maxCandidates cap in favour of
 // neighbours that merely turned up during expansion. Measured against the real corpus: a memory note
 // that was the #1 semantic hit for its query reached the seed set and was still dropped before the

@@ -15,8 +15,8 @@ import { confirmPruneAllSuperseded, memViewAtom, pendingMemoryFocusAtom } from "
 import { pendingSettingsSectionAtom, SETTINGS_SECTION_EMBEDDINGS } from "@/app/view/agents/settingsstore";
 import { vaultTabAtom } from "@/app/view/agents/vaultstore";
 import { askAboutSource } from "./jarvissubjectstore";
-import { openORef } from "./openref";
-import type { PetAct, PetOp, PetTarget } from "./petacts";
+import { openAddress } from "./openref";
+import type { PetAct, PetOp } from "./petacts";
 import { startIndexCatchUp } from "./petindex";
 import { clearActState, petErrandAtom, petPeekOpenAtom, setActState } from "./petstore";
 
@@ -29,13 +29,24 @@ function errText(e: unknown): string {
     return e instanceof Error ? e.message : String(e);
 }
 
-// The peek closes before every escort: an overlay anchored to the creature, left open over a surface it just
-// navigated away from, is stranded (the same reasoning petpeek.tsx already applies to its Open buttons).
-async function escort(model: AgentsViewModel, target: PetTarget): Promise<void> {
+// The peek closes before a surface escort: an overlay anchored to the creature, left open over a surface it just
+// navigated away from, is stranded (the same reasoning petpeek.tsx already applies to its Open buttons). An
+// address escort closes it only once the landing succeeds — a landing that cannot open leaves the user where
+// they were, and its failure is set on the act, which only an open peek shows.
+async function escort(model: AgentsViewModel, act: PetAct & { verb: "open" }): Promise<void> {
+    const target = act.target;
     if (target.kind === "oref") {
-        await openORef(model, target.ref, target.anchor);
+        const result = await openAddress(model, target.ref, { anchor: target.anchor }, (r) => {
+            if ("reason" in r) {
+                setActState(act.id, { status: "error", text: r.message });
+            }
+        });
+        if (result.ok) {
+            globalStore.set(petPeekOpenAtom, false);
+        }
         return;
     }
+    globalStore.set(petPeekOpenAtom, false);
     if (target.kind === "memory-upkeep") {
         // the memory collection in list view, not merely the Vault surface: the upkeep panes live under
         // the memory tab and are not mounted in graph view, so a bare switch can land where the queue
@@ -72,8 +83,7 @@ async function perform(act: PetAct & { verb: "do" }): Promise<void> {
 
 export async function runAct(model: AgentsViewModel, act: PetAct): Promise<void> {
     if (act.verb === "open") {
-        globalStore.set(petPeekOpenAtom, false);
-        await escort(model, act.target);
+        await escort(model, act);
         return;
     }
     if (act.verb === "ask") {

@@ -1,11 +1,11 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { globalStore } from "@/app/store/jotaiStore";
-import type { AgentVM } from "../agents/agentsviewmodel";
+import { fireAndForget } from "@/util/util";
 import type { AgentsViewModel } from "../agents/agents";
+import type { AgentVM } from "../agents/agentsviewmodel";
 import { jumpToAgent } from "../agents/channelsprimitives";
-import { pendingRunFocusAtom } from "../agents/runactions";
+import { openTarget } from "../jarvis/openref";
 
 // A dag task's worker correlation, resolved purely from the child run + roster. Explicit degradation
 // states match spec 6.2: a pending task (no child run yet) is "pending"; a run with no reachable
@@ -58,14 +58,15 @@ export function workerActivityText(view: TaskWorkerView): string | null {
     return view.state === "pending" ? "Not dispatched yet" : "Activity unavailable";
 }
 
-// openTaskWorker routes a resolved worker view: dispatched jumps to the agent tab; unavailable falls
-// back to the child run (pending has no navigable target and does nothing).
-export function openTaskWorker(view: TaskWorkerView, model: AgentsViewModel, channelId: string): void {
+// openTaskWorker routes a resolved worker view: dispatched jumps to the agent tab; unavailable opens the
+// child run on its own channel's sheet (pending has no navigable target and does nothing).
+export function openTaskWorker(view: TaskWorkerView, model: AgentsViewModel): void {
     if (view.state === "dispatched" && view.tabId) {
         jumpToAgent(model, view.tabId);
         return;
     }
-    if (view.state === "unavailable" && view.runId) {
-        globalStore.set(pendingRunFocusAtom, { channelId, runId: view.runId });
+    const runId = view.runId;
+    if (view.state === "unavailable" && runId) {
+        fireAndForget(() => openTarget(model, { kind: "run", runId }));
     }
 }

@@ -32,7 +32,7 @@ import {
     recordRunsAtom,
     recordScopeAtom,
 } from "./jarvissubjectstore";
-import { openORef, openRecordInVault } from "./openref";
+import { openAddress, openTarget } from "./openref";
 import { setDossierStatus } from "./recordactions";
 
 // Same vocabulary and same tones as taskdetail.tsx's chip, on purpose: the status is the one field scanned
@@ -98,7 +98,7 @@ function RunRowView({ row, model }: { row: PeekRunRow; model: AgentsViewModel })
             type="button"
             data-jarvis-peek-row="run"
             data-jarvis-peek-run={row.runId}
-            onClick={() => void openORef(model, "run:" + row.runId)}
+            onClick={() => void openAddress(model, "run:" + row.runId)}
             className="flex w-full min-w-0 cursor-pointer items-center gap-2.5 px-3 py-[7px] text-left hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
             <span className="flex-none font-mono text-[10px] font-semibold text-accent-soft">{row.shortId}</span>
@@ -256,7 +256,15 @@ export function BriefPeek({ model }: { model: AgentsViewModel }) {
                                 <button
                                     type="button"
                                     data-jarvis-peek-open-vault
-                                    onClick={() => recordId != null && openRecordInVault(model, recordId)}
+                                    onClick={() => {
+                                        if (recordId != null) {
+                                            void openTarget(model, {
+                                                kind: "record",
+                                                dossierId: recordId,
+                                                view: "vault",
+                                            });
+                                        }
+                                    }}
                                     className="cursor-pointer rounded-[6px] border border-border bg-surface-raised px-2.5 py-1 font-mono text-[10.5px] font-semibold text-ink-mid hover:border-accent/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                                 >
                                     Open in Vault

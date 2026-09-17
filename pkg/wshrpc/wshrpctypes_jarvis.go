@@ -444,7 +444,7 @@ type ActiveWorkItem struct {
 	Title       string   `json:"title"`
 	Detail      string   `json:"detail,omitempty"`
 	Ts          int64    `json:"ts"`
-	NavTarget   string   `json:"navtarget,omitempty"`   // "run:<oid>" | "vault:<id>"
+	NavTarget   string   `json:"navtarget,omitempty"`   // "run:<oid>" | "task:<id>"
 	WorkerORefs []string `json:"workerorefs,omitempty"` // run rows only: sorted deduped phase worker orefs ("tab:<id>")
 }
 

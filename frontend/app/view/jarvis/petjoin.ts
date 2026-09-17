@@ -110,7 +110,7 @@ export function eventFromActivity(d: MemoryActivityData | null | undefined): Pet
         at: d.ts,
         kind: kind as ActivityKind,
         text: activityText(kind as ActivityKind, d),
-        // memnote:<slug> is the id memvault's scan reports, so openORef routes it with no lookup
+        // memnote:<slug> is the id memvault's scan reports, so openAddress lands it with no lookup
         sources: written.map((n) => ({ ref: `memnote:${n.id}`, title: n.title || n.id, sourceType: "memory" })),
     };
 }

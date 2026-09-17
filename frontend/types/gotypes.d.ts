@@ -2538,6 +2538,7 @@ declare global {
         agems: number;
         freshness: string;
         navtarget: string;
+        anchor?: string;
     };
 
     // waveobj.JarvisConvoSourceRef

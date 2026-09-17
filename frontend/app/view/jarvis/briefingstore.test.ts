@@ -281,16 +281,17 @@ describe("briefing cursor", () => {
         expect(globalStore.get(briefingAnswerAtom)).toBeNull();
     });
 
-    // the ledger cites a dossier as a vault: oref, which only routes as task:. Normalizing in the store
-    // is what lets every consumer treat navTarget as clickable without repeating the rule.
-    it("normalizes a vault citation to its routable form", async () => {
+    // the router is the one reader of a legacy address, so the store keeps a card as the wire sent it
+    it("keeps a citation's address and anchor as the wire sent them", async () => {
         (RpcApi.JarvisAskCommand as ReturnType<typeof vi.fn>).mockResolvedValue({
             answer: "a",
-            grounding: [wireCard({ navtarget: "vault:d-1" })],
+            grounding: [wireCard({ sourcetype: "decision", navtarget: "task:d-1", anchor: "dec-1" })],
             terminal: "answered",
         });
         await askAcrossWorkAsync("q");
-        expect(globalStore.get(briefingAnswerAtom)?.grounding[0].navTarget).toBe("task:d-1");
+        const card = globalStore.get(briefingAnswerAtom)?.grounding[0];
+        expect(card?.navTarget).toBe("task:d-1");
+        expect(card?.anchor).toBe("dec-1");
     });
 
     // a freshness this build does not know must not be cast through: it would score undefined in the

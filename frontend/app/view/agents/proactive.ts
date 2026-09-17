@@ -61,10 +61,9 @@ export function dismissProactive(run: Run): void {
     fireAndForget(() => ObjectService.UpdateObjectMeta(WOS.makeORef("run", oid), patch));
 }
 
-// maps a suggestion to the oref openORef navigates to; null = not navigable. The kind
-// vocabulary lives in openref.ts (task:/memnote:/run:/channel:/agent:); a decision has no
-// nav kind of its own (openref.ts header: it addresses its parent record via `anchor`,
-// which this payload does not carry) — so it maps to null, never an error.
+// maps a suggestion to the address openAddress lands on; null = not navigable. The address
+// vocabulary lives in address.ts; a decision has no address of its own (it lands on its parent
+// record with an anchor, which this payload does not carry) — so it maps to null, never an error.
 export function proactiveNavOref(vm: ProactiveVM | null): string | null {
     if (vm == null || vm.nodeId === "") {
         return null;

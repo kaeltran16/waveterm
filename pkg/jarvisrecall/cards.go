@@ -24,7 +24,8 @@ import (
 // maxCandidates caps the assembled slice fed to the model (recency-ordered). Bounds prompt size + cost.
 const maxCandidates = 12
 
-// candidate is one retrieved source before it is numbered into a grounding card. snippet feeds the prompt
+// candidate is one retrieved source before it is numbered into a grounding card. anchor names the sub-object
+// within navTarget to land on (a decision in its record, a finding in its report). snippet feeds the prompt
 // only (it is not sent to the FE as part of the card). seedRank is the candidate's 1-based position in the
 // ranked seed list, or 0 when it was reached only by expansion — see orderCandidates.
 type candidate struct {
@@ -34,6 +35,7 @@ type candidate struct {
 	ts         int64
 	freshness  string
 	navTarget  string
+	anchor     string
 	snippet    string
 	seedRank   int
 }
@@ -46,24 +48,41 @@ const maxContextTurns = 6
 func assembleCandidates(pinned, scoped []candidate, max int) []candidate {
 	out := make([]candidate, 0, max)
 	seen := make(map[string]bool, len(pinned)+len(scoped))
-	for _, c := range pinned {
-		if seen[c.navTarget] {
-			continue
+	repeated := func(c candidate) bool {
+		k := sourceKey(c)
+		if k == "" {
+			return false
 		}
-		seen[c.navTarget] = true
-		out = append(out, c)
+		if seen[k] {
+			return true
+		}
+		seen[k] = true
+		return false
+	}
+	for _, c := range pinned {
+		if !repeated(c) {
+			out = append(out, c)
+		}
 	}
 	for _, c := range scoped {
 		if len(out) >= max {
 			break
 		}
-		if seen[c.navTarget] {
-			continue
+		if !repeated(c) {
+			out = append(out, c)
 		}
-		seen[c.navTarget] = true
-		out = append(out, c)
 	}
 	return out
+}
+
+// sourceKey is the identity a candidate is deduped on: its address and the anchor within it, because a
+// record and each of its decisions share one address. An unaddressed candidate has no key — it is a vault
+// node whose decision found no record, and the walk reaches each node once.
+func sourceKey(c candidate) string {
+	if c.navTarget == "" {
+		return ""
+	}
+	return c.navTarget + "#" + c.anchor
 }
 
 // priorContext renders bounded history as context, never as a source that may be cited.
@@ -119,6 +138,7 @@ func radarCandidate(rep *waveobj.RadarReport, f waveobj.RadarFinding) candidate 
 		ts:         ts,
 		freshness:  "fresh",
 		navTarget:  waveobj.MakeORef(waveobj.OType_RadarReport, rep.OID).String(),
+		anchor:     f.ID,
 		snippet:    f.Why,
 	}
 }
@@ -130,7 +150,7 @@ func memoryCandidate(n memvault.Note) candidate {
 		project:    n.Scope,
 		ts:         n.UpdatedTs,
 		freshness:  memoryFreshness(n),
-		navTarget:  "memory:" + n.ID, // NOT a parseable ORef; real nav is Plan 4
+		navTarget:  "memnote:" + n.ID,
 		snippet:    n.Description,
 	}
 }
@@ -165,6 +185,7 @@ func buildCards(cands []candidate, nowMs int64) []waveobj.JarvisConvoGroundingCa
 			AgeMs:      nowMs - c.ts,
 			Freshness:  c.freshness,
 			NavTarget:  c.navTarget,
+			Anchor:     c.anchor,
 		})
 	}
 	return cards

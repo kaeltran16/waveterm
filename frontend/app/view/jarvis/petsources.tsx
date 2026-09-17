@@ -174,8 +174,8 @@ export function PetSources({ model }: { model: AgentsViewModel }) {
                 if (!shouldSpeakAsk(data?.oref, ctx)) {
                     return;
                 }
-                // `agent:<tabId>` is the oref openORef routes to openTerminal (openref.ts "agent"
-                // case); askAboutSource tolerates the unknown sourceType (generic chip, never a wrong
+                // `agent:<tabId>` is an address openAddress lands on the agent (address.ts reads it as an
+                // alias of tab:); askAboutSource tolerates the unknown sourceType (generic chip, never a wrong
                 // destination — jarvissubjectstore.ts:305). A roster-less ask still speaks, just with
                 // no open affordance — the same rule as a volunteer with no ref.
                 pushPetEvent(
