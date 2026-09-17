@@ -63,7 +63,6 @@ func TestStopRunWorkerErrors(t *testing.T) {
 	}{
 		{name: "malformed", oref: "not-an-oref"},
 		{name: "non-tab", oref: waveobj.MakeORef(waveobj.OType_Block, "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb").String()},
-		{name: "missing-tab", oref: waveobj.MakeORef(waveobj.OType_Tab, "cccccccc-cccc-4ccc-8ccc-cccccccccccc").String()},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -71,6 +70,16 @@ func TestStopRunWorkerErrors(t *testing.T) {
 				t.Fatalf("want error for %s", tc.name)
 			}
 		})
+	}
+}
+
+// a finished worker's tab can be gone before a cancel or retry reaches it; with no tab nothing is left
+// running, so the stop has nothing to do rather than failing the whole cancel.
+func TestStopRunWorkerTreatsAMissingTabAsStopped(t *testing.T) {
+	ctx := context.Background()
+	oref := waveobj.MakeORef(waveobj.OType_Tab, "cccccccc-cccc-4ccc-8ccc-cccccccccccc").String()
+	if err := StopRunWorker(ctx, oref); err != nil {
+		t.Fatalf("StopRunWorker on a deleted tab: %v, want nil", err)
 	}
 }
 

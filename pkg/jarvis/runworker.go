@@ -27,6 +27,10 @@ func StopRunWorker(ctx context.Context, workerORef string) error {
 		return fmt.Errorf("bad worker oref %q: expected tab", workerORef)
 	}
 	tab, err := wstore.DBMustGet[*waveobj.Tab](ctx, oref.OID)
+	// a finished worker's tab can already be closed; with no tab there is nothing left running to stop
+	if errors.Is(err, wstore.ErrNotFound) {
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("loading tab %q: %w", workerORef, err)
 	}
