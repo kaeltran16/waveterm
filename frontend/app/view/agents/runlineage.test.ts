@@ -3,12 +3,14 @@
 
 import { describe, expect, it } from "vitest";
 import {
+    agentProject,
     formatLeft,
     laneLabel,
     leadAgentOf,
     runProgress,
     runRoleOf,
     runTitle,
+    taskAgentOf,
     workerAsk,
     workerSubtext,
 } from "./runlineage";
@@ -86,7 +88,7 @@ describe("run facts", () => {
         expect(formatLeft(59_000)).toBe("<1m left");
     });
 
-    it("finds the roster agent leading a run", () => {
+    it("finds the roster agents leading a run and working its tasks", () => {
         const lineage = {
             roles: { w: { kind: "worker", leadRunId: "r1", taskId: "t-1" }, l: { kind: "lead", runId: "r1" } },
             runs: {},
@@ -94,6 +96,21 @@ describe("run facts", () => {
         const agents = [{ id: "w" }, { id: "l" }];
         expect(leadAgentOf(lineage, agents, "r1")).toEqual({ id: "l" });
         expect(leadAgentOf(lineage, agents, "r2")).toBeUndefined();
+        expect(taskAgentOf(lineage, agents, "r1", "t-1")).toEqual({ id: "w" });
+        expect(taskAgentOf(lineage, agents, "r1", "t-2")).toBeUndefined();
+        expect(taskAgentOf(lineage, agents, "r2", "t-1")).toBeUndefined();
+    });
+
+    it("shows a worker under its lead's project, else its run's", () => {
+        const lineage = {
+            roles: { w: { kind: "worker", leadRunId: "r1", taskId: "t-1" }, l: { kind: "lead", runId: "r1" } },
+            runs: { r1: { runId: "r1", channelId: "c", title: "", project: "accept-ask" } },
+        } as const;
+        const worker = { id: "w", name: "w", task: "", state: "working", project: "3" } as const;
+        const lead = { id: "l", name: "l", task: "", state: "idle", project: "waveterm" } as const;
+        expect(agentProject(lineage, [worker, lead], worker)).toBe("waveterm");
+        expect(agentProject(lineage, [worker], worker)).toBe("accept-ask");
+        expect(agentProject(lineage, [worker, lead], lead)).toBe("waveterm");
     });
 
     it("counts done and skipped tasks as finished", () => {

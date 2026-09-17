@@ -14,7 +14,6 @@ import type { AgentsViewModel } from "./agents";
 import {
     displayAgeMs,
     formatAgeShort,
-    projectOf,
     recentActions,
     summarizeActions,
     usageLevel,
@@ -26,6 +25,8 @@ import { entriesAtomFor } from "./livetranscriptatoms";
 import { prettyModel } from "./modellabel";
 import { RAIL_ICON } from "./railicons";
 import { loadRailForAgent, railStateAtom, railVisibleAtom } from "./railstore";
+import { agentProject } from "./runlineage";
+import { RunSection, TaskSection } from "./runrailsections";
 import { RuntimeMark } from "./runtimemark";
 import { runtimeMeta } from "./runtimemeta";
 import { subagentsByIdAtom } from "./subagentsstore";
@@ -66,7 +67,9 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
     const liveEntries = useAtomValue(entriesAtomFor(agent.id));
     const subs = useAtomValue(subagentsByIdAtom)[agent.id] ?? [];
     const entries = liveEntries.length > 0 ? liveEntries : (agent.previousInfo ?? []);
-    const project = projectOf(agent);
+    const agents = useAtomValue(model.agentsAtom);
+    const lineage = useAtomValue(model.lineageAtom);
+    const project = agentProject(lineage, agents, agent);
     const rt = runtimeMeta(agent.agent);
     const usage = agent.usage;
     const ctxPct = usage?.contextpct;
@@ -74,6 +77,8 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
     const railState = useAtomValue(railStateAtom);
     const cacheStatus = useAtomValue(agentCacheStatusAtom);
     const now = useAtomValue(model.nowAtom);
+    const role = lineage.roles[agent.id];
+    const roleRun = role ? lineage.runs[role.kind === "lead" ? role.runId : role.leadRunId] : undefined;
 
     useEffect(() => {
         fireAndForget(() => loadRailForAgent(agent.id, agent.transcriptPath, agent.blockId));
@@ -159,6 +164,21 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                 </div>
             ),
         },
+        ...(role && roleRun
+            ? [
+                  {
+                      id: "run",
+                      label: role.kind === "lead" ? "Run" : "Task",
+                      icon: RAIL_ICON.autonomy,
+                      content:
+                          role.kind === "lead" ? (
+                              <RunSection model={model} run={roleRun} />
+                          ) : (
+                              <TaskSection model={model} run={roleRun} taskId={role.taskId} />
+                          ),
+                  } as RailSection,
+              ]
+            : []),
         ...(ctxPct != null
             ? [
                   {

@@ -26,7 +26,7 @@ import {
 import { useRunEvents } from "./runeventstore";
 
 export function ChildAskCard({ channelId, runId }: { channelId: string; runId: string }) {
-    const asks = userOwnedAsks(useAtomValue(childAsksAtom));
+    const asks = userOwnedAsks(useAtomValue(childAsksAtom)[runId] ?? []);
     const selections = useAtomValue(childAskSelAtom);
     const texts = useAtomValue(childAskTextAtom);
     const sent = useAtomValue(childAskSentAtom);

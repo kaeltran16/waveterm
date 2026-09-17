@@ -5,6 +5,8 @@
 // under one. Read from the run a tab was spawned for (jarvis:runoref) and that run's dag, with the
 // engine's digest for what only it knows: lanes and who holds a question. No React, no Wave runtime.
 
+import { projectOf, type AgentVM } from "./agentsviewmodel";
+
 export type RunRole = { kind: "lead"; runId: string } | { kind: "worker"; leadRunId: string; taskId: string };
 
 // RunInfo is one orchestrator run as the tree and header show it, keyed by the lead's run id.
@@ -49,6 +51,30 @@ export function leadAgentOf<T extends { id: string }>(lineage: Lineage, agents: 
     return agents.find((a) => {
         const role = lineage.roles[a.id];
         return role?.kind === "lead" && role.runId === runId;
+    });
+}
+
+// agentProject is the project an agent is shown under. A worker's own is the engine's worktree, so it reads
+// its lead's, else its run's checkout.
+export function agentProject(lineage: Lineage, agents: AgentVM[], agent: AgentVM): string {
+    const role = lineage.roles[agent.id];
+    if (role?.kind !== "worker") {
+        return projectOf(agent);
+    }
+    const lead = leadAgentOf(lineage, agents, role.leadRunId);
+    return lead ? projectOf(lead) : (lineage.runs[role.leadRunId]?.project ?? "");
+}
+
+// taskAgentOf finds the roster agent working taskId of runId, if it is in the roster.
+export function taskAgentOf<T extends { id: string }>(
+    lineage: Lineage,
+    agents: T[],
+    runId: string,
+    taskId: string
+): T | undefined {
+    return agents.find((a) => {
+        const role = lineage.roles[a.id];
+        return role?.kind === "worker" && role.leadRunId === runId && role.taskId === taskId;
     });
 }
 

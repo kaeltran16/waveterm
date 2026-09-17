@@ -18,9 +18,9 @@ import { CircleStop, Maximize2, Minimize2, PanelRight, X } from "lucide-react";
 import { motion } from "motion/react";
 import { confirmCloseSession } from "./agentactions";
 import type { AgentsViewModel } from "./agents";
-import { projectOf, usageLevel, type AgentVM } from "./agentsviewmodel";
+import { usageLevel, type AgentVM } from "./agentsviewmodel";
 import { railVisibleAtom, terminalFullscreenAtom } from "./railstore";
-import { laneLabel, leadAgentOf } from "./runlineage";
+import { agentProject, laneLabel, leadAgentOf } from "./runlineage";
 import { RuntimeMark } from "./runtimemark";
 import { runtimeMeta } from "./runtimemeta";
 import { StatusDot } from "./statusdot";
@@ -70,9 +70,7 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
     const railVisible = useAtomValue(railVisibleAtom);
     const fullscreen = useAtomValue(terminalFullscreenAtom);
     const lineage = useRunLineage(model, agent);
-    // a worker's own project is the engine's empty spawn name, so it reads its lead's
-    const project =
-        lineage?.kind === "worker" ? (lineage.lead ? projectOf(lineage.lead) : lineage.run?.project) : projectOf(agent);
+    const project = agentProject(useAtomValue(model.lineageAtom), useAtomValue(model.agentsAtom), agent);
     const name =
         lineage?.kind === "worker" && lineage.task
             ? `${lineage.task.id} · ${lineage.task.label || lineage.task.id}`
