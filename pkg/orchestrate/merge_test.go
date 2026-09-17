@@ -56,6 +56,35 @@ func TestMergeConflictBlocked(t *testing.T) {
 	}
 }
 
+// the lead's rules say to commit a resolved conflict before `dag merge --continue`, so the commit the
+// continue finds at HEAD holds the branch's work even though its message is the lead's own
+func TestMergeContinueAfterTheResolverCommittedReturnsTheirCommit(t *testing.T) {
+	dir := newGitRepo(t)
+	base := gitCmd(t, dir, "rev-parse", "HEAD")
+	wt, _ := CreateRunWorktree(context.Background(), dir, "run-1", base)
+	os.WriteFile(filepath.Join(wt, "base.txt"), []byte("child change\n"), 0o644)
+	gitCmd(t, wt, "add", ".")
+	gitCmd(t, wt, "commit", "-m", "child")
+	os.WriteFile(filepath.Join(dir, "base.txt"), []byte("parent change\n"), 0o644)
+	gitCmd(t, dir, "add", ".")
+	gitCmd(t, dir, "commit", "-m", "parent")
+	if _, err := MergeRunWorktree(context.Background(), dir, "run-1", "do the thing", nil); !errors.Is(err, ErrMergeConflict) {
+		t.Fatalf("want ErrMergeConflict, got %v", err)
+	}
+	os.WriteFile(filepath.Join(dir, "base.txt"), []byte("parent change\nchild change\n"), 0o644)
+	gitCmd(t, dir, "add", ".")
+	gitCmd(t, dir, "commit", "-m", "resolve the base.txt conflict")
+	resolved := gitCmd(t, dir, "rev-parse", "HEAD")
+
+	sha, err := MergeContinue(context.Background(), dir, "run-1", "do the thing", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sha != resolved {
+		t.Fatalf("want the resolver's commit %s, got %q", resolved, sha)
+	}
+}
+
 // a lane that landed nothing must not be credited with whatever commit is the project's tip: acceptance 2's
 // report credited a verify-only task with its predecessor's commit
 func TestMergeOfALaneThatLandedNothingReturnsNoCommit(t *testing.T) {

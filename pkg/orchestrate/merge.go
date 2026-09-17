@@ -41,7 +41,7 @@ func MergeRunWorktree(ctx context.Context, projectPath, runID, goal string, fold
 		}
 		return "", fmt.Errorf("squash merge: %w", err)
 	}
-	return finishMerge(ctx, projectPath, runID, goal, fold)
+	return finishMerge(ctx, projectPath, runID, goal, fold, false)
 }
 
 // MergeContinue completes a merge after the caller resolved conflicts in the project tree.
@@ -55,22 +55,26 @@ func MergeContinue(ctx context.Context, projectPath, runID, goal string, fold []
 			return "", fmt.Errorf("unresolved conflict: %s", line)
 		}
 	}
-	return finishMerge(ctx, projectPath, runID, goal, fold)
+	return finishMerge(ctx, projectPath, runID, goal, fold, true)
 }
 
 // finishMerge stages fold after the squash, where the automatic path's clean-index check is already behind
 // it, then commits. A path git refuses to stage, because it is ignored or outside the repository, is logged
-// and left out: the docs are not worth failing a merge over.
-func finishMerge(ctx context.Context, projectPath, runID, goal string, fold []string) (string, error) {
+// and left out: the docs are not worth failing a merge over. resolved is a continue after a conflict, whose
+// resolver may already have committed the result under a message of their own.
+func finishMerge(ctx context.Context, projectPath, runID, goal string, fold []string, resolved bool) (string, error) {
 	for _, path := range fold {
 		if _, err := git(ctx, projectPath, "add", "--", path); err != nil {
 			log.Printf("merge %s: not committing %s with the squash: %v", runID, path, err)
 		}
 	}
 	if _, err := git(ctx, projectPath, "commit", "-m", mergeMessage(runID, goal)); err != nil {
-		// "nothing to commit": either a retry whose squash commit already landed on the prior attempt, or a
-		// branch whose commits change nothing
+		// "nothing to commit": the resolver's own commit, a retry whose squash commit already landed on the
+		// prior attempt, or a branch whose commits change nothing
 		if strings.Contains(err.Error(), "nothing to commit") || strings.Contains(err.Error(), "no changes added") || strings.Contains(err.Error(), "nothing added") {
+			if resolved {
+				return git(ctx, projectPath, "rev-parse", "HEAD")
+			}
 			return landedHead(ctx, projectPath, runID, goal)
 		}
 		return "", fmt.Errorf("merge commit: %w", err)
