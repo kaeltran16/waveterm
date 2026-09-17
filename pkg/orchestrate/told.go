@@ -14,7 +14,8 @@ const MaxToldLen = 1000
 
 // toldSince returns what the human typed into a child's own session after since (a transcript time), oldest
 // first. The session's first prompt is the one the engine launched it with. An answer to the child's question
-// comes through the ask path as a picker choice, not a prompt; only a pi prose answer is typed, so it reads as one.
+// comes through the ask path as a picker choice, not a prompt; only a pi prose answer is typed, so it reads as one,
+// and the caller skips it by asking agentask whether it typed that text.
 func toldSince(run *waveobj.Run, since int64) []agentsessions.HumanPrompt {
 	path, runtime, _ := transcriptForRun(run)
 	if path == "" {

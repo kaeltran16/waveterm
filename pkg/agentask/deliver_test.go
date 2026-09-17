@@ -8,6 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 )
@@ -190,5 +191,40 @@ func TestDeliverAnswer_ProseRejectsInvalidAnswers(t *testing.T) {
 		if _, err := DeliverAnswer("tab:t1", "", answers); err == nil {
 			t.Fatalf("want error for answers %+v", answers)
 		}
+	}
+}
+
+// a prose answer typed for a dag task is the engine's to skip exactly once when it reads the child's transcript; an
+// answer that never reached the terminal leaves nothing behind to hide the human's own words.
+func TestDeliverAnswer_ProseForADagTaskIsTakenOnce(t *testing.T) {
+	GlobalRegistry = MakeRegistry()
+	stubKeys(t)
+	p := prosePending()
+	p.DagOID, p.TaskId = "g1", "t-0"
+	GlobalRegistry.Set("block:b1", p)
+	before := time.Now().UnixMilli()
+	if ok, err := DeliverAnswer("block:b1", "", []baseds.AgentAnswerItem{{Text: "B"}}); !ok || err != nil {
+		t.Fatalf("want (true,nil), got (%v,%v)", ok, err)
+	}
+	if GlobalRegistry.TakeTypedAnswer("g1", "t-0", "B", before-1) {
+		t.Fatal("a prompt from before the answer was typed is not the answer")
+	}
+	if GlobalRegistry.TakeTypedAnswer("g1", "t-1", "B", time.Now().UnixMilli()) {
+		t.Fatal("another task's prompt is not this task's answer")
+	}
+	if !GlobalRegistry.TakeTypedAnswer("g1", "t-0", " B ", time.Now().UnixMilli()) {
+		t.Fatal("want the typed answer taken")
+	}
+	if GlobalRegistry.TakeTypedAnswer("g1", "t-0", "B", time.Now().UnixMilli()) {
+		t.Fatal("the same words typed again are the human's")
+	}
+
+	GlobalRegistry.Set("block:b1", p)
+	sendInput = func(string, []byte) error { return errors.New("pty gone") }
+	if _, err := DeliverAnswer("block:b1", "", []baseds.AgentAnswerItem{{Text: "B"}}); err == nil {
+		t.Fatal("want the send error")
+	}
+	if GlobalRegistry.TakeTypedAnswer("g1", "t-0", "B", time.Now().UnixMilli()) {
+		t.Fatal("an answer that was never submitted must not hide a prompt")
 	}
 }

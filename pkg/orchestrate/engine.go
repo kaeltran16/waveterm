@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/wavetermdev/waveterm/pkg/agentask"
 	"github.com/wavetermdev/waveterm/pkg/harness"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/runroute"
@@ -284,6 +285,10 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		if tracked && (t.State == TaskState_Running || t.State == TaskState_Stalled) {
 			for _, p := range toldSince(runs[t.RunID], t.ToldTs) {
 				t.ToldTs = p.Ts
+				// an answer to the worker's prose question was typed for whoever answered it, and its ask rows say who
+				if agentask.GlobalRegistry.TakeTypedAnswer(g.OID, t.ID, p.Text, p.Ts) {
+					continue
+				}
 				detail := map[string]any{"taskid": t.ID, "text": toldText(p.Text)}
 				afterCommit = append(afterCommit, func() {
 					appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskTold, nil, detail)

@@ -64,8 +64,10 @@ func injectAnswer(oref string, pending PendingAsk, answers []baseds.AgentAnswerI
 	}
 	var keys [][]byte
 	var err error
+	var proseText string
 	if pending.Prose {
-		keys, err = deliverProseAnswer(pending, answers)
+		proseText, err = proseAnswerText(pending, answers)
+		keys = proseTextKeys(proseText)
 	} else {
 		keys, err = EncodeAnswer(pending.Questions, answers)
 	}
@@ -73,11 +75,21 @@ func injectAnswer(oref string, pending PendingAsk, answers []baseds.AgentAnswerI
 		GlobalRegistry.Set(oref, pending) // nothing sent yet — safe to restore for retry
 		return false, err
 	}
+	// a dag child's transcript shows a typed prose answer as a prompt, so the engine is told before the first key
+	// and can never read the prompt without knowing whose it is
+	sentAt := time.Now().UnixMilli()
+	typedForTask := pending.Prose && pending.DagOID != "" && pending.TaskId != ""
+	if typedForTask {
+		GlobalRegistry.noteTyped(pending, proseText, sentAt)
+	}
 	for i, k := range keys {
 		if i > 0 {
 			time.Sleep(KeystrokeDelay)
 		}
 		if err := sendInput(pending.BlockId, k); err != nil {
+			if typedForTask {
+				GlobalRegistry.forgetTyped(pending, sentAt) // enter goes last, so nothing was submitted
+			}
 			return false, err // partial prefix already sent — do NOT restore
 		}
 	}
@@ -89,32 +101,32 @@ func injectAnswer(oref string, pending PendingAsk, answers []baseds.AgentAnswerI
 	return true, nil
 }
 
-// deliverProseAnswer encodes a prose ask's answer as plain terminal text. Prose asks have
-// no native picker, so an index answer resolves to the option label and the text is typed
-// verbatim (text + enter). Error semantics match EncodeAnswer: no keystrokes are produced
-// on failure, so the caller can restore the pending ask and retry safely.
-func deliverProseAnswer(pending PendingAsk, answers []baseds.AgentAnswerItem) ([][]byte, error) {
+// proseAnswerText is the text a prose ask's answer is typed as. Prose asks have no native
+// picker, so an index answer resolves to the option label and the text is typed verbatim
+// (text + enter). Error semantics match EncodeAnswer: nothing is typed on failure, so the
+// caller can restore the pending ask and retry safely.
+func proseAnswerText(pending PendingAsk, answers []baseds.AgentAnswerItem) (string, error) {
 	if len(pending.Questions) != 1 {
-		return nil, fmt.Errorf("prose ask expects exactly one question, got %d", len(pending.Questions))
+		return "", fmt.Errorf("prose ask expects exactly one question, got %d", len(pending.Questions))
 	}
 	if len(answers) != 1 {
-		return nil, fmt.Errorf("prose ask expects exactly one answer, got %d", len(answers))
+		return "", fmt.Errorf("prose ask expects exactly one answer, got %d", len(answers))
 	}
 	a := answers[0]
 	text := a.Text
 	if text == "" {
 		if len(a.SelectedIndexes) != 1 {
-			return nil, fmt.Errorf("prose answer must be text or a single option index")
+			return "", fmt.Errorf("prose answer must be text or a single option index")
 		}
 		idx := a.SelectedIndexes[0]
 		opts := pending.Questions[0].Options
 		if idx < 0 || idx >= len(opts) {
-			return nil, fmt.Errorf("selected index %d out of range (%d options)", idx, len(opts))
+			return "", fmt.Errorf("selected index %d out of range (%d options)", idx, len(opts))
 		}
 		text = opts[idx].Label
 	}
 	if err := validateFreeText(text); err != nil {
-		return nil, err
+		return "", err
 	}
-	return proseTextKeys(text), nil
+	return text, nil
 }

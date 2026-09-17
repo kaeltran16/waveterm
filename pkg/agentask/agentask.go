@@ -8,6 +8,8 @@
 package agentask
 
 import (
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -76,7 +78,10 @@ type Registry struct {
 	pending map[string]PendingAsk
 	// clears holds typed dag answers waiting for the agent's clear, keyed by oref.
 	clears map[string]sentAnswer
-	waits  waiters
+	// typed holds prose answers typed into a dag child's session, keyed by task, until the engine meets them in the
+	// child's transcript, where they look exactly like a prompt the human typed.
+	typed map[string][]typedAnswer
+	waits waiters
 }
 
 // sentAnswer is a claimed ask whose answer was typed but not yet confirmed.
@@ -85,8 +90,55 @@ type sentAnswer struct {
 	sentAt  int64
 }
 
+type typedAnswer struct {
+	text   string
+	sentAt int64
+}
+
 func MakeRegistry() *Registry {
-	return &Registry{pending: make(map[string]PendingAsk), clears: make(map[string]sentAnswer)}
+	return &Registry{pending: make(map[string]PendingAsk), clears: make(map[string]sentAnswer), typed: make(map[string][]typedAnswer)}
+}
+
+func typedKey(dagOID, taskId string) string {
+	return dagOID + "/" + taskId
+}
+
+func (r *Registry) noteTyped(p PendingAsk, text string, sentAt int64) {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	key := typedKey(p.DagOID, p.TaskId)
+	r.typed[key] = append(r.typed[key], typedAnswer{text: strings.TrimSpace(text), sentAt: sentAt})
+}
+
+func (r *Registry) forgetTyped(p PendingAsk, sentAt int64) {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	key := typedKey(p.DagOID, p.TaskId)
+	r.typed[key] = slices.DeleteFunc(r.typed[key], func(a typedAnswer) bool { return a.sentAt == sentAt })
+	if len(r.typed[key]) == 0 {
+		delete(r.typed, key)
+	}
+}
+
+// TakeTypedAnswer reports whether a prompt read from a dag task's transcript at ts is a prose answer typed for that
+// task, and forgets the answer so a later prompt with the same text still counts as the human's.
+func (r *Registry) TakeTypedAnswer(dagOID, taskId, text string, ts int64) bool {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	key := typedKey(dagOID, taskId)
+	answers := r.typed[key]
+	text = strings.TrimSpace(text)
+	for i, a := range answers {
+		if a.text != text || ts < a.sentAt {
+			continue
+		}
+		r.typed[key] = slices.Delete(answers, i, i+1)
+		if len(r.typed[key]) == 0 {
+			delete(r.typed, key)
+		}
+		return true
+	}
+	return false
 }
 
 // GlobalRegistry is the process-wide instance used by the wsh server handlers.
