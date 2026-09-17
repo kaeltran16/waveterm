@@ -323,7 +323,8 @@ func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
 		byOID[ch.OID] = ch
 	}
 	for oref, p := range in.PendingAsks {
-		if escalated[oref] {
+		// a plan task's question is its lead's until the lead forwards it or its deadline passes
+		if escalated[oref] || p.Owner == agentask.AskOwner_Lead {
 			continue
 		}
 		chOID := in.AskChannel[oref]

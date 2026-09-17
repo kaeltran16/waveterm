@@ -94,6 +94,10 @@ export function nextStepText(next: DagNextStep, briefs?: Map<string, TaskBrief>)
             const actions = next.actions?.join(" / ") ?? "action";
             return `waiting on you — ${actions}` + (named ? `: ${named}` : "");
         }
+        case "lead-action": {
+            const actions = next.actions?.join(" / ") ?? "action";
+            return `waiting on the lead — ${actions}` + (named ? `: ${named}` : "");
+        }
         case "plan-gate":
             return "waiting on you — approve the plan to start workers";
         case "merge-ready":

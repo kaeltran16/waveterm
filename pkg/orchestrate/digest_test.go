@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/wavetermdev/waveterm/pkg/agentask"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
@@ -143,6 +144,47 @@ func TestNextAnswer(t *testing.T) {
 	}
 	if len(d.Next.TaskIds) != 1 || d.Next.TaskIds[0] != "t-0" {
 		t.Fatalf("answer next must name the ask task, got %+v", d.Next.TaskIds)
+	}
+}
+
+// a question the lead holds is the lead's to answer until it forwards it or its deadline passes, so it must
+// not read as the human's: acceptance 4's overview said "needs-you ... waiting on you — answer" for one
+func TestAQuestionTheLeadHoldsIsNotWaitingOnYou(t *testing.T) {
+	g := digestGroup(t, false, plainTasks())
+	setTaskStates(g, map[string]string{"t-0": TaskState_Running})
+	held := digestAsk("t-0", "ask-1", 2000)
+	held.Owner = agentask.AskOwner_Lead
+	d := BuildDigest(digestSnapshot(g, nil, []wshrpc.DagAskItem{held}, nil, digestNow))
+	if d.Health != "healthy" || d.Counts.Attention != 0 {
+		t.Fatalf("a lead-held question is not the human's: health %q, attention %d", d.Health, d.Counts.Attention)
+	}
+	if d.Next.Kind != "lead-action" || len(d.Next.Actions) != 1 || d.Next.Actions[0] != "answer" ||
+		len(d.Next.TaskIds) != 1 || d.Next.TaskIds[0] != "t-0" {
+		t.Fatalf("next must be the lead answering t-0, got %+v", d.Next)
+	}
+	td := d.Tasks[0]
+	if td.WaitReason != "lead-ask" || len(td.HumanActions) != 0 {
+		t.Fatalf("t-0 waits on the lead with no human action, got %q %v", td.WaitReason, td.HumanActions)
+	}
+	// the lead reads its question off `dag status` too
+	if td.AskId != "ask-1" || td.AskSummary != "should we ship?" {
+		t.Fatalf("t-0 must still carry its question, got %q %q", td.AskId, td.AskSummary)
+	}
+}
+
+func TestAForwardedQuestionOutranksOneTheLeadHolds(t *testing.T) {
+	g := digestGroup(t, false, plainTasks())
+	setTaskStates(g, map[string]string{"t-0": TaskState_Running, "t-1": TaskState_Running})
+	held := digestAsk("t-0", "ask-1", 2000)
+	held.Owner = agentask.AskOwner_Lead
+	forwarded := digestAsk("t-1", "ask-2", 3000)
+	forwarded.Owner = agentask.AskOwner_User
+	d := BuildDigest(digestSnapshot(g, nil, []wshrpc.DagAskItem{held, forwarded}, nil, digestNow))
+	if d.Health != "needs-you" || d.Counts.Attention != 1 {
+		t.Fatalf("the forwarded question is the human's: health %q, attention %d", d.Health, d.Counts.Attention)
+	}
+	if d.Next.Kind != "human-action" || len(d.Next.TaskIds) != 1 || d.Next.TaskIds[0] != "t-1" {
+		t.Fatalf("next must be the human answering t-1, got %+v", d.Next)
 	}
 }
 

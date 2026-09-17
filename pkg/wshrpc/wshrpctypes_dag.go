@@ -153,7 +153,7 @@ type DagStatusCounts struct {
 }
 
 type DagNextStep struct {
-	Kind            string   `json:"kind"` // human-action | merge-ready | dispatch | parallelism-wait | verify-wait | dependency-wait | cleanup-wait | terminal
+	Kind            string   `json:"kind"` // human-action | lead-action | merge-ready | dispatch | parallelism-wait | verify-wait | dependency-wait | cleanup-wait | terminal
 	TaskIds         []string `json:"taskids,omitempty"`
 	BlockingTaskIds []string `json:"blockingtaskids,omitempty"`
 	Actions         []string `json:"actions,omitempty"` // answer | approve | sendback | resolve-merge | retry | skip | escalate | retry-cleanup
@@ -162,7 +162,7 @@ type DagNextStep struct {
 
 type DagTaskDigest struct {
 	TaskId          string   `json:"taskid"`
-	WaitReason      string   `json:"waitreason"` // none | dependency | parallelism | gate | ask | failure | merge | verify | cleanup | terminal
+	WaitReason      string   `json:"waitreason"` // none | dependency | parallelism | gate | ask | lead-ask | failure | merge | verify | cleanup | terminal
 	BlockingTaskIds []string `json:"blockingtaskids,omitempty"`
 	HumanActions    []string `json:"humanactions,omitempty"` // answer | approve | sendback | resolve-merge | retry | skip | escalate | retry-cleanup
 	AskId           string   `json:"askid,omitempty"`

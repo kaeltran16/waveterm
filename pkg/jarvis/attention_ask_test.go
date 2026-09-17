@@ -72,6 +72,23 @@ func TestAskRowSaysWhenThereIsMoreThanOneQuestion(t *testing.T) {
 	}
 }
 
+// a plan task's question goes to its lead first; it is the human's only once the lead forwards it or its
+// deadline passes. Acceptance 4 listed a question the lead still held as waiting on the human.
+func TestAQuestionTheLeadHoldsIsNotWaitingOnYou(t *testing.T) {
+	in := AttentionInput{PendingAsks: map[string]agentask.PendingAsk{
+		"block:held":      {AskId: "1", Ts: 10, Questions: question("held by the lead?"), Owner: agentask.AskOwner_Lead},
+		"block:forwarded": {AskId: "2", Ts: 20, Questions: question("forwarded to you?"), Owner: agentask.AskOwner_User},
+		"block:plain":     {AskId: "3", Ts: 30, Questions: question("a session's own question?")},
+	}}
+	var keys []string
+	for _, it := range BuildAttention(in) {
+		keys = append(keys, it.Key)
+	}
+	if strings.Join(keys, ",") != "ask:block:forwarded,ask:block:plain" {
+		t.Fatalf("attention keys = %v, want the forwarded and the plain ask only", keys)
+	}
+}
+
 func TestAskRowFallsBackWhenThereIsNoQuestionText(t *testing.T) {
 	for name, qs := range map[string][]baseds.AgentAskQuestion{
 		"no questions at all": nil,

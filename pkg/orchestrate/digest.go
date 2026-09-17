@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/wavetermdev/waveterm/pkg/agentask"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -133,8 +134,14 @@ func staleMergeGates(g *waveobj.TaskGroup, retained []waveobj.RunEvent, now time
 	return stale
 }
 
+// leadHolds reports whether the task's pending question is still its lead's: the human's only once the lead
+// forwards it or its deadline passes. An ask with no owner could not be queued, so it stays the human's.
+func leadHolds(ask wshrpc.DagAskItem) bool {
+	return ask.Owner == agentask.AskOwner_Lead
+}
+
 func taskAttention(g *waveobj.TaskGroup, t *waveobj.TaskNode, askByTask map[string]wshrpc.DagAskItem, staleGate map[string]bool) bool {
-	if _, ok := askByTask[t.ID]; ok {
+	if ask, ok := askByTask[t.ID]; ok && !leadHolds(ask) {
 		return true
 	}
 	if t.Gate && t.State == TaskState_Done && !t.Released {
@@ -256,7 +263,7 @@ func depChainReachesMergeReady(g *waveobj.TaskGroup, t *waveobj.TaskNode, mergeR
 // in dag order; Actions are the complete valid set for the selected condition (never reconstructed).
 func buildNext(g *waveobj.TaskGroup, askByTask map[string]wshrpc.DagAskItem) wshrpc.DagNextStep {
 	// 1. required human action, ordered: answer -> approve/sendback -> resolve-merge -> retry-cleanup -> retry/skip/escalate
-	if ids := tasksWithAsk(g, askByTask); len(ids) > 0 {
+	if ids := tasksWithAsk(g, askByTask, false); len(ids) > 0 {
 		return humanActionStep("answer", ids, digestActionAnswer)
 	}
 	if ids := unreleasedGateIDs(g); len(ids) > 0 {
@@ -282,6 +289,10 @@ func buildNext(g *waveobj.TaskGroup, askByTask map[string]wshrpc.DagAskItem) wsh
 	// thing to name — but ahead of every wait kind, because no engine move is coming.
 	if g.Failures >= MaxConsecutiveFailures {
 		return humanActionStep("retry/skip/escalate", ReadyTasks(g), digestActionRetrySkipEscalate)
+	}
+	// 1b. a question the lead holds: a child is blocked on the lead, not on the human
+	if ids := tasksWithAsk(g, askByTask, true); len(ids) > 0 {
+		return wshrpc.DagNextStep{Kind: "lead-action", TaskIds: ids, Actions: digestActionAnswer}
 	}
 	// 2. merge-ready work that blocks successors (merge-required dags only)
 	if blocked := mergeReadyBlocking(g); len(blocked) > 0 {
@@ -327,10 +338,11 @@ func humanActionStep(_ string, taskIDs, actions []string) wshrpc.DagNextStep {
 	return wshrpc.DagNextStep{Kind: "human-action", TaskIds: taskIDs, Actions: actions}
 }
 
-func tasksWithAsk(g *waveobj.TaskGroup, askByTask map[string]wshrpc.DagAskItem) []string {
+// tasksWithAsk lists the tasks whose pending question the lead holds (lead) or the human does (!lead).
+func tasksWithAsk(g *waveobj.TaskGroup, askByTask map[string]wshrpc.DagAskItem, lead bool) []string {
 	var ids []string
 	for i := range g.Tasks {
-		if _, ok := askByTask[g.Tasks[i].ID]; ok {
+		if ask, ok := askByTask[g.Tasks[i].ID]; ok && leadHolds(ask) == lead {
 			ids = append(ids, g.Tasks[i].ID)
 		}
 	}
@@ -436,6 +448,9 @@ func buildTaskDigest(g *waveobj.TaskGroup, t *waveobj.TaskNode, askByTask map[st
 	if ask, ok := askByTask[t.ID]; ok {
 		td.WaitReason = "ask"
 		td.HumanActions = digestActionAnswer
+		if leadHolds(ask) {
+			td.WaitReason, td.HumanActions = "lead-ask", nil
+		}
 		td.AskId = ask.AskId
 		if len(ask.Questions) > 0 {
 			td.AskSummary = truncateText(ask.Questions[0].Question, MaxAskSummaryLen)

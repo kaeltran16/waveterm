@@ -155,6 +155,13 @@ describe("explicit blockers (finding 6)", () => {
         ).toBe("waiting on you — approve / sendback: scaffold API");
     });
 
+    // a question the lead still holds is not the human's: acceptance 4 read "waiting on you" for one
+    it("says the lead, not you, when the lead holds the question", () => {
+        expect(nextStepText({ kind: "lead-action", taskids: ["t-b"], actions: ["answer"] }, briefs)).toBe(
+            "waiting on the lead — answer: write tests"
+        );
+    });
+
     it("names merge-ready and cleanup work rather than describing it generically", () => {
         expect(nextStepText({ kind: "merge-ready", taskids: ["t-a"] }, briefs)).toBe(
             "merge ready for review: scaffold API"
