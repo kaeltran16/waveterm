@@ -565,18 +565,19 @@ export function PetPeek({
                                                 ) : null
                                             ) : (
                                                 <AnimatePresence initial={false}>
+                                                    {/* no `layout` on rows: the panel is pinned by its bottom edge, so
+                                                        a drawer opening below grows it upward and moves every row on
+                                                        screen. layout reads that as a move and drags the rows back
+                                                        down. Collapsing height on enter/exit reflows siblings without
+                                                        measuring anything. */}
                                                     {rows.map((row, index) => (
                                                         <motion.div
                                                             key={row.key}
-                                                            layout
-                                                            variants={cardVariants}
+                                                            variants={paneReveal}
                                                             initial={entering.has(`row:${row.key}`) ? "initial" : false}
                                                             animate="animate"
                                                             exit="exit"
-                                                            transition={{
-                                                                duration: MOTION.durMacro,
-                                                                ease: MOTION.easeFluid,
-                                                            }}
+                                                            className="overflow-hidden"
                                                         >
                                                             <QueueRow
                                                                 model={model}
@@ -677,9 +678,9 @@ export function PetPeek({
                                                             <div className="flex max-h-[170px] flex-col gap-2 overflow-y-auto px-3 py-2.5">
                                                                 <AnimatePresence initial={false}>
                                                                     {conditions.map((condition, index) => (
+                                                                        // no `layout`, for the queue rows' reason
                                                                         <motion.div
                                                                             key={condition.expr.kind}
-                                                                            layout
                                                                             variants={cardVariants}
                                                                             initial={
                                                                                 entering.has(
@@ -690,10 +691,6 @@ export function PetPeek({
                                                                             }
                                                                             animate="animate"
                                                                             exit="exit"
-                                                                            transition={{
-                                                                                duration: MOTION.durMacro,
-                                                                                ease: MOTION.easeFluid,
-                                                                            }}
                                                                         >
                                                                             <div className="flex min-h-6 items-center gap-2">
                                                                                 <span
