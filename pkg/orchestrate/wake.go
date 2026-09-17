@@ -390,6 +390,12 @@ func questionsLine(asks map[string]agentask.PendingAsk) string {
 // `dag forward` can move an ask that never went through the raise (one restored after a restart), and
 // an answer that never lands needs its run to come back to.
 func forwardAskToUser(ctx context.Context, oref string, p agentask.PendingAsk, note string) bool {
+	return moveAskToUser(ctx, oref, p, note, "")
+}
+
+// moveAskToUser is forwardAskToUser with who moved it on the row: ForwardedByHuman for a take-over, empty
+// when the lead or the engine handed it on, which the note already says.
+func moveAskToUser(ctx context.Context, oref string, p agentask.PendingAsk, note, by string) bool {
 	moved := agentask.GlobalRegistry.Update(oref, p.AskId, func(cur *agentask.PendingAsk) {
 		cur.Owner, cur.Note = agentask.AskOwner_User, note
 		cur.ChannelId, cur.RunId, cur.TaskId, cur.DagOID = p.ChannelId, p.RunId, p.TaskId, p.DagOID
@@ -398,11 +404,15 @@ func forwardAskToUser(ctx context.Context, oref string, p agentask.PendingAsk, n
 		return false
 	}
 	publishChildAsk(p)
-	appendRunEvent(ctx, p.ChannelId, p.RunId, waveobj.RunEventKindTaskForwarded, nil, map[string]any{
+	detail := map[string]any{
 		"taskid": p.TaskId,
 		"askid":  p.AskId,
 		"note":   truncateText(note, MaxAskSummaryLen),
-	})
+	}
+	if by != "" {
+		detail["by"] = by
+	}
+	appendRunEvent(ctx, p.ChannelId, p.RunId, waveobj.RunEventKindTaskForwarded, nil, detail)
 	return true
 }
 

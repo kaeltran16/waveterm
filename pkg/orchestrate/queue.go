@@ -16,6 +16,14 @@ import (
 // askDeadlineNote is why a question the lead sat on past LeadAskDeadline moved to the human.
 const askDeadlineNote = "lead did not answer in time"
 
+// TakenOverNote is why a question the human took from the lead is theirs. The lead reads it too, in the
+// refusal of an answer it had already started.
+const TakenOverNote = "taken over from the lead"
+
+// ForwardedByHuman marks a task-forwarded row the human made by taking a question over, rather than one
+// the lead or the engine handed on.
+const ForwardedByHuman = "human"
+
 const runFinishedWake = "wake: run finished. wsh jarvis dag status"
 
 // taskFailedWake names the failure kind so the lead can pick retry, escalate, skip or forward before
@@ -132,6 +140,32 @@ func ForwardTask(ctx context.Context, dagID, taskID, note string) error {
 		return nil
 	}
 	return fmt.Errorf("task %s has no question, failure, stall, merge conflict or failed Verify to forward (state %q)", taskID, task.State)
+}
+
+// TakeOverAsk hands a task's question to the human who took it from the lead in the cockpit. The lead is
+// not woken: `dag asks` stops listing the question, and an answer it had already started is refused with
+// TakenOverNote, so a wake would only cost it a turn.
+func TakeOverAsk(ctx context.Context, dagID, taskID string) error {
+	g, err := wstore.GetDag(ctx, dagID)
+	if err != nil {
+		return fmt.Errorf("loading dag: %w", err)
+	}
+	task := taskByID(g, taskID)
+	if task == nil {
+		return fmt.Errorf("no task %q", taskID)
+	}
+	oref, p, ok := taskPendingAsk(ctx, g, task)
+	if !ok {
+		return fmt.Errorf("task %s has no question to take over", taskID)
+	}
+	if p.Owner == agentask.AskOwner_User {
+		return fmt.Errorf("task %s's question is already waiting on you", taskID)
+	}
+	p.ChannelId, p.RunId, p.TaskId, p.DagOID = g.ChannelId, g.RunID, task.ID, g.OID
+	if !moveAskToUser(ctx, oref, p, TakenOverNote, ForwardedByHuman) {
+		return fmt.Errorf("task %s's question was answered before it could be taken over", taskID)
+	}
+	return nil
 }
 
 func taskPendingAsk(ctx context.Context, g *waveobj.TaskGroup, task *waveobj.TaskNode) (string, agentask.PendingAsk, bool) {

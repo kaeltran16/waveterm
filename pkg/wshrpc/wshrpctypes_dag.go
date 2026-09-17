@@ -68,7 +68,7 @@ type CommandDagActionData struct {
 	ChannelId string `json:"channelid"`
 	RunId     string `json:"runid"`
 	TaskId    string `json:"taskid"`
-	Action    string `json:"action"`            // approve | sendback | retry | skip | escalate | cancel | forward
+	Action    string `json:"action"`            // approve | sendback | retry | skip | escalate | cancel | forward | takeover
 	Model     string `json:"model,omitempty"`   // escalate target model (exact id); required
 	Runtime   string `json:"runtime,omitempty"` // escalate target runtime; empty = task's current runtime
 	Notes     string `json:"notes,omitempty"`   // forward: what the lead checked and recommends, shown to the human
@@ -104,6 +104,9 @@ type CommandDagAnswerData struct {
 	RunId     string                   `json:"runid"`
 	TaskId    string                   `json:"taskid"`
 	Answers   []baseds.AgentAnswerItem `json:"answers"`
+	// Lead is set by `wsh jarvis dag answer`, the lead's way to answer. A question the human holds refuses
+	// it, so a lead mid-answer cannot race the human who took the question over or was forwarded it.
+	Lead bool `json:"lead,omitempty"`
 }
 
 // DagStatus contract — the complete typed status digest promoted from the raw group (spec §5.1).
@@ -125,6 +128,9 @@ type DagStatusDigest struct {
 	// omitempty makes the generated TS field optional, so the typed digest fixtures in the frontend tests
 	// keep compiling; Go still sends it
 	Shape DagPlanShape `json:"shape,omitempty"`
+	// Lanes are the plan's lanes in plan order, each its task ids in run order: the same derivation the
+	// engine dispatches and merges by.
+	Lanes [][]string `json:"lanes,omitempty"`
 }
 
 // DagReportDigest is what the lead writes its run-end report from, and what the run card shows.

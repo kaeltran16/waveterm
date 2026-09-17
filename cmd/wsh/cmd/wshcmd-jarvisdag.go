@@ -349,8 +349,8 @@ var dagAsksCmd = &cobra.Command{
 }
 
 // dagAskLines renders the lead's question queue, oldest first: every question of every entry the lead
-// holds, with the option indexes `dag answer` takes. Entries the human holds are only counted, since
-// the lead handed them on and an answer from it would race the human's.
+// holds, with the option indexes `dag answer` takes. Entries the human holds are only counted: the lead
+// handed them on or the human took them over, and the server refuses the lead's answer to them.
 func dagAskLines(asks []wshrpc.DagAskItem, now int64) []string {
 	sorted := append([]wshrpc.DagAskItem(nil), asks...)
 	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Ts < sorted[j].Ts })
@@ -431,7 +431,7 @@ var dagAnswerCmd = &cobra.Command{
 			return fmt.Errorf("answers json: %w", err)
 		}
 		return wshclient.DagAnswerCommand(RpcClient, wshrpc.CommandDagAnswerData{
-			ChannelId: channelId, RunId: runId, TaskId: args[0], Answers: answers,
+			ChannelId: channelId, RunId: runId, TaskId: args[0], Answers: answers, Lead: true,
 		}, &wshrpc.RpcOpts{Timeout: 10_000})
 	},
 }

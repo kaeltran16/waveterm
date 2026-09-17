@@ -294,6 +294,8 @@ func (ws *WshServer) DagActionCommand(ctx context.Context, data wshrpc.CommandDa
 		return orchestrate.Cancel(ctx, run.DagORef)
 	case "forward":
 		return orchestrate.ForwardTask(ctx, run.DagORef, data.TaskId, data.Notes)
+	case "takeover":
+		return orchestrate.TakeOverAsk(ctx, run.DagORef, data.TaskId)
 	}
 	target := waveobj.RoutePin{Runtime: data.Runtime, Model: data.Model}
 	return orchestrate.ApplyAction(ctx, run.DagORef, data.TaskId, data.Action, target)
@@ -391,7 +393,10 @@ func (ws *WshServer) DagAnswerCommand(ctx context.Context, data wshrpc.CommandDa
 			return fmt.Errorf("task %s has no worker blocks", data.TaskId)
 		}
 		for _, bo := range blocks {
-			if _, pending := agentask.GlobalRegistry.Get(bo); pending {
+			if p, pending := agentask.GlobalRegistry.Get(bo); pending {
+				if data.Lead && p.Owner == agentask.AskOwner_User {
+					return leadAnswerRefused(data.TaskId, p.Note)
+				}
 				// child-answered is recorded by the shared answer hook inside DeliverAnswer, so
 				// this path cannot diverge from a cockpit or Gatekeeper answer.
 				return ws.AnswerAgentCommand(ctx, wshrpc.CommandAnswerAgentData{ORef: bo, Answers: data.Answers})
@@ -400,6 +405,15 @@ func (ws *WshServer) DagAnswerCommand(ctx context.Context, data wshrpc.CommandDa
 		return fmt.Errorf("task %s has no pending ask", data.TaskId)
 	}
 	return fmt.Errorf("no task %q", data.TaskId)
+}
+
+// leadAnswerRefused tells a lead why the question it answered is not its own any more, in the words the
+// human's card shows.
+func leadAnswerRefused(taskId, note string) error {
+	if note == "" {
+		return fmt.Errorf("task %s's question is with the human; leave it to them", taskId)
+	}
+	return fmt.Errorf("task %s's question is with the human (%s); leave it to them", taskId, note)
 }
 
 // DagMergeCommand squash-merges one finished task's worktree back into the project branch. RunId is

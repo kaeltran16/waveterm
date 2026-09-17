@@ -79,3 +79,16 @@ func TestDigestShapeCountsTasksLanesAndLongestChain(t *testing.T) {
 		}
 	}
 }
+
+func TestDigestListsLanesInPlanOrder(t *testing.T) {
+	tasks := []waveobj.TaskNode{
+		{ID: "t-1", Label: "a"},
+		{ID: "t-2", Label: "b"},
+		{ID: "t-3", Label: "c", Deps: []string{"t-2"}},
+	}
+	g := digestGroup(t, true, tasks)
+	got := BuildDigest(digestSnapshot(g, nil, nil, nil, digestNow)).Lanes
+	if want := [][]string{{"t-1"}, {"t-2", "t-3"}}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("lanes = %v, want %v", got, want)
+	}
+}

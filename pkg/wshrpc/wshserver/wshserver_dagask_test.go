@@ -6,6 +6,7 @@ package wshserver
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -316,6 +317,53 @@ func TestDagForwardHandsQuestionToHuman(t *testing.T) {
 	}
 	if rows := askLifecycleRows(t, g.ChannelId, g.RunID, waveobj.RunEventKindTaskForwarded); len(rows) != 1 || rows[0]["taskid"] != "t-0" {
 		t.Fatalf("want one task-forwarded row for t-0, got %+v", rows)
+	}
+}
+
+// A lead that started answering before the human took the question over must not land its answer: the
+// human's card is the one the child waits on now.
+func TestDagAnswerFromLeadIsRefusedForQuestionTheHumanHolds(t *testing.T) {
+	g, _, blockORef := dagAskFixture(t)
+	ws := &WshServer{}
+	ctx := context.Background()
+	agentask.GlobalRegistry = agentask.MakeRegistry()
+	agentask.GlobalRegistry.Set(blockORef, agentask.PendingAsk{
+		AskId:     "ask-takeover",
+		Questions: []baseds.AgentAskQuestion{{Question: "A or B?", Options: []baseds.AgentAskOption{{Label: "A"}, {Label: "B"}}}},
+		Ts:        1,
+		Owner:     agentask.AskOwner_Lead,
+	})
+	waiter := agentask.GlobalRegistry.RegisterWaiter("ask-takeover")
+
+	if err := ws.DagActionCommand(ctx, wshrpc.CommandDagActionData{
+		ChannelId: g.ChannelId, RunId: g.RunID, TaskId: "t-0", Action: "takeover",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	answer := wshrpc.CommandDagAnswerData{
+		ChannelId: g.ChannelId, RunId: g.RunID, TaskId: "t-0",
+		Answers: []baseds.AgentAnswerItem{{SelectedIndexes: []int{0}}}, Lead: true,
+	}
+	err := ws.DagAnswerCommand(ctx, answer)
+	if err == nil || !strings.Contains(err.Error(), orchestrate.TakenOverNote) {
+		t.Fatalf("the lead's answer must be refused naming the take-over, got %v", err)
+	}
+	if p, ok := agentask.GlobalRegistry.Get(blockORef); !ok || p.Owner != agentask.AskOwner_User {
+		t.Fatalf("the refused answer must leave the question with the human, got %+v (pending %v)", p, ok)
+	}
+
+	answer.Lead = false
+	answer.Answers = []baseds.AgentAnswerItem{{SelectedIndexes: []int{1}}}
+	if err := ws.DagAnswerCommand(ctx, answer); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case res := <-waiter:
+		if len(res.Answers) != 1 || len(res.Answers[0].SelectedIndexes) != 1 || res.Answers[0].SelectedIndexes[0] != 1 {
+			t.Fatalf("the human's answer must be the one delivered: %+v", res.Answers)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("waiter never resolved")
 	}
 }
 

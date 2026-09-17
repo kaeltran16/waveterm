@@ -701,6 +701,7 @@ declare global {
         runid: string;
         taskid: string;
         answers: AgentAnswerItem[];
+        lead?: boolean;
     };
 
     // wshrpc.CommandDagAsksRtnData
@@ -2144,6 +2145,7 @@ declare global {
         durations: DagDurationDigest;
         report: DagReportDigest;
         shape?: DagPlanShape;
+        lanes?: string[][];
     };
 
     // wshrpc.DagTaskDigest

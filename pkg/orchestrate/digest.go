@@ -54,6 +54,7 @@ func BuildDigest(sn DagDigestSnapshot) wshrpc.DagStatusDigest {
 	}
 	d.Report = buildReport(sn, d.Durations)
 	d.Shape = PlanShapeOf(g.Tasks)
+	d.Lanes = jarvis.Lanes(g.Tasks)
 	for i := range g.Tasks {
 		d.Tasks = append(d.Tasks, buildTaskDigest(g, &g.Tasks[i], askByTask, retried))
 	}

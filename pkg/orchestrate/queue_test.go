@@ -267,6 +267,59 @@ func TestForwardTaskMovesPendingQuestionToUser(t *testing.T) {
 	}
 }
 
+func TestTakeOverAskHandsLeadQuestionToHumanWithoutWakingLead(t *testing.T) {
+	f := newFakeLead(t)
+	h := newChildOutcomeHarness(t, 1)
+	child, err := wstore.GetRun(h.ctx, h.channel, h.loadDag(t).Tasks[0].RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocks := RunBlockORefs(h.ctx, child)
+	if len(blocks) != 1 {
+		t.Fatalf("setup: want the child's one worker block, got %q", blocks)
+	}
+	agentask.GlobalRegistry.Set(blocks[0], agentask.PendingAsk{
+		AskId: "a1", Questions: []baseds.AgentAskQuestion{{Question: "which schema?"}}, Owner: agentask.AskOwner_Lead,
+	})
+	sendsBefore := len(f.sends)
+
+	if err := TakeOverAsk(h.ctx, h.dagID, "t-0"); err != nil {
+		t.Fatal(err)
+	}
+
+	p, _ := agentask.GlobalRegistry.Get(blocks[0])
+	if p.Owner != agentask.AskOwner_User || p.Note != TakenOverNote || p.RunId != h.runID || p.TaskId != "t-0" {
+		t.Fatalf("the taken question belongs to the user with the take-over note, got %+v", p)
+	}
+	var forwarded []map[string]any
+	for _, row := range f.rows {
+		if row["eventkind"] == waveobj.RunEventKindTaskForwarded {
+			forwarded = append(forwarded, row)
+		}
+	}
+	if len(forwarded) != 1 || forwarded[0]["by"] != ForwardedByHuman || forwarded[0]["taskid"] != "t-0" {
+		t.Fatalf("want one task-forwarded row by the human for t-0, got %+v", forwarded)
+	}
+	if len(f.sends) != sendsBefore {
+		t.Fatalf("a take-over must not type into the lead, got %q", f.sends[sendsBefore:])
+	}
+	if err := TakeOverAsk(h.ctx, h.dagID, "t-0"); err == nil {
+		t.Fatal("a question already waiting on the human cannot be taken over again")
+	}
+}
+
+func TestTakeOverAskRejectsTaskWithNoQuestion(t *testing.T) {
+	newFakeLead(t)
+	h := newNotifyHarness(t, 1, []waveobj.TaskNode{{ID: "t-0", Label: "a"}})
+
+	if err := TakeOverAsk(h.ctx, h.dagID, "t-0"); err == nil {
+		t.Fatal("a task with no pending question has nothing to take over")
+	}
+	if err := TakeOverAsk(h.ctx, h.dagID, "t-9"); err == nil {
+		t.Fatal("an unknown task has nothing to take over")
+	}
+}
+
 func TestForwardTaskRecordsFailedTask(t *testing.T) {
 	f := newFakeLead(t)
 	h := newNotifyHarness(t, 1, []waveobj.TaskNode{{ID: "t-0", Label: "a"}})
