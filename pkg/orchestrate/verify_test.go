@@ -181,6 +181,49 @@ func TestVerifyTimeoutIsAFailure(t *testing.T) {
 	}
 }
 
+// failingOutput is a failing command's kept output as acceptance 2 saw it: tool noise first, the cause last.
+func failingOutput() string {
+	return strings.Repeat("task: [generate] no changes to frontend/types/gotypes.d.ts\n", 16) +
+		"'CGO_CFLAGS' is not recognized as an internal or external command"
+}
+
+// assertDetailKeepsCause checks a failure event raised by failingOutput. The timeline row is what a human
+// reads, so it must carry the reason and the end of the output, where the cause is.
+func assertDetailKeepsCause(t *testing.T, lead *fakeLead, kind string) {
+	t.Helper()
+	for _, row := range lead.rows {
+		if row["eventkind"] != kind {
+			continue
+		}
+		msg, _ := row["detail"].(string)
+		if !strings.HasPrefix(msg, "exit 1: ") || !strings.HasSuffix(msg, "is not recognized as an internal or external command") ||
+			len(msg) > MaxFailureDetailLen {
+			t.Fatalf("want the reason and the output's end within %d bytes, got %q", MaxFailureDetailLen, msg)
+		}
+		return
+	}
+	t.Fatalf("no %s event", kind)
+}
+
+func TestVerifyFailedEventKeepsTheCause(t *testing.T) {
+	lead := newFakeLead(t)
+	f := newMergeFixture(t, []waveobj.TaskNode{{ID: "t-0", Label: "first"}})
+	f.setPlanCommands(t, verifyCmd, "")
+	f.finish(t, "t-0")
+	stubMerge(t, landedSha)
+	stubPlanCommand(t, func(context.Context, string, string) error {
+		return &planCommandError{exitCode: 1, output: failingOutput()}
+	})
+	await := awaitVerify(t)
+
+	if err := Schedule(f.ctx, f.dagID); err != nil {
+		t.Fatal(err)
+	}
+	await()
+
+	assertDetailKeepsCause(t, lead, waveobj.RunEventKindTaskVerifyFailed)
+}
+
 func TestNextMergeWaitsForRunningVerify(t *testing.T) {
 	f := newMergeFixture(t, []waveobj.TaskNode{{ID: "t-0", Label: "first"}, {ID: "t-1", Label: "second"}})
 	f.setPlanCommands(t, verifyCmd, "")

@@ -47,6 +47,21 @@ func (e *planCommandError) Error() string {
 	return e.reason() + ": " + e.output
 }
 
+// failureDetail is the cause a failure event carries, within MaxFailureDetailLen. A plan command's output
+// is cut from the front, like the tail it was kept as, so the cause at its end survives; any other error
+// keeps its head.
+func failureDetail(err error) string {
+	var pe *planCommandError
+	if !errors.As(err, &pe) {
+		return truncateText(err.Error(), MaxFailureDetailLen)
+	}
+	head := pe.reason() + ": "
+	if room := MaxFailureDetailLen - len(head); len(pe.output) > room {
+		return head + strings.ToValidUTF8(pe.output[len(pe.output)-room:], "")
+	}
+	return pe.Error()
+}
+
 func shortDuration(d time.Duration) string {
 	if d >= time.Minute && d%time.Minute == 0 {
 		return fmt.Sprintf("%dm", int(d/time.Minute))

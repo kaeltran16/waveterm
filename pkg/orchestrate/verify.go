@@ -136,7 +136,7 @@ func recordVerifyLocked(ctx context.Context, dagID, taskID string, verr error, m
 		return nil
 	}
 	appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskVerifyFailed, nil, map[string]any{
-		"taskid": taskID, "reason": reason, "detail": truncateText(verr.Error(), MaxFailureDetailLen),
+		"taskid": taskID, "reason": reason, "detail": failureDetail(verr),
 	})
 	PostWake(ctx, g.ChannelId, g.RunID, verifyFailedWake(taskID, reason))
 	return nil

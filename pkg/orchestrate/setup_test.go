@@ -108,6 +108,22 @@ func TestSetupFailureFailsTheTaskDropsItsWorktreeAndWakesTheLead(t *testing.T) {
 	}
 }
 
+func TestSetupFailedEventKeepsTheCause(t *testing.T) {
+	lead := newFakeLead(t)
+	f := newMergeFixture(t, []waveobj.TaskNode{{ID: "t-0", Label: "first"}})
+	f.setPlanCommands(t, "", setupCmd)
+	stubPlanCommand(t, func(context.Context, string, string) error {
+		return &planCommandError{exitCode: 1, output: failingOutput()}
+	})
+	stubSpawn(t, new([]string))
+
+	if err := Schedule(f.ctx, f.dagID); err != nil {
+		t.Fatal(err)
+	}
+
+	assertDetailKeepsCause(t, lead, waveobj.RunEventKindTaskFailed)
+}
+
 func TestNoSetupLineRunsNothing(t *testing.T) {
 	f := newMergeFixture(t, []waveobj.TaskNode{{ID: "t-0", Label: "first"}})
 	calls := stubPlanCommand(t, func(context.Context, string, string) error { return nil })
