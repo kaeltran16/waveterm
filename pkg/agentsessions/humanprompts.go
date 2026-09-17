@@ -16,19 +16,27 @@ type HumanPrompt struct {
 	Text string
 }
 
-// claudePromptLine is the part of a claude transcript line that says whether a user record is a prompt.
+// claudePromptLine is the part of a claude transcript line that says whether it holds a prompt.
 type claudePromptLine struct {
-	Type             string `json:"type"`
-	Timestamp        string `json:"timestamp"`
-	IsMeta           bool   `json:"isMeta"`
-	IsSidechain      bool   `json:"isSidechain"`
-	IsCompactSummary bool   `json:"isCompactSummary"`
-	Origin           *struct {
-		Kind string `json:"kind"`
-	} `json:"origin"`
-	Message struct {
+	Type             string        `json:"type"`
+	Timestamp        string        `json:"timestamp"`
+	IsMeta           bool          `json:"isMeta"`
+	IsSidechain      bool          `json:"isSidechain"`
+	IsCompactSummary bool          `json:"isCompactSummary"`
+	Origin           *claudeOrigin `json:"origin"`
+	Message          struct {
 		Content json.RawMessage `json:"content"`
 	} `json:"message"`
+	Attachment struct {
+		Type        string          `json:"type"`
+		CommandMode string          `json:"commandMode"`
+		Origin      *claudeOrigin   `json:"origin"`
+		Prompt      json.RawMessage `json:"prompt"`
+	} `json:"attachment"`
+}
+
+type claudeOrigin struct {
+	Kind string `json:"kind"`
 }
 
 // HumanPrompts returns the prompts submitted to a claude or pi session, oldest first, the one it was launched
@@ -53,23 +61,42 @@ func claudeHumanPrompts(lines []string) []HumanPrompt {
 	var out []HumanPrompt
 	for _, line := range lines {
 		// most of a transcript is assistant turns; they cannot be prompts, so they are not decoded
-		if !strings.Contains(line, `"type":"user"`) {
+		if !strings.Contains(line, `"type":"user"`) && !strings.Contains(line, `"queued_command"`) {
 			continue
 		}
 		var rec claudePromptLine
-		if json.Unmarshal([]byte(line), &rec) != nil || rec.Type != "user" {
+		if json.Unmarshal([]byte(line), &rec) != nil {
 			continue
 		}
-		if rec.IsMeta || rec.IsSidechain || rec.IsCompactSummary || (rec.Origin != nil && rec.Origin.Kind != "human") {
-			continue
+		if text := claudeTypedText(rec); text != "" {
+			out = append(out, HumanPrompt{Ts: parseTs(rec.Timestamp), Text: text})
 		}
-		text := claudePromptText(rec.Message.Content)
-		if text == "" || isClaudeNotice(text) {
-			continue
-		}
-		out = append(out, HumanPrompt{Ts: parseTs(rec.Timestamp), Text: text})
 	}
 	return out
+}
+
+// claudeTypedText is the text a person typed that a record carries, "" when it carries none.
+func claudeTypedText(rec claudePromptLine) string {
+	var raw json.RawMessage
+	var origin *claudeOrigin
+	switch {
+	case rec.IsSidechain:
+		return ""
+	case rec.Type == "user" && !rec.IsMeta && !rec.IsCompactSummary:
+		raw, origin = rec.Message.Content, rec.Origin
+	// a message typed while the session is busy reaches the model mid-turn as this attachment, and never as a user record
+	case rec.Type == "attachment" && rec.Attachment.Type == "queued_command" && rec.Attachment.CommandMode == "prompt":
+		raw, origin = rec.Attachment.Prompt, rec.Attachment.Origin
+	default:
+		return ""
+	}
+	if origin != nil && origin.Kind != "human" {
+		return ""
+	}
+	if text := claudePromptText(raw); !isClaudeNotice(text) {
+		return text
+	}
+	return ""
 }
 
 // claudePromptText is a user record's typed text: its string content, or the text blocks of an array holding no
