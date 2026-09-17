@@ -15,7 +15,16 @@ import { atom, type Atom, type PrimitiveAtom } from "jotai";
 import { useEffect } from "react";
 import { type AgentVM } from "./agentsviewmodel";
 import type { TreeFolds } from "./agenttreemodel";
-import { runRoleOf, runTitle, type Lineage, type RunInfo, type RunRole } from "./runlineage";
+import {
+    endedRoles,
+    endedWorkerVM,
+    isEndedWorkerId,
+    runRoleOf,
+    runTitle,
+    type Lineage,
+    type RunInfo,
+    type RunRole,
+} from "./runlineage";
 
 export const runDigestsAtom = atom<Record<string, DagStatusDigest>>({}) as PrimitiveAtom<
     Record<string, DagStatusDigest>
@@ -83,7 +92,58 @@ export function lineageAtomFor(agentsAtom: Atom<AgentVM[]>): Atom<Lineage> {
                 digest: digests[leadRunId],
             };
         }
-        return { roles, runs };
+        return { roles: { ...roles, ...endedRoles(runs) }, runs };
+    });
+}
+
+// runTranscriptPathsAtom holds each child run's transcript path once looked up, "" when none was found.
+export const runTranscriptPathsAtom = atom<Record<string, string>>({}) as PrimitiveAtom<Record<string, string>>;
+
+// loadRunTranscriptPath looks a child run's transcript up by the session id it was launched under.
+export function loadRunTranscriptPath(channelId: string, runId: string): void {
+    if (runId in globalStore.get(runTranscriptPathsAtom)) {
+        return;
+    }
+    fireAndForget(async () => {
+        let path = "";
+        try {
+            path = (await RpcApi.RunTranscriptPathCommand(TabRpcClient, { channelid: channelId, runid: runId })) ?? "";
+        } catch (err) {
+            console.warn(`finding the transcript of run ${runId} failed`, err);
+        }
+        globalStore.set(runTranscriptPathsAtom, (prev) => ({ ...prev, [runId]: path }));
+    });
+}
+
+export interface EndedWorker {
+    agent: AgentVM;
+    // the files its run sealed; the worktree it changed them in is gone
+    files: EvidenceFile[];
+}
+
+// endedWorkerAtomFor is the done task's worker the surface is focused on, if the focus is one.
+export function endedWorkerAtomFor(
+    focusIdAtom: Atom<string | undefined>,
+    lineageAtom: Atom<Lineage>
+): Atom<EndedWorker | undefined> {
+    return atom((get) => {
+        const id = get(focusIdAtom);
+        const lineage = get(lineageAtom);
+        const role = id ? lineage.roles[id] : undefined;
+        if (!isEndedWorkerId(id ?? "") || role?.kind !== "worker") {
+            return undefined;
+        }
+        const run = lineage.runs[role.leadRunId];
+        const task = run.dag?.tasks?.find((t) => t.id === role.taskId);
+        if (task == null) {
+            return undefined;
+        }
+        const child = task.runid ? get(WOS.getWaveObjectAtom<Run>(WOS.makeORef("run", task.runid))) : undefined;
+        const path = task.runid ? get(runTranscriptPathsAtom)[task.runid] : undefined;
+        return {
+            agent: endedWorkerVM(run.runId, task, child, path),
+            files: child?.evidence?.files ?? [],
+        };
     });
 }
 

@@ -27,7 +27,7 @@ import { diffScopeAtom } from "./diffscopeatom";
 import type { SessionStatusFilter } from "./sessionsarchivestore";
 import { liveAgentsAtom, liveTerminalsAtom } from "./liveagents";
 import type { Lineage } from "./runlineage";
-import { lineageAtomFor } from "./runlineagestore";
+import { endedWorkerAtomFor, lineageAtomFor, type EndedWorker } from "./runlineagestore";
 import { usageBucketsAtom } from "./usagestore";
 import { aggregateBuckets, type HarnessFilter } from "./usagestats";
 
@@ -69,6 +69,7 @@ export class AgentsViewModel implements ViewModel {
     noPadding = atom(true);
     agentsAtom: Atom<AgentVM[]>; // base roster overlaid with pending launches
     lineageAtom: Atom<Lineage>; // which agents lead an orchestrator run and which work its tasks
+    endedWorkerAtom: Atom<EndedWorker | undefined>; // the done task's worker in focus, read from its transcript
     baseRosterAtom: Atom<AgentVM[]>; // un-overlaid roster (dev mock or live) — read by the prune effect
     // Background terminals launched via New Agent: kept separate from the agent roster (own tree group
     // + focus pane). Always live (reads the workspace session sidebar), independent of the dev mock roster.
@@ -155,6 +156,7 @@ export class AgentsViewModel implements ViewModel {
         // Booting launches overlay the roster until the reporter registers them (supersede by tabId).
         this.agentsAtom = atom((get) => mergePendingLaunches(get(base), get(pendingAtom), Date.now()));
         this.lineageAtom = lineageAtomFor(this.agentsAtom);
+        this.endedWorkerAtom = endedWorkerAtomFor(this.focusIdAtom, this.lineageAtom);
     }
 
     // openTerminal routes to the Agent surface (spec §6): focus the agent and switch surface. The Agent surface

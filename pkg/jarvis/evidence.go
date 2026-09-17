@@ -437,10 +437,16 @@ func activeSpanMs(run *waveobj.Run) int64 {
 // transcriptRootFor resolves a runtime's transcript root (a var so tests can point it at a temp dir).
 var transcriptRootFor = agentsessions.SessionRoot
 
+// SessionTranscriptPath is the transcript written by a run launched under a session id, or "" when it has
+// no session id or its runtime has not written one.
+func SessionTranscriptPath(run *waveobj.Run) string {
+	return agentsessions.TranscriptForSession(transcriptRootFor(run.Runtime), run.Runtime, run.ProjectPath, run.SessionId)
+}
+
 // sessionTranscriptLines reads the transcript named by a run's session id. pi's is read along its active
 // branch through pisession, so turns on an abandoned branch are not counted.
 func sessionTranscriptLines(run *waveobj.Run) []string {
-	path := agentsessions.TranscriptForSession(transcriptRootFor(run.Runtime), run.Runtime, run.ProjectPath, run.SessionId)
+	path := SessionTranscriptPath(run)
 	if path == "" {
 		return nil
 	}

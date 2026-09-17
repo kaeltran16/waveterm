@@ -4,7 +4,11 @@
 import { describe, expect, it } from "vitest";
 import {
     agentProject,
+    endedRoles,
+    endedWorkerId,
+    endedWorkerVM,
     formatLeft,
+    isEndedWorkerId,
     laneLabel,
     leadAgentOf,
     runProgress,
@@ -117,5 +121,45 @@ describe("run facts", () => {
         const tasks = [{ state: "done" }, { state: "skipped" }, { state: "running" }] as TaskNode[];
         expect(runProgress({ tasks } as TaskGroup)).toEqual({ done: 2, total: 3 });
         expect(runProgress(undefined)).toEqual({ done: 0, total: 0 });
+    });
+});
+
+describe("ended workers", () => {
+    const done = { id: "t-1", label: "link model", state: "done", runid: "child-1", merged: true } as TaskNode;
+    const runs = {
+        r1: {
+            runId: "r1",
+            channelId: "c",
+            title: "",
+            project: "p",
+            dag: { tasks: [done, { id: "t-2", state: "running" }, { id: "t-3", state: "skipped" }] } as TaskGroup,
+        },
+    };
+
+    it("gives each done task a worker role under an id no roster agent has", () => {
+        const id = endedWorkerId("r1", "t-1");
+        expect(endedRoles(runs)).toEqual({ [id]: { kind: "worker", leadRunId: "r1", taskId: "t-1" } });
+        expect(isEndedWorkerId(id)).toBe(true);
+        expect(isEndedWorkerId("5c1e9a4e-tab")).toBe(false);
+    });
+
+    it("reads a done task's worker from the child run it last ran", () => {
+        const child = { runtime: "claude", model: "claude-sonnet-4-6", completedts: 5000 } as Run;
+        expect(endedWorkerVM("r1", done, child, "C:/t.jsonl")).toEqual({
+            id: endedWorkerId("r1", "t-1"),
+            name: "t-1 · link model",
+            task: "link model",
+            state: "idle",
+            agent: "claude",
+            model: "sonnet",
+            idleSince: 5000,
+            transcriptPath: "C:/t.jsonl",
+            runId: "child-1",
+        });
+        expect(endedWorkerVM("r1", done, undefined, "")).toMatchObject({
+            agent: undefined,
+            idleSince: undefined,
+            transcriptPath: undefined,
+        });
     });
 });

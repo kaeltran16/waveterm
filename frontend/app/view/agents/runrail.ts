@@ -47,6 +47,12 @@ function landedCommit(digest: DagStatusDigest | undefined, taskId: string): stri
     return digest?.report?.commits?.find((c) => c.taskid === taskId)?.commit.slice(0, COMMIT_CHARS);
 }
 
+// endedLine is the banner over a done task's transcript: its session ended, and what the task landed.
+export function endedLine(task: TaskNode, digest: DagStatusDigest | undefined): string {
+    const outcome = task.merged ? ["landed", landedCommit(digest, task.id)].filter(Boolean).join(" ") : task.state;
+    return ["Session ended", outcome, "read-only transcript"].join(" · ");
+}
+
 function taskName(task: TaskNode): string {
     return task.label ? `${task.id} ${task.label}` : task.id;
 }

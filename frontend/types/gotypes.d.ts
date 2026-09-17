@@ -1765,6 +1765,12 @@ declare global {
         reportid: string;
     };
 
+    // wshrpc.CommandRunTranscriptPathData
+    type CommandRunTranscriptPathData = {
+        channelid: string;
+        runid: string;
+    };
+
     // wshrpc.CommandSealRunEvidenceData
     type CommandSealRunEvidenceData = {
         channelid: string;

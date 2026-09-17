@@ -20,7 +20,7 @@ import { confirmCloseSession } from "./agentactions";
 import type { AgentsViewModel } from "./agents";
 import { usageLevel, type AgentVM } from "./agentsviewmodel";
 import { railVisibleAtom, terminalFullscreenAtom } from "./railstore";
-import { agentProject, laneLabel, leadAgentOf } from "./runlineage";
+import { agentProject, isEndedWorkerId, laneLabel, leadAgentOf } from "./runlineage";
 import { RuntimeMark } from "./runtimemark";
 import { runtimeMeta } from "./runtimemeta";
 import { StatusDot } from "./statusdot";
@@ -77,8 +77,13 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
             : agent.name;
     const rt = runtimeMeta(agent.agent);
     const blockId = agent.blockId;
+    // a done task's worker reads as what its task came to, not as an idle session
+    const ended = isEndedWorkerId(agent.id);
+    const landed = lineage?.kind === "worker" && lineage.task?.merged;
+    const stateText = ended ? (landed ? "landed" : "done") : STATE_LABEL[agent.state];
+    const stateColor = ended ? "var(--color-success)" : STATE_COLOR[agent.state];
     // m4: one-shot settle on the state pill when the focused agent reaches idle
-    const settling = useSettle(agent.state === "idle");
+    const settling = useSettle(!ended && agent.state === "idle");
 
     // Esc cancels the current Claude turn — same PTY-write path as the composer (ControllerInputCommand).
     const interrupt = () => {
@@ -125,7 +130,11 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
             onContextMenu={onContextMenu}
             className="flex shrink-0 items-center gap-[13px] border-b border-border bg-background px-[22px] py-[14px]"
         >
-            <StatusDot state={agent.state} pulse={agent.state !== "idle"} className="!h-[9px] !w-[9px]" />
+            {ended ? (
+                <span className="h-[9px] w-[9px] shrink-0 rounded-full" style={{ background: stateColor }} />
+            ) : (
+                <StatusDot state={agent.state} pulse={agent.state !== "idle"} className="!h-[9px] !w-[9px]" />
+            )}
             <div className="min-w-0">
                 <div className="flex items-center gap-[9px]">
                     <span className="min-w-0 truncate font-mono text-[15px] font-semibold text-foreground">
@@ -150,9 +159,9 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                             "rounded-[5px] border px-[7px] py-[1px] font-mono text-[10.5px] font-medium opacity-85 transition-colors duration-[140ms]",
                             settling && "animate-[settle_0.5s_ease-out] motion-reduce:animate-none"
                         )}
-                        style={{ color: STATE_COLOR[agent.state], borderColor: STATE_COLOR[agent.state] }}
+                        style={{ color: stateColor, borderColor: stateColor }}
                     >
-                        {STATE_LABEL[agent.state]}
+                        {stateText}
                     </span>
                     {agent.model ? (
                         <span className="rounded-[5px] border border-edge-mid px-[7px] py-[1px] font-mono text-[10.5px] font-medium text-muted">

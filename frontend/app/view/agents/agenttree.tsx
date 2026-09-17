@@ -17,7 +17,7 @@ import { buildAgentTree, treeAgentCount } from "./agenttreemodel";
 import { renamingRowAtom } from "./rowrenameatom";
 import { duplicateSession, renameSession, sessionCustomLabel } from "./session-models/sessionsidebarmodel";
 import { displayAgeMs, formatAgeShort, type AgentVM } from "./agentsviewmodel";
-import { laneLabel, runProgress, workerAsk, workerSubtext, type RunInfo } from "./runlineage";
+import { endedWorkerId, laneLabel, runProgress, workerAsk, workerSubtext, type RunInfo } from "./runlineage";
 import { toggleRunCollapsed, toggleRunDoneOpen, treeFoldsAtom, useRunDigests } from "./runlineagestore";
 import {
     getSubagentExpandAtom,
@@ -319,8 +319,8 @@ function RunRow({ run, open, live }: { run: RunInfo; open: boolean; live: number
     );
 }
 
-// A task's worker under its run. A done task whose session has closed still lists, so the run's history
-// stays in the tree; it has no terminal to select.
+// A task's worker under its run. A done task's worker opens as its read-only transcript, whether or not its tab
+// is still in the roster, so the run's history stays readable after its sessions close.
 function WorkerRow({
     model,
     run,
@@ -337,7 +337,8 @@ function WorkerRow({
     const done = task.state === "done";
     const lane = laneLabel(run.digest, task.id);
     const ask = done ? undefined : workerAsk(run.digest, task.id);
-    const selected = agent != null && focusId === agent.id;
+    const focusKey = done ? endedWorkerId(run.runId, task.id) : agent?.id;
+    const selected = focusKey != null && focusId === focusKey;
     const landed = task.merged ? "landed" : "done";
 
     let sub: string;
@@ -354,10 +355,10 @@ function WorkerRow({
     }
 
     const select = () => {
-        if (agent == null) {
+        if (focusKey == null) {
             return;
         }
-        globalStore.set(model.focusIdAtom, agent.id);
+        globalStore.set(model.focusIdAtom, focusKey);
         globalStore.set(model.focusReplyAtom, false);
     };
     const onContextMenu = (e: React.MouseEvent) => {
@@ -376,12 +377,12 @@ function WorkerRow({
             onContextMenu={onContextMenu}
             className={cn(
                 "relative flex items-center gap-[9px] rounded-[9px] py-[8px] pl-[28px] pr-[11px] transition-colors duration-[140ms]",
-                agent != null && "cursor-pointer",
+                focusKey != null && "cursor-pointer",
                 selected
                     ? "bg-accentbg"
                     : ask?.owner === "you"
                       ? "bg-warning/[0.06]"
-                      : agent != null && "hover:bg-surface-hover"
+                      : focusKey != null && "hover:bg-surface-hover"
             )}
         >
             <Elbow />

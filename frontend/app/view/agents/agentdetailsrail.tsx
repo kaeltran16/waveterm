@@ -63,6 +63,31 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
     return <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[.1em] text-ink-mid">{children}</h3>;
 }
 
+// SealedFiles lists what a done task's run recorded it changed. The worktree is gone, so there is no diff to open.
+function SealedFiles({ files }: { files: EvidenceFile[] }) {
+    if (files.length === 0) {
+        return <div className="text-[11.5px] text-muted">No changes</div>;
+    }
+    const { shown, more } = capFiles(
+        files.map((f) => ({ path: f.path, status: f.stat, adds: f.add, dels: f.del })),
+        RailFilesCap
+    );
+    return (
+        <div className="flex flex-col gap-[7px]">
+            {shown.map((f) => (
+                <div
+                    key={f.path}
+                    className="flex items-center gap-[8px] px-[5px] py-[3px] font-mono text-[11.5px] font-medium text-secondary"
+                >
+                    <span className={cn("flex-none font-bold", statusColor(f.status))}>{f.status}</span>
+                    <span className="min-w-0 truncate">{f.path}</span>
+                </div>
+            ))}
+            {more > 0 ? <div className="px-[5px] py-[3px] text-[11px] text-muted">+{more} more</div> : null}
+        </div>
+    );
+}
+
 export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
     const liveEntries = useAtomValue(entriesAtomFor(agent.id));
     const subs = useAtomValue(subagentsByIdAtom)[agent.id] ?? [];
@@ -79,6 +104,8 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
     const now = useAtomValue(model.nowAtom);
     const role = lineage.roles[agent.id];
     const roleRun = role ? lineage.runs[role.kind === "lead" ? role.runId : role.leadRunId] : undefined;
+    const endedWorker = useAtomValue(model.endedWorkerAtom);
+    const ended = endedWorker?.agent.id === agent.id ? endedWorker : undefined;
 
     useEffect(() => {
         fireAndForget(() => loadRailForAgent(agent.id, agent.transcriptPath, agent.blockId));
@@ -149,7 +176,13 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                             ) : null}
                         </DetailLine>
                         <DetailLine label="Session">
-                            {agent.state} {age}
+                            {ended ? (
+                                <>ended {age} ago</>
+                            ) : (
+                                <>
+                                    {agent.state} {age}
+                                </>
+                            )}
                             {cacheCountdown !== "—" ? (
                                 <>
                                     <Sep />
@@ -288,7 +321,9 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                     <div className="mb-[11px]">
                         <SectionLabel>Files touched</SectionLabel>
                     </div>
-                    {railState == null ? (
+                    {ended ? (
+                        <SealedFiles files={ended.files} />
+                    ) : railState == null ? (
                         <div className="text-[11.5px] text-muted">Loading…</div>
                     ) : !railState.isRepo ? (
                         <div className="text-[11.5px] text-muted">Not a git repository</div>

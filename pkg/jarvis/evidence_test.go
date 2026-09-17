@@ -511,6 +511,28 @@ func TestSealEvidenceReadsTheSessionTranscript(t *testing.T) {
 	}
 }
 
+// A worker's transcript is found by its session id after its worktree is gone, and a run launched without
+// one has none to find.
+func TestSessionTranscriptPathFindsTheWorkerTranscript(t *testing.T) {
+	const sessionId = "0b6f7c1e-4d2a-4f3b-9c8d-1a2b3c4d5e6f"
+	root := t.TempDir()
+	prev := transcriptRootFor
+	transcriptRootFor = func(string) string { return root }
+	t.Cleanup(func() { transcriptRootFor = prev })
+	worktree := filepath.Join(t.TempDir(), "removed-worktree")
+	want := filepath.Join(root, agentobserve.SlugifyCwd(worktree), sessionId+".jsonl")
+	writeSessionLines(t, want, []string{textLine("all done")})
+
+	run := &waveobj.Run{ID: "r1", Runtime: "claude", ProjectPath: worktree, SessionId: sessionId}
+	if got := SessionTranscriptPath(run); got != want {
+		t.Errorf("path = %q, want %q", got, want)
+	}
+	run.SessionId = ""
+	if got := SessionTranscriptPath(run); got != "" {
+		t.Errorf("path without a session id = %q, want none", got)
+	}
+}
+
 // TestSealEvidenceScopesToEndCommit is the fan-out over-attribution guard: with EndCommit set, evidence
 // must reflect only the run's own commit (mine.txt), never a sibling that merged into the shared tree
 // afterward (sibling.txt) — which a working-tree-vs-baseline diff (today's behavior) would wrongly list.

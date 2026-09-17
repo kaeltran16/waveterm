@@ -5,6 +5,7 @@
 // under one. Read from the run a tab was spawned for (jarvis:runoref) and that run's dag, with the
 // engine's digest for what only it knows: lanes and who holds a question. No React, no Wave runtime.
 
+import { modelLabel } from "@/app/view/agents/session-models/sessionviewmodel";
 import { projectOf, type AgentVM } from "./agentsviewmodel";
 
 export type RunRole = { kind: "lead"; runId: string } | { kind: "worker"; leadRunId: string; taskId: string };
@@ -76,6 +77,48 @@ export function taskAgentOf<T extends { id: string }>(
         const role = lineage.roles[a.id];
         return role?.kind === "worker" && role.leadRunId === runId && role.taskId === taskId;
     });
+}
+
+const ENDED_WORKER_PREFIX = "ended:";
+
+// endedWorkerId is what a done task's worker is focused by. Its session has ended, so the surface reads it back
+// from its transcript, whether or not its tab is still in the roster.
+export function endedWorkerId(runId: string, taskId: string): string {
+    return `${ENDED_WORKER_PREFIX}${runId}:${taskId}`;
+}
+
+export function isEndedWorkerId(id: string): boolean {
+    return id.startsWith(ENDED_WORKER_PREFIX);
+}
+
+// endedRoles gives each done task of the runs in view a worker role under its ended id, so the header and the
+// rail place a done worker as they place a live one.
+export function endedRoles(runs: Record<string, RunInfo>): Record<string, RunRole> {
+    const roles: Record<string, RunRole> = {};
+    for (const run of Object.values(runs)) {
+        for (const task of run.dag?.tasks ?? []) {
+            if (task.state === "done") {
+                roles[endedWorkerId(run.runId, task.id)] = { kind: "worker", leadRunId: run.runId, taskId: task.id };
+            }
+        }
+    }
+    return roles;
+}
+
+// endedWorkerVM is a done task's worker as the Agent surface shows it, from the child run the task last ran:
+// idle since that run completed, and read from the transcript its session wrote.
+export function endedWorkerVM(runId: string, task: TaskNode, child: Run | undefined, transcriptPath?: string): AgentVM {
+    return {
+        id: endedWorkerId(runId, task.id),
+        name: `${task.id} · ${task.label || task.id}`,
+        task: task.label ?? "",
+        state: "idle",
+        agent: child?.runtime || undefined,
+        model: modelLabel(child?.model),
+        idleSince: child?.completedts,
+        transcriptPath: transcriptPath || undefined,
+        runId: task.runid,
+    };
 }
 
 // runTitle names a run by its plan's title, else the first line of its goal.

@@ -1349,6 +1349,12 @@ func RouteUnannounceCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) error {
 	return err
 }
 
+// command "runtranscriptpath", wshserver.RunTranscriptPathCommand
+func RunTranscriptPathCommand(w *wshutil.WshRpc, data wshrpc.CommandRunTranscriptPathData, opts *wshrpc.RpcOpts) (string, error) {
+	resp, err := sendRpcRequestCallHelper[string](w, "runtranscriptpath", data, opts)
+	return resp, err
+}
+
 // command "sealrunevidence", wshserver.SealRunEvidenceCommand
 func SealRunEvidenceCommand(w *wshutil.WshRpc, data wshrpc.CommandSealRunEvidenceData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "sealrunevidence", data, opts)

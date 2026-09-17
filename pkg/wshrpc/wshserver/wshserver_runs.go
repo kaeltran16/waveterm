@@ -804,6 +804,19 @@ func (ws *WshServer) StopRunWorkerCommand(ctx context.Context, data wshrpc.Comma
 	return nil
 }
 
+// RunTranscriptPathCommand finds a run's transcript by the session id it was launched under, so a worker
+// whose tab is gone can still be read.
+func (ws *WshServer) RunTranscriptPathCommand(ctx context.Context, data wshrpc.CommandRunTranscriptPathData) (string, error) {
+	if data.ChannelId == "" || data.RunId == "" {
+		return "", fmt.Errorf("channelid and runid are required")
+	}
+	run, err := wstore.GetRun(ctx, data.ChannelId, data.RunId)
+	if err != nil {
+		return "", fmt.Errorf("loading run: %w", err)
+	}
+	return jarvis.SessionTranscriptPath(run), nil
+}
+
 // SealRunEvidenceCommand derives and persists a done run's evidence snapshot if it has none yet — the
 // lazy backfill for runs completed before the feature existed (new runs seal at completion in
 // AdvanceRun). Idempotent: a run already sealed is a no-op. Only seals runs in the done state.

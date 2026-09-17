@@ -24,7 +24,9 @@ import { AgentDetailsRail } from "./agentdetailsrail";
 import { AgentHeader } from "./agentheader";
 import { AgentLaunchHero } from "./agentlaunchhero";
 import { AgentTree } from "./agenttree";
+import { EndedTranscript } from "./endedtranscript";
 import { terminalFullscreenAtom } from "./railstore";
+import { isEndedWorkerId } from "./runlineage";
 import { SubagentInterior } from "./subagentinterior";
 import { focusSubagentAtom } from "./subagentsstore";
 
@@ -35,13 +37,15 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
     const order = useAtomValue(model.orderAtom);
     const fullscreen = useAtomValue(terminalFullscreenAtom);
     const focusSub = useAtomValue(focusSubagentAtom);
+    const ended = useAtomValue(model.endedWorkerAtom);
     const wrapRef = useRef<HTMLDivElement>(null);
     // Focusable set = agents + background terminals. handoff (dc.html:1790): focusAgent = …find(fid) ||
     // list[0] — the Focus surface always shows something, defaulting to the first agent in order (never
     // a terminal, so background terminals stay backgrounded); it falls back to the first terminal only
     // when there are no agents. focusId is kept "always real" (initialized to a default, never empty).
+    // A done task's worker has no terminal to mount, so it is focusable without being mountable.
     const mountable = [...agents, ...terminals];
-    const focused = focusId != null ? mountable.find((a) => a.id === focusId) : undefined;
+    const focused = focusId != null ? (mountable.find((a) => a.id === focusId) ?? ended?.agent) : undefined;
     const agent = focused ?? agents.find((a) => a.id === order[0]) ?? agents[0] ?? terminals[0];
     const showSub = focusSub != null && focusSub.parentId === agent?.id;
 
@@ -96,7 +100,9 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
                                     <CockpitFocusPane blockId={a.blockId!} tabId={tabId} />
                                 </div>
                             ))}
-                        {agent.blockId == null ? (
+                        {isEndedWorkerId(agent.id) ? (
+                            <EndedTranscript model={model} agent={agent} />
+                        ) : agent.blockId == null ? (
                             <div className="flex flex-1 items-center justify-center text-[13px] text-muted">
                                 No live terminal for this agent.
                             </div>

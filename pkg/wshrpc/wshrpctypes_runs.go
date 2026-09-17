@@ -18,6 +18,7 @@ type RunCommands interface {
 	ReportRunPhaseCommand(ctx context.Context, data CommandReportRunPhaseData) error                                  // lead self-reports hold/complete; resolves run/phase from its own oref
 	CreateChildRunCommand(ctx context.Context, data CommandCreateChildRunData) (*CommandCreateChildRunRtnData, error) // orchestrator lead spawns a hands-off child run for one backlog unit; parent resolved from the caller's oref
 	SetRunSettingsCommand(ctx context.Context, data CommandSetRunSettingsData) error                                   // change a live engine run's scheduler settings (pending on the Run before a DAG exists, live on its TaskGroup after)
+	RunTranscriptPathCommand(ctx context.Context, data CommandRunTranscriptPathData) (string, error)                  // the transcript of a run launched under a session id, "" when none was written
 }
 
 type CommandCreateRunData struct {
@@ -66,6 +67,11 @@ type CommandStopRunWorkerData struct {
 	ChannelId  string `json:"channelid"`
 	RunId      string `json:"runid"`
 	WorkerORef string `json:"workeroref"` // the worker tab oref ("tab:<id>") to stop
+}
+
+type CommandRunTranscriptPathData struct {
+	ChannelId string `json:"channelid"`
+	RunId     string `json:"runid"`
 }
 
 type CommandSealRunEvidenceData struct {

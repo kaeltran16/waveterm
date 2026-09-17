@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { laneRows, questionOrder, runElapsedMs, runLog, runLogText, taskFacts } from "./runrail";
+import { endedLine, laneRows, questionOrder, runElapsedMs, runLog, runLogText, taskFacts } from "./runrail";
 
 const MIN = 60_000;
 const NOW = 100 * MIN;
@@ -125,5 +125,18 @@ describe("runLog", () => {
     it("keeps the newest rows first", () => {
         const rows = runLog([ev("a", 1, "dag-done"), ev("b", 3, "dag-done"), ev("c", 2, "dag-done"), ev("d", 0, "x")]);
         expect(rows.map((r) => r.id)).toEqual(["b", "c", "a"]);
+    });
+});
+
+describe("endedLine", () => {
+    it("says a done task's session ended and what it landed", () => {
+        const digest = { report: { commits: [{ taskid: "t-1", commit: "a1b2c3d4e5f6" }] } } as DagStatusDigest;
+        expect(endedLine(task("t-1", "done", { merged: true }), digest)).toBe(
+            "Session ended · landed a1b2c3d · read-only transcript"
+        );
+        expect(endedLine(task("t-2", "done", { merged: true }), undefined)).toBe(
+            "Session ended · landed · read-only transcript"
+        );
+        expect(endedLine(task("t-3", "done"), digest)).toBe("Session ended · done · read-only transcript");
     });
 });
