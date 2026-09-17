@@ -49,11 +49,12 @@ export function RunTimeline({ channel, run }: { channel: Channel; run: Run }) {
     );
 }
 
-function eventsCount(groups: RunTimelineGroup[]): number {
+export function eventsCount(groups: RunTimelineGroup[]): number {
     return groups.reduce((n, g) => n + g.events.length, 0);
 }
 
-function GroupSection({ group, channel, run }: { group: RunTimelineGroup; channel: Channel; run: Run }) {
+// exported for the run sheet, which puts the timeline's toggle in its tasks heading rather than a card of its own
+export function GroupSection({ group, channel, run }: { group: RunTimelineGroup; channel: Channel; run: Run }) {
     return (
         <div>
             <div className="px-1 pt-2 pb-1 font-mono text-xxxs font-bold uppercase tracking-[0.1em] text-edge-strong">

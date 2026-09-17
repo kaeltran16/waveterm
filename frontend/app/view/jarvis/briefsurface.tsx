@@ -144,6 +144,7 @@ import {
     type Terminal,
 } from "./jarviscontract";
 import {
+    briefComposerHeightAtom,
     briefGraphRecordAtom,
     briefPeekRecordAtom,
     briefSheetOpenAtom,
@@ -660,6 +661,19 @@ function BriefComposer({ model }: { model: AgentsViewModel }) {
     const subject = useAtomValue(activeSubjectAtom);
     const sheetRun = useAtomValue(stageRunAtom);
     const sheetOpen = useAtomValue(briefSheetOpenAtom);
+    const footerRef = useRef<HTMLElement>(null);
+    useEffect(() => {
+        const el = footerRef.current;
+        if (el == null) {
+            return;
+        }
+        const observer = new ResizeObserver(() => globalStore.set(briefComposerHeightAtom, el.offsetHeight));
+        observer.observe(el);
+        return () => {
+            observer.disconnect();
+            globalStore.set(briefComposerHeightAtom, 0);
+        };
+    }, []);
     const channel = useAtomValue(activeChannelAtom);
     const projects = useAtomValue(projectsAtom);
     const effortCache = useAtomValue(effortDetailAtom);
@@ -877,6 +891,7 @@ function BriefComposer({ model }: { model: AgentsViewModel }) {
                 but the composer is not ground: its whole contract is that it stays reachable and retargets
                 to whatever the sheet opened on, which a backdrop over it would make impossible. */}
             <footer
+                ref={footerRef}
                 data-jarvis-brief-band="composer"
                 className="relative z-30 flex-none border-t border-edge-faint bg-surface px-[22px] pb-4 pt-2.5"
             >

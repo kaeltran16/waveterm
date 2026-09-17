@@ -129,7 +129,8 @@ const runsLifecycle = {
         const sheet = await h.ev(`(() => {
             const showing = [...document.querySelectorAll('span')]
                 .map((x) => (x.textContent || '').trim())
-                .find((t) => /^showing .+ run [0-9a-f]{4}$/.test(t));
+                // the sheet header's run line: "<mode> run <id4>", plus " · <how it ended>" once it has ended
+                .find((t) => /^[a-z]+ run [0-9a-f]{4}( · .+)?$/.test(t));
             return {
                 settings: document.querySelector('[data-jarvis-brief-sheet-face="settings"]') != null,
                 showing: showing || null,

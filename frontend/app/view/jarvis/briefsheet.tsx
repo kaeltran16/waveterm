@@ -26,7 +26,7 @@ import type { AgentsViewModel } from "@/app/view/agents/agents";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { ambientProviderAtom, ensureAmbient } from "@/app/view/agents/ambientstore";
 import { resolveTargetChannel } from "@/app/view/agents/channelderive";
-import { activeChannelAtom, channelsAtom } from "@/app/view/agents/channelsstore";
+import { activeChannelAtom, activeChannelRunsAtom, channelsAtom } from "@/app/view/agents/channelsstore";
 import { harnessPreferenceAtom } from "@/app/view/agents/harnessstore";
 import { channelProjectLabel } from "@/app/view/agents/projectlabel";
 import { projectsAtom } from "@/app/view/agents/projectsstore";
@@ -53,14 +53,14 @@ import {
     workerRouteAtom,
 } from "@/app/view/agents/runconfigstore";
 import { RunLauncher } from "@/app/view/agents/runlauncher";
-import { liveWorkers } from "@/app/view/agents/runmodel";
+import { isTerminal, liveWorkers } from "@/app/view/agents/runmodel";
 import { fireAndForget } from "@/util/util";
 import { useAtomValue, useSetAtom } from "jotai";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { RunSettingsPanel, SheetShell } from "./briefrunsheet";
+import { RunSettingsPanel, SHEET_BTN, SheetShell } from "./briefrunsheet";
 import { sheetFace, type SheetFace } from "./briefsheetmodel";
 import { EffortDetailView } from "./effortdetailview";
-import { briefSheetOpenAtom } from "./jarvisstore";
+import { briefComposerHeightAtom, briefSheetOpenAtom } from "./jarvisstore";
 import {
     activeSubjectAtom,
     clearSubject,
@@ -75,6 +75,8 @@ import {
 import { launchGoal, launchOptsFromConfig } from "./newrun";
 import { recordBandCase } from "./recordband";
 import { RecordBand } from "./recordbandview";
+import { RunSheet } from "./runsheet";
+import { launcherReading, sheetRoute } from "./runsheetmodel";
 
 const FIELD =
     "min-w-0 flex-1 rounded-[7px] border border-border bg-background px-2.5 py-1.5 text-[12.5px] text-ink-hi placeholder:text-ink-faint";
@@ -213,27 +215,40 @@ function ChannelLaunch({ channel }: { channel: Channel }) {
     );
 }
 
+// Runs stored before slice 5c (pipeline, adaptive, parked at a plan gate) keep RunBody, which knows how to
+// draw them; every other run is the sheet. Both share the configuration dock.
 function ChannelRun({ model, channel, run }: { model: AgentsViewModel; channel: Channel; run: Run }) {
     const agents = useAtomValue(model.agentsAtom);
+    if (sheetRoute(run) === "sheet") {
+        return <RunSheet model={model} channel={channel} run={run} />;
+    }
     return (
         <div className="flex min-h-0 flex-1 flex-col">
-            <div className="flex flex-none items-center gap-2 border-b border-edge-faint px-4 py-2">
-                <span className="min-w-0 flex-1 truncate font-mono text-[9.5px] uppercase tracking-[.1em] text-ink-faint">
-                    showing {run.mode || "quick"} run {run.id.slice(0, 4)}
-                </span>
-                {/* the Stage's + New run, which is the only way to start a SECOND run in a channel: without
-                    it a channel that has any run could never compose another. */}
-                <button
-                    type="button"
-                    onClick={() => setComposingRun(channel.oid, true)}
-                    className="flex-none cursor-pointer rounded-[6px] border border-border px-2 py-[3px] font-mono text-[9.5px] font-bold uppercase tracking-[.06em] text-secondary hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                >
-                    New run
-                </button>
-            </div>
             <RunBody model={model} channel={channel} agents={agents} run={run} />
+            <div data-jarvis-brief-sheet-face="settings" className="flex-none border-t border-edge-faint bg-surface">
+                <RunSettingsPanel run={run} />
+            </div>
         </div>
     );
+}
+
+// The launcher face's reading, in the slot where a run's verb would be: the two faces keep one layout.
+function LauncherReading() {
+    const runs = useAtomValue(activeChannelRunsAtom);
+    const reading = launcherReading(runs, Date.now());
+    return (
+        <div className="flex flex-none items-center gap-[9px] border-b border-edge-faint px-4 py-4">
+            <span className="h-[7px] w-[7px] flex-none rounded-full bg-edge-strong" />
+            <span className="flex-none text-[15px] font-bold tracking-[-.01em] text-primary">{reading.verb}</span>
+            <span className="min-w-0 truncate text-[13px] text-ink-mid">{reading.sub}</span>
+        </div>
+    );
+}
+
+// the header's run line: which run the sheet is on, and, once it has ended, how
+function runLine(run: Run): string {
+    const line = `${run.mode || "quick"} run ${run.id.slice(0, 4)}`;
+    return isTerminal(run.status) ? `${line} · ${run.status === "done" ? "finished" : run.status}` : line;
 }
 
 // The skeleton is only honest while the channel is still being read. A peek's attributed run can name a
@@ -250,8 +265,16 @@ function SheetChannelPending({ channelId }: { channelId: string }) {
     const gone = channels != null && !channels.some((c) => c.oid === channelId);
     if (errored || gone) {
         return (
-            <div data-jarvis-brief-sheet-state="unavailable" className="flex min-h-0 flex-1 flex-col gap-2 p-4">
-                <span className="text-[12px] text-secondary">This run's project is no longer available.</span>
+            <div data-jarvis-brief-sheet-state="unavailable" className="flex min-h-0 flex-1 flex-col p-4">
+                <div className="flex flex-col gap-[7px] rounded-[10px] border border-dashed border-edge-strong px-3.5 py-[13px]">
+                    <span className="text-[12.5px] font-semibold text-ink-hi">
+                        This run's project is no longer available.
+                    </span>
+                    <span className="text-[11.5px] leading-[1.5] text-muted">
+                        An older record can still point at a run whose project was deleted. Nothing about the run can be
+                        shown here.
+                    </span>
+                </div>
             </div>
         );
     }
@@ -273,6 +296,7 @@ export function BriefSheet({ model }: { model: AgentsViewModel }) {
     const recordDetails = useAtomValue(recordDetailAtom);
     const bandsOpen = useAtomValue(recordBandOpenAtom);
     const projects = useAtomValue(projectsAtom);
+    const composerHeight = useAtomValue(briefComposerHeightAtom);
 
     useEffect(() => ensureAmbient(), []);
 
@@ -306,64 +330,72 @@ export function BriefSheet({ model }: { model: AgentsViewModel }) {
     // an initiative's body leads with its own title, so the header naming it again would be a second one.
     // "none" is never drawn — `visible` below excludes it, so it is never latched.
     const title = face.kind === "channel" ? channelProjectLabel(channel, projects) : "";
+    const meta = face.kind === "channel" && face.body === "run" && run != null ? runLine(run) : undefined;
 
     const visible = open && face.kind !== "none";
     // the exit animation still needs something to draw after the subject clears, so the last shown
     // face and its title are latched rather than read live (petbubble.tsx keeps the same rule)
-    const [shown, setShown] = useState<{ face: SheetFace; title: string } | null>(null);
+    const [shown, setShown] = useState<{ face: SheetFace; title: string; meta?: string } | null>(null);
     useEffect(() => {
         if (visible) {
-            setShown({ face, title });
+            setShown({ face, title, meta });
         }
-    }, [visible, face, title]);
+    }, [visible, face, title, meta]);
 
     return (
         <ModalShell open={visible} variant="sheet" onClose={close} className="h-full w-[640px] max-w-[92vw]">
             {shown == null ? null : (
-                <SheetShell
-                    face={shown.face.kind}
-                    label={shown.face.kind === "effort" ? "initiative" : "project"}
-                    title={shown.title}
-                    onClose={close}
-                >
-                    {face.kind === "channel" && face.body === "run" && run != null ? (
-                        <RecordBand
-                            kind={subject?.kind ?? "channel"}
-                            tags={tags}
-                            detail={bandRecordId != null ? (recordDetails[bandRecordId] ?? null) : null}
-                            runORef={"run:" + run.id}
-                            open={bandOpen}
-                            onToggle={() => subjectId != null && toggleRecordBand(subjectId)}
-                        />
-                    ) : null}
-                    {face.kind === "channel" ? (
-                        channel == null ? (
-                            <SheetChannelPending channelId={face.channelId} />
-                        ) : face.body === "run" && run != null ? (
-                            <ChannelRun model={model} channel={channel} run={run} />
-                        ) : (
+                <div className="flex h-full min-h-0 flex-col" style={{ paddingBottom: composerHeight }}>
+                    <SheetShell
+                        face={shown.face.kind}
+                        label={shown.face.kind === "effort" ? "initiative" : "project"}
+                        title={shown.title}
+                        meta={shown.meta}
+                        actions={
+                            // the only way to start a SECOND run in a channel: without it a channel that has any
+                            // run could never compose another
+                            face.kind === "channel" && face.body === "run" ? (
+                                <button
+                                    type="button"
+                                    onClick={() => setComposingRun(face.channelId, true)}
+                                    className={SHEET_BTN}
+                                >
+                                    New run
+                                </button>
+                            ) : null
+                        }
+                        onClose={close}
+                    >
+                        {face.kind === "channel" && face.body === "run" && run != null ? (
+                            <RecordBand
+                                kind={subject?.kind ?? "channel"}
+                                tags={tags}
+                                detail={bandRecordId != null ? (recordDetails[bandRecordId] ?? null) : null}
+                                runORef={"run:" + run.id}
+                                open={bandOpen}
+                                onToggle={() => subjectId != null && toggleRecordBand(subjectId)}
+                            />
+                        ) : null}
+                        {face.kind === "channel" ? (
+                            channel == null ? (
+                                <SheetChannelPending channelId={face.channelId} />
+                            ) : face.body === "run" && run != null ? (
+                                <ChannelRun model={model} channel={channel} run={run} />
+                            ) : (
+                                <div className="flex min-h-0 flex-1 flex-col bg-background">
+                                    <LauncherReading />
+                                    <RunLauncher />
+                                    <ChannelLaunch channel={channel} />
+                                </div>
+                            )
+                        ) : null}
+                        {face.kind === "effort" ? (
                             <div className="flex min-h-0 flex-1 flex-col">
-                                <RunLauncher projectName={channelProjectLabel(channel, projects)} />
-                                <ChannelLaunch channel={channel} />
+                                <EffortDetailView />
                             </div>
-                        )
-                    ) : null}
-                    {face.kind === "effort" ? (
-                        <div className="flex min-h-0 flex-1 flex-col">
-                            <EffortDetailView />
-                        </div>
-                    ) : null}
-                    {/* the settings face is a fixed-height band under the body: RunBody scrolls itself, and a
-                    second scroller around it would put two scrollbars on one surface. */}
-                    {face.kind === "channel" && face.body === "run" && run != null ? (
-                        <div
-                            data-jarvis-brief-sheet-face="settings"
-                            className="flex max-h-[55%] flex-none flex-col gap-4 overflow-y-auto border-t border-edge-faint px-4 py-4"
-                        >
-                            <RunSettingsPanel run={run} />
-                        </div>
-                    ) : null}
-                </SheetShell>
+                        ) : null}
+                    </SheetShell>
+                </div>
             )}
         </ModalShell>
     );

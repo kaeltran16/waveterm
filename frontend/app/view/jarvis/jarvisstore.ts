@@ -37,6 +37,11 @@ export const briefPeekRecordAtom = atom<string | null>(null) as PrimitiveAtom<st
 // sheet clears it — so what reopens on the next launch is the subject that was left open, not this flag.
 export const briefSheetOpenAtom = atom(false);
 
+// The Brief composer's rendered height. The composer stays above the detail sheet on purpose (it retargets
+// to whatever the sheet opened on), so the sheet ends its content this far above the surface's bottom —
+// otherwise its dock and the launcher's goal row sit underneath the composer.
+export const briefComposerHeightAtom = atom(0);
+
 // The Brief's inline tracker: the chunk row whose note trail the sidebar is showing, and the index of the
 // note open in its reader. Here rather than inside briefsurface because Escape has to claim them ahead of
 // esc-home (bindings.ts), the same way the Vault's reader overlay does — a single press must close the

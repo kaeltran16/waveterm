@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  html { background:#08090b; }
+  body { margin:0; background:#08090b; color:#e6e9ed; font-family:"Hanken Grotesk",system-ui,sans-serif; }
+  a { color:#aebfff; text-decoration:none; }
+  a:hover { color:#5e9cff; }
+  @keyframes pulseDot { 0%,100%{opacity:1} 50%{opacity:.32} }
+  @keyframes shimmer { 0%{opacity:.35} 50%{opacity:.7} 100%{opacity:.35} }
+  ::-webkit-scrollbar { width:10px;height:10px }
+  ::-webkit-scrollbar-thumb { background:#262c34;border-radius:6px;border:2px solid transparent;background-clip:padding-box }
+  ::-webkit-scrollbar-track { background:transparent }
+</style>
+</helmet>
+
+<section style="display:flex;flex-direction:column;gap:22px;padding:44px 48px 64px;background:#08090b;width:max-content;min-width:100%;box-sizing:border-box">
+  <div style="display:flex;flex-direction:column;gap:12px;max-width:900px">
+    <div style="display:flex;align-items:baseline;gap:12px">
+      <span style="font:700 9.5px 'JetBrains Mono',monospace;letter-spacing:.13em;text-transform:uppercase;color:#aebfff">turn 2</span>
+      <h1 style="margin:0;font-size:23px;font-weight:700;letter-spacing:-.02em;color:#e6e9ed">2a — every state of the run sheet</h1>
+    </div>
+    <p style="margin:0;max-width:780px;font-size:13.5px;line-height:1.6;color:#cfd5db;text-wrap:pretty">1a's grammar carried through the seventeen states the code can produce: the run's own lifecycle, the digest's degradation states, the four settings faces from <span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#9aa3ad">runsettings.ts</span>, and the three sheet-level cases where there is no run to draw. Pick a state on the left; the sheet redraws.</p>
+  </div>
+
+  <div id="2a" style="display:flex;gap:28px;align-items:flex-start">
+
+    <div style="display:flex;flex-direction:column;gap:18px;width:268px;flex:none">
+      <sc-for list="{{ groups }}" as="g" hint-placeholder-count="4">
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <span style="font:700 9.5px 'JetBrains Mono',monospace;letter-spacing:.13em;text-transform:uppercase;color:#777f89">{{ g.title }}</span>
+          <sc-for list="{{ g.items }}" as="it" hint-placeholder-count="5">
+            <button type="button" onClick="{{ it.pick }}" style="display:flex;flex-direction:column;gap:2px;text-align:left;border:1px solid {{ it.edge }};background:{{ it.fill }};border-radius:9px;padding:8px 11px;cursor:pointer" style-hover="border-color:#2a313a">
+              <span style="font-size:12.5px;font-weight:600;color:{{ it.ink }}">{{ it.label }}</span>
+              <span style="font:400 10px 'JetBrains Mono',monospace;color:#646a72">{{ it.note }}</span>
+            </button>
+          </sc-for>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:12px;flex:none">
+      <div style="display:flex;align-items:baseline;gap:10px;height:18px">
+        <span style="font:400 10.5px 'JetBrains Mono',monospace;color:#646a72">{{ sel.source }}</span>
+      </div>
+
+      <div style="display:flex;flex-direction:column;width:640px;height:840px;background:#0c0e11;border:1px solid #1c2128;border-radius:12px;overflow:hidden;box-shadow:0 24px 56px rgba(0,0,0,.55)">
+        <header style="display:flex;align-items:center;gap:10px;flex:none;padding:12px 16px;border-bottom:1px solid #161a20">
+          <span style="font:700 9.5px 'JetBrains Mono',monospace;letter-spacing:.13em;text-transform:uppercase;color:#aebfff">project</span>
+          <span style="font-size:13.5px;font-weight:600;color:#dfe4ea">waveterm</span>
+          <span style="font:400 10px 'JetBrains Mono',monospace;color:#646a72">{{ sel.runLine }}</span>
+          <span style="flex:1"></span>
+          <sc-if value="{{ sel.showNewRun }}" hint-placeholder-val="{{ true }}">
+            <button type="button" style="border:1px solid #1c2128;background:#13171d;border-radius:7px;padding:4px 10px;font-size:11px;font-weight:600;color:#cfd5db;cursor:pointer" style-hover="color:#dfe4ea;border-color:#2a313a">New run</button>
+          </sc-if>
+          <button type="button" style="border:1px solid #1c2128;background:#13171d;border-radius:7px;padding:4px 10px;font-size:11px;font-weight:600;color:#cfd5db;cursor:pointer" style-hover="color:#dfe4ea;border-color:#2a313a">Close</button>
+        </header>
+
+        <sc-if value="{{ sel.hasState }}" hint-placeholder-val="{{ true }}">
+          <div style="flex:none;padding:16px 16px 14px;display:flex;flex-direction:column;gap:11px;border-bottom:1px solid #161a20">
+            <div style="display:flex;align-items:center;gap:9px">
+              <span style="flex:none;width:7px;height:7px;border-radius:50%;background:{{ sel.dot }};animation:{{ sel.dotAnim }}"></span>
+              <span style="flex:none;font-size:15px;font-weight:700;letter-spacing:-.01em;color:#e6e9ed">{{ sel.verb }}</span>
+              <span style="min-width:0;font-size:13px;color:#9aa3ad;line-height:1.35">{{ sel.sub }}</span>
+            </div>
+            <sc-if value="{{ sel.hasMeter }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;gap:4px">
+                <sc-for list="{{ sel.meter }}" as="seg" hint-placeholder-count="4">
+                  <span style="flex:1;height:4px;border-radius:2px;background:{{ seg.fill }}"></span>
+                </sc-for>
+              </div>
+            </sc-if>
+            <sc-if value="{{ sel.hasMeta }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;flex-wrap:wrap;gap:4px 14px;font:400 10.5px 'JetBrains Mono',monospace;color:#7f858b">
+                <sc-for list="{{ sel.meta }}" as="m" hint-placeholder-count="4">
+                  <span style="color:{{ m.ink }}">{{ m.text }}</span>
+                </sc-for>
+              </div>
+            </sc-if>
+            <sc-if value="{{ sel.hasGoal }}" hint-placeholder-val="{{ true }}">
+              <h2 style="margin:2px 0 0;font-size:17px;font-weight:700;line-height:1.3;letter-spacing:-.01em;color:#e6e9ed;text-wrap:pretty">{{ sel.goal }}</h2>
+            </sc-if>
+            <sc-if value="{{ sel.hasAttrib }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;align-items:center;gap:8px;font:400 10.5px 'JetBrains Mono',monospace;color:#646a72">
+                <span style="flex:none">informing · weak</span>
+                <span style="color:#2a313a">│</span>
+                <span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Scaffold a tiny orchestrator demo: 3 dependent tasks</span>
+                <button type="button" style="flex:none;border:0;background:transparent;padding:0;font:400 10.5px 'JetBrains Mono',monospace;color:#aebfff;cursor:pointer" style-hover="color:#5e9cff">+2 records</button>
+              </div>
+            </sc-if>
+          </div>
+        </sc-if>
+
+        <div style="flex:1;min-height:0;overflow-y:auto;padding:0 16px 10px">
+
+          <sc-if value="{{ sel.hasCard }}" hint-placeholder-val="{{ false }}">
+            <div style="margin-top:14px;display:flex;flex-direction:column;gap:9px;border-radius:10px;border:1px solid {{ sel.card.edge }};background:{{ sel.card.fill }};padding:13px 14px">
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="font:700 9.5px 'JetBrains Mono',monospace;letter-spacing:.13em;text-transform:uppercase;color:{{ sel.card.ink }}">{{ sel.card.eyebrow }}</span>
+                <span style="font:400 10px 'JetBrains Mono',monospace;color:#646a72">{{ sel.card.meta }}</span>
+              </div>
+              <span style="font-size:13.5px;font-weight:600;color:#dfe4ea;line-height:1.4">{{ sel.card.title }}</span>
+              <sc-if value="{{ sel.card.hasBody }}" hint-placeholder-val="{{ false }}">
+                <p style="margin:0;font-size:12px;line-height:1.55;color:#9aa3ad;text-wrap:pretty">{{ sel.card.body }}</p>
+              </sc-if>
+              <sc-if value="{{ sel.card.hasLines }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex;flex-direction:column;gap:5px;border-left:2px solid #20262e;padding-left:11px">
+                  <sc-for list="{{ sel.card.lines }}" as="ln" hint-placeholder-count="3">
+                    <span style="font:400 11px 'JetBrains Mono',monospace;color:#cfd5db">{{ ln }}</span>
+                  </sc-for>
+                </div>
+              </sc-if>
+              <sc-if value="{{ sel.card.hasActs }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex;flex-wrap:wrap;gap:7px;padding-top:2px">
+                  <sc-for list="{{ sel.card.acts }}" as="a" hint-placeholder-count="2">
+                    <button type="button" style="border:1px solid {{ a.edge }};background:{{ a.fill }};border-radius:7px;padding:5px 11px;font-size:11.5px;font-weight:600;color:{{ a.ink }};cursor:pointer" style-hover="color:#e6e9ed">{{ a.label }}</button>
+                  </sc-for>
+                </div>
+              </sc-if>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ sel.hasTasks }}" hint-placeholder-val="{{ true }}">
+            <div>
+              <div style="display:flex;align-items:center;gap:10px;padding:16px 0 8px">
+                <span style="font:700 9.5px 'JetBrains Mono',monospace;letter-spacing:.13em;text-transform:uppercase;color:#777f89">tasks</span>
+                <span style="font:400 10.5px 'JetBrains Mono',monospace;color:#646a72">{{ sel.taskMeta }}</span>
+                <span style="flex:1"></span>
+                <button type="button" onClick="{{ toggleTimeline }}" style="border:0;background:transparent;padding:0;font:400 10.5px 'JetBrains Mono',monospace;color:#aebfff;cursor:pointer" style-hover="color:#5e9cff">{{ timelineLabel }}</button>
+              </div>
+
+              <sc-if value="{{ timelineOpen }}" hint-placeholder-val="{{ false }}">
+                <div style="margin-bottom:12px;border-left:2px solid #20262e;padding-left:12px;display:flex;flex-direction:column;gap:5px">
+                  <sc-for list="{{ events }}" as="ev" hint-placeholder-count="4">
+                    <div style="display:grid;grid-template-columns:44px minmax(0,1fr);align-items:baseline;gap:9px;font:400 11px 'JetBrains Mono',monospace;color:#cfd5db">
+                      <span style="color:#646a72">{{ ev.ts }}</span>
+                      <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ ev.title }}</span>
+                    </div>
+                  </sc-for>
+                  <button type="button" style="align-self:flex-start;margin-top:3px;border:0;background:transparent;padding:0;font:400 10.5px 'JetBrains Mono',monospace;color:#aebfff;cursor:pointer" style-hover="color:#5e9cff">open the full timeline ↗</button>
+                </div>
+              </sc-if>
+
+              <sc-if value="{{ sel.hasAttention }}" hint-placeholder-val="{{ false }}">
+                <div style="margin-bottom:10px;display:flex;flex-direction:column;gap:6px">
+                  <sc-for list="{{ sel.attention }}" as="q" hint-placeholder-count="2">
+                    <button type="button" style="display:flex;align-items:center;gap:9px;width:100%;text-align:left;border:1px solid rgba(230,180,80,.28);background:rgba(230,180,80,.12);border-radius:8px;padding:8px 11px;cursor:pointer" style-hover="border-color:#e6b450">
+                      <span style="flex:none;width:6px;height:6px;border-radius:50%;background:#e6b450"></span>
+                      <span style="flex:none;font:500 11px 'JetBrains Mono',monospace;color:#dfe4ea">{{ q.id }}</span>
+                      <span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:#cfd5db">{{ q.detail }}</span>
+                      <span style="flex:none;border:1px solid rgba(230,180,80,.45);border-radius:5px;padding:2px 7px;font:400 9.5px 'JetBrains Mono',monospace;color:#f0d79f">{{ q.actions }}</span>
+                    </button>
+                  </sc-for>
+                </div>
+              </sc-if>
+
+              <sc-if value="{{ sel.hasRows }}" hint-placeholder-val="{{ true }}">
+                <div style="display:flex;flex-direction:column">
+                  <sc-for list="{{ sel.rows }}" as="t" hint-placeholder-count="4">
+                    <div style="display:grid;grid-template-columns:62px minmax(0,1fr) auto;align-items:baseline;gap:12px;padding:11px 0;border-bottom:1px solid #161a20">
+                      <span style="font:500 11px 'JetBrains Mono',monospace;color:#9aa3ad">{{ t.id }}</span>
+                      <div style="min-width:0;display:flex;flex-direction:column;gap:3px">
+                        <span style="font-size:12.5px;color:#dfe4ea;line-height:1.35">{{ t.label }}</span>
+                        <span style="font:400 10.5px 'JetBrains Mono',monospace;color:{{ t.metaInk }}">{{ t.meta }}</span>
+                      </div>
+                      <div style="display:flex;align-items:center;gap:8px">
+                        <span style="font:400 10px 'JetBrains Mono',monospace;color:{{ t.stateInk }}">{{ t.state }}</span>
+                        <sc-if value="{{ t.hasAction }}" hint-placeholder-val="{{ true }}">
+                          <button type="button" style="border:1px solid #1c2128;background:transparent;border-radius:5px;padding:2px 7px;font:400 9.5px 'JetBrains Mono',monospace;color:#cfd5db;cursor:pointer" style-hover="border-color:#2a313a;color:#dfe4ea">{{ t.action }}</button>
+                        </sc-if>
+                      </div>
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-if>
+
+              <sc-if value="{{ sel.hasEmptyRows }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex;flex-direction:column;gap:7px;border-radius:10px;border:1px dashed #2a313a;padding:13px 14px">
+                  <span style="font-size:12.5px;font-weight:600;color:#dfe4ea">{{ sel.emptyTitle }}</span>
+                  <span style="font-size:11.5px;line-height:1.5;color:#7f858b;text-wrap:pretty">{{ sel.emptyBody }}</span>
+                  <sc-if value="{{ sel.hasEmptyAct }}" hint-placeholder-val="{{ false }}">
+                    <button type="button" style="align-self:flex-start;margin-top:3px;border:1px solid #1c2128;background:#13171d;border-radius:7px;padding:5px 11px;font-size:11px;font-weight:600;color:#cfd5db;cursor:pointer" style-hover="color:#dfe4ea;border-color:#2a313a">{{ sel.emptyAct }}</button>
+                  </sc-if>
+                </div>
+              </sc-if>
+
+              <sc-if value="{{ sel.hasNext }}" hint-placeholder-val="{{ true }}">
+                <div style="padding:13px 0 4px;font:400 11px 'JetBrains Mono',monospace;color:#7f858b;line-height:1.5">
+                  <span style="color:#646a72">next: </span>{{ sel.next }}
+                </div>
+              </sc-if>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ sel.hasLauncher }}" hint-placeholder-val="{{ false }}">
+            <div style="padding-top:16px;display:flex;flex-direction:column;gap:16px">
+              <div style="display:flex;flex-direction:column;gap:9px">
+                <span style="font:700 9.5px 'JetBrains Mono',monospace;letter-spacing:.13em;text-transform:uppercase;color:#777f89">how it should run</span>
+                <div style="display:flex;flex-wrap:wrap;gap:7px">
+                  <sc-for list="{{ shapes }}" as="s" hint-placeholder-count="3">
+                    <button type="button" style="border:1px solid {{ s.edge }};background:{{ s.fill }};border-radius:8px;padding:7px 13px;font-size:12px;font-weight:600;color:{{ s.ink }};cursor:pointer" style-hover="border-color:#2a313a">{{ s.label }}</button>
+                  </sc-for>
+                </div>
+                <div style="display:grid;grid-template-columns:96px minmax(0,1fr);gap:9px 12px;padding-top:4px">
+                  <span style="font:400 10.5px 'JetBrains Mono',monospace;color:#646a72">lead route</span>
+                  <span style="font:400 11.5px 'JetBrains Mono',monospace;color:#cfd5db">pi · opencode-go/deepseek-v4-flash ▾</span>
+                  <span style="font:400 10.5px 'JetBrains Mono',monospace;color:#646a72">workers</span>
+                  <span style="font:400 11.5px 'JetBrains Mono',monospace;color:#cfd5db">inherit the lead · parallelism 2</span>
+                  <span style="font:400 10.5px 'JetBrains Mono',monospace;color:#646a72">start from</span>
+                  <span style="font:400 11.5px 'JetBrains Mono',monospace;color:#cfd5db">a goal ▾</span>
+                </div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:7px">
+                <span style="font:700 9.5px 'JetBrains Mono',monospace;letter-spacing:.13em;text-transform:uppercase;color:#777f89">run this in waveterm</span>
+                <div style="display:flex;gap:8px">
+                  <input placeholder="What should it do?" style="min-width:0;flex:1;border:1px solid #1c2128;background:#0c0e11;border-radius:7px;padding:8px 11px;font-size:12.5px;color:#dfe4ea">
+                  <button type="button" style="flex:none;border:1px solid rgba(94,156,255,.4);background:#13171d;border-radius:7px;padding:8px 13px;font-size:11.5px;font-weight:600;color:#aebfff;cursor:pointer" style-hover="color:#dfe4ea">Run ⏎</button>
+                </div>
+                <span style="font-size:11px;color:#7f858b">The shape and start above are what this dispatches with.</span>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ sel.hasSkeleton }}" hint-placeholder-val="{{ false }}">
+            <div style="padding-top:18px;display:flex;flex-direction:column;gap:11px">
+              <span style="height:30px;border-radius:8px;background:#13171d;animation:shimmer 1.6s infinite"></span>
+              <span style="height:30px;width:72%;border-radius:8px;background:#13171d;animation:shimmer 1.6s infinite"></span>
+              <span style="font-size:12px;color:#9aa3ad">{{ sel.skeletonText }}</span>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ sel.hasEvidence }}" hint-placeholder-val="{{ false }}">
+            <div style="padding-top:16px;display:flex;flex-direction:column;gap:16px">
+              <div style="display:flex;flex-direction:column;gap:9px">
+                <span style="font:700 9.5px 'JetBrains Mono',monospace;letter-spacing:.13em;text-transform:uppercase;color:#777f89">what landed</span>
+                <sc-for list="{{ evidence }}" as="e" hint-placeholder-count="3">
+                  <div style="display:grid;grid-template-columns:72px minmax(0,1fr) auto;align-items:baseline;gap:12px;padding:9px 0;border-bottom:1px solid #161a20">
+                    <span style="font:500 11px 'JetBrains Mono',monospace;color:#9aa3ad">{{ e.sha }}</span>
+                    <span style="min-width:0;font-size:12.5px;color:#dfe4ea;line-height:1.35">{{ e.subject }}</span>
+                    <span style="font:400 10px 'JetBrains Mono',monospace;color:#7f858b">{{ e.stat }}</span>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:7px">
+                <span style="font:700 9.5px 'JetBrains Mono',monospace;letter-spacing:.13em;text-transform:uppercase;color:#777f89">sealed evidence</span>
+                <span style="font:400 11px 'JetBrains Mono',monospace;color:#cfd5db;line-height:1.6">4 tasks · 4 lanes · 39m wall · 1h17m worker time<br>tests: 218 passed, 0 failed · lint clean<br>unverified: 2 commits have no test attributed</span>
+              </div>
+            </div>
+          </sc-if>
+        </div>
+
+        <div style="flex:none;border-top:1px solid #161a20;background:#0e1116">
+          <sc-if value="{{ sel.cfgLine }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;align-items:center;gap:10px;padding:11px 16px">
+              <span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:400 10.5px 'JetBrains Mono',monospace;color:#7f858b">{{ sel.cfgText }}</span>
+              <button type="button" onClick="{{ toggleSettings }}" style="flex:none;border:1px solid #1c2128;background:#13171d;border-radius:6px;padding:3px 9px;font-size:10.5px;font-weight:600;color:#cfd5db;cursor:pointer" style-hover="color:#dfe4ea;border-color:#2a313a">{{ settingsLabel }}</button>
+            </div>
+            <sc-if value="{{ settingsOpen }}" hint-placeholder-val="{{ false }}">
+              <div style="padding:0 16px 14px;display:flex;flex-direction:column;gap:12px;border-top:1px solid #161a20">
+                <p style="margin:11px 0 0;font-size:11.5px;line-height:1.5;color:#7f858b">Shape, machine and the lead route are fixed after launch. These two apply to workers dispatched from now on — nothing already running changes.</p>
+                <div style="display:flex;gap:16px;align-items:flex-start">
+                  <label style="display:flex;flex-direction:column;gap:5px">
+                    <span style="font-size:11.5px;font-weight:600;color:#cfd5db">Worker parallelism</span>
+                    <input type="number" value="2" min="1" max="8" style="width:72px;border:1px solid #1c2128;background:#0c0e11;border-radius:7px;padding:5px 8px;font:400 12px 'JetBrains Mono',monospace;color:#dfe4ea">
+                    <span style="font-size:10.5px;color:#7f858b">1 through 8</span>
+                  </label>
+                  <label style="min-width:0;flex:1;display:flex;flex-direction:column;gap:5px">
+                    <span style="font-size:11.5px;font-weight:600;color:#cfd5db">Worker route</span>
+                    <button type="button" style="text-align:left;border:1px solid #1c2128;background:#0c0e11;border-radius:7px;padding:5px 9px;font:400 12px 'JetBrains Mono',monospace;color:#dfe4ea;cursor:pointer" style-hover="border-color:#2a313a">inherit the lead ▾</button>
+                    <span style="font-size:10.5px;color:#7f858b">pi · deepseek-v4-flash</span>
+                  </label>
+                </div>
+                <sc-if value="{{ sel.cfgHasMsg }}" hint-placeholder-val="{{ false }}">
+                  <span style="font-size:11.5px;color:{{ sel.cfgMsgInk }}">{{ sel.cfgMsg }}</span>
+                </sc-if>
+                <div style="display:flex;gap:8px">
+                  <button type="button" style="border:1px solid rgba(94,156,255,.4);background:#13171d;border-radius:7px;padding:5px 11px;font-size:11px;font-weight:600;color:#aebfff;cursor:pointer" style-hover="color:#dfe4ea">Save settings</button>
+                  <button type="button" style="border:1px solid #1c2128;background:#13171d;border-radius:7px;padding:5px 11px;font-size:11px;font-weight:600;color:#cfd5db;cursor:pointer" style-hover="color:#dfe4ea">Save as project defaults</button>
+                </div>
+              </div>
+            </sc-if>
+          </sc-if>
+
+          <sc-if value="{{ sel.cfgNote }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:flex-start;gap:9px;padding:11px 16px">
+              <span style="flex:none;margin-top:4px;width:6px;height:6px;border-radius:50%;background:{{ sel.cfgNoteDot }};animation:{{ sel.cfgNoteAnim }}"></span>
+              <div style="min-width:0;display:flex;flex-direction:column;gap:3px">
+                <span style="font-size:11.5px;font-weight:600;color:#cfd5db">{{ sel.cfgNoteTitle }}</span>
+                <span style="font-size:11px;line-height:1.5;color:#7f858b;text-wrap:pretty">{{ sel.cfgNoteBody }}</span>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ sel.hasDock }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;align-items:center;gap:8px;padding:11px 16px;border-top:1px solid #161a20">
+              <sc-for list="{{ sel.dock }}" as="d" hint-placeholder-count="2">
+                <button type="button" style="border:1px solid {{ d.edge }};background:{{ d.fill }};border-radius:7px;padding:6px 12px;font-size:11.5px;font-weight:600;color:{{ d.ink }};cursor:pointer" style-hover="color:#e6e9ed">{{ d.label }}</button>
+              </sc-for>
+              <span style="flex:1"></span>
+              <sc-if value="{{ sel.hasDanger }}" hint-placeholder-val="{{ true }}">
+                <button type="button" style="border:1px solid #20262e;background:transparent;border-radius:7px;padding:6px 12px;font-size:11.5px;font-weight:600;color:#7f858b;cursor:pointer" style-hover="border-color:#e0726c;color:#e0726c">{{ sel.danger }}</button>
+              </sc-if>
+            </div>
+          </sc-if>
+        </div>
+      </div>
+    </div>
+
+    <div style="width:300px;flex:none;display:flex;flex-direction:column;gap:10px;padding-top:30px">
+      <span style="font:700 9.5px 'JetBrains Mono',monospace;letter-spacing:.13em;text-transform:uppercase;color:#777f89">what this state costs</span>
+      <p style="margin:0;font-size:12.5px;line-height:1.6;color:#cfd5db;text-wrap:pretty">{{ sel.rationale }}</p>
+      <div style="height:1px;background:#161a20;margin:4px 0"></div>
+      <span style="font:700 9.5px 'JetBrains Mono',monospace;letter-spacing:.13em;text-transform:uppercase;color:#777f89">rules held across all states</span>
+      <ul style="margin:0;padding-left:16px;display:flex;flex-direction:column;gap:7px;font-size:12px;line-height:1.5;color:#9aa3ad">
+        <li>One authority on state: the verb, the meter and <span style="font-family:'JetBrains Mono',monospace;font-size:11px">next:</span> are derived from the same read and can never disagree.</li>
+        <li>The goal is printed once, never repeated by an attribution line or a run bar.</li>
+        <li>A degraded read says what it cannot see; it never falls back to the launch snapshot.</li>
+        <li>Config is a printed line until you ask for the dials. Fixed settings state their reason where the dials would be.</li>
+        <li>Failure text is one line in the row's own state column, not two lines above the task.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section style="display:flex;flex-direction:column;gap:16px;padding:0 48px 80px;background:#08090b;width:max-content;min-width:100%;box-sizing:border-box">
+  <div style="display:flex;align-items:baseline;gap:12px">
+    <span style="font:700 9.5px 'JetBrains Mono',monospace;letter-spacing:.13em;text-transform:uppercase;color:#646a72">turn 1</span>
+    <h2 style="margin:0;font-size:17px;font-weight:700;letter-spacing:-.01em;color:#9aa3ad">1a — the single-column sheet this grammar came from</h2>
+  </div>
+  <ul style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px;max-width:780px;font-size:12.5px;line-height:1.55;color:#7f858b">
+    <li>Two authorities on one state: <span style="font-family:'JetBrains Mono',monospace;font-size:11.5px">RunHeader</span> said EXECUTING while <span style="font-family:'JetBrains Mono',monospace;font-size:11.5px">DagOverview</span> said done · 4/4 · next: finished.</li>
+    <li>The goal printed three times before anything about the work appeared.</li>
+    <li>Five nested bordered cards inside a 640px measure.</li>
+    <li>A fixed 55% settings band holding one number field, below the fold.</li>
+  </ul>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1400,&quot;height&quot;:1100}}">
+const EDGE = "#1c2128", FILL = "#13171d", INK = "#cfd5db";
+const ACT = { edge: "rgba(94,156,255,.5)", fill: "rgba(94,156,255,.12)", ink: "#aebfff" };
+const GHOST = { edge: EDGE, fill: "transparent", ink: INK };
+const AMBER = { edge: "rgba(230,180,80,.45)", fill: "rgba(230,180,80,.12)", ink: "#f0d79f" };
+
+function meter(done, total, tone) {
+  return Array.from({ length: total }, (_, i) => ({ fill: i < done ? (tone || "#54c79a") : "#20262e" }));
+}
+function row(id, label, meta, state, action, opts) {
+  const o = opts || {};
+  return {
+    id, label, meta, state, action: action || "",
+    hasAction: !!action,
+    stateInk: o.stateInk || "#54c79a",
+    metaInk: o.metaInk || "#7f858b",
+  };
+}
+
+const DONE_ROWS = [
+  row("F1–F8", "fix frontend cockpit store-layer findings", "lane 1 · 22m · child run 8a41", "done", "View child run"),
+  row("W1–W8", "fix Go backend core findings", "lane 2 · 31m · child run 8a42", "done", "View child run"),
+  row("D1–D4", "resolve the brief's open questions in docs", "lane 3 · 14m · child run 8a43", "done", "View child run"),
+  row("S1", "squash the four branches and land", "lane 4 · 9m · 2 commits landed", "done", "Open diff"),
+];
+
+const CFG_LINE = "engine · orchestrator · lead pi/deepseek-v4-flash · parallelism 2 · workers inherit lead";
+
+class Component extends DCLogic {
+  state = { pick: "executing", timelineOpen: false, settingsOpen: false };
+
+  states() {
+    const base = {
+      runLine: "orchestrator run 3457",
+      showNewRun: true,
+      hasState: true, hasMeta: true, hasGoal: true, hasAttrib: true, hasMeter: true,
+      goal: "Fix every finding in docs/superpowers/briefs/2026-08-26-open-questions.md",
+      hasTasks: true, hasRows: true, hasNext: true,
+      taskMeta: "4 · 4 lanes · longest chain 1",
+      cfgLine: true, cfgText: CFG_LINE,
+      hasDock: true, dock: [ACT_BTN("Open DAG"), GHOST_BTN("Ask Jarvis")],
+      hasDanger: true, danger: "Cancel run",
+    };
+    function ACT_BTN(label) { return { label, ...ACT }; }
+    function GHOST_BTN(label) { return { label, ...GHOST }; }
+
+    const S = {};
+
+    S.planning = { ...base,
+      dot: "#7f858b", dotAnim: "pulseDot 1.6s infinite", verb: "Planning", sub: "the lead is decomposing the goal",
+      hasMeter: false, meta: [{ text: "42s elapsed", ink: "#7f858b" }, { text: "no dag yet", ink: "#7f858b" }],
+      hasTasks: true, hasRows: false, hasEmptyRows: true, hasNext: true,
+      taskMeta: "not decided yet",
+      emptyTitle: "No tasks yet",
+      emptyBody: "The lead writes the plan first. Nothing is dispatched, and nothing can be reconfigured, until you release it.",
+      next: "the lead proposes a plan for your release",
+      cfgLine: false, cfgNote: true, cfgNoteDot: "#7f858b", cfgNoteAnim: "shimmer 1.6s infinite",
+      cfgNoteTitle: "Reading this run's plan…",
+      cfgNoteBody: "The engine owns these settings once a plan exists, so they are read live rather than guessed from what the run launched with.",
+      dock: [GHOST_BTN("Ask Jarvis")],
+      source: "runbody.tsx · StartingCard + runsettings.ts state \"loading\"",
+      rationale: "The two slowest states in the code — a run with no dag and a settings read still in flight — are the same moment, so they are said once at the top and once in the dock, not twice as separate skeletons.",
+    };
+
+    S.gate = { ...base,
+      dot: "#e6b450", dotAnim: "pulseDot 1.6s infinite", verb: "Waiting on you", sub: "a plan of 9 tasks is ready to release",
+      hasMeter: false, meta: [{ text: "3m elapsed", ink: "#7f858b" }, { text: "nothing dispatched", ink: "#7f858b" }],
+      hasCard: true, card: {
+        edge: "rgba(230,180,80,.28)", fill: "rgba(230,180,80,.12)", ink: "#f0d79f",
+        eyebrow: "review gate", meta: "9 tasks · 4 lanes · longest chain 3",
+        title: "Release this plan, or send it back with a correction",
+        hasBody: true, body: "Nothing runs until you release. Parallelism and the worker route are still yours to set — after release they belong to the scheduler.",
+        hasLines: true, lines: ["F1–F8  fix frontend cockpit store-layer findings", "W1–W8  fix Go backend core findings", "D1–D4  resolve the brief's open questions", "+5 more"],
+        hasActs: true, acts: [{ label: "Release", ...ACT }, { label: "Send back", ...GHOST }, { label: "Open DAG", ...GHOST }],
+      },
+      hasTasks: false,
+      cfgText: "engine · orchestrator · lead pi/deepseek-v4-flash · parallelism 2 · editable until you release",
+      dock: [GHOST_BTN("Ask Jarvis")],
+      source: "runcards.tsx · ReviewGateCard",
+      rationale: "The gate is the only state where the plan is the content, so the task list is inside the card it gates rather than repeated below it. DagOverview renders nothing here for the same reason.",
+    };
+
+    S.executing = { ...base,
+      dot: "#54c79a", dotAnim: "pulseDot 1.6s infinite", verb: "Executing", sub: "2 of 4 tasks done, 2 workers live",
+      meter: meter(2, 4),
+      meta: [{ text: "18m elapsed", ink: "#7f858b" }, { text: "workers 31m", ink: "#7f858b" }, { text: "0 landed", ink: "#7f858b" }, { text: "updated 3s ago", ink: "#7f858b" }],
+      rows: [
+        row("F1–F8", "fix frontend cockpit store-layer findings", "editing briefsheet.tsx · 4m on this step", "running", "Open in Agent ↗", { stateInk: "#54c79a", metaInk: "#bfe6d6" }),
+        row("W1–W8", "fix Go backend core findings", "running tests · 1m on this step", "running", "Open in Agent ↗", { stateInk: "#54c79a", metaInk: "#bfe6d6" }),
+        row("D1–D4", "resolve the brief's open questions in docs", "lane 3 · 14m · child run 8a43", "done", "View child run"),
+        row("S1", "squash the four branches and land", "waiting on F1–F8, W1–W8", "queued", "", { stateInk: "#7f858b" }),
+      ],
+      next: "S1 when both fix lanes finish",
+      source: "dagoverview.tsx · worker rows, healthy digest",
+      rationale: "The healthy case. A live row spends its second line on what the worker is doing right now — the activity line the code already has — which is the only thing on this screen that changes between ticks.",
+    };
+
+    S.asking = { ...base,
+      dot: "#e6b450", dotAnim: "pulseDot 1.6s infinite", verb: "Waiting on you", sub: "F1–F8's worker asked a question 40s ago",
+      meter: meter(2, 4, "#54c79a"),
+      meta: [{ text: "21m elapsed", ink: "#7f858b" }, { text: "1 lane paused", ink: "#e6b450" }, { text: "updated 4s ago", ink: "#7f858b" }],
+      hasCard: true, card: {
+        edge: "rgba(230,180,80,.28)", fill: "rgba(230,180,80,.12)", ink: "#f0d79f",
+        eyebrow: "asked · F1–F8", meta: "40s ago · lane 1 idle since",
+        title: "Should the store-layer fix keep the old atom name as an alias, or break it?",
+        hasBody: false, hasLines: false,
+        hasActs: true, acts: [{ label: "1 · Keep an alias", ...ACT }, { label: "2 · Break it", ...GHOST }, { label: "Answer in the transcript", ...GHOST }],
+      },
+      rows: [
+        row("F1–F8", "fix frontend cockpit store-layer findings", "asked you · idle 40s", "asking", "Open in Agent ↗", { stateInk: "#e6b450", metaInk: "#e6b450" }),
+        row("W1–W8", "fix Go backend core findings", "running tests · 2m on this step", "running", "Open in Agent ↗", { stateInk: "#54c79a", metaInk: "#bfe6d6" }),
+        row("D1–D4", "resolve the brief's open questions in docs", "lane 3 · 14m · child run 8a43", "done", "View child run"),
+        row("S1", "squash the four branches and land", "waiting on F1–F8, W1–W8", "queued", "", { stateInk: "#7f858b" }),
+      ],
+      next: "nothing new dispatches while a lane waits on you",
+      source: "runcards.tsx · AskCard (numbered 1-9 + ⏎ bindings)",
+      rationale: "The ask keeps its numbered answers, but the state verb changes to Waiting on you so the sheet's first line names the blocker. The asking row is marked in place rather than reordered — a list that jumps while you read it costs more than it saves.",
+    };
+
+    S.attention = { ...base,
+      dot: "#e6b450", dotAnim: "pulseDot 1.6s infinite", verb: "Executing", sub: "3 of 4 done · 2 tasks need you",
+      meter: meter(3, 4),
+      meta: [{ text: "33m elapsed", ink: "#7f858b" }, { text: "attention 2", ink: "#e6b450" }, { text: "merge 1", ink: "#e6b450" }, { text: "updated 6s ago", ink: "#7f858b" }],
+      hasAttention: true,
+      attention: [
+        { id: "W1–W8", detail: "failed twice on the same test, retried once", actions: "retry/escalate" },
+        { id: "S1", detail: "merge ready, conflicts with lane 1", actions: "merge/send back" },
+      ],
+      rows: [
+        row("W1–W8", "fix Go backend core findings", "2 failures · last retry 4m ago", "stalled", "Open in Agent ↗", { stateInk: "#e0726c", metaInk: "#f0a9a4" }),
+        row("S1", "squash the four branches and land", "merge blocked on lane 1", "blocked-merge", "Open DAG ↗", { stateInk: "#e6b450", metaInk: "#e6b450" }),
+        row("F1–F8", "fix frontend cockpit store-layer findings", "lane 1 · 22m · child run 8a41", "done", "View child run"),
+        row("D1–D4", "resolve the brief's open questions in docs", "lane 3 · 14m · child run 8a43", "done", "View child run"),
+      ],
+      next: "held — two tasks are waiting on a decision",
+      source: "attentionqueue.ts + dagoverview.tsx · Queue",
+      rationale: "The attention queue is the one case where exception-first order earns the reordering: the two rows that need a decision are lifted above the list and carry the digest's own action names, never a guess.",
+    };
+
+    S.landing = { ...base,
+      dot: "#e6b450", dotAnim: "pulseDot 1.6s infinite", verb: "Landing", sub: "all 4 tasks done, nothing left to dispatch",
+      meter: meter(4, 4),
+      meta: [{ text: "39m elapsed", ink: "#7f858b" }, { text: "workers 1h17m", ink: "#7f858b" }, { text: "2 landed", ink: "#7f858b" }, { text: "unverified", ink: "#e6b450" }, { text: "updated 9s ago", ink: "#7f858b" }],
+      rows: DONE_ROWS, next: "nothing to dispatch — the lead is sealing evidence",
+      source: "the screenshot: RunHeader EXECUTING vs DagOverview done · 4/4",
+      rationale: "The contradiction that started this. Neither reading was wrong: the tasks are done and the run is not. Landing is the state that holds both, so the meter can read 4/4 without the verb lying.",
+    };
+
+    S.done = { ...base,
+      runLine: "orchestrator run 3457 · finished",
+      dot: "#54c79a", dotAnim: "none", verb: "Done", sub: "4 tasks, 2 commits landed, 39m",
+      meter: meter(4, 4),
+      meta: [{ text: "finished 11m ago", ink: "#7f858b" }, { text: "workers 1h17m", ink: "#7f858b" }, { text: "evidence sealed", ink: "#54c79a" }],
+      hasTasks: false, hasEvidence: true,
+      cfgLine: false, cfgNote: true, cfgNoteDot: "#2a313a", cfgNoteAnim: "none",
+      cfgNoteTitle: "Settings are fixed: this run is done.",
+      cfgNoteBody: "Its configuration is printed above as part of the sealed evidence. Save it as this project's defaults to launch the next run the same way.",
+      dock: [{ label: "Save as project defaults", ...ACT }, GHOST_BTN("Open DAG"), GHOST_BTN("Ask Jarvis")],
+      hasDanger: false,
+      source: "runcompletionsurface.tsx + runsettings.ts readonly \"this run is done\"",
+      rationale: "A finished run has no dials, so the dock's slot goes to the one thing you might still want: carrying this configuration forward. The readonly reason sits where the dials were instead of as a dashed box in the body.",
+    };
+
+    S.cancelled = { ...base,
+      runLine: "orchestrator run 3457 · cancelled",
+      dot: "#e0726c", dotAnim: "none", verb: "Cancelled", sub: "2 workers are still finishing their current step",
+      meter: meter(2, 4, "#7f858b"),
+      meta: [{ text: "cancelled 30s ago", ink: "#e0726c" }, { text: "2 survivors", ink: "#e0726c" }],
+      hasCard: true, card: {
+        edge: "rgba(224,114,108,.3)", fill: "rgba(224,114,108,.1)", ink: "#f0a9a4",
+        eyebrow: "still running", meta: "2 workers",
+        title: "Cancelling the run did not stop the workers already dispatched",
+        hasBody: true, body: "They finish the step they are on. Stopping them now discards whatever is uncommitted in their worktrees.",
+        hasLines: false,
+        hasActs: true, acts: [{ label: "Stop both workers", edge: "rgba(224,114,108,.45)", fill: "transparent", ink: "#f0a9a4" }, { label: "Let them finish", ...GHOST }],
+      },
+      rows: [
+        row("F1–F8", "fix frontend cockpit store-layer findings", "finishing current step", "surviving", "Open in Agent ↗", { stateInk: "#e0726c", metaInk: "#f0a9a4" }),
+        row("W1–W8", "fix Go backend core findings", "finishing current step", "surviving", "Open in Agent ↗", { stateInk: "#e0726c", metaInk: "#f0a9a4" }),
+        row("D1–D4", "resolve the brief's open questions in docs", "lane 3 · 14m · child run 8a43", "done", "View child run"),
+        row("S1", "squash the four branches and land", "never dispatched", "cancelled", "", { stateInk: "#7f858b" }),
+      ],
+      next: "nothing — the scheduler stopped dispatching",
+      cfgLine: false, cfgNote: true, cfgNoteDot: "#2a313a", cfgNoteAnim: "none",
+      cfgNoteTitle: "Settings are fixed: this run is cancelled.",
+      cfgNoteBody: "Lowering parallelism would not reach the two survivors either — they are already running.",
+      dock: [GHOST_BTN("Open DAG"), GHOST_BTN("Ask Jarvis")], hasDanger: false,
+      source: "runcards.tsx · CancelSurvivorsCard + cancelSurvivors()",
+      rationale: "The state pill in the code appends \"· 2 still running\" to the label. Here the survivor count is the subtitle and the survivors are marked in the list, so the count and the rows can't drift apart.",
+    };
+
+    S.stale = { ...base,
+      dot: "#7f858b", dotAnim: "none", verb: "Status is stale", sub: "the last digest read failed; these figures are 2m old",
+      meter: meter(2, 4, "#3f4ea0"),
+      meta: [{ text: "as of 2m ago", ink: "#e6b450" }, { text: "refresh failed", ink: "#e6b450" }, { text: "retry", ink: "#aebfff" }],
+      rows: [
+        row("F1–F8", "fix frontend cockpit store-layer findings", "as of 2m ago · refreshing status", "running?", "Open in Agent ↗", { stateInk: "#7f858b", metaInk: "#7f858b" }),
+        row("W1–W8", "fix Go backend core findings", "as of 2m ago · refreshing status", "running?", "Open in Agent ↗", { stateInk: "#7f858b", metaInk: "#7f858b" }),
+        row("D1–D4", "resolve the brief's open questions in docs", "as of 2m ago", "done", "View child run", { stateInk: "#7f858b" }),
+        row("S1", "squash the four branches and land", "as of 2m ago", "queued", "", { stateInk: "#7f858b" }),
+      ],
+      next: "unknown — the engine's next move could not be read",
+      source: "dagdigest.ts · digestState.stale / error + retry",
+      rationale: "Stale is a state of the sheet, not a footnote on it: the verb says so, every figure is dated, the tones drop out, and the attention queue is suppressed entirely — an exception list that might be two minutes old is worse than none.",
+    };
+
+    S.nodag = { ...base,
+      dot: "#e0726c", dotAnim: "none", verb: "Executing", sub: "the run is live, but its task graph could not be read",
+      hasMeter: false,
+      meta: [{ text: "26m elapsed", ink: "#7f858b" }, { text: "dag unavailable", ink: "#e0726c" }],
+      hasRows: false, hasEmptyRows: true, taskMeta: "unavailable",
+      emptyTitle: "DAG status unavailable",
+      emptyBody: "The run links a task graph, but the read failed. Nothing about the tasks is shown rather than the run's launch snapshot, which is not what the scheduler is running.",
+      hasEmptyAct: true, emptyAct: "Retry the read",
+      next: "unknown",
+      cfgLine: false, cfgNote: true, cfgNoteDot: "#e0726c", cfgNoteAnim: "none",
+      cfgNoteTitle: "This run's plan could not be read.",
+      cfgNoteBody: "The engine owns these settings once a plan exists, so no controls are offered rather than dials over a value the scheduler may not be honouring.",
+      source: "runsettings.ts · unavailable \"error\" / \"missing\"",
+      rationale: "The one state where the sheet must refuse to guess. It keeps the run's own facts — live, 26m — and blanks only what depends on the graph, with the reason stated in both places that lost content.",
+    };
+
+    S.quick = { ...base,
+      runLine: "quick run 4b12",
+      dot: "#54c79a", dotAnim: "pulseDot 1.6s infinite", verb: "Executing", sub: "one worker, no plan",
+      hasMeter: false,
+      meta: [{ text: "6m elapsed", ink: "#7f858b" }, { text: "1 worker", ink: "#7f858b" }],
+      goal: "Rename briefsheetmodel's sheetFace to subjectFace across the frontend",
+      hasRows: false, hasEmptyRows: true, taskMeta: "none — a quick run has no graph",
+      emptyTitle: "No task graph",
+      emptyBody: "A quick run is one worker on one goal. Its transcript is the whole run; the Agent view is where it is watched.",
+      hasEmptyAct: true, emptyAct: "Open in Agent ↗",
+      hasNext: false,
+      cfgLine: false, cfgNote: true, cfgNoteDot: "#2a313a", cfgNoteAnim: "none",
+      cfgNoteTitle: "Settings are fixed: a quick run has no scheduler to reconfigure.",
+      cfgNoteBody: "Parallelism and a worker route only exist for an engine orchestrator. Its lead route was fixed at launch: claude · sonnet-4-6.",
+      dock: [GHOST_BTN("Ask Jarvis")],
+      source: "runsettings.ts · readonly \"a quick run has no scheduler to reconfigure\"",
+      rationale: "Three of the four readonly reasons are shape facts, not failures. Said as one sentence where the dials would be, they read as an explanation; as today's dashed box in the body they read as an error.",
+    };
+
+    S.adaptive = { ...base,
+      runLine: "orchestrator run 5fbe · adaptive",
+      dot: "#54c79a", dotAnim: "pulseDot 1.6s infinite", verb: "Executing", sub: "the lead is running its own subagents",
+      hasMeter: false,
+      meta: [{ text: "12m elapsed", ink: "#7f858b" }, { text: "3 subagents", ink: "#7f858b" }, { text: "no engine dag", ink: "#7f858b" }],
+      taskMeta: "3 dispatched by the lead",
+      rows: [
+        row("↳", "code-reviewer · reviewing the store-layer diff", "claude · sonnet-4-6 · 2m", "working", "Open in Agent ↗", { stateInk: "#5e9cff", metaInk: "#9aa3ad" }),
+        row("↳", "test-runner · running the frontend suite", "claude · haiku-4 · 40s", "working", "Open in Agent ↗", { stateInk: "#5e9cff", metaInk: "#9aa3ad" }),
+        row("↳", "doc-writer · updating the brief", "claude · sonnet-4-6 · finished", "done", "Open in Agent ↗", { stateInk: "#7f858b" }),
+      ],
+      next: "whatever the lead decides — there is no scheduler to predict",
+      cfgLine: false, cfgNote: true, cfgNoteDot: "#2a313a", cfgNoteAnim: "none",
+      cfgNoteTitle: "Settings are fixed: an adaptive lead runs its own subagents.",
+      cfgNoteBody: "There is no parallelism dial because there is no engine scheduler dispatching workers — the lead spawns them itself.",
+      source: "runsettings.ts readonly \"adaptive\" + runbody.tsx DispatchedAgents",
+      rationale: "An adaptive run has children but no graph, so the same row grammar carries the lead's dispatched subagents. The next line says why it cannot promise a next move instead of leaving the field blank.",
+    };
+
+    S.workerGone = { ...base,
+      dot: "#54c79a", dotAnim: "pulseDot 1.6s infinite", verb: "Executing", sub: "2 of 4 done · one worker's session is gone",
+      meter: meter(2, 4),
+      meta: [{ text: "27m elapsed", ink: "#7f858b" }, { text: "updated 5s ago", ink: "#7f858b" }],
+      rows: [
+        row("F1–F8", "fix frontend cockpit store-layer findings", "child run 8a41 · session closed, work continues", "no session", "View child run", { stateInk: "#7f858b", metaInk: "#7f858b" }),
+        row("W1–W8", "fix Go backend core findings", "running tests · 1m on this step", "running", "Open in Agent ↗", { stateInk: "#54c79a", metaInk: "#bfe6d6" }),
+        row("D1–D4", "resolve the brief's open questions in docs", "not dispatched yet", "queued", "", { stateInk: "#7f858b" }),
+        row("S1", "squash the four branches and land", "waiting on F1–F8, W1–W8", "queued", "", { stateInk: "#7f858b" }),
+      ],
+      next: "D1–D4 when a worker slot frees",
+      source: "taskcorrelate.ts · dispatched / pending / unavailable",
+      rationale: "Today this row spends two lines on Worker session unavailable and Activity unavailable. The state column is the one place it belongs, and the row keeps the action that still works: View child run.",
+    };
+
+    S.saveError = { ...base,
+      dot: "#54c79a", dotAnim: "pulseDot 1.6s infinite", verb: "Executing", sub: "2 of 4 tasks done, 2 workers live",
+      meter: meter(2, 4),
+      meta: [{ text: "18m elapsed", ink: "#7f858b" }, { text: "workers 31m", ink: "#7f858b" }, { text: "updated 3s ago", ink: "#7f858b" }],
+      rows: DONE_ROWS.slice(0, 2).concat([
+        row("D1–D4", "resolve the brief's open questions in docs", "lane 3 · running", "running", "Open in Agent ↗", { metaInk: "#bfe6d6" }),
+        row("S1", "squash the four branches and land", "waiting on the fix lanes", "queued", "", { stateInk: "#7f858b" }),
+      ]),
+      next: "S1 when both fix lanes finish",
+      cfgText: "engine · orchestrator · parallelism 9 — not saved",
+      cfgHasMsg: true, cfgMsgInk: "#e0726c", cfgMsg: "Enter a whole number from 1 through 8. The scheduler is still running at 2.",
+      source: "briefrunsheet.tsx · invalid draft + save error / saved notice",
+      rationale: "A refused save must not look like a saved one: the printed config line carries the rejected value and the words not saved, so the dock tells the truth even after the panel is collapsed again.",
+    };
+
+    S.launcher = { ...base,
+      runLine: "no run yet",
+      showNewRun: false,
+      dot: "#2a313a", dotAnim: "none", verb: "Nothing running", sub: "last run finished 2h ago",
+      hasMeter: false, hasMeta: false, hasGoal: false, hasAttrib: false,
+      hasTasks: false, hasLauncher: true,
+      cfgLine: false, cfgNote: false,
+      dock: [GHOST_BTN("Past runs (14)"), GHOST_BTN("Ask Jarvis")], hasDanger: false,
+      source: "briefsheet.tsx · RunLauncher + ChannelLaunch",
+      rationale: "With no run, the same regions invert: the config that was a printed line becomes the body, and the goal field takes the place the status reading had. Nothing moves position between the two faces.",
+    };
+
+    S.projectLoading = { ...base,
+      runLine: "run 3457",
+      showNewRun: false,
+      hasState: false, hasTasks: false, hasSkeleton: true,
+      skeletonText: "Reading this project…",
+      cfgLine: false, cfgNote: false, hasDock: false,
+      source: "briefsheet.tsx · SheetChannelPending loading",
+      rationale: "Two lines and a shimmer, because the read usually resolves in well under a second. Anything more elaborate would flash.",
+    };
+
+    S.projectGone = { ...base,
+      runLine: "run 3457",
+      showNewRun: false,
+      hasState: false, hasTasks: true, hasRows: false, hasEmptyRows: true, hasNext: false,
+      taskMeta: "",
+      emptyTitle: "This run's project is no longer available.",
+      emptyBody: "An older record can still point at a run whose project was deleted. The run's evidence remains readable from the vault; nothing about it can be shown here.",
+      hasEmptyAct: true, emptyAct: "Find it in the vault ↗",
+      cfgLine: false, cfgNote: false, hasDock: true, dock: [GHOST_BTN("Ask Jarvis")], hasDanger: false,
+      source: "briefsheet.tsx · errored || gone (channel not in the list)",
+      rationale: "A channel that was deleted never settles — no value, no error — so today it sits under the loading skeleton forever. Gone is a different sentence, and it offers the one route that still leads somewhere.",
+    };
+
+    return S;
+  }
+
+  renderVals() {
+    const S = this.states();
+    const sel = S[this.state.pick] ?? S.executing;
+    const order = [
+      { title: "run lifecycle", items: [
+        ["planning", "Planning", "no dag yet · settings loading"],
+        ["gate", "Plan gate", "9 tasks awaiting release"],
+        ["executing", "Executing", "2/4 done, 2 workers live"],
+        ["asking", "Worker asked you", "lane 1 idle 40s"],
+        ["attention", "Needs attention", "1 stalled · 1 merge blocked"],
+        ["landing", "Landing", "4/4 done, sealing evidence"],
+        ["done", "Done + evidence", "sealed, 2 commits"],
+        ["cancelled", "Cancelled + survivors", "2 workers still finishing"],
+      ] },
+      { title: "degraded reads", items: [
+        ["stale", "Digest stale", "refresh failed, 2m old"],
+        ["nodag", "DAG unavailable", "graph read failed"],
+        ["workerGone", "Worker session gone", "row-level degradation"],
+      ] },
+      { title: "settings faces", items: [
+        ["quick", "Fixed · quick run", "no scheduler"],
+        ["adaptive", "Fixed · adaptive lead", "own subagents"],
+        ["saveError", "Refused save", "parallelism 9 invalid"],
+      ] },
+      { title: "no run to draw", items: [
+        ["launcher", "No run yet", "launcher face"],
+        ["projectLoading", "Project loading", "skeleton"],
+        ["projectGone", "Project gone", "deleted channel"],
+      ] },
+    ];
+    const groups = order.map((g) => ({
+      title: g.title,
+      items: g.items.map(([id, label, note]) => {
+        const on = this.state.pick === id;
+        return {
+          label, note, id,
+          edge: on ? "#5e9cff" : "#1c2128",
+          fill: on ? "#171c22" : "transparent",
+          ink: on ? "#e6e9ed" : "#cfd5db",
+          pick: () => this.setState({ pick: id }),
+        };
+      }),
+    }));
+
+    return {
+      groups,
+      sel: {
+        hasCard: false, hasAttention: false, hasEmptyRows: false, hasEmptyAct: false,
+        hasLauncher: false, hasSkeleton: false, hasEvidence: false, cfgNote: false,
+        cfgHasMsg: false, hasMeta: true, hasMeter: false, hasDock: true, hasDanger: false,
+        ...sel,
+      },
+      events: [
+        { ts: "18:51", title: "DAG complete — 4/4 tasks done" },
+        { ts: "18:22", title: "S1 landed 2 commits (squash merge)" },
+        { ts: "18:13", title: "D1–D4 done, review gate passed" },
+        { ts: "17:41", title: "Task spawned — W1–W8 dispatched to worker" },
+      ],
+      evidence: [
+        { sha: "a91c4f2", subject: "fix cockpit store-layer findings (F1–F8)", stat: "+214 −96" },
+        { sha: "7d0b18e", subject: "fix Go backend core findings (W1–W8)", stat: "+331 −142" },
+      ],
+      shapes: [
+        { label: "Orchestrator", edge: "#5e9cff", fill: "rgba(94,156,255,.12)", ink: "#e6e9ed" },
+        { label: "Pipeline", edge: "#1c2128", fill: "transparent", ink: "#cfd5db" },
+        { label: "Quick", edge: "#1c2128", fill: "transparent", ink: "#cfd5db" },
+      ],
+      timelineOpen: this.state.timelineOpen,
+      settingsOpen: this.state.settingsOpen,
+      timelineLabel: (this.state.timelineOpen ? "▾" : "▸") + " timeline · 8 events",
+      settingsLabel: this.state.settingsOpen ? "Done" : "Adjust",
+      toggleTimeline: () => this.setState((s) => ({ timelineOpen: !s.timelineOpen })),
+      toggleSettings: () => this.setState((s) => ({ settingsOpen: !s.settingsOpen })),
+    };
+  }
+}
+</script>
+</body>
+</html>
