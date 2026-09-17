@@ -219,7 +219,6 @@ export function RunHeader({
                         </button>
                     ) : null}
                 </div>
-                {run.dagoref ? <ChildAskCard channelId={channel.oid} runId={run.id} /> : null}
                 {!hideSteer ? (
                     <div className="flex flex-none gap-1.5">
                         <button
@@ -398,10 +397,11 @@ export function OrchestratorBody({
     // populate subagentsByIdAtom[lead] for DispatchedAgents (as PhaseRail does for pipeline)
     useSubagentTracking(lead ? [lead] : []);
     return (
-        // the lead's transcript scrolls inside RunWorkerCard, so this column never carries a scrollbar of
-        // its own — it reserves the same 10px the scrolling bodies lose to theirs, or its measure centres
-        // 5px right of every other band on the Stage.
-        <div className={cn(STAGE_BAND_INSET, "flex min-h-0 flex-1 flex-col")}>
+        // the lead's transcript scrolls inside RunWorkerCard, so this column carries a scrollbar of its own
+        // only when what sits above the transcript outgrows it (a questions card in the Brief's short sheet,
+        // which painted over the settings below) — it reserves the same 10px the scrolling bodies lose to
+        // theirs, or its measure centres 5px right of every other band on the Stage.
+        <div className={cn(STAGE_BAND_INSET, "sc flex min-h-0 flex-1 flex-col overflow-y-auto")}>
             <div className={cn(STAGE_GUTTER, "flex min-h-0 flex-1 flex-col pb-3 pt-5")}>
                 <RunHeader
                     run={run}
@@ -415,6 +415,8 @@ export function OrchestratorBody({
                     onSteerClose={onSteerClose}
                     hideSteer={hideSteer}
                 />
+                {/* below the header, not in its row: a flex sibling of the title squeezed it into a column */}
+                {run.dagoref ? <ChildAskCard channelId={channel.oid} runId={run.id} /> : null}
                 <RunTimeline channel={channel} run={run} />
                 <CancelSurvivorsCard model={model} channelId={channel.oid} run={run} agents={agents} />
                 {thread.showGate ? <ReviewGateCard run={run} gateIdx={idx} /> : null}

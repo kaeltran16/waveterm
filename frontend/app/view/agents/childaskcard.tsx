@@ -54,8 +54,10 @@ export function ChildAskCard({ channelId, runId }: { channelId: string; runId: s
     if (asks.length === 0) {
         return null;
     }
+    // flex-none: in the orchestrator body's column the card would shrink to a sliver in a short sheet, and
+    // it is the one thing there the human has to act on, so the body scrolls instead
     return (
-        <div className="mb-4 overflow-hidden rounded-xl border border-warning/30 bg-warning/5">
+        <div className="mb-4 flex-none overflow-hidden rounded-xl border border-warning/30 bg-warning/5">
             <div className="flex items-center gap-2 border-b border-warning/15 px-3.5 py-2">
                 <span className="text-[12px] text-warning">?</span>
                 <span className="font-mono text-[9.5px] font-semibold uppercase tracking-[.09em] text-warning">
