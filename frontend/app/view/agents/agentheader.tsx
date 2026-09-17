@@ -17,8 +17,10 @@ import { useAtomValue } from "jotai";
 import { CircleStop, Maximize2, Minimize2, PanelRight, X } from "lucide-react";
 import { motion } from "motion/react";
 import { confirmCloseSession } from "./agentactions";
+import type { AgentsViewModel } from "./agents";
 import { projectOf, usageLevel, type AgentVM } from "./agentsviewmodel";
 import { railVisibleAtom, terminalFullscreenAtom } from "./railstore";
+import { laneLabel, leadAgentOf } from "./runlineage";
 import { RuntimeMark } from "./runtimemark";
 import { runtimeMeta } from "./runtimemeta";
 import { StatusDot } from "./statusdot";
@@ -41,10 +43,40 @@ const CTX_TEXT: Record<"ok" | "warn" | "hot", string> = {
 const ICON_BTN =
     "cursor-pointer rounded-[7px] border border-edge-mid bg-surface-raised px-[9px] py-[6px] text-secondary";
 
-export function AgentHeader({ agent }: { agent: AgentVM }) {
+// useRunLineage reads what the header says about an agent a run spawned: a lead's run, or a worker's task,
+// lane and lead.
+function useRunLineage(model: AgentsViewModel, agent: AgentVM) {
+    const lineage = useAtomValue(model.lineageAtom);
+    const agents = useAtomValue(model.agentsAtom);
+    const role = lineage.roles[agent.id];
+    if (role == null) {
+        return null;
+    }
+    if (role.kind === "lead") {
+        return { kind: "lead" as const, runId: role.runId };
+    }
+    const run = lineage.runs[role.leadRunId];
+    const task = run?.dag?.tasks?.find((t) => t.id === role.taskId);
+    return {
+        kind: "worker" as const,
+        run,
+        task,
+        lane: laneLabel(run?.digest, role.taskId),
+        lead: leadAgentOf(lineage, agents, role.leadRunId),
+    };
+}
+
+export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
     const railVisible = useAtomValue(railVisibleAtom);
     const fullscreen = useAtomValue(terminalFullscreenAtom);
-    const project = projectOf(agent);
+    const lineage = useRunLineage(model, agent);
+    // a worker's own project is the engine's empty spawn name, so it reads its lead's
+    const project =
+        lineage?.kind === "worker" ? (lineage.lead ? projectOf(lineage.lead) : lineage.run?.project) : projectOf(agent);
+    const name =
+        lineage?.kind === "worker" && lineage.task
+            ? `${lineage.task.id} · ${lineage.task.label || lineage.task.id}`
+            : agent.name;
     const rt = runtimeMeta(agent.agent);
     const blockId = agent.blockId;
     // m4: one-shot settle on the state pill when the focused agent reaches idle
@@ -99,7 +131,10 @@ export function AgentHeader({ agent }: { agent: AgentVM }) {
             <div className="min-w-0">
                 <div className="flex items-center gap-[9px]">
                     <span className="min-w-0 truncate font-mono text-[15px] font-semibold text-foreground">
-                        {agent.name}
+                        {lineage?.kind === "lead" ? (
+                            <span className="mr-[5px] text-[12px] text-accent-soft">◆</span>
+                        ) : null}
+                        {name}
                     </span>
                     <span
                         className={cn(
@@ -137,7 +172,28 @@ export function AgentHeader({ agent }: { agent: AgentVM }) {
                         </span>
                     ) : null}
                 </div>
-                <div className="mt-[2px] font-mono text-[11px] font-medium text-muted">{project || "—"}</div>
+                <div className="mt-[2px] whitespace-nowrap font-mono text-[11px] font-medium text-muted">
+                    {project || "—"}
+                    {lineage?.kind === "lead" ? <> · orchestrator run {lineage.runId.slice(0, 8)}</> : null}
+                    {lineage?.kind === "worker" ? (
+                        <>
+                            {" · "}
+                            {lineage.lead ? (
+                                <button
+                                    type="button"
+                                    onClick={() => globalStore.set(model.focusIdAtom, lineage.lead!.id)}
+                                    title="Go to the lead"
+                                    className="cursor-pointer text-accent-soft hover:underline"
+                                >
+                                    ↑ {lineage.lead.name}
+                                </button>
+                            ) : (
+                                <span>↑ {lineage.run?.title ?? "no lead"}</span>
+                            )}
+                            {lineage.lane ? <> · lane {lineage.lane}</> : null}
+                        </>
+                    ) : null}
+                </div>
             </div>
             <div className="flex-1" />
             <div className="flex items-center gap-[7px]">

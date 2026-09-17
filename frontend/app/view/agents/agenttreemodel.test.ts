@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { buildAgentTree, UNGROUPED_PROJECT } from "./agenttreemodel";
+import { buildAgentTree, treeAgentCount, UNGROUPED_PROJECT, type AgentTreeRow } from "./agenttreemodel";
 import type { AgentVM } from "./agentsviewmodel";
+import type { Lineage, RunInfo } from "./runlineage";
 
 function vm(id: string, state: AgentVM["state"], path?: string): AgentVM {
     return { id, name: id, task: "", state, transcriptPath: path };
@@ -45,5 +46,146 @@ describe("buildAgentTree", () => {
     it("falls back to UNGROUPED_PROJECT when no transcript path", () => {
         const rows = buildAgentTree([vm("a", "idle")], ["a"]);
         expect(rows[0]).toMatchObject({ kind: "group", project: UNGROUPED_PROJECT });
+    });
+});
+
+describe("buildAgentTree with run lineage", () => {
+    const task = (id: string, state: string): TaskNode => ({ id, label: id, state }) as TaskNode;
+    const run = (runId: string, tasks: TaskNode[], digest?: DagStatusDigest): RunInfo => ({
+        runId,
+        channelId: "ch",
+        title: "Resource linking",
+        project: "waveterm",
+        dag: { oid: "dag-1", runid: runId, tasks } as TaskGroup,
+        digest,
+    });
+    // a worker's own project is the engine's empty spawn name, so nesting must not depend on it
+    const agent = (id: string, state: AgentVM["state"], project = "waveterm"): AgentVM => ({
+        id,
+        name: id,
+        task: "",
+        state,
+        project,
+        transcriptPath: project ? undefined : LOOM,
+    });
+    const lineage = (runs: RunInfo[], roles: Lineage["roles"]): Lineage => ({
+        roles,
+        runs: Object.fromEntries(runs.map((r) => [r.runId, r])),
+    });
+    const shape = (rows: AgentTreeRow[]) =>
+        rows.map((r) => {
+            switch (r.kind) {
+                case "group":
+                    return `group:${r.project}:${r.count}:${r.attn}`;
+                case "worker":
+                    return `worker:${r.task.id}:${r.agent?.id ?? "-"}`;
+                case "done":
+                    return `done:${r.count}:${r.open}`;
+                case "parent":
+                    return `parent:${r.agent.id}`;
+                default:
+                    return `${r.kind}:${r.run.runId}:${r.live}`;
+            }
+        });
+
+    it("nests live workers under their lead in plan order and folds the done ones", () => {
+        const r = run("run-1", [task("t-1", "done"), task("t-2", "running"), task("t-3", "running"), task("t-4", "pending")]);
+        const agents = [agent("w3", "working", ""), agent("lead", "working"), agent("solo", "idle"), agent("w2", "working", "")];
+        const rows = buildAgentTree(
+            agents,
+            ["w3", "lead", "solo", "w2"],
+            lineage([r], {
+                lead: { kind: "lead", runId: "run-1" },
+                w2: { kind: "worker", leadRunId: "run-1", taskId: "t-2" },
+                w3: { kind: "worker", leadRunId: "run-1", taskId: "t-3" },
+            })
+        );
+        expect(shape(rows)).toEqual([
+            "group:waveterm:4:0",
+            "lead:run-1:2",
+            "worker:t-2:w2",
+            "worker:t-3:w3",
+            "done:1:false",
+            "parent:solo",
+        ]);
+    });
+
+    it("lists done workers when their fold is open, including ones whose session is gone", () => {
+        const r = run("run-1", [task("t-1", "done"), task("t-2", "done")]);
+        const rows = buildAgentTree(
+            [agent("lead", "idle"), agent("w1", "idle", "")],
+            ["lead", "w1"],
+            lineage([r], {
+                lead: { kind: "lead", runId: "run-1" },
+                w1: { kind: "worker", leadRunId: "run-1", taskId: "t-1" },
+            }),
+            { collapsed: new Set(), doneOpen: new Set(["run-1"]) }
+        );
+        expect(shape(rows)).toEqual(["group:waveterm:1:0", "lead:run-1:0", "done:2:true", "worker:t-1:w1", "worker:t-2:-"]);
+        // the header's total agrees with the group's, so a done worker's open session is counted in neither
+        expect(treeAgentCount(rows)).toBe(1);
+    });
+
+    it("hides a collapsed run's workers but still counts them", () => {
+        const r = run("run-1", [task("t-1", "running")]);
+        const rows = buildAgentTree(
+            [agent("lead", "working"), agent("w1", "working", "")],
+            ["lead", "w1"],
+            lineage([r], {
+                lead: { kind: "lead", runId: "run-1" },
+                w1: { kind: "worker", leadRunId: "run-1", taskId: "t-1" },
+            }),
+            { collapsed: new Set(["run-1"]), doneOpen: new Set() }
+        );
+        expect(shape(rows)).toEqual(["group:waveterm:2:0", "lead:run-1:1"]);
+    });
+
+    it("puts a run with no lead in the roster where its first worker would be, in the run's project", () => {
+        const r = { ...run("run-2", [task("t-1", "running"), task("t-2", "running")]), project: "accept-ask" };
+        const rows = buildAgentTree(
+            [agent("solo", "idle"), agent("g2", "working", ""), agent("g1", "working", "")],
+            ["solo", "g2", "g1"],
+            lineage([r], {
+                g1: { kind: "worker", leadRunId: "run-2", taskId: "t-1" },
+                g2: { kind: "worker", leadRunId: "run-2", taskId: "t-2" },
+            })
+        );
+        expect(shape(rows)).toEqual([
+            "group:waveterm:1:0",
+            "parent:solo",
+            "group:accept-ask:2:0",
+            "run:run-2:2",
+            "worker:t-1:g1",
+            "worker:t-2:g2",
+        ]);
+    });
+
+    it("counts a worker as needing you only when the human holds its question", () => {
+        const digest = {
+            tasks: [
+                { taskid: "t-1", waitreason: "lead-ask" },
+                { taskid: "t-2", waitreason: "ask" },
+            ],
+        } as DagStatusDigest;
+        const r = run("run-1", [task("t-1", "running"), task("t-2", "running")], digest);
+        const rows = buildAgentTree(
+            [agent("lead", "working"), agent("w1", "asking", ""), agent("w2", "asking", "")],
+            ["lead", "w1", "w2"],
+            lineage([r], {
+                lead: { kind: "lead", runId: "run-1" },
+                w1: { kind: "worker", leadRunId: "run-1", taskId: "t-1" },
+                w2: { kind: "worker", leadRunId: "run-1", taskId: "t-2" },
+            })
+        );
+        expect(rows[0]).toMatchObject({ kind: "group", count: 3, attn: 1 });
+    });
+
+    it("keeps an agent whose run is not loaded as a plain row", () => {
+        const rows = buildAgentTree(
+            [agent("w1", "working")],
+            ["w1"],
+            lineage([], { w1: { kind: "worker", leadRunId: "gone", taskId: "t-1" } })
+        );
+        expect(shape(rows)).toEqual(["group:waveterm:1:0", "parent:w1"]);
     });
 });

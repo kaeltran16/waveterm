@@ -13,10 +13,12 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { agentBranchesAtom, loadAgentBranch } from "./agentbranchstore";
 import { confirmCloseSession } from "./agentactions";
 import type { AgentsViewModel } from "./agents";
-import { buildAgentTree } from "./agenttreemodel";
+import { buildAgentTree, treeAgentCount } from "./agenttreemodel";
 import { renamingRowAtom } from "./rowrenameatom";
 import { duplicateSession, renameSession, sessionCustomLabel } from "./session-models/sessionsidebarmodel";
-import type { AgentVM } from "./agentsviewmodel";
+import { displayAgeMs, formatAgeShort, type AgentVM } from "./agentsviewmodel";
+import { laneLabel, runProgress, workerAsk, workerSubtext, type RunInfo } from "./runlineage";
+import { toggleRunCollapsed, toggleRunDoneOpen, treeFoldsAtom, useRunDigests } from "./runlineagestore";
 import {
     getSubagentExpandAtom,
     toggleSubagentExpand,
@@ -104,7 +106,61 @@ function RenameBox({ tabId }: { tabId: string }) {
     );
 }
 
-function ParentRow({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
+// The run glyph marks a row that stands for an orchestrator run: its lead, or the run itself before one.
+function RunGlyph() {
+    return <span className="mr-[5px] text-[10px] text-accent-soft">◆</span>;
+}
+
+// The elbow marks a row nested under a run.
+function Elbow() {
+    return (
+        <span className="absolute left-[12px] top-1/2 -translate-y-1/2 font-mono text-[11px] font-semibold text-ink-faint">
+            ↳
+        </span>
+    );
+}
+
+// RunSubline is a run row's second line: a chip folding its workers away, and how far the plan is.
+function RunSubline({ run, open, live, leadless }: { run: RunInfo; open: boolean; live: number; leadless?: boolean }) {
+    if (run.dag == null) {
+        return <div className="truncate text-[10.5px] text-muted">planning</div>;
+    }
+    const { done, total } = runProgress(run.dag);
+    const chip = live > 0 || done === 0 ? `${live} ${live === 1 ? "worker" : "workers"}` : `${done} done`;
+    let progress = `${done}/${total} done`;
+    if (run.dag.status === "done") {
+        progress = "run complete";
+    } else if (leadless) {
+        progress = `${done}/${total} · ${run.leadStarted ? "lead closed" : "lead not started"}`;
+    }
+    return (
+        <div className="mt-[2px] flex min-w-0 items-center gap-[6px]">
+            <button
+                type="button"
+                onClick={(e) => {
+                    e.stopPropagation();
+                    toggleRunCollapsed(run.runId);
+                }}
+                title={open ? "Hide workers" : "Show workers"}
+                className="flex flex-none items-center gap-[3px] rounded-sm border border-edge-mid bg-surface-hover px-[5px] font-mono text-[9.5px] font-semibold text-muted hover:border-accent hover:text-accent-soft"
+            >
+                <span className="text-xxxs leading-none">{open ? "▾" : "▸"}</span>
+                {chip}
+            </button>
+            <span className="truncate text-[10.5px] text-muted">{progress}</span>
+        </div>
+    );
+}
+
+function ParentRow({
+    model,
+    agent,
+    lead,
+}: {
+    model: AgentsViewModel;
+    agent: AgentVM;
+    lead?: { run: RunInfo; open: boolean; live: number };
+}) {
     const focusId = useAtomValue(model.focusIdAtom);
     const branch = useAtomValue(agentBranchesAtom)[agent.id];
     const oref = `block:${agent.blockId}`;
@@ -163,9 +219,16 @@ function ParentRow({ model, agent }: { model: AgentsViewModel; agent: AgentVM })
                     {renaming ? (
                         <RenameBox tabId={agent.id} />
                     ) : (
-                        <div className="truncate font-mono text-[12px] font-semibold text-ink-hi">{agent.name}</div>
+                        <div className="truncate font-mono text-[12px] font-semibold text-ink-hi">
+                            {lead ? <RunGlyph /> : null}
+                            {agent.name}
+                        </div>
                     )}
-                    <div className="truncate text-[10.5px] text-muted">{branch || "—"}</div>
+                    {lead ? (
+                        <RunSubline run={lead.run} open={lead.open} live={lead.live} />
+                    ) : (
+                        <div className="truncate text-[10.5px] text-muted">{branch || "—"}</div>
+                    )}
                 </div>
                 {subs.length > 0 ? (
                     <button
@@ -238,6 +301,126 @@ function ParentRow({ model, agent }: { model: AgentsViewModel; agent: AgentVM })
     );
 }
 
+// A run with workers in the roster and no lead there: a plan-path run before its first judgment event, or
+// one whose lead session was closed. Its workers nest under it the way they would under a lead.
+function RunRow({ run, open, live }: { run: RunInfo; open: boolean; live: number }) {
+    return (
+        <div className="relative flex items-center gap-[9px] rounded-[9px] px-[11px] py-[10px]">
+            <span className="h-[7px] w-[7px] shrink-0 rounded-full border border-muted" />
+            <div className="min-w-0 flex-1">
+                <div className="truncate font-mono text-[12px] font-semibold text-ink-hi">
+                    <RunGlyph />
+                    {run.title}
+                </div>
+                <RunSubline run={run} open={open} live={live} leadless />
+            </div>
+            <span className="whitespace-nowrap font-mono text-[10px] font-medium text-muted">no lead</span>
+        </div>
+    );
+}
+
+// A task's worker under its run. A done task whose session has closed still lists, so the run's history
+// stays in the tree; it has no terminal to select.
+function WorkerRow({
+    model,
+    run,
+    task,
+    agent,
+}: {
+    model: AgentsViewModel;
+    run: RunInfo;
+    task: TaskNode;
+    agent?: AgentVM;
+}) {
+    const focusId = useAtomValue(model.focusIdAtom);
+    const now = useAtomValue(model.nowAtom);
+    const done = task.state === "done";
+    const lane = laneLabel(run.digest, task.id);
+    const ask = done ? undefined : workerAsk(run.digest, task.id);
+    const selected = agent != null && focusId === agent.id;
+    const landed = task.merged ? "landed" : "done";
+
+    let sub: string;
+    let stateText: string;
+    let stateColor: string;
+    if (done) {
+        sub = [lane ? `lane ${lane}` : "", landed].filter(Boolean).join(" · ");
+        stateText = landed;
+        stateColor = "var(--color-success)";
+    } else {
+        sub = workerSubtext(ask, lane, agent ? formatAgeShort(displayAgeMs(agent, now)) : "", now);
+        stateText = ask?.owner === "lead" ? "→ lead" : agent ? STATE_LABEL[agent.state] : task.state;
+        stateColor = ask?.owner === "lead" || agent == null ? "var(--color-muted)" : STATE_COLOR[agent.state];
+    }
+
+    const select = () => {
+        if (agent == null) {
+            return;
+        }
+        globalStore.set(model.focusIdAtom, agent.id);
+        globalStore.set(model.focusReplyAtom, false);
+    };
+    const onContextMenu = (e: React.MouseEvent) => {
+        if (agent == null) {
+            return;
+        }
+        const items: ContextMenuItem[] = [
+            { label: "Close agent", icon: <X size={15} />, danger: true, click: () => confirmCloseSession(agent) },
+        ];
+        ContextMenuModel.getInstance().showContextMenu(items, e);
+    };
+
+    return (
+        <div
+            onClick={select}
+            onContextMenu={onContextMenu}
+            className={cn(
+                "relative flex items-center gap-[9px] rounded-[9px] py-[8px] pl-[28px] pr-[11px] transition-colors duration-[140ms]",
+                agent != null && "cursor-pointer",
+                selected
+                    ? "bg-accentbg"
+                    : ask?.owner === "you"
+                      ? "bg-warning/[0.06]"
+                      : agent != null && "hover:bg-surface-hover"
+            )}
+        >
+            <Elbow />
+            {done || agent == null ? (
+                <span
+                    className="h-[7px] w-[7px] shrink-0 rounded-full"
+                    style={{ background: done ? "var(--color-success)" : "var(--color-muted)" }}
+                />
+            ) : (
+                <StatusDot state={agent.state} pulse={agent.state !== "idle"} className="!h-[7px] !w-[7px]" />
+            )}
+            <div className="min-w-0 flex-1">
+                <div className="truncate font-mono text-[11.5px] font-semibold text-ink-hi">
+                    {task.id} · {task.label || task.id}
+                </div>
+                <div className="truncate text-[10.5px] text-muted">{sub}</div>
+            </div>
+            <span className="whitespace-nowrap font-mono text-[10px] font-medium" style={{ color: stateColor }}>
+                {stateText}
+            </span>
+        </div>
+    );
+}
+
+// The fold holding a run's done workers.
+function DoneRow({ run, count, open }: { run: RunInfo; count: number; open: boolean }) {
+    return (
+        <div
+            onClick={() => toggleRunDoneOpen(run.runId)}
+            className="relative flex cursor-pointer items-center gap-[8px] rounded-[9px] py-[6px] pl-[28px] pr-[11px] font-mono text-[10.5px] text-muted hover:bg-surface-hover hover:text-secondary"
+        >
+            <Elbow />
+            <span className="text-success">✓</span>
+            {count} done
+            <span className="ml-auto">{open ? "▾" : "▸"}</span>
+        </div>
+    );
+}
+
 // A background terminal row: no agent chrome (no status dot / model / subagents) — just a glyph +
 // name that focuses the terminal's block in the surface's focus pane.
 function TerminalRow({ model, terminal }: { model: AgentsViewModel; terminal: AgentVM }) {
@@ -297,7 +480,11 @@ export function AgentTree({ model }: { model: AgentsViewModel }) {
     const agents = useAtomValue(model.agentsAtom);
     const terminals = useAtomValue(model.terminalsAtom);
     const order = useAtomValue(model.orderAtom);
-    const rows = buildAgentTree(agents, order);
+    const lineage = useAtomValue(model.lineageAtom);
+    const folds = useAtomValue(treeFoldsAtom);
+    const rows = buildAgentTree(agents, order, lineage, folds);
+
+    useRunDigests(Object.values(lineage.runs));
 
     useSubagentTracking(agents);
 
@@ -324,45 +511,80 @@ export function AgentTree({ model }: { model: AgentsViewModel }) {
             <div className="border-b border-edge-faint px-[16px] pb-[12px] pt-[16px]">
                 <div className="flex items-center justify-between">
                     <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[.1em] text-ink-mid">Agents</h3>
-                    <span className="font-mono text-[11px] font-semibold text-muted">{agents.length}</span>
+                    <span className="font-mono text-[11px] font-semibold text-muted">{treeAgentCount(rows)}</span>
                 </div>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto p-[8px]">
                 <AnimatePresence mode="popLayout" initial={false}>
-                    {rows.map((r) =>
-                        r.kind === "group" ? (
-                            <motion.div
-                                key={`g-${r.project}`}
-                                layout="position"
-                                className="flex items-center gap-[8px] px-[11px] pb-[6px] pt-[14px]"
-                            >
-                                <span className="truncate font-mono text-[10px] font-semibold uppercase tracking-[.1em] text-muted">
-                                    {r.project}
-                                </span>
-                                <div className="h-px flex-1 bg-edge-faint" />
-                                {r.attn > 0 ? (
-                                    <span className="rounded-[5px] bg-warning/10 px-[6px] py-[1px] font-mono text-[9.5px] font-semibold text-warning">
-                                        {r.attn}
+                    {rows.map((r) => {
+                        if (r.kind === "group") {
+                            return (
+                                <motion.div
+                                    key={`g-${r.project}`}
+                                    layout="position"
+                                    className="flex items-center gap-[8px] px-[11px] pb-[6px] pt-[14px]"
+                                >
+                                    <span className="truncate font-mono text-[10px] font-semibold uppercase tracking-[.1em] text-muted">
+                                        {r.project}
                                     </span>
-                                ) : null}
-                                <span className="font-mono text-[10px] font-semibold text-feed-time">{r.count}</span>
-                            </motion.div>
-                        ) : (
-                            // layout="position" so a subagent expand doesn't scale-distort the row — only its
-                            // position animates on reflow. Must be the direct AnimatePresence child: popLayout
-                            // measures it via ref to pop an exiting row out of flow (else its space lingers).
+                                    <div className="h-px flex-1 bg-edge-faint" />
+                                    {r.attn > 0 ? (
+                                        <span className="rounded-[5px] bg-warning/10 px-[6px] py-[1px] font-mono text-[9.5px] font-semibold text-warning">
+                                            {r.attn}
+                                        </span>
+                                    ) : null}
+                                    <span className="font-mono text-[10px] font-semibold text-feed-time">{r.count}</span>
+                                </motion.div>
+                            );
+                        }
+                        // an agent's row keeps the agent's key wherever it moves (a worker folding into done, an
+                        // agent nesting once its run loads), so the move animates instead of remounting
+                        let key: string;
+                        let body: React.ReactNode;
+                        switch (r.kind) {
+                            case "parent":
+                                key = r.agent.id;
+                                body = <ParentRow model={model} agent={r.agent} />;
+                                break;
+                            case "lead":
+                                key = r.agent.id;
+                                body = (
+                                    <ParentRow
+                                        model={model}
+                                        agent={r.agent}
+                                        lead={{ run: r.run, open: r.open, live: r.live }}
+                                    />
+                                );
+                                break;
+                            case "run":
+                                key = `run-${r.run.runId}`;
+                                body = <RunRow run={r.run} open={r.open} live={r.live} />;
+                                break;
+                            case "worker":
+                                key = r.agent?.id ?? `task-${r.run.runId}-${r.task.id}`;
+                                body = <WorkerRow model={model} run={r.run} task={r.task} agent={r.agent} />;
+                                break;
+                            case "done":
+                                key = `done-${r.run.runId}`;
+                                body = <DoneRow run={r.run} count={r.count} open={r.open} />;
+                                break;
+                        }
+                        // layout="position" so a subagent expand doesn't scale-distort the row — only its
+                        // position animates on reflow. Must be the direct AnimatePresence child: popLayout
+                        // measures it via ref to pop an exiting row out of flow (else its space lingers).
+                        return (
                             <motion.div
-                                key={r.agent.id}
+                                key={key}
                                 layout="position"
                                 variants={cardVariants}
-                                initial={entranceIds.has(r.agent.id) ? "initial" : false}
+                                initial={entranceIds.has(key) ? "initial" : false}
                                 animate="animate"
                                 exit="exit"
                             >
-                                <ParentRow model={model} agent={r.agent} />
+                                {body}
                             </motion.div>
-                        )
-                    )}
+                        );
+                    })}
                     {terminals.length > 0 ? (
                         <motion.div
                             key="terminals-header"

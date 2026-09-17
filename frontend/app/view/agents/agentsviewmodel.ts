@@ -94,6 +94,7 @@ export interface AgentVM {
     needsInput?: boolean; // background agent parked on input (claude state "blocked") — drives the needs-input badge
     cwd?: string; // background agent working dir — the resume target for Attach
     sessionId?: string; // pi control-channel session id (agentstatus --session-id)
+    runId?: string; // the run this agent works for, when a run spawned it: a lead's own run, a worker's child run
 }
 
 // Per-card ephemeral layout prefs (full-width span + dragged height). Not persisted this pass.
@@ -368,6 +369,11 @@ export function formatAge(ms?: number): string {
     return `${Math.floor(hours / 24)}d`;
 }
 
+/** Pure: formatAge for a line that must fit a narrow column, where "just now" crowds out what follows. */
+export function formatAgeShort(ms?: number): string {
+    return ms == null || ms < 60_000 ? "<1m" : formatAge(ms);
+}
+
 /**
  * Pure: the age a card should render for this agent — the field that is actually populated for its
  * state. agentVMFromInput writes exactly one of activeMs | blockedMs | idleSince depending on state,
@@ -463,6 +469,7 @@ export interface LiveAgentInput {
     blockId?: string;
     project?: string; // launch-time project name (session:project); groups the roster without the lossy path derivation
     sessionId?: string; // pi control-channel session id (agentstatus --session-id)
+    runORef?: string; // jarvis:runoref on the tab: "run:<id>"
 }
 
 /** Pure: one live row -> an AgentVM. `asking` (a pending AskUserQuestion) maps straight to asking so
@@ -490,6 +497,9 @@ export function agentVMFromInput(input: LiveAgentInput, now: number): AgentVM {
         project: input.project,
         sessionId: input.sessionId,
     };
+    if (input.runORef?.startsWith("run:")) {
+        vm.runId = input.runORef.slice("run:".length);
+    }
     if (state === "working") {
         vm.activeMs = age;
     } else if (state === "asking") {

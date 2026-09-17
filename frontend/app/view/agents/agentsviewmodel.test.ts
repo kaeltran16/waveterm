@@ -17,6 +17,7 @@ import {
     displayAgeMs,
     focusedAskId,
     formatAge,
+    formatAgeShort,
     formatReset,
     formatTokens,
     groupAgents,
@@ -189,6 +190,14 @@ describe("formatAge", () => {
     });
     it("keeps hours right up to the boundary", () => {
         expect(formatAge(23 * 3_600_000)).toBe("23h");
+    });
+});
+
+describe("formatAgeShort", () => {
+    it("reads under a minute as '<1m' and otherwise as formatAge", () => {
+        expect(formatAgeShort(5_000)).toBe("<1m");
+        expect(formatAgeShort(undefined)).toBe("<1m");
+        expect(formatAgeShort(240_000)).toBe("4m");
     });
 });
 

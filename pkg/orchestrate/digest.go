@@ -457,6 +457,7 @@ func buildTaskDigest(g *waveobj.TaskGroup, t *waveobj.TaskNode, askByTask map[st
 			td.AskSummary = truncateText(ask.Questions[0].Question, MaxAskSummaryLen)
 		}
 		td.AskTs = ask.Ts
+		td.AskDeadline = ask.Deadline
 	} else if t.Gate && t.State == TaskState_Done && !t.Released {
 		td.WaitReason = "gate"
 		td.HumanActions = digestActionApproveSendback

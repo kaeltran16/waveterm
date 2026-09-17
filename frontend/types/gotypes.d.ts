@@ -2157,6 +2157,7 @@ declare global {
         askid?: string;
         asksummary?: string;
         askts?: number;
+        askdeadline?: number;
         freshnessts?: number;
         recoveredretry?: boolean;
         mergestate: string;

@@ -91,6 +91,7 @@ export const sessionSidebarViewModelAtom = atom<SidebarViewModel>((get) => {
             agent: meta["session:agent"],
             customLabel: meta["session:label"],
             projectLabel: meta["session:project"],
+            runORef: meta["jarvis:runoref"],
             title,
             pinned: meta["session:pinned"] === true,
             isAgentsTab,

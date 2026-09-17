@@ -59,6 +59,7 @@ export interface SessionInput {
     customLabel?: string;
     title?: string; // agent ai-title (task summary): auto label between customLabel and agent
     projectLabel?: string; // launch-time project name: a non-sticky default below title, above the agent name
+    runORef?: string; // jarvis:runoref, stamped on a run's lead and worker tabs at spawn
     pinned: boolean;
     isAgentsTab?: boolean;
     cwd?: string;
@@ -77,6 +78,7 @@ export interface SessionRowVM {
     label: string;
     customLabel?: string;
     projectLabel?: string; // launch-time project name; the roster groups by this (not the lossy transcript-path derivation)
+    runORef?: string; // the run this session works for: a lead's own run, a worker's child run
     agent?: string; // session:agent runtime (claude/codex/…); undefined for plain terminals
     status: SessionStatus;
     active: boolean;
@@ -149,6 +151,7 @@ function toRow(s: SessionInput, includeService: boolean): SessionRowVM {
         label: rowLabel(s, includeService),
         customLabel: s.customLabel,
         projectLabel: s.projectLabel,
+        runORef: s.runORef,
         agent: s.agent,
         status,
         active: s.active,

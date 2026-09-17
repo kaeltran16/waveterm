@@ -174,6 +174,7 @@ type DagTaskDigest struct {
 	AskId           string   `json:"askid,omitempty"`
 	AskSummary      string   `json:"asksummary,omitempty"`
 	AskTs           int64    `json:"askts,omitempty"`
+	AskDeadline     int64    `json:"askdeadline,omitempty"` // UnixMilli past which a lead-held ask moves to the human
 	FreshnessTs     int64    `json:"freshnessts,omitempty"`
 	RecoveredRetry  bool     `json:"recoveredretry,omitempty"`
 	MergeState      string   `json:"mergestate"`   // not-required | waiting | ready | blocked | merged

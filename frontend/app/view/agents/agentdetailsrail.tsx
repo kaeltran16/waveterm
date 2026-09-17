@@ -13,7 +13,7 @@ import { agentDiffScope, openDiff } from "./agentdiffnav";
 import type { AgentsViewModel } from "./agents";
 import {
     displayAgeMs,
-    formatAge,
+    formatAgeShort,
     projectOf,
     recentActions,
     summarizeActions,
@@ -105,9 +105,7 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
         );
     };
 
-    const ageMs = displayAgeMs(agent, now);
-    // "<1m" rather than formatAge's "just now", so a fresh session's line still fits the cache countdown
-    const age = ageMs == null || ageMs < 60_000 ? "<1m" : formatAge(ageMs);
+    const age = formatAgeShort(displayAgeMs(agent, now));
     const isClaude = (agent.agent || "claude") === "claude";
     // "—" is a cache nobody has read yet; the line leaves it out rather than say so
     const cacheCountdown = isClaude ? formatCacheCountdown(cacheStatus, now) : "—";

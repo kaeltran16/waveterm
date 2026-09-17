@@ -154,6 +154,7 @@ func TestAQuestionTheLeadHoldsIsNotWaitingOnYou(t *testing.T) {
 	setTaskStates(g, map[string]string{"t-0": TaskState_Running})
 	held := digestAsk("t-0", "ask-1", 2000)
 	held.Owner = agentask.AskOwner_Lead
+	held.Deadline = 602_000
 	d := BuildDigest(digestSnapshot(g, nil, []wshrpc.DagAskItem{held}, nil, digestNow))
 	if d.Health != "healthy" || d.Counts.Attention != 0 {
 		t.Fatalf("a lead-held question is not the human's: health %q, attention %d", d.Health, d.Counts.Attention)
@@ -169,6 +170,10 @@ func TestAQuestionTheLeadHoldsIsNotWaitingOnYou(t *testing.T) {
 	// the lead reads its question off `dag status` too
 	if td.AskId != "ask-1" || td.AskSummary != "should we ship?" {
 		t.Fatalf("t-0 must still carry its question, got %q %q", td.AskId, td.AskSummary)
+	}
+	// the cockpit counts the lead's time down from it
+	if td.AskDeadline != 602_000 {
+		t.Fatalf("t-0 must carry the lead's deadline, got %d", td.AskDeadline)
 	}
 }
 

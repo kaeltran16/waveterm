@@ -85,7 +85,7 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
                     {/* terminal stack stays mounted (hidden) while a subagent interior is shown, so
                         returning to the parent never remounts/replays the live TUI (frame-stacking) */}
                     <div className={cn("flex min-h-0 flex-1 flex-col", showSub && "hidden")}>
-                        <AgentHeader agent={agent} />
+                        <AgentHeader model={model} agent={agent} />
                         {mountable
                             .filter((a) => a.blockId != null)
                             .map((a) => (
