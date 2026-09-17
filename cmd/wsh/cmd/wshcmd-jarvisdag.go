@@ -163,6 +163,10 @@ func dagStatusLines(rtn *wshrpc.CommandDagStatusRtnData, now int64) []string {
 			lines = append(lines, fmt.Sprintf("%s merge refused (attempt %d): %s", t.ID, t.MergeFailures, t.MergeError))
 		}
 	}
+	// nothing wakes the lead for what the human typed to a worker, so this is where it learns of it
+	for _, told := range d.Told {
+		lines = append(lines, fmt.Sprintf("%s the human told this worker %s ago: %s", told.TaskId, durOrZero(now-told.Ts), strings.Join(strings.Fields(told.Text), " ")))
+	}
 	return lines
 }
 

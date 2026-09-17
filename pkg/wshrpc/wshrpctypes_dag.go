@@ -131,6 +131,15 @@ type DagStatusDigest struct {
 	// Lanes are the plan's lanes in plan order, each its task ids in run order: the same derivation the
 	// engine dispatches and merges by.
 	Lanes [][]string `json:"lanes,omitempty"`
+	// Told is what the human typed into the workers' own terminals, oldest first
+	Told []DagTold `json:"told,omitempty"`
+}
+
+// DagTold is one message the human typed into a task's worker, read from its task-told row.
+type DagTold struct {
+	TaskId string `json:"taskid"`
+	Ts     int64  `json:"ts"`
+	Text   string `json:"text"`
 }
 
 // DagReportDigest is what the lead writes its run-end report from, and what the run card shows.

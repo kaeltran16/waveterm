@@ -279,6 +279,17 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 				appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskFirstActivity, nil, map[string]any{"taskid": taskID, "sincespawnms": sinceSpawn})
 			})
 		}
+		// what the human typed into the worker's own terminal goes on the lead's record once, and wakes nobody: the
+		// lead reads it in the status it checks when something else wakes it
+		if tracked && (t.State == TaskState_Running || t.State == TaskState_Stalled) {
+			for _, p := range toldSince(runs[t.RunID], t.ToldTs) {
+				t.ToldTs = p.Ts
+				detail := map[string]any{"taskid": t.ID, "text": toldText(p.Text)}
+				afterCommit = append(afterCommit, func() {
+					appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskTold, nil, detail)
+				})
+			}
+		}
 		// no readable activity source: the spawn-time seed would age into a stall on its own and hand
 		// the lead a retry that kills a working child. Report freshness unknown (zero) instead — a
 		// missed stall only costs a timeout. It skips the first-token deadline too: an unreadable child

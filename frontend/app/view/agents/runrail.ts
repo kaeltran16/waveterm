@@ -152,7 +152,7 @@ export function taskFacts(
 
 // runLogText is one timeline row as the Run section's short log says it, naming the task it is about.
 export function runLogText(event: RunEvent): string {
-    const d = detailOf<{ taskid?: string; by?: string; note?: string; question?: string }>(event);
+    const d = detailOf<{ taskid?: string; by?: string; note?: string; question?: string; text?: string }>(event);
     const task = d?.taskid ?? "";
     switch (event.kind) {
         case "task-forwarded":
@@ -163,6 +163,8 @@ export function runLogText(event: RunEvent): string {
             return [`${task} asked`, d?.question].filter(Boolean).join(" · ");
         case "child-answered":
             return `${task} answered`;
+        case "task-told":
+            return [`you told ${task}`, d?.text?.replace(/\s+/g, " ")].filter(Boolean).join(" · ");
         default:
             return task ? `${eventTitle(event)} · ${task}` : eventTitle(event);
     }

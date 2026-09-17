@@ -2152,6 +2152,7 @@ declare global {
         report: DagReportDigest;
         shape?: DagPlanShape;
         lanes?: string[][];
+        told?: DagTold[];
     };
 
     // wshrpc.DagTaskDigest
@@ -2177,6 +2178,13 @@ declare global {
         mergewaitms?: number;
         cleanupms?: number;
         partial?: boolean;
+    };
+
+    // wshrpc.DagTold
+    type DagTold = {
+        taskid: string;
+        ts: number;
+        text: string;
     };
 
     // wshrpc.DecisionCard
@@ -3711,6 +3719,7 @@ declare global {
         runspec?: RunSpec;
         lastactivity?: number;
         firstactivity?: number;
+        toldts?: number;
         attempts?: number;
         lastfailurekind?: string;
         escalations?: number;

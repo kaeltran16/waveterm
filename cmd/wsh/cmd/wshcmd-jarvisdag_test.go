@@ -301,3 +301,18 @@ func TestSessionStartPayloadShape(t *testing.T) {
 		t.Fatalf("exactly one context key may be emitted: %s", out)
 	}
 }
+
+// the lead reads what the human typed to a worker in its status, one line per message, however many lines it was
+func TestDagStatusLinesCarriesWhatTheHumanToldWorkers(t *testing.T) {
+	rtn := &wshrpc.CommandDagStatusRtnData{
+		Group: &waveobj.TaskGroup{ID: "dag-1", Status: "running", Tasks: []waveobj.TaskNode{{ID: "t-3", Label: "a", State: "running"}}},
+		Digest: wshrpc.DagStatusDigest{
+			Tasks: []wshrpc.DagTaskDigest{{TaskId: "t-3"}},
+			Told:  []wshrpc.DagTold{{TaskId: "t-3", Ts: 60_000, Text: "keep closed-session links\nclickable"}},
+		},
+	}
+	joined := strings.Join(dagStatusLines(rtn, 5*60_000), "\n")
+	if want := "t-3 the human told this worker 4m ago: keep closed-session links clickable"; !strings.Contains(joined, want) {
+		t.Fatalf("status must show %q, got:\n%s", want, joined)
+	}
+}

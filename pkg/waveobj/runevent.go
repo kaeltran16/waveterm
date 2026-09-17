@@ -68,6 +68,10 @@ const (
 	RunEventKindLeadWakeFailed = "lead-wake-failed"
 	RunEventKindLeadExited     = "lead-exited"
 
+	// task-told: a message the human typed into a dag child's own terminal ("taskid", "text"), recorded on the
+	// owning run so the lead reads it in its status. It wakes nobody.
+	RunEventKindTaskTold = "task-told"
+
 	// merge-point Verify (orchestrator redesign §4): the plan's Verify command, run in the project
 	// checkout after a task's squash merge.
 	//   task-verify-started  "taskid"

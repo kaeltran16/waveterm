@@ -120,6 +120,9 @@ describe("runLog", () => {
         );
         expect(runLogText(ev("4", 1, "task-merged", { taskid: "t-1" }))).toBe("Task merged · t-1");
         expect(runLogText(ev("5", 1, "dag-done"))).toBe("DAG complete");
+        expect(
+            runLogText(ev("6", 1, "task-told", { taskid: "t-3", text: "keep closed-session\nlinks clickable" }))
+        ).toBe("you told t-3 · keep closed-session links clickable");
     });
 
     it("keeps the newest rows first", () => {

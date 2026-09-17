@@ -46,6 +46,11 @@ describe("buildRunTimeline", () => {
         expect(preview.map((e) => e.kind)).toEqual(["phase-held", "triage", "phase-started"]);
     });
 
+    it("lists what the human told a worker under RUN", () => {
+        const { groups } = buildRunTimeline(fakeRun, [ev("task-told", 1)]);
+        expect(groups.find((g) => g.id === "run")?.events.map((e) => e.kind)).toEqual(["task-told"]);
+    });
+
     it("returns empty groups when there are no events", () => {
         const { groups, preview } = buildRunTimeline(fakeRun, []);
         expect(groups).toEqual([]);
@@ -97,6 +102,7 @@ describe("toneFor", () => {
         expect(toneFor("lead-exited")).toBe("text-warning");
         expect(toneFor("lead-woken")).toBe("text-muted");
         expect(toneFor("lead-launched")).toBe("text-muted");
+        expect(toneFor("task-told")).toBe("text-muted");
     });
 });
 
@@ -107,6 +113,7 @@ describe("eventKindTitle", () => {
         expect(eventKindTitle("lead-launched")).toBe("Lead started");
         expect(eventKindTitle("lead-wake-failed")).toBe("Lead wake failed");
         expect(eventKindTitle("lead-exited")).toBe("Lead exited");
+        expect(eventKindTitle("task-told")).toBe("You told a worker");
     });
 });
 

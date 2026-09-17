@@ -103,6 +103,13 @@ describe("eventClickTarget", () => {
         });
     });
 
+    it("routes what the human told a worker to that worker", () => {
+        expect(eventClickTarget(ev("task-told", { taskid: "t-3", text: "keep links clickable" }))).toEqual({
+            kind: "worker",
+            taskId: "t-3",
+        });
+    });
+
     it("routes a hand-off to the dag task", () => {
         expect(eventClickTarget(ev("task-forwarded", { taskid: "t-6", askid: "a-1", note: "yours" }))).toEqual({
             kind: "dag-task",

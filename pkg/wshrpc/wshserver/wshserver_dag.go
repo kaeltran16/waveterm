@@ -210,8 +210,8 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 // list, so this is a cost bound on one snapshot, not a limit on how large a plan may be.
 const dagDigestChildRunLimit = 64
 
-// dagDigestRetainedKinds are the lifecycle rows the digest derives durations, retries and the report's counts from.
-// The UI's 200-row window is not consulted.
+// dagDigestRetainedKinds are the lifecycle rows the digest derives durations, retries, the report's counts and
+// what the human told workers from. The UI's 200-row window is not consulted.
 var dagDigestRetainedKinds = []string{
 	waveobj.RunEventKindTaskRetried,
 	waveobj.RunEventKindTaskDone,
@@ -223,6 +223,7 @@ var dagDigestRetainedKinds = []string{
 	waveobj.RunEventKindDagCancelled,
 	waveobj.RunEventKindChildAnswered,
 	waveobj.RunEventKindTaskForwarded,
+	waveobj.RunEventKindTaskTold,
 }
 
 func (ws *WshServer) DagStatusCommand(ctx context.Context, data wshrpc.CommandDagStatusData) (*wshrpc.CommandDagStatusRtnData, error) {

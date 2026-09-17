@@ -1,0 +1,121 @@
+// Copyright 2026, Command Line Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+package agentsessions
+
+import (
+	"encoding/json"
+	"strings"
+
+	"github.com/wavetermdev/waveterm/pkg/pisession"
+)
+
+// HumanPrompt is one message submitted at an agent session's prompt, stamped with the transcript's own time.
+type HumanPrompt struct {
+	Ts   int64
+	Text string
+}
+
+// claudePromptLine is the part of a claude transcript line that says whether a user record is a prompt.
+type claudePromptLine struct {
+	Type             string `json:"type"`
+	Timestamp        string `json:"timestamp"`
+	IsMeta           bool   `json:"isMeta"`
+	IsSidechain      bool   `json:"isSidechain"`
+	IsCompactSummary bool   `json:"isCompactSummary"`
+	Origin           *struct {
+		Kind string `json:"kind"`
+	} `json:"origin"`
+	Message struct {
+		Content json.RawMessage `json:"content"`
+	} `json:"message"`
+}
+
+// HumanPrompts returns the prompts submitted to a claude or pi session, oldest first, the one it was launched
+// with included. Claude also writes a user record for tool output and for its own notices (a skill body, a
+// slash command, command output, a background task finishing, an interruption, the compaction summary); none
+// of those is a prompt. Other runtimes, and a file that cannot be read, have none.
+func HumanPrompts(path, runtime string) []HumanPrompt {
+	switch runtime {
+	case "claude":
+		return claudeHumanPrompts(readLines(path))
+	case "pi":
+		file, err := pisession.Read(path)
+		if err != nil {
+			return nil
+		}
+		return piHumanPrompts(file)
+	}
+	return nil
+}
+
+func claudeHumanPrompts(lines []string) []HumanPrompt {
+	var out []HumanPrompt
+	for _, line := range lines {
+		// most of a transcript is assistant turns; they cannot be prompts, so they are not decoded
+		if !strings.Contains(line, `"type":"user"`) {
+			continue
+		}
+		var rec claudePromptLine
+		if json.Unmarshal([]byte(line), &rec) != nil || rec.Type != "user" {
+			continue
+		}
+		if rec.IsMeta || rec.IsSidechain || rec.IsCompactSummary || (rec.Origin != nil && rec.Origin.Kind != "human") {
+			continue
+		}
+		text := claudePromptText(rec.Message.Content)
+		if text == "" || isClaudeNotice(text) {
+			continue
+		}
+		out = append(out, HumanPrompt{Ts: parseTs(rec.Timestamp), Text: text})
+	}
+	return out
+}
+
+// claudePromptText is a user record's typed text: its string content, or the text blocks of an array holding no
+// tool result, which is the harness answering the model rather than anyone typing.
+func claudePromptText(raw json.RawMessage) string {
+	if s := stringContent(raw); s != "" {
+		return s
+	}
+	var blocks []claudeBlock
+	if json.Unmarshal(raw, &blocks) != nil {
+		return ""
+	}
+	var parts []string
+	for _, b := range blocks {
+		switch b.Type {
+		case "tool_result":
+			return ""
+		case "text":
+			if t := strings.TrimSpace(b.Text); t != "" {
+				parts = append(parts, t)
+			}
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
+// isClaudeNotice reports text claude writes into a user record on its own account, in the shapes
+// projectTranscript (frontend/app/view/agents/transcriptprojection.ts) also skips or renders apart.
+func isClaudeNotice(text string) bool {
+	return strings.HasPrefix(text, caveatOpenTag) ||
+		commandNameRe.MatchString(text) ||
+		strings.Contains(text, "<local-command-stdout>") ||
+		strings.Contains(text, "<task-notification>") ||
+		strings.HasPrefix(text, "[Request interrupted by user")
+}
+
+func piHumanPrompts(file *pisession.File) []HumanPrompt {
+	branch, err := file.ActiveBranch()
+	if err != nil {
+		return nil
+	}
+	var out []HumanPrompt
+	for _, e := range branch {
+		if text := piUserText(e.Message); text != "" {
+			out = append(out, HumanPrompt{Ts: parseTs(e.Timestamp), Text: text})
+		}
+	}
+	return out
+}

@@ -339,6 +339,9 @@ type TaskNode struct {
 	// all, which is the span that separates environment setup from cold orientation; 0 = not yet
 	// observed. It is an upper bound, not the true first token: the watchdog samples an mtime.
 	FirstActivity int64 `json:"firstactivity,omitempty"`
+	// ToldTs is the transcript time of the newest message the human typed into the child's own session that
+	// the owning run already records as task-told, so each message is recorded once; 0 = none yet.
+	ToldTs int64 `json:"toldts,omitempty"`
 	// Attempts is the consecutive count for LastFailureKind.
 	Attempts int `json:"attempts,omitempty"`
 	// LastFailureKind is the classifier output for the latest failed attempt.

@@ -234,7 +234,7 @@ body.marknew .new{outline:1px dashed rgba(94,156,255,.6);outline-offset:3px;bord
 </div>
 
 <script>
-const S = { sel: "lead", rail: true, leadOpen: true, doneOpen: false, takeover: false, answered: false, choice: null, finished: false, marknew: true, scenario: "lead" };
+const S = { told: false, sel: "lead", rail: true, leadOpen: true, doneOpen: false, takeover: false, answered: false, choice: null, finished: false, marknew: true, scenario: "lead" };
 
 const C = { idle: "var(--color-muted)", working: "var(--color-accent)", asking: "var(--color-warning)", done: "var(--color-success)", none: "var(--color-muted)" };
 const RT = { claude: { label: "Claude Code", glyph: "\u273B", text: "var(--color-rt-claude)", soft: "var(--color-rt-claude-soft)", line: "var(--color-rt-claude-line)" },
@@ -253,9 +253,11 @@ function leadState() { return S.finished ? "idle" : S.takeover ? "idle" : "worki
 function t4State() { return S.finished ? "done" : S.answered ? "working" : "asking"; }
 function attn() { const q = q4(); return q && q.owner === "you" ? 1 : 0; }
 
+const TOLD = "keep closed-session links clickable; they open the transcript";
 function leadLog() {
   if (S.finished) return [["11:02", "run finished \u2192 report written, complete"], ["10:58", "t-6 landed \u00B7 Verify passed"], ["10:47", "you answered t-4 \u00B7 Strike through"]];
   const base = [["10:44", "<span style='color:var(--color-warning)'>wake:</span> 1 question waiting"], ["10:38", "Verify failed after t-1 \u2192 fixed 7c21aa \u2713"], ["10:25", "plan submitted \u00B7 compacted"]];
+  if (S.told) return [["10:49", `<span class="${nw("")}">you told t-3 \u00B7 ${esc(TOLD)}</span>`], base[0], base[1]];
   if (S.answered) return [["10:47", "you answered t-4 \u00B7 Strike through"], ["10:46", "you took t-4 over from the lead"], base[0]];
   if (S.takeover) return [["10:46", "you took t-4 over from the lead"], base[0], base[1]];
   return base;
@@ -352,7 +354,13 @@ function term(id) {
     p(""); p(T("g", "\u25CF "), T("h", "Read"), "(frontend/app/view/agents/linkresolve.ts)"); p(T("f", "  \u23BF  "), T("m", "Read 88 lines"));
     p(T("g", "\u25CF "), T("h", "Update"), "(frontend/app/view/agents/linkresolve.ts)"); p(T("f", "  \u23BF  "), T("m", "Updated with "), T("g", "14 additions"), T("m", " and "), T("e", "2 removals"));
     p(T("g", "\u25CF "), T("h", "Bash"), "(npx vitest run frontend/app/view/agents/linkresolve.test.ts)"); p(T("f", "  \u23BF  "), T("g", "\u2713 12 passed "), T("m", "(412ms)"));
-    p(""); p(T("c", "\u273B "), T("c", "Handling a link to a closed session\u2026 "), T("f", "(38s \u00B7 esc to interrupt)"));
+    if (S.told) {
+      p(""); p(T("f", "> "), T("h", TOLD));
+      p(""); p(T("g", "\u25CF "), "Understood. A link to a closed session stays clickable and opens its transcript.");
+      p(""); p(T("c", "\u273B "), T("c", "Opening closed sessions as transcripts\u2026 "), T("f", "(4s \u00B7 esc to interrupt)"));
+    } else {
+      p(""); p(T("c", "\u273B "), T("c", "Handling a link to a closed session\u2026 "), T("f", "(38s \u00B7 esc to interrupt)"));
+    }
   } else if (id === "t4") {
     p(T("f", "> "), T("m", "You are the worker for task 4 of the plan at C:/Users/kael02/IdeaProjects/waveterm/docs/superpowers/plans/2026-09-17-cross-surface-resource-linking.md \u2026"));
     p(""); p(T("g", "\u25CF "), T("h", "Read"), "(frontend/app/view/agents/linkchip.tsx)"); p(T("f", "  \u23BF  "), T("m", "Read 64 lines"));
@@ -486,7 +494,7 @@ function renderCenter() {
     el.innerHTML = head + `<div class="${nw("ended")}"><span>\u25CF</span><span>Session ended \u00B7 landed ${a.commit} \u00B7 read-only transcript</span></div>${narration(id)}`;
     return;
   }
-  const hint = id === "t4" && t4State() === "asking" && S.takeover ? "answer in the details panel \u00B7 or type to talk to this worker" : "type to talk to this agent \u00B7 ? for shortcuts";
+  const hint = id === "t4" && t4State() === "asking" && S.takeover ? "answer in the details panel \u00B7 or type to talk to this worker" : a.kind === "worker" ? "type to talk to this worker \u00B7 its lead sees what you tell it" : "type to talk to this agent \u00B7 ? for shortcuts";
   el.innerHTML = head + `<div class="term">${term(id)}</div><div class="tinput"><span>&gt;</span><span class="caret"></span></div><div class="thint">${hint}</div>`;
 }
 
@@ -654,13 +662,14 @@ function renderRail() {
 
 // ---------- reviewer toolbar ----------
 const SCEN = [
-  ["lead", "Lead", () => Object.assign(S, { sel: "lead", takeover: false, answered: false, choice: null, finished: false, leadOpen: true })],
-  ["t3", "t-3 working", () => Object.assign(S, { sel: "t3", takeover: false, answered: false, choice: null, finished: false, leadOpen: true })],
-  ["t4", "t-4 asks lead", () => Object.assign(S, { sel: "t4", takeover: false, answered: false, choice: null, finished: false, leadOpen: true })],
-  ["t4you", "t-4 taken over", () => Object.assign(S, { sel: "t4", takeover: true, answered: false, choice: null, finished: false, leadOpen: true })],
-  ["done", "t-1 done", () => Object.assign(S, { sel: "t1", takeover: false, answered: false, choice: null, finished: false, leadOpen: true, doneOpen: true })],
-  ["nolead", "No lead yet", () => Object.assign(S, { sel: "lead2", takeover: false, answered: false, choice: null, finished: false })],
-  ["finished", "Run finished", () => Object.assign(S, { sel: "lead", takeover: false, answered: true, choice: 0, finished: true, leadOpen: true, doneOpen: false })],
+  ["lead", "Lead", () => Object.assign(S, { told: false, sel: "lead", takeover: false, answered: false, choice: null, finished: false, leadOpen: true })],
+  ["t3", "t-3 working", () => Object.assign(S, { told: false, sel: "t3", takeover: false, answered: false, choice: null, finished: false, leadOpen: true })],
+  ["t4", "t-4 asks lead", () => Object.assign(S, { told: false, sel: "t4", takeover: false, answered: false, choice: null, finished: false, leadOpen: true })],
+  ["t4you", "t-4 taken over", () => Object.assign(S, { told: false, sel: "t4", takeover: true, answered: false, choice: null, finished: false, leadOpen: true })],
+  ["done", "t-1 done", () => Object.assign(S, { told: false, sel: "t1", takeover: false, answered: false, choice: null, finished: false, leadOpen: true, doneOpen: true })],
+  ["told", "you tell t-3", () => Object.assign(S, { sel: "t3", told: true, takeover: false, answered: false, choice: null, finished: false, leadOpen: true })],
+  ["nolead", "No lead yet", () => Object.assign(S, { told: false, sel: "lead2", takeover: false, answered: false, choice: null, finished: false })],
+  ["finished", "Run finished", () => Object.assign(S, { told: false, sel: "lead", takeover: false, answered: true, choice: 0, finished: true, leadOpen: true, doneOpen: false })],
 ];
 function renderToolbar() {
   const b = SCEN.map(([k, l]) => `<button data-scen="${k}" class="${S.scenario === k ? "on" : ""}">${l}</button>`).join("");

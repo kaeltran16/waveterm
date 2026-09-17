@@ -85,21 +85,10 @@ const defaultWorkerRuntime = "claude"
 // launched with, so siblings sharing a cwd never refresh each other's heartbeat, and a child spawned
 // before workers carried a session id is unobservable. A dag child runs in its ProjectPath.
 func lastActivityForRun(run *waveobj.Run) (int64, bool) {
-	if run == nil || run.SessionId == "" {
+	path, _, tracked := transcriptForRun(run)
+	if !tracked {
 		return 0, false
 	}
-	runtime := run.Runtime
-	if runtime == "" {
-		runtime = defaultWorkerRuntime
-	}
-	if !livenessRuntimes[runtime] {
-		return 0, false
-	}
-	root := sessionsRootFor(runtime)
-	if root == "" {
-		return 0, false
-	}
-	path := agentsessions.TranscriptForSession(root, runtime, run.ProjectPath, run.SessionId)
 	if path == "" {
 		return 0, true
 	}
@@ -108,6 +97,26 @@ func lastActivityForRun(run *waveobj.Run) (int64, bool) {
 		return 0, true
 	}
 	return info.ModTime().UnixMilli(), true
+}
+
+// transcriptForRun is the child's own worker transcript and the runtime that wrote it. tracked is false for a child
+// with no readable transcript at all; path is "" while a tracked child has written none yet.
+func transcriptForRun(run *waveobj.Run) (path, runtime string, tracked bool) {
+	if run == nil || run.SessionId == "" {
+		return "", "", false
+	}
+	runtime = run.Runtime
+	if runtime == "" {
+		runtime = defaultWorkerRuntime
+	}
+	if !livenessRuntimes[runtime] {
+		return "", "", false
+	}
+	root := sessionsRootFor(runtime)
+	if root == "" {
+		return "", "", false
+	}
+	return agentsessions.TranscriptForSession(root, runtime, run.ProjectPath, run.SessionId), runtime, true
 }
 
 // workerBlockFn reads a child's worker block and whether its process runs. A var so tests can script the

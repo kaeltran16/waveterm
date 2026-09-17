@@ -5,6 +5,7 @@ package orchestrate
 
 import (
 	"encoding/json"
+	"sort"
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/agentask"
@@ -55,6 +56,7 @@ func BuildDigest(sn DagDigestSnapshot) wshrpc.DagStatusDigest {
 	d.Report = buildReport(sn, d.Durations)
 	d.Shape = PlanShapeOf(g.Tasks)
 	d.Lanes = jarvis.Lanes(g.Tasks)
+	d.Told = toldMessages(sn.Retained)
 	for i := range g.Tasks {
 		d.Tasks = append(d.Tasks, buildTaskDigest(g, &g.Tasks[i], askByTask, retried))
 	}
@@ -649,6 +651,26 @@ func buildReport(sn DagDigestSnapshot, durations wshrpc.DagDurationDigest) wshrp
 		}
 	}
 	return r
+}
+
+// toldMessages is what the human typed to the workers, read from the retained task-told rows, oldest first.
+func toldMessages(retained []waveobj.RunEvent) []wshrpc.DagTold {
+	var out []wshrpc.DagTold
+	for _, ev := range retained {
+		if ev.Kind != waveobj.RunEventKindTaskTold {
+			continue
+		}
+		var d struct {
+			TaskId string `json:"taskid"`
+			Text   string `json:"text"`
+		}
+		if json.Unmarshal(ev.Detail, &d) != nil || d.Text == "" {
+			continue
+		}
+		out = append(out, wshrpc.DagTold{TaskId: d.TaskId, Ts: ev.Ts, Text: d.Text})
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Ts < out[j].Ts })
+	return out
 }
 
 // taskDuration derives one task's duration row. Tasks without a child run and without merge/cleanup

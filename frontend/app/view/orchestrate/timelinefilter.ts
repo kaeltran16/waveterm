@@ -80,6 +80,7 @@ const TASK_TARGET_KINDS: Record<string, TimelineTarget["kind"]> = {
     "child-ask": "worker",
     "child-answered": "worker",
     "child-ask-cleared": "worker",
+    "task-told": "worker",
     "dag-blocked": "gate",
     "dag-gate-open": "gate",
     "task-merge-started": "merge",

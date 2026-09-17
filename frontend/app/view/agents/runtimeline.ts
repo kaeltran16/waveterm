@@ -49,6 +49,7 @@ const RUN_GROUP_KINDS = new Set([
     "lead-launched",
     "lead-wake-failed",
     "lead-exited",
+    "task-told",
     "task-verify-started",
     "task-verify-passed",
     "task-verify-failed",
@@ -122,6 +123,7 @@ const KIND_TITLE: Record<string, string> = {
     "lead-launched": "Lead started",
     "lead-wake-failed": "Lead wake failed",
     "lead-exited": "Lead exited",
+    "task-told": "You told a worker",
     "task-verify-started": "Verify started",
     "task-verify-passed": "Verify passed",
     "task-verify-failed": "Verify failed",
@@ -177,6 +179,7 @@ const KIND_TONE: Record<string, string> = {
     "task-cleanup-pending": "text-muted",
     "lead-woken": "text-muted",
     "lead-launched": "text-muted",
+    "task-told": "text-muted",
     "task-verify-started": "text-muted",
 };
 
