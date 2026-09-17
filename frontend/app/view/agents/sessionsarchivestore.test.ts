@@ -3,7 +3,15 @@
 
 import { describe, expect, it } from "vitest";
 import type { AgentVM } from "./agentsviewmodel";
-import { filterByStatus, groupByRecency, mergedFeed, overlayLive, totalEvents, type LiveSession } from "./sessionsarchivestore";
+import {
+    filterByProject,
+    filterByStatus,
+    groupByRecency,
+    mergedFeed,
+    overlayLive,
+    resolveSelectedSession,
+    totalEvents,
+} from "./sessionsarchivestore";
 
 const ev = (type: string, ts: number, text = ""): SessionEvent => ({ type, ts, text });
 
@@ -47,24 +55,39 @@ describe("overlayLive", () => {
     });
 });
 
-describe("filterByStatus", () => {
+describe("session filters and selection", () => {
     const list = overlayLive(
         [
-            mk({ id: "a", status: "done", transcriptpath: "/other.jsonl" }),
-            mk({ id: "b", status: "failed", transcriptpath: "/nope.jsonl" }),
-            mk({ id: "c" }), // live (matches mkAgent path)
+            mk({ id: "a", projectname: "alpha", status: "done", transcriptpath: "/other.jsonl" }),
+            mk({ id: "b", projectname: "beta", status: "failed", transcriptpath: "/nope.jsonl" }),
+            mk({ id: "c", projectname: "alpha" }), // live (matches mkAgent path)
         ],
         [mkAgent()],
         1000
     );
+
+    it("filters by the session's existing project name", () => {
+        expect(filterByProject(list, "alpha").map((s) => s.id)).toEqual(["a", "c"]);
+        expect(filterByProject(list, "all")).toBe(list);
+    });
+
     it("live keeps only live sessions", () => {
         expect(filterByStatus(list, "live").map((s) => s.id)).toEqual(["c"]);
     });
+
     it("done excludes live and non-done", () => {
         expect(filterByStatus(list, "done").map((s) => s.id)).toEqual(["a"]);
     });
+
     it("needs keeps failed/waiting/asking", () => {
         expect(filterByStatus(list, "needs").map((s) => s.id)).toEqual(["b"]);
+    });
+
+    it("resolves an explicit detail selection from the unfiltered set", () => {
+        const shown = filterByProject(list, "alpha");
+        expect(shown.map((s) => s.id)).not.toContain("b");
+        expect(resolveSelectedSession(list, "claude:b")?.id).toBe("b");
+        expect(resolveSelectedSession(list, "all")).toBeUndefined();
     });
 });
 

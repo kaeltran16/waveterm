@@ -71,6 +71,10 @@ export function overlayLive(base: SessionActivity[], roster: AgentVM[], _now: nu
     });
 }
 
+export function filterByProject(list: LiveSession[], project: string): LiveSession[] {
+    return project === "all" ? list : list.filter((session) => session.projectname === project);
+}
+
 export function filterByStatus(list: LiveSession[], f: SessionStatusFilter): LiveSession[] {
     if (f === "all") {
         return list;
@@ -82,6 +86,10 @@ export function filterByStatus(list: LiveSession[], f: SessionStatusFilter): Liv
         return list.filter((s) => !s.live && s.status === "done");
     }
     return list.filter((s) => s.needsAttention); // "needs"
+}
+
+export function resolveSelectedSession(list: LiveSession[], selection: string): LiveSession | undefined {
+    return selection === "all" ? undefined : list.find((session) => `${session.runtime}:${session.id}` === selection);
 }
 
 export interface RecencyGroup {

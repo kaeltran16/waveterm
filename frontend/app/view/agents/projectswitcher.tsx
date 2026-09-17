@@ -11,17 +11,20 @@ import { useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { projectsFromAgents } from "./agentsviewmodel";
 import { mergeSwitcherProjects, projectsAtom } from "./projectsstore";
+import { projectControlCopy } from "./surfacecontext";
 
 // Project scope dropdown bound to projectFilterAtom. "bar" = the app-bar `/ name ▾` trigger;
 // "header" = the cockpit-header bordered button. Both share one atom (spec D3).
 export function ProjectSwitcher({ model, variant }: { model: AgentsViewModel; variant: "bar" | "header" }) {
     const agents = useAtomValue(model.agentsAtom);
     const filter = useAtomValue(model.projectFilterAtom);
+    const surface = useAtomValue(model.surfaceAtom);
     const [open, setOpen] = useState(false);
     const [confirming, setConfirming] = useState<string | null>(null);
     const registry = useAtomValue(projectsAtom);
     const projects = mergeSwitcherProjects(projectsFromAgents(agents), registry);
-    const label = filter === "all" ? "All projects" : filter;
+    const projectLabel = filter === "all" ? "All projects" : filter;
+    const copy = projectControlCopy(variant === "header" ? "cockpit" : surface, projectLabel);
     const close = () => {
         setConfirming(null);
         setOpen(false);
@@ -48,6 +51,8 @@ export function ProjectSwitcher({ model, variant }: { model: AgentsViewModel; va
         <div className="relative">
             <button
                 type="button"
+                title={copy.title}
+                aria-label={`${copy.title}: ${projectLabel}`}
                 onClick={() => setOpen((v) => !v)}
                 className={cn(
                     "flex cursor-pointer items-center gap-1.5",
@@ -56,7 +61,7 @@ export function ProjectSwitcher({ model, variant }: { model: AgentsViewModel; va
                         : "rounded border border-edge-mid bg-surface-raised px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground hover:border-edge-strong"
                 )}
             >
-                {label}
+                {copy.label}
                 <span className="text-[9px] text-muted">▾</span>
             </button>
             {open ? <div className="fixed inset-0 z-50" onClick={close} /> : null}

@@ -24,17 +24,22 @@ import type { Runtime } from "./launch";
 import { NarrationTimeline } from "./narrationtimeline";
 import { runtimeMeta } from "./runtimemeta";
 import {
+    filterByProject,
     filterByStatus,
     groupByRecency,
     loadSessionsArchive,
     mergedFeed,
     overlayLive,
+    resolveSelectedSession,
     sessionsArchiveAtom,
     sessionsErrorAtom,
     totalEvents,
     type LiveSession,
     type SessionStatusFilter,
 } from "./sessionsarchivestore";
+import { SpaceBanner } from "./spacebanner";
+import { filterSessionsBySpace, spaceBannerText } from "./spacescope";
+import { activeSpaceAtom, spaceRevealAtom, spaceScopeAtom } from "./spacestore";
 import { SurfaceEmptyState, SurfaceError, SurfaceHeader } from "./surfacescaffold";
 import { projectorFor } from "./transcriptregistry";
 
@@ -100,17 +105,24 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
     const now = useAtomValue(model.nowAtom);
     const [sel, setSel] = useAtom(model.sessionsSelAtom);
     const [filter, setFilter] = useAtom(model.sessionsStatusFilterAtom);
+    const projectFilter = useAtomValue(model.projectFilterAtom);
+    const activeSpace = useAtomValue(activeSpaceAtom);
+    const spaceScope = useAtomValue(spaceScopeAtom);
+    const spaceRevealed = useAtomValue(spaceRevealAtom).has("sessions");
 
     useEffect(() => {
         fireAndForget(loadSessionsArchive);
     }, []);
 
     const live = base == null ? [] : overlayLive(base, roster, now);
-    const shown = filterByStatus(live, filter);
+    const projectScoped = filterByProject(live, projectFilter);
+    const spaceScoped = filterSessionsBySpace(projectScoped, spaceScope, spaceRevealed);
+    const shown = filterByStatus(spaceScoped, filter);
     const groups = groupByRecency(shown, now);
-    const liveCount = live.filter((s) => s.live).length;
-    // detail resolves against the full set so a filter chip never blanks the open session.
-    const selected = sel === "all" ? undefined : live.find((s) => `${s.runtime}:${s.id}` === sel);
+    const liveCount = spaceScoped.filter((s) => s.live).length;
+    const spaceHidden = projectScoped.length - spaceScoped.length;
+    // detail resolves against the full set so project, Space, and status filters never blank an explicit selection.
+    const selected = resolveSelectedSession(live, sel);
 
     // publish the "All activity" + grouped-session order for global j/k list-nav. cursor==selection.
     const navIds = useMemo(
@@ -151,7 +163,7 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
                         </span>
                     ) : null
                 }
-                subtitle="Every agent session and its activity — one timeline per run, or the full feed across all of them."
+                subtitle="Every agent session and its activity — one timeline per run, or the merged feed for the current scope."
                 actions={
                     <div className="flex items-center gap-1 rounded border border-border bg-surface p-0.5">
                         {FILTERS.map((f) => (
@@ -170,6 +182,14 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
                     </div>
                 }
             />
+
+            {activeSpace != null ? (
+                <SpaceBanner
+                    surface="sessions"
+                    text={spaceBannerText(activeSpace.objective, spaceHidden, spaceRevealed)}
+                    revealed={spaceRevealed}
+                />
+            ) : null}
 
             {loadError ? (
                 <SurfaceError
@@ -193,10 +213,10 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
                         <span className="flex h-[34px] w-[34px] flex-none items-center justify-center rounded-[9px] border border-accent bg-accentbg text-accent-soft">≡</span>
                         <span className="min-w-0 flex-1">
                             <span className="block text-[13px] font-semibold text-primary">All activity</span>
-                            <span className="block font-mono text-[11px] text-muted">Merged feed · every session</span>
+                            <span className="block font-mono text-[11px] text-muted">Merged feed · current scope</span>
                         </span>
                         <span className="rounded-full bg-surface-hover px-2 py-0.5 font-mono text-[11px] text-secondary">
-                            {totalEvents(live)}
+                            {totalEvents(spaceScoped)}
                         </span>
                     </button>
 
@@ -292,7 +312,7 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
                             {selected ? (
                                 <SessionDetail model={model} session={selected} now={now} />
                             ) : (
-                                <MergedFeed model={model} list={live} now={now} />
+                                <MergedFeed model={model} list={spaceScoped} now={now} />
                             )}
                         </motion.div>
                     </AnimatePresence>

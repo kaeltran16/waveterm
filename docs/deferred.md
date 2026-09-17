@@ -7,6 +7,35 @@ where it would plug in, and how to pick it back up. Append new entries at the to
 > append-only rationale log — append the full deferral here, then mirror a one-line row there. Entries
 > marked RESOLVED/DECLINED below are kept for the reasoning, not as pending work.
 
+## Cross-surface Back history, its context strip, and a Space filter on the Brief (2026-09-17)
+
+The first cross-surface plan (`effort:2450d93e`) built typed surface navigation and a Space filter in
+`.worktrees/surface-integration`, uncommitted. The approved resource-linking spec
+(`docs/superpowers/specs/2026-09-15-cross-surface-resource-linking-design.md`) cut the effort to addressing
+and landing. That work is parked as `faba2ade` on branch `feat/surface-integration`; keep the branch while
+this entry is open. Only the Sessions half of its project and Space scope moved to `main`.
+
+- **What was deferred:**
+  - Cross-surface Back: `navigateSurface` with direct and contextual kinds, a history bounded at 20,
+    `navigateBack`, and the rail and keybinding routing onto them. Built and unit-tested, never merged.
+  - The context strip ("Back to Radar"): a mockup only, never approved.
+  - Deterministic reverse links and palette Open versus Execute, the plan's Tasks 5 and 6: not started. The
+    palette's current handling of an ended session was not re-checked.
+  - A Space filter on the Brief (`filterJarvisBySpace`) over channels, runs and workers, keeping attention
+    global. It filtered the Brief's active-work region, which 65bbfd7f replaced with the inline tracker, so
+    it no longer applies. `SURFACE_CONTEXT` marks Jarvis's Space support `unsupported` until it returns.
+- **Why:** the spec defers Back until a real flow shows the need. Its `openTarget` replaces the result type
+  that work gave `openORef`. What a Space should hide among the inline tracker's rows is undecided.
+- **Where to pick it up:**
+  - Navigation: `git show faba2ade:frontend/app/cockpit/surfacenavigation.ts` and its `.test.ts`; the
+    callers' wiring is `git diff f3b8de76 faba2ade -- frontend`.
+  - Design and plan: `git show faba2ade:docs/superpowers/specs/2026-09-15-cross-surface-navigation-design.md`
+    and `git show faba2ade:docs/superpowers/plans/2026-09-15-cross-surface-navigation-plan.md`.
+  - Strip mockup: `git show faba2ade:docs/prototype/cross-surface-context-strip.html`.
+  - Brief filter: `git show faba2ade:frontend/app/view/agents/spacescope.ts` (`filterJarvisBySpace`) and
+    `git diff f3b8de76 faba2ade -- frontend/app/view/jarvis/briefsurface.tsx`.
+  - Back needs its own chord: Code's Back/Forward owns `Alt+ArrowLeft/Right`.
+
 ## Lanes: a skipped task's commits land with its lane, and a retry's evidence starts at the branch head (2026-09-15)
 
 Slice 4d of the orchestrator redesign (`docs/superpowers/plans/2026-09-15-orchestrator-redesign-s4d-lanes.md`)

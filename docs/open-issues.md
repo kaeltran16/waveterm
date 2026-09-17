@@ -281,6 +281,10 @@ Other held items (each names its own revive condition in `docs/deferred.md`):
   (CDP/React-DevTools pass against a populated cockpit first).
 - **Attribution engine D (v2)** real ambient edges to replace `fixtureAmbientProvider` behind the
   unchanged `AmbientProvider` interface.
+- **Cross-surface navigation:** Back history and its context strip (revive when a real flow shows the
+  need); a Space filter on the Brief (needs a decision on what a Space hides among inline tracker rows);
+  reverse links; palette Open versus Execute. Parked as `faba2ade` on `feat/surface-integration`
+  (2026-09-17).
 
 ---
 

@@ -3,7 +3,7 @@
 
 import { expect, test } from "vitest";
 import type { AgentVM } from "./agentsviewmodel";
-import { filterBySpace, filterChannelsBySpace, spaceBannerText } from "./spacescope";
+import { filterBySpace, filterChannelsBySpace, filterSessionsBySpace, spaceBannerText } from "./spacescope";
 
 const agent = (id: string): AgentVM => ({ id, name: id, task: "", state: "idle" });
 const scope = (over: Partial<SpaceScope>): SpaceScope => ({ runorefs: [], channeloids: [], tabids: [], ...over });
@@ -30,6 +30,13 @@ test("filterChannelsBySpace: keeps only channels whose oid is in channeloids", (
 
 test("filterChannelsBySpace: null channels stays null", () => {
     expect(filterChannelsBySpace(null, scope({ channeloids: ["c2"] }), false)).toBeNull();
+});
+
+test("filterSessionsBySpace: includes only sessions with a scoped live tab id", () => {
+    const sessions = [{ id: "ended" }, { id: "in", liveId: "t1" }, { id: "out", liveId: "t2" }];
+    expect(filterSessionsBySpace(sessions, scope({ tabids: ["t1"] }), false).map((s) => s.id)).toEqual(["in"]);
+    expect(filterSessionsBySpace(sessions, null, false)).toBe(sessions);
+    expect(filterSessionsBySpace(sessions, scope({ tabids: ["t1"] }), true)).toBe(sessions);
 });
 
 test("spaceBannerText: focused with hidden, focused zero, revealed", () => {

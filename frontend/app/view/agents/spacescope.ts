@@ -31,6 +31,20 @@ export function filterChannelsBySpace<T extends { oid: string }>(
     return channels.filter((c) => ids.has(c.oid));
 }
 
+// Keep only sessions whose live tab id is in the Space. An ended session has no tab id, so no attribution
+// places it in a Space and it is hidden while one is focused. Null scope / revealed pass through.
+export function filterSessionsBySpace<T extends { liveId?: string }>(
+    sessions: T[],
+    scope: SpaceScope | null,
+    revealed: boolean
+): T[] {
+    if (scope == null || revealed) {
+        return sessions;
+    }
+    const ids = new Set(scope.tabids);
+    return sessions.filter((session) => session.liveId != null && ids.has(session.liveId));
+}
+
 // Escape-hatch banner copy for a scoped surface. Revealed => an un-focus hint; otherwise the focus line
 // with the hidden count (or the empty-Space / nothing-hidden case).
 export function spaceBannerText(objective: string, hidden: number, revealed: boolean): string {
