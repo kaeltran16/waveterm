@@ -401,6 +401,47 @@ func TestCancelPersistsBeforeStoppingWorkersAndIsIdempotent(t *testing.T) {
 	}
 }
 
+// a task that already landed keeps its worker run done: cancelling abandons only the unfinished work, the
+// way CancelGroup leaves the done task itself alone. its worker is still stopped.
+func TestCancelKeepsALandedTaskRunDone(t *testing.T) {
+	ctx, dag, owner, child := seedRunningDag(t)
+	landed := jarvis.NewRun("landed", "ws-1", t.TempDir(), nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), 1)
+	landed.Status = jarvis.RunStatus_Done
+	landed.Phases[0].WorkerOrefs = []string{"tab:landed"}
+	if err := wstore.AppendRun(ctx, dag.ChannelId, landed); err != nil {
+		t.Fatal(err)
+	}
+	if err := wstore.UpdateDag(ctx, dag.OID, func(g *waveobj.TaskGroup) error {
+		g.Tasks = append(g.Tasks, waveobj.TaskNode{ID: "t-1", Label: "b", State: TaskState_Done, RunID: landed.ID})
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	oldStop := stopRunWorkers
+	stopped := map[string]bool{}
+	stopRunWorkers = func(_ context.Context, run *waveobj.Run) error {
+		stopped[run.ID] = true
+		return nil
+	}
+	t.Cleanup(func() { stopRunWorkers = oldStop })
+
+	if err := Cancel(ctx, dag.OID); err != nil {
+		t.Fatal(err)
+	}
+	gotLanded, _ := wstore.GetRun(ctx, dag.ChannelId, landed.ID)
+	gotChild, _ := wstore.GetRun(ctx, dag.ChannelId, child.ID)
+	gotOwner, _ := wstore.GetRun(ctx, dag.ChannelId, owner.ID)
+	if gotLanded.Status != jarvis.RunStatus_Done {
+		t.Fatalf("landed run status = %q, want done", gotLanded.Status)
+	}
+	if gotChild.Status != jarvis.RunStatus_Cancelled || gotOwner.Status != jarvis.RunStatus_Cancelled {
+		t.Fatalf("unfinished runs: child=%q owner=%q, want cancelled", gotChild.Status, gotOwner.Status)
+	}
+	if !stopped[landed.ID] {
+		t.Fatal("landed run's worker was not stopped")
+	}
+}
+
 func TestCancelDetachesWorkerCleanupFromCallerContext(t *testing.T) {
 	baseCtx, dag, _, _ := seedRunningDag(t)
 	ctx, cancel := context.WithCancel(baseCtx)

@@ -341,7 +341,10 @@ func cancelLocked(ctx context.Context, dagID string) error {
 				continue
 			}
 			if err := wstore.UpdateRun(txCtx, g.ChannelId, runID, func(r *waveobj.Run) error {
-				*r = jarvis.CancelRun(*r)
+				// a landed task's run keeps its outcome, as CancelGroup keeps the done task; its worker is still stopped below
+				if r.Status != jarvis.RunStatus_Done {
+					*r = jarvis.CancelRun(*r)
+				}
 				return nil
 			}); err != nil {
 				return err
