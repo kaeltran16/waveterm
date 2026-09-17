@@ -1,10 +1,16 @@
 # Agent Cockpit — Meta Spec (App Skeleton)
 
+> **Superseded (verified 2026-09-17):** §4's surface inventory (`PlaceholderSurface`,
+> `ChannelsSurface`, the 8-item `NavRail`) no longer exists in code — Channels became `jarvis`,
+> Memory became `vault`, and `radar`/`code` didn't exist yet when this was written. For the current
+> surface set and nav rail, see `docs/reference/architecture.md` and
+> `frontend/app/view/agents/agents.tsx`'s `SurfaceKey`. Kept for the phasing rationale (D1
+> containment, the Tauri single-webview shell), which is still accurate.
+>
 > Captured 2026-06-24, **re-grounded 2026-06-25** onto the new Claude Design handoff
 > bundle and the completed Tauri migration. The umbrella architecture doc for the
 > agent-cockpit redesign. Reads on top of [`redesign-brief.md`](./redesign-brief.md)
-> (product intent) and [`feature-triage.md`](./feature-triage.md) (what already exists).
-> This doc defines the **skeleton** — shell, the surface inventory, and the phasing.
+> (product intent). This doc defines the **skeleton** — shell, the surface inventory, and the phasing.
 > Each phase gets its own detailed sub-spec.
 >
 > **Source of truth:** `wave-handoff/wave/project/Wave-cockpit-live.dc.html`. It contains

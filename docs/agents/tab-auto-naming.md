@@ -5,7 +5,7 @@ current **task summary** (Claude Code's `ai-title`) instead of the bare agent/ta
 name. The label is **derived, never persisted** — a manual rename always wins and is
 never overwritten.
 
-`rowLabel` precedence (`frontend/app/tab/sessionsidebar/sessionviewmodel.ts`):
+`rowLabel` precedence (`frontend/app/view/agents/session-models/sessionviewmodel.ts`):
 
 ```
 customLabel (manual rename, session:label)  ??  title (ai-title)  ??  agent name  ??  "session"
@@ -39,10 +39,10 @@ Claude Code transcript JSONL   ({"type":"ai-title","aiTitle":"…"} near each tu
         ▼  cmd/wsh/cmd/wshcmd-agenthook.go : agentHookRun() → publishAgentStatusData()
    publishes an `agent:status` WaveEvent  { state, …, title }
         │
-        ▼  frontend/app/tab/sessionsidebar/agentstatusstore.ts : setupAgentStatusSubscription()
+        ▼  frontend/app/view/agents/session-models/agentstatusstore.ts : setupAgentStatusSubscription()
    data.state truthy  →  globalStore.set(getAgentStatusAtom(oref), data)   (stores whole payload incl. title)
         │
-        ▼  frontend/app/tab/sessionsidebar/sessionsidebarmodel.ts : sessionSidebarViewModelAtom
+        ▼  frontend/app/view/agents/session-models/sessionsidebarmodel.ts : sessionSidebarViewModelAtom
    title = agentStatus?.title  →  SessionInput.title
         │
         ▼  sessionviewmodel.ts : rowLabel()   →   customLabel ?? title ?? agent

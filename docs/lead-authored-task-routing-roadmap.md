@@ -1,6 +1,8 @@
 # Lead-Authored Task Routing — Design & Roadmap
 
-Status: draft, awaiting review. Date: 2026-08-19.
+Status: Phases 1–2 shipped; Phase 3 half-shipped (DAG-graph route display shipped in `551f76ee`,
+run-evidence recording still open — see `docs/open-issues.md`); Phase 4 evidence-gated, may be
+skipped. Date: 2026-08-19, status corrected 2026-09-17.
 
 ## The problem in one line
 

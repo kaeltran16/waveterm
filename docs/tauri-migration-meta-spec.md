@@ -1,10 +1,9 @@
 # Tauri Migration — Meta Spec (Runtime Foundation)
 
 > Captured 2026-06-24. The umbrella doc for moving Wave's runtime from Electron to
-> Tauri. Reads alongside [`redesign-brief.md`](./redesign-brief.md) (product intent),
-> [`feature-triage.md`](./feature-triage.md) (what exists), and
+> Tauri. Reads alongside [`redesign-brief.md`](./redesign-brief.md) (product intent) and
 > [`redesign-meta-spec.md`](./redesign-meta-spec.md) (the cockpit **feature** skeleton).
-> Those three define *what the cockpit is*. This doc defines *what it runs on*. It is a
+> Those two define *what the cockpit is*. This doc defines *what it runs on*. It is a
 > separate, orthogonal layer — **with one exception: it overrides D1 (Containment) of the
 > redesign meta spec** (see §6, §11). Each phase gets its own sub-spec; Phase 0 is first.
 

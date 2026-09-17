@@ -79,5 +79,4 @@ Each stage is additive on the *same* substrate — the progression is "widen the
 
 - Channels spec: `docs/superpowers/specs/2026-06-30-channels-tab-design.md`
 - Existing ask/answer channel (Gatekeeper reuses this): `pkg/agentask`, `docs/agents/organic-ask-setup.md`
-- Feature triage (the @agent Orchestrator line item): `docs/feature-triage.md`
 - Inspiration for cross-CLI `@mention` / fan-out: `~/.codex/skills/1devtool-orchestrator/SKILL.md`

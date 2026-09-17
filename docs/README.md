@@ -26,7 +26,11 @@ reference for build commands, architecture, and gotchas — start there.
 | `diff-tab.md` | Reference and walkthrough for the Diff surface, in one file: every control, the compare state, the keys, and the current limits. |
 | `jarvis-consolidation-open-issues.md`, `jarvis-second-brain-open-issues.md` | Archived/closed detail records for those two sub-projects (consolidation: all fixed; second brain: J-entry evidence). Open residue lives in `open-issues.md`. |
 | `keyboard-shortcuts.md` | Human-readable mirror of the keybinding registry (`frontend/app/store/keybindings/` is the source of truth). |
-| `orchestrator-roadmap.md`, `redesign-brief.md`, `redesign-meta-spec.md`, `tauri-migration-meta-spec.md`, `feature-triage.md` | Direction and umbrella docs. Largely historical — they record sequencing rationale, not remaining work. |
+| `orchestrator-roadmap.md`, `redesign-brief.md`, `redesign-meta-spec.md`, `tauri-migration-meta-spec.md`, `pi-package-integration-meta-spec.md` | Direction and umbrella docs. Largely historical — they record sequencing rationale, not remaining work. `redesign-meta-spec.md`'s surface inventory is superseded; see its banner. |
+| `lead-authored-task-routing-roadmap.md` | Design + phase roadmap for per-task harness/model routing. Still tracks real remaining work (Phase 3/4) — status corrected in `open-issues.md`. |
+| `orchestrator-howto.md` | Worked walkthrough of running the current orchestrator engine. The most actively maintained orchestrator doc. |
+| `orchestrator-redesign-flaws.md` | Living flaws tracker for the orchestrator engine — resolved rows kept as one-line summaries. Cross-referenced from `open-issues.md`. |
+| `jarvis-claude-lead-e2e.md`, `jarvis-orchestrator-plan-e2e.md` | Dated e2e proof captures for the Claude-lead-on-DAG-engine change, cited as evidence from several specs/plans. |
 
 ## Conventions
 

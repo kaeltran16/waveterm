@@ -29,35 +29,39 @@ badges, visual-parity CDP check) before any contract work. Spec:
 `docs/superpowers/specs/2026-07-21-channel-data-model-scaling-design.md`. Source: improvement-scan
 brief Theme A.
 
-### Diff surface JetBrains parity — Spec A planned, Spec B (repository actions) not written
+### Diff surface JetBrains parity — Spec A shipped 2026-09-11, Spec B (repository actions) not written
 
-Five of six gaps are specced and planned (Monaco diff pane, merge-base/tip-to-tip toggle, remote refs
-+ fetch, ref swap, file tree) plus a collapsible history column, since the app ships a 1000x700 window
-where the diff pane gets ~240px. **Outstanding: gap 6, repository actions** (checkout, cherry-pick,
-revert) — needs its own spec before any code; `gitinfo.RevertFile`/`RevertHunk` already exist and are
-orphaned. Status: Actionable (Spec A), Blocked on a brainstorm (Spec B). Specs:
-`docs/superpowers/specs/2026-09-04-git-compare-viewer-parity-design.md`, plan
+Spec A (Monaco diff pane, merge-base/tip-to-tip toggle, remote refs + fetch, ref swap, file tree,
+collapsible history column, plus five review findings from a read of the shipped surface — history
+column refresh, capping the two diff readers, in-diff hunk navigation, ignore-whitespace toggle,
+splitting `filessurface.tsx`'s five jobs) is **done**: `effort:5e862ff9-4082-492d-8e5d-d02dcae208e2`
+reports 19/19 tasks complete, merged to `main` at `00767d77` (2026-09-11) — verified 2026-09-17
+against `wsh effort show`. One sub-item was deliberately left out of that effort — filtering
+whitespace-only *files* out of the change list — tracked separately in the `docs/deferred.md`
+2026-09-11 entry.
+
+**Outstanding: gap 6, repository actions** (checkout, cherry-pick, revert) — needs its own spec
+before any code; `gitinfo.RevertFile`/`RevertHunk` already exist and are still orphaned (verified
+2026-09-17, zero real callers outside generated API + tests). Status: Blocked on a brainstorm
+(Spec B). Specs: `docs/superpowers/specs/2026-09-04-git-compare-viewer-parity-design.md`, plan
 `docs/superpowers/plans/2026-09-04-git-compare-viewer-parity.md`, rationale in the `docs/deferred.md`
 2026-09-04 entry.
 
-**Tracked as an initiative since 2026-09-11:** `effort:5e862ff9-4082-492d-8e5d-d02dcae208e2` — the
-plan's 13 tasks plus five findings from a read of the shipped surface (history column never
-refreshes; the two diff readers are uncapped and the renderer unvirtualized; no in-diff hunk
-navigation; no ignore-whitespace toggle; `filessurface.tsx` holds five jobs). Each chunk carries its
-evidence; read `wsh effort show 5e862ff9` before picking any of them up. Note the plan's 0/68
-checkboxes understate it — Task 1 (`gitinfo.FileAtRef`) shipped out-of-band in `e632dd81` with the
-Code surface and is wired as `GitFileAtRefCommand`; start at Task 2.
-
-### Lead-authored task routing — Phases 1–3
+### Lead-authored task routing — Phases 1–2 shipped, Phase 3 half-shipped
 
 The roadmap header still reads "draft, awaiting review" (2026-08-19), but the route chain has shipped:
 backend run-route capability authority, settings/channel persistence validation, enforcement at worker
 launch + DAG children, capability-driven route controls, draft-first DAG creation (stage-local modal), and
 structured fast approval (plans 2026-08-20/21), and Phase 2 (same-tier retry wiring + typed `blocked` +
 `escalate` verb) shipped with the 2026-08-25 phase-2 engine — `RetryTask`, `TaskState_Blocked`, `dag
-escalate` all present in `pkg/` (the 2026-08-24 scan's "Also noted" line is stale). Remaining: Phase 3
-(route surfaced in DAG graph + run evidence), Phase 4 measurement gate (evidence-gated, may be skipped
-entirely).
+escalate` all present in `pkg/` (the 2026-08-24 scan's "Also noted" line is stale).
+
+**Phase 3 is half-shipped (verified 2026-09-17):** the DAG-graph half is done — `daggraph.tsx` already
+renders each node's stamped route (`data-dag-node-route`, "inherits run route" / "pinned") and a
+`RoutePicker`-driven escalate control, landed with `551f76ee`'s structured DAG fast approval. The
+run-evidence half is **not** done — `pkg/jarvis/evidence.go` records no per-task `(harness, model)`,
+so Phase 4's audit trail still has nothing to key off. Remaining: finish evidence recording, then
+Phase 4's measurement gate (evidence-gated, may be skipped entirely).
 Doc: `docs/lead-authored-task-routing-roadmap.md`.
 
 ### Orchestrator redesign — shipped (as of 2026-08-25)
@@ -108,6 +112,10 @@ below. Full rationale: `docs/deferred.md`, the 2026-09-10 entry and its 2026-09-
 **Four are closed** by the Brief review-findings pass (`effort:732863fa-1374-4ab2-9753-1220fc885f34`, F1–F9),
 each by re-homing the existing control; the status column says which chunk.
 
+**Every remaining "open" row re-verified against current code 2026-09-17** — all still genuinely
+orphaned, nothing silently re-homed since 2026-09-11, except the fleet-roster row below (`FleetRoster`
+and `runRailSection` are now fully deleted, not orphaned).
+
 | Capability | Orphaned implementation | Load-bearing? | Status |
 |---|---|---|---|
 | Channel lifecycle — rename / delete / archive / notes | `renameChannel`, `deleteChannel`, `archiveChannel`, `setChannelNotes` (`agents/channelsstore.ts`) | **yes** — a channel can still be created and never managed | open |
@@ -121,7 +129,7 @@ each by re-homing the existing control; the status column says which chunk.
 | Per-answer cancel and retry | `cancelJarvisQuery`, `retryJarvisQuery` | no | open |
 | Ask-mode consult results (§4a item 11) | `ConsultsSection`, deleted with the rail | deliberate drop | open |
 | Resume / proactive cards (§4a item 12) | `ResumeCard`, `ProactiveCard` | deliberate drop | open |
-| Rail fleet roster and per-worker dismiss | `FleetRoster`, `dismissWorker`, `runRailSection` | no — the header keeps a derived fleet line | open |
+| Rail fleet roster and per-worker dismiss | `dismissWorker` only — `FleetRoster` and `runRailSection` are fully deleted from the tree (verified 2026-09-17), not just unconsumed | no — the header keeps a derived fleet line | open (the roster itself needs rebuilding, not re-homing; only the dismiss action survives) |
 | Stage turn renderers | `JarvisAnswer`, `JarvisWorkingSteps` (`jarvis/jarvisturn.tsx`) | largely superseded by `briefdrew.ts` | open |
 
 ---
@@ -149,7 +157,6 @@ The reliability findings below are ranked and detailed in
 | No agent state represents "hung" | bug | S | **F25, found live 2026-09-05.** With its latched ask cleared, a process that was provably dead (frozen pty, ~1% CPU, no output for 70 min) immediately reclassified as `Working 1`. The roster has asking / working / idle and nothing else, so a hung agent must misreport as one of them |
 | A force-killed agent leaves its run `executing` forever | bug | M | **F26, found live 2026-09-05.** Run outcome is hook-driven; `Stop-Process -Force` fires no `SessionEnd`, and nothing reconciles a vanished worker process against run status. Verified: lead killed, run still reported `status=executing phases=running` minutes later. The blockcontroller knows the process is gone; the run state never asks it. **Still open 2026-09-05** — the stranded run was closed by hand (`advancerun action=complete phaseidx=0 commit=937c8dfe`, which sealed evidence matching git exactly: 6 files, +173/-13), confirming only that the transition works when something calls it. Nothing calls it automatically |
 | The Gatekeeper escalates every multi-question or multi-select ask without judging it | limitation | M | `docs/deferred.md` 2026-09-14 entry, which holds the fix shape. Delivery already types both shapes (`63ffc6e1`, `4a6efb84`); only `pkg/jarvis` assumes one question and one pick. **Deferred 2026-09-14 behind the orchestrator redesign's decisions** — lands with its child-ask section, where the ask judge becomes the only automated answerer |
-| Codex and opencode cannot run leads or task workers | limitation | M | `docs/deferred.md` 2026-09-14 entry, with `git show f09e272a:...` recovery for the deleted adapter arms, route rows and liveness entry. Consults still run on both. **Deferred 2026-09-14 by the orchestrator redesign (spec §8)**: run workers are scoped to claude and pi |
 | A merge-point Verify timeout kills the shell but not its children, and one run's failed Verify does not hold another run's merges in the same checkout | limitation | M | `docs/deferred.md` 2026-09-15 entry, with where each fix plugs in. **Deferred 2026-09-15 by orchestrator redesign slice 4c**: one run per checkout needs neither |
 | A skipped task's commits land with its lane, and a retried task's evidence leaves out its failed attempt's commits | limitation | S | `docs/deferred.md` 2026-09-15 lanes entry, with where the fix plugs in. **Deferred 2026-09-15 by orchestrator redesign slice 4d**: workers commit only at the end, so a failed attempt rarely has commits |
 | The record peek's yield-while-stacked workaround is now unnecessary — unwind it as its own change | tech-debt | S | **2026-09-11, jarvis motion pass.** `briefpeekview.tsx:185` passes `open={recordId != null && pendingStatus == null}` so the peek *unmounts itself* whenever its confirm dialog is up. That was a workaround for every mounted `ModalShell` claiming Escape and focus at once, so one press dismissed the confirm and the peek behind it. `frontend/app/modals/modalstack.ts` plus the `isTopModal` guard in `modalshell.tsx` fixed the underlying bug, so the yield now only costs the peek its scroll position and any in-flight state on every stacked confirm. Deliberately **not** unwound in the motion pass: it is a behavior change to a surface no motion task otherwise touched, so it belongs in its own diff with its own check that Escape closes only the confirm |
@@ -304,6 +311,10 @@ Other held items (each names its own revive condition in `docs/deferred.md`):
 - Usage pricing family-substring drift (historical Opus billed at current tier) — accepted estimate error.
 - v3 embedding boundary: multimodal/image embeddings, reranking models, bundled local model, auto-
   promotion to `memory/**`, cross-machine sync.
+- Codex and opencode as run workers (leads/task workers) — declined 2026-09-17: this install only
+  uses claude and pi, so there is no consumer to revive it for. Consults still run on both. Recovery
+  path if that changes: `docs/deferred.md` 2026-09-14 entry, `git show f09e272a:...` for the deleted
+  adapter arms, route rows and liveness entry.
 
 ---
 
