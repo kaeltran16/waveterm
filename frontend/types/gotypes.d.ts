@@ -3198,6 +3198,7 @@ declare global {
         effortref?: RunEffortRef;
         dagoref?: string;
         sessionid?: string;
+        branch?: string;
         workerroute?: RoutePin;
         orchestration?: string;
         parallelism?: number;

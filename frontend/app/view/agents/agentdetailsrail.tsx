@@ -141,7 +141,7 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
     const isClaude = (agent.agent || "claude") === "claude";
     // "—" is a cache nobody has read yet; the line leaves it out rather than say so
     const cacheCountdown = isClaude ? formatCacheCountdown(cacheStatus, now) : "—";
-    const branch = railState?.branch;
+    const branch = ended ? ended.branch : railState?.branch;
 
     const sections: RailSection[] = [
         {

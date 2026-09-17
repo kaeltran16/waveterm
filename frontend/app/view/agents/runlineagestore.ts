@@ -119,6 +119,8 @@ export interface EndedWorker {
     agent: AgentVM;
     // the files its run sealed; the worktree it changed them in is gone
     files: EvidenceFile[];
+    // the lane branch it committed on, deleted with the worktree; runs launched before it was recorded have none
+    branch?: string;
 }
 
 // endedWorkerAtomFor is the done task's worker the surface is focused on, if the focus is one.
@@ -143,6 +145,7 @@ export function endedWorkerAtomFor(
         return {
             agent: endedWorkerVM(run.runId, task, child, path),
             files: child?.evidence?.files ?? [],
+            branch: child?.branch || undefined,
         };
     });
 }

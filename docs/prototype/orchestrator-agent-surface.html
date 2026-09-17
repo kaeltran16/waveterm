@@ -104,6 +104,15 @@ body{display:flex;flex-direction:column}
 .tinput .caret{display:inline-block;width:8px;height:15px;background:var(--color-secondary);vertical-align:-2px}
 .thint{flex:none;margin:-8px 24px 12px;font-family:var(--mono);font-size:11px;color:var(--color-ink-faint)}
 .ended{flex:none;margin:12px 22px 0;border:1px solid var(--color-edge-mid);background:var(--color-surface-raised);border-radius:6px;padding:8px 12px;font-family:var(--mono);font-size:11px;color:var(--color-muted);display:flex;gap:10px;align-items:center}
+/* an ended session reads back as narration (narrationtimeline.tsx), the way a subagent's transcript does */
+.narr{flex:1;min-height:0;overflow:auto;padding:12px 22px;opacity:.8;display:flex;flex-direction:column;gap:10px}
+.nyou{align-self:flex-end;max-width:78%;border:1px solid rgba(94,156,255,.35);background:var(--color-surface-raised);border-radius:9px;padding:8px 12px;font-size:12.5px;line-height:1.55;color:var(--color-secondary)}
+.nyou b{display:block;margin-bottom:2px;font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.1em;color:var(--color-muted)}
+.ntools{border:1px solid var(--color-edge-faint);background:var(--color-surface);border-radius:6px;padding:6px 10px;font-family:var(--mono);font-size:11.5px;color:var(--color-muted)}
+.ntools b{color:var(--color-secondary);font-weight:600}
+.nmsg{display:flex;gap:10px;font-size:13px;line-height:1.55;color:var(--color-secondary)}
+.nmsg i{flex:none;margin-top:4px;width:14px;height:14px;border-radius:50%;border:1px solid var(--color-edge-strong);display:grid;place-items:center;font-style:normal;font-size:7px;color:var(--color-accent-soft)}
+.nmsg code{font-family:var(--mono);font-size:12px;border-radius:4px;background:var(--color-surface-raised);padding:0 4px}
 .empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;padding:40px}
 .empty .t{font-size:17px;font-weight:600;color:var(--color-primary)}
 .empty .d{font-size:13px;color:var(--color-muted);max-width:420px;line-height:1.55}
@@ -265,10 +274,10 @@ const A = {
     state: t4State, branch: "wave/3f2a-t-2", model: "claude-sonnet-4-6", ctx: 27, age: () => (S.answered ? "7m" : "6m"), cache: "4m left", attempt: () => (S.answered ? "1 \u00B7 7m" : "1 \u00B7 6m"), commit: "e81d07",
     tok: TOK("0.9M", "$0.98", [68, 4, 12, 16]), tools: [["Read", 6], ["Edit", 2]], files: [["M", "frontend/app/view/agents/linkchip.tsx"]] },
   t1: { kind: "worker", lead: "lead", project: "waveterm", task: "t-1", title: "link model", lane: "A", laneTasks: "t-1 \u2192 t-3", dep: "none", rt: "claude", state: () => "done", ended: true, commit: "a1b2c3",
-    branch: "wave/3f2a-t-1", model: "claude-sonnet-4-6", ctx: 19, age: "31m", cache: "expired", attempt: "1 \u00B7 3m",
+    branch: "wave/3f2a-t-1", model: "claude-sonnet-4-6", age: "31m", cache: "expired", attempt: "1 \u00B7 3m",
     tok: TOK("0.6M", "$0.61", [66, 5, 12, 17]), tools: [["Read", 5], ["Write", 2], ["Bash", 2]], files: [["A", "frontend/app/view/agents/linkmodel.ts"]] },
   t2: { kind: "worker", lead: "lead", project: "waveterm", task: "t-2", title: "link store", lane: "B", laneTasks: "t-2 \u2192 t-4", dep: "none", rt: "claude", state: () => "done", ended: true, commit: "9e04f1",
-    branch: "wave/3f2a-t-2", model: "claude-sonnet-4-6", ctx: 21, age: "29m", cache: "expired", attempt: "1 \u00B7 4m",
+    branch: "wave/3f2a-t-2", model: "claude-sonnet-4-6", age: "29m", cache: "expired", attempt: "1 \u00B7 4m",
     tok: TOK("0.7M", "$0.70", [67, 4, 12, 17]), tools: [["Read", 7], ["Write", 1], ["Edit", 2]], files: [["A", "frontend/app/view/agents/linkstore.ts"]] },
   scratch: { kind: "agent", project: "waveterm", name: "scratch", rt: "pi", state: () => "idle", branch: "main", model: "gpt-5.1-codex", ctx: 9, age: "5h",
     tok: TOK("0.4M", "$0.22", [60, 6, 14, 20]), tools: [["read", 4]], files: [] },
@@ -300,6 +309,16 @@ function detailFacts(a) {
 
 // ---------- terminals ----------
 const T = (cls, s) => (cls ? `<span class="${cls}">${esc(s)}</span>` : esc(s));
+function narration(id) {
+  const a = A[id];
+  const calls = a.tools.reduce((n, t) => n + t[1], 0);
+  return `<div class="${nw("narr")}">
+    <div class="nyou"><b>YOU</b>You are the worker for task ${a.task.slice(2)} of the plan at \u2026/2026-09-17-cross-surface-resource-linking.md. The plan is approved: don't re-plan or pause for design approval\u2026</div>
+    <div class="ntools">\u25B8 <b>${calls} tools</b> \u00B7 ${a.tools.map(([v, n]) => `${n} ${v.toLowerCase()}`).join(" \u00B7 ")} <span style="color:var(--color-success)">\u2713</span></div>
+    <div class="nmsg"><i>\u25CF</i><p>Done. Wrote <code>${esc(a.files[0][1].split("/").pop())}</code>, its tests pass, committed ${a.commit} and marked the task complete via <code>wsh jarvis complete</code>.</p></div>
+  </div>`;
+}
+
 function term(id) {
   const L = [];
   const p = (...parts) => L.push(parts.join(""));
@@ -346,13 +365,6 @@ function term(id) {
     } else {
       p(T("f", "  \u23BF  "), T("w", S.takeover ? "Waiting for your answer (details panel)\u2026" : "Waiting for the lead's answer\u2026"));
     }
-  } else if (id === "t1" || id === "t2") {
-    const a = A[id];
-    p(T("f", "> "), T("m", `You are the worker for task ${a.task.slice(2)} of the plan at \u2026/2026-09-17-cross-surface-resource-linking.md \u2026`));
-    p(""); p(T("g", "\u25CF "), T("h", "Write"), `(${a.files[0][1]})`); p(T("f", "  \u23BF  "), T("m", "Wrote 41 lines"));
-    p(T("g", "\u25CF "), T("h", "Bash"), "(npx vitest run " + a.files[0][1].replace(".ts", ".test.ts") + ")"); p(T("f", "  \u23BF  "), T("g", "\u2713 7 passed"));
-    p(T("g", "\u25CF "), T("h", "Bash"), `(git commit -m "feat: ${a.title}" && wsh jarvis complete --commit $(git rev-parse HEAD))`);
-    p(T("f", "  \u23BF  "), T("m", `[wave/3f2a-${a.task}] ${a.commit} \u00B7 completed`));
   } else if (id === "g1" || id === "g2") {
     p(T("f", "> "), T("m", `You are the worker for task ${A[id].task.slice(2)} of the plan at C:/Users/kael02/IdeaProjects/accept-ask/docs/plan.md \u2026`));
     p(""); p(T("g", "\u25CF "), T("h", "Read"), "(docs/plan.md)"); p(T("f", "  \u23BF  "), T("m", "Read 40 lines"));
@@ -467,11 +479,11 @@ function renderCenter() {
   const head = `<div class="ahead">${dotFor(id, 9)}<div style="min-width:0"><div class="line1"><span class="nm">${a.kind === "lead" ? "<span class='" + nw("runglyph") + "'>\u25C6</span>" : ""}${esc(displayName(a))}</span>
       <span class="rtchip" style="color:${rt.text};background:${rt.soft};border-color:${rt.line}">${rt.glyph} ${rt.label}</span>
       <span class="pill" style="color:${pillColor};border-color:${pillColor}">${pillText}</span>
-      <span class="mchip">${esc(a.model)}</span><span style="font-family:var(--mono);font-size:10.5px;font-weight:600;color:var(--color-accent)">${a.ctx}%</span></div>
+      <span class="mchip">${esc(a.model)}</span>${a.ended ? "" : `<span style="font-family:var(--mono);font-size:10.5px;font-weight:600;color:var(--color-accent)">${a.ctx}%</span>`}</div>
       <div class="line2">${line2}</div></div><div style="flex:1"></div>
       ${a.ended ? "" : `<button class="iconbtn" title="Fullscreen (f)">\u2922</button><button class="iconbtn" title="Close">\u2715</button>`}</div>`;
   if (a.ended) {
-    el.innerHTML = head + `<div class="${nw("ended")}"><span>\u25CF</span><span>Session ended \u00B7 landed ${a.commit} \u00B7 read-only transcript</span></div><div class="term" style="opacity:.8">${term(id)}</div>`;
+    el.innerHTML = head + `<div class="${nw("ended")}"><span>\u25CF</span><span>Session ended \u00B7 landed ${a.commit} \u00B7 read-only transcript</span></div>${narration(id)}`;
     return;
   }
   const hint = id === "t4" && t4State() === "asking" && S.takeover ? "answer in the details panel \u00B7 or type to talk to this worker" : "type to talk to this agent \u00B7 ? for shortcuts";
@@ -633,7 +645,7 @@ function renderRail() {
   if (a.kind === "lead") sections.push(runSectionLead());
   if (a.kind === "nolead") sections.push(runSectionNoLead());
   if (a.kind === "worker") sections.push(taskSection(S.sel));
-  if (a.kind !== "nolead") sections.push(contextSection(a), usageToday(a), toolsSection(a), filesSection(a));
+  if (a.kind !== "nolead") sections.push(a.ended ? "" : contextSection(a), usageToday(a), toolsSection(a), filesSection(a));
   const noTerm = a.kind === "nolead" || a.ended;
   el.innerHTML = `<div class="railtop"><button data-act="rail" title="Collapse (d)">\u203A</button></div>
     <div class="railbody">${sections.filter(Boolean).join("")}</div>

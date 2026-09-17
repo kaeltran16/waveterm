@@ -73,6 +73,11 @@ func TestLaneTasksStackInOneWorktreeAndMergeOnce(t *testing.T) {
 	if got := f.taskRun(t, "t-1").ProjectPath; got != wt {
 		t.Fatalf("t-1 works in the lane's tree, got %s", got)
 	}
+	// the tree and its branch are gone after cleanup, so the run is the only record of where the work was
+	branch := "wave/" + TaskWorktreeKey(f.ownerID, "t-1")
+	if got := f.taskRun(t, "t-1").Branch; got != branch {
+		t.Fatalf("t-1 records the lane's branch %s, got %q", branch, got)
+	}
 	schema := commitInTree(t, wt, "schema.txt")
 	f.finish(t, "t-1")
 
@@ -83,8 +88,8 @@ func TestLaneTasksStackInOneWorktreeAndMergeOnce(t *testing.T) {
 		t.Fatalf("a lane does not merge before its last task is done, got %+v", *merges)
 	}
 	second := f.taskRun(t, "t-2")
-	if second.ProjectPath != wt || second.BaseCommit != schema {
-		t.Fatalf("t-2 starts in the same tree at t-1's commit, got %s at %s", second.ProjectPath, second.BaseCommit)
+	if second.ProjectPath != wt || second.BaseCommit != schema || second.Branch != branch {
+		t.Fatalf("t-2 starts in the same tree and branch at t-1's commit, got %s (%s) at %s", second.ProjectPath, second.Branch, second.BaseCommit)
 	}
 	f.finish(t, "t-2")
 

@@ -291,6 +291,9 @@ type Run struct {
 	// worker's transcript is named by it, so liveness and evidence open that file. Empty for runs the
 	// engine did not launch.
 	SessionId string `json:"sessionid,omitempty"`
+	// Branch is the git branch a dag child's worker committed on: its lane's wave/<key>. Cleanup deletes the
+	// branch and the worktree, so a finished worker's branch is known only from here. Empty outside a repo.
+	Branch string `json:"branch,omitempty"`
 	// WorkerRoute is the default worker route for orchestrator children (nil = inherit lead); stored here at CreateRun so a submit can carry it onto the group.
 	WorkerRoute *RoutePin `json:"workerroute,omitempty"`
 	// Orchestration selects which machine an orchestrator lead drives: "engine" publishes a TaskGroup

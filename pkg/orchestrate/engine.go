@@ -388,6 +388,7 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		// folded into the child's wall clock where neither can be told apart.
 		cwd := owner.ProjectPath
 		taskBase := spawnBase
+		var branch string
 		var worktreeMs, setupMs int64
 		if IsGitRepo(owner.ProjectPath) {
 			// a lane's tasks share one tree, so each starts from the commits of the task before it
@@ -415,6 +416,7 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 			}
 			cwd = wt
 			taskBase = head
+			branch = "wave/" + key
 		}
 		prompt := taskPrompt(g, task, owner, pin.Runtime, predecessorHandoff(task, g, runs))
 		// a new session per dispatch: its transcript is named by the id, so liveness and evidence never
@@ -429,6 +431,7 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		}
 		childRun := childRunFromSpec(g, task, owner, pin, cwd, taskBase, prompt)
 		childRun.SessionId = sessionId
+		childRun.Branch = branch
 		// attach worker to child run before persisting
 		attached := false
 		for i := range childRun.Phases {
