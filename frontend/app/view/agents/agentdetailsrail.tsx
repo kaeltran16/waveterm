@@ -40,22 +40,22 @@ const GAUGE_FILL: Record<"ok" | "warn" | "hot", string> = {
 
 const RailFilesCap = 8; // a 296px rail can't show a large worktree; overflow folds into "+N more"
 
-// A 264px-wide rail can't always fit "label   value" on one line (a ticket-prefixed branch, a project
-// path). The value takes the space the label leaves and ellipsizes there, with `title` carrying the full
-// text. Wrapping it whole onto its own line read as the value spilling out of its row, and letting it
-// shrink without nowrap broke it mid-token.
-function DetailRow({ label, value, title }: { label: string; value: React.ReactNode; title?: string }) {
+// Details groups its facts into three labelled lines: who is working (runtime, model), where (project,
+// branch) and for how long (state, age, cache). Five bordered rows spent most of the rail's first screen on
+// short values.
+function DetailLine({ label, title, children }: { label: string; title?: string; children: React.ReactNode }) {
     return (
-        <div className="flex items-baseline gap-x-[12px] border-b border-edge-faint py-[5px] last:border-b-0">
-            <span className="shrink-0 text-[12.5px] text-muted">{label}</span>
-            <span
-                title={title}
-                className="min-w-0 flex-1 truncate text-right font-mono text-[12px] font-medium text-secondary"
-            >
-                {value}
+        <div className="flex min-w-0 items-baseline gap-[10px]">
+            <span className="w-[44px] shrink-0 text-[12px] text-muted">{label}</span>
+            <span title={title} className="min-w-0 flex-1 truncate font-mono text-[11.5px] font-medium text-secondary">
+                {children}
             </span>
         </div>
     );
+}
+
+function Sep({ children = "·" }: { children?: string }) {
+    return <span className="text-muted"> {children} </span>;
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
@@ -105,10 +105,13 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
         );
     };
 
-    const age = formatAge(displayAgeMs(agent, now));
-    const running = agent.state === "idle" ? `${age} idle` : age;
-    const cacheCountdown = formatCacheCountdown(cacheStatus, now);
+    const ageMs = displayAgeMs(agent, now);
+    // "<1m" rather than formatAge's "just now", so a fresh session's line still fits the cache countdown
+    const age = ageMs == null || ageMs < 60_000 ? "<1m" : formatAge(ageMs);
     const isClaude = (agent.agent || "claude") === "claude";
+    // "—" is a cache nobody has read yet; the line leaves it out rather than say so
+    const cacheCountdown = isClaude ? formatCacheCountdown(cacheStatus, now) : "—";
+    const branch = railState?.branch;
 
     const sections: RailSection[] = [
         {
@@ -117,26 +120,43 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
             icon: RAIL_ICON.info,
             content: (
                 <div>
-                    <div className="mb-[13px]">
+                    <div className="mb-[10px]">
                         <SectionLabel>Details</SectionLabel>
                     </div>
-                    <div className="flex flex-col">
-                        <DetailRow
-                            label="Runtime"
-                            value={
-                                <span className="inline-flex items-center gap-[5px]">
-                                    <span className={cn("inline-flex items-center gap-[5px] font-semibold", rt.text)}>
-                                        <RuntimeMark runtime={agent.agent} className="text-[11px]" />
-                                        {rt.label}
+                    <div className="flex flex-col gap-[6px]">
+                        <DetailLine label="Agent">
+                            <span className={cn("inline-flex items-center gap-[5px] font-semibold", rt.text)}>
+                                <RuntimeMark runtime={agent.agent} className="text-[11px]" />
+                                {rt.label}
+                            </span>
+                            {agent.model ? (
+                                <>
+                                    <Sep />
+                                    {prettyModel(agent.model)}
+                                </>
+                            ) : null}
+                        </DetailLine>
+                        <DetailLine label="Project" title={branch ? `${project} / ${branch}` : project}>
+                            {project || "—"}
+                            {branch ? (
+                                <>
+                                    <Sep>/</Sep>
+                                    {branch}
+                                </>
+                            ) : null}
+                        </DetailLine>
+                        <DetailLine label="Session">
+                            {agent.state} {age}
+                            {cacheCountdown !== "—" ? (
+                                <>
+                                    <Sep />
+                                    cache{" "}
+                                    <span className={cacheCountdown === "expired" ? "text-ink-faint" : undefined}>
+                                        {cacheCountdown}
                                     </span>
-                                    <span className="text-muted">· {running}</span>
-                                </span>
-                            }
-                        />
-                        <DetailRow label="Project" value={project || "—"} title={project} />
-                        <DetailRow label="Branch" value={railState?.branch || "—"} title={railState?.branch} />
-                        <DetailRow label="Model" value={agent.model ? prettyModel(agent.model) : "—"} />
-                        {isClaude ? <DetailRow label="Cache expires" value={cacheCountdown} /> : null}
+                                </>
+                            ) : null}
+                        </DetailLine>
                     </div>
                 </div>
             ),

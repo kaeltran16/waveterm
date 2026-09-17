@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent surface - run hierarchy (option 1, full)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --color-background:#0c0e11; --color-surface:#0e1116; --color-surface-raised:#13171d; --color-surface-hover:#171c22;
+  --color-surface-selected:#1a222c; --color-primary:#e6e9ed; --color-secondary:#cfd5db; --color-muted-foreground:#c3cad1;
+  --color-ink-hi:#dfe4ea; --color-ink-mid:#9aa3ad; --color-muted:#7f858b; --color-ink-faint:#646a72;
+  --color-border:#1c2128; --color-edge-mid:#20262e; --color-edge-strong:#2a313a; --color-edge-faint:#161a20;
+  --color-accent:#5e9cff; --color-accenthover:#8da3ff; --color-accent-soft:#aebfff; --color-accent-300:#8da3ff; --color-accentbg:rgba(94,156,255,.12);
+  --color-error:#e0726c; --color-warning:#e6b450; --color-success:#54c79a; --color-cacheread:#5b6675; --color-feed-time:#4f565f;
+  --color-rt-claude:#d97757; --color-rt-claude-soft:rgba(217,119,87,.13); --color-rt-claude-line:rgba(217,119,87,.34);
+  --color-rt-pi:#ececec; --color-rt-pi-soft:rgba(236,236,236,.13); --color-rt-pi-line:rgba(236,236,236,.32);
+  --mono:'JetBrains Mono',ui-monospace,Consolas,monospace; --sans:'Hanken Grotesk',system-ui,sans-serif;
+  --dur-micro:140ms; --curve-out:cubic-bezier(0.22,1,0.36,1);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden;background:var(--color-background);color:var(--color-primary);font-family:var(--sans);font-size:14px;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+button:focus-visible,.arow:focus-visible{outline:2px solid var(--color-accent);outline-offset:1px}
+@keyframes pulseDot{0%,100%{opacity:1}50%{opacity:.35}}
+@media (prefers-reduced-motion:reduce){.pulse{animation:none!important}.rail{transition:none!important}}
+
+/* reviewer toolbar (not part of the app) */
+.tb{flex:none;display:flex;align-items:center;gap:6px;flex-wrap:nowrap;overflow-x:auto;padding:9px 14px;background:#08090b;border-bottom:1px solid var(--color-border)}
+.tb .lbl{font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--color-ink-faint);margin-right:4px}
+.tb button{flex:none;white-space:nowrap;font-family:var(--mono);font-size:10px;font-weight:600;color:var(--color-muted);background:var(--color-surface-raised);border:1px solid var(--color-edge-mid);border-radius:7px;padding:4px 8px;transition:all var(--dur-micro) var(--curve-out)}
+.tb button:hover{color:var(--color-primary);border-color:var(--color-edge-strong)}
+.tb button.on{color:var(--color-accent-soft);background:var(--color-accentbg);border-color:rgba(94,156,255,.45)}
+.tb .sep{width:1px;height:18px;background:var(--color-edge-mid);margin:0 6px}
+.tb .hint{font-family:var(--mono);font-size:10px;color:var(--color-ink-faint);margin-left:auto;white-space:nowrap}
+body{display:flex;flex-direction:column}
+
+/* app chrome */
+.app{flex:1;min-height:0;display:flex;flex-direction:column}
+.appbar{height:46px;flex:none;display:flex;align-items:center;gap:12px;padding:0 16px;border-bottom:1px solid var(--color-border)}
+.logo{width:18px;height:18px;border-radius:5px;background:var(--color-accent);display:grid;place-items:center}
+.logo i{width:6px;height:6px;border-radius:50%;background:var(--color-background)}
+.crumb{font-size:13px;font-weight:600;color:var(--color-secondary)}
+.crumb.dim{color:var(--color-ink-faint);font-weight:400}
+.search{margin:0 auto;width:440px;height:32px;border:1px solid var(--color-edge-mid);border-radius:8px;display:flex;align-items:center;padding:0 12px;font-size:12.5px;color:var(--color-muted)}
+.newagent{background:var(--color-accent);color:var(--color-background);font-weight:600;font-size:12.5px;border-radius:6px;padding:7px 12px}
+.main{flex:1;display:flex;min-height:0}
+.nav{width:78px;flex:none;border-right:1px solid var(--color-border);display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 0}
+.navi{width:62px;height:58px;border-radius:9px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;font-size:10.5px;color:var(--color-muted)}
+.navi b{font-family:var(--mono);font-size:15px;font-weight:500;line-height:1}
+.navi.on{background:var(--color-accentbg);color:var(--color-accent-soft)}
+
+/* agent tree */
+.tree{width:248px;flex:none;display:flex;flex-direction:column;border-right:1px solid var(--color-border);background:var(--color-surface)}
+.treehead{padding:16px 16px 12px;border-bottom:1px solid var(--color-edge-faint);display:flex;justify-content:space-between;align-items:center}
+.h3{font-family:var(--mono);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--color-ink-mid)}
+.treebody{flex:1;min-height:0;overflow-y:auto;padding:8px}
+.grp{display:flex;align-items:center;gap:8px;padding:14px 11px 6px}
+.grp .p{font-family:var(--mono);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--color-muted);white-space:nowrap}
+.grp .rule{flex:1;height:1px;background:var(--color-edge-faint)}
+.grp .attn{border-radius:5px;background:rgba(230,180,80,.1);padding:1px 6px;font-family:var(--mono);font-size:9.5px;font-weight:600;color:var(--color-warning)}
+.grp .cnt{font-family:var(--mono);font-size:10px;font-weight:600;color:var(--color-feed-time)}
+.arow{position:relative;display:flex;align-items:center;gap:9px;border-radius:9px;padding:10px 11px;cursor:pointer;transition:background var(--dur-micro) var(--curve-out)}
+.arow:hover{background:var(--color-surface-hover)}
+.arow.ask{background:rgba(230,180,80,.06)}
+.arow.sel{background:var(--color-accentbg)}
+.arow.child{padding:8px 11px 8px 28px}
+.arow.child::before{content:'\21B3';position:absolute;left:12px;top:50%;transform:translateY(-50%);font-family:var(--mono);font-size:11px;font-weight:600;color:var(--color-ink-faint)}
+.arow .txt{min-width:0;flex:1}
+.aname{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--color-ink-hi);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.arow.child .aname{font-size:11.5px}
+.asub{font-size:10.5px;color:var(--color-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.astate{font-family:var(--mono);font-size:10px;font-weight:500;white-space:nowrap}
+.dot{width:7px;height:7px;border-radius:50%;flex:none}
+.dot.hollow{background:transparent!important;border:1px solid var(--color-muted)}
+.pulse{animation:pulseDot 1.6s infinite}
+.tog{display:flex;align-items:center;gap:3px;border-radius:4px;border:1px solid var(--color-edge-mid);background:var(--color-surface-hover);padding:2px 6px;font-family:var(--mono);font-size:9.5px;font-weight:600;color:var(--color-muted)}
+.tog:hover{border-color:var(--color-accent);color:var(--color-accent-soft)}
+.foldrow{position:relative;display:flex;align-items:center;gap:8px;border-radius:9px;padding:6px 11px 6px 28px;cursor:pointer;font-family:var(--mono);font-size:10.5px;color:var(--color-muted)}
+.foldrow::before{content:'\21B3';position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:11px;font-weight:600;color:var(--color-ink-faint)}
+.foldrow:hover{background:var(--color-surface-hover);color:var(--color-secondary)}
+.psub{display:flex;align-items:center;gap:6px;margin-top:2px;min-width:0}
+.psub .tog{flex:none;padding:0 5px}
+.runglyph{color:var(--color-accent-soft);font-size:10px;margin-right:5px}
+
+/* center */
+.center{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--color-background)}
+.ahead{flex:none;display:flex;align-items:center;gap:13px;border-bottom:1px solid var(--color-border);padding:14px 22px}
+.ahead .nm{font-family:var(--mono);font-size:15px;font-weight:600;color:var(--color-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ahead .line1{display:flex;align-items:center;gap:9px;min-width:0}
+.ahead .line2{margin-top:2px;font-family:var(--mono);font-size:11px;font-weight:500;color:var(--color-muted);white-space:nowrap}
+.rtchip{display:inline-flex;align-items:center;gap:5px;white-space:nowrap;border-radius:5px;border:1px solid;padding:2px 8px;font-family:var(--mono);font-size:10.5px;font-weight:600}
+.pill{border-radius:5px;border:1px solid;padding:1px 7px;font-family:var(--mono);font-size:10.5px;font-weight:500;opacity:.85;white-space:nowrap}
+.mchip{border-radius:5px;border:1px solid var(--color-edge-mid);padding:1px 7px;font-family:var(--mono);font-size:10.5px;color:var(--color-muted);white-space:nowrap}
+.iconbtn{border-radius:7px;border:1px solid var(--color-edge-mid);background:var(--color-surface-raised);padding:5px 9px;color:var(--color-secondary);font-family:var(--mono);font-size:13px;line-height:1}
+.iconbtn:hover{border-color:var(--color-edge-strong)}
+.uplink{color:var(--color-accent-soft);cursor:pointer}
+.uplink:hover{text-decoration:underline}
+.term{flex:1;min-height:0;overflow:auto;padding:16px 22px 10px;font-family:var(--mono);font-size:12.5px;line-height:1.6;color:#cdd3da;white-space:pre-wrap}
+.term .c{color:var(--color-rt-claude)}.term .m{color:var(--color-muted)}.term .f{color:var(--color-ink-faint)}.term .g{color:var(--color-success)}
+.term .w{color:var(--color-warning)}.term .b{color:var(--color-accent-soft)}.term .h{color:var(--color-primary);font-weight:600}.term .e{color:var(--color-error)}
+.tinput{flex:none;margin:0 22px 14px;border-top:1px solid var(--color-edge-strong);border-bottom:1px solid var(--color-edge-strong);padding:7px 2px;font-family:var(--mono);font-size:12.5px;color:var(--color-secondary);display:flex;gap:8px}
+.tinput .caret{display:inline-block;width:8px;height:15px;background:var(--color-secondary);vertical-align:-2px}
+.thint{flex:none;margin:-8px 24px 12px;font-family:var(--mono);font-size:11px;color:var(--color-ink-faint)}
+.ended{flex:none;margin:12px 22px 0;border:1px solid var(--color-edge-mid);background:var(--color-surface-raised);border-radius:6px;padding:8px 12px;font-family:var(--mono);font-size:11px;color:var(--color-muted);display:flex;gap:10px;align-items:center}
+.empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;padding:40px}
+.empty .t{font-size:17px;font-weight:600;color:var(--color-primary)}
+.empty .d{font-size:13px;color:var(--color-muted);max-width:420px;line-height:1.55}
+
+/* details rail */
+.rail{width:300px;flex:none;display:flex;flex-direction:column;border-left:1px solid var(--color-border);background:var(--color-surface);transition:width 250ms var(--curve-out);overflow:hidden}
+.rail.closed{width:44px}
+.railtop{flex:none;display:flex;justify-content:flex-end;padding:8px 8px 0}
+.railtop button{border-radius:7px;padding:4px 8px;font-size:14px;line-height:1;color:var(--color-muted)}
+.railtop button:hover{background:var(--color-surface-hover);color:var(--color-secondary)}
+.railbody{flex:1;min-height:0;overflow-y:auto;padding:8px 18px 40px;display:flex;flex-direction:column;gap:24px;width:300px}
+.railfoot{flex:none;border-top:1px solid var(--color-border);padding:12px 18px;display:flex;gap:8px;width:300px}
+.railfoot button{flex:1;border-radius:4px;border:1px solid var(--color-edge-mid);background:var(--color-surface-raised);padding:8px 0;font-size:12px;font-weight:500;color:var(--color-secondary)}
+.railfoot button.stop{border-color:rgba(224,114,108,.3);background:transparent;color:var(--color-error)}
+.railfoot button:disabled{opacity:.45;cursor:not-allowed}
+.sl{font-family:var(--mono);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--color-ink-mid)}
+.shead{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.shead .r{font-family:var(--mono);font-size:11px;font-weight:600;color:var(--color-muted);white-space:nowrap}
+.dr{display:flex;align-items:baseline;gap:12px;border-bottom:1px solid var(--color-edge-faint);padding:5px 0}
+.dr:last-child{border-bottom:none}
+.dr .l{flex:none;font-size:12.5px;color:var(--color-muted)}
+.dr .v{flex:1;min-width:0;text-align:right;font-family:var(--mono);font-size:12px;font-weight:500;color:var(--color-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meter{display:flex;height:7px;border-radius:4px;background:var(--color-surface-raised);overflow:hidden}
+.meter.tall{height:11px;border-radius:5px}
+.tchips{display:flex;flex-wrap:wrap;gap:7px}
+.tchip{border-radius:4px;border:1px solid var(--color-edge-mid);background:var(--color-surface-raised);padding:4px 9px;font-family:var(--mono);font-size:11px;font-weight:500;color:var(--color-ink-mid)}
+.frow{display:flex;align-items:center;gap:8px;border-radius:4px;padding:3px 5px;font-family:var(--mono);font-size:11.5px;font-weight:500;color:var(--color-secondary);white-space:nowrap;overflow:hidden}
+.frow:hover{background:var(--color-surface-hover);color:var(--color-primary)}
+.frow b{flex:none;color:var(--color-warning)}
+.frow span{overflow:hidden;text-overflow:ellipsis}
+.hstat{font-family:var(--mono);font-size:12px;font-weight:700}
+.sub{font-family:var(--mono);font-size:11px;color:var(--color-muted)}
+.qcard{border-radius:9px;border:1px solid var(--color-edge-mid);background:var(--color-surface-raised);padding:9px 11px}
+.qcard.you{border-color:rgba(230,180,80,.45);background:rgba(230,180,80,.06)}
+.qmeta{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:10.5px;color:var(--color-muted);white-space:nowrap;overflow:hidden}
+.qmeta span{overflow:hidden;text-overflow:ellipsis}
+.qact{display:flex;justify-content:flex-end;margin-top:7px}
+.qmeta b{color:var(--color-primary);font-weight:600}
+.qtext{margin-top:5px;font-size:12.5px;line-height:1.45;color:var(--color-primary)}
+.qhdr{display:inline-block;margin-top:6px;font-family:var(--mono);font-size:9.5px;font-weight:600;text-transform:uppercase;letter-spacing:.09em;color:var(--color-muted)}
+.opt{display:block;width:100%;text-align:left;border:1px solid var(--color-edge-mid);border-radius:7px;padding:6px 9px;margin-top:6px;background:var(--color-surface);font-size:12px;color:var(--color-secondary)}
+.opt small{display:block;font-size:10.5px;color:var(--color-muted)}
+.opt:hover{border-color:var(--color-edge-strong)}
+.opt.on{border-color:var(--color-accent);background:var(--color-accentbg);color:var(--color-primary)}
+.btn2{font-family:var(--mono);font-size:10.5px;font-weight:600;color:var(--color-secondary);background:var(--color-surface);border:1px solid var(--color-edge-mid);border-radius:7px;padding:3px 9px;white-space:nowrap}
+.btn2:hover{color:var(--color-primary);border-color:var(--color-edge-strong)}
+.btnp{font-family:var(--mono);font-size:10.5px;font-weight:600;color:var(--color-background);background:var(--color-accent);border-radius:7px;padding:5px 12px;margin-top:8px}
+.btnp:disabled{opacity:.4;cursor:not-allowed}
+.lanes{display:flex;flex-direction:column;gap:1px;margin-top:2px}
+.laneln{display:flex;align-items:center;gap:6px;border-radius:6px;padding:4px 5px;font-family:var(--mono);font-size:11.5px;color:var(--color-secondary);white-space:nowrap;overflow:hidden;cursor:pointer}
+.laneln:hover{background:var(--color-surface-hover)}
+.laneln .k{flex:none;width:12px;color:var(--color-muted);font-weight:600}
+.laneln .arr{color:var(--color-ink-faint)}
+.laneln .nm{overflow:hidden;text-overflow:ellipsis}
+.laneln .mt{margin-left:auto;padding-left:6px;color:var(--color-muted);font-size:10.5px}
+.logs{display:flex;flex-direction:column;gap:3px}
+.logln{display:flex;gap:9px;font-family:var(--mono);font-size:11px;color:var(--color-secondary);line-height:1.45}
+.logln .t{flex:none;color:var(--color-muted)}
+.more{width:fit-content;font-family:var(--mono);font-size:10.5px;font-weight:600;color:var(--color-accent-soft);border-radius:7px;padding:3px 6px;margin-left:-6px}
+.more:hover{background:var(--color-surface-hover)}
+.tu-head{display:flex;align-items:flex-end;justify-content:space-between;margin:13px 0 15px}
+.tu-big{font-family:var(--mono);font-size:22px;font-weight:700;line-height:1}
+.tu-cap{margin-top:4px;font-family:var(--mono);font-size:10px;color:var(--color-muted)}
+.tu-lbl{display:flex;justify-content:space-between;align-items:baseline;margin:0 0 6px}
+.tu-lbl span:first-child{font-family:var(--mono);font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.09em;color:var(--color-muted)}
+.tu-lbl span:last-child{font-family:var(--mono);font-size:11px;color:var(--color-secondary)}
+.cls{display:flex;align-items:center;gap:9px;border-bottom:1px solid var(--color-edge-faint);padding:7px 0}
+.cls:last-child{border-bottom:none}
+.cls i{width:9px;height:9px;border-radius:3px;flex:none}
+.cls .n{flex:1;font-size:12px;color:var(--color-secondary)}
+.cls .a{width:52px;text-align:right;font-family:var(--mono);font-size:11.5px;color:var(--color-secondary)}
+.cls .b{width:48px;text-align:right;font-family:var(--mono);font-size:11.5px;color:var(--color-muted)}
+.collapsedicon{margin:10px auto 0;width:32px;height:32px;border-radius:8px;display:grid;place-items:center;color:var(--color-muted);font-family:var(--mono);font-size:14px}
+.collapsedicon:hover{background:var(--color-surface-hover);color:var(--color-secondary)}
+.railbody>*{flex:none}
+/* usage today: the parts of tokenusagesection.tsx the first mockup skipped */
+.cls .p{width:34px;text-align:right;font-family:var(--mono);font-size:9.5px;color:var(--color-muted)}
+.insight{margin-top:13px;display:flex;gap:8px;border-radius:9px;border:1px solid var(--color-border);background:var(--color-surface-raised);padding:9px 11px;font-size:11.5px;line-height:1.5;color:var(--color-secondary)}
+.insight span{flex:none;font-size:12px;color:var(--color-warning)}
+.bymodel{display:flex;align-items:center;gap:8px;margin:16px 0 11px;font-family:var(--mono);font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.09em;color:var(--color-muted)}
+.bymodel i{flex:1;height:1px;background:var(--color-edge-faint)}
+.bymodel span:last-child{font-size:10px;font-weight:400;text-transform:none;letter-spacing:0}
+.mrow{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-family:var(--mono);font-size:11px;color:var(--color-muted)}
+.mrow .mn{flex:1;min-width:0;font-size:12px;font-weight:600;color:var(--color-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mrow .ms{width:48px;text-align:right}
+.foot{margin-top:13px;font-family:var(--mono);font-size:10px;line-height:1.5;color:var(--color-muted)}
+
+/* details A/B/C */
+.dgrp{display:flex;flex-direction:column;gap:6px}
+.dline{display:flex;align-items:baseline;gap:10px;min-width:0}
+.dline .l{flex:none;width:52px;font-size:12px;color:var(--color-muted)}
+.dline .v{flex:1;min-width:0;font-family:var(--mono);font-size:11.5px;font-weight:500;color:var(--color-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dline i{font-style:normal;color:var(--color-muted)}
+.faint{color:var(--color-ink-faint)!important}
+
+/* reviewer aid: outline what this design adds */
+body.marknew .new{outline:1px dashed rgba(94,156,255,.6);outline-offset:3px;border-radius:6px}
+</style>
+</head>
+<body class="marknew">
+<div class="tb" id="tb"></div>
+<div class="app">
+  <div class="appbar">
+    <div class="logo"><i></i></div><span class="crumb">Arc</span><span class="crumb dim">/</span>
+    <span class="crumb">All projects &#9662;</span><span class="crumb dim">/</span><span class="crumb">Global &#9662;</span>
+    <div class="search">&#8981;&nbsp; Search agents, sessions, commands&#8230;</div>
+    <button class="newagent">+ New agent</button>
+  </div>
+  <div class="main">
+    <div class="nav">
+      <div class="navi"><b>&#9638;</b>Cockpit</div><div class="navi"><b>&#9673;</b>Jarvis</div><div class="navi on"><b>&#9635;</b>Agent</div>
+      <div class="navi"><b>&#9678;</b>Radar</div><div class="navi"><b>&#10697;</b>Sessions</div><div class="navi"><b>&#8645;</b>Diff</div>
+      <div class="navi"><b>&#9746;</b>Vault</div><div class="navi"><b>&#9719;</b>Usage</div><div class="navi"><b>&#8249;&#8250;</b>Code</div>
+    </div>
+    <div class="tree" id="tree"></div>
+    <div class="center" id="center"></div>
+    <div class="rail" id="rail"></div>
+  </div>
+</div>
+
+<script>
+const S = { sel: "lead", rail: true, leadOpen: true, doneOpen: false, takeover: false, answered: false, choice: null, finished: false, marknew: true, scenario: "lead" };
+
+const C = { idle: "var(--color-muted)", working: "var(--color-accent)", asking: "var(--color-warning)", done: "var(--color-success)", none: "var(--color-muted)" };
+const RT = { claude: { label: "Claude Code", glyph: "\u273B", text: "var(--color-rt-claude)", soft: "var(--color-rt-claude-soft)", line: "var(--color-rt-claude-line)" },
+             pi: { label: "pi", glyph: "\u03C0", text: "var(--color-rt-pi)", soft: "var(--color-rt-pi-soft)", line: "var(--color-rt-pi-line)" } };
+const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const nw = (cls) => (S.marknew ? cls + " new" : cls);
+
+// ---------- scenario-derived facts ----------
+function q4() {
+  if (S.finished || S.answered) return null;
+  return { task: "t-4", header: "Stale link", text: "A chip for a deleted file: hide it, or strike it through?",
+    owner: S.takeover ? "you" : "lead", left: "8m left",
+    options: [["Strike through", "keep it visible, marked stale"], ["Hide", "drop the chip"]] };
+}
+function leadState() { return S.finished ? "idle" : S.takeover ? "idle" : "working"; }
+function t4State() { return S.finished ? "done" : S.answered ? "working" : "asking"; }
+function attn() { const q = q4(); return q && q.owner === "you" ? 1 : 0; }
+
+function leadLog() {
+  if (S.finished) return [["11:02", "run finished \u2192 report written, complete"], ["10:58", "t-6 landed \u00B7 Verify passed"], ["10:47", "you answered t-4 \u00B7 Strike through"]];
+  const base = [["10:44", "<span style='color:var(--color-warning)'>wake:</span> 1 question waiting"], ["10:38", "Verify failed after t-1 \u2192 fixed 7c21aa \u2713"], ["10:25", "plan submitted \u00B7 compacted"]];
+  if (S.answered) return [["10:47", "you answered t-4 \u00B7 Strike through"], ["10:46", "you took t-4 over from the lead"], base[0]];
+  if (S.takeover) return [["10:46", "you took t-4 over from the lead"], base[0], base[1]];
+  return base;
+}
+
+const TOK = (t, usd, split) => ({ t, usd, split });
+const A = {
+  sidebar: { kind: "agent", project: "waveterm", name: "fix sidebar drag", rt: "claude", state: () => "idle", branch: "fix/sidebar-drag", model: "claude-opus-4-6", ctx: 22, age: "2h 14m", cache: "expired",
+    tok: { ...TOK("3.1M", "$4.12", [72, 3, 9, 16]), models: [["claude-opus-4-6", 77, 84], ["claude-sonnet-4-6", 23, 16]] }, tools: [["Read", 31], ["Edit", 12], ["Bash", 8]], files: [["M", "frontend/app/view/agents/agenttree.tsx"], ["M", "frontend/app/view/agents/agenttree.test.ts"]] },
+  lead: { kind: "lead", project: "waveterm", name: "Resource linking", rt: "claude", state: leadState, branch: "main", model: "claude-sonnet-4-6", ctx: 58, age: () => (S.finished ? "54m" : "36m"), cache: "4m left",
+    tok: TOK("6.8M", "$7.40", [81, 2, 5, 12]), tools: [["Read", 22], ["Bash", 14], ["Write", 2], ["Grep", 6]], files: [["M", "pkg/orchestrate/linkresolve.go"]], run: "3f2a" },
+  t3: { kind: "worker", lead: "lead", project: "waveterm", task: "t-3", title: "parse link targets", lane: "A", laneTasks: "t-1 \u2192 t-3", dep: "t-1 \u00B7 landed", rt: "claude",
+    state: () => (S.finished ? "done" : "working"), branch: "wave/3f2a-t-1", model: "claude-sonnet-4-6", ctx: 33, age: "4m", cache: "4m left", attempt: "1 \u00B7 4m", commit: "c0a4e2",
+    tok: TOK("1.2M", "$1.30", [70, 4, 11, 15]), tools: [["Read", 8], ["Edit", 3], ["Bash", 2]], files: [["M", "frontend/app/view/agents/linkresolve.ts"], ["M", "frontend/app/view/agents/linkresolve.test.ts"]] },
+  t4: { kind: "worker", lead: "lead", project: "waveterm", task: "t-4", title: "render chips", lane: "B", laneTasks: "t-2 \u2192 t-4", dep: "t-2 \u00B7 landed", rt: "claude",
+    state: t4State, branch: "wave/3f2a-t-2", model: "claude-sonnet-4-6", ctx: 27, age: () => (S.answered ? "7m" : "6m"), cache: "4m left", attempt: () => (S.answered ? "1 \u00B7 7m" : "1 \u00B7 6m"), commit: "e81d07",
+    tok: TOK("0.9M", "$0.98", [68, 4, 12, 16]), tools: [["Read", 6], ["Edit", 2]], files: [["M", "frontend/app/view/agents/linkchip.tsx"]] },
+  t1: { kind: "worker", lead: "lead", project: "waveterm", task: "t-1", title: "link model", lane: "A", laneTasks: "t-1 \u2192 t-3", dep: "none", rt: "claude", state: () => "done", ended: true, commit: "a1b2c3",
+    branch: "wave/3f2a-t-1", model: "claude-sonnet-4-6", ctx: 19, age: "31m", cache: "expired", attempt: "1 \u00B7 3m",
+    tok: TOK("0.6M", "$0.61", [66, 5, 12, 17]), tools: [["Read", 5], ["Write", 2], ["Bash", 2]], files: [["A", "frontend/app/view/agents/linkmodel.ts"]] },
+  t2: { kind: "worker", lead: "lead", project: "waveterm", task: "t-2", title: "link store", lane: "B", laneTasks: "t-2 \u2192 t-4", dep: "none", rt: "claude", state: () => "done", ended: true, commit: "9e04f1",
+    branch: "wave/3f2a-t-2", model: "claude-sonnet-4-6", ctx: 21, age: "29m", cache: "expired", attempt: "1 \u00B7 4m",
+    tok: TOK("0.7M", "$0.70", [67, 4, 12, 17]), tools: [["Read", 7], ["Write", 1], ["Edit", 2]], files: [["A", "frontend/app/view/agents/linkstore.ts"]] },
+  scratch: { kind: "agent", project: "waveterm", name: "scratch", rt: "pi", state: () => "idle", branch: "main", model: "gpt-5.1-codex", ctx: 9, age: "5h",
+    tok: TOK("0.4M", "$0.22", [60, 6, 14, 20]), tools: [["read", 4]], files: [] },
+  lead2: { kind: "nolead", project: "accept-ask", name: "Greeting files", rt: "claude", state: () => "none", branch: "main", model: "claude-sonnet-4-6", run: "7b10" },
+  g1: { kind: "worker", lead: "lead2", project: "accept-ask", task: "t-1", title: "greeting one", lane: "A", laneTasks: "t-1 \u2192 t-3", dep: "none", rt: "claude", state: () => "working",
+    branch: "wave/7b10-t-1", model: "claude-sonnet-4-6", ctx: 14, age: "2m", cache: "4m left", attempt: "1 \u00B7 2m",
+    tok: TOK("0.2M", "$0.21", [62, 6, 13, 19]), tools: [["Read", 2], ["Write", 1]], files: [["A", "greetings/one.txt"]] },
+  g2: { kind: "worker", lead: "lead2", project: "accept-ask", task: "t-2", title: "greeting two", lane: "B", laneTasks: "t-2 \u2192 t-3", dep: "none", rt: "claude", state: () => "working",
+    branch: "wave/7b10-t-2", model: "claude-sonnet-4-6", ctx: 12, age: "2m", cache: "4m left", attempt: "1 \u00B7 2m",
+    tok: TOK("0.2M", "$0.19", [61, 6, 13, 20]), tools: [["Read", 2]], files: [] },
+};
+const val = (v) => (typeof v === "function" ? v() : v);
+const displayName = (a) => (a.kind === "worker" ? `${a.task} \u00B7 ${a.title}` : a.name);
+
+// ---------- details: grouped rows ----------
+// keeps all of today's Details data (runtime, model, project, branch, time in state, cache) in three lines
+function detailFacts(a) {
+  const rt = RT[a.rt], nolead = a.kind === "nolead", age = esc(val(a.age));
+  return {
+    runtime: nolead ? `<span class="faint">not started</span>` : `<span style="color:${rt.text};font-weight:600">${rt.glyph} ${rt.label}</span>`,
+    model: esc(pretty(a.model)),
+    project: esc(a.project),
+    branch: esc(a.branch),
+    stateLabel: nolead ? "" : a.ended ? "ended" : val(a.state),
+    age: nolead ? "" : a.ended ? `${age} ago` : age,
+    cache: a.rt === "claude" && a.cache ? (a.cache === "expired" ? `<span class="faint">expired</span>` : esc(a.cache)) : "",
+  };
+}
+
+// ---------- terminals ----------
+const T = (cls, s) => (cls ? `<span class="${cls}">${esc(s)}</span>` : esc(s));
+function term(id) {
+  const L = [];
+  const p = (...parts) => L.push(parts.join(""));
+  if (id === "lead") {
+    p(T("f", "> "), T("h", "wake: 1 question waiting. wsh jarvis dag asks"));
+    p("");
+    p(T("g", "\u25CF "), T("h", "Bash"), "(wsh jarvis dag asks)");
+    p(T("f", "  \u23BF  "), "t-4 \u00B7 2m ago \u00B7 deadline 10m");
+    p(T("f", "     "), T("m", "[Stale link] "), "A chip for a deleted file: hide it, or strike it through?");
+    p(T("f", "       1. "), "Strike through ", T("m", "\u2014 keep it visible, marked stale"));
+    p(T("f", "       2. "), "Hide ", T("m", "\u2014 drop the chip"));
+    p("");
+    p(T("g", "\u25CF "), T("h", "Read"), "(docs/superpowers/specs/2026-09-15-cross-surface-resource-linking-design.md)");
+    p(T("f", "  \u23BF  "), T("m", "Read 212 lines"));
+    if (S.finished) {
+      p(""); p(T("g", "\u25CF "), "The spec keeps stale references visible (\u00A74). Answering strike-through.");
+      p(""); p(T("f", "> "), T("h", "wake: run finished. wsh jarvis dag status"));
+      p(""); p(T("g", "\u25CF "), T("h", "Report"));
+      p("  Landed 6 of 6 tasks in 6 squash commits; Verify passed at every merge point.");
+      p("  Elapsed 39m58s, worker time 19m59s. Answered 1 question, you answered 1, forwarded 0.");
+      p("  The goal is met. Nothing is left unverified.");
+      p(""); p(T("g", "\u25CF "), T("h", "Bash"), "(wsh jarvis complete)"); p(T("f", "  \u23BF  "), T("m", "run 3f2a complete"));
+    } else if (S.takeover) {
+      p(""); p(T("f", "> "), T("h", "wake: you took over t-4; don't answer it. wsh jarvis dag asks"));
+      p(""); p(T("g", "\u25CF "), "Understood \u2014 t-4 is with the human now. Nothing else is waiting.");
+    } else {
+      p(""); p(T("c", "\u273B "), T("c", "Checking \u00A74 of the spec\u2026 "), T("f", "(12s \u00B7 esc to interrupt)"));
+    }
+  } else if (id === "t3") {
+    p(T("f", "> "), T("m", "You are the worker for task 3 of the plan at C:/Users/kael02/IdeaProjects/waveterm/docs/superpowers/plans/2026-09-17-cross-surface-resource-linking.md \u2026"));
+    p(""); p(T("g", "\u25CF "), T("h", "Read"), "(frontend/app/view/agents/linkresolve.ts)"); p(T("f", "  \u23BF  "), T("m", "Read 88 lines"));
+    p(T("g", "\u25CF "), T("h", "Update"), "(frontend/app/view/agents/linkresolve.ts)"); p(T("f", "  \u23BF  "), T("m", "Updated with "), T("g", "14 additions"), T("m", " and "), T("e", "2 removals"));
+    p(T("g", "\u25CF "), T("h", "Bash"), "(npx vitest run frontend/app/view/agents/linkresolve.test.ts)"); p(T("f", "  \u23BF  "), T("g", "\u2713 12 passed "), T("m", "(412ms)"));
+    p(""); p(T("c", "\u273B "), T("c", "Handling a link to a closed session\u2026 "), T("f", "(38s \u00B7 esc to interrupt)"));
+  } else if (id === "t4") {
+    p(T("f", "> "), T("m", "You are the worker for task 4 of the plan at C:/Users/kael02/IdeaProjects/waveterm/docs/superpowers/plans/2026-09-17-cross-surface-resource-linking.md \u2026"));
+    p(""); p(T("g", "\u25CF "), T("h", "Read"), "(frontend/app/view/agents/linkchip.tsx)"); p(T("f", "  \u23BF  "), T("m", "Read 64 lines"));
+    p(T("g", "\u25CF "), "The plan doesn't pin what a chip shows when its file is gone. Asking once.");
+    p(T("g", "\u25CF "), T("h", "AskUserQuestion"), "(Stale link)");
+    if (S.answered) {
+      p(T("f", "  \u23BF  "), T("m", "Answered: "), "Strike through");
+      p(""); p(T("g", "\u25CF "), T("h", "Update"), "(frontend/app/view/agents/linkchip.tsx)"); p(T("f", "  \u23BF  "), T("m", "Updated with "), T("g", "9 additions"));
+      p(""); p(T("c", "\u273B "), T("c", "Styling the stale chip\u2026 "), T("f", "(6s \u00B7 esc to interrupt)"));
+    } else {
+      p(T("f", "  \u23BF  "), T("w", S.takeover ? "Waiting for your answer (details panel)\u2026" : "Waiting for the lead's answer\u2026"));
+    }
+  } else if (id === "t1" || id === "t2") {
+    const a = A[id];
+    p(T("f", "> "), T("m", `You are the worker for task ${a.task.slice(2)} of the plan at \u2026/2026-09-17-cross-surface-resource-linking.md \u2026`));
+    p(""); p(T("g", "\u25CF "), T("h", "Write"), `(${a.files[0][1]})`); p(T("f", "  \u23BF  "), T("m", "Wrote 41 lines"));
+    p(T("g", "\u25CF "), T("h", "Bash"), "(npx vitest run " + a.files[0][1].replace(".ts", ".test.ts") + ")"); p(T("f", "  \u23BF  "), T("g", "\u2713 7 passed"));
+    p(T("g", "\u25CF "), T("h", "Bash"), `(git commit -m "feat: ${a.title}" && wsh jarvis complete --commit $(git rev-parse HEAD))`);
+    p(T("f", "  \u23BF  "), T("m", `[wave/3f2a-${a.task}] ${a.commit} \u00B7 completed`));
+  } else if (id === "g1" || id === "g2") {
+    p(T("f", "> "), T("m", `You are the worker for task ${A[id].task.slice(2)} of the plan at C:/Users/kael02/IdeaProjects/accept-ask/docs/plan.md \u2026`));
+    p(""); p(T("g", "\u25CF "), T("h", "Read"), "(docs/plan.md)"); p(T("f", "  \u23BF  "), T("m", "Read 40 lines"));
+    p(""); p(T("c", "\u273B "), T("c", "Writing the greeting\u2026 "), T("f", "(9s \u00B7 esc to interrupt)"));
+  } else if (id === "sidebar") {
+    p(T("g", "\u25CF "), "Drag reorder now keeps the dropped row selected. Tests pass (23).");
+  } else if (id === "scratch") {
+    p(T("m", "pi \u00B7 gpt-5.1-codex")); p(""); p("Ready.");
+  }
+  return L.join("\n");
+}
+
+// ---------- tree ----------
+function stateLabel(id) {
+  const a = A[id], st = val(a.state);
+  if (a.kind === "nolead") return `<span class="astate" style="color:var(--color-muted)">no lead</span>`;
+  if (a.kind === "worker" && st === "done") return `<span class="astate" style="color:var(--color-success)">landed</span>`;
+  if (id === "t4" && st === "asking" && !S.takeover) return `<span class="${nw("astate")}" style="color:var(--color-muted)">\u2192 lead</span>`;
+  return `<span class="astate" style="color:${C[st]}">${st}</span>`;
+}
+function subText(id) {
+  const a = A[id];
+  if (a.kind === "lead") return S.finished ? "run complete" : "2/6 done";
+  if (a.kind === "nolead") return "0/3 \u00B7 lead not started";
+  if (a.kind === "worker") {
+    if (id === "t4" && t4State() === "asking") return S.takeover ? "waiting on you" : "lead is answering \u00B7 8m left";
+    if (val(a.state) === "done") return `lane ${a.lane} \u00B7 ${a.commit}`;
+    return `lane ${a.lane} \u00B7 ${val(a.age)}`;
+  }
+  return a.branch;
+}
+function dotFor(id, size) {
+  const a = A[id], st = val(a.state);
+  const s = size || 7;
+  if (a.kind === "nolead") return `<span class="dot hollow" style="width:${s}px;height:${s}px"></span>`;
+  const color = st === "done" ? C.done : C[st];
+  const pulse = st === "working" || st === "asking" ? " pulse" : "";
+  return `<span class="dot${pulse}" style="width:${s}px;height:${s}px;background:${color}"></span>`;
+}
+function row(id, child) {
+  const a = A[id];
+  const st = val(a.state);
+  const cls = ["arow"];
+  if (child) cls.push("child");
+  if (S.sel === id) cls.push("sel");
+  else if (id === "t4" && st === "asking" && S.takeover) cls.push("ask");
+  const isParent = a.kind === "lead" || a.kind === "nolead";
+  const kids = isParent ? childrenOf(id) : [];
+  const activeKids = kids.filter((k) => val(A[k].state) !== "done").length;
+  const open = id === "lead" ? S.leadOpen : true;
+  const nWorkers = S.finished && id === "lead" ? 6 : activeKids;
+  const tog = isParent
+    ? `<button class="${nw("tog")}" data-tog="${id}" title="Toggle workers">${open ? "\u25BE" : "\u25B8"} ${nWorkers} ${S.finished && id === "lead" ? "done" : "workers"}</button>`
+    : "";
+  const glyph = isParent ? `<span class="${nw("runglyph")}">\u25C6</span>` : "";
+  const nameCls = child ? "aname" : "aname";
+  return `<div class="${child ? nw(cls.join(" ")) : cls.join(" ")}" data-sel="${id}" tabindex="0">
+    ${dotFor(id)}
+    <div class="txt"><div class="${nameCls}">${glyph}${esc(displayName(a))}</div>${isParent
+      ? `<div class="psub">${tog}<span class="${nw("asub")}">${esc(subText(id))}</span></div>`
+      : `<div class="${child ? nw("asub") : "asub"}">${esc(subText(id))}</div>`}</div>
+    ${stateLabel(id)}
+  </div>`;
+}
+function childrenOf(id) { return Object.keys(A).filter((k) => A[k].lead === id); }
+function renderTree() {
+  const groups = [["waveterm", ["sidebar", "lead", "scratch"]], ["accept-ask", ["lead2"]]];
+  let total = 0;
+  let h = "";
+  for (const [proj, tops] of groups) {
+    const members = tops.flatMap((t) => [t, ...childrenOf(t)]).filter((k) => !(A[k].kind === "worker" && val(A[k].state) === "done"));
+    total += members.length;
+    const at = proj === "waveterm" ? attn() : 0;
+    h += `<div class="grp"><span class="p">${proj}</span><div class="rule"></div>${at ? `<span class="attn">${at}</span>` : ""}<span class="cnt">${members.length}</span></div>`;
+    for (const t of tops) {
+      h += row(t, false);
+      const isParent = A[t].kind === "lead" || A[t].kind === "nolead";
+      if (!isParent) continue;
+      const open = t === "lead" ? S.leadOpen : true;
+      if (!open) continue;
+      const kids = childrenOf(t);
+      const live = kids.filter((k) => val(A[k].state) !== "done");
+      const done = kids.filter((k) => val(A[k].state) === "done");
+      for (const k of live) h += row(k, true);
+      if (done.length) {
+        const n = S.finished && t === "lead" ? 6 : done.length;
+        h += `<div class="${nw("foldrow")}" data-fold="1"><span style="color:var(--color-success)">\u2713</span> ${n} done <span style="margin-left:auto">${S.doneOpen ? "\u25BE" : "\u25B8"}</span></div>`;
+        if (S.doneOpen) for (const k of done) h += row(k, true);
+      }
+    }
+  }
+  document.getElementById("tree").innerHTML =
+    `<div class="treehead"><span class="h3">Agents</span><span class="h3" style="color:var(--color-muted)">${total}</span></div><div class="treebody">${h}</div>`;
+}
+
+// ---------- center ----------
+function renderCenter() {
+  const id = S.sel, a = A[id];
+  const el = document.getElementById("center");
+  if (a.kind === "nolead") {
+    el.innerHTML = `<div class="ahead">${dotFor(id, 9)}<div style="min-width:0"><div class="line1"><span class="nm">\u25C6 ${esc(a.name)}</span><span class="${nw("pill")}" style="color:var(--color-muted);border-color:var(--color-edge-strong)">no lead</span></div>
+      <div class="${nw("line2")}">${a.project} \u00B7 plan-path run ${a.run}</div></div><div style="flex:1"></div></div>
+      <div class="${nw("empty")}"><div class="t">No lead yet</div><div class="d">The engine is running this plan. A lead starts here the first time something needs judgment: a question, a failed task, a merge conflict or a failed Verify. Its workers are listed under it in the tree.</div></div>`;
+    return;
+  }
+  const st = val(a.state), rt = RT[a.rt];
+  const pillColor = st === "done" ? "var(--color-success)" : C[st];
+  const pillText = a.kind === "worker" && st === "done" ? "landed" : st;
+  let line2 = esc(a.project);
+  if (a.kind === "lead") line2 += ` \u00B7 <span class="${nw("")}">orchestrator run ${a.run}</span>`;
+  if (a.kind === "worker") line2 += ` \u00B7 <span class="${nw("uplink")}" data-sel="${a.lead}">\u2191 ${esc(A[a.lead].name)}</span><span class="${nw("")}"> \u00B7 lane ${a.lane}</span>`;
+  const head = `<div class="ahead">${dotFor(id, 9)}<div style="min-width:0"><div class="line1"><span class="nm">${a.kind === "lead" ? "<span class='" + nw("runglyph") + "'>\u25C6</span>" : ""}${esc(displayName(a))}</span>
+      <span class="rtchip" style="color:${rt.text};background:${rt.soft};border-color:${rt.line}">${rt.glyph} ${rt.label}</span>
+      <span class="pill" style="color:${pillColor};border-color:${pillColor}">${pillText}</span>
+      <span class="mchip">${esc(a.model)}</span><span style="font-family:var(--mono);font-size:10.5px;font-weight:600;color:var(--color-accent)">${a.ctx}%</span></div>
+      <div class="line2">${line2}</div></div><div style="flex:1"></div>
+      ${a.ended ? "" : `<button class="iconbtn" title="Fullscreen (f)">\u2922</button><button class="iconbtn" title="Close">\u2715</button>`}</div>`;
+  if (a.ended) {
+    el.innerHTML = head + `<div class="${nw("ended")}"><span>\u25CF</span><span>Session ended \u00B7 landed ${a.commit} \u00B7 read-only transcript</span></div><div class="term" style="opacity:.8">${term(id)}</div>`;
+    return;
+  }
+  const hint = id === "t4" && t4State() === "asking" && S.takeover ? "answer in the details panel \u00B7 or type to talk to this worker" : "type to talk to this agent \u00B7 ? for shortcuts";
+  el.innerHTML = head + `<div class="term">${term(id)}</div><div class="tinput"><span>&gt;</span><span class="caret"></span></div><div class="thint">${hint}</div>`;
+}
+
+// ---------- rail ----------
+const dr = (l, v, extra) => `<div class="dr"><span class="l">${l}</span><span class="v"${extra || ""}>${v}</span></div>`;
+function sec(inner, isNew) { return `<div class="${isNew ? nw("") : ""}">${inner}</div>`; }
+
+function detailsSection(a) {
+  const f = detailFacts(a);
+  const head = `<div class="sl" style="margin-bottom:10px">Details</div>`;
+  const dot = " <i>·</i> ";
+  const line = (l, v) => (v ? `<div class="dline"><span class="l">${l}</span><span class="v">${v}</span></div>` : "");
+  const session = [f.age && `${f.stateLabel} ${f.age}`, f.cache && `cache ${f.cache}`].filter(Boolean).join(dot);
+  return `<div class="${nw("")}">${head}<div class="dgrp">${line("Agent", f.runtime + dot + f.model)}${line("Project", `${f.project} <i>/</i> ${f.branch}`)}${line("Session", session)}</div></div>`;
+}
+
+function questionCard(q, compact) {
+  if (!q) return "";
+  if (q.owner === "lead") {
+    return `<div class="qcard"><div class="qmeta"><span class="dot pulse" style="background:var(--color-warning)"></span><b>${q.task}</b><span>lead is answering \u00B7 ${q.left}</span></div>
+      <span class="qhdr">${esc(q.header)}</span><div class="qtext" style="margin-top:2px">${esc(q.text)}</div>
+      <div class="qact"><button class="btn2" data-act="takeover">Take over</button></div></div>`;
+  }
+  const opts = q.options.map((o, i) => `<button class="opt${S.choice === i ? " on" : ""}" data-opt="${i}">${esc(o[0])}<small>${esc(o[1])}</small></button>`).join("");
+  return `<div class="qcard you"><div class="qmeta"><span class="dot pulse" style="background:var(--color-warning)"></span><b>${q.task}</b><span style="color:var(--color-warning)">waiting on you</span></div>
+    <span class="qhdr">${esc(q.header)}</span><div class="qtext" style="margin-top:2px">${esc(q.text)}</div>${opts}
+    <button class="btnp" data-act="send" ${S.choice == null ? "disabled" : ""}>Send answer</button></div>`;
+}
+
+function laneLines(forRun) {
+  const L = forRun === "lead2"
+    ? [["A", [["g1", "working"]], "t-1 greeting one", "2m", "g1"], ["B", [["g2", "working"]], "t-2 greeting two", "2m", "g2"], ["C", [[null, "pending"]], "t-3 join", "waits A, B", null]]
+    : S.finished
+      ? [["A", [["t1", "done"], ["t3", "done"]], "t-3 parse link targets", "c0a4e2", "t3"], ["B", [["t2", "done"], ["t4", "done"]], "t-4 render chips", "e81d07", "t4"], ["C", [[null, "done"], [null, "done"]], "t-6 CDP scenario", "5b19aa", null]]
+      : [["A", [["t1", "done"], ["t3", "working"]], "t-3 parse link targets", "4m", "t3"],
+         ["B", [["t2", "done"], ["t4", t4State()]], "t-4 render chips", S.answered ? "7m" : S.takeover ? "asks you" : "asks lead", "t4"],
+         ["C", [[null, "pending"], [null, "pending"]], "t-5, t-6", "waits A, B", null]];
+  return `<div class="lanes">` + L.map(([k, seq, nm, mt, target]) => {
+    const dots = seq.map(([, s], i) => {
+      const color = s === "done" ? C.done : s === "pending" ? "transparent" : C[s];
+      const border = s === "pending" ? "border:1px solid var(--color-muted);" : "";
+      return (i ? `<span class="arr">\u2192</span>` : "") + `<span class="dot${s === "working" || s === "asking" ? " pulse" : ""}" style="${border}background:${color}"></span>`;
+    }).join("");
+    const hl = target && target === S.sel ? " style='background:var(--color-surface-selected)'" : "";
+    return `<div class="laneln"${target ? ` data-sel="${target}"` : ""}${hl}><span class="k">${k}</span>${dots}<span class="nm">${esc(nm)}</span><span class="mt">${esc(mt)}</span></div>`;
+  }).join("") + `</div>`;
+}
+
+function runSectionLead() {
+  const q = q4();
+  const status = S.finished ? ["done", "var(--color-success)"] : attn() ? ["needs you", "var(--color-warning)"] : ["healthy", "var(--color-success)"];
+  const top = S.finished
+    ? `<div><span class="hstat" style="color:${status[1]}">\u2713 ${status[0]}</span> <span class="sub">\u00B7 3 lanes \u00B7 verified</span></div>`
+    : `<div><span class="hstat" style="color:${status[1]}">${status[0]}</span> <span class="sub">\u00B7 3 lanes \u00B7 verified</span></div>
+       <div class="sub" style="margin-top:2px">next: ${q && q.owner === "lead" ? "lead answers t-4 \u2192 t-4 resumes" : q ? "your answer \u2192 t-4 resumes" : "t-3 finishes \u2192 lane A merges \u2192 Verify"}</div>`;
+  const report = S.finished
+    ? `<div style="margin-top:10px">${dr("Landed", "6 commits")}${dr("Elapsed", "39m 58s")}${dr("Worker time", "19m 59s")}${dr("Answered", "1 lead \u00B7 1 you")}${dr("Forwarded", "0")}</div>`
+    : "";
+  const logs = leadLog().map(([t, s]) => `<div class="logln"><span class="t">${t}</span><span>${s}</span></div>`).join("");
+  return `<div class="${nw("")}" style="display:flex;flex-direction:column;gap:10px">
+    <div class="shead"><span class="sl">Run</span><span class="r">${S.finished ? "6/6 \u00B7 39m" : "2/6 \u00B7 18m"}</span></div>
+    <div>${top}${report}</div>
+    ${q ? questionCard(q, false) : ""}
+    ${laneLines("lead")}
+    <div class="logs">${logs}</div>
+    <div style="display:flex;gap:10px"><button class="more">timeline \u2197</button><button class="more">plan \u2197</button><button class="more">spec \u2197</button></div>
+  </div>`;
+}
+
+function runSectionNoLead() {
+  return `<div class="${nw("")}" style="display:flex;flex-direction:column;gap:10px">
+    <div class="shead"><span class="sl">Run</span><span class="r">0/3 \u00B7 2m</span></div>
+    <div><span class="hstat" style="color:var(--color-success)">healthy</span> <span class="sub">\u00B7 3 lanes \u00B7 verified</span>
+      <div class="sub" style="margin-top:2px">next: t-1, t-2 finish \u2192 merge \u2192 Verify</div></div>
+    ${laneLines("lead2")}
+    <div class="logs"><div class="logln"><span class="t">10:52</span><span>plan submitted by the engine \u00B7 no lead yet</span></div></div>
+    <div style="display:flex;gap:10px"><button class="more">timeline \u2197</button><button class="more">plan \u2197</button></div>
+  </div>`;
+}
+
+function taskSection(id) {
+  const a = A[id];
+  const q = id === "t4" ? q4() : null;
+  const st = val(a.state);
+  const state = st === "done" ? `<span style="color:var(--color-success)">landed ${a.commit}</span>` : esc(val(a.attempt));
+  return `<div class="${nw("")}" style="display:flex;flex-direction:column;gap:8px">
+    <div class="shead"><span class="sl">Task</span><button class="more" style="margin:0">plan \u00B7 Task ${a.task.slice(2)} \u2197</button></div>
+    <div>${dr("Lead", `<span class="uplink" data-sel="${a.lead}">\u2191 ${esc(A[a.lead].name)}</span>`)}${dr("Lane", `${a.lane} \u00B7 ${esc(a.laneTasks)}`)}${dr("Depends on", esc(a.dep))}${dr(st === "done" ? "Result" : "Attempt", state)}</div>
+    ${q ? questionCard(q, true) : ""}
+  </div>`;
+}
+
+function contextSection(a) {
+  const fill = a.ctx >= 80 ? "var(--color-error)" : a.ctx >= 60 ? "var(--color-warning)" : "var(--color-accent)";
+  return `<div><div class="shead" style="margin-bottom:8px"><span class="sl">Context window</span><span class="r" style="font-size:12px;color:var(--color-accent)">${a.ctx}%</span></div>
+    <div class="meter"><div style="width:${a.ctx}%;background:${fill}"></div></div></div>`;
+}
+// ---------- token usage, as tokenusagesection.tsx renders it ----------
+const CLS = [["Cache read", "var(--color-cacheread)"], ["Output", "var(--color-accent)"], ["Cache write", "var(--color-warning)"], ["Input", "var(--color-success)"]];
+const SPEND_SHARE = [22, 44, 26, 8]; // same order as CLS
+const FOOTNOTE = "Priced per class from a bundled table. Subagents run in separate transcripts \u2014 see Subagents.";
+const num = (s) => parseFloat(String(s).replace(/[$MK]/g, "")) * (/M$/.test(s) ? 1e6 : /K$/.test(s) ? 1e3 : 1);
+function fmtTok(n) { if (n >= 1e6) return +(n / 1e6).toFixed(1) + "M"; if (n >= 1e3) return Math.round(n / 1e3) + "K"; return String(Math.round(n)); }
+const usd = (n) => "$" + n.toFixed(2);
+// modellabel.ts prettyModel, the families this mockup uses
+const pretty = (id) => (/codex/.test(id) ? "Codex" : id.replace(/^claude-(opus|sonnet|haiku)-(\d+)-(\d+)$/, (_, f, a, b) => `${f[0].toUpperCase()}${f.slice(1)} ${a}.${b}`));
+function classRows(a) {
+  const [cr, cw, out, inp] = a.tok.split;
+  const tokPct = [cr, out, cw, inp];
+  const total = num(a.tok.t), spend = num(a.tok.usd);
+  return CLS.map(([label, fill], i) => ({ label, fill, tokPct: tokPct[i], tokens: (total * tokPct[i]) / 100, spendPct: SPEND_SHARE[i], spend: (spend * SPEND_SHARE[i]) / 100 }));
+}
+function modelsOf(a) {
+  const total = num(a.tok.t), spend = num(a.tok.usd);
+  return (a.tok.models || [[a.model, 100, 100]]).map(([m, tp, sp]) => ({ m, tp, tokens: (total * tp) / 100, spend: (spend * sp) / 100 }));
+}
+const segs = (rows, key) => rows.map((r) => `<div style="width:${r[key]}%;background:${r.fill}"></div>`).join("");
+const insightText = (rows) => {
+  const top = rows.reduce((t, r) => (r.spend > t.spend ? r : t));
+  return `Cache reads are ${rows[0].tokPct}% of tokens but ${rows[0].spendPct}% of spend; ${top.label.toLowerCase()} drives the cost.`;
+};
+
+// today: Context window + Token usage as tokenusagesection.tsx renders them
+function usageToday(a) {
+  const rows = classRows(a), models = modelsOf(a);
+  const table = rows.map((r) => `<div class="cls"><i style="background:${r.fill}"></i><span class="n">${r.label}</span><span class="a">${fmtTok(r.tokens)}</span><span class="p">${r.tokPct}%</span><span class="b">${usd(r.spend)}</span></div>`).join("");
+  const modelRows = models.map((m) => `<div class="mrow"><span class="mn">${esc(pretty(m.m))}</span><span>${fmtTok(m.tokens)}</span><span class="ms">${usd(m.spend)}</span></div>${models.length > 1 ? `<div class="meter tall" style="margin-bottom:11px">${segs(rows, "tokPct")}</div>` : ""}`).join("");
+  return `<div><div class="shead"><span class="sl">Token usage</span><span class="r" style="color:var(--color-accent)">${a.tok.t}</span></div>
+    <div class="tu-head"><div><div class="tu-big">${a.tok.t}</div><div class="tu-cap">total tokens</div></div><div style="text-align:right"><div class="tu-big" style="color:var(--color-success)">\u2248 ${a.tok.usd}</div><div class="tu-cap">API-equivalent</div></div></div>
+    <div class="tu-lbl"><span>Tokens</span><span>${a.tok.t}</span></div><div class="meter tall">${segs(rows, "tokPct")}</div>
+    <div class="tu-lbl" style="margin-top:13px"><span>\u2248 Spend</span><span>${a.tok.usd}</span></div><div class="meter tall">${segs(rows, "spendPct")}</div>
+    <div class="insight"><span>\u25c6</span><p>${insightText(rows)}</p></div>
+    <div style="margin-top:14px">${table}</div>
+    <div class="bymodel"><span>By model</span><i></i><span>${models.length === 1 ? "1 model" : models.length + " models"}</span></div>${modelRows}
+    <p class="foot">${FOOTNOTE}</p></div>`;
+}
+
+function toolsSection(a) {
+  if (!a.tools.length) return "";
+  return `<div><div class="sl" style="margin-bottom:11px">Tools used</div><div class="tchips">${a.tools.map(([v, n]) => `<span class="tchip">${v} \u00D7${n}</span>`).join("")}</div></div>`;
+}
+function filesSection(a) {
+  const body = a.files.length ? a.files.map(([s, f]) => `<div class="frow"><b>${s}</b><span>${esc(f)}</span></div>`).join("") : `<div style="font-size:11.5px;color:var(--color-muted)">No changes</div>`;
+  return `<div><div class="sl" style="margin-bottom:11px">Files touched</div>${body}</div>`;
+}
+
+function renderRail() {
+  const el = document.getElementById("rail");
+  el.classList.toggle("closed", !S.rail);
+  if (!S.rail) {
+    el.innerHTML = `<button class="collapsedicon" data-act="rail" title="Show details (d)">\u24D8</button>`;
+    return;
+  }
+  const a = A[S.sel];
+  let sections = [detailsSection(a)];
+  if (a.kind === "lead") sections.push(runSectionLead());
+  if (a.kind === "nolead") sections.push(runSectionNoLead());
+  if (a.kind === "worker") sections.push(taskSection(S.sel));
+  if (a.kind !== "nolead") sections.push(contextSection(a), usageToday(a), toolsSection(a), filesSection(a));
+  const noTerm = a.kind === "nolead" || a.ended;
+  el.innerHTML = `<div class="railtop"><button data-act="rail" title="Collapse (d)">\u203A</button></div>
+    <div class="railbody">${sections.filter(Boolean).join("")}</div>
+    <div class="railfoot"><button ${noTerm ? "disabled" : ""}>Resume</button><button class="stop" ${noTerm ? "disabled" : ""}>Stop</button></div>`;
+}
+
+// ---------- reviewer toolbar ----------
+const SCEN = [
+  ["lead", "Lead", () => Object.assign(S, { sel: "lead", takeover: false, answered: false, choice: null, finished: false, leadOpen: true })],
+  ["t3", "t-3 working", () => Object.assign(S, { sel: "t3", takeover: false, answered: false, choice: null, finished: false, leadOpen: true })],
+  ["t4", "t-4 asks lead", () => Object.assign(S, { sel: "t4", takeover: false, answered: false, choice: null, finished: false, leadOpen: true })],
+  ["t4you", "t-4 taken over", () => Object.assign(S, { sel: "t4", takeover: true, answered: false, choice: null, finished: false, leadOpen: true })],
+  ["done", "t-1 done", () => Object.assign(S, { sel: "t1", takeover: false, answered: false, choice: null, finished: false, leadOpen: true, doneOpen: true })],
+  ["nolead", "No lead yet", () => Object.assign(S, { sel: "lead2", takeover: false, answered: false, choice: null, finished: false })],
+  ["finished", "Run finished", () => Object.assign(S, { sel: "lead", takeover: false, answered: true, choice: 0, finished: true, leadOpen: true, doneOpen: false })],
+];
+function renderToolbar() {
+  const b = SCEN.map(([k, l]) => `<button data-scen="${k}" class="${S.scenario === k ? "on" : ""}">${l}</button>`).join("");
+  document.getElementById("tb").innerHTML = `<span class="lbl">State</span>${b}<span class="sep"></span>
+    <button data-act="rail" class="${S.rail ? "on" : ""}">Rail (d)</button>
+    <button data-act="marknew" class="${S.marknew ? "on" : ""}">Outline new</button>`;
+}
+
+function render() { document.body.classList.toggle("marknew", S.marknew); renderToolbar(); renderTree(); renderCenter(); renderRail(); }
+
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("[data-scen],[data-act],[data-tog],[data-fold],[data-opt],[data-sel]");
+  if (!t) return;
+  if (t.dataset.scen) { S.scenario = t.dataset.scen; SCEN.find((s) => s[0] === t.dataset.scen)[2](); }
+  else if (t.dataset.act === "rail") S.rail = !S.rail;
+  else if (t.dataset.act === "marknew") S.marknew = !S.marknew;
+  else if (t.dataset.act === "takeover") { S.takeover = true; S.choice = null; S.scenario = "t4you"; }
+  else if (t.dataset.act === "send") { if (S.choice != null) { S.answered = true; S.scenario = ""; } }
+  else if (t.dataset.tog) { e.stopPropagation(); if (t.dataset.tog === "lead") S.leadOpen = !S.leadOpen; }
+  else if (t.dataset.fold) S.doneOpen = !S.doneOpen;
+  else if (t.dataset.opt) S.choice = Number(t.dataset.opt);
+  else if (t.dataset.sel) { S.sel = t.dataset.sel; S.scenario = ""; if (A[S.sel].ended) S.doneOpen = true; }
+  render();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "d" && !e.ctrlKey && !e.metaKey && !e.altKey) { S.rail = !S.rail; render(); }
+  if (e.key === "Enter" && e.target.dataset && e.target.dataset.sel) { S.sel = e.target.dataset.sel; render(); }
+});
+// #<scenario or agent id>, e.g. #t4you
+const hScen = location.hash.slice(1);
+const initial = SCEN.find((x) => x[0] === hScen);
+if (initial) { S.scenario = initial[0]; initial[2](); }
+else if (A[hScen]) { S.sel = hScen; S.scenario = ""; }
+render();
+</script>
+</body>
+</html>
