@@ -69,19 +69,22 @@ func shortDuration(d time.Duration) string {
 	return d.String()
 }
 
-// runPlanCommand runs a plan command through the platform shell in dir. A var so engine tests can
-// script Setup and Verify without running anything.
+// runPlanCommand runs a plan command through a POSIX shell in dir. A var so engine tests can script Setup
+// and Verify without running anything.
 var runPlanCommand = execPlanCommand
 
 func execPlanCommand(ctx context.Context, dir, command string, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	c := shellCommand(ctx, command)
+	c, err := shellCommand(ctx, command)
+	if err != nil {
+		return err
+	}
 	c.Dir = dir
 	c.WaitDelay = planCommandWaitDelay
 	out := &tailBuffer{max: MaxPlanOutputLen}
 	c.Stdout, c.Stderr = out, out
-	err := c.Run()
+	err = c.Run()
 	if err == nil {
 		return nil
 	}

@@ -16,6 +16,7 @@ import (
 // PlanFormat states the plan shape ParsePlan accepts, for whoever writes the plan. Its example is
 // parsed by TestPlanFormatParses, so the prose and the parser cannot drift apart.
 const PlanFormat = "Plan format. Verify and Setup are optional, go before the first task, and each hold one command in backticks. " +
+	"Both commands run in a POSIX shell (sh, or Git Bash on Windows). " +
 	"Number tasks 1, 2, 3... in order under `##` or `###` headings. A Depends on line must be the first line under its heading: " +
 	"leave it out to run after the previous task, write `none` for no dependencies, or list earlier tasks (`Task 1, Task 3`).\n" +
 	"The engine runs tasks at the same time whenever nothing makes them wait, so the Depends on lines are what set a plan's width. " +

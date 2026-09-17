@@ -241,7 +241,7 @@ The format text lives in Go as `PlanFormat`, next to the parser, in `pkg/jarvis`
 ```
 
 **Parsing rules:**
-- `**Verify:**` and `**Setup:**` are plan-level. They are read only before the first task heading. Each holds one shell command in backticks. Both are optional.
+- `**Verify:**` and `**Setup:**` are plan-level. They are read only before the first task heading. Each holds one shell command in backticks. Both are optional. Both run in a POSIX shell: `sh -c`, or Git Bash on Windows, where cmd.exe rejected the `VAR=value` prefix and `$(...)` a lead writes (acceptance 2).
 - A task heading is `### Task N` or `## Task N`, optionally followed by `: title`. Existing plans use both levels. N must run 1, 2, 3... in order.
 - A task's text runs from its heading to the next task heading or end of file.
 - `**Depends on:**` must be the first non-empty line after the heading.

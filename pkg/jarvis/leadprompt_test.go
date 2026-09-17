@@ -112,6 +112,14 @@ func TestPlanLeadPromptStartsFromTheRulesAndTheWake(t *testing.T) {
 // A lead told only the Depends on SYNTAX writes whatever shape it happens to think of: the same goal
 // produced six lanes from one harness and one serial chain from another. Both surfaces a plan author
 // reads have to say that independent tasks run at the same time.
+// the engine runs Verify and Setup through sh or Git Bash; a lead left guessing wrote a command for the
+// wrong shell in acceptance 2
+func TestPlanAuthorIsToldTheShell(t *testing.T) {
+	if !strings.Contains(PlanFormat, "POSIX shell") {
+		t.Fatalf("the plan format must name the shell Verify and Setup run in:\n%s", PlanFormat)
+	}
+}
+
 func TestPlanAuthorIsToldToSplitByIndependentWork(t *testing.T) {
 	if !strings.Contains(PlanFormat, "at the same time") || !strings.Contains(PlanFormat, "independently") {
 		t.Fatalf("the plan format must say independent tasks run at the same time:\n%s", PlanFormat)

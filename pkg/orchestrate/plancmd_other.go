@@ -10,6 +10,6 @@ import (
 	"os/exec"
 )
 
-func shellCommand(ctx context.Context, command string) *exec.Cmd {
-	return exec.CommandContext(ctx, "sh", "-c", command)
+func shellCommand(ctx context.Context, command string) (*exec.Cmd, error) {
+	return exec.CommandContext(ctx, "sh", "-c", command), nil
 }
