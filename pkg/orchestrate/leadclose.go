@@ -104,9 +104,9 @@ func MaybeCompleteLeadFreeRun(ctx context.Context, run *waveobj.Run, dag *waveob
 	if idx < 0 || run.Phases[idx].Kind != jarvis.PhaseKind_Orchestrate || run.Phases[idx].Held {
 		return false
 	}
-	// the commit the lead is told to report: `wsh jarvis complete --commit $(git rev-parse HEAD)`. It
-	// scopes the sealed diff to BaseCommit..EndCommit; SealEvidence falls back to the working tree when
-	// it is absent, so a non-repo project is not a reason to leave the run open.
+	// the commit a lead's `wsh jarvis complete` records for its plan run (AdvanceRunCommand). It scopes
+	// the sealed diff to BaseCommit..EndCommit; SealEvidence falls back to the working tree when it is
+	// absent, so a non-repo project is not a reason to leave the run open.
 	endCommit, cerr := ProjectHeadCommit(ctx, run.ProjectPath)
 	if cerr != nil {
 		log.Printf("complete lead-free run %s: no head commit, evidence falls back to the working tree: %v", run.ID, cerr)

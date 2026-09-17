@@ -538,6 +538,16 @@ func applyRunAction(r waveobj.Run, data wshrpc.CommandAdvanceRunData, ts int64) 
 	}
 }
 
+// ownsDag reports whether run is the one its dag belongs to, not one of the dag's task runs, which carry
+// the same DagORef.
+func ownsDag(ctx context.Context, run *waveobj.Run) bool {
+	if run.DagORef == "" {
+		return false
+	}
+	g, err := wstore.GetDag(ctx, run.DagORef)
+	return err == nil && g.RunID == run.ID
+}
+
 func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandAdvanceRunData) error {
 	if data.ChannelId == "" || data.RunId == "" {
 		return fmt.Errorf("channelid and runid are required")
@@ -547,6 +557,15 @@ func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandA
 	if pre, perr := wstore.GetRun(ctx, data.ChannelId, data.RunId); perr == nil {
 		preStatus = pre.Status
 		preRun = pre
+	}
+	// a lead ends its plan run with a bare `wsh jarvis complete`. Every task landed through the engine's
+	// merges, so the project head is the run's work, as it is for a run the engine closes with no lead
+	// (orchestrate.MaybeCompleteLeadFreeRun). Without it the seal diffs the working tree, where the
+	// engine's own .waveterm files sit untracked.
+	if data.Action == jarvis.RunAction_Complete && data.Commit == "" && preRun != nil && ownsDag(ctx, preRun) {
+		if head, herr := gitinfo.HeadCommit(ctx, preRun.ProjectPath); herr == nil {
+			data.Commit = head
+		}
 	}
 	ts := time.Now().UnixMilli()
 	err := wstore.UpdateRun(ctx, data.ChannelId, data.RunId, func(r *waveobj.Run) error {
