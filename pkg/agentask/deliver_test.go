@@ -23,8 +23,8 @@ func oneQuestion() []baseds.AgentAskQuestion {
 func TestDeliverAnswer_NoPending(t *testing.T) {
 	GlobalRegistry = MakeRegistry()
 	delivered, err := DeliverAnswer("tab:none", "", []baseds.AgentAnswerItem{{SelectedIndexes: []int{0}}})
-	if err != nil || delivered {
-		t.Fatalf("want (false,nil), got (%v,%v)", delivered, err)
+	if delivered || !errors.Is(err, ErrNoPendingAsk) {
+		t.Fatalf("an answer to nothing must fail with ErrNoPendingAsk, got delivered=%v err=%v", delivered, err)
 	}
 }
 

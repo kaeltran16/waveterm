@@ -3,7 +3,7 @@
 
 import { cn } from "@/util/util";
 import { useState } from "react";
-import { answerHint, type AgentAskQuestion, type AgentVM } from "./agentsviewmodel";
+import { answerHint, nextUnansweredQuestion, type AgentAskQuestion, type AgentVM } from "./agentsviewmodel";
 import { activePreview, previewMode } from "./answerbarpreview";
 import { MarkdownMessage } from "./markdownmessage";
 
@@ -53,6 +53,7 @@ function QuestionGroup({
     onClickOption,
     text,
     onText,
+    onTextSubmit,
 }: {
     question: AgentAskQuestion;
     accent: Accent;
@@ -62,6 +63,7 @@ function QuestionGroup({
     onClickOption: (oi: number) => void;
     text?: string;
     onText?: (value: string) => void;
+    onTextSubmit?: () => void;
 }) {
     const options = question.options ?? [];
     // rich asks (any option has a description) read better as stacked rows; bare label-only asks
@@ -205,6 +207,20 @@ function QuestionGroup({
                     value={text ?? ""}
                     onChange={(e) => onText(e.target.value)}
                     onClick={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => {
+                        // the surface's Enter binding is off while this field has focus, so the field sends its own answer
+                        if (
+                            e.key !== "Enter" ||
+                            e.shiftKey ||
+                            e.nativeEvent.isComposing ||
+                            (text ?? "").trim() === ""
+                        ) {
+                            return;
+                        }
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onTextSubmit?.();
+                    }}
                     placeholder="or type your own answer…"
                     className={cn(
                         "mt-2 w-full rounded border bg-black/20 px-3 py-2 text-[12.5px] text-primary placeholder:text-muted focus:outline-none",
@@ -291,6 +307,16 @@ export function AnswerBar({
             </div>
         );
     }
+    // after question qi is answered: go to the next unanswered question, or send once none is left
+    const advance = (qi: number) => {
+        const next = nextUnansweredQuestion(questions, selections, texts ?? {}, qi);
+        if (next === -1) {
+            onSubmit();
+        } else {
+            onSelectQuestion?.(next);
+        }
+    };
+
     const renderGroup = (qi: number) => (
         <QuestionGroup
             question={questions[qi]}
@@ -300,27 +326,20 @@ export function AnswerBar({
             selections={selections[qi] ?? new Set()}
             text={texts?.[qi]}
             onText={onText ? (value: string) => onText(qi, value) : undefined}
+            onTextSubmit={() => advance(qi)}
             onClickOption={(oi) => {
                 onToggle(qi, oi);
                 if (questions[qi].multiSelect) {
                     return;
                 }
-                // single-select: jump to the next still-unanswered question (selection or text), else submit
-                const next = questions.findIndex(
-                    (_, j) => j !== qi && (selections[j]?.size ?? 0) === 0 && (texts?.[j] ?? "").trim() === ""
-                );
-                if (next === -1) {
-                    onSubmit();
-                } else {
-                    onSelectQuestion?.(next);
-                }
+                advance(qi);
             }}
         />
     );
 
     // one ask renders inline; multiple asks become tabs so they don't stack into a tall wall
     if (questions.length === 1) {
-        const hint = answerHint(questions, selections, !!numbered);
+        const hint = answerHint(questions, selections, !!numbered, texts ?? {});
         return (
             <div className={className}>
                 {dismissControl}
@@ -332,7 +351,7 @@ export function AnswerBar({
     }
 
     const idx = Math.max(0, Math.min(activeQuestion ?? 0, questions.length - 1));
-    const hint = answerHint(questions, selections, !!numbered);
+    const hint = answerHint(questions, selections, !!numbered, texts ?? {});
     return (
         <div className={className}>
             {dismissControl}
