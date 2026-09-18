@@ -177,12 +177,8 @@ export function BriefPeek({ model }: { model: AgentsViewModel }) {
 
     return (
         <>
-            {/* the peek yields while a confirm is up rather than stacking under it: ConfirmDialog is itself a
-                ModalShell, and two of them mounted together both claim Escape and both call takeModalFocus,
-                so Escape would dismiss the confirm and the peek behind it in one press. Cancel brings it
-                back, and the confirm's own scrim covers the same area either way. */}
             <ModalShell
-                open={recordId != null && pendingStatus == null}
+                open={recordId != null}
                 onClose={close}
                 align="center"
                 className="w-[640px] max-w-full"

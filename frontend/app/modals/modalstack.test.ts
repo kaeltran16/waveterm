@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { popId, pushId, topId } from "./modalstack";
+import { isTopModal, ownsFocus, popId, pushId, registerModal, topId } from "./modalstack";
 
 describe("modalstack", () => {
     it("the last opened modal is the topmost", () => {
@@ -31,5 +31,23 @@ describe("modalstack", () => {
 
     it("popping something absent is a no-op", () => {
         expect(popId(["a"], "ghost")).toEqual(["a"]);
+    });
+
+    it("hands the keyboard back to a peek once the confirm stacked over it closes", () => {
+        const closePeek = registerModal("peek");
+        const closeConfirm = registerModal("confirm");
+        expect(isTopModal("confirm")).toBe(true);
+        expect(isTopModal("peek")).toBe(false);
+        closeConfirm();
+        expect(isTopModal("peek")).toBe(true);
+        closePeek();
+    });
+
+    it("lets only the topmost shell move focus", () => {
+        expect(ownsFocus(["peek", "confirm"], "confirm")).toBe(true);
+        // a shell under another must neither take focus on open nor restore it on close: either would pull focus out
+        // of the dialog the user is looking at
+        expect(ownsFocus(["peek", "confirm"], "peek")).toBe(false);
+        expect(ownsFocus([], "peek")).toBe(false);
     });
 });

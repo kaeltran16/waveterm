@@ -54,23 +54,33 @@ export function ModalShell({
 }: ModalShellProps) {
     const panelRef = useRef<HTMLDivElement>(null);
     const shellId = useId();
-    // registered in its own effect, before the key listener below, so a shell that opens in the same
-    // commit as another is already in the stack when that listener first runs
+    // Registration and focus-taking are one effect, not two: closing must check "am I still the top
+    // modal" before popping this shell off the stack, and only the shell's own cleanup pops it. Splitting
+    // that check into a second effect would make the answer depend on which effect's cleanup React
+    // happens to run first (React runs a component's own effect cleanups in declaration order, so a
+    // second effect can't reliably observe pre-pop state) — one effect makes the ordering unambiguous.
+    // This also registers before the key listener below runs, so a shell that opens in the same commit as
+    // another is already in the stack when that listener first fires.
+    //
+    // Focus is only taken when this shell is topmost at open (Escape has the analogous isTopModal guard
+    // in the key listener below) — runs after the children's own effects and after React has applied any
+    // child autoFocus, so a modal with a text field keeps it.
     useEffect(() => {
         if (!open) {
             return;
         }
-        return registerModal(shellId);
+        const unregister = registerModal(shellId);
+        const restore = isTopModal(shellId)
+            ? takeModalFocus(panelRef.current, document.activeElement as HTMLElement | null)
+            : null;
+        return () => {
+            const wasTop = isTopModal(shellId);
+            unregister();
+            if (wasTop) {
+                restore?.();
+            }
+        };
     }, [open, shellId]);
-
-    // runs after the children's own effects and after React has applied any child autoFocus, so a modal
-    // with a text field keeps it — this only claims focus when nothing inside the panel took it.
-    useEffect(() => {
-        if (!open) {
-            return;
-        }
-        return takeModalFocus(panelRef.current, document.activeElement as HTMLElement | null);
-    }, [open]);
 
     useEffect(() => {
         if (!open) {
