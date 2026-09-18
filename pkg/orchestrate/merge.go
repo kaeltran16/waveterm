@@ -87,9 +87,10 @@ func finishMerge(ctx context.Context, projectPath, runID, goal string, fold []st
 	return git(ctx, projectPath, "rev-parse", "HEAD")
 }
 
-// mergeMessage is the branch's commit messages, oldest first and each once, then the run trailer. The
-// branch always starts at a commit on the project branch, so HEAD..branch is exactly its workers' commits.
-// fallback, the plan's task titles, is used only when those messages are empty or unreadable.
+// mergeMessage is the branch's commit messages, oldest first, each once and without agent attribution,
+// then the run trailer. The branch always starts at a commit on the project branch, so HEAD..branch is
+// exactly its workers' commits. fallback, the plan's task titles, is used only when those messages are
+// empty or unreadable.
 func mergeMessage(ctx context.Context, projectPath, runID, fallback string) string {
 	var msgs []string
 	out, err := git(ctx, projectPath, "log", "--reverse", "--format=%B%x00", "HEAD..wave/"+runID)
@@ -97,7 +98,7 @@ func mergeMessage(ctx context.Context, projectPath, runID, fallback string) stri
 		log.Printf("merge %s: reading the branch's commit messages: %v", runID, err)
 	}
 	for _, m := range strings.Split(out, "\x00") {
-		if m = strings.TrimSpace(m); m != "" && !slices.Contains(msgs, m) {
+		if m = stripAttribution(m); m != "" && !slices.Contains(msgs, m) {
 			msgs = append(msgs, m)
 		}
 	}
@@ -105,6 +106,21 @@ func mergeMessage(ctx context.Context, projectPath, runID, fallback string) stri
 		msgs = []string{firstLine(fallback)}
 	}
 	return strings.Join(msgs, "\n\n") + "\n\n" + runTrailer + ": " + runID
+}
+
+// attributionPrefixes start the credit lines an agent harness appends to its commits. The project never
+// credits the agent, and a worker's harness adds them regardless of the project's rules.
+var attributionPrefixes = []string{"co-authored-by: claude", "claude-session:", "🤖 generated with [claude code]"}
+
+func stripAttribution(msg string) string {
+	var kept []string
+	for _, line := range strings.Split(msg, "\n") {
+		l := strings.ToLower(strings.TrimSpace(line))
+		if !slices.ContainsFunc(attributionPrefixes, func(p string) bool { return strings.HasPrefix(l, p) }) {
+			kept = append(kept, line)
+		}
+	}
+	return strings.TrimSpace(strings.Join(kept, "\n"))
 }
 
 // landedHead is HEAD when it is this branch's squash commit, and "" otherwise. A merge that commits nothing

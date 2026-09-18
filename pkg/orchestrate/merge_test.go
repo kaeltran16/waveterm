@@ -35,13 +35,14 @@ func TestMergeSquash(t *testing.T) {
 	}
 }
 
-// a lane lands under the messages its workers wrote, oldest first and each once, not the plan's task titles;
-// the lane is named in a trailer
+// a lane lands under the messages its workers wrote, oldest first and each once, not the plan's task titles,
+// without the agent's attribution; the lane is named in a trailer
 func TestMergeSquashKeepsTheWorkersCommitMessages(t *testing.T) {
 	dir := newGitRepo(t)
 	base := gitCmd(t, dir, "rev-parse", "HEAD")
 	wt, _ := CreateRunWorktree(context.Background(), dir, "run-1", base)
-	for i, msg := range []string{"feat(x): add the feature\n\nwhy it exists", "docs: record the feature", "docs: record the feature"} {
+	attributed := "feat(x): add the feature\n\nwhy it exists\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_1"
+	for i, msg := range []string{attributed, "docs: record the feature", "docs: record the feature"} {
 		os.WriteFile(filepath.Join(wt, fmt.Sprintf("f%d.txt", i)), []byte("x\n"), 0o644)
 		gitCmd(t, wt, "add", ".")
 		gitCmd(t, wt, "commit", "-m", msg)
