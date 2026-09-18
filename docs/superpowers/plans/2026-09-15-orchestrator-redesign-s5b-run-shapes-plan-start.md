@@ -2073,7 +2073,7 @@ In `docs/superpowers/specs/2026-09-14-orchestrator-redesign-design.md`:
 1. Status line: replace `and 4d from \`docs/superpowers/plans/2026-09-15-orchestrator-redesign-s4d-lanes.md\`.` with:
 
 ```markdown
-and 4d from `docs/superpowers/plans/2026-09-15-orchestrator-redesign-s4d-lanes.md`. Slice 5a is built (ab8cc18c) from `docs/superpowers/plans/2026-09-15-orchestrator-redesign-s5a-lead-prompt-compaction.md`, and 5b from `docs/superpowers/plans/2026-09-15-orchestrator-redesign-s5b-run-shapes-plan-start.md`.
+and 4d from `docs/superpowers/plans/2026-09-15-orchestrator-redesign-s4d-lanes.md`. Slice 5a is built (117b4272) from `docs/superpowers/plans/2026-09-15-orchestrator-redesign-s5a-lead-prompt-compaction.md`, and 5b from `docs/superpowers/plans/2026-09-15-orchestrator-redesign-s5b-run-shapes-plan-start.md`.
 ```
 
 2. §1, "Orchestrator from a plan path (G5)": after the bullet that ends `Then the engine launches the lead with the orchestration rules as its launch prompt, followed by the wake message.`, add:

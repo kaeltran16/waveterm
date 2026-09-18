@@ -212,7 +212,7 @@ a cost source"; roadmap status line text: "Phases 1–3 shipped; Phase 4 held on
 
 **Chunk label:** `Brief B5: channel lifecycle (rename/delete/archive/notes) — load-bearing, still unreachable`
 
-**Why:** since `6b3882ad`/`95065db1` there is one channel per project, minted by New run
+**Why:** since `4e257133`/`0923776e` there is one channel per project, minted by New run
 (`frontend/app/view/jarvis/newruncontrol.tsx`). `channelProjectLabel` never shows `channel.name`, so rename
 is meaningless; `channel:notes` is written by `SetChannelNotesCommand` and read nowhere; the archived flag is
 read only by `partitionChannels` (autonomy chip). The four store functions have had no caller since B5.
@@ -247,7 +247,7 @@ handlers, their tests, and `MetaKey_ChannelNotes`. Apply the orphan cascade (e.g
 
 - [ ] **Step 6: Close the chunk.** Note: sha; deleted symbols; kept `DeleteChannelCommand` (CDP teardown) and
 `partitionChannels` (legacy flags); open-issues B5 row text: "closed — premise gone: one channel per project
-(`6b3882ad`), name never shown, notes never read; rename/archive/notes deleted in <sha>, delete RPC kept for CDP
+(`4e257133`), name never shown, notes never read; rename/archive/notes deleted in <sha>, delete RPC kept for CDP
 teardown"; recovery `git show <sha>^:pkg/wshrpc/wshserver/wshserver_channels.go` and
 `git show <sha>^:frontend/app/view/agents/channelsstore.ts`.
 
@@ -1032,7 +1032,7 @@ chunk's commit sha; check each with `git show --stat <sha>` so no row cites a co
 
 - [ ] **Step 2: `docs/open-issues.md`** — update, not delete, each row (strike through closed rows the way the file
 already does, e.g. `~~...~~ **closed 2026-09-17**`, with the note's text and sha):
-  - §1 "2026-08-26 orchestrator gaps scan — closed except G6": G6 is closed — `27228cb9` (2026-09-14) replaced
+  - §1 "2026-08-26 orchestrator gaps scan — closed except G6": G6 is closed — `2ce4161b` (2026-09-14) replaced
     the control-file notify with typed wakes confirmed by the lead's `working` status; retry once, then
     `lead-wake-failed` and questions to the human (`pkg/orchestrate/wake.go` `WakeConfirmTimeout`,
     `TestWakeRetriesOnceThenLeadIsDead`). Retitle the heading so it no longer says "except G6".

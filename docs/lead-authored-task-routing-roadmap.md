@@ -1,7 +1,7 @@
 # Lead-Authored Task Routing — Design & Roadmap
 
 Status: Phases 1–3 shipped (DAG-graph route display in `551f76ee`, run-evidence recording of the
-effective `(harness, model)` per task in `1ca87fbf` — see `docs/open-issues.md`); Phase 4 held on
+effective `(harness, model)` per task in `96fa3254` — see `docs/open-issues.md`); Phase 4 held on
 evidence, may be skipped. Date: 2026-08-19, status corrected 2026-09-17.
 
 ## The problem in one line

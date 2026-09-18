@@ -10,10 +10,10 @@ where it would plug in, and how to pick it back up. Append new entries at the to
 ## Composer attachments (2026-09-18)
 
 Composer attachments (paste / attach / drag-drop onto a run goal or steer, `875967bf`) were mounted only
-by the deleted `channelcomposers.tsx` and went with it in `bd8f5461`. Image paste into an agent's own
+by the deleted `channelcomposers.tsx` and went with it in `5eac07ed`. Image paste into an agent's own
 terminal still works. Revive when attaching a file to a goal or steer is wanted; recover with
-`git show bd8f5461^:frontend/app/view/agents/composerattachments.ts` and
-`git show bd8f5461^:frontend/app/view/agents/attachmenttray.tsx`. This also retires the attachment half of
+`git show 5eac07ed^:frontend/app/view/agents/composerattachments.ts` and
+`git show 5eac07ed^:frontend/app/view/agents/attachmenttray.tsx`. This also retires the attachment half of
 the 2026-07-16 "Channel composer attachments" entry and of the Remote/WSL blocked row.
 
 ## Thread archive/delete (2026-09-17)
@@ -22,7 +22,7 @@ Thread lifecycle (`archiveJarvisConversation`, `deleteJarvisConversation`) was o
 capabilities the retired Stage's column left orphaned (see the 2026-09-10 entry). The backlog cleanup pass
 deleted it outright rather than re-home it, since nothing in the cockpit still mounts a thread menu.
 
-- **What was deleted (`9fa593db`):** `DeleteJarvisConversationCommand`/`ArchiveJarvisConversationCommand`
+- **What was deleted (`4c36093e`):** `DeleteJarvisConversationCommand`/`ArchiveJarvisConversationCommand`
   and their data types (`pkg/wshrpc/wshrpctypes_jarvis.go`), the two handlers
   (`pkg/wshrpc/wshserver/wshserver_jarvis.go`), their tests, and `wstore.DeleteJarvisConversation`
   (`pkg/wstore/wstore_jarvisconversation.go`; test callers switched to `DBDelete`).
@@ -31,13 +31,13 @@ deleted it outright rather than re-home it, since nothing in the cockpit still m
 - **Why:** the capability had no mount left to re-home into, and no user-visible pressure was observed to
   justify rebuilding one speculatively.
 - **To resume:** when thread clutter in the palette's Brief index becomes a real problem. Recover with
-  `git show 9fa593db^:frontend/app/view/jarvis/jarvisstore.ts` and
-  `git show 9fa593db^:pkg/wshrpc/wshserver/wshserver_jarvis.go`.
+  `git show 4c36093e^:frontend/app/view/jarvis/jarvisstore.ts` and
+  `git show 4c36093e^:pkg/wshrpc/wshserver/wshserver_jarvis.go`.
 
 ## Lead-authored task routing — Phase 4 measurement gate (2026-09-17)
 
 Phases 1–3 of `docs/lead-authored-task-routing-roadmap.md` are now shipped: the DAG-graph route display
-(`551f76ee`) and run-evidence recording of the effective `(harness, model)` per task (`1ca87fbf` —
+(`551f76ee`) and run-evidence recording of the effective `(harness, model)` per task (`96fa3254` —
 `RunEvidence` gains `Harness`/`Model`, sealed from the run's actual route and its last worker transcript's
 reported model). Phase 4, the cost/outcome measurement gate, stays held.
 
@@ -81,7 +81,7 @@ review; everything else it designed waits for evidence, with each settled decisi
 The first cross-surface plan (`effort:2450d93e`) built typed surface navigation and a Space filter in
 `.worktrees/surface-integration`, uncommitted. The approved resource-linking spec
 (`docs/superpowers/specs/2026-09-15-cross-surface-resource-linking-design.md`) cut the effort to addressing
-and landing. That work is parked as `faba2ade` on branch `feat/surface-integration`; keep the branch while
+and landing. That work is parked as `09e86573` on branch `feat/surface-integration`; keep the branch while
 this entry is open. Only the Sessions half of its project and Space scope moved to `main`.
 
 - **What was deferred:**
@@ -91,18 +91,18 @@ this entry is open. Only the Sessions half of its project and Space scope moved 
   - Deterministic reverse links and palette Open versus Execute, the plan's Tasks 5 and 6: not started. The
     palette's current handling of an ended session was not re-checked.
   - A Space filter on the Brief (`filterJarvisBySpace`) over channels, runs and workers, keeping attention
-    global. It filtered the Brief's active-work region, which 65bbfd7f replaced with the inline tracker, so
+    global. It filtered the Brief's active-work region, which ea4cd452 replaced with the inline tracker, so
     it no longer applies. `SURFACE_CONTEXT` marks Jarvis's Space support `unsupported` until it returns.
 - **Why:** the spec defers Back until a real flow shows the need. Its `openTarget` replaces the result type
   that work gave `openORef`. What a Space should hide among the inline tracker's rows is undecided.
 - **Where to pick it up:**
-  - Navigation: `git show faba2ade:frontend/app/cockpit/surfacenavigation.ts` and its `.test.ts`; the
-    callers' wiring is `git diff f3b8de76 faba2ade -- frontend`.
-  - Design and plan: `git show faba2ade:docs/superpowers/specs/2026-09-15-cross-surface-navigation-design.md`
-    and `git show faba2ade:docs/superpowers/plans/2026-09-15-cross-surface-navigation-plan.md`.
-  - Strip mockup: `git show faba2ade:docs/prototype/cross-surface-context-strip.html`.
-  - Brief filter: `git show faba2ade:frontend/app/view/agents/spacescope.ts` (`filterJarvisBySpace`) and
-    `git diff f3b8de76 faba2ade -- frontend/app/view/jarvis/briefsurface.tsx`.
+  - Navigation: `git show 09e86573:frontend/app/cockpit/surfacenavigation.ts` and its `.test.ts`; the
+    callers' wiring is `git diff eb5a3654 09e86573 -- frontend`.
+  - Design and plan: `git show 09e86573:docs/superpowers/specs/2026-09-15-cross-surface-navigation-design.md`
+    and `git show 09e86573:docs/superpowers/plans/2026-09-15-cross-surface-navigation-plan.md`.
+  - Strip mockup: `git show 09e86573:docs/prototype/cross-surface-context-strip.html`.
+  - Brief filter: `git show 09e86573:frontend/app/view/agents/spacescope.ts` (`filterJarvisBySpace`) and
+    `git diff eb5a3654 09e86573 -- frontend/app/view/jarvis/briefsurface.tsx`.
   - Back needs its own chord: Code's Back/Forward owns `Alt+ArrowLeft/Right`.
 
 ## Lanes: a skipped task's commits land with its lane, and a retry's evidence starts at the branch head (2026-09-15)
@@ -118,7 +118,7 @@ runs a chain of tasks as one lane: one worktree and branch, and one squash merge
   - A lane's first task retried after a Setup failure keeps the base its branch was created at, even when
     other lanes have merged since.
 - **Why:** workers commit once, at the end, so a failed attempt rarely leaves commits behind. Rewinding needs
-  a hard reset inside a tree that `task worktree:prepare` junctions into, the class of operation 6179ac3d had
+  a hard reset inside a tree that `task worktree:prepare` junctions into, the class of operation c375b9ff had
   to make safe for removal.
 - **Where to pick it up:** in `applyActionLocked`'s `skip` case (`pkg/orchestrate/mutation.go`), reset the lane
   worktree to the last done task's reported commit (its child run's `EndCommit`) after `DumpRecoveryPatch`,
@@ -161,13 +161,13 @@ still run on codex and opencode; only the unattended run path lost them.
   delivery, liveness and route validation. The redesign builds those for two harnesses, and neither of the
   other two was in use.
 - **Recovery:**
-  - `git show f09e272a:pkg/jarvis/runexec.go`
-  - `git show f09e272a:pkg/jarvis/runexec_test.go`
-  - `git show f09e272a:pkg/orchestrate/liveness.go`
-  - `git show f09e272a:pkg/orchestrate/liveness_test.go`
-  - `git show f09e272a:pkg/runroute/runroute.go`
-  - `git show f09e272a:pkg/runroute/runroute_test.go`
-  - `git show f09e272a:pkg/harness/catalog.go`
+  - `git show adfcbebc:pkg/jarvis/runexec.go`
+  - `git show adfcbebc:pkg/jarvis/runexec_test.go`
+  - `git show adfcbebc:pkg/orchestrate/liveness.go`
+  - `git show adfcbebc:pkg/orchestrate/liveness_test.go`
+  - `git show adfcbebc:pkg/runroute/runroute.go`
+  - `git show adfcbebc:pkg/runroute/runroute_test.go`
+  - `git show adfcbebc:pkg/harness/catalog.go`
 - **Where to pick it up:** re-add the adapter arm, the route validation (a model namespace check, since
   tiers are gone) and the `RunWorkerCapable` flag together; a runtime needs all three to dispatch. A
   runtime also needs the redesign's per-harness pieces (wake, compaction rules, ask delivery) before it can
@@ -233,7 +233,7 @@ Deferred by finding F4 of the git-compare-viewer parity initiative
   compute the diff. A temp-repo probe also showed the two git reads disagree under `-w`: `git diff
   --numstat -w` drops a whitespace-only file entirely while `git diff --name-status -w` still lists it, so a
   server-side flag would leave the change list and its own counts contradicting each other.
-- **What shipped instead** (`72777e4b`): the real post-Task-8 defect was Monaco's `ignoreTrimWhitespace`
+- **What shipped instead** (`88523b90`): the real post-Task-8 defect was Monaco's `ignoreTrimWhitespace`
   defaulting to **true** — a whitespace-only change drew as no change at all while the header above it read
   `+2 -2`. `frontend/app/view/agents/diffoptions.ts` makes the switch explicit and **off** by default, so the
   pane and the list agree; Shift+W (`files:toggle-whitespace`) is the opt-in for reading through a reformat.
@@ -241,7 +241,7 @@ Deferred by finding F4 of the git-compare-viewer parity initiative
   ignored. It is not a flag on an existing command — it needs one read that decides both the list and the
   counts, i.e. `gitinfo.Changes` returning a per-file "whitespace-only" bit derived from a single
   `--numstat` / `--numstat -w` pair. Building it as a second read is what produces the contradiction above.
-- **Where to pick it up:** `git show 72777e4b:frontend/app/view/agents/diffoptions.ts` for the switch this
+- **Where to pick it up:** `git show 88523b90:frontend/app/view/agents/diffoptions.ts` for the switch this
   would hang off, and `pkg/gitinfo/gitinfo.go` `Changes` for the read that would have to carry the bit.
 
 ## Jarvis Brief — what retiring the three-pane composition left without a mount (2026-09-10)
@@ -317,7 +317,7 @@ were the **only** mount for, and that B5's approved scope did not re-home.
 - **What already exists:** every item is shipped and unit-tested; **nothing was deleted**, and the modules
   named above are all still in the tree — with one exception, the profile drawer's two sections, whose host
   `profilepanel.tsx` *was* deleted — recover it with
-  `git show fb9034bb^:frontend/app/view/jarvis/profilepanel.tsx`. That deletion is what made them invisible
+  `git show cd5f1560^:frontend/app/view/jarvis/profilepanel.tsx`. That deletion is what made them invisible
   to the sweep, and is why they cost a rebuild rather than a re-mount. The rest are *orphaned*, not removed,
   deliberately: a deferred capability's implementation is the expensive half of re-homing it, and the precedent is the
   2026-07-31 entry's `gitinfo.RevertFile` / `GitRevertCommand`, kept for exactly this reason. What B5 did
@@ -374,29 +374,29 @@ gap is also still owed.
 stopped being load-bearing along the way: the one-channel-per-project collapse (chunk 9's dependency) means a
 channel is no longer created and abandoned by a human, so there is materially less left to manage. Per item:
 
-- **Channel lifecycle** (`renameChannel`, `archiveChannel`, `setChannelNotes`) — **deleted in `84f366fb`**,
+- **Channel lifecycle** (`renameChannel`, `archiveChannel`, `setChannelNotes`) — **deleted in `5827e43b`**,
   no longer load-bearing per above. What it left orphaned is listed in `docs/orchestrator-guide.md` (What the
   backlog run left open).
-- **Subject browsing, grouping, filtering** — **closed as superseded** in `f786e949`: the palette's Brief
+- **Subject browsing, grouping, filtering** — **closed as superseded** in `64048f86`: the palette's Brief
   index (`briefpalette.ts` `buildBriefIndex`) now browses and filters records, threads, initiatives and
   sessions, archived included; the leftover grouping remnant (`toggleSubjectGroup`) was deleted with it.
-- **Thread lifecycle** (`archiveJarvisConversation`, `deleteJarvisConversation`) — **deleted in `9fa593db`**;
+- **Thread lifecycle** (`archiveJarvisConversation`, `deleteJarvisConversation`) — **deleted in `4c36093e`**;
   threads now accumulate with no removal path. Revive when thread clutter in the palette becomes a real
   problem — its own entry below holds the recovery command.
-- **Per-answer cancel and retry** (`cancelJarvisQuery`, `retryJarvisQuery`) — **deleted in `9fa593db`**,
+- **Per-answer cancel and retry** (`cancelJarvisQuery`, `retryJarvisQuery`) — **deleted in `4c36093e`**,
   closed as superseded: the Brief's composer already holds while its own question is out, a failed ask stays
   retryable from the composer, and the pet's `JarvisConverseCommand` is capped at `JARVIS_RPC_TIMEOUT_MS`
   (130 s), so an abandoned stream terminates on its own instead of latching.
-- **Rail fleet roster and per-worker dismiss** — **`dismissWorker` deleted in `1ccf6e02`**; `FleetRoster` and
+- **Rail fleet roster and per-worker dismiss** — **`dismissWorker` deleted in `bf60b61f`**; `FleetRoster` and
   `runRailSection` were already gone (verified 2026-09-17), so nothing consumed it. The header's derived
   fleet line is the only survivor.
-- **The composer's `@`-command vocabulary** — **deleted in `bd8f5461`** along with the unmounted composers
+- **The composer's `@`-command vocabulary** — **deleted in `5eac07ed`** along with the unmounted composers
   themselves; see the "Composer attachments" entry above for the sibling capability that went with them.
 - **The Stage's turn renderers** (`JarvisAnswer`, `JarvisWorkingSteps`) — `jarvis/jarvisturn.tsx` **deleted
-  in `b432e159`**. Two remainders that were not actually superseded by `briefdrew.ts` — citation-aware turn
+  in `51cb08c1`**. Two remainders that were not actually superseded by `briefdrew.ts` — citation-aware turn
   prose, and a verdict badge for a `weak`/`notfound` terminal — were re-homed into a new `briefturn.ts`,
   consumed by `briefsurface.tsx`, rather than lost.
-- **The record peek's yield-while-stacked workaround** — unwound in `b18487d0` now that `ModalShell` only
+- **The record peek's yield-while-stacked workaround** — unwound in `293f55ca` now that `ModalShell` only
   takes focus/Escape when it owns the top of the modal stack; its live check is listed in
   `docs/orchestrator-guide.md` (What the backlog run left open).
 - **Still open, untouched by this pass:** the consult and resume/proactive feeds (§4a items 11/12, deliberate
@@ -1327,7 +1327,7 @@ Deferred out of the S3 first cycle:
 
 - **Diff surface narrow-window folding and row density declined** (2026-08-03). The Git-review mockup folds the commit pane to a chip below ~1100px, drops the author column, folds the graph to three lanes and turns history into a drawer below 900px, and exposes comfortable 34px / compact 28px rows. Both declined in `docs/superpowers/specs/2026-08-03-git-review-history-reads-design.md` decision 2: the cockpit runs at roughly 1600×950, so every breakpoint would be an untested path, and `historypane.tsx` keeps its single `ROW_H = 34`. Revive only on evidence of a narrow-window user.
 
-**PARTLY RESOLVED 2026-09-11 (`17948094`)** — the evidence arrived: the app ships a 1000×700 window (`src-tauri/tauri.conf.json`), where a fixed 460px commit column plus the file list leaves the diff pane about 240px. The commit column now folds to a 44px rail below 1280px (`difflayout.ts`, `historyrail.tsx`), and the fold is manually overridable so a resize cannot undo the user's choice. The rest of the cascade stays declined: no author-column drop, no three-lane graph, no history drawer, and `ROW_H` is still a single 34.
+**PARTLY RESOLVED 2026-09-11 (`19d324e5`)** — the evidence arrived: the app ships a 1000×700 window (`src-tauri/tauri.conf.json`), where a fixed 460px commit column plus the file list leaves the diff pane about 240px. The commit column now folds to a 44px rail below 1280px (`difflayout.ts`, `historyrail.tsx`), and the fold is manually overridable so a resize cannot undo the user's choice. The rest of the cascade stays declined: no author-column drop, no three-lane graph, no history drawer, and `ROW_H` is still a single 34.
 
 ## Jarvis pet — 2D creature (2026-08-04)
 
@@ -1418,5 +1418,5 @@ Deliberately dropped, with nothing left in the code that half-implements them:
   under an expanded chunk in the sheet; the inline row is one line by design and the sidebar is about prose.
   The data is still on `ChunkRowModel`, so restoring them is a render change, not a plumbing one.
 
-Recovery: `git show 7371424e:frontend/app/view/jarvis/effortdetailview.tsx` has the full pre-slim file
+Recovery: `git show 6061ff3d:frontend/app/view/jarvis/effortdetailview.tsx` has the full pre-slim file
 (746 lines) with all of the above.

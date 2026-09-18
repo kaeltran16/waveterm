@@ -2662,13 +2662,13 @@ Expected: exit 0.
 Replace the status line:
 
 ```
-**Status:** Design approved in conversation 2026-09-14. Slices 1-3 built (149be624, 680da968, 27228cb9). Slice 4 is split into 4a-4d (§13).
+**Status:** Design approved in conversation 2026-09-14. Slices 1-3 built (b3540636, e9e480b3, 2ce4161b). Slice 4 is split into 4a-4d (§13).
 ```
 
 with:
 
 ```
-**Status:** Design approved in conversation 2026-09-14. Slices 1-3 built (149be624, 680da968, 27228cb9). Slice 4 is split into 4a-4d (§13); 4a and 4b are built (f3b8de76, 48bd69df), and 4c is built from `docs/superpowers/plans/2026-09-15-orchestrator-redesign-s4c-setup-merge-verify.md`.
+**Status:** Design approved in conversation 2026-09-14. Slices 1-3 built (b3540636, e9e480b3, 2ce4161b). Slice 4 is split into 4a-4d (§13); 4a and 4b are built (eb5a3654, 48d5d5bd), and 4c is built from `docs/superpowers/plans/2026-09-15-orchestrator-redesign-s4c-setup-merge-verify.md`.
 ```
 
 In §14, replace:

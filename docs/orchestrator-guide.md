@@ -216,7 +216,7 @@ that every task must edit is what sets a plan's width, so keep that edit out of 
   step relied on. Only t-4 closed its chunks, so the tracker read 3/16 when all 13 tasks had landed.
   Repeat every rule and command a worker needs inside each task that needs it.
 - **Worker commit ids don't survive the merge.** A worker cites the commit on its lane branch, but the lane lands
-  as a new squash commit. On the backlog run t-8's doc row cited `3f6d5814`, and what landed was `bd8f5461`.
+  as a new squash commit. On the backlog run t-8's doc row cited `3f6d5814`, and what landed was `5eac07ed`.
   A later task that records commits should take them from `dag status` (its `landed` lines). A
   `git cat-file` check passes for either id while the lane branch exists.
 
@@ -471,26 +471,26 @@ Two engine changes would close these gaps:
 
 ### What the backlog run left open
 
-The run merged to `main` as `5d87597b`. This list is the single record of what it left open; the rows it
+The run merged to `main` as `cf2fe485`. This list is the single record of what it left open; the rows it
 closed in `docs/open-issues.md` point here.
 
 - **Four fixes still need a live check in the dev app.** Restart `task dev` on the merged `main` first. Three
   of the four are backend changes, and a `wavesrv` started before the merge doesn't have them.
-  - **F25, hung agents** (`a147e47d`): freeze a Claude Code agent mid-work, for example by suspending its
+  - **F25, hung agents** (`1f116196`): freeze a Claude Code agent mid-work, for example by suspending its
     process. After 3 minutes its row should read `hung · no output Nm`.
-  - **F22/F23, questions and answers** (`6a457809`): answer a plain session's question while its agent is
+  - **F22/F23, questions and answers** (`2628c6a0`): answer a plain session's question while its agent is
     frozen. Within 30 seconds the card should come back noted "answer was sent but never confirmed". Also, an
     agent kept open after its process ended (`cmd:keeponexit`) should lose its pending question.
-  - **F26, a killed worker** (`2f9f6a56`): kill a Quick run's worker process. The run should fail with a
+  - **F26, a killed worker** (`646f032c`): kill a Quick run's worker process. The run should fail with a
     `worker-exited` event. Quitting the app mid-run should not fail it.
-  - **Chunk 8, the record peek** (`b18487d0`, frontend only): open a record peek, raise its confirm and press
+  - **Chunk 8, the record peek** (`293f55ca`, frontend only): open a record peek, raise its confirm and press
     Escape. Only the confirm should close, and focus should return to the peek.
 - **Reopening a failed run's worker tab relaunches the worker** (F26's remainder). The run reads failed, but
   `ResyncController` restarts the block's persisted `cmd`/`args` as a fresh session whenever its terminal
   view remounts (`runworker.go`, `agentresumestore.ts`). After a quit, reopening that tab brings the worker
   back to life under a run the backend has already closed.
 - **The hung overlay covers Claude Code only** (F25). pi is excluded until its TUI output is measured.
-- **The frontend `deleteChannel` wrapper is gone.** It had no caller after `84f366fb` deleted the rest of the
+- **The frontend `deleteChannel` wrapper is gone.** It had no caller after `5827e43b` deleted the rest of the
   channel lifecycle stack. The `deletechannel` RPC and `DeleteChannelCommand` stay: `scripts/cdp/scenarios.mjs`,
   `scripts/cdp-e2e-runs-piece4.mjs` and `scripts/cdp-profile-verify.mjs` use it as their teardown.
 

@@ -2,7 +2,7 @@
 
 Effort `5d11f853-41e2-44d4-8aa4-bf92cee88dca` ("Orchestrator guide — gaps and rough edges (2026-09-18)"). This
 batch fixes the 19 chunks that are clear bugs. The other 12 chunks are out of scope, and a later run designs
-them. Every claim below was checked against the code on `orch-gaps` at `ff9f06ac`. Where the effort's note
+them. Every claim below was checked against the code on `orch-gaps` at `c10edc67`. Where the effort's note
 turned out wrong, this spec says so.
 
 ## Decisions

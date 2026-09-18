@@ -2683,7 +2683,7 @@ CGO_CFLAGS="-O2 -g -I$(pwd -W)/pkg/jarvisembed/csrc" go test ./pkg/wavevault/ ./
   && node --stack-size=4000 node_modules/typescript/lib/tsc.js --noEmit
 ```
 
-Expected: every Go package `ok`; `task build:backend` succeeds; vitest all PASS; tsc exit 0. Baseline on `main` at `859a8334` (2026-09-17, before this plan): `wavevault`, `jarvisvolunteer`, `jarvisrecall`, `jarvisstate` all `ok`; vitest 252 files / 3183 tests passed, 1 file and 2 tests skipped. Any failure is this slice's unless it reproduces on that commit.
+Expected: every Go package `ok`; `task build:backend` succeeds; vitest all PASS; tsc exit 0. Baseline on `main` at `9adda81f` (2026-09-17, before this plan): `wavevault`, `jarvisvolunteer`, `jarvisrecall`, `jarvisstate` all `ok`; vitest 252 files / 3183 tests passed, 1 file and 2 tests skipped. Any failure is this slice's unless it reproduces on that commit.
 
 - [ ] **Step 2: Self-review the diff**
 

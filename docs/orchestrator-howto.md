@@ -95,7 +95,7 @@ var firstTokenRuntimes = map[string]bool{"pi": true}
 
 `claude` and `codex` children that have written nothing now stay `running`; only the worker-exit hook
 catches them if they die. `StallThreshold` is untouched, because it needs a transcript to exist
-before it can age one. Committed on the project branch as `5ac53913` before anything launched.
+before it can age one. Committed on the project branch as `b2807146` before anything launched.
 
 A second fix was found the same way, by asking what the engine would do to a worktree that
 `task worktree:prepare` had touched. Post-merge cleanup removes a task's worktree with
@@ -388,7 +388,7 @@ t-3    running    act=22:59:10
 counts: {"total":7,"done":1,"running":3,"stalled":0,"recoveredretry":0}
 ```
 
-`stalled: 0`, nine minutes after spawn. I wrote this down as the payoff for `5ac53913` — the commit
+`stalled: 0`, nine minutes after spawn. I wrote this down as the payoff for `b2807146` — the commit
 that armed the deadline for pi only. Reading the code again after the run, that is not what happened,
 and the truth is more interesting.
 
@@ -406,7 +406,7 @@ So there is no path on which the condition can be true in a live run: either the
 the check is false, or the seed is cleared and the check is skipped.
 
 **`FirstTokenDeadline` is unreachable in production.** It fires only in tests, which set
-`LastActivity = 0` by hand. `5ac53913` is still correct — it stops claude being judged by a clock its
+`LastActivity = 0` by hand. `b2807146` is still correct — it stops claude being judged by a clock its
 transcript never runs — but it was never what saved this run, and I should not have claimed it was.
 
 Keep this in mind through the next section, because it is the same mechanism from the other side:
@@ -531,7 +531,7 @@ directory is the one `scanRoot` (`liveness.go:167`) already computes from
 `.jsonl` that will not exist until the child is gone. One caveat before trusting it: spilling depends
 on tool-result size, so silence there is not proof of death — it is a positive liveness signal only.
 
-`5ac53913` fixed the five-minute half of this. The fifteen-minute half is still live.
+`b2807146` fixed the five-minute half of this. The fifteen-minute half is still live.
 
 The cleanest way to be sure of a diagnosis is to predict with it. `t-8` spawned at 23:11:27, so if
 the cause above is right it must be declared stalled at 23:26:27 and not before, regardless of what

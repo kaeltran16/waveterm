@@ -115,12 +115,12 @@ Expected: PASS.
 **`docs/deferred.md`:** add a new entry at the top, `## Codex and opencode run workers (2026-09-14)`. It must say:
 - Run workers support claude and pi only (spec §8), and consult still supports codex and opencode.
 - What was deleted: the runexec arms, the liveness entry and its codex session test, the runroute rows and `codexSafe`, and the `RunWorkerCapable` flags.
-- The recovery commands, against the pre-slice commit `f09e272a`:
-  - `git show f09e272a:pkg/jarvis/runexec.go`
-  - `git show f09e272a:pkg/orchestrate/liveness.go`
-  - `git show f09e272a:pkg/orchestrate/liveness_test.go`
-  - `git show f09e272a:pkg/runroute/runroute.go`
-  - `git show f09e272a:pkg/harness/catalog.go`
+- The recovery commands, against the pre-slice commit `adfcbebc`:
+  - `git show adfcbebc:pkg/jarvis/runexec.go`
+  - `git show adfcbebc:pkg/orchestrate/liveness.go`
+  - `git show adfcbebc:pkg/orchestrate/liveness_test.go`
+  - `git show adfcbebc:pkg/runroute/runroute.go`
+  - `git show adfcbebc:pkg/harness/catalog.go`
 - "Where to pick it up": re-add the arms, the rows and the flags together; a runtime needs all three to dispatch.
 
 **`docs/open-issues.md`:** add a row in the existing deferred-row format, pointing at that entry.
@@ -1115,7 +1115,7 @@ Finally, grep `frontend/app` for `\btier\b`. Only autonomy tiers (`JarvisTier`, 
 - `go vet` on the touched packages;
 - `go test ./pkg/... ./cmd/... -count=1`.
 
-Report any failing package with its output. A failure that also fails at `f09e272a` is pre-existing; say so, with evidence.
+Report any failing package with its output. A failure that also fails at `adfcbebc` is pre-existing; say so, with evidence.
 
 **Frontend:**
 - `npx vitest run` (full);
@@ -1129,7 +1129,7 @@ Report any failing package with its output. A failure that also fails at `f09e27
 Run `git diff --stat` and `git diff`. Check that:
 - nothing outside this slice is staged;
 - there's no commented-out code or debug output;
-- every `docs/deferred.md` recovery command names a real path at `f09e272a`.
+- every `docs/deferred.md` recovery command names a real path at `adfcbebc`.
 
 - [ ] **Step 3: Commit**
 

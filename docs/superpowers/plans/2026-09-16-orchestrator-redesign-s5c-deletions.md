@@ -278,7 +278,7 @@ Two shapes: Quick and Orchestrator.
 
 ## Execution record
 
-Landed as `c9eb83ee` (the deletions), `df947f66` (the gaps those deletions left) and the commit this
+Landed as `1e4bb179` (the deletions), `11277991` (the gaps those deletions left) and the commit this
 section belongs to (the live check). Two steps were executed differently from what is written above;
 both are deliberate, and the reasoning is here rather than only in a commit message.
 

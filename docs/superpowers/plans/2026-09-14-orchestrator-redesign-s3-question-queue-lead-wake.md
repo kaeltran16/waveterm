@@ -3972,7 +3972,7 @@ The waiter path (`ResolveWaiter`, pi bridge) does confirm; the Claude Code keyst
 - `go vet ./pkg/agentask/ ./pkg/orchestrate/ ./pkg/jarvis/ ./pkg/waveobj/ ./pkg/wshrpc/... ./cmd/wsh/cmd/`
 - `go test ./pkg/... ./cmd/... -count=1`
 
-Report any failing package with its output. A failure that also fails at `680da968` is pre-existing; say so, with evidence.
+Report any failing package with its output. A failure that also fails at `e9e480b3` is pre-existing; say so, with evidence.
 
 **Frontend:**
 - `npx vitest run` (full)

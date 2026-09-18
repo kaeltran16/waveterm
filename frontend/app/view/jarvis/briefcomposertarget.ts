@@ -6,7 +6,7 @@
 // briefcompose.ts says that decision out loud and this makes it.
 //
 // It replaces composertarget.ts, which answered the same question for the Stage and was deleted with it
-// (git show fb9034bb^:frontend/app/view/jarvis/composertarget.ts). The difference: the Stage carried a
+// (git show cd5f1560^:frontend/app/view/jarvis/composertarget.ts). The difference: the Stage carried a
 // composerTarget field on its composition, while the Brief has no such field — what the detail sheet is
 // currently drawing IS the context, so the target is derived from the sheet face.
 

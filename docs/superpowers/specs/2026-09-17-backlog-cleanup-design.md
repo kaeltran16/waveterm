@@ -2,7 +2,7 @@
 
 Effort: `effort:cce0be37-6972-4068-89da-2c3738e5f765`. Date: 2026-09-17. Branch: `backlog-cleanup`.
 
-Every chunk was re-checked against the code at `06cf6b68` before this design. Product calls were made one at a
+Every chunk was re-checked against the code at `a3b27ac0` before this design. Product calls were made one at a
 time, on the owner's behalf, by the supervising session the owner delegated them to; this document records the
 outcome, not the options.
 
@@ -14,7 +14,7 @@ outcome, not the options.
 
 | Chunk | Status | Evidence |
 |---|---|---|
-| 1 · G6 lead notifications fire-and-forget | done | `27228cb9` replaced the control-file `NotifyLead` with typed wakes confirmed by the lead's `working` status: `pkg/orchestrate/wake.go` `WakeConfirmTimeout`, retry once, then `leadDiedLocked` → `lead-wake-failed` + questions to the human. `TestWakeRetriesOnceThenLeadIsDead`. |
+| 1 · G6 lead notifications fire-and-forget | done | `2ce4161b` replaced the control-file `NotifyLead` with typed wakes confirmed by the lead's `working` status: `pkg/orchestrate/wake.go` `WakeConfirmTimeout`, retry once, then `leadDiedLocked` → `lead-wake-failed` + questions to the human. `TestWakeRetriesOnceThenLeadIsDead`. |
 | 5 · Gatekeeper multi-question asks | skipped | The deferral's urgency was DAG child asks; the redesign routed those to the lead (`pkg/jarvis/watcher.go` `handleAsk` returns early for `isDagChildRun`). Held on evidence. |
 | 6 · Diff-surface revert orphans | skipped | Kept as Spec B's starting point (`docs/deferred.md` 2026-09-04); Spec B is deferred, not declined. |
 
@@ -24,7 +24,7 @@ Their `docs/open-issues.md` / `docs/deferred.md` rows are updated by the docs ta
 
 | Chunk | Decision |
 |---|---|
-| 9 · channel lifecycle | Delete rename / archive / notes end to end; delete the FE `deleteChannel` store function but **keep** `DeleteChannelCommand` (CDP scenario teardown calls `deletechannel`). Premise gone: one channel per project since `6b3882ad`/`95065db1`, `channelProjectLabel` never shows `channel.name`, `channel:notes` has no reader. |
+| 9 · channel lifecycle | Delete rename / archive / notes end to end; delete the FE `deleteChannel` store function but **keep** `DeleteChannelCommand` (CDP scenario teardown calls `deletechannel`). Premise gone: one channel per project since `4e257133`/`0923776e`, `channelProjectLabel` never shows `channel.name`, `channel:notes` has no reader. |
 | 10 · composer `@`-vocabulary | Delete, including the composer-attachment modules only it mounted; move `RunShape` into `runconfig.ts`; drop the `@quick/@run/@ask` sentence in `runlauncher.tsx`. The lost attachments get a `docs/deferred.md` entry. |
 | 11 · subject browsing/grouping | Delete `toggleSubjectGroup` + `collapsedSubjectGroupsAtom`; superseded by the palette's Brief index (`briefpalette.ts` `buildBriefIndex`). |
 | 12 · thread lifecycle | Delete FE functions and the Archive/Delete JarvisConversation RPCs; `docs/deferred.md` entry with revive condition "thread clutter in the palette". |

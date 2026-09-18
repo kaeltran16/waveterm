@@ -2485,13 +2485,13 @@ Expected: exit 0.
 In `docs/superpowers/specs/2026-09-14-orchestrator-redesign-design.md`, replace:
 
 ```
-**Status:** Design approved in conversation 2026-09-14. Slices 1-3 built (149be624, 680da968, 27228cb9). Slice 4 is split into 4a-4d (§13); 4a and 4b are built (f3b8de76, 48bd69df), and 4c is built from `docs/superpowers/plans/2026-09-15-orchestrator-redesign-s4c-setup-merge-verify.md`.
+**Status:** Design approved in conversation 2026-09-14. Slices 1-3 built (b3540636, e9e480b3, 2ce4161b). Slice 4 is split into 4a-4d (§13); 4a and 4b are built (eb5a3654, 48d5d5bd), and 4c is built from `docs/superpowers/plans/2026-09-15-orchestrator-redesign-s4c-setup-merge-verify.md`.
 ```
 
 with:
 
 ```
-**Status:** Design approved in conversation 2026-09-14. Slices 1-3 built (149be624, 680da968, 27228cb9). Slice 4 is split into 4a-4d (§13), all built: 4a and 4b (f3b8de76, 48bd69df), 4c (01ade5da) from `docs/superpowers/plans/2026-09-15-orchestrator-redesign-s4c-setup-merge-verify.md`, and 4d from `docs/superpowers/plans/2026-09-15-orchestrator-redesign-s4d-lanes.md`.
+**Status:** Design approved in conversation 2026-09-14. Slices 1-3 built (b3540636, e9e480b3, 2ce4161b). Slice 4 is split into 4a-4d (§13), all built: 4a and 4b (eb5a3654, 48d5d5bd), 4c (f7c2b9c3) from `docs/superpowers/plans/2026-09-15-orchestrator-redesign-s4c-setup-merge-verify.md`, and 4d from `docs/superpowers/plans/2026-09-15-orchestrator-redesign-s4d-lanes.md`.
 ```
 
 - [ ] **Step 2: Update the howto**
@@ -2559,7 +2559,7 @@ runs a chain of tasks as one lane: one worktree and branch, and one squash merge
   - A lane's first task retried after a Setup failure keeps the base its branch was created at, even when
     other lanes have merged since.
 - **Why:** workers commit once, at the end, so a failed attempt rarely leaves commits behind. Rewinding needs
-  a hard reset inside a tree that `task worktree:prepare` junctions into, the class of operation 6179ac3d had
+  a hard reset inside a tree that `task worktree:prepare` junctions into, the class of operation c375b9ff had
   to make safe for removal.
 - **Where to pick it up:** in `applyActionLocked`'s `skip` case (`pkg/orchestrate/mutation.go`), reset the lane
   worktree to the last done task's reported commit (its child run's `EndCommit`) after `DumpRecoveryPatch`,
