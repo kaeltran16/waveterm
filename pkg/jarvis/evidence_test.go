@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/agentobserve"
 	"github.com/wavetermdev/waveterm/pkg/gitinfo"
+	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
@@ -89,6 +90,27 @@ func TestArtifactKind(t *testing.T) {
 		if got := artifactKind(path); got != want {
 			t.Errorf("artifactKind(%q) = %q, want %q", path, got, want)
 		}
+	}
+}
+
+func TestEvidenceRoute(t *testing.T) {
+	cases := map[string]struct {
+		run                    waveobj.Run
+		observed               string
+		wantHarness, wantModel string
+	}{
+		"transcript model wins over the pinned one": {waveobj.Run{Runtime: "claude", Model: "claude-sonnet-5"}, "claude-opus-5", "claude", "claude-opus-5"},
+		"pinned model when the transcript names none": {waveobj.Run{Runtime: "pi", Model: "deepseek-v4-flash"}, "", "pi", "deepseek-v4-flash"},
+		"empty runtime is the default runtime":        {waveobj.Run{}, "claude-opus-5", runroute.DefaultRuntime(""), "claude-opus-5"},
+		"neither known leaves model empty":            {waveobj.Run{Runtime: "claude"}, "", "claude", ""},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			h, m := evidenceRoute(&c.run, c.observed)
+			if h != c.wantHarness || m != c.wantModel {
+				t.Fatalf("evidenceRoute = (%q, %q), want (%q, %q)", h, m, c.wantHarness, c.wantModel)
+			}
+		})
 	}
 }
 
@@ -379,6 +401,37 @@ func TestSealEvidenceBaseAnchored(t *testing.T) {
 	}
 	if run.Evidence.AddTotal == 0 {
 		t.Fatalf("expected AddTotal > 0, got %d", run.Evidence.AddTotal)
+	}
+}
+
+// TestSealEvidenceRecordsRoute proves the seal wires the run's actual route (harness + observed model)
+// into the evidence, using a stubbed observedModelFn so the test does not need a real transcript on disk.
+func TestSealEvidenceRecordsRoute(t *testing.T) {
+	dir := t.TempDir()
+	gitCmd(t, dir, "init", "-b", "main")
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("one\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitCmd(t, dir, "add", ".")
+	gitCmd(t, dir, "commit", "-m", "init")
+	base, err := gitinfo.HeadCommit(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	prev := observedModelFn
+	observedModelFn = func(*waveobj.Run) string { return "claude-opus-5" }
+	t.Cleanup(func() { observedModelFn = prev })
+
+	run := &waveobj.Run{
+		ID: "r1", Status: RunStatus_Done, ProjectPath: dir, BaseCommit: base, CreatedTs: 1000, Runtime: "claude",
+		Phases: []waveobj.RunPhase{{Kind: PhaseKind_Execute, State: PhaseState_Done, DoneTs: 5000}},
+	}
+	if err := SealEvidence(context.Background(), run); err != nil {
+		t.Fatal(err)
+	}
+	if run.Evidence.Harness != "claude" || run.Evidence.Model != "claude-opus-5" {
+		t.Errorf("Evidence route = (%q, %q), want (claude, claude-opus-5)", run.Evidence.Harness, run.Evidence.Model)
 	}
 }
 

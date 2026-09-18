@@ -3250,6 +3250,8 @@ declare global {
         artifacts?: EvidenceArtifact[];
         runtimems: number;
         durationms: number;
+        harness?: string;
+        model?: string;
     };
 
     // waveobj.RunPhase

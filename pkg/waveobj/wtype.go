@@ -427,6 +427,8 @@ type RunEvidence struct {
 	Artifacts  []EvidenceArtifact `json:"artifacts,omitempty"`
 	RuntimeMs  int64              `json:"runtimems"`  // Σ phase active spans (active compute)
 	DurationMs int64              `json:"durationms"` // wall clock (CompletedTs - CreatedTs)
+	Harness    string             `json:"harness,omitempty"` // the runtime that ran the work
+	Model      string             `json:"model,omitempty"`   // the model the transcript reports, else the route's pin; empty when neither is known
 }
 
 type EvidenceFile struct {
