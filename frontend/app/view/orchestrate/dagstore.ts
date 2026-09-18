@@ -8,11 +8,56 @@ import { canEscalate } from "./escalate";
 export const selectedTaskIdAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 
 export type DagNodeRoute = {
-    source: "pinned" | "inherited";
+    source: "pinned" | "workers" | "inherited";
     runtime: string;
     model: string; // exact model id; "" when the runtime runs its own default
     resolvedModel: string;
 };
+
+// routeSourceLabel is how a node names where its route came from.
+export function routeSourceLabel(source: DagNodeRoute["source"]): string {
+    switch (source) {
+        case "pinned":
+            return "pinned";
+        case "workers":
+            return "run worker route";
+        default:
+            return "inherits run route";
+    }
+}
+
+export type DagActionRoute = "pick-route" | "merge" | "continue" | "action";
+
+// dagActionRoute is where a node action goes. escalate needs a target model, which only the route picker
+// supplies; sent bare, the server rejects it.
+export function dagActionRoute(action: string): DagActionRoute {
+    switch (action) {
+        case "escalate":
+            return "pick-route";
+        case "merge":
+            return "merge";
+        case "resolve":
+            return "continue";
+        default:
+            return "action";
+    }
+}
+
+// dagActionError is the line the detail panel shows for a refused DAG action.
+export function dagActionError(action: string, taskId: string, err: unknown): string {
+    const reason = err instanceof Error ? err.message : String(err);
+    return `${action} ${taskId} failed: ${reason}`;
+}
+
+// the engine's default runtime for a worker route that names only a model (runroute.DefaultRuntime)
+const DEFAULT_RUNTIME = "claude";
+
+// normalizeWorkerPin mirrors effectiveTaskRoute (pkg/orchestrate/engine.go): the dag's worker route applies
+// when it names a runtime or a model.
+function normalizeWorkerPin(pin: RoutePin | undefined): RoutePin | null {
+    if (pin == null || (!pin.runtime && !pin.model)) return null;
+    return { runtime: pin.runtime || DEFAULT_RUNTIME, ...(pin.model ? { model: pin.model } : {}) };
+}
 
 export interface DagViewNode {
     id: string;
@@ -53,13 +98,14 @@ export function buildViewData(
     mergeReady: ReadonlySet<string>
 ): { nodes: DagViewNode[]; edges: DagViewEdge[] } {
     const ownerPin = normalizeRunPin(owner);
+    const workerPin = normalizeWorkerPin(group.workerroute);
     const nodes: DagViewNode[] = group.tasks.map((t) => {
         let actions = ACTION_BY_STATE[t.state] ?? [];
         if (t.gate && t.state === "done") actions = GATE_DONE_ACTIONS;
         if (mergeReady.has(t.id)) actions = ["merge"];
         if (canEscalate(t)) actions = [...new Set([...actions, "escalate"])];
         const taskPin = t.runspec?.runtime || t.runspec?.model ? normalizeSpecPin(t.runspec, owner) : null;
-        const effective: RoutePin = taskPin ?? ownerPin ?? { runtime: "" };
+        const effective: RoutePin = taskPin ?? workerPin ?? ownerPin ?? { runtime: "" };
         const capability = capabilityFor(effective, harnesses);
         return {
             id: t.id,
@@ -69,7 +115,7 @@ export function buildViewData(
             meta: t.runid ? `wave/${t.runid}` : "",
             actions,
             route: {
-                source: taskPin == null ? ("inherited" as const) : ("pinned" as const),
+                source: taskPin != null ? ("pinned" as const) : workerPin != null ? ("workers" as const) : ("inherited" as const),
                 runtime: effective.runtime,
                 model: effective.model ?? "",
                 resolvedModel: capability?.resolvedmodel ?? "unavailable",
