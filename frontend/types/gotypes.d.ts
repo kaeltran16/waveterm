@@ -389,6 +389,7 @@ declare global {
         verdict?: string;
         note?: string;
         commit?: string;
+        report?: string;
     };
 
     // wshrpc.CommandAgentSyncAdoptData
@@ -1703,6 +1704,7 @@ declare global {
         verdict?: string;
         note?: string;
         commit?: string;
+        report?: string;
     };
 
     // wshrpc.CommandResolveAmbientRtnData
@@ -3181,6 +3183,7 @@ declare global {
         projectpath: string;
         basecommit?: string;
         endcommit?: string;
+        report?: string;
         principles?: Principle[];
         status: string;
         phases: RunPhase[];

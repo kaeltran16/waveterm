@@ -48,8 +48,8 @@ func OrchestrationRules(runId, specPath, planPath string) string {
 	b.WriteString("- task still failing, or worker hung: `wsh jarvis dag retry <task>`, retry on another model with `wsh jarvis dag escalate <task> --model <model>`, `wsh jarvis dag skip <task>`, or forward.\n")
 	b.WriteString("- merge conflict, or tests failed at a merge point: fix it in the project tree, commit, `wsh jarvis dag merge <task> --continue` (the engine re-runs Verify).\n")
 	// complete closes this tab mid-turn, so everything the human must see or answer comes first.
-	b.WriteString("- run finished: review what landed with `wsh jarvis dag status`, and fix and commit what the landed tasks left behind (a stale doc line, an orphaned file). Write the report (landed, unverified, answered, forwarded, what needs a live check). Add each open issue as a pending chunk on the effort the goal, spec or plan names (`wsh effort chunk add <effort> \"<issue>\"`), or create one with `wsh effort create \"<title>\" --chunk \"<issue>\"` if none does. ")
-	fmt.Fprintf(&b, "Then put the open issues to the human with %s (%s on pi) and stop; don't add tasks. Run `wsh jarvis complete` only when the human says so: it closes this tab.\n", AskTool("claude"), AskTool("pi"))
+	b.WriteString("- run finished: review what landed with `wsh jarvis dag status`, and fix and commit what the landed tasks left behind (a stale doc line, an orphaned file). Write the report (landed, unverified, answered, forwarded, what needs a live check) to a file. Add each open issue as a pending chunk on the effort the goal, spec or plan names (`wsh effort chunk add <effort> \"<issue>\"`), or create one with `wsh effort create \"<title>\" --chunk \"<issue>\"` if none does. ")
+	fmt.Fprintf(&b, "Then put the open issues to the human with %s (%s on pi) and stop; don't add tasks. Run `wsh jarvis complete --report <file>` only when the human says so: it closes this tab.\n", AskTool("claude"), AskTool("pi"))
 	b.WriteString("Never re-plan and never do a task's own work.")
 	return b.String()
 }

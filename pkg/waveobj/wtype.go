@@ -271,6 +271,7 @@ type Run struct {
 	ProjectPath string          `json:"projectpath"`          // worker cwd (copied from the channel)
 	BaseCommit  string          `json:"basecommit,omitempty"` // HEAD of ProjectPath at run creation; anchors the evidence diff
 	EndCommit   string          `json:"endcommit,omitempty"`  // commit the worker reported as its finished work; scopes the evidence diff to BaseCommit..EndCommit (else falls back to the working-tree diff)
+	Report      string          `json:"report,omitempty"`     // lead's final report, sent with `wsh jarvis complete --report <file>`; the only way it survives the engine closing the lead's tab mid-turn on complete
 	Principles  PrincipleList   `json:"principles,omitempty"` // resolved at CreateRun; fed to every phase worker prompt
 	Status      string          `json:"status"`               // planning | awaiting-review | executing | blocked | done | cancelled
 	Phases      []RunPhase      `json:"phases"`

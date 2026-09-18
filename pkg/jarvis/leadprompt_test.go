@@ -98,6 +98,9 @@ func TestOrchestrationRulesHoldCompleteForTheHuman(t *testing.T) {
 		"wsh effort create",
 		AskTool("claude"),
 		AskTool("pi"),
+		"report",
+		"to a file",
+		"wsh jarvis complete --report <file>",
 		"only when the human says so",
 	} {
 		if !strings.Contains(finished, want) {
