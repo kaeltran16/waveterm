@@ -3,7 +3,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-package shellexec
+package jobobject
 
 import (
 	"fmt"
@@ -13,11 +13,9 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// job object with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE so closing the handle
-// terminates the entire process tree (shell + children like pi/node), not just
-// the direct child. KillGraceful only kills the direct process; without this a
-// closed agent block can leave its agent process orphaned and spinning forever.
-func attachJobObject(proc *os.Process) (uintptr, error) {
+// Attach puts proc in a new job object with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE so closing the
+// handle (Close) terminates the entire process tree rooted at proc, not just proc itself.
+func Attach(proc *os.Process) (uintptr, error) {
 	job, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
 		return 0, fmt.Errorf("CreateJobObject: %w", err)
@@ -44,17 +42,17 @@ func attachJobObject(proc *os.Process) (uintptr, error) {
 	return uintptr(job), nil
 }
 
-// killJobTree terminates every process in the job, i.e. the whole descendant tree.
-func killJobTree(job uintptr) {
+// KillTree terminates every process in the job, i.e. the whole descendant tree.
+func KillTree(job uintptr) {
 	if job == 0 {
 		return
 	}
 	_ = windows.TerminateJobObject(windows.Handle(job), 1)
 }
 
-// closeJobObject closes the job handle; with KILL_ON_JOB_CLOSE set this also
-// reaps any processes still in the job.
-func closeJobObject(job uintptr) {
+// Close closes the job handle; with KILL_ON_JOB_CLOSE set this also reaps any processes still in
+// the job.
+func Close(job uintptr) {
 	if job == 0 {
 		return
 	}
