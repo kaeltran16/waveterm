@@ -3,6 +3,10 @@
 This is a walkthrough of the orchestrator as it actually behaves, written while using it to clear two
 review backlogs. Every screenshot is from the run it describes; every command is one that was run.
 
+> **Start with [`docs/orchestrator-guide.md`](orchestrator-guide.md)** for how the orchestrator works now:
+> it covers every launch flow after the 2026-09 redesign, with screenshots from live runs. This file is the
+> earlier worked run — keep it for the plan-gate and lane detail, but where the two disagree, the guide wins.
+
 It is a how-to, not a design doc. The design lives in
 [`docs/superpowers/specs/2026-09-09-orchestrator-plan-gate-design.md`](superpowers/specs/2026-09-09-orchestrator-plan-gate-design.md)
 and [`docs/jarvis-orchestrator-plan-e2e.md`](jarvis-orchestrator-plan-e2e.md); the known rough edges

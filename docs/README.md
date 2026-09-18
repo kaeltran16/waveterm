@@ -28,7 +28,8 @@ reference for build commands, architecture, and gotchas — start there.
 | `keyboard-shortcuts.md` | Human-readable mirror of the keybinding registry (`frontend/app/store/keybindings/` is the source of truth). |
 | `orchestrator-roadmap.md`, `redesign-brief.md`, `redesign-meta-spec.md`, `tauri-migration-meta-spec.md`, `pi-package-integration-meta-spec.md` | Direction and umbrella docs. Largely historical — they record sequencing rationale, not remaining work. `redesign-meta-spec.md`'s surface inventory is superseded; see its banner. |
 | `lead-authored-task-routing-roadmap.md` | Design + phase roadmap for per-task harness/model routing. Still tracks real remaining work (Phase 3/4) — status corrected in `open-issues.md`. |
-| `orchestrator-howto.md` | Worked walkthrough of running the current orchestrator engine. The most actively maintained orchestrator doc. |
+| `orchestrator-guide.md` | How to use the orchestrator after the 2026-09 redesign: every real flow (Quick, goal-led, plan-file), answering a lead, judgment events, steering, and the rough edges, with a screenshot of each. Start here. |
+| `orchestrator-howto.md` | Worked walkthrough of an earlier engine run, kept for its plan-gate and lane detail. Predates the redesign — where the two disagree, `orchestrator-guide.md` is current. |
 | `orchestrator-redesign-flaws.md` | Living flaws tracker for the orchestrator engine — resolved rows kept as one-line summaries. Cross-referenced from `open-issues.md`. |
 | `jarvis-claude-lead-e2e.md`, `jarvis-orchestrator-plan-e2e.md` | Dated e2e proof captures for the Claude-lead-on-DAG-engine change, cited as evidence from several specs/plans. |
 
