@@ -56,7 +56,3 @@ func AppendJarvisTurn(ctx context.Context, id string, turn waveobj.JarvisConvoTu
 		c.UpdatedTs = time.Now().UnixMilli()
 	})
 }
-
-func DeleteJarvisConversation(ctx context.Context, id string) error {
-	return DBDelete(ctx, waveobj.OType_JarvisConversation, id)
-}

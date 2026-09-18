@@ -100,12 +100,6 @@ func AppendDossierDecisionCommand(w *wshutil.WshRpc, data wshrpc.CommandAppendDo
 	return resp, err
 }
 
-// command "archivejarvisconversation", wshserver.ArchiveJarvisConversationCommand
-func ArchiveJarvisConversationCommand(w *wshutil.WshRpc, data wshrpc.CommandArchiveJarvisConversationData, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "archivejarvisconversation", data, opts)
-	return err
-}
-
 // command "ask", wshserver.AskCommand
 func AskCommand(w *wshutil.WshRpc, data wshrpc.CommandAskData, opts *wshrpc.RpcOpts) (wshrpc.AskRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[wshrpc.AskRtnData](w, "ask", data, opts)
@@ -378,12 +372,6 @@ func DeleteBlockCommand(w *wshutil.WshRpc, data wshrpc.CommandDeleteBlockData, o
 // command "deletechannel", wshserver.DeleteChannelCommand
 func DeleteChannelCommand(w *wshutil.WshRpc, data wshrpc.CommandDeleteChannelData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "deletechannel", data, opts)
-	return err
-}
-
-// command "deletejarvisconversation", wshserver.DeleteJarvisConversationCommand
-func DeleteJarvisConversationCommand(w *wshutil.WshRpc, data wshrpc.CommandDeleteJarvisConversationData, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "deletejarvisconversation", data, opts)
 	return err
 }
 

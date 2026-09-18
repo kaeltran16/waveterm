@@ -90,47 +90,6 @@ func newTestConvo(t *testing.T, ctx context.Context, oid, title string, orefs []
 	return convo
 }
 
-func TestDeleteJarvisConversationCommandRemovesIt(t *testing.T) {
-	ctx := context.Background()
-	convo := newTestConvo(t, ctx, "dddddddd-0000-0000-0000-0000000000d1", "throwaway", nil)
-	ws := &WshServer{}
-	if err := ws.DeleteJarvisConversationCommand(ctx, wshrpc.CommandDeleteJarvisConversationData{ConversationId: convo.OID}); err != nil {
-		t.Fatalf("deleting: %v", err)
-	}
-	if _, err := wstore.GetJarvisConversation(ctx, convo.OID); err == nil {
-		t.Fatal("expected the conversation to be gone")
-	}
-}
-
-func TestDeleteJarvisConversationCommandRequiresAnId(t *testing.T) {
-	err := (&WshServer{}).DeleteJarvisConversationCommand(context.Background(), wshrpc.CommandDeleteJarvisConversationData{})
-	if err == nil {
-		t.Fatal("expected an error for an empty conversationid")
-	}
-}
-
-func TestArchiveJarvisConversationCommandRoundTrips(t *testing.T) {
-	ctx := context.Background()
-	convo := newTestConvo(t, ctx, "dddddddd-0000-0000-0000-0000000000d2", "keep me", nil)
-	ws := &WshServer{}
-	data := wshrpc.CommandArchiveJarvisConversationData{ConversationId: convo.OID, Archived: true}
-	if err := ws.ArchiveJarvisConversationCommand(ctx, data); err != nil {
-		t.Fatalf("archiving: %v", err)
-	}
-	// the summary is the only shape the frontend sees, so a flag it does not carry is write-only
-	summary := findSummary(t, ws, ctx, convo.OID)
-	if !summary.Archived {
-		t.Fatal("expected the summary to report archived")
-	}
-	data.Archived = false
-	if err := ws.ArchiveJarvisConversationCommand(ctx, data); err != nil {
-		t.Fatalf("unarchiving: %v", err)
-	}
-	if findSummary(t, ws, ctx, convo.OID).Archived {
-		t.Fatal("expected unarchive to clear the flag")
-	}
-}
-
 func TestListJarvisConversationsCarriesAttachedORefs(t *testing.T) {
 	ctx := context.Background()
 	orefs := []string{"run:dddddddd-0000-0000-0000-0000000000f1"}

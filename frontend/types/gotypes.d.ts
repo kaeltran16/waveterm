@@ -505,12 +505,6 @@ declare global {
         decisionid: string;
     };
 
-    // wshrpc.CommandArchiveJarvisConversationData
-    type CommandArchiveJarvisConversationData = {
-        conversationid: string;
-        archived: boolean;
-    };
-
     // wshrpc.CommandAskData
     type CommandAskData = {
         oref: string;
@@ -773,11 +767,6 @@ declare global {
     type CommandDeleteFileData = {
         path: string;
         recursive: boolean;
-    };
-
-    // wshrpc.CommandDeleteJarvisConversationData
-    type CommandDeleteJarvisConversationData = {
-        conversationid: string;
     };
 
     // wshrpc.CommandDeleteProjectData
