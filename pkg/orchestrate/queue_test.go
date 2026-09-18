@@ -143,6 +143,30 @@ func TestSecondUnconfirmedAnswerIsForwardedToUser(t *testing.T) {
 	}
 }
 
+// a restored session ask (no owning dag) is not a dag/lead concern: it goes straight back to the human
+// through publishSessionAskFn, never through the dag's forward-to-user path.
+func TestUnconfirmedSessionAnswerRepublishesToTheHuman(t *testing.T) {
+	f := newFakeLead(t)
+	var published []agentask.PendingAsk
+	origPublish := publishSessionAskFn
+	publishSessionAskFn = func(oref string, p agentask.PendingAsk) { published = append(published, p) }
+	t.Cleanup(func() { publishSessionAskFn = origPublish })
+	sessionAsk := agentask.PendingAsk{
+		AskId: "a1", BlockId: "child", Questions: []baseds.AgentAskQuestion{{Question: "which way?"}},
+		Note: agentask.AnswerUnconfirmedNote,
+	}
+	stubExpiredClears(t, map[string]agentask.PendingAsk{"block:child-1": sessionAsk})
+
+	sweepAsks(context.Background())
+
+	if len(published) != 1 || published[0].AskId != "a1" || published[0].Note != agentask.AnswerUnconfirmedNote {
+		t.Fatalf("want the session ask republished with its note, got %+v", published)
+	}
+	if len(f.sends) != 0 || f.countKind(waveobj.RunEventKindTaskForwarded) != 0 {
+		t.Fatalf("a session ask is not the lead's or the dag's, sends=%q rows=%+v", f.sends, f.rows)
+	}
+}
+
 func TestDispatchFailureWakesLeadAfterCommit(t *testing.T) {
 	f := newFakeLead(t)
 	g := &waveobj.TaskGroup{OID: "dag-1", ChannelId: wakeChannel, RunID: wakeRun, Tasks: []waveobj.TaskNode{{ID: "t-3", State: TaskState_Ready}}}

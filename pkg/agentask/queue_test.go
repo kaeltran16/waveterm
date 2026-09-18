@@ -124,7 +124,10 @@ func TestExpireClearsDropsWhenChildMovedOn(t *testing.T) {
 	}
 }
 
-func TestOnlyTypedDagAnswersAwaitClear(t *testing.T) {
+// only the waiter path (pi bridge) skips the clear: it has no picker to confirm delivery into, so the
+// resolved waiter IS the delivery. Every keystroke delivery, dag child or plain session alike, awaits one
+// — a session answer that never lands is otherwise indistinguishable from one that did.
+func TestOnlyWaiterAnswersSkipAwaitingClear(t *testing.T) {
 	GlobalRegistry = MakeRegistry()
 	stubKeys(t)
 	plain := dagPending("a1")
@@ -133,8 +136,8 @@ func TestOnlyTypedDagAnswersAwaitClear(t *testing.T) {
 	if ok, _ := DeliverAnswer("block:plain", "", answerFirst()); !ok {
 		t.Fatal("want delivered")
 	}
-	if GlobalRegistry.ConfirmClear("block:plain") {
-		t.Fatal("an ask outside a dag keeps today's fire-and-forget delivery")
+	if !GlobalRegistry.ConfirmClear("block:plain") {
+		t.Fatal("a session answer delivered by keystrokes awaits its clear too")
 	}
 
 	GlobalRegistry.Set("block:pi", dagPending("a2"))

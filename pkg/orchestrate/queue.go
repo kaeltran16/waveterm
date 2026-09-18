@@ -9,7 +9,9 @@ import (
 	"strings"
 
 	"github.com/wavetermdev/waveterm/pkg/agentask"
+	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wps"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
@@ -85,6 +87,18 @@ var expireClearsFn = func(now int64) map[string]agentask.PendingAsk {
 	return agentask.GlobalRegistry.ExpireClears(now, agentask.AnswerClearTimeout)
 }
 
+// publishSessionAskFn puts a session ask whose typed answer never landed back in front of the human. It
+// publishes the ask event directly: jarvis.PublishAgentAsk would hand the ask to the Gatekeeper a second
+// time. A var for tests.
+var publishSessionAskFn = func(oref string, p agentask.PendingAsk) {
+	wps.Broker.Publish(wps.WaveEvent{
+		Event:   wps.Event_AgentAsk,
+		Scopes:  []string{oref},
+		Persist: 1,
+		Data:    baseds.AgentAskData{ORef: oref, AskId: p.AskId, Questions: p.Questions, Ts: p.Ts, Prose: p.Prose, Note: p.Note},
+	})
+}
+
 // sweepAsks moves lead-owned questions past their deadline to the human, and puts answers that never
 // landed back in front of their owner.
 func sweepAsks(ctx context.Context) {
@@ -95,6 +109,10 @@ func sweepAsks(ctx context.Context) {
 		}
 	}
 	for oref, p := range expireClearsFn(now) {
+		if p.DagOID == "" {
+			publishSessionAskFn(oref, p)
+			continue
+		}
 		if p.Owner != agentask.AskOwner_Lead {
 			forwardAskToUser(ctx, oref, p, p.Note)
 			continue

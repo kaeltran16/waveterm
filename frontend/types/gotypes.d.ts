@@ -67,6 +67,7 @@ declare global {
         ts?: number;
         cleared?: boolean;
         prose?: boolean;
+        note?: string;
     };
 
     // baseds.AgentAskOption

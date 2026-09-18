@@ -456,6 +456,11 @@ export const AgentRow = memo(function AgentRow({
                             ) : null
                         }
                     />
+                    {agent.ask?.note ? (
+                        <div className="shrink-0 border-b border-edge-mid px-3.5 pt-2 text-[11px] text-warning">
+                            {agent.ask.note}
+                        </div>
+                    ) : null}
                     {question ? (
                         <p className="shrink-0 border-b border-edge-mid px-3.5 py-2.5 text-[14px] font-semibold leading-[1.5] text-primary">
                             {question}

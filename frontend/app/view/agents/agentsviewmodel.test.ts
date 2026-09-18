@@ -373,6 +373,21 @@ describe("withAsk", () => {
         const cleared: AgentAskData = { oref: "block:abc", askid: "ask-1", cleared: true };
         expect(withAsk(baseWorking(), cleared, NOW)).toEqual(baseWorking());
     });
+
+    it("carries why an ask came back onto the card", () => {
+        const vm = withAsk(
+            { id: "t1", name: "loom", task: "", state: "working" } as AgentVM,
+            {
+                oref: "block:b1",
+                askid: "a1",
+                questions: [],
+                ts: 1_000,
+                note: "answer was sent but never confirmed",
+            } as AgentAskData,
+            2_000
+        );
+        expect(vm.ask?.note).toBe("answer was sent but never confirmed");
+    });
 });
 
 describe("buildAskAnswers", () => {

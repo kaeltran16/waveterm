@@ -9,10 +9,19 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/agentask"
+	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
 	"github.com/wavetermdev/waveterm/pkg/jobcontroller"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
+
+// stubControllerStatus swaps controllerStatusFn for a fixed answer and restores it on cleanup.
+func stubControllerStatus(t *testing.T, status *blockcontroller.BlockControllerRuntimeStatus) {
+	t.Helper()
+	orig := controllerStatusFn
+	controllerStatusFn = func(string) *blockcontroller.BlockControllerRuntimeStatus { return status }
+	t.Cleanup(func() { controllerStatusFn = orig })
+}
 
 // askBlock inserts a block and returns its oref. jobStatus "" means an in-process shell (no job);
 // "absent" means no block is inserted at all, i.e. the terminal was closed.
@@ -92,5 +101,33 @@ func TestLivePendingAsksRetiresAnAskWhoseBlockIsGone(t *testing.T) {
 	inList, inRegistry := pruneCase(t, "absent")
 	if inList || inRegistry {
 		t.Fatalf("an ask for a deleted block survived: list=%v registry=%v", inList, inRegistry)
+	}
+}
+
+// a kept, non-job-backed block whose process ended has no clear coming — the agent that would send it
+// is gone — so the poll has to notice the controller's own status, not just durability.
+func TestLivePendingAsksRetiresAnAskFromALocalBlockWhoseProcessEnded(t *testing.T) {
+	stubControllerStatus(t, &blockcontroller.BlockControllerRuntimeStatus{ShellProcStatus: blockcontroller.Status_Done})
+	inList, inRegistry := pruneCase(t, "")
+	if inList || inRegistry {
+		t.Fatalf("an ask for a finished local block survived: list=%v registry=%v", inList, inRegistry)
+	}
+}
+
+func TestLivePendingAsksKeepsAnAskFromALocalBlockWhoseProcessIsRunning(t *testing.T) {
+	stubControllerStatus(t, &blockcontroller.BlockControllerRuntimeStatus{ShellProcStatus: blockcontroller.Status_Running})
+	inList, _ := pruneCase(t, "")
+	if !inList {
+		t.Fatalf("an ask for a running local block was pruned")
+	}
+}
+
+// before the frontend re-mounts a durable block's controller (e.g. right after boot), there is no
+// controller to ask yet — that silence must not be misread as the process having ended.
+func TestLivePendingAsksKeepsAnAskFromALocalBlockWithNoController(t *testing.T) {
+	stubControllerStatus(t, nil)
+	inList, _ := pruneCase(t, "")
+	if !inList {
+		t.Fatalf("an ask for a block with no controller yet was pruned")
 	}
 }

@@ -71,6 +71,7 @@ export interface AgentAsk {
     oref?: string;
     replySuggestions?: string[]; // free-form quick-replies (populated by test-data scenarios; undefined on the live path)
     prose?: boolean; // projected prose question (pi bridge): chips submit as text answers
+    note?: string; // why the ask is back in front of the human (e.g. a typed answer that never cleared)
 }
 
 export interface AgentVM {
@@ -825,6 +826,7 @@ export function withAsk(vm: AgentVM, ask: AgentAskData | null, now: number): Age
             askId: ask.askid,
             oref: ask.oref,
             prose: ask.prose,
+            note: ask.note,
         },
     };
 }

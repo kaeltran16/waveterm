@@ -18,10 +18,14 @@ import (
 
 	"github.com/wavetermdev/waveterm/pkg/agentask"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
+	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
+
+// controllerStatusFn reads a block's live controller status (nil when no controller exists). A var for tests.
+var controllerStatusFn = blockcontroller.GetBlockControllerRuntimeStatus
 
 const (
 	AttentionGate       = "gate"
@@ -640,10 +644,11 @@ func GatherAttentionFromLedger(ctx context.Context, chans []*waveobj.Channel, ru
 // A pruned ask is retired for real — claimed, its --wait caller cancelled, and cleared to the
 // frontend — not just filtered out of this one response.
 //
-// Two ways to be gone, and the second only started mattering once asks became durable: the block
-// object is deleted, or the block is job-backed and its job manager has stopped. A restored ask has
-// no other retirement path — the daemon that would have sent a clear is the thing that died — so
-// without the second check a job that ended between two boots would hold its row forever.
+// Three ways to be gone: the block object is deleted, the block is job-backed and its job manager has
+// stopped, or the block is a local (non-job-backed) shell whose process ended. The second only started
+// mattering once asks became durable — the daemon that would have sent a clear is the thing that died,
+// so without it a job that ended between two boots would hold its row forever. The third catches a kept
+// local block whose process ended without a clear ever coming.
 func livePendingAsks(ctx context.Context) (map[string]agentask.PendingAsk, error) {
 	pendingAsks := agentask.GlobalRegistry.List()
 	for oref, pending := range pendingAsks {
@@ -659,6 +664,11 @@ func livePendingAsks(ctx context.Context) (map[string]agentask.PendingAsk, error
 			gone, gerr := agentask.DurableAgentGone(ctx, parsed.OID)
 			if gerr != nil {
 				return nil, fmt.Errorf("checking pending ask agent %s: %w", parsed.OID, gerr)
+			}
+			if !gone && block.JobId == "" {
+				// a kept local block whose process ended has no clear coming: the agent that would send it is gone
+				rs := controllerStatusFn(parsed.OID)
+				gone = rs != nil && rs.ShellProcStatus == blockcontroller.Status_Done
 			}
 			if !gone {
 				continue
