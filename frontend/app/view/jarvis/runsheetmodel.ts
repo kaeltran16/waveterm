@@ -11,12 +11,14 @@
 // digest's figures are dated rather than presented as current.
 
 import {
+    firstLine,
     formatElapsed,
     lastUpdatedText,
     nextStepText,
     planShapeText,
     reportChips,
     taskBriefs,
+    waitingText,
     type DigestState,
     type TaskBrief,
 } from "../orchestrate/dagdigest";
@@ -613,21 +615,6 @@ function liveTaskRow(input: SheetRowInput): SheetRow {
             };
     }
     return { ...base, meta: "", metaTone: "muted", state: task.state, stateTone: "muted", action: workerAction };
-}
-
-function firstLine(text: string | undefined): string {
-    return (text ?? "").split("\n")[0].trim();
-}
-
-function waitingText(td: DagTaskDigest | undefined, briefs: Map<string, TaskBrief>): string {
-    const blockers = td?.blockingtaskids ?? [];
-    if (td?.waitreason === "dependency" && blockers.length > 0) {
-        return `waiting on ${blockers.map((id) => briefs.get(id)?.label || id).join(", ")}`;
-    }
-    if (td?.waitreason === "parallelism") {
-        return "waiting for a worker slot";
-    }
-    return "not dispatched yet";
 }
 
 // --- the dock's config line -----------------------------------------------------------------------------
