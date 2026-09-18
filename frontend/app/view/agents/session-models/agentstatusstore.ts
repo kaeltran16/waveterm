@@ -3,6 +3,9 @@
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { waveEventSubscribeSingle } from "@/app/store/wps";
+import { RpcApi } from "@/app/store/wshclientapi";
+import { TabRpcClient } from "@/app/store/wshrpcutil";
+import { fireAndForget } from "@/util/util";
 import { atom, type PrimitiveAtom } from "jotai";
 import { recordRateLimit } from "../ratelimitstore";
 import { persistResume } from "./agentresumestore";
@@ -49,6 +52,39 @@ export function normalizeAgentUsage(provider: string, usage: AgentUsage): AgentU
     };
 }
 
+/** Pure: what a block's status atom holds once its retained last event arrives after a reload. A live event
+ *  that beat the read wins, since it is newer by construction; an event without a state seeds nothing. */
+export function seedAgentStatus(
+    current: AgentStatusData | null,
+    retained: AgentStatusData | null | undefined
+): AgentStatusData | null {
+    if (current != null || retained == null || !retained.state) {
+        return current;
+    }
+    return retained;
+}
+
+// Set once the subscription is up: reads a block's retained agent:status the first time its atom is created, so
+// a reload does not empty the roster until every agent's next hook event. Unset in tests and before boot, so
+// creating an atom stays pure there.
+let seedStatus: ((oref: string, statusAtom: PrimitiveAtom<AgentStatusData>) => void) | null = null;
+
+function readRetainedStatus(oref: string, statusAtom: PrimitiveAtom<AgentStatusData>) {
+    fireAndForget(async () => {
+        try {
+            const events = await RpcApi.EventReadHistoryCommand(TabRpcClient, {
+                event: "agent:status",
+                scope: oref,
+                maxitems: 1,
+            });
+            const retained = events?.[events.length - 1]?.data as AgentStatusData | undefined;
+            globalStore.set(statusAtom, (prev) => seedAgentStatus(prev, retained));
+        } catch (err) {
+            console.warn(`reading the retained agent:status of ${oref} failed`, err);
+        }
+    });
+}
+
 // keyed by block ORef string ("block:<uuid>")
 const agentStatusAtoms = new Map<string, PrimitiveAtom<AgentStatusData>>();
 
@@ -57,6 +93,7 @@ export function getAgentStatusAtom(oref: string): PrimitiveAtom<AgentStatusData>
     if (!statusAtom) {
         statusAtom = atom(null) as PrimitiveAtom<AgentStatusData>;
         agentStatusAtoms.set(oref, statusAtom);
+        seedStatus?.(oref, statusAtom);
     }
     return statusAtom;
 }
@@ -98,6 +135,11 @@ export function setupAgentStatusSubscription() {
         return;
     }
     subscribed = true;
+    seedStatus = readRetainedStatus;
+    // atoms made before the subscription existed are seeded now
+    for (const [oref, statusAtom] of agentStatusAtoms) {
+        seedStatus(oref, statusAtom);
+    }
     waveEventSubscribeSingle({
         eventType: "agent:status",
         handler: (event) => {

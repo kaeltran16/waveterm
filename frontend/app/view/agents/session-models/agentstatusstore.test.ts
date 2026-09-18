@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergeAgentStatusData, normalizeAgentUsage } from "./agentstatusstore";
+import { mergeAgentStatusData, normalizeAgentUsage, seedAgentStatus } from "./agentstatusstore";
 
 function status(over: Partial<AgentStatusData>): AgentStatusData {
     return { oref: "block:uuid-1", state: "working", ts: 1, ...over };
@@ -77,5 +77,21 @@ describe("mergeAgentStatusData", () => {
         }
         expect(cur?.title).toBe("fix the bug");
         expect(cur?.state).toBe("working");
+    });
+});
+
+describe("seedAgentStatus", () => {
+    it("fills an empty atom from the block's retained last event", () => {
+        expect(seedAgentStatus(null, status({ state: "working", title: "t" }))).toEqual(
+            status({ state: "working", title: "t" })
+        );
+    });
+    it("never replaces a live event that arrived before the read returned", () => {
+        const live = status({ state: "asking", ts: 9 });
+        expect(seedAgentStatus(live, status({ state: "working", ts: 1 }))).toBe(live);
+    });
+    it("seeds nothing from a missing or stateless event", () => {
+        expect(seedAgentStatus(null, undefined)).toBeNull();
+        expect(seedAgentStatus(null, status({ state: "" }))).toBeNull();
     });
 });
