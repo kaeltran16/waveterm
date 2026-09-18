@@ -343,7 +343,7 @@ you.
 | **A worker's question** | answers from the spec, plan and code, or forwards a product call with a note | forwarded questions and any it does not answer within **10 minutes** |
 | **Task failed** with its retry spent | `dag retry`, `dag escalate --model`, `dag skip`, or forwards | forwarded failures |
 | **Worker hung** (15 min silent, process alive, no ask pending) | same as a failure | same |
-| **Run finished** | writes the report, `wsh jarvis complete` | the Done face |
+| **Run finished** | fixes what the landed tasks left behind, writes the report, adds open issues to the initiative, asks you about them; `wsh jarvis complete` only when you say so | the report and its questions, then the Done face |
 
 ### Merge conflict and failed Verify
 
@@ -446,8 +446,8 @@ Done doesn't mean finished. The work after the last merge splits three ways:
 
 | Work | Whose job | On the backlog run |
 |---|---|---|
-| The run's report | **The lead's.** Its rules say "run finished: write the report from `wsh jarvis dag status` (landed, unverified, answered, forwarded), then `wsh jarvis complete`" (`OrchestrationRules`, `leadprompt.go`). | Not written. The lead ran `complete` first, and the engine closed its tab before it could recover. The sandbox lead did the same, so expect it. |
-| Closing the initiative's tracker chunks | **Nobody's.** The lead's rules never mention efforts, so it falls to whatever the plan says. | The plan gave it to workers through a header line they never see. The tracker read 3/16 with all 13 tasks landed. |
+| The run's report | **The lead's.** Its rules (`OrchestrationRules`, `leadprompt.go`) have it fix and commit what the landed tasks left behind, write the report, add each open issue as a pending chunk on the initiative (creating one if the run has none), and ask you about them. It runs `wsh jarvis complete` only when you say so, because `complete` closes its tab mid-turn. | Not written. The rules then said "write the report …, then `wsh jarvis complete`". The lead ran `complete` first, and the engine closed its tab before it could recover. The sandbox lead did the same. |
+| Closing the initiative's tracker chunks | **Nobody's.** The lead's rules use the initiative only to add open issues, so closing chunks falls to whatever the plan says. | The plan gave it to workers through a header line they never see. The tracker read 3/16 with all 13 tasks landed. |
 | Merging the branch, checking the fixes live in the app, committing anything | **Yours.** The engine lands work on the project checkout's branch and stops there. | Four fixes still need a live check once the branch is on `main` and running in the dev app. |
 
 Until the first two are fixed, plan for them yourself:
@@ -460,9 +460,9 @@ Until the first two are fixed, plan for them yourself:
 Two engine changes would close these gaps:
 
 1. **Make the report impossible to lose.** `wsh jarvis complete` would take the report as an argument (for
-   example `--report <file>`) and seal that. Closing the lead's tab only after its turn ends would also work,
-   but the prompt already says "report, then complete" and two leads still got the order wrong. So carry
-   the report in the command itself, rather than relying on the order.
+   example `--report <file>`) and seal that. The rules now hold `complete` until you say so, so the report
+   lands a turn before the tab closes. That is still a rule a lead can skip: the old one said "report, then
+   complete" and two leads got the order wrong. Carrying the report in the command is the code-level guard.
 2. **Let the engine close the tracker.** A plan task would name its chunk (a `**Chunk:**` line beside
    `**Depends on:**`), and the engine would mark that chunk done with the landed commit once the task's
    merge passes Verify. Closing chunks is deterministic bookkeeping, so it belongs in code. It also removes the
@@ -500,7 +500,8 @@ closed in `docs/open-issues.md` point here.
 Big efforts live as initiatives (`wsh effort`, the Brief's **Initiatives** region). A run does not attach
 itself to one: the goal names the effort, and chunks close only when an agent runs
 `wsh effort chunk status <effort> "<chunk>" done --note "…"`. Nothing in the engine does it (see
-[Who wraps up](#who-wraps-up)). To show a run against a chunk, attach it:
+[Who wraps up](#who-wraps-up)). When a run finishes, its lead adds each open issue as a pending chunk on the
+initiative the goal, spec or plan names, and creates one when there is none. To show a run against a chunk, attach it:
 `wsh effort chunk attach <effort> "<chunk>" --run <run-oid>`. Expanding an initiative on the Brief shows each
 chunk's status and note trail. On the backlog run the lead closed chunk 1 as already fixed, with its evidence,
 before asking its first question. After that only t-4's worker closed any chunks.

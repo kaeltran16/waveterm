@@ -79,6 +79,36 @@ func TestOrchestrationRulesNameRunSpecPlanAndCommands(t *testing.T) {
 	}
 }
 
+// complete closes the lead's tab mid-turn, so a lead that reports and completes in one turn leaves the
+// human no way to answer: the open issues go to the initiative and to the human first, and complete waits.
+func TestOrchestrationRulesHoldCompleteForTheHuman(t *testing.T) {
+	r := OrchestrationRules("run-1", "", "")
+	var finished string
+	for _, line := range strings.Split(r, "\n") {
+		if strings.HasPrefix(line, "- run finished:") {
+			finished = line
+		}
+	}
+	if finished == "" {
+		t.Fatalf("rules have no run-finished line:\n%s", r)
+	}
+	for _, want := range []string{
+		"wsh jarvis dag status",
+		"wsh effort chunk add <effort>",
+		"wsh effort create",
+		AskTool("claude"),
+		AskTool("pi"),
+		"only when the human says so",
+	} {
+		if !strings.Contains(finished, want) {
+			t.Fatalf("run-finished rule missing %q:\n%s", want, finished)
+		}
+	}
+	if strings.Index(finished, AskTool("claude")) > strings.Index(finished, "wsh jarvis complete") {
+		t.Fatalf("the lead must ask the human before it completes:\n%s", finished)
+	}
+}
+
 func TestOrchestrationRulesOmitMissingPaths(t *testing.T) {
 	r := OrchestrationRules("run-1", "", "")
 	if strings.Contains(r, "Spec:") || strings.Contains(r, "Plan:") {
