@@ -26,7 +26,7 @@ export type ChunkRowModel = {
 
 // notes are append-only; the latest entry is the newest
 export function effortChunkRows(effort: Effort): ChunkRowModel[] {
-    return effort.chunks.map((c) => {
+    return (effort.chunks ?? []).map((c) => {
         const trail = [...(c.notes ?? [])].sort((a, b) => a.ts - b.ts);
         return {
             label: c.label,

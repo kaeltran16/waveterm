@@ -30,6 +30,12 @@ describe("effortChunkRows", () => {
         expect(rows[1].trail).toHaveLength(2);
         expect(rows[2].tone).toBe("blocked");
     });
+
+    // an effort created with no chunks serializes its nil Go slice as null, and expanding it in the Brief
+    // threw during render, which took the whole cockpit down
+    it("reads an effort whose chunks came over the wire as null as having none", () => {
+        expect(effortChunkRows({ ...effort, chunks: null } as unknown as Effort)).toEqual([]);
+    });
 });
 
 // The cache used to be fetch-once, so an effort ticked by `wsh effort` or by an agent left the rendered
