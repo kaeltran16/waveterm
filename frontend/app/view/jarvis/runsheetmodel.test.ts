@@ -519,6 +519,30 @@ describe("taskRow", () => {
             metaTone: "muted",
         });
     });
+
+    // the engine reaps the lane's worker before Verify starts, so a verifying task has no session by design
+    it("reads a verifying task as running Verify once its worker is reaped", () => {
+        const r = taskRow(
+            rowInput({ state: "verifying", runid: "8a41ffff" }, { worker: { state: "unavailable", runId: "8a41ffff" } })
+        );
+        expect(r).toMatchObject({
+            meta: "running Verify",
+            state: "verifying",
+            stateTone: "success",
+            action: "open-dag-task",
+        });
+    });
+
+    it("reads a question the lead holds as asked the lead", () => {
+        const td: DagTaskDigest = {
+            taskid: "t-1",
+            waitreason: "lead-ask",
+            askts: NOW - 40_000,
+            mergestate: "",
+            cleanupstate: "",
+        };
+        expect(taskRow(rowInput({}, { td, askOwner: null })).meta).toBe("asked the lead · idle 40s");
+    });
 });
 
 describe("configLine", () => {

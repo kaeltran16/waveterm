@@ -100,16 +100,6 @@ export async function createChannel(name: string, projectPath: string): Promise<
     return ch.oid;
 }
 
-export async function deleteChannel(channelId: string): Promise<void> {
-    const wasActive = globalStore.get(activeChannelIdAtom) === channelId;
-    await RpcApi.DeleteChannelCommand(TabRpcClient, { channelid: channelId });
-    // clear the active id first so loadChannels reselects the first surviving channel
-    if (wasActive) {
-        globalStore.set(activeChannelIdAtom, undefined);
-    }
-    await loadChannels();
-}
-
 // Persist a channel's autonomy tier, then refresh the snapshot-fed rail so its badge updates
 // immediately. The rail reads the channelsAtom snapshot (not live WOS), so a tier change is
 // invisible until loadChannels() re-fetches — mirrors how create/delete already refresh.

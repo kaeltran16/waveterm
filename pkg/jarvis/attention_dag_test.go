@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
 
 // dagWithStatus builds the minimal dag group for attention tests. Status strings mirror
@@ -108,4 +109,53 @@ func TestBuildAttentionFallsBackToTheTaskIdWhenUnlabelled(t *testing.T) {
 		}
 	}
 	t.Fatalf("unlabelled gated task is unidentifiable: %+v", out)
+}
+
+func blockedItem(t *testing.T, g *waveobj.TaskGroup) wshrpc.AttentionItem {
+	t.Helper()
+	for _, it := range BuildAttention(AttentionInput{Dags: []*waveobj.TaskGroup{g}}) {
+		if it.Kind == AttentionDagBlocked {
+			return it
+		}
+	}
+	t.Fatalf("dag-blocked attention item missing")
+	return wshrpc.AttentionItem{}
+}
+
+// a blocked merge is not a failure: the row must say what to resolve and how to continue
+func TestBuildAttentionNamesABlockedMerge(t *testing.T) {
+	g := dagWithStatus("blocked")
+	g.Tasks = []waveobj.TaskNode{{ID: "t-0", Label: "a", State: "done"}, {ID: "t-3", Label: "store layer", State: "blocked-merge"}}
+	it := blockedItem(t, g)
+	if strings.Contains(it.Text, "consecutive failures") || !strings.Contains(it.Text, "store layer") || !strings.Contains(it.Text, "blocked") {
+		t.Fatalf("text = %q", it.Text)
+	}
+	if !strings.Contains(it.Why, "dag merge t-3 --continue") {
+		t.Fatalf("why = %q, want the continue command", it.Why)
+	}
+}
+
+func TestBuildAttentionNamesARefusedMerge(t *testing.T) {
+	g := dagWithStatus("blocked")
+	g.Tasks = []waveobj.TaskNode{{ID: "t-3", Label: "store layer", State: "blocked-merge", MergeError: "untracked file would be overwritten\nmore"}}
+	if it := blockedItem(t, g); !strings.Contains(it.Text, "untracked file would be overwritten") || strings.Contains(it.Text, "\n") {
+		t.Fatalf("text = %q, want the refusal's first line", it.Text)
+	}
+}
+
+func TestBuildAttentionNamesAFailedVerify(t *testing.T) {
+	g := dagWithStatus("blocked")
+	g.Tasks = []waveobj.TaskNode{{ID: "t-2", Label: "api", State: "verify-failed"}}
+	if it := blockedItem(t, g); !strings.Contains(it.Text, "Verify failed") || !strings.Contains(it.Text, "api") {
+		t.Fatalf("text = %q", it.Text)
+	}
+}
+
+func TestBuildAttentionKeepsTheFailureCountForFailedTasks(t *testing.T) {
+	g := dagWithStatus("blocked")
+	g.Failures = 3
+	g.Tasks = []waveobj.TaskNode{{ID: "t-1", Label: "b", State: "failed"}}
+	if it := blockedItem(t, g); it.Text != "3 consecutive failures — decide retry/skip." {
+		t.Fatalf("text = %q", it.Text)
+	}
 }

@@ -245,11 +245,9 @@ chain 6. The preview line under the path is the fastest check that the Depends l
 
 The longest chain also sets how a run ends. The backlog chain is Task 2 → 3 → 4 → 6 → 7 → 13. Once the eight
 independent tasks had landed, the run went one task at a time, with two of its three slots empty. `dag status`
-reports that stretch as `parallelism-wait` blocked on the running task (the rail's Run section words it
-"next: waiting for a slot"), not as a dependency wait. A running task
-always outranks a dependency wait when the digest picks its next step (`digest.go`), so the label doesn't mean the
-slots are full. Read the counts instead: running 1, dependencywaiting 3. To shorten that tail, cut Depends
-lines in the plan. Raising parallelism won't help.
+reports such a stretch as `dependency-wait`, naming the task each waiter needs (the rail's Run section reads
+"… waiting on …"). `parallelism-wait` ("waiting for a slot") means every slot is busy. To shorten that tail, cut
+Depends lines in the plan. Raising parallelism won't help.
 
 ![The backlog plan in the launcher](images/orchestrator-guide/24-plan-dialog-backlog.png)
 
@@ -345,7 +343,7 @@ you.
 | **A worker's question** | answers from the spec, plan and code, or forwards a product call with a note | forwarded questions and any it does not answer within **10 minutes** |
 | **Task failed** with its retry spent | `dag retry`, `dag escalate --model`, `dag skip`, or forwards | forwarded failures |
 | **Worker hung** (15 min silent, process alive, no ask pending) | same as a failure | same |
-| **Run finished** | writes the report, `wsh jarvis complete` | the Done face |
+| **Run finished** | fixes what the landed tasks left behind, writes the report, adds open issues to the initiative, asks you about them; `wsh jarvis complete` only when you say so | the report and its questions, then the Done face |
 
 ### Merge conflict and failed Verify
 
@@ -448,8 +446,8 @@ Done doesn't mean finished. The work after the last merge splits three ways:
 
 | Work | Whose job | On the backlog run |
 |---|---|---|
-| The run's report | **The lead's.** Its rules say "run finished: write the report from `wsh jarvis dag status` (landed, unverified, answered, forwarded), then `wsh jarvis complete`" (`OrchestrationRules`, `leadprompt.go`). | Not written. The lead ran `complete` first, and the engine closed its tab before it could recover. The sandbox lead did the same, so expect it. |
-| Closing the initiative's tracker chunks | **Nobody's.** The lead's rules never mention efforts, so it falls to whatever the plan says. | The plan gave it to workers through a header line they never see. The tracker read 3/16 with all 13 tasks landed. |
+| The run's report | **The lead's.** Its rules (`OrchestrationRules`, `leadprompt.go`) have it fix and commit what the landed tasks left behind, write the report, add each open issue as a pending chunk on the initiative (creating one if the run has none), and ask you about them. It runs `wsh jarvis complete` only when you say so, because `complete` closes its tab mid-turn. | Not written. The rules then said "write the report …, then `wsh jarvis complete`". The lead ran `complete` first, and the engine closed its tab before it could recover. The sandbox lead did the same. |
+| Closing the initiative's tracker chunks | **Nobody's.** The lead's rules use the initiative only to add open issues, so closing chunks falls to whatever the plan says. | The plan gave it to workers through a header line they never see. The tracker read 3/16 with all 13 tasks landed. |
 | Merging the branch, checking the fixes live in the app, committing anything | **Yours.** The engine lands work on the project checkout's branch and stops there. | Four fixes still need a live check once the branch is on `main` and running in the dev app. |
 
 Until the first two are fixed, plan for them yourself:
@@ -462,9 +460,9 @@ Until the first two are fixed, plan for them yourself:
 Two engine changes would close these gaps:
 
 1. **Make the report impossible to lose.** `wsh jarvis complete` would take the report as an argument (for
-   example `--report <file>`) and seal that. Closing the lead's tab only after its turn ends would also work,
-   but the prompt already says "report, then complete" and two leads still got the order wrong. So carry
-   the report in the command itself, rather than relying on the order.
+   example `--report <file>`) and seal that. The rules now hold `complete` until you say so, so the report
+   lands a turn before the tab closes. That is still a rule a lead can skip: the old one said "report, then
+   complete" and two leads got the order wrong. Carrying the report in the command is the code-level guard.
 2. **Let the engine close the tracker.** A plan task would name its chunk (a `**Chunk:**` line beside
    `**Depends on:**`), and the engine would mark that chunk done with the landed commit once the task's
    merge passes Verify. Closing chunks is deterministic bookkeeping, so it belongs in code. It also removes the
@@ -491,10 +489,9 @@ closed in `docs/open-issues.md` point here.
   view remounts (`runworker.go`, `agentresumestore.ts`). After a quit, reopening that tab brings the worker
   back to life under a run the backend has already closed.
 - **The hung overlay covers Claude Code only** (F25). pi is excluded until its TUI output is measured.
-- **`deleteChannel` and `DeleteChannelCommand` are orphaned now.** The run deleted the rest of the channel
-  lifecycle stack (`84f366fb`), and these two remain with no caller.
-- **`TestQuickReorderQueue_RollingTimeout` (`pkg/utilds`) flakes under load.** t-10 hit it while three workers'
-  suites were running and found that it passes on its own. It was judged an existing load flake and not fixed.
+- **The frontend `deleteChannel` wrapper is gone.** It had no caller after `84f366fb` deleted the rest of the
+  channel lifecycle stack. The `deletechannel` RPC and `DeleteChannelCommand` stay: `scripts/cdp/scenarios.mjs`,
+  `scripts/cdp-e2e-runs-piece4.mjs` and `scripts/cdp-profile-verify.mjs` use it as their teardown.
 
 ---
 
@@ -503,7 +500,8 @@ closed in `docs/open-issues.md` point here.
 Big efforts live as initiatives (`wsh effort`, the Brief's **Initiatives** region). A run does not attach
 itself to one: the goal names the effort, and chunks close only when an agent runs
 `wsh effort chunk status <effort> "<chunk>" done --note "…"`. Nothing in the engine does it (see
-[Who wraps up](#who-wraps-up)). To show a run against a chunk, attach it:
+[Who wraps up](#who-wraps-up)). When a run finishes, its lead adds each open issue as a pending chunk on the
+initiative the goal, spec or plan names, and creates one when there is none. To show a run against a chunk, attach it:
 `wsh effort chunk attach <effort> "<chunk>" --run <run-oid>`. Expanding an initiative on the Brief shows each
 chunk's status and note trail. On the backlog run the lead closed chunk 1 as already fixed, with its evidence,
 before asking its first question. After that only t-4's worker closed any chunks.
@@ -533,20 +531,6 @@ Inside a lead's or worker's terminal, the run is inferred. Elsewhere pass `--cha
 
 Seen live on 2026-09-17 and 18 or confirmed in code; none block a run.
 
-- **Typed answers on the Brief can't be sent.** The **Clarifying question** card has an "or type your own
-  answer…" field, but the Brief sheet wires no send for it (`AskRow` passes `onSubmit`, only the option click
-  calls it). Answer in the lead's terminal instead.
-- **Keyboard answers don't reach a lead's question.** The card says "Press 1–9 or click to answer", but the
-  sheet's bindings target `liveWorkers(run)`, the asking worker in the run's phases. A goal run that is still
-  planning has no phases, so pressing `1` does nothing (seen on the backlog run's chunk 14 question). Enter
-  shares the gate, so a typed answer can't go out by keyboard either.
-- **Cancel run skips its confirmation on an engine run — one click ends it.** `CancelRunButton` passes
-  `liveWorkers(run, agents).length` to `confirmCancelRun`, which cancels straight through when that count is
-  zero (`runcards.tsx`, `runactions.ts`). `liveWorkers` walks `run.phases` (`runmodel.ts:167`), and an engine
-  run keeps its workers as DAG child runs, not phases — so the count is 0 while three workers are running and
-  the confirm never opens. This cost the backlog run: clicking **Cancel run** to screenshot the dialog
-  cancelled it outright, three minutes in, with 10 of 13 tasks skipped. Same phase-only `liveWorkers` gap as
-  the keyboard-answer edge above; it also makes the Agent tree's lead row read "0 workers" mid-run.
 - **Workers killed by a reboot are never noticed.** After the machine restarted mid-run, the backlog run's
   three workers were gone, but `dag status` still showed t-1, t-2 and t-5 `running` and the run `healthy`,
   waiting on them. Worker tabs are background tabs, so nothing relaunches them. Opening one would relaunch its
@@ -568,79 +552,17 @@ Seen live on 2026-09-17 and 18 or confirmed in code; none block a run.
   The same load pushes a worker that is only waiting on its own test run past the stall threshold (t-9 went
   `stalled` after 17 idle minutes with its `go test` still using CPU). The lead checked the process and left
   it alone, and t-9 completed on its own about half an hour later.
-- **A worker the engine dispatches can be missing from the Agent tree.** `SpawnRunWorker` creates the worker's
-  tab with `wcore.CreateTab`. That queues the workspace change only on a context that collects updates, and
-  someone then has to broadcast it. The run-start path does both (`spawnRunWorkersWithPrompt`,
-  `wshserver_runs.go`), and its comment describes this exact symptom. The engine's dispatch (`spawnWorker` in
-  `engine.go`) does neither. The app's copy of the workspace never gains the tab, and the tree only builds rows
-  from tabs in that copy (`sessionsidebarmodel.ts`). On the backlog run t-6 was working and its status was
-  reaching the app, but the tree showed only the lead and "10 done". The rail's Run section, which reads the
-  DAG, listed t-6 at the same moment. t-7 and t-13 went missing the same way when they dispatched. A reaped
-  worker's tab does leave the app, because its block closes on exit through `DeleteBlockCommand`, which
-  broadcasts. The lead's tab closed at the end of a run doesn't (below). The run sheet finds workers through the same roster as the tree, so by
-  the code it shows such a task as "no session". Re-reading the workspace brought the row back, so a reload
-  fixes it (and then the reload edge below applies until the worker's next hook event):
-
-  ![t-6 running in the rail but absent from the tree](images/orchestrator-guide/25-worker-missing-from-tree.png)
-
-- **Verify has no row of its own once the lane's worker is reaped.** After a lane merges, the engine stops its
-  workers and removes the worktree, then starts Verify (`reapLaneWorkers` in `cleanup.go`, then `startVerify`).
-  The worker's row leaves the Agent tree. On the run sheet the task's state is `verifying`, but its row shows
-  "running Verify" only while the worker session is live, which it never is by then (`runsheetmodel.ts`,
-  `liveTaskRow`). So the row reads "no session · … session closed, work continues" for the whole Verify, about
-  four minutes for t-4. Watch the DAG node, which is coloured verifying, the timeline's "Verify started" and
-  "Verify passed" rows, or `verify-wait` in `dag status`. Verify's output isn't shown anywhere while it runs. It
-  runs without a terminal, and its output is kept only when it fails.
-- **Reloading the app empties the Agent tree of running workers until they report again.** Worker rows need
-  a live `agent:status` for the task's block (`workers.has(t.id)`, `agenttreemodel.ts`). Those statuses are
-  in-memory atoms filled only by new events (`agentstatusstore.ts`). Subscribing doesn't replay the retained
-  last event, and nothing reads the event history on load. After a frontend reload mid-run the backlog lead's
-  row showed "✓ 2 done" but none of its three running workers, though all three processes were alive and
-  working. Each comes back at its next hook event (its next tool call or turn end); nothing needs relaunching.
-  Check `dag status` or the process list before concluding a worker is gone.
+- **Verify's output isn't shown while it runs.** It runs without a terminal, and its output is kept only when
+  it fails. Streaming Verify's output live is still open.
 - **A timed-out Verify keeps running on Windows.** The timeout kills only the Git Bash launcher
   (`exec.CommandContext` in `plancmd_windows.go`). The real `bash` under it and the `go test` it started are
   never killed. On the backlog run the first Verify's `go test` was still running 30 minutes after it
   started, competing with the re-run. Kill the orphan tree by hand; it is the `bash.exe -c "<Verify>"` whose
   parent has exited.
-- **Starting a run can fail with "TypeError: Cannot read properties of null (reading 'id')".**
-  `CreateRunCommand` discards the error from reading the run back (`out, _ := wstore.GetRun(...)`,
-  `wshserver_runs.go`), so it can return `{run: null}` without an error. `createRun` passes that null on
-  (`runactions.ts`), and the launcher's `openChannelSheet(oid, run.id)` throws (`newruncontrol.tsx`). Seen
-  when starting a Quick run while three workers were busy; the run never appeared in the project's run list.
-  The underlying read failure wasn't captured. The same session logged "listing channels: sql: transaction has
-  already been committed or rolled back" under that load, which may or may not be the same fault.
-- **A question the lead holds is mislabelled on the task row.** The digest reports `waitreason: "lead-ask"`
-  (`pkg/orchestrate/digest.go`, `buildTaskDigest`), the sheet only matches `"ask"`
-  (`runsheetmodel.ts`, `liveTaskRow`), so the row reads "Claude needs your permission" instead of "asked the
-  lead".
-- **The DAG node's `escalate` button fails silently.** It sends no model, the server rejects it ("a target
-  model is required"), and the error is dropped (`daggraph.tsx`, `runAction`). **escalate…** in the detail panel
-  works.
-- **A blocked merge reads as a failure on the Brief.** Its **Waiting on you** row says "0 consecutive failures —
-  decide retry/skip."
-- **Landed-commit credit after a resolved conflict can name another lane's commit.** When another lane merged
-  between the lead's fix commit and its `--continue`, the resolved task was credited with that lane's commit
-  (sandbox: t-3 shown as `399cdf7`, t-1's commit, instead of the lead's `f0359a3`).
-- **Sealed evidence says "verification: none recorded"** on a run whose Verify passed after every merge, while
-  the lead's rail says "verified".
 - **The sealed summary can be the lead's previous message.** The sandbox lead ran `wsh jarvis complete` in the
   same step as its final check, so the evidence captured its mid-run update, not a report. The backlog lead
   lost more. The engine closes a lead's tab as soon as its run and DAG are both terminal
   (`MaybeCloseOrchestratorLead`, `leadclose.go`), and `wsh jarvis complete` is what makes the run terminal. The
   lead ran it mid-turn, having just said it would check why the tracker read 3/16, and its tab was deleted
   before the command returned. It never closed a chunk or wrote a report. The sealed summary is that last
-  line. `deleteLeadTab` calls `wcore.DeleteTab` directly and broadcasts nothing, so the app keeps the dead
-  lead. Its Agent row stayed "working", and its pane was frozen on the last frame ("Hatching… (48s)" under
-  the `complete` call), though its process was gone. Sessions also listed it as live and `RUNNING`. Reloading
-  the app clears the row. Tell a lead to do every tracker update and write its report before it runs
-  `complete`.
-- **The DAG view shows a worker the lead's route.** A task with no route of its own reads "inherits run route
-  · claude / opus" on the backlog run, whose workers all ran on sonnet. `dagstore.ts` works out a task's
-  route from the run's `runtime`/`model`, which is the lead's, and never reads `run.workerroute`.
-- **`answeragent` succeeds when nothing was answered.** Addressed to an oref with no pending ask, it returns
-  no error (`DeliverAnswer` returns `false, nil`).
-- **The + Run project list squashes its rows** once there are more projects than fit, clipping every name.
-  Type to filter.
-- **A plan run's first lead is named after its first wake** ("Merge conflict in orch-guide-demo landing") for
-  the rest of the run.
+  line. Tell a lead to do every tracker update and write its report before it runs `complete`.

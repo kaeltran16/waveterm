@@ -230,6 +230,46 @@ func doneTasks(g *waveobj.TaskGroup) int {
 	return n
 }
 
+// firstLine is the first line of a multi-line message, for a row that carries one short sentence.
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return s[:i]
+	}
+	return s
+}
+
+// dagBlockedReason says what holds a blocked dag, in the order the engine's digest ranks the human's
+// actions: a merge, then a failed Verify, then failed tasks. A blocked merge is not a failure, and reading
+// it as one printed "0 consecutive failures".
+func dagBlockedReason(g *waveobj.TaskGroup) (text, why string) {
+	done := fmt.Sprintf("%d of %d tasks done.", doneTasks(g), len(g.Tasks))
+	name := func(t waveobj.TaskNode) string {
+		if t.Label != "" {
+			return t.Label
+		}
+		return t.ID
+	}
+	for _, t := range g.Tasks {
+		if t.State != "blocked-merge" {
+			continue
+		}
+		if t.MergeError != "" {
+			return fmt.Sprintf("Merge of %s was refused: %s", name(t), firstLine(t.MergeError)),
+				fmt.Sprintf("%s Clear what git refused over, then retry with `wsh jarvis dag merge %s --continue`.", done, t.ID)
+		}
+		return fmt.Sprintf("Merge of %s is blocked by a conflict and needs resolving.", name(t)),
+			fmt.Sprintf("%s Resolve the conflict in the project checkout, commit, then run `wsh jarvis dag merge %s --continue`.", done, t.ID)
+	}
+	for _, t := range g.Tasks {
+		if t.State == "verify-failed" {
+			return fmt.Sprintf("Verify failed after %s merged.", name(t)),
+				fmt.Sprintf("%s Commit a fix, then re-run Verify with `wsh jarvis dag merge %s --continue`.", done, t.ID)
+		}
+	}
+	return fmt.Sprintf("%d consecutive failures — decide retry/skip.", g.Failures),
+		done + " The group stays stopped until you retry or skip."
+}
+
 func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
 	var gates, escalations, asks []wshrpc.AttentionItem
 	// ask orefs already represented by an escalation card — one waiting thing, one item.
@@ -304,6 +344,7 @@ func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
 			gates = append(gates, dagGateItems(in, g)...)
 		case "blocked":
 			blockedEffort, blockedChunk := attribution(findRun(in.Channels, g.RunID))
+			text, why := dagBlockedReason(g)
 			gates = append(gates, wshrpc.AttentionItem{
 				Kind:         AttentionDagBlocked,
 				Key:          "dag-blocked:" + g.ID,
@@ -311,13 +352,12 @@ func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
 				ChannelName:  channelNameFor(in.Channels, g.ChannelId),
 				RunId:        g.RunID,
 				Source:       dagSource(in.Channels, g),
-				Text:         fmt.Sprintf("%d consecutive failures — decide retry/skip.", g.Failures),
+				Text:         text,
 				Action:       "Review",
 				WaitingSince: g.UpdatedTs,
 				EffortOID:    blockedEffort,
 				ChunkLabel:   blockedChunk,
-				Why: fmt.Sprintf("%d of %d tasks done. The group stays stopped until you retry or skip.",
-					doneTasks(g), len(g.Tasks)),
+				Why:          why,
 			})
 		}
 	}

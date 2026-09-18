@@ -445,6 +445,7 @@ export function OrchestratorBody({
                         channelId={channel.oid}
                         run={run}
                         agents={agents}
+                        model={model}
                         className="mt-4 flex-none self-start rounded border border-edge-mid px-3 py-1.5 text-[11.5px] font-semibold text-muted hover:border-error hover:text-error"
                     />
                 ) : null}
@@ -713,6 +714,7 @@ export function RunBody({
                             channelId={channel.oid}
                             run={run}
                             agents={agents}
+                            model={model}
                             className="mt-4 rounded border border-edge-mid px-3 py-1.5 text-[11.5px] font-semibold text-muted hover:border-error hover:text-error"
                         />
                     ) : null}

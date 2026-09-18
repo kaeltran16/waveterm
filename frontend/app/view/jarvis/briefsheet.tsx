@@ -26,7 +26,7 @@ import type { AgentsViewModel } from "@/app/view/agents/agents";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { ambientProviderAtom, ensureAmbient } from "@/app/view/agents/ambientstore";
 import { resolveTargetChannel } from "@/app/view/agents/channelderive";
-import { activeChannelAtom, activeChannelRunsAtom, channelsAtom } from "@/app/view/agents/channelsstore";
+import { activeChannelAtom, activeChannelRunsAtom, channelsAtom, runAtom } from "@/app/view/agents/channelsstore";
 import { harnessPreferenceAtom } from "@/app/view/agents/harnessstore";
 import { channelProjectLabel } from "@/app/view/agents/projectlabel";
 import { projectsAtom } from "@/app/view/agents/projectsstore";
@@ -53,9 +53,9 @@ import {
     workerRouteAtom,
 } from "@/app/view/agents/runconfigstore";
 import { RunLauncher } from "@/app/view/agents/runlauncher";
-import { isTerminal, liveWorkers } from "@/app/view/agents/runmodel";
+import { isTerminal, leadAsker } from "@/app/view/agents/runmodel";
 import { fireAndForget } from "@/util/util";
-import { useAtomValue, useSetAtom } from "jotai";
+import { atom, useAtomValue, useSetAtom } from "jotai";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { RunSettingsPanel, SHEET_BTN, SheetShell } from "./briefrunsheet";
 import { sheetFace, type SheetFace } from "./briefsheetmodel";
@@ -80,6 +80,8 @@ import { launcherReading, sheetRoute } from "./runsheetmodel";
 
 const FIELD =
     "min-w-0 flex-1 rounded-[7px] border border-border bg-background px-2.5 py-1.5 text-[12.5px] text-ink-hi placeholder:text-ink-faint";
+
+const NO_RUN = atom<Run | null>(null);
 
 // The goal row the launcher needs to be a launch. It reads the same config atoms RunLauncher edits, so a
 // control the user moved above is the control this dispatches with — a launch that ignored the launcher
@@ -305,7 +307,10 @@ export function BriefSheet({ model }: { model: AgentsViewModel }) {
     const askAgentRef = useRef<AgentVM | undefined>(undefined);
     const askBindings = useMemo(() => buildChannelsAskBindings(model, askAgentRef), [model]);
     useKeybindings(askBindings);
-    askAgentRef.current = run != null ? liveWorkers(run, agents).find((w) => w.state === "asking") : undefined;
+    // the keys read the live run object, as the question card does: the channel list's copy is a snapshot a
+    // run: update never refreshes, so a worker recorded after it was taken would be invisible to the keys
+    const liveRun = useAtomValue(run != null ? runAtom(run.id) : NO_RUN) ?? run;
+    askAgentRef.current = liveRun != null ? leadAsker(liveRun, agents) : undefined;
 
     // memoized because the latch below has it in a dep array: sheetFace builds a fresh object each call,
     // so an unmemoized face would refire the latch every render and setState its way into a loop

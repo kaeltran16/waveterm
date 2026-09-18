@@ -6,6 +6,7 @@
 // view + run selection. No React, no jotai — unit-tested in runmodel.test.ts.
 
 import type { AgentVM } from "./agentsviewmodel";
+import type { Lineage } from "./runlineage";
 
 export type RunStatusTone = "planning" | "review" | "running" | "blocked" | "done" | "failed" | "cancelled";
 
@@ -161,9 +162,10 @@ export function phaseWorkers(phase: RunPhase, agents: AgentVM[]): AgentVM[] {
     return out;
 }
 
-// Live workers a cancel would stop: recorded workers with a roster row whose state is not idle (an
-// exited worker reports idle via the backend backstop; a torn-down one has no row at all). Deduped by
-// id across phases. Gates the cancel confirmation (zero → cancel directly) and sizes its copy.
+// Live workers with a roster row whose state is not idle (an exited worker reports idle via the backend
+// backstop; a torn-down one has no row at all), read from the run's own phases. Deduped by id across
+// phases. Phase workers only: an engine run's DAG tasks are child runs the phases never list — see
+// runLiveWorkers for the count a cancel confirmation needs.
 export function liveWorkers(run: Run, agents: AgentVM[]): AgentVM[] {
     const out: AgentVM[] = [];
     for (const phase of run.phases ?? []) {
@@ -174,6 +176,32 @@ export function liveWorkers(run: Run, agents: AgentVM[]): AgentVM[] {
         }
     }
     return out;
+}
+
+// Every live worker a cancel would stop: the run's own phase workers and, on an engine run, the workers of its
+// DAG tasks. Those are child runs, which the phases never list, and a lead is idle between wakes, so a
+// phase-only count read 0 mid-run and Cancel stopped everything without asking. Gates the cancel
+// confirmation and sizes its copy.
+export function runLiveWorkers(run: Run, agents: AgentVM[], lineage: Lineage): AgentVM[] {
+    const out = liveWorkers(run, agents);
+    for (const a of agents) {
+        const role = lineage.roles[a.id];
+        if (
+            role?.kind === "worker" &&
+            role.leadRunId === run.id &&
+            a.state !== "idle" &&
+            !out.some((o) => o.id === a.id)
+        ) {
+            out.push(a);
+        }
+    }
+    return out;
+}
+
+// The run's own worker waiting on the human: the lead, or a quick run's one worker. A DAG task's question
+// goes to the lead first (the child-ask card), never through the run's own ask card.
+export function leadAsker(run: Run, agents: AgentVM[]): AgentVM | undefined {
+    return liveWorkers(run, agents).find((w) => w.state === "asking");
 }
 
 // Live workers still running under a *cancelled* run — the survivors the partial-failure surface warns

@@ -4,12 +4,17 @@
 package agentask
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
 )
+
+// ErrNoPendingAsk is DeliverAnswer's refusal when the oref has no pending ask: it was never asked, was
+// already answered, or was cleared. A caller must hear that its answer went nowhere.
+var ErrNoPendingAsk = errors.New("no pending question")
 
 // sendInput is indirected so tests can capture keystrokes without a live block PTY.
 var sendInput = func(blockId string, data []byte) error {
@@ -31,12 +36,12 @@ func SetSendInputForTest(fn func(blockId string, data []byte) error) func() {
 var AnswerHook func(oref, askId string)
 
 // DeliverAnswer atomically claims the pending ask for oref, then injects its answers into the native
-// picker. It returns delivered=false with no error when no ask is pending (already answered in the
-// terminal or cleared), or when askid != "" and no longer matches the pending ask — the idempotent no-op
-// both AnswerAgentCommand and the Gatekeeper actuator rely on. Claiming makes concurrent deliveries
-// mutually exclusive: exactly one caller injects; the rest see delivered=false. It delivers one keystroke
-// per PTY write with KeystrokeDelay between each (a single combined write races the picker's React state
-// and confirms the wrong option).
+// picker. It returns delivered=false with ErrNoPendingAsk when no ask is pending (already answered in the
+// terminal or cleared), or when askid != "" and no longer matches the pending ask — a caller that claimed
+// mid-inject sees the same idempotent refusal AnswerAgentCommand and the Gatekeeper actuator get. Claiming
+// makes concurrent deliveries mutually exclusive: exactly one caller injects; the rest see delivered=false.
+// It delivers one keystroke per PTY write with KeystrokeDelay between each (a single combined write races
+// the picker's React state and confirms the wrong option).
 //
 // Error recovery mirrors what has already been sent: an EncodeAnswer failure sends no keystrokes, so the
 // pending ask is restored and a retry is safe; a mid-inject sendInput failure has already put a partial
@@ -45,7 +50,7 @@ var AnswerHook func(oref, askId string)
 func DeliverAnswer(oref, askid string, answers []baseds.AgentAnswerItem) (bool, error) {
 	pending, ok := GlobalRegistry.Claim(oref, askid)
 	if !ok {
-		return false, nil
+		return false, fmt.Errorf("%w for %s", ErrNoPendingAsk, oref)
 	}
 	delivered, err := injectAnswer(oref, pending, answers)
 	if delivered && AnswerHook != nil {

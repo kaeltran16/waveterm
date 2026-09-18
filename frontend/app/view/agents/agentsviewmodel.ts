@@ -712,31 +712,50 @@ export function canSubmitAsk(
 }
 
 /** Pure: the single muted footer hint for an ask, so one consistent line always renders.
- *  - one single-select question: prompt to answer (mentions 1–9 only when the picker is numbered)
+ *  - one single-select question, no typed text: prompt to answer (mentions 1–9 only when the picker is numbered)
+ *  - a typed answer in any question: "press Enter to send" (replaces "press Enter to submit" when both apply)
  *  - one multi-select question: "press Enter to submit" (multi-select needs a confirm)
- *  - multiple questions: "N/M answered", plus "press Enter to submit" if any is multi-select */
+ *  - multiple questions: "N/M answered" (typed text counts as answered), plus "press Enter to submit"/"press
+ *    Enter to send" if any is multi-select or has typed text */
 export function answerHint(
     questions: AgentAskQuestion[],
     selections: Record<number, Set<number>>,
-    numbered: boolean
+    numbered: boolean,
+    texts: Record<number, string> = {}
 ): string {
     if (questions.length === 0) {
         return "";
     }
     const total = questions.length;
-    const needsConfirm = questions.some((q) => q.multiSelect);
+    const hasTyped = questions.some((_, qi) => (texts[qi] ?? "").trim() !== "");
+    const needsConfirm = questions.some((q) => q.multiSelect) || hasTyped;
     if (total === 1 && !needsConfirm) {
         return numbered ? "Press 1–9 or click to answer" : "Click to answer";
     }
     const parts: string[] = [];
     if (total > 1) {
-        const answered = questions.filter((_, qi) => (selections[qi]?.size ?? 0) > 0).length;
+        const answered = questions.filter(
+            (_, qi) => (selections[qi]?.size ?? 0) > 0 || (texts[qi] ?? "").trim() !== ""
+        ).length;
         parts.push(`${answered}/${total} answered`);
     }
     if (needsConfirm) {
-        parts.push("press Enter to submit");
+        parts.push(hasTyped ? "press Enter to send" : "press Enter to submit");
     }
     return parts.join(" · ");
+}
+
+/** Pure: the question to move to once question `qi` has an answer, or -1 when every other question has one (a
+ *  selection or typed text) and the ask can go. Shared by an option click and Enter in the typed-answer field. */
+export function nextUnansweredQuestion(
+    questions: AgentAskQuestion[],
+    selections: Record<number, Set<number>>,
+    texts: Record<number, string>,
+    qi: number
+): number {
+    return questions.findIndex(
+        (_, j) => j !== qi && (selections[j]?.size ?? 0) === 0 && (texts[j] ?? "").trim() === ""
+    );
 }
 
 /** Pure: whether the agent has a structured ask (with options) to answer. The amber "asking" status and

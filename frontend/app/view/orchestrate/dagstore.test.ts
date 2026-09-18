@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildViewData, mergeReadyIds } from "./dagstore";
+import { buildViewData, dagActionError, dagActionRoute, mergeReadyIds, routeSourceLabel } from "./dagstore";
 
 const group = {
     id: "dag-1",
@@ -90,6 +90,39 @@ describe("buildViewData", () => {
         expect(nodes.find((n) => n.id === "missing")!.route).toEqual({ source: "pinned", runtime: "missing", model: "", resolvedModel: "unavailable" });
         // a model-only pin inherits the owner's runtime
         expect(nodes.find((n) => n.id === "modelonly")!.route).toEqual({ source: "pinned", runtime: "claude", model: "sonnet", resolvedModel: "claude-sonnet-4-6" });
+    });
+});
+
+describe("worker routes", () => {
+    const withWorkerRoute = { ...group, workerroute: { runtime: "claude", model: "haiku" } } as any;
+    it("gives an unpinned task the dag's worker route, as the engine does", () => {
+        const { nodes } = buildViewData(withWorkerRoute, owner, harnesses, new Set());
+        expect(nodes[1].route).toMatchObject({ source: "workers", runtime: "claude", model: "haiku" });
+    });
+    it("keeps a task's own pin ahead of the worker route", () => {
+        const pinned = { ...withWorkerRoute, tasks: [{ id: "t-0", label: "x", state: "pending", runspec: { runtime: "pi" } }] } as any;
+        expect(buildViewData(pinned, owner, harnesses, new Set()).nodes[0].route.source).toBe("pinned");
+    });
+    it("falls back to the owner's route only when the dag has no worker route", () => {
+        const { nodes } = buildViewData(group, owner, harnesses, new Set());
+        expect(nodes[1].route).toMatchObject({ source: "inherited", model: "sonnet" });
+    });
+    it("names each source", () => {
+        expect(routeSourceLabel("pinned")).toBe("pinned");
+        expect(routeSourceLabel("workers")).toBe("run worker route");
+        expect(routeSourceLabel("inherited")).toBe("inherits run route");
+    });
+});
+
+describe("node actions", () => {
+    it("opens the route picker for escalate: the server needs a model", () => {
+        expect(dagActionRoute("escalate")).toBe("pick-route");
+        expect(dagActionRoute("merge")).toBe("merge");
+        expect(dagActionRoute("resolve")).toBe("continue");
+        expect(dagActionRoute("retry")).toBe("action");
+    });
+    it("words a refused action with its task and the server's reason", () => {
+        expect(dagActionError("retry", "t-3", new Error("task t-3 is running"))).toBe("retry t-3 failed: task t-3 is running");
     });
 });
 

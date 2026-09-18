@@ -305,8 +305,14 @@ func buildNext(g *waveobj.TaskGroup, askByTask map[string]wshrpc.DagAskItem) wsh
 	if next := NextToSpawn(g); len(next) > 0 {
 		return wshrpc.DagNextStep{Kind: "dispatch", TaskIds: next}
 	}
-	// 4. parallelism wait: active tasks own the next engine move when nothing can dispatch now.
+	// 4. parallelism wait: every slot is busy, so the engine's next move waits on one of them. With a slot
+	// free, what holds pending work is its dependencies, which step 5 would name, so say that here.
 	if busy := busyTaskIDs(g); len(busy) > 0 {
+		if len(busy) < g.Parallelism {
+			if depWait, blocking := dependencyWait(g); len(depWait) > 0 {
+				return wshrpc.DagNextStep{Kind: "dependency-wait", TaskIds: depWait, BlockingTaskIds: blocking}
+			}
+		}
 		return wshrpc.DagNextStep{Kind: "parallelism-wait", BlockingTaskIds: busy}
 	}
 	// 4b. merge-ready work that blocks nothing: on a flat dag no successor is ever waiting, so step 2

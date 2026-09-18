@@ -6,6 +6,7 @@ package jarvis
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -63,7 +64,9 @@ func RunWorkerSpecFor(cap runroute.Capability, sessionId, prompt string) (RunWor
 // separate first-run folder-trust prompt is handled by ensureClaudeDirTrusted (see claudetrust.go).
 // Configure the new tab's default block as a cmd worker, tag the tab for the roster, and force-start
 // the controller (controllers otherwise start lazily on a frontend terminal resync — force=true
-// launches it headlessly).
+// launches it headlessly). It broadcasts its tab's workspace update itself when the caller's ctx isn't
+// already collecting updates (the engine's dispatch collects none); a caller that does collect — like
+// spawnRunWorkersWithPrompt — flushes them itself, on its own schedule.
 //
 // It is a var so tests can stub the process-spawning boundary without a live tab/PTY.
 
@@ -71,7 +74,15 @@ type RunWorkerOptions struct {
 	KeepOnExit bool
 	// SessionId, when set, is passed as --session-id so the worker's transcript is named by it.
 	SessionId string
+	// Label, when set, is the tab's session:label: the name every surface shows ahead of the agent's ai-title.
+	Label string
 }
+
+// createWorkerTab is the tab-creation seam, so tests make a tab without a layout or a live workspace.
+var createWorkerTab = wcore.CreateTab
+
+// sendWorkerTabUpdates broadcasts the object updates a spawn collected. A var so tests can record them.
+var sendWorkerTabUpdates = func(updates waveobj.UpdatesRtnType) { wps.Broker.SendUpdateEvents(updates) }
 
 var persistWorkerBlockMeta = func(ctx context.Context, blockID string, meta waveobj.MetaMapType) error {
     return wstore.UpdateObjectMeta(ctx, waveobj.MakeORef(waveobj.OType_Block, blockID), meta, false)
@@ -130,7 +141,14 @@ var SpawnRunWorker = func(ctx context.Context, cap runroute.Capability, workspac
 			return "", fmt.Errorf("registering claude folder trust for %s: %w", cwd, err)
 		}
 	}
-	tabId, err := wcore.CreateTab(ctx, workspaceId, projectName, false, false)
+	// the new tab reaches the app only as a broadcast workspace update. A caller that collects updates
+	// (spawnRunWorkersWithPrompt) flushes them itself; the engine's dispatch collects nothing, so the spawn
+	// does, even when it fails part-way, because the tab may already exist.
+	if waveobj.ContextGetUpdates(ctx) == nil {
+		ctx = waveobj.ContextWithUpdates(ctx)
+		defer func() { sendWorkerTabUpdates(waveobj.ContextGetUpdatesRtn(ctx)) }()
+	}
+	tabId, err := createWorkerTab(ctx, workspaceId, projectName, false, false)
 	if err != nil {
 		return "", fmt.Errorf("creating worker tab: %w", err)
 	}
@@ -149,6 +167,9 @@ var SpawnRunWorker = func(ctx context.Context, cap runroute.Capability, workspac
 	tabMeta := waveobj.MetaMapType{
 		"session:agent":   cap.Runtime,
 		"session:project": projectName,
+	}
+	if opts.Label != "" {
+		tabMeta["session:label"] = opts.Label
 	}
 	if err := wstore.UpdateObjectMeta(ctx, waveobj.MakeORef(waveobj.OType_Tab, tabId), tabMeta, false); err != nil {
 		return "", fmt.Errorf("setting worker tab meta: %w", err)
@@ -207,6 +228,10 @@ func EnsureWorkers(ctx context.Context, run *waveobj.Run, cap runroute.Capabilit
 		// without a session id the evidence seal can only guess the transcript from the worker's cwd, where
 		// another agent's session may be newer
 		opts := RunWorkerOptions{KeepOnExit: run.Mode == RunMode_Orchestrator, SessionId: uuid.NewString()}
+		if run.Mode == RunMode_Orchestrator {
+			// named after its run: its ai-title would come from its first prompt, which on a plan run is a wake
+			opts.Label = strings.TrimSpace(strings.SplitN(run.Goal, "\n", 2)[0])
+		}
 		oref, err := SpawnRunWorker(ctx, cap, run.WorkspaceId, projectName, run.ProjectPath, workerPrompt, opts)
 		if err != nil {
 			return spawned, fmt.Errorf("spawning worker for phase %d: %w", i, err)

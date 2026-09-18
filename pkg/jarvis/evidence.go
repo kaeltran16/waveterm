@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -334,6 +335,65 @@ func evidenceHash(ev waveobj.RunEvidence) string {
 	return fmt.Sprintf("ev·%x", sum[:3])
 }
 
+// dagVerifs is the plan's Verify as the engine ran it, for a run that owns a dag: one entry per task it ran
+// after, carrying that task's newest result (a timed-out Verify whose re-run passed reads as passed), in dag
+// order. A child run shares its owner's DagORef but is sealed before its Verify runs, so it gets none. A
+// read error fails the seal, so the backfill retries rather than freezing a snapshot missing its checks. A
+// stale DagORef naming no stored dag reads as "no Verify recorded" rather than failing the seal.
+func dagVerifs(ctx context.Context, run *waveobj.Run) ([]waveobj.EvidenceVerif, error) {
+	if run.DagORef == "" {
+		return nil, nil
+	}
+	g, err := wstore.GetDag(ctx, run.DagORef)
+	if errors.Is(err, wstore.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("evidence: loading dag %s: %w", run.DagORef, err)
+	}
+	if g.RunID != run.ID || g.Verify == "" {
+		return nil, nil
+	}
+	kinds := []string{waveobj.RunEventKindTaskVerifyPassed, waveobj.RunEventKindTaskVerifyFailed}
+	events, err := wstore.QueryRunEventsByKind(ctx, run.ChannelOID, run.ID, kinds, 0)
+	if err != nil {
+		return nil, fmt.Errorf("evidence: reading Verify results: %w", err)
+	}
+	type result struct {
+		failed bool
+		reason string
+	}
+	newest := map[string]result{}
+	for _, ev := range events { // newest first
+		var d struct {
+			TaskId string `json:"taskid"`
+			Reason string `json:"reason"`
+		}
+		if json.Unmarshal(ev.Detail, &d) != nil || d.TaskId == "" {
+			continue
+		}
+		if _, seen := newest[d.TaskId]; !seen {
+			newest[d.TaskId] = result{failed: ev.Kind == waveobj.RunEventKindTaskVerifyFailed, reason: d.Reason}
+		}
+	}
+	var out []waveobj.EvidenceVerif
+	for _, t := range g.Tasks {
+		r, ok := newest[t.ID]
+		if !ok {
+			continue
+		}
+		v := waveobj.EvidenceVerif{Cmd: g.Verify, Result: "pass", Detail: "after " + t.ID}
+		if r.failed {
+			v.Result = "fail"
+			if r.reason != "" {
+				v.Detail += ": " + r.reason
+			}
+		}
+		out = append(out, v)
+	}
+	return out, nil
+}
+
 // SealEvidence derives and freezes a run's evidence snapshot. Idempotent: a run that already has
 // Evidence is left untouched (immutability). Locates transcripts from phase WorkerOrefs and git data
 // from ProjectPath — everything it needs is on the run. A transcript I/O failure degrades that section
@@ -361,6 +421,11 @@ func SealEvidence(ctx context.Context, run *waveobj.Run) error {
 		}
 		verifs = acc.out
 	}
+	dv, err := dagVerifs(ctx, run)
+	if err != nil {
+		return err
+	}
+	verifs = append(verifs, dv...)
 
 	// git-derived: files touched. prefer the run's own commit range (BaseCommit..EndCommit) — under
 	// delegator fan-out the shared ProjectPath tree holds every sibling merged since BaseCommit, so a

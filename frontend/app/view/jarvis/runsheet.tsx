@@ -25,7 +25,7 @@ import { MarkdownMessage } from "@/app/view/agents/markdownmessage";
 import { AskCard, CancelRunButton, CancelSurvivorsCard } from "@/app/view/agents/runcards";
 import { needsEvidenceSeal, verifCounts } from "@/app/view/agents/runcompletion";
 import { useRunEvents } from "@/app/view/agents/runeventstore";
-import { cancelSurvivors, isTerminal, leadWorker, liveWorkers } from "@/app/view/agents/runmodel";
+import { cancelSurvivors, isTerminal, leadAsker, leadWorker } from "@/app/view/agents/runmodel";
 import { buildRunTimeline } from "@/app/view/agents/runtimeline";
 import { eventsCount, GroupSection } from "@/app/view/agents/runtimelineview";
 import { attentionQueue, type QueueEntry } from "@/app/view/orchestrate/attentionqueue";
@@ -141,7 +141,7 @@ function RunSheetFrame({ ctx, dag }: { ctx: SheetCtx; dag: SheetDagRead | null }
     const { run, agents, now, channel } = ctx;
     const asks = useAtomValue(childAsksAtom)[run.id] ?? [];
     const userAsks = userOwnedAsks(asks);
-    const asker = liveWorkers(run, agents).find((w) => w.state === "asking");
+    const asker = leadAsker(run, agents);
     const survivors = cancelSurvivors(run, agents).length;
     const status = sheetStatus({ run, nowMs: now, dag, userAsks, workerAsking: asker != null, survivors });
     const showEvidence = run.status === "done";
@@ -690,6 +690,7 @@ function Dock({ ctx, group }: { ctx: SheetCtx; group: TaskGroup | null }) {
                         channelId={channel.oid}
                         run={run}
                         agents={agents}
+                        model={model}
                         className={cn(DOCK_BTN, "border-edge-mid text-muted hover:border-error hover:text-error")}
                     />
                 ) : null}

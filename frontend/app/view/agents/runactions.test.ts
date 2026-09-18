@@ -126,6 +126,11 @@ describe("createRun", () => {
             expect.objectContaining({ runtime: "pi", mode: undefined, deferstart: undefined }),
         );
     });
+
+    it("throws a clear error when the server returns no run", async () => {
+        createRunCommand.mockResolvedValueOnce({ run: null });
+        await expect(createRun("ch-1", "goal", { runtime: "claude" })).rejects.toThrow("returned no run");
+    });
 });
 
 describe("stopRunWorker", () => {

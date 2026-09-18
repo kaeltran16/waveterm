@@ -286,6 +286,9 @@ func childRunPlan(resolved waveobj.JarvisProfile, reqMode string) (string, []wav
 	return resolveRunPlan(reqMode)
 }
 
+// readCreatedRun reads a just-created run back for the reply. A var so a test can fail the read.
+var readCreatedRun = wstore.GetRun
+
 func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCreateRunData) (*wshrpc.CommandCreateRunRtnData, error) {
 	// a plan start is refused before anything persists: a plan that will not parse, or a shape that cannot
 	// run one, must not leave a run behind
@@ -450,8 +453,12 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 			return nil, fmt.Errorf("spawning first worker: %w", err)
 		}
 	}
-	out, _ := wstore.GetRun(ctx, data.ChannelId, run.ID)
+	out, err := readCreatedRun(ctx, data.ChannelId, run.ID)
+	// the run exists either way, so its channel's run list must still refresh
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
+	if err != nil {
+		return nil, fmt.Errorf("run %s was created, but reading it back failed: %w", run.ID, err)
+	}
 	return &wshrpc.CommandCreateRunRtnData{Run: out}, nil
 }
 

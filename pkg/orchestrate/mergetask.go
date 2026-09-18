@@ -192,6 +192,9 @@ func mergeTaskLocked(ctx context.Context, channelID string, owner *waveobj.Run, 
 	if task.RunID == "" {
 		return "", fmt.Errorf("task %s has no child run", task.ID)
 	}
+	if held := conflictAwaitingContinue(g, task.ID); held != "" {
+		return "", fmt.Errorf("%w: task %s's merge conflict is waiting for `wsh jarvis dag merge %s --continue`", errProjectBusy, held, held)
+	}
 	if requireCleanIndex {
 		// AutoMergeReady checks this from a read taken before the claim, which misses a Verify that failed
 		// and released in between
@@ -231,6 +234,20 @@ func mergeTaskLocked(ctx context.Context, channelID string, owner *waveobj.Run, 
 		return "", err
 	}
 	return FinishMergedTask(ctx, channelID, owner.DagORef, childRunID, task.ID, sha)
+}
+
+// conflictAwaitingContinue names a task other than except whose squash merge conflicted and has not been
+// continued: blocked-merge with no MergeError. A refused merge records one, and its squash never touched
+// the tree. Such a task owns the project: its resolver commits the fix and then continues, and a lane
+// landing in between would be the HEAD that --continue credits.
+func conflictAwaitingContinue(g *waveobj.TaskGroup, except string) string {
+	for i := range g.Tasks {
+		t := &g.Tasks[i]
+		if t.ID != except && t.State == TaskState_BlockedMerge && t.MergeError == "" {
+			return t.ID
+		}
+	}
+	return ""
 }
 
 // FinishMergedTask stamps a landed merge and then removes the worktree. It returns the plan's Verify

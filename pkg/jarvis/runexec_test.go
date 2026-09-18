@@ -10,11 +10,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/consult"
 	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wps"
+	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
 func TestRunWorkerSpecFor(t *testing.T) {
@@ -259,5 +261,107 @@ func TestRunWorkerSpecFor_piModelPinPassesQualifiedID(t *testing.T) {
 	want := []string{"--model", "opencode/deepseek-v4-pro", "do work"}
 	if !reflect.DeepEqual(spec.Args, want) {
 		t.Errorf("args = %v, want %v", spec.Args, want)
+	}
+}
+
+// stubWorkerSpawn swaps the spawn's side effects: the tab is a real row inserted through the spawn's own ctx
+// (so its update lands in whatever collector that ctx carries), the controller never starts, and broadcasts
+// are recorded instead of sent.
+func stubWorkerSpawn(t *testing.T) *[]waveobj.UpdatesRtnType {
+	t.Helper()
+	oldCreate, oldSend, oldPersist, oldStart := createWorkerTab, sendWorkerTabUpdates, persistWorkerBlockMeta, startWorkerController
+	t.Cleanup(func() {
+		createWorkerTab, sendWorkerTabUpdates, persistWorkerBlockMeta, startWorkerController = oldCreate, oldSend, oldPersist, oldStart
+	})
+	createWorkerTab = func(ctx context.Context, _ string, name string, _ bool, _ bool) (string, error) {
+		tab := &waveobj.Tab{OID: uuid.NewString(), Name: name, BlockIds: []string{uuid.NewString()}, Meta: waveobj.MetaMapType{}}
+		return tab.OID, wstore.DBInsert(ctx, tab)
+	}
+	persistWorkerBlockMeta = func(context.Context, string, waveobj.MetaMapType) error { return nil }
+	startWorkerController = func(context.Context, string, string) error { return nil }
+	var sent []waveobj.UpdatesRtnType
+	sendWorkerTabUpdates = func(u waveobj.UpdatesRtnType) { sent = append(sent, u) }
+	return &sent
+}
+
+func piCap(t *testing.T) runroute.Capability {
+	t.Helper()
+	cap, err := runroute.Resolve(waveobj.RoutePin{Runtime: "pi"})
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	return cap
+}
+
+// the engine's dispatch passes a ctx that collects nothing; the tab must still reach the app
+func TestSpawnRunWorkerBroadcastsItsTab(t *testing.T) {
+	sent := stubWorkerSpawn(t)
+	oref, err := SpawnRunWorker(context.Background(), piCap(t), "ws-1", "proj", "", "do it", RunWorkerOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(*sent) != 1 {
+		t.Fatalf("want one broadcast, got %d", len(*sent))
+	}
+	tabID := strings.TrimPrefix(oref, "tab:")
+	for _, u := range (*sent)[0] {
+		if u.OType == waveobj.OType_Tab && u.OID == tabID {
+			return
+		}
+	}
+	t.Fatalf("broadcast has no update for tab %s: %+v", tabID, (*sent)[0])
+}
+
+// spawnRunWorkersWithPrompt collects and flushes its own updates; the spawn must not flush them early
+func TestSpawnRunWorkerLeavesACollectingCallerToFlush(t *testing.T) {
+	sent := stubWorkerSpawn(t)
+	ctx := waveobj.ContextWithUpdates(context.Background())
+	oref, err := SpawnRunWorker(ctx, piCap(t), "ws-1", "proj", "", "do it", RunWorkerOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(*sent) != 0 {
+		t.Fatalf("a collecting caller flushes its own updates, got %d broadcasts", len(*sent))
+	}
+	if waveobj.ContextGetUpdate(ctx, waveobj.ORef{OType: waveobj.OType_Tab, OID: strings.TrimPrefix(oref, "tab:")}) == nil {
+		t.Fatal("the tab's update must be left in the caller's collector")
+	}
+}
+
+func TestSpawnRunWorkerLabelsTheTab(t *testing.T) {
+	stubWorkerSpawn(t)
+	ctx := context.Background()
+	oref, err := SpawnRunWorker(ctx, piCap(t), "ws-1", "proj", "", "do it", RunWorkerOptions{Label: "Ship the auth rework"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tab, err := wstore.DBMustGet[*waveobj.Tab](ctx, strings.TrimPrefix(oref, "tab:"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := tab.Meta["session:label"]; got != "Ship the auth rework" {
+		t.Fatalf("session:label = %v, want the run title", got)
+	}
+}
+
+// a lead is named after its run: otherwise its label is the ai-title of its first prompt, a wake on a plan run
+func TestEnsureWorkersLabelsOnlyALeadWithItsRunTitle(t *testing.T) {
+	old := SpawnRunWorker
+	defer func() { SpawnRunWorker = old }()
+	var got []RunWorkerOptions
+	SpawnRunWorker = func(_ context.Context, _ runroute.Capability, _, _, _, _ string, opts RunWorkerOptions) (string, error) {
+		got = append(got, opts)
+		return "tab:worker", nil
+	}
+	lead := NewRun("Ship the auth rework\nwith the details below", "ws", "/p", nil, RunMode_Orchestrator, DefaultOrchestratorPlaybook(), 1)
+	if _, err := EnsureWorkers(context.Background(), &lead, piCap(t), "project", ""); err != nil {
+		t.Fatal(err)
+	}
+	quick := NewRun("fix a typo", "ws", "/p", nil, RunMode_Quick, QuickPlaybook(), 1)
+	if _, err := EnsureWorkers(context.Background(), &quick, piCap(t), "project", ""); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Label != "Ship the auth rework" || got[1].Label != "" {
+		t.Fatalf("labels = %+v", got)
 	}
 }

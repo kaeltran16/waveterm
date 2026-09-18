@@ -35,6 +35,7 @@ import {
     mergePendingLaunches,
     moveCursor,
     nextAskId,
+    nextUnansweredQuestion,
     partitionBackgrounded,
     pendingToVM,
     providerPlanUsage,
@@ -1076,6 +1077,29 @@ describe("answerHint", () => {
     });
     it("multi question with a multi-select: progress + Enter", () => {
         expect(answerHint([q(), q(true)], { 0: new Set([0]) }, true)).toBe("1/2 answered · press Enter to submit");
+    });
+});
+
+describe("nextUnansweredQuestion", () => {
+    const qs = [
+        { question: "a", options: [{ label: "x" }] },
+        { question: "b", options: [{ label: "y" }] },
+    ] as AgentAskQuestion[];
+    it("moves to the next question with neither a selection nor typed text", () => {
+        expect(nextUnansweredQuestion(qs, {}, {}, 0)).toBe(1);
+    });
+    it("is -1 once every other question is answered, by a selection or by typed text", () => {
+        expect(nextUnansweredQuestion(qs, { 1: new Set([0]) }, {}, 0)).toBe(-1);
+        expect(nextUnansweredQuestion(qs, {}, { 1: "my own answer" }, 0)).toBe(-1);
+        expect(nextUnansweredQuestion(qs, {}, { 1: "   " }, 0)).toBe(1);
+    });
+});
+
+describe("answerHint with typed text", () => {
+    const one = [{ question: "a", options: [{ label: "x" }] }] as AgentAskQuestion[];
+    it("says Enter sends once an answer is typed", () => {
+        expect(answerHint(one, {}, true, { 0: "my own answer" })).toBe("press Enter to send");
+        expect(answerHint(one, {}, true, {})).toBe("Press 1–9 or click to answer");
     });
 });
 

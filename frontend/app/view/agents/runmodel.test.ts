@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentVM } from "./agentsviewmodel";
+import type { Lineage } from "./runlineage";
 import {
     cancelSurvivors,
     currentPhaseIndex,
@@ -7,6 +8,7 @@ import {
     defaultView,
     isOrchestrator,
     isTerminal,
+    leadAsker,
     leadWorker,
     liveWorkers,
     phaseStateView,
@@ -18,6 +20,7 @@ import {
     resolveActiveRunId,
     resolveArtifactPath,
     reviewGate,
+    runLiveWorkers,
     runRuntimeView,
     runStatusView,
     steerTarget,
@@ -392,5 +395,56 @@ describe("runRuntimeView", () => {
             label: "Unknown: mystery",
             valid: false,
         });
+    });
+});
+
+describe("runLiveWorkers", () => {
+    const owner = () =>
+        run({
+            id: "owner",
+            oid: "owner",
+            status: "executing",
+            phases: [{ kind: "orchestrate", state: "running", workerorefs: ["tab:lead"] }],
+        });
+    const lineage: Lineage = {
+        roles: {
+            lead: { kind: "lead", runId: "owner" },
+            w1: { kind: "worker", leadRunId: "owner", taskId: "t-1" },
+            w2: { kind: "worker", leadRunId: "owner", taskId: "t-2" },
+            w3: { kind: "worker", leadRunId: "owner", taskId: "t-3" },
+            other: { kind: "worker", leadRunId: "another-run", taskId: "t-1" },
+        },
+        runs: {},
+    };
+    it("counts an engine run's DAG workers while its lead is idle between wakes", () => {
+        const agents = [
+            agent({ id: "lead", state: "idle" }),
+            agent({ id: "w1", state: "working" }),
+            agent({ id: "w2", state: "asking" }),
+            agent({ id: "w3", state: "idle" }),
+            agent({ id: "other", state: "working" }),
+        ];
+        expect(runLiveWorkers(owner(), agents, lineage).map((w) => w.id)).toEqual(["w1", "w2"]);
+    });
+    it("lists a live lead once, ahead of its workers", () => {
+        const agents = [agent({ id: "lead", state: "working" }), agent({ id: "w1", state: "working" })];
+        expect(runLiveWorkers(owner(), agents, lineage).map((w) => w.id)).toEqual(["lead", "w1"]);
+    });
+    it("is the phase workers alone for a run with no DAG", () => {
+        const r = run({ phases: [{ kind: "execute", state: "running", workerorefs: ["tab:a"] }] });
+        const agents = [agent({ id: "a", state: "working" })];
+        expect(runLiveWorkers(r, agents, { roles: {}, runs: {} }).map((w) => w.id)).toEqual(["a"]);
+    });
+});
+
+describe("leadAsker", () => {
+    it("is the run's own asking worker; a DAG worker's question goes to its lead first", () => {
+        const r = run({ phases: [{ kind: "orchestrate", state: "running", workerorefs: ["tab:lead"] }] });
+        expect(leadAsker(r, [agent({ id: "lead", state: "asking" }), agent({ id: "w1", state: "asking" })])?.id).toBe(
+            "lead"
+        );
+        expect(
+            leadAsker(r, [agent({ id: "lead", state: "working" }), agent({ id: "w1", state: "asking" })])
+        ).toBeUndefined();
     });
 });

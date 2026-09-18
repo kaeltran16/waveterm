@@ -29,7 +29,16 @@ import { taskBriefs, useDagDigest, type TaskBrief } from "./dagdigest";
 import { DagGraphHeader } from "./daggraph-header";
 import { computeLayeredLayout } from "./daglayout";
 import { taskPeek } from "./dagpeek";
-import { buildViewData, mergeReadyIds, selectedTaskIdAtom, useDagGroup, type DagViewNode } from "./dagstore";
+import {
+    buildViewData,
+    dagActionError,
+    dagActionRoute,
+    mergeReadyIds,
+    routeSourceLabel,
+    selectedTaskIdAtom,
+    useDagGroup,
+    type DagViewNode,
+} from "./dagstore";
 import { escalatePayload } from "./escalate";
 import { closeDagModal, dagModalAgentsContextAtom } from "./dagmodalstate";
 import { enterOpensTask, openTaskWorker, resolveTaskWorker, type TaskWorkerView } from "./taskcorrelate";
@@ -101,7 +110,7 @@ function DagTaskCard({ d }: { d: DagTaskNodeData }) {
             </div>
             {view.meta ? <div className="truncate font-mono text-[9px] text-muted">{view.meta}</div> : null}
             <div className="truncate font-mono text-[9px] text-secondary">
-                {view.route.source === "pinned" ? "pinned" : "inherits run route"} · {view.route.runtime} / {view.route.model || "default"} · {view.route.resolvedModel}
+                {routeSourceLabel(view.route.source)} · {view.route.runtime} / {view.route.model || "default"} · {view.route.resolvedModel}
             </div>
             {view.gate ? (
                 <div className="mt-0.5 font-mono text-[8.5px] uppercase tracking-wide text-warning">gate</div>
@@ -257,6 +266,25 @@ function DagGraphInner({ oref, owner, harnesses }: { oref: string; owner: Run; h
         [digestState.digest, digestState.stale]
     );
 
+    const [escalating, setEscalating] = useState(false);
+    const [escalateRoute, setEscalateRoute] = useState<RoutePin | null>(null);
+    const [actionError, setActionError] = useState<{ taskId: string; text: string } | null>(null);
+
+    // a node's escalate opens the detail panel's route picker; every other action is sent, and a refusal is
+    // shown on that task instead of vanishing into an unhandled rejection
+    const onTaskAction = (view: DagViewNode, action: string) => {
+        if (dagActionRoute(action) === "pick-route") {
+            globalStore.set(selectedTaskIdAtom, view.id);
+            setEscalating(true);
+            return;
+        }
+        setActionError(null);
+        runAction(group, view, action).catch((e) => {
+            globalStore.set(selectedTaskIdAtom, view.id);
+            setActionError({ taskId: view.id, text: dagActionError(action, view.id, e) });
+        });
+    };
+
     const { nodes, edges, byId } = useMemo(() => {
         if (loading || !group)
             return { nodes: [] as Node[], edges: [] as Edge[], byId: new Map<string, DagViewNode>() };
@@ -277,7 +305,7 @@ function DagGraphInner({ oref, owner, harnesses }: { oref: string; owner: Run; h
                 channelid: group.channelid,
                 runid: group.runid,
                 selected: n.id === selectedId,
-                onAction: (action: string) => runAction(group, n, action),
+                onAction: (action: string) => onTaskAction(n, action),
             } satisfies DagTaskNodeData,
         }));
         const reactEdges: Edge[] = vedges.map((e, i) => ({
@@ -294,8 +322,6 @@ function DagGraphInner({ oref, owner, harnesses }: { oref: string; owner: Run; h
     }, [digestById, group, harnesses, loading, mergeReady, owner, selectedId]);
 
     const orderedIds = useMemo(() => (group ? group.tasks.map((t) => t.id) : []), [group]);
-    const [escalating, setEscalating] = useState(false);
-    const [escalateRoute, setEscalateRoute] = useState<RoutePin | null>(null);
 
     // j/k move the selection through the task list (layer order); Enter opens the selected task's worker,
     // as a double-click does. The modal owns Escape.
@@ -400,7 +426,7 @@ function DagGraphInner({ oref, owner, harnesses }: { oref: string; owner: Run; h
                                 {selected.meta ? ` · ${selected.meta}` : ""}
                             </div>
                             <div className="font-mono text-[10px] text-secondary" data-dag-node-route={`${selected.route.source}:${selected.route.runtime}:${selected.route.model}`}>
-                                {selected.route.source === "pinned" ? "pinned" : "inherits run route"} · {selected.route.runtime} / {selected.route.model || "default"} · {selected.route.resolvedModel}
+                                {routeSourceLabel(selected.route.source)} · {selected.route.runtime} / {selected.route.model || "default"} · {selected.route.resolvedModel}
                             </div>
                             {selectedNode && agentsCtx ? (
                                 <SelectedTaskWorker
@@ -427,7 +453,7 @@ function DagGraphInner({ oref, owner, harnesses }: { oref: string; owner: Run; h
                                         <button
                                             key={a}
                                             type="button"
-                                            onClick={() => runAction(group, selected, a)}
+                                            onClick={() => onTaskAction(selected, a)}
                                             className="cursor-pointer rounded border border-edge-mid px-2.5 py-1 text-[11px] font-semibold text-secondary hover:border-edge-strong hover:text-primary"
                                         >
                                             {a}
@@ -437,6 +463,9 @@ function DagGraphInner({ oref, owner, harnesses }: { oref: string; owner: Run; h
                             </div>
                         ) : null}
                     </div>
+                    {actionError?.taskId === selected.id ? (
+                        <div className="mt-1.5 text-[11px] text-error">{actionError.text}</div>
+                    ) : null}
                     {escalating && (
                         <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-border pt-2">
                             <RoutePicker value={escalateRoute} canInherit={false} onChange={setEscalateRoute} placement="top-start" />
@@ -454,7 +483,10 @@ function DagGraphInner({ oref, owner, harnesses }: { oref: string; owner: Run; h
                                     disabled={escalateRoute == null}
                                     onClick={() => {
                                         if (escalateRoute && selected) {
-                                            runEscalate(group, selected, escalateRoute);
+                                            setActionError(null);
+                                            runEscalate(group, selected, escalateRoute).catch((e) => {
+                                                setActionError({ taskId: selected.id, text: dagActionError("escalate", selected.id, e) });
+                                            });
                                             setEscalating(false);
                                             setEscalateRoute(null);
                                         }
@@ -492,22 +524,22 @@ function openFromGraph(worker: TaskWorkerView, model: AgentsViewModel): void {
 
 // runEscalate re-queues a failed/stalled task on the exact model the human picked; one judged hop.
 function runEscalate(group: TaskGroup, view: DagViewNode, route: RoutePin) {
-    void RpcApi.DagActionCommand(TabRpcClient, escalatePayload(group.channelid, group.runid, view.id, route));
+    return RpcApi.DagActionCommand(TabRpcClient, escalatePayload(group.channelid, group.runid, view.id, route));
 }
 
 // runAction dispatches the node's action to the dag commands; the resulting waveobj update
 // re-derives the graph. "resolve" is merge --continue: it finishes a squash merge the human resolved in the project
 // tree, or re-runs a failed Verify after their fix; the remaining actions go through the engine's dag action RPC.
+// escalate is never sent from here: dagActionRoute routes it to the picker before this is called.
 function runAction(group: TaskGroup, view: DagViewNode, action: string) {
     const data = { channelid: group.channelid, runid: group.runid, taskid: view.id, action };
     const mergeData = { channelid: group.channelid, runid: group.runid, taskid: view.id };
-    if (action === "merge") {
-        void RpcApi.DagMergeCommand(TabRpcClient, mergeData);
-        return;
+    switch (dagActionRoute(action)) {
+        case "merge":
+            return RpcApi.DagMergeCommand(TabRpcClient, mergeData);
+        case "continue":
+            return RpcApi.DagMergeContinueCommand(TabRpcClient, mergeData);
+        default:
+            return RpcApi.DagActionCommand(TabRpcClient, data);
     }
-    if (action === "resolve") {
-        void RpcApi.DagMergeContinueCommand(TabRpcClient, mergeData);
-        return;
-    }
-    void RpcApi.DagActionCommand(TabRpcClient, data);
 }
