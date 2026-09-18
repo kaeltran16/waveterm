@@ -31,7 +31,7 @@ import { computeLayeredLayout } from "./daglayout";
 import { taskPeek } from "./dagpeek";
 import { buildViewData, mergeReadyIds, selectedTaskIdAtom, useDagGroup, type DagViewNode } from "./dagstore";
 import { escalatePayload } from "./escalate";
-import { dagModalAgentsContextAtom } from "./dagmodalstate";
+import { closeDagModal, dagModalAgentsContextAtom } from "./dagmodalstate";
 import { enterOpensTask, openTaskWorker, resolveTaskWorker, type TaskWorkerView } from "./taskcorrelate";
 
 const STATE_TONE: Record<string, string> = {
@@ -153,7 +153,7 @@ function TaskPeekCard({
             {peek.description ? (
                 <div className="line-clamp-4 whitespace-pre-line text-[11px] text-secondary">{peek.description}</div>
             ) : null}
-            {worker.agent ? <ActivityLine agent={worker.agent} /> : null}
+            {worker.agent && agentsCtx ? <ActivityLine agent={worker.agent} nowAtom={agentsCtx.model.nowAtom} /> : null}
             {peek.rows.map((row, i) => (
                 <div
                     key={i}
@@ -198,7 +198,7 @@ function SelectedTaskWorker({
                     type="button"
                     onClick={(e) => {
                         e.stopPropagation();
-                        openTaskWorker(worker, model);
+                        openFromGraph(worker, model);
                     }}
                     className="flex-none cursor-pointer rounded-[5px] border border-accent/50 px-1.5 py-0.5 font-mono text-[9.5px] font-semibold text-accent-soft hover:border-accent"
                 >
@@ -215,7 +215,7 @@ function SelectedTaskWorker({
                 type="button"
                 onClick={(e) => {
                     e.stopPropagation();
-                    openTaskWorker(worker, model);
+                    openFromGraph(worker, model);
                 }}
                 className="flex-none cursor-pointer rounded-[5px] border border-edge-mid px-1.5 py-0.5 font-mono text-[9.5px] text-secondary hover:border-edge-strong"
             >
@@ -479,7 +479,15 @@ async function openTaskFromGraph(task: TaskNode): Promise<void> {
     const childRun = task.runid ? await WOS.loadAndPinWaveObject<Run>(WOS.makeORef("run", task.runid)) : undefined;
     const ctx = globalStore.get(dagModalAgentsContextAtom);
     if (ctx == null) return;
-    openTaskWorker(resolveTaskWorker({ id: task.id, runid: task.runid }, childRun, ctx.agents), ctx.model);
+    openFromGraph(resolveTaskWorker({ id: task.id, runid: task.runid }, childRun, ctx.agents), ctx.model);
+}
+
+// openFromGraph is openTaskWorker for the graph's own entry points. A child run lands on the Brief, the
+// surface this modal covers, so the modal closes first; left open, the run opened out of sight behind it and
+// the press looked like it did nothing.
+function openFromGraph(worker: TaskWorkerView, model: AgentsViewModel): void {
+    if (worker.state === "unavailable") closeDagModal();
+    openTaskWorker(worker, model);
 }
 
 // runEscalate re-queues a failed/stalled task on the exact model the human picked; one judged hop.
