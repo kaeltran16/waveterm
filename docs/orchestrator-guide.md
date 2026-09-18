@@ -520,8 +520,9 @@ Seen live on 2026-09-17 and 18 or confirmed in code; none block a run.
   `engine.go`) does neither. The app's copy of the workspace never gains the tab, and the tree only builds rows
   from tabs in that copy (`sessionsidebarmodel.ts`). On the backlog run t-6 was working and its status was
   reaching the app, but the tree showed only the lead and "10 done". The rail's Run section, which reads the
-  DAG, listed t-6 at the same moment. t-7 went missing the same way when it dispatched. The app had already
-  dropped t-6's reaped tab, so a removed tab reaches it and only a new one doesn't. The run sheet finds workers through the same roster as the tree, so by
+  DAG, listed t-6 at the same moment. t-7 and t-13 went missing the same way when they dispatched. A reaped
+  worker's tab does leave the app, because its block closes on exit through `DeleteBlockCommand`, which
+  broadcasts. The lead's tab closed at the end of a run doesn't (below). The run sheet finds workers through the same roster as the tree, so by
   the code it shows such a task as "no session". Re-reading the workspace brought the row back, so a reload
   fixes it (and then the reload edge below applies until the worker's next hook event):
 
@@ -574,8 +575,11 @@ Seen live on 2026-09-17 and 18 or confirmed in code; none block a run.
   (`MaybeCloseOrchestratorLead`, `leadclose.go`), and `wsh jarvis complete` is what makes the run terminal. The
   lead ran it mid-turn, having just said it would check why the tracker read 3/16, and its tab was deleted
   before the command returned. It never closed a chunk or wrote a report. The sealed summary is that last
-  line. The Sessions surface still listed the closed lead as live and `RUNNING` afterwards. Tell a lead to
-  do every tracker update and write its report before it runs `complete`.
+  line. `deleteLeadTab` calls `wcore.DeleteTab` directly and broadcasts nothing, so the app keeps the dead
+  lead. Its Agent row stayed "working", and its pane was frozen on the last frame ("Hatching… (48s)" under
+  the `complete` call), though its process was gone. Sessions also listed it as live and `RUNNING`. Reloading
+  the app clears the row. Tell a lead to do every tracker update and write its report before it runs
+  `complete`.
 - **The DAG view shows a worker the lead's route.** A task with no route of its own reads "inherits run route
   · claude / opus" on the backlog run, whose workers all ran on sonnet. `dagstore.ts` works out a task's
   route from the run's `runtime`/`model`, which is the lead's, and never reads `run.workerroute`.
