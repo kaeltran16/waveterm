@@ -205,7 +205,11 @@ func TestQuickReorderQueue_SimpleTimeout(t *testing.T) {
 }
 
 func TestQuickReorderQueue_RollingTimeout(t *testing.T) {
-	q := MakeQuickReorderQueue[string](20, 50*time.Millisecond)
+	// out-of-order items spread over time, each well inside the reorder window, come out in order. The window
+	// is far wider than any stall a loaded scheduler puts into a 10ms gap: at 50ms, load stretched a gap past
+	// it and the queue (correctly) flushed an item early, so the test flaked while three suites ran at once.
+	const window = 5 * time.Second
+	q := MakeQuickReorderQueue[string](20, window)
 	defer q.Close()
 
 	q.QueueItem("session1", 1, "item1")
@@ -228,9 +232,9 @@ func TestQuickReorderQueue_RollingTimeout(t *testing.T) {
 
 	q.QueueItem("session1", 6, "item6")
 
-	time.Sleep(100 * time.Millisecond)
-
-	items := collectItems(q.C(), 7, 200*time.Millisecond)
+	// every item is deliverable in order by now; a deadline well short of the window catches a queue that
+	// held one back until its timeout
+	items := collectItems(q.C(), 7, time.Second)
 
 	if len(items) != 7 {
 		t.Fatalf("expected 7 items, got %d: %v", len(items), items)
