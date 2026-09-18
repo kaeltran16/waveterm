@@ -129,6 +129,7 @@ func (sc *ShellController) getRuntimeStatus_nolock() BlockControllerRuntimeStatu
 	rtn.ShellProcStatus = sc.ProcStatus
 	rtn.ShellProcConnName = sc.ConnName
 	rtn.ShellProcExitCode = sc.ProcExitCode
+	rtn.LastOutputTs = blockLastOutputTs.Get(sc.BlockId)
 	return rtn
 }
 
@@ -635,8 +636,8 @@ func (bc *ShellController) manageRunningShellProcess(shellProc *shellexec.ShellP
 		bc.writeMutedMessageToTerminal("[" + msg + "]")
 		go checkCloseOnExit(bc.BlockId, exitCode)
 		go emitAgentIdleOnExit(bc.BlockId)
-		if AgentOutcomeHook != nil {
-			go AgentOutcomeHook(bc.BlockId, exitCode)
+		if hook := exitHook(); hook != nil {
+			go hook(bc.BlockId, exitCode)
 		}
 	}()
 	return nil

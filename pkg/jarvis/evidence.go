@@ -21,6 +21,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/agentsessions"
 	"github.com/wavetermdev/waveterm/pkg/gitinfo"
 	"github.com/wavetermdev/waveterm/pkg/pisession"
+	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/util/utilfn"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -314,6 +315,17 @@ func artifactKind(path string) string {
 	}
 }
 
+// evidenceRoute is the route a run actually ran on: its harness, and the model its transcript reports, else the
+// model its route pinned. An empty model is honest: the runtime default ran and the transcript never named it.
+func evidenceRoute(run *waveobj.Run, observedModel string) (harness, model string) {
+	harness = runroute.DefaultRuntime(run.Runtime)
+	model = observedModel
+	if model == "" {
+		model = run.Model
+	}
+	return harness, model
+}
+
 func evidenceHash(ev waveobj.RunEvidence) string {
 	ev.Hash = "" // hash excludes itself
 	ev.CapturedTs = 0
@@ -408,6 +420,7 @@ func SealEvidence(ctx context.Context, run *waveobj.Run) error {
 		RuntimeMs:  activeSpanMs(run),
 		DurationMs: completedTs - run.CreatedTs,
 	}
+	ev.Harness, ev.Model = evidenceRoute(run, observedModelFn(run))
 	ev.Hash = evidenceHash(ev)
 	run.Evidence = &ev
 	return nil
@@ -500,6 +513,47 @@ func workerTranscripts(run *waveobj.Run) [][]string {
 		}
 	}
 	return out
+}
+
+// observedModelFn reads the model a run's last worker transcript reports ("" when unreadable). A var so tests
+// can seal evidence without a transcript on disk.
+var observedModelFn = observedRunModel
+
+// observedRunModel resolves the same last transcript workerTranscripts would read and extracts the model its
+// last assistant message reports. A transcript I/O failure or unreadable path degrades to "" — evidence still
+// falls back to the run's pinned model, so this never blocks a seal.
+func observedRunModel(run *waveobj.Run) string {
+	var path string
+	if run.SessionId != "" {
+		path = SessionTranscriptPath(run)
+	} else {
+		for i := len(run.Phases) - 1; i >= 0; i-- {
+			p := run.Phases[i]
+			if p.State == PhaseState_Skipped {
+				continue
+			}
+			for j := len(p.WorkerOrefs) - 1; j >= 0; j-- {
+				oref := p.WorkerOrefs[j]
+				if !strings.HasPrefix(oref, "tab:") {
+					continue
+				}
+				if path = TranscriptPathForTab(strings.TrimPrefix(oref, "tab:")); path != "" {
+					break
+				}
+			}
+			if path != "" {
+				break
+			}
+		}
+	}
+	if path == "" {
+		return ""
+	}
+	sess, err := agentsessions.ExtractSession(path, runroute.DefaultRuntime(run.Runtime))
+	if err != nil || sess == nil {
+		return ""
+	}
+	return sess.Model
 }
 
 func readTranscriptLines(path string) []string {

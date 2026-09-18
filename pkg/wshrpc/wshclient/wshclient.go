@@ -100,18 +100,6 @@ func AppendDossierDecisionCommand(w *wshutil.WshRpc, data wshrpc.CommandAppendDo
 	return resp, err
 }
 
-// command "archivechannel", wshserver.ArchiveChannelCommand
-func ArchiveChannelCommand(w *wshutil.WshRpc, data wshrpc.CommandArchiveChannelData, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "archivechannel", data, opts)
-	return err
-}
-
-// command "archivejarvisconversation", wshserver.ArchiveJarvisConversationCommand
-func ArchiveJarvisConversationCommand(w *wshutil.WshRpc, data wshrpc.CommandArchiveJarvisConversationData, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "archivejarvisconversation", data, opts)
-	return err
-}
-
 // command "ask", wshserver.AskCommand
 func AskCommand(w *wshutil.WshRpc, data wshrpc.CommandAskData, opts *wshrpc.RpcOpts) (wshrpc.AskRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[wshrpc.AskRtnData](w, "ask", data, opts)
@@ -384,12 +372,6 @@ func DeleteBlockCommand(w *wshutil.WshRpc, data wshrpc.CommandDeleteBlockData, o
 // command "deletechannel", wshserver.DeleteChannelCommand
 func DeleteChannelCommand(w *wshutil.WshRpc, data wshrpc.CommandDeleteChannelData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "deletechannel", data, opts)
-	return err
-}
-
-// command "deletejarvisconversation", wshserver.DeleteJarvisConversationCommand
-func DeleteJarvisConversationCommand(w *wshutil.WshRpc, data wshrpc.CommandDeleteJarvisConversationData, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "deletejarvisconversation", data, opts)
 	return err
 }
 
@@ -1295,12 +1277,6 @@ func RemoveBackgroundAgentCommand(w *wshutil.WshRpc, data wshrpc.CommandRemoveBa
 	return err
 }
 
-// command "renamechannel", wshserver.RenameChannelCommand
-func RenameChannelCommand(w *wshutil.WshRpc, data wshrpc.CommandRenameChannelData, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "renamechannel", data, opts)
-	return err
-}
-
 // command "reportrunphase", wshserver.ReportRunPhaseCommand
 func ReportRunPhaseCommand(w *wshutil.WshRpc, data wshrpc.CommandReportRunPhaseData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "reportrunphase", data, opts)
@@ -1376,12 +1352,6 @@ func SetBlockFocusCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) 
 // command "setchannelmessagepick", wshserver.SetChannelMessagePickCommand
 func SetChannelMessagePickCommand(w *wshutil.WshRpc, data wshrpc.CommandSetChannelMessagePickData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "setchannelmessagepick", data, opts)
-	return err
-}
-
-// command "setchannelnotes", wshserver.SetChannelNotesCommand
-func SetChannelNotesCommand(w *wshutil.WshRpc, data wshrpc.CommandSetChannelNotesData, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "setchannelnotes", data, opts)
 	return err
 }
 

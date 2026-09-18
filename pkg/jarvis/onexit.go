@@ -28,17 +28,17 @@ func notifyChildOutcome(ctx context.Context, workerORef string, data OutcomeData
 	}
 }
 
-// LeadExitHook, when set (by pkg/orchestrate at init), hears every agent worker tab exit before its
-// transcript is read: a lead that exits before it submits a plan must fail its run whether or not its
+// RunWorkerExitHook, when set (by pkg/orchestrate at init), hears every agent worker tab exit before its
+// transcript is read: a worker that exits without completing its phase must fail the run whether or not its
 // transcript parses, and a Claude session may not have written one yet.
-var LeadExitHook func(context.Context, string) error
+var RunWorkerExitHook func(context.Context, string) error
 
-func notifyLeadExit(ctx context.Context, workerORef string) {
-	if LeadExitHook == nil {
+func notifyRunWorkerExit(ctx context.Context, workerORef string) {
+	if RunWorkerExitHook == nil {
 		return
 	}
-	if err := LeadExitHook(ctx, workerORef); err != nil {
-		log.Printf("jarvis lead exit for %s: %v", workerORef, err)
+	if err := RunWorkerExitHook(ctx, workerORef); err != nil {
+		log.Printf("jarvis run worker exit for %s: %v", workerORef, err)
 	}
 }
 
@@ -46,7 +46,9 @@ func notifyLeadExit(ctx context.Context, workerORef string) {
 // reads the transcript path stamped on the block by the hook, derives status+summary from the
 // transcript (agentsessions), and posts to the dispatching channel (PostOutcome). No-op for a
 // non-agent block or a block with no stamped transcript; every other failure logs — a silent exit
-// is indistinguishable from "worker produced nothing".
+// is indistinguishable from "worker produced nothing". The run-worker-exit hook fires for every agent
+// session exit before the transcript is even considered, so a run still gets reconciled (F26) when the
+// transcript never parses or the clean-exit/no-transcript case leaves nothing to post.
 // Fire-and-forget; injected into blockcontroller.AgentOutcomeHook at init to avoid an import cycle.
 func OnWorkerExit(blockId string, exitCode int) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -54,10 +56,6 @@ func OnWorkerExit(blockId string, exitCode int) {
 	blockData, err := wstore.DBMustGet[*waveobj.Block](ctx, blockId)
 	if err != nil {
 		log.Printf("jarvis onexit: block %s unreadable: %v", blockId, err)
-		return
-	}
-	tpath := blockData.Meta.GetString(waveobj.MetaKey_AgentTranscriptPath, "")
-	if !reportableExit(tpath, exitCode) {
 		return
 	}
 	tabId, err := wstore.DBFindTabForBlockId(ctx, blockId)
@@ -75,7 +73,12 @@ func OnWorkerExit(blockId string, exitCode int) {
 		return // not an agent session
 	}
 	workerORef := waveobj.MakeORef(waveobj.OType_Tab, tabId).String()
-	notifyLeadExit(ctx, workerORef)
+	notifyRunWorkerExit(ctx, workerORef)
+
+	tpath := blockData.Meta.GetString(waveobj.MetaKey_AgentTranscriptPath, "")
+	if !reportableExit(tpath, exitCode) {
+		return
+	}
 	data, ok := exitOutcome(tpath, runtime, exitCode)
 	if !ok {
 		return

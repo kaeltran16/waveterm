@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AnswerSegment, GroundingCard, JarvisAnswerTurn } from "./jarviscontract";
-import { ageLabel, citedNs, freshnessLabel, groundingByN, mapConvoRecord, mapWireCard, parseCitations, wireFreshness } from "./recallderive";
+import { ageLabel, citedNs, freshnessLabel, mapConvoRecord, mapWireCard, parseCitations, wireFreshness } from "./recallderive";
 
 describe("ageLabel", () => {
     it("renders coarse relative ages", () => {
@@ -48,18 +48,6 @@ describe("wireFreshness", () => {
         });
         expect(card.freshness).toBe("unverified");
         expect(card.ageMs).toBe(7);
-    });
-});
-
-describe("groundingByN", () => {
-    it("indexes cards by citation number", () => {
-        const cards: GroundingCard[] = [
-            { n: 1, sourceType: "run", title: "a", project: "p", ageMs: 0, freshness: "fresh", navTarget: "run:1" },
-            { n: 2, sourceType: "decision", title: "b", project: "p", ageMs: 0, freshness: "fresh", navTarget: "dec:2" },
-        ];
-        const m = groundingByN(cards);
-        expect(m.get(2)?.title).toBe("b");
-        expect(m.size).toBe(2);
     });
 });
 

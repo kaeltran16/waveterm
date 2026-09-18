@@ -69,6 +69,7 @@ import { AutonomyLadder } from "./autonomyladderview";
 import { resolveComposerLabels, type BriefComposeState } from "./briefcompose";
 import { resolveBriefComposerTarget } from "./briefcomposertarget";
 import { drewOn, type DrewRow } from "./briefdrew";
+import { turnProse, turnVerdict } from "./briefturn";
 import { briefFleet } from "./brieffleet";
 import { BRIEFING_FIXTURES } from "./briefingfixtures";
 import {
@@ -500,10 +501,6 @@ function answerTurn(a: BriefingAnswer): JarvisTurn {
     };
 }
 
-function turnProse(turn: JarvisTurn): string {
-    return turn.role === "user" ? turn.text : turn.segments.map((s) => ("text" in s ? s.text : "")).join("");
-}
-
 // invariant 7: a thread resting on something stale or gone has to say so, as a word. groundingrail.tsx is
 // the only other renderer of freshness in the repo and that rail is being retired, so this band is where
 // it has to stay legible — hence the label first, and the colour only alongside it.
@@ -566,6 +563,7 @@ function TurnView({ exchange, model }: { exchange: BriefExchange; model: AgentsV
     const turn = exchange.turn;
     const jarvis = isAnswerTurn(turn);
     const refs = isAnswerTurn(turn) ? turn.grounding : [];
+    const verdict = isAnswerTurn(turn) ? turnVerdict(turn.terminal) : null;
     return (
         <div data-jarvis-brief-row="turn" className="flex min-w-0 flex-col gap-1.5">
             <div className="flex items-center gap-[9px]">
@@ -575,6 +573,16 @@ function TurnView({ exchange, model }: { exchange: BriefExchange; model: AgentsV
                 <span className="flex-none font-mono text-[9.5px] text-ink-faint">
                     {formatAge(Date.now() - exchange.ts)}
                 </span>
+                {verdict != null ? (
+                    <span
+                        className={cn(
+                            "flex-none font-mono text-[9.5px] font-semibold",
+                            verdict.tone === "warning" ? "text-warning" : "text-muted"
+                        )}
+                    >
+                        {verdict.label}
+                    </span>
+                ) : null}
             </div>
             <span className="whitespace-pre-wrap text-[13px] leading-[1.6] text-ink-mid">{turnProse(turn)}</span>
             {refs.length > 0 ? (

@@ -35,10 +35,10 @@ func TestJarvisConversationCRUD(t *testing.T) {
 	aOID := uuid.NewString()
 	bOID := uuid.NewString()
 	t.Cleanup(func() {
-		if err := DeleteJarvisConversation(ctx, aOID); err != nil {
+		if err := DBDelete(ctx, waveobj.OType_JarvisConversation, aOID); err != nil {
 			t.Errorf("cleanup a: %v", err)
 		}
-		if err := DeleteJarvisConversation(ctx, bOID); err != nil {
+		if err := DBDelete(ctx, waveobj.OType_JarvisConversation, bOID); err != nil {
 			t.Errorf("cleanup b: %v", err)
 		}
 	})
@@ -93,7 +93,7 @@ func TestJarvisConversationCRUD(t *testing.T) {
 		t.Fatalf("expected newest-first with a (%s) leading, got %v", a.OID, oidsOf(list))
 	}
 
-	if err := DeleteJarvisConversation(ctx, b.OID); err != nil {
+	if err := DBDelete(ctx, waveobj.OType_JarvisConversation, b.OID); err != nil {
 		t.Fatalf("delete b: %v", err)
 	}
 	if _, err := GetJarvisConversation(ctx, b.OID); err == nil {
@@ -109,10 +109,10 @@ func TestJarvisConversationListBreaksTimestampTiesByOID(t *testing.T) {
 		lowerOID, higherOID = higherOID, lowerOID
 	}
 	t.Cleanup(func() {
-		if err := DeleteJarvisConversation(ctx, lowerOID); err != nil {
+		if err := DBDelete(ctx, waveobj.OType_JarvisConversation, lowerOID); err != nil {
 			t.Errorf("cleanup lower oid: %v", err)
 		}
-		if err := DeleteJarvisConversation(ctx, higherOID); err != nil {
+		if err := DBDelete(ctx, waveobj.OType_JarvisConversation, higherOID); err != nil {
 			t.Errorf("cleanup higher oid: %v", err)
 		}
 	})

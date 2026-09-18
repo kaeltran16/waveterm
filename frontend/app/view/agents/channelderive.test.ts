@@ -4,7 +4,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentVM } from "./agentsviewmodel";
 import {
-    activeMentionQuery,
     avatarColor,
     channelHasAsk,
     filterChannels,
@@ -97,33 +96,6 @@ describe("mentionCandidates", () => {
     it("dedupes case-insensitively, keeping the runtime over a same-named agent", () => {
         const c = mentionCandidates(["claude"], roster("Claude"));
         expect(c.filter((x) => x.name.toLowerCase() === "claude")).toEqual([{ name: "claude", kind: "runtime" }]);
-    });
-});
-
-describe("activeMentionQuery", () => {
-    it("returns null when there is no @ before the caret", () => {
-        expect(activeMentionQuery("hello world", 11)).toBeNull();
-    });
-
-    it("triggers with an empty query right after a bare @", () => {
-        expect(activeMentionQuery("@", 1)).toEqual({ query: "", start: 0 });
-    });
-
-    it("returns the token typed so far, up to the caret (not the end of string)", () => {
-        // "@claude", caret between 'l' and 'a' -> query is "cl"
-        expect(activeMentionQuery("@claude fix", 3)).toEqual({ query: "cl", start: 0 });
-    });
-
-    it("triggers on a mid-string @ preceded by whitespace", () => {
-        expect(activeMentionQuery("ask @co", 7)).toEqual({ query: "co", start: 4 });
-    });
-
-    it("returns null when whitespace separates the @ from the caret", () => {
-        expect(activeMentionQuery("@foo bar", 8)).toBeNull();
-    });
-
-    it("returns null when the @ is glued to a preceding non-space (e.g. an email)", () => {
-        expect(activeMentionQuery("email@x", 7)).toBeNull();
     });
 });
 

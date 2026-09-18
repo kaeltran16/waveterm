@@ -17,10 +17,7 @@ type ChannelCommands interface {
 	GetChannelMessagesCommand(ctx context.Context, data CommandGetChannelMessagesData) (*CommandGetChannelMessagesRtnData, error) // row-backed message window for a channel (before/limit cursor)
 	PostChannelMessageCommand(ctx context.Context, data CommandPostChannelMessageData) (*waveobj.ChannelMessage, error)
 	SetChannelTierCommand(ctx context.Context, data CommandSetChannelTierData) error               // sets a channel's Jarvis autonomy tier (concierge|gatekeeper|delegator) + default dispatch mode
-	SetChannelNotesCommand(ctx context.Context, data CommandSetChannelNotesData) error             // sets a channel's free-text notes (Channel.Meta["channel:notes"])
 	SetChannelReadCommand(ctx context.Context, data CommandSetChannelReadData) error               // stamps a channel's last-read timestamp for unread counts
-	RenameChannelCommand(ctx context.Context, data CommandRenameChannelData) error                 // renames a channel (its rail display name)
-	ArchiveChannelCommand(ctx context.Context, data CommandArchiveChannelData) error               // archives/unarchives a channel (hides it from the active rail list; kept, not deleted)
 	SetChannelMessagePickCommand(ctx context.Context, data CommandSetChannelMessagePickData) error // records the human's chosen option index on a Jarvis card message (escalation answer / answered-override) so it survives a remount
 	SetChannelProfileCommand(ctx context.Context, data CommandSetChannelProfileData) error         // write a channel's per-project profile override (empty clears it)
 	GetAttentionCommand(ctx context.Context) (*CommandGetAttentionRtnData, error)                  // everything waiting on the human across every channel: review gates, Gatekeeper escalations, blocked workers
@@ -71,24 +68,9 @@ type CommandSetChannelTierData struct {
 	Mode      string `json:"mode,omitempty"` // default dispatch mode: report | manage | fanout
 }
 
-type CommandSetChannelNotesData struct {
-	ChannelId string `json:"channelid"`
-	Notes     string `json:"notes"`
-}
-
 type CommandSetChannelReadData struct {
 	ChannelId string `json:"channelid"`
 	Ts        int64  `json:"ts"`
-}
-
-type CommandRenameChannelData struct {
-	ChannelId string `json:"channelid"`
-	Name      string `json:"name"`
-}
-
-type CommandArchiveChannelData struct {
-	ChannelId string `json:"channelid"`
-	Archived  bool   `json:"archived"`
 }
 
 type CommandSetChannelMessagePickData struct {

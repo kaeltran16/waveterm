@@ -31,6 +31,11 @@ export function registerModal(id: string): () => void {
     };
 }
 
+/** Pure: whether a shell may take focus on open or restore it on close — only the topmost may. */
+export function ownsFocus(stack: string[], id: string): boolean {
+    return topId(stack) === id;
+}
+
 export function isTopModal(id: string): boolean {
-    return topId(openStack) === id;
+    return ownsFocus(openStack, id);
 }

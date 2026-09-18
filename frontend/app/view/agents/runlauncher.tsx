@@ -274,8 +274,7 @@ export function RunLauncher() {
                         how it should run
                     </span>
                     <span className="text-[11.5px] leading-[1.5] text-muted">
-                        Set it up here, then give Jarvis the goal below and press Run ⏎. Typing @quick, @run or @ask in
-                        the goal overrides the shape for that one launch.
+                        Set it up here, then give Jarvis the goal below and press Run ⏎.
                     </span>
                 </div>
                 <RunLauncherSections />

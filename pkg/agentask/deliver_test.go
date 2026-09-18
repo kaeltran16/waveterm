@@ -136,6 +136,44 @@ func TestDeliverAnswerResolvesWaiterWithoutKeystrokes(t *testing.T) {
 	}
 }
 
+// a session answer the agent does not clear within the timeout comes back to the human with the note —
+// the RPC already returned true on the last keystroke, so this is the only signal that it never landed.
+func TestDeliverAnswer_SessionAskAwaitsClear(t *testing.T) {
+	GlobalRegistry = MakeRegistry()
+	GlobalRegistry.Set("tab:t1", PendingAsk{AskId: "a1", BlockId: "b1", Questions: oneQuestion()})
+	orig := sendInput
+	sendInput = func(string, []byte) error { return nil }
+	defer func() { sendInput = orig }()
+
+	if ok, err := DeliverAnswer("tab:t1", "", []baseds.AgentAnswerItem{{SelectedIndexes: []int{1}}}); err != nil || !ok {
+		t.Fatalf("want (true,nil), got (%v,%v)", ok, err)
+	}
+	later := time.Now().Add(AnswerClearTimeout + time.Second).UnixMilli()
+	got, ok := GlobalRegistry.ExpireClears(later, AnswerClearTimeout)["tab:t1"]
+	if !ok || got.Note != AnswerUnconfirmedNote {
+		t.Fatalf("want the unconfirmed session answer restored with its note, got %+v (ok=%v)", got, ok)
+	}
+}
+
+func TestDeliverAnswer_SessionAskConfirmedClearIsNotRestored(t *testing.T) {
+	GlobalRegistry = MakeRegistry()
+	GlobalRegistry.Set("tab:t1", PendingAsk{AskId: "a1", BlockId: "b1", Questions: oneQuestion()})
+	orig := sendInput
+	sendInput = func(string, []byte) error { return nil }
+	defer func() { sendInput = orig }()
+
+	if ok, err := DeliverAnswer("tab:t1", "", []baseds.AgentAnswerItem{{SelectedIndexes: []int{1}}}); err != nil || !ok {
+		t.Fatalf("want (true,nil), got (%v,%v)", ok, err)
+	}
+	if !GlobalRegistry.ConfirmClear("tab:t1") {
+		t.Fatal("want the clear confirmed")
+	}
+	later := time.Now().Add(AnswerClearTimeout + time.Second).UnixMilli()
+	if got := GlobalRegistry.ExpireClears(later, AnswerClearTimeout); len(got) != 0 {
+		t.Fatalf("a confirmed clear must not be restored, got %+v", got)
+	}
+}
+
 func prosePending() PendingAsk {
 	return PendingAsk{AskId: "p1", BlockId: "b1", Prose: true, Questions: oneQuestion()}
 }

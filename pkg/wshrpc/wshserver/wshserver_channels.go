@@ -6,7 +6,6 @@ package wshserver
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
@@ -102,69 +101,12 @@ func (ws *WshServer) SetChannelTierCommand(ctx context.Context, data wshrpc.Comm
 	return nil
 }
 
-func (ws *WshServer) SetChannelNotesCommand(ctx context.Context, data wshrpc.CommandSetChannelNotesData) error {
-	if data.ChannelId == "" {
-		return fmt.Errorf("channelid is required")
-	}
-	err := wstore.DBUpdateFn(ctx, data.ChannelId, func(ch *waveobj.Channel) {
-		if ch.Meta == nil {
-			ch.Meta = make(waveobj.MetaMapType)
-		}
-		// keep meta clean: an empty notes value drops the key rather than storing ""
-		if data.Notes == "" {
-			delete(ch.Meta, jarvis.MetaKey_ChannelNotes)
-		} else {
-			ch.Meta[jarvis.MetaKey_ChannelNotes] = data.Notes
-		}
-	})
-	if err != nil {
-		return fmt.Errorf("updating channel notes: %w", err)
-	}
-	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
-	return nil
-}
-
 func (ws *WshServer) SetChannelReadCommand(ctx context.Context, data wshrpc.CommandSetChannelReadData) error {
 	if data.ChannelId == "" {
 		return fmt.Errorf("channelid is required")
 	}
 	if err := wstore.SetChannelRead(ctx, data.ChannelId, data.Ts); err != nil {
 		return fmt.Errorf("updating channel read ts: %w", err)
-	}
-	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
-	return nil
-}
-
-func (ws *WshServer) RenameChannelCommand(ctx context.Context, data wshrpc.CommandRenameChannelData) error {
-	if data.ChannelId == "" {
-		return fmt.Errorf("channelid is required")
-	}
-	name := strings.TrimSpace(data.Name)
-	if name == "" {
-		return fmt.Errorf("name is required")
-	}
-	err := wstore.DBUpdateFn(ctx, data.ChannelId, func(ch *waveobj.Channel) {
-		ch.Name = name
-	})
-	if err != nil {
-		return fmt.Errorf("renaming channel: %w", err)
-	}
-	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
-	return nil
-}
-
-func (ws *WshServer) ArchiveChannelCommand(ctx context.Context, data wshrpc.CommandArchiveChannelData) error {
-	if data.ChannelId == "" {
-		return fmt.Errorf("channelid is required")
-	}
-	err := wstore.DBUpdateFn(ctx, data.ChannelId, func(ch *waveobj.Channel) {
-		if ch.Meta == nil {
-			ch.Meta = make(waveobj.MetaMapType)
-		}
-		ch.Meta[wstore.MetaKey_Archived] = data.Archived
-	})
-	if err != nil {
-		return fmt.Errorf("updating channel archived flag: %w", err)
 	}
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
 	return nil

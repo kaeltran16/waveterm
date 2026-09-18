@@ -11,6 +11,7 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { makeTabRouteId } from "@/app/store/wshrouter";
 import { initWshrpc, TabRpcClient } from "@/app/store/wshrpcutil";
 import { setupAgentAskSubscription } from "@/app/view/agents/agentaskstore";
+import { setupControllerStatusSubscription } from "@/app/view/agents/agentcontrollerstore";
 import { setupChildAskSubscription } from "@/app/view/agents/childaskstore";
 import { setupAgentStatusSubscription } from "@/app/view/agents/session-models/agentstatusstore";
 import {
@@ -57,6 +58,7 @@ export async function bootWaveCore(initOpts: WaveInitOpts): Promise<void> {
         // pending-launch placeholders and the narration card body stays empty.
         setupAgentStatusSubscription();
         setupAgentAskSubscription();
+        setupControllerStatusSubscription();
         setupChildAskSubscription();
         subscribeToConnEvents();
         if (isMacOS()) {

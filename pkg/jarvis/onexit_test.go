@@ -75,8 +75,12 @@ func TestOnWorkerExit_LogsUnreadableBlock(t *testing.T) {
 // The documented-normal no-transcript path stays silent.
 func TestOnWorkerExit_NoTranscriptStaysSilent(t *testing.T) {
 	ctx := context.Background()
-	blockOID := uuid.NewString()
-	if err := wstore.DBInsert(ctx, &waveobj.Block{OID: blockOID, Meta: waveobj.MetaMapType{}}); err != nil {
+	tabOID, blockOID := uuid.NewString(), uuid.NewString()
+	tabORef := waveobj.MakeORef(waveobj.OType_Tab, tabOID).String()
+	if err := wstore.DBInsert(ctx, &waveobj.Tab{OID: tabOID, BlockIds: []string{blockOID}, Meta: waveobj.MetaMapType{"session:agent": "claude"}}); err != nil {
+		t.Fatalf("seed tab: %v", err)
+	}
+	if err := wstore.DBInsert(ctx, &waveobj.Block{OID: blockOID, ParentORef: tabORef, Meta: waveobj.MetaMapType{}}); err != nil {
 		t.Fatalf("seed block: %v", err)
 	}
 	var buf bytes.Buffer
@@ -136,10 +140,10 @@ func TestOnWorkerExitReportsALeadExitBeforeTheTranscriptParses(t *testing.T) {
 	if err := wstore.DBInsert(ctx, block); err != nil {
 		t.Fatalf("seed block: %v", err)
 	}
-	old := LeadExitHook
-	t.Cleanup(func() { LeadExitHook = old })
+	old := RunWorkerExitHook
+	t.Cleanup(func() { RunWorkerExitHook = old })
 	var got []string
-	LeadExitHook = func(_ context.Context, worker string) error {
+	RunWorkerExitHook = func(_ context.Context, worker string) error {
 		got = append(got, worker)
 		return nil
 	}
@@ -147,6 +151,6 @@ func TestOnWorkerExitReportsALeadExitBeforeTheTranscriptParses(t *testing.T) {
 	OnWorkerExit(blockOID, 0)
 
 	if len(got) != 1 || got[0] != tabORef {
-		t.Fatalf("lead exit hook calls = %v, want [%s]", got, tabORef)
+		t.Fatalf("run worker exit hook calls = %v, want [%s]", got, tabORef)
 	}
 }

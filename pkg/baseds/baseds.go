@@ -151,6 +151,8 @@ type AgentAskData struct {
 	// Prose marks a projected bare-prose question (pi prose bridge); the FE submits chip
 	// labels as text answers instead of picker indexes.
 	Prose bool `json:"prose,omitempty"`
+	// Note says why the ask is back in front of the human (e.g. a typed answer that never cleared).
+	Note string `json:"note,omitempty"`
 }
 
 // AgentAnswerItem is one question's answer in a panel-submitted reply. Exactly one of Text or

@@ -456,6 +456,11 @@ export const AgentRow = memo(function AgentRow({
                             ) : null
                         }
                     />
+                    {agent.ask?.note ? (
+                        <div className="shrink-0 border-b border-edge-mid px-3.5 pt-2 text-[11px] text-warning">
+                            {agent.ask.note}
+                        </div>
+                    ) : null}
                     {question ? (
                         <p className="shrink-0 border-b border-edge-mid px-3.5 py-2.5 text-[14px] font-semibold leading-[1.5] text-primary">
                             {question}
@@ -494,9 +499,10 @@ export const AgentRow = memo(function AgentRow({
                 >
                     {/* feed */}
                     <div className="shrink-0 grow px-3 py-1.5">
-                        {working && agent.activity ? (
+                        {working ? (
                             <ActivityLine
                                 agent={agent}
+                                nowAtom={nowAtom}
                                 className="mb-1.5 border-b border-edge-mid pb-1.5"
                                 right={
                                     prog ? (

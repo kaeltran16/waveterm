@@ -23,7 +23,6 @@ import type {
     WorkingStep,
 } from "./jarviscontract";
 import { sourceConversationAtom } from "./jarvissubjectstore";
-import { terminalAfterStreamFailure } from "./jarvisturnderive";
 import { mapConvoRecord, mapWireCard, parseCitations } from "./recallderive";
 
 // The record the Brief's peek is open on, or null. Module-level rather than surface state because the
@@ -113,31 +112,6 @@ export function loadJarvisConversations(): void {
     });
 }
 
-// Thread lifecycle. Mirrors channelsstore's delete/archive: mutate, then re-list, because the Threads group
-// is built from the summary snapshot rather than from a live subscription.
-export async function deleteJarvisConversation(id: string): Promise<void> {
-    await RpcApi.DeleteJarvisConversationCommand(TabRpcClient, { conversationid: id });
-    // drop the live copy too, else the deleted thread survives in conversationsByIdAtom for the session
-    const byId = { ...globalStore.get(conversationsByIdAtom) };
-    delete byId[id];
-    globalStore.set(conversationsByIdAtom, byId);
-    if (globalStore.get(activeConversationIdAtom) === id) {
-        globalStore.set(activeConversationIdAtom, null);
-    }
-    loadJarvisConversations();
-}
-
-export async function archiveJarvisConversation(id: string, archived: boolean): Promise<void> {
-    await RpcApi.ArchiveJarvisConversationCommand(TabRpcClient, { conversationid: id, archived });
-    // the live copy shadows its own summary in conversationsAtom, so re-listing alone would leave a thread
-    // you had opened this session sitting in Threads until the next launch. Mirrors the delete path.
-    const conv = getConversation(id);
-    if (conv != null) {
-        setConversation({ ...conv, archived });
-    }
-    loadJarvisConversations();
-}
-
 export function getConversation(id: string): JarvisConversation | undefined {
     return globalStore.get(conversationsByIdAtom)[id];
 }
@@ -215,26 +189,6 @@ function upsertStep(steps: WorkingStep[], step: WorkingStep): WorkingStep[] {
     return [...steps, step];
 }
 
-// Live converse streams, keyed conversation:answerIdx. The generator is the cancel handle: calling
-// gen.return() sends the wire cancel (wshrpcutil-base.ts), which unwinds the server's streaming goroutine
-// through ctx.Done() - so there is no separate abort protocol to build.
-const liveStreams = new Map<string, { gen: AsyncGenerator<unknown, void, boolean>; cancelled: boolean }>();
-
-const streamKey = (convId: string, answerIdx: number) => `${convId}:${answerIdx}`;
-
-export function cancelJarvisQuery(convId: string, answerIdx: number): void {
-    const key = streamKey(convId, answerIdx);
-    const live = liveStreams.get(key);
-    if (live == null || live.cancelled) {
-        return;
-    }
-    // mark first: gen.return() can surface in the stream's catch, which would otherwise overwrite this
-    // with "error" and tell the user something broke when they are the one who stopped it.
-    live.cancelled = true;
-    patchAnswer(convId, answerIdx, { terminal: "cancelled", streaming: false });
-    void live.gen.return(undefined);
-}
-
 // submitJarvisQuery appends the user's turn + a live jarvis turn, then streams JarvisConverseCommand into
 // that jarvis turn. Runs under fireAndForget at module scope so the turn keeps accumulating even if the
 // surface unmounts on a nav-switch. Grounding cards + working-steps arrive as typed chunks; prose arrives as
@@ -261,7 +215,6 @@ export function submitJarvisQuery(convId: string, text: string): void {
         let raw = "";
         let steps: WorkingStep[] = [];
         const cards: GroundingCard[] = [];
-        const key = streamKey(convId, answerIdx);
         try {
             const gen = RpcApi.JarvisConverseCommand(
                 TabRpcClient,
@@ -275,7 +228,6 @@ export function submitJarvisQuery(convId: string, text: string): void {
                 },
                 { timeout: JARVIS_RPC_TIMEOUT_MS }
             );
-            liveStreams.set(key, { gen, cancelled: false });
             for await (const chunk of gen) {
                 if (chunk == null) continue;
                 if (chunk.kind === "step" && chunk.step) {
@@ -298,34 +250,12 @@ export function submitJarvisQuery(convId: string, text: string): void {
             }
         } catch {
             // preserve whatever streamed, but say what actually happened: the request died. Marking it
-            // "weak" drew the amber grounding badge, so a dead backend and a thin corpus were the same
-            // turn. "error" is the only terminal that offers a retry.
-            const terminal = terminalAfterStreamFailure(liveStreams.get(key)?.cancelled === true);
-            if (terminal != null) {
-                patchAnswer(convId, answerIdx, { terminal });
-            }
+            // "weak" drew the amber grounding badge, so a dead backend and a thin corpus were the same turn.
+            patchAnswer(convId, answerIdx, { terminal: "error" });
         } finally {
-            // every exit clears streaming — natural completion, error and cancel alike — so the Cancel
-            // control disappears exactly when the stream closes.
-            liveStreams.delete(key);
+            // every exit clears streaming — natural completion and error alike — so the streaming UI
+            // disappears exactly when the stream closes.
             patchAnswer(convId, answerIdx, { streaming: false });
         }
     });
-}
-
-// Re-run a failed turn: drop it and the question it answered, then submit the same prompt into the same
-// conversation. Re-submitting rather than resuming in place keeps one streaming path — the failed turn
-// has no stream left to attach to.
-export function retryJarvisQuery(convId: string, answerIdx: number): void {
-    const conv = getConversation(convId);
-    if (!conv) {
-        return;
-    }
-    const answer = conv.turns[answerIdx];
-    const question = conv.turns[answerIdx - 1];
-    if (answer?.role !== "jarvis" || question?.role !== "user") {
-        return;
-    }
-    setConversation({ ...conv, turns: conv.turns.slice(0, answerIdx - 1) });
-    submitJarvisQuery(convId, question.text);
 }

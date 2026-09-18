@@ -67,6 +67,7 @@ declare global {
         ts?: number;
         cleared?: boolean;
         prose?: boolean;
+        note?: string;
     };
 
     // baseds.AgentAskOption
@@ -266,6 +267,7 @@ declare global {
         shellprocstatus?: string;
         shellprocconnname?: string;
         shellprocexitcode: number;
+        lastoutputts?: number;
     };
 
     // waveobj.BlockDef
@@ -503,18 +505,6 @@ declare global {
     // wshrpc.CommandAppendDossierDecisionRtnData
     type CommandAppendDossierDecisionRtnData = {
         decisionid: string;
-    };
-
-    // wshrpc.CommandArchiveChannelData
-    type CommandArchiveChannelData = {
-        channelid: string;
-        archived: boolean;
-    };
-
-    // wshrpc.CommandArchiveJarvisConversationData
-    type CommandArchiveJarvisConversationData = {
-        conversationid: string;
-        archived: boolean;
     };
 
     // wshrpc.CommandAskData
@@ -779,11 +769,6 @@ declare global {
     type CommandDeleteFileData = {
         path: string;
         recursive: boolean;
-    };
-
-    // wshrpc.CommandDeleteJarvisConversationData
-    type CommandDeleteJarvisConversationData = {
-        conversationid: string;
     };
 
     // wshrpc.CommandDeleteProjectData
@@ -1710,12 +1695,6 @@ declare global {
         sessionid: string;
     };
 
-    // wshrpc.CommandRenameChannelData
-    type CommandRenameChannelData = {
-        channelid: string;
-        name: string;
-    };
-
     // wshrpc.CommandReportRunPhaseData
     type CommandReportRunPhaseData = {
         oref: string;
@@ -1782,12 +1761,6 @@ declare global {
         channelid: string;
         messageid: string;
         pick: number;
-    };
-
-    // wshrpc.CommandSetChannelNotesData
-    type CommandSetChannelNotesData = {
-        channelid: string;
-        notes: string;
     };
 
     // wshrpc.CommandSetChannelProfileData
@@ -3250,6 +3223,8 @@ declare global {
         artifacts?: EvidenceArtifact[];
         runtimems: number;
         durationms: number;
+        harness?: string;
+        model?: string;
     };
 
     // waveobj.RunPhase

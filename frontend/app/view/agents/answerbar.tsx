@@ -255,6 +255,12 @@ export function AnswerBar({
     if (questions.length === 0) {
         return null;
     }
+    // the question here is a duplicate for a caller that already rendered it above (hideQuestion) — a
+    // caller that owns the question is also the one place left to say why it came back.
+    const noteLine =
+        !hideQuestion && agent.ask?.note ? (
+            <div className="mb-1.5 text-[11px] text-warning">{agent.ask.note}</div>
+        ) : null;
     // dismiss control: clears the pending ask (pi: cancels the blocked ask tool).
     // Only rendered when the parent wires it (agent row + channel rows).
     const dismissControl = onDismiss ? (
@@ -318,6 +324,7 @@ export function AnswerBar({
         return (
             <div className={className}>
                 {dismissControl}
+                {noteLine}
                 {renderGroup(0)}
                 {showHint && hint ? <div className="mt-2 text-[11px] text-secondary">{hint}</div> : null}
             </div>
@@ -329,6 +336,7 @@ export function AnswerBar({
     return (
         <div className={className}>
             {dismissControl}
+            {noteLine}
             <div className="flex flex-wrap gap-1.5">
                 {questions.map((q, qi) => {
                     const answered = (selections[qi]?.size ?? 0) > 0 || (texts?.[qi] ?? "").trim() !== "";

@@ -8,13 +8,13 @@
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { atom, type PrimitiveAtom } from "jotai";
-import type { RunShape } from "./composercommand";
 import {
     DEFAULT_PARALLELISM,
     DEFAULT_START,
     clampParallelism,
     profileRunDefaults,
     type PlanPreview,
+    type RunShape,
     type StartFrom,
 } from "./runconfig";
 

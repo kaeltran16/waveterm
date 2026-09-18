@@ -1,6 +1,7 @@
 import { base64ToString } from "@/util/util";
 import { describe, expect, it, vi } from "vitest";
 import { DefaultMockFilesystem } from "./mockfilesystem";
+import { makeMockWaveEnv } from "./mockwaveenv";
 
 const { showPreviewContextMenu } = vi.hoisted(() => ({
     showPreviewContextMenu: vi.fn(),
@@ -11,8 +12,7 @@ vi.mock("../preview-contextmenu", () => ({
 }));
 
 describe("makeMockWaveEnv", () => {
-    it("uses the preview context menu by default", async () => {
-        const { makeMockWaveEnv } = await import("./mockwaveenv");
+    it("uses the preview context menu by default", () => {
         const env = makeMockWaveEnv();
         const menu = [{ label: "Open" }];
         const event = { stopPropagation: vi.fn() } as any;

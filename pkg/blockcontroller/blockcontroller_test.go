@@ -54,6 +54,33 @@ func TestIdleOnExitEvent(t *testing.T) {
 	}
 }
 
+func TestExitHookIsSilentDuringShutdown(t *testing.T) {
+	oldHook := AgentOutcomeHook
+	AgentOutcomeHook = func(string, int) {}
+	t.Cleanup(func() { AgentOutcomeHook = oldHook; shuttingDown.Store(false) })
+
+	if exitHook() == nil {
+		t.Fatal("a normal exit must reach the outcome hook")
+	}
+	shuttingDown.Store(true)
+	if exitHook() != nil {
+		t.Fatal("an exit caused by server shutdown is not a worker failure")
+	}
+}
+
+func TestOutputPublishDue(t *testing.T) {
+	interval := outputPublishInterval.Milliseconds()
+	if !outputPublishDue(0, 5_000) {
+		t.Fatal("a block's first output is published")
+	}
+	if outputPublishDue(5_000, 5_000+interval-1) {
+		t.Fatal("output inside the interval is not republished")
+	}
+	if !outputPublishDue(5_000, 5_000+interval) {
+		t.Fatal("output after the interval is republished")
+	}
+}
+
 func TestAgentShouldCloseOnExit(t *testing.T) {
 	agentTab := waveobj.MetaMapType{"session:agent": "claude"}
 	plainTab := waveobj.MetaMapType{}

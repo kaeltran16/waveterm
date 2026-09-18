@@ -102,18 +102,6 @@ export class RpcApiType {
         return client.wshRpcCall("appenddossierdecision", data, opts);
     }
 
-    // command "archivechannel" [call]
-    ArchiveChannelCommand(client: WshClient, data: CommandArchiveChannelData, opts?: RpcOpts): Promise<void> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "archivechannel", data, opts);
-        return client.wshRpcCall("archivechannel", data, opts);
-    }
-
-    // command "archivejarvisconversation" [call]
-    ArchiveJarvisConversationCommand(client: WshClient, data: CommandArchiveJarvisConversationData, opts?: RpcOpts): Promise<void> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "archivejarvisconversation", data, opts);
-        return client.wshRpcCall("archivejarvisconversation", data, opts);
-    }
-
     // command "ask" [call]
     AskCommand(client: WshClient, data: CommandAskData, opts?: RpcOpts): Promise<AskRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "ask", data, opts);
@@ -388,12 +376,6 @@ export class RpcApiType {
     DeleteChannelCommand(client: WshClient, data: CommandDeleteChannelData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "deletechannel", data, opts);
         return client.wshRpcCall("deletechannel", data, opts);
-    }
-
-    // command "deletejarvisconversation" [call]
-    DeleteJarvisConversationCommand(client: WshClient, data: CommandDeleteJarvisConversationData, opts?: RpcOpts): Promise<void> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "deletejarvisconversation", data, opts);
-        return client.wshRpcCall("deletejarvisconversation", data, opts);
     }
 
     // command "deleteproject" [call]
@@ -1302,12 +1284,6 @@ export class RpcApiType {
         return client.wshRpcCall("removebackgroundagent", data, opts);
     }
 
-    // command "renamechannel" [call]
-    RenameChannelCommand(client: WshClient, data: CommandRenameChannelData, opts?: RpcOpts): Promise<void> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "renamechannel", data, opts);
-        return client.wshRpcCall("renamechannel", data, opts);
-    }
-
     // command "reportrunphase" [call]
     ReportRunPhaseCommand(client: WshClient, data: CommandReportRunPhaseData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "reportrunphase", data, opts);
@@ -1384,12 +1360,6 @@ export class RpcApiType {
     SetChannelMessagePickCommand(client: WshClient, data: CommandSetChannelMessagePickData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "setchannelmessagepick", data, opts);
         return client.wshRpcCall("setchannelmessagepick", data, opts);
-    }
-
-    // command "setchannelnotes" [call]
-    SetChannelNotesCommand(client: WshClient, data: CommandSetChannelNotesData, opts?: RpcOpts): Promise<void> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "setchannelnotes", data, opts);
-        return client.wshRpcCall("setchannelnotes", data, opts);
     }
 
     // command "setchannelprofile" [call]

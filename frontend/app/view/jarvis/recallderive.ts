@@ -31,10 +31,6 @@ export function freshnessLabel(f: Freshness): string {
     }
 }
 
-export function groundingByN(cards: GroundingCard[]): Map<number, GroundingCard> {
-    return new Map(cards.map((c) => [c.n, c]));
-}
-
 export function citedNs(segments: AnswerSegment[]): number[] {
     const seen: number[] = [];
     for (const s of segments) {

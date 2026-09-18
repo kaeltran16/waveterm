@@ -327,31 +327,6 @@ func (ws *WshServer) ListJarvisConversationsCommand(ctx context.Context) (*wshrp
 	return &wshrpc.CommandListJarvisConversationsRtnData{Conversations: out}, nil
 }
 
-func (ws *WshServer) DeleteJarvisConversationCommand(ctx context.Context, data wshrpc.CommandDeleteJarvisConversationData) error {
-	if data.ConversationId == "" {
-		return fmt.Errorf("conversationid is required")
-	}
-	if err := wstore.DeleteJarvisConversation(ctx, data.ConversationId); err != nil {
-		return fmt.Errorf("deleting conversation: %w", err)
-	}
-	return nil
-}
-
-func (ws *WshServer) ArchiveJarvisConversationCommand(ctx context.Context, data wshrpc.CommandArchiveJarvisConversationData) error {
-	if data.ConversationId == "" {
-		return fmt.Errorf("conversationid is required")
-	}
-	err := wstore.DBUpdateFn(ctx, data.ConversationId, func(c *waveobj.JarvisConvo) {
-		if c.Meta == nil {
-			c.Meta = make(waveobj.MetaMapType)
-		}
-		c.Meta[wstore.MetaKey_Archived] = data.Archived
-	})
-	if err != nil {
-		return fmt.Errorf("updating conversation archived flag: %w", err)
-	}
-	return nil
-}
 func routeCapabilitiesForProbe(result harness.ProbeResult) []runroute.Capability {
 	if !result.Installed || !result.Spec.RunWorkerCapable {
 		return nil

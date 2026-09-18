@@ -7,6 +7,52 @@ where it would plug in, and how to pick it back up. Append new entries at the to
 > append-only rationale log — append the full deferral here, then mirror a one-line row there. Entries
 > marked RESOLVED/DECLINED below are kept for the reasoning, not as pending work.
 
+## Composer attachments (2026-09-18)
+
+Composer attachments (paste / attach / drag-drop onto a run goal or steer, `875967bf`) were mounted only
+by the deleted `channelcomposers.tsx` and went with it in `bd8f5461`. Image paste into an agent's own
+terminal still works. Revive when attaching a file to a goal or steer is wanted; recover with
+`git show bd8f5461^:frontend/app/view/agents/composerattachments.ts` and
+`git show bd8f5461^:frontend/app/view/agents/attachmenttray.tsx`. This also retires the attachment half of
+the 2026-07-16 "Channel composer attachments" entry and of the Remote/WSL blocked row.
+
+## Thread archive/delete (2026-09-17)
+
+Thread lifecycle (`archiveJarvisConversation`, `deleteJarvisConversation`) was one of the Jarvis Brief B5
+capabilities the retired Stage's column left orphaned (see the 2026-09-10 entry). The backlog cleanup pass
+deleted it outright rather than re-home it, since nothing in the cockpit still mounts a thread menu.
+
+- **What was deleted (`9fa593db`):** `DeleteJarvisConversationCommand`/`ArchiveJarvisConversationCommand`
+  and their data types (`pkg/wshrpc/wshrpctypes_jarvis.go`), the two handlers
+  (`pkg/wshrpc/wshserver/wshserver_jarvis.go`), their tests, and `wstore.DeleteJarvisConversation`
+  (`pkg/wstore/wstore_jarvisconversation.go`; test callers switched to `DBDelete`).
+- **What is available now:** a Jarvis thread can still be created (the `n` chord, `brief-restore`
+  hydration) and read, but never archived or removed — threads accumulate with no cap and no cleanup path.
+- **Why:** the capability had no mount left to re-home into, and no user-visible pressure was observed to
+  justify rebuilding one speculatively.
+- **To resume:** when thread clutter in the palette's Brief index becomes a real problem. Recover with
+  `git show 9fa593db^:frontend/app/view/jarvis/jarvisstore.ts` and
+  `git show 9fa593db^:pkg/wshrpc/wshserver/wshserver_jarvis.go`.
+
+## Lead-authored task routing — Phase 4 measurement gate (2026-09-17)
+
+Phases 1–3 of `docs/lead-authored-task-routing-roadmap.md` are now shipped: the DAG-graph route display
+(`551f76ee`) and run-evidence recording of the effective `(harness, model)` per task (`1ca87fbf` —
+`RunEvidence` gains `Harness`/`Model`, sealed from the run's actual route and its last worker transcript's
+reported model). Phase 4, the cost/outcome measurement gate, stays held.
+
+- **What is deferred:** instrumenting cost and outcome per task keyed by `(lead stamp, harness, model)`,
+  and revisiting a difficulty classifier or deterministic sniff on that evidence.
+- **Why:** the roadmap built Phase 4 evidence-gated on purpose — a classifier's calibration is worst exactly
+  where it matters (easy-rated-but-hard tasks), and misrouting hard-as-easy is strictly worse than not
+  routing at all (YAGNI unless evidence shows cheap-first waste actually biting). No such evidence exists
+  yet.
+- **Where it plugs in:** `docs/lead-authored-task-routing-roadmap.md` §"Phase 4 — Measurement gate" states
+  the fix shape (cost/outcome per `(stampTier, runTier, cached%)` via `usagestats`) and stays valid; Phase 4
+  may be skipped entirely.
+- **To resume:** on evidence that cheap-first routing waste is common (a hard task run cheap, cost or outcome
+  showing it).
+
 ## Resource linking beyond navigation: relationships, trail, structured refs, wider targets (2026-09-17)
 
 The resource-linking slice shipped canonical addresses, one parser and one `openTarget`
@@ -168,6 +214,14 @@ redesign's high-level decisions come first. The fix shape below was reviewed in 
   (spec, sibling tasks, prior question-and-answer pairs) and its escalation classes, not this answer format,
   so the two compose. Files: `pkg/jarvis/watcher.go`, `classify.go`, `cards.go`, `pkg/agentask/encode.go`.
 
+**2026-09-17 update — held on evidence, not built.** The orchestrator redesign shipped, but it routed DAG
+child asks to the lead instead of making the ask judge their only automated answerer: `handleAsk`
+(`pkg/jarvis/watcher.go`) returns early for `isDagChildRun`, so a DAG child's question waits in its lead's
+queue and never reaches the Gatekeeper at all. That was this deferral's whole urgency — with it gone, the
+Gatekeeper now judges only non-DAG run and concierge workers, and there is no evidence multi-question or
+multi-select asks are common there. Revive when gatekeeper-enabled channels show multi-question escalations
+the human answers routinely; the fix shape above stays valid.
+
 ## Diff surface — hiding whitespace-only files from the change list (2026-09-11)
 
 Deferred by finding F4 of the git-compare-viewer parity initiative
@@ -315,6 +369,39 @@ renderers, the `@quick`/`@run`/`@ask` vocabulary, and the persisted-thread-from-
 items called load-bearing above, initiative creation is closed and **channel lifecycle is not** — a channel
 still cannot be renamed, archived or removed anywhere in the cockpit. The record detach/restore verification
 gap is also still owed.
+
+**2026-09-17 update — the backlog cleanup pass closed most of what remained.** One item, channel lifecycle,
+stopped being load-bearing along the way: the one-channel-per-project collapse (chunk 9's dependency) means a
+channel is no longer created and abandoned by a human, so there is materially less left to manage. Per item:
+
+- **Channel lifecycle** (`renameChannel`, `archiveChannel`, `setChannelNotes`) — **deleted in `84f366fb`**,
+  no longer load-bearing per above. `deleteChannel`/`DeleteChannelCommand` were left in the tree and are
+  newly orphaned (no caller either), unaddressed by this pass.
+- **Subject browsing, grouping, filtering** — **closed as superseded** in `f786e949`: the palette's Brief
+  index (`briefpalette.ts` `buildBriefIndex`) now browses and filters records, threads, initiatives and
+  sessions, archived included; the leftover grouping remnant (`toggleSubjectGroup`) was deleted with it.
+- **Thread lifecycle** (`archiveJarvisConversation`, `deleteJarvisConversation`) — **deleted in `9fa593db`**;
+  threads now accumulate with no removal path. Revive when thread clutter in the palette becomes a real
+  problem — its own entry below holds the recovery command.
+- **Per-answer cancel and retry** (`cancelJarvisQuery`, `retryJarvisQuery`) — **deleted in `9fa593db`**,
+  closed as superseded: the Brief's composer already holds while its own question is out, a failed ask stays
+  retryable from the composer, and the pet's `JarvisConverseCommand` is capped at `JARVIS_RPC_TIMEOUT_MS`
+  (130 s), so an abandoned stream terminates on its own instead of latching.
+- **Rail fleet roster and per-worker dismiss** — **`dismissWorker` deleted in `1ccf6e02`**; `FleetRoster` and
+  `runRailSection` were already gone (verified 2026-09-17), so nothing consumed it. The header's derived
+  fleet line is the only survivor.
+- **The composer's `@`-command vocabulary** — **deleted in `bd8f5461`** along with the unmounted composers
+  themselves; see the "Composer attachments" entry above for the sibling capability that went with them.
+- **The Stage's turn renderers** (`JarvisAnswer`, `JarvisWorkingSteps`) — `jarvis/jarvisturn.tsx` **deleted
+  in `b432e159`**. Two remainders that were not actually superseded by `briefdrew.ts` — citation-aware turn
+  prose, and a verdict badge for a `weak`/`notfound` terminal — were re-homed into a new `briefturn.ts`,
+  consumed by `briefsurface.tsx`, rather than lost.
+- **The record peek's yield-while-stacked workaround** — unwound in `b18487d0` now that `ModalShell` only
+  takes focus/Escape when it owns the top of the modal stack; see the open-issues.md row for the live check
+  still owed.
+- **Still open, untouched by this pass:** the consult and resume/proactive feeds (§4a items 11/12, deliberate
+  drops with no home decided), and the persisted-thread-from-an-ask decision (the `n` chord still opens a
+  thread nothing can fill).
 
 ## Diff surface — repository actions split out of the parity work (2026-09-04)
 
@@ -733,6 +820,9 @@ written if the need reappears.
 > dirs on Linux/macOS), and `SweepTempAttachments` reaps `waveterm-attach-*` dirs older than 24h, wired
 > into wavesrv startup + a 4h loop (`pkg/wshrpc/wshserver/wshserver_files.go`). Per-worker lifecycle
 > tracking was not needed. Item 2 (remote/WSL paths) remains open.
+>
+> **Item 2 (remote/WSL paths) retired 2026-09-18.** The composer attachments feature itself was deleted
+> — see the "Composer attachments" entry above.
 
 Shipped paste/attach/drag-drop attachments in the Channels composer (spec/plan
 `docs/superpowers/{specs,plans}/2026-07-16-channel-composer-attachments*.md`). Two edges deferred:

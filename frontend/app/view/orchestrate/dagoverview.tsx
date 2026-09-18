@@ -207,7 +207,7 @@ function WorkerRow({
                     <StatusLine agent={worker.agent} nowAtom={nav.model.nowAtom} className="mt-0.5" />
                 ) : null}
                 {activityText == null && worker.agent ? (
-                    <ActivityLine agent={worker.agent} right={null} className="mt-0.5" />
+                    <ActivityLine agent={worker.agent} nowAtom={nav.model.nowAtom} right={null} className="mt-0.5" />
                 ) : (
                     <div className="mt-0.5 font-mono text-[10.5px] text-muted">{activityText}</div>
                 )}

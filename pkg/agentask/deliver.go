@@ -93,11 +93,10 @@ func injectAnswer(oref string, pending PendingAsk, answers []baseds.AgentAnswerI
 			return false, err // partial prefix already sent — do NOT restore
 		}
 	}
-	// a dag child's answer is not delivered until the child clears the ask (spec §5): keystrokes into
-	// a picker that was not listening vanish, and nothing else would notice the child still waiting.
-	if pending.Owner != "" {
-		GlobalRegistry.awaitClear(oref, pending, time.Now().UnixMilli())
-	}
+	// an answer is not delivered until the agent clears the ask (spec §5): keystrokes into a picker
+	// that was not listening vanish, and nothing else would notice the agent still waiting — true for a
+	// dag child as much as for a plain session, so every keystroke delivery awaits its clear.
+	GlobalRegistry.awaitClear(oref, pending, time.Now().UnixMilli())
 	return true, nil
 }
 

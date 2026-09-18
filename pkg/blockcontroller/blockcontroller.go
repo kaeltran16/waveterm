@@ -11,6 +11,7 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -80,6 +81,7 @@ type BlockControllerRuntimeStatus struct {
 	ShellProcStatus   string `json:"shellprocstatus,omitempty"`
 	ShellProcConnName string `json:"shellprocconnname,omitempty"`
 	ShellProcExitCode int    `json:"shellprocexitcode"`
+	LastOutputTs      int64  `json:"lastoutputts,omitempty"`
 }
 
 // Controller interface that all block controllers must implement
@@ -97,6 +99,50 @@ var (
 	registryLock        sync.RWMutex
 	blockResyncMutexMap = ds.MakeSyncMap[*sync.Mutex]()
 )
+
+// blockLastOutputTs is the most recent time (ms) each block appended terminal output — always
+// current, read by the runtime-status getters. blockLastPublishAt is the last time that output was
+// actually broadcast, which outputPublishDue throttles against; the two differ because output arrives
+// far more often than we want to wake every subscriber.
+var (
+	blockLastOutputTs  = ds.MakeSyncMap[int64]()
+	blockLastPublishAt = ds.MakeSyncMap[int64]()
+)
+
+// outputPublishInterval bounds how stale a working agent's published last-output time can be. It sits far under
+// the frontend's hung threshold, so continuous output never reads as silence.
+const outputPublishInterval = 30 * time.Second
+
+// outputPublishDue reports whether a block's newest output is worth republishing: its first output, or the first
+// after outputPublishInterval since the last publish.
+func outputPublishDue(lastPublished, now int64) bool {
+	return lastPublished == 0 || now-lastPublished >= outputPublishInterval.Milliseconds()
+}
+
+// recordAndMaybePublishOutput stamps a block's last-output time and, throttled to outputPublishInterval,
+// broadcasts its runtime status so the frontend can tell a silent terminal from one that never had a
+// controller in the first place. No-op if the block has no registered controller.
+func recordAndMaybePublishOutput(blockId string, now int64) {
+	blockLastOutputTs.Set(blockId, now)
+	if !outputPublishDue(blockLastPublishAt.Get(blockId), now) {
+		return
+	}
+	blockLastPublishAt.Set(blockId, now)
+	controller := getController(blockId)
+	if controller == nil {
+		return
+	}
+	status := controller.GetRuntimeStatus()
+	scopes := []string{waveobj.MakeORef(waveobj.OType_Block, blockId).String()}
+	if tabId, err := wstore.DBFindTabForBlockId(context.Background(), blockId); err == nil && tabId != "" {
+		scopes = append([]string{waveobj.MakeORef(waveobj.OType_Tab, tabId).String()}, scopes...)
+	}
+	wps.Broker.Publish(wps.WaveEvent{
+		Event:  wps.Event_ControllerStatus,
+		Scopes: scopes,
+		Data:   *status,
+	})
+}
 
 func getBlockResyncMutex(blockId string) *sync.Mutex {
 	return blockResyncMutexMap.GetOrCreate(blockId, func() *sync.Mutex {
@@ -309,6 +355,8 @@ func DestroyBlockController(blockId string) {
 	controller.Stop(true, Status_Done, true)
 	wstore.DeleteRTInfo(waveobj.MakeORef(waveobj.OType_Block, blockId))
 	deleteController(blockId)
+	blockLastOutputTs.Delete(blockId)
+	blockLastPublishAt.Delete(blockId)
 }
 
 func sendConnMonitorInputNotification(controller Controller) {
@@ -339,8 +387,21 @@ func SendInput(blockId string, inputUnion *BlockInputUnion) error {
 	return controller.SendInput(inputUnion)
 }
 
+// shuttingDown is set once the server starts stopping every controller: a quit kills every worker, and that is
+// not a worker failure for any exit reconciler to act on.
+var shuttingDown atomic.Bool
+
+// exitHook is the outcome hook an exited block should run, or nil while the server shuts down.
+func exitHook() func(blockId string, exitCode int) {
+	if shuttingDown.Load() {
+		return nil
+	}
+	return AgentOutcomeHook
+}
+
 // only call this on shutdown
 func StopAllBlockControllersForShutdown() {
+	shuttingDown.Store(true)
 	controllers := getAllControllers()
 	for blockId, controller := range controllers {
 		status := controller.GetRuntimeStatus()
@@ -381,6 +442,9 @@ func HandleAppendBlockFile(blockId string, blockFile string, data []byte) error 
 	err := filestore.WFS.AppendData(ctx, blockId, blockFile, data)
 	if err != nil {
 		return fmt.Errorf("error appending to blockfile: %w", err)
+	}
+	if blockFile == wavebase.BlockFile_Term {
+		recordAndMaybePublishOutput(blockId, time.Now().UnixMilli())
 	}
 	wps.Broker.Publish(wps.WaveEvent{
 		Event: wps.Event_BlockFile,
