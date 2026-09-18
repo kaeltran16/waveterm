@@ -5,7 +5,7 @@
 // shape, engine/adaptive and the Lead->Workers pickers competed for one wrapping 10px row; the sections a
 // given shape actually has are decided here so the view stays a renderer.
 
-import type { RunShape } from "./composercommand";
+export type RunShape = "orchestrator" | "quick";
 
 // Mirror of the Go ceiling the launcher states in prose. It is a const, not a wire type, so codegen
 // does not carry it; runconfig.test.ts reads the Go source and fails if it drifts.

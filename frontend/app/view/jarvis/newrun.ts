@@ -9,8 +9,7 @@
 
 import { fuzzyScore } from "@/app/cockpit/palette-match";
 import { resolveTargetChannel } from "@/app/view/agents/channelderive";
-import type { RunShape } from "@/app/view/agents/composercommand";
-import type { StartFrom } from "@/app/view/agents/runconfig";
+import type { RunShape, StartFrom } from "@/app/view/agents/runconfig";
 
 export type ChannelTarget = { kind: "existing"; oid: string } | { kind: "create"; name: string; path: string };
 

@@ -7,6 +7,15 @@ where it would plug in, and how to pick it back up. Append new entries at the to
 > append-only rationale log — append the full deferral here, then mirror a one-line row there. Entries
 > marked RESOLVED/DECLINED below are kept for the reasoning, not as pending work.
 
+## Composer attachments (2026-09-18)
+
+Composer attachments (paste / attach / drag-drop onto a run goal or steer, `875967bf`) were mounted only
+by the deleted `channelcomposers.tsx` and went with it in `3f6d5814`. Image paste into an agent's own
+terminal still works. Revive when attaching a file to a goal or steer is wanted; recover with
+`git show 3f6d5814^:frontend/app/view/agents/composerattachments.ts` and
+`git show 3f6d5814^:frontend/app/view/agents/attachmenttray.tsx`. This also retires the attachment half of
+the 2026-07-16 "Channel composer attachments" entry and of the Remote/WSL blocked row.
+
 ## Resource linking beyond navigation: relationships, trail, structured refs, wider targets (2026-09-17)
 
 The resource-linking slice shipped canonical addresses, one parser and one `openTarget`
@@ -733,6 +742,9 @@ written if the need reappears.
 > dirs on Linux/macOS), and `SweepTempAttachments` reaps `waveterm-attach-*` dirs older than 24h, wired
 > into wavesrv startup + a 4h loop (`pkg/wshrpc/wshserver/wshserver_files.go`). Per-worker lifecycle
 > tracking was not needed. Item 2 (remote/WSL paths) remains open.
+>
+> **Item 2 (remote/WSL paths) retired 2026-09-18.** The composer attachments feature itself was deleted
+> — see the "Composer attachments" entry above.
 
 Shipped paste/attach/drag-drop attachments in the Channels composer (spec/plan
 `docs/superpowers/{specs,plans}/2026-07-16-channel-composer-attachments*.md`). Two edges deferred:

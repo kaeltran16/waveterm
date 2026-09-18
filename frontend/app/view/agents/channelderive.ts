@@ -99,9 +99,6 @@ export interface MentionCandidate {
     kind: "runtime" | "agent";
 }
 
-// The chars that make up a mention token after the "@" (mirrors parseMentions).
-const MENTION_CHAR = /[\w./-]/;
-
 // Everything a channel can address: dispatch runtimes, then the live roster (for steering). Deduped
 // case-insensitively, first-wins — so a runtime beats a same-named roster row, matching planMessage's
 // runtime-before-roster precedence.
@@ -123,23 +120,6 @@ export function mentionCandidates(installedRuntimes: string[], roster: RosterEnt
         add(e.name, "agent");
     }
     return out;
-}
-
-// The @mention token the caret is currently inside, if any: the "@" must start the string or follow
-// whitespace, and only token chars may sit between it and the caret. Returns the partial query (may be
-// empty, right after a bare "@") and the "@"'s index, so an accepted suggestion can splice it out.
-export function activeMentionQuery(text: string, caret: number): { query: string; start: number } | null {
-    let i = caret - 1;
-    while (i >= 0 && MENTION_CHAR.test(text[i])) {
-        i--;
-    }
-    if (i < 0 || text[i] !== "@") {
-        return null;
-    }
-    if (i > 0 && !/\s/.test(text[i - 1])) {
-        return null;
-    }
-    return { query: text.slice(i + 1, caret), start: i };
 }
 
 // A highlighted-composer segment: a run of plain text, a resolved @mention token, or a command keyword

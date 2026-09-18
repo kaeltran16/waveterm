@@ -26,12 +26,6 @@ import { RuntimeMark } from "./runtimemark";
 
 export type HarnessOperation = "consult" | "run-worker";
 
-// harnessRuntimeIds is the catalog-derived runtime ID set the composer parser uses to recognize an
-// explicit `@ask <runtime>` override — the catalog, never a hardcoded frontend list.
-export function harnessRuntimeIds(harnesses: HarnessInfo[]): Set<string> {
-    return new Set(harnesses.map((h) => h.runtime));
-}
-
 export function supportsOperation(h: HarnessInfo, operation: HarnessOperation): boolean {
     return operation === "consult" ? h.consultcapable : h.runworkercapable;
 }
