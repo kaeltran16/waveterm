@@ -245,11 +245,9 @@ chain 6. The preview line under the path is the fastest check that the Depends l
 
 The longest chain also sets how a run ends. The backlog chain is Task 2 → 3 → 4 → 6 → 7 → 13. Once the eight
 independent tasks had landed, the run went one task at a time, with two of its three slots empty. `dag status`
-reports that stretch as `parallelism-wait` blocked on the running task (the rail's Run section words it
-"next: waiting for a slot"), not as a dependency wait. A running task
-always outranks a dependency wait when the digest picks its next step (`digest.go`), so the label doesn't mean the
-slots are full. Read the counts instead: running 1, dependencywaiting 3. To shorten that tail, cut Depends
-lines in the plan. Raising parallelism won't help.
+reports such a stretch as `dependency-wait`, naming the task each waiter needs (the rail's Run section reads
+"… waiting on …"). `parallelism-wait` ("waiting for a slot") means every slot is busy. To shorten that tail, cut
+Depends lines in the plan. Raising parallelism won't help.
 
 ![The backlog plan in the launcher](images/orchestrator-guide/24-plan-dialog-backlog.png)
 
