@@ -101,6 +101,7 @@ describe("toneFor", () => {
         expect(toneFor("task-forwarded")).toBe("text-asking");
         expect(toneFor("lead-wake-failed")).toBe("text-warning");
         expect(toneFor("lead-exited")).toBe("text-warning");
+        expect(toneFor("worker-exited")).toBe("text-warning");
         expect(toneFor("lead-woken")).toBe("text-muted");
         expect(toneFor("lead-launched")).toBe("text-muted");
         expect(toneFor("task-told")).toBe("text-muted");
@@ -114,6 +115,7 @@ describe("eventKindTitle", () => {
         expect(eventKindTitle("lead-launched")).toBe("Lead started");
         expect(eventKindTitle("lead-wake-failed")).toBe("Lead wake failed");
         expect(eventKindTitle("lead-exited")).toBe("Lead exited");
+        expect(eventKindTitle("worker-exited")).toBe("Worker exited");
         expect(eventKindTitle("task-told")).toBe("You told a worker");
     });
 });

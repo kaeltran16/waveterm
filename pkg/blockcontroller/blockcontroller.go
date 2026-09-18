@@ -11,6 +11,7 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -339,8 +340,21 @@ func SendInput(blockId string, inputUnion *BlockInputUnion) error {
 	return controller.SendInput(inputUnion)
 }
 
+// shuttingDown is set once the server starts stopping every controller: a quit kills every worker, and that is
+// not a worker failure for any exit reconciler to act on.
+var shuttingDown atomic.Bool
+
+// exitHook is the outcome hook an exited block should run, or nil while the server shuts down.
+func exitHook() func(blockId string, exitCode int) {
+	if shuttingDown.Load() {
+		return nil
+	}
+	return AgentOutcomeHook
+}
+
 // only call this on shutdown
 func StopAllBlockControllersForShutdown() {
+	shuttingDown.Store(true)
 	controllers := getAllControllers()
 	for blockId, controller := range controllers {
 		status := controller.GetRuntimeStatus()

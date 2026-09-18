@@ -3,6 +3,7 @@ package orchestrate
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
@@ -15,7 +16,7 @@ var workerOwnerOf = wstore.GetWorkerOwner
 
 func init() {
 	jarvis.ChildOutcomeHook = HandleChildOutcome
-	jarvis.LeadExitHook = HandleLeadExit
+	jarvis.RunWorkerExitHook = HandleRunWorkerExit
 }
 
 // HandleChildOutcome reacts to a dag child's worker process exiting. A "failed" outcome is classified
@@ -122,30 +123,40 @@ func workerRunIds(ctx context.Context, workerORef string) (string, string, error
 	return channelRef.OID, runRef.OID, nil
 }
 
-// leadExitedNote is why a run whose lead exited before submitting a plan stopped (spec §2, G8).
+// leadExitedNote is why an orchestrator run whose lead exited before submitting a plan stopped (spec §2, G8).
 const leadExitedNote = "lead exited before submitting a plan"
 
-// HandleLeadExit fails an orchestrator run whose lead exited before it submitted a plan: nothing else will
-// move the run, and the human needs to see why it stopped. A lead that already submitted leaves its dag
-// running, and the wake adapter hands its judgment to the human instead (G8).
-func HandleLeadExit(ctx context.Context, workerORef string) error {
+// workerExitedNote is why a quick or pipeline run whose worker exited without completing its phase stopped.
+const workerExitedNote = "worker exited before completing its phase"
+
+// HandleRunWorkerExit fails a non-dag run whose worker exits without completing the phase it was running:
+// nothing else will move the run, and the human needs to see why it stopped. It covers every run mode that
+// has no dag of its own to reconcile the exit for it:
+//   - orchestrator: a lead that exits before submitting a plan (spec §2, G8). A lead that already submitted
+//     leaves its dag running — DagORef is set, so this is a no-op — and the wake adapter hands judgment to
+//     the human instead.
+//   - quick / pipeline: the run's only worker exits before running `wsh jarvis complete`. Nothing else
+//     reconciles these modes (F26): a dag child's exit is HandleChildOutcome's job, not this one.
+func HandleRunWorkerExit(ctx context.Context, workerORef string) error {
 	channelId, runId, err := workerRunIds(ctx, workerORef)
 	if err != nil || runId == "" {
 		return err
 	}
-	// every agent tab exit lands here, dag children included; only a lead with no dag is worth a write
+	// every agent tab exit lands here, dag children included; only a run with no dag is worth a write
 	run, err := wstore.GetRun(ctx, channelId, runId)
 	if err != nil {
 		return fmt.Errorf("loading run %s: %w", runId, err)
 	}
-	if run.Mode != jarvis.RunMode_Orchestrator || run.DagORef != "" {
+	if run.DagORef != "" {
 		return nil
 	}
 	failed := false
+	var mode string
 	err = wstore.UpdateRun(ctx, channelId, runId, func(cur *waveobj.Run) error {
 		failed = false
+		mode = cur.Mode
 		// decided under the update: a submit or a completion that lands just before the exit wins
-		if cur.Mode != jarvis.RunMode_Orchestrator || cur.DagORef != "" {
+		if cur.DagORef != "" {
 			return nil
 		}
 		if cur.Status != jarvis.RunStatus_Executing && cur.Status != jarvis.RunStatus_Planning {
@@ -153,6 +164,11 @@ func HandleLeadExit(ctx context.Context, workerORef string) error {
 		}
 		i := jarvis.RunningPhaseIndex(*cur)
 		if i < 0 {
+			return nil
+		}
+		// a worker that exited belongs to an earlier or later phase's roster; only the phase actually
+		// running when it exited is this exit's to fail
+		if !slices.Contains(cur.Phases[i].WorkerOrefs, workerORef) {
 			return nil
 		}
 		updated, ferr := jarvis.FailPhase(*cur, i, time.Now().UnixMilli())
@@ -166,7 +182,11 @@ func HandleLeadExit(ctx context.Context, workerORef string) error {
 	if err != nil || !failed {
 		return err
 	}
-	appendRunEvent(ctx, channelId, runId, waveobj.RunEventKindLeadExited, nil, map[string]any{"reason": leadExitedNote})
+	kind, reason := waveobj.RunEventKindWorkerExited, workerExitedNote
+	if mode == jarvis.RunMode_Orchestrator {
+		kind, reason = waveobj.RunEventKindLeadExited, leadExitedNote
+	}
+	appendRunEvent(ctx, channelId, runId, kind, nil, map[string]any{"reason": reason})
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Run, runId))
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, channelId))
 	return nil

@@ -306,7 +306,7 @@ func newLeadExitRun(t *testing.T, mutate func(*waveobj.Run)) (context.Context, s
 
 func TestLeadExitBeforeSubmitFailsTheRunWithAReason(t *testing.T) {
 	ctx, channelId, run, rows := newLeadExitRun(t, nil)
-	if err := HandleLeadExit(ctx, "tab:lead-tab"); err != nil {
+	if err := HandleRunWorkerExit(ctx, "tab:lead-tab"); err != nil {
 		t.Fatal(err)
 	}
 	got, err := wstore.GetRun(ctx, channelId, run.ID)
@@ -331,12 +331,11 @@ func TestLeadExitLeavesOtherRunsAlone(t *testing.T) {
 			next, _ := jarvis.CompletePhase(*r, 0, nil, 2)
 			*r = next
 		},
-		"pipeline": func(r *waveobj.Run) { r.Mode = jarvis.RunMode_Pipeline },
 	} {
 		t.Run(name, func(t *testing.T) {
 			ctx, channelId, run, rows := newLeadExitRun(t, mutate)
 			before := run.Status
-			if err := HandleLeadExit(ctx, "tab:lead-tab"); err != nil {
+			if err := HandleRunWorkerExit(ctx, "tab:lead-tab"); err != nil {
 				t.Fatal(err)
 			}
 			got, err := wstore.GetRun(ctx, channelId, run.ID)
@@ -347,5 +346,41 @@ func TestLeadExitLeavesOtherRunsAlone(t *testing.T) {
 				t.Fatalf("status %q -> %q, rows %+v: a %s run is not the lead-exit case", before, got.Status, *rows, name)
 			}
 		})
+	}
+}
+
+func TestWorkerExitFailsAQuickOrPipelineRun(t *testing.T) {
+	for name, mode := range map[string]string{"quick": jarvis.RunMode_Quick, "pipeline": jarvis.RunMode_Pipeline} {
+		t.Run(name, func(t *testing.T) {
+			ctx, channelId, run, rows := newLeadExitRun(t, func(r *waveobj.Run) { r.Mode = mode })
+			if err := HandleRunWorkerExit(ctx, "tab:lead-tab"); err != nil {
+				t.Fatal(err)
+			}
+			got, err := wstore.GetRun(ctx, channelId, run.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Phases[0].State != jarvis.PhaseState_Failed {
+				t.Fatalf("phase %q, want failed: a %s worker that exits without completing ends its phase", got.Phases[0].State, name)
+			}
+			if len(*rows) != 1 || (*rows)[0]["eventkind"] != waveobj.RunEventKindWorkerExited {
+				t.Fatalf("want one worker-exited row, got %+v", *rows)
+			}
+		})
+	}
+}
+
+func TestWorkerExitIgnoresAWorkerOutsideTheRunningPhase(t *testing.T) {
+	ctx, channelId, run, rows := newLeadExitRun(t, func(r *waveobj.Run) {
+		r.Mode = jarvis.RunMode_Pipeline
+		r.Phases[0].WorkerOrefs = []string{"tab:next-phase-worker"}
+	})
+	// the exiting tab belonged to an earlier phase; its late exit must not fail the phase now running
+	if err := HandleRunWorkerExit(ctx, "tab:lead-tab"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := wstore.GetRun(ctx, channelId, run.ID)
+	if got.Phases[0].State == jarvis.PhaseState_Failed || len(*rows) != 0 {
+		t.Fatalf("a stale worker's exit failed the running phase: %q %+v", got.Phases[0].State, *rows)
 	}
 }
