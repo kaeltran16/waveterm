@@ -14,7 +14,7 @@ import { AttentionBanner, AttentionCard } from "./attentioncard";
 import { AskRow, jumpToAgent } from "./channelsprimitives";
 import { PlanPreview } from "./planpreview";
 import { cancellingRunIdsAtom, confirmCancelRun, stopRunWorker, stoppingWorkerIdsAtom } from "./runactions";
-import { cancelSurvivors, liveWorkers, resolveArtifactPath } from "./runmodel";
+import { cancelSurvivors, resolveArtifactPath, runLiveWorkers } from "./runmodel";
 
 // A run stored before slice 5c deleted the plan gate can still carry status awaiting-review. Nothing can
 // approve it any more — the actions are gone — so this card explains the stall and shows the plan the run
@@ -55,19 +55,22 @@ export function CancelRunButton({
     channelId,
     run,
     agents,
+    model,
     className,
 }: {
     channelId: string;
     run: Run;
     agents: AgentVM[];
+    model: AgentsViewModel;
     className: string;
 }) {
     const cancelling = useAtomValue(cancellingRunIdsAtom).has(run.id);
+    const lineage = useAtomValue(model.lineageAtom);
     return (
         <button
             type="button"
             disabled={cancelling}
-            onClick={() => confirmCancelRun(channelId, run.id, liveWorkers(run, agents).length)}
+            onClick={() => confirmCancelRun(channelId, run.id, runLiveWorkers(run, agents, lineage).length)}
             className={`${className} disabled:opacity-60`}
         >
             {cancelling ? "Cancelling…" : "Cancel run"}
@@ -178,6 +181,7 @@ export function BlockedCard({
                     channelId={channelId}
                     run={run}
                     agents={agents}
+                    model={model}
                     className="rounded border border-edge-mid px-3 py-2 text-[12px] font-semibold text-muted hover:border-error hover:text-error"
                 />
             </div>

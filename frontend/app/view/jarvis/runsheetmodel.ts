@@ -505,11 +505,13 @@ function liveTaskRow(input: SheetRowInput): SheetRow {
     const dispatched = worker.state === "dispatched";
     const workerAction: SheetRowAction = dispatched ? "open-agent" : task.runid ? "open-child-run" : null;
 
-    if (td?.waitreason === "ask") {
+    if (td?.waitreason === "ask" || td?.waitreason === "lead-ask") {
         const age = td.askts ? ` · idle ${since(input.nowMs, td.askts)}` : "";
+        // the digest says lead-ask for a question the lead holds; askOwner comes from the asks list, which can lag it
+        const lead = td.waitreason === "lead-ask" || input.askOwner === "lead";
         return {
             ...base,
-            meta: input.askOwner === "lead" ? `asked the lead${age}` : `asked you${age}`,
+            meta: lead ? `asked the lead${age}` : `asked you${age}`,
             metaTone: "warning",
             state: "asking",
             stateTone: "warning",
@@ -527,6 +529,17 @@ function liveTaskRow(input: SheetRowInput): SheetRow {
                     state: task.state,
                     stateTone: "success",
                     action: "open-agent",
+                };
+            }
+            // Verify runs in the project checkout after the engine reaped the lane's worker: no session is expected
+            if (task.state === "verifying") {
+                return {
+                    ...base,
+                    meta: "running Verify",
+                    metaTone: "success-soft",
+                    state: "verifying",
+                    stateTone: "success",
+                    action: "open-dag-task",
                 };
             }
             if (task.runid) {
