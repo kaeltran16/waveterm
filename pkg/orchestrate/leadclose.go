@@ -12,12 +12,23 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
+	"github.com/wavetermdev/waveterm/pkg/wps"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
-// deleteLeadTab is the tab-deletion seam. Var so tests can stub it without a live workspace.
+// deleteTab and sendLeadTabUpdates are deleteLeadTab's side effects, seams so a test needs no live workspace.
+var deleteTab = wcore.DeleteTab
+var sendLeadTabUpdates = func(updates waveobj.UpdatesRtnType) { wps.Broker.SendUpdateEvents(updates) }
+
+// deleteLeadTab is the tab-deletion seam. Var so tests can stub it without a live workspace. The app drops the
+// tab only on a broadcast workspace update, so the updates DeleteTab queues are collected and sent, including
+// after a failure part-way, because the blocks it already closed are gone.
 var deleteLeadTab = func(ctx context.Context, workspaceId, tabId string) error {
-	_, err := wcore.DeleteTab(ctx, workspaceId, tabId, true)
+	if waveobj.ContextGetUpdates(ctx) == nil {
+		ctx = waveobj.ContextWithUpdates(ctx)
+		defer func() { sendLeadTabUpdates(waveobj.ContextGetUpdatesRtn(ctx)) }()
+	}
+	_, err := deleteTab(ctx, workspaceId, tabId, true)
 	return err
 }
 

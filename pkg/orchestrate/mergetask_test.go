@@ -6,6 +6,7 @@ package orchestrate
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -411,5 +412,59 @@ func TestContinueRetriesARefusedMerge(t *testing.T) {
 	}
 	if g.Tasks[0].MergeFailures != 0 || g.Tasks[0].MergeError != "" {
 		t.Fatalf("a landed merge clears the refusal, got %d / %q", g.Tasks[0].MergeFailures, g.Tasks[0].MergeError)
+	}
+}
+
+// a lane landing between the resolver's fix commit and its --continue becomes the HEAD --continue credits,
+// so a conflict awaiting --continue holds every other merge, automatic or explicit
+func TestConflictAwaitingContinueHoldsOtherMerges(t *testing.T) {
+	f := newMergeFixture(t, []waveobj.TaskNode{{ID: "t-0", Label: "conflicts"}, {ID: "t-1", Label: "clean"}})
+	f.finish(t, "t-0")
+	childOfT1 := f.finish(t, "t-1")
+	conflictKey := LaneWorktreeKey(f.dag(t), "t-0")
+	var cleanMerges int
+	stubMerge(t, func(_ context.Context, _, runID, _ string) (string, error) {
+		if runID == conflictKey {
+			return "", ErrMergeConflict
+		}
+		cleanMerges++
+		return "sha-t1", nil
+	})
+	oldContinue := continueMerge
+	continueMerge = func(context.Context, string, string, string, []string) (string, error) { return "sha-fix", nil }
+	t.Cleanup(func() { continueMerge = oldContinue })
+
+	if err := Schedule(f.ctx, f.dagID); err != nil {
+		t.Fatal(err)
+	}
+	if got := taskByID(f.dag(t), "t-0").State; got != TaskState_BlockedMerge {
+		t.Fatalf("t-0 = %s, want blocked-merge", got)
+	}
+	if cleanMerges != 0 {
+		t.Fatalf("t-1 must wait for t-0's --continue, merged %d times", cleanMerges)
+	}
+	err := MergeTask(f.ctx, f.channel, f.ownerID, "t-1")
+	if !errors.Is(err, errProjectBusy) || !strings.Contains(err.Error(), "t-0") {
+		t.Fatalf("an explicit merge must be refused naming t-0, got %v", err)
+	}
+
+	if err := ContinueMerge(f.ctx, f.channel, f.ownerID, "t-0"); err != nil {
+		t.Fatal(err)
+	}
+	t0Child, err := wstore.GetRun(f.ctx, f.channel, taskByID(f.dag(t), "t-0").RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if t0Child.EndCommit != "sha-fix" {
+		t.Fatalf("t-0 credited %q, want the resolver's commit", t0Child.EndCommit)
+	}
+	if err := Schedule(f.ctx, f.dagID); err != nil {
+		t.Fatal(err)
+	}
+	if !taskByID(f.dag(t), "t-1").Merged {
+		t.Fatal("t-1 must land once t-0 is continued")
+	}
+	if c, _ := wstore.GetRun(f.ctx, f.channel, childOfT1); c.EndCommit != "sha-t1" {
+		t.Fatalf("t-1 credited %q, want its own commit", c.EndCommit)
 	}
 }

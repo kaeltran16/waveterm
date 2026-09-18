@@ -373,16 +373,30 @@ func TestNextDependencyWait(t *testing.T) {
 	}
 }
 
-func TestNextParallelismWaitBeatsDependency(t *testing.T) {
-	g := digestGroup(t, false, chainTasks())
-	setTaskStates(g, map[string]string{"t-0": TaskState_Running}) // active holds a slot; t-1/t-2 also dep-wait
+// with a slot free, a pending task waits on its dependency, not on the parallelism limit
+func TestNextDependencyWaitWhenASlotIsFree(t *testing.T) {
+	g := digestGroup(t, false, chainTasks()) // parallelism 2
+	setTaskStates(g, map[string]string{"t-0": TaskState_Running})
 	d := BuildDigest(digestSnapshot(g, nil, nil, nil, digestNow))
-	// parallelism wait outranks dependency wait per spec §5.3 ordering
-	if d.Next.Kind != "parallelism-wait" {
-		t.Fatalf("active task with dependency holds: parallelism-wait wins, got %q", d.Next.Kind)
+	if d.Next.Kind != "dependency-wait" {
+		t.Fatalf("1 of 2 slots busy with dependency holds must be dependency-wait, got %q", d.Next.Kind)
 	}
-	if len(d.Next.BlockingTaskIds) != 1 || d.Next.BlockingTaskIds[0] != "t-0" {
-		t.Fatalf("parallelism wait must name the active task, got %+v", d.Next.BlockingTaskIds)
+	if !sameStrings(d.Next.TaskIds, []string{"t-1", "t-2"}) || !sameStrings(d.Next.BlockingTaskIds, []string{"t-0", "t-1"}) {
+		t.Fatalf("dependency wait must name the waiting tasks and their blockers, got %+v", d.Next)
+	}
+}
+
+// every slot busy: the parallelism limit is what holds the rest, whatever else they wait on
+func TestNextParallelismWaitWhenEverySlotIsBusy(t *testing.T) {
+	g := digestGroup(t, false, []waveobj.TaskNode{
+		{ID: "t-0", Label: "a"},
+		{ID: "t-1", Label: "b"},
+		{ID: "t-2", Label: "c", Deps: []string{"t-0"}},
+	})
+	setTaskStates(g, map[string]string{"t-0": TaskState_Running, "t-1": TaskState_Running})
+	d := BuildDigest(digestSnapshot(g, nil, nil, nil, digestNow))
+	if d.Next.Kind != "parallelism-wait" || !sameStrings(d.Next.BlockingTaskIds, []string{"t-0", "t-1"}) {
+		t.Fatalf("2 of 2 slots busy must be parallelism-wait on both, got %+v", d.Next)
 	}
 }
 
