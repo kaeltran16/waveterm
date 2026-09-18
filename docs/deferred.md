@@ -375,8 +375,8 @@ stopped being load-bearing along the way: the one-channel-per-project collapse (
 channel is no longer created and abandoned by a human, so there is materially less left to manage. Per item:
 
 - **Channel lifecycle** (`renameChannel`, `archiveChannel`, `setChannelNotes`) — **deleted in `84f366fb`**,
-  no longer load-bearing per above. `deleteChannel`/`DeleteChannelCommand` were left in the tree and are
-  newly orphaned (no caller either), unaddressed by this pass.
+  no longer load-bearing per above. What it left orphaned is listed in `docs/orchestrator-guide.md` (What the
+  backlog run left open).
 - **Subject browsing, grouping, filtering** — **closed as superseded** in `f786e949`: the palette's Brief
   index (`briefpalette.ts` `buildBriefIndex`) now browses and filters records, threads, initiatives and
   sessions, archived included; the leftover grouping remnant (`toggleSubjectGroup`) was deleted with it.
@@ -397,8 +397,8 @@ channel is no longer created and abandoned by a human, so there is materially le
   prose, and a verdict badge for a `weak`/`notfound` terminal — were re-homed into a new `briefturn.ts`,
   consumed by `briefsurface.tsx`, rather than lost.
 - **The record peek's yield-while-stacked workaround** — unwound in `b18487d0` now that `ModalShell` only
-  takes focus/Escape when it owns the top of the modal stack; see the open-issues.md row for the live check
-  still owed.
+  takes focus/Escape when it owns the top of the modal stack; its live check is listed in
+  `docs/orchestrator-guide.md` (What the backlog run left open).
 - **Still open, untouched by this pass:** the consult and resume/proactive feeds (§4a items 11/12, deliberate
   drops with no home decided), and the persisted-thread-from-an-ask decision (the `n` chord still opens a
   thread nothing can fill).

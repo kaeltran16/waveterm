@@ -442,16 +442,71 @@ t-3 → t-4 → t-6 → t-7 → t-13 chain ran one at a time behind them:
 
 ![The backlog run's DAG, done](images/orchestrator-guide/26-backlog-dag-done.png)
 
+### Who wraps up
+
+Done doesn't mean finished. The work after the last merge splits three ways:
+
+| Work | Whose job | On the backlog run |
+|---|---|---|
+| The run's report | **The lead's.** Its rules say "run finished: write the report from `wsh jarvis dag status` (landed, unverified, answered, forwarded), then `wsh jarvis complete`" (`OrchestrationRules`, `leadprompt.go`). | Not written. The lead ran `complete` first, and the engine closed its tab before it could recover. The sandbox lead did the same, so expect it. |
+| Closing the initiative's tracker chunks | **Nobody's.** The lead's rules never mention efforts, so it falls to whatever the plan says. | The plan gave it to workers through a header line they never see. The tracker read 3/16 with all 13 tasks landed. |
+| Merging the branch, checking the fixes live in the app, committing anything | **Yours.** The engine lands work on the project checkout's branch and stops there. | Four fixes still need a live check once the branch is on `main` and running in the dev app. |
+
+Until the first two are fixed, plan for them yourself:
+
+- **Put "close the chunk" inside each task**, with the exact `wsh effort chunk status` command. Better still,
+  close the chunks yourself after the run, using the landed commits from `dag status`.
+- **Read the report from the lead's terminal, not the Done face.** If the sealed summary is a half-sentence,
+  the lead ran `complete` before reporting. Its last full message is the closest thing to a report.
+
+Two engine changes would close these gaps:
+
+1. **Make the report impossible to lose.** `wsh jarvis complete` would take the report as an argument (for
+   example `--report <file>`) and seal that. Closing the lead's tab only after its turn ends would also work,
+   but the prompt already says "report, then complete" and two leads still got the order wrong. So carry
+   the report in the command itself, rather than relying on the order.
+2. **Let the engine close the tracker.** A plan task would name its chunk (a `**Chunk:**` line beside
+   `**Depends on:**`), and the engine would mark that chunk done with the landed commit once the task's
+   merge passes Verify. Closing chunks is deterministic bookkeeping, so it belongs in code. It also removes the
+   lane-commit mix-up, since only the engine knows which commit landed.
+
+### What the backlog run left open
+
+The run merged to `main` as `5d87597b`. This list is the single record of what it left open; the rows it
+closed in `docs/open-issues.md` point here.
+
+- **Four fixes still need a live check in the dev app.** Restart `task dev` on the merged `main` first. Three
+  of the four are backend changes, and a `wavesrv` started before the merge doesn't have them.
+  - **F25, hung agents** (`a147e47d`): freeze a Claude Code agent mid-work, for example by suspending its
+    process. After 3 minutes its row should read `hung · no output Nm`.
+  - **F22/F23, questions and answers** (`6a457809`): answer a plain session's question while its agent is
+    frozen. Within 30 seconds the card should come back noted "answer was sent but never confirmed". Also, an
+    agent kept open after its process ended (`cmd:keeponexit`) should lose its pending question.
+  - **F26, a killed worker** (`2f9f6a56`): kill a Quick run's worker process. The run should fail with a
+    `worker-exited` event. Quitting the app mid-run should not fail it.
+  - **Chunk 8, the record peek** (`b18487d0`, frontend only): open a record peek, raise its confirm and press
+    Escape. Only the confirm should close, and focus should return to the peek.
+- **Reopening a failed run's worker tab relaunches the worker** (F26's remainder). The run reads failed, but
+  `ResyncController` restarts the block's persisted `cmd`/`args` as a fresh session whenever its terminal
+  view remounts (`runworker.go`, `agentresumestore.ts`). After a quit, reopening that tab brings the worker
+  back to life under a run the backend has already closed.
+- **The hung overlay covers Claude Code only** (F25). pi is excluded until its TUI output is measured.
+- **`deleteChannel` and `DeleteChannelCommand` are orphaned now.** The run deleted the rest of the channel
+  lifecycle stack (`84f366fb`), and these two remain with no caller.
+- **`TestQuickReorderQueue_RollingTimeout` (`pkg/utilds`) flakes under load.** t-10 hit it while three workers'
+  suites were running and found that it passes on its own. It was judged an existing load flake and not fixed.
+
 ---
 
 ## Tracking an initiative across runs
 
 Big efforts live as initiatives (`wsh effort`, the Brief's **Initiatives** region). A run does not attach
-itself to one: the goal names the effort, and the lead and workers tick chunks with
-`wsh effort chunk status <effort> "<chunk>" done --note "…"`. To show a run against a chunk, attach it:
+itself to one: the goal names the effort, and chunks close only when an agent runs
+`wsh effort chunk status <effort> "<chunk>" done --note "…"`. Nothing in the engine does it (see
+[Who wraps up](#who-wraps-up)). To show a run against a chunk, attach it:
 `wsh effort chunk attach <effort> "<chunk>" --run <run-oid>`. Expanding an initiative on the Brief shows each
-chunk's status and note trail; on the backlog run the lead closed chunk 1 as already fixed, with its evidence,
-before asking its first question.
+chunk's status and note trail. On the backlog run the lead closed chunk 1 as already fixed, with its evidence,
+before asking its first question. After that only t-4's worker closed any chunks.
 
 ---
 

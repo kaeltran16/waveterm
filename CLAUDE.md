@@ -104,8 +104,10 @@ Load-bearing rules:
 - **Opening an item on another surface goes through the one router**, `frontend/app/view/jarvis/openref.ts`
   (`openAddress` for a string, `openTarget` for an id): it loads the target, writes the destination's
   selection, then switches surface. Don't hand-roll set-selection-then-`surfaceAtom`.
-- **Keybindings:** `frontend/app/store/keybindings/` is the registry — global bindings in `bindings.ts`,
-  surface bindings via `useKeybindings(...)` inside the surface. `docs/keyboard-shortcuts.md` mirrors it.
+- **Keybindings:** every binding is defined in `frontend/app/store/keybindings/bindings.ts` (a
+  `build<Surface>Bindings()` per surface, plus global), but each surface activates its own with
+  `useKeybindings(...)` in its component body — there is no central activation point.
+  `docs/keyboard-shortcuts.md` mirrors the bindings.
 - **`pkg/orchestrate`** is the deterministic DAG engine behind orchestrator runs (worktrees, lanes,
   merges, Setup/Verify); UI in `frontend/app/view/orchestrate`. The plan gate, task cap, adaptive
   orchestration, and pipeline mode were deleted (c9eb83ee) and run workers are claude + pi only —
