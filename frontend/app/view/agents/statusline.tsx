@@ -4,6 +4,8 @@
 import { cn } from "@/util/util";
 import { useAtomValue, type Atom } from "jotai";
 import type { ReactNode } from "react";
+import { getLastOutputAtom } from "./agentcontrollerstore";
+import { hungSilenceMs } from "./agenthung";
 import { type AgentState, isQuiet, projectOf, type AgentVM } from "./agentsviewmodel";
 import { activityAtomFor } from "./livetranscriptatoms";
 import { RuntimeMark } from "./runtimemark";
@@ -53,17 +55,35 @@ export function StatusLine({
 // ActivityLine is the current-activity row: a live pulse dot + the agent's activity text. Renders
 // nothing once the working activity line is gone (idle/quiet). `right` carries the caller's extra
 // controls (task chip in the card, actions in the overview) and `className` their placement.
+// Self-subscribes to nowAtom (like QuietDot) so a claude agent gone silent mid-tool-call flips to
+// "hung" as the clock passes, not only when a new event arrives — a hung agent sends no more events.
 export function ActivityLine({
     agent,
+    nowAtom,
     right,
     className,
 }: {
     agent: AgentVM;
+    nowAtom: Atom<number>;
     right?: ReactNode;
     className?: string;
 }) {
-    if (agent.state !== "working" || !agent.activity) {
+    const now = useAtomValue(nowAtom);
+    const lastOutputTs = useAtomValue(getLastOutputAtom(agent.blockId ?? ""));
+    const silentMs = hungSilenceMs(agent, lastOutputTs, now);
+    if (agent.state !== "working" || (!agent.activity && silentMs == null)) {
         return null;
+    }
+    if (silentMs != null) {
+        return (
+            <div className={cn("flex items-center gap-2", className)}>
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warning" />
+                <span className="min-w-0 flex-1 truncate font-mono text-[12px] leading-[1.4] text-warning">
+                    hung · no output {Math.floor(silentMs / 60_000)}m
+                </span>
+                {right}
+            </div>
+        );
     }
     return (
         <div className={cn("flex items-center gap-2", className)}>

@@ -129,6 +129,7 @@ func (sc *ShellController) getRuntimeStatus_nolock() BlockControllerRuntimeStatu
 	rtn.ShellProcStatus = sc.ProcStatus
 	rtn.ShellProcConnName = sc.ConnName
 	rtn.ShellProcExitCode = sc.ProcExitCode
+	rtn.LastOutputTs = blockLastOutputTs.Get(sc.BlockId)
 	return rtn
 }
 

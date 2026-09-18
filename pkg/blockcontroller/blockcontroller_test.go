@@ -68,6 +68,19 @@ func TestExitHookIsSilentDuringShutdown(t *testing.T) {
 	}
 }
 
+func TestOutputPublishDue(t *testing.T) {
+	interval := outputPublishInterval.Milliseconds()
+	if !outputPublishDue(0, 5_000) {
+		t.Fatal("a block's first output is published")
+	}
+	if outputPublishDue(5_000, 5_000+interval-1) {
+		t.Fatal("output inside the interval is not republished")
+	}
+	if !outputPublishDue(5_000, 5_000+interval) {
+		t.Fatal("output after the interval is republished")
+	}
+}
+
 func TestAgentShouldCloseOnExit(t *testing.T) {
 	agentTab := waveobj.MetaMapType{"session:agent": "claude"}
 	plainTab := waveobj.MetaMapType{}

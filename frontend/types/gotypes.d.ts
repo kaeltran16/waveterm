@@ -267,6 +267,7 @@ declare global {
         shellprocstatus?: string;
         shellprocconnname?: string;
         shellprocexitcode: number;
+        lastoutputts?: number;
     };
 
     // waveobj.BlockDef

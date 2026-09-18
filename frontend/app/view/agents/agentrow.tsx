@@ -499,9 +499,10 @@ export const AgentRow = memo(function AgentRow({
                 >
                     {/* feed */}
                     <div className="shrink-0 grow px-3 py-1.5">
-                        {working && agent.activity ? (
+                        {working ? (
                             <ActivityLine
                                 agent={agent}
+                                nowAtom={nowAtom}
                                 className="mb-1.5 border-b border-edge-mid pb-1.5"
                                 right={
                                     prog ? (

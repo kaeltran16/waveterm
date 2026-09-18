@@ -97,6 +97,7 @@ func (dsc *DurableShellController) getRuntimeStatus_withlock() BlockControllerRu
 	rtn.BlockId = dsc.BlockId
 	rtn.ShellProcStatus = dsc.getJobStatus_withlock()
 	rtn.ShellProcConnName = dsc.ConnName
+	rtn.LastOutputTs = blockLastOutputTs.Get(dsc.BlockId)
 	return rtn
 }
 
