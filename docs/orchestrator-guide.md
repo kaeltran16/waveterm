@@ -222,7 +222,8 @@ that every task must edit is what sets a plan's width, so keep that edit out of 
 
 The engine turns tasks into **lanes**: a chain where each task has one dependency and is its only dependent
 shares one worktree and one branch, each task a fresh worker committing on top of the last, and lands as one
-squash merge. Independent tasks and tasks after a fork or join start their own lane. Lanes are what
+squash merge. The squash commit carries its workers' commit messages, oldest first, and names the lane in an
+`Arc-Run:` trailer; the plan's task titles stand in only when those messages are empty. Independent tasks and tasks after a fork or join start their own lane. Lanes are what
 parallelism counts.
 
 ### Start it

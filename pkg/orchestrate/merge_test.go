@@ -3,6 +3,7 @@ package orchestrate
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -31,6 +32,42 @@ func TestMergeSquash(t *testing.T) {
 	// runs CleanupTaskWorktree, so a cleanup failure can never obscure an already-landed merge.
 	if _, err := os.Stat(wt); err != nil {
 		t.Fatalf("worktree removal must be left to the cleanup helper: %v", err)
+	}
+}
+
+// a lane lands under the messages its workers wrote, oldest first and each once, not the plan's task titles;
+// the lane is named in a trailer
+func TestMergeSquashKeepsTheWorkersCommitMessages(t *testing.T) {
+	dir := newGitRepo(t)
+	base := gitCmd(t, dir, "rev-parse", "HEAD")
+	wt, _ := CreateRunWorktree(context.Background(), dir, "run-1", base)
+	for i, msg := range []string{"feat(x): add the feature\n\nwhy it exists", "docs: record the feature", "docs: record the feature"} {
+		os.WriteFile(filepath.Join(wt, fmt.Sprintf("f%d.txt", i)), []byte("x\n"), 0o644)
+		gitCmd(t, wt, "add", ".")
+		gitCmd(t, wt, "commit", "-m", msg)
+	}
+	if _, err := MergeRunWorktree(context.Background(), dir, "run-1", "Add the feature", nil); err != nil {
+		t.Fatal(err)
+	}
+	want := "feat(x): add the feature\n\nwhy it exists\n\ndocs: record the feature\n\nArc-Run: run-1"
+	if got := gitCmd(t, dir, "log", "-1", "--format=%B"); got != want {
+		t.Fatalf("squash message = %q, want %q", got, want)
+	}
+}
+
+// a branch whose commits carry no message lands under the lane's task titles
+func TestMergeSquashFallsBackToTheLaneLabel(t *testing.T) {
+	dir := newGitRepo(t)
+	base := gitCmd(t, dir, "rev-parse", "HEAD")
+	wt, _ := CreateRunWorktree(context.Background(), dir, "run-1", base)
+	os.WriteFile(filepath.Join(wt, "feature.txt"), []byte("feat\n"), 0o644)
+	gitCmd(t, wt, "add", ".")
+	gitCmd(t, wt, "commit", "--allow-empty-message", "-m", "")
+	if _, err := MergeRunWorktree(context.Background(), dir, "run-1", "Add the feature", nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := gitCmd(t, dir, "log", "-1", "--format=%B"), "Add the feature\n\nArc-Run: run-1"; got != want {
+		t.Fatalf("squash message = %q, want %q", got, want)
 	}
 }
 
@@ -103,7 +140,7 @@ func TestMergeOfALaneThatLandedNothingReturnsNoCommit(t *testing.T) {
 			dir := newGitRepo(t)
 			os.WriteFile(filepath.Join(dir, "earlier.txt"), []byte("earlier lane\n"), 0o644)
 			gitCmd(t, dir, "add", ".")
-			gitCmd(t, dir, "commit", "-m", "run run-1: an earlier lane")
+			gitCmd(t, dir, "commit", "-m", "an earlier lane\n\nArc-Run: run-1")
 			head := gitCmd(t, dir, "rev-parse", "HEAD")
 			wt, err := CreateRunWorktree(context.Background(), dir, "run-2", head)
 			if err != nil {
