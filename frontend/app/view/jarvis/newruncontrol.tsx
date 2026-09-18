@@ -228,7 +228,7 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
                                         aria-pressed={picked === project}
                                         onClick={() => select(project)}
                                         className={cn(
-                                            "cursor-pointer truncate rounded-[7px] border px-2.5 py-1.5 text-left text-[12px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                                            "shrink-0 cursor-pointer truncate rounded-[7px] border px-2.5 py-1.5 text-left text-[12px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
                                             picked === project
                                                 ? "border-accent/40 bg-accentbg text-accent-soft"
                                                 : "border-border bg-surface-raised text-ink-mid hover:border-accent"

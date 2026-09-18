@@ -79,6 +79,10 @@ export async function createRun(
         deferstart: opts?.deferStart,
         ...(opts?.radarOrigin ? { radarorigin: opts.radarOrigin } : {}),
     });
+    if (rtn?.run == null) {
+        // the launcher opens whatever comes back, and a null here surfaced as a TypeError about `id`
+        throw new Error("creating the run returned no run");
+    }
     return rtn.run;
 }
 
