@@ -129,7 +129,7 @@ and `runRailSection` are now fully deleted, not orphaned).
 | Per-answer cancel and retry | `cancelJarvisQuery`, `retryJarvisQuery` | no | open |
 | Ask-mode consult results (§4a item 11) | `ConsultsSection`, deleted with the rail | deliberate drop | open |
 | Resume / proactive cards (§4a item 12) | `ResumeCard`, `ProactiveCard` | deliberate drop | open |
-| Rail fleet roster and per-worker dismiss | `dismissWorker` only — `FleetRoster` and `runRailSection` are fully deleted from the tree (verified 2026-09-17), not just unconsumed | no — the header keeps a derived fleet line | open (the roster itself needs rebuilding, not re-homing; only the dismiss action survives) |
+| Rail fleet roster and per-worker dismiss | `dismissWorker` only — `FleetRoster` and `runRailSection` are fully deleted from the tree (verified 2026-09-17), not just unconsumed | no — the header keeps a derived fleet line | closed — `dismissWorker` deleted in 109b84f3; no roster exists and the header's fleet line ages idle workers out; the stored-dismiss reader stays |
 | Stage turn renderers | `JarvisAnswer`, `JarvisWorkingSteps` (`jarvis/jarvisturn.tsx`) | largely superseded by `briefdrew.ts` | open |
 
 ---
