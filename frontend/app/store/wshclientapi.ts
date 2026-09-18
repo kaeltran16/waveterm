@@ -1506,6 +1506,24 @@ export class RpcApiType {
         return client.wshRpcCall("testmultiarg", { args: [arg1, arg2, arg3] }, opts);
     }
 
+    // command "uiinvoke" [call]
+    UiInvokeCommand(client: WshClient, data: CommandUiInvokeData, opts?: RpcOpts): Promise<string> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "uiinvoke", data, opts);
+        return client.wshRpcCall("uiinvoke", data, opts);
+    }
+
+    // command "uireveal" [call]
+    UiRevealCommand(client: WshClient, data: CommandUiRevealData, opts?: RpcOpts): Promise<string> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "uireveal", data, opts);
+        return client.wshRpcCall("uireveal", data, opts);
+    }
+
+    // command "uistate" [call]
+    UiStateCommand(client: WshClient, opts?: RpcOpts): Promise<UiState> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "uistate", null, opts);
+        return client.wshRpcCall("uistate", null, opts);
+    }
+
     // command "updateworkspacetabids" [call]
     UpdateWorkspaceTabIdsCommand(client: WshClient, arg1: string, arg2: string[], opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "updateworkspacetabids", { args: [arg1, arg2] }, opts);

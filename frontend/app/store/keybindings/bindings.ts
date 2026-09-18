@@ -1067,6 +1067,8 @@ export function buildCodeBindings(): Binding[] {
             keys: "Ctrl:s",
             group: "Code",
             label: "Save the open file",
+            // overwrites the file on disk with the buffer; nothing asks first
+            destructive: true,
             // deliberately NOT gated on !ctx.editable: you are typing in Monaco when you press this, so
             // the editable exclusion the bare-letter bindings use would make it unreachable. Same shape
             // as close-agent's Ctrl:c, which stays live while the terminal has focus.
@@ -1326,6 +1328,8 @@ export function buildVaultBindings(): Binding[] {
             keys: "x",
             group: "Vault",
             label: "Dismiss the candidate",
+            // hard-deletes the pending candidate (MemoryDeleteCommand); nothing asks first
+            destructive: true,
             when: inQueue,
             run: resolve(false),
         },

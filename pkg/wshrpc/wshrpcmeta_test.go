@@ -48,3 +48,24 @@ func TestGenerateWshCommandDeclMap_TestMultiArgCommand(t *testing.T) {
 		t.Fatalf("expected 3 command args, got %d", len(decl.GetCommandDataTypes()))
 	}
 }
+
+func TestUiCommandsAreDeclared(t *testing.T) {
+	decls := GenerateWshCommandDeclMap()
+	want := map[string]reflect.Type{
+		"uistate":  reflect.TypeOf((*UiState)(nil)),
+		"uireveal": reflect.TypeOf(""),
+		"uiinvoke": reflect.TypeOf(""),
+	}
+	for cmd, rtnType := range want {
+		decl, ok := decls[cmd]
+		if !ok {
+			t.Fatalf("command %q not declared", cmd)
+		}
+		if decl.CommandType != RpcType_Call {
+			t.Errorf("%s: command type %q, want %q", cmd, decl.CommandType, RpcType_Call)
+		}
+		if decl.DefaultResponseDataType != rtnType {
+			t.Errorf("%s: response type %v, want %v", cmd, decl.DefaultResponseDataType, rtnType)
+		}
+	}
+}

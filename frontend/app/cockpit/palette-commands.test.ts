@@ -82,6 +82,25 @@ describe("buildCommandItems", () => {
         items[0].run();
         expect(run).toHaveBeenCalledWith(ctx);
     });
+
+    it("carries destructive from the binding, and nothing when unset", () => {
+        const items = buildCommandItems(
+            [
+                bind({ id: "vault:queue-dismiss", keys: "x", label: "Dismiss", destructive: true }),
+                bind({ id: "help", keys: "Shift:?", label: "Keyboard shortcuts" }),
+            ],
+            ctx
+        );
+        expect(items.map((i) => [i.key, i.destructive])).toEqual([
+            ["vault:queue-dismiss", true],
+            ["help", undefined],
+        ]);
+    });
+
+    it("returns the binding's own result from run, so a caller can tell it did not act", () => {
+        const items = buildCommandItems([bind({ id: "noop", keys: "z", label: "No-op", run: () => false })], ctx);
+        expect(items[0].run()).toBe(false);
+    });
 });
 
 describe("buildExtraItems", () => {

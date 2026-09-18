@@ -1898,6 +1898,19 @@ declare global {
         lastupdated: number;
     };
 
+    // wshrpc.CommandUiInvokeData
+    type CommandUiInvokeData = {
+        actionid: string;
+        callerblockid?: string;
+    };
+
+    // wshrpc.CommandUiRevealData
+    type CommandUiRevealData = {
+        address: string;
+        anchor?: string;
+        callerblockid?: string;
+    };
+
     // wshrpc.CommandVarData
     type CommandVarData = {
         key: string;
@@ -3759,6 +3772,23 @@ declare global {
     type UIContext = {
         windowid: string;
         activetabid: string;
+    };
+
+    // wshrpc.UiAction
+    type UiAction = {
+        id: string;
+        label: string;
+        group: string;
+        destructive?: boolean;
+    };
+
+    // wshrpc.UiState
+    type UiState = {
+        surface: string;
+        busy: boolean;
+        modalopen: boolean;
+        selection: string[];
+        actions: UiAction[];
     };
 
     // wshrpc.UsageBucket

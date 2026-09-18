@@ -1497,6 +1497,24 @@ func TestMultiArgCommand(w *wshutil.WshRpc, arg1 string, arg2 int, arg3 bool, op
 	return resp, err
 }
 
+// command "uiinvoke", wshserver.UiInvokeCommand
+func UiInvokeCommand(w *wshutil.WshRpc, data wshrpc.CommandUiInvokeData, opts *wshrpc.RpcOpts) (string, error) {
+	resp, err := sendRpcRequestCallHelper[string](w, "uiinvoke", data, opts)
+	return resp, err
+}
+
+// command "uireveal", wshserver.UiRevealCommand
+func UiRevealCommand(w *wshutil.WshRpc, data wshrpc.CommandUiRevealData, opts *wshrpc.RpcOpts) (string, error) {
+	resp, err := sendRpcRequestCallHelper[string](w, "uireveal", data, opts)
+	return resp, err
+}
+
+// command "uistate", wshserver.UiStateCommand
+func UiStateCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.UiState, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.UiState](w, "uistate", nil, opts)
+	return resp, err
+}
+
 // command "updateworkspacetabids", wshserver.UpdateWorkspaceTabIdsCommand
 func UpdateWorkspaceTabIdsCommand(w *wshutil.WshRpc, arg1 string, arg2 []string, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "updateworkspacetabids", wshrpc.MultiArg{Args: []any{arg1, arg2}}, opts)

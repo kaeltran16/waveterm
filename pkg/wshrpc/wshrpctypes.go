@@ -53,6 +53,7 @@ type WshRpcInterface interface {
 	AskCommands
 	NotifyCommands
 	TasksCommands
+	UiCommands
 	WshRpcRemoteFileInterface
 	WshRpcFileInterface
 }

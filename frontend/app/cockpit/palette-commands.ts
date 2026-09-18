@@ -14,7 +14,8 @@ export interface CommandItem {
     title: string;
     keys?: string; // chord descriptor for formatChord; absent for chordless extras
     group: string;
-    run: () => void;
+    destructive?: boolean; // see Binding.destructive
+    run: () => void | boolean; // false = the binding did not act (its target is absent)
 }
 
 // Binding guards are written against the posture of someone looking at a surface. While the palette is
@@ -57,9 +58,8 @@ export function buildCommandItems(bindings: Binding[], ctx: KeyContext): Command
         title: b.label,
         keys: b.keys,
         group: b.group,
-        run: () => {
-            b.run(ctx);
-        },
+        ...(b.destructive ? { destructive: true } : {}),
+        run: () => b.run(ctx),
     }));
 }
 

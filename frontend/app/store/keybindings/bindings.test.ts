@@ -26,6 +26,7 @@ import {
     buildJarvisBindings,
     buildJarvisGraphBindings,
     buildListNavBindings,
+    buildVaultBindings,
     closeTargetForDoubleCtrlC,
 } from "./bindings";
 import { listNavAtom } from "./listnav";
@@ -606,5 +607,18 @@ describe("leader reachability and the fullscreen chord", () => {
         expect(b.keys).toBe("F11");
         expect(b.when!(inTerm)).toBe(true);
         expect(b.when!({ ...inTerm, surface: "cockpit" })).toBe(false);
+    });
+});
+
+// remote callers (wsh ui do) must get the user's confirmation for these; the keyboard still runs them directly
+describe("destructive bindings", () => {
+    it("flags the irreversible actions that do not confirm on their own", () => {
+        expect(buildVaultBindings().find((b) => b.id === "vault:queue-dismiss")?.destructive).toBe(true);
+        expect(buildCodeBindings().find((b) => b.id === "code:save")?.destructive).toBe(true);
+    });
+
+    it("leaves actions that confirm themselves, or can be undone, unflagged", () => {
+        expect(buildCodeBindings().find((b) => b.id === "code:delete")?.destructive).toBeUndefined();
+        expect(buildVaultBindings().find((b) => b.id === "vault:queue-keep")?.destructive).toBeUndefined();
     });
 });

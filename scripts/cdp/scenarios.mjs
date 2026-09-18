@@ -5604,6 +5604,98 @@ const resourceLinking = {
     },
 };
 
+// --- cockpit UI API (wsh ui) ----------------------------------------------------------------------
+// Calls the real FE handlers on the fixed "cockpit" route. The FE router delivers a same-window call
+// locally, so the wavesrv routing hop that a real `wsh ui` takes is NOT under test here — the manual
+// wsh smoke in the plan covers it; wshcmd-ui_test.go covers the CLI's own logic.
+const UI_ROUTE = { route: "cockpit", timeout: 15000 };
+
+const uiApi = {
+    name: "ui-api",
+    surface: "cockpit",
+    async arrange() {
+        return {};
+    },
+    async assert(h) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
+        const call = async (command, data) => {
+            try {
+                return { value: await h.rpc(command, data, UI_ROUTE) };
+            } catch (e) {
+                return { error: String(e?.message ?? e) };
+            }
+        };
+        const toastCount = () => h.ev(`document.querySelectorAll('[data-notification-toast]').length`);
+        const toastWith = (text) =>
+            h.ev(
+                `[...document.querySelectorAll('[data-notification-toast]')].some((t) => (t.textContent || '').includes(${JSON.stringify(text)}))`
+            );
+        // a keystroke an earlier scenario sent would otherwise hold the first call in the busy wait
+        await settle(1600);
+
+        const s1 = await call("uistate", null);
+        rec(
+            "1. uistate reports the surface the harness is on, with actions",
+            s1.value?.surface === "cockpit" && Array.isArray(s1.value?.actions) && s1.value.actions.length > 0,
+            JSON.stringify({ surface: s1.value?.surface, actions: s1.value?.actions?.length, error: s1.error })
+        );
+
+        const r2 = await call("uireveal", { address: "surface:usage" });
+        await settle(400);
+        const active2 = await h.activeSurfaceLabel();
+        rec(
+            "2. uireveal surface:usage lands Usage",
+            !r2.error && active2 === SURFACE_LABEL.usage,
+            `active=${active2} error=${r2.error}`
+        );
+
+        const before3 = await toastCount();
+        const r3 = await call("uireveal", { address: "run:00000000-0000-0000-0000-000000000000" });
+        await settle(400);
+        const after3 = await toastCount();
+        rec(
+            "3. uireveal of a missing run errors to the caller and pushes no toast",
+            !!r3.error && after3 <= before3,
+            `error=${r3.error} toasts ${before3}->${after3}`
+        );
+
+        const r4 = await call("uiinvoke", { actionid: "go:cockpit" });
+        await settle(400);
+        const active4 = await h.activeSurfaceLabel();
+        const trail4 = await toastWith("Cockpit (home)");
+        rec(
+            "4. uiinvoke go:cockpit lands Cockpit and leaves a trail toast",
+            !r4.error && active4 === SURFACE_LABEL.cockpit && trail4 === true,
+            `active=${active4} trail=${trail4} error=${r4.error}`
+        );
+
+        const r5 = await call("uiinvoke", { actionid: "no-such-action" });
+        rec(
+            "5. uiinvoke of an unavailable id errors with the actions hint",
+            /see wsh ui actions/.test(r5.error ?? ""),
+            `error=${r5.error}`
+        );
+
+        // bare Shift has no binding, so this only marks the user as active
+        await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", key: "Shift", code: "ShiftLeft", modifiers: 8 });
+        await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", key: "Shift", code: "ShiftLeft" });
+        const t0 = Date.now();
+        const r6 = await call("uireveal", { address: "surface:usage" });
+        const waited = Date.now() - t0;
+        rec(
+            "6. a reveal right after a keystroke waits out the idle window",
+            !r6.error && waited >= 1300,
+            `waited=${waited}ms error=${r6.error}`
+        );
+        return steps;
+    },
+    async teardown(h) {
+        await h.goto("cockpit"); // leave the app where a human expects it
+    },
+};
+
 export const SCENARIOS = [
     vaultSteering,
     vaultRecords,
@@ -5639,4 +5731,5 @@ export const SCENARIOS = [
     jarvisMotion,
     briefInlineTracker,
     resourceLinking,
+    uiApi,
 ];

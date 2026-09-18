@@ -16,6 +16,13 @@ let boundModel: AgentsViewModel | null = null;
 let leader: string | null = null;
 let leaderTimeout: ReturnType<typeof setTimeout> | null = null;
 let lastHandledEvent: KeyboardEvent | null = null;
+// when the user last pressed any key: the cockpit UI API waits for a quiet moment before it moves the view
+// (cockpit/uiclient.ts)
+let lastKeyTs = 0;
+
+export function lastKeyActivityTs(): number {
+    return lastKeyTs;
+}
 
 function setLeader(next: string | null): void {
     leader = next;
@@ -112,6 +119,7 @@ export function handleWaveEvent(waveEvent: WaveKeyboardEvent): boolean {
 export function initKeybindingDispatcher(model: AgentsViewModel): () => void {
     boundModel = model;
     const onKeyDown = (e: KeyboardEvent) => {
+        lastKeyTs = Date.now();
         const waveEvent = keyutil.adaptFromReactOrNativeKeyEvent(e);
         const handled = handleWaveEvent(waveEvent);
         if (handled) {

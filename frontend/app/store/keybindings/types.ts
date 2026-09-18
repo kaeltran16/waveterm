@@ -27,6 +27,10 @@ export interface Binding {
     // multi-press gestures a single row cannot express, and on chords that duplicate a better-labelled
     // binding. See palette-commands.ts.
     paletteHidden?: boolean;
+    // Irreversible, and its run() does not already ask for confirmation. The keyboard runs it directly —
+    // the user pressed the key — but a remote caller (wsh ui do, cockpit/uiclient.ts) must get the user's
+    // confirmation first.
+    destructive?: boolean;
     // Return false to explicitly NOT consume the key (let it pass through, e.g. first Ctrl+C to the PTY).
     // Any other return (including void) consumes it.
     run: (ctx: KeyContext) => void | boolean;

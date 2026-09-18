@@ -27,6 +27,9 @@ const (
 	ControlRoute     = "$control"      // control plane route
 	ControlRootRoute = "$control:root" // control plane route to root router
 
+	// the cockpit window binds this beside its tab route, so a worker in any tab can reach it
+	RouteId_Cockpit = "cockpit"
+
 	ControlPrefix = "$"
 
 	RoutePrefix_Conn       = "conn:"
