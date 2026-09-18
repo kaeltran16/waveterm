@@ -1,6 +1,10 @@
+import { Tooltip } from "@/app/element/tooltip";
 import { globalStore } from "@/app/store/jotaiStore";
+import { isEditableTarget } from "@/app/store/keybindings/dispatcher";
+import * as WOS from "@/app/store/wos";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
+import { fireAndForget } from "@/util/util";
 import {
     Background,
     Handle,
@@ -19,15 +23,16 @@ import { useEffect, useMemo, useState } from "react";
 import type { AgentsViewModel } from "../agents/agents";
 import type { AgentVM } from "../agents/agentsviewmodel";
 import { runAtom } from "../agents/channelsstore";
-import { StatusLine } from "../agents/statusline";
+import { ActivityLine, StatusLine } from "../agents/statusline";
 import { RoutePicker } from "../agents/routepicker";
-import { useDagDigest } from "./dagdigest";
+import { taskBriefs, useDagDigest, type TaskBrief } from "./dagdigest";
 import { DagGraphHeader } from "./daggraph-header";
 import { computeLayeredLayout } from "./daglayout";
+import { taskPeek } from "./dagpeek";
 import { buildViewData, mergeReadyIds, selectedTaskIdAtom, useDagGroup, type DagViewNode } from "./dagstore";
 import { escalatePayload } from "./escalate";
 import { dagModalAgentsContextAtom } from "./dagmodalstate";
-import { openTaskWorker, resolveTaskWorker, type TaskWorkerView } from "./taskcorrelate";
+import { enterOpensTask, openTaskWorker, resolveTaskWorker, type TaskWorkerView } from "./taskcorrelate";
 
 const STATE_TONE: Record<string, string> = {
     running: "border-accent/60 bg-accent/15 text-accent-soft",
@@ -43,8 +48,16 @@ const STATE_TONE: Record<string, string> = {
     pending: "border-edge-mid bg-surface-raised text-secondary",
 };
 
+// how long the pointer rests on a node before its peek appears: long enough that sweeping across the
+// graph does not flash a card per node
+const PEEK_OPEN_DELAY_MS = 400;
+
 interface DagTaskNodeData {
     view: DagViewNode;
+    task: TaskNode;
+    // undefined while the digest is missing or stale: the peek then makes no digest claim
+    digestTask: DagTaskDigest | undefined;
+    briefs: Map<string, TaskBrief>;
     channelid: string;
     runid: string;
     selected: boolean;
@@ -53,13 +66,25 @@ interface DagTaskNodeData {
 
 function DagTaskNode({ data }: NodeProps) {
     const d = data as unknown as DagTaskNodeData;
+    return (
+        <Tooltip
+            placement="right"
+            openDelay={PEEK_OPEN_DELAY_MS}
+            content={<TaskPeekCard task={d.task} digestTask={d.digestTask} briefs={d.briefs} />}
+        >
+            <DagTaskCard d={d} />
+        </Tooltip>
+    );
+}
+
+function DagTaskCard({ d }: { d: DagTaskNodeData }) {
     const { view, selected } = d;
     const tone = STATE_TONE[view.state] ?? STATE_TONE.pending;
     return (
         <div
             data-dag-node-route={`${view.route.source}:${view.route.runtime}:${view.route.model}`}
-            className={`w-[168px] rounded-[11px] border bg-lane px-2.5 py-2 shadow-popover-line ${
-                selected ? "border-accent" : "border-edge-mid"
+            className={`w-[168px] cursor-pointer rounded-[11px] border bg-lane px-2.5 py-2 shadow-popover-line ${
+                selected ? "border-accent" : "border-edge-mid hover:border-edge-strong"
             }`}
         >
             <Handle type="target" position={Position.Top} className="!h-1.5 !w-1.5 !border-none !bg-edge-strong" />
@@ -105,9 +130,45 @@ function DagTaskNode({ data }: NodeProps) {
 
 const nodeTypes = { dagTask: DagTaskNode };
 
+// TaskPeekCard is the hover peek: the rows taskPeek derives, plus the worker's live activity line while
+// it is working. It mounts only while the peek is open, so only a hovered node's child run is loaded.
+function TaskPeekCard({
+    task,
+    digestTask,
+    briefs,
+}: {
+    task: TaskNode;
+    digestTask: DagTaskDigest | undefined;
+    briefs: Map<string, TaskBrief>;
+}) {
+    const childRun = useAtomValue<Run | undefined>(
+        (task.runid ? runAtom(task.runid) : NO_RUN_ATOM) as Atom<Run | undefined>
+    );
+    const agentsCtx = useAtomValue(dagModalAgentsContextAtom);
+    const worker = resolveTaskWorker({ id: task.id, runid: task.runid }, childRun, agentsCtx?.agents ?? []);
+    const peek = taskPeek(task, digestTask, briefs, Date.now());
+    return (
+        <div data-dag-peek={task.id} className="flex w-[280px] flex-col gap-1 py-0.5">
+            <div className="text-[12px] font-semibold text-primary">{peek.title}</div>
+            {peek.description ? (
+                <div className="line-clamp-4 whitespace-pre-line text-[11px] text-secondary">{peek.description}</div>
+            ) : null}
+            {worker.agent ? <ActivityLine agent={worker.agent} /> : null}
+            {peek.rows.map((row, i) => (
+                <div
+                    key={i}
+                    className={`font-mono text-[10px] ${row.tone === "warning" ? "text-warning" : "text-muted"}`}
+                >
+                    {row.text}
+                </div>
+            ))}
+        </div>
+    );
+}
+
 // SelectedTaskWorker renders the selected task's worker treatment in the modal rail: the shared status
 // line when dispatched, Open in Agent navigation, and the explicit pending / worker-unavailable states
-// per spec 6.2. Node clicks still only select — navigation happens through the buttons.
+// per spec 6.2. A single node click only selects; a double-click or Enter opens the same place as the button.
 function SelectedTaskWorker({
     taskNode,
     model,
@@ -190,6 +251,11 @@ function DagGraphInner({ oref, owner, harnesses }: { oref: string; owner: Run; h
         () => mergeReadyIds(digestState.digest, digestState.stale),
         [digestState.digest, digestState.stale]
     );
+    // a stale digest's per-task facts stay out of the peek, as its merge-ready set stays off the buttons
+    const digestById = useMemo(
+        () => new Map((digestState.stale ? [] : (digestState.digest?.tasks ?? [])).map((td) => [td.taskid, td])),
+        [digestState.digest, digestState.stale]
+    );
 
     const { nodes, edges, byId } = useMemo(() => {
         if (loading || !group)
@@ -197,12 +263,17 @@ function DagGraphInner({ oref, owner, harnesses }: { oref: string; owner: Run; h
         const { nodes: vnodes, edges: vedges } = buildViewData(group, owner, harnesses, mergeReady);
         const pos = computeLayeredLayout(group.tasks);
         const viewById = new Map(vnodes.map((n) => [n.id, n]));
+        const taskById = new Map(group.tasks.map((t) => [t.id, t]));
+        const briefs = taskBriefs(group);
         const reactNodes: Node[] = vnodes.map((n) => ({
             id: n.id,
             type: "dagTask",
             position: pos.get(n.id) ?? { x: 0, y: 0 },
             data: {
                 view: n,
+                task: taskById.get(n.id)!,
+                digestTask: digestById.get(n.id),
+                briefs,
                 channelid: group.channelid,
                 runid: group.runid,
                 selected: n.id === selectedId,
@@ -220,23 +291,33 @@ function DagGraphInner({ oref, owner, harnesses }: { oref: string; owner: Run; h
             },
         }));
         return { nodes: reactNodes, edges: reactEdges, byId: viewById };
-    }, [group, harnesses, loading, mergeReady, owner, selectedId]);
+    }, [digestById, group, harnesses, loading, mergeReady, owner, selectedId]);
 
     const orderedIds = useMemo(() => (group ? group.tasks.map((t) => t.id) : []), [group]);
     const [escalating, setEscalating] = useState(false);
     const [escalateRoute, setEscalateRoute] = useState<RoutePin | null>(null);
 
-    // j/k move the selection through the task list (layer order). The modal owns Escape.
+    // j/k move the selection through the task list (layer order); Enter opens the selected task's worker,
+    // as a double-click does. The modal owns Escape.
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
-            if (e.key !== "j" && e.key !== "k") return;
+            if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+            if (e.key === "Enter") {
+                const task = group?.tasks.find((t) => t.id === selectedId);
+                if (task && enterOpensTask(document.activeElement)) {
+                    e.preventDefault();
+                    fireAndForget(() => openTaskFromGraph(task));
+                }
+                return;
+            }
+            if ((e.key !== "j" && e.key !== "k") || isEditableTarget(document.activeElement)) return;
             const cur = selectedId ? orderedIds.indexOf(selectedId) : -1;
             const next = e.key === "j" ? Math.min(cur + 1, orderedIds.length - 1) : Math.max(cur - 1, 0);
             if (next >= 0 && next !== cur) globalStore.set(selectedTaskIdAtom, orderedIds[next]);
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
-    }, [selectedId, orderedIds]);
+    }, [group, selectedId, orderedIds]);
 
     const selected = selectedId && byId.get(selectedId) ? byId.get(selectedId)! : null;
     const agentsCtx = useAtomValue(dagModalAgentsContextAtom);
@@ -265,7 +346,15 @@ function DagGraphInner({ oref, owner, harnesses }: { oref: string; owner: Run; h
                     colorMode="dark"
                     proOptions={{ hideAttribution: true }}
                     onNodeClick={(_e, n) => globalStore.set(selectedTaskIdAtom, n.id)}
+                    onNodeDoubleClick={(e, n) => {
+                        // a double-click on the node's own action button is two presses of that action
+                        if ((e.target as Element).closest("button")) return;
+                        const task = group.tasks.find((t) => t.id === n.id);
+                        if (task) fireAndForget(() => openTaskFromGraph(task));
+                    }}
                     onPaneClick={() => globalStore.set(selectedTaskIdAtom, null)}
+                    // double-click means "open" on a node; zooming on it too would move the graph under the click
+                    zoomOnDoubleClick={false}
                     minZoom={0.2}
                 >
                     <Background gap={24} size={1} color="color-mix(in srgb, var(--color-ink-mid) 14%, transparent)" />
@@ -381,6 +470,16 @@ function DagGraphInner({ oref, owner, harnesses }: { oref: string; owner: Run; h
             ) : null}
         </div>
     );
+}
+
+// openTaskFromGraph opens a task's worker from a double-click or Enter, to the same place the rail's button
+// goes. It loads the child run first rather than reading its atom: only the selected task's run is
+// subscribed, and an unloaded run would resolve a live worker as unavailable.
+async function openTaskFromGraph(task: TaskNode): Promise<void> {
+    const childRun = task.runid ? await WOS.loadAndPinWaveObject<Run>(WOS.makeORef("run", task.runid)) : undefined;
+    const ctx = globalStore.get(dagModalAgentsContextAtom);
+    if (ctx == null) return;
+    openTaskWorker(resolveTaskWorker({ id: task.id, runid: task.runid }, childRun, ctx.agents), ctx.model);
 }
 
 // runEscalate re-queues a failed/stalled task on the exact model the human picked; one judged hop.

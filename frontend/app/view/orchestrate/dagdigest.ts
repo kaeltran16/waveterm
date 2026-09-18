@@ -74,6 +74,22 @@ function nameList(ids: string[] | undefined, briefs: Map<string, TaskBrief> | un
     return shown.join(", ") + (rest > 0 ? ` +${rest} more` : "");
 }
 
+export function firstLine(text: string | undefined): string {
+    return (text ?? "").split("\n")[0].trim();
+}
+
+// waitingText says why a queued task has not started, shared by the run sheet's row and the graph's peek.
+export function waitingText(td: DagTaskDigest | undefined, briefs: Map<string, TaskBrief>): string {
+    const blockers = td?.blockingtaskids ?? [];
+    if (td?.waitreason === "dependency" && blockers.length > 0) {
+        return `waiting on ${blockers.map((id) => labelOf(id, briefs)).join(", ")}`;
+    }
+    if (td?.waitreason === "parallelism") {
+        return "waiting for a worker slot";
+    }
+    return "not dispatched yet";
+}
+
 // blockerName says what a blocking task is actually waiting for. A dependency that is already done yet
 // still blocks its successor is waiting to be integrated, not to finish — the distinction the reader
 // needs to know whether anything is running at all.

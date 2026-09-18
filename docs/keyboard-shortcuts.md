@@ -109,6 +109,17 @@ Settings has no `Ctrl`+number slot — the eight positions are bound to `SURFACE
 | `j` / `k` (or `↓` / `↑`) | Next / previous file |
 | `Enter` | Apply the review |
 
+### Route DAG (the orchestrator run's graph)
+
+| Keys | Action |
+|---|---|
+| `j` / `k` | Next / previous task, in plan order |
+| `Enter` (or double-click a task) | Open the task's worker in the Agent surface, or its child run once the session is gone |
+| `Esc` | Close the graph |
+
+Resting the pointer on a task shows its peek: the full title and description, what it is waiting on,
+its latest activity, and why it failed.
+
 ## Help
 
 | Keys | Action |

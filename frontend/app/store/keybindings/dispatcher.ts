@@ -5,6 +5,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { modalsModel } from "@/app/store/modalmodel";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { codeFinderOpenAtom } from "@/app/view/code/codestore";
+import { dagModalStateAtom } from "@/app/view/orchestrate/dagmodalstate";
 import * as keyutil from "@/util/keyutil";
 import { CHORD_TIMEOUT } from "@/util/sharedconst";
 import { activeLeaderAtom } from "./leaderatom";
@@ -59,6 +60,7 @@ export function deriveKeyContext(): KeyContext {
     if (model == null) {
         return { surface: "cockpit", editable: false, modalOpen: false, leader };
     }
+    const surface = globalStore.get(model.surfaceAtom);
     const modalOpen =
         globalStore.get(model.paletteOpenAtom) ||
         globalStore.get(model.newAgentOpenAtom) ||
@@ -68,9 +70,13 @@ export function deriveKeyContext(): KeyContext {
         // global binding stayed live behind it, so Ctrl+N stacked New Agent on top of it and stole
         // focus, and any key the finder's input did not swallow drove the surface underneath.
         globalStore.get(codeFinderOpenAtom) ||
+        // the DAG modal too: left out, the Brief's bindings underneath took the graph's own keys first
+        // (Enter submitted an ask, Escape closed the note sidebar). Only the Brief mounts it, and its state
+        // outlives a switch away, since opening a worker from the graph lands on the Agent surface.
+        (surface === "jarvis" && globalStore.get(dagModalStateAtom) != null) ||
         globalStore.get(modalsModel.modalsAtom).length > 0;
     return {
-        surface: globalStore.get(model.surfaceAtom),
+        surface,
         editable: isEditableTarget(document.activeElement),
         modalOpen,
         leader,

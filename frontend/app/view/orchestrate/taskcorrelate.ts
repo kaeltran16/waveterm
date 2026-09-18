@@ -1,6 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { isEditableTarget } from "@/app/store/keybindings/dispatcher";
 import { fireAndForget } from "@/util/util";
 import type { AgentsViewModel } from "../agents/agents";
 import type { AgentVM } from "../agents/agentsviewmodel";
@@ -69,4 +70,14 @@ export function openTaskWorker(view: TaskWorkerView, model: AgentsViewModel): vo
     if (view.state === "unavailable" && runId) {
         fireAndForget(() => openTarget(model, { kind: "run", runId }));
     }
+}
+
+// enterOpensTask reports whether Enter in the graph opens the selected task's worker. A focused button or
+// link already takes Enter as its click, and a field takes it as text; opening the worker as well would do
+// two things on one press.
+export function enterOpensTask(active: Element | null): boolean {
+    if (active?.tagName === "BUTTON" || active?.tagName === "A") {
+        return false;
+    }
+    return !isEditableTarget(active);
 }

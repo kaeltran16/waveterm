@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { resolveTaskWorker, workerActivityText, type TaskWorkerView } from "./taskcorrelate";
+import { enterOpensTask, resolveTaskWorker, workerActivityText, type TaskWorkerView } from "./taskcorrelate";
 import type { AgentVM } from "../agents/agentsviewmodel";
 
 function agent(id: string): AgentVM {
@@ -61,5 +61,25 @@ describe("workerActivityText", () => {
     it("says the activity is unavailable rather than showing a fabricated idle state", () => {
         expect(workerActivityText({ state: "pending" })).toBe("Not dispatched yet");
         expect(workerActivityText({ state: "unavailable", runId: "r-1" })).toBe("Activity unavailable");
+    });
+});
+
+// Element stubs rather than jsdom, as in dispatcher.test.ts: the suite runs in vitest's node environment.
+function focused(tagName: string): Element {
+    return { tagName, closest: () => null } as unknown as Element;
+}
+
+describe("enterOpensTask", () => {
+    it("opens when focus is on nothing or on the graph itself", () => {
+        expect(enterOpensTask(null)).toBe(true);
+        expect(enterOpensTask(focused("DIV"))).toBe(true);
+    });
+
+    // Enter already activates a focused control: opening the worker too would do two things on one press
+    it("leaves Enter to a focused button, link or text field", () => {
+        expect(enterOpensTask(focused("BUTTON"))).toBe(false);
+        expect(enterOpensTask(focused("A"))).toBe(false);
+        expect(enterOpensTask(focused("INPUT"))).toBe(false);
+        expect(enterOpensTask(focused("TEXTAREA"))).toBe(false);
     });
 });
