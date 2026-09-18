@@ -100,12 +100,6 @@ func AppendDossierDecisionCommand(w *wshutil.WshRpc, data wshrpc.CommandAppendDo
 	return resp, err
 }
 
-// command "archivechannel", wshserver.ArchiveChannelCommand
-func ArchiveChannelCommand(w *wshutil.WshRpc, data wshrpc.CommandArchiveChannelData, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "archivechannel", data, opts)
-	return err
-}
-
 // command "archivejarvisconversation", wshserver.ArchiveJarvisConversationCommand
 func ArchiveJarvisConversationCommand(w *wshutil.WshRpc, data wshrpc.CommandArchiveJarvisConversationData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "archivejarvisconversation", data, opts)
@@ -1295,12 +1289,6 @@ func RemoveBackgroundAgentCommand(w *wshutil.WshRpc, data wshrpc.CommandRemoveBa
 	return err
 }
 
-// command "renamechannel", wshserver.RenameChannelCommand
-func RenameChannelCommand(w *wshutil.WshRpc, data wshrpc.CommandRenameChannelData, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "renamechannel", data, opts)
-	return err
-}
-
 // command "reportrunphase", wshserver.ReportRunPhaseCommand
 func ReportRunPhaseCommand(w *wshutil.WshRpc, data wshrpc.CommandReportRunPhaseData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "reportrunphase", data, opts)
@@ -1376,12 +1364,6 @@ func SetBlockFocusCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) 
 // command "setchannelmessagepick", wshserver.SetChannelMessagePickCommand
 func SetChannelMessagePickCommand(w *wshutil.WshRpc, data wshrpc.CommandSetChannelMessagePickData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "setchannelmessagepick", data, opts)
-	return err
-}
-
-// command "setchannelnotes", wshserver.SetChannelNotesCommand
-func SetChannelNotesCommand(w *wshutil.WshRpc, data wshrpc.CommandSetChannelNotesData, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "setchannelnotes", data, opts)
 	return err
 }
 

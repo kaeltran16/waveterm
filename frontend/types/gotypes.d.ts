@@ -505,12 +505,6 @@ declare global {
         decisionid: string;
     };
 
-    // wshrpc.CommandArchiveChannelData
-    type CommandArchiveChannelData = {
-        channelid: string;
-        archived: boolean;
-    };
-
     // wshrpc.CommandArchiveJarvisConversationData
     type CommandArchiveJarvisConversationData = {
         conversationid: string;
@@ -1710,12 +1704,6 @@ declare global {
         sessionid: string;
     };
 
-    // wshrpc.CommandRenameChannelData
-    type CommandRenameChannelData = {
-        channelid: string;
-        name: string;
-    };
-
     // wshrpc.CommandReportRunPhaseData
     type CommandReportRunPhaseData = {
         oref: string;
@@ -1782,12 +1770,6 @@ declare global {
         channelid: string;
         messageid: string;
         pick: number;
-    };
-
-    // wshrpc.CommandSetChannelNotesData
-    type CommandSetChannelNotesData = {
-        channelid: string;
-        notes: string;
     };
 
     // wshrpc.CommandSetChannelProfileData

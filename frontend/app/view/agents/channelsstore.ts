@@ -118,25 +118,6 @@ export async function setChannelTier(channelId: string, tier: string, mode: stri
     await loadChannels();
 }
 
-export async function renameChannel(channelId: string, name: string): Promise<void> {
-    await RpcApi.RenameChannelCommand(TabRpcClient, { channelid: channelId, name });
-    await loadChannels();
-}
-
-// Archive/unarchive a channel (a Channel.Meta flag), then refresh the snapshot-fed rail. Mirrors
-// setChannelTier/renameChannel — the rail reads the channelsAtom snapshot, so it needs a re-fetch.
-export async function archiveChannel(channelId: string, archived: boolean): Promise<void> {
-    await RpcApi.ArchiveChannelCommand(TabRpcClient, { channelid: channelId, archived });
-    await loadChannels();
-}
-
-// Persist a channel's notes (a Channel.Meta field), then refresh the snapshot-fed rail. Mirrors
-// setChannelTier — the surface reads active.meta from the channelsAtom snapshot, so it needs a re-fetch.
-export async function setChannelNotes(channelId: string, notes: string): Promise<void> {
-    await RpcApi.SetChannelNotesCommand(TabRpcClient, { channelid: channelId, notes });
-    await loadChannels();
-}
-
 // Ephemeral live consult streams, keyed `${consultId}:${runtime}`. Not persisted — superseded by the
 // consult-reply message (matched by RefORef `consult:<consultId>` + author) once it arrives via WOS.
 export interface ConsultStream {
