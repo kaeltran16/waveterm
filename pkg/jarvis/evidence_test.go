@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -674,5 +675,59 @@ func TestSealEvidenceFallsBackWithoutEndCommit(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected working-tree file wt.txt in fallback, got %+v", run.Evidence.Files)
+	}
+}
+
+func appendVerifyEvent(t *testing.T, channelID, runID, kind string, detail map[string]any) {
+	t.Helper()
+	if _, err := wstore.AppendRunEvent(context.Background(), channelID, runID, kind, nil, detail); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// the engine runs Verify, not a worker, so its results live only in the owner run's events
+func TestSealEvidenceRecordsTheDagsVerify(t *testing.T) {
+	ctx := context.Background()
+	runID, channelID := uuid.NewString(), uuid.NewString()
+	g := &waveobj.TaskGroup{OID: uuid.NewString(), RunID: runID, ChannelId: channelID, Verify: "go test ./...",
+		Tasks: []waveobj.TaskNode{{ID: "t-1", State: "done"}, {ID: "t-2", State: "verify-failed"}, {ID: "t-3", State: "done"}}}
+	g.ID = g.OID
+	if err := wstore.AppendDag(ctx, g); err != nil {
+		t.Fatal(err)
+	}
+	// t-1 timed out and its re-run passed; t-2 failed; t-3 never ran Verify
+	appendVerifyEvent(t, channelID, runID, waveobj.RunEventKindTaskVerifyFailed, map[string]any{"taskid": "t-1", "reason": "timeout"})
+	appendVerifyEvent(t, channelID, runID, waveobj.RunEventKindTaskVerifyPassed, map[string]any{"taskid": "t-1"})
+	appendVerifyEvent(t, channelID, runID, waveobj.RunEventKindTaskVerifyFailed, map[string]any{"taskid": "t-2", "reason": "exit 1"})
+	run := &waveobj.Run{ID: runID, OID: runID, ChannelOID: channelID, DagORef: g.OID, Status: RunStatus_Done, ProjectPath: t.TempDir(), CreatedTs: 1000}
+	if err := SealEvidence(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	want := []waveobj.EvidenceVerif{
+		{Cmd: "go test ./...", Result: "pass", Detail: "after t-1"},
+		{Cmd: "go test ./...", Result: "fail", Detail: "after t-2: exit 1"},
+	}
+	if !reflect.DeepEqual(run.Evidence.Verifs, want) {
+		t.Fatalf("verifs = %+v, want %+v", run.Evidence.Verifs, want)
+	}
+}
+
+// a child run shares its owner's dag but is sealed before its Verify runs; the dag's results are the owner's
+func TestSealEvidenceGivesAChildRunNoDagVerify(t *testing.T) {
+	ctx := context.Background()
+	ownerID, childID, channelID := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	g := &waveobj.TaskGroup{OID: uuid.NewString(), RunID: ownerID, ChannelId: channelID, Verify: "go test ./...",
+		Tasks: []waveobj.TaskNode{{ID: "t-1", State: "done", RunID: childID}}}
+	g.ID = g.OID
+	if err := wstore.AppendDag(ctx, g); err != nil {
+		t.Fatal(err)
+	}
+	appendVerifyEvent(t, channelID, ownerID, waveobj.RunEventKindTaskVerifyPassed, map[string]any{"taskid": "t-1"})
+	child := &waveobj.Run{ID: childID, OID: childID, ChannelOID: channelID, DagORef: g.OID, Status: RunStatus_Done, ProjectPath: t.TempDir(), CreatedTs: 1000}
+	if err := SealEvidence(ctx, child); err != nil {
+		t.Fatal(err)
+	}
+	if len(child.Evidence.Verifs) != 0 {
+		t.Fatalf("a child run must not carry its owner's Verify, got %+v", child.Evidence.Verifs)
 	}
 }
