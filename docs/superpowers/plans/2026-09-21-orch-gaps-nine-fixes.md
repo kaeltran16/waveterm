@@ -357,3 +357,60 @@ Tests:
 Note for the human, not for a worker: the likely source fix is `attribution.commit` in
 `~/.claude/settings.json`, which has neither that key nor the older `includeCoAuthoredBy` today. That
 file is outside the repo and no worker should touch it.
+
+### Task 9: Stop a successful engine launch reporting itself as a failure
+**Depends on:** none
+
+`createRun` (`frontend/app/view/agents/runactions.ts:66`) calls `RpcApi.CreateRunCommand` with no
+`RpcOpts`, so the request goes out with `timeout: 0`. The server reads that field, falls back to
+`DefaultTimeoutMs = 5000` and binds the handler's ctx to it (`pkg/wshutil/wshrpc.go:356-360`). A plan
+start then does the whole engine launch inside those five seconds: `CreateRunCommand` calls
+`ws.DagSubmitCommand` synchronously (`pkg/wshrpc/wshserver/wshserver_runs.go:437`), which adds one git
+worktree and launches one worker per lane. At a parallelism of 5 on this repo that is well over a
+minute, so by the time the handler reaches `readCreatedRun` (`wshserver_runs.go:459`) its ctx expired
+long ago and the read fails with `context deadline exceeded`. The handler then returns
+`run <oid> was created, but reading it back failed: ...` for a launch that fully succeeded.
+
+The frontend has no outbound deadline of its own — `wshclient.ts` forwards a timeout only when the
+caller supplies one (`frontend/app/store/wshclient.ts:63,89`) — so it waits, receives that error and
+believes it. `start()` in `frontend/app/view/jarvis/newruncontrol.tsx` lands in its `catch`, so
+`endRunConfigDraft` and `openChannelSheet` never run: the + Run modal sits open on a red error and
+never navigates to the run, while its workers are already working behind it.
+
+Observed on run 92987b0e-d833-45f9-9340-1867c08cbb06 (2026-09-21): five worktrees, five
+`wave/<oid>-t-N` branches and five live workers, reported to the user as a failed launch.
+
+Change:
+
+- `runactions.ts`: send an explicit budget with the call —
+  `RpcApi.CreateRunCommand(TabRpcClient, {...}, { timeout: CREATE_RUN_TIMEOUT_MS })`, with
+  `const CREATE_RUN_TIMEOUT_MS = 180_000;` at module scope. Comment why: an engine launch builds a git
+  worktree and starts a worker per lane before it returns, so the budget has to cover the widest run
+  the launcher allows rather than a typical RPC round trip. This is the load-bearing half — the server
+  derives its handler deadline from this same field, so raising it also stops `DagSubmitCommand` doing
+  its own database work against an already-dead ctx.
+- `wshserver_runs.go`: a ctx expiry must not turn a durable run into an error. When `readCreatedRun`
+  fails with `context.DeadlineExceeded` or `context.Canceled` (test with `errors.Is`), retry the read
+  once on `context.WithoutCancel(ctx)` and return the run if that retry succeeds. Key the retry off the
+  error, not off `ctx.Err()`: the handler's ctx is the thing that expired, so it cannot also be the
+  thing that reports it. Any other read-back error, and a retry that fails too, keep today's error —
+  a store failure is still a real failure.
+- Do not move the submit off the handler goroutine. `CreateRunCommand` cancels the run when
+  `DagSubmitCommand` returns an error ("a run with no dag and no lead would wait in planning forever",
+  `wshserver_runs.go:438-444`) and the frontend surfaces that refusal; making the submit asynchronous
+  would lose both. Widen the budget and keep the ordering.
+
+Tests:
+
+- `frontend/app/view/agents/runactions.test.ts`: `createRun` sends a budget — assert the third argument
+  of the `CreateRunCommand` mock is an object whose `timeout` is at least 60000. That mock already
+  records every argument, so this is an assertion on the existing spy.
+- `pkg/wshrpc/wshserver/wshserver_createrun_test.go`:
+  `TestCreateRunRetriesTheReadBackAfterABudgetExpiry` — stub `readCreatedRun` to return
+  `context.DeadlineExceeded` on its first call and the real run on its second; assert
+  `CreateRunCommand` returns the run with no error, and that the stub was called exactly twice.
+- The same file's `TestCreateRunReportsAFailedReadBack` guards the other half: a store error must still
+  fail the RPC. Leave it exactly as it is and confirm it still passes.
+
+Note for the human, not for a worker: this gap was found by launching run 92987b0e by hand, so it is
+not one of the effort's eleven chunks and has no `Tracker chunk:` line.

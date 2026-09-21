@@ -100,31 +100,42 @@ describe("createRun", () => {
     it("sends workerRoute when B1b workers picker is set", async () => {
         createRunCommand.mockResolvedValueOnce({ run: { id: "run-1" } });
         await createRun("channel-1", "ship", { runtime: "claude", model:"opus" }, { mode: "orchestrator", workerRoute: { runtime: "pi", model: "opencode/deepseek-v4-pro" } as RoutePin });
-        expect(createRunCommand).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ workerroute: { runtime: "pi", model: "opencode/deepseek-v4-pro" } }));
+        expect(createRunCommand).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ workerroute: { runtime: "pi", model: "opencode/deepseek-v4-pro" } }), expect.anything());
     });
     it("omits workerRoute when workers inherit (collapsed)", async () => {
         createRunCommand.mockResolvedValueOnce({ run: { id: "run-2" } });
         await createRun("channel-1", "ship", { runtime: "claude", model:"opus" }, { mode: "orchestrator" });
-        expect(createRunCommand).toHaveBeenCalledWith(expect.anything(), expect.not.objectContaining({ workerroute: expect.anything() }));
+        expect(createRunCommand).toHaveBeenCalledWith(expect.anything(), expect.not.objectContaining({ workerroute: expect.anything() }), expect.anything());
     });
     it("maps deferred orchestrator options to the RPC shape", async () => {
         createRunCommand.mockResolvedValueOnce({ run: { id: "run-1" } });
         await createRun("channel-1", "ship", { runtime: "pi" }, { mode: "orchestrator", deferStart: true });
-        expect(createRunCommand).toHaveBeenCalledWith(expect.anything(), {
-            channelid: "channel-1",
-            workspaceid: "workspace-1",
-            goal: "ship",
-            runtime: "pi",
-            mode: "orchestrator",
-            deferstart: true,
-            radarorigin: undefined,
-        });
+        expect(createRunCommand).toHaveBeenCalledWith(
+            expect.anything(),
+            {
+                channelid: "channel-1",
+                workspaceid: "workspace-1",
+                goal: "ship",
+                runtime: "pi",
+                mode: "orchestrator",
+                deferstart: true,
+                radarorigin: undefined,
+            },
+            expect.objectContaining({ timeout: expect.any(Number) }),
+        );
 
         createRunCommand.mockResolvedValueOnce({ run: { id: "run-2" } });
         await createRun("channel-1", "direct", { runtime: "pi" });
         expect(createRunCommand.mock.calls[1][1]).toEqual(
             expect.objectContaining({ runtime: "pi", mode: undefined, deferstart: undefined }),
         );
+    });
+
+    it("sends a budget that covers a whole engine launch", async () => {
+        createRunCommand.mockResolvedValueOnce({ run: { id: "run-1" } });
+        await createRun("channel-1", "ship", { runtime: "pi" }, { mode: "orchestrator", planPath: "plan.md" });
+        const opts = createRunCommand.mock.calls[0][2];
+        expect(opts?.timeout).toBeGreaterThanOrEqual(60_000);
     });
 
     it("throws a clear error when the server returns no run", async () => {

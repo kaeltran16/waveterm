@@ -5,6 +5,7 @@ package wshserver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -454,6 +455,11 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 		}
 	}
 	out, err := readCreatedRun(ctx, data.ChannelId, run.ID)
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		// an engine launch can outlast the handler's budget, and the ctx that expired cannot also be the
+		// thing that reports a durable run as a failed launch. Key off the error, not ctx.Err().
+		out, err = readCreatedRun(context.WithoutCancel(ctx), data.ChannelId, run.ID)
+	}
 	// the run exists either way, so its channel's run list must still refresh
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
 	if err != nil {

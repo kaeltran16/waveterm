@@ -49,6 +49,11 @@ export async function stopRunWorker(channelId: string, runId: string, workerORef
     }
 }
 
+// an engine launch builds a git worktree and starts a worker per lane before CreateRun returns, so the
+// budget has to cover the widest run the launcher allows rather than a typical RPC round trip. The server
+// derives its own handler deadline from this same field.
+const CREATE_RUN_TIMEOUT_MS = 180_000;
+
 export async function createRun(
     channelId: string,
     goal: string,
@@ -65,20 +70,24 @@ export async function createRun(
 ): Promise<Run> {
     if (!route.runtime) throw new Error("Choose a route");
     const workspaceId = globalStore.get(atoms.workspaceId);
-    const rtn = await RpcApi.CreateRunCommand(TabRpcClient, {
-        channelid: channelId,
-        workspaceid: workspaceId,
-        goal,
-        runtime: route.runtime,
-        ...(route.model ? { model: route.model } : {}),
-        ...(opts?.mode === "orchestrator" && opts.workerRoute ? { workerroute: opts.workerRoute } : {}),
-        ...(opts?.mode === "orchestrator" && opts.orchestration ? { orchestration: opts.orchestration } : {}),
-        ...(opts?.mode === "orchestrator" && opts.parallelism ? { parallelism: opts.parallelism } : {}),
-        ...(opts?.mode === "orchestrator" && opts.planPath ? { planpath: opts.planPath } : {}),
-        mode: opts?.mode,
-        deferstart: opts?.deferStart,
-        ...(opts?.radarOrigin ? { radarorigin: opts.radarOrigin } : {}),
-    });
+    const rtn = await RpcApi.CreateRunCommand(
+        TabRpcClient,
+        {
+            channelid: channelId,
+            workspaceid: workspaceId,
+            goal,
+            runtime: route.runtime,
+            ...(route.model ? { model: route.model } : {}),
+            ...(opts?.mode === "orchestrator" && opts.workerRoute ? { workerroute: opts.workerRoute } : {}),
+            ...(opts?.mode === "orchestrator" && opts.orchestration ? { orchestration: opts.orchestration } : {}),
+            ...(opts?.mode === "orchestrator" && opts.parallelism ? { parallelism: opts.parallelism } : {}),
+            ...(opts?.mode === "orchestrator" && opts.planPath ? { planpath: opts.planPath } : {}),
+            mode: opts?.mode,
+            deferstart: opts?.deferStart,
+            ...(opts?.radarOrigin ? { radarorigin: opts.radarOrigin } : {}),
+        },
+        { timeout: CREATE_RUN_TIMEOUT_MS }
+    );
     if (rtn?.run == null) {
         // the launcher opens whatever comes back, and a null here surfaced as a TypeError about `id`
         throw new Error("creating the run returned no run");
