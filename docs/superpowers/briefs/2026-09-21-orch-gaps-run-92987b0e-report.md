@@ -43,4 +43,10 @@ Kept both sides. Merged tests then failed from lane interaction, fixed in test c
 4. `workerControllerGone` is a package var stubbed by TestMain; a future test that wants real controller state must restore it.
 5. Docs: `docs/orchestrator-guide.md` may still describe the pre-run Check/Verify wording elsewhere; only the passages for closed gaps were edited.
 6. Uncommitted, not mine: edits to `docs/superpowers/briefs/2026-09-18-orchestrator-cost-quality-control.md` and the plan file (the plan edit is Task 9, which folds into the commit that builds it).
-7. The lane commit ids this report first cited for t-4 through t-7 (fc0b9760, 86415dff, 9e1b8d25, f196daa9) do not exist on `main` — the merge rewrote them. Corrected above to the commits that carry the work. This is chunk #37 on effort 5d11f853, "Arc's stored runs and this tracker cite pre-rewrite commit ids", recurring in the run's own report.
+7. The lane commit ids this report first cited for t-4 through t-7 (fc0b9760, 86415dff, 9e1b8d25, f196daa9) do not exist on `main` — the merge rewrote them. Corrected above to the commits that carry the work. Chunk #37 on effort 5d11f853 closed this, and the cause turned out to be structural rather than a
+one-off of the 2026-09-18 history rewrite: merging a lane rewrites its commit, so the `endcommit`
+Arc stored is reachable from nothing and survives only until the next `git gc --prune`. Across both
+stores, runs on this repo cite 122 commits; 41 are off `main`, and 13 of those (fc0b9760 and
+86415dff among them) were held by no ref at all. `scripts/pin-run-commits.mjs` pins every such
+commit under `refs/arc/runs/` — re-run it after an orchestrator run. The four
+`refs/backup/pre-rewrite/*` refs are no longer what keeps any stored run resolvable.
