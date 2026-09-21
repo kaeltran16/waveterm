@@ -31,6 +31,7 @@ import {
 } from "./childaskstore";
 import { useRunEvents } from "./runeventstore";
 import { formatLeft, leadAgentOf, runProgress, taskAgentOf, type RunInfo } from "./runlineage";
+import { runStatusView } from "./runmodel";
 import { laneRows, questionOrder, runElapsedMs, runLog, taskFacts, type LaneDot } from "./runrail";
 import { tsLabel } from "./runtimeline";
 
@@ -242,7 +243,10 @@ export function RunSection({ model, run }: { model: AgentsViewModel; run: RunInf
                 ) : null}
             </div>
             {run.dag == null ? (
-                <div className="font-mono text-[11px] text-muted">planning · no plan submitted yet</div>
+                // an absent dag is not "planning": a bounded run never submits one, so the run says where it is
+                <div className="font-mono text-[11px] text-muted">
+                    {runStatusView(run.status ?? "planning").label} · no plan submitted
+                </div>
             ) : (
                 <div>
                     <div>

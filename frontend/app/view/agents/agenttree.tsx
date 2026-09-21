@@ -19,6 +19,7 @@ import { duplicateSession, renameSession, sessionCustomLabel } from "./session-m
 import { displayAgeMs, formatAgeShort, type AgentVM } from "./agentsviewmodel";
 import { endedWorkerId, laneLabel, runProgress, workerAsk, workerSubtext, type RunInfo } from "./runlineage";
 import { toggleRunCollapsed, toggleRunDoneOpen, treeFoldsAtom, useRunDigests } from "./runlineagestore";
+import { runStatusView } from "./runmodel";
 import {
     getSubagentExpandAtom,
     toggleSubagentExpand,
@@ -123,7 +124,11 @@ function Elbow() {
 // RunSubline is a run row's second line: a chip folding its workers away, and how far the plan is.
 function RunSubline({ run, open, live, leadless }: { run: RunInfo; open: boolean; live: number; leadless?: boolean }) {
     if (run.dag == null) {
-        return <div className="truncate text-[10.5px] text-muted">planning</div>;
+        // no dag means the lead judged the goal bounded and never submitted a plan, not that a plan is
+        // still on its way — so the run's own status is the only truth here. Hardcoding "planning" left
+        // a finished bounded run's lead row reading planning for good, the same misreading of an absent
+        // dag the engine had in ShouldCloseOrchestratorLead.
+        return <div className="truncate text-[10.5px] text-muted">{runStatusView(run.status ?? "planning").label}</div>;
     }
     const { done, total } = runProgress(run.dag);
     const chip = live > 0 || done === 0 ? `${live} ${live === 1 ? "worker" : "workers"}` : `${done} done`;

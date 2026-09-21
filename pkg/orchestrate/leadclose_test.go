@@ -116,3 +116,96 @@ func TestMaybeCompleteLeadFreeRunLeavesALeadStillStarting(t *testing.T) {
 		t.Fatal("a lead mid-launch must not be closed out from under it")
 	}
 }
+
+// A bounded run — one the lead judged small enough to do itself — never submits a plan, so it has no
+// dag. Reading that nil as "unknown" left every such lead tab behind for good, because no dag also means
+// no tick that could ever re-check it.
+func TestShouldCloseBoundedLeadThatHasNoDag(t *testing.T) {
+	tests := []struct {
+		name string
+		run  waveobj.Run
+		want bool
+	}{
+		{
+			name: "done orchestrator with no dag closes",
+			run:  waveobj.Run{Mode: jarvis.RunMode_Orchestrator, Status: jarvis.RunStatus_Done},
+			want: true,
+		},
+		{
+			name: "cancelled orchestrator with no dag closes",
+			run:  waveobj.Run{Mode: jarvis.RunMode_Orchestrator, Status: jarvis.RunStatus_Cancelled},
+			want: true,
+		},
+		{
+			name: "still-planning orchestrator keeps its lead",
+			run:  waveobj.Run{Mode: jarvis.RunMode_Orchestrator, Status: jarvis.RunStatus_Planning},
+			want: false,
+		},
+		{
+			name: "a quick run has no lead to close",
+			run:  waveobj.Run{Mode: jarvis.RunMode_Quick, Status: jarvis.RunStatus_Done},
+			want: false,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ShouldCloseOrchestratorLead(&tc.run, nil); got != tc.want {
+				t.Errorf("ShouldCloseOrchestratorLead(run, nil) = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// The tab a lead is still running in must not be deleted under it: its own `wsh jarvis complete` would
+// return into a dead block, so the lead never sees the result and the human never gets the report
+// (run 5d361309). A terminal run says the work is done, not that the turn is over.
+func TestMaybeCloseOrchestratorLeadKeepsATabWhoseLeadIsStillRunning(t *testing.T) {
+	stubBlockShellStatus(t, blockcontroller.Status_Running)
+	sent := stubLeadTabDelete(t, nil)
+	owner, g := deadLeadFixture(t)
+	owner.Status = jarvis.RunStatus_Done
+
+	ok, err := MaybeCloseOrchestratorLead(context.Background(), owner, g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok || len(*sent) != 0 {
+		t.Fatalf("a mid-turn lead's tab must survive: closed=%v broadcasts=%d", ok, len(*sent))
+	}
+}
+
+// The lead's exit is the one moment its tab is provably free, and the only close site a bounded run ever
+// reaches. It must not consult the process status: the shell wait loop launches this hook BEFORE the
+// deferred write that stamps Status_Done, so a liveness check here would race that write and usually
+// lose — leaving the tab behind exactly as before.
+func TestCloseOrchestratorLeadOnExitClosesABoundedLeadDespiteAStaleRunningStatus(t *testing.T) {
+	stubBlockShellStatus(t, blockcontroller.Status_Running)
+	sent := stubLeadTabDelete(t, nil)
+	owner, _ := deadLeadFixture(t)
+	owner.Status = jarvis.RunStatus_Done
+
+	ok, err := CloseOrchestratorLeadOnExit(context.Background(), owner, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || len(*sent) != 1 {
+		t.Fatalf("a bounded run's lead tab must be collected on exit: closed=%v broadcasts=%d", ok, len(*sent))
+	}
+}
+
+// keeponexit exists for exactly this: a lead that exits while its dag still has work keeps its tab.
+func TestCloseOrchestratorLeadOnExitKeepsALeadWhoseDagStillRuns(t *testing.T) {
+	sent := stubLeadTabDelete(t, nil)
+	owner, g := deadLeadFixture(t)
+	owner.Status = jarvis.RunStatus_Done
+	g.Status = DagStatus_Running
+	g.Tasks[0].State = TaskState_Running
+
+	ok, err := CloseOrchestratorLeadOnExit(context.Background(), owner, g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok || len(*sent) != 0 {
+		t.Fatalf("children still need the tab: closed=%v broadcasts=%d", ok, len(*sent))
+	}
+}

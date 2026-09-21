@@ -3,6 +3,7 @@ package orchestrate
 import (
 	"context"
 	"fmt"
+	"log"
 	"slices"
 	"time"
 
@@ -123,6 +124,23 @@ func workerRunIds(ctx context.Context, workerORef string) (string, string, error
 	return channelRef.OID, runRef.OID, nil
 }
 
+// closeLeadTabOnExit collects the lead's tab once its process is gone, for a run that is already
+// terminal. A non-orchestrator run and a still-running one are both no-ops, so every other exit that
+// lands in the hook passes straight through.
+func closeLeadTabOnExit(ctx context.Context, run *waveobj.Run) {
+	var dag *waveobj.TaskGroup
+	if run.DagORef != "" {
+		g, err := wstore.GetDag(ctx, run.DagORef)
+		if err != nil {
+			return // the dag decides whether children still need the tab; unreadable means leave it
+		}
+		dag = g
+	}
+	if _, err := CloseOrchestratorLeadOnExit(ctx, run, dag); err != nil {
+		log.Printf("closing lead tab for run %s: %v", run.ID, err)
+	}
+}
+
 // leadExitedNote is why an orchestrator run whose lead exited before submitting a plan stopped (spec §2, G8).
 const leadExitedNote = "lead exited before submitting a plan"
 
@@ -147,6 +165,10 @@ func HandleRunWorkerExit(ctx context.Context, workerORef string) error {
 	if err != nil {
 		return fmt.Errorf("loading run %s: %w", runId, err)
 	}
+	// before the dag early-return, because a lead's tab has to be collected in both shapes: a bounded
+	// run reaches no other close site at all, and a dag run whose lead was still mid-turn when the dag
+	// went terminal was deliberately skipped there for this moment. Best-effort, never fails the exit.
+	closeLeadTabOnExit(ctx, run)
 	if run.DagORef != "" {
 		return nil
 	}

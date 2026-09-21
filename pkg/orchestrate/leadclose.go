@@ -46,12 +46,40 @@ func runTabID(run *waveobj.Run) string {
 	return ""
 }
 
-// MaybeCloseOrchestratorLead deletes the lead's tab when the orchestrator is terminal
-// and the DAG has no active tasks. No-op otherwise. Returns true when it deleted.
+// MaybeCloseOrchestratorLead deletes the lead's tab when the orchestrator is terminal, the DAG has no
+// active tasks, and the lead is not still mid-turn. No-op otherwise. Returns true when it deleted.
 func MaybeCloseOrchestratorLead(ctx context.Context, run *waveobj.Run, dag *waveobj.TaskGroup) (bool, error) {
 	if !ShouldCloseOrchestratorLead(run, dag) {
 		return false, nil
 	}
+	// deleting the tab under a lead that is still running takes its terminal with it: the lead's own
+	// `wsh jarvis complete` returns into a dead block, so it never sees the result and the human never
+	// gets the report (run 5d361309). A terminal run says the work is done, not that the turn is over —
+	// only the process says that. The lead's exit closes what this skips, via CloseOrchestratorLeadOnExit.
+	if leadProcessAlive(runTabID(run)) {
+		return false, nil
+	}
+	return closeLeadTab(ctx, run)
+}
+
+// CloseOrchestratorLeadOnExit closes a terminal orchestrator run's lead tab from the lead's own exit
+// hook. A lead opts out of the shell layer's close-on-exit (cmd:keeponexit, so its tab can outlive the
+// process while DAG children run), so nothing else collects it — and a bounded run, having no DAG to
+// tick, reaches no other close site at all.
+//
+// It skips MaybeCloseOrchestratorLead's liveness guard on purpose: the exit is itself the proof the turn
+// is over, and the shell wait loop launches this hook BEFORE the deferred write that stamps
+// Status_Done, so asking whether the process is alive here would race that write.
+func CloseOrchestratorLeadOnExit(ctx context.Context, run *waveobj.Run, dag *waveobj.TaskGroup) (bool, error) {
+	if !ShouldCloseOrchestratorLead(run, dag) {
+		return false, nil
+	}
+	return closeLeadTab(ctx, run)
+}
+
+// closeLeadTab deletes the tab running run's lead. Shared by the two entry points above, which differ
+// only in how they establish that the lead is no longer mid-turn.
+func closeLeadTab(ctx context.Context, run *waveobj.Run) (bool, error) {
 	tabId := runTabID(run)
 	if tabId == "" || run.WorkspaceId == "" {
 		return false, nil
@@ -67,7 +95,7 @@ func MaybeCloseOrchestratorLead(ctx context.Context, run *waveobj.Run, dag *wave
 // it must stay (even idle) while DAG children are still active, and only be
 // closed after both the run and the DAG are terminal.
 func ShouldCloseOrchestratorLead(run *waveobj.Run, dag *waveobj.TaskGroup) bool {
-	if run == nil || dag == nil {
+	if run == nil {
 		return false
 	}
 	if run.Mode != jarvis.RunMode_Orchestrator {
@@ -75,6 +103,12 @@ func ShouldCloseOrchestratorLead(run *waveobj.Run, dag *waveobj.TaskGroup) bool 
 	}
 	if run.Status != jarvis.RunStatus_Done && run.Status != jarvis.RunStatus_Cancelled {
 		return false
+	}
+	// no dag means the lead judged the goal bounded and did the work itself, so there are no children
+	// to outlive: nil is "nothing to wait for", not "unknown". Reading it as unknown is what left every
+	// bounded run's lead tab behind for good, since no dag also means no tick to re-check it later.
+	if dag == nil {
+		return true
 	}
 	// dag must be terminal — no active tasks. done/cancelled are the only
 	// terminal dag statuses; blocked/awaiting-review still need the lead to
