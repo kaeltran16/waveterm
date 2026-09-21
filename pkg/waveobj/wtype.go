@@ -352,6 +352,9 @@ type TaskNode struct {
 	Escalations    int    `json:"escalations,omitempty"`
 	CleanupPending bool   `json:"cleanuppending,omitempty"`
 	CleanupError   string `json:"cleanuperror,omitempty"`
+	// CleanupAttempts counts consecutive failed worktree removals; past the cap the debt stops blocking
+	// the dag from finishing. Reset on success and when a merge lands.
+	CleanupAttempts int `json:"cleanupattempts,omitempty"`
 	// VerifyError is why the plan's Verify failed after this task merged: the exit code or the timeout,
 	// then the tail of the command's output. Cleared when Verify passes.
 	VerifyError string `json:"verifyerror,omitempty"`

@@ -208,6 +208,50 @@ func TestRecomputeStatusCleanupDebt(t *testing.T) {
 	}
 }
 
+// cleanupDebtGroup is a merge-required dag whose tasks are all done and merged, with t-0 carrying a
+// failed-cleanup error after the given number of attempts.
+func cleanupDebtGroup(t *testing.T, attempts int, merged bool) *waveobj.TaskGroup {
+	t.Helper()
+	g := mustGroup(t, mkTasks())
+	g.MergeRequired = true
+	for i := range g.Tasks {
+		g.Tasks[i].State = TaskState_Done
+		g.Tasks[i].Merged = true
+	}
+	g.Tasks[2].Released = true
+	g.Tasks[0].Merged = merged
+	g.Tasks[0].CleanupError = "being used by another process"
+	g.Tasks[0].CleanupAttempts = attempts
+	return g
+}
+
+func TestDoneDagStaysNonTerminalUnderTheCleanupCap(t *testing.T) {
+	g := cleanupDebtGroup(t, MaxCleanupAttempts-1, true)
+	RecomputeDagStatus(g)
+	if g.Status == DagStatus_Done {
+		t.Fatalf("debt under the cap must keep the dag non-terminal, got %s", g.Status)
+	}
+}
+
+func TestDoneDagGoesTerminalOnceCleanupGivesUp(t *testing.T) {
+	g := cleanupDebtGroup(t, MaxCleanupAttempts, true)
+	RecomputeDagStatus(g)
+	if g.Status != DagStatus_Done {
+		t.Fatalf("debt over the cap must not wedge the dag, got %s", g.Status)
+	}
+	if !HasCleanupDebt(g) {
+		t.Fatal("a given-up task must still report cleanup debt for the digest")
+	}
+}
+
+func TestUnmergedTaskStillBlocksTerminalityOverTheCap(t *testing.T) {
+	g := cleanupDebtGroup(t, MaxCleanupAttempts+3, false)
+	RecomputeDagStatus(g)
+	if g.Status == DagStatus_Done {
+		t.Fatal("an unmerged task is a real incomplete merge, not debt, and must still block")
+	}
+}
+
 func TestDeriveTaskStatesFromRuns(t *testing.T) {
 	g := mustGroup(t, mkTasks())
 	g.Tasks[0].State = TaskState_Running

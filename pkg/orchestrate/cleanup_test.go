@@ -123,6 +123,68 @@ func TestCleanupTaskWorktreeBoundedError(t *testing.T) {
 	}
 }
 
+func TestCleanupTaskWorktreeCountsAttempts(t *testing.T) {
+	ch, err := wstore.CreateChannel(context.Background(), "cleanup-attempts", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := newCleanupGroup(t, ch)
+	g.Tasks[0].State = TaskState_Done
+	g.Tasks[0].Merged = true
+	fail := true
+	stubCleanupRemover(t, func(context.Context, string, string) error {
+		if fail {
+			return errors.New("being used by another process")
+		}
+		return nil
+	})
+
+	for want := 1; want <= 3; want++ {
+		if err := CleanupTaskWorktree(context.Background(), g, "t-0"); err == nil {
+			t.Fatal("stubbed removal must fail")
+		}
+		if g.Tasks[0].CleanupAttempts != want {
+			t.Fatalf("attempts = %d, want %d", g.Tasks[0].CleanupAttempts, want)
+		}
+	}
+	fail = false
+	if err := CleanupTaskWorktree(context.Background(), g, "t-0"); err != nil {
+		t.Fatalf("cleanup after the blocker clears: %v", err)
+	}
+	if g.Tasks[0].CleanupAttempts != 0 || g.Tasks[0].CleanupError != "" {
+		t.Fatalf("success must reset attempts and error, got %d %q", g.Tasks[0].CleanupAttempts, g.Tasks[0].CleanupError)
+	}
+}
+
+func TestRetryPendingCleanupSkipsTasksOverTheCap(t *testing.T) {
+	ch, err := wstore.CreateChannel(context.Background(), "cleanup-cap", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := newCleanupGroup(t, ch)
+	g.Tasks[1].Merged = true
+	g.Tasks[1].CleanupError = "locked"
+	g.Tasks[1].CleanupAttempts = MaxCleanupAttempts
+	g.Tasks[4].Merged = true
+	g.Tasks[4].CleanupError = "locked"
+	g.Tasks[4].CleanupAttempts = 1
+	var keys []string
+	stubCleanupRemover(t, func(_ context.Context, _, key string) error {
+		keys = append(keys, key)
+		return nil
+	})
+
+	if err := RetryPendingCleanup(context.Background(), g); err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 1 || keys[0] != TaskWorktreeKey(g.RunID, "t-4") {
+		t.Fatalf("only the task under the cap may be retried, got %v", keys)
+	}
+	if given := GiveUpCleanupTasks(g); len(given) != 1 || given[0].ID != "t-1" {
+		t.Fatalf("GiveUpCleanupTasks = %v, want only t-1", given)
+	}
+}
+
 func TestRetryPendingCleanupMixedDebt(t *testing.T) {
 	ch, err := wstore.CreateChannel(context.Background(), "cleanup-retry", t.TempDir())
 	if err != nil {

@@ -18,6 +18,10 @@ import (
 // MaxCleanupErrorLen bounds the persisted per-task cleanup error detail.
 const MaxCleanupErrorLen = 200
 
+// MaxCleanupAttempts is how many failed removals a task's cleanup debt survives before it stops
+// blocking the dag from finishing (about two and a half minutes at one retry per watchdog tick).
+const MaxCleanupAttempts = 5
+
 // RemoveTaskWorktree is the injectable tree-removal step so tests can stub failures without a
 // real git repository (mirrors the exported jarvis.SpawnRunWorker seam; in the merge/retry paths
 // the caller goes through CleanupTaskWorktree, never this var directly).
@@ -29,6 +33,24 @@ func PendingCleanupTasks(g *waveobj.TaskGroup) []*waveobj.TaskNode {
 	for i := range g.Tasks {
 		t := &g.Tasks[i]
 		if (t.Merged || g.Status == DagStatus_Cancelled) && (t.CleanupPending || t.CleanupError != "") {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// cleanupGivenUp reports whether a task's cleanup debt has exhausted its retries.
+func cleanupGivenUp(t *waveobj.TaskNode) bool {
+	return t.CleanupAttempts >= MaxCleanupAttempts
+}
+
+// GiveUpCleanupTasks returns the tasks whose cleanup debt is over the retry cap, so the digest can
+// name the trees that need removing by hand.
+func GiveUpCleanupTasks(g *waveobj.TaskGroup) []*waveobj.TaskNode {
+	var out []*waveobj.TaskNode
+	for i := range g.Tasks {
+		t := &g.Tasks[i]
+		if (t.CleanupPending || t.CleanupError != "") && cleanupGivenUp(t) {
 			out = append(out, t)
 		}
 	}
@@ -64,6 +86,7 @@ func CleanupTaskWorktree(ctx context.Context, g *waveobj.TaskGroup, taskID strin
 	if err != nil {
 		task.CleanupPending = false
 		task.CleanupError = boundedCleanupError(err)
+		task.CleanupAttempts++
 		return err
 	}
 	reapLaneWorkers(ctx, g, taskID)
@@ -71,9 +94,11 @@ func CleanupTaskWorktree(ctx context.Context, g *waveobj.TaskGroup, taskID strin
 	task.CleanupPending = false
 	if err != nil {
 		task.CleanupError = boundedCleanupError(err)
+		task.CleanupAttempts++
 		return err
 	}
 	task.CleanupError = ""
+	task.CleanupAttempts = 0
 	return nil
 }
 
@@ -116,10 +141,14 @@ func cleanupProjectPath(ctx context.Context, g *waveobj.TaskGroup) (string, erro
 
 // RetryPendingCleanup runs the idempotent helper over every task carrying cleanup debt, in DAG
 // order, and returns the first cleanup error it hits. Tasks whose retry succeeds are cleared
-// (including ones that failed before); the caller persists the group and publishes.
+// (including ones that failed before); tasks over the attempt cap are left alone. The caller
+// persists the group and publishes.
 func RetryPendingCleanup(ctx context.Context, g *waveobj.TaskGroup) error {
 	var firstErr error
 	for _, task := range PendingCleanupTasks(g) {
+		if cleanupGivenUp(task) {
+			continue
+		}
 		if err := CleanupTaskWorktree(ctx, g, task.ID); err != nil && firstErr == nil {
 			firstErr = err
 		}
@@ -131,15 +160,14 @@ func RetryPendingCleanup(ctx context.Context, g *waveobj.TaskGroup) error {
 // then publishes the committed version. Callers can safely persist a stale cleanup snapshot without
 // overwriting unrelated scheduler mutations.
 func PersistCleanupState(ctx context.Context, g *waveobj.TaskGroup) error {
-	states := make(map[string]struct {
-		pending bool
-		err     string
-	}, len(g.Tasks))
+	type cleanupState struct {
+		pending  bool
+		err      string
+		attempts int
+	}
+	states := make(map[string]cleanupState, len(g.Tasks))
 	for i := range g.Tasks {
-		states[g.Tasks[i].ID] = struct {
-			pending bool
-			err     string
-		}{pending: g.Tasks[i].CleanupPending, err: g.Tasks[i].CleanupError}
+		states[g.Tasks[i].ID] = cleanupState{pending: g.Tasks[i].CleanupPending, err: g.Tasks[i].CleanupError, attempts: g.Tasks[i].CleanupAttempts}
 	}
 	if err := wstore.UpdateDag(ctx, g.OID, func(cur *waveobj.TaskGroup) error {
 		for i := range cur.Tasks {
@@ -149,6 +177,7 @@ func PersistCleanupState(ctx context.Context, g *waveobj.TaskGroup) error {
 			}
 			cur.Tasks[i].CleanupPending = state.pending
 			cur.Tasks[i].CleanupError = state.err
+			cur.Tasks[i].CleanupAttempts = state.attempts
 		}
 		RecomputeDagStatus(cur)
 		cur.UpdatedTs = time.Now().UnixMilli()

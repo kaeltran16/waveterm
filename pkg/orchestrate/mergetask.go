@@ -313,6 +313,7 @@ func persistMergedTask(ctx context.Context, channelID, dagID, childRunID, taskID
 			task.Merged = true
 			task.CleanupPending = true
 			task.CleanupError = ""
+			task.CleanupAttempts = 0
 			// the squash landed, so whatever git was refusing over is gone; a later lane must not
 			// inherit this one's spent retry budget
 			task.MergeFailures, task.MergeError = 0, ""

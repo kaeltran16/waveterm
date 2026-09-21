@@ -3721,6 +3721,7 @@ declare global {
         escalations?: number;
         cleanuppending?: boolean;
         cleanuperror?: string;
+        cleanupattempts?: number;
         verifyerror?: string;
         mergeerror?: string;
         mergefailures?: number;

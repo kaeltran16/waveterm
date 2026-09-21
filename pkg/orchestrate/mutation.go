@@ -326,6 +326,7 @@ func cancelLocked(ctx context.Context, dagID string) error {
 			for i := range g.Tasks {
 				g.Tasks[i].CleanupPending = true
 				g.Tasks[i].CleanupError = ""
+				g.Tasks[i].CleanupAttempts = 0
 			}
 		}
 		if err := wstore.UpdateDag(txCtx, dagID, func(cur *waveobj.TaskGroup) error {

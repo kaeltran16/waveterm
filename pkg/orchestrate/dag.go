@@ -197,7 +197,7 @@ func NewTaskGroup(runID, channelId, title string, parallelism int, mergeRequired
 		if t.Merged {
 			return waveobj.TaskGroup{}, fmt.Errorf("task %q merged must be false", t.ID)
 		}
-		if t.CleanupPending || t.CleanupError != "" {
+		if t.CleanupPending || t.CleanupError != "" || t.CleanupAttempts != 0 {
 			return waveobj.TaskGroup{}, fmt.Errorf("task %q cleanup fields must be empty", t.ID)
 		}
 		if t.VerifyError != "" {
@@ -307,7 +307,9 @@ func RecomputeDagStatus(g *waveobj.TaskGroup) {
 				allTerminal = false
 				continue
 			}
-			if g.MergeRequired && (!t.Merged || t.CleanupPending || t.CleanupError != "") {
+			// cleanup debt stops blocking once retries are spent: a tree another process holds must not wedge a landed dag
+			cleanupDebt := (t.CleanupPending || t.CleanupError != "") && !cleanupGivenUp(t)
+			if g.MergeRequired && (!t.Merged || cleanupDebt) {
 				allTerminal = false
 				continue
 			}
