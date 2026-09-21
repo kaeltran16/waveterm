@@ -31,9 +31,17 @@ func (p *planCalls) list() []planCall {
 
 func stubPlanCommand(t *testing.T, fn func(ctx context.Context, dir, command string) error) *planCalls {
 	t.Helper()
+	return stubPlanCommandOutput(t, func(ctx context.Context, dir, command string) (string, error) {
+		return "", fn(ctx, dir, command)
+	})
+}
+
+// stubPlanCommandOutput is stubPlanCommand for a test that also scripts the output tail.
+func stubPlanCommandOutput(t *testing.T, fn func(ctx context.Context, dir, command string) (string, error)) *planCalls {
+	t.Helper()
 	p := &planCalls{}
 	orig := runPlanCommand
-	runPlanCommand = func(ctx context.Context, dir, command string, _ time.Duration) error {
+	runPlanCommand = func(ctx context.Context, dir, command string, _ time.Duration) (string, error) {
 		p.mu.Lock()
 		p.calls = append(p.calls, planCall{dir, command})
 		p.mu.Unlock()

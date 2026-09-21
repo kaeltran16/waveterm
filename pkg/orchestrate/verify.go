@@ -86,11 +86,11 @@ func startVerify(channelID, dagID, runID, taskID, projectPath, command string, l
 	go func() {
 		defer verifyFinished(dagID, taskID)
 		start := time.Now()
-		verr := runPlanCommand(ctx, projectPath, command, VerifyTimeout)
+		output, verr := runPlanCommand(ctx, projectPath, command, VerifyTimeout)
 		cancel()
 		bg := context.Background()
 		if err := WithDagMutation(dagID, func() error {
-			return recordVerifyLocked(bg, dagID, taskID, verr, time.Since(start).Milliseconds())
+			return recordVerifyLocked(bg, dagID, taskID, output, verr, time.Since(start).Milliseconds())
 		}); err != nil {
 			log.Printf("dag %s task %s: recording verify: %v", dagID, taskID, err)
 		}
@@ -102,9 +102,10 @@ func startVerify(channelID, dagID, runID, taskID, projectPath, command string, l
 	}()
 }
 
-// recordVerifyLocked moves a verifying task to done or verify-failed. A task that is no longer verifying,
-// because its dag was cancelled, records nothing. The caller holds the dag mutation lock.
-func recordVerifyLocked(ctx context.Context, dagID, taskID string, verr error, ms int64) error {
+// recordVerifyLocked moves a verifying task to done or verify-failed, keeping the command's output tail
+// either way. A task that is no longer verifying, because its dag was cancelled, records nothing. The
+// caller holds the dag mutation lock.
+func recordVerifyLocked(ctx context.Context, dagID, taskID, output string, verr error, ms int64) error {
 	g, err := wstore.GetDag(ctx, dagID)
 	if err != nil {
 		return err
@@ -114,6 +115,7 @@ func recordVerifyLocked(ctx context.Context, dagID, taskID string, verr error, m
 		return nil
 	}
 	reason := ""
+	task.VerifyOutput = output
 	if verr == nil {
 		task.State, task.VerifyError = TaskState_Done, ""
 	} else {
@@ -221,7 +223,8 @@ func rerunVerify(ctx context.Context, channelID string, owner *waveobj.Run, task
 		if task == nil || task.State != TaskState_VerifyFailed {
 			return fmt.Errorf("task %s is no longer verify-failed", taskID)
 		}
-		task.State, task.VerifyError = TaskState_Verifying, ""
+		task.State, task.VerifyError, task.VerifyOutput = TaskState_Verifying, "", ""
+		task.VerifyStartedTs = time.Now().UnixMilli()
 		RecomputeDagStatus(g)
 		g.UpdatedTs = time.Now().UnixMilli()
 		if uerr := wstore.UpdateDag(ctx, g.OID, func(cur *waveobj.TaskGroup) error {

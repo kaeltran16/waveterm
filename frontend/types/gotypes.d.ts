@@ -3726,6 +3726,8 @@ declare global {
         cleanuperror?: string;
         cleanupattempts?: number;
         verifyerror?: string;
+        verifyoutput?: string;
+        verifystartedts?: number;
         mergeerror?: string;
         mergefailures?: number;
     };

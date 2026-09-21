@@ -155,7 +155,9 @@ function TaskPeekCard({
     );
     const agentsCtx = useAtomValue(dagModalAgentsContextAtom);
     const worker = resolveTaskWorker({ id: task.id, runid: task.runid }, childRun, agentsCtx?.agents ?? []);
-    const peek = taskPeek(task, digestTask, briefs, Date.now());
+    // the shared 1s ticker drives the Verify elapsed; without the roster context there is no ticker
+    const tick = useAtomValue(agentsCtx?.model.nowAtom ?? NO_TICK_ATOM);
+    const peek = taskPeek(task, digestTask, briefs, tick || Date.now());
     return (
         <div data-dag-peek={task.id} className="flex w-[280px] flex-col gap-1 py-0.5">
             <div className="text-[12px] font-semibold text-primary">{peek.title}</div>
@@ -171,6 +173,20 @@ function TaskPeekCard({
                     {row.text}
                 </div>
             ))}
+            {peek.verify ? (
+                <div data-dag-peek-verify={task.id} className="flex flex-col gap-0.5">
+                    <div className="font-mono text-[10px] text-muted">{peek.verify.heading}</div>
+                    {peek.verify.tail ? (
+                        <pre
+                            className={`max-h-[140px] overflow-auto whitespace-pre-wrap break-all font-mono text-[9.5px] ${
+                                peek.verify.tone === "warning" ? "text-warning" : "text-secondary"
+                            }`}
+                        >
+                            {peek.verify.tail}
+                        </pre>
+                    ) : null}
+                </div>
+            ) : null}
         </div>
     );
 }
@@ -238,6 +254,7 @@ function SelectedTaskWorker({
 // atoms keep identity across renders; a static Atom is needed for the no-run slot so the row's hook
 // count never varies)
 const NO_RUN_ATOM = atom<Run | undefined>(undefined);
+const NO_TICK_ATOM = atom(0);
 
 // the per-run graph: ReactFlow canvas fed by the pure view data + layered layout. Actions
 // round-trip through the dag commands; the waveobj update re-derives the view. The provider

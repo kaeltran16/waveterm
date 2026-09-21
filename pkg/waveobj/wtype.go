@@ -366,6 +366,11 @@ type TaskNode struct {
 	// VerifyError is why the plan's Verify failed after this task merged: the exit code or the timeout,
 	// then the tail of the command's output. Cleared when Verify passes.
 	VerifyError string `json:"verifyerror,omitempty"`
+	// VerifyOutput is the tail of the plan's Verify output, kept on a pass as well as a failure so a human
+	// can read the gate. Cleared when the task's Verify is re-run.
+	VerifyOutput string `json:"verifyoutput,omitempty"`
+	// VerifyStartedTs is when the task last moved to verifying (UnixMilli); the UI ticks elapsed from it.
+	VerifyStartedTs int64 `json:"verifystartedts,omitempty"`
 	// MergeError is why git refused this lane's squash merge, for a refusal that is not a conflict (a
 	// conflict leaves the tree mid-merge and is its own state). MergeFailures is the consecutive count
 	// of those refusals; the automatic path stops retrying and blocks at the limit. Both are cleared

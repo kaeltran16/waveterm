@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { TaskBrief } from "./dagdigest";
-import { taskPeek } from "./dagpeek";
+import { taskPeek, verifySection } from "./dagpeek";
 
 const NOW = 10_000_000;
 const MIN = 60_000;
@@ -113,5 +113,44 @@ describe("taskPeek", () => {
             { text: "conflict in a.go", tone: "warning" },
             { text: "worktree locked", tone: "warning" },
         ]);
+    });
+});
+
+describe("verifySection", () => {
+    it("ticks elapsed for a verifying task and shows whatever output it has", () => {
+        expect(verifySection(task({ state: "verifying", verifystartedts: NOW - 125_000 }), NOW)).toEqual({
+            heading: "Verify running · 2m",
+            tail: "",
+            tone: "muted",
+        });
+        expect(verifySection(task({ state: "verifying" }), NOW)?.heading).toBe("Verify running");
+    });
+
+    it("shows the tail of a passing Verify", () => {
+        const out = ["ok pkg/a", "ok pkg/b"].join("\n");
+        expect(
+            verifySection(task({ state: "done", verifystartedts: NOW - MIN, verifyoutput: out + "\n" }), NOW)
+        ).toEqual({
+            heading: "Verify passed",
+            tail: out,
+            tone: "muted",
+        });
+        expect(verifySection(task({ state: "done", verifystartedts: NOW - MIN }), NOW)?.heading).toBe("Verify passed");
+    });
+
+    it("shows the tail of a failed Verify", () => {
+        expect(
+            verifySection(
+                task({ state: "verify-failed", verifyerror: "exit 1: FAIL", verifyoutput: "FAIL pkg/a" }),
+                NOW
+            )
+        ).toEqual({ heading: "Verify output", tail: "FAIL pkg/a", tone: "warning" });
+    });
+
+    it("has nothing for a task that never verified", () => {
+        expect(verifySection(task({ state: "done" }), NOW)).toBeNull();
+        expect(verifySection(task({ state: "running" }), NOW)).toBeNull();
+        expect(verifySection(task({ state: "verify-failed", verifyerror: "exit 1" }), NOW)).toBeNull();
+        expect(taskPeek(task({ state: "done" }), undefined, briefs, NOW).verify).toBeNull();
     });
 });

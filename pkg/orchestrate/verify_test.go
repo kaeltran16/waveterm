@@ -156,6 +156,83 @@ func TestVerifyFailureBlocksTheDagAndWakesTheLead(t *testing.T) {
 	}
 }
 
+func TestRecordVerifyKeepsTheOutputOnPass(t *testing.T) {
+	f := newMergeFixture(t, []waveobj.TaskNode{
+		{ID: "t-0", Label: "first"},
+		{ID: "t-1", Label: "second", Deps: []string{"t-0"}},
+		{ID: "t-2", Label: "third", Deps: []string{"t-0"}},
+	})
+	f.setPlanCommands(t, verifyCmd, "")
+	f.finish(t, "t-0")
+	stubMerge(t, landedSha)
+	stubPlanCommandOutput(t, func(context.Context, string, string) (string, error) { return "ok pkg/orchestrate", nil })
+	var spawned []string
+	stubSpawn(t, &spawned)
+	await := awaitVerify(t)
+
+	if err := Schedule(f.ctx, f.dagID); err != nil {
+		t.Fatal(err)
+	}
+	await()
+
+	if task := f.dag(t).Tasks[0]; task.State != TaskState_Done || task.VerifyOutput != "ok pkg/orchestrate" {
+		t.Fatalf("a passing Verify keeps its output, got %s %q", task.State, task.VerifyOutput)
+	}
+}
+
+func TestRecordVerifyKeepsTheOutputOnFailure(t *testing.T) {
+	newFakeLead(t)
+	f := newMergeFixture(t, []waveobj.TaskNode{
+		{ID: "t-0", Label: "first"},
+		{ID: "t-1", Label: "second", Deps: []string{"t-0"}},
+		{ID: "t-2", Label: "third", Deps: []string{"t-0"}},
+	})
+	f.setPlanCommands(t, verifyCmd, "")
+	f.finish(t, "t-0")
+	stubMerge(t, landedSha)
+	stubPlanCommandOutput(t, func(context.Context, string, string) (string, error) {
+		return "FAIL pkg/orchestrate", &planCommandError{exitCode: 1, output: "FAIL pkg/orchestrate"}
+	})
+	var spawned []string
+	stubSpawn(t, &spawned)
+	await := awaitVerify(t)
+
+	if err := Schedule(f.ctx, f.dagID); err != nil {
+		t.Fatal(err)
+	}
+	await()
+
+	if task := f.dag(t).Tasks[0]; task.State != TaskState_VerifyFailed || task.VerifyOutput != "FAIL pkg/orchestrate" {
+		t.Fatalf("a failed Verify keeps its output, got %s %q", task.State, task.VerifyOutput)
+	}
+}
+
+func TestVerifyStartedTsIsStamped(t *testing.T) {
+	f := newMergeFixture(t, []waveobj.TaskNode{
+		{ID: "t-0", Label: "first"},
+		{ID: "t-1", Label: "second", Deps: []string{"t-0"}},
+		{ID: "t-2", Label: "third", Deps: []string{"t-0"}},
+	})
+	f.setPlanCommands(t, verifyCmd, "")
+	f.finish(t, "t-0")
+	stubMerge(t, landedSha)
+	verify, _ := stubBlockingVerify(t)
+	var spawned []string
+	stubSpawn(t, &spawned)
+	await := awaitVerify(t)
+
+	before := time.Now().UnixMilli()
+	if err := Schedule(f.ctx, f.dagID); err != nil {
+		t.Fatal(err)
+	}
+	verify.waitStarted(t)
+	if ts := f.dag(t).Tasks[0].VerifyStartedTs; ts < before || ts > time.Now().UnixMilli() {
+		t.Fatalf("a verifying task carries when its Verify started, got %d (before %d)", ts, before)
+	}
+	verify.open()
+	await()
+}
+
 func TestVerifyTimeoutIsAFailure(t *testing.T) {
 	lead := newFakeLead(t)
 	f := newMergeFixture(t, []waveobj.TaskNode{{ID: "t-0", Label: "first"}})

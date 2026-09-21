@@ -460,7 +460,7 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 			}
 			if created && g.Setup != "" {
 				setupStart := time.Now()
-				serr := runPlanCommand(context.WithoutCancel(ctx), wt, g.Setup, SetupTimeout)
+				_, serr := runPlanCommand(context.WithoutCancel(ctx), wt, g.Setup, SetupTimeout)
 				setupMs = time.Since(setupStart).Milliseconds()
 				if serr != nil {
 					// only a new tree is set up, so a retry must not reuse this half-prepared one. The branch

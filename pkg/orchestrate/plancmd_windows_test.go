@@ -30,7 +30,7 @@ func processExists(pid int) bool {
 // minutes. The backgrounded sleep here stands in for that grandchild.
 func TestExecPlanCommandTimeoutKillsTheProcessTree(t *testing.T) {
 	command := `sleep 300 & echo WINPID=$(cat /proc/$!/winpid); wait`
-	err := execPlanCommand(context.Background(), t.TempDir(), command, 2*time.Second)
+	_, err := execPlanCommand(context.Background(), t.TempDir(), command, 2*time.Second)
 
 	var pe *planCommandError
 	if !errors.As(err, &pe) || pe.timeout == 0 {

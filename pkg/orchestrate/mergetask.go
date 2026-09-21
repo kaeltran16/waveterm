@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -321,6 +322,7 @@ func persistMergedTask(ctx context.Context, channelID, dagID, childRunID, taskID
 			task.State = TaskState_Done
 			if cur.Verify != "" {
 				task.State = TaskState_Verifying
+				task.VerifyStartedTs = time.Now().UnixMilli()
 			}
 			RecomputeDagStatus(cur)
 			return nil
