@@ -436,6 +436,60 @@ func TestSealEvidenceRecordsRoute(t *testing.T) {
 	}
 }
 
+// The engine closes an orchestrator lead's tab mid-turn on `wsh jarvis complete`, so the lead's own
+// wrap-up text never reaches a transcript SealEvidence can read. The report it sent with --report is the
+// only way that text survives into the sealed summary.
+func TestSealEvidenceUsesTheCompleteReport(t *testing.T) {
+	dir := t.TempDir()
+	gitCmd(t, dir, "init", "-b", "main")
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("one\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitCmd(t, dir, "add", ".")
+	gitCmd(t, dir, "commit", "-m", "init")
+	base, err := gitinfo.HeadCommit(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	run := &waveobj.Run{
+		ID: "r1", Status: RunStatus_Done, ProjectPath: dir, BaseCommit: base, CreatedTs: 1000,
+		Report: "landed 3 tasks, forwarded 1",
+		Phases: []waveobj.RunPhase{{Kind: PhaseKind_Execute, State: PhaseState_Done, DoneTs: 5000}},
+	}
+	if err := SealEvidence(context.Background(), run); err != nil {
+		t.Fatal(err)
+	}
+	if run.Evidence.Summary != "landed 3 tasks, forwarded 1" {
+		t.Errorf("summary = %q, want the complete's report", run.Evidence.Summary)
+	}
+}
+
+// Without a report, the sealed summary still falls back to the last worker's final transcript text, as
+// before --report existed.
+func TestSealEvidenceFallsBackToTheTranscriptWithoutAReport(t *testing.T) {
+	const sessionId = "0b6f7c1e-4d2a-4f3b-9c8d-1a2b3c4d5e6f"
+	root := t.TempDir()
+	prev := transcriptRootFor
+	transcriptRootFor = func(string) string { return root }
+	t.Cleanup(func() { transcriptRootFor = prev })
+	proj := t.TempDir()
+	writeSessionLines(t, filepath.Join(root, agentobserve.SlugifyCwd(proj), sessionId+".jsonl"), []string{
+		textLine("all done"),
+	})
+
+	run := &waveobj.Run{
+		ID: "r1", Status: RunStatus_Done, ProjectPath: proj, CreatedTs: 1000, Runtime: "claude", SessionId: sessionId,
+		Phases: []waveobj.RunPhase{{Kind: PhaseKind_Execute, State: PhaseState_Done, DoneTs: 5000, WorkerOrefs: []string{"tab:" + uuid.NewString()}}},
+	}
+	if err := SealEvidence(context.Background(), run); err != nil {
+		t.Fatal(err)
+	}
+	if run.Evidence.Summary != "all done" {
+		t.Errorf("summary = %q, want the worker's last message", run.Evidence.Summary)
+	}
+}
+
 func TestSealEvidenceGitFailureLeavesUnsealed(t *testing.T) {
 	// a canceled context fails the git-changes computation; evidence must be left unsealed (nil) with an
 	// error so the backfill can retry, not frozen into an empty (and immutable) file list.

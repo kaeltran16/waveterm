@@ -199,6 +199,18 @@ func TestApplyRunActionCompleteStoresEndCommit(t *testing.T) {
 	}
 }
 
+func TestApplyRunActionCompleteStoresReport(t *testing.T) {
+	r := jarvis.NewRun("do X", "ws", "/p", nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), 1)
+	// complete with a report -> stored on the run so SealEvidence can use it as the summary
+	next, err := applyRunAction(r, wshrpc.CommandAdvanceRunData{Action: jarvis.RunAction_Complete, PhaseIdx: 0, Report: "landed the fix"}, 2)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if next.Report != "landed the fix" {
+		t.Errorf("Report = %q, want %q", next.Report, "landed the fix")
+	}
+}
+
 func TestApplyRunActionUnknown(t *testing.T) {
 	r := jarvis.NewRun("g", "ws", "/p", nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
 	if _, err := applyRunAction(r, wshrpc.CommandAdvanceRunData{Action: "bogus"}, 0); err == nil {

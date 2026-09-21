@@ -15,6 +15,7 @@ import (
 
 	"github.com/creack/pty"
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
+	"github.com/wavetermdev/waveterm/pkg/util/jobobject"
 	"github.com/wavetermdev/waveterm/pkg/util/unixutil"
 	"github.com/wavetermdev/waveterm/pkg/wsl"
 	"golang.org/x/crypto/ssh"
@@ -54,7 +55,7 @@ func MakeCmdWrap(cmd *exec.Cmd, cmdPty pty.Pty, isShell bool) CmdWrap {
 	// the process is already started by pty.StartWithSize; put it in a job object so
 	// closing the block kills the whole tree (shell + descendants), not just the shell
 	if cmd != nil && cmd.Process != nil {
-		if job, err := attachJobObject(cmd.Process); err != nil {
+		if job, err := jobobject.Attach(cmd.Process); err != nil {
 			log.Printf("MakeCmdWrap: job attach failed for pid %d: %v", cmd.Process.Pid, err)
 		} else {
 			cw.jobHandle = job
@@ -65,7 +66,7 @@ func MakeCmdWrap(cmd *exec.Cmd, cmdPty pty.Pty, isShell bool) CmdWrap {
 }
 
 func (cw CmdWrap) Kill() {
-	killJobTree(cw.jobHandle)
+	jobobject.KillTree(cw.jobHandle)
 	cw.Cmd.Process.Kill()
 }
 
@@ -76,7 +77,7 @@ func (cw CmdWrap) Wait() error {
 	// the direct process exited; close the job handle so KILL_ON_JOB_CLOSE reaps any
 	// descendants that outlived it (terminal-close semantics for the block's tree)
 	if cw.jobCloseOnce != nil {
-		cw.jobCloseOnce.Do(func() { closeJobObject(cw.jobHandle) })
+		cw.jobCloseOnce.Do(func() { jobobject.Close(cw.jobHandle) })
 	}
 	return cw.WaitErr
 }
@@ -111,10 +112,10 @@ func (cw CmdWrap) KillGraceful(timeout time.Duration) {
 		return
 	}
 	if runtime.GOOS == "windows" {
-		killJobTree(cw.jobHandle) // terminates the whole tree when the job is attached
-		cw.Cmd.Process.Kill()     // direct-process fallback if job attach failed
+		jobobject.KillTree(cw.jobHandle) // terminates the whole tree when the job is attached
+		cw.Cmd.Process.Kill()            // direct-process fallback if job attach failed
 		if cw.jobCloseOnce != nil {
-			cw.jobCloseOnce.Do(func() { closeJobObject(cw.jobHandle) })
+			cw.jobCloseOnce.Do(func() { jobobject.Close(cw.jobHandle) })
 		}
 		return
 	}

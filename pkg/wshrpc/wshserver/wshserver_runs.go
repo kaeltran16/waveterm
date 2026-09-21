@@ -539,6 +539,9 @@ func applyRunAction(r waveobj.Run, data wshrpc.CommandAdvanceRunData, ts int64) 
 		if err == nil && data.Commit != "" {
 			next.EndCommit = data.Commit // the run's reported result commit; scopes the sealed evidence diff
 		}
+		if err == nil && data.Report != "" {
+			next.Report = data.Report // the lead's final report; SealEvidence uses it as the summary
+		}
 		return next, err
 	default:
 		return r, fmt.Errorf("unknown run action %q", data.Action)
@@ -712,6 +715,7 @@ func (ws *WshServer) ReportRunPhaseCommand(ctx context.Context, data wshrpc.Comm
 		Verdict:   data.Verdict,
 		Note:      data.Note,
 		Commit:    data.Commit,
+		Report:    data.Report,
 	})
 }
 

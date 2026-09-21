@@ -409,12 +409,15 @@ func SealEvidence(ctx context.Context, run *waveobj.Run) error {
 	}
 	run.CompletedTs = completedTs
 
-	// transcript-derived: summary (last worker) + verifications (all workers)
-	var summary string
+	// transcript-derived: summary (the lead's report, else the last worker's final text) + verifications
+	// (all workers)
+	summary := run.Report
 	var verifs []waveobj.EvidenceVerif
 	transcripts := workerTranscripts(run)
 	if len(transcripts) > 0 {
-		summary = finalAssistantText(transcripts[len(transcripts)-1])
+		if summary == "" {
+			summary = finalAssistantText(transcripts[len(transcripts)-1])
+		}
 		acc := newVerifAccum()
 		for _, lines := range transcripts {
 			acc.addTranscript(lines)

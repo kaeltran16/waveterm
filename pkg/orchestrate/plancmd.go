@@ -84,7 +84,7 @@ func execPlanCommand(ctx context.Context, dir, command string, timeout time.Dura
 	c.WaitDelay = planCommandWaitDelay
 	out := &tailBuffer{max: MaxPlanOutputLen}
 	c.Stdout, c.Stderr = out, out
-	err = c.Run()
+	err = runShellCmd(c)
 	if err == nil {
 		return nil
 	}

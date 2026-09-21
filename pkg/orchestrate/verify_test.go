@@ -366,3 +366,169 @@ func TestManualMergeRefusesWhileVerifyRuns(t *testing.T) {
 	await()
 	await()
 }
+
+// effortFor stores an effort holding one pending chunk per label and points the fixture's dag at it.
+func (f *mergeFixture) effortFor(t *testing.T, labels ...string) string {
+	t.Helper()
+	e := &waveobj.Effort{Title: "tracker"}
+	for _, label := range labels {
+		e.Chunks = append(e.Chunks, waveobj.EffortChunk{Label: label, Status: "pending"})
+	}
+	if err := wstore.CreateEffort(f.ctx, e); err != nil {
+		t.Fatal(err)
+	}
+	if err := wstore.UpdateDag(f.ctx, f.dagID, func(cur *waveobj.TaskGroup) error {
+		cur.EffortOID = e.OID
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return e.OID
+}
+
+func chunkOf(t *testing.T, ctx context.Context, effortOID, label string) waveobj.EffortChunk {
+	t.Helper()
+	e, err := wstore.GetEffort(ctx, effortOID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range e.Chunks {
+		if c.Label == label {
+			return c
+		}
+	}
+	t.Fatalf("effort has no chunk %q", label)
+	return waveobj.EffortChunk{}
+}
+
+func (f *mergeFixture) taskChunks(t *testing.T, taskID string, chunks ...string) {
+	t.Helper()
+	if err := wstore.UpdateDag(f.ctx, f.dagID, func(cur *waveobj.TaskGroup) error {
+		taskByID(cur, taskID).Chunks = chunks
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestVerifyPassClosesTheTasksChunks(t *testing.T) {
+	f := newMergeFixture(t, []waveobj.TaskNode{
+		{ID: "t-0", Label: "first"},
+		{ID: "t-1", Label: "second", Deps: []string{"t-0"}},
+		{ID: "t-2", Label: "third", Deps: []string{"t-0"}},
+	})
+	f.setPlanCommands(t, verifyCmd, "")
+	effort := f.effortFor(t, "#8 mine", "#6 also mine", "#12 someone else's")
+	f.taskChunks(t, "t-0", "#8 mine", "#6 also mine")
+	f.finish(t, "t-0")
+	stubMerge(t, landedSha)
+	stubPlanCommand(t, func(context.Context, string, string) error { return nil })
+	var spawned []string
+	stubSpawn(t, &spawned)
+	await := awaitVerify(t)
+
+	if err := Schedule(f.ctx, f.dagID); err != nil {
+		t.Fatal(err)
+	}
+	await()
+
+	g := f.dag(t)
+	for _, label := range []string{"#8 mine", "#6 also mine"} {
+		c := chunkOf(t, f.ctx, effort, label)
+		if c.Status != "done" {
+			t.Fatalf("chunk %q must be done once its task's merge passed Verify, got %q", label, c.Status)
+		}
+		want := "landed sha-1 (run " + g.RunID + ", task t-0)"
+		if len(c.Notes) == 0 || !strings.Contains(c.Notes[len(c.Notes)-1].Text, want) {
+			t.Fatalf("chunk %q wants a note with %q, got %+v", label, want, c.Notes)
+		}
+	}
+	if c := chunkOf(t, f.ctx, effort, "#12 someone else's"); c.Status != "pending" {
+		t.Fatalf("a chunk no landed task names stays pending, got %q", c.Status)
+	}
+}
+
+func TestVerifyPassClosesEveryTaskInALane(t *testing.T) {
+	f := newMergeFixture(t, []waveobj.TaskNode{
+		{ID: "t-0", Label: "first"},
+		{ID: "t-1", Label: "second", Deps: []string{"t-0"}},
+	})
+	f.setPlanCommands(t, verifyCmd, "")
+	effort := f.effortFor(t, "head chunk", "tip chunk")
+	f.taskChunks(t, "t-0", "head chunk")
+	f.taskChunks(t, "t-1", "tip chunk")
+	f.finish(t, "t-0")
+	f.finish(t, "t-1")
+	stubMerge(t, landedSha)
+	stubPlanCommand(t, func(context.Context, string, string) error { return nil })
+	await := awaitVerify(t)
+
+	if err := Schedule(f.ctx, f.dagID); err != nil {
+		t.Fatal(err)
+	}
+	await()
+
+	for label, task := range map[string]string{"head chunk": "t-0", "tip chunk": "t-1"} {
+		c := chunkOf(t, f.ctx, effort, label)
+		if c.Status != "done" || !strings.Contains(c.Notes[len(c.Notes)-1].Text, "task "+task+")") {
+			t.Fatalf("a lane lands as one merge and closes each task's chunks, chunk %q = %q %+v", label, c.Status, c.Notes)
+		}
+	}
+}
+
+func TestVerifyFailLeavesChunksOpen(t *testing.T) {
+	f := newMergeFixture(t, []waveobj.TaskNode{
+		{ID: "t-0", Label: "first"},
+		{ID: "t-1", Label: "second", Deps: []string{"t-0"}},
+		{ID: "t-2", Label: "third", Deps: []string{"t-0"}},
+	})
+	f.setPlanCommands(t, verifyCmd, "")
+	effort := f.effortFor(t, "#8 mine")
+	f.taskChunks(t, "t-0", "#8 mine")
+	f.finish(t, "t-0")
+	stubMerge(t, landedSha)
+	stubPlanCommand(t, func(context.Context, string, string) error {
+		return &planCommandError{exitCode: 1, output: "FAIL"}
+	})
+	newFakeLead(t)
+	await := awaitVerify(t)
+
+	if err := Schedule(f.ctx, f.dagID); err != nil {
+		t.Fatal(err)
+	}
+	await()
+
+	if c := chunkOf(t, f.ctx, effort, "#8 mine"); c.Status != "pending" || len(c.Notes) != 0 {
+		t.Fatalf("a failed Verify closes nothing, got %q %+v", c.Status, c.Notes)
+	}
+}
+
+func TestChunkCloseFailureDoesNotFailTheVerify(t *testing.T) {
+	f := newMergeFixture(t, []waveobj.TaskNode{
+		{ID: "t-0", Label: "first"},
+		{ID: "t-1", Label: "second", Deps: []string{"t-0"}},
+		{ID: "t-2", Label: "third", Deps: []string{"t-0"}},
+	})
+	f.setPlanCommands(t, verifyCmd, "")
+	effort := f.effortFor(t, "#8 exists")
+	// the first label went missing from the effort after submit; the second still closes
+	f.taskChunks(t, "t-0", "#0 renamed away", "#8 exists")
+	f.finish(t, "t-0")
+	stubMerge(t, landedSha)
+	stubPlanCommand(t, func(context.Context, string, string) error { return nil })
+	var spawned []string
+	stubSpawn(t, &spawned)
+	await := awaitVerify(t)
+
+	if err := Schedule(f.ctx, f.dagID); err != nil {
+		t.Fatal(err)
+	}
+	await()
+
+	if g := f.dag(t); g.Tasks[0].State != TaskState_Done || g.Tasks[0].VerifyError != "" {
+		t.Fatalf("an effort that cannot close a chunk must not fail the Verify, got %s %q", g.Tasks[0].State, g.Tasks[0].VerifyError)
+	}
+	if c := chunkOf(t, f.ctx, effort, "#8 exists"); c.Status != "done" {
+		t.Fatalf("one unresolvable chunk must not stop the others, got %q", c.Status)
+	}
+}

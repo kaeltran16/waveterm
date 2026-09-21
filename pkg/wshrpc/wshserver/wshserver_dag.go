@@ -16,6 +16,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/agentask"
 	"github.com/wavetermdev/waveterm/pkg/harness"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
+	"github.com/wavetermdev/waveterm/pkg/jarvisstate"
 	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -89,8 +90,40 @@ func (ws *WshServer) DagPlanPreviewCommand(ctx context.Context, data wshrpc.Comm
 		Title:  planTitle(plan, data.PlanPath),
 		Verify: plan.Verify,
 		Setup:  plan.Setup,
+		Check:  plan.Check,
 		Shape:  orchestrate.PlanShapeOf(plan.Tasks),
 	}, nil
+}
+
+// checkDagEffort refuses a dag whose tasks name effort chunks the engine could not close when they land:
+// a chunk with no effort to live in, an effort that does not exist, or a label the effort does not hold.
+// Caught at submit, because at landing the only report would be a log line.
+func checkDagEffort(ctx context.Context, effortOID string, tasks []waveobj.TaskNode) error {
+	if effortOID == "" {
+		for _, task := range tasks {
+			if len(task.Chunks) > 0 {
+				return fmt.Errorf("task %q names chunks but the dag has no effort", task.ID)
+			}
+		}
+		return nil
+	}
+	effort, err := wstore.GetEffort(ctx, effortOID)
+	if err != nil {
+		return fmt.Errorf("effort %q: %w", effortOID, err)
+	}
+	for _, task := range tasks {
+		for _, label := range task.Chunks {
+			idx, err := jarvisstate.ResolveChunkIndex(effort, label)
+			if err != nil {
+				return fmt.Errorf("task %q: effort %s: %w", task.ID, effortOID, err)
+			}
+			// a bare number resolves as a position, and the label is what the engine closes by
+			if effort.Chunks[idx].Label != label {
+				return fmt.Errorf("task %q: effort %s has no chunk labelled %q", task.ID, effortOID, label)
+			}
+		}
+	}
+	return nil
 }
 
 // postHandoff is a var so tests can see which submits hand a lead its compaction.
@@ -117,6 +150,9 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 	}
 	if run.Mode != jarvis.RunMode_Orchestrator {
 		return nil, fmt.Errorf("dag requires an orchestrator-mode run")
+	}
+	if err := checkDagEffort(ctx, plan.EffortOID, data.Tasks); err != nil {
+		return nil, err
 	}
 	ownerPin := waveobj.RoutePin{Runtime: runroute.DefaultRuntime(run.Runtime), Model: run.Model}
 	for _, task := range data.Tasks {
@@ -162,7 +198,8 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 	if err != nil {
 		return nil, err
 	}
-	proposed.Verify, proposed.Setup = plan.Verify, plan.Setup
+	proposed.Verify, proposed.Setup, proposed.Check, proposed.Preamble = plan.Verify, plan.Setup, plan.Check, plan.Preamble
+	proposed.EffortOID = plan.EffortOID
 	proposed.PlanPath, proposed.SpecPath = data.PlanPath, data.SpecPath
 	stored, created, err := wstore.CreateDagForRun(ctx, data.ChannelId, data.RunId, &proposed, func(run *waveobj.Run) error {
 		if run.Mode != jarvis.RunMode_Orchestrator {

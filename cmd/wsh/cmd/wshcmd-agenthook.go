@@ -25,12 +25,13 @@ const titleMax = 72 // fallback head-text length cap (rune-safe)
 
 // ccHookEvent is the subset of the Claude Code lifecycle-hook stdin payload we use.
 type ccHookEvent struct {
-	HookEventName  string          `json:"hook_event_name"`
-	ToolName       string          `json:"tool_name"`
-	ToolUseID      string          `json:"tool_use_id"`
-	TranscriptPath string          `json:"transcript_path"`
-	ToolInput      json.RawMessage `json:"tool_input"`
-	Source         string          `json:"source"`
+	HookEventName    string          `json:"hook_event_name"`
+	ToolName         string          `json:"tool_name"`
+	ToolUseID        string          `json:"tool_use_id"`
+	TranscriptPath   string          `json:"transcript_path"`
+	ToolInput        json.RawMessage `json:"tool_input"`
+	Source           string          `json:"source"`
+	NotificationType string          `json:"notification_type"`
 }
 
 // agentEmission describes what to publish for one hook event. State=="" means no
@@ -48,7 +49,14 @@ func planEmission(ev ccHookEvent) agentEmission {
 	case "Stop":
 		return agentEmission{State: baseds.AgentState_Idle, AttachModelTitle: true}
 	case "Notification":
-		return agentEmission{State: baseds.AgentState_Waiting}
+		switch ev.NotificationType {
+		case "idle_prompt":
+			return agentEmission{State: baseds.AgentState_Idle}
+		case "permission_prompt", "elicitation_dialog", "elicitation_url_dialog", "agent_needs_input", "":
+			return agentEmission{State: baseds.AgentState_Waiting}
+		default:
+			return agentEmission{}
+		}
 	case "PostToolUse":
 		return agentEmission{State: baseds.AgentState_Working, AttachModelTitle: true}
 	case "PreToolUse":

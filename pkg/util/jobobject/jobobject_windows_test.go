@@ -3,7 +3,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-package shellexec
+package jobobject
 
 import (
 	"encoding/base64"
@@ -57,14 +57,14 @@ func TestJobObjectKillsDescendants(t *testing.T) {
 		}
 	}()
 
-	job, err := attachJobObject(cmd.Process)
+	job, err := Attach(cmd.Process)
 	if err != nil {
-		t.Fatalf("attachJobObject: %v", err)
+		t.Fatalf("Attach: %v", err)
 	}
 	if job == 0 {
-		t.Fatal("attachJobObject returned zero handle")
+		t.Fatal("Attach returned zero handle")
 	}
-	defer closeJobObject(job)
+	defer Close(job)
 
 	// wait for the descendant to write its pid
 	var childPid int
@@ -86,7 +86,7 @@ func TestJobObjectKillsDescendants(t *testing.T) {
 		t.Fatalf("descendant %d not running before job kill", childPid)
 	}
 
-	killJobTree(job)
+	KillTree(job)
 
 	deadline = time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {

@@ -3,6 +3,7 @@ package orchestrate
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -252,7 +253,8 @@ func SameDagProposal(a, b *waveobj.TaskGroup) bool {
 		return a == b
 	}
 	if a.Title != b.Title || a.Parallelism != b.Parallelism || a.MergeRequired != b.MergeRequired ||
-		a.Verify != b.Verify || a.Setup != b.Setup || a.PlanPath != b.PlanPath || a.SpecPath != b.SpecPath || len(a.Tasks) != len(b.Tasks) {
+		a.Verify != b.Verify || a.Setup != b.Setup || a.Check != b.Check || a.EffortOID != b.EffortOID ||
+		a.Preamble != b.Preamble || a.PlanPath != b.PlanPath || a.SpecPath != b.SpecPath || len(a.Tasks) != len(b.Tasks) {
 		return false
 	}
 	if (a.WorkerRoute == nil) != (b.WorkerRoute == nil) {
@@ -264,7 +266,7 @@ func SameDagProposal(a, b *waveobj.TaskGroup) bool {
 	for i := range a.Tasks {
 		ta := a.Tasks[i]
 		tb := b.Tasks[i]
-		if ta.ID != tb.ID || ta.Label != tb.Label || ta.Description != tb.Description || ta.Gate != tb.Gate {
+		if ta.ID != tb.ID || ta.Label != tb.Label || ta.Description != tb.Description || ta.Gate != tb.Gate || !slices.Equal(ta.Chunks, tb.Chunks) {
 			return false
 		}
 		if len(ta.Deps) != len(tb.Deps) {

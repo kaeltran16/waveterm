@@ -12,8 +12,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/wavetermdev/waveterm/pkg/jarvisstate"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
+	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
@@ -133,6 +135,7 @@ func recordVerifyLocked(ctx context.Context, dagID, taskID string, verr error, m
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, dagID))
 	if verr == nil {
 		appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskVerifyPassed, nil, map[string]any{"taskid": taskID, "ms": ms})
+		closeLandedChunks(ctx, g, taskID)
 		return nil
 	}
 	appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskVerifyFailed, nil, map[string]any{
@@ -140,6 +143,42 @@ func recordVerifyLocked(ctx context.Context, dagID, taskID string, verr error, m
 	})
 	PostWake(ctx, g.ChannelId, g.RunID, verifyFailedWake(taskID, reason))
 	return nil
+}
+
+// closeLandedChunks marks the effort chunks of every task the merge that just passed Verify landed as done:
+// a lane lands as one squash commit recorded on its tip, and each task in it may name its own chunks. It
+// never fails the Verify or the merge, which already happened: a chunk it cannot close is logged with the
+// effort, chunk and task, and left for the human to close.
+func closeLandedChunks(ctx context.Context, g *waveobj.TaskGroup, tipID string) {
+	if g.EffortOID == "" {
+		return
+	}
+	commit := ""
+	if tip := taskByID(g, tipID); tip != nil && tip.RunID != "" {
+		if child, err := wstore.GetRun(ctx, g.ChannelId, tip.RunID); err == nil {
+			commit = child.EndCommit
+		}
+	}
+	landed := "landed"
+	if commit != "" {
+		landed += " " + commit
+	}
+	for _, id := range laneOf(g, tipID) {
+		task := taskByID(g, id)
+		if task == nil || task.State == TaskState_Skipped {
+			continue
+		}
+		for _, chunk := range task.Chunks {
+			note := fmt.Sprintf("%s (run %s, task %s)", landed, g.RunID, task.ID)
+			op := wshrpc.EffortOp{Op: "setChunkStatus", Chunk: chunk, Status: "done"}
+			err := wstore.UpdateEffort(ctx, g.EffortOID, func(e *waveobj.Effort) error {
+				return jarvisstate.ApplyEffortOps(e, []wshrpc.EffortOp{op}, note, time.Now().UnixMilli())
+			})
+			if err != nil {
+				log.Printf("dag %s task %s: closing chunk %q of effort %s: %v", g.OID, task.ID, chunk, g.EffortOID, err)
+			}
+		}
+	}
 }
 
 // resumeVerify restarts a Verify the server lost: the task was persisted verifying and nothing holds its

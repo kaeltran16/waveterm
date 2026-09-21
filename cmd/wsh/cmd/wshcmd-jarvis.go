@@ -5,6 +5,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -56,7 +57,16 @@ var jarvisCompleteCmd = &cobra.Command{
 			artifacts = []string{args[0]} // the deliverable path the next phase builds on / the gate previews
 		}
 		commit, _ := cmd.Flags().GetString("commit")
-		return reportRunPhase(wshrpc.CommandReportRunPhaseData{Action: "complete", Artifacts: artifacts, Commit: commit})
+		reportPath, _ := cmd.Flags().GetString("report")
+		var report string
+		if reportPath != "" {
+			r, err := readReportFile(reportPath)
+			if err != nil {
+				return err
+			}
+			report = r
+		}
+		return reportRunPhase(wshrpc.CommandReportRunPhaseData{Action: "complete", Artifacts: artifacts, Commit: commit, Report: report})
 	},
 	PreRunE: preRunSetupRpcClient,
 }
@@ -88,10 +98,26 @@ var jarvisRunCmd = &cobra.Command{
 func init() {
 	jarvisRunCmd.Flags().String("mode", "", "child run mode: quick|pipeline|orchestrator (default: inherit the channel strategy)")
 	jarvisCompleteCmd.Flags().String("commit", "", "SHA of your finished work (e.g. $(git rev-parse HEAD)); scopes this run's evidence diff to its own commits")
+	jarvisCompleteCmd.Flags().String("report", "", "path to a file holding your final report; read relative to this process's working directory and sealed as the run's evidence summary")
 	jarvisCmd.AddCommand(jarvisCompleteCmd)
 	jarvisCmd.AddCommand(jarvisRunCmd)
 	jarvisCmd.AddCommand(jarvisCtxCmd)
 	rootCmd.AddCommand(jarvisCmd)
+}
+
+// readReportFile reads a lead's report from path, relative to this process's working directory. An
+// unreadable or empty (after trimming) file is an error, so `wsh jarvis complete --report` never sends
+// an empty summary.
+func readReportFile(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("reading report file %q: %w", path, err)
+	}
+	report := strings.TrimSpace(string(data))
+	if report == "" {
+		return "", fmt.Errorf("report file %q is empty", path)
+	}
+	return report, nil
 }
 
 func reportRunPhase(data wshrpc.CommandReportRunPhaseData) error {

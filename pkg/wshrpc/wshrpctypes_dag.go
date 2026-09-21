@@ -48,6 +48,7 @@ type CommandDagPlanPreviewRtnData struct {
 	Title  string       `json:"title,omitempty"`
 	Verify string       `json:"verify,omitempty"`
 	Setup  string       `json:"setup,omitempty"`
+	Check  string       `json:"check,omitempty"`
 	Shape  DagPlanShape `json:"shape"`
 }
 
