@@ -7,12 +7,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"os/exec"
 	"strings"
 	"time"
-
-	"github.com/wavetermdev/waveterm/pkg/util/jobobject"
 )
 
 const (
@@ -87,24 +84,7 @@ func execPlanCommand(ctx context.Context, dir, command string, timeout time.Dura
 	c.WaitDelay = planCommandWaitDelay
 	out := &tailBuffer{max: MaxPlanOutputLen}
 	c.Stdout, c.Stderr = out, out
-
-	var job uintptr
-	if err = c.Start(); err == nil {
-		// a job object lets the context's Cancel kill the whole process tree, not just the
-		// shell launcher: without it a timed-out Verify's grandchildren (e.g. a lingering
-		// `go test`) keep running after execPlanCommand returns.
-		if j, jerr := jobobject.Attach(c.Process); jerr == nil {
-			job = j
-			c.Cancel = func() error {
-				jobobject.KillTree(job)
-				return c.Process.Kill()
-			}
-		} else {
-			log.Printf("execPlanCommand: job attach failed for pid %d: %v", c.Process.Pid, jerr)
-		}
-		err = c.Wait()
-	}
-	jobobject.Close(job)
+	err = runShellCmd(c)
 	if err == nil {
 		return nil
 	}

@@ -10,7 +10,9 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"sync/atomic"
 
+	"github.com/wavetermdev/waveterm/pkg/util/jobobject"
 	"github.com/wavetermdev/waveterm/pkg/util/shellutil"
 	"github.com/wavetermdev/waveterm/pkg/wconfig"
 )
@@ -27,4 +29,35 @@ func shellCommand(ctx context.Context, command string) (*exec.Cmd, error) {
 	c := exec.CommandContext(ctx, bash, "-c", command)
 	c.Env = append(os.Environ(), "MSYS_NO_PATHCONV=1")
 	return c, nil
+}
+
+// runShellCmd starts c in a job object with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, so that when
+// the command's context ends (timeout or cancel), killing the job takes the whole process
+// tree with it — not just the Git Bash launcher exec.Cmd.Cancel would otherwise kill,
+// leaving its children (e.g. a spawned `go test`) running orphaned.
+//
+// c.Cancel is set before Start so the context-watcher goroutine Start spawns never reads it
+// concurrently with a write; the job handle it closes over is published through an atomic
+// once Attach succeeds.
+func runShellCmd(c *exec.Cmd) error {
+	var job atomic.Uint64
+	c.Cancel = func() error {
+		if j := job.Load(); j != 0 {
+			jobobject.KillTree(uintptr(j))
+		} else if c.Process != nil {
+			c.Process.Kill()
+		}
+		return nil
+	}
+	if err := c.Start(); err != nil {
+		return err
+	}
+	if j, jerr := jobobject.Attach(c.Process); jerr == nil {
+		job.Store(uint64(j))
+	}
+	err := c.Wait()
+	if j := job.Load(); j != 0 {
+		jobobject.Close(uintptr(j))
+	}
+	return err
 }

@@ -276,6 +276,24 @@ func TestSameDagProposalComparesPlanCommands(t *testing.T) {
 	if SameDagProposal(&a, &b) {
 		t.Fatal("a resubmitted plan with a different Setup is a different proposal")
 	}
+	b.Setup, b.Check = "", "task check:ts"
+	if SameDagProposal(&a, &b) {
+		t.Fatal("a resubmitted plan with a different Check is a different proposal")
+	}
+}
+
+// the plan header reaches every worker through taskPrompt, so a re-submit that edits it must not
+// look identical: the stored dag would keep the old header and no worker would ever see the new one.
+func TestSameDagProposalComparesThePlanHeader(t *testing.T) {
+	a, err := NewTaskGroup("run", "channel", "title", 1, true, []waveobj.TaskNode{{ID: "t-1", Label: "one"}}, 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := a
+	b.Preamble = "Never edit docs/."
+	if SameDagProposal(&a, &b) {
+		t.Fatal("a resubmitted plan with a different header is a different proposal")
+	}
 }
 
 func TestDeriveTaskStatesKeepsLandingStates(t *testing.T) {
