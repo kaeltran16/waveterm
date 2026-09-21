@@ -33,6 +33,8 @@ func stampLeadTab(t *testing.T, f *mergeFixture) {
 	if err := wstore.DBInsert(f.ctx, &waveobj.Tab{OID: "lead-tab", BlockIds: []string{"lead-block"}, Meta: waveobj.MetaMapType{}}); err != nil {
 		t.Fatal(err)
 	}
+	// the test store is shared across the package and the oid is fixed, so a later stamp would collide
+	t.Cleanup(func() { _ = wstore.DBDelete(context.Background(), waveobj.OType_Tab, "lead-tab") })
 	if err := wstore.UpdateRun(f.ctx, f.channel, f.ownerID, func(r *waveobj.Run) error {
 		r.Phases[0].WorkerOrefs = []string{"tab:lead-tab"}
 		return nil

@@ -6,6 +6,8 @@
 // body's runtimeline.ts, so the two timelines cannot describe the same row differently.
 
 import { globalStore } from "@/app/store/jotaiStore";
+import { RpcApi } from "@/app/store/wshclientapi";
+import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useState } from "react";
@@ -13,6 +15,7 @@ import { retryRunEvents, useRunEventsState } from "../agents/runeventstore";
 import { detailOf, eventTitle, toneFor, tsLabel } from "../agents/runtimeline";
 import { setActiveRunId } from "../jarvis/jarvissubjectstore";
 import { selectedTaskIdAtom } from "./dagstore";
+import { relaunchLeadAction } from "./relaunchlead";
 import { eventClickTarget, filterEvents, type TimelineFilter, type TimelineTarget } from "./timelinefilter";
 
 const FILTERS: { id: TimelineFilter; label: string }[] = [
@@ -33,12 +36,32 @@ export function TimelineRail({ channelId, runId, layout }: TimelineRailProps) {
     const [filter, setFilter] = useState<TimelineFilter>("all");
     const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
     const [drawerOpen, setDrawerOpen] = useState(false);
+    const [relaunching, setRelaunching] = useState(false);
+    const [relaunchError, setRelaunchError] = useState<string | null>(null);
     // the rail layout is always expanded: its collapse control only exists in the drawer, so a
     // narrow->wide resize must not leave the panel stuck shut with nothing to reopen it.
     const open = layout === "rail" || drawerOpen;
 
     const rows = filterEvents(events, filter, selectedTaskId ?? undefined);
     const selectedEvent = rows.find((e) => e.id === selectedEventId);
+    const relaunch = selectedEvent ? relaunchLeadAction(selectedEvent, events, relaunching) : null;
+
+    const relaunchLead = async () => {
+        setRelaunching(true);
+        setRelaunchError(null);
+        try {
+            await RpcApi.DagActionCommand(TabRpcClient, {
+                channelid: channelId,
+                runid: runId,
+                taskid: "",
+                action: "relaunch-lead",
+            });
+        } catch (err) {
+            setRelaunchError(err instanceof Error ? err.message : String(err));
+        } finally {
+            setRelaunching(false);
+        }
+    };
 
     return (
         <div
@@ -98,7 +121,14 @@ export function TimelineRail({ channelId, runId, layout }: TimelineRailProps) {
                             ))
                         )}
                     </div>
-                    {selectedEvent && <EventDetail event={selectedEvent} />}
+                    {selectedEvent && (
+                        <EventDetail
+                            event={selectedEvent}
+                            relaunch={relaunch}
+                            relaunchError={relaunchError}
+                            onRelaunch={() => void relaunchLead()}
+                        />
+                    )}
                 </>
             )}
         </div>
@@ -213,7 +243,17 @@ function EventRow({
     );
 }
 
-function EventDetail({ event }: { event: RunEvent }) {
+function EventDetail({
+    event,
+    relaunch,
+    relaunchError,
+    onRelaunch,
+}: {
+    event: RunEvent;
+    relaunch: { disabled: boolean } | null;
+    relaunchError: string | null;
+    onRelaunch: () => void;
+}) {
     const detail = detailOf<Record<string, unknown>>(event);
     const entries = detail ? Object.entries(detail) : [];
     return (
@@ -231,6 +271,17 @@ function EventDetail({ event }: { event: RunEvent }) {
                     </div>
                 ))
             )}
+            {relaunch && (
+                <button
+                    type="button"
+                    onClick={onRelaunch}
+                    disabled={relaunch.disabled}
+                    className="mt-2 cursor-pointer rounded border border-edge-mid px-2 py-0.5 text-[11px] font-semibold text-secondary hover:border-accent hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                    {relaunch.disabled ? "Relaunching…" : "Relaunch lead"}
+                </button>
+            )}
+            {relaunch && relaunchError && <div className="mt-1 text-[11px] text-warning">{relaunchError}</div>}
         </div>
     );
 }

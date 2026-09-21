@@ -290,6 +290,11 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		if t.RunID == "" {
 			continue
 		}
+		// a reboot leaves the child run running and its transcript frozen, with nothing to relaunch the worker:
+		// waiting out StallThreshold only delays the retry
+		if t.State == TaskState_Running && workerControllerGone(ctx, runs[t.RunID]) {
+			t.State = TaskState_Stalled
+		}
 		activity, tracked := lastActivityForRun(runs[t.RunID])
 		if activity > t.LastActivity {
 			t.LastActivity = activity
@@ -476,13 +481,16 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		// read a previous attempt's file as this one's.
 		sessionId := uuid.NewString()
 		spawnStart := time.Now()
-		oref, err := spawnWorker(spawnCtx, capability, owner.WorkspaceId, "", cwd, prompt, jarvis.RunWorkerOptions{SessionId: sessionId})
+		// the worker block is stamped with its run before the run row exists, so the id is minted here
+		runID := uuid.NewString()
+		oref, err := spawnWorker(spawnCtx, capability, owner.WorkspaceId, "", cwd, prompt, jarvis.RunWorkerOptions{SessionId: sessionId, RunId: runID, TaskId: taskID})
 		spawnMs := time.Since(spawnStart).Milliseconds()
 		if err != nil {
 			failDispatch(ctx, g, taskID, FailureKindSpawn, err, &afterCommit)
 			continue
 		}
 		childRun := childRunFromSpec(g, task, owner, pin, cwd, taskBase, prompt)
+		childRun.ID = runID
 		childRun.SessionId = sessionId
 		childRun.Branch = branch
 		// attach worker to child run before persisting

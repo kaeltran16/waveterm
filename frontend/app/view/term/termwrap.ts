@@ -6,6 +6,7 @@ import { setBadge } from "@/app/store/badge";
 import { getFileSubject } from "@/app/store/wps";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
+import { shouldRelaunchWorker } from "@/app/view/agents/session-models/agentresumestore";
 import {
     fetchWaveFile,
     getApi,
@@ -547,8 +548,23 @@ export class TermWrap {
         }
     }
 
+    // an engine worker whose run is over must not be relaunched by a remount: leave its last frame up
+    async isDeadRunWorker(): Promise<boolean> {
+        const meta = WOS.getObjectValue<Block>(WOS.makeORef("block", this.blockId))?.meta;
+        const runId = meta?.["agent:runid"];
+        if (typeof runId !== "string" || !runId) {
+            return false;
+        }
+        const run = await WOS.loadAndPinWaveObject<Run>(WOS.makeORef("run", runId)).catch(() => null);
+        return !shouldRelaunchWorker(meta, run?.status);
+    }
+
     async resyncController(reason: string) {
         dlog("resync controller", this.blockId, reason);
+        if (await this.isDeadRunWorker()) {
+            this.terminal.write("\r\n\x1b[2m[arc] this worker's run is over; it was not relaunched\x1b[0m\r\n");
+            return;
+        }
         const rtOpts: RuntimeOpts = { termsize: { rows: this.terminal.rows, cols: this.terminal.cols } };
         try {
             await RpcApi.ControllerResyncCommand(TabRpcClient, {

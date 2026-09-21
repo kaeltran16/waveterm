@@ -1300,3 +1300,65 @@ func TestStalledTaskAutoRetriesOnlyOnce(t *testing.T) {
 		t.Fatalf("want no task-retried event, got %d", n)
 	}
 }
+
+// a machine restart leaves the child run running with a frozen transcript and no controller to relaunch the
+// worker; the task must not wait out StallThreshold to be noticed. The transcript here is fresh, so only the
+// missing controller can stall it.
+func TestRunningTaskWithNoControllerGoesStalled(t *testing.T) {
+	allowWorkerHarnessForTest(t)
+	ctx := context.Background()
+	oldRoot, oldGone := sessionsRootFor, workerControllerGone
+	root := t.TempDir()
+	sessionsRootFor = func(string) string { return root }
+	defer func() { sessionsRootFor, workerControllerGone = oldRoot, oldGone }()
+
+	ch, err := wstore.CreateChannel(ctx, "no-controller", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
+	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
+		t.Fatal(err)
+	}
+	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 1, false, []waveobj.TaskNode{{ID: "t-0", Label: "a"}}, 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := wstore.AppendDag(ctx, &g); err != nil {
+		t.Fatal(err)
+	}
+	writeClaudeSession(t, root, ch.ProjectPath, liveSession, time.Now())
+	child := jarvis.NewRun("child", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), 1)
+	child.ID = "33333333-3333-4333-8333-333333333333"
+	child.Runtime = "claude"
+	child.DagORef = g.OID
+	child.SessionId = liveSession
+	if err := wstore.AppendRun(ctx, ch.OID, child); err != nil {
+		t.Fatal(err)
+	}
+	g.Tasks[0].RunID = child.ID
+	g.Tasks[0].State = TaskState_Running
+	if err := wstore.UpdateDag(ctx, g.OID, func(cur *waveobj.TaskGroup) error {
+		*cur = g
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	workerControllerGone = func(context.Context, *waveobj.Run) bool { return false }
+	if err := ScheduleOnce(ctx, &g); err != nil {
+		t.Fatal(err)
+	}
+	if g.Tasks[0].State != TaskState_Running {
+		t.Fatalf("a live controller must leave the task running, got %s", g.Tasks[0].State)
+	}
+
+	newFakeLead(t).state.Alive = true // a lead-free stall would be auto-retried, which this test is not about
+	workerControllerGone = func(context.Context, *waveobj.Run) bool { return true }
+	if err := ScheduleOnce(ctx, &g); err != nil {
+		t.Fatal(err)
+	}
+	if g.Tasks[0].State != TaskState_Stalled {
+		t.Fatalf("a running task whose controller is gone must stall, got %s", g.Tasks[0].State)
+	}
+}

@@ -365,3 +365,29 @@ func TestEnsureWorkersLabelsOnlyALeadWithItsRunTitle(t *testing.T) {
 		t.Fatalf("labels = %+v", got)
 	}
 }
+
+// engine workers carry no frontend launcher, so the backend stores what resume-on-reopen and the dead-run
+// guard read: the launch flags before the prompt, and the owning run and task.
+func TestSpawnRunWorkerStoresBaseArgs(t *testing.T) {
+	stubWorkerSpawn(t)
+	var persisted waveobj.MetaMapType
+	persistWorkerBlockMeta = func(_ context.Context, _ string, meta waveobj.MetaMapType) error {
+		persisted = meta
+		return nil
+	}
+	cap, err := runroute.Resolve(waveobj.RoutePin{Runtime: "claude"})
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	opts := RunWorkerOptions{SessionId: "sess-1", RunId: "run-1", TaskId: "t-3"}
+	if _, err := SpawnRunWorker(context.Background(), cap, "ws-1", "proj", "", "do it", opts); err != nil {
+		t.Fatal(err)
+	}
+	wantBase := append([]string{"--dangerously-skip-permissions"}, cap.ModelArgs...)
+	if got, _ := persisted["agent:baseargs"].([]string); !reflect.DeepEqual(got, wantBase) {
+		t.Fatalf("agent:baseargs = %#v, want %#v", persisted["agent:baseargs"], wantBase)
+	}
+	if persisted["agent:runid"] != "run-1" || persisted["agent:taskid"] != "t-3" {
+		t.Fatalf("run/task ids = %v / %v", persisted["agent:runid"], persisted["agent:taskid"])
+	}
+}

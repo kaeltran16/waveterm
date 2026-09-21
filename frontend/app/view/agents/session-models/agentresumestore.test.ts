@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { persistResume, shouldPersistResume } from "./agentresumestore";
+import { persistResume, shouldPersistResume, shouldRelaunchWorker } from "./agentresumestore";
 
 const setMeta = vi.fn();
 const reloadWaveObject = vi.fn();
@@ -71,5 +71,28 @@ describe("persistResume (pi)", () => {
         const oref = "block:pi-3";
         await persistResume(oref, "pi", undefined);
         expect(setMeta).not.toHaveBeenCalled();
+    });
+});
+
+describe("shouldRelaunchWorker", () => {
+    const worker = { "agent:runid": "r1", "agent:taskid": "t-1" };
+
+    it("does not relaunch a worker whose run is over", () => {
+        expect(shouldRelaunchWorker(worker, "done")).toBe(false);
+        expect(shouldRelaunchWorker(worker, "failed")).toBe(false);
+        expect(shouldRelaunchWorker(worker, "cancelled")).toBe(false);
+    });
+
+    it("relaunches a worker whose run is still live", () => {
+        expect(shouldRelaunchWorker(worker, "executing")).toBe(true);
+    });
+
+    it("relaunches when the run status is unknown", () => {
+        expect(shouldRelaunchWorker(worker, undefined)).toBe(true);
+    });
+
+    it("relaunches a hand-launched agent that carries no agent:runid, whatever the status", () => {
+        expect(shouldRelaunchWorker({ cmd: "claude" }, "done")).toBe(true);
+        expect(shouldRelaunchWorker(undefined, undefined)).toBe(true);
     });
 });

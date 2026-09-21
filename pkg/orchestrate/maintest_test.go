@@ -4,10 +4,12 @@
 package orchestrate
 
 import (
+	"context"
 	"os"
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
+	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
@@ -26,6 +28,8 @@ func TestMain(m *testing.M) {
 	if err := wstore.InitWStore(); err != nil {
 		panic(err)
 	}
+	// fixtures store worker tabs no controller runs; only the tests that script a dead one should see it stall
+	workerControllerGone = func(context.Context, *waveobj.Run) bool { return false }
 	code := m.Run()
 	os.RemoveAll(dir)
 	os.Exit(code)

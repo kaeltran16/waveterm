@@ -11,8 +11,11 @@ import (
 
 	"github.com/wavetermdev/waveterm/pkg/agentask"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
+	"github.com/wavetermdev/waveterm/pkg/jarvis"
+	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wps"
+	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
 const (
@@ -438,5 +441,114 @@ func TestFailedLaunchHandsJudgmentToTheUser(t *testing.T) {
 	}
 	if f.countKind(waveobj.RunEventKindLeadWakeFailed) != 1 {
 		t.Fatalf("want one lead-wake-failed row, got %+v", f.rows)
+	}
+}
+
+// relaunchFixture is an owner run whose lead tab is stale, with the lead's spawn stubbed the way
+// spawnRunWorkersWithPrompt does it: EnsureWorkers over jarvis.SpawnRunWorker, then the new oref persisted.
+type relaunchFixture struct {
+	*mergeFixture
+	fake    *fakeLead
+	spawns  int
+	prompts []string
+}
+
+func newRelaunchFixture(t *testing.T) *relaunchFixture {
+	t.Helper()
+	f := &relaunchFixture{mergeFixture: newMergeFixture(t, []waveobj.TaskNode{{ID: "t-0", Label: "only"}}), fake: newFakeLead(t)}
+	stampLeadTab(t, f.mergeFixture)
+	f.fake.state = leadState{BlockId: wakeLeadBlock, TabId: "lead-tab"}
+	oldSpawn, oldHook := jarvis.SpawnRunWorker, LaunchLeadHook
+	jarvis.SpawnRunWorker = func(_ context.Context, _ runroute.Capability, _, _, _, prompt string, _ jarvis.RunWorkerOptions) (string, error) {
+		f.spawns++
+		f.prompts = append(f.prompts, prompt)
+		return "tab:new-tab", nil
+	}
+	LaunchLeadHook = func(ctx context.Context, channelId, runId, prompt string) error {
+		run, err := wstore.GetRun(ctx, channelId, runId)
+		if err != nil {
+			return err
+		}
+		spawned, err := jarvis.EnsureWorkers(ctx, run, runroute.Capability{}, "proj", prompt)
+		if err != nil {
+			return err
+		}
+		return wstore.UpdateRun(ctx, channelId, runId, func(r *waveobj.Run) error {
+			for i, w := range spawned {
+				r.Phases[i].WorkerOrefs = append(r.Phases[i].WorkerOrefs, w.ORef)
+			}
+			return nil
+		})
+	}
+	t.Cleanup(func() { jarvis.SpawnRunWorker, LaunchLeadHook = oldSpawn, oldHook })
+	return f
+}
+
+func TestRelaunchLeadRefusesWhileTheLeadIsAlive(t *testing.T) {
+	f := newRelaunchFixture(t)
+	f.fake.state.Alive = true
+	err := RelaunchLead(f.ctx, f.channel, f.ownerID)
+	if err == nil || !strings.Contains(err.Error(), "still running") {
+		t.Fatalf("a live lead must not be replaced, got %v", err)
+	}
+	if f.spawns != 0 || runTabID(f.owner(t)) != "lead-tab" {
+		t.Fatalf("a refused relaunch changes nothing, got %d spawns, tab %q", f.spawns, runTabID(f.owner(t)))
+	}
+}
+
+func TestRelaunchLeadReplacesTheStaleTabOref(t *testing.T) {
+	f := newRelaunchFixture(t)
+	if err := RelaunchLead(f.ctx, f.channel, f.ownerID); err != nil {
+		t.Fatal(err)
+	}
+	if f.spawns != 1 {
+		t.Fatalf("want one replacement lead spawned, got %d", f.spawns)
+	}
+	if got := f.owner(t).Phases[0].WorkerOrefs; len(got) != 1 || got[0] != "tab:new-tab" {
+		t.Fatalf("the phase must name only the new tab, got %v", got)
+	}
+}
+
+func TestRelaunchLeadResumesWakes(t *testing.T) {
+	f := newRelaunchFixture(t)
+	wakes.lock.Lock()
+	wakes.leadDiedLocked(f.ctx, f.ownerID, wakes.runLocked(f.channel, f.ownerID), leadNotRunningNote)
+	wakes.lock.Unlock()
+	PostWake(f.ctx, f.channel, f.ownerID, failedLine)
+	if len(f.fake.sends) != 0 || f.fake.countKind(waveobj.RunEventKindLeadWakeFailed) != 2 {
+		t.Fatalf("a dead lead records the wake as failed, got sends %q rows %+v", f.fake.sends, f.fake.rows)
+	}
+	if err := RelaunchLead(f.ctx, f.channel, f.ownerID); err != nil {
+		t.Fatal(err)
+	}
+	f.fake.state = leadState{BlockId: wakeLeadBlock, TabId: "new-tab", Alive: true, State: baseds.AgentState_Idle}
+	PostWake(f.ctx, f.channel, f.ownerID, finishedLine)
+	if len(f.fake.sends) != 1 || f.fake.sends[0] != finishedLine {
+		t.Fatalf("a wake after the relaunch is delivered, got %q", f.fake.sends)
+	}
+	if f.fake.countKind(waveobj.RunEventKindLeadWakeFailed) != 2 {
+		t.Fatalf("the wake must not be recorded as failed, got %+v", f.fake.rows)
+	}
+}
+
+func TestRelaunchLeadCarriesTheHeldLines(t *testing.T) {
+	f := newRelaunchFixture(t)
+	wakes.lock.Lock()
+	rw := wakes.runLocked(f.channel, f.ownerID)
+	rw.lines = []string{failedLine}
+	wakes.leadDiedLocked(f.ctx, f.ownerID, rw, leadNotRunningNote)
+	wakes.lock.Unlock()
+	PostWake(f.ctx, f.channel, f.ownerID, finishedLine)
+	if err := RelaunchLead(f.ctx, f.channel, f.ownerID); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.prompts) != 1 {
+		t.Fatalf("want one prompt, got %q", f.prompts)
+	}
+	p := f.prompts[0]
+	for _, want := range []string{"replacement lead", "do not resubmit the plan", failedLine, finishedLine} {
+		if !strings.Contains(p, want) {
+			t.Errorf("prompt lacks %q:\n%s", want, p)
+		}
 	}
 }

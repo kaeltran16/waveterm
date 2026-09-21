@@ -27,6 +27,22 @@ export function shouldPersistResume(provider: string | undefined, rememberFlags:
     return (p === "claude" || p === "opencode" || p === "pi") && rememberFlags === true;
 }
 
+const TERMINAL_RUN_STATUSES = ["done", "failed", "cancelled"];
+
+// Pure: whether ResyncController may relaunch an agent block when its terminal view mounts. A block an
+// engine stamped with agent:runid belongs to a run; once that run is over the backend has closed it, so
+// relaunching would resurrect a worker under a dead run. An unknown status (run not loadable) and a block
+// with no agent:runid (hand-launched) relaunch as before.
+export function shouldRelaunchWorker(
+    meta: Record<string, unknown> | undefined,
+    runStatus: string | undefined
+): boolean {
+    if (!meta?.["agent:runid"]) {
+        return true;
+    }
+    return !TERMINAL_RUN_STATUSES.includes(runStatus ?? "");
+}
+
 function sameArgs(a: string[], b: string[]): boolean {
     return a.length === b.length && a.every((v, i) => v === b[i]);
 }

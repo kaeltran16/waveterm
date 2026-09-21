@@ -25,6 +25,9 @@ import (
 type RunWorkerSpec struct {
 	Bin  string
 	Args []string
+	// BaseArgs is Args without the session id and the prompt: the launch flags resume-on-reopen recomposes
+	// as `<bin> --resume <id> <BaseArgs>`. --session-id is left out because a resume names its own session.
+	BaseArgs []string
 }
 
 // RunWorkerSpecFor resolves the unattended worker launch form from one validated capability. The
@@ -48,12 +51,13 @@ func RunWorkerSpecFor(cap runroute.Capability, sessionId, prompt string) (RunWor
 	default:
 		return RunWorkerSpec{}, false
 	}
+	baseArgs := append(append([]string{}, args...), cap.ModelArgs...)
 	if sessionId != "" {
 		args = append(args, "--session-id", sessionId)
 	}
 	args = append(args, cap.ModelArgs...)
 	args = append(args, prompt)
-	return RunWorkerSpec{Bin: h.Bin, Args: args}, true
+	return RunWorkerSpec{Bin: h.Bin, Args: args, BaseArgs: baseArgs}, true
 }
 
 // SpawnRunWorker creates a background tab running the runtime's unattended worker form in cwd and
@@ -76,6 +80,10 @@ type RunWorkerOptions struct {
 	SessionId string
 	// Label, when set, is the tab's session:label: the name every surface shows ahead of the agent's ai-title.
 	Label string
+	// RunId and TaskId, when set, are stamped on the worker block so the frontend can tell a dead run's
+	// worker from a live one before relaunching it. TaskId is empty for a lead.
+	RunId  string
+	TaskId string
 }
 
 // createWorkerTab is the tab-creation seam, so tests make a tab without a layout or a live workspace.
@@ -105,11 +113,17 @@ func configureAndStartWorker(ctx context.Context, tabID, blockID string, meta wa
 // makeWorkerBlockMeta builds the block meta for a run worker. keepOnExit is true for
 // orchestrator leads, whose tab must outlive the lead process while DAG children run.
 func makeWorkerBlockMeta(spec RunWorkerSpec, cwd string, keepOnExit bool) waveobj.MetaMapType {
+	// non-nil even when empty: a missing agent:baseargs reads as "launched before resume support"
+	baseArgs := spec.BaseArgs
+	if baseArgs == nil {
+		baseArgs = []string{}
+	}
 	m := waveobj.MetaMapType{
 		waveobj.MetaKey_View:       "term",
 		waveobj.MetaKey_Controller: "cmd",
 		waveobj.MetaKey_Cmd:        spec.Bin,
 		waveobj.MetaKey_CmdArgs:    spec.Args,
+		"agent:baseargs":           baseArgs,
 		waveobj.MetaKey_CmdShell:   false,
 		waveobj.MetaKey_CmdJwt:     true,
 	}
@@ -162,6 +176,12 @@ var SpawnRunWorker = func(ctx context.Context, cap runroute.Capability, workspac
 	blockId := tab.BlockIds[0]
 
 	blockMeta := makeWorkerBlockMeta(spec, cwd, opts.KeepOnExit)
+	if opts.RunId != "" {
+		blockMeta["agent:runid"] = opts.RunId
+	}
+	if opts.TaskId != "" {
+		blockMeta["agent:taskid"] = opts.TaskId
+	}
 	// Tab meta: put the worker in the agent roster (and route the external status reporter). These keys
 	// have no generated constants; the literals match the frontend (see launchAgent).
 	tabMeta := waveobj.MetaMapType{
@@ -227,7 +247,7 @@ func EnsureWorkers(ctx context.Context, run *waveobj.Run, cap runroute.Capabilit
 		}
 		// without a session id the evidence seal can only guess the transcript from the worker's cwd, where
 		// another agent's session may be newer
-		opts := RunWorkerOptions{KeepOnExit: run.Mode == RunMode_Orchestrator, SessionId: uuid.NewString()}
+		opts := RunWorkerOptions{KeepOnExit: run.Mode == RunMode_Orchestrator, SessionId: uuid.NewString(), RunId: run.ID}
 		if run.Mode == RunMode_Orchestrator {
 			// named after its run: its ai-title would come from its first prompt, which on a plan run is a wake
 			opts.Label = strings.TrimSpace(strings.SplitN(run.Goal, "\n", 2)[0])

@@ -218,6 +218,24 @@ func childStillWorking(ctx context.Context, t *waveobj.TaskNode, run *waveobj.Ru
 	return false
 }
 
+// workerControllerGone reports whether a child's worker block exists but no controller runs it, which is
+// what a machine restart leaves behind: the block is in the store, the process is not. An unresolvable
+// worker (no tab yet, a run without one) is not gone, only unknown. A var so tests can script it.
+var workerControllerGone = func(ctx context.Context, run *waveobj.Run) bool {
+	if run == nil {
+		return false
+	}
+	tabId := runTabID(run)
+	if tabId == "" {
+		return false
+	}
+	tab, err := wstore.DBGet[*waveobj.Tab](ctx, tabId)
+	if err != nil || tab == nil || len(tab.BlockIds) == 0 {
+		return false
+	}
+	return blockcontroller.GetBlockControllerRuntimeStatus(tab.BlockIds[0]) == nil
+}
+
 // hungWake is the judgment line for a task that just stalled, or "" when its worker is not hung. A worker
 // whose process exited fails through the exit path, and one waiting on an answer belongs to the question
 // queue, so neither is the lead's to judge here.

@@ -15,7 +15,7 @@ type DagCommands interface {
 	DagSubmitCommand(ctx context.Context, data CommandDagSubmitData) (*waveobj.TaskGroup, error)                      // validate + persist a TaskGroup for an orchestrator run
 	DagPlanPreviewCommand(ctx context.Context, data CommandDagPlanPreviewData) (*CommandDagPlanPreviewRtnData, error) // parse a plan file for + Run before any run exists
 	DagStatusCommand(ctx context.Context, data CommandDagStatusData) (*CommandDagStatusRtnData, error)                // engine-owned status snapshot: group + typed digest
-	DagActionCommand(ctx context.Context, data CommandDagActionData) error                                            // approve | sendback | retry | skip | escalate | cancel | forward
+	DagActionCommand(ctx context.Context, data CommandDagActionData) error                                            // approve | sendback | retry | skip | escalate | cancel | forward | relaunch-lead
 	DagMergeCommand(ctx context.Context, data CommandDagMergeData) error                                              // squash-merge a finished child's worktree back
 	DagMergeContinueCommand(ctx context.Context, data CommandDagMergeData) error                                      // finish a resolved squash merge, or re-run a failed Verify
 	DagAsksCommand(ctx context.Context, data CommandDagStatusData) (*CommandDagAsksRtnData, error)                    // pending child asks (children block on one at a time)
@@ -69,7 +69,7 @@ type CommandDagActionData struct {
 	ChannelId string `json:"channelid"`
 	RunId     string `json:"runid"`
 	TaskId    string `json:"taskid"`
-	Action    string `json:"action"`            // approve | sendback | retry | skip | escalate | cancel | forward | takeover
+	Action    string `json:"action"`            // approve | sendback | retry | skip | escalate | cancel | forward | takeover | relaunch-lead
 	Model     string `json:"model,omitempty"`   // escalate target model (exact id); required
 	Runtime   string `json:"runtime,omitempty"` // escalate target runtime; empty = task's current runtime
 	Notes     string `json:"notes,omitempty"`   // forward: what the lead checked and recommends, shown to the human

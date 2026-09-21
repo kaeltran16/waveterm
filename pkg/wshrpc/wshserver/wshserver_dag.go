@@ -333,6 +333,8 @@ func (ws *WshServer) DagActionCommand(ctx context.Context, data wshrpc.CommandDa
 		return orchestrate.ForwardTask(ctx, run.DagORef, data.TaskId, data.Notes)
 	case "takeover":
 		return orchestrate.TakeOverAsk(ctx, run.DagORef, data.TaskId)
+	case "relaunch-lead":
+		return orchestrate.RelaunchLead(ctx, data.ChannelId, data.RunId)
 	}
 	target := waveobj.RoutePin{Runtime: data.Runtime, Model: data.Model}
 	return orchestrate.ApplyAction(ctx, run.DagORef, data.TaskId, data.Action, target)

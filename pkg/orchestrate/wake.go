@@ -101,6 +101,8 @@ type runWake struct {
 	launchLines []string
 	// launchedAt is the UnixMilli its first lead's spawn returned, 0 for a lead the run started with.
 	launchedAt int64
+	// missed is the judgment a dead lead left unread, kept so a relaunched lead can be told what it missed.
+	missed []string
 }
 
 type waker struct {
@@ -131,6 +133,7 @@ func PostWake(ctx context.Context, channelId, runId, line string) {
 	defer wakes.lock.Unlock()
 	rw := wakes.runLocked(channelId, runId)
 	if rw.dead {
+		rw.missed = append(rw.missed, line)
 		appendRunEvent(ctx, channelId, runId, waveobj.RunEventKindLeadWakeFailed, nil, map[string]any{"reason": leadDeadNote, "lines": []string{line}})
 		return
 	}
@@ -346,10 +349,89 @@ func startLead(ctx context.Context, channelId, runId, wake string) error {
 	return LaunchLeadHook(ctx, channelId, runId, jarvis.PlanLeadPrompt(run.Principles, runId, g.SpecPath, g.PlanPath, wake))
 }
 
+// RelaunchLead brings back a lead that died after its plan was submitted. The replacement is told the
+// dag is mid-flight and given what the dead lead missed, not the run's first prompt: a lead that thinks it
+// is starting over re-dispatches work. A run whose lead process still runs is refused. A failed spawn
+// leaves the lead marked dead, so its judgment keeps going to the human.
+func RelaunchLead(ctx context.Context, channelId, runId string) error {
+	run, err := wstore.GetRun(ctx, channelId, runId)
+	if err != nil {
+		return fmt.Errorf("loading run: %w", err)
+	}
+	if run.DagORef == "" || jarvis.RunningPhaseIndex(*run) < 0 {
+		return fmt.Errorf("run %s has no running plan to hand to a lead", runId)
+	}
+	if leadStateFn(ctx, channelId, runId).Alive {
+		return fmt.Errorf("run %s's lead is still running", runId)
+	}
+	missed, err := wakes.beginRelaunch(channelId, runId)
+	if err != nil {
+		return err
+	}
+	wake := replacementLeadWake(missed)
+	// a phase that still names the dead lead's tab is skipped by EnsureWorkers, which is what spawns the new one
+	err = clearLeadTab(ctx, channelId, runId)
+	if err == nil {
+		err = startLead(ctx, channelId, runId, wake)
+	}
+	wakes.endRelaunch(ctx, channelId, runId, wake, err)
+	return err
+}
+
+func (w *waker) beginRelaunch(channelId, runId string) ([]string, error) {
+	w.lock.Lock()
+	defer w.lock.Unlock()
+	rw := w.runLocked(channelId, runId)
+	if rw.launching {
+		return nil, fmt.Errorf("run %s's lead is already being started", runId)
+	}
+	rw.launching = true
+	return append([]string{}, rw.missed...), nil
+}
+
+func (w *waker) endRelaunch(ctx context.Context, channelId, runId, wake string, err error) {
+	w.lock.Lock()
+	defer w.lock.Unlock()
+	rw := w.runLocked(channelId, runId)
+	rw.launching = false
+	if err != nil {
+		return
+	}
+	rw.dead, rw.missed, rw.sentAt, rw.retried, rw.launchedAt = false, nil, 0, false, wakeNow()
+	appendRunEvent(ctx, channelId, runId, waveobj.RunEventKindLeadLaunched, nil, map[string]any{"text": wake})
+}
+
+func replacementLeadWake(missed []string) string {
+	var b strings.Builder
+	b.WriteString("You are a replacement lead: the lead before you exited while the run was still going. The dag is already running, so do not resubmit the plan or redispatch tasks. Start with `wsh jarvis dag status`.")
+	if len(missed) > 0 {
+		b.WriteString("\nEvents that arrived while no lead was running:\n")
+		b.WriteString(strings.Join(missed, "\n"))
+	}
+	return b.String()
+}
+
+// clearLeadTab drops the run's stale lead tab oref, leaving the tab itself for the human to read.
+func clearLeadTab(ctx context.Context, channelId, runId string) error {
+	return wstore.UpdateRun(ctx, channelId, runId, func(r *waveobj.Run) error {
+		for i := range r.Phases {
+			kept := r.Phases[i].WorkerOrefs[:0]
+			for _, oref := range r.Phases[i].WorkerOrefs {
+				if !strings.HasPrefix(oref, "tab:") {
+					kept = append(kept, oref)
+				}
+			}
+			r.Phases[i].WorkerOrefs = kept
+		}
+		return nil
+	})
+}
+
 // leadDiedLocked hands the lead's judgment to the human (G8): held events go on the lead-wake-failed
 // row, and every question the lead owns moves to the user.
 func (w *waker) leadDiedLocked(ctx context.Context, runId string, rw *runWake, reason string) {
 	lines := rw.lines
+	rw.missed = append(rw.missed, lines...)
 	rw.lines, rw.sentAt, rw.retried, rw.dead, rw.handoff = nil, 0, false, true, false
 	appendRunEvent(ctx, rw.channelId, runId, waveobj.RunEventKindLeadWakeFailed, nil, map[string]any{"reason": reason, "lines": lines})
 	for oref, p := range leadAsks(runId) {
