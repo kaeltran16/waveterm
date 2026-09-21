@@ -112,6 +112,12 @@ func TestOrchestrationRulesHoldCompleteForTheHuman(t *testing.T) {
 	}
 }
 
+func TestOrchestrationRulesForbidAttributionTrailers(t *testing.T) {
+	if r := OrchestrationRules("run-1", "", ""); !strings.Contains(r, "Co-Authored-By") {
+		t.Fatalf("the lead commits too; its rules must forbid attribution trailers:\n%s", r)
+	}
+}
+
 func TestOrchestrationRulesOmitMissingPaths(t *testing.T) {
 	r := OrchestrationRules("run-1", "", "")
 	if strings.Contains(r, "Spec:") || strings.Contains(r, "Plan:") {

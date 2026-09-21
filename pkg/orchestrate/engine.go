@@ -149,6 +149,36 @@ func cleanupScheduleFailure(ctx, workerCtx context.Context, g *waveobj.TaskGroup
 	return errors.Join(errs...)
 }
 
+// MaxAutoStallRetries is how many times the engine retries a stalled task itself. A stall is otherwise
+// only ever retried by a lead or a human, so a run whose lead is gone stays parked forever; one retry
+// clears the transient hang, and a task that stalls again waits for a human.
+const MaxAutoStallRetries = 1
+
+// autoRetryStalled returns a freshly stalled task to pending when the run has no live lead to judge it,
+// stopping its child first. A run with a live lead is left alone: the lead is woken and decides. The
+// dag-wide failure streak is untouched (RetryTask). Reports whether it retried; a failure to stop the
+// child leaves the task stalled for a human.
+func autoRetryStalled(ctx context.Context, g *waveobj.TaskGroup, taskID string) bool {
+	task := taskByID(g, taskID)
+	if task == nil || task.StallRetries >= MaxAutoStallRetries {
+		return false
+	}
+	if leadStateFn(ctx, g.ChannelId, g.RunID).Alive {
+		return false
+	}
+	if err := cancelAndStopTaskRun(ctx, g, taskID); err != nil {
+		log.Printf("schedule dag %s task %s: auto-retry of stalled task: %v", g.OID, taskID, err)
+		return false
+	}
+	if err := RetryTask(g, taskID); err != nil {
+		log.Printf("schedule dag %s task %s: auto-retry of stalled task: %v", g.OID, taskID, err)
+		return false
+	}
+	task.StallRetries++
+	task.CPUSample, task.CPUSampleTs = 0, 0
+	return true
+}
+
 // failDispatch records a task that died before it ever started. A dispatch failure produces no child
 // run and no transcript, so unless the reason is written here it exists nowhere: the classifier kind
 // lands on the node (feeding the digest's blocking-kind), the message on the task-failed lifecycle
@@ -309,7 +339,8 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		if activity == 0 {
 			t.LastActivity = 0
 		}
-		if t.State == TaskState_Running && t.LastActivity > 0 && now-t.LastActivity > StallThreshold.Milliseconds() {
+		if t.State == TaskState_Running && t.LastActivity > 0 && now-t.LastActivity > StallThreshold.Milliseconds() &&
+			!childStillWorking(ctx, t, runs[t.RunID], now) {
 			t.State = TaskState_Stalled
 		}
 		// first-token deadline: a child that has written nothing has no mtime to age, so without this
@@ -340,9 +371,15 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 				since = spawnTs(runs[t.RunID])
 			}
 			hung := hungWake(ctx, taskID, runs[t.RunID], now-since)
+			retried := autoRetryStalled(ctx, g, taskID)
 			afterCommit = append(afterCommit, func() {
 				publishDagEvent(DagEventTaskStalled, g, taskID)
 				appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskStalled, nil, map[string]any{"taskid": taskID})
+				if retried {
+					publishDagEvent(DagEventTaskRetried, g, taskID)
+					appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskRetried, nil, map[string]any{"taskid": taskID, "kind": TaskState_Stalled, "auto": true})
+					return
+				}
 				if hung != "" {
 					PostWake(ctx, g.ChannelId, g.RunID, hung)
 				}
@@ -602,7 +639,7 @@ func workerContract(g *waveobj.TaskGroup, task *waveobj.TaskNode, runtime string
 	if g.Verify != "" {
 		fmt.Fprintf(&b, " Don't run the plan's full Verify (`%s`): the engine runs it after your task merges.", g.Verify)
 	}
-	b.WriteString(" Commit, then `wsh jarvis complete --commit $(git rev-parse HEAD)`.")
+	b.WriteString(" Commit, then `wsh jarvis complete --commit $(git rev-parse HEAD)`. " + jarvis.NoAttributionRule)
 	if g.PlanPath != "" {
 		b.WriteString("\nIf your context was compacted, re-read your task from the plan.")
 	}

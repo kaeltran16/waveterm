@@ -153,6 +153,13 @@ func TestTaskPromptWithoutPlanHeader(t *testing.T) {
 	}
 }
 
+func TestWorkerContractForbidsAttributionTrailers(t *testing.T) {
+	c := workerContract(&waveobj.TaskGroup{}, &waveobj.TaskNode{ID: "t-3"}, "claude")
+	if !strings.Contains(c, "Co-Authored-By") {
+		t.Fatalf("contract must forbid attribution trailers:\n%s", c)
+	}
+}
+
 func TestWorkerContractNamesPlanSpecVerifyAndTool(t *testing.T) {
 	g := &waveobj.TaskGroup{PlanPath: "C:/p/plan.md", SpecPath: "C:/p/spec.md", Verify: "go test ./..."}
 	c := workerContract(g, &waveobj.TaskNode{ID: "t-3"}, "pi")
@@ -1207,5 +1214,89 @@ func TestScheduleRecordsASpawnEvenWhenTheCallerGaveUp(t *testing.T) {
 	}
 	if stored.Tasks[0].State != TaskState_Running || stored.Tasks[0].RunID == "" {
 		t.Fatalf("t-0 must be running with a recorded child run, got state %q runid %q", stored.Tasks[0].State, stored.Tasks[0].RunID)
+	}
+}
+
+// stalledNoLead is seedSilentChild with the run's lead process gone, so its task stalls on the next tick
+// with nobody to judge it.
+func stalledNoLead(t *testing.T, name string, alive bool) (*fakeLead, context.Context, *waveobj.TaskGroup, string) {
+	t.Helper()
+	f := newFakeLead(t)
+	f.state.Alive = alive
+	ctx, g := seedSilentChild(t, name)
+	return f, ctx, g, mustLoadDag(t, ctx, g.OID).Tasks[0].RunID
+}
+
+func TestStalledTaskAutoRetriesWithoutALead(t *testing.T) {
+	f, ctx, g, oldRun := stalledNoLead(t, "auto-retry", false)
+	stubSpawnWorker(t, "tab:retry-worker", nil)
+
+	if err := ScheduleOnce(ctx, g); err != nil {
+		t.Fatal(err)
+	}
+	task := g.Tasks[0]
+	if task.StallRetries != 1 || task.Attempts != 0 {
+		t.Fatalf("want one stall retry and the failure streak untouched, got stallretries=%d attempts=%d", task.StallRetries, task.Attempts)
+	}
+	if task.State != TaskState_Running || task.RunID == "" || task.RunID == oldRun {
+		t.Fatalf("the retried task is dispatched again under a new run, got state=%s run=%q (was %q)", task.State, task.RunID, oldRun)
+	}
+	if old, err := wstore.GetRun(ctx, g.ChannelId, oldRun); err != nil || old.Status != jarvis.RunStatus_Cancelled {
+		t.Fatalf("the stalled child run is cancelled, got %+v err=%v", old, err)
+	}
+	if n := f.countKind(waveobj.RunEventKindTaskRetried); n != 1 {
+		t.Fatalf("want one task-retried event, got %d", n)
+	}
+	if len(f.sends) != 0 {
+		t.Fatalf("a task the engine retried does not wake a lead, got %q", f.sends)
+	}
+}
+
+func TestAutoRetryStalledReturnsTheTaskToPending(t *testing.T) {
+	_, ctx, g, _ := stalledNoLead(t, "auto-retry-pending", false)
+	g = mustLoadDag(t, ctx, g.OID)
+	g.Tasks[0].State = TaskState_Stalled
+
+	if !autoRetryStalled(ctx, g, "t-0") {
+		t.Fatal("a stalled task with no live lead is retried")
+	}
+	if got := g.Tasks[0]; got.State != TaskState_Pending || got.RunID != "" || got.StallRetries != 1 {
+		t.Fatalf("want pending with no run and one stall retry, got %+v", got)
+	}
+}
+
+func TestStalledTaskWithALiveLeadIsNotAutoRetried(t *testing.T) {
+	f, ctx, g, oldRun := stalledNoLead(t, "auto-retry-live-lead", true)
+
+	if err := ScheduleOnce(ctx, g); err != nil {
+		t.Fatal(err)
+	}
+	task := g.Tasks[0]
+	if task.State != TaskState_Stalled || task.StallRetries != 0 || task.RunID != oldRun {
+		t.Fatalf("a live lead judges the stall, got state=%s stallretries=%d run=%q", task.State, task.StallRetries, task.RunID)
+	}
+	if n := f.countKind(waveobj.RunEventKindTaskRetried); n != 0 {
+		t.Fatalf("want no task-retried event, got %d", n)
+	}
+}
+
+func TestStalledTaskAutoRetriesOnlyOnce(t *testing.T) {
+	f, ctx, g, oldRun := stalledNoLead(t, "auto-retry-once", false)
+	if err := wstore.UpdateDag(ctx, g.OID, func(cur *waveobj.TaskGroup) error {
+		cur.Tasks[0].StallRetries = MaxAutoStallRetries
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ScheduleOnce(ctx, g); err != nil {
+		t.Fatal(err)
+	}
+	task := g.Tasks[0]
+	if task.State != TaskState_Stalled || task.StallRetries != MaxAutoStallRetries || task.RunID != oldRun {
+		t.Fatalf("a task already auto-retried waits for a human, got state=%s stallretries=%d run=%q", task.State, task.StallRetries, task.RunID)
+	}
+	if n := f.countKind(waveobj.RunEventKindTaskRetried); n != 0 {
+		t.Fatalf("want no task-retried event, got %d", n)
 	}
 }

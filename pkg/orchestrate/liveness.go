@@ -8,6 +8,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/shirou/gopsutil/v4/process"
 	"github.com/wavetermdev/waveterm/pkg/agentask"
 	"github.com/wavetermdev/waveterm/pkg/agentsessions"
 	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
@@ -138,6 +139,70 @@ func readWorkerBlock(ctx context.Context, run *waveobj.Run) (string, bool) {
 	blockId := tab.BlockIds[0]
 	rs := blockcontroller.GetBlockControllerRuntimeStatus(blockId)
 	return blockId, rs != nil && rs.ShellProcStatus == blockcontroller.Status_Running
+}
+
+// childCPUTime reads the CPU time (ms) used so far by a block's whole process tree, and whether a reading
+// exists. A var so tests can script it.
+var childCPUTime = sampleChildCPUTime
+
+func sampleChildCPUTime(blockId string) (int64, bool) {
+	pid := blockcontroller.GetBlockControllerPid(blockId)
+	if pid <= 0 {
+		return 0, false
+	}
+	root, err := process.NewProcess(int32(pid))
+	if err != nil {
+		return 0, false
+	}
+	var totalSec float64
+	for _, p := range processTree(root) {
+		if times, err := p.Times(); err == nil {
+			totalSec += times.User + times.System
+		}
+	}
+	return int64(totalSec * 1000), true
+}
+
+// processTree is root and every descendant. gopsutil lists only direct children, and a test run is a
+// shell, then go, then the compiled test binary.
+func processTree(root *process.Process) []*process.Process {
+	tree := []*process.Process{root}
+	for i := 0; i < len(tree); i++ {
+		children, err := tree[i].Children()
+		if err != nil {
+			continue
+		}
+		tree = append(tree, children...)
+	}
+	return tree
+}
+
+// childStillWorking reports whether a task whose transcript has gone quiet must not be stalled yet:
+// its worker is running and its process tree used CPU since the last sample. A worker sitting in a
+// foreground test run writes no transcript for as long as the run lasts, so the mtime cannot see it.
+// The first reading has nothing to compare with, so it is recorded and the verdict is deferred a tick
+// rather than guessed: a wrong stall costs a retry that kills live work, a late one costs a tick. A
+// changed total counts as activity in either direction, because a child that finished and exited
+// lowers the tree's sum. No reading at all returns false and leaves the mtime rule alone.
+func childStillWorking(ctx context.Context, t *waveobj.TaskNode, run *waveobj.Run, now int64) bool {
+	blockId, alive := workerBlockFn(ctx, run)
+	if !alive {
+		return false
+	}
+	cpu, ok := childCPUTime(blockId)
+	if !ok {
+		return false
+	}
+	prev, hadBaseline := t.CPUSample, t.CPUSampleTs > 0
+	t.CPUSample, t.CPUSampleTs = cpu, now
+	if !hadBaseline {
+		return true
+	}
+	if cpu != prev {
+		t.LastActivity = now
+		return true
+	}
+	return false
 }
 
 // hungWake is the judgment line for a task that just stalled, or "" when its worker is not hung. A worker

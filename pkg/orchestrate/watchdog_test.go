@@ -18,6 +18,8 @@ import (
 
 func TestScheduleOnceFlagsStalledChild(t *testing.T) {
 	allowWorkerHarnessForTest(t)
+	// a live lead judges a stall; with none the engine retries the task itself (autoRetryStalled)
+	newFakeLead(t)
 	ctx := context.Background()
 	cc := &captureClient{}
 	prevClient := wps.Broker.GetClient()
@@ -340,6 +342,8 @@ func TestSafeTickSurvivesPanic(t *testing.T) {
 // child from the deadline and age the claude child into a 15m stall.
 func TestScheduleOnceFirstTokenDeadlineIsPerRuntime(t *testing.T) {
 	allowWorkerHarnessForTest(t)
+	// a live lead judges a stall; with none the engine retries the task itself (autoRetryStalled)
+	newFakeLead(t)
 	ctx := context.Background()
 
 	// no sessions anywhere: the probe is tracked (liveness-capable runtime, launched under a session id)

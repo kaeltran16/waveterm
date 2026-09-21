@@ -207,3 +207,93 @@ func TestStalledTaskWakesLeadOnlyWhenWorkerIsHung(t *testing.T) {
 		})
 	}
 }
+
+// seedQuietChild records a running pi child whose transcript last moved past StallThreshold ago, under a
+// live lead so a stall stays a stall. It returns the dag and the transcript's mtime.
+func seedQuietChild(t *testing.T, name string) (context.Context, *waveobj.TaskGroup, int64) {
+	t.Helper()
+	allowWorkerHarnessForTest(t)
+	f := newFakeLead(t)
+	f.state.Alive = true
+	root := t.TempDir()
+	stubSessionsRoot(t, root)
+	quiet := time.Now().Add(-StallThreshold - time.Minute)
+	writePiSession(t, root, liveSession, quiet)
+	ctx, g, channelID, _ := seedDispatchDag(t, name)
+	child := jarvis.NewRun("child", "ws-1", t.TempDir(), nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), quiet.UnixMilli())
+	child.Runtime = "pi"
+	child.DagORef = g.OID
+	child.SessionId = liveSession
+	if err := wstore.AppendRun(ctx, channelID, child); err != nil {
+		t.Fatal(err)
+	}
+	if err := wstore.UpdateDag(ctx, g.OID, func(cur *waveobj.TaskGroup) error {
+		cur.Tasks[0].RunID = child.ID
+		cur.Tasks[0].State = TaskState_Running
+		cur.Tasks[0].LastActivity = quiet.UnixMilli()
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	prevBlock := workerBlockFn
+	workerBlockFn = func(context.Context, *waveobj.Run) (string, bool) { return "worker-block", true }
+	t.Cleanup(func() { workerBlockFn = prevBlock })
+	return ctx, g, quiet.UnixMilli()
+}
+
+func stubChildCPU(t *testing.T, sample func(call int) (int64, bool)) {
+	t.Helper()
+	prev, calls := childCPUTime, 0
+	childCPUTime = func(string) (int64, bool) {
+		calls++
+		return sample(calls)
+	}
+	t.Cleanup(func() { childCPUTime = prev })
+}
+
+func tick(t *testing.T, ctx context.Context, g *waveobj.TaskGroup) *waveobj.TaskNode {
+	t.Helper()
+	if err := ScheduleOnce(ctx, g); err != nil {
+		t.Fatal(err)
+	}
+	return &g.Tasks[0]
+}
+
+// A worker sitting in a foreground test run writes no transcript, but its process tree is using CPU.
+func TestBusyChildIsNotStalled(t *testing.T) {
+	ctx, g, quiet := seedQuietChild(t, "busy-child")
+	stubChildCPU(t, func(call int) (int64, bool) { return int64(call) * 1000, true })
+
+	if task := tick(t, ctx, g); task.State != TaskState_Running {
+		t.Fatalf("the first reading is only a baseline, got %s", task.State)
+	}
+	before := time.Now().UnixMilli()
+	task := tick(t, ctx, g)
+	if task.State != TaskState_Running {
+		t.Fatalf("a child whose CPU advanced is not stalled, got %s", task.State)
+	}
+	if task.LastActivity <= quiet || task.LastActivity < before {
+		t.Fatalf("busy CPU refreshes LastActivity past the transcript's %d, got %d", quiet, task.LastActivity)
+	}
+}
+
+func TestIdleChildStillStalls(t *testing.T) {
+	ctx, g, _ := seedQuietChild(t, "idle-child")
+	stubChildCPU(t, func(int) (int64, bool) { return 5000, true })
+
+	if task := tick(t, ctx, g); task.State != TaskState_Running {
+		t.Fatalf("the first reading is only a baseline, got %s", task.State)
+	}
+	if task := tick(t, ctx, g); task.State != TaskState_Stalled {
+		t.Fatalf("a child with flat CPU stalls, got %s", task.State)
+	}
+}
+
+func TestNoCPUReadingLeavesTheMtimeRule(t *testing.T) {
+	ctx, g, _ := seedQuietChild(t, "no-cpu-reading")
+	stubChildCPU(t, func(int) (int64, bool) { return 0, false })
+
+	if task := tick(t, ctx, g); task.State != TaskState_Stalled {
+		t.Fatalf("with no CPU reading the transcript age decides, got %s", task.State)
+	}
+}

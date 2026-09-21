@@ -3714,6 +3714,9 @@ declare global {
         merged?: boolean;
         runspec?: RunSpec;
         lastactivity?: number;
+        cpusample?: number;
+        cpusamplets?: number;
+        stallretries?: number;
         firstactivity?: number;
         toldts?: number;
         attempts?: number;

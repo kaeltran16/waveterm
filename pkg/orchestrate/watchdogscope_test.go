@@ -21,6 +21,8 @@ import (
 func silentSiblingDag(t *testing.T, name string, mutate func(*waveobj.TaskGroup)) (context.Context, string, *int) {
 	t.Helper()
 	allowWorkerHarnessForTest(t)
+	// a live lead judges a stall; with none the engine retries the task itself (autoRetryStalled)
+	newFakeLead(t)
 	ctx := context.Background()
 	oldRoot := sessionsRootFor
 	sessionsRootFor = func(string) string { return t.TempDir() }

@@ -21,6 +21,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/jobcontroller"
 	"github.com/wavetermdev/waveterm/pkg/remote"
 	"github.com/wavetermdev/waveterm/pkg/remote/conncontroller"
+	"github.com/wavetermdev/waveterm/pkg/shellexec"
 	"github.com/wavetermdev/waveterm/pkg/util/ds"
 	"github.com/wavetermdev/waveterm/pkg/util/shellutil"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
@@ -345,6 +346,25 @@ func GetBlockControllerRuntimeStatus(blockId string) *BlockControllerRuntimeStat
 		return nil
 	}
 	return controller.GetRuntimeStatus()
+}
+
+// GetBlockControllerPid is the OS pid of a block's local shell process, or 0 when there is none to read
+// (remote and wsl blocks, or a block that has not started).
+func GetBlockControllerPid(blockId string) int {
+	sc, ok := getController(blockId).(*ShellController)
+	if !ok || sc == nil {
+		return 0
+	}
+	sc.Lock.Lock()
+	defer sc.Lock.Unlock()
+	if sc.ShellProc == nil {
+		return 0
+	}
+	cw, ok := sc.ShellProc.Cmd.(shellexec.CmdWrap)
+	if !ok || cw.Cmd == nil || cw.Cmd.Process == nil {
+		return 0
+	}
+	return cw.Cmd.Process.Pid
 }
 
 func DestroyBlockController(blockId string) {

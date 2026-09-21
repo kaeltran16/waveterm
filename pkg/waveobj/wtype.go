@@ -336,6 +336,14 @@ type TaskNode struct {
 	// LastActivity is the newest observed child transcript write (UnixMilli). The watchdog flags a
 	// running task stalled when this goes quiet past the stall threshold; 0 = never observed.
 	LastActivity int64 `json:"lastactivity,omitempty"`
+	// CPUSample is the child's process-tree CPU time (ms) read when its transcript had gone quiet, and
+	// CPUSampleTs when (UnixMilli). The next quiet tick compares against it: a worker sitting in a
+	// foreground test run writes nothing but its tree is busy.
+	CPUSample   int64 `json:"cpusample,omitempty"`
+	CPUSampleTs int64 `json:"cpusamplets,omitempty"`
+	// StallRetries counts the times the engine retried this task itself after it stalled with no live
+	// lead to judge it; MaxAutoStallRetries in orchestrate caps it.
+	StallRetries int `json:"stallretries,omitempty"`
 	// FirstActivity is the FIRST observed child transcript write (UnixMilli), stamped once and never
 	// revised. Against the task-spawned row it measures how long a child took to produce anything at
 	// all, which is the span that separates environment setup from cold orientation; 0 = not yet

@@ -56,6 +56,13 @@ func TestMergeSquashKeepsTheWorkersCommitMessages(t *testing.T) {
 	}
 }
 
+func TestStripAttributionDropsAgentCreditAndKeepsTheRunTrailer(t *testing.T) {
+	msg := "feat(x): add it\n\nwhy\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_1\nArc-Run: run-1"
+	if got, want := stripAttribution(msg), "feat(x): add it\n\nwhy\n\nArc-Run: run-1"; got != want {
+		t.Fatalf("stripAttribution = %q, want %q", got, want)
+	}
+}
+
 // a branch whose commits carry no message lands under the lane's task titles
 func TestMergeSquashFallsBackToTheLaneLabel(t *testing.T) {
 	dir := newGitRepo(t)
