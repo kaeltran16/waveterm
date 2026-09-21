@@ -488,7 +488,15 @@ closed in `docs/open-issues.md` point here.
     `worker-exited` event. Quitting the app mid-run should not fail it.
   - **Chunk 8, the record peek** (`293f55ca`, frontend only): open a record peek, raise its confirm and press
     Escape. Only the confirm should close, and focus should return to the peek.
-- **The hung overlay covers Claude Code only** (F25). pi is excluded until its TUI output is measured.
+- **The hung overlay covers Claude Code only** (F25), and that is now the settled answer rather than an
+  unmeasured gap. pi was measured on 2026-09-21: while a tool call is pending its TUI redraws an elapsed
+  counter about once a second, but the moment the tool returns it renders nothing at all until the model
+  replies — a minimal turn (run one `ping`, report the exit code) sat silent for 142.8s. `HUNG_AFTER_MS`
+  is 180s and the frontend reads a `lastoutputts` that `blockcontroller` publishes on a 30s throttle, so
+  the overlay can fire at ~150s of real silence: pi cleared a false `hung` by about 7 seconds on the
+  simplest turn there is. The silence is bounded by model latency, which grows with reasoning effort and
+  context, so no threshold is both safe and tight enough to be useful. Covering pi needs a liveness
+  signal other than PTY bytes.
 - **The frontend `deleteChannel` wrapper is gone.** It had no caller after `5827e43b` deleted the rest of the
   channel lifecycle stack. The `deletechannel` RPC and `DeleteChannelCommand` stay: `scripts/cdp/scenarios.mjs`,
   `scripts/cdp-e2e-runs-piece4.mjs` and `scripts/cdp-profile-verify.mjs` use it as their teardown.
