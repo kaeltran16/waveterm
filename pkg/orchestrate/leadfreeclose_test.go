@@ -7,6 +7,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
@@ -24,9 +25,14 @@ func stubSealHook(t *testing.T) *[][2]string {
 	return &sealed
 }
 
-// stampLeadTab gives the owner run a lead worker, the thing that makes a run someone else's to close.
+// stampLeadTab gives the owner run a lead worker with a live process, the thing that makes a run someone
+// else's to close.
 func stampLeadTab(t *testing.T, f *mergeFixture) {
 	t.Helper()
+	stubBlockShellStatus(t, blockcontroller.Status_Running)
+	if err := wstore.DBInsert(f.ctx, &waveobj.Tab{OID: "lead-tab", BlockIds: []string{"lead-block"}, Meta: waveobj.MetaMapType{}}); err != nil {
+		t.Fatal(err)
+	}
 	if err := wstore.UpdateRun(f.ctx, f.channel, f.ownerID, func(r *waveobj.Run) error {
 		r.Phases[0].WorkerOrefs = []string{"tab:lead-tab"}
 		return nil

@@ -439,9 +439,7 @@ func readLeadState(ctx context.Context, channelId, runId string) leadState {
 	st := leadState{BlockId: tab.BlockIds[0], TabId: tabId}
 	rs := blockcontroller.GetBlockControllerRuntimeStatus(st.BlockId)
 	st.Starting = rs == nil || rs.ShellProcStatus == blockcontroller.Status_Init
-	if rs != nil {
-		st.Alive = rs.ShellProcStatus == blockcontroller.Status_Running
-	}
+	st.Alive = blockRunning(st.BlockId)
 	st.State = latestAgentState(st.BlockId, tabId)
 	return st
 }

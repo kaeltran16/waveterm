@@ -8,7 +8,11 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/google/uuid"
+	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
+	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
 // stubLeadTabDelete makes DeleteTab queue the workspace and tab updates it would, then return err.
@@ -45,5 +49,70 @@ func TestDeleteLeadTabBroadcastsAfterAFailure(t *testing.T) {
 	}
 	if len(*sent) != 1 {
 		t.Fatalf("want the partial updates broadcast, got %d broadcasts", len(*sent))
+	}
+}
+
+// stubBlockShellStatus fakes the block controller's process status, "" meaning it has no controller.
+func stubBlockShellStatus(t *testing.T, status string) {
+	t.Helper()
+	old := blockShellStatus
+	t.Cleanup(func() { blockShellStatus = old })
+	blockShellStatus = func(string) string { return status }
+}
+
+// deadLeadFixture is a finished dag under an owner run whose orchestrate phase carries a lead tab.
+func deadLeadFixture(t *testing.T) (*waveobj.Run, *waveobj.TaskGroup) {
+	t.Helper()
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "leadclose-"+uuid.NewString(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	tabID, blockID := uuid.NewString(), uuid.NewString()
+	if err := wstore.DBInsert(ctx, &waveobj.Tab{OID: tabID, BlockIds: []string{blockID}, Meta: waveobj.MetaMapType{}}); err != nil {
+		t.Fatal(err)
+	}
+	owner := jarvis.NewRun("goal", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
+	owner.Phases[0].WorkerOrefs = []string{"tab:" + tabID}
+	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
+		t.Fatal(err)
+	}
+	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 1, false, []waveobj.TaskNode{{ID: "t-0", Label: "a"}}, 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.Status = DagStatus_Done
+	g.Tasks[0].State = TaskState_Done
+	return &owner, &g
+}
+
+func TestMaybeCompleteLeadFreeRunClosesARunWhoseLeadProcessIsGone(t *testing.T) {
+	stubBlockShellStatus(t, blockcontroller.Status_Done)
+	owner, g := deadLeadFixture(t)
+	if !MaybeCompleteLeadFreeRun(context.Background(), owner, g) {
+		t.Fatal("a lead tab with no live process must not keep a finished run open")
+	}
+	if owner.Status != jarvis.RunStatus_Done {
+		t.Fatalf("run status = %q, want done", owner.Status)
+	}
+}
+
+func TestMaybeCompleteLeadFreeRunLeavesARunWithALiveLead(t *testing.T) {
+	stubBlockShellStatus(t, blockcontroller.Status_Running)
+	owner, g := deadLeadFixture(t)
+	before := owner.Status
+	if MaybeCompleteLeadFreeRun(context.Background(), owner, g) {
+		t.Fatal("a live lead still owes the human a summary")
+	}
+	if owner.Status != before {
+		t.Fatalf("run status = %q, want unchanged %q", owner.Status, before)
+	}
+}
+
+func TestMaybeCompleteLeadFreeRunLeavesALeadStillStarting(t *testing.T) {
+	stubBlockShellStatus(t, blockcontroller.Status_Init)
+	owner, g := deadLeadFixture(t)
+	if MaybeCompleteLeadFreeRun(context.Background(), owner, g) {
+		t.Fatal("a lead mid-launch must not be closed out from under it")
 	}
 }

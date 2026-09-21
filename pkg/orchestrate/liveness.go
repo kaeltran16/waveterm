@@ -137,8 +137,21 @@ func readWorkerBlock(ctx context.Context, run *waveobj.Run) (string, bool) {
 		return "", false
 	}
 	blockId := tab.BlockIds[0]
-	rs := blockcontroller.GetBlockControllerRuntimeStatus(blockId)
-	return blockId, rs != nil && rs.ShellProcStatus == blockcontroller.Status_Running
+	return blockId, blockRunning(blockId)
+}
+
+// blockShellStatus is a block's shell process status, "" when it has no controller. Var so tests need no
+// real block controller.
+var blockShellStatus = func(blockId string) string {
+	if rs := blockcontroller.GetBlockControllerRuntimeStatus(blockId); rs != nil {
+		return rs.ShellProcStatus
+	}
+	return ""
+}
+
+// blockRunning reports whether the block's shell process is running. A block still starting is not.
+func blockRunning(blockId string) bool {
+	return blockShellStatus(blockId) == blockcontroller.Status_Running
 }
 
 // childCPUTime reads the CPU time (ms) used so far by a block's whole process tree, and whether a reading

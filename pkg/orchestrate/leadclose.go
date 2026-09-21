@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
@@ -84,13 +85,24 @@ func ShouldCloseOrchestratorLead(run *waveobj.Run, dag *waveobj.TaskGroup) bool 
 	return allTasksTerminal(dag)
 }
 
+// leadProcessAlive reports whether the tab's agent block has a live controller. A lead still starting
+// counts as alive, so a run whose lead is mid-launch is not closed out from under it.
+func leadProcessAlive(tabID string) bool {
+	tab, err := wstore.DBGet[*waveobj.Tab](context.Background(), tabID)
+	if err != nil || tab == nil || len(tab.BlockIds) == 0 {
+		return false
+	}
+	status := blockShellStatus(tab.BlockIds[0])
+	return status == blockcontroller.Status_Running || status == blockcontroller.Status_Init
+}
+
 // SealRunEvidenceHook seals a done run's evidence snapshot. Wired to wshserver at startup so a run the
 // engine closes itself gets the same snapshot `wsh jarvis complete` produces; no-op by default, because
 // wsh and the tests link this package without the server.
 var SealRunEvidenceHook = func(channelId, runId string) {}
 
 // MaybeCompleteLeadFreeRun closes an owner run whose DAG finished but which has no lead to report the
-// completion. RunStatus_Done is only ever written by CompletePhase, reachable only through
+// completion (no lead tab, or one whose process is gone). RunStatus_Done is only ever written by CompletePhase, reachable only through
 // `wsh jarvis complete` — so a human-planned run (DeferStart never spawns a lead) finished its DAG and
 // then sat in planning forever, its evidence never sealed. Returns true when it closed the run.
 //
@@ -106,9 +118,9 @@ func MaybeCompleteLeadFreeRun(ctx context.Context, run *waveobj.Run, dag *waveob
 	if run.Status == jarvis.RunStatus_Done || run.Status == jarvis.RunStatus_Cancelled {
 		return false
 	}
-	// a run that has a lead has someone to report the completion, and that lead may still owe the human
-	// a summary after the last task lands. this path is only for a run that has nobody.
-	if runTabID(run) != "" {
+	// a lead's process, not its tab, is what owes the human a summary after the last task lands. a tab
+	// outlives its process, so one whose controller is gone reports nothing and must not keep the run open.
+	if tabId := runTabID(run); tabId != "" && leadProcessAlive(tabId) {
 		return false
 	}
 	idx := jarvis.RunningPhaseIndex(*run)
