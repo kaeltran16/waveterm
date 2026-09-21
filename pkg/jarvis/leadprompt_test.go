@@ -170,3 +170,18 @@ func TestPlanAuthorIsToldToSplitByIndependentWork(t *testing.T) {
 		}
 	}
 }
+
+// A harness's own commit instructions ask for a credit line and agents follow them over the repo's rules,
+// so every prompt that tells an agent to commit has to countermand it — the merge strip only covers lane
+// squashes, and a quick run's commit lands straight on the branch.
+func TestEveryCommittingPromptCarriesTheNoAttributionRule(t *testing.T) {
+	for name, p := range map[string]string{
+		"quick":               BuildQuickPrompt("add a spinner", nil, "claude"),
+		"orchestrate launch":  BuildOrchestratePrompt("ship auth", nil, "claude"),
+		"orchestration rules": OrchestrationRules("run-1", "", ""),
+	} {
+		if !strings.Contains(p, NoAttributionRule) {
+			t.Errorf("%s prompt tells the agent to commit but never forbids an attribution trailer:\n%s", name, p)
+		}
+	}
+}

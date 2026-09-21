@@ -31,7 +31,9 @@ func writeLaunchPrompt(b *strings.Builder, goal, runtime string) {
 	fmt.Fprintf(b, "Work this goal with the superpowers:brainstorming skill; the human is at this terminal. Put every question and every approval through %s, never plain text, which does not reach the cockpit.\n", AskTool(runtime))
 	b.WriteString("- spike: report the answer, then `wsh jarvis complete`.\n")
 	b.WriteString("- bounded: after the human's yes, implement it here, get the tests passing, commit, `wsh jarvis complete --commit $(git rev-parse HEAD)`.\n")
-	b.WriteString("- architectural: after the spec is approved, write the plan with superpowers:writing-plans in the plan format below. Break it up by what can proceed independently: the engine runs those tasks at the same time, and a plan that is one serial chain gets none of that. Don't commit the spec or plan and don't execute the plan: run `wsh jarvis dag submit --plan <plan path> --spec <spec path>` with absolute paths and stop. The engine wakes you when something needs judgment.\n\n")
+	b.WriteString("- architectural: after the spec is approved, write the plan with superpowers:writing-plans in the plan format below. Break it up by what can proceed independently: the engine runs those tasks at the same time, and a plan that is one serial chain gets none of that. Don't commit the spec or plan and don't execute the plan: run `wsh jarvis dag submit --plan <plan path> --spec <spec path>` with absolute paths and stop. The engine wakes you when something needs judgment.\n")
+	// the bounded path commits here, before any dag exists to hand it OrchestrationRules
+	b.WriteString(NoAttributionRule + "\n\n")
 	b.WriteString(PlanFormat)
 }
 
