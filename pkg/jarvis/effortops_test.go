@@ -1,4 +1,4 @@
-package jarvisstate
+package jarvis
 
 import (
 	"strings"
@@ -8,15 +8,15 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
 
-const now = 1_700_000_000_000
+const effortNow = 1_700_000_000_000
 
 func mkEffort() *waveobj.Effort {
 	return &waveobj.Effort{
 		Title: "t", Status: "active",
 		Chunks: []waveobj.EffortChunk{
-			{Label: "Phase 1", Status: "done", UpdatedTs: now},
-			{Label: "Phase 2", Status: "active", UpdatedTs: now},
-			{Label: "Phase 3", Status: "pending", UpdatedTs: now},
+			{Label: "Phase 1", Status: "done", UpdatedTs: effortNow},
+			{Label: "Phase 2", Status: "active", UpdatedTs: effortNow},
+			{Label: "Phase 3", Status: "pending", UpdatedTs: effortNow},
 		},
 	}
 }
@@ -30,7 +30,7 @@ func expectErrCode(t *testing.T, err error, code string) {
 
 func TestApplyOpsRename(t *testing.T) {
 	e := mkEffort()
-	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "rename", Title: "new title"}}, "", now)
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "rename", Title: "new title"}}, "", effortNow)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +41,7 @@ func TestApplyOpsRename(t *testing.T) {
 
 func TestApplyOpsAddChunkInsertAt(t *testing.T) {
 	e := mkEffort()
-	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "addChunk", Label: "Phase 0", At: intPtr(1)}}, "", now)
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "addChunk", Label: "Phase 0", At: intPtr(1)}}, "", effortNow)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,14 +52,14 @@ func TestApplyOpsAddChunkInsertAt(t *testing.T) {
 
 func TestApplyOpsAddChunkDuplicateLabel(t *testing.T) {
 	e := mkEffort()
-	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "addChunk", Label: "Phase 2"}}, "", now)
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "addChunk", Label: "Phase 2"}}, "", effortNow)
 	expectErrCode(t, err, "EC-DUPLICATE-LABEL")
 }
 
 func TestApplyOpsRemoveLastChunkGuard(t *testing.T) {
 	e := mkEffort()
 	e.Chunks = []waveobj.EffortChunk{{Label: "only", Status: "pending"}}
-	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "removeChunk", Chunk: "only"}}, "", now)
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "removeChunk", Chunk: "only"}}, "", effortNow)
 	expectErrCode(t, err, "EC-LAST-CHUNK")
 }
 
@@ -82,7 +82,7 @@ func TestApplyOpsResolveChunkRefs(t *testing.T) {
 
 func TestApplyOpsSetChunkStatusEmitsEvents(t *testing.T) {
 	e := mkEffort()
-	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "setChunkStatus", Chunk: "Phase 3", Status: "blocked", Note: "waiting on substrate"}}, "", now)
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "setChunkStatus", Chunk: "Phase 3", Status: "blocked", Note: "waiting on substrate"}}, "", effortNow)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestApplyOpsSetChunkStatusEmitsEvents(t *testing.T) {
 func TestApplyOpsAdvanceSemantics(t *testing.T) {
 	e := mkEffort()
 	// Phase 2 active -> done, Phase 3 becomes active
-	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "advance"}}, "", now)
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "advance"}}, "", effortNow)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func TestApplyOpsAdvanceSemantics(t *testing.T) {
 	// no active chunk: advance just activates the first non-done
 	e2 := mkEffort()
 	e2.Chunks[1].Status = "pending"
-	err = ApplyEffortOps(e2, []wshrpc.EffortOp{{Op: "advance"}}, "", now)
+	err = ApplyEffortOps(e2, []wshrpc.EffortOp{{Op: "advance"}}, "", effortNow)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestApplyOpsAdvanceSemantics(t *testing.T) {
 
 func TestApplyOpsReopenUndoesAdvance(t *testing.T) {
 	e := mkEffort()
-	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "reopen", Chunk: "Phase 1"}}, "", now)
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "reopen", Chunk: "Phase 1"}}, "", effortNow)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,13 +132,13 @@ func TestApplyOpsReopenUndoesAdvance(t *testing.T) {
 
 func TestApplyOpsReopenNonDoneRejected(t *testing.T) {
 	e := mkEffort()
-	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "reopen", Chunk: "Phase 3"}}, "", now)
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "reopen", Chunk: "Phase 3"}}, "", effortNow)
 	expectErrCode(t, err, "EC-INVALID-STATUS")
 }
 
 func TestApplyOpsAppendNoteToChunk(t *testing.T) {
 	e := mkEffort()
-	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "appendNote", Chunk: "Phase 1", Note: "soak accepted"}}, "", now)
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "appendNote", Chunk: "Phase 1", Note: "soak accepted"}}, "", effortNow)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +156,7 @@ func TestApplyOpsEventsNameTheResolvedChunk(t *testing.T) {
 	err := ApplyEffortOps(e, []wshrpc.EffortOp{
 		{Op: "setChunkStatus", Chunk: "3", Status: "blocked"},
 		{Op: "appendNote", Chunk: "1", Note: "soak accepted"},
-	}, "", now)
+	}, "", effortNow)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestApplyOpsEventsNameTheResolvedChunk(t *testing.T) {
 
 func TestApplyOpsAdvanceEventCarriesNote(t *testing.T) {
 	e := mkEffort()
-	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "advance", Note: "plan written"}}, "", now)
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "advance", Note: "plan written"}}, "", effortNow)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +181,7 @@ func TestApplyOpsAtomicBatchRollback(t *testing.T) {
 	err := ApplyEffortOps(e, []wshrpc.EffortOp{
 		{Op: "rename", Title: "half-applied"},
 		{Op: "addChunk", Label: "Phase 2"}, // duplicate — must abort the batch
-	}, "", now)
+	}, "", effortNow)
 	expectErrCode(t, err, "EC-DUPLICATE-LABEL")
 	if e.Title != "t" {
 		t.Fatalf("batch not atomic: title=%q", e.Title)
@@ -190,13 +190,13 @@ func TestApplyOpsAtomicBatchRollback(t *testing.T) {
 
 func TestApplyOpsSetChunkStatusInvalid(t *testing.T) {
 	e := mkEffort()
-	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "setChunkStatus", Chunk: "Phase 3", Status: "banana"}}, "", now)
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "setChunkStatus", Chunk: "Phase 3", Status: "banana"}}, "", effortNow)
 	expectErrCode(t, err, "EC-INVALID-STATUS")
 }
 
 func TestApplyOpsCmdNoteAppendedToEffort(t *testing.T) {
 	e := mkEffort()
-	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "setTicket", Ticket: "SIEM-1662"}}, "filed from briefing", now)
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "setTicket", Ticket: "SIEM-1662"}}, "filed from briefing", effortNow)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,11 +205,9 @@ func TestApplyOpsCmdNoteAppendedToEffort(t *testing.T) {
 	}
 }
 
-func intPtr(i int) *int { return &i }
-
 func TestApplyOpsAttachWork(t *testing.T) {
 	e := mkEffort()
-	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "attachWork", Chunk: "Phase 2", Kind: "agent", ORef: "agent:tab-1"}}, "", now)
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "attachWork", Chunk: "Phase 2", Kind: "agent", ORef: "agent:tab-1"}}, "", effortNow)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +225,7 @@ func TestApplyOpsAttachWork(t *testing.T) {
 func TestApplyOpsAttachWorkIdempotentSameChunk(t *testing.T) {
 	e := mkEffort()
 	for i := 0; i < 2; i++ {
-		err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "attachWork", Chunk: "Phase 2", Kind: "agent", ORef: "agent:tab-1"}}, "", now)
+		err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "attachWork", Chunk: "Phase 2", Kind: "agent", ORef: "agent:tab-1"}}, "", effortNow)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -239,27 +237,27 @@ func TestApplyOpsAttachWorkIdempotentSameChunk(t *testing.T) {
 
 func TestApplyOpsAttachWorkConflictOtherChunk(t *testing.T) {
 	e := mkEffort()
-	if err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "attachWork", Chunk: "Phase 2", Kind: "agent", ORef: "agent:tab-1"}}, "", now); err != nil {
+	if err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "attachWork", Chunk: "Phase 2", Kind: "agent", ORef: "agent:tab-1"}}, "", effortNow); err != nil {
 		t.Fatal(err)
 	}
-	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "attachWork", Chunk: "Phase 3", Kind: "agent", ORef: "agent:tab-1"}}, "", now)
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "attachWork", Chunk: "Phase 3", Kind: "agent", ORef: "agent:tab-1"}}, "", effortNow)
 	expectErrCode(t, err, "EC-REF-ALREADY-ATTACHED")
 }
 
 func TestApplyOpsAttachWorkInvalidKind(t *testing.T) {
 	e := mkEffort()
-	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "attachWork", Chunk: "Phase 2", Kind: "bogus", ORef: "run:x"}}, "", now)
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "attachWork", Chunk: "Phase 2", Kind: "bogus", ORef: "run:x"}}, "", effortNow)
 	expectErrCode(t, err, "EC-INVALID-KIND")
 }
 
 func TestApplyOpsDetachWork(t *testing.T) {
 	e := mkEffort()
 	op := wshrpc.EffortOp{Op: "attachWork", Chunk: "Phase 2", Kind: "agent", ORef: "agent:tab-1"}
-	if err := ApplyEffortOps(e, []wshrpc.EffortOp{op}, "", now); err != nil {
+	if err := ApplyEffortOps(e, []wshrpc.EffortOp{op}, "", effortNow); err != nil {
 		t.Fatal(err)
 	}
 	// chunk-scoped detach
-	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "detachWork", Chunk: "Phase 2", ORef: "agent:tab-1"}}, "", now)
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "detachWork", Chunk: "Phase 2", ORef: "agent:tab-1"}}, "", effortNow)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,11 +268,11 @@ func TestApplyOpsDetachWork(t *testing.T) {
 
 func TestApplyOpsDetachWorkAnyChunk(t *testing.T) {
 	e := mkEffort()
-	if err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "attachWork", Chunk: "Phase 3", Kind: "run", ORef: "run:r1"}}, "", now); err != nil {
+	if err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "attachWork", Chunk: "Phase 3", Kind: "run", ORef: "run:r1"}}, "", effortNow); err != nil {
 		t.Fatal(err)
 	}
 	// chunk omitted -> removed from whichever chunk holds it
-	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "detachWork", ORef: "run:r1"}}, "", now)
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "detachWork", ORef: "run:r1"}}, "", effortNow)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -287,7 +285,7 @@ func TestApplyOpsDetachWorkAnyChunk(t *testing.T) {
 
 func TestApplyOpsDetachWorkAbsentIsNoOp(t *testing.T) {
 	e := mkEffort()
-	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "detachWork", ORef: "run:never-was"}}, "", now)
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "detachWork", ORef: "run:never-was"}}, "", effortNow)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,10 +294,10 @@ func TestApplyOpsDetachWorkAbsentIsNoOp(t *testing.T) {
 func TestApplyOpsUnarchiveRestoresPriorStatus(t *testing.T) {
 	e := mkEffort()
 	ops := []wshrpc.EffortOp{{Op: "setStatus", Status: "done"}, {Op: "setStatus", Status: "archived"}}
-	if err := ApplyEffortOps(e, ops, "", now); err != nil {
+	if err := ApplyEffortOps(e, ops, "", effortNow); err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "unarchive"}}, "", now); err != nil {
+	if err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "unarchive"}}, "", effortNow); err != nil {
 		t.Fatal(err)
 	}
 	if e.Status != "done" {
@@ -309,10 +307,10 @@ func TestApplyOpsUnarchiveRestoresPriorStatus(t *testing.T) {
 
 func TestApplyOpsUnarchiveDefaultsToActive(t *testing.T) {
 	e := mkEffort()
-	if err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "setStatus", Status: "archived"}}, "", now); err != nil {
+	if err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "setStatus", Status: "archived"}}, "", effortNow); err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "unarchive"}}, "", now); err != nil {
+	if err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "unarchive"}}, "", effortNow); err != nil {
 		t.Fatal(err)
 	}
 	if e.Status != "active" {
@@ -322,7 +320,7 @@ func TestApplyOpsUnarchiveDefaultsToActive(t *testing.T) {
 
 func TestApplyOpsUnarchiveRefusesUnarchived(t *testing.T) {
 	e := mkEffort()
-	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "unarchive"}}, "", now)
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "unarchive"}}, "", effortNow)
 	expectErrCode(t, err, "EC-NOT-ARCHIVED")
 }
 
@@ -331,18 +329,18 @@ func TestApplyOpsUnarchiveSurvivesRepeatCycles(t *testing.T) {
 	// cycle's own restore event must not be read as the status the archive replaced.
 	e := mkEffort()
 	for _, s := range []string{"paused", "archived"} {
-		if err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "setStatus", Status: s}}, "", now); err != nil {
+		if err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "setStatus", Status: s}}, "", effortNow); err != nil {
 			t.Fatal(err)
 		}
 	}
 	for i := 0; i < 2; i++ {
-		if err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "unarchive"}}, "", now); err != nil {
+		if err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "unarchive"}}, "", effortNow); err != nil {
 			t.Fatal(err)
 		}
 		if e.Status != "paused" {
 			t.Fatalf("cycle %d status: %q, want paused", i, e.Status)
 		}
-		if err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "setStatus", Status: "archived"}}, "", now); err != nil {
+		if err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "setStatus", Status: "archived"}}, "", effortNow); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -350,7 +348,7 @@ func TestApplyOpsUnarchiveSurvivesRepeatCycles(t *testing.T) {
 
 func TestApplyOpsSetChunkStage(t *testing.T) {
 	e := mkEffort()
-	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "setChunkStage", Chunk: "Phase 2", Stage: "  Evidence pipeline  "}}, "", now)
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "setChunkStage", Chunk: "Phase 2", Stage: "  Evidence pipeline  "}}, "", effortNow)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -373,7 +371,7 @@ func TestApplyOpsSetChunkStage(t *testing.T) {
 func TestApplyOpsSetChunkStageClears(t *testing.T) {
 	e := mkEffort()
 	e.Chunks[1].Stage = "Evidence pipeline"
-	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "setChunkStage", Chunk: "2", Stage: ""}}, "", now)
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "setChunkStage", Chunk: "2", Stage: ""}}, "", effortNow)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -384,13 +382,13 @@ func TestApplyOpsSetChunkStageClears(t *testing.T) {
 
 func TestApplyOpsSetChunkStageUnknownChunk(t *testing.T) {
 	e := mkEffort()
-	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "setChunkStage", Chunk: "nope", Stage: "s"}}, "", now)
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "setChunkStage", Chunk: "nope", Stage: "s"}}, "", effortNow)
 	expectErrCode(t, err, "EC-UNKNOWN-CHUNK")
 }
 
 func TestApplyOpsAddChunkWithStage(t *testing.T) {
 	e := mkEffort()
-	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "addChunk", Label: "Phase 4", Stage: " Rollout "}}, "", now)
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "addChunk", Label: "Phase 4", Stage: " Rollout "}}, "", effortNow)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -404,7 +402,7 @@ func TestApplyOpsAddChunkWithStage(t *testing.T) {
 func TestApplyOpsMoveChunkCarriesStage(t *testing.T) {
 	e := mkEffort()
 	e.Chunks[2].Stage = "Rollout"
-	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "moveChunk", Chunk: "Phase 3", At: intPtr(1)}}, "", now)
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "moveChunk", Chunk: "Phase 3", At: intPtr(1)}}, "", effortNow)
 	if err != nil {
 		t.Fatal(err)
 	}

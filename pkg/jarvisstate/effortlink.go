@@ -7,6 +7,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
@@ -19,7 +20,7 @@ func AttachRunToChunk(ctx context.Context, effortOID, chunkRef, runORef string) 
 		return err
 	}
 	return wstore.UpdateEffort(ctx, effortOID, func(e *waveobj.Effort) error {
-		return ApplyEffortOps(e, []wshrpc.EffortOp{{
+		return jarvis.ApplyEffortOps(e, []wshrpc.EffortOp{{
 			Op: "attachWork", Chunk: chunkRef, Kind: "run", ORef: runORef,
 		}}, "", time.Now().UnixMilli())
 	})
@@ -32,7 +33,7 @@ func DetachRunFromChunk(ctx context.Context, effortOID, runORef string) error {
 		return err
 	}
 	return wstore.UpdateEffort(ctx, effortOID, func(e *waveobj.Effort) error {
-		return ApplyEffortOps(e, []wshrpc.EffortOp{{
+		return jarvis.ApplyEffortOps(e, []wshrpc.EffortOp{{
 			Op: "detachWork", ORef: runORef,
 		}}, "", time.Now().UnixMilli())
 	})

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/jarvisstate"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -85,7 +86,7 @@ func (ws *WshServer) EffortMutateCommand(ctx context.Context, data wshrpc.Comman
 	}
 	var updated *waveobj.Effort
 	err := wstore.UpdateEffort(ctx, data.EffortOID, func(e *waveobj.Effort) error {
-		if err := jarvisstate.ApplyEffortOps(e, data.Ops, data.Note, time.Now().UnixMilli()); err != nil {
+		if err := jarvis.ApplyEffortOps(e, data.Ops, data.Note, time.Now().UnixMilli()); err != nil {
 			return err
 		}
 		updated = e

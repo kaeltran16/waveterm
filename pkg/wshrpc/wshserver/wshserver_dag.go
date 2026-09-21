@@ -16,7 +16,6 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/agentask"
 	"github.com/wavetermdev/waveterm/pkg/harness"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
-	"github.com/wavetermdev/waveterm/pkg/jarvisstate"
 	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -113,7 +112,7 @@ func checkDagEffort(ctx context.Context, effortOID string, tasks []waveobj.TaskN
 	}
 	for _, task := range tasks {
 		for _, label := range task.Chunks {
-			idx, err := jarvisstate.ResolveChunkIndex(effort, label)
+			idx, err := jarvis.ResolveChunkIndex(effort, label)
 			if err != nil {
 				return fmt.Errorf("task %q: effort %s: %w", task.ID, effortOID, err)
 			}

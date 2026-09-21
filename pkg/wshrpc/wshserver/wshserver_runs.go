@@ -318,7 +318,7 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 		if data.ChunkLabel == "" {
 			return nil, fmt.Errorf("EC-UNKNOWN-CHUNK: chunklabel is required when effortoid is set")
 		}
-		if _, err := jarvisstate.ResolveChunkIndex(eff, data.ChunkLabel); err != nil {
+		if _, err := jarvis.ResolveChunkIndex(eff, data.ChunkLabel); err != nil {
 			return nil, err
 		}
 		effortRef = &waveobj.RunEffortRef{EffortOID: data.EffortOID, ChunkLabel: data.ChunkLabel}
