@@ -36,12 +36,12 @@ task dev           # run the dev app
 task build:backend && npm run build   # packaged build -> NSIS installer
 ```
 
-`CLAUDE.md` is the working reference for build commands, architecture, and gotchas — it is
+`AGENTS.md` is the working reference for build commands, architecture, and gotchas — it is
 kept current, and is more reliable than this file for day-to-day work.
 
 ## Documentation
 
-- `CLAUDE.md` — architecture, build flow, gotchas
+- `AGENTS.md` — architecture, build flow, gotchas
 - `docs/` — design specs, plans, and reference notes (see `docs/README.md`)
 
 ## License

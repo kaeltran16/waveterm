@@ -1,7 +1,7 @@
 # Architecture reference
 
-Extracted from the repo-root `CLAUDE.md` so it is read on demand rather than loaded into every
-agent turn. `CLAUDE.md` keeps the rules and gotchas; this file is the descriptive map.
+Extracted from the repo-root `AGENTS.md` so it is read on demand rather than loaded into every
+agent turn. `AGENTS.md` keeps the rules and gotchas; this file is the descriptive map.
 
 Three layers, all part of the running app.
 
