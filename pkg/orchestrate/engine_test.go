@@ -128,6 +128,31 @@ func TestTaskPromptOrdersContractTaskHandoff(t *testing.T) {
 	}
 }
 
+// spec §12: a plan's header prose (a scope rule, a shared constraint) reaches every task, not just
+// whichever worker opens the plan file.
+func TestTaskPromptCarriesThePlanHeader(t *testing.T) {
+	owner := jarvis.NewRun("owner", "ws-1", "/p", nil, jarvis.RunMode_Orchestrator, nil, 1)
+	g := &waveobj.TaskGroup{Preamble: "Never edit docs/."}
+	task := &waveobj.TaskNode{ID: "t-1", Label: "add fmtDate"}
+	p := taskPrompt(g, task, &owner, "claude", "")
+	ci := strings.Index(p, workerContract(g, task, "claude"))
+	hi := strings.Index(p, "The plan's header applies to every task:\nNever edit docs/.")
+	ti := strings.Index(p, "add fmtDate")
+	if ci != 0 || hi < 0 || ti < 0 || hi > ti {
+		t.Fatalf("want contract, then header, then task text (contract@%d header@%d task@%d): %q", ci, hi, ti, p)
+	}
+}
+
+func TestTaskPromptWithoutPlanHeader(t *testing.T) {
+	owner := jarvis.NewRun("owner", "ws-1", "/p", nil, jarvis.RunMode_Orchestrator, nil, 1)
+	g := &waveobj.TaskGroup{}
+	task := &waveobj.TaskNode{ID: "t-1", Label: "add fmtDate"}
+	p := taskPrompt(g, task, &owner, "claude", "")
+	if strings.Contains(p, "header applies to every task") {
+		t.Fatalf("no preamble means no header line: %q", p)
+	}
+}
+
 func TestWorkerContractNamesPlanSpecVerifyAndTool(t *testing.T) {
 	g := &waveobj.TaskGroup{PlanPath: "C:/p/plan.md", SpecPath: "C:/p/spec.md", Verify: "go test ./..."}
 	c := workerContract(g, &waveobj.TaskNode{ID: "t-3"}, "pi")
@@ -135,7 +160,8 @@ func TestWorkerContractNamesPlanSpecVerifyAndTool(t *testing.T) {
 		"You are the worker for task 3 of the plan at C:/p/plan.md (spec: C:/p/spec.md).",
 		"don't re-plan or pause for design approval",
 		"ask once with ask_user_question and concrete options, then wait",
-		"Run `go test ./...` and get it passing before you complete; if you can't, ask.",
+		"Run the tests your task names and get them passing before you complete; if you can't, ask.",
+		"Don't run the plan's full Verify (`go test ./...`): the engine runs it after your task merges.",
 		"Commit, then `wsh jarvis complete --commit $(git rev-parse HEAD)`.",
 		"If your context was compacted, re-read your task from the plan.",
 	} {
@@ -151,16 +177,42 @@ func TestWorkerContractWithoutPlanOrVerify(t *testing.T) {
 	for _, want := range []string{
 		"You are the worker for task t-3 of this run's dag.",
 		"ask once with AskUserQuestion",
-		"Run the tests the task names and get them passing",
+		"Run the tests your task names and get them passing before you complete; if you can't, ask.",
 	} {
 		if !strings.Contains(c, want) {
 			t.Fatalf("contract missing %q:\n%s", want, c)
 		}
 	}
-	for _, gone := range []string{"plan at", "spec:", "re-read your task"} {
+	for _, gone := range []string{"plan at", "spec:", "re-read your task", "full Verify"} {
 		if strings.Contains(c, gone) {
 			t.Fatalf("a dag without a plan names none, found %q:\n%s", gone, c)
 		}
+	}
+}
+
+// Check is a fast whole-project static check every worker runs itself; Verify is the plan's full suite,
+// which only the engine runs after the task's merge.
+func TestWorkerContractNamesCheckAndLeavesVerifyToTheEngine(t *testing.T) {
+	g := &waveobj.TaskGroup{Verify: "go test ./...", Check: "go vet ./..."}
+	c := workerContract(g, &waveobj.TaskNode{ID: "t-3"}, "claude")
+	for _, want := range []string{
+		"Run the tests your task names, and `go vet ./...`, and get them passing before you complete; if you can't, ask.",
+		"Don't run the plan's full Verify (`go test ./...`): the engine runs it after your task merges.",
+	} {
+		if !strings.Contains(c, want) {
+			t.Fatalf("contract missing %q:\n%s", want, c)
+		}
+	}
+}
+
+func TestWorkerContractWithCheckButNoVerify(t *testing.T) {
+	g := &waveobj.TaskGroup{Check: "go vet ./..."}
+	c := workerContract(g, &waveobj.TaskNode{ID: "t-3"}, "claude")
+	if want := "Run the tests your task names, and `go vet ./...`, and get them passing before you complete; if you can't, ask."; !strings.Contains(c, want) {
+		t.Fatalf("contract missing %q:\n%s", want, c)
+	}
+	if strings.Contains(c, "full Verify") {
+		t.Fatalf("no Verify set, so no Verify sentence: %q", c)
 	}
 }
 

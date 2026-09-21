@@ -326,6 +326,7 @@ type TaskNode struct {
 	Label       string   `json:"label,omitempty"`
 	Description string   `json:"description,omitempty"` // plan context for the child (pins decisions the child must not re-ask)
 	Deps        []string `json:"deps,omitempty"`
+	Chunks      []string `json:"chunks,omitempty"`   // labels of the dag's effort chunks this task closes when it lands
 	Gate        bool     `json:"gate,omitempty"`     // halt the DAG at completion for review
 	State       string   `json:"state"`              // pending|ready|running|stalled|done|failed|cancelled|skipped|blocked-merge|verifying|verify-failed
 	RunID       string   `json:"runid,omitempty"`    // child run once spawned
@@ -398,11 +399,22 @@ type TaskGroup struct {
 	// rewiden the alignment of every field above it.
 	NotifiedCondition string `json:"notifiedcondition,omitempty"`
 
-	// Verify and Setup are the plan's commands (jarvis.PlanFormat). Setup runs in each new task worktree
-	// before its worker spawns; Verify runs in the project checkout after each squash merge. Both are
-	// empty for a dag submitted as JSON, which is then prepared by nobody and reported unverified.
+	// Verify, Setup and Check are the plan's commands (jarvis.PlanFormat). Setup runs in each new task
+	// worktree before its worker spawns; Verify runs in the project checkout after each squash merge; Check
+	// is a fast whole-project static check each worker runs itself instead of Verify. All three are empty
+	// for a dag submitted as JSON, which is then prepared by nobody and reported unverified.
 	Verify string `json:"verify,omitempty"`
 	Setup  string `json:"setup,omitempty"`
+	Check  string `json:"check,omitempty"`
+
+	// Preamble is the plan's header prose (jarvis.Plan.Preamble): everything before the first task other
+	// than the title and the Verify/Setup/Check lines. Every worker's prompt carries it, so a rule stated
+	// once in the header reaches every task instead of only whichever task happens to read the plan file.
+	Preamble string `json:"preamble,omitempty"`
+
+	// EffortOID is the effort tracker (jarvis.Plan.EffortOID) whose chunks the tasks' Chunks name. When a
+	// task's merge passes Verify the engine marks those chunks done there.
+	EffortOID string `json:"effortoid,omitempty"`
 
 	// PlanPath and SpecPath are the absolute paths of the plan a dag was submitted from and the spec it
 	// implements. They stay uncommitted in the project checkout until the dag's first squash merge, which

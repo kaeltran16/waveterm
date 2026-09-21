@@ -594,10 +594,13 @@ func workerContract(g *waveobj.TaskGroup, task *waveobj.TaskNode, runtime string
 		fmt.Fprintf(&b, "You are the worker for task %s of this run's dag.\n", task.ID)
 	}
 	fmt.Fprintf(&b, "The plan is approved: don't re-plan or pause for design approval. If a consequential decision isn't pinned, or the plan and the code disagree, ask once with %s and concrete options, then wait; the lead or the human answers.\n", jarvis.AskTool(runtime))
+	b.WriteString("Run the tests your task names")
+	if g.Check != "" {
+		fmt.Fprintf(&b, ", and `%s`,", g.Check)
+	}
+	b.WriteString(" and get them passing before you complete; if you can't, ask.")
 	if g.Verify != "" {
-		fmt.Fprintf(&b, "Run `%s` and get it passing before you complete; if you can't, ask.", g.Verify)
-	} else {
-		b.WriteString("Run the tests the task names and get them passing before you complete; if you can't, ask.")
+		fmt.Fprintf(&b, " Don't run the plan's full Verify (`%s`): the engine runs it after your task merges.", g.Verify)
 	}
 	b.WriteString(" Commit, then `wsh jarvis complete --commit $(git rev-parse HEAD)`.")
 	if g.PlanPath != "" {
@@ -687,6 +690,11 @@ func taskPrompt(g *waveobj.TaskGroup, task *waveobj.TaskNode, owner *waveobj.Run
 	var b strings.Builder
 	b.WriteString(workerContract(g, task, runtime))
 	b.WriteString("\n\n")
+	if g.Preamble != "" {
+		b.WriteString("The plan's header applies to every task:\n")
+		b.WriteString(g.Preamble)
+		b.WriteString("\n\n")
+	}
 	if task.RunSpec.Goal != "" {
 		b.WriteString(task.RunSpec.Goal)
 	} else if task.Label != "" {

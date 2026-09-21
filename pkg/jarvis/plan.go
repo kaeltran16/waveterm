@@ -15,18 +15,27 @@ import (
 
 // PlanFormat states the plan shape ParsePlan accepts, for whoever writes the plan. Its example is
 // parsed by TestPlanFormatParses, so the prose and the parser cannot drift apart.
-const PlanFormat = "Plan format. Verify and Setup are optional, go before the first task, and each hold one command in backticks. " +
-	"Both commands run in a POSIX shell (sh, or Git Bash on Windows). " +
+const PlanFormat = "Plan format. Verify, Setup and Check are optional, go before the first task, and each hold one command in backticks. " +
+	"All three commands run in a POSIX shell (sh, or Git Bash on Windows). Verify runs the plan's full test suite after a " +
+	"task merges; Check is a fast whole-project static check (for example typecheck plus go vet) that each worker runs " +
+	"itself, instead of Verify, before it completes. " +
+	"An optional Effort line, also before the first task, names the effort tracker (`effort:<oid>` or a bare oid, not in backticks; " +
+	"at most one). A task may then list `**Chunk:** <exact chunk label>` lines, one per chunk, directly after its Depends on line " +
+	"(or first under the heading when it has none): the engine marks those chunks done when the task's merge passes Verify. " +
+	"A Chunk line anywhere else is task text, and a plan with a Chunk line but no Effort line is refused. " +
 	"Number tasks 1, 2, 3... in order under `##` or `###` headings. A Depends on line must be the first line under its heading: " +
 	"leave it out to run after the previous task, write `none` for no dependencies, or list earlier tasks (`Task 1, Task 3`).\n" +
 	"The engine runs tasks at the same time whenever nothing makes them wait, so the Depends on lines are what set a plan's width. " +
 	"Split the work by what can proceed independently, and make a task wait only when it truly builds on another's output — a plan " +
 	"with no Depends on lines is one serial chain and gets none of that.\n\n" +
 	"# <plan title>\n\n" +
+	"**Effort:** effort:<oid>\n" +
 	"**Verify:** `<command that runs the tests>`\n" +
-	"**Setup:** `<command that prepares a fresh worktree>`\n\n" +
+	"**Setup:** `<command that prepares a fresh worktree>`\n" +
+	"**Check:** `<fast static check each worker runs>`\n\n" +
 	"### Task 1: <title>\n" +
 	"**Depends on:** none\n" +
+	"**Chunk:** <exact chunk label>\n" +
 	"<what to do, and the tests that prove it>\n\n" +
 	"### Task 2: <title>\n" +
 	"<no Depends line: runs after Task 1>\n\n" +
@@ -39,15 +48,25 @@ type Plan struct {
 	Title  string
 	Verify string
 	Setup  string
-	Tasks  []waveobj.TaskNode
+	Check  string
+	// EffortOID is the effort tracker whose chunks tasks close through **Chunk:** lines; empty when the
+	// plan names none.
+	EffortOID string
+	// Preamble is every header line other than the title and the Effort/Verify/Setup/Check lines, verbatim and
+	// in order, blank lines at each end trimmed. A worker's task prompt carries it so header prose — a
+	// scope rule, a shared constraint — reaches every task, not just whichever worker opened the plan.
+	Preamble string
+	Tasks    []waveobj.TaskNode
 }
 
 var (
 	planTaskHeadingRe = regexp.MustCompile(`^#{2,3} Task (\d+)(?::\s*(.*?))?\s*$`)
 	planTitleRe       = regexp.MustCompile(`^# (.+?)\s*$`)
-	planCommandRe     = regexp.MustCompile(`^\*\*(Verify|Setup):\*\*\s*(.*?)\s*$`)
+	planCommandRe     = regexp.MustCompile(`^\*\*(Verify|Setup|Check):\*\*\s*(.*?)\s*$`)
 	planBacktickRe    = regexp.MustCompile("^`([^`]+)`$")
+	planEffortRe      = regexp.MustCompile(`^\*\*Effort:\*\*\s*(.*?)\s*$`)
 	planDependsRe     = regexp.MustCompile(`^\*\*Depends on:\*\*\s*(.*?)\s*$`)
+	planChunkRe       = regexp.MustCompile(`^\*\*Chunk:\*\*\s*(.*?)\s*$`)
 	planTaskRefRe     = regexp.MustCompile(`^Task (\d+)$`)
 )
 
@@ -70,13 +89,21 @@ func planFenceMarker(line string) string {
 func ParsePlan(src string) (Plan, error) {
 	var p Plan
 	var body []string
+	var preamble []string
 	fence := ""
-	awaitingDepends := false
+	inTaskHead, dependsAllowed := false, false
 	flush := func() {
 		if len(p.Tasks) > 0 {
 			p.Tasks[len(p.Tasks)-1].Description = strings.TrimSpace(strings.Join(body, "\n"))
 		}
 		body = nil
+	}
+	preambleLine := func(line string) {
+		if len(p.Tasks) == 0 {
+			preamble = append(preamble, line)
+		} else {
+			body = append(body, line)
+		}
 	}
 	for _, line := range strings.Split(strings.ReplaceAll(src, "\r\n", "\n"), "\n") {
 		if marker := planFenceMarker(line); marker != "" && (fence == "" || marker == fence) {
@@ -85,12 +112,12 @@ func ParsePlan(src string) (Plan, error) {
 			} else {
 				fence = ""
 			}
-			awaitingDepends = false
-			body = append(body, line)
+			inTaskHead = false
+			preambleLine(line)
 			continue
 		}
 		if fence != "" {
-			body = append(body, line)
+			preambleLine(line)
 			continue
 		}
 		if m := planTaskHeadingRe.FindStringSubmatch(line); m != nil {
@@ -107,28 +134,43 @@ func ParsePlan(src string) (Plan, error) {
 				task.Deps = []string{planTaskID(n - 1)}
 			}
 			p.Tasks = append(p.Tasks, task)
-			awaitingDepends = true
+			inTaskHead, dependsAllowed = true, true
 			continue
 		}
 		if len(p.Tasks) == 0 {
-			if err := readPlanPreamble(&p, line); err != nil {
+			consumed, err := readPlanPreamble(&p, line)
+			if err != nil {
 				return Plan{}, err
+			}
+			if !consumed {
+				preamble = append(preamble, line)
 			}
 			continue
 		}
-		if awaitingDepends {
+		if inTaskHead {
 			if strings.TrimSpace(line) == "" {
 				continue
 			}
-			awaitingDepends = false
-			if m := planDependsRe.FindStringSubmatch(line); m != nil {
+			task := &p.Tasks[len(p.Tasks)-1]
+			if m := planDependsRe.FindStringSubmatch(line); m != nil && dependsAllowed {
 				deps, err := parsePlanDepends(m[1], len(p.Tasks))
 				if err != nil {
 					return Plan{}, err
 				}
-				p.Tasks[len(p.Tasks)-1].Deps = deps
+				task.Deps, dependsAllowed = deps, false
 				continue
 			}
+			if m := planChunkRe.FindStringSubmatch(line); m != nil {
+				if m[1] == "" {
+					return Plan{}, fmt.Errorf("task %d: **Chunk:** is empty; write the exact chunk label", len(p.Tasks))
+				}
+				if slices.Contains(task.Chunks, m[1]) {
+					return Plan{}, fmt.Errorf("task %d lists chunk %q twice", len(p.Tasks), m[1])
+				}
+				task.Chunks, dependsAllowed = append(task.Chunks, m[1]), false
+				continue
+			}
+			inTaskHead = false
 		}
 		body = append(body, line)
 	}
@@ -136,31 +178,68 @@ func ParsePlan(src string) (Plan, error) {
 	if len(p.Tasks) == 0 {
 		return Plan{}, fmt.Errorf("plan has no tasks: expected headings like \"### Task 1: <title>\"")
 	}
+	if p.EffortOID == "" {
+		for i, t := range p.Tasks {
+			if len(t.Chunks) > 0 {
+				return Plan{}, fmt.Errorf("task %d (%s) names a chunk but the plan has no **Effort:** line to say which effort it belongs to", i+1, t.Label)
+			}
+		}
+	}
+	p.Preamble = strings.Join(trimBlankLines(preamble), "\n")
 	return p, nil
 }
 
-func readPlanPreamble(p *Plan, line string) error {
+// trimBlankLines drops leading and trailing blank lines, keeping any blank-line run in the middle.
+func trimBlankLines(lines []string) []string {
+	start := 0
+	for start < len(lines) && strings.TrimSpace(lines[start]) == "" {
+		start++
+	}
+	end := len(lines)
+	for end > start && strings.TrimSpace(lines[end-1]) == "" {
+		end--
+	}
+	return lines[start:end]
+}
+
+// readPlanPreamble reads the title and the Effort/Verify/Setup/Check lines into p, reporting whether line was
+// one of those (and so must not also be kept in Plan.Preamble).
+func readPlanPreamble(p *Plan, line string) (bool, error) {
 	if m := planTitleRe.FindStringSubmatch(line); m != nil && p.Title == "" {
 		p.Title = m[1]
-		return nil
+		return true, nil
+	}
+	if m := planEffortRe.FindStringSubmatch(line); m != nil {
+		oid := strings.TrimPrefix(m[1], "effort:")
+		if oid == "" || strings.ContainsAny(oid, "` 	") {
+			return false, fmt.Errorf("plan **Effort:** line must be effort:<oid> or a bare oid, not in backticks, got %q", m[1])
+		}
+		if p.EffortOID != "" {
+			return false, fmt.Errorf("plan has more than one **Effort:** line")
+		}
+		p.EffortOID = oid
+		return true, nil
 	}
 	m := planCommandRe.FindStringSubmatch(line)
 	if m == nil {
-		return nil
+		return false, nil
 	}
 	cmd := planBacktickRe.FindStringSubmatch(m[2])
 	if cmd == nil {
-		return fmt.Errorf("plan **%s:** line must hold one command in backticks, got %q", m[1], m[2])
+		return false, fmt.Errorf("plan **%s:** line must hold one command in backticks, got %q", m[1], m[2])
 	}
 	field := &p.Verify
-	if m[1] == "Setup" {
+	switch m[1] {
+	case "Setup":
 		field = &p.Setup
+	case "Check":
+		field = &p.Check
 	}
 	if *field != "" {
-		return fmt.Errorf("plan has more than one **%s:** line", m[1])
+		return false, fmt.Errorf("plan has more than one **%s:** line", m[1])
 	}
 	*field = cmd[1]
-	return nil
+	return true, nil
 }
 
 func parsePlanDepends(value string, n int) ([]string, error) {

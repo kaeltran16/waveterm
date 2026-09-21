@@ -717,6 +717,7 @@ declare global {
         title?: string;
         verify?: string;
         setup?: string;
+        check?: string;
         shape: DagPlanShape;
     };
 
@@ -3692,6 +3693,9 @@ declare global {
         notifiedcondition?: string;
         verify?: string;
         setup?: string;
+        check?: string;
+        preamble?: string;
+        effortoid?: string;
         planpath?: string;
         specpath?: string;
     };
@@ -3702,6 +3706,7 @@ declare global {
         label?: string;
         description?: string;
         deps?: string[];
+        chunks?: string[];
         gate?: boolean;
         state: string;
         runid?: string;

@@ -64,6 +64,8 @@ func TestParsePlanRejects(t *testing.T) {
 		{"out-of-order number", "### Task 1: a\n### Task 3: c\n", "Task 3"},
 		{"Verify without backticks", "**Verify:** task test\n\n### Task 1: a\n", "Verify"},
 		{"a second Verify line", "**Verify:** `a`\n**Verify:** `b`\n\n### Task 1: a\n", "Verify"},
+		{"Check without backticks", "**Check:** task check:ts\n\n### Task 1: a\n", "Check"},
+		{"a second Check line", "**Check:** `a`\n**Check:** `b`\n\n### Task 1: a\n", "Check"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -78,6 +80,14 @@ func TestParsePlanRejects(t *testing.T) {
 	}
 }
 
+func TestParsePlanCheck(t *testing.T) {
+	src := "**Verify:** `task test`\n**Check:** `task check:ts`\n\n### Task 1: a\n"
+	p := mustParsePlan(t, src)
+	if p.Verify != "task test" || p.Check != "task check:ts" {
+		t.Fatalf("got verify %q, check %q", p.Verify, p.Check)
+	}
+}
+
 func TestParsePlanPlanLevelLinesOnlyBeforeTheFirstTask(t *testing.T) {
 	src := "# Coupon codes\n\n**Verify:** `task test`\n**Setup:** `task worktree:prepare`\n\n### Task 1: a\n**Verify:** `not plan level`\ndo a\n"
 	p := mustParsePlan(t, src)
@@ -86,6 +96,32 @@ func TestParsePlanPlanLevelLinesOnlyBeforeTheFirstTask(t *testing.T) {
 	}
 	if !strings.Contains(p.Tasks[0].Description, "**Verify:** `not plan level`") {
 		t.Fatalf("a Verify line inside a task is task text, got %q", p.Tasks[0].Description)
+	}
+}
+
+func TestParsePlanPreamble(t *testing.T) {
+	src := "# Coupon codes\n\n**Verify:** `task test`\n\nNever edit docs/.\n\n```\nfenced example\n```\n\nSecond paragraph.\n\n\n### Task 1: a\ndo a\n"
+	p := mustParsePlan(t, src)
+	for _, want := range []string{"Never edit docs/.", "```\nfenced example\n```", "Second paragraph."} {
+		if !strings.Contains(p.Preamble, want) {
+			t.Fatalf("preamble missing %q, got %q", want, p.Preamble)
+		}
+	}
+	for _, gone := range []string{"# Coupon codes", "Coupon codes\n", "**Verify:**", "task test"} {
+		if strings.Contains(p.Preamble, gone) {
+			t.Fatalf("preamble must not carry the title or command lines, found %q in %q", gone, p.Preamble)
+		}
+	}
+	if strings.HasPrefix(p.Preamble, "\n") || strings.HasSuffix(p.Preamble, "\n") {
+		t.Fatalf("leading/trailing blank lines must be trimmed, got %q", p.Preamble)
+	}
+}
+
+func TestParsePlanWithoutPreamble(t *testing.T) {
+	src := "# Coupon codes\n\n**Verify:** `task test`\n**Setup:** `task worktree:prepare`\n\n### Task 1: a\ndo a\n"
+	p := mustParsePlan(t, src)
+	if p.Preamble != "" {
+		t.Fatalf("a header holding only the title and commands has an empty preamble, got %q", p.Preamble)
 	}
 }
 
@@ -132,8 +168,11 @@ func TestPlanFormatParses(t *testing.T) {
 	if want := []string{"t-1:", "t-2:t-1", "t-3:t-1"}; !reflect.DeepEqual(depLists(p.Tasks), want) {
 		t.Fatalf("the format's own example must parse as documented, got %v", depLists(p.Tasks))
 	}
-	if p.Verify == "" || p.Setup == "" {
-		t.Fatalf("the example shows Verify and Setup, got %q / %q", p.Verify, p.Setup)
+	if p.Verify == "" || p.Setup == "" || p.Check == "" {
+		t.Fatalf("the example shows Verify, Setup and Check, got %q / %q / %q", p.Verify, p.Setup, p.Check)
+	}
+	if p.EffortOID != "<oid>" || !reflect.DeepEqual(p.Tasks[0].Chunks, []string{"<exact chunk label>"}) {
+		t.Fatalf("the example shows an Effort line and a Chunk line, got %q / %v", p.EffortOID, p.Tasks[0].Chunks)
 	}
 }
 
@@ -163,5 +202,77 @@ func TestLanes(t *testing.T) {
 				t.Fatalf("longest chain = %d, want %d", got, c.longest)
 			}
 		})
+	}
+}
+
+func TestParsePlanEffortAndChunks(t *testing.T) {
+	src := "# Tracker\n\n**Effort:** effort:5d11f853\n**Verify:** `task test`\n\nNever edit docs/.\n\n" +
+		"### Task 1: a\n**Depends on:** none\n**Chunk:** #8 first\n**Chunk:** #6 second\n\ndo a\n\n" +
+		"### Task 2: b\n**Depends on:** none\ndo b\n\n" +
+		"### Task 3: c\n**Chunk:** #12 third\ndo c\n"
+	p := mustParsePlan(t, src)
+	if p.EffortOID != "5d11f853" {
+		t.Fatalf("effort = %q, want the oid without its prefix", p.EffortOID)
+	}
+	if got := p.Tasks[0].Chunks; !reflect.DeepEqual(got, []string{"#8 first", "#6 second"}) {
+		t.Fatalf("task 1 chunks = %v", got)
+	}
+	if len(p.Tasks[1].Chunks) != 0 {
+		t.Fatalf("task 2 names no chunk, got %v", p.Tasks[1].Chunks)
+	}
+	if got := p.Tasks[2].Chunks; !reflect.DeepEqual(got, []string{"#12 third"}) {
+		t.Fatalf("a Chunk line first under a heading with no Depends line counts, got %v", got)
+	}
+	if got := depLists(p.Tasks); !reflect.DeepEqual(got, []string{"t-1:", "t-2:", "t-3:t-2"}) {
+		t.Fatalf("chunk lines must not disturb dependencies, got %v", got)
+	}
+	if p.Tasks[0].Description != "do a" || p.Tasks[2].Description != "do c" {
+		t.Fatalf("the Chunk lines are not task text, got %q / %q", p.Tasks[0].Description, p.Tasks[2].Description)
+	}
+	if p.Preamble != "Never edit docs/." {
+		t.Fatalf("the Effort line is not preamble text, got %q", p.Preamble)
+	}
+}
+
+func TestParsePlanBareEffortOID(t *testing.T) {
+	p := mustParsePlan(t, "**Effort:** 5d11f853\n\n### Task 1: a\ndo a\n")
+	if p.EffortOID != "5d11f853" {
+		t.Fatalf("effort = %q", p.EffortOID)
+	}
+}
+
+func TestParsePlanChunkWithoutEffortRejected(t *testing.T) {
+	_, err := ParsePlan("### Task 1: a\ndo a\n\n### Task 2: second\n**Chunk:** #8 x\ndo b\n")
+	if err == nil || !strings.Contains(err.Error(), "task 2") || !strings.Contains(err.Error(), "Effort") {
+		t.Fatalf("a Chunk line with no Effort line must be refused naming the task, got %v", err)
+	}
+}
+
+func TestParsePlanEffortRejects(t *testing.T) {
+	for name, src := range map[string]string{
+		"backticks":      "**Effort:** `effort:abc`\n### Task 1: a\nx\n",
+		"empty":          "**Effort:**\n### Task 1: a\nx\n",
+		"twice":          "**Effort:** a\n**Effort:** b\n### Task 1: a\nx\n",
+		"empty chunk":    "**Effort:** a\n### Task 1: a\n**Chunk:**\nx\n",
+		"repeated chunk": "**Effort:** a\n### Task 1: a\n**Chunk:** c\n**Chunk:** c\nx\n",
+	} {
+		if _, err := ParsePlan(src); err == nil {
+			t.Fatalf("%s: want an error", name)
+		}
+	}
+}
+
+func TestParsePlanChunkLineLaterIsTaskText(t *testing.T) {
+	src := "**Effort:** e1\n\n### Task 1: a\n**Depends on:** none\nsome text\n**Chunk:** late\n\n" +
+		"### Task 2: b\n**Chunk:** early\n**Depends on:** none\nx\n"
+	p := mustParsePlan(t, src)
+	if len(p.Tasks[0].Chunks) != 0 || !strings.Contains(p.Tasks[0].Description, "**Chunk:** late") {
+		t.Fatalf("a Chunk line after task text is task text, got chunks %v, description %q", p.Tasks[0].Chunks, p.Tasks[0].Description)
+	}
+	if got := p.Tasks[1].Chunks; !reflect.DeepEqual(got, []string{"early"}) || !strings.Contains(p.Tasks[1].Description, "**Depends on:** none") {
+		t.Fatalf("a Depends line after a Chunk line is task text, got chunks %v, description %q", got, p.Tasks[1].Description)
+	}
+	if len(p.Tasks[1].Deps) != 1 {
+		t.Fatalf("task 2 keeps its default dependency, got %v", p.Tasks[1].Deps)
 	}
 }
