@@ -9,6 +9,19 @@ import { loadAttention } from "./attentionstore";
 // keyed by block ORef string ("block:<uuid>"); null = no pending ask
 const agentAskAtoms = new Map<string, PrimitiveAtom<AgentAskData>>();
 
+// Ask ids whose answer has been sent but not yet confirmed by the agent's clear; the answer bar locks
+// on these so a second click cannot re-send. It lives beside the ask atoms rather than on the view
+// model because the two events that release the lock — the clear, and the server putting the ask back
+// because the answer never landed — both arrive here.
+export const sentAskIdsAtom = atom<Set<string>>(new Set<string>()) as PrimitiveAtom<Set<string>>;
+
+function forgetSentAsk(askId: string) {
+    const next = new Set(globalStore.get(sentAskIdsAtom));
+    if (next.delete(askId)) {
+        globalStore.set(sentAskIdsAtom, next);
+    }
+}
+
 export function getAgentAskAtom(oref: string): PrimitiveAtom<AgentAskData> {
     let askAtom = agentAskAtoms.get(oref);
     if (!askAtom) {
@@ -34,8 +47,15 @@ export function setupAgentAskSubscription() {
             const askAtom = getAgentAskAtom(data.oref);
             if (!data.cleared) {
                 globalStore.set(askAtom, data);
+                // a raise carrying a note is the server putting this ask back under its original id
+                // because the typed answer never reached the agent (agentask.AnswerUnconfirmedNote).
+                // The human has to answer it again, so release the lock the first answer took.
+                if (data.note) {
+                    forgetSentAsk(data.askid);
+                }
                 return;
             }
+            forgetSentAsk(data.askid);
             // clear only the ask the event names. A clear for an ask this block has already replaced
             // (a late duplicate, a persisted event redelivered on reconnect) must not blank the
             // question currently on screen.

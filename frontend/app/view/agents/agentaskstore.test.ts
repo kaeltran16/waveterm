@@ -2,7 +2,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { waveEventSubscribeSingle } from "@/app/store/wps";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { getAgentAskAtom, setupAgentAskSubscription } from "./agentaskstore";
+import { getAgentAskAtom, sentAskIdsAtom, setupAgentAskSubscription } from "./agentaskstore";
 import { attentionAtom } from "./attentionstore";
 
 vi.mock("@/app/store/wps", () => ({ waveEventSubscribeSingle: vi.fn() }));
@@ -57,6 +57,60 @@ describe("agent ask events", () => {
         } as WaveEvent);
 
         expect(globalStore.get(getAgentAskAtom("block:worker"))).toEqual(replacement);
+    });
+
+    // A restored ask keeps its original id, so the submit lock taken when the answer was sent would
+    // otherwise leave the answer bar stuck on "Answered" with no way to answer the question again.
+    it("releases the submit lock when an unanswered ask comes back", () => {
+        vi.mocked(RpcApi.GetAttentionCommand).mockResolvedValue({ items: [] });
+        globalStore.set(sentAskIdsAtom, new Set(["ask-1"]));
+        const subscription = vi
+            .mocked(waveEventSubscribeSingle)
+            .mock.calls.map(([request]) => request)
+            .find((request) => request.eventType === "agent:ask");
+
+        subscription!.handler({
+            data: {
+                oref: "block:worker",
+                askid: "ask-1",
+                cleared: false,
+                note: "answer was sent but never confirmed",
+            },
+        } as WaveEvent);
+
+        expect(globalStore.get(sentAskIdsAtom).has("ask-1")).toBe(false);
+    });
+
+    // without a note the raise is the original ask redelivered (persisted event, reconnect); releasing
+    // the lock there would re-open the answer bar on an answer that is still on its way
+    it("keeps the submit lock on a raise with no note", () => {
+        vi.mocked(RpcApi.GetAttentionCommand).mockResolvedValue({ items: [] });
+        globalStore.set(sentAskIdsAtom, new Set(["ask-2"]));
+        const subscription = vi
+            .mocked(waveEventSubscribeSingle)
+            .mock.calls.map(([request]) => request)
+            .find((request) => request.eventType === "agent:ask");
+
+        subscription!.handler({
+            data: { oref: "block:worker", askid: "ask-2", cleared: false },
+        } as WaveEvent);
+
+        expect(globalStore.get(sentAskIdsAtom).has("ask-2")).toBe(true);
+    });
+
+    it("drops the submit lock once the agent clears the ask", () => {
+        vi.mocked(RpcApi.GetAttentionCommand).mockResolvedValue({ items: [] });
+        globalStore.set(sentAskIdsAtom, new Set(["ask-3"]));
+        const subscription = vi
+            .mocked(waveEventSubscribeSingle)
+            .mock.calls.map(([request]) => request)
+            .find((request) => request.eventType === "agent:ask");
+
+        subscription!.handler({
+            data: { oref: "block:worker", askid: "ask-3", cleared: true },
+        } as WaveEvent);
+
+        expect(globalStore.get(sentAskIdsAtom).has("ask-3")).toBe(false);
     });
 
     it("refreshes cockpit attention when an agent block closes", async () => {

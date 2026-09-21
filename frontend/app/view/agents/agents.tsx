@@ -8,6 +8,7 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { fireAndForget } from "@/util/util";
 import { atom, type Atom, type PrimitiveAtom } from "jotai";
+import { sentAskIdsAtom } from "./agentaskstore";
 import {
     askSentKey,
     buildAskAnswers,
@@ -96,7 +97,11 @@ export class AgentsViewModel implements ViewModel {
         Record<string, Record<number, string>>
     >;
     answerTabAtom = atom<Record<string, number>>({}) as PrimitiveAtom<Record<string, number>>;
-    sentIdsAtom = atom<Set<string>>(new Set<string>()) as PrimitiveAtom<Set<string>>;
+    // The submit lock lives in agentaskstore with the ask events that release it (the agent's clear, or
+    // the server putting an unanswered ask back); re-exported here so callers reach it through the model.
+    get sentIdsAtom() {
+        return sentAskIdsAtom;
+    }
     focusIdAtom = atom<string | undefined>(undefined) as PrimitiveAtom<string | undefined>;
     // The Diff surface's subject: which repository, and which range within it. One stored value
     // rather than three source variables and a ternary chain, so a control can actually set it. It
