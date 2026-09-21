@@ -391,8 +391,11 @@ route picker, then **Re-queue on model**). Escalation is one hop per task.
 Before `dag submit`: the run goes **Blocked** with a **Lead exited** row. Cancel it and start again.
 
 After `dag submit`: the engine keeps merging and verifying, the timeline shows **Lead wake failed**, and every
-judgment event and lead-held question comes to you. There is no relaunch-lead button; answer from the sheet
-and act with the DAG buttons or `wsh jarvis dag`.
+judgment event and lead-held question comes to you. Select the **Lead wake failed** row and press **Relaunch
+lead** to start a replacement: it refuses while the lead is still running, and its prompt is the events the dead
+lead missed rather than the original plan. Until then, answer from the sheet and act with the DAG buttons or
+`wsh jarvis dag`. A stalled task with no live lead is retried once by the engine itself, so it no longer parks
+the run; a second stall waits for you.
 
 ---
 
@@ -485,10 +488,6 @@ closed in `docs/open-issues.md` point here.
     `worker-exited` event. Quitting the app mid-run should not fail it.
   - **Chunk 8, the record peek** (`293f55ca`, frontend only): open a record peek, raise its confirm and press
     Escape. Only the confirm should close, and focus should return to the peek.
-- **Reopening a failed run's worker tab relaunches the worker** (F26's remainder). The run reads failed, but
-  `ResyncController` restarts the block's persisted `cmd`/`args` as a fresh session whenever its terminal
-  view remounts (`runworker.go`, `agentresumestore.ts`). After a quit, reopening that tab brings the worker
-  back to life under a run the backend has already closed.
 - **The hung overlay covers Claude Code only** (F25). pi is excluded until its TUI output is measured.
 - **The frontend `deleteChannel` wrapper is gone.** It had no caller after `5827e43b` deleted the rest of the
   channel lifecycle stack. The `deletechannel` RPC and `DeleteChannelCommand` stay: `scripts/cdp/scenarios.mjs`,
@@ -532,16 +531,6 @@ Inside a lead's or worker's terminal, the run is inferred. Elsewhere pass `--cha
 
 Seen live on 2026-09-17 and 18 or confirmed in code; none block a run.
 
-- **Workers killed by a reboot are never noticed.** After the machine restarted mid-run, the backlog run's
-  three workers were gone, but `dag status` still showed t-1, t-2 and t-5 `running` and the run `healthy`,
-  waiting on them. Worker tabs are background tabs, so nothing relaunches them. Opening one would relaunch its
-  block from the persisted `cmd:args`, which replays the original `--session-id` launch and full task prompt.
-  Resume-on-reopen only bakes `--resume` into blocks that carry `agent:baseargs`, and engine-spawned workers
-  don't (`agentresumestore.ts`). What worked: set each worker block's `cmd:args` to
-  `--dangerously-skip-permissions --resume <its session id> --model <model> "<continue note>"`, then
-  force-restart its controller (the `setmeta` and `controllerresync` RPCs). The worker keeps its tab, which is
-  how the engine ties an exit or completion back to the task. Each worker found its uncommitted edits in the
-  lane worktree and carried on, and all three completed onto their own tasks.
 - **A slow Verify reads as a failed one.** Verify is capped at 20 minutes (`VerifyTimeout`,
   `pkg/orchestrate/plancmd.go`). The engine also writes the plan's Verify into every worker's contract ("Run
   `<Verify>` and get it passing before you complete", `engine.go`). So at parallelism 3 with a full-suite Verify
@@ -550,11 +539,8 @@ Seen live on 2026-09-17 and 18 or confirmed in code; none block a run.
   in which every package shown had passed. The lead woke for it, timed the next package alone
   (`pkg/orchestrate`: 241s under that load), found nothing to fix and re-ran Verify with
   `dag merge t-1 --continue`. If your Verify is the full suite, lower parallelism or expect a timeout like this.
-  The same load pushes a worker that is only waiting on its own test run past the stall threshold (t-9 went
-  `stalled` after 17 idle minutes with its `go test` still using CPU). The lead checked the process and left
-  it alone, and t-9 completed on its own about half an hour later.
-- **Verify's output isn't shown while it runs.** It runs without a terminal, and its output is kept only when
-  it fails. Streaming Verify's output live is still open.
+  The same load used to push a worker that was only waiting on its own test run past the stall threshold; a
+  busy process tree now counts as activity.
 - **A timed-out Verify keeps running on Windows.** The timeout kills only the Git Bash launcher
   (`exec.CommandContext` in `plancmd_windows.go`). The real `bash` under it and the `go test` it started are
   never killed. On the backlog run the first Verify's `go test` was still running 30 minutes after it
