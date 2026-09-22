@@ -1122,6 +1122,12 @@ func MemoryScanCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.Command
 	return resp, err
 }
 
+// command "memorystats", wshserver.MemoryStatsCommand
+func MemoryStatsCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandMemoryStatsRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandMemoryStatsRtnData](w, "memorystats", nil, opts)
+	return resp, err
+}
+
 // command "memorywrite", wshserver.MemoryWriteCommand
 func MemoryWriteCommand(w *wshutil.WshRpc, data wshrpc.CommandMemoryWriteData, opts *wshrpc.RpcOpts) (*wshrpc.CommandMemoryWriteRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandMemoryWriteRtnData](w, "memorywrite", data, opts)

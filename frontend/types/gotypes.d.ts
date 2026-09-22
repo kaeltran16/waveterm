@@ -1599,6 +1599,26 @@ declare global {
         edges: MemoryEdge[];
     };
 
+    // wshrpc.CommandMemoryStatsRtnData
+    type CommandMemoryStatsRtnData = {
+        vaultpath: string;
+        total: number;
+        machine: number;
+        human: number;
+        referenced: number;
+        referencedrecently: number;
+        neverreferenced: number;
+        totalreferences: number;
+        archiveeligible: number;
+        epoch: string;
+        epochmatures: string;
+        indexes: MemoryIndexFile[];
+        totalindexbytes: number;
+        totalindextokens: number;
+        bytespertoken: number;
+        budgetbytes: number;
+    };
+
     // wshrpc.CommandMemoryWriteData
     type CommandMemoryWriteData = {
         path: string;
@@ -2677,6 +2697,15 @@ declare global {
     type MemoryEdge = {
         from: string;
         to: string;
+    };
+
+    // wshrpc.MemoryIndexFile
+    type MemoryIndexFile = {
+        label: string;
+        bytes: number;
+        tokens: number;
+        overbudget: boolean;
+        overby: number;
     };
 
     // wshrpc.MemoryLearnCandidate

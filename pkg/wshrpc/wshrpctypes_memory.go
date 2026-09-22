@@ -22,6 +22,7 @@ type MemoryCommands interface {
 	MemoryArchiveCommand(ctx context.Context, data CommandMemoryArchiveData) error
 	MemoryArchiveListCommand(ctx context.Context) (*CommandMemoryArchiveListRtnData, error)
 	MemoryRestoreCommand(ctx context.Context, data CommandMemoryRestoreData) error
+	MemoryStatsCommand(ctx context.Context) (*CommandMemoryStatsRtnData, error)
 }
 
 type CommandMemoryScanRtnData struct {
@@ -126,4 +127,34 @@ type CommandMemoryArchiveData struct {
 
 type CommandMemoryRestoreData struct {
 	Path string `json:"path"`
+}
+
+// CommandMemoryStatsRtnData is the memory utilization + injection-cost report. Fields mirror
+// memvault.Stats; the server converts.
+type CommandMemoryStatsRtnData struct {
+	VaultPath          string            `json:"vaultpath"`
+	Total              int               `json:"total"`
+	Machine            int               `json:"machine"`
+	Human              int               `json:"human"`
+	Referenced         int               `json:"referenced"`
+	ReferencedRecently int               `json:"referencedrecently"`
+	NeverReferenced    int               `json:"neverreferenced"`
+	TotalReferences    int               `json:"totalreferences"`
+	ArchiveEligible    int               `json:"archiveeligible"`
+	Epoch              string            `json:"epoch"`
+	EpochMatures       string            `json:"epochmatures"`
+	Indexes            []MemoryIndexFile `json:"indexes"`
+	TotalIndexBytes    int               `json:"totalindexbytes"`
+	TotalIndexTokens   int               `json:"totalindextokens"`
+	BytesPerToken      int               `json:"bytespertoken"`
+	BudgetBytes        int               `json:"budgetbytes"`
+}
+
+// MemoryIndexFile is one hub index's measured size.
+type MemoryIndexFile struct {
+	Label      string `json:"label"`
+	Bytes      int    `json:"bytes"`
+	Tokens     int    `json:"tokens"`
+	OverBudget bool   `json:"overbudget"`
+	OverBy     int    `json:"overby"`
 }

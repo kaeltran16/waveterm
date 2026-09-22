@@ -1128,6 +1128,12 @@ export class RpcApiType {
         return client.wshRpcCall("memoryscan", null, opts);
     }
 
+    // command "memorystats" [call]
+    MemoryStatsCommand(client: WshClient, opts?: RpcOpts): Promise<CommandMemoryStatsRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "memorystats", null, opts);
+        return client.wshRpcCall("memorystats", null, opts);
+    }
+
     // command "memorywrite" [call]
     MemoryWriteCommand(client: WshClient, data: CommandMemoryWriteData, opts?: RpcOpts): Promise<CommandMemoryWriteRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "memorywrite", data, opts);

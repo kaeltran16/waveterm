@@ -173,3 +173,25 @@ func (ws *WshServer) MemoryRestoreCommand(ctx context.Context, data wshrpc.Comma
 	}
 	return nil
 }
+
+// MemoryStatsCommand reports memory utilization and what memory costs at session start. StaleDays
+// comes from the same config the gardener reads, so the report's archive-eligible count is the
+// gardener's own answer rather than a second opinion.
+func (ws *WshServer) MemoryStatsCommand(ctx context.Context) (*wshrpc.CommandMemoryStatsRtnData, error) {
+	s := memvault.GatherStats(time.Now(), memvault.StaleDays)
+	out := &wshrpc.CommandMemoryStatsRtnData{
+		VaultPath: s.VaultPath, Total: s.Total, Machine: s.Machine, Human: s.Human,
+		Referenced: s.Referenced, ReferencedRecently: s.ReferencedRecently,
+		NeverReferenced: s.NeverReferenced, TotalReferences: s.TotalReferences,
+		ArchiveEligible: s.ArchiveEligible, Epoch: s.Epoch, EpochMatures: s.EpochMatures,
+		TotalIndexBytes: s.TotalIndexBytes, TotalIndexTokens: s.TotalIndexTokens,
+		BytesPerToken: memvault.BytesPerToken, BudgetBytes: s.BudgetBytes,
+	}
+	for _, idx := range s.Indexes {
+		out.Indexes = append(out.Indexes, wshrpc.MemoryIndexFile{
+			Label: idx.Label, Bytes: idx.Bytes, Tokens: idx.Tokens,
+			OverBudget: idx.OverBudget, OverBy: idx.OverBy,
+		})
+	}
+	return out, nil
+}
