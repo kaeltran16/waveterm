@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -82,14 +83,50 @@ func MarkSuperseded(hubDir, noteSlug, bySlug string) error {
 	return editNoteMetadata(filepath.Join(hubDir, noteSlug+".md"), "superseded_by", bySlug)
 }
 
-// TouchReferenced records ts as last_referenced on each named note (pruning's weak signal).
+// TouchReferenced records ts as last_referenced on each named note and increments its
+// reference_count. Missing notes are skipped, not an error — the caller is a recall, and a stale
+// slug must never fail one.
 func TouchReferenced(hubDir string, slugs []string, ts string) error {
 	for _, s := range slugs {
-		if err := editNoteMetadata(filepath.Join(hubDir, s+".md"), "last_referenced", yamlQuote(ts)); err != nil && !os.IsNotExist(err) {
+		if err := stampReference(filepath.Join(hubDir, s+".md"), ts); err != nil && !os.IsNotExist(err) {
 			return err
 		}
 	}
 	return nil
+}
+
+// stampReference writes last_referenced and the incremented reference_count in one pass, then
+// restores the file's mtime. A recall is a read: letting it bump mtime would make UpdatedTs — the
+// Memory list's sort key and decay's fallback age basis — report a content change that never
+// happened, so every recalled note would look freshly edited.
+func stampReference(path, ts string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	n, _ := parseNote(path, data, "")
+	out := setMetadataField(string(data), "last_referenced", yamlQuote(ts))
+	out = setMetadataField(out, "reference_count", strconv.Itoa(n.ReferenceCount+1))
+	if err := os.WriteFile(path, []byte(out), 0o644); err != nil {
+		return err
+	}
+	return os.Chtimes(path, info.ModTime(), info.ModTime())
+}
+
+// TouchReferencedByID stamps vault notes by note id. Jarvis recall knows ids, not paths; a note's id
+// and its filename slug are the same string (the hub fold preserves it), so this is TouchReferenced
+// against the one write target.
+func TouchReferencedByID(ids []string, ts string) error {
+	return TouchReferencedByIDIn(DefaultVaultPath(), ids, ts)
+}
+
+// TouchReferencedByIDIn is the testable core: the same stamp against an explicit dir.
+func TouchReferencedByIDIn(dir string, ids []string, ts string) error {
+	return TouchReferenced(dir, ids, ts)
 }
 
 func editNoteMetadata(path, key, value string) error {

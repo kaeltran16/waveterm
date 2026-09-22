@@ -21,7 +21,8 @@ import (
 )
 
 // ArchiveDir is the recoverable removal store: a sibling of the vault + pending dirs, never scanned.
-func ArchiveDir() string {
+// A var so tests can point it at a temp dir.
+var ArchiveDir = func() string {
 	return filepath.Join(wavebase.GetHomeDir(), ".waveterm", "memory-archive")
 }
 

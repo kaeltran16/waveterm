@@ -639,6 +639,7 @@ func main() {
 	memdistill.RegisterSweepHook(memgarden.Sweep)
 	memdistill.RegisterSweepHook(jarvisvolunteer.SweepLooseEnds)
 	memdistill.RegisterSweepHook(func() {
+		memvault.EnsureRecallEpoch(time.Now())
 		if _, _, err := memroots.MigrateVaultToConfiguredRoot(); err != nil {
 			log.Printf("memory vault-path migration: %v", err)
 		}
