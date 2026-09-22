@@ -10,11 +10,13 @@ package jarvisrecall
 
 import (
 	"fmt"
+	"log"
 	"path"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/memvault"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
@@ -187,6 +189,36 @@ func buildCards(cands []candidate, nowMs int64) []waveobj.JarvisConvoGroundingCa
 			NavTarget:  c.navTarget,
 			Anchor:     c.anchor,
 		})
+	}
+	return cards
+}
+
+// stampReferences is the seam onto memvault's frontmatter stamp, so tests observe the call without
+// a vault on disk.
+var stampReferences = memvault.TouchReferencedByID
+
+// memNotePrefix is the navTarget scheme memoryCandidate writes; the id follows it.
+const memNotePrefix = "memnote:"
+
+// groundingCards builds the answer's cards and records that recall surfaced each memory note in it.
+// Utilization is defined as *surfaced as grounding*, not as cited in prose: grounding membership is
+// deterministic and already computed here, whereas citation counting would make the measurement
+// depend on how the model formatted its answer.
+//
+// The stamp is best-effort. A vault that cannot be written is a lost measurement, never a lost
+// answer, so a failure is logged and the cards are returned regardless.
+func groundingCards(cands []candidate, nowMs int64) []waveobj.JarvisConvoGroundingCard {
+	cards := buildCards(cands, nowMs)
+	var ids []string
+	for _, c := range cands {
+		if c.sourceType == "memory" && strings.HasPrefix(c.navTarget, memNotePrefix) {
+			ids = append(ids, strings.TrimPrefix(c.navTarget, memNotePrefix))
+		}
+	}
+	if len(ids) > 0 {
+		if err := stampReferences(ids, time.Now().UTC().Format(time.RFC3339)); err != nil {
+			log.Printf("[jarvisrecall] stamping %d recalled notes: %v\n", len(ids), err)
+		}
 	}
 	return cards
 }

@@ -4,6 +4,7 @@
 package jarvisrecall
 
 import (
+	"errors"
 	"strconv"
 	"strings"
 	"testing"
@@ -233,5 +234,39 @@ func TestInScope(t *testing.T) {
 	}
 	if inScope(proj, "run", "/src/other") {
 		t.Error("project scope should exclude a different project")
+	}
+}
+
+func TestGroundingCardsStampsOnlyMemoryTargets(t *testing.T) {
+	var stamped []string
+	old := stampReferences
+	stampReferences = func(ids []string, ts string) error {
+		stamped = append(stamped, ids...)
+		return nil
+	}
+	t.Cleanup(func() { stampReferences = old })
+
+	cands := []candidate{
+		{sourceType: "memory", title: "A", navTarget: "memnote:note-a"},
+		{sourceType: "run", title: "R", navTarget: "run:abc"},
+		{sourceType: "memory", title: "B", navTarget: "memnote:note-b"},
+	}
+	cards := groundingCards(cands, 1000)
+	if len(cards) != 3 {
+		t.Fatalf("groundingCards returned %d cards, want 3 (stamping must not filter)", len(cards))
+	}
+	if len(stamped) != 2 || stamped[0] != "note-a" || stamped[1] != "note-b" {
+		t.Fatalf("stamped = %v, want [note-a note-b]", stamped)
+	}
+}
+
+func TestGroundingCardsStampFailureDoesNotBreakTheAnswer(t *testing.T) {
+	old := stampReferences
+	stampReferences = func(ids []string, ts string) error { return errors.New("disk full") }
+	t.Cleanup(func() { stampReferences = old })
+
+	cards := groundingCards([]candidate{{sourceType: "memory", navTarget: "memnote:x"}}, 1000)
+	if len(cards) != 1 {
+		t.Fatalf("a failed stamp must still return the answer's cards, got %d", len(cards))
 	}
 }

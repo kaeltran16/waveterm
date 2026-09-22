@@ -162,5 +162,5 @@ func Ask(ctx context.Context, scope ScopeArgs, prompt string, ledgerFn AskLedger
 	// buildCards is the conversation path's own card builder, so an ask's citation and a thread's
 	// citation are the same object measured the same way — including AgeMs, which is taken now rather
 	// than at retrieval because the synthesis above can run for tens of seconds.
-	return AskResult{Answer: prose, Grounding: buildCards(cands, time.Now().UnixMilli()), Terminal: terminal}, runErr
+	return AskResult{Answer: prose, Grounding: groundingCards(cands, time.Now().UnixMilli()), Terminal: terminal}, runErr
 }

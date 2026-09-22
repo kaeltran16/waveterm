@@ -67,7 +67,7 @@ func Converse(ctx context.Context, scope ScopeArgs, priorTurns []waveobj.JarvisC
 	// degrades to keep-and-log (judgeCandidates), so a dead judge is a slower answer, never none.
 	cands = judgeCandidates(ctx, scopeCwd(scope), prompt, cands)
 
-	cards := buildCards(cands, time.Now().UnixMilli())
+	cards := groundingCards(cands, time.Now().UnixMilli())
 	for i := range cards {
 		card := cards[i]
 		emit(wshrpc.JarvisConverseChunk{Kind: "grounding", Grounding: &card})
