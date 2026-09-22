@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/consult"
-	"github.com/wavetermdev/waveterm/pkg/memvault"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wavevault"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -61,13 +60,13 @@ func Converse(ctx context.Context, scope ScopeArgs, priorTurns []waveobj.JarvisC
 	if err != nil {
 		return waveobj.JarvisConvoTurn{}, err
 	}
-	emit(stepChunk("retrieve", "Searched runs, radar, and memory", "done"))
+	emit(stepChunk("retrieve", "Searched runs and radar", "done"))
 
 	// The judge is part of the shared core: it removes wrong memories before synthesis. Failure
 	// degrades to keep-and-log (judgeCandidates), so a dead judge is a slower answer, never none.
 	cands = judgeCandidates(ctx, scopeCwd(scope), prompt, cands)
 
-	cards := groundingCards(cands, time.Now().UnixMilli())
+	cards := buildCards(cands, time.Now().UnixMilli())
 	for i := range cards {
 		card := cards[i]
 		emit(wshrpc.JarvisConverseChunk{Kind: "grounding", Grounding: &card})
@@ -209,15 +208,6 @@ func resolveAttached(ctx context.Context, orefs []string) []candidate {
 		case "run":
 			if run, err := wstore.DBMustGet[*waveobj.Run](ctx, parts[1]); err == nil {
 				out = append(out, runCandidate(run))
-			}
-		case "memory":
-			if graph, err := memvault.ScanVault(memvault.VaultRoots()); err == nil && graph != nil {
-				for _, note := range graph.Notes {
-					if note.ID == parts[1] {
-						out = append(out, memoryCandidate(note))
-						break
-					}
-				}
 			}
 		case "radar":
 			if reports, err := wstore.GetRadarReports(ctx, ""); err == nil {

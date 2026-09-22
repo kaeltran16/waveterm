@@ -10,17 +10,18 @@ import {
     labelZoomThreshold,
     seedPosition,
     truncateTitle,
+    type EdgeLike,
 } from "./memgraphlayout";
-import type { MemEdge } from "./memtypes";
+
 
 describe("graphSignature", () => {
-    const edges: MemEdge[] = [{ from: "a", to: "b" }];
+    const edges: EdgeLike[] = [{ from: "a", to: "b" }];
     it("is stable across node-id ordering (same set -> same key, so the sim doesn't restart)", () => {
         expect(graphSignature(["a", "b", "c"], edges)).toBe(graphSignature(["c", "a", "b"], edges));
     });
     it("is stable across edge ordering", () => {
-        const e1: MemEdge[] = [{ from: "a", to: "b" }, { from: "b", to: "c" }];
-        const e2: MemEdge[] = [{ from: "b", to: "c" }, { from: "a", to: "b" }];
+        const e1: EdgeLike[] = [{ from: "a", to: "b" }, { from: "b", to: "c" }];
+        const e2: EdgeLike[] = [{ from: "b", to: "c" }, { from: "a", to: "b" }];
         expect(graphSignature(["a", "b", "c"], e1)).toBe(graphSignature(["a", "b", "c"], e2));
     });
     it("changes when a node is added or removed", () => {
@@ -33,7 +34,7 @@ describe("graphSignature", () => {
 
 describe("degreeMap", () => {
     it("counts undirected degree per node", () => {
-        const edges: MemEdge[] = [{ from: "a", to: "b" }, { from: "b", to: "c" }, { from: "a", to: "c" }];
+        const edges: EdgeLike[] = [{ from: "a", to: "b" }, { from: "b", to: "c" }, { from: "a", to: "c" }];
         const deg = degreeMap(edges);
         expect(deg.get("a")).toBe(2);
         expect(deg.get("b")).toBe(2);
@@ -115,7 +116,7 @@ describe("truncateTitle", () => {
 
 describe("seedPosition", () => {
     const cache = new Map([["a", { x: 100, y: -40 }]]);
-    const edges: MemEdge[] = [{ from: "a", to: "b" }];
+    const edges: EdgeLike[] = [{ from: "a", to: "b" }];
 
     it("returns the cached position for a cached node", () => {
         expect(seedPosition("a", edges, cache)).toEqual({ x: 100, y: -40 });
@@ -131,7 +132,7 @@ describe("seedPosition", () => {
         expect(seedPosition("b", edges, cache)).toEqual(seedPosition("b", edges, cache));
     });
     it("spreads different new nodes around the same neighbor", () => {
-        const e2: MemEdge[] = [
+        const e2: EdgeLike[] = [
             { from: "a", to: "b" },
             { from: "a", to: "c" },
         ];

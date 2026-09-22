@@ -14,9 +14,7 @@ import { modalsModel } from "@/app/store/modalmodel";
 import { RpcResponseHelper, WshClient } from "@/app/store/wshclient";
 import { DefaultRouter } from "@/app/store/wshrpcutil";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
-import { memSelectedIdAtom } from "@/app/view/agents/memstore";
 import { currentReportIdAtom } from "@/app/view/agents/radarstore";
-import { vaultTabAtom } from "@/app/view/agents/vaultstore";
 import { briefPeekRecordAtom } from "@/app/view/jarvis/jarvisstore";
 import { activeRunIdAtom, activeSubjectAtom } from "@/app/view/jarvis/jarvissubjectstore";
 import { openAddress } from "@/app/view/jarvis/openref";
@@ -126,8 +124,6 @@ class CockpitUiClient extends WshClient {
             activeRunIds: globalStore.get(activeRunIdAtom),
             peekRecordId: globalStore.get(briefPeekRecordAtom),
             radarReportId: globalStore.get(currentReportIdAtom),
-            vaultTab: globalStore.get(vaultTabAtom),
-            memNoteId: globalStore.get(memSelectedIdAtom),
         };
     }
 

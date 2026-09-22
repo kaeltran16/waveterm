@@ -181,12 +181,6 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         const ctx = postCloseContext(surface);
         const extras = buildExtraItems({
             openNewProject: () => globalStore.set(model.newProjectOpenAtom, true),
-            // memNewOpenAtom is read only inside vaultsurface.tsx, and every surface but Agent unmounts
-            // when off-screen — so the surface has to be switched first or nothing is listening.
-            openNewMemory: () => {
-                globalStore.set(model.surfaceAtom, "vault");
-                globalStore.set(model.memNewOpenAtom, true);
-            },
             // matches selectPreset in settingssurface.tsx: picking a preset drops per-role overrides.
             setTheme: (presetId) => {
                 globalStore.set(themePresetAtom, presetId);

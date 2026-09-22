@@ -20,7 +20,6 @@ export const SURFACE_CONTEXT = {
     radar: { project: "subject", space: "unsupported" },
     sessions: { project: "filter", space: "filter" },
     files: { project: "subject", space: "subject" },
-    vault: { project: "subject", space: "unsupported" },
     usage: { project: "unsupported", space: "unsupported" },
     code: { project: "subject", space: "subject" },
     settings: { project: "unsupported", space: "unsupported" },

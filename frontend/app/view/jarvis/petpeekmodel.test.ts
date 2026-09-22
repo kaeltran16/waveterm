@@ -180,16 +180,11 @@ describe("peekActForCommand", () => {
 describe("peekConditions — a remedy on the row, or an honest readout", () => {
     const OFF = { state: "off", reason: "disabled" } as EmbedIndexStatus;
     const HOT = { provider: "claude", pct: 94, resetAt: 1_800_000_000 };
-    const DRIFT = { queueDepth: 9, staleNotes: 4 };
-    const CANDIDATES = [{ reason: "superseded" }, { reason: "weak" }] as MemoryPruneCandidate[];
-    const none = { index: null, prune: null };
+    const none = { index: null };
 
     it("hands each condition the acts that resolve it", () => {
-        const [recall] = peekConditions({ index: { state: "off" } }, { index: OFF, prune: null });
+        const [recall] = peekConditions({ index: { state: "off" } }, { index: OFF });
         expect(recall.acts.map((a) => a.label)).toEqual(["Set up"]);
-
-        const [vault] = peekConditions({ decay: DRIFT }, { index: null, prune: CANDIDATES });
-        expect(vault.acts.map((a) => a.label)).toEqual(["Review 2", "Clear 1 superseded"]);
     });
 
     // documented in petacts.ts: the countdown is the one row with genuinely nothing to do, and it is
@@ -201,18 +196,17 @@ describe("peekConditions — a remedy on the row, or an honest readout", () => {
         expect(tired.readout).toBe(true);
     });
 
-    // an empty act list is not the same fact as having no remedy: memPruneAtom is not read until the
-    // Memory surface is visited, so treating "no acts yet" as a readout would lie about a vault that
-    // does have a cleanup queue.
+    // an empty act list is not the same fact as having no remedy: the index status is null until its read
+    // lands, so treating "no acts yet" as a readout would lie about a condition that does have a remedy.
     it("does not call a condition a readout merely because its acts have not loaded", () => {
-        const [vault] = peekConditions({ decay: DRIFT }, none);
-        expect(vault.acts).toEqual([]);
-        expect(vault.readout).toBe(false);
+        const [recall] = peekConditions({ index: { state: "off" } }, none);
+        expect(recall.acts).toEqual([]);
+        expect(recall.readout).toBe(false);
     });
 
     it("keeps the ranked order and stays empty when nothing is degraded", () => {
-        const all = peekConditions({ index: { state: "off" }, rateLimit: HOT, decay: DRIFT }, none);
-        expect(all.map((c) => c.expr.kind)).toEqual(["cannot-see", "tired", "drifting"]);
+        const all = peekConditions({ index: { state: "off" }, rateLimit: HOT }, none);
+        expect(all.map((c) => c.expr.kind)).toEqual(["cannot-see", "tired"]);
         expect(peekConditions({}, none)).toEqual([]);
     });
 });

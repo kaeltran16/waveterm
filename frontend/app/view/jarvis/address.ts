@@ -11,7 +11,6 @@ export type OpenTarget =
     | { kind: "run"; runId: string }
     | { kind: "agent"; tabId: string }
     | { kind: "record"; dossierId: string; anchor?: string }
-    | { kind: "memory-note"; noteId: string }
     | { kind: "effort"; effortId: string }
     | { kind: "radar"; reportId: string; findingId?: string };
 
@@ -22,6 +21,10 @@ export type AddressHint = { sourceType?: string; anchor?: string };
 
 export const CANNOT_OPEN = "This item can't be opened";
 export const CANNOT_LOCATE_RECORD = "This citation can't locate its record";
+// memnote:/memory:/vault:+memory addresses still arrive from persisted turns and effort WorkRefs. They
+// name something real in the vault, but the surface that read notes is gone, so they parse to a reason
+// rather than to the generic "can't be opened".
+export const NO_MEMORY_SURFACE = "Memory notes no longer have a surface to open on";
 
 export function parseAddress(address: string, hint?: AddressHint): OpenTarget | Unsupported {
     const parts = (address ?? "").split(":");
@@ -42,7 +45,7 @@ export function parseAddress(address: string, hint?: AddressHint): OpenTarget | 
             return { kind: "record", dossierId: id, anchor };
         case "memnote":
         case "memory":
-            return { kind: "memory-note", noteId: id };
+            return { kind: "unsupported", message: NO_MEMORY_SURFACE };
         case "effort":
             return { kind: "effort", effortId: id };
         case "radarreport":
@@ -61,7 +64,7 @@ function parseVaultNode(id: string, sourceType: string | undefined): OpenTarget 
         return { kind: "record", dossierId: id };
     }
     if (sourceType === "memory") {
-        return { kind: "memory-note", noteId: id };
+        return { kind: "unsupported", message: NO_MEMORY_SURFACE };
     }
     if (sourceType === "decision") {
         return { kind: "unsupported", message: CANNOT_LOCATE_RECORD };

@@ -3,12 +3,9 @@
 
 import { describe, expect, it } from "vitest";
 import {
-    eventFromActivity,
     eventFromResume,
     eventFromVolunteer,
     indexSignal,
-    passFromActivity,
-    passLine,
     recallLine,
 } from "./petjoin";
 
@@ -16,9 +13,6 @@ function status(over: Partial<EmbedIndexStatus>): EmbedIndexStatus {
     return { state: "ok", enabled: true, haskey: true, indexednodes: 0, vaultnodes: 0, stalenodes: 0, ...over };
 }
 
-function activity(over: Partial<MemoryActivityData>): MemoryActivityData {
-    return { kind: "sweep", id: "a1", ts: 1_700_000_000_000, ...over };
-}
 
 describe("indexSignal", () => {
     it("narrows each state the backend can report", () => {
@@ -73,73 +67,6 @@ describe("recallLine", () => {
     });
 });
 
-describe("eventFromActivity — a pass carries its products or is not said", () => {
-    it("maps a gardener sweep, carrying the archived count", () => {
-        const e = eventFromActivity(activity({ kind: "sweep", archived: 12 }));
-        expect(e).toMatchObject({ id: "a1", at: 1_700_000_000_000, kind: "sweep" });
-        expect(e?.text).toBe("I tidied the vault — 12 notes archived.");
-    });
-
-    it("names what a pass wrote and offers each note as a source", () => {
-        const ev = eventFromActivity(
-            activity({
-                kind: "distill-batch",
-                sessions: 8,
-                committed: 3,
-                notes: [
-                    { id: "prefer-tailwind-ab12", title: "prefer tailwind over scss" },
-                    { id: "cgo-header-path-cd34", title: "cgo needs a windows include path" },
-                    { id: "no-jsdom-tests-ef56", title: "no jsdom render tests" },
-                ],
-            })
-        );
-        expect(ev?.text).toBe("I went back over 8 sessions and wrote down 3 things.");
-        expect(ev?.sources?.map((s) => s.ref)).toEqual([
-            "memnote:prefer-tailwind-ab12",
-            "memnote:cgo-header-path-cd34",
-            "memnote:no-jsdom-tests-ef56",
-        ]);
-        expect(ev?.sources?.[0].title).toBe("prefer tailwind over scss");
-        expect(ev?.sources?.[0].sourceType).toBe("memory");
-    });
-
-    // the pass is still REPORTED — petsources records it for the peek's last-pass row — it just does not
-    // become an utterance, because "I did some work" carries nothing to open
-    it("says nothing at all for a pass that wrote nothing", () => {
-        expect(eventFromActivity(activity({ kind: "distill-batch", sessions: 8, notes: [] }))).toBeNull();
-        expect(eventFromActivity(activity({ kind: "distill-batch", sessions: 8 }))).toBeNull();
-    });
-
-    it("singularises a count of one", () => {
-        expect(eventFromActivity(activity({ kind: "sweep", archived: 1 }))?.text).toContain("1 note ");
-        const one = eventFromActivity(
-            activity({ kind: "distill-batch", sessions: 1, notes: [{ id: "x-ab12", title: "x" }] })
-        );
-        expect(one?.text).toBe("I went back over 1 session and wrote down 1 thing.");
-    });
-
-    it("falls back to unnumbered wording when the pass reports no session count", () => {
-        const e = eventFromActivity(activity({ kind: "distill-batch", notes: [{ id: "x", title: "x" }] }));
-        expect(e?.text).toBe("I went back over your recent sessions and wrote down 1 thing.");
-    });
-
-    it("rejects a kind the creature has no register for, including the retired notes-written", () => {
-        expect(eventFromActivity(activity({ kind: "reindexed" }))).toBeNull();
-        expect(eventFromActivity(activity({ kind: "notes-written", committed: 3 }))).toBeNull();
-    });
-
-    // without both, the watermark cannot order the event, so it would either re-speak forever or
-    // suppress everything after it.
-    it("rejects an event with no stable id or no timestamp", () => {
-        expect(eventFromActivity(activity({ id: "" }))).toBeNull();
-        expect(eventFromActivity(activity({ ts: 0 }))).toBeNull();
-        expect(eventFromActivity(null)).toBeNull();
-    });
-
-    it("does not mark activity as already reported by the condition register", () => {
-        expect(eventFromActivity(activity({ kind: "sweep", archived: 4 }))?.reportedAsCondition).toBeUndefined();
-    });
-});
 
 describe("eventFromResume", () => {
     const card: ResumeCardData = {
@@ -248,53 +175,6 @@ describe("eventFromVolunteer", () => {
         expect(ev?.kind).toBe("ledger");
         expect(ev?.text).toBe("shipped: ask bridge - landed, changed 12 files");
         expect(ev?.sources?.[0].ref).toBe("run:run-1");
-    });
-});
-
-describe("passFromActivity", () => {
-    it("records a pass with what it covered and what it wrote", () => {
-        expect(
-            passFromActivity(
-                activity({ kind: "distill-batch", ts: 1000, sessions: 8, notes: [{ id: "x", title: "x" }] })
-            )
-        ).toEqual({ at: 1000, sessions: 8, written: 1 });
-    });
-
-    it("records a barren pass rather than dropping it — that is the whole point of the row", () => {
-        expect(passFromActivity(activity({ kind: "distill-batch", ts: 1000, sessions: 8 }))).toEqual({
-            at: 1000,
-            sessions: 8,
-            written: 0,
-        });
-    });
-
-    it("ignores a sweep, which is a different pass with its own utterance", () => {
-        expect(passFromActivity(activity({ kind: "sweep", ts: 1, archived: 2 }))).toBeNull();
-        expect(passFromActivity(null)).toBeNull();
-    });
-});
-
-describe("passLine", () => {
-    it("says so plainly when a pass wrote nothing", () => {
-        expect(passLine({ at: 1_000_000, sessions: 8, written: 0 }, 1_000_000 + 18 * 60_000)).toBe(
-            "18m ago · 8 sessions · nothing written"
-        );
-    });
-
-    it("counts what a productive pass wrote", () => {
-        expect(passLine({ at: 1_000_000, sessions: 8, written: 3 }, 1_000_000 + 18 * 60_000)).toBe(
-            "18m ago · 8 sessions · 3 notes written"
-        );
-    });
-
-    it("singularises one session and one note", () => {
-        expect(passLine({ at: 1_000_000, sessions: 1, written: 1 }, 1_000_000 + 18 * 60_000)).toBe(
-            "18m ago · 1 session · 1 note written"
-        );
-    });
-
-    it("reads as not-read-yet when no pass has been seen", () => {
-        expect(passLine(null, 0)).toBe("not read yet");
     });
 });
 

@@ -55,72 +55,12 @@ export function recallLine(status: EmbedIndexStatus | null | undefined): { text:
     return { text: why != null ? `${status.state} — ${why}${drift}` : status.state, dim: false };
 }
 
-const ACTIVITY_KINDS = ["sweep", "distill-batch"] as const;
-type ActivityKind = (typeof ACTIVITY_KINDS)[number];
-
-function notes(n: number): string {
-    return n === 1 ? "1 note" : `${n} notes`;
-}
-
-function things(n: number): string {
-    return n === 1 ? "1 thing" : `${n} things`;
-}
-
-function sessions(n: number | undefined): string {
-    if (n == null || n <= 0) {
-        return "your recent sessions";
-    }
-    return n === 1 ? "1 session" : `${n} sessions`;
-}
-
-// First person, matching conditionLine in petcondition.ts — the creature is Jarvis with a face, not a
-// separate character (design §2), and one voice means one register everywhere.
-function activityText(kind: ActivityKind, d: MemoryActivityData): string {
-    switch (kind) {
-        case "sweep":
-            return `I tidied the vault — ${notes(d.archived ?? 0)} archived.`;
-        case "distill-batch":
-            return `I went back over ${sessions(d.sessions)} and wrote down ${things((d.notes ?? []).length)}.`;
-    }
-}
-
-// A memory:activity event becomes at most one utterance. `reportedAsCondition` is deliberately left unset
-// on both kinds: the design's report-once rule splits these registers rather than suppressing one
-// (§3, "the event is the transition, the condition is the level"). A sweep that archived twelve notes and a
-// vault that is no longer drifting are two different facts, so both may be reported.
-//
-// A distillation pass that wrote nothing yields NO utterance: an utterance has to carry the thing it is
-// about (design §2 corollary 2), and "I did some work" carries nothing. The pass is still reported — the
-// backend publishes every pass and petsources.tsx records it for the peek's last-pass row — so a pipeline
-// that keeps producing nothing is visible as a level rather than announced as an event.
-export function eventFromActivity(d: MemoryActivityData | null | undefined): PetEvent | null {
-    const kind = d?.kind;
-    if (d == null || kind == null || !(ACTIVITY_KINDS as readonly string[]).includes(kind)) {
-        return null;
-    }
-    if (!d.id || !d.ts) {
-        return null; // no stable id or no timestamp means the watermark cannot order it
-    }
-    const written = d.notes ?? [];
-    if (kind === "distill-batch" && written.length === 0) {
-        return null;
-    }
-    return {
-        id: d.id,
-        at: d.ts,
-        kind: kind as ActivityKind,
-        text: activityText(kind as ActivityKind, d),
-        // memnote:<slug> is the id memvault's scan reports, so openAddress lands it with no lookup
-        sources: written.map((n) => ({ ref: `memnote:${n.id}`, title: n.title || n.id, sourceType: "memory" })),
-    };
-}
-
 // The launch narrative. The id has to be stable across relaunches or the creature re-says "where we were"
 // on every start; keying it to the run plus the narrative's own timestamp makes it stable until a NEW
 // narrative is written, which is exactly when it should speak again.
 //
 // `card.updated` is epoch milliseconds (pkg/jarvisdossier/parse.go stamps it with UnixMilli), the same unit
-// as MemoryActivityData.ts — so the watermark orders the two sources against each other correctly.
+// every other source carries — so the watermark orders them against each other correctly.
 export function eventFromResume(rtn: CommandGetLatestResumeRtnData | null | undefined): PetEvent | null {
     const card = rtn?.card;
     const summary = card?.summary?.trim();
@@ -171,32 +111,6 @@ export function eventFromVolunteer(d: VolunteerData | null | undefined): PetEven
             ? [{ ref: d.ref, anchor: d.anchor || undefined, title: title || d.ref, sourceType: d.sourcetype ?? "" }]
             : undefined,
     };
-}
-
-// The last distillation pass as a LEVEL rather than an event. This is what makes "a pass that wrote nothing
-// says nothing" safe: the fact moves into the peek's readout, where a pipeline running fruitlessly is more
-// visible than it was when it announced itself and told you nothing (design §4.7).
-export interface PetPass {
-    at: number; // epoch ms
-    sessions: number;
-    written: number;
-}
-
-export function passFromActivity(d: MemoryActivityData | null | undefined): PetPass | null {
-    if (d == null || d.kind !== "distill-batch" || !d.ts) {
-        return null;
-    }
-    return { at: d.ts, sessions: d.sessions ?? 0, written: (d.notes ?? []).length };
-}
-
-// ageLabel already supplies its own " ago", so this does not add one.
-export function passLine(pass: PetPass | null, nowMs: number): string {
-    if (pass == null) {
-        return "not read yet"; // the convention every other unread row in the peek already uses
-    }
-    const wrote = pass.written === 0 ? "nothing written" : `${notes(pass.written)} written`;
-    const covered = pass.sessions === 1 ? "1 session" : `${pass.sessions} sessions`;
-    return `${ageLabel(Math.max(0, nowMs - pass.at))} · ${covered} · ${wrote}`;
 }
 
 // A notification is a message from elsewhere, so the text passes through verbatim — rewriting it would

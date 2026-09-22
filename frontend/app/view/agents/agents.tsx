@@ -39,12 +39,11 @@ export type SurfaceKey =
     | "radar"
     | "sessions"
     | "files"
-    | "vault"
     | "usage"
     | "code"
     | "settings";
 
-// Ordered to match the NavRail (navrail.tsx ITEMS) so Ctrl+1..9 line up with what the user sees. All 9
+// Ordered to match the NavRail (navrail.tsx ITEMS) so Ctrl+1..8 line up with what the user sees. All 8
 // entries are chorded — there is no unchorded remainder.
 export const SURFACE_ORDER: SurfaceKey[] = [
     "cockpit",
@@ -53,7 +52,6 @@ export const SURFACE_ORDER: SurfaceKey[] = [
     "radar",
     "sessions",
     "files",
-    "vault",
     "usage",
     "code",
 ];
@@ -131,9 +129,6 @@ export class AgentsViewModel implements ViewModel {
     // Query the palette opens with, consumed (and cleared) on open. Non-empty only when something
     // handed off to it — today that is the Code surface's file finder seeing a leading '>'.
     paletteSeedAtom = atom("");
-    // New Memory modal (rendered inline in the memory surface). Kept here — not local state — so the
-    // keybinding dispatcher can see it via deriveKeyContext.modalOpen and suppress surface/list nav.
-    memNewOpenAtom = atom(false);
 
     // handoff-parity filters + per-card layout (spec §State). Project scope is a single source bound to
     // both the app-bar switcher and the header button; card prefs are ephemeral (not persisted).

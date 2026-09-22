@@ -2,35 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { actsForAttention, actsForEvent, actsForRecall, actsForVault } from "./petacts";
-
-function cand(id: string, reason: string): MemoryPruneCandidate {
-    return { id, title: id, type: "learning", reason, path: `/vault/${id}.md` } as MemoryPruneCandidate;
-}
-
-describe("actsForVault", () => {
-    it("offers nothing for an empty queue", () => {
-        expect(actsForVault([])).toEqual([]);
-        expect(actsForVault(null)).toEqual([]);
-    });
-
-    it("escorts to the queue, carrying its size in the label", () => {
-        const acts = actsForVault([cand("a", "stale"), cand("b", "drift")]);
-        expect(acts).toEqual([
-            { id: "vault:review", verb: "open", label: "Review 2", target: { kind: "memory-upkeep" } },
-        ]);
-    });
-
-    it("adds a bounded clear for the superseded subset only", () => {
-        const acts = actsForVault([cand("a", "stale"), cand("b", "superseded"), cand("c", "superseded")]);
-        expect(acts.map((a) => a.label)).toEqual(["Review 3", "Clear 2 superseded"]);
-        expect(acts[1]).toMatchObject({ verb: "do", op: { kind: "clear-superseded", count: 2 } });
-    });
-
-    it("offers no clear when nothing is superseded", () => {
-        expect(actsForVault([cand("a", "stale")]).map((a) => a.label)).toEqual(["Review 1"]);
-    });
-});
+import { actsForAttention, actsForEvent, actsForRecall } from "./petacts";
 
 function status(state: string, reason?: string): EmbedIndexStatus {
     return {
@@ -119,29 +91,22 @@ describe("actsForEvent", () => {
     const ev = {
         id: "a1",
         sources: [
-            { ref: "memnote:kept-ab12", title: "kept", sourceType: "memory" },
-            { ref: "memnote:gone-cd34", title: "gone", sourceType: "memory" },
+            { ref: "task:task-a", title: "a task", sourceType: "dossier" },
+            { ref: "run:run-b", title: "a run", sourceType: "run" },
         ],
     };
 
-    it("offers Open and Ask for each product", () => {
-        expect(actsForEvent(ev, () => true).map((a) => a.label)).toEqual(["Open kept", "Ask", "Open gone", "Ask"]);
+    it("offers Open and Ask for each source", () => {
+        expect(actsForEvent(ev).map((a) => a.label)).toEqual(["Open a task", "Ask", "Open a run", "Ask"]);
     });
 
-    it("drops a product the scan says is gone", () => {
-        expect(actsForEvent(ev, (id) => id !== "gone-cd34").map((a) => a.label)).toEqual(["Open kept", "Ask"]);
+    it("addresses each Open at the source's own ref, and seeds the Ask from it", () => {
+        const [open, ask] = actsForEvent(ev);
+        expect(open).toMatchObject({ verb: "open", target: { kind: "oref", ref: "task:task-a" } });
+        expect(ask).toMatchObject({ verb: "ask", seed: { ref: "task:task-a", sourceType: "dossier" } });
     });
 
-    it("keeps every product while the scan is unknown, rather than hiding them all", () => {
-        expect(actsForEvent(ev, () => undefined)).toHaveLength(4);
-    });
-
-    it("never consults the scan for a ref that is not a vault note", () => {
-        const dossier = { id: "v1", sources: [{ ref: "task:task-a", title: "a task", sourceType: "dossier" }] };
-        expect(actsForEvent(dossier, () => false).map((a) => a.label)).toEqual(["Open a task", "Ask"]);
-    });
-
-    it("offers nothing for an utterance with no products", () => {
-        expect(actsForEvent({ id: "x" }, () => true)).toEqual([]);
+    it("offers nothing for an utterance with no sources", () => {
+        expect(actsForEvent({ id: "x" })).toEqual([]);
     });
 });

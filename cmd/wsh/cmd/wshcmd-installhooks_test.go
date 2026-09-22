@@ -411,41 +411,10 @@ func piMemoryExtensionPath(home string) string {
 	return filepath.Join(home, ".pi", "agent", "extensions", "waveterm-memory.ts")
 }
 
-func TestInstallPiMemoryExtension_writesSubstitutedExtension(t *testing.T) {
-	stubPiLookPath(t)
-
-	home := t.TempDir()
-	if err := installPiMemoryExtension(home, fakeWshPath(t)); err != nil {
-		t.Fatalf("installPiMemoryExtension error: %v", err)
-	}
-	path := piMemoryExtensionPath(home)
-	body, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("reading installed extension: %v", err)
-	}
-	if strings.Contains(string(body), `registerWavetermMemory(pi, "__WSH_PATH__")`) {
-		t.Fatalf("placeholder not substituted in emitted call:\n%s", string(body))
-	}
-	if !strings.Contains(string(body), "registerWavetermMemory(pi, "+jsonString(fakeWshPath(t))+")") {
-		t.Fatalf("installed extension has malformed registerWavetermMemory call:\n%s", string(body))
-	}
-}
-
-func TestInstallPiMemoryExtension_skipsWhenPiMissing(t *testing.T) {
-	orig := piLookPath
-	piLookPath = func(string) (string, error) { return "", os.ErrNotExist }
-	defer func() { piLookPath = orig }()
-
-	home := t.TempDir()
-	if err := installPiMemoryExtension(home, fakeWshPath(t)); err != nil {
-		t.Fatalf("missing pi must not error, got %v", err)
-	}
-	if _, err := os.Stat(piMemoryExtensionPath(home)); !os.IsNotExist(err) {
-		t.Fatalf("extension should not be written when pi is absent")
-	}
-}
-
-func TestInstallPiMemoryExtension_rewritesChangedPath(t *testing.T) {
+// pi auto-loads every file in its extensions dir, so an extension left behind from an older Arc keeps
+// registering tools that shell out to `wsh memory`, a subcommand that no longer exists. The install
+// has to remove it, the same way a stale hook is pruned from settings.json.
+func TestRemoveStalePiMemoryExtension_deletesIt(t *testing.T) {
 	stubPiLookPath(t)
 
 	home := t.TempDir()
@@ -453,24 +422,21 @@ func TestInstallPiMemoryExtension_rewritesChangedPath(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("creating extension dir: %v", err)
 	}
-	path := filepath.Join(dir, "waveterm-memory.ts")
-	stale := strings.ReplaceAll(piMemoryExtensionTemplate, `"__WSH_PATH__"`, jsonString(`C:\old\bin\wsh-0.14.4-windows.x64.exe`))
-	if err := os.WriteFile(path, []byte(stale), 0o644); err != nil {
+	if err := os.WriteFile(piMemoryExtensionPath(home), []byte("export default () => {}"), 0o644); err != nil {
 		t.Fatalf("seeding stale extension: %v", err)
 	}
+	if err := removeStalePiMemoryExtension(home); err != nil {
+		t.Fatalf("removeStalePiMemoryExtension error: %v", err)
+	}
+	if _, err := os.Stat(piMemoryExtensionPath(home)); !os.IsNotExist(err) {
+		t.Fatal("stale pi memory extension survived the install")
+	}
+}
 
-	if err := installPiMemoryExtension(home, fakeWshPath(t)); err != nil {
-		t.Fatalf("installPiMemoryExtension error: %v", err)
-	}
-	body, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("reading rewritten extension: %v", err)
-	}
-	if strings.Contains(string(body), "0.14.4") {
-		t.Fatalf("stale wsh path still present after reinstall:\n%s", string(body))
-	}
-	if !strings.Contains(string(body), "registerWavetermMemory(pi, "+jsonString(fakeWshPath(t))+")") {
-		t.Fatalf("new wsh path not written:\n%s", string(body))
+func TestRemoveStalePiMemoryExtension_absentIsNotAnError(t *testing.T) {
+	stubPiLookPath(t)
+	if err := removeStalePiMemoryExtension(t.TempDir()); err != nil {
+		t.Fatalf("a missing extension must not error, got %v", err)
 	}
 }
 
@@ -510,7 +476,6 @@ func TestPiExtensionTemplatesExportAFactory(t *testing.T) {
 		"waveterm-prose-core.ts":          piProseCoreExtensionTemplate,
 		"waveterm-simplify-gate.ts":       piSimplifyGateExtensionTemplate,
 		"waveterm-simplify-gate-core.ts":  piSimplifyGateCoreExtensionTemplate,
-		"waveterm-memory.ts":              piMemoryExtensionTemplate,
 	}
 	for name, src := range templates {
 		if !strings.Contains(src, "export default") {
@@ -671,26 +636,64 @@ func TestInstallPiKeybindingsOnlyWhenAbsent(t *testing.T) {
 	}
 }
 
-func TestSessionStartMemoryHookIsManaged(t *testing.T) {
-	var found *managedHook
-	for i := range managedHooks {
-		if managedHooks[i].Event == "SessionStart" && managedHooks[i].Args == "agent-memory-project" {
-			found = &managedHooks[i]
-			break
+// The memory subcommands are gone, but a settings.json written by an older Arc still names them. Each
+// removed form has to stay recognized as Arc's, or the hook it wrote is never identified and so never
+// pruned — it would keep firing a subcommand wsh no longer has.
+func TestRemovedMemoryHooksAreStillRecognized(t *testing.T) {
+	for _, mh := range managedHooks {
+		if strings.HasPrefix(mh.Args, "agent-memory-") {
+			t.Fatalf("memory hook still registered: %+v", mh)
 		}
 	}
-	if found == nil {
-		t.Fatal("no managed SessionStart memory hook registered")
+	for _, c := range []string{
+		`"C:\bin\wsh-0.14.5-windows.x64.exe" agent-memory-hook`,
+		`"C:\bin\wsh-0.14.5-windows.x64.exe" agent-memory-project`,
+		`"C:\bin\wsh-0.14.5-windows.x64.exe" agent-memory-project --inject`,
+	} {
+		if !isManagedCommand(c) {
+			t.Fatalf("%q not recognized as Arc-managed; the stale hook would survive every reinstall", c)
+		}
 	}
-	if found.Matcher != "startup|clear|compact" {
-		t.Fatalf("matcher = %q, want startup|clear|compact", found.Matcher)
+}
+
+// SessionEnd left managedHooks entirely when agent-memory-hook was removed, so a merge that only
+// walked the events Arc manages now would never revisit the stale group sitting under it.
+func TestMergePrunesHooksUnderNoLongerManagedEvents(t *testing.T) {
+	existing := map[string]any{
+		"hooks": map[string]any{
+			"SessionEnd": []any{
+				map[string]any{
+					"hooks": []any{
+						map[string]any{"type": "command", "command": `"C:\old\wsh.exe" agent-memory-hook`},
+					},
+				},
+			},
+		},
 	}
-	if !isManagedCommand(`"C:\bin\wsh-0.14.5-windows.x64.exe" agent-memory-project`) {
-		t.Fatal("SessionStart command not recognized as Arc-managed; re-runs would duplicate it")
+	if configIsHealthy(existing, testWsh) {
+		t.Fatal("a config carrying a stale managed hook must not be reported healthy, or it is never rewritten")
 	}
-	// the manifest-era form has to stay recognized or the entry it wrote is never replaced
-	if !isManagedCommand(`"C:\bin\wsh-0.14.5-windows.x64.exe" agent-memory-project --inject`) {
-		t.Fatal("the pre-removal --inject form must still be recognized so stale entries are cleaned up")
+	merged := mergeAgentHooks(existing, testWsh)
+	hooks, _ := merged["hooks"].(map[string]any)
+	if _, present := hooks["SessionEnd"]; present {
+		t.Fatalf("stale SessionEnd group survived the merge: %v", hooks["SessionEnd"])
+	}
+	if n := countManaged(t, merged); n != len(managedHooks) {
+		t.Fatalf("managed entries = %d, want %d", n, len(managedHooks))
+	}
+}
+
+// An unrelated hook under an event Arc does not manage must survive the wider scan untouched.
+func TestMergeKeepsForeignHooksUnderUnmanagedEvents(t *testing.T) {
+	foreign := map[string]any{
+		"hooks": []any{map[string]any{"type": "command", "command": "node /x/notify.js"}},
+	}
+	existing := map[string]any{"hooks": map[string]any{"SessionEnd": []any{foreign}}}
+	merged := mergeAgentHooks(existing, testWsh)
+	hooks, _ := merged["hooks"].(map[string]any)
+	groups, _ := hooks["SessionEnd"].([]any)
+	if len(groups) != 1 {
+		t.Fatalf("SessionEnd groups = %d, want the one foreign hook kept", len(groups))
 	}
 }
 
@@ -716,8 +719,8 @@ func TestCompactionHooksAreManaged(t *testing.T) {
 	}
 	merged := mergeAgentHooks(mergeAgentHooks(map[string]any{}, testWsh), testWsh)
 	groups, _ := merged["hooks"].(map[string]any)["SessionStart"].([]any)
-	if len(groups) != 3 {
-		t.Fatalf("SessionStart groups after two merges = %d, want the memory, idle and rules hooks", len(groups))
+	if len(groups) != 2 {
+		t.Fatalf("SessionStart groups after two merges = %d, want the idle and rules hooks", len(groups))
 	}
 }
 

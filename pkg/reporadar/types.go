@@ -36,7 +36,6 @@ const (
 	CollectorGit        = "git"
 	CollectorRuns       = "runs"
 	CollectorTranscript = "transcript"
-	CollectorMemory     = "memory"
 	CollectorConfig     = "config"
 	CollectorDependency = "dependency"
 )

@@ -180,9 +180,6 @@ func TestJarvisStatusCommandReturnsSections(t *testing.T) {
 	if rtn.Status.NoteCounts == nil {
 		t.Fatalf("status=%+v want non-nil note counts (may be empty)", rtn.Status)
 	}
-	if rtn.Status.DistillQueue == nil {
-		t.Fatalf("status=%+v want non-nil distill queue (may be empty)", rtn.Status)
-	}
 }
 
 func TestJarvisAskScopeCarriesAttachedORefs(t *testing.T) {

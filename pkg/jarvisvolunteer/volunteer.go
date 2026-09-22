@@ -136,12 +136,40 @@ func EvaluateAsync(t Trigger) {
 	}()
 }
 
-// SweepLooseEnds is the hourly unattended entry, registered as a memdistill sweep hook. Synchronous by
-// contract - the hook runner already wraps it in a panic handler and it is off any RPC budget.
+// SweepLooseEnds is the hourly unattended entry. Synchronous by contract - StartLooseEndSweep wraps it
+// in a panic handler and it is off any RPC budget.
 func SweepLooseEnds() {
 	ctx, cancel := context.WithTimeout(context.Background(), evaluateTimeout)
 	defer cancel()
 	if _, reason := Evaluate(ctx, &Trigger{Kind: TriggerSweep}); reason != "" {
 		log.Printf("jarvisvolunteer: sweep said nothing (%s)", reason)
 	}
+}
+
+// sweepInterval is the loose-end backstop cadence. Hourly, carried over from the memdistill sweep hook
+// this used to ride: each tick can spend a judge call, so the rate is a cost, not just a latency.
+const sweepInterval = time.Hour
+
+// StartLooseEndSweep runs a startup sweep and then an hourly backstop until ctx is cancelled. It
+// replaces the memdistill sweep hook that used to drive SweepLooseEnds. Each sweep is wrapped
+// individually, as the hook runner was: one panicking sweep must not end the ticker.
+func StartLooseEndSweep(ctx context.Context) {
+	sweep := func() {
+		defer func() { panichandler.PanicHandler("jarvisvolunteer.sweep", recover()) }()
+		SweepLooseEnds()
+	}
+	go func() {
+		defer func() { panichandler.PanicHandler("jarvisvolunteer.sweep-loop", recover()) }()
+		sweep()
+		t := time.NewTicker(sweepInterval)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				sweep()
+			}
+		}
+	}()
 }

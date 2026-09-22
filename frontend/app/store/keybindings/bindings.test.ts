@@ -26,7 +26,6 @@ import {
     buildJarvisBindings,
     buildJarvisGraphBindings,
     buildListNavBindings,
-    buildVaultBindings,
     closeTargetForDoubleCtrlC,
 } from "./bindings";
 import { listNavAtom } from "./listnav";
@@ -188,7 +187,7 @@ describe("list-nav bindings", () => {
         expect(j.when!(chanCtx)).toBe(true);
         expect(j.when!({ ...chanCtx, editable: true })).toBe(false);
         expect(j.when!({ ...chanCtx, modalOpen: true })).toBe(false);
-        expect(j.when!({ ...chanCtx, surface: "vault" })).toBe(false); // controller is for jarvis
+        expect(j.when!({ ...chanCtx, surface: "usage" })).toBe(false); // controller is for jarvis
         globalStore.set(listNavAtom, null);
     });
 
@@ -613,12 +612,10 @@ describe("leader reachability and the fullscreen chord", () => {
 // remote callers (wsh ui do) must get the user's confirmation for these; the keyboard still runs them directly
 describe("destructive bindings", () => {
     it("flags the irreversible actions that do not confirm on their own", () => {
-        expect(buildVaultBindings().find((b) => b.id === "vault:queue-dismiss")?.destructive).toBe(true);
         expect(buildCodeBindings().find((b) => b.id === "code:save")?.destructive).toBe(true);
     });
 
     it("leaves actions that confirm themselves, or can be undone, unflagged", () => {
         expect(buildCodeBindings().find((b) => b.id === "code:delete")?.destructive).toBeUndefined();
-        expect(buildVaultBindings().find((b) => b.id === "vault:queue-keep")?.destructive).toBeUndefined();
     });
 });

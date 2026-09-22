@@ -49,7 +49,7 @@ func TestCollectAllStreamsProgressPerCollector(t *testing.T) {
 
 	type ev struct{ kind, status string }
 	var events []ev
-	res, err := collectAll(ctx, "pay", dir, 0, func(kind, status string) {
+	res, err := collectAll(ctx, dir, 0, func(kind, status string) {
 		events = append(events, ev{kind, status})
 	})
 	if err != nil {

@@ -332,7 +332,6 @@ declare global {
         notecounts?: {[key: string]: number};
         indexavailable: boolean;
         indexerror?: string;
-        distillqueue?: CwdQueueWire[];
         efforts: CaptureEffortsStatus;
     };
 
@@ -1491,147 +1490,6 @@ declare global {
         dossiers: SpaceSummary[];
     };
 
-    // wshrpc.CommandMemoryArchiveData
-    type CommandMemoryArchiveData = {
-        path: string;
-        reason: string;
-    };
-
-    // wshrpc.CommandMemoryArchiveListRtnData
-    type CommandMemoryArchiveListRtnData = {
-        archived: MemoryArchivedNote[];
-    };
-
-    // wshrpc.CommandMemoryCreateData
-    type CommandMemoryCreateData = {
-        name: string;
-        type?: string;
-        scope?: string;
-        body?: string;
-        cwd?: string;
-    };
-
-    // wshrpc.CommandMemoryCreateRtnData
-    type CommandMemoryCreateRtnData = {
-        path: string;
-    };
-
-    // wshrpc.CommandMemoryDeleteData
-    type CommandMemoryDeleteData = {
-        path: string;
-    };
-
-    // wshrpc.CommandMemoryEnqueueSessionData
-    type CommandMemoryEnqueueSessionData = {
-        cwd: string;
-        transcriptpath: string;
-    };
-
-    // wshrpc.CommandMemoryHarvestData
-    type CommandMemoryHarvestData = {
-        cwd: string;
-    };
-
-    // wshrpc.CommandMemoryHarvestRtnData
-    type CommandMemoryHarvestRtnData = {
-        ingested: number;
-        skipped: number;
-    };
-
-    // wshrpc.CommandMemoryLearnData
-    type CommandMemoryLearnData = {
-        cwd: string;
-        candidates: MemoryLearnCandidate[];
-        references?: string[];
-    };
-
-    // wshrpc.CommandMemoryLearnRtnData
-    type CommandMemoryLearnRtnData = {
-        committed: number;
-        queued: number;
-    };
-
-    // wshrpc.CommandMemoryProjectData
-    type CommandMemoryProjectData = {
-        cwd: string;
-    };
-
-    // wshrpc.CommandMemoryProjectionStatusRtnData
-    type CommandMemoryProjectionStatusRtnData = {
-        runtimes: {[key: string]: string};
-    };
-
-    // wshrpc.CommandMemoryPruneListRtnData
-    type CommandMemoryPruneListRtnData = {
-        candidates: MemoryPruneCandidate[];
-    };
-
-    // wshrpc.CommandMemoryReadData
-    type CommandMemoryReadData = {
-        path: string;
-        source: string;
-    };
-
-    // wshrpc.CommandMemoryReadRtnData
-    type CommandMemoryReadRtnData = {
-        note: MemoryNote;
-        body: string;
-    };
-
-    // wshrpc.CommandMemoryRestoreData
-    type CommandMemoryRestoreData = {
-        path: string;
-    };
-
-    // wshrpc.CommandMemoryReviewAcceptData
-    type CommandMemoryReviewAcceptData = {
-        path: string;
-    };
-
-    // wshrpc.CommandMemoryReviewListRtnData
-    type CommandMemoryReviewListRtnData = {
-        pending: MemoryPendingNote[];
-    };
-
-    // wshrpc.CommandMemoryScanRtnData
-    type CommandMemoryScanRtnData = {
-        notes: MemoryNote[];
-        edges: MemoryEdge[];
-    };
-
-    // wshrpc.CommandMemoryStatsRtnData
-    type CommandMemoryStatsRtnData = {
-        vaultpath: string;
-        total: number;
-        machine: number;
-        human: number;
-        referenced: number;
-        referencedrecently: number;
-        neverreferenced: number;
-        totalreferences: number;
-        archiveeligible: number;
-        epoch: string;
-        epochmatures: string;
-        indexes: MemoryIndexFile[];
-        totalindexbytes: number;
-        totalindextokens: number;
-        bytespertoken: number;
-        budgetbytes: number;
-    };
-
-    // wshrpc.CommandMemoryWriteData
-    type CommandMemoryWriteData = {
-        path: string;
-        content: string;
-        basemtime?: number;
-    };
-
-    // wshrpc.CommandMemoryWriteRtnData
-    type CommandMemoryWriteRtnData = {
-        mtime: number;
-        conflict: boolean;
-    };
-
     // wshrpc.CommandMessageData
     type CommandMessageData = {
         message: string;
@@ -2080,13 +1938,6 @@ declare global {
     // wshrpc.ConsultChunk
     type ConsultChunk = {
         text: string;
-    };
-
-    // wshrpc.CwdQueueWire
-    type CwdQueueWire = {
-        cwd: string;
-        pending: number;
-        lastpass?: PassRecordWire;
     };
 
     // wshrpc.DagAskItem
@@ -2664,98 +2515,6 @@ declare global {
         blockid: string;
     };
 
-    // baseds.MemoryActivityData
-    type MemoryActivityData = {
-        kind: string;
-        id: string;
-        ts: number;
-        cwd?: string;
-        sessions?: number;
-        committed?: number;
-        queued?: number;
-        archived?: number;
-        notes?: MemoryActivityNote[];
-    };
-
-    // baseds.MemoryActivityNote
-    type MemoryActivityNote = {
-        id: string;
-        title: string;
-    };
-
-    // wshrpc.MemoryArchivedNote
-    type MemoryArchivedNote = {
-        id: string;
-        title: string;
-        type: string;
-        reason: string;
-        archivedat: string;
-        path: string;
-        originhub: string;
-    };
-
-    // wshrpc.MemoryEdge
-    type MemoryEdge = {
-        from: string;
-        to: string;
-    };
-
-    // wshrpc.MemoryIndexFile
-    type MemoryIndexFile = {
-        label: string;
-        bytes: number;
-        tokens: number;
-        overbudget: boolean;
-        overby: number;
-    };
-
-    // wshrpc.MemoryLearnCandidate
-    type MemoryLearnCandidate = {
-        type: string;
-        scope?: string;
-        body: string;
-        iscorrection?: boolean;
-        supersedes?: string;
-    };
-
-    // wshrpc.MemoryNote
-    type MemoryNote = {
-        id: string;
-        title: string;
-        description: string;
-        type: string;
-        scope: string;
-        source: string;
-        path: string;
-        links: string[];
-        updatedts: number;
-        reviewed: boolean;
-        capturedat: string;
-        supersededby: string;
-        lastreferenced: string;
-    };
-
-    // wshrpc.MemoryPendingNote
-    type MemoryPendingNote = {
-        path: string;
-        title: string;
-        type: string;
-        scope: string;
-        source: string;
-        body: string;
-        cwd: string;
-        capturedat: string;
-    };
-
-    // wshrpc.MemoryPruneCandidate
-    type MemoryPruneCandidate = {
-        id: string;
-        title: string;
-        type: string;
-        reason: string;
-        path: string;
-    };
-
     // waveobj.MetaTSType
     type MetaType = {
         view?: string;
@@ -2929,14 +2688,6 @@ declare global {
     type OpenFileData = {
         path: string;
         edit?: boolean;
-    };
-
-    // wshrpc.PassRecordWire
-    type PassRecordWire = {
-        ts: number;
-        sessions: number;
-        committed: number;
-        queued: number;
     };
 
     // wshrpc.PathCommandData

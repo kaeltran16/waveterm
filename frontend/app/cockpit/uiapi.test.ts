@@ -24,8 +24,6 @@ const empty: SelectionSnapshot = {
     activeRunIds: {},
     peekRecordId: null,
     radarReportId: undefined,
-    vaultTab: "memory",
-    memNoteId: null,
 };
 
 const item = (key: string, over: Partial<CommandItem> = {}): CommandItem => ({
@@ -71,13 +69,6 @@ describe("selectionFor", () => {
         expect(selectionFor("radar", { ...empty, radarReportId: "rr1" })).toEqual(["radarreport:rr1"]);
     });
 
-    it("reports only the visible vault tab's selection", () => {
-        const s = { ...empty, memNoteId: "n1" };
-        expect(selectionFor("vault", { ...s, vaultTab: "memory" })).toEqual(["memnote:n1"]);
-        expect(selectionFor("vault", { ...s, vaultTab: "skills" })).toEqual([]);
-        expect(selectionFor("vault", { ...s, vaultTab: "steering" })).toEqual([]);
-    });
-
     it("reports nothing on surfaces without an addressed selection, whatever else is set", () => {
         const s = { ...empty, focusId: "t1", radarReportId: "rr1" };
         expect(selectionFor("usage", s)).toEqual([]);
@@ -114,7 +105,7 @@ describe("parseSurfaceAddress", () => {
     });
 
     it("accepts rail surfaces and settings", () => {
-        expect(parseSurfaceAddress("surface:vault")).toEqual({ surface: "vault" });
+        expect(parseSurfaceAddress("surface:usage")).toEqual({ surface: "usage" });
         expect(parseSurfaceAddress("surface:settings")).toEqual({ surface: "settings" });
     });
 

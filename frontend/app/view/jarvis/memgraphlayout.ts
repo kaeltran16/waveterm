@@ -1,12 +1,12 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// Pure graph helper for the memory graph. Layout + pan/zoom are handled by react-force-graph-2d;
+// Pure graph helper for the Jarvis vault graph. Layout + pan/zoom are handled by react-force-graph-2d;
 // this only derives link-count (degree), which drives node sizing.
 
-// structural edge shape — MemEdge satisfies it, and so does the Jarvis vault graph's GraphLink, so
-// both graphs share these helpers.
-type EdgeLike = { from: string; to: string };
+// structural edge shape — the vault graph's GraphLink satisfies it, so the helpers stay decoupled from
+// whatever the caller's own edge type happens to be.
+export type EdgeLike = { from: string; to: string };
 
 // undirected degree per node id; nodes absent from any edge are omitted (read as 0 via `?? 0`).
 export function degreeMap(edges: EdgeLike[]): Map<string, number> {

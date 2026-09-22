@@ -26,7 +26,6 @@ declare global {
         | "notify"
         | "openfile"
         | "agent:ask"
-        | "memory:activity"
         | "jarvis:volunteer"
         | "dag:child-done"
         | "dag:gate-open"
@@ -65,7 +64,6 @@ declare global {
         { event: "notify"; data?: NotifyCommandData; } | 
         { event: "openfile"; data?: OpenFileData; } | 
         { event: "agent:ask"; data?: AgentAskData; } | 
-        { event: "memory:activity"; data?: MemoryActivityData; } | 
         { event: "jarvis:volunteer"; data?: VolunteerData; } | 
         { event: "dag:child-done"; data?: string; } | 
         { event: "dag:gate-open"; data?: string; } | 

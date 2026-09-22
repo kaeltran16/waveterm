@@ -60,8 +60,9 @@ describe("proactiveNavOref", () => {
         expect(proactiveNavOref(vm({ sourceType: "dossier" }))).toBe("task:n-1");
     });
 
-    it("maps a memory hit to memnote:<nodeId>", () => {
-        expect(proactiveNavOref(vm({ sourceType: "memory" }))).toBe("memnote:n-1");
+    // the memory collection lost its surface, so a hit in it grows no Open rather than one that refuses
+    it("returns null for a memory hit", () => {
+        expect(proactiveNavOref(vm({ sourceType: "memory" }))).toBeNull();
     });
 
     it("returns null for a decision hit (no open path)", () => {

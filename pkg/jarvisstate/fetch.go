@@ -12,7 +12,6 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/jarvisdossier"
 	"github.com/wavetermdev/waveterm/pkg/jarvisembed"
-	"github.com/wavetermdev/waveterm/pkg/memdistill"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wavevault"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -193,7 +192,7 @@ func FetchWorkState(ctx context.Context, projectFilter string, sinceMs int64) (w
 // FetchCaptureStatus reads the capture-pipeline accounting for `wsh jarvis status`. Every section
 // degrades to "unavailable" rather than failing the command.
 func FetchCaptureStatus(ctx context.Context) (wshrpc.CaptureStatus, error) {
-	st := wshrpc.CaptureStatus{NoteCounts: map[string]int{}, DistillQueue: []wshrpc.CwdQueueWire{}}
+	st := wshrpc.CaptureStatus{NoteCounts: map[string]int{}}
 	if v, err := wavevault.OpenVault(ctx); err == nil {
 		r := v.Retriever(wavevault.AllScope())
 		if nodes, qerr := r.Query(wavevault.Filter{}); qerr == nil {
@@ -207,15 +206,6 @@ func FetchCaptureStatus(ctx context.Context) (wshrpc.CaptureStatus, error) {
 		ix.Close()
 	} else {
 		st.IndexError = err.Error()
-	}
-	if qs, err := memdistill.QueueSummary(); err == nil {
-		for _, q := range qs {
-			var last *wshrpc.PassRecordWire
-			if q.LastPass != nil {
-				last = &wshrpc.PassRecordWire{Ts: q.LastPass.Ts, Sessions: q.LastPass.Sessions, Committed: q.LastPass.Committed, Queued: q.LastPass.Queued}
-			}
-			st.DistillQueue = append(st.DistillQueue, wshrpc.CwdQueueWire{Cwd: q.Cwd, Pending: q.Pending, LastPass: last})
-		}
 	}
 	if efforts, err := defaultSeams.getEfforts(ctx); err == nil {
 		for _, e := range efforts {

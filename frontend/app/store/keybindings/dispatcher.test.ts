@@ -54,7 +54,6 @@ describe("deriveKeyContext", () => {
             paletteOpenAtom: atom(false),
             newAgentOpenAtom: atom(false),
             newProjectOpenAtom: atom(false),
-            memNewOpenAtom: atom(false),
         } as unknown as AgentsViewModel;
         return initKeybindingDispatcher(model);
     }

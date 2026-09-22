@@ -20,7 +20,6 @@ import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { attentionAtom } from "@/app/view/agents/attentionstore";
 import { activeChannelAtom, channelsAtom } from "@/app/view/agents/channelsstore";
-import { memLoadedAtom, memNotesAtom, memPruneAtom } from "@/app/view/agents/memstore";
 import { cn, fireAndForget } from "@/util/util";
 import { autoUpdate, FloatingFocusManager, offset, shift, useFloating, type Placement } from "@floating-ui/react";
 import { useAtomValue } from "jotai";
@@ -43,7 +42,6 @@ import {
 import {
     petActStateAtom,
     petIndexAtom,
-    petLastPassAtom,
     petPeekDestAtom,
     petPeekOpenAtom,
     petSaidAtom,
@@ -67,7 +65,6 @@ const ORIGIN: Record<PetCorner, string> = {
 const CONDITION_DOT: Record<PetExpression["kind"], string> = {
     "cannot-see": "bg-error",
     tired: "bg-warning",
-    drifting: "bg-warning",
     "at-rest": "bg-success",
 };
 
@@ -81,8 +78,10 @@ const ROW_BAR: Record<string, string> = {
     ask: "bg-accent",
 };
 
+// Only a "do" stays: it reports its outcome on the row that offered it. Every other verb navigates, so the
+// peek would be covering the destination it just sent you to.
 function actLeavesPeek(act: PetAct): boolean {
-    return act.verb !== "do" || act.op.kind === "clear-superseded";
+    return act.verb !== "do";
 }
 
 function ActButton({
@@ -203,16 +202,14 @@ function UpdateRow({
     model,
     event,
     now,
-    noteExists,
     onLeave,
 }: {
     model: AgentsViewModel;
     event: PetEvent;
     now: number;
-    noteExists: (id: string) => boolean | undefined;
     onLeave: () => void;
 }) {
-    const acts = actsForEvent(event, noteExists);
+    const acts = actsForEvent(event);
     return (
         <div className="border-b border-border px-3 pb-2.5 pt-2 last:border-b-0">
             <p className="text-[11.5px] leading-[1.45] text-secondary">{event.text}</p>
@@ -246,16 +243,14 @@ function LatestUpdate({
     model,
     event,
     now,
-    noteExists,
     onLeave,
 }: {
     model: AgentsViewModel;
     event: PetEvent;
     now: number;
-    noteExists: (id: string) => boolean | undefined;
     onLeave: () => void;
 }) {
-    const acts = actsForEvent(event, noteExists);
+    const acts = actsForEvent(event);
     return (
         <div data-pet-latest-update className="px-3 pb-2.5 pt-2">
             <div className="mb-1 flex items-center gap-2">
@@ -302,10 +297,6 @@ export function PetPeek({
 }) {
     const open = useAtomValue(petPeekOpenAtom);
     const said = useAtomValue(petSaidAtom);
-    const pruneCandidates = useAtomValue(memPruneAtom);
-    const memNotes = useAtomValue(memNotesAtom);
-    const memLoaded = useAtomValue(memLoadedAtom);
-    const lastPass = useAtomValue(petLastPassAtom);
     const items = useAtomValue(attentionAtom);
     const channels = useAtomValue(channelsAtom);
     const activeChannel = useAtomValue(activeChannelAtom);
@@ -365,10 +356,7 @@ export function PetPeek({
         return () => document.removeEventListener("focusin", onFocusIn);
     }, [open, anchor]);
 
-    const noteExists = (id: string): boolean | undefined =>
-        memLoaded ? memNotes.some((note) => note.id === id) : undefined;
-
-    const conditions = peekConditions(signals, { index: indexStatus, prune: pruneCandidates });
+    const conditions = peekConditions(signals, { index: indexStatus });
     const rows = queueRows(items);
     const updates = dedupeUpdates(said, items);
     const quiet = rows.length === 0;
@@ -387,8 +375,6 @@ export function PetPeek({
     const dest = resolveDestination({ picked, active: activeChannel?.oid ?? null, channels });
     // the panel's only evidence that Jarvis is running at all. The full reading (sessions covered, notes
     // written) is a Jarvis-surface fact; here it just needs to say "recently".
-    const passText = lastPass == null ? "no pass yet" : `pass ${ageLabel(Math.max(0, now - lastPass.at))} ago`;
-    const quietPassText = lastPass == null ? "No pass yet." : `Last ${passText}.`;
 
     const openJarvis = () => {
         leavePeek();
@@ -509,9 +495,6 @@ export function PetPeek({
                                                             <X aria-hidden="true" size={13} strokeWidth={2} />
                                                         </button>
                                                     </div>
-                                                    <p className="px-3.5 pb-2.5 text-[11px] leading-[1.45] text-muted">
-                                                        {quietPassText}
-                                                    </p>
                                                 </>
                                             ) : (
                                                 <div className="flex min-h-[44px] items-center gap-2 pl-3.5 pr-2">
@@ -521,9 +504,6 @@ export function PetPeek({
                                                     >
                                                         Jarvis
                                                     </h2>
-                                                    <span className="flex-none whitespace-nowrap font-mono text-[9.5px] text-ink-faint">
-                                                        · {passText}
-                                                    </span>
                                                     <div className="flex-1" />
                                                     <button
                                                         type="button"
@@ -559,7 +539,7 @@ export function PetPeek({
                                                         model={model}
                                                         event={updates[0]}
                                                         now={now}
-                                                        noteExists={noteExists}
+
                                                         onLeave={leavePeek}
                                                     />
                                                 ) : null
@@ -633,7 +613,7 @@ export function PetPeek({
                                                                         model={model}
                                                                         event={event}
                                                                         now={now}
-                                                                        noteExists={noteExists}
+
                                                                         onLeave={leavePeek}
                                                                     />
                                                                 ))}

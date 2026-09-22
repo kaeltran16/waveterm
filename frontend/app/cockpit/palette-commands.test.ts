@@ -86,13 +86,13 @@ describe("buildCommandItems", () => {
     it("carries destructive from the binding, and nothing when unset", () => {
         const items = buildCommandItems(
             [
-                bind({ id: "vault:queue-dismiss", keys: "x", label: "Dismiss", destructive: true }),
+                bind({ id: "code:save", keys: "Ctrl:s", label: "Save", destructive: true }),
                 bind({ id: "help", keys: "Shift:?", label: "Keyboard shortcuts" }),
             ],
             ctx
         );
         expect(items.map((i) => [i.key, i.destructive])).toEqual([
-            ["vault:queue-dismiss", true],
+            ["code:save", true],
             ["help", undefined],
         ]);
     });
@@ -104,11 +104,11 @@ describe("buildCommandItems", () => {
 });
 
 describe("buildExtraItems", () => {
-    const deps = () => ({ openNewProject: vi.fn(), openNewMemory: vi.fn(), setTheme: vi.fn() });
+    const deps = () => ({ openNewProject: vi.fn(), setTheme: vi.fn() });
 
-    it("offers the two chordless modals and one row per picker theme", () => {
+    it("offers the chordless modal and one row per picker theme", () => {
         const items = buildExtraItems(deps());
-        expect(items.slice(0, 2).map((i) => i.key)).toEqual(["cmd:new-project", "cmd:new-memory"]);
+        expect(items[0].key).toBe("cmd:new-project");
         expect(items.filter((i) => i.key.startsWith("cmd:theme:"))).toHaveLength(6);
     });
     it("carries no chord", () => {

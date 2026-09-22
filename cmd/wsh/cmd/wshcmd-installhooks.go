@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -39,10 +40,6 @@ var managedHooks = []managedHook{
 	// a compaction reports working and its end reports idle: the wake adapter types a lead's handoff
 	// /compact as a wake that working confirms, and holds later wakes until the session is back
 	{"PreCompact", "", "agent-hook", 10},
-	{"SessionEnd", "", "agent-memory-hook", 10},
-	// claude's only automatic projection trigger (the FE launch path only projects for codex): it
-	// refreshes the shared export and its links in the hub index, and injects nothing itself
-	{"SessionStart", "startup|clear|compact", "agent-memory-project", 15},
 	{"SessionStart", "compact", "agent-hook", 10},
 	// a compaction drops a lead's launch prompt, so its orchestration rules come back in its place
 	{"SessionStart", "compact", "jarvis dag rules --inject", 15},
@@ -60,6 +57,27 @@ func managedEventOrder() []string {
 	return order
 }
 
+// managedEventScan is every event the merge and the health check must visit: the events Arc manages
+// now, then any other event already in the file. Visiting the file's own events is what lets a hook
+// Arc wrote under an event it no longer manages still be pruned — when agent-memory-hook was removed
+// it took SessionEnd out of managedHooks entirely, and a scan over managedHooks alone would never
+// look at the stale group again. Extras are sorted so output stays deterministic across runs.
+func managedEventScan(hooks map[string]any) []string {
+	order := managedEventOrder()
+	managed := map[string]bool{}
+	for _, e := range order {
+		managed[e] = true
+	}
+	extra := make([]string, 0, len(hooks))
+	for e := range hooks {
+		if !managed[e] {
+			extra = append(extra, e)
+		}
+	}
+	sort.Strings(extra)
+	return append(order, extra...)
+}
+
 // isManagedCommand reports whether a hook command string is one Arc wrote: the first
 // token's basename starts with "wsh" and the remaining args are exactly one of our
 // subcommands. Path- and version-independent so app updates self-heal.
@@ -73,8 +91,10 @@ func isManagedCommand(command string) bool {
 		return false
 	}
 	switch strings.TrimSpace(rest) {
-	case "agent-hook", "ask", "ask --clear", "agent-memory-hook", "agent-memory-project", "jarvis dag rules --inject",
-		"agent-memory-project --inject": // the last is pre-manifest-removal, still ours to replace
+	// the agent-memory-* entries name removed subcommands and stay listed so a reinstall still
+	// recognizes — and therefore strips — a hook an older Arc wrote
+	case "agent-hook", "ask", "ask --clear", "jarvis dag rules --inject",
+		"agent-memory-hook", "agent-memory-project", "agent-memory-project --inject":
 		return true
 	}
 	return false
@@ -219,7 +239,7 @@ func mergeAgentHooks(existing map[string]any, wshExe string) map[string]any {
 		out["hooks"] = hooks
 	}
 
-	for _, event := range managedEventOrder() {
+	for _, event := range managedEventScan(hooks) {
 		var kept []any
 		if groups, ok := hooks[event].([]any); ok {
 			for _, g := range groups {
@@ -232,6 +252,11 @@ func mergeAgentHooks(existing map[string]any, wshExe string) map[string]any {
 			if mh.Event == event {
 				kept = append(kept, buildManagedGroup(mh, wshExe))
 			}
+		}
+		// an event left with nothing loses its key rather than becoming null/[]
+		if len(kept) == 0 {
+			delete(hooks, event)
+			continue
 		}
 		hooks[event] = kept
 	}
@@ -311,7 +336,7 @@ func configIsHealthy(existing map[string]any, wantExe string) bool {
 		return false
 	}
 	count := 0
-	for _, event := range managedEventOrder() {
+	for _, event := range managedEventScan(hooks) {
 		groups, _ := hooks[event].([]any)
 		for _, g := range groups {
 			gm, ok := g.(map[string]any)
@@ -379,9 +404,6 @@ var piSimplifyGateExtensionTemplate string
 
 //go:embed pi-simplify-gate-core-extension.ts
 var piSimplifyGateCoreExtensionTemplate string
-
-//go:embed pi-memory-extension.ts
-var piMemoryExtensionTemplate string
 
 //go:embed arc-theme.json
 var arcThemeTemplate string
@@ -506,7 +528,7 @@ func installPiAskExtension(home, wshExe string) error {
 // installPiSimplifyGateExtension writes the pi-simplify commit gate pair into pi's global extension
 // directory, where pi auto-loads every file. Unlike the status/tools/ask pairs these templates carry
 // no __WSH_PATH__ placeholder (the gate shells out to git itself), so the authored bytes embed
-// verbatim. Same contract as installPiMemoryExtension: skips when pi is absent, rewrites only the
+// verbatim. Same contract as installPiStatusExtension: skips when pi is absent, rewrites only the
 // files that changed so a no-op reinstall preserves mtime.
 func installPiSimplifyGateExtension(home string) error {
 	if _, err := piLookPath("pi"); err != nil {
@@ -536,30 +558,21 @@ func installPiSimplifyGateExtension(home string) error {
 	return write("waveterm-simplify-gate-core.ts", piSimplifyGateCoreExtensionTemplate)
 }
 
-// installPiMemoryExtension writes the Wave memory extension into pi's global extension directory
-// (~/.pi/agent/extensions/), where pi auto-loads every file. Same contract as installPiStatusExtension:
-// no-op when pi is not installed, idempotent rewrite, self-heals when the wsh path changes.
-func installPiMemoryExtension(home, wshExe string) error {
+// removeStalePiMemoryExtension deletes the waveterm-memory.ts an older Arc installed. pi auto-loads
+// every file in its extensions dir, so leaving it there keeps registering tools that shell out to a
+// `wsh memory` subcommand that no longer exists. Absent file, or pi not installed, is a no-op.
+func removeStalePiMemoryExtension(home string) error {
 	if _, err := piLookPath("pi"); err != nil {
-		return nil // pi not installed; nothing to hook
+		return nil // pi not installed; nothing to clean up
 	}
-	want := strings.ReplaceAll(piMemoryExtensionTemplate, `"__WSH_PATH__"`, jsonString(wshExe))
-	dir := filepath.Join(home, ".pi", "agent", "extensions")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("creating %s: %w", dir, err)
+	path := filepath.Join(home, ".pi", "agent", "extensions", "waveterm-memory.ts")
+	if err := os.Remove(path); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("removing stale %s: %w", path, err)
 	}
-	path := filepath.Join(dir, "waveterm-memory.ts")
-	if cur, err := os.ReadFile(path); err == nil && string(cur) == want {
-		return nil
-	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(want), 0o644); err != nil {
-		return fmt.Errorf("writing %s: %w", tmp, err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		return fmt.Errorf("replacing %s: %w", path, err)
-	}
-	fmt.Printf("installed pi memory extension into %s\n", path)
+	fmt.Printf("removed stale pi memory extension %s\n", path)
 	return nil
 }
 
@@ -744,7 +757,7 @@ func installAgentHooksRun(cmd *cobra.Command, args []string) error {
 	if err := installPiSimplifyGateExtension(home); err != nil {
 		return err
 	}
-	if err := installPiMemoryExtension(home, wsh); err != nil {
+	if err := removeStalePiMemoryExtension(home); err != nil {
 		return err
 	}
 	if err := installPiTheme(home); err != nil {

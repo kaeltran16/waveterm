@@ -7,8 +7,6 @@ const rpc = vi.hoisted(() => ({
     GetDossierCommand: vi.fn(),
     ListTaskDossiersCommand: vi.fn(),
     ListRadarReportsCommand: vi.fn(),
-    MemoryScanCommand: vi.fn(),
-    MemoryReadCommand: vi.fn(),
     GetChannelRunsCommand: vi.fn(),
     GetChannelMessagesCommand: vi.fn(),
     SetChannelReadCommand: vi.fn(),
@@ -33,8 +31,6 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { atom } from "jotai";
 import type { AgentsViewModel, SurfaceKey } from "../agents/agents";
 import type { AgentVM } from "../agents/agentsviewmodel";
-import { memLoadedAtom, memNotesAtom, memSelectedIdAtom } from "../agents/memstore";
-import type { MemNote } from "../agents/memtypes";
 import {
     currentReportIdAtom,
     loadReports,
@@ -42,7 +38,7 @@ import {
     radarScopeAtom,
     radarSelectedIdAtom,
 } from "../agents/radarstore";
-import { vaultTabAtom } from "../agents/vaultstore";
+import { NO_MEMORY_SURFACE } from "./address";
 import { briefPeekRecordAtom, briefSheetOpenAtom } from "./jarvisstore";
 import { activeRunIdAtom, activeSubjectAtom, recordDetailAtom } from "./jarvissubjectstore";
 import { openAddress, openTarget } from "./openref";
@@ -85,21 +81,6 @@ function seedReports(): void {
     }
 }
 
-function note(id: string): MemNote {
-    return {
-        id,
-        title: id,
-        description: "",
-        type: "",
-        scope: "shared",
-        source: "vault",
-        path: `/m/${id}.md`,
-        links: [],
-        updatedts: 1,
-        reviewed: true,
-    } as unknown as MemNote;
-}
-
 beforeEach(() => {
     vi.resetAllMocks();
     objects.clear();
@@ -107,13 +88,9 @@ beforeEach(() => {
     rpc.GetChannelRunsCommand.mockResolvedValue({ runs: [] });
     rpc.GetChannelMessagesCommand.mockResolvedValue({ messages: [] });
     rpc.SetChannelReadCommand.mockResolvedValue(undefined);
-    rpc.MemoryReadCommand.mockResolvedValue({ body: "", note: { updatedts: 1 } });
     rpc.EffortGetCommand.mockResolvedValue({ effort: null });
     globalStore.set(taskListAtom, null);
     globalStore.set(tasksErrorAtom, null);
-    globalStore.set(memNotesAtom, []);
-    globalStore.set(memLoadedAtom, false);
-    globalStore.set(memSelectedIdAtom, null);
     globalStore.set(radarScopeAtom, null);
     globalStore.set(radarReportsAtom, null);
     globalStore.set(currentReportIdAtom, undefined);
@@ -124,7 +101,6 @@ beforeEach(() => {
     globalStore.set(activeSubjectAtom, null);
     globalStore.set(activeRunIdAtom, {});
     globalStore.set(recordDetailAtom, {});
-    globalStore.set(vaultTabAtom, "memory");
 });
 
 describe("run and channel landings", () => {
@@ -247,39 +223,30 @@ describe("record landing", () => {
         expect("reason" in result ? result.message : "").toContain("record task-a");
     });
 
-    it("a record target opens the Brief peek rather than a Vault tab", async () => {
+    it("a record target opens the Brief peek", async () => {
         const model = makeModel();
         globalStore.set(taskListAtom, [{ id: "task-a" } as SpaceSummary]);
         rpc.GetDossierCommand.mockResolvedValue({ id: "task-a", status: "active", decisions: [] });
         expect(await openTarget(model, { kind: "record", dossierId: "task-a" })).toEqual({ ok: true });
         expect(globalStore.get(briefPeekRecordAtom)).toBe("task-a");
-        // the Vault is left untouched on the tab it was already showing: it has no record index to land on
-        expect(globalStore.get(vaultTabAtom)).toBe("memory");
         expect(globalStore.get(model.surfaceAtom)).toBe("jarvis");
         await vi.waitFor(() => expect(globalStore.get(recordDetailAtom)["task-a"]).toBeDefined());
     });
 });
 
+// memnote:/memory: still arrive from persisted turns and effort WorkRefs. They must refuse by name and
+// leave the user where they were, rather than navigating somewhere that no longer exists.
 describe("memory note landing", () => {
-    it("scans memory before judging a note, then opens it in the Vault", async () => {
-        const model = makeModel();
-        rpc.MemoryScanCommand.mockResolvedValue({ notes: [note("n1")], edges: [] });
-        expect(await openAddress(model, "memnote:n1")).toEqual({ ok: true });
-        expect(rpc.MemoryScanCommand).toHaveBeenCalledTimes(1);
-        expect(globalStore.get(memSelectedIdAtom)).toBe("n1");
-        expect(globalStore.get(vaultTabAtom)).toBe("memory");
-        expect(globalStore.get(model.surfaceAtom)).toBe("vault");
-    });
-
-    it("reports a note that is gone after the scan", async () => {
-        const model = makeModel();
-        rpc.MemoryScanCommand.mockResolvedValue({ notes: [note("n1")], edges: [] });
-        expect(await openAddress(model, "memory:n2")).toEqual({
-            ok: false,
-            reason: "unavailable",
-            message: "That memory note no longer exists",
-        });
-        expect(globalStore.get(model.surfaceAtom)).toBe("cockpit");
+    it("refuses every memory spelling without moving the surface", async () => {
+        for (const address of ["memnote:n1", "memory:n2"]) {
+            const model = makeModel();
+            expect(await openAddress(model, address)).toEqual({
+                ok: false,
+                reason: "unsupported",
+                message: NO_MEMORY_SURFACE,
+            });
+            expect(globalStore.get(model.surfaceAtom)).toBe("cockpit");
+        }
     });
 });
 

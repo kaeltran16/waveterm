@@ -24,7 +24,7 @@ Design spec: [`docs/superpowers/specs/2026-07-03-keyboard-operability-design.md`
 
 | Keys | Action |
 |---|---|
-| `Ctrl`+`1`…`9` | Jump to surface by position — in order: Cockpit, Jarvis, Agent, Radar, Sessions, Diff, Vault, Usage, Code |
+| `Ctrl`+`1`…`8` | Jump to surface by position — in order: Cockpit, Jarvis, Agent, Radar, Sessions, Diff, Usage, Code |
 | `Ctrl`+`P` | Command palette |
 | `Ctrl`+`N` | New agent |
 | `Ctrl`+`Tab` / `Ctrl`+`Shift`+`Tab` | Next / previous agent |
@@ -45,8 +45,8 @@ Settings has no `Ctrl`+number slot — the nine positions are bound to `SURFACE_
 | `g` `r` | Radar |
 | `g` `s` | Sessions |
 | `g` `f` | Files |
-| `g` `m` | Memory |
 | `g` `u` | Usage |
+| `g` `b` | Code — browse source |
 | `g` `,` | Settings |
 | `g` `p` | Command palette |
 
@@ -57,7 +57,7 @@ Settings has no `Ctrl`+number slot — the nine positions are bound to `SURFACE_
 | `[` / `]` | Previous / next surface (cycles `SURFACE_ORDER`, wraps) |
 | `j` / `k` (or `↓` / `↑`) | Move the cursor within the active region |
 | `Enter` | Open / activate the item under the cursor |
-| `Esc` | On a deep surface (Jarvis, Radar, Sessions, Files, Memory, Usage), return to the Cockpit. In a composer or text field, leave Type posture first. |
+| `Esc` | On a deep surface (Jarvis, Radar, Sessions, Files, Usage, Code), return to the Cockpit. In a composer or text field, leave Type posture first. |
 
 ## Per-surface actions (Navigate posture)
 

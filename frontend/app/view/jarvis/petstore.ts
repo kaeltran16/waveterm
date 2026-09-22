@@ -13,12 +13,10 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { attentionAtom } from "@/app/view/agents/attentionstore";
 import { atom, type PrimitiveAtom } from "jotai";
 import type { PetActState } from "./petacts";
-import type { PetPass } from "./petjoin";
 import type { PetEvent, PetWatermark } from "./petvoice";
 
 const CORNER_KEY = "wave:pet.corner";
 const WATERMARK_KEY = "wave:pet.watermark";
-const LAST_PASS_KEY = "wave:pet.lastpass";
 
 // Corners rather than free x/y: an offset is measured against a viewport that changes size, while a
 // corner still means the same place after a resize. Occlusion is the corner dweller's cost, and moving
@@ -85,9 +83,8 @@ export function setPetWatermark(mark: PetWatermark): void {
 }
 
 // Everything the creature could say, newest or oldest in any order — petvoice.ts orders them. This is
-// the seam every Voice source writes into. All four triggers in the design (the launch resume narrative,
-// a gardener sweep, a distillation batch, notes written into the vault) are backend reads that do not
-// exist yet, so today nothing pushes and the creature is silent by construction rather than by a flag.
+// the seam every Voice source writes into: the launch resume narrative, volunteered utterances, notifies
+// and asks. A source with nothing to report pushes nothing, so silence is by construction, not a flag.
 export const PET_EVENTS_MAX = 50;
 export const petEventsAtom = atom<PetEvent[]>([]) as PrimitiveAtom<PetEvent[]>;
 
@@ -170,38 +167,6 @@ export function clearActState(id: string): void {
     globalStore.set(petActStateAtom, next);
 }
 
-function readLastPass(): PetPass | null {
-    try {
-        const raw = globalThis.localStorage?.getItem(LAST_PASS_KEY);
-        if (!raw) {
-            return null;
-        }
-        const p = JSON.parse(raw);
-        return typeof p?.at === "number" && typeof p?.sessions === "number" && typeof p?.written === "number"
-            ? { at: p.at, sessions: p.sessions, written: p.written }
-            : null;
-    } catch {
-        return null;
-    }
-}
-
-// The last distillation pass, as a level. Persisted for the same reason the watermark is: the broker's
-// retained buffer is in-memory, so after a wavesrv restart the only record of the last pass is the one this
-// window kept — and a row that forgot it would read "not read yet" about a pipeline that has been running.
-export const petLastPassAtom = atom<PetPass | null>(readLastPass()) as PrimitiveAtom<PetPass | null>;
-
-export function recordPass(pass: PetPass): void {
-    const prev = globalStore.get(petLastPassAtom);
-    if (prev != null && prev.at >= pass.at) {
-        return; // a replayed backlog must not roll the row backwards
-    }
-    globalStore.set(petLastPassAtom, pass);
-    try {
-        globalThis.localStorage?.setItem(LAST_PASS_KEY, JSON.stringify(pass));
-    } catch {
-        // quota/disabled — the in-memory atom still holds it for this session
-    }
-}
 
 // No pocket atom here on purpose. The Concierge floor's "it holds" (design §6) needs the carry/drop
 // gestures and this store together; an atom with a reader and no writer made the peek's Pocket section

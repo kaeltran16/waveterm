@@ -71,8 +71,8 @@ export function proactiveNavOref(vm: ProactiveVM | null): string | null {
     switch (vm.sourceType) {
         case "dossier":
             return `task:${vm.nodeId}`;
-        case "memory":
-            return `memnote:${vm.nodeId}`;
+        // a memory-collection hit has no surface to land on any more, so it grows no Open rather than
+        // one that always refuses
         default:
             return null;
     }

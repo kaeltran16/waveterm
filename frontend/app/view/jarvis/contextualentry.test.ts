@@ -7,7 +7,6 @@ import {
     attachedScope,
     openJarvisWithSource,
     sourceRefForGraphNode,
-    sourceRefForMemory,
     sourceRefForRadar,
     sourceRefForRun,
 } from "./contextualentry";
@@ -35,10 +34,6 @@ describe("contextual-entry SourceRef builders", () => {
     it("builds a radar SourceRef as radar:<finding.id>", () => {
         const ref = sourceRefForRadar({ id: "f9", risk: "retry storm" } as any);
         expect(ref).toEqual({ oref: "radar:f9", sourceType: "radar", title: "retry storm" });
-    });
-    it("builds a memory SourceRef as memory:<note.id>", () => {
-        const ref = sourceRefForMemory({ id: "m3", title: "worktree gotcha" } as any);
-        expect(ref).toEqual({ oref: "memory:m3", sourceType: "memory", title: "worktree gotcha" });
     });
     // a graph node's id is a bare id for a vault node and a full oref for a run (ResolveDossierEdges emits
     // RunORef), so the conversion has to respect the kind rather than prefix blindly.

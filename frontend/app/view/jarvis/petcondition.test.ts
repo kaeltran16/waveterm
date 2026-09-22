@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
     conditionLine,
     conditionsFor,
-    DRIFT_QUEUE_BAND,
     EXPRESSION_RANK,
     expressionFor,
     isWindowConstrained,
@@ -14,7 +13,6 @@ import {
 const OFF: PetSignals["index"] = { state: "off" };
 const STALE: PetSignals["index"] = { state: "stale" };
 const HOT: PetSignals["rateLimit"] = { provider: "claude", pct: 94, resetAt: 1_800_000_000 };
-const QUEUE: PetSignals["decay"] = { queueDepth: DRIFT_QUEUE_BAND, staleNotes: 2 };
 
 describe("expressionFor — each rank fires in isolation", () => {
     it("rank 1: an index that is off or stale is cannot-see, carrying which", () => {
@@ -30,10 +28,6 @@ describe("expressionFor — each rank fires in isolation", () => {
             resetAt: 1_800_000_000,
         });
     });
-
-    it("rank 3: a queue at the band is drifting, carrying its depth", () => {
-        expect(expressionFor({ decay: QUEUE })).toEqual({ kind: "drifting", queueDepth: DRIFT_QUEUE_BAND });
-    });
 });
 
 describe("expressionFor — strict precedence", () => {
@@ -46,18 +40,11 @@ describe("expressionFor — strict precedence", () => {
 
     it("cannot-see beats every lower rank present at the same time", () => {
         expect(expressionFor({ index: OFF, rateLimit: HOT }).kind).toBe("cannot-see");
-        expect(expressionFor({ index: OFF, decay: QUEUE }).kind).toBe("cannot-see");
-        expect(expressionFor({ index: OFF, rateLimit: HOT, decay: QUEUE }).kind).toBe("cannot-see");
     });
 
-    it("tired beats drifting", () => {
-        expect(expressionFor({ rateLimit: HOT, decay: QUEUE }).kind).toBe("tired");
-    });
-
-    it("ranks the four expressions in the design's order", () => {
+    it("ranks the three expressions in the design's order", () => {
         expect(EXPRESSION_RANK["cannot-see"]).toBeLessThan(EXPRESSION_RANK.tired);
-        expect(EXPRESSION_RANK.tired).toBeLessThan(EXPRESSION_RANK.drifting);
-        expect(EXPRESSION_RANK.drifting).toBeLessThan(EXPRESSION_RANK["at-rest"]);
+        expect(EXPRESSION_RANK.tired).toBeLessThan(EXPRESSION_RANK["at-rest"]);
     });
 });
 
@@ -71,14 +58,12 @@ describe("expressionFor — nothing present is at-rest", () => {
     it("yields at-rest when a signal is present but says nothing is wrong", () => {
         expect(expressionFor({ index: { state: "ok" } }).kind).toBe("at-rest");
         expect(expressionFor({ rateLimit: { provider: "claude", pct: 12 } }).kind).toBe("at-rest");
-        expect(expressionFor({ decay: { queueDepth: DRIFT_QUEUE_BAND - 1, staleNotes: 1 } }).kind).toBe("at-rest");
         expect(expressionFor({ attention: { reviewGates: 3, escalations: 1, blockedWorkers: 2 } }).kind).toBe(
             "at-rest"
         );
     });
 
-    it("does not treat a zero-depth queue or a zero reading as drift", () => {
-        expect(expressionFor({ decay: { queueDepth: 0, staleNotes: 0 } }).kind).toBe("at-rest");
+    it("does not treat a zero reading as a constraint", () => {
         expect(expressionFor({ rateLimit: { provider: "claude", pct: 0 } }).kind).toBe("at-rest");
     });
 });
@@ -158,7 +143,6 @@ describe("wording", () => {
     });
 
     it("gives every expression and every posture a line", () => {
-        expect(conditionLine({ kind: "drifting", queueDepth: 9 }, now)).toContain("9 notes");
         expect(conditionLine({ kind: "at-rest" }, now)).not.toBe("");
         expect(postureLine("review-gate")).not.toBe("");
         expect(postureLine("escalation")).not.toBe("");
@@ -168,27 +152,22 @@ describe("wording", () => {
 });
 
 // The peek lists every standing condition, where the creature wears only one. Precedence decides which
-// LEADS rather than capping the list at one — the brief's state 3 (recall off AND the vault drifting) is a
-// required frame, and today's panel states that pair twice: once as a banner, once as a tile.
+// LEADS rather than capping the list at one — recall off AND a depleting window is a real pair, and the
+// old panel stated such a pair twice: once as a banner, once as a tile.
 describe("conditionsFor — every standing condition, in rank order", () => {
     it("returns nothing to say when no signal is degraded", () => {
         expect(conditionsFor({})).toEqual([]);
-        expect(conditionsFor({ decay: { queueDepth: 0, staleNotes: 0 } })).toEqual([]);
+        expect(conditionsFor({ index: { state: "ok" } })).toEqual([]);
     });
 
     it("lists one entry per degraded signal, ranked, not just the winner", () => {
-        expect(conditionsFor({ index: OFF, decay: QUEUE }).map((c) => c.kind)).toEqual(["cannot-see", "drifting"]);
-        expect(conditionsFor({ index: OFF, rateLimit: HOT, decay: QUEUE }).map((c) => c.kind)).toEqual([
-            "cannot-see",
-            "tired",
-            "drifting",
-        ]);
+        expect(conditionsFor({ index: OFF, rateLimit: HOT }).map((c) => c.kind)).toEqual(["cannot-see", "tired"]);
     });
 
     it("carries each condition whole, so conditionLine can word it without re-deriving", () => {
-        expect(conditionsFor({ rateLimit: HOT, decay: QUEUE })).toEqual([
+        expect(conditionsFor({ index: OFF, rateLimit: HOT })).toEqual([
+            { kind: "cannot-see", reason: "off" },
             { kind: "tired", provider: "claude", pct: 94, resetAt: 1_800_000_000 },
-            { kind: "drifting", queueDepth: DRIFT_QUEUE_BAND },
         ]);
     });
 
@@ -199,12 +178,7 @@ describe("conditionsFor — every standing condition, in rank order", () => {
     // the crossing rule: the creature wears one face, and the peek's lead line must be that same face.
     // Two derivations of the same precedence would let the corner and the panel disagree.
     it("leads with exactly the expression the creature is wearing", () => {
-        for (const signals of [
-            { index: OFF, rateLimit: HOT, decay: QUEUE },
-            { rateLimit: HOT, decay: QUEUE },
-            { decay: QUEUE },
-            { index: STALE },
-        ]) {
+        for (const signals of [{ index: OFF, rateLimit: HOT }, { rateLimit: HOT }, { index: STALE }]) {
             expect(conditionsFor(signals)[0]).toEqual(expressionFor(signals));
         }
     });

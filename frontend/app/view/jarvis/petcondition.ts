@@ -10,13 +10,11 @@
 //                  mode: if recall is quietly keyword-only, nothing else the creature reports is
 //                  trustworthy, so it outranks everything.
 //   2 tired      — the rate-limit window depleting. Cyclical, legible within a day, and not your fault.
-//   3 drifting   — the vault's cleanup queue. Degrades slowly and is never urgent, so it ranks last.
 // Nothing present => at-rest.
 //
 // Every input field is optional, and an absent field is "no signal" — never "signal absent". That
-// distinction is load-bearing rather than pedantic: petsources.tsx leaves `index` unset until its read lands
-// and petview.tsx leaves `decay` unset until the cleanup queue has actually been read, so a backend that has
-// not answered yet cannot present here as a clean bill of health.
+// distinction is load-bearing rather than pedantic: petsources.tsx leaves `index` unset until its read
+// lands, so a backend that has not answered yet cannot present here as a clean bill of health.
 
 import { formatReset, usageLevel } from "@/app/view/agents/agentsviewmodel";
 import { providerLabel } from "@/app/view/agents/cockpitrailmodel";
@@ -29,8 +27,6 @@ export interface PetSignals {
     // `provider` is required because the reading is per-provider and the highest wins: unnamed, a codex
     // window reads as a claude one, and the countdown belongs to whichever provider won.
     rateLimit?: { provider: string; pct: number; resetAt?: number };
-    // rank 3: vault drift. `staleNotes` is the weak-reason subset of `queueDepth`, not a second queue.
-    decay?: { queueDepth: number; staleNotes: number };
     // posture: kinds only. The creature never renders a count — the nav badge owns that (design §3).
     attention?: { reviewGates: number; escalations: number; blockedWorkers: number };
 }
@@ -38,7 +34,6 @@ export interface PetSignals {
 export type PetExpression =
     | { kind: "cannot-see"; reason: "off" | "stale" }
     | { kind: "tired"; provider: string; pct: number; resetAt?: number }
-    | { kind: "drifting"; queueDepth: number }
     | { kind: "at-rest" };
 
 export type PetPosture = "review-gate" | "escalation" | "blocked-worker" | "none";
@@ -48,8 +43,7 @@ export type PetPosture = "review-gate" | "escalation" | "blocked-worker" | "none
 export const EXPRESSION_RANK: Record<PetExpression["kind"], number> = {
     "cannot-see": 1,
     tired: 2,
-    drifting: 3,
-    "at-rest": 4,
+    "at-rest": 3,
 };
 
 // tiredness starts where the cockpit's own usage bands stop being "ok" (>60%), so every consumer reports
@@ -58,13 +52,9 @@ export function isWindowConstrained(rateLimit: PetSignals["rateLimit"]): boolean
     return rateLimit != null && usageLevel(rateLimit.pct) !== "ok";
 }
 
-// A live vault always has a note or two flagged; that is tended, not drifting. The band is where the
-// queue stops being something the next Memory visit absorbs in passing.
-export const DRIFT_QUEUE_BAND = 5;
-
-// Every standing condition, ranked. The creature wears one face, but the peek lists them all — recall off
-// AND a drifting vault is a real pair, and stating only the winner is what made the old panel print the
-// loser a second time as a tile. at-rest is never a member: an empty list is how quiet is spelled.
+// Every standing condition, ranked. The creature wears one face, but the peek lists them all — stating only
+// the winner is what made the old panel print the loser a second time as a tile. at-rest is never a member:
+// an empty list is how quiet is spelled.
 export function conditionsFor(signals: PetSignals): PetExpression[] {
     const out: PetExpression[] = [];
     const index = signals.index?.state;
@@ -74,10 +64,6 @@ export function conditionsFor(signals: PetSignals): PetExpression[] {
     const rl = signals.rateLimit;
     if (rl != null && isWindowConstrained(rl)) {
         out.push({ kind: "tired", provider: rl.provider, pct: rl.pct, resetAt: rl.resetAt });
-    }
-    const decay = signals.decay;
-    if (decay != null && decay.queueDepth >= DRIFT_QUEUE_BAND) {
-        out.push({ kind: "drifting", queueDepth: decay.queueDepth });
     }
     return out;
 }
@@ -136,8 +122,6 @@ export function conditionLine(expr: PetExpression, nowMs: number): string {
                 ? `Running low on ${who} — ${pct}% of the window used, back in ${back}.`
                 : `Running low on ${who} — ${pct}% of the window used.`;
         }
-        case "drifting":
-            return `The vault is drifting — ${expr.queueDepth} notes are queued for cleanup.`;
         case "at-rest":
             return "Nothing needs saying.";
     }
