@@ -161,6 +161,32 @@ describe("resetRunConfigForChannel", () => {
 
         expect(globalStore.get(runShapeAtom)).toBe("quick");
     });
+
+    // + Run's channel is a field of the launch being composed, not a place you navigated to. Changing
+    // the project there used to discard the shape and width you had already picked, and the project's
+    // saved defaultmode hydrated over them — an orchestrator run from a Quick you selected by hand.
+    it("keeps hand-made choices across a channel change when the caller asks it to", () => {
+        resetRunConfigForChannel("ch-1", true);
+        setRunShape("orchestrator");
+        setParallelism(6);
+
+        resetRunConfigForChannel("ch-2", true);
+
+        expect(globalStore.get(runShapeAtom)).toBe("orchestrator");
+        expect(globalStore.get(parallelismAtom)).toBe(6);
+        // still the user's, so the newly picked project's profile must not hydrate over it either
+        expect(globalStore.get(configTouchedAtom)).toBe(true);
+    });
+
+    // untouched is what makes the project you pick supply the defaults, keepTouched or not
+    it("still clears an untouched draft when the channel changes", () => {
+        resetRunConfigForChannel("ch-1", true);
+        globalStore.set(runShapeAtom, "orchestrator");
+
+        resetRunConfigForChannel("ch-2", true);
+
+        expect(globalStore.get(runShapeAtom)).toBe("quick");
+    });
 });
 
 // A launch or a discarded draft ends the configuration the manual choices belonged to. Without this the

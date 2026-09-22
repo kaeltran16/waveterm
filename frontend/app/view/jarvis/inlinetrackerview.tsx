@@ -89,7 +89,16 @@ export function InitiativeDetail({
                             key={row.id}
                             className="flex flex-wrap items-center gap-x-[9px] gap-y-[5px] px-[5px] pb-[7px] font-mono text-[9px] text-muted"
                         >
-                            <span className="text-ink-mid">{row.oref.replace(/^effort:/, "")}</span>
+                            {/* the id is what you paste into a prompt or a `wsh effort` call, and a
+                                span is the one thing you cannot lift out of a row you can click */}
+                            <button
+                                type="button"
+                                title="copy this initiative's id"
+                                onClick={() => void navigator.clipboard?.writeText(row.oref.replace(/^effort:/, ""))}
+                                className={cn("cursor-pointer text-ink-mid hover:text-ink-hi", FOCUS)}
+                            >
+                                {row.oref.replace(/^effort:/, "")}
+                            </button>
                             <span>{row.count}</span>
                             <span className="ml-auto flex items-center gap-2.5">
                                 <AddChunk onAdd={onAddChunk} />

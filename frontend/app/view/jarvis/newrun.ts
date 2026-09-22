@@ -69,6 +69,17 @@ export function launchGoal(config: Pick<RunConfig, "shape" | "start">, goal: str
     return config.shape === "orchestrator" && config.start === "plan" ? "" : goal.trim();
 }
 
+// Which project + Run opens on. The modal is rebuilt on every open (NewRunControl unmounts it on close),
+// so the remembered name is checked against the registry as it stands now: a project unregistered since
+// must not preselect a row that is no longer there. One project is not a choice, so it preselects either
+// way — which is also the answer before anything has been remembered.
+export function initialPick(names: string[], remembered: string | null): string | null {
+    if (remembered != null && names.includes(remembered)) {
+        return remembered;
+    }
+    return names.length === 1 ? names[0] : null;
+}
+
 // Which projects a typed query leaves, best first. Reuses the palette's scorer so one query language
 // covers both places a project is picked by name. An empty query is not a filter: the registry's own
 // order stands rather than being re-sorted into a ranking the user never asked for.

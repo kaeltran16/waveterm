@@ -21,7 +21,7 @@ import { ModalShell } from "@/app/modals/modalshell";
 import { globalStore } from "@/app/store/jotaiStore";
 import { harnessPreferenceAtom } from "@/app/view/agents/harnessstore";
 import { cn, fireAndForget } from "@/util/util";
-import { useAtomValue } from "jotai";
+import { atom, useAtomValue, type PrimitiveAtom } from "jotai";
 import { useEffect, useRef, useState } from "react";
 import type { AgentsViewModel } from "../agents/agents";
 import { channelsAtom, createChannel } from "../agents/channelsstore";
@@ -48,8 +48,13 @@ import {
     workerRouteAtom,
 } from "../agents/runconfigstore";
 import { RunLauncherSections } from "../agents/runlauncher";
-import { launchGoal, launchOptsFromConfig, rankProjects, resolveChannelTarget, stepPick } from "./newrun";
-import { openChannelSheet } from "./openref";
+import { initialPick, launchGoal, launchOptsFromConfig, rankProjects, resolveChannelTarget, stepPick } from "./newrun";
+import { openTarget } from "./openref";
+
+// Module scope, not component state: NewRunControl unmounts the modal on close, so a project picked for
+// one launch was gone by the next one and every run started by re-picking the same project. Not persisted
+// — where you last started work is a convenience for the session, not a setting.
+const lastPickedProjectAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 
 const FIELD_LABEL = "font-mono text-[9.5px] font-bold uppercase tracking-[.12em] text-muted";
 const CANCEL_BTN =
@@ -70,13 +75,20 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
     const runRoute = useAtomValue(runRouteAtom);
     const routeTouched = useAtomValue(routeTouchedAtom);
     const entries = Object.entries(projects ?? {});
-    // one project is not a choice, and preselecting it makes the common case type-a-goal-and-go
-    const [picked, setPicked] = useState<string | null>(entries.length === 1 ? entries[0][0] : null);
+    // the project you last started work in, else the only one there is — either way the common case is
+    // type-a-goal-and-go rather than pick-the-same-project-again
+    const [picked, setPicked] = useState<string | null>(() =>
+        initialPick(
+            entries.map(([name]) => name),
+            globalStore.get(lastPickedProjectAtom)
+        )
+    );
     const [query, setQuery] = useState("");
     const [goal, setGoal] = useState("");
     const [starting, setStarting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const goalRef = useRef<HTMLTextAreaElement>(null);
+    const pickedRef = useRef<HTMLButtonElement>(null);
 
     // not memoised on purpose: a registry this size scores in microseconds, and every key that would
     // make a dependency array correct here is a string built out of the very names it has to track
@@ -95,7 +107,9 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
     const target = picked != null ? resolveChannelTarget(channels, picked, projects?.[picked]?.path ?? "") : null;
     const pickedOid = target?.kind === "existing" ? target.oid : null;
     useEffect(() => {
-        resetRunConfigForChannel(pickedOid);
+        // keepTouched: the project is a field of this one launch, not a place you navigated to, so
+        // changing it must not rewrite the shape or the width you already picked
+        resetRunConfigForChannel(pickedOid, true);
         if (pickedOid != null) {
             loadResolvedProfile(pickedOid);
         }
@@ -112,8 +126,16 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
         }
     }, [pickedOid, profileRoute, routeTouched]);
 
+    // The row list is 150px — about four projects — so a pick you cannot see is a pick you do not trust.
+    // Covers both ways one happens off-screen: the remembered project this modal opens on, and an
+    // arrow-key walk past the visible rows.
+    useEffect(() => {
+        pickedRef.current?.scrollIntoView({ block: "nearest" });
+    }, [picked]);
+
     const select = (project: string) => {
         setPicked(project);
+        globalStore.set(lastPickedProjectAtom, project);
         // back to the field, so focus never rests on a non-editable target: a locally mounted modal is
         // invisible to deriveKeyContext, so every bare-letter Jarvis binding stays live behind it
         goalRef.current?.focus();
@@ -149,22 +171,31 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
         setStarting(true);
         setError(null);
         fireAndForget(async () => {
+            let oid: string;
+            let run: Run;
             try {
                 // a channel minted here and then orphaned by a failed launch is the project's channel
                 // either way, so there is nothing to roll back — the next run finds it
-                const oid = target.kind === "existing" ? target.oid : await createChannel(target.name, target.path);
+                oid = target.kind === "existing" ? target.oid : await createChannel(target.name, target.path);
                 // a route the user picked in the Routing section is the answer; otherwise resolve the
                 // project's own, which also validates that the route is actually available right now
                 const route = routeTouched && runRoute != null ? runRoute : await resolveChannelLaunchRoute(oid);
-                const run = await createRun(oid, launchGoal(config, goal), route, launchOptsFromConfig(config));
-                // the launch consumed this draft, so the next one starts from the project's saved defaults
-                endRunConfigDraft(globalStore.get(resolvedProfileAtom)[oid]);
-                await openChannelSheet(oid, run.id);
-                onClose();
+                run = await createRun(oid, launchGoal(config, goal), route, launchOptsFromConfig(config));
             } catch (e) {
+                // only a failure BEFORE the run exists keeps this modal: there is still a launch to retry
                 setError(String(e));
                 setStarting(false);
+                return;
             }
+            // the launch consumed this draft, so the next one starts from the project's saved defaults
+            endRunConfigDraft(globalStore.get(resolvedProfileAtom)[oid]);
+            // The run exists, so the launch has succeeded and the modal's work is done. Landing on it is a
+            // separate concern that reports its own failures (openTarget toasts) — holding the modal open
+            // over a run that is already running told the user their launch had failed. openTarget rather
+            // than openChannelSheet because + Run is on the app bar: a launch from any surface has to
+            // switch to the Brief, or the sheet opens where nobody is looking.
+            onClose();
+            await openTarget(model, { kind: "channel", channelId: oid, runId: run.id });
         });
     };
 
@@ -223,6 +254,7 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
                                 {rows.map((project) => (
                                     <button
                                         key={project}
+                                        ref={picked === project ? pickedRef : undefined}
                                         type="button"
                                         title={project}
                                         aria-pressed={picked === project}
@@ -263,11 +295,10 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
                             <span className="min-w-0 flex-1 truncate text-[11px] text-error">{error}</span>
                         ) : (
                             <span className="flex-1 truncate font-mono text-[10px] text-muted">
-                                {picked == null
-                                    ? "pick a project"
-                                    : planStart && blocker != null
-                                      ? blocker
-                                      : `${shape} in ${picked}`}
+                                {/* the blocker first whenever there is one: a disabled Start run that
+                                    named the shape instead of saying "Write the goal" read as a dead
+                                    button, which is what a silent click on it looks like */}
+                                {picked == null ? "pick a project" : (blocker ?? `${shape} in ${picked}`)}
                             </span>
                         )}
                         <button type="button" onClick={onClose} className={CANCEL_BTN}>

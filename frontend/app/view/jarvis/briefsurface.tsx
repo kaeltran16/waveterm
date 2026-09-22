@@ -28,6 +28,7 @@ import {
     MOTION,
     paneReveal,
 } from "@/app/element/motiontokens";
+import { ContextMenuModel } from "@/app/store/contextmenu";
 import { globalStore } from "@/app/store/jotaiStore";
 import { buildJarvisBindings } from "@/app/store/keybindings/bindings";
 import { useSurfaceListNav, type ListNavController } from "@/app/store/keybindings/listnav";
@@ -52,6 +53,7 @@ import { DagModal } from "@/app/view/orchestrate/dagmodal";
 import { setDagModalAgentsContext } from "@/app/view/orchestrate/dagmodalstate";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtom, useAtomValue, useSetAtom, type PrimitiveAtom } from "jotai";
+import { Copy } from "lucide-react";
 import { AnimatePresence, motion, MotionConfig, useReducedMotion } from "motion/react";
 import {
     Fragment,
@@ -347,6 +349,30 @@ function NoMatch() {
     );
 }
 
+// An initiative's name and its id are the two things you carry out of the Brief — into a prompt, a
+// `wsh effort` call, a message to someone. The row is a button, so neither could be dragged out of it:
+// a mousedown inside a button starts a click, not a text selection. The expanded detail's id line
+// (inlinetrackerview) copies the bare id for the same reason.
+function showInitiativeMenu(line: BriefLine, ev: React.MouseEvent): void {
+    const target = line.target;
+    const oid = target != null && "oref" in target ? target.oref.replace(/^effort:/, "") : "";
+    const items: ContextMenuItem[] = [
+        {
+            label: "Copy name",
+            icon: <Copy size={15} />,
+            click: () => void navigator.clipboard.writeText(line.title),
+        },
+    ];
+    if (oid !== "") {
+        items.push({
+            label: "Copy handle",
+            icon: <Copy size={15} />,
+            click: () => void navigator.clipboard.writeText("wsh effort show " + oid),
+        });
+    }
+    ContextMenuModel.getInstance().showContextMenu(items, ev);
+}
+
 // Every region's row: one line that opens its sheet (briefrows.ts builds them). A line with no destination
 // stays a row rather than becoming a control that navigates nowhere. The padding and border are the same
 // under the cursor as off it, so moving the cursor never shifts the rows below.
@@ -357,6 +383,7 @@ function LineRow({
     fresh,
     expanded,
     onOpen,
+    onContextMenu,
 }: {
     line: BriefLine;
     hook: string;
@@ -366,6 +393,7 @@ function LineRow({
     // its bottom ones to the plan block that follows, so the two read as one card
     expanded?: boolean;
     onOpen?: () => void;
+    onContextMenu?: (e: React.MouseEvent) => void;
 }) {
     const reduce = useReducedMotion();
     const face = (
@@ -424,7 +452,13 @@ function LineRow({
             : { transition: `border-radius ${MOTION.durExit}s ${easeFluidCss}` };
     if (onOpen == null) {
         return (
-            <div data-jarvis-brief-row={hook} {...cursorAttrs(focused)} className={base} style={cornerTween}>
+            <div
+                data-jarvis-brief-row={hook}
+                onContextMenu={onContextMenu}
+                {...cursorAttrs(focused)}
+                className={base}
+                style={cornerTween}
+            >
                 {face}
             </div>
         );
@@ -435,6 +469,7 @@ function LineRow({
             aria-label={expanded === true ? `Collapse ${line.title}` : `Open ${line.title}`}
             aria-expanded={expanded}
             onClick={onOpen}
+            onContextMenu={onContextMenu}
             data-jarvis-brief-row={hook}
             style={cornerTween}
             {...cursorAttrs(focused)}
@@ -1687,6 +1722,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                                                 hook="initiative"
                                                                 focused={cursor === l.id}
                                                                 fresh={freshInitiatives.has(keyOf(l))}
+                                                                onContextMenu={(ev) => showInitiativeMenu(l, ev)}
                                                                 expanded={l.id === openInitiative}
                                                                 onOpen={() => {
                                                                     setCursor(l.id);
