@@ -534,6 +534,17 @@ func dagRulesRun(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// sessionStartPayload wraps text as a SessionStart hook's added context. Claude Code reads both
+// additional_context and hookSpecificOutput without deduplication, so exactly one of them may be emitted.
+func sessionStartPayload(text string) ([]byte, error) {
+	return json.Marshal(map[string]any{
+		"hookSpecificOutput": map[string]any{
+			"hookEventName":     "SessionStart",
+			"additionalContext": text,
+		},
+	})
+}
+
 // dagRulesText is the rules for a caller whose run the dag names, and "" for anyone else: a dag child
 // resolves to its own run.
 func dagRulesText(ctx *wshrpc.CommandJarvisCtxRtnData, st *wshrpc.CommandDagStatusRtnData) string {

@@ -674,7 +674,7 @@ func TestInstallPiKeybindingsOnlyWhenAbsent(t *testing.T) {
 func TestSessionStartMemoryHookIsManaged(t *testing.T) {
 	var found *managedHook
 	for i := range managedHooks {
-		if managedHooks[i].Event == "SessionStart" && managedHooks[i].Args == "agent-memory-project --inject" {
+		if managedHooks[i].Event == "SessionStart" && managedHooks[i].Args == "agent-memory-project" {
 			found = &managedHooks[i]
 			break
 		}
@@ -685,8 +685,12 @@ func TestSessionStartMemoryHookIsManaged(t *testing.T) {
 	if found.Matcher != "startup|clear|compact" {
 		t.Fatalf("matcher = %q, want startup|clear|compact", found.Matcher)
 	}
-	if !isManagedCommand(`"C:\bin\wsh-0.14.5-windows.x64.exe" agent-memory-project --inject`) {
+	if !isManagedCommand(`"C:\bin\wsh-0.14.5-windows.x64.exe" agent-memory-project`) {
 		t.Fatal("SessionStart command not recognized as Arc-managed; re-runs would duplicate it")
+	}
+	// the manifest-era form has to stay recognized or the entry it wrote is never replaced
+	if !isManagedCommand(`"C:\bin\wsh-0.14.5-windows.x64.exe" agent-memory-project --inject`) {
+		t.Fatal("the pre-removal --inject form must still be recognized so stale entries are cleaned up")
 	}
 }
 

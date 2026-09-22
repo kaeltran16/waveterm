@@ -12,26 +12,40 @@ func TestResolveProjectCwd(t *testing.T) {
 	tests := []struct {
 		name    string
 		flagCwd string
-		inject  bool
 		stdin   string
 		want    string
 	}{
 		// the pi extension's path: flag wins and stdin is never touched
-		{"flag wins", "/repo", false, "", "/repo"},
-		{"flag wins over stdin", "/repo", true, `{"cwd":"/other"}`, "/repo"},
+		{"flag wins", "/repo", "", "/repo"},
+		{"flag wins over stdin", "/repo", `{"cwd":"/other"}`, "/repo"},
 		// the claude SessionStart hook's path: no flag, cwd arrives on stdin
-		{"stdin fallback when injecting", "", true, `{"cwd":"/from/hook","hook_event_name":"SessionStart"}`, "/from/hook"},
-		// the regression this guards: no flag, no stdin read => the hook no-ops every session
-		{"no flag and not injecting reads nothing", "", false, `{"cwd":"/from/hook"}`, ""},
-		{"malformed stdin is not fatal", "", true, "not json", ""},
-		{"empty stdin", "", true, "", ""},
-		{"payload without cwd", "", true, `{"hook_event_name":"SessionStart"}`, ""},
+		{"stdin fallback", "", `{"cwd":"/from/hook","hook_event_name":"SessionStart"}`, "/from/hook"},
+		{"malformed stdin is not fatal", "", "not json", ""},
+		{"empty stdin", "", "", ""},
+		{"payload without cwd", "", `{"hook_event_name":"SessionStart"}`, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := resolveProjectCwd(tt.flagCwd, tt.inject, strings.NewReader(tt.stdin)); got != tt.want {
-				t.Fatalf("resolveProjectCwd(%q, %v, %q) = %q, want %q", tt.flagCwd, tt.inject, tt.stdin, got, tt.want)
+			if got := resolveProjectCwd(tt.flagCwd, strings.NewReader(tt.stdin)); got != tt.want {
+				t.Fatalf("resolveProjectCwd(%q, %q) = %q, want %q", tt.flagCwd, tt.stdin, got, tt.want)
 			}
 		})
+	}
+}
+
+// the manifest is gone, but a settings.json written before it was removed still names --inject, and
+// that file is only rewritten on the next install-agent-hooks: the flag has to keep parsing or every
+// session start in between hard-errors on an unknown flag.
+func TestInjectFlagStillParsesAsANoOp(t *testing.T) {
+	defer func() { agentMemoryProjectInject = false }()
+	if agentMemoryProjectCmd.Flags().Lookup("inject") == nil {
+		t.Fatal("--inject must stay registered for hooks an older build wrote")
+	}
+	if err := agentMemoryProjectCmd.Flags().Parse([]string{"--inject"}); err != nil {
+		t.Fatalf("parsing --inject: %v", err)
+	}
+	// nothing is emitted for it: with no cwd from either source the command is a no-op
+	if got := resolveProjectCwd("", strings.NewReader("")); got != "" {
+		t.Fatalf("no cwd should resolve to empty, got %q", got)
 	}
 }

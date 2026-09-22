@@ -65,42 +65,6 @@ func renderFacts(label string, notes []NoteWithBody, targetRuntime string) strin
 	return strings.TrimRight(b.String(), "\n") + "\n"
 }
 
-// renderManifestFrom builds the injected manifest: one line per fact, bodies left on disk. Split
-// from RenderManifest so the rendering is testable without a home dir or a vault.
-func renderManifestFrom(label, sharedDir string, notes []NoteWithBody) string {
-	if len(notes) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	b.WriteString("## Shared project memory: " + label + "\n")
-	b.WriteString("Facts recorded by past Claude, pi, and codex sessions on this project.\n")
-	b.WriteString("Read the full body of any fact from: " + filepath.Join(sharedDir, "<name>.md") + "\n\n")
-	for _, nw := range notes {
-		// an authored description is kept as written but still capped: it is often a full paragraph,
-		// and the manifest's whole value is being one scannable line per fact
-		desc := capLine(nw.Note.Description)
-		if desc == "" {
-			desc = synthDescription(nw.Body)
-		}
-		if desc == "" {
-			continue
-		}
-		b.WriteString("- " + nw.Note.ID + " — " + desc + "\n")
-	}
-	return b.String()
-}
-
-// RenderManifest renders cwd's shared-memory manifest for injection at session start. Empty cwd, a
-// missing shared dir, or no notes all render blank so the caller emits nothing at all.
-func RenderManifest(cwd string) string {
-	if cwd == "" {
-		return ""
-	}
-	sharedDir := SharedDirForCwd(cwd)
-	label := projectLabel(cwd, memroots.RegistryProjects())
-	return renderManifestFrom(label, sharedDir, readHubNotes(sharedDir))
-}
-
 const projectionEnd = "<!-- ARC-MEMORY:END -->"
 
 // applySteeringRegion returns existing with the ARC-MEMORY region set to body (for project label).
@@ -244,25 +208,37 @@ func readHubNotes(hubDir string) []NoteWithBody {
 	return out
 }
 
-// vaultNotesForProject filters the vault's notes to those belonging to cwd's project: the registry
-// label, the leaf folder, and the hub-dir-derived label (covers registry renames after the fold
-// baked old labels into frontmatter), plus global notes (empty/shared).
+// projectScopeAliases is every scope string that means "this project": the registry label, the leaf
+// folder, and the hub-derived label (a registry rename leaves old labels baked into frontmatter).
+// One definition, shared by the note filter and the echo rule, so the two can never disagree about
+// what "this project" means.
+func projectScopeAliases(cwd, label string) map[string]bool {
+	return map[string]bool{
+		label:                              true,
+		filepath.Base(filepath.Clean(cwd)): true,
+		memroots.LabelFromHash(memroots.ProjectHash(filepath.Clean(cwd)), memroots.RegistryProjects()): true,
+	}
+}
+
+// vaultNotesForProject filters the vault's notes to those belonging to cwd's project, plus global
+// notes (empty/shared).
 func vaultNotesForProject(cwd, label string) []NoteWithBody {
-	leaf := filepath.Base(filepath.Clean(cwd))
-	hubLabel := memroots.LabelFromHash(memroots.ProjectHash(filepath.Clean(cwd)), memroots.RegistryProjects())
+	own := projectScopeAliases(cwd, label)
 	out := []NoteWithBody{}
 	for _, nw := range readHubNotes(DefaultVaultPath()) {
-		switch nw.Note.Scope {
-		case label, leaf, hubLabel, "", "shared":
+		if own[nw.Note.Scope] || nw.Note.Scope == "" || nw.Note.Scope == "shared" {
 			out = append(out, nw)
 		}
 	}
 	return out
 }
 
-// exportToHub writes the vault notes into dir as source: vault notes, skipping claude-source
-// ones (echo rule: don't send claude its own facts back). Deduped by body hash against dir.
-func exportToHub(dir string, notes []NoteWithBody) (int, int, error) {
+// exportToHub writes the vault notes into dir as source: vault notes. The echo rule is per-hub, not
+// per-runtime: a claude-sourced note is withheld only from the project it was harvested from, which
+// already holds it. A claude fact from another project — or one with no project at all — has never
+// been seen by this hub, and withholding it was the leak. ownScopes names this project's scopes.
+// Deduped by body hash against dir.
+func exportToHub(dir string, notes []NoteWithBody, ownScopes map[string]bool) (int, int, error) {
 	if dir == "" {
 		return 0, 0, nil
 	}
@@ -272,7 +248,7 @@ func exportToHub(dir string, notes []NoteWithBody) (int, int, error) {
 	existing := existingHashes(dir)
 	exported, skipped := 0, 0
 	for _, nw := range notes {
-		if nw.Note.Source == "claude" {
+		if nw.Note.Source == "claude" && ownScopes[nw.Note.Scope] {
 			skipped++
 			continue
 		}
@@ -374,8 +350,14 @@ func Project(cwd string) error {
 	// self-healing migration: earlier builds exported into the hub itself. Best-effort — a failure to
 	// tidy the old namespace must not stop the projection that supersedes it.
 	_, _, _ = EvictExportedHubNotes(cwd)
-	if _, _, err := exportToHub(SharedDirForCwd(cwd), notes); err != nil {
+	sharedDir := SharedDirForCwd(cwd)
+	if _, _, err := exportToHub(sharedDir, notes, projectScopeAliases(cwd, label)); err != nil {
 		return fmt.Errorf("exporting to shared dir: %w", err)
+	}
+	// the export is only reachable from a session through the hub index, which is injected every
+	// session; without this the shared dir is a directory nothing reads
+	if err := WriteSharedIndex(HubDirForCwd(cwd), sharedDir); err != nil {
+		return fmt.Errorf("writing shared index: %w", err)
 	}
 	targets := append(steeringTargets(), piProjectionTarget(label))
 	pruneOrphanRegions(targets)

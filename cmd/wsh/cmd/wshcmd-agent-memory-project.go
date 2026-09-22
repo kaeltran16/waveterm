@@ -5,10 +5,8 @@ package cmd
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
-	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -17,10 +15,10 @@ import (
 )
 
 // agentMemoryProjectCmd projects cwd's hub memory into the home-level steering files (codex /
-// pi AGENTS.md). Called from the pi extension at session start so a pi
-// session always runs with the current project's memory projected; the FE also triggers it at
-// agent launch and from the manual sync button. Fail-safe like the memory hook: outside WaveTerm
-// (no JWT) it no-ops.
+// pi AGENTS.md) and the shared export + its index line in the hub's MEMORY.md. Called from the pi
+// extension at session start so a pi session always runs with the current project's memory
+// projected, and from Claude's SessionStart hook, which is the only automatic trigger claude has.
+// Fail-safe like the memory hook: outside WaveTerm (no JWT) it no-ops.
 var agentMemoryProjectCmd = &cobra.Command{
 	Use:                   "agent-memory-project",
 	Short:                 "project cwd's hub memory into the home-level steering files",
@@ -33,7 +31,11 @@ var agentMemoryProjectCmd = &cobra.Command{
 }
 
 var (
-	agentMemoryProjectCwd    string
+	agentMemoryProjectCwd string
+	// --inject used to emit a session-start manifest, which is gone: the shared export is reached
+	// through the hub index instead. The flag stays registered and ignored because a settings.json
+	// written by an older build still names it, and that file is only rewritten the next time
+	// install-agent-hooks runs — rejecting the flag would hard-error every session start until then.
 	agentMemoryProjectInject bool
 )
 
@@ -51,10 +53,10 @@ func init() {
 
 // resolveProjectCwd picks the cwd to project. The pi extension passes --cwd; the Claude SessionStart
 // hook has no way to, so it supplies cwd on stdin exactly like SessionEnd does for agent-memory-hook.
-// stdin is only read on the --inject path: the pi path always passes the flag, and reading a
-// terminal's stdin there would hang the session start we are supposed to be speeding along.
-func resolveProjectCwd(flagCwd string, inject bool, stdin io.Reader) string {
-	if flagCwd != "" || !inject {
+// The flag short-circuits the read: pi always passes it, and reading a terminal's stdin there would
+// hang the session start we are supposed to be speeding along.
+func resolveProjectCwd(flagCwd string, stdin io.Reader) string {
+	if flagCwd != "" {
 		return flagCwd
 	}
 	raw, err := io.ReadAll(stdin)
@@ -68,21 +70,10 @@ func resolveProjectCwd(flagCwd string, inject bool, stdin io.Reader) string {
 	return ev.Cwd
 }
 
-// sessionStartPayload wraps text as a SessionStart hook's added context. Claude Code reads both
-// additional_context and hookSpecificOutput without deduplication, so exactly one of them may be emitted.
-func sessionStartPayload(text string) ([]byte, error) {
-	return json.Marshal(map[string]any{
-		"hookSpecificOutput": map[string]any{
-			"hookEventName":     "SessionStart",
-			"additionalContext": text,
-		},
-	})
-}
-
 // agentMemoryProjectRun always returns nil on setup failure: outside WaveTerm there is no server
 // to talk to, and a failed projection must never break the agent's turn.
 func agentMemoryProjectRun(cmd *cobra.Command, args []string) error {
-	cwd := resolveProjectCwd(agentMemoryProjectCwd, agentMemoryProjectInject, os.Stdin)
+	cwd := resolveProjectCwd(agentMemoryProjectCwd, os.Stdin)
 	if cwd == "" {
 		return nil
 	}
@@ -93,17 +84,5 @@ func agentMemoryProjectRun(cmd *cobra.Command, args []string) error {
 	if setupRpcClient(nil, jwt) != nil {
 		return nil
 	}
-	if !agentMemoryProjectInject {
-		return wshclient.MemoryProjectCommand(RpcClient, wshrpc.CommandMemoryProjectData{Cwd: cwd}, &wshrpc.RpcOpts{Timeout: 15000})
-	}
-	manifest, err := wshclient.MemoryProjectManifestCommand(RpcClient, wshrpc.CommandMemoryProjectData{Cwd: cwd}, &wshrpc.RpcOpts{Timeout: 15000})
-	if err != nil || strings.TrimSpace(manifest) == "" {
-		return nil // fail-safe: a memory failure must never degrade session start
-	}
-	out, err := sessionStartPayload(manifest)
-	if err != nil {
-		return nil
-	}
-	fmt.Println(string(out))
-	return nil
+	return wshclient.MemoryProjectCommand(RpcClient, wshrpc.CommandMemoryProjectData{Cwd: cwd}, &wshrpc.RpcOpts{Timeout: 15000})
 }

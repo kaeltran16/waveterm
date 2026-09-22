@@ -40,9 +40,9 @@ var managedHooks = []managedHook{
 	// /compact as a wake that working confirms, and holds later wakes until the session is back
 	{"PreCompact", "", "agent-hook", 10},
 	{"SessionEnd", "", "agent-memory-hook", 10},
-	// matcher mirrors the superpowers plugin's SessionStart hook: /clear and a compaction both drop
-	// the previous injection from context, so memory has to be re-injected on each
-	{"SessionStart", "startup|clear|compact", "agent-memory-project --inject", 15},
+	// claude's only automatic projection trigger (the FE launch path only projects for codex): it
+	// refreshes the shared export and its links in the hub index, and injects nothing itself
+	{"SessionStart", "startup|clear|compact", "agent-memory-project", 15},
 	{"SessionStart", "compact", "agent-hook", 10},
 	// a compaction drops a lead's launch prompt, so its orchestration rules come back in its place
 	{"SessionStart", "compact", "jarvis dag rules --inject", 15},
@@ -73,7 +73,8 @@ func isManagedCommand(command string) bool {
 		return false
 	}
 	switch strings.TrimSpace(rest) {
-	case "agent-hook", "ask", "ask --clear", "agent-memory-hook", "agent-memory-project --inject", "jarvis dag rules --inject":
+	case "agent-hook", "ask", "ask --clear", "agent-memory-hook", "agent-memory-project", "jarvis dag rules --inject",
+		"agent-memory-project --inject": // the last is pre-manifest-removal, still ours to replace
 		return true
 	}
 	return false

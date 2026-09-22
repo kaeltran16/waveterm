@@ -223,7 +223,7 @@ func TestProjectExportSkipsClaudeEcho(t *testing.T) {
 	exported, skipped, err := exportToHub(hubDir, []NoteWithBody{
 		{Note: Note{ID: "human-note", Scope: "proj", Source: "vault", Type: "learning"}, Body: "human fact"},
 		{Note: Note{ID: "claude-note", Scope: "proj", Source: "claude", Type: "learning"}, Body: "claude fact"},
-	})
+	}, map[string]bool{"proj": true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,58 +296,6 @@ func TestClaudeHubDirsNeverEnumeratesShared(t *testing.T) {
 	}
 }
 
-func TestRenderManifestLines(t *testing.T) {
-	dir := t.TempDir()
-	notes := []NoteWithBody{
-		{Note: Note{ID: "wsh-not-on-path", Description: "non-interactive launch leaves wsh off PATH"}, Body: "long body"},
-		{Note: Note{ID: "no-desc-note"}, Body: "First sentence. Second sentence."},
-	}
-	got := renderManifestFrom("waveterm", dir, notes)
-	if !strings.Contains(got, "Shared project memory: waveterm") {
-		t.Fatalf("missing label header:\n%s", got)
-	}
-	if !strings.Contains(got, "- wsh-not-on-path — non-interactive launch leaves wsh off PATH") {
-		t.Fatalf("missing manifest line:\n%s", got)
-	}
-	if !strings.Contains(got, "- no-desc-note — First sentence.") {
-		t.Fatalf("missing synthesized line:\n%s", got)
-	}
-	if strings.Contains(got, "long body") {
-		t.Fatalf("manifest must not carry bodies:\n%s", got)
-	}
-	if !strings.Contains(got, dir) {
-		t.Fatalf("manifest must name the directory holding the bodies:\n%s", got)
-	}
-}
-
-// authored descriptions in this vault routinely run to a full paragraph; the manifest is only worth
-// injecting if every fact stays one scannable line
-func TestRenderManifestCapsAuthoredDescriptions(t *testing.T) {
-	long := strings.Repeat("word ", 200)
-	notes := []NoteWithBody{{Note: Note{ID: "verbose", Description: long}, Body: "body"}}
-	got := renderManifestFrom("waveterm", t.TempDir(), notes)
-	for _, line := range strings.Split(strings.TrimSpace(got), "\n") {
-		if strings.HasPrefix(line, "- ") && len(line) > 260 {
-			t.Fatalf("manifest line not capped, len=%d: %s", len(line), line)
-		}
-	}
-	if strings.Count(got, "\n- ") > 1 {
-		t.Fatalf("one fact must render as exactly one line:\n%s", got)
-	}
-}
-
-func TestRenderManifestEmptyIsBlank(t *testing.T) {
-	if got := renderManifestFrom("waveterm", t.TempDir(), nil); got != "" {
-		t.Fatalf("empty note set must render blank, got %q", got)
-	}
-}
-
-func TestRenderManifestEmptyCwd(t *testing.T) {
-	if got := RenderManifest(""); got != "" {
-		t.Fatalf("empty cwd must render blank, got %q", got)
-	}
-}
-
 func TestRemoveSteeringRegion(t *testing.T) {
 	// the region and the blank line separating it from the user's text both go
 	existing := "# My steering\n\nDo the thing.\n\n<!-- ARC-MEMORY:BEGIN project=krypton (generated -->\nfacts\n<!-- ARC-MEMORY:END -->\n"
@@ -417,5 +365,31 @@ func TestPruneOrphanRegionsSkipsLiveTargets(t *testing.T) {
 	}
 	if string(got) != "# mine\n" {
 		t.Fatalf("prune damaged the user's own text: %q", got)
+	}
+}
+
+func TestExportToHubKeepsOwnProjectClaudeNotesAndSendsOthers(t *testing.T) {
+	dir := t.TempDir()
+	own := map[string]bool{"waveterm": true}
+	notes := []NoteWithBody{
+		{Note: Note{ID: "mine", Source: "claude", Scope: "waveterm"}, Body: "a fact claude already holds here"},
+		{Note: Note{ID: "theirs", Source: "claude", Scope: "opal"}, Body: "a fact from another project"},
+		{Note: Note{ID: "global", Source: "claude", Scope: "shared"}, Body: "a fact with no project"},
+		{Note: Note{ID: "vaulted", Source: "vault", Scope: "waveterm"}, Body: "an arc-authored fact"},
+	}
+	exported, _, err := exportToHub(dir, notes, own)
+	if err != nil {
+		t.Fatalf("exportToHub: %v", err)
+	}
+	if exported != 3 {
+		t.Fatalf("exported %d, want 3 (everything but this project's own claude note)", exported)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "mine.md")); !os.IsNotExist(err) {
+		t.Fatalf("echo rule violated — this project's own claude fact was sent back to it")
+	}
+	for _, slug := range []string{"theirs", "global", "vaulted"} {
+		if _, err := os.Stat(filepath.Join(dir, slug+".md")); err != nil {
+			t.Fatalf("%s.md should have been exported: %v", slug, err)
+		}
 	}
 }
