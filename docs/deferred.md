@@ -1504,3 +1504,39 @@ by both `wsh agent-sync sync` and `cockpit-actions.ts` at launch.
   `wsh agent-sync status` already reports current/stale/absent per harness, and `fold` covers the
   own-rules move. The read/write RPCs existed to back an editor, and the editor is gone.
 - **To resume:** once those three branches land or are abandoned, delete the five and run `task generate`.
+
+### The corpus deleted too (2026-09-22), after measuring what still read it
+
+An earlier note here said the vault's `memory/` collection could be deleted because "`tasks/`,
+`decisions/` and `attachments/` are Jarvis's corpus." That was wrong: `wavevault.AllScope()` is
+`{memory, tasks, decisions}` and `WorkerScope()` is `{memory, decisions}` — `memory` was the only
+collection in both, and `jarvisrecall.scopeToVault` returns `AllScope()` on every path.
+
+So the deletion was measured first, against the packaged app's DB rather than the dev profile:
+
+- **Ask Jarvis:** 6 conversations, **8 questions ever**, last on 2026-08-19. 77 grounding cards, 65 of
+  them from `memory/`.
+- **jarvisproactive** (the automatic consumer, run dispatch): 49 of 88 runs evaluated, **14 hits** —
+  13 citing a memory note, 1 a dossier. 26 judge-declined, 6 no-candidates.
+- The hits' `why` field was boilerplate in all 14: literally `Related to "<the run goal>"`. Three
+  separate runs surfaced the same generic note. One (`project_wave_git_review_scope_decision` on the
+  git-review plan) was the real thing the feature exists for.
+
+Decision: usefulness did not match the maintenance cost; a different system gets designed later. All
+870 notes deleted from `~/IdeaProjects/obsidian_vault/memory/`. `tasks/` (129), `decisions/` (4),
+`steering/`, `skills/` and `attachments/` are untouched — Jarvis still grounds on them, and
+`jarvis-vault-recall` still returns cards. `OpenVault` scaffolds the empty `memory/` dir back on open,
+so nothing needed repointing.
+
+Recovery is in the **vault** repo, not this one (local-only, no remote):
+`git -C ~/IdeaProjects/obsidian_vault show 41047c4:memory/<name>.md`; the deletion is `454938f`.
+
+Still orphaned by all this, not yet cleaned:
+
+- `memroots.AllRoots()` and `memroots.Mirrors()` have no caller outside `memroots` itself;
+  `MemoryRoot()` survives only via `migrate.go`.
+- Four state files in `%LOCALAPPDATA%\dev.arc.app\data\` have no writer left in the tree:
+  `memgarden-state.json`, `memory-distill-queue.json`, `memory-decay-restore-done.txt`,
+  `memory-recall-epoch.txt`. They go inert once a build from `main` is installed.
+- `jarvisproactive` and the Ask surface still exist and now read a corpus of `tasks/` + `decisions/`
+  only. Retiring them is the coherent next step if the replacement system supersedes them.
