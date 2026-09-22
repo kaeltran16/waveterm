@@ -4,7 +4,7 @@
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { ProjectSwitcher } from "@/app/view/agents/projectswitcher";
-import { SpaceSwitcher } from "@/app/view/agents/spaceswitcher";
+import { FocusSwitcher } from "@/app/view/agents/focusswitcher";
 import { formatChordString } from "@/util/keysym";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useAtomValue } from "jotai";
@@ -28,7 +28,7 @@ export function CockpitAppBar({ model }: { model: AgentsViewModel }) {
                 <span className="text-[13px] text-ink-faint">/</span>
                 <ProjectSwitcher model={model} variant="bar" />
                 <span className="text-[13px] text-ink-faint">/</span>
-                <SpaceSwitcher model={model} />
+                <FocusSwitcher model={model} />
             </div>
 
             <div className="flex min-w-0 flex-1 justify-center">

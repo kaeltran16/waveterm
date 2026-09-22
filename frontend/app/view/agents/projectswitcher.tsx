@@ -51,6 +51,7 @@ export function ProjectSwitcher({ model, variant }: { model: AgentsViewModel; va
         <div className="relative">
             <button
                 type="button"
+                data-project-switcher={variant}
                 title={copy.title}
                 aria-label={`${copy.title}: ${projectLabel}`}
                 onClick={() => setOpen((v) => !v)}
@@ -78,6 +79,7 @@ export function ProjectSwitcher({ model, variant }: { model: AgentsViewModel; va
                         <div className="max-h-[46vh] overflow-y-auto px-1.5 pb-1.5">
                             <button
                                 type="button"
+                                data-project-option="all"
                                 onClick={() => select("all")}
                                 className={cn(
                                     "flex w-full cursor-pointer items-center gap-2.5 rounded px-2 py-2 text-left hover:bg-surface-hover",
@@ -101,6 +103,7 @@ export function ProjectSwitcher({ model, variant }: { model: AgentsViewModel; va
                                 >
                                     <button
                                         type="button"
+                                        data-project-option={p.name}
                                         onClick={() => select(p.name)}
                                         className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 py-2 text-left"
                                     >

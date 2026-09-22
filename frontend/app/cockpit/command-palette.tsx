@@ -21,7 +21,7 @@ import { channelProjectLabel, dedupeByProject } from "@/app/view/agents/projectl
 import { projectsAtom } from "@/app/view/agents/projectsstore";
 import { createRun, resolveChannelLaunchRoute } from "@/app/view/agents/runactions";
 import { loadSessionsArchive, sessionsArchiveAtom } from "@/app/view/agents/sessionsarchivestore";
-import { activeSpaceAtom, enterSpace, exitSpace, loadSpaces, spacesAtom } from "@/app/view/agents/spacestore";
+import { activeFocusAtom, enterFocusFor, exitFocus, loadFocuses, focusesAtom } from "@/app/view/agents/focusstore";
 import { themeOverridesAtom, themePresetAtom } from "@/app/view/agents/themestore";
 import { askBriefThread } from "@/app/view/jarvis/briefingstore";
 import { buildBriefIndex, rankBriefRows, type BriefRow } from "@/app/view/jarvis/briefpalette";
@@ -119,8 +119,8 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     const channel = useAtomValue(activeChannelAtom);
     const channels = useAtomValue(channelsAtom);
     const projects = useAtomValue(projectsAtom);
-    const spaces = useAtomValue(spacesAtom);
-    const activeSpace = useAtomValue(activeSpaceAtom);
+    const spaces = useAtomValue(focusesAtom);
+    const activeSpace = useAtomValue(activeFocusAtom);
     const records = useAtomValue(taskListAtom);
     const threads = useAtomValue(persistedSummariesAtom);
     const efforts = useAtomValue(paletteEffortsAtom);
@@ -155,8 +155,8 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
             fireAndForget(loadSessionsArchive);
         }
         if (open) {
-            loadSpaces();
-            // records / threads / initiatives: re-read per open (as loadSpaces does) so archiving one in
+            loadFocuses();
+            // records / threads / initiatives: re-read per open (as loadFocuses does) so archiving one in
             // the Jarvis surface is reflected the next time the palette is asked to find it.
             loadPaletteEntities();
         }
@@ -337,13 +337,14 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     // row enters that Space (re-lensing the scoped surfaces) and closes the palette.
     const focusItems = useMemo<PaletteItem[]>(
         () =>
-            buildFocusItems(spaces, activeSpace?.id ?? null, {
+            buildFocusItems(spaces, activeSpace?.ref.id ?? null, {
                 focus: (s) => {
-                    enterSpace(s);
+                    // a task summary carries no project, so the project filter is left alone
+                    enterFocusFor(model, { ref: { kind: "task", id: s.id }, label: s.objective, project: "" });
                     close();
                 },
                 exit: () => {
-                    exitSpace();
+                    exitFocus();
                     close();
                 },
             }).map((fi) => ({

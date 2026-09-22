@@ -7,6 +7,37 @@ where it would plug in, and how to pick it back up. Append new entries at the to
 > append-only rationale log — append the full deferral here, then mirror a one-line row there. Entries
 > marked RESOLVED/DECLINED below are kept for the reasoning, not as pending work.
 
+## Cockpit focus — deferred until evidence (2026-09-22)
+
+From `docs/superpowers/specs/2026-09-22-cockpit-focus-and-peek-design.md`. Slice 1 landed the posture
+enforcement, the widened `(Kind, Id)` resolver, the seed/aligned/diverged decision and the divergence
+banner. These were scoped out of it deliberately:
+
+- **Relationship annotation.** Surfaces marking up each other's content in place — an editing-agent and
+  open-finding marker in Code, a finding badge on a Files hunk, "cited by N runs" under a memory note, a
+  session row naming the run it produced. All the source data exists (`finding.files`, roster cwd and
+  changed files, `Run.RadarOrigin`/`EffortRef`/`DagORef`, `jarvisattrib` edges) and nothing derives
+  markers from it. Cheapest of the three ideas and the most likely to degrade into noise, so it wants
+  the surfaces to agree first and a mockup per `DESIGN.md`. **Revive after slice 1.**
+- **Companion split** — pinning a second surface beside the current one. Needs a second mount slot,
+  since only the Agent surface stays mounted. **Revive if peek proves insufficient** for sustained
+  side-by-side work.
+- **Time correlation** — every surface answering "what did this look like at T". **Revive on a real
+  post-mortem** that peek and focus cannot serve.
+- **Drag courier** — dragging a finding or file onto an agent in the roster. Shares machinery with the
+  pet's deferred courier gestures; **build the store and the gestures together or not at all.**
+- **Jarvis focus support.** `SURFACE_CONTEXT.jarvis.space` stays `unsupported` until there is a decision
+  on what a focus should hide among the inline tracker's rows (see the Jarvis rows above).
+- **Jarvis *project* subject wiring.** Declared `project: "subject"`, and left unwired in slice 1 — not
+  an oversight. The plan named `briefScopeAtom` as "the Brief's own scope", but that atom is a *recall
+  query* scope (`JarvisScope { mode, chips, attached }`, `jarviscontract.ts:66`), not a project name.
+  The Brief is a whole-workspace digest with no local project target, so `subjectDecision(null, filter)`
+  is always `seed` and a `DivergenceBanner` there could never render. **Revive when the Brief gains a
+  real per-project target** (e.g. a project-scoped digest), and wire it the way Code and Vault are.
+- **Usage focus and project support.** Held at `unsupported` because `UsageBucket` carries no attribution
+  dimension at all; blocked on the usage scanner gaining per-session or per-run attribution, not on a
+  design decision. **Revive together with that.**
+
 ## Composer attachments (2026-09-18)
 
 Composer attachments (paste / attach / drag-drop onto a run goal or steer, `875967bf`) were mounted only

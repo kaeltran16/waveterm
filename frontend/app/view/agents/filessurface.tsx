@@ -8,6 +8,7 @@
 
 import { getApi } from "@/app/store/global";
 import { globalStore } from "@/app/store/jotaiStore";
+import * as WOS from "@/app/store/wos";
 import { joinRepoPath } from "@/util/paths";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
@@ -15,7 +16,7 @@ import { MotionConfig } from "motion/react";
 import { buildFilesBindings } from "@/app/store/keybindings/bindings";
 import { useSurfaceListNav, type ListNavController } from "@/app/store/keybindings/listnav";
 import { useKeybindings } from "@/app/store/keybindings/store";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSyncMonacoTheme } from "@/app/monaco/monacotheme";
 import type { AgentsViewModel } from "./agents";
 import { formatAge } from "./agentsviewmodel";
@@ -24,8 +25,11 @@ import type { CompareForm, DiffSelection } from "./diffcontent";
 import { clearDiffPair, loadDiffPair } from "./diffcontentstore";
 import { defaultFocusId, focusFollowAgent, sourceFor, type FilesSource } from "./diffsource";
 import { filesErrorAtom, filesStateAtom, loadFilesForScope, startChangesPoll, type FilesProject } from "./filesstore";
-import { availableRanges, historyOptsFor, rangeKey, scopeKey, summaryLine } from "./diffscope";
-import { agentDiffScope, projectDiffScope } from "./agentdiffnav";
+import { availableRanges, historyOptsFor, originKey, rangeKey, scopeKey, summaryLine } from "./diffscope";
+import { agentDiffScope, openDiff, projectDiffScope, runDiffScope } from "./agentdiffnav";
+import { DivergenceBanner } from "./focusbanner";
+import { activeFocusAtom } from "./focusstore";
+import { subjectDecision, type SubjectDecision } from "./focussubject";
 import { setDiffRange } from "./diffscopeatom";
 import { historyCollapsedAtom, resolveCollapsed } from "./difflayout";
 import { HistoryRail } from "./historyrail";
@@ -180,21 +184,61 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
         leaveCompare();
     };
 
+    // Files declares "subject" posture on both dimensions. A task focus is deliberately not a subject
+    // here: its bundle spans many agents and runs, so there is no single diff to open and nothing for
+    // "Follow focus" to do. Only an agent or a run names one.
+    const cockpitFocus = useAtomValue(activeFocusAtom);
+    const diffFocus = cockpitFocus?.ref.kind === "agent" || cockpitFocus?.ref.kind === "run" ? cockpitFocus : null;
+
+    // Reuses the shared builders + openDiff rather than assembling a DiffScope, so the scope key the
+    // loader guards on is the same string every other entry point produces.
+    const openFocusedDiff = useCallback(() => {
+        if (diffFocus == null) {
+            return;
+        }
+        if (diffFocus.ref.kind === "agent") {
+            openDiff(model, agentDiffScope(diffFocus.ref.id, diffFocus.label));
+            return;
+        }
+        fireAndForget(async () => {
+            const run = await WOS.loadAndPinWaveObject<Run>(WOS.makeORef("run", diffFocus.ref.id));
+            if (run != null) {
+                openDiff(model, runDiffScope(run.id, run.projectpath, run.basecommit));
+            }
+        });
+    }, [model, diffFocus?.ref.kind, diffFocus?.ref.id, diffFocus?.label]);
+
+    // An explicit cockpit focus outranks both fallbacks below, which exist only to fill an otherwise
+    // empty surface. While it is seeding they stand down, or the run seed (async, via a WOS read)
+    // would land after the adopt-the-first-agent fallback had already claimed the scope.
+    const focusSeeding = scope == null && diffFocus != null;
+    useEffect(() => {
+        if (focusSeeding) {
+            openFocusedDiff();
+        }
+    }, [focusSeeding, openFocusedDiff]);
+
     // Both rules live in diffsource.ts: whether focus may move the surface, and what to show when
     // nothing has been picked yet. The effects are the only part that has to be an effect.
     useEffect(() => {
+        if (focusSeeding) {
+            return;
+        }
         const a = focusFollowAgent(scope, focusId, agents);
         if (a != null) {
             globalStore.set(model.diffScopeAtom, agentDiffScope(a.id, a.name));
         }
-    }, [focusId, scope, agents]);
+    }, [focusId, scope, agents, focusSeeding]);
 
     useEffect(() => {
+        if (focusSeeding) {
+            return;
+        }
         const id = defaultFocusId(scope, focusId, agents);
         if (id != null) {
             globalStore.set(model.focusIdAtom, id);
         }
-    }, [scope, focusId, agents]);
+    }, [scope, focusId, agents, focusSeeding]);
 
     // The surface unmounts on every nav switch; stamping the time on the way out is all it has to do.
     // The next history load decides whether anything is worth announcing (historyquery.restoreNotice).
@@ -370,9 +414,21 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
     }
     const selectedRow = (historyRows ?? []).find((r) => r.hash === selectedCommit) ?? null;
 
+    // Compared by entity key — originKey's own vocabulary, which is the identity — then relabelled for
+    // display, because "agent:9f2c1de…" is not something to show a user.
+    const rawDecision = subjectDecision(
+        origin == null ? null : originKey(origin),
+        diffFocus == null ? null : `${diffFocus.ref.kind}:${diffFocus.ref.id}`
+    );
+    const decision: SubjectDecision =
+        rawDecision.kind === "diverged"
+            ? { kind: "diverged", focus: diffFocus.label, local: scope.repo.label }
+            : rawDecision;
+
     return (
         <MotionConfig reducedMotion="user">
             <div ref={surfaceRef} className="absolute inset-0 flex min-h-0 flex-col">
+                <DivergenceBanner decision={decision} onRejoin={openFocusedDiff} />
                 {/* subject bar: which repository, and which range within it */}
                 <div className="flex-none px-[18px] pt-[14px]">
                     {/* wraps because compare adds two controls to this row: at the shipped 1000x700 the

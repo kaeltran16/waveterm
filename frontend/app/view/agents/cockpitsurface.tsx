@@ -34,9 +34,9 @@ import { dismissKey, isCockpitEmpty, shownForChip, splitRecentlyIdle, toggleInSe
 import { BackgroundAgentsStrip } from "./backgroundagentsstrip";
 import { BackgroundedSection } from "./backgroundedsection";
 import { channelsAtom } from "./channelsstore";
-import { filterBySpace, spaceBannerText } from "./spacescope";
-import { activeSpaceAtom, spaceRevealAtom, spaceScopeAtom } from "./spacestore";
-import { SpaceBanner } from "./spacebanner";
+import { filterByFocus, focusBannerText } from "./focusscope";
+import { activeFocusAtom, focusRevealAtom, focusScopeAtom } from "./focusstore";
+import { FocusBanner } from "./focusbanner";
 import { answeredAskORefsAcross, needsHuman } from "./jarvisderive";
 import { IdleSection } from "./idlesection";
 import { ensurePreviousInfo } from "./liveagents";
@@ -206,13 +206,13 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     // status chips narrow what the grid renders; cursor/order still operate over the full set
     const projectFilter = useAtomValue(model.projectFilterAtom);
     const liveOnly = useAtomValue(model.liveOnlyAtom);
-    const spaceScope = useAtomValue(spaceScopeAtom);
-    const activeSpace = useAtomValue(activeSpaceAtom);
-    const agentRevealed = useAtomValue(spaceRevealAtom).has("agent");
+    const spaceScope = useAtomValue(focusScopeAtom);
+    const activeSpace = useAtomValue(activeFocusAtom);
+    const agentRevealed = useAtomValue(focusRevealAtom).has("agent");
     // project + live-only first (global/needs-you counts read the unfiltered set — see needsYou above),
     // then the Space lens. hidden = rows the Space filter removed (drives the banner's count).
     const projectScoped = filterAgents(orderedAgents, projectFilter, liveOnly);
-    const visibleOrdered = filterBySpace(projectScoped, spaceScope, agentRevealed);
+    const visibleOrdered = filterByFocus(projectScoped, spaceScope, agentRevealed);
     const spaceHidden = projectScoped.length - visibleOrdered.length;
     const shownAgents = shownForChip(visibleOrdered, chip);
     // full-width cards float to a top stack; the rest fill two independent columns below. One pure pass
@@ -444,9 +444,9 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                         ))}
                     </div>
                     {activeSpace != null ? (
-                        <SpaceBanner
+                        <FocusBanner
                             surface="agent"
-                            text={spaceBannerText(activeSpace.objective, spaceHidden, agentRevealed)}
+                            text={focusBannerText(activeSpace.label, spaceHidden, agentRevealed)}
                             revealed={agentRevealed}
                         />
                     ) : null}

@@ -6,7 +6,8 @@ import { cheatsheetOpenAtom } from "@/app/cockpit/shortcuts-cheatsheet";
 import { globalStore } from "@/app/store/jotaiStore";
 import { confirmCloseSession } from "@/app/view/agents/agentactions";
 import { AgentsViewModel, SURFACE_ORDER, type SurfaceKey } from "@/app/view/agents/agents";
-import { answerDigitTarget, canSubmitAsk, moveCursor, type AgentVM } from "@/app/view/agents/agentsviewmodel";
+import { answerDigitTarget, canSubmitAsk, moveCursor, projectOf, type AgentVM } from "@/app/view/agents/agentsviewmodel";
+import { enterFocusFor, exitFocus } from "@/app/view/agents/focusstore";
 import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
 import { sideJumpTarget, type CompareRow } from "@/app/view/agents/comparerows";
 import { compareOnAtom, compareSelectionAtom, leaveCompare, swapCompareRefs } from "@/app/view/agents/comparestore";
@@ -167,9 +168,40 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
         run: () => globalStore.set(model.surfaceAtom, t.surface),
     }));
 
+    // Focuses whatever the row cursor names. Only the surfaces whose cursor is an agent (cockpit,
+    // Agent, Diff) can answer; everywhere else it returns false so the key falls through rather than
+    // being silently swallowed by a binding that did nothing.
+    const focusSelectedRow = (): boolean => {
+        const id = globalStore.get(model.focusIdAtom);
+        const agent = globalStore.get(model.agentsAtom).find((a) => a.id === id);
+        if (agent == null) {
+            return false;
+        }
+        enterFocusFor(model, { ref: { kind: "agent", id: agent.id }, label: agent.name, project: projectOf(agent) });
+        return true;
+    };
+
     return [
         ...surfaceChords,
         ...goBindings,
+        {
+            // '.' is free: the only punctuation bound here is '[', ']' and '/'. The obvious mnemonic
+            // 'f' is taken twice (Agent fullscreen, and the 'g f' leader for Diff).
+            id: "focus:set",
+            keys: ".",
+            group: "Global",
+            label: "Focus the selected row",
+            when: navigate,
+            run: () => focusSelectedRow(),
+        },
+        {
+            id: "focus:clear",
+            keys: "Shift:.",
+            group: "Global",
+            label: "Clear focus (back to Global)",
+            when: navigate,
+            run: () => exitFocus(),
+        },
         {
             id: "surface:next",
             keys: "]",

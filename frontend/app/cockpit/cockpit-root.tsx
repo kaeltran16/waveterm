@@ -10,6 +10,7 @@ import { useKeybindings } from "@/app/store/keybindings/store";
 import { getTabModelByTabId } from "@/app/store/tab-model";
 import { AgentsViewModel } from "@/app/view/agents/agents";
 import { coerceStartupSurface, startupSurfaceAtom } from "@/app/view/agents/cockpitprefsstore";
+import { enterFocus, persistedFocusAtom } from "@/app/view/agents/focusstore";
 import { useApplyCockpitTheme } from "@/app/view/agents/themestore";
 import { useApplyCockpitFonts } from "@/app/view/agents/fontstore";
 import { CockpitShell } from "@/app/view/agents/cockpitshell";
@@ -65,6 +66,13 @@ function CockpitBody({ waveEnv }: { waveEnv: WaveEnv }) {
         });
         // Open the user's chosen startup surface (defaults to "cockpit", matching prior behavior).
         globalStore.set(model.surfaceAtom, coerceStartupSurface(globalStore.get(startupSurfaceAtom)));
+        // Restore the focus the cockpit was closed on. enterFocus re-resolves the bundle, so a target
+        // that died while the app was shut reports through the usual degrade path rather than
+        // restoring a scope that matches nothing.
+        const saved = globalStore.get(persistedFocusAtom);
+        if (saved != null) {
+            enterFocus(saved);
+        }
         agentsModelRef.current = model;
     }
     const model = agentsModelRef.current;
