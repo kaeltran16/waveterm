@@ -6,7 +6,6 @@ package wshserver
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
@@ -15,8 +14,10 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
-// a run that was created but could not be read back must fail the RPC, not reply {run: null}
-func TestCreateRunReportsAFailedReadBack(t *testing.T) {
+// A run that was created but could not be read back has still launched, so the reply must name it rather
+// than report a failure: the launcher treats a CreateRun error as "nothing started" and leaves its modal
+// open over a run that is already running. Neither {run: null} nor an error is an acceptable answer here.
+func TestCreateRunRepliesWithTheRunWhenTheReadBackFails(t *testing.T) {
 	ctx := context.Background()
 	ch, err := wstore.CreateChannel(ctx, "createrun-readback", t.TempDir())
 	if err != nil {
@@ -35,11 +36,18 @@ func TestCreateRunReportsAFailedReadBack(t *testing.T) {
 		ChannelId: ch.OID, WorkspaceId: "ws", Goal: "test", Runtime: "pi",
 		Mode: jarvis.RunMode_Orchestrator, DeferStart: true,
 	})
-	if err == nil || rtn != nil {
-		t.Fatalf("want an error and no reply, got rtn=%+v err=%v", rtn, err)
+	if err != nil {
+		t.Fatalf("a created run must not be reported as a failed launch: %v", err)
 	}
-	if !strings.Contains(err.Error(), createdID) || !strings.Contains(err.Error(), "transaction has already been committed") {
-		t.Fatalf("error must name the run and the cause, got %v", err)
+	if rtn == nil || rtn.Run == nil {
+		t.Fatalf("want the created run, got %+v", rtn)
+	}
+	// the identity the launcher opens the run on, which AppendRun stamped on its own copy
+	if rtn.Run.OID != createdID || rtn.Run.ID != createdID {
+		t.Fatalf("want the reply to name run %s, got oid=%s id=%s", createdID, rtn.Run.OID, rtn.Run.ID)
+	}
+	if rtn.Run.ChannelOID != ch.OID {
+		t.Fatalf("want channeloid %s, got %s", ch.OID, rtn.Run.ChannelOID)
 	}
 	if _, gerr := wstore.GetRun(ctx, ch.OID, createdID); gerr != nil {
 		t.Fatalf("the run itself must still exist: %v", gerr)

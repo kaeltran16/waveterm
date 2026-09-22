@@ -463,7 +463,12 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 	// the run exists either way, so its channel's run list must still refresh
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
 	if err != nil {
-		return nil, fmt.Errorf("run %s was created, but reading it back failed: %w", run.ID, err)
+		// A run that is persisted and whose workers are spawned has launched, so a failed read-back is
+		// not a failed launch. Replying with the copy we hold keeps the launcher from telling the user
+		// the run failed while the run is running in front of them; run.OID and run.ChannelOID were
+		// mirrored above, which is everything the caller needs to open it.
+		log.Printf("CreateRun: run %s was created, but reading it back failed (non-fatal): %v", run.ID, err)
+		out = &run
 	}
 	return &wshrpc.CommandCreateRunRtnData{Run: out}, nil
 }

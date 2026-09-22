@@ -147,11 +147,21 @@ export function resetRunConfig(): void {
 // throw away a configured-but-unlaunched run for the cost of a glance at Usage.
 let configuredChannel: string | null | undefined;
 
-export function resetRunConfigForChannel(channelId: string | null): void {
+//
+// `keepTouched` separates the two things a channel can be. On the sheet it is the subject you navigated to,
+// so arriving at another one is a change of subject and the reset above is right. In + Run it is a FIELD of
+// the form you are filling in, and changing a field must not rewrite the ones you already filled: picking
+// the project discarded a shape you had chosen by hand, and the project's saved defaultmode hydrated over
+// it — a Quick you selected launched an orchestrator with a lead. An UNtouched draft still follows the
+// project you pick, which is what makes a saved default the starting point.
+export function resetRunConfigForChannel(channelId: string | null, keepTouched = false): void {
     if (configuredChannel === channelId) {
         return;
     }
     configuredChannel = channelId;
+    if (keepTouched && globalStore.get(configTouchedAtom)) {
+        return;
+    }
     resetRunConfig();
 }
 

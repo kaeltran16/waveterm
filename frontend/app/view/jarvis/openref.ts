@@ -273,7 +273,8 @@ async function landRadar(model: AgentsViewModel, target: RadarTarget, current: (
 // The Brief's detail sheet, opened on a channel. Selecting the channel is what LOADS it: the sheet's body
 // resolves its run from the active channel's list (stageRunAtom), so a sheet opened on a channel that was never
 // selected had a null run and read "Reading this channel…" forever. Exported for Jarvis's own flows (restore,
-// the investigation draft, the new-run control), not for cross-surface callers — those open a target.
+// the investigation draft), not for cross-surface callers — those open a target. + Run is one of those: it
+// sits on the app bar, so a launch started from any surface has to land through the router.
 export async function openChannelSheet(channelId: string, runId: string | null): Promise<void> {
     await selectChannel(channelId);
     selectSubject({ kind: "channel", id: channelId });

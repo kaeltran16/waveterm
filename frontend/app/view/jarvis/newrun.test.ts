@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { RunConfig } from "./newrun";
-import { launchGoal, launchOptsFromConfig, rankProjects, resolveChannelTarget, stepPick } from "./newrun";
+import { initialPick, launchGoal, launchOptsFromConfig, rankProjects, resolveChannelTarget, stepPick } from "./newrun";
 
 const ch = (oid: string, projectpath: string): Channel => ({ oid, projectpath }) as Channel;
 
@@ -156,5 +156,27 @@ describe("stepPick", () => {
 
     it("has nothing to pick when the filter left no rows", () => {
         expect(stepPick([], "a", 1)).toBeNull();
+    });
+});
+
+describe("initialPick", () => {
+    const names = ["arc", "waveterm", "scratch"];
+
+    it("reopens on the project you last started work in", () => {
+        expect(initialPick(names, "waveterm")).toBe("waveterm");
+    });
+
+    it("falls back when the remembered project is no longer registered", () => {
+        expect(initialPick(names, "unregistered")).toBeNull();
+        expect(initialPick(["only"], "unregistered")).toBe("only");
+    });
+
+    it("preselects the only project there is, remembered or not", () => {
+        expect(initialPick(["only"], null)).toBe("only");
+    });
+
+    it("picks nothing when there is a choice and nothing is remembered", () => {
+        expect(initialPick(names, null)).toBeNull();
+        expect(initialPick([], null)).toBeNull();
     });
 });
