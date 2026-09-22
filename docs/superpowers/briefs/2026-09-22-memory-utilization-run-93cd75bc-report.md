@@ -45,6 +45,27 @@ After the restart, worth confirming by hand: the 67 notes come back and land in 
 
 ## Open issues
 
-1. **Steering doc lost the pre-commit tests requirement.** The merged `## Git Workflow` bullet carries the file summary and the approval step but not "run the relevant tests", which `83f5967f` explicitly kept. One line, but it lands in `~/.claude/CLAUDE.md` and `~/.pi/agent/AGENTS.md` for every future session.
-2. **`RestoreDecayArchive` trusts `archived_from` blindly.** It restores to that path with no check that the hub is still a live scan root, so any note archived from a hub that later disappears restores into a directory nothing reads. The 34 above were repaired by hand, which is the one-off the spec's own principle argues against — the guard belongs in the migration.
-3. **`MEMORY.md` is 17,608 bytes against the new 12,000-byte budget** (47% over). The budget is now measurable; the index has not been trimmed to it.
+Filed as chunks 11-13 on the effort. 11 and 12 were closed the same day; 13 is open by choice.
+
+1. ~~**Steering doc lost the pre-commit tests requirement.**~~ Closed in vault commit `694c033`. The
+   merge brought the Git Workflow bullet across in its older phrasing, which had the file summary and
+   the approval step but not the tests; `83f5967f` dropped only the simplify review, so its own
+   wording was restored verbatim. The simplify gate stays gone.
+2. ~~**`RestoreDecayArchive` trusts `archived_from` blindly.**~~ Closed in `0b386c9f`. Fixed in
+   `Restore` rather than in the migration, so the UI Restore button
+   (`wshserver_memory.go:171`) is covered by the same guard: an origin that is no longer a live scan
+   root falls back to the vault. `VaultRoots` became a var as the test seam, and the new test was
+   proven to fail without the guard.
+3. **`MEMORY.md` is over the new 12,000-byte budget.** Partially done: 17,608 -> 13,916 bytes (-20%),
+   80 -> 69 entries, 0 dead links, backup at `memory/MEMORY.md.bak-20260922`. Still 1,916 over, and
+   the chunk stays open deliberately. The next lever is entry **count**, not hook length: at ~100
+   bytes of link machinery per entry the budget implies roughly 60 entries, so closing it means ~9
+   more pointers cut — and the remaining candidates need their bodies read, because their hooks are
+   no longer enough to judge. Dropped entries were unlinked, not deleted, so recall still reaches
+   them.
+
+## Backend state
+
+`task build:backend` re-ran after the guard landed; `dist/bin/wavesrv.x64.exe` is current as of
+13:12. The restart is still pending, so every runtime effect listed under "Needs a live check"
+remains unobserved.
