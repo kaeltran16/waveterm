@@ -143,7 +143,7 @@ export function loadRecordScope(dossierId: string): void {
 }
 
 export async function reloadRecordScope(dossierId: string): Promise<void> {
-    const scope = await RpcApi.ResolveSpaceScopeCommand(TabRpcClient, { dossierid: dossierId });
+    const scope = await RpcApi.ResolveFocusScopeCommand(TabRpcClient, { kind: "task", id: dossierId });
     if (scope == null) {
         return;
     }

@@ -14,6 +14,7 @@ import { initHarnessPreference, loadHarnesses } from "./harnessstore";
 import { CodeSurface } from "@/app/view/code/codesurface";
 import { CockpitSurface } from "./cockpitsurface";
 import { FilesSurface } from "./filessurface";
+import { reresolveFocus } from "./focusstore";
 import { JarvisSurface } from "@/app/view/jarvis/jarvissurface";
 import { VaultSurface } from "./vaultsurface";
 import { NavRail } from "./navrail";
@@ -100,6 +101,10 @@ export function CockpitShell({ model, tabId }: { model: AgentsViewModel; tabId: 
         fireAndForget(primeChannels);
     }, []);
     const surface = useAtomValue(model.surfaceAtom);
+    // The scope bundle is a snapshot; arriving at a surface that consumes it is when a stale one shows.
+    useEffect(() => {
+        reresolveFocus(surface);
+    }, [surface]);
     return (
         <div className="flex h-full w-full">
             <NavRail model={model} />

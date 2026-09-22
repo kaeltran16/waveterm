@@ -12,7 +12,7 @@ const listDetached = vi.fn();
 vi.mock("@/app/store/wshclientapi", () => ({
     RpcApi: {
         GetDossierCommand: (...a: unknown[]) => getDossier(...a),
-        ResolveSpaceScopeCommand: (...a: unknown[]) => resolveScope(...a),
+        ResolveFocusScopeCommand: (...a: unknown[]) => resolveScope(...a),
         ResolveAmbientCommand: (...a: unknown[]) => resolveAmbient(...a),
         AppendDossierDecisionCommand: (...a: unknown[]) => appendDecisionRpc(...a),
         DetachDossierEdgeCommand: (...a: unknown[]) => detachCmd(...a),

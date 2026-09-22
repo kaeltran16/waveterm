@@ -34,6 +34,8 @@ import {
     memReflowAnimatedAtom,
     memSearchAtom,
 } from "./memstore";
+import { DivergenceBanner } from "./focusbanner";
+import { subjectDecision } from "./focussubject";
 import { NewMemoryModal } from "./newmemorymodal";
 import { SurfaceError, SurfaceHeader } from "./surfacescaffold";
 import { VaultLine } from "./vaultline";
@@ -49,6 +51,7 @@ import {
     vaultReaderAtom,
     vaultSkillsAtom,
     vaultStatusAtom,
+    vaultScopeAtom,
     vaultSteeringPathAtom,
     vaultSyncErrorAtom,
     vaultTabAtom,
@@ -123,6 +126,14 @@ export function VaultSurface({ model }: { model: AgentsViewModel }) {
     const bindings = useMemo(() => buildVaultBindings(), []);
     useKeybindings(bindings);
 
+    // Vault declares "subject" project posture: the triage scope chips own it. "all" is not a
+    // divergence — it is the whole vault, which no project contradicts — so subjectDecision reads it
+    // as no local target and the banner stays silent.
+    const filter = useAtomValue(model.projectFilterAtom);
+    const vaultScope = useAtomValue(vaultScopeAtom);
+    const decision = subjectDecision(vaultScope === "all" ? null : vaultScope, filter === "all" ? null : filter);
+    const rejoin = () => globalStore.set(vaultScopeAtom, filter);
+
     // Resolve the focused agent's cwd so new notes land in that project's hub and the projection
     // controls know what to project. Null when no agent is focused.
     const focusId = useAtomValue(model.focusIdAtom);
@@ -194,6 +205,7 @@ export function VaultSurface({ model }: { model: AgentsViewModel }) {
                         }
                     />
                     <VaultLine focusedCwd={focusedCwd} />
+                    <DivergenceBanner decision={decision} onRejoin={rejoin} />
                     {loadError && tab === "memory" ? (
                         <SurfaceError
                             message="Couldn’t scan memory."

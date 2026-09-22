@@ -300,9 +300,13 @@ Other held items (each names its own revive condition in `docs/deferred.md`):
 - **Attribution engine D (v2)** real ambient edges to replace `fixtureAmbientProvider` behind the
   unchanged `AmbientProvider` interface.
 - **Cross-surface navigation:** Back history and its context strip (revive when a real flow shows the
-  need); a Space filter on the Brief (needs a decision on what a Space hides among inline tracker rows);
-  reverse links; palette Open versus Execute. Parked as `09e86573` on `feat/surface-integration`
+  need); reverse links; palette Open versus Execute. Parked as `09e86573` on `feat/surface-integration`
   (2026-09-17).
+- **Cockpit focus, slice 2 and beyond:** `SURFACE_CONTEXT` is now *enforced*, not just declared — every
+  surface honors the posture it names (2026-09-22). Jarvis's `space: "unsupported"` and its unwired
+  `project: "subject"` are recorded deferrals with revive triggers, not placeholders; so are Usage's two
+  `unsupported` cells. Full list in `docs/deferred.md` (2026-09-22), design in
+  `docs/superpowers/specs/2026-09-22-cockpit-focus-and-peek-design.md`.
 - **Resource linking beyond navigation:** Related Work, the Work Trail strip, structured refs, file/diff/commit/
   session targets, a shared action builder, usage-to-work links, one oref namespace — revive each on the trigger
   the spec names. Rationale in `docs/deferred.md` (2026-09-17); the navigation core shipped.

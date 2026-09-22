@@ -10,7 +10,7 @@
 // store of their own — effortslistview.tsx fetches into component state — so this module owns one.
 //
 // Nothing here runs at boot. loadPaletteEntities is called from the palette's open effect, beside
-// loadSpaces/loadSessionsArchive.
+// loadFocuses/loadSessionsArchive.
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";

@@ -1746,6 +1746,12 @@ declare global {
         links: GraphLink[];
     };
 
+    // wshrpc.CommandResolveFocusScopeData
+    type CommandResolveFocusScopeData = {
+        kind: string;
+        id: string;
+    };
+
     // wshrpc.CommandResolveIdsData
     type CommandResolveIdsData = {
         blockid: string;
@@ -1755,11 +1761,6 @@ declare global {
     // wshrpc.CommandResolveIdsRtnData
     type CommandResolveIdsRtnData = {
         resolvedids: {[key: string]: ORef};
-    };
-
-    // wshrpc.CommandResolveSpaceScopeData
-    type CommandResolveSpaceScopeData = {
-        dossierid: string;
     };
 
     // wshrpc.CommandRetryRadarClusteringData

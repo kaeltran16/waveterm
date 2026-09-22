@@ -1302,16 +1302,16 @@ export class RpcApiType {
         return client.wshRpcCall("resolvedossieredges", data, opts);
     }
 
+    // command "resolvefocusscope" [call]
+    ResolveFocusScopeCommand(client: WshClient, data: CommandResolveFocusScopeData, opts?: RpcOpts): Promise<SpaceScope> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "resolvefocusscope", data, opts);
+        return client.wshRpcCall("resolvefocusscope", data, opts);
+    }
+
     // command "resolveids" [call]
     ResolveIdsCommand(client: WshClient, data: CommandResolveIdsData, opts?: RpcOpts): Promise<CommandResolveIdsRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "resolveids", data, opts);
         return client.wshRpcCall("resolveids", data, opts);
-    }
-
-    // command "resolvespacescope" [call]
-    ResolveSpaceScopeCommand(client: WshClient, data: CommandResolveSpaceScopeData, opts?: RpcOpts): Promise<SpaceScope> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "resolvespacescope", data, opts);
-        return client.wshRpcCall("resolvespacescope", data, opts);
     }
 
     // command "retryradarclustering" [call]

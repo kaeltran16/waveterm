@@ -4,7 +4,7 @@ The cockpit is designed to be operated entirely from the keyboard. This is the h
 of the keybinding registry (`frontend/app/store/keybindings/`) — **the registry is the source of
 truth**; when they disagree, the registry is right and this file is stale.
 
-Verified against `bindings.ts` on 2026-07-31.
+Verified against `bindings.ts` on 2026-09-22.
 
 Design spec: [`docs/superpowers/specs/2026-07-03-keyboard-operability-design.md`](superpowers/specs/2026-07-03-keyboard-operability-design.md).
 
@@ -24,13 +24,15 @@ Design spec: [`docs/superpowers/specs/2026-07-03-keyboard-operability-design.md`
 
 | Keys | Action |
 |---|---|
-| `Ctrl`+`1`…`8` | Jump to surface by position — in order: Cockpit, Jarvis, Agent, Radar, Sessions, Files, Memory, Usage |
+| `Ctrl`+`1`…`9` | Jump to surface by position — in order: Cockpit, Jarvis, Agent, Radar, Sessions, Diff, Vault, Usage, Code |
 | `Ctrl`+`P` | Command palette |
 | `Ctrl`+`N` | New agent |
 | `Ctrl`+`Tab` / `Ctrl`+`Shift`+`Tab` | Next / previous agent |
 | `Ctrl`+`C` `Ctrl`+`C` (double, within 500ms) | Close the focused agent |
+| `.` | Focus the selected row (the cockpit narrows to that agent) |
+| `Shift`+`.` | Clear focus — back to Global |
 
-Settings has no `Ctrl`+number slot — the eight positions are bound to `SURFACE_ORDER`
+Settings has no `Ctrl`+number slot — the nine positions are bound to `SURFACE_ORDER`
 (`frontend/app/view/agents/agents.tsx`), which excludes it. Reach Settings with `g` `,`.
 
 ## Go-to surface — leader `g` (Navigate posture)

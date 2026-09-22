@@ -37,9 +37,9 @@ import {
     type LiveSession,
     type SessionStatusFilter,
 } from "./sessionsarchivestore";
-import { SpaceBanner } from "./spacebanner";
-import { filterSessionsBySpace, spaceBannerText } from "./spacescope";
-import { activeSpaceAtom, spaceRevealAtom, spaceScopeAtom } from "./spacestore";
+import { FocusBanner } from "./focusbanner";
+import { filterSessionsByFocus, focusBannerText } from "./focusscope";
+import { activeFocusAtom, focusRevealAtom, focusScopeAtom } from "./focusstore";
 import { SurfaceEmptyState, SurfaceError, SurfaceHeader } from "./surfacescaffold";
 import { projectorFor } from "./transcriptregistry";
 
@@ -105,9 +105,9 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
     const [sel, setSel] = useAtom(model.sessionsSelAtom);
     const [filter, setFilter] = useAtom(model.sessionsStatusFilterAtom);
     const projectFilter = useAtomValue(model.projectFilterAtom);
-    const activeSpace = useAtomValue(activeSpaceAtom);
-    const spaceScope = useAtomValue(spaceScopeAtom);
-    const spaceRevealed = useAtomValue(spaceRevealAtom).has("sessions");
+    const activeSpace = useAtomValue(activeFocusAtom);
+    const spaceScope = useAtomValue(focusScopeAtom);
+    const spaceRevealed = useAtomValue(focusRevealAtom).has("sessions");
 
     useEffect(() => {
         fireAndForget(loadSessionsArchive);
@@ -115,7 +115,7 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
 
     const live = base == null ? [] : overlayLive(base, roster, now);
     const projectScoped = filterByProject(live, projectFilter);
-    const spaceScoped = filterSessionsBySpace(projectScoped, spaceScope, spaceRevealed);
+    const spaceScoped = filterSessionsByFocus(projectScoped, spaceScope, spaceRevealed);
     const shown = filterByStatus(spaceScoped, filter);
     const groups = groupByRecency(shown, now);
     const liveCount = spaceScoped.filter((s) => s.live).length;
@@ -183,9 +183,9 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
             />
 
             {activeSpace != null ? (
-                <SpaceBanner
+                <FocusBanner
                     surface="sessions"
-                    text={spaceBannerText(activeSpace.objective, spaceHidden, spaceRevealed)}
+                    text={focusBannerText(activeSpace.label, spaceHidden, spaceRevealed)}
                     revealed={spaceRevealed}
                 />
             ) : null}

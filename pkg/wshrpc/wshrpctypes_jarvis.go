@@ -15,7 +15,7 @@ type JarvisCommands interface {
 	JarvisConverseCommand(ctx context.Context, data CommandJarvisConverseData) chan RespOrErrorUnion[JarvisConverseChunk]                  // recall shim: streams working-steps + grounding + prose + terminal
 	ListJarvisConversationsCommand(ctx context.Context) (*CommandListJarvisConversationsRtnData, error)                                    // list persisted recall conversations, newest-first
 	ListDossiersCommand(ctx context.Context) (*CommandListDossiersRtnData, error)                                                          // list focusable task dossiers (active|paused), newest-updated first
-	ResolveSpaceScopeCommand(ctx context.Context, data CommandResolveSpaceScopeData) (*SpaceScope, error)                                  // resolve a task's attributed scope bundle (runs -> channels + worker tabs) for Presence C
+	ResolveFocusScopeCommand(ctx context.Context, data CommandResolveFocusScopeData) (*SpaceScope, error)                                  // resolve a focus target's scope bundle (runs -> channels + worker tabs)
 	VaultGraphCommand(ctx context.Context) (*CommandVaultGraphRtnData, error)                                                              // whole-vault wikilink graph (U3 base canvas): all vault nodes + resolved [[links]], no runs/attribution
 	ResolveDossierEdgesCommand(ctx context.Context, data CommandResolveDossierEdgesData) (*CommandResolveDossierEdgesRtnData, error)       // a dossier's attributed run nodes + typed attribution edges (U3 focus bloom)
 	ResolveAmbientCommand(ctx context.Context) (*CommandResolveAmbientRtnData, error)                                                      // whole-vault ambient attribution: every dossier, its attributed run orefs, and its decisions
@@ -238,8 +238,11 @@ type CommandListDossiersRtnData struct {
 	Spaces []SpaceSummary `json:"spaces"`
 }
 
-type CommandResolveSpaceScopeData struct {
-	DossierId string `json:"dossierid"`
+// CommandResolveFocusScopeData names what the cockpit is focused on. Kind is task | agent | run;
+// all three resolve to the same SpaceScope bundle, which is what every surface filter consumes.
+type CommandResolveFocusScopeData struct {
+	Kind string `json:"kind"`
+	Id   string `json:"id"`
 }
 
 // SpaceScope is a task's derived scope bundle: its attributed run orefs, their channel oids, and the

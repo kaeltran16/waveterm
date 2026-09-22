@@ -5494,6 +5494,230 @@ const uiApi = {
     },
 };
 
+// --- focus: re-aiming and divergence ------------------------------------------------------------
+// Both scenarios need two registered projects to have anything to diverge BETWEEN, so they register
+// their own temp pair rather than depending on whatever is in the dev registry, and remove them in
+// teardown. Every DOM query below is scoped to a data-* hook: a document-wide `button` query picks
+// the app bar's global search button, not the row under test.
+const mkFocusProject = (tag) => {
+    const dir = mkdtempSync(join(tmpdir(), `verify-focus-${tag}-`));
+    execFileSync("git", ["init", "-q"], { cwd: dir });
+    writeFileSync(join(dir, "README.md"), `# ${tag}\n`);
+    execFileSync("git", ["add", "."], { cwd: dir });
+    execFileSync("git", ["-c", "user.email=v@v", "-c", "user.name=v", "commit", "-qm", "seed"], { cwd: dir });
+    return dir;
+};
+
+const napFocus = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// variant="bar" is the app-bar trigger; the cockpit header renders a SECOND switcher over the same
+// atom, so the variant has to be named or the wrong popover opens.
+const setBarProject = async (h, name) => {
+    const opened = await h.ev(`(() => {
+        const t = document.querySelector('[data-project-switcher="bar"]');
+        if (!t) return false;
+        t.click();
+        return true;
+    })()`);
+    if (opened !== true) return false;
+    await napFocus(200);
+    return h.ev(`(() => {
+        const row = document.querySelector('[data-project-option=${JSON.stringify(name)}]');
+        if (!row) return false;
+        row.click();
+        return true;
+    })()`);
+};
+
+const codeProjectName = (h) =>
+    h.ev(
+        `(() => { try { return JSON.parse(localStorage.getItem('code.project.last'))?.name ?? null; } catch (e) { return null; } })()`
+    );
+
+const focusReaimsSurfaces = {
+    name: "focus-reaims-surfaces",
+    surface: "cockpit",
+    async arrange(h) {
+        // Code seeds from the app-bar project ONLY when it has no persisted pick — that precedence is
+        // the whole point of step 5, so the persisted pick is cleared here and restored in teardown.
+        const prevCode = await h.ev("localStorage.getItem('code.project.last')");
+        const prevFocus = await h.ev("localStorage.getItem('cockpit.focus.last')");
+        await h.ev("localStorage.removeItem('code.project.last')");
+        await h.ev("localStorage.removeItem('cockpit.focus.last')");
+        return { prevCode, prevFocus };
+    },
+    async assert(h) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        await h.goto("cockpit");
+        await napFocus(400);
+
+        const opened = await h.ev(`(() => {
+            const t = document.querySelector('[data-focus-switcher]');
+            if (!t) return false;
+            t.click();
+            return true;
+        })()`);
+        await napFocus(250);
+        const agentRow = await h.ev(`(() => {
+            const row = document.querySelector('[data-focus-row^="agent:"]');
+            return row ? { key: row.getAttribute('data-focus-row'), label: row.textContent.trim() } : null;
+        })()`);
+        rec(
+            "1. the focus switcher lists live agents, not tasks only",
+            opened === true && agentRow != null,
+            JSON.stringify({ opened, agentRow })
+        );
+        if (agentRow == null) {
+            // Stated as a failing step rather than an early PASS: a scenario that quietly succeeds on
+            // an empty roster proves nothing about the thing it is named for.
+            rec("PRECONDITION: no live agent to focus — start one and re-run", false, "roster empty");
+            return steps;
+        }
+
+        const rowSel = `[data-focus-row=${JSON.stringify(agentRow.key)}]`;
+        const clicked = await h.ev(`(() => {
+            const row = document.querySelector(${JSON.stringify(rowSel)});
+            if (!row) return false;
+            row.click();
+            return true;
+        })()`);
+        await napFocus(700);
+        const barLabel = await h.ev(`document.querySelector('[data-focus-switcher]')?.textContent?.trim() ?? null`);
+        rec(
+            "2. focusing an agent flips the app-bar indicator to its label",
+            clicked === true && barLabel != null && barLabel !== "Global",
+            `bar=${barLabel}`
+        );
+
+        const barProject = await h.ev(
+            `document.querySelector('[data-project-switcher="bar"]')?.textContent?.trim() ?? null`
+        );
+        rec(
+            "3. focus adopted the agent's project",
+            barProject != null && !/All projects/.test(barProject),
+            `project=${barProject}`
+        );
+
+        await h.goto("files");
+        await napFocus(1000);
+        const diffSubject = await h.ev(`(() => {
+            const picker = document.querySelector('[data-files-source-picker]');
+            return picker ? picker.textContent.trim() : null;
+        })()`);
+        rec(
+            "4. Diff seeded on the focused agent rather than an empty surface",
+            diffSubject != null && diffSubject !== "",
+            `subject=${diffSubject}`
+        );
+
+        await h.goto("code");
+        await napFocus(1600);
+        const codeName = await codeProjectName(h);
+        rec(
+            "5. Code, with no persisted pick, seeded from the focus project",
+            codeName != null,
+            `code.project.last=${codeName} bar=${barProject}`
+        );
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await h.ev("localStorage.removeItem('code.project.last')");
+        if (ctx?.prevCode != null) {
+            await h.ev(`localStorage.setItem('code.project.last', ${JSON.stringify(ctx.prevCode)})`);
+        }
+        if (ctx?.prevFocus != null) {
+            await h.ev(`localStorage.setItem('cockpit.focus.last', ${JSON.stringify(ctx.prevFocus)})`);
+        }
+        await h.goto("cockpit");
+    },
+};
+
+const focusDivergenceRejoin = {
+    name: "focus-divergence-rejoin",
+    surface: "code",
+    async arrange(h) {
+        const dirA = mkFocusProject("da");
+        const dirB = mkFocusProject("db");
+        const stamp = Date.now() % 100000;
+        const names = { a: `verify-div-a-${stamp}`, b: `verify-div-b-${stamp}` };
+        await h.rpc("createproject", { name: names.a, path: dirA });
+        await h.rpc("createproject", { name: names.b, path: dirB });
+        const prevCode = await h.ev("localStorage.getItem('code.project.last')");
+        return { dirs: [dirA, dirB], names, prevCode };
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+
+        await h.goto("cockpit");
+        await napFocus(400);
+        const setA = await setBarProject(h, ctx.names.a);
+        await napFocus(400);
+        rec("1. app bar set to project A", setA === true, `A=${ctx.names.a}`);
+
+        await h.goto("code");
+        await napFocus(1000);
+        const openedPicker = await h.ev(`(() => {
+            const chip = document.querySelector('[data-code-project-picker]');
+            if (!chip) return false;
+            chip.click();
+            return true;
+        })()`);
+        await napFocus(300);
+        const pickedB = await h.ev(`(() => {
+            const row = document.querySelector('[data-code-picker-row=${JSON.stringify(ctx.names.b)}]');
+            if (!row) return false;
+            row.click();
+            return true;
+        })()`);
+        await napFocus(1400);
+        rec("2. Code pointed at project B by hand", openedPicker === true && pickedB === true, `B=${ctx.names.b}`);
+
+        const banner = await h.ev(`(() => {
+            const el = document.querySelector('[data-divergence-banner]');
+            return el ? el.textContent.trim() : null;
+        })()`);
+        rec(
+            "3. the divergence banner names both sides",
+            banner != null && banner.includes(ctx.names.a) && banner.includes(ctx.names.b),
+            `banner=${banner}`
+        );
+
+        const rejoined = await h.ev(`(() => {
+            const b = document.querySelector('[data-divergence-rejoin]');
+            if (!b) return false;
+            b.click();
+            return true;
+        })()`);
+        await napFocus(1600);
+        const after = await codeProjectName(h);
+        const gone = await h.ev(`document.querySelector('[data-divergence-banner]') == null`);
+        rec(
+            "4. Follow focus returns Code to A and the banner goes silent",
+            rejoined === true && after === ctx.names.a && gone === true,
+            `after=${after} bannerGone=${gone}`
+        );
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await h.goto("cockpit");
+        await napFocus(300);
+        await setBarProject(h, "all");
+        await h.ev("localStorage.removeItem('code.project.last')");
+        if (ctx?.prevCode != null) {
+            await h.ev(`localStorage.setItem('code.project.last', ${JSON.stringify(ctx.prevCode)})`);
+        }
+        for (const n of [ctx?.names?.a, ctx?.names?.b]) {
+            if (n) await h.rpc("deleteproject", { name: n });
+        }
+        for (const d of ctx?.dirs ?? []) {
+            rmSync(d, { recursive: true, force: true });
+        }
+        await h.goto("cockpit");
+    },
+};
+
 export const SCENARIOS = [
     vaultSteering,
     briefContextualMap,
@@ -5529,4 +5753,6 @@ export const SCENARIOS = [
     briefInlineTracker,
     resourceLinking,
     uiApi,
+    focusReaimsSurfaces,
+    focusDivergenceRejoin,
 ];

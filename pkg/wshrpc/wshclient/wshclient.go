@@ -1295,15 +1295,15 @@ func ResolveDossierEdgesCommand(w *wshutil.WshRpc, data wshrpc.CommandResolveDos
 	return resp, err
 }
 
-// command "resolveids", wshserver.ResolveIdsCommand
-func ResolveIdsCommand(w *wshutil.WshRpc, data wshrpc.CommandResolveIdsData, opts *wshrpc.RpcOpts) (wshrpc.CommandResolveIdsRtnData, error) {
-	resp, err := sendRpcRequestCallHelper[wshrpc.CommandResolveIdsRtnData](w, "resolveids", data, opts)
+// command "resolvefocusscope", wshserver.ResolveFocusScopeCommand
+func ResolveFocusScopeCommand(w *wshutil.WshRpc, data wshrpc.CommandResolveFocusScopeData, opts *wshrpc.RpcOpts) (*wshrpc.SpaceScope, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.SpaceScope](w, "resolvefocusscope", data, opts)
 	return resp, err
 }
 
-// command "resolvespacescope", wshserver.ResolveSpaceScopeCommand
-func ResolveSpaceScopeCommand(w *wshutil.WshRpc, data wshrpc.CommandResolveSpaceScopeData, opts *wshrpc.RpcOpts) (*wshrpc.SpaceScope, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.SpaceScope](w, "resolvespacescope", data, opts)
+// command "resolveids", wshserver.ResolveIdsCommand
+func ResolveIdsCommand(w *wshutil.WshRpc, data wshrpc.CommandResolveIdsData, opts *wshrpc.RpcOpts) (wshrpc.CommandResolveIdsRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[wshrpc.CommandResolveIdsRtnData](w, "resolveids", data, opts)
 	return resp, err
 }
 
