@@ -176,3 +176,26 @@ func TestSaveStateSerialized(t *testing.T) {
 }
 
 var _ = sync.Mutex{}
+
+func TestSweepRunsHubDefragmentation(t *testing.T) {
+	ensure()
+	oldGardener := defaultGardener
+	oldMerge, oldPrune := mergeDoubledHubsFn, pruneDeadHubsFn
+	t.Cleanup(func() {
+		defaultGardener = oldGardener
+		mergeDoubledHubsFn, pruneDeadHubsFn = oldMerge, oldPrune
+	})
+
+	g := testGardener(nil)
+	g.vaultNotesFn = func() []memvault.NoteWithBody { return nil }
+	defaultGardener = g
+
+	merged, pruned := 0, 0
+	mergeDoubledHubsFn = func() (int, error) { merged++; return 2, nil }
+	pruneDeadHubsFn = func() (int, error) { pruned++; return 1, nil }
+
+	Sweep()
+	if merged != 1 || pruned != 1 {
+		t.Fatalf("sweep ran merge=%d prune=%d, want 1/1: hub de-fragmentation must ride the sweep", merged, pruned)
+	}
+}

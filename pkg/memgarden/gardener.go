@@ -372,6 +372,12 @@ var (
 	startOnce       sync.Once
 )
 
+// the hub-defrag pillars, behind vars so the sweep registration tests without reaching the real hubs
+var (
+	mergeDoubledHubsFn = memvault.MergeDoubledHubs
+	pruneDeadHubsFn    = memvault.PruneDeadHubs
+)
+
 func ensure() {
 	startOnce.Do(func() { defaultGardener = newGardener() })
 }
@@ -379,5 +385,17 @@ func ensure() {
 // Sweep is the coordinator hook entry: garden every project scope once (single-flight, non-blocking).
 func Sweep() {
 	ensure()
+	// hub de-fragmentation is a property of the whole hub layout, not of one project's notes, so it
+	// runs once per sweep rather than per scope
+	if n, err := mergeDoubledHubsFn(); err != nil {
+		log.Printf("[memgarden] merging doubled hubs: %v\n", err)
+	} else if n > 0 {
+		log.Printf("[memgarden] merged %d notes out of doubled-encoding hubs\n", n)
+	}
+	if n, err := pruneDeadHubsFn(); err != nil {
+		log.Printf("[memgarden] pruning dead hubs: %v\n", err)
+	} else if n > 0 {
+		log.Printf("[memgarden] removed %d dead hubs\n", n)
+	}
 	defaultGardener.sweep()
 }

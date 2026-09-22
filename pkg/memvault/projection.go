@@ -425,7 +425,7 @@ func ProjectionStatus() map[string]string {
 // ClaudeHubDirs enumerates every existing Claude per-project memory hub (~/.claude/projects/*/memory).
 // A var so tests can stub it.
 var ClaudeHubDirs = func() []string {
-	root := filepath.Join(wavebase.GetHomeDir(), ".claude", "projects")
+	root := claudeProjectsRoot()
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return nil
