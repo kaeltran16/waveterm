@@ -4264,7 +4264,7 @@ dependencies = [
 
 [[package]]
 name = "wave-tauri"
-version = "0.14.15"
+version = "0.14.16"
 dependencies = [
  "open",
  "regex",
