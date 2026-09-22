@@ -489,6 +489,14 @@ export function AgentTree({ model }: { model: AgentsViewModel }) {
     const lineage = useAtomValue(model.lineageAtom);
     const folds = useAtomValue(treeFoldsAtom);
     const rows = buildAgentTree(agents, order, lineage, folds);
+    // the project group only earns a row when several projects are live: with one, its name and count
+    // just restate the header, so suppressing it reads the tree at two levels instead of three. Counts
+    // come off the unfiltered rows, and the lone group's attention moves to the header with it.
+    const total = treeAgentCount(rows);
+    const groupRows = rows.filter((r) => r.kind === "group");
+    const multiProject = groupRows.length > 1;
+    const visibleRows = multiProject ? rows : rows.filter((r) => r.kind !== "group");
+    const headerAttn = multiProject ? 0 : groupRows.reduce((n, r) => n + (r.kind === "group" ? r.attn : 0), 0);
 
     useRunDigests(Object.values(lineage.runs));
 
@@ -517,12 +525,19 @@ export function AgentTree({ model }: { model: AgentsViewModel }) {
             <div className="border-b border-edge-faint px-[16px] pb-[12px] pt-[16px]">
                 <div className="flex items-center justify-between">
                     <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[.1em] text-ink-mid">Agents</h3>
-                    <span className="font-mono text-[11px] font-semibold text-muted">{treeAgentCount(rows)}</span>
+                    <div className="flex items-center gap-[6px]">
+                        {headerAttn > 0 ? (
+                            <span className="rounded-[5px] bg-warning/10 px-[6px] py-[1px] font-mono text-[9.5px] font-semibold text-warning">
+                                {headerAttn}
+                            </span>
+                        ) : null}
+                        <span className="font-mono text-[11px] font-semibold text-muted">{total}</span>
+                    </div>
                 </div>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto p-[8px]">
                 <AnimatePresence mode="popLayout" initial={false}>
-                    {rows.map((r) => {
+                    {visibleRows.map((r) => {
                         if (r.kind === "group") {
                             return (
                                 <motion.div
