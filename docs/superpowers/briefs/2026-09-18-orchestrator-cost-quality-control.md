@@ -235,6 +235,93 @@ This is a substantive discussion record, not a verbatim transcript:
 10. The final competitor discussion reinforced avoiding orchestration for unsuitable work, minimizing handoffs, allocating capability by role, and not portraying selective review as a proven industry standard.
 11. The owner requested that the full discussion be retained in this file and the paused initiative. This update records that discussion, not permission to execute it.
 
+## Measured baseline: Arc engine versus native delegation (2026-09-21)
+
+The same six-task plan was executed twice from the same base commit, once through the Arc orchestrator
+engine and once through native Claude Code delegation, to put numbers against this brief's
+"Economics and evaluation" list. This is the first chunk's baseline measurement. It is a single run per
+arm, not a variability study.
+
+### Setup held common
+
+- Plan: `docs/superpowers/plans/2026-09-18-orch-gaps-six-fixes.md`, six tasks drawn from chunks #8, #6,
+  #12, #11, #10 and #19 of `effort:5d11f853` (orchestrator guide gaps). Well-defined work only.
+- Base commit `7a4155cb`, whose Verify passes clean (tsc 37s, vitest 55s, go 217s), so any failure
+  during a run is attributable to the run.
+- Sonnet workers in both arms, width 3, one worktree per unit of work, the same worker-contract
+  wording, and the plan's full Verify as the acceptance check.
+- Cost is API-equivalent, computed from transcript token counts at list prices (Opus 5 $5 in / $10
+  cache write / $0.50 cache read / $25 out per MTok; Sonnet 5 $2 / $4 / $0.20 / $10). It is not actual
+  spend under subscription billing.
+
+### Results
+
+|                              | Arc engine                               | Native delegation             |
+| ---------------------------- | ---------------------------------------- | ----------------------------- |
+| Wall clock                   | ~1h10m active                            | 64m25s continuous, unattended |
+| API-equivalent cost          | $15.73                                   | $19.09                        |
+| Orchestration cost           | $0 (deterministic engine, no lead model) | $4.23 (Opus parent)           |
+| Worker cost                  | $15.73 Sonnet                            | $14.86 Sonnet                 |
+| Calls / cache reads / output | 384 / 46.9M / 0.21M                      | 411 / 43.4M / 0.20M           |
+| Cost per task                | $2.62                                    | $3.18                         |
+| Questions asked              | 0                                        | 0                             |
+| Human interventions          | 4                                        | 0                             |
+| Landed as                    | 4 squash merges                          | 6 commits                     |
+| Diff                         | 30 files, +1097/-80                      | 31 files, +764/-88            |
+| Acceptance check             | passed at every merge point              | passed at the end             |
+
+Arc's wall clock is active time only; the run was calendar-spread across three days by an operator
+error (the dev app was launched from a session-bound shell and died), which is not an engine property.
+Two of its four interventions were that same operator error; the other two were engine gaps already
+recorded on `effort:5d11f853` - a stalled task whose lead process is gone is never retried, and
+cleanup debt on a held worktree wedges a finished dag. Arc's insertion count includes the 214-line plan
+document, which `laneFold` folds into the first squash commit by design.
+
+### Contention, measured
+
+The Arc run is direct evidence for the execution-time problem this brief names. Under the old contract
+every worker ran the plan's full Verify itself. With three workers doing that beside the merge-point
+Verify, that Verify took 883s; the three later merge Verifies, run without competition, took 299s, 354s
+and 398s. One worker hung inside its own full suite and had to be retried by hand. Per-task worker time
+ranged from 13 to 38 minutes. The Check/Verify split (chunk #6, landed in `e2f3d68e`) comes from this
+measurement.
+
+### Quality: a weak discriminator by construction
+
+Both arms produced a clean full suite. Cross-diffing them found four real defects, none caught by either
+arm's own tests:
+
+- Arc set `exec.Cmd.Cancel` after `Start`, racing the `watchCtx` goroutine Start launches (`go test
+-race` confirms; native is clean). In the losing interleaving a timeout kills only the shell - the
+  failure the change exists to prevent.
+- Both half-updated `SameDagProposal`, in complementary halves: Arc compared the effort fields but not
+  Check or Preamble, native the reverse. Either way a re-submit silently keeps stale values.
+- Native's plan-header handling used `strings.TrimSpace`, which strips an indented first line, against a
+  spec that said verbatim.
+- Native skipped two validations Arc added, including a guard against a numeric chunk label resolving by
+  position and closing the wrong chunk.
+
+Neither arm was landable unmodified. `e2f3d68e` landed the Arc result plus two ported fixes.
+
+The important caveat: the plan named exact packages, exact type fields with json tags, exact test
+function names, and for one task the literal contract sentences. Both arms therefore converged -
+`pkg/orchestrate/engine.go` came out byte-identical - and every difference above sits where the plan was
+silent or loose. Neither arm's workers invoked a single skill (zero Skill calls across 7 Arc and 6
+native worker transcripts), so the convergence is the plan's prescriptiveness, not a shared process
+skill. A comparison of orchestration quality needs a deliberately looser plan: acceptance criteria
+without named functions and test names.
+
+### What this establishes, and what it does not
+
+Established: the engine's orchestration is free where a model parent costs about 22% of the run; both
+paths complete comparable work in comparable time on well-defined tasks; the contention cost of the old
+worker contract is real and large; and a second independent execution is a cheap defect detector for
+work whose own tests pass.
+
+Not established: variability (one run per arm), behaviour on ambiguous or tightly coupled work, any
+reviewer policy, or whether a cheaper worker model changes the picture. Nothing here sets the required
+cost improvement or the quality threshold - those remain owner decisions in the next chunk.
+
 ## Open decisions
 
 - What completion-time budget is acceptable, and when should extra spend buy lower latency? The speed-first recommendation still needs owner agreement.
