@@ -146,7 +146,6 @@ here. These are the additions that only apply in this repo.
   root cause, not symptom: fix the shared function once, not the path the ticket names.
 - **Stay minimal, but** minimality never cuts input validation, error handling, or security; tests
   are not bloat.
-- **Before any commit:** run the simplify review over the changed lines (`/simplify` in Claude Code,
-  `pi-simplify` in Pi), then the relevant tests — no commit with an unreviewed diff. Then show the
-  files with status (M/A/D) plus a brief change summary, and the message as
-  `type(scope): description` (subject < 72 chars, explaining WHY), and ask for approval.
+- **Before any commit:** run the relevant tests, then show the files with status (M/A/D) plus a brief
+  change summary, and the message as `type(scope): description` (subject < 72 chars, explaining WHY),
+  and ask for approval.
