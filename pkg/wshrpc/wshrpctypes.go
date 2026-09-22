@@ -39,7 +39,6 @@ type WshRpcInterface interface {
 	ProjectCommands
 	GitCommands
 	AgentCommands
-	MemoryCommands
 	AgentSyncCommands
 	ChannelCommands
 	RunCommands
@@ -372,65 +371,6 @@ type SessionActivity struct {
 	StartedTs      int64          `json:"startedts"`
 	DurationMs     int64          `json:"durationms"`
 	Events         []SessionEvent `json:"events"`
-}
-
-type MemoryNote struct {
-	ID          string   `json:"id"`
-	Title       string   `json:"title"`
-	Description string   `json:"description"`
-	Type        string   `json:"type"`
-	Scope       string   `json:"scope"`
-	Source      string   `json:"source"`
-	Path        string   `json:"path"`
-	Links       []string `json:"links"`
-	UpdatedTs   int64    `json:"updatedts"`
-
-	Reviewed       bool   `json:"reviewed"`
-	CapturedAt     string `json:"capturedat"`
-	SupersededBy   string `json:"supersededby"`
-	LastReferenced string `json:"lastreferenced"`
-}
-
-type MemoryEdge struct {
-	From string `json:"from"`
-	To   string `json:"to"`
-}
-
-type MemoryLearnCandidate struct {
-	Type         string `json:"type"`
-	Scope        string `json:"scope,omitempty"`
-	Body         string `json:"body"`
-	IsCorrection bool   `json:"iscorrection,omitempty"`
-	Supersedes   string `json:"supersedes,omitempty"`
-}
-
-type MemoryPendingNote struct {
-	Path       string `json:"path"`
-	Title      string `json:"title"`
-	Type       string `json:"type"`
-	Scope      string `json:"scope"`
-	Source     string `json:"source"`
-	Body       string `json:"body"`
-	Cwd        string `json:"cwd"`
-	CapturedAt string `json:"capturedat"`
-}
-
-type MemoryPruneCandidate struct {
-	ID     string `json:"id"`
-	Title  string `json:"title"`
-	Type   string `json:"type"`
-	Reason string `json:"reason"`
-	Path   string `json:"path"`
-}
-
-type MemoryArchivedNote struct {
-	ID         string `json:"id"`
-	Title      string `json:"title"`
-	Type       string `json:"type"`
-	Reason     string `json:"reason"`     // decay | drift
-	ArchivedAt string `json:"archivedat"` // RFC3339
-	Path       string `json:"path"`       // path inside the archive dir (Restore target)
-	OriginHub  string `json:"originhub"`
 }
 
 type PathCommandData struct {

@@ -9,11 +9,10 @@
 //
 //   Launch narrative  — read ONCE. It is written at a run's rest boundary and read from the DB, so it is
 //                       durable; re-reading it on a timer would find the same row.
-//   memory:activity   — subscribed, plus a history backlog at mount. Sweeps and distillation batches are
-//                       pushed by the server, and the backlog is what makes "while you were out" work when
-//                       they fired before this window opened. Note the broker's persist buffer is
-//                       in-memory, so a wavesrv restart replays nothing — the durable half of Voice is the
-//                       launch narrative above, which is why that one reads the DB.
+//   jarvis:volunteer  — subscribed, plus a history backlog at mount. The backlog is what makes "while you
+//                       were out" work when it fired before this window opened. Note the broker's persist
+//                       buffer is in-memory, so a wavesrv restart replays nothing — the durable half of
+//                       Voice is the launch narrative above, which is why that one reads the DB.
 //   index status      — read at launch and every 15 minutes. NOT on the 10s attention cadence: the backend
 //                       read parses the whole vault to count drift. A stale read starts the hash-gated
 //                       catch-up; configuration/provider failures stay manual so a bad paid boundary is
@@ -30,16 +29,14 @@ import { readUntilLanded } from "./petboot";
 import { loadAndCatchUpIndex } from "./petindex";
 import {
     askAgent,
-    eventFromActivity,
     eventFromAsk,
     eventFromNotify,
     eventFromResume,
     eventFromVolunteer,
-    passFromActivity,
     shouldSpeakAsk,
     type AskGateCtx,
 } from "./petjoin";
-import { pushPetEvent, recordPass, removePetEvent } from "./petstore";
+import { pushPetEvent, removePetEvent } from "./petstore";
 
 const INDEX_POLL_MS = 15 * 60_000;
 const ACTIVITY_BACKLOG = 20;
@@ -61,36 +58,8 @@ async function loadLaunchNarrative(): Promise<boolean> {
     }
 }
 
-// scope "" because the event is published scope-less (see pkg/memdistill/activity.go), which the history
-// read expresses as an empty scope rather than an omitted field.
-async function loadActivityBacklog(): Promise<boolean> {
-    try {
-        const events = await RpcApi.EventReadHistoryCommand(TabRpcClient, {
-            event: "memory:activity",
-            scope: "",
-            maxitems: ACTIVITY_BACKLOG,
-        });
-        for (const e of events ?? []) {
-            const data = e?.data as MemoryActivityData | undefined;
-            // recorded even when it yields no utterance: a pass that wrote nothing is the case the
-            // last-pass row exists for, and dropping it here is what would make it invisible
-            const pass = passFromActivity(data);
-            if (pass != null) {
-                recordPass(pass);
-            }
-            const mapped = eventFromActivity(data);
-            if (mapped != null) {
-                pushPetEvent(mapped);
-            }
-        }
-        return true;
-    } catch {
-        return false; // the live subscription still covers anything from here on
-    }
-}
-
-// scope "" for the same reason as the memory-activity read above: the event is published scope-less,
-// because it is a fact about your work rather than about one object.
+// scope "" because the event is published scope-less, as a fact about your work rather than about one
+// object, which the history read expresses as an empty scope rather than an omitted field.
 async function loadVolunteerBacklog(): Promise<boolean> {
     try {
         const events = await RpcApi.EventReadHistoryCommand(TabRpcClient, {
@@ -117,23 +86,9 @@ export function PetSources({ model }: { model: AgentsViewModel }) {
         let mounted = true;
         const live = () => mounted;
         void readUntilLanded({ read: loadLaunchNarrative, live });
-        void readUntilLanded({ read: loadActivityBacklog, live });
         void readUntilLanded({ read: loadVolunteerBacklog, live });
         void readUntilLanded({ read: loadAndCatchUpIndex, live });
         const t = setInterval(() => void loadAndCatchUpIndex(), INDEX_POLL_MS);
-        const unsub = waveEventSubscribeSingle({
-            eventType: "memory:activity",
-            handler: (event) => {
-                const pass = passFromActivity(event?.data);
-                if (pass != null) {
-                    recordPass(pass);
-                }
-                const mapped = eventFromActivity(event?.data);
-                if (mapped != null) {
-                    pushPetEvent(mapped);
-                }
-            },
-        });
         const unsubVolunteer = waveEventSubscribeSingle({
             eventType: "jarvis:volunteer",
             handler: (event) => {
@@ -191,7 +146,6 @@ export function PetSources({ model }: { model: AgentsViewModel }) {
         return () => {
             mounted = false;
             clearInterval(t);
-            unsub();
             unsubVolunteer();
             unsubNotify();
             unsubAsk();

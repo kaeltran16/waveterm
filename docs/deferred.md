@@ -1451,3 +1451,37 @@ Deliberately dropped, with nothing left in the code that half-implements them:
 
 Recovery: `git show 6061ff3d:frontend/app/view/jarvis/effortdetailview.tsx` has the full pre-slim file
 (746 lines) with all of the above.
+
+## The memory subsystem, removed (2026-09-22)
+
+Measured before removal, across 416 Claude Code sessions and 458 Pi sessions: note **bodies** were opened
+in 5.3% of sessions — the behaviour memory actually drove came from the one-line `MEMORY.md` index
+entries, not the 867 note bodies behind them. Pi was write-only (Arc regenerated an 87 KB projection per
+session start that nothing read: `pi-memory` was not in `~/.pi/agent/settings.json` packages, qmd was not
+installed so `memory_search` could not run, and zero real `memory_search` calls appear in 458
+transcripts). Recall telemetry had never worked — `slugify` renamed `_`→`-` on harvest so every stamp
+missed, and `writeSourcedNote` never serialized `reference_count`.
+
+Removed: `pkg/memvault` (29 files), `pkg/memdistill`, `pkg/memgarden`, `wshserver_memory.go` (17 RPCs),
+`reporadar/collect_memory.go` + the `CollectorMemory` kind, `wsh memory`, `wsh agent-memory-hook`,
+`wsh agent-memory-project`, the pi memory extension, the Vault surface and its 16 frontend files, the
+pet's memory register (decay polling, the `drifting` condition, `actsForVault`, the `memory:activity`
+event and its `baseds` payload types), and `CaptureStatus.DistillQueue`.
+
+Kept, deliberately: `pkg/memroots` and `pkg/wavevault` (Jarvis's whole corpus reads through them, and
+`memory:vaultpath` is still the vault root's source of truth), `pkg/jarvisrecall` (decoupled — `ask.go`,
+`retrieve.go` and `judge.go` never touched memvault), `pkg/agentsync` (the steering projection Pi does
+receive), and `agentsync.memoryRegion`, which now only *preserves* an `ARC-MEMORY` block an older Arc
+left in a steering file rather than writing one.
+
+Two self-healing cleanups ship with it, because a removed subcommand that is still referenced on disk
+keeps firing: the `agent-memory-*` forms stay in `isManagedCommand`'s allowlist (recognition is what lets
+a stale hook be *pruned*, not what preserves it), `mergeAgentHooks`/`configIsHealthy` now scan every event
+present in `settings.json` rather than only the ones Arc currently manages (`SessionEnd` left
+`managedHooks` entirely with `agent-memory-hook`), and `install-agent-hooks` deletes a leftover
+`~/.pi/agent/extensions/waveterm-memory.ts`.
+
+Revive only on evidence that note bodies — not index lines — are what changes an agent's behaviour.
+
+Recovery: `git show f5e2179a:pkg/memvault/memvault.go` (and any other path) has the full pre-removal
+tree; `git show f5e2179a:frontend/app/view/agents/vaultsurface.tsx` for the surface.

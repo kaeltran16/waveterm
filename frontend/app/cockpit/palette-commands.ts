@@ -65,7 +65,6 @@ export function buildCommandItems(bindings: Binding[], ctx: KeyContext): Command
 
 export interface ExtraDeps {
     openNewProject: () => void;
-    openNewMemory: () => void;
     setTheme: (presetId: string) => void;
 }
 
@@ -73,7 +72,6 @@ export interface ExtraDeps {
 export function buildExtraItems(deps: ExtraDeps): CommandItem[] {
     return [
         { key: "cmd:new-project", title: "New project", group: "Global", run: deps.openNewProject },
-        { key: "cmd:new-memory", title: "New memory", group: "Memory", run: deps.openNewMemory },
         ...THEMES.map((t) => ({
             key: `cmd:theme:${t.id}`,
             title: `Switch theme → ${t.name}`,

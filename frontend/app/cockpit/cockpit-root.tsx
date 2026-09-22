@@ -19,7 +19,6 @@ import { BackgroundAgentsPoller } from "@/app/view/agents/backgroundagentspoller
 import { AttentionPoller } from "@/app/view/agents/attentionpoller";
 import { NewAgentModal } from "@/app/view/agents/newagentmodal";
 import { NewProjectModal } from "@/app/view/agents/newprojectmodal";
-import { PetDecayPoller } from "@/app/view/jarvis/petdecaypoller";
 import { PetSources } from "@/app/view/jarvis/petsources";
 import { PetView } from "@/app/view/jarvis/petview";
 import { WaveEnv, WaveEnvContext } from "@/app/waveenv/waveenv";
@@ -108,7 +107,6 @@ function CockpitBody({ waveEnv }: { waveEnv: WaveEnv }) {
             <NowTicker model={model} />
             <BackgroundAgentsPoller />
             <AttentionPoller />
-            <PetDecayPoller />
             <PetSources model={model} />
             <CockpitAppBar model={model} />
             <div className="min-h-0 flex-1">

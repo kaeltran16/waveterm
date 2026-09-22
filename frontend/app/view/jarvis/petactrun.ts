@@ -11,9 +11,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
-import { confirmPruneAllSuperseded, memViewAtom, pendingMemoryFocusAtom } from "@/app/view/agents/memstore";
 import { pendingSettingsSectionAtom, SETTINGS_SECTION_EMBEDDINGS } from "@/app/view/agents/settingsstore";
-import { vaultTabAtom } from "@/app/view/agents/vaultstore";
 import { askAboutSource } from "./jarvissubjectstore";
 import { openAddress } from "./openref";
 import type { PetAct, PetOp } from "./petacts";
@@ -47,16 +45,6 @@ async function escort(model: AgentsViewModel, act: PetAct & { verb: "open" }): P
         return;
     }
     globalStore.set(petPeekOpenAtom, false);
-    if (target.kind === "memory-upkeep") {
-        // the memory collection in list view, not merely the Vault surface: the upkeep panes live under
-        // the memory tab and are not mounted in graph view, so a bare switch can land where the queue
-        // does not exist
-        globalStore.set(memViewAtom, "list");
-        globalStore.set(vaultTabAtom, "memory");
-        globalStore.set(pendingMemoryFocusAtom, "upkeep");
-        globalStore.set(model.surfaceAtom, "vault");
-        return;
-    }
     globalStore.set(pendingSettingsSectionAtom, SETTINGS_SECTION_EMBEDDINGS);
     globalStore.set(model.surfaceAtom, "settings");
 }
@@ -67,16 +55,8 @@ async function perform(act: PetAct & { verb: "do" }): Promise<void> {
         await startIndexCatchUp(act.id);
         return;
     }
-    if (op.kind === "clear-superseded") {
-        // the confirmation owns focus from here. Close only after pushModal succeeds so a missing modal host
-        // can still report beside this act instead of disappearing with the peek.
-        confirmPruneAllSuperseded(op.count);
-        globalStore.set(petPeekOpenAtom, false);
-        clearActState(act.id);
-        return;
-    }
     // Exhaustiveness backstop. Every PetOp is handled above, so `op` is `never` here and the cast is what
-    // keeps the line compiling: adding a third operation without wiring it should be a visible error on the
+    // keeps the line compiling: adding another operation without wiring it should be a visible error on the
     // row that offered it, not a button that silently does nothing.
     throw new Error(`unwired operation: ${(op as PetOp).kind}`);
 }

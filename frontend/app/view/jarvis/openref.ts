@@ -14,9 +14,7 @@ import { fireAndForget } from "@/util/util";
 import type { AgentsViewModel } from "../agents/agents";
 import { jumpToAgent } from "../agents/channelsprimitives";
 import { selectChannel } from "../agents/channelsstore";
-import { loadMemory, memErrorAtom, memNotesAtom, selectNote } from "../agents/memstore";
 import { initRadarScope, radarScopeAtom, radarSelectedIdAtom, scopeOfReport, selectReport } from "../agents/radarstore";
-import { vaultFocusAtom, vaultTabAtom } from "../agents/vaultstore";
 import { parseAddress, type AddressHint, type OpenTarget } from "./address";
 import { briefPeekRecordAtom, briefSheetOpenAtom } from "./jarvisstore";
 import { loadRecordDetail, selectSubject, setActiveRunId } from "./jarvissubjectstore";
@@ -30,7 +28,6 @@ export type OpenResult =
 export type ReportOpen = (result: OpenResult) => void;
 
 type RecordTarget = Extract<OpenTarget, { kind: "record" }>;
-type MemoryNoteTarget = Extract<OpenTarget, { kind: "memory-note" }>;
 type RadarTarget = Extract<OpenTarget, { kind: "radar" }>;
 
 const OK: OpenResult = { ok: true };
@@ -54,8 +51,6 @@ function targetName(target: OpenTarget): string {
             return `agent ${target.tabId}`;
         case "record":
             return `record ${target.dossierId}`;
-        case "memory-note":
-            return `memory note ${target.noteId}`;
         case "effort":
             return `initiative ${target.effortId}`;
         case "radar":
@@ -127,8 +122,6 @@ async function land(model: AgentsViewModel, target: OpenTarget, current: () => b
             return landAgent(model, target.tabId);
         case "record":
             return landRecord(model, target, current);
-        case "memory-note":
-            return landMemoryNote(model, target, current);
         case "effort":
             openEffortSheet(target.effortId);
             globalStore.set(model.surfaceAtom, "jarvis");
@@ -212,33 +205,6 @@ async function landRecord(model: AgentsViewModel, target: RecordTarget, current:
 function openRecordPeek(dossierId: string): void {
     loadRecordDetail(dossierId);
     globalStore.set(briefPeekRecordAtom, dossierId);
-}
-
-// The same refresh on a miss as a record: memory is scanned when the Vault is visited, so a note learned since
-// is not in the list yet.
-async function landMemoryNote(
-    model: AgentsViewModel,
-    target: MemoryNoteTarget,
-    current: () => boolean
-): Promise<OpenResult> {
-    const listed = () => globalStore.get(memNotesAtom).some((n) => n.id === target.noteId);
-    if (!listed()) {
-        await loadMemory();
-        if (!current()) {
-            return SUPERSEDED;
-        }
-        if (!listed()) {
-            return globalStore.get(memErrorAtom)
-                ? failed(target, "the memory scan failed")
-                : unavailable("That memory note no longer exists");
-        }
-    }
-    fireAndForget(() => selectNote(target.noteId));
-    // the memory collection's saved detail, not merely the Vault surface: the note detail is only reachable there
-    globalStore.set(vaultTabAtom, "memory");
-    globalStore.set(vaultFocusAtom, "saved");
-    globalStore.set(model.surfaceAtom, "vault");
-    return OK;
 }
 
 // initRadarScope selects its project's newest report, and Radar's first mount derives a scope unless one is

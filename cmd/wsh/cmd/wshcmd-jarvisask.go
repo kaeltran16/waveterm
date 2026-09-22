@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -100,19 +99,5 @@ func renderCaptureStatus(st wshrpc.CaptureStatus) string {
 		b.WriteString("unavailable\n")
 	}
 	fmt.Fprintf(&b, "efforts: %d active · %d of %d chunks\n", st.Efforts.Active, st.Efforts.ChunksDone, st.Efforts.ChunksTotal)
-	b.WriteString("distill queue:\n")
-	if len(st.DistillQueue) == 0 {
-		b.WriteString("  (empty)\n")
-	} else {
-		for _, q := range st.DistillQueue {
-			last := "never"
-			if q.LastPass != nil {
-				last = fmt.Sprintf("%s (%d sessions, %d committed, %d queued)",
-					time.UnixMilli(q.LastPass.Ts).Format("2006-01-02 15:04"),
-					q.LastPass.Sessions, q.LastPass.Committed, q.LastPass.Queued)
-			}
-			fmt.Fprintf(&b, "  %s: %d pending; last pass %s\n", q.Cwd, q.Pending, last)
-		}
-	}
 	return strings.TrimRight(b.String(), "\n")
 }

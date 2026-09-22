@@ -41,7 +41,6 @@ var WaveEventDataTypes = map[string]reflect.Type{
 	wps.Event_Notify:           reflect.TypeOf(wshrpc.NotifyCommandData{}),
 	wps.Event_OpenFile:         reflect.TypeOf(wshrpc.OpenFileData{}),
 	wps.Event_AgentAsk:         reflect.TypeOf(baseds.AgentAskData{}),
-	wps.Event_MemoryActivity:   reflect.TypeOf(baseds.MemoryActivityData{}),
 	wps.Event_JarvisVolunteer:  reflect.TypeOf(baseds.VolunteerData{}),
 	wps.DagEventChildDone:      reflect.TypeOf(""), // detail is the task id
 	wps.DagEventGateOpen:       reflect.TypeOf(""), // detail is the gate task id

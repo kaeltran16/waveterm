@@ -14,7 +14,6 @@ import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { liveWindowAgents, providerPlanUsage } from "@/app/view/agents/agentsviewmodel";
 import { attentionAtom } from "@/app/view/agents/attentionstore";
-import { memPruneAtom, memPruneLoadedAtom } from "@/app/view/agents/memstore";
 import { mergeRateLimitWindows, savedRateLimitsAtom, topProviderUsage } from "@/app/view/agents/ratelimitstore";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
@@ -50,8 +49,6 @@ import { nextUtterance } from "./petvoice";
 const ATTENTION_GATE = "gate";
 const ATTENTION_ESCALATION = "escalation";
 const ATTENTION_ASK = "ask";
-
-const PRUNE_REASON_STALE = "stale";
 
 // The one utterance kind that ripples. Punctuation is not decoration on every event — a wave that crossed
 // the network for each of the ten kinds would be constant motion and would stop meaning anything. A
@@ -97,8 +94,6 @@ function usePetSignals(model: AgentsViewModel): PetSignals {
     const saved = useAtomValue(savedRateLimitsAtom);
     const now = useAtomValue(model.nowAtom);
     const attention = useAtomValue(attentionAtom);
-    const prune = useAtomValue(memPruneAtom);
-    const pruneLoaded = useAtomValue(memPruneLoadedAtom);
     const index = useAtomValue(petIndexAtom);
 
     const donuts = mergeRateLimitWindows(providerPlanUsage(liveWindowAgents(agents)), saved, now);
@@ -115,12 +110,6 @@ function usePetSignals(model: AgentsViewModel): PetSignals {
     return {
         index: indexSignal(index),
         rateLimit,
-        decay: pruneLoaded
-            ? {
-                  queueDepth: prune.length,
-                  staleNotes: prune.reduce((n, c) => (c.reason === PRUNE_REASON_STALE ? n + 1 : n), 0),
-              }
-            : undefined,
         attention: {
             reviewGates: count(attention, ATTENTION_GATE),
             escalations: count(attention, ATTENTION_ESCALATION),

@@ -700,7 +700,8 @@ it costs zero I/O and zero tokens), then stateless producers, then a prefilter, 
 judge that picks at most one candidate or declines. Every terminal path returns a named reason
 (`rate-limited`, `no-candidates`, `judge-declined`, `judge-error`) rather than a bare nil, so a quiet creature
 is diagnosable. Triggers ride cadences that already exist — run created, the evidence seal at run rest, and
-memdistill's hourly sweep hook — so there is no new scheduler and no new daemon.
+an hourly loose-end sweep (`jarvisvolunteer.StartLooseEndSweep`, carried over from the memdistill sweep hook
+it used to ride) — so there is no new daemon.
 
 **Say-once has no server-side log and no database table.** Each utterance's `(at, id)` pair is stamped from
 the *fact* (a run's `CreatedTs`, a dossier's bucketed `updated`), never from emission time, so re-emitting an

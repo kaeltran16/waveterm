@@ -2,9 +2,24 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { CANNOT_LOCATE_RECORD, CANNOT_OPEN, parseAddress, type AddressHint, type OpenTarget } from "./address";
+import {
+    CANNOT_LOCATE_RECORD,
+    CANNOT_OPEN,
+    NO_MEMORY_SURFACE,
+    parseAddress,
+    type AddressHint,
+    type OpenTarget,
+} from "./address";
 
 describe("parseAddress", () => {
+    // memnote:/memory: still arrive from persisted conversation turns and effort WorkRefs. They name
+    // something real, so they get their own reason rather than the generic "can't be opened".
+    it("refuses a memory address by name, whichever spelling it arrives in", () => {
+        for (const address of ["memnote:m-1", "memory:m-1"]) {
+            expect(parseAddress(address)).toEqual({ kind: "unsupported", message: NO_MEMORY_SURFACE });
+        }
+    });
+
     it.each<[string, AddressHint | undefined, OpenTarget]>([
         ["run:r-1", undefined, { kind: "run", runId: "r-1" }],
         ["channel:c-1", undefined, { kind: "channel", channelId: "c-1" }],
@@ -19,9 +34,6 @@ describe("parseAddress", () => {
         ],
         // an empty anchor is no anchor, not a highlight of nothing
         ["task:d-1", { anchor: "" }, { kind: "record", dossierId: "d-1" }],
-        ["memnote:m-1", undefined, { kind: "memory-note", noteId: "m-1" }],
-        // recall's pre-canonical memory citations, still in persisted conversation turns
-        ["memory:m-1", undefined, { kind: "memory-note", noteId: "m-1" }],
         ["effort:e-1", undefined, { kind: "effort", effortId: "e-1" }],
         ["radarreport:rr-1", undefined, { kind: "radar", reportId: "rr-1" }],
         [
@@ -43,8 +55,11 @@ describe("parseAddress", () => {
             expect(parseAddress("vault:d-1")).toEqual({ kind: "record", dossierId: "d-1" });
         });
 
-        it("opens a memory node as its note", () => {
-            expect(parseAddress("vault:m-1", { sourceType: "memory" })).toEqual({ kind: "memory-note", noteId: "m-1" });
+        it("names the reason a memory node has nowhere to open, rather than the generic refusal", () => {
+            expect(parseAddress("vault:m-1", { sourceType: "memory" })).toEqual({
+                kind: "unsupported",
+                message: NO_MEMORY_SURFACE,
+            });
         });
 
         // the card never recorded which record the decision sits in, so there is nowhere honest to land

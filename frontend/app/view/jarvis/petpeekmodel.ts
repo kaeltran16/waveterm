@@ -5,7 +5,7 @@
 // are not already one of those rows. Pure, like petcondition.ts — petpeek.tsx is a renderer, not the thing
 // that decides.
 
-import { actsForAttention, actsForRecall, actsForVault, type PetAct } from "./petacts";
+import { actsForAttention, actsForRecall, type PetAct } from "./petacts";
 import { conditionsFor, type PetExpression, type PetSignals } from "./petcondition";
 import type { PetEvent } from "./petvoice";
 
@@ -97,15 +97,14 @@ export function peekActForCommand(row: PeekRow | undefined, command: PeekKeyComm
 
 export interface ConditionSources {
     index: EmbedIndexStatus | null | undefined;
-    prune: MemoryPruneCandidate[] | null | undefined;
 }
 
 export interface PeekCondition {
     expr: PetExpression;
     acts: PetAct[];
-    // true only where the KIND has no remedy to offer. Deliberately not "acts.length === 0": the vault's
-    // candidates are unread until the Memory surface is visited, and calling that a readout would report a
-    // cleanup queue as nothing to do.
+    // true only where the KIND has no remedy to offer. Deliberately not "acts.length === 0": a source that
+    // has not been read yet offers nothing either, and calling that a readout would report "still loading"
+    // as "nothing to do".
     readout: boolean;
 }
 
@@ -118,12 +117,7 @@ const READOUT_KINDS = new Set<PetExpression["kind"]>(["tired"]);
 export function peekConditions(signals: PetSignals, sources: ConditionSources): PeekCondition[] {
     return conditionsFor(signals).map((expr) => ({
         expr,
-        acts:
-            expr.kind === "cannot-see"
-                ? actsForRecall(sources.index)
-                : expr.kind === "drifting"
-                  ? actsForVault(sources.prune)
-                  : [],
+        acts: expr.kind === "cannot-see" ? actsForRecall(sources.index) : [],
         readout: READOUT_KINDS.has(expr.kind),
     }));
 }

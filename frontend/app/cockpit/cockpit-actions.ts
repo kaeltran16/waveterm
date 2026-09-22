@@ -78,26 +78,7 @@ export async function launchAgent(model: AgentsViewModel, opts: LaunchAgentOpts)
     // shell meta — leaving it without cmd:cwd, so the tab never enters the agent roster (the agent
     // renders as a bare terminal and the cockpit panel stays empty). Reload so the roster sees cmd.
     await WOS.reloadWaveObject(blockORef);
-    // Sync the shared brain at launch: pull the launch project's Codex facts into the Claude hub,
-    // THEN project the (now-updated) hub into the lackey steering files so the agent boots with the
-    // current brain and any just-harvested facts also reach the other lackeys. One fire-and-forget
-    // chain — never blocks the launch; each step is independently guarded. Terminals have no memory
-    // and claude IS the hub, so neither is synced here.
-    if (opts.runtime === "codex") {
-        void (async () => {
-            try {
-                await RpcApi.MemoryHarvestCommand(TabRpcClient, { cwd });
-            } catch {
-                // harvest failure must not prevent projection
-            }
-            try {
-                await RpcApi.MemoryProjectCommand(TabRpcClient, { cwd });
-            } catch {
-                // projection failure must not block the launch
-            }
-        })();
-    }
-    // steering and skills are launch-time too, for every runtime: a harness must never start against
+    // steering and skills are launch-time, for every runtime: a harness must never start against
     // a stale region. fire-and-forget — a sync failure must not block the launch.
     void RpcApi.AgentSyncApplyCommand(TabRpcClient, { dryrun: false }).catch(() => {});
     const agentPanel = runtimeCreatesAgentPanel(opts.runtime);

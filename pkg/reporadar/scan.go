@@ -64,7 +64,7 @@ type collectResult struct {
 // are recorded as partial and do not fail the scan. onProgress is called with (kind, status) as each
 // collector starts ("running") and finishes ("ok"/"failed") so the frontend checklist reflects real
 // progress instead of jumping from all-queued to all-done in one step.
-func collectAll(ctx context.Context, projectName, projectPath string, sinceTs int64, onProgress func(kind, status string)) (*collectResult, error) {
+func collectAll(ctx context.Context, projectPath string, sinceTs int64, onProgress func(kind, status string)) (*collectResult, error) {
 	if _, err := gitHead(ctx, projectPath); err != nil {
 		return nil, fmt.Errorf("not a readable git repository: %w", err)
 	}
@@ -91,7 +91,6 @@ func collectAll(ctx context.Context, projectName, projectPath string, sinceTs in
 	run(CollectorGit, func() ([]waveobj.RadarSignal, error) { return collectGit(ctx, in) })
 	run(CollectorRuns, func() ([]waveobj.RadarSignal, error) { return collectRuns(ctx, in) })
 	run(CollectorTranscript, func() ([]waveobj.RadarSignal, error) { return collectTranscript(ctx, in) })
-	run(CollectorMemory, func() ([]waveobj.RadarSignal, error) { return collectMemory(ctx, in, projectName) })
 	run(CollectorConfig, func() ([]waveobj.RadarSignal, error) { return collectConfig(ctx, in) })
 	run(CollectorDependency, func() ([]waveobj.RadarSignal, error) { return collectDependency(ctx, in) })
 	res.signals = dedupSignals(res.signals)
@@ -125,7 +124,7 @@ func runScan(ctx context.Context, reportId string) {
 		}
 		publish(reportId)
 	}
-	cr, cerr := collectAll(ctx, rpt.ProjectName, rpt.ProjectPath, sinceTs, onProgress)
+	cr, cerr := collectAll(ctx, rpt.ProjectPath, sinceTs, onProgress)
 	if cerr != nil {
 		finishFatal(reportId, cerr.Error())
 		return

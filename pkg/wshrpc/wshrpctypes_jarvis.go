@@ -476,12 +476,11 @@ type SourceHealth struct {
 type CommandJarvisStatusData struct{}
 
 // CaptureStatus is the observability answer to "did it skip my session?": vault note counts per
-// collection, embedding index availability, and the distill queue state per cwd.
+// collection and embedding index availability.
 type CaptureStatus struct {
 	NoteCounts     map[string]int       `json:"notecounts,omitempty"`
 	IndexAvailable bool                 `json:"indexavailable"`
 	IndexError     string               `json:"indexerror,omitempty"`
-	DistillQueue   []CwdQueueWire       `json:"distillqueue,omitempty"`
 	Efforts        CaptureEffortsStatus `json:"efforts"`
 }
 
@@ -490,19 +489,6 @@ type CaptureEffortsStatus struct {
 	Active      int `json:"active"`
 	ChunksDone  int `json:"chunksdone"`
 	ChunksTotal int `json:"chunkstotal"`
-}
-
-type CwdQueueWire struct {
-	Cwd      string          `json:"cwd"`
-	Pending  int             `json:"pending"`
-	LastPass *PassRecordWire `json:"lastpass,omitempty"`
-}
-
-type PassRecordWire struct {
-	Ts        int64 `json:"ts"`
-	Sessions  int   `json:"sessions"`
-	Committed int   `json:"committed"`
-	Queued    int   `json:"queued"`
 }
 
 type CommandJarvisStatusRtnData struct {

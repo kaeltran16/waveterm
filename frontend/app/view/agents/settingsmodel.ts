@@ -240,8 +240,8 @@ export function settingsSections(flagRuntime: Runtime): SettingSectionDef[] {
         },
         {
             id: "memory",
-            name: "Memory",
-            blurb: "Where the Memory surface reads and writes.",
+            name: "Vault",
+            blurb: "Where Jarvis reads records, decisions and attachments from.",
             group: "Data",
             rows: [
                 {

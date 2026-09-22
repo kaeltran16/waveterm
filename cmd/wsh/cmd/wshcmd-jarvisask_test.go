@@ -35,19 +35,16 @@ func TestJarvisStatusSubcommandRegistered(t *testing.T) {
 }
 
 func TestRenderCaptureStatusDegradesPerSection(t *testing.T) {
-	empty := renderCaptureStatus(wshrpc.CaptureStatus{NoteCounts: map[string]int{}, DistillQueue: []wshrpc.CwdQueueWire{}})
-	if !strings.Contains(empty, "unavailable") || !strings.Contains(empty, "(empty)") {
-		t.Fatalf("empty render:\n%s\nwant unavailable + empty queue", empty)
+	empty := renderCaptureStatus(wshrpc.CaptureStatus{NoteCounts: map[string]int{}})
+	if !strings.Contains(empty, "unavailable") {
+		t.Fatalf("empty render:\n%s\nwant unavailable index", empty)
 	}
 	full := renderCaptureStatus(wshrpc.CaptureStatus{
-		NoteCounts:     map[string]int{"memory": 406, "tasks": 14, "decisions": 4},
+		NoteCounts:     map[string]int{"tasks": 14, "decisions": 4},
 		IndexAvailable: true,
-		DistillQueue: []wshrpc.CwdQueueWire{{
-			Cwd: "/p", Pending: 2,
-			LastPass: &wshrpc.PassRecordWire{Ts: 1786500000000, Sessions: 3, Committed: 1, Queued: 2},
-		}},
+		Efforts:        wshrpc.CaptureEffortsStatus{Active: 2, ChunksDone: 3, ChunksTotal: 7},
 	})
-	for _, want := range []string{"memory", "406", "available", "/p: 2 pending", "3 sessions, 1 committed, 2 queued"} {
+	for _, want := range []string{"tasks", "14", "available", "2 active", "3 of 7 chunks"} {
 		if !strings.Contains(full, want) {
 			t.Fatalf("full render missing %q:\n%s", want, full)
 		}

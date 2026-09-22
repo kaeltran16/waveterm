@@ -65,7 +65,6 @@ export function deriveKeyContext(): KeyContext {
         globalStore.get(model.paletteOpenAtom) ||
         globalStore.get(model.newAgentOpenAtom) ||
         globalStore.get(model.newProjectOpenAtom) ||
-        globalStore.get(model.memNewOpenAtom) ||
         // the Code file finder is a modal too, and leaving it out was not cosmetic: every Code and
         // global binding stayed live behind it, so Ctrl+N stacked New Agent on top of it and stole
         // focus, and any key the finder's input did not swallow drove the surface underneath.

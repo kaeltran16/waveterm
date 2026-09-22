@@ -16,7 +16,6 @@ import type { PetExpression } from "./petcondition";
 const AT_REST: PetExpression = { kind: "at-rest" };
 const BLIND: PetExpression = { kind: "cannot-see", reason: "off" };
 const TIRED: PetExpression = { kind: "tired", provider: "claude", pct: 92 };
-const DRIFTING: PetExpression = { kind: "drifting", queueDepth: 14 };
 
 const POSTURES = ["none", "review-gate", "escalation", "blocked-worker"] as const;
 
@@ -49,7 +48,7 @@ function light(scene: AvatarScene): number {
 
 describe("moodFor", () => {
     it("gives every expression a themeable tone token, never a literal colour", () => {
-        for (const e of [AT_REST, BLIND, TIRED, DRIFTING]) {
+        for (const e of [AT_REST, BLIND, TIRED]) {
             expect(moodFor(e).toneVar).toMatch(/^--color-/);
         }
     });
@@ -64,23 +63,22 @@ describe("moodFor", () => {
         expect(moodFor(TIRED).energy).toBeLessThan(moodFor(AT_REST).energy);
     });
 
-    it("loses alignment when drifting, which is loss of structure rather than loss of power", () => {
-        expect(moodFor(DRIFTING).align).toBeLessThan(moodFor(TIRED).align);
+    it("loses alignment when it cannot see, which is loss of structure rather than loss of power", () => {
+        expect(moodFor(BLIND).align).toBeLessThan(moodFor(TIRED).align);
     });
 
     it("dims for tired and for nothing else, because only one register is about power", () => {
         // The register table (design doc §3) makes this load-bearing: a depleted rate-limit window is the
-        // one condition defined as dimming. Drifting and cannot-see were both authored below it once, so
-        // decay and blindness borrowed the exhaustion tell — and cannot-see, the most severe register there
-        // is, ended up the faintest of the four.
-        for (const e of [AT_REST, DRIFTING, BLIND]) {
+        // one condition defined as dimming. cannot-see was authored below it once, so blindness borrowed
+        // the exhaustion tell — and cannot-see, the most severe register there is, ended up the faintest.
+        for (const e of [AT_REST, BLIND]) {
             expect(moodFor(e).energy).toBeGreaterThan(moodFor(TIRED).energy);
         }
     });
 
     it("stutters only when something is actually wrong", () => {
         expect(moodFor(AT_REST).jitter).toBe(0);
-        expect(moodFor(BLIND).jitter).toBeGreaterThan(moodFor(DRIFTING).jitter);
+        expect(moodFor(BLIND).jitter).toBeGreaterThan(moodFor(TIRED).jitter);
     });
 });
 
@@ -120,7 +118,7 @@ describe("buildAvatarScene — the form", () => {
     });
 
     it("keeps every primitive alpha within 0..1", () => {
-        for (const expression of [AT_REST, BLIND, TIRED, DRIFTING]) {
+        for (const expression of [AT_REST, BLIND, TIRED]) {
             const scene = buildAvatarScene(input({ expression, utterance: 1, ripple: 0.4, now: 3_100 }));
             for (const s of scene.segments) {
                 expect(s.alpha).toBeGreaterThanOrEqual(0);
@@ -134,7 +132,7 @@ describe("buildAvatarScene — the form", () => {
     });
 
     it("produces no NaN coordinates for any expression or posture", () => {
-        for (const expression of [AT_REST, BLIND, TIRED, DRIFTING]) {
+        for (const expression of [AT_REST, BLIND, TIRED]) {
             for (const posture of POSTURES) {
                 const scene = buildAvatarScene(input({ expression, posture, yaw: 0.4, pitch: -0.2 }));
                 for (const s of scene.segments) {
@@ -180,13 +178,13 @@ describe("buildAvatarScene — the register axes", () => {
     });
 
     it("spreads the three planes apart as alignment falls", () => {
-        // coplanarity IS the drifting register's tell, so it is asserted on the geometry, not on pixels
+        // coplanarity IS the structural tell, so it is asserted on the geometry, not on pixels
         const spread = (expression: PetExpression) => {
             const depths = buildAvatarScene(input({ expression })).segments.map((s) => s.depth);
             return Math.max(...depths) - Math.min(...depths);
         };
-        expect(spread(DRIFTING)).toBeGreaterThan(spread(AT_REST));
-        expect(spread(BLIND)).toBeGreaterThan(spread(DRIFTING));
+        expect(spread(TIRED)).toBeGreaterThan(spread(AT_REST));
+        expect(spread(BLIND)).toBeGreaterThan(spread(TIRED));
     });
 
     it("holds still at rest rather than idling like a spinner", () => {
@@ -250,7 +248,7 @@ describe("buildAvatarScene — the register axes", () => {
             return total / 64;
         };
         const rest = mean(AT_REST);
-        for (const expression of [TIRED, DRIFTING, BLIND]) {
+        for (const expression of [TIRED, BLIND]) {
             expect(mean(expression)).toBeGreaterThan(0.5 * rest);
         }
     });
@@ -278,7 +276,7 @@ describe("buildAvatarScene — presence", () => {
         // The bloom needs somewhere to fall off: a primitive at the border makes the blur clamp against the
         // framebuffer and the avatar wears a visible lighter square. This is the constraint that keeps
         // SPHERE_FRACTION where it is, so it is asserted rather than left as a comment.
-        for (const expression of [AT_REST, BLIND, TIRED, DRIFTING]) {
+        for (const expression of [AT_REST, BLIND, TIRED]) {
             for (const posture of POSTURES) {
                 for (const yaw of [0, 1.6, 3.1, 4.7]) {
                     const scene = buildAvatarScene(

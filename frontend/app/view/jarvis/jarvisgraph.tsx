@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Jarvis vault graph (U3): the wikilink web (task/decision/memory) as the base map, with a task's
-// attributed Run nodes + typed edges blooming in on focus. Forked from memgraph.tsx; shares
-// memgraphlayout.ts. Node positions and the camera persist at module scope so remounts (nav
+// attributed Run nodes + typed edges blooming in on focus. Layout lives in memgraphlayout.ts, which
+// this is now the sole consumer of. Node positions and the camera persist at module scope so remounts (nav
 // switches) resume exactly where you left off; a partial warmup roughs the layout in off-screen and
 // the camera frames the graph from the first live tick, so the remaining cooling plays as a short
 // framed settle instead of an unframed explosion; labels reveal map-style by degree (hubs first)
@@ -20,7 +20,7 @@ import {
     seedPosition,
     truncateTitle,
     type XY,
-} from "@/app/view/agents/memgraphlayout";
+} from "@/app/view/jarvis/memgraphlayout";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { Maximize, Minus, Plus } from "lucide-react";

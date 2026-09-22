@@ -4,12 +4,10 @@
 package jarvisrecall
 
 import (
-	"errors"
 	"strconv"
 	"strings"
 	"testing"
 
-	"github.com/wavetermdev/waveterm/pkg/memvault"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
 
@@ -63,13 +61,6 @@ func TestAssembleCandidatesKeepsARecordAndItsDecisionApart(t *testing.T) {
 	}
 }
 
-func TestMemoryCandidateAddressesTheNote(t *testing.T) {
-	c := memoryCandidate(memvault.Note{ID: "mem-1", Title: "a note"})
-	if c.navTarget != "memnote:mem-1" {
-		t.Fatalf("navTarget = %q, want memnote:mem-1", c.navTarget)
-	}
-}
-
 func TestRadarCandidateAnchorsTheFinding(t *testing.T) {
 	c := radarCandidate(&waveobj.RadarReport{OID: "rr-1", ProjectName: "p"}, waveobj.RadarFinding{ID: "f-1", Risk: "r", Why: "w"})
 	if c.navTarget != "radarreport:rr-1" || c.anchor != "f-1" {
@@ -85,7 +76,7 @@ func TestBuildCardsCarriesTheAnchor(t *testing.T) {
 }
 
 // A node the query actually matched must not be evicted by the maxCandidates cap in favour of
-// neighbours that merely turned up during expansion. Measured against the real corpus: a memory note
+// neighbours that merely turned up during expansion. Measured against the real corpus: a vault node
 // that was the #1 semantic hit for its query reached the seed set and was still dropped before the
 // model saw it, because the nodes expanded around it all happened to be newer.
 func TestOrderCandidatesKeepsSeedsAheadOfNewerNeighbours(t *testing.T) {
@@ -193,22 +184,10 @@ func TestRunCandidate(t *testing.T) {
 	}
 }
 
-func TestMemoryFreshness(t *testing.T) {
-	if memoryFreshness(memvault.Note{}) != "fresh" {
-		t.Error("clean note should be fresh")
-	}
-	if memoryFreshness(memvault.Note{GardenerFlag: "stale"}) != "stale" {
-		t.Error("gardener-flagged note should be stale")
-	}
-	if memoryFreshness(memvault.Note{SupersededBy: "newer-note"}) != "stale" {
-		t.Error("superseded note should be stale")
-	}
-}
-
 func TestBuildCards(t *testing.T) {
 	cands := []candidate{
 		{sourceType: "run", title: "a", project: "p", ts: 500, freshness: "fresh", navTarget: "run:x"},
-		{sourceType: "memory", title: "b", project: "q", ts: 900, freshness: "stale", navTarget: "memory:b"},
+		{sourceType: "radar", title: "b", project: "q", ts: 900, freshness: "stale", navTarget: "radarreport:b"},
 	}
 	cards := buildCards(cands, 1000)
 	if len(cards) != 2 || cards[0].N != 1 || cards[1].N != 2 {
@@ -217,7 +196,7 @@ func TestBuildCards(t *testing.T) {
 	if cards[0].AgeMs != 500 || cards[1].AgeMs != 100 {
 		t.Errorf("buildCards AgeMs wrong: %+v", cards)
 	}
-	if cards[1].SourceType != "memory" || cards[1].Freshness != "stale" {
+	if cards[1].SourceType != "radar" || cards[1].Freshness != "stale" {
 		t.Errorf("buildCards mapping wrong: %+v", cards[1])
 	}
 }
@@ -234,39 +213,5 @@ func TestInScope(t *testing.T) {
 	}
 	if inScope(proj, "run", "/src/other") {
 		t.Error("project scope should exclude a different project")
-	}
-}
-
-func TestGroundingCardsStampsOnlyMemoryTargets(t *testing.T) {
-	var stamped []string
-	old := stampReferences
-	stampReferences = func(ids []string, ts string) error {
-		stamped = append(stamped, ids...)
-		return nil
-	}
-	t.Cleanup(func() { stampReferences = old })
-
-	cands := []candidate{
-		{sourceType: "memory", title: "A", navTarget: "memnote:note-a"},
-		{sourceType: "run", title: "R", navTarget: "run:abc"},
-		{sourceType: "memory", title: "B", navTarget: "memnote:note-b"},
-	}
-	cards := groundingCards(cands, 1000)
-	if len(cards) != 3 {
-		t.Fatalf("groundingCards returned %d cards, want 3 (stamping must not filter)", len(cards))
-	}
-	if len(stamped) != 2 || stamped[0] != "note-a" || stamped[1] != "note-b" {
-		t.Fatalf("stamped = %v, want [note-a note-b]", stamped)
-	}
-}
-
-func TestGroundingCardsStampFailureDoesNotBreakTheAnswer(t *testing.T) {
-	old := stampReferences
-	stampReferences = func(ids []string, ts string) error { return errors.New("disk full") }
-	t.Cleanup(func() { stampReferences = old })
-
-	cards := groundingCards([]candidate{{sourceType: "memory", navTarget: "memnote:x"}}, 1000)
-	if len(cards) != 1 {
-		t.Fatalf("a failed stamp must still return the answer's cards, got %d", len(cards))
 	}
 }

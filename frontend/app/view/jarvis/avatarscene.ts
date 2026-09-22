@@ -150,12 +150,6 @@ const MOODS: Record<PetExpression["kind"], AvatarMood> = {
     // faintest thing the avatar could show. An alarm is bright.
     "cannot-see": { toneVar: "--color-error", energy: 0.95, align: 0.14, jitter: 0.75, spin: 0.85, sever: 0.72 },
     tired: { toneVar: "--color-warning", energy: 0.44, align: 0.8, jitter: 0.03, spin: 0.34, sever: 0 },
-    // Drifting was once authored dimmer than tired — the single register the design table defines as
-    // dimming — so decay borrowed the exhaustion tell and then outdid it. Read against the table it is the
-    // opposite: decay is loss of STRUCTURE, not loss of power, and drifting already owns three structural
-    // tells (align, spin, sever). It keeps its power. Still under at-rest, so that "everything is fine"
-    // stays the brightest thing the avatar can be.
-    drifting: { toneVar: "--color-muted", energy: 0.88, align: 0.4, jitter: 0.1, spin: 0.62, sever: 0.25 },
     // --color-accent rather than the 500 step: at-rest is the tone shown almost all the time, and the 500
     // step (#667ad1 in the default theme) is the closest of the five to the panel it sits on, so the state
     // with the most screen time was also the hardest to see. The error/warning tones already read.

@@ -32,8 +32,6 @@ export interface SelectionSnapshot {
     activeRunIds: Record<string, string | undefined>; // by channel id
     peekRecordId: string | null;
     radarReportId: string | undefined;
-    vaultTab: string;
-    memNoteId: string | null;
 }
 
 // addresses in the openref dialect, so anything reported here can be handed straight back to reveal
@@ -45,8 +43,6 @@ export function selectionFor(surface: SurfaceKey, s: SelectionSnapshot): string[
             return jarvisSelection(s);
         case "radar":
             return s.radarReportId ? [`radarreport:${s.radarReportId}`] : [];
-        case "vault":
-            return vaultSelection(s);
         default:
             return [];
     }
@@ -72,13 +68,6 @@ function jarvisSelection(s: SelectionSnapshot): string[] {
         out.push(peek);
     }
     return out;
-}
-
-function vaultSelection(s: SelectionSnapshot): string[] {
-    if (s.vaultTab === "memory" && s.memNoteId) {
-        return [`memnote:${s.memNoteId}`];
-    }
-    return [];
 }
 
 export function toUiActions(items: CommandItem[]): UiAction[] {

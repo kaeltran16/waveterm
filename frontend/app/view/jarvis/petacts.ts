@@ -15,14 +15,11 @@ import type { PetEventSource } from "./petvoice";
 
 // The closed set of executable operations. Closed rather than open so petactrun.ts's dispatch is
 // exhaustive and a new operation cannot be added without wiring it.
-export type PetOp = { kind: "reconcile-index" } | { kind: "clear-superseded"; count: number };
+export type PetOp = { kind: "reconcile-index" };
 
-// Where an escort lands. An oref goes through openAddress; the two surface targets exist because
-// the Memory cleanup queue and the Settings embeddings section are not addressable as orefs.
-export type PetTarget =
-    | { kind: "oref"; ref: string; anchor?: string }
-    | { kind: "memory-upkeep" }
-    | { kind: "settings-embeddings" };
+// Where an escort lands. An oref goes through openAddress; the surface target exists because the Settings
+// embeddings section is not addressable as an oref.
+export type PetTarget = { kind: "oref"; ref: string; anchor?: string } | { kind: "settings-embeddings" };
 
 // The four arguments askAboutSource already takes, carried as data so this pure module can offer an Ask
 // without importing the impure helper.
@@ -49,30 +46,6 @@ export interface PetActState {
 }
 
 export const RECALL_CATCHUP_ACT_ID = "recall:catchup";
-
-// pkg/memvault/prune.go's one mechanical reason: a note explicitly replaced by another. Every other reason
-// is a judgement about whether the note is still worth keeping, and pruning deletes the file irreversibly.
-const SUPERSEDED = "superseded";
-
-export function actsForVault(candidates: MemoryPruneCandidate[] | null | undefined): PetAct[] {
-    const list = candidates ?? [];
-    if (list.length === 0) {
-        return [];
-    }
-    const acts: PetAct[] = [
-        { id: "vault:review", verb: "open", label: `Review ${list.length}`, target: { kind: "memory-upkeep" } },
-    ];
-    const superseded = list.filter((c) => c.reason === SUPERSEDED).length;
-    if (superseded > 0) {
-        acts.push({
-            id: "vault:clear-superseded",
-            verb: "do",
-            label: `Clear ${superseded} superseded`,
-            op: { kind: "clear-superseded", count: superseded },
-        });
-    }
-    return acts;
-}
 
 // pkg/jarvisembed/status.go's off-reasons split cleanly in two: these two are a flag and a credential,
 // which is a text entry in Settings and not something an operation can fix. Every other off-reason is a
@@ -115,21 +88,10 @@ export function actsForAttention(item: AttentionItem): PetAct[] {
     ];
 }
 
-const MEMNOTE_PREFIX = "memnote:";
-
-// Open and Ask per product. `noteExists` is three-state and passed in rather than read: undefined means
-// "not scanned yet", which must not suppress the button — the memory scan only runs when that surface is
-// visited, so treating unknown as absent would hide almost every Open there is (design §9).
-export function actsForEvent(
-    event: { id: string; sources?: PetEventSource[] },
-    noteExists: (id: string) => boolean | undefined
-): PetAct[] {
+// Open and Ask per product, one pair per source the event carries.
+export function actsForEvent(event: { id: string; sources?: PetEventSource[] }): PetAct[] {
     const acts: PetAct[] = [];
     for (const s of event.sources ?? []) {
-        const noteId = s.ref.startsWith(MEMNOTE_PREFIX) ? s.ref.slice(MEMNOTE_PREFIX.length) : null;
-        if (noteId != null && noteExists(noteId) === false) {
-            continue; // known absent: the landing would only report it, and hiding a dead Open beats offering one
-        }
         acts.push({
             id: `${event.id}:${s.ref}:open`,
             verb: "open",

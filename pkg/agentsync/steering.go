@@ -53,9 +53,9 @@ func blockBefore(existing string) string {
 	return existing[:cut]
 }
 
-// memoryRegion is the ARC-MEMORY projection and everything after it. It belongs to pkg/memvault, not
-// to this package — the Steering tab shows it folded and read-only so a harness file reads as a whole
-// file rather than as the one zone Arc happens to own. Empty when the file carries no memory region.
+// memoryRegion is the ARC-MEMORY projection and everything after it. Nothing writes one any more
+// (pkg/memvault is gone); this preserves a region an older Arc already left on disk so a steering
+// write never clobbers it. Empty when the file carries no memory region.
 func memoryRegion(existing string) string {
 	if idx := strings.Index(existing, memoryBeginMarker); idx >= 0 {
 		return existing[idx:]

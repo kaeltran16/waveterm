@@ -70,43 +70,6 @@ type AgentStatusData struct {
 	Usage          *AgentUsage `json:"usage,omitempty"`
 }
 
-// MemoryActivity kinds — what an unattended memory pass just finished. Until now these passes were
-// logged and nothing else: a gardener sweep archiving notes and a distillation batch writing new ones
-// both happened entirely off-screen.
-//
-// There used to be a third kind, "notes-written", published only when a batch routed something. A batch
-// and the notes it wrote are indeed two facts, but the batch event alone carried nothing openable, so the
-// pair amounted to "I did some work" followed by a count. One event per pass now, carrying the notes it
-// wrote — see MemoryActivityData.Notes.
-const (
-	MemoryActivity_Sweep        = "sweep"         // a gardener pass finished having archived something
-	MemoryActivity_DistillBatch = "distill-batch" // a distillation batch flushed
-)
-
-// MemoryActivityNote is one note a pass wrote, addressable: Id is the vault slug, which is the id the
-// memory scan reports, so the frontend can open it without resolving anything.
-type MemoryActivityNote struct {
-	Id    string `json:"id"`
-	Title string `json:"title"`
-}
-
-// MemoryActivityData is the payload of Event_MemoryActivity. Id is stable per event so a consumer can
-// dedupe a replayed history read against a live subscription against its own watermark. Counts are
-// per-kind: a sweep reports what it archived, and a batch its session count plus what the router
-// committed outright versus queued for review. Queue *depth* is deliberately not here — the level is a
-// separate read; this event is only the transition.
-type MemoryActivityData struct {
-	Kind      string               `json:"kind"`
-	Id        string               `json:"id"`
-	Ts        int64                `json:"ts"`            // UnixMilli
-	Cwd       string               `json:"cwd,omitempty"` // the project hub the pass covered
-	Sessions  int                  `json:"sessions,omitempty"`
-	Committed int                  `json:"committed,omitempty"`
-	Queued    int                  `json:"queued,omitempty"`
-	Archived  int                  `json:"archived,omitempty"`
-	Notes     []MemoryActivityNote `json:"notes,omitempty"` // what the pass wrote; empty means it produced nothing
-}
-
 // VolunteerData is the payload of Event_JarvisVolunteer: one thing Jarvis chose to say unprompted.
 // Id and At are stamped from the FACT (a run's end time, a dossier's last-touched time), never from
 // the moment of emission — the frontend watermark compares At first and breaks ties on Id, so a

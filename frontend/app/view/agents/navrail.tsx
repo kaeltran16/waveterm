@@ -13,7 +13,6 @@ import {
     Radar,
     Settings,
     SquareStack,
-    Vault,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import type { AgentsViewModel, SurfaceKey } from "./agents";
@@ -30,7 +29,6 @@ export const ICON: Record<SurfaceKey, ReactNode> = {
     radar: <Radar {...iconProps} />,
     sessions: <SquareStack {...iconProps} />,
     files: <GitCompare {...iconProps} />,
-    vault: <Vault {...iconProps} />,
     usage: <Gauge {...iconProps} />,
     code: <FileCode2 {...iconProps} />,
     settings: <Settings {...iconProps} />,
@@ -43,7 +41,6 @@ export const ITEMS: { key: SurfaceKey; label: string }[] = [
     { key: "radar", label: "Radar" },
     { key: "sessions", label: "Sessions" },
     { key: "files", label: "Diff" },
-    { key: "vault", label: "Vault" },
     { key: "usage", label: "Usage" },
     { key: "code", label: "Code" },
 ];

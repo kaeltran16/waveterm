@@ -289,9 +289,9 @@ J5 tuning constants (`docs/jarvis-second-brain-open-issues.md` §J5 has the auth
 Other held items (each names its own revive condition in `docs/deferred.md`):
 
 - **S3 proactive extras:** rest-boundary/conversation-turn triggers; global proactive feed; ranked
-  lists; "Ask Jarvis about this" card action. (Auto-promotion to `memory/**` is a v3 boundary, not held.)
+  lists; "Ask Jarvis about this" card action.
 - **Pet:** courier gestures (carry/drop-target — build store + gestures together); higher acting tiers
-  on the creature; `DRIFT_QUEUE_BAND = 5` refit once queue-depth-over-time is recorded.
+  on the creature.
 - **Jarvis Briefing:** generic cross-project progress needs a Wave-owned workstream/milestone contract
   (identity, lifecycle, update authority, staleness) — its own product/data-model session.
 - **Pi Part B:** `wave_create_widget` pi tool + `wsh widget` vdom CLI — when a concrete consumer appears.
@@ -324,8 +324,8 @@ Other held items (each names its own revive condition in `docs/deferred.md`):
 - Codex/OpenAI 5h-window bars — Codex has no such window.
 - Codex subagents + depth>1 subagent nesting — no per-subagent files exist; closed no-go.
 - Usage pricing family-substring drift (historical Opus billed at current tier) — accepted estimate error.
-- v3 embedding boundary: multimodal/image embeddings, reranking models, bundled local model, auto-
-  promotion to `memory/**`, cross-machine sync.
+- v3 embedding boundary: multimodal/image embeddings, reranking models, bundled local model,
+  cross-machine sync.
 - Codex and opencode as run workers (leads/task workers) — declined 2026-09-17: this install only
   uses claude and pi, so there is no consumer to revive it for. Consults still run on both. Recovery
   path if that changes: `docs/deferred.md` 2026-09-14 entry, `git show adfcbebc:...` for the deleted

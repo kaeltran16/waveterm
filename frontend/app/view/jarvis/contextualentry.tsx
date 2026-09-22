@@ -9,7 +9,6 @@
 import { globalStore } from "@/app/store/global";
 import * as WOS from "@/app/store/wos";
 import type { AgentsViewModel } from "../agents/agents";
-import type { MemNote } from "../agents/memtypes";
 import { primeBriefThread } from "./briefingstore";
 import type { JarvisScope, SourceRef, SourceType } from "./jarviscontract";
 
@@ -18,9 +17,6 @@ export function sourceRefForRun(run: Run): SourceRef {
 }
 export function sourceRefForRadar(finding: RadarFinding): SourceRef {
     return { oref: `radar:${finding.id}`, sourceType: "radar", title: finding.risk };
-}
-export function sourceRefForMemory(note: MemNote): SourceRef {
-    return { oref: `memory:${note.id}`, sourceType: "memory", title: note.title };
 }
 // A graph node's id is a bare id for a vault node and already a full oref for a run —
 // ResolveDossierEdges emits RunORef, so the run's id IS its address. Prefixing blindly would produce

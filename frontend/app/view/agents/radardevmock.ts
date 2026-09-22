@@ -44,7 +44,7 @@ const SIGNALS: RadarSignal[] = [
     }),
     signal("s2", "runs", { day: 4, ref: "run-2f9c", summary: "Harden coupon validation — corrected 2×" }),
     signal("s3", "transcript", { day: 8, ref: "agent-77", summary: "3 agents needed correction around this boundary" }),
-    signal("s4", "memory", { day: 9, ref: "mem-12", summary: "project memory: “retries are idempotent” (now stale)" }),
+    signal("s4", "config", { day: 9, ref: "cfg-12", summary: "retry budget raised in config, never lowered back" }),
 ];
 
 const finding = (id: string, group: string, extra: Partial<RadarFinding> = {}): RadarFinding => ({

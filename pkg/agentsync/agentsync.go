@@ -90,8 +90,8 @@ func projectSteering(p Paths, dryRun bool) ([]Action, error) {
 	return actions, nil
 }
 
-// WriteResult mirrors memvault.WriteResult: a conflict means the file changed under the editor and
-// nothing was written.
+// WriteResult is the outcome of a steering write: a conflict means the file changed under the editor
+// and nothing was written.
 type WriteResult struct {
 	Mtime    int64
 	Conflict bool
@@ -117,9 +117,9 @@ func WriteSteering(p Paths, content string, baseMtime int64) (WriteResult, error
 }
 
 // HarnessDoc is one harness's steering file split into the three zones the Steering tab shows: the
-// rules that harness holds of its own, the shared block Arc projects into it, and the memory
-// projection. Own is the only editable zone here — Shared is edited once in the vault, and Memory
-// belongs to pkg/memvault.
+// rules that harness holds of its own, the shared block Arc projects into it, and a legacy memory
+// projection. Own is the only editable zone here — Shared is edited once in the vault, and Memory is
+// inert: nothing writes an ARC-MEMORY region any more, it is only preserved where one already exists.
 type HarnessDoc struct {
 	Runtime string `json:"runtime"`
 	Path    string `json:"path"`
@@ -165,8 +165,8 @@ func ReadHarness(p Paths, runtime string) (HarnessDoc, error) {
 }
 
 // WriteHarnessOwn replaces a harness's own block, leaving every managed region byte-identical: an
-// edit to one harness must not re-render the steering region (that is the sync's job) or disturb the
-// memory region (that is pkg/memvault's). Same mtime guard as WriteSteering.
+// edit to one harness must not re-render the steering region (that is the sync's job) or disturb a
+// legacy memory region left on disk. Same mtime guard as WriteSteering.
 func WriteHarnessOwn(p Paths, runtime, own string, baseMtime int64) (WriteResult, error) {
 	spec, ok := harness.Lookup(runtime)
 	if !ok {

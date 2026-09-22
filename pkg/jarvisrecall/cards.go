@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package jarvisrecall is the Plan-2 recall SHIM behind the Jarvis conversation backend (sub-project F).
-// It retrieves a bounded slice of EXISTING Wave objects (runs, radar findings, memory notes), builds
+// It retrieves a bounded slice of EXISTING Wave objects (runs, radar findings), builds
 // grounding deterministically, and runs one claude synthesis over it. The real recall engine (sub-project
 // C: vault, wikilink traversal, learning store) replaces this behind the same JarvisConverseChunk protocol.
 // This file holds the pure, process-free, DB-free helpers so they are unit-testable in isolation.
@@ -10,15 +10,12 @@ package jarvisrecall
 
 import (
 	"fmt"
-	"log"
 	"path"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
-	"github.com/wavetermdev/waveterm/pkg/memvault"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
@@ -145,27 +142,6 @@ func radarCandidate(rep *waveobj.RadarReport, f waveobj.RadarFinding) candidate 
 	}
 }
 
-func memoryCandidate(n memvault.Note) candidate {
-	return candidate{
-		sourceType: "memory",
-		title:      n.Title,
-		project:    n.Scope,
-		ts:         n.UpdatedTs,
-		freshness:  memoryFreshness(n),
-		navTarget:  "memnote:" + n.ID,
-		snippet:    n.Description,
-	}
-}
-
-// memoryFreshness is the shim's one real freshness signal: the gardener marks stale/drift/duplicate notes
-// and superseded notes, deterministically (pkg/memgarden). Everything else the shim retrieves is fresh.
-func memoryFreshness(n memvault.Note) string {
-	if n.GardenerFlag != "" || n.SupersededBy != "" {
-		return "stale"
-	}
-	return "fresh"
-}
-
 // projectLabel is the basename of a project path, separator-normalized (Run.ProjectPath is raw/backslashed
 // on Windows). Empty in, empty out.
 func projectLabel(p string) string {
@@ -189,36 +165,6 @@ func buildCards(cands []candidate, nowMs int64) []waveobj.JarvisConvoGroundingCa
 			NavTarget:  c.navTarget,
 			Anchor:     c.anchor,
 		})
-	}
-	return cards
-}
-
-// stampReferences is the seam onto memvault's frontmatter stamp, so tests observe the call without
-// a vault on disk.
-var stampReferences = memvault.TouchReferencedByID
-
-// memNotePrefix is the navTarget scheme memoryCandidate writes; the id follows it.
-const memNotePrefix = "memnote:"
-
-// groundingCards builds the answer's cards and records that recall surfaced each memory note in it.
-// Utilization is defined as *surfaced as grounding*, not as cited in prose: grounding membership is
-// deterministic and already computed here, whereas citation counting would make the measurement
-// depend on how the model formatted its answer.
-//
-// The stamp is best-effort. A vault that cannot be written is a lost measurement, never a lost
-// answer, so a failure is logged and the cards are returned regardless.
-func groundingCards(cands []candidate, nowMs int64) []waveobj.JarvisConvoGroundingCard {
-	cards := buildCards(cands, nowMs)
-	var ids []string
-	for _, c := range cands {
-		if c.sourceType == "memory" && strings.HasPrefix(c.navTarget, memNotePrefix) {
-			ids = append(ids, strings.TrimPrefix(c.navTarget, memNotePrefix))
-		}
-	}
-	if len(ids) > 0 {
-		if err := stampReferences(ids, time.Now().UTC().Format(time.RFC3339)); err != nil {
-			log.Printf("[jarvisrecall] stamping %d recalled notes: %v\n", len(ids), err)
-		}
 	}
 	return cards
 }
@@ -300,7 +246,7 @@ func normPath(p string) string {
 // newest-first (ties keep input order for determinism).
 //
 // Recency alone is not a relevance signal, and maxCandidates is a hard truncation: on the real
-// corpus a memory note that was the #1 semantic hit for its query reached the seed set and was still
+// corpus a vault node that was the #1 semantic hit for its query reached the seed set and was still
 // cut before the model saw it, purely because the neighbours expanded around it were newer. A seed
 // matched the question; an expanded node is only a neighbour of something that did. Seeds keep their
 // incoming order, which already encodes L1/L2's structured-then-recency ranking followed by L3's

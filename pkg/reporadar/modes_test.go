@@ -43,10 +43,9 @@ func TestCandidatesForSecurityFiltersPool(t *testing.T) {
 	boundary := newSignal(CollectorStructure, "struct:security-boundary:src/auth/s.ts", 1, []string{"src/auth/s.ts"}, "b", map[string]any{"classes": []string{ClassSecurityBoundary}}, "")
 	noTest := newSignal(CollectorStructure, "struct:no-test:src/x.ts", 1, []string{"src/x.ts"}, "n", map[string]any{"classes": []string{"source-without-test"}}, "")
 	churn := newSignal(CollectorGit, "commit:1", 2, []string{"src/auth/s.ts"}, "c", nil, "")
-	mem := newSignal(CollectorMemory, "mem:1", 3, []string{"src/auth/s.ts"}, "m", nil, "")
 	dep := newSignal(CollectorDependency, "dep:floating:package.json:jsonwebtoken", 1, []string{"package.json"}, "d", map[string]any{"classes": []string{ClassDependencyPin}}, "")
 
-	got := candidatesForMode(ModeSecurity, []waveobj.RadarSignal{boundary, noTest, churn, mem, dep})
+	got := candidatesForMode(ModeSecurity, []waveobj.RadarSignal{boundary, noTest, churn, dep})
 	kept := map[string]bool{}
 	for _, s := range got {
 		kept[s.SourceRef] = true
@@ -54,8 +53,8 @@ func TestCandidatesForSecurityFiltersPool(t *testing.T) {
 	if !kept["struct:security-boundary:src/auth/s.ts"] || !kept["commit:1"] || !kept["dep:floating:package.json:jsonwebtoken"] {
 		t.Fatalf("security selector must keep boundary + churn + dep, got %v", kept)
 	}
-	if kept["struct:no-test:src/x.ts"] || kept["mem:1"] {
-		t.Fatalf("security selector must drop no-test structure + memory noise, got %v", kept)
+	if kept["struct:no-test:src/x.ts"] {
+		t.Fatalf("security selector must drop no-test structure, got %v", kept)
 	}
 }
 

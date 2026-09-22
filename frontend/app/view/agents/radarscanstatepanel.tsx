@@ -6,7 +6,7 @@ import { AlertTriangle, CheckCircle2, Loader2, Radar, XCircle } from "lucide-rea
 import { classifyCoverage, coverageEntries, type CoverageCell, type RadarScanState } from "./radarmodel";
 import { cancelScan, retryClustering, startScan } from "./radarstore";
 
-const COLLECTORS = ["structure", "git", "runs", "transcript", "memory", "config", "dependency"];
+const COLLECTORS = ["structure", "git", "runs", "transcript", "config", "dependency"];
 
 const CELL_TONE: Record<CoverageCell, string> = {
     done: "text-success",
