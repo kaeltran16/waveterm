@@ -53,6 +53,7 @@ type gardener struct {
 	loadStateFn  func() (*gardenState, error)
 	saveStateFn  func(*gardenState) error
 	vaultRootFn  func() string
+	epochFn      func() time.Time
 	state        *gardenState
 	stateLoaded  bool
 
@@ -77,6 +78,7 @@ func newGardener() *gardener {
 		loadStateFn:    defaultLoadState,
 		saveStateFn:    defaultSaveState,
 		vaultRootFn:    memroots.MemoryRoot,
+		epochFn:        memvault.RecallEpoch,
 		llmFn:          runGardenLLM,
 	}
 	g.gardenFn = g.gardenScope
@@ -150,7 +152,7 @@ func (g *gardener) gardenScope(scope string, notes []memvault.NoteWithBody) {
 	}
 
 	// Pillar 1: decay (recall + age).
-	for _, a := range classifyDecay(plain, now, g.staleDays) {
+	for _, a := range classifyDecay(plain, now, g.staleDays, g.epochFn()) {
 		if a.Archive {
 			archive(a.Path, a.Reason)
 		} else if err := g.flagFn(a.Path, a.Reason); err != nil {

@@ -640,6 +640,11 @@ func main() {
 	memdistill.RegisterSweepHook(jarvisvolunteer.SweepLooseEnds)
 	memdistill.RegisterSweepHook(func() {
 		memvault.EnsureRecallEpoch(time.Now())
+		if n, err := memvault.RestoreDecayArchive(); err != nil {
+			log.Printf("memory decay-archive restore: %v", err)
+		} else if n > 0 {
+			log.Printf("memory decay-archive restore: returned %d notes archived on an unfirable signal", n)
+		}
 		if _, _, err := memroots.MigrateVaultToConfiguredRoot(); err != nil {
 			log.Printf("memory vault-path migration: %v", err)
 		}

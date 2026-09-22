@@ -39,21 +39,32 @@ func beforeCutoff(ts string, cutoff time.Time) bool {
 	return err == nil && t.Before(cutoff)
 }
 
-// classifyDecay returns the decay actions for notes as of now. staleDays defines N.
-func classifyDecay(notes []memvault.Note, now time.Time, staleDays int) []DecayAction {
+// classifyDecay returns the decay actions for notes as of now. staleDays defines N. epoch is when
+// recall instrumentation first ran on this installation; a zero epoch means the signal has never
+// been able to fire.
+//
+// The rule the predicate exists to enforce: the absence of a measurement is not evidence of disuse.
+// A never-referenced note is only archive-eligible once the signal itself has been alive for a full
+// window — before that it is flagged into the cleanup queue, exactly like a human note.
+func classifyDecay(notes []memvault.Note, now time.Time, staleDays int, epoch time.Time) []DecayAction {
 	cutoff := now.AddDate(0, 0, -staleDays)
+	signalMature := !epoch.IsZero() && epoch.Before(cutoff)
 	var out []DecayAction
 	for _, n := range notes {
 		if n.SupersededBy != "" {
 			continue // handled by the superseded queue
 		}
-		neverReferenced := n.LastReferenced == ""
-		unusedByRecall := neverReferenced || beforeCutoff(n.LastReferenced, cutoff)
+		stamped := n.LastReferenced != ""
+		unusedByRecall := (stamped && beforeCutoff(n.LastReferenced, cutoff)) ||
+			(!stamped && signalMature)
 		old := ageBeforeCutoff(n, cutoff)
 		switch {
 		case isMachine(n.Source) && unusedByRecall && old:
 			out = append(out, DecayAction{NoteID: n.ID, Path: n.Path, Reason: "decay", Archive: true})
-		case !isMachine(n.Source) && neverReferenced && old:
+		case isMachine(n.Source) && !stamped && old:
+			// the signal is not mature yet: surface the note for human judgment rather than removing it
+			out = append(out, DecayAction{NoteID: n.ID, Path: n.Path, Reason: "stale", Archive: false})
+		case !isMachine(n.Source) && !stamped && old:
 			// the never-referenced-immortal leak, respecting hand-written notes: flag, never archive.
 			out = append(out, DecayAction{NoteID: n.ID, Path: n.Path, Reason: "stale", Archive: false})
 		}

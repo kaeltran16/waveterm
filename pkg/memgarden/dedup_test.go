@@ -3,6 +3,7 @@ package memgarden
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/memvault"
 )
@@ -16,6 +17,9 @@ func testGardener(st *gardenState) *gardener {
 	g := newGardener()
 	g.loadStateFn = func() (*gardenState, error) { return st, nil }
 	g.saveStateFn = func(*gardenState) error { return nil }
+	// pillar expectations here were written for a mature recall signal; pinning it also keeps the
+	// tests off this machine's real epoch file
+	g.epochFn = func() time.Time { return time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC) }
 	return g
 }
 
