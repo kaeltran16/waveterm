@@ -57,6 +57,7 @@ const RUN_GROUP_KINDS = new Set([
     "dag-plan-gated",
     "dag-plan-approved",
     "dag-plan-sent-back",
+    "merge-held",
 ]);
 
 export function buildRunTimeline(run: Run, events: RunEvent[]): { groups: RunTimelineGroup[]; preview: RunEvent[] } {
@@ -132,6 +133,7 @@ const KIND_TITLE: Record<string, string> = {
     "dag-plan-gated": "Plan awaiting your approval",
     "dag-plan-approved": "Plan approved",
     "dag-plan-sent-back": "Plan sent back",
+    "merge-held": "Merges held",
 };
 
 // KIND_TONE stays inside the EXISTING status/phase tone utilities (the same token classes
@@ -173,6 +175,7 @@ const KIND_TONE: Record<string, string> = {
     "lead-exited": "text-warning",
     "worker-exited": "text-warning",
     "task-verify-failed": "text-warning",
+    "merge-held": "text-warning",
     "child-cancelled": "text-muted",
     "run-cancelled": "text-muted",
     "dag-cancelled": "text-muted",
@@ -196,7 +199,15 @@ export function eventTitle(event: RunEvent): string {
 
 // eventText is one row as every timeline says it: its title, naming the task it is about and what was asked or told.
 export function eventText(event: RunEvent): string {
-    const d = detailOf<{ taskid?: string; by?: string; note?: string; question?: string; text?: string }>(event);
+    const d = detailOf<{
+        taskid?: string;
+        by?: string;
+        note?: string;
+        question?: string;
+        text?: string;
+        held?: number;
+        reason?: string;
+    }>(event);
     const task = d?.taskid ?? "";
     switch (event.kind) {
         case "task-forwarded":
@@ -209,6 +220,8 @@ export function eventText(event: RunEvent): string {
             return `${task} answered`;
         case "task-told":
             return [`you told ${task}`, d?.text?.replace(/\s+/g, " ")].filter(Boolean).join(" · ");
+        case "merge-held":
+            return [`${d?.held ?? 0} merge(s) held`, d?.reason].filter(Boolean).join(" · ");
         default:
             return task ? `${eventTitle(event)} · ${task}` : eventTitle(event);
     }

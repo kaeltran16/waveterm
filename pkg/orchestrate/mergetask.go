@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
+	"github.com/wavetermdev/waveterm/pkg/util/ds"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
@@ -354,6 +355,8 @@ func AutoMergeReady(ctx context.Context, dagID string) {
 	}
 	ready := autoMergeable(g)
 	if len(ready) == 0 {
+		// nothing is waiting, so nothing is held — including when the merges landed by another path
+		noteMergesHeld(ctx, g, 0)
 		return
 	}
 	owner, err := wstore.GetRun(ctx, g.ChannelId, g.RunID)
@@ -364,6 +367,7 @@ func AutoMergeReady(ctx context.Context, dagID string) {
 		err := mergeTaskEntry(ctx, g.ChannelId, owner.ID, taskID, true)
 		switch {
 		case err == nil, errors.Is(err, ErrMergeConflict):
+			noteMergesHeld(ctx, g, 0)
 		case errors.Is(err, errProjectBusy):
 			// a landing holds the checkout; its Verify ticks the dag when it finishes
 			return
@@ -371,11 +375,33 @@ func AutoMergeReady(ctx context.Context, dagID string) {
 			// the human is mid-edit in the project tree; the tasks stay merge-ready for them and
 			// the next tick retries. Reported once per tick, not once per task.
 			log.Printf("dag %s: holding %d merge(s), project index is not clean", g.ID, len(ready))
+			noteMergesHeld(ctx, g, len(ready))
 			return
 		default:
 			log.Printf("dag %s: auto-merging task %s: %v", g.ID, taskID, err)
 		}
 	}
+}
+
+// mergesHeld remembers which dags are currently holding their merges on a dirty index, so the hold is
+// recorded when it STARTS rather than on every tick. In memory only: a restart re-reports a hold that is
+// still in force, which is the harmless direction — the alternative is a hold nobody is ever told about.
+var mergesHeld = ds.MakeSyncMap[bool]()
+
+// noteMergesHeld records the transition into holding merges on a dirty project index. held is how many
+// merges are waiting, 0 to clear. SetUnless is the transition: only the publish that claims the key
+// records a row, so re-entering this every tick says nothing further.
+func noteMergesHeld(ctx context.Context, g *waveobj.TaskGroup, held int) {
+	if held == 0 {
+		mergesHeld.Delete(g.OID)
+		return
+	}
+	if !mergesHeld.SetUnless(g.OID, true) {
+		return
+	}
+	appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindMergeHeld, nil, map[string]any{
+		"held": held, "reason": errIndexNotClean.Error(),
+	})
 }
 
 // autoMergeable lists the lanes that can be landed without asking anyone, by their tip: every task

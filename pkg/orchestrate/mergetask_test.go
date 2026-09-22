@@ -468,3 +468,33 @@ func TestConflictAwaitingContinueHoldsOtherMerges(t *testing.T) {
 		t.Fatalf("t-1 credited %q, want its own commit", c.EndCommit)
 	}
 }
+
+func TestHoldingMergesOnADirtyIndexIsRecordedOncePerHold(t *testing.T) {
+	f := newMergeFixture(t, []waveobj.TaskNode{{ID: "t-0", Label: "first"}})
+	f.finish(t, "t-0")
+	stubMerge(t, landedSha)
+	t.Cleanup(func() { mergesHeld.Delete(f.dagID) })
+
+	// the human is mid-edit in the project checkout: the squash would commit their staged work
+	os.WriteFile(filepath.Join(f.project, "mine.txt"), []byte("wip\n"), 0o644)
+	gitCmd(t, f.project, "add", "mine.txt")
+
+	AutoMergeReady(f.ctx, f.dagID)
+	AutoMergeReady(f.ctx, f.dagID)
+	if got := countEvents(t, f.ctx, f.channel, f.ownerID, waveobj.RunEventKindMergeHeld); got != 1 {
+		t.Fatalf("a hold is recorded once, not once per tick, got %d events", got)
+	}
+	if task := f.dag(t).Tasks[0]; task.Merged {
+		t.Fatal("a dirty index must hold the merge, not land it")
+	}
+
+	// staged work put back: the merge lands and the hold clears, so a later hold is reported again
+	gitCmd(t, f.project, "reset", "--", "mine.txt")
+	AutoMergeReady(f.ctx, f.dagID)
+	if task := f.dag(t).Tasks[0]; !task.Merged {
+		t.Fatalf("a clean index lands the merge, got state %s", task.State)
+	}
+	if mergesHeld.Get(f.dagID) {
+		t.Fatal("a landed merge clears the hold")
+	}
+}

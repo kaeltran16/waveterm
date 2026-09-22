@@ -82,6 +82,12 @@ const (
 	RunEventKindTaskVerifyStarted = "task-verify-started"
 	RunEventKindTaskVerifyPassed  = "task-verify-passed"
 	RunEventKindTaskVerifyFailed  = "task-verify-failed"
+
+	// merge-held: the engine is holding every ready merge because the project index is not clean, which
+	// is the human mid-edit in the checkout ("held" int, "reason"). Recorded once per transition, not per
+	// tick. Without it the halt reaches nobody: the tasks stay merge-ready and the digest keeps offering
+	// resolve-merge, while the automatic path refuses every tick for a reason only the server log holds.
+	RunEventKindMergeHeld = "merge-held"
 )
 
 // Detail payload keys per kind (values are built as map[string]any by writers):
