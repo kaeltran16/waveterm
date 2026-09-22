@@ -10,7 +10,7 @@ export type OpenTarget =
     | { kind: "channel"; channelId: string; runId?: string }
     | { kind: "run"; runId: string }
     | { kind: "agent"; tabId: string }
-    | { kind: "record"; dossierId: string; anchor?: string; view: "peek" | "vault" }
+    | { kind: "record"; dossierId: string; anchor?: string }
     | { kind: "memory-note"; noteId: string }
     | { kind: "effort"; effortId: string }
     | { kind: "radar"; reportId: string; findingId?: string };
@@ -39,7 +39,7 @@ export function parseAddress(address: string, hint?: AddressHint): OpenTarget | 
         case "agent":
             return { kind: "agent", tabId: id };
         case "task":
-            return { kind: "record", dossierId: id, anchor, view: "peek" };
+            return { kind: "record", dossierId: id, anchor };
         case "memnote":
         case "memory":
             return { kind: "memory-note", noteId: id };
@@ -58,7 +58,7 @@ export function parseAddress(address: string, hint?: AddressHint): OpenTarget | 
 // a decision, whose record the card never recorded.
 function parseVaultNode(id: string, sourceType: string | undefined): OpenTarget | Unsupported {
     if (sourceType == null || sourceType === "" || sourceType === "dossier") {
-        return { kind: "record", dossierId: id, view: "peek" };
+        return { kind: "record", dossierId: id };
     }
     if (sourceType === "memory") {
         return { kind: "memory-note", noteId: id };

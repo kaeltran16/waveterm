@@ -11,14 +11,14 @@ describe("parseAddress", () => {
         ["tab:t-1", undefined, { kind: "agent", tabId: "t-1" }],
         // effort WorkRefs persist the older agent: spelling
         ["agent:t-1", undefined, { kind: "agent", tabId: "t-1" }],
-        ["task:d-1", undefined, { kind: "record", dossierId: "d-1", view: "peek" }],
+        ["task:d-1", undefined, { kind: "record", dossierId: "d-1" }],
         [
             "task:d-1",
             { sourceType: "decision", anchor: "dec-1" },
-            { kind: "record", dossierId: "d-1", anchor: "dec-1", view: "peek" },
+            { kind: "record", dossierId: "d-1", anchor: "dec-1" },
         ],
         // an empty anchor is no anchor, not a highlight of nothing
-        ["task:d-1", { anchor: "" }, { kind: "record", dossierId: "d-1", view: "peek" }],
+        ["task:d-1", { anchor: "" }, { kind: "record", dossierId: "d-1" }],
         ["memnote:m-1", undefined, { kind: "memory-note", noteId: "m-1" }],
         // recall's pre-canonical memory citations, still in persisted conversation turns
         ["memory:m-1", undefined, { kind: "memory-note", noteId: "m-1" }],
@@ -39,9 +39,8 @@ describe("parseAddress", () => {
             expect(parseAddress("vault:d-1", { sourceType: "dossier" })).toEqual({
                 kind: "record",
                 dossierId: "d-1",
-                view: "peek",
             });
-            expect(parseAddress("vault:d-1")).toEqual({ kind: "record", dossierId: "d-1", view: "peek" });
+            expect(parseAddress("vault:d-1")).toEqual({ kind: "record", dossierId: "d-1" });
         });
 
         it("opens a memory node as its note", () => {

@@ -25,7 +25,6 @@ const empty: SelectionSnapshot = {
     peekRecordId: null,
     radarReportId: undefined,
     vaultTab: "memory",
-    vaultRecordId: null,
     memNoteId: null,
 };
 
@@ -73,10 +72,10 @@ describe("selectionFor", () => {
     });
 
     it("reports only the visible vault tab's selection", () => {
-        const s = { ...empty, vaultRecordId: "d1", memNoteId: "n1" };
-        expect(selectionFor("vault", { ...s, vaultTab: "records" })).toEqual(["task:d1"]);
+        const s = { ...empty, memNoteId: "n1" };
         expect(selectionFor("vault", { ...s, vaultTab: "memory" })).toEqual(["memnote:n1"]);
         expect(selectionFor("vault", { ...s, vaultTab: "skills" })).toEqual([]);
+        expect(selectionFor("vault", { ...s, vaultTab: "steering" })).toEqual([]);
     });
 
     it("reports nothing on surfaces without an addressed selection, whatever else is set", () => {

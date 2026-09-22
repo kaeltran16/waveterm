@@ -16,7 +16,7 @@ import { DefaultRouter } from "@/app/store/wshrpcutil";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { memSelectedIdAtom } from "@/app/view/agents/memstore";
 import { currentReportIdAtom } from "@/app/view/agents/radarstore";
-import { vaultRecordIdAtom, vaultTabAtom } from "@/app/view/agents/vaultstore";
+import { vaultTabAtom } from "@/app/view/agents/vaultstore";
 import { briefPeekRecordAtom } from "@/app/view/jarvis/jarvisstore";
 import { activeRunIdAtom, activeSubjectAtom } from "@/app/view/jarvis/jarvissubjectstore";
 import { openAddress } from "@/app/view/jarvis/openref";
@@ -127,7 +127,6 @@ class CockpitUiClient extends WshClient {
             peekRecordId: globalStore.get(briefPeekRecordAtom),
             radarReportId: globalStore.get(currentReportIdAtom),
             vaultTab: globalStore.get(vaultTabAtom),
-            vaultRecordId: globalStore.get(vaultRecordIdAtom),
             memNoteId: globalStore.get(memSelectedIdAtom),
         };
     }

@@ -42,7 +42,7 @@ import {
     radarScopeAtom,
     radarSelectedIdAtom,
 } from "../agents/radarstore";
-import { vaultRecordIdAtom, vaultRecordPaneAtom, vaultTabAtom } from "../agents/vaultstore";
+import { vaultTabAtom } from "../agents/vaultstore";
 import { briefPeekRecordAtom, briefSheetOpenAtom } from "./jarvisstore";
 import { activeRunIdAtom, activeSubjectAtom, recordDetailAtom } from "./jarvissubjectstore";
 import { openAddress, openTarget } from "./openref";
@@ -124,8 +124,6 @@ beforeEach(() => {
     globalStore.set(activeSubjectAtom, null);
     globalStore.set(activeRunIdAtom, {});
     globalStore.set(recordDetailAtom, {});
-    globalStore.set(vaultRecordIdAtom, null);
-    globalStore.set(vaultRecordPaneAtom, "list");
     globalStore.set(vaultTabAtom, "memory");
 });
 
@@ -249,17 +247,15 @@ describe("record landing", () => {
         expect("reason" in result ? result.message : "").toContain("record task-a");
     });
 
-    it("opens a record in the Vault, on the detail pane, without leaving the peek behind", async () => {
+    it("a record target opens the Brief peek rather than a Vault tab", async () => {
         const model = makeModel();
         globalStore.set(taskListAtom, [{ id: "task-a" } as SpaceSummary]);
-        globalStore.set(briefPeekRecordAtom, "task-a");
         rpc.GetDossierCommand.mockResolvedValue({ id: "task-a", status: "active", decisions: [] });
-        expect(await openTarget(model, { kind: "record", dossierId: "task-a", view: "vault" })).toEqual({ ok: true });
-        expect(globalStore.get(vaultRecordIdAtom)).toBe("task-a");
-        expect(globalStore.get(vaultRecordPaneAtom)).toBe("detail");
-        expect(globalStore.get(vaultTabAtom)).toBe("records");
-        expect(globalStore.get(briefPeekRecordAtom)).toBeNull();
-        expect(globalStore.get(model.surfaceAtom)).toBe("vault");
+        expect(await openTarget(model, { kind: "record", dossierId: "task-a" })).toEqual({ ok: true });
+        expect(globalStore.get(briefPeekRecordAtom)).toBe("task-a");
+        // the Vault is left untouched on the tab it was already showing: it has no record index to land on
+        expect(globalStore.get(vaultTabAtom)).toBe("memory");
+        expect(globalStore.get(model.surfaceAtom)).toBe("jarvis");
         await vi.waitFor(() => expect(globalStore.get(recordDetailAtom)["task-a"]).toBeDefined());
     });
 });

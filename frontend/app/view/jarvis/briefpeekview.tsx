@@ -5,8 +5,8 @@
 // no Stage, so this is where a record oref lands (see openref.ts's task arm).
 //
 // It is deliberately the smaller half of the meta spec's §2 line: what is running against the record and
-// what you set it to, and nothing else. Its full history, decision log and past corrections are Vault's,
-// and the footer says so rather than leaving the reader to wonder what is missing.
+// what you set it to, and nothing else. Its full history, decision log and past corrections belong to the
+// record as a Brief subject, and the footer says so rather than leaving the reader to wonder what is missing.
 //
 // Everything shown is derived in briefpeek.ts. This file mounts it, loads the two caches it reads, and
 // owns the one write on it.
@@ -32,7 +32,7 @@ import {
     recordRunsAtom,
     recordScopeAtom,
 } from "./jarvissubjectstore";
-import { openAddress, openTarget } from "./openref";
+import { openAddress } from "./openref";
 import { setDossierStatus } from "./recordactions";
 
 // Same vocabulary and same tones as taskdetail.tsx's chip, on purpose: the status is the one field scanned
@@ -236,8 +236,8 @@ export function BriefPeek({ model }: { model: AgentsViewModel }) {
                                 )}
                             </div>
                             <div className="flex flex-wrap items-center gap-2">
-                                {/* a label, not a button: appending a decision is Vault's half of the line, so
-                                    this states the count and stops there. */}
+                                {/* a label, not a button: the peek reports the count and the Brief owns the log,
+                                    so this states it and stops there. */}
                                 <span className="rounded-[6px] border border-edge-faint px-2.5 py-1 font-mono text-[11px] text-ink-mid">
                                     {peek.logLine}
                                 </span>
@@ -245,26 +245,10 @@ export function BriefPeek({ model }: { model: AgentsViewModel }) {
                                     {peek.absenceChip}
                                 </span>
                             </div>
-                            {/* The peek's two exits. The map button closes the peek first: the graph peek is an
-                                overlay on the surface, and leaving the record modal up over it would stack two
-                                modals, both claiming Escape. */}
+                            {/* The peek's one exit. It closes the peek first: the graph peek is an overlay on the
+                                surface, and leaving the record modal up over it would stack two modals, both
+                                claiming Escape. */}
                             <div className="flex items-center gap-2">
-                                <button
-                                    type="button"
-                                    data-jarvis-peek-open-vault
-                                    onClick={() => {
-                                        if (recordId != null) {
-                                            void openTarget(model, {
-                                                kind: "record",
-                                                dossierId: recordId,
-                                                view: "vault",
-                                            });
-                                        }
-                                    }}
-                                    className="cursor-pointer rounded-[6px] border border-border bg-surface-raised px-2.5 py-1 font-mono text-[10.5px] font-semibold text-ink-mid hover:border-accent/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                                >
-                                    Open in Vault
-                                </button>
                                 <button
                                     type="button"
                                     data-jarvis-peek-open-graph

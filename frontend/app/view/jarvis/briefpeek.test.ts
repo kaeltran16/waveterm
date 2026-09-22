@@ -137,14 +137,14 @@ describe("buildRecordPeek", () => {
         expect(peek.runs[0].tone).toBe("blocked");
     });
 
-    it("derives the decision count and points it at Vault", () => {
+    it("derives the decision count and points it at the Brief", () => {
         expect(buildRecordPeek(input()).logLine).toBe("no decisions yet");
         expect(
             buildRecordPeek(input({ detail: detail({ decisions: [{}] as unknown as DecisionCard[] }) })).logLine
-        ).toBe("1 decision · in Vault");
+        ).toBe("1 decision · on the Brief");
         expect(
             buildRecordPeek(input({ detail: detail({ decisions: [{}, {}] as unknown as DecisionCard[] }) })).logLine
-        ).toBe("2 decisions · in Vault");
+        ).toBe("2 decisions · on the Brief");
     });
 
     // the structural absence the meta spec asks the peek to state outright
@@ -155,7 +155,7 @@ describe("buildRecordPeek", () => {
 
     it("states the read/write split in its footer", () => {
         const footer = buildRecordPeek(input()).footer;
-        expect(footer).toContain("Vault");
+        expect(footer).toContain("on the Brief");
         expect(footer).toContain("decision log");
     });
 });

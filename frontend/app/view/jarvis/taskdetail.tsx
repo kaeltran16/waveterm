@@ -6,10 +6,9 @@ import { cn } from "@/util/util";
 import { Lock } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { DecisionLog } from "./decisionlog";
+import { setDossierStatus } from "./recordactions";
 import { STAGE_GUTTER } from "./stagemeasure";
 import { allowedTransitions, isTerminalTransition } from "./tasksderive";
-import { setDossierStatus } from "./recordactions";
-import { recordTimelineMeta } from "../agents/vaultrecordsmodel";
 
 // A machine-maintained region: muted panel + a lock glyph, non-editable. The visible expression of
 // the write-ownership model's inside-Wave tier (spec §4).
@@ -97,19 +96,16 @@ function StatusControl({ dossierId, status }: { dossierId: string; status: strin
 // showDecisions=false when the caller renders the decision log itself: on the merged surface a dossier
 // subject's record band shows the record's fields while its thread below owns the record's activity.
 //
-// statusWritable=false is the Vault's read: this surface is the only B3 status-write surface, so the
-// transitions must not render twice. showTimeline is Vault-only too — created/updated are record metadata,
-// not something the Stage's live triage reads.
+// statusWritable=false is a read-only mount: a caller that writes the status itself must not render the
+// transitions twice.
 export function TaskDetail({
     detail,
     showDecisions = true,
     statusWritable = true,
-    showTimeline = false,
 }: {
     detail: DossierDetail;
     showDecisions?: boolean;
     statusWritable?: boolean;
-    showTimeline?: boolean;
 }) {
     // The dossier scaffold seeds an empty "## Notes" heading; the read projection keeps it. Strip that
     // redundant leading heading so the FE's own "Notes" section is the only heading and a dossier with
@@ -121,7 +117,6 @@ export function TaskDetail({
     const blockers = detail.blockers ?? [];
     const refs = detail.refs ?? [];
     const decisions = detail.decisions ?? [];
-    const timeline = showTimeline ? recordTimelineMeta(detail) : null;
     return (
         <div className={cn(STAGE_GUTTER, "py-6")}>
             <div className="mb-5">
@@ -152,11 +147,6 @@ export function TaskDetail({
                         </span>
                     ) : null}
                     {statusWritable ? <StatusControl dossierId={detail.id} status={detail.status} /> : null}
-                    {timeline ? (
-                        <span data-record-timeline className="font-mono text-[11px]">
-                            {timeline.created} · {timeline.updated}
-                        </span>
-                    ) : null}
                 </div>
             </div>
 

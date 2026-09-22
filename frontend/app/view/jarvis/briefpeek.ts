@@ -3,8 +3,9 @@
 //
 // What the record peek says. The peek is deliberately the smaller half of a line the meta spec draws: what
 // is running against a record and what you set it to are Brief business, so they are here; its full
-// history, its decision log and every past correction are Vault's. So this module derives exactly those
-// two things plus the sentences that state the split, and nothing else the record carries.
+// history, its decision log and every past correction belong to the record as a Brief subject. So this
+// module derives exactly those two things plus the sentences that state the split, and nothing else the
+// record carries.
 //
 // Pure: DossierDetail + the runs attributed to it + the fleet rollup in, strings and rows out. Every
 // number here is derived from the rows beneath it (invariant 5), and nothing claims a reading the record
@@ -72,7 +73,7 @@ export const PEEK_ABSENCE_CHIP = "Record · you cannot message one. Ask in the c
 
 export const PEEK_FOOTER =
     "What runs against it and what you set it to are brief business, so they are here. Its full history, " +
-    "its decision log and every past correction live on the Vault surface.";
+    "its decision log and every past correction live on the Brief, with the record as its subject.";
 
 const RUNS_ABSENT = "No session has ever been attributed to this record.";
 
@@ -112,7 +113,7 @@ function logLine(n: number): string {
     if (n === 0) {
         return "no decisions yet";
     }
-    return `${n} decision${n === 1 ? "" : "s"} · in Vault`;
+    return `${n} decision${n === 1 ? "" : "s"} · on the Brief`;
 }
 
 export interface RecordPeekInput {

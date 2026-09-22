@@ -33,7 +33,6 @@ export interface SelectionSnapshot {
     peekRecordId: string | null;
     radarReportId: string | undefined;
     vaultTab: string;
-    vaultRecordId: string | null;
     memNoteId: string | null;
 }
 
@@ -76,9 +75,6 @@ function jarvisSelection(s: SelectionSnapshot): string[] {
 }
 
 function vaultSelection(s: SelectionSnapshot): string[] {
-    if (s.vaultTab === "records" && s.vaultRecordId) {
-        return [`task:${s.vaultRecordId}`];
-    }
     if (s.vaultTab === "memory" && s.memNoteId) {
         return [`memnote:${s.memNoteId}`];
     }

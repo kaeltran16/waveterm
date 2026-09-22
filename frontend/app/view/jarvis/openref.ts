@@ -16,7 +16,7 @@ import { jumpToAgent } from "../agents/channelsprimitives";
 import { selectChannel } from "../agents/channelsstore";
 import { loadMemory, memErrorAtom, memNotesAtom, selectNote } from "../agents/memstore";
 import { initRadarScope, radarScopeAtom, radarSelectedIdAtom, scopeOfReport, selectReport } from "../agents/radarstore";
-import { vaultFocusAtom, vaultRecordIdAtom, vaultRecordPaneAtom, vaultTabAtom } from "../agents/vaultstore";
+import { vaultFocusAtom, vaultTabAtom } from "../agents/vaultstore";
 import { parseAddress, type AddressHint, type OpenTarget } from "./address";
 import { briefPeekRecordAtom, briefSheetOpenAtom } from "./jarvisstore";
 import { loadRecordDetail, selectSubject, setActiveRunId } from "./jarvissubjectstore";
@@ -200,14 +200,18 @@ async function landRecord(model: AgentsViewModel, target: RecordTarget, current:
             return loadError != null ? failed(target, loadError) : unavailable("That record no longer exists");
         }
     }
-    if (target.view === "vault") {
-        openRecordInVault(model, target.dossierId);
-        return OK;
-    }
     globalStore.set(pendingDecisionAnchorAtom, target.anchor ?? null);
-    globalStore.set(briefPeekRecordAtom, target.dossierId);
+    openRecordPeek(target.dossierId);
     globalStore.set(model.surfaceAtom, "jarvis");
     return OK;
+}
+
+// A record's home is the Brief peek: it is the only surface that writes a record's status, so it was always
+// the authoritative view. The Vault's second, read-only index is gone. Detail is loaded before the surface
+// flips so the peek mounts on the record rather than on its own empty frame.
+function openRecordPeek(dossierId: string): void {
+    loadRecordDetail(dossierId);
+    globalStore.set(briefPeekRecordAtom, dossierId);
 }
 
 // The same refresh on a miss as a record: memory is scanned when the Vault is visited, so a note learned since
@@ -282,18 +286,4 @@ export async function openChannelSheet(channelId: string, runId: string | null):
 function openEffortSheet(effortId: string): void {
     selectSubject({ kind: "effort", id: effortId });
     globalStore.set(briefSheetOpenAtom, true);
-}
-
-// The Vault's record landing. The peek means "show me this record"; this means "go to where it lives", and a
-// record target names the view it wants rather than one quietly replacing the other.
-//
-// Selection and pane are set BEFORE the surface flips so the Vault mounts on the record rather than on an empty
-// index, and the peek is cleared so the modal does not reappear over the surface the user asked for.
-function openRecordInVault(model: AgentsViewModel, dossierId: string): void {
-    globalStore.set(vaultRecordIdAtom, dossierId);
-    globalStore.set(vaultRecordPaneAtom, "detail");
-    loadRecordDetail(dossierId);
-    globalStore.set(briefPeekRecordAtom, null);
-    globalStore.set(vaultTabAtom, "records");
-    globalStore.set(model.surfaceAtom, "vault");
 }

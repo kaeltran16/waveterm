@@ -18,7 +18,6 @@ import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { useEffect, useMemo, useState } from "react";
-import { loadTaskList, taskListAtom } from "../jarvis/tasksstore";
 import { resolveCwd } from "./agentcwdresolve";
 import type { AgentsViewModel } from "./agents";
 import {
@@ -41,7 +40,6 @@ import { VaultLine } from "./vaultline";
 import { VaultMemory } from "./vaultmemory";
 import { VaultRail } from "./vaultrail";
 import { VaultReader } from "./vaultreader";
-import { VaultRecords } from "./vaultrecords";
 import { VaultSkills } from "./vaultskills";
 import { VaultSteering } from "./vaultsteering";
 import {
@@ -84,21 +82,15 @@ function Footer() {
     const archived = useAtomValue(memArchivedAtom);
     const harnesses = useAtomValue(vaultHarnessesAtom);
     const skills = useAtomValue(vaultSkillsAtom);
-    const records = useAtomValue(taskListAtom);
     const steeringPath = useAtomValue(vaultSteeringPathAtom);
     const present = harnesses.filter((h) => h.present).length;
-    // one total, not the four states the collection line already breaks out — the footer is the line that
-    // stays stable while the cluster's counts come and go
-    const recordsLine = records == null ? "loading records…" : `${records.length} records`;
     const left =
         status ||
         (tab === "memory"
             ? `${notes.length} notes · ${prune.length} to clean up · ${archived.length} archived`
             : tab === "steering"
               ? `shared steering · ${present} harness${present === 1 ? "" : "es"} installed`
-              : tab === "records"
-                ? recordsLine
-                : `${skills.length} skills · ${harnesses.reduce((n, h) => n + h.skillsunmanaged, 0)} unmanaged`);
+              : `${skills.length} skills · ${harnesses.reduce((n, h) => n + h.skillsunmanaged, 0)} unmanaged`);
     return (
         <div className="flex flex-none items-center gap-[12px] border-t border-edge-faint px-[24px] py-[7px] font-mono text-[10.5px] text-ink-faint">
             <span className="truncate">{left}</span>
@@ -159,9 +151,6 @@ export function VaultSurface({ model }: { model: AgentsViewModel }) {
         // harness drift from the moment the Vault opens, whichever collection you land on
         fireAndForget(() => loadSync());
         fireAndForget(() => loadSkills());
-        // same reason: the records tab count on the collection line is stale the moment a dossier is written
-        // from the Brief peek, so the list loads with the surface rather than behind the tab
-        loadTaskList();
     }, [vaultPath]);
 
     const subtitle =
@@ -169,9 +158,7 @@ export function VaultSurface({ model }: { model: AgentsViewModel }) {
             ? `${notes.length} saved · ${pending.length} pending review`
             : tab === "steering"
               ? "one shared doc, plus what each harness holds of its own"
-              : tab === "records"
-                ? "every dossier, kept by status with its full decision history"
-                : `${skills.length} skills, written into every harness`;
+              : `${skills.length} skills, written into every harness`;
 
     return (
         <MotionConfig reducedMotion="user">
@@ -189,13 +176,7 @@ export function VaultSurface({ model }: { model: AgentsViewModel }) {
                                         globalStore.set(memSearchAtom, e.target.value);
                                         globalStore.set(memReflowAnimatedAtom, false);
                                     }}
-                                    placeholder={
-                                        tab === "memory"
-                                            ? "Search notes and the queue…"
-                                            : tab === "records"
-                                              ? "Search records…"
-                                              : "Search the vault…"
-                                    }
+                                    placeholder={tab === "memory" ? "Search notes and the queue…" : "Search the vault…"}
                                     className="w-[240px] rounded-[9px] border border-border bg-surface px-[12px] py-[7px] text-[12.5px] text-foreground outline-none placeholder:text-muted"
                                 />
                                 {tab === "memory" && (
@@ -219,8 +200,7 @@ export function VaultSurface({ model }: { model: AgentsViewModel }) {
                             onRetry={() => fireAndForget(() => loadMemory())}
                         />
                     ) : null}
-                    {/* steering and skills read through the same rpc domain, so one banner serves both. Records
-                        read through the dossier domain and carry their own banner in the pane. */}
+                    {/* steering and skills read through the same rpc domain, so one banner serves both */}
                     {syncError && (tab === "steering" || tab === "skills") ? (
                         <div className="flex-none border-b border-error/30 bg-error/10 px-[24px] py-[7px] text-[12px] text-error">
                             {syncError}
@@ -248,8 +228,6 @@ export function VaultSurface({ model }: { model: AgentsViewModel }) {
                                     )
                                 ) : tab === "steering" ? (
                                     <VaultSteering />
-                                ) : tab === "records" ? (
-                                    <VaultRecords />
                                 ) : (
                                     <VaultSkills />
                                 )}
@@ -261,9 +239,7 @@ export function VaultSurface({ model }: { model: AgentsViewModel }) {
                     </div>
                     <Footer />
                 </div>
-                {/* the record detail is already the right-hand pane of the split ledger, so the rail would be
-                    a second one — and its memory/skill sections have nothing to say about a record */}
-                {tab !== "records" && <VaultRail model={model} />}
+                <VaultRail model={model} />
                 {newOpen && (
                     <NewMemoryModal
                         onClose={() => globalStore.set(model.memNewOpenAtom, false)}
