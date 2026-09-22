@@ -477,17 +477,22 @@ Two engine changes would close these gaps:
 The run merged to `main` as `cf2fe485`. This list is the single record of what it left open; the rows it
 closed in `docs/open-issues.md` point here.
 
-- **Four fixes still need a live check in the dev app.** Restart `task dev` on the merged `main` first. Three
-  of the four are backend changes, and a `wavesrv` started before the merge doesn't have them.
+- **Four fixes needed a live check in the dev app; all four passed on 2026-09-21.** Restart `task dev` on the
+  merged `main` before re-running any of them — three are backend changes, and a `wavesrv` started before the
+  merge doesn't have them.
   - **F25, hung agents** (`1f116196`): freeze a Claude Code agent mid-work, for example by suspending its
-    process. After 3 minutes its row should read `hung · no output Nm`.
+    process. After 3 minutes its row should read `hung · no output Nm`. **Passed**, firing at ~2m45s of true
+    silence: the displayed stamp leads real silence by up to the 30s publish throttle, which errs toward
+    flagging and matches the intent.
   - **F22/F23, questions and answers** (`2628c6a0`): answer a plain session's question while its agent is
     frozen. Within 30 seconds the card should come back noted "answer was sent but never confirmed". Also, an
-    agent kept open after its process ended (`cmd:keeponexit`) should lose its pending question.
+    agent kept open after its process ended (`cmd:keeponexit`) should lose its pending question. **Both
+    passed**; the note came back at 39s, which is the 30s `AnswerClearTimeout` plus one 5s sweep tick.
   - **F26, a killed worker** (`646f032c`): kill a Quick run's worker process. The run should fail with a
-    `worker-exited` event. Quitting the app mid-run should not fail it.
+    `worker-exited` event. Quitting the app mid-run should not fail it. **Passed.** Note the app was killed,
+    not quit, and nothing reconciles runs at boot, so the run stayed `executing` until cancelled by hand.
   - **Chunk 8, the record peek** (`293f55ca`, frontend only): open a record peek, raise its confirm and press
-    Escape. Only the confirm should close, and focus should return to the peek.
+    Escape. Only the confirm should close, and focus should return to the peek. **Passed.**
 - **The hung overlay covers Claude Code only** (F25), and that is now the settled answer rather than an
   unmeasured gap. pi was measured on 2026-09-21: while a tool call is pending its TUI redraws an elapsed
   counter about once a second, but the moment the tool returns it renders nothing at all until the model
@@ -556,8 +561,13 @@ Seen live on 2026-09-17 and 18 or confirmed in code; none block a run.
   parent has exited.
 - **The sealed summary can be the lead's previous message.** The sandbox lead ran `wsh jarvis complete` in the
   same step as its final check, so the evidence captured its mid-run update, not a report. The backlog lead
-  lost more. The engine closes a lead's tab as soon as its run and DAG are both terminal
-  (`MaybeCloseOrchestratorLead`, `leadclose.go`), and `wsh jarvis complete` is what makes the run terminal. The
-  lead ran it mid-turn, having just said it would check why the tracker read 3/16, and its tab was deleted
-  before the command returned. It never closed a chunk or wrote a report. The sealed summary is that last
-  line. Tell a lead to do every tracker update and write its report before it runs `complete`.
+  lost more. `wsh jarvis complete` is what makes a run terminal, and the engine used to close a lead's tab the
+  moment its run and DAG both were — so the lead ran `complete` mid-turn, having just said it would check why
+  the tracker read 3/16, and its tab was deleted before the command returned. It never closed a chunk or wrote
+  a report, and the sealed summary is that last line.
+
+  **Fixed in `89dd3705`:** `MaybeCloseOrchestratorLead` now refuses to delete a tab whose lead process is
+  still alive, and `CloseOrchestratorLeadOnExit` collects it from the lead's own exit hook instead. A
+  terminal run says the work is done, not that the turn is over; only the process says that. The advice
+  still stands on its own merits, though: tell a lead to do every tracker update and write its report before
+  it runs `complete`, because `complete` seals the evidence from what it can see at that moment.
