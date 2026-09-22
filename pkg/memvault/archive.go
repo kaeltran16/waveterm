@@ -74,7 +74,21 @@ func Archive(notePath, reason string, now time.Time) (string, error) {
 	return arcPath, nil
 }
 
-// Restore moves an archived note back to its origin hub (from archived_from), stripping archive fields.
+// liveScanRoot reports whether dir is a root the vault actually scans. Restore takes its
+// destination from the archived note's own archived_from, which can name a hub since retired or
+// deleted — writing there succeeds and hides the note instead of failing, so a dead origin falls
+// back to the vault's own collection rather than restoring into a directory nothing reads.
+func liveScanRoot(dir string) bool {
+	for _, r := range VaultRoots() {
+		if strings.EqualFold(filepath.Clean(r.Path), filepath.Clean(dir)) {
+			return true
+		}
+	}
+	return false
+}
+
+// Restore moves an archived note back to its origin hub (from archived_from), stripping archive
+// fields. An origin that is no longer a live scan root falls back to the vault's own collection.
 func Restore(archivePath string) (string, error) {
 	data, err := os.ReadFile(archivePath)
 	if err != nil {
@@ -86,6 +100,9 @@ func Restore(archivePath string) (string, error) {
 	hub := af.Metadata.ArchivedFrom
 	if hub == "" {
 		return "", fmt.Errorf("archived note has no archived_from: %s", archivePath)
+	}
+	if !liveScanRoot(hub) {
+		hub = DefaultVaultPath()
 	}
 	content := string(data)
 	for _, k := range []string{"archived_at", "archived_reason", "archived_from"} {

@@ -178,8 +178,9 @@ func deriveScope(r Root, path string) string {
 	return memroots.ScopeForPath(r.Path, r.Source, path)
 }
 
-// VaultRoots is every durable-knowledge scan root, the vault's own memory collection first.
-func VaultRoots() []Root {
+// VaultRoots is every durable-knowledge scan root, the vault's own memory collection first. A var
+// so tests can point it at a temp dir, like DefaultVaultPath and ArchiveDir.
+var VaultRoots = func() []Root {
 	return memroots.AllRoots()
 }
 

@@ -22,6 +22,7 @@ func TestArchiveRestoreRoundTrip(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())              // unix
 	t.Setenv("USERPROFILE", os.Getenv("HOME")) // windows
 	hub := t.TempDir()
+	useScanRoots(t, hub)
 	notePath := writeHubNote(t, hub, "dead-note", "agent", "abc123")
 	now := time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC)
 

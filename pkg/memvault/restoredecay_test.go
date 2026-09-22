@@ -35,6 +35,7 @@ func TestRestoreDecayArchiveRestoresOnlyDecayAndIsIdempotent(t *testing.T) {
 	oldMarker := decayRestoreMarker
 	decayRestoreMarker = func() string { return filepath.Join(markerDir, "done.txt") }
 	t.Cleanup(func() { decayRestoreMarker = oldMarker })
+	useScanRoots(t, vaultDir)
 
 	decayed := archivedFixture(t, archiveDir, vaultDir, "was-decayed", "decay")
 	drifted := archivedFixture(t, archiveDir, vaultDir, "was-drifted", "drift")
@@ -78,6 +79,7 @@ func TestRestoreDecaySkipsASlugThatIsBackInTheVault(t *testing.T) {
 	oldMarker := decayRestoreMarker
 	decayRestoreMarker = func() string { return filepath.Join(markerDir, "done.txt") }
 	t.Cleanup(func() { decayRestoreMarker = oldMarker })
+	useScanRoots(t, vaultDir)
 
 	archivedFixture(t, archiveDir, vaultDir, "collides", "decay")
 	live := filepath.Join(vaultDir, "collides.md")
@@ -94,5 +96,56 @@ func TestRestoreDecaySkipsASlugThatIsBackInTheVault(t *testing.T) {
 	}
 	if string(data) != "---\nname: collides\n---\n\nthe live copy\n" {
 		t.Fatalf("a slug already in the vault must not be overwritten, got:\n%s", data)
+	}
+}
+
+// useScanRoots points VaultRoots at the test's own dirs. Restore now refuses to write outside a
+// live scan root, so a test restoring into a temp hub has to register it the way production does.
+func useScanRoots(t *testing.T, dirs ...string) {
+	t.Helper()
+	roots := make([]Root, 0, len(dirs))
+	for _, d := range dirs {
+		roots = append(roots, Root{Path: d, Source: "vault"})
+	}
+	old := VaultRoots
+	VaultRoots = func() []Root { return roots }
+	t.Cleanup(func() { VaultRoots = old })
+}
+
+// The bug this guards: archived_from is Restore's DESTINATION, not provenance. 34 archives in the
+// real vault pointed at a root that was later retired and emptied, 30 of them decay archives the
+// one-shot repair gives back — restoring there would have written them somewhere nothing scans and
+// then marked the repair done. A dead origin must land in the vault instead.
+func TestRestoreRedirectsWhenTheOriginHubIsNoLongerAScanRoot(t *testing.T) {
+	archiveDir := t.TempDir()
+	deadHub := t.TempDir() // stands in for the retired root: it exists, nothing scans it
+	liveVault := t.TempDir()
+	markerDir := t.TempDir()
+
+	oldArchive := ArchiveDir
+	ArchiveDir = func() string { return archiveDir }
+	t.Cleanup(func() { ArchiveDir = oldArchive })
+	oldMarker := decayRestoreMarker
+	decayRestoreMarker = func() string { return filepath.Join(markerDir, "done.txt") }
+	t.Cleanup(func() { decayRestoreMarker = oldMarker })
+	oldDefault := DefaultVaultPath
+	DefaultVaultPath = func() string { return liveVault }
+	t.Cleanup(func() { DefaultVaultPath = oldDefault })
+	useScanRoots(t, liveVault)
+
+	archivedFixture(t, archiveDir, deadHub, "orphaned-origin", "decay")
+
+	n, err := RestoreDecayArchive()
+	if err != nil {
+		t.Fatalf("RestoreDecayArchive: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("restored %d, want 1", n)
+	}
+	if _, err := os.Stat(filepath.Join(liveVault, "orphaned-origin.md")); err != nil {
+		t.Fatalf("a dead origin hub must redirect into the vault: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(deadHub, "orphaned-origin.md")); !os.IsNotExist(err) {
+		t.Fatalf("nothing may be written into the retired root, stat err = %v", err)
 	}
 }
