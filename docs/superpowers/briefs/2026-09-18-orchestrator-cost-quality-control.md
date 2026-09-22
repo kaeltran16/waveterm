@@ -1,7 +1,7 @@
 # Orchestrator: lower-cost execution with bounded quality control
 
 **Date:** 2026-09-18
-**Status:** Deferred discussion brief. Revisit after the orchestrator walkthrough. Not an approved design or implementation plan.
+**Status:** Discussion brief, still paused. Not an approved design or implementation plan. The walkthrough it waited on is complete (`effort:5d11f853`, archived 43/46) and the baseline is measured, so the original resume condition is met; what now holds it is the owner threshold decision in chunk 2.
 **Initiative:** `effort:84cbd1f4-c5dc-4307-9c40-676b0841a57c` (waveterm; paused).
 
 ## Goal
@@ -135,7 +135,7 @@ Candidate first changes, subject to design approval:
 1. Give workers explicit task-local checks tied to acceptance criteria; do not silently accept missing checks.
 2. Keep integration Verify on the combined project revision, initially at the existing merge cadence so the experiment changes one variable at a time.
 3. Address orphaned verification processes before interpreting performance results.
-4. If merge Verify remains dominant, investigate batching compatible ready lanes into one verification checkpoint. This is a later option with worse failure attribution, not an agreed change.
+4. If merge Verify remains dominant, investigate batching compatible ready lanes into one verification checkpoint. This is a later option with worse failure attribution, not an agreed change. **Answered 2026-09-22 and parked:** merge Verify is not dominant. The critical-path reconstruction below measures 2.6 min of merge-blocking against ~63 min of run, so batching has almost nothing to collect on this shape of run.
 5. Route difficult critical-path work to a strong model when evidence warrants it. Cheap workers are not mandatory, and one capable session may be preferable for small or tightly coupled work.
 
 ### Evaluate selective review rather than universal review
@@ -286,6 +286,128 @@ and 398s. One worker hung inside its own full suite and had to be retried by han
 ranged from 13 to 38 minutes. The Check/Verify split (chunk #6, landed in `e2f3d68e`) comes from this
 measurement.
 
+### Critical path, reconstructed from run events (2026-09-22)
+
+The section above sums Verify wall clock. That sum is **not** the critical path, and reading it as one
+would have sent the next slice at the wrong target. The run's stored events settle it: Arc run
+`1c0f0a91-ed12-4f2a-b028-328ff81fbc05` in the dev app's `db_runevent`, read-only, whose four
+`task-verify-passed` durations are 883132 / 298596 / 354087 / 398455 ms — the same figures as above, so
+this is the same run. Minutes are relative to `run-created`:
+
+```
++0.2   t-1, t-2, t-5 spawned (width 3)
++20.0  t-1 done -> t-6 spawned        +20.2 t-1 merged, Verify starts
++24.0  t-2 done -> t-3 spawned
++33.5  t-6 done ......................... merge held 1.4m
++34.9  t-1 Verify passed (14.7m) -> t-6 merges, Verify starts
++38.7  t-5 done ......................... merge held 1.2m
++38.9  t-3 done -> t-4 spawned
++39.9  t-6 Verify passed (5.0m) -> t-5 merges, Verify starts
++45.8  t-5 Verify passed (5.9m)
++118.5 t-4 stalled -> lead-launched -> nothing for 63 hours
+```
+
+Every Verify ran while other workers were still executing. Total merge-blocking is **2.6 minutes** —
+t-6 held 1.4m behind t-1's Verify, t-5 held 1.2m behind t-6's. Not 32.
+
+The critical path is the dependency chain of worker execution: t-2 (24.0m) → t-3 (14.9m) → t-4 (17.0m
+on its clean retry) ≈ 56m, plus the final Verify ≈ 6.6m. **Roughly 63 minutes, of which Verify is about
+8m — ~13%, not ~46%.** Six tasks produced four merges; t-2 and t-3 have no merge events of their own.
+
+What this reorders:
+
+- **Verify scoping is a third-order lever.** Only the *final* Verify sits on the critical path, so
+  dropping `go` (217s of the 309s baseline) saves ~3-4 min of a 63-min run. Real, cheap, not the story.
+- **Batching merge Verifies (candidate 4 under "First establish a faster baseline") is worth close to nothing on this shape of run** — a
+  better reason to leave it alone than the failure-attribution hedge it currently carries. It only pays
+  where many lanes finish together; this run thinned to one active task by +38m.
+- **The Check/Verify split still matters, for a different reason than recorded above.** It does not
+  shorten the landing path; it shortens *workers*, and worker time is the critical path. The 883s Verify
+  was not expensive because it blocked — it is the visible fingerprint of contention that was
+  simultaneously inflating every worker on the chain.
+- **Width was never the constraint.** Three tasks ran at the start and it decayed to one. The serial
+  chain is 56 of the 63 minutes. A plan authored with more independence would beat every engine change
+  on this list, which lands back on the Depends lines being what set a plan's width.
+- **The run's wall clock is not a clean measurement, and the cause is operational, not economic.** t-4
+  stalled at +118.5m, a lead was launched to judge it, and then nothing happened for 63 hours until a
+  manual respawn, with `task-cleanup-failed` and a terminal `lead-wake-failed` alongside. That gap is
+  the dev app dying — the operator error this section's parent already records — not an engine bug.
+  `autoRetryStalled` (`pkg/orchestrate/engine.go:161`) declines while a lead is alive by design, so the
+  auto-retry path was never the one that should have fired. Nothing engine-side needs fixing before the
+  re-baseline; it needs the dev app launched so it outlives its shell.
+
+Caveats: one run; t-4's 17.0m comes from its uncontended retry, so the 63m projection flatters the
+contended arm; and the merge/Verify overlap measured here is a property of this plan's dependency
+shape, not a general guarantee.
+
+### Worker time, measured from transcripts (2026-09-22)
+
+The reconstruction above names worker execution as the critical path but not where worker time goes.
+The worker transcripts settle it: seven sessions under `1c0f0a91` and eight under `92987b0e`, timed by
+the gap between each Bash `tool_use` and its `tool_result` (one 61.8-hour outlier spanning the dead-app
+gap excluded). A lane shares one worktree, so a lane's directory holds every task that ran in it.
+
+**Workers ran the full Verify despite being told not to.** `1c0f0a91`'s plan sets `Verify:` and
+`Setup:` but no `Check:`. Five of its seven worker sessions ran the full suite anyway — the exact
+command `workerContract` (`pkg/orchestrate/engine.go`) interpolates into their prompt as the thing not
+to run:
+
+| session | command | wall clock |
+|---|---|---|
+| t-1 | `go test ./pkg/... ./cmd/...` | 368s |
+| t-2 | `go test ./pkg/... ./cmd/...` | 602s |
+| t-6 | `go test ./pkg/... ./cmd/...` | 302s |
+| t-4 retry | `tsc --noEmit && npx vitest run && go test ...` | 449s |
+| t-5 | `go test ./pkg/... ./cmd/...` | 1s (failed immediately) |
+
+28.7 minutes of worker time on the suite the engine was about to run for them. The prompt's failure mode
+is structural, not a model defect: it hands the worker one concrete command labelled "don't run this",
+and otherwise says to run "the tests your task names" — which that plan names nowhere.
+
+**A `Check:` line fixes the behaviour and not the clock.** The 2026-09-21 nine-fixes plan added one.
+Run `92987b0e` executed it, and the full-suite invocations went to zero — workers ran `go test
+./pkg/orchestrate/`, `./pkg/wshrpc/...`, `./pkg/jarvis/` instead. But total worker test/check time was
+flat:
+
+```
+1c0f0a91 (no Check)  7 sessions   full-suite: 5 calls, 28.7m   all test/check: 49.7m
+92987b0e (Check)     8 sessions   full-suite: 0 calls,  0.0m   all test/check: 49.0m
+```
+
+The time relocated rather than disappearing: one worker spent 472s on `go test ./pkg/orchestrate/`
+alone, another 379s on two packages.
+
+**Because the cost is compilation, not test execution.** `pkg/orchestrate`'s tests contain two
+`time.Sleep` calls totalling 105ms. A scoped `go test` still builds the package's whole import graph,
+cgo included, and in a fresh worktree that graph is cold. Narrowing which tests run cannot avoid it.
+
+**The cold-worktree penalty resists every cheap fix tried.** All runs at `c2180121`, identical source,
+`go test ./pkg/... ./cmd/...`:
+
+```
+main     + shared -I   (populate) : 183s      main     + trimpath, -g   (populate) : 165s
+main     + shared -I   (repeat)   :  49s      main     + trimpath, -g   (repeat)   :  72s
+WORKTREE + shared -I              : 146s      WORKTREE + trimpath, -g              : 151s
+WORKTREE + shared -I   (repeat)   :  55s      main     + trimpath, NO -g (populate): 175s
+WORKTREE + own -I      (today)    : 176s      WORKTREE + trimpath, NO -g           : 142s
+```
+
+Every worktree first run lands at 142-151s regardless of flags. **`-trimpath` does not help, and
+dropping `-g` from `CGO_CFLAGS` does not help** (142 vs 151 is noise) — so the penalty is not Go or cgo
+debug info pinning absolute source paths, which was the hypothesis. Its cause is unidentified. Two
+things are known: the unstable `-I` path accounts for ~30s of it (176 vs 146), and a worktree's second
+run is warm (55s), so the ~90s is one-time per *worktree* — and since a lane shares a worktree, one-time
+per lane, not per task. On the t-2 → t-3 → t-4 chain only t-2 paid it.
+
+**Verdict on the verifying gate: closed, not worth optimizing.** Merge Verify blocks 2.6 min of a 63-min
+run; the cold-worktree penalty is ~90s per lane; the stable `-I` is ~30s; `-trimpath` and `-g` are
+measured dead ends; parallelizing the `&&`-chained Verify stages remains unmeasured with a ceiling of
+~90s per merge Verify, mostly off the critical path. Summed generously that is single-digit minutes
+against 63. No engine change is justified by this evidence. What the measurement does support is two
+authoring rules: **give every plan a `Check:` line** (without one, workers default to the most expensive
+command in their prompt), and **keep the longest `Depends on:` chain short** — 56 of the 63 minutes were
+one serial chain of three tasks, which no engine change can reach.
+
 ### Quality: a weak discriminator by construction
 
 Both arms produced a clean full suite. Cross-diffing them found four real defects, none caught by either
@@ -318,9 +440,22 @@ paths complete comparable work in comparable time on well-defined tasks; the con
 worker contract is real and large; and a second independent execution is a cheap defect detector for
 work whose own tests pass.
 
+Established 2026-09-22 from the run events: the critical path is worker execution on the dependency
+chain, not verification, and merge-blocking is ~2.6 min of a ~63 min run. The run's single largest time
+loss — 63 hours — was the dev app dying, an operator error rather than an engine or economic property.
+Both engine gaps this section originally charged to the run have since been fixed: a stalled task with
+no live lead is auto-retried once (`d5169449`), and cleanup debt degrades to a warning after five failed
+retries instead of wedging the dag (`31e7d685`).
+
 Not established: variability (one run per arm), behaviour on ambiguous or tightly coupled work, any
 reviewer policy, or whether a cheaper worker model changes the picture. Nothing here sets the required
 cost improvement or the quality threshold - those remain owner decisions in the next chunk.
+
+Also unexamined, and the largest single cost line: worker cache reads. Arc's orchestration is free, so
+100% of its $15.73 is worker tokens, and at the brief's own prices 46.9M cache reads is about $9.38 of
+it - roughly 60% of the bill, averaging ~122k cache read per call across 384 calls. Whether that is
+suite output, contract preamble, or accumulated tool results is answerable from the transcripts already
+captured and has not been checked. This is arithmetic over the Results table, not a measured breakdown.
 
 ## Open decisions
 
@@ -332,15 +467,24 @@ cost improvement or the quality threshold - those remain owner decisions in the 
 - How are review findings, repair budgets, approval, and escalation represented?
 - Which cross-lane checks require model judgment beyond deterministic Verify?
 - What actual billing/caching data can each supported harness supply?
-- Which reliability findings must be resolved before the experiment is interpretable?
+- Which reliability findings must be resolved before the experiment is interpretable? **Answered 2026-09-22: none block it.** The two engine gaps run `1c0f0a91` hit are fixed (`d5169449`, `31e7d685`), and its 63-hour gap was the dev app dying, not an engine fault. What the re-baseline needs is operational — launch the dev app so it outlives the launching shell — not another fix.
 
 ## Initiative chunks and resumption
 
-All chunks remain pending while the initiative is paused:
+Restructured 2026-09-22. The original chunk 1 bundled a measurement an agent can do with thresholds only
+the owner can set, so it could never close; it is split, and the measurement half is done. The
+re-baseline and loose-plan runs are separate because they change different variables — one isolates the
+Check/Verify split's effect on the critical path, the other tests orchestration quality — and the brief's
+own rule is one variable at a time.
 
-1. **Revisit walkthrough findings and establish cost-quality baseline.** Include execution time explicitly: read this brief and the completed walkthrough; inspect existing instrumentation, critical-path delays, redundant checks, and reliability blockers. Agree on cost/time/quality trade-offs, comparison tasks, and acceptance standards.
-2. **Approve task contracts and bounded review policy.** Brainstorm the smallest design warranted by the findings; get owner approval before implementation planning.
-3. **Implement the approved quality-control slice.** Conditional on approval; scope and tests come from the later design, not this brief.
-4. **Compare accepted-change cost and quality against strong-model end-to-end.** Include time to acceptance and compare streamlined Arc both with and without selective review. Report failures, repairs, human effort, missed defects, and variability; keep, adjust, or reject the approach based on evidence.
+1. **Baseline measured: Arc engine versus native delegation.** `done` — the 2026-09-21 two-arm measurement, the 2026-09-22 critical-path reconstruction, and the 2026-09-22 worker-transcript breakdown above.
+2. **Owner sets the cost, time and quality thresholds and the comparison tasks.** `blocked` on the owner. Nothing below can conclude without a required cost improvement, an acceptable completion-time budget, and a quality bar; the Open decisions list is the agenda.
+3. **Re-measure the critical path after the Check/Verify split.** `deferred` — its prediction was tested for free and half of it failed. The 09-21 nine-fixes plan carries a `Check:` line and run `92987b0e` executed it, so it serves as a natural experiment against `1c0f0a91`. Behaviourally the split works: full-suite invocations went 5 → 0. On the clock it does not: total worker test/check time was 49.7m → 49.0m. The confound is real — two different plans doing different work, not one variable — so this is suggestive, not decisive. What makes a paid clean re-run hard to justify is the mechanism the transcripts exposed: worker time is compile-bound in a cold worktree, not test-scope-bound, and no `Check:` wording reaches that. Revive only if the owner wants the clean number anyway; the operational precondition (launch the dev app so it outlives its shell) still stands.
+4. **Re-run with a deliberately loose plan to test orchestration quality.** `pending`. Acceptance criteria without named functions, fields or test names. The 09-21 plan was prescriptive enough that `pkg/orchestrate/engine.go` came out byte-identical across both arms, so quality was never discriminated.
+5. **Approve task contracts and bounded review policy.** `pending`. Brainstorm the smallest design warranted by the findings; owner approval before implementation planning. Ranked below the measurement chunks deliberately — the evidence so far argues against a reviewer subsystem as the first deliverable.
+6. **Implement the approved quality-control slice.** `pending`. Conditional on chunk 5; scope and tests come from that design, not this brief.
+7. **Compare accepted-change cost and quality against strong-model end-to-end.** `pending`. Time to acceptance, streamlined Arc with and without selective review, plus failures, repairs, human effort, missed defects and variability. Keep, adjust or reject on evidence.
 
-Resume only when the owner returns after the orchestrator walkthrough. Start a fresh session from this brief and current source. Do not treat this capture as authorization to build or run a paid experiment.
+The initiative stays `paused`: chunks 3, 4 and 7 each cost real API spend and wall time, and no paid
+experiment is authorized. Start a fresh session from this brief and current source. Do not treat this
+capture as authorization to build or run a paid experiment.
