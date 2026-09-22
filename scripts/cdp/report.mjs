@@ -1,26 +1,36 @@
 // Pure result formatting for the verification runner. No CDP/DOM/browser deps, so it is unit-testable
-// without a live app. A scenario result is { name, steps: [{ step, ok, detail? }], error? }.
+// without a live app. A scenario result is { name, steps: [{ step, ok, skip?, detail? }], error? }.
+//
+// A step carrying `skip` is one whose precondition this dev profile does not meet — no scan report to cite,
+// no pi session focused. It is a third state on purpose: scoring it a pass counts an assertion that never
+// ran toward the tally, and scoring it a failure leaves a row that is red on every run, which teaches the
+// reader to skim past the table the suite exists to make readable.
 
 export function exitCode(scenarioResults) {
-    const allPass = scenarioResults.every((s) => !s.error && s.steps.every((st) => st.ok));
+    const allPass = scenarioResults.every((s) => !s.error && s.steps.every((st) => st.ok || st.skip));
     return allPass ? 0 : 1;
 }
 
 export function formatResults(scenarioResults) {
     const lines = [];
     let pass = 0;
-    let total = 0;
+    let skipped = 0;
+    let ran = 0;
     for (const s of scenarioResults) {
         lines.push(`\n# ${s.name}`);
         if (s.error) lines.push(`  ERROR: ${s.error}`);
         for (const st of s.steps) {
-            total++;
-            if (st.ok) pass++;
-            lines.push(`  ${st.ok ? "PASS" : "FAIL"}  ${st.step}`);
+            if (st.skip) {
+                skipped++;
+            } else {
+                ran++;
+                if (st.ok) pass++;
+            }
+            lines.push(`  ${st.skip ? "SKIP" : st.ok ? "PASS" : "FAIL"}  ${st.step}`);
             if (st.detail) lines.push(`        ${st.detail}`);
         }
     }
-    lines.push(`\n${pass}/${total} steps passed`);
+    lines.push(`\n${pass}/${ran} steps passed${skipped > 0 ? `, ${skipped} skipped` : ""}`);
     return lines.join("\n");
 }
 

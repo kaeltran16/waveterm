@@ -8,6 +8,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SURFACE_LABEL } from "./attach.mjs";
 
+// A step this profile cannot run: no scan report to cite, no pi session focused. Neither a pass nor a
+// failure — report.mjs tallies it apart and exitCode ignores it. The detail must name what to seed, so a
+// skip stays a standing invitation to make the step real rather than a permanent shrug.
+const skipStep = (step, detail) => ({ step, skip: true, detail });
+
 // --- exemplar 1: behavioral --------------------------------------------------------------------
 // Drives the real CreateRun/AdvanceRun/CancelRun RPCs, which spawn REAL claude worker tabs. Blast
 // radius is contained: the worker cwd is an isolated temp dir, spawned worker blocks are killed in
@@ -297,7 +302,7 @@ const runsLifecycle = {
 // arrange needed; a populated-roster visual still relies on the manual inject-live-agents path.
 // Channels/Graph/Tasks merged into Jarvis and have no nav button left, so listing one here would make
 // h.goto throw before any step is recorded.
-const SMOKE_SURFACES = ["cockpit", "jarvis", "radar", "usage", "vault", "files", "settings", "code"];
+const SMOKE_SURFACES = ["cockpit", "jarvis", "radar", "usage", "files", "settings", "code"];
 
 const surfaceSmoke = {
     name: "surface-smoke",
@@ -341,13 +346,14 @@ const surfaceSmoke = {
         const steerFound = await h.ev(
             `(() => !!document.querySelector('input[placeholder^="Steer this Pi session"]'))()`
         );
-        steps.push({
-            step: "steer input visible on a pi session card",
-            ok: true,
-            detail: steerFound
-                ? "steer input found on the Agent surface"
-                : "SKIP: no pi session focused in this run (manual round-trip covers it)",
-        });
+        steps.push(
+            steerFound
+                ? { step: "steer input visible on a pi session card", ok: true, detail: "found on the Agent surface" }
+                : skipStep(
+                      "steer input visible on a pi session card",
+                      "no pi session focused in this run - focus one before reading this as a pass (the manual round-trip covers it)"
+                  )
+        );
         return steps;
     },
     async teardown(h) {
@@ -457,96 +463,6 @@ const jarvisAsk = {
             detail: JSON.stringify({ activeLabel, ...landed }),
         });
         await h.shot("cdp-shots/jarvis-ask.png");
-        return steps;
-    },
-    async teardown(h) {
-        await h.goto("cockpit");
-    },
-};
-
-// --- jarvis contextual entry: "Ask Jarvis" on a Memory detail attaches the source + pre-fills prompt ----
-// Memory data is loaded from the real memory store (reliably non-empty; see surface-smoke), so this needs
-// no channel/run setup. Open the Vault's memory collection (default List view), select the first note, click
-// "Ask Jarvis", and assert the Jarvis surface shows the "This memory" attached chip + the suggested prompt.
-// This is the durable contextual-entry live check (Task 3); the builders themselves are unit-tested.
-const jarvisContextual = {
-    name: "jarvis-contextual",
-    surface: "vault",
-    async arrange() {
-        return {};
-    },
-    async assert(h) {
-        const steps = [];
-        await h.goto("vault");
-        const selected = await h.ev(`(() => {
-            const rows = [...document.querySelectorAll('[data-vault-saved-row]')];
-            if (rows.length === 0) return false;
-            rows[0].click();
-            return true;
-        })()`);
-        await h.ev("new Promise((r) => setTimeout(r, 400))");
-        const asked = await h.ev(`(() => {
-            const b = [...document.querySelectorAll('button')].find((x) => (x.textContent || '').trim() === 'Ask Jarvis');
-            if (!b) return false;
-            b.click();
-            return true;
-        })()`);
-        await h.ev("new Promise((r) => setTimeout(r, 500))");
-        const activeLabel = await h.activeSurfaceLabel();
-        const landed = await h.ev(`(() => {
-            const input = document.querySelector('[data-jarvis-brief-composer="input"]');
-            const scope = document.querySelector('[data-jarvis-brief-composer="scope"]');
-            return {
-                chip: (scope ? scope.textContent || '' : '').trim().includes('this memory'),
-                draft: !!input && (input.value || '').includes('Recall decisions'),
-            };
-        })()`);
-        steps.push({
-            step: "select memory note -> Ask Jarvis -> Jarvis surface + attached chip + suggested prompt",
-            ok:
-                selected === true &&
-                asked === true &&
-                activeLabel === SURFACE_LABEL.jarvis &&
-                landed.chip === true &&
-                landed.draft === true,
-            detail: JSON.stringify({ selected, asked, activeLabel, ...landed }),
-        });
-        await h.shot("cdp-shots/jarvis-contextual.png");
-
-        // Asking about the same object twice must land in the same thread. It used to mint a new one per
-        // click, which is what filled the Threads group with duplicate rows — four distinct questions
-        // occupying twelve rows, each copy carrying none of the others' answers.
-        // counts subject rows, not buttons: a group's first button is its disclosure header now, which would
-        // make every count one too many.
-        // The Brief renders exactly one thread, so the duplicate-row defect this guarded is structurally
-        // impossible there; what still needs proving is that the SECOND handoff lands (re-priming the one
-        // thread and its draft) rather than being swallowed.
-        const countThreads = () =>
-            h.ev(`(() => {
-                const scopes = document.querySelectorAll('[data-jarvis-brief-composer="scope"]').length;
-                const input = document.querySelector('[data-jarvis-brief-composer="input"]');
-                return scopes * 100 + ((input && (input.value || '').includes('Recall decisions')) ? 1 : 0);
-            })()`);
-        const before = await countThreads();
-        await h.goto("vault");
-        await h.ev(`(() => {
-            const rows = [...document.querySelectorAll('[data-vault-saved-row]')];
-            if (rows[0]) rows[0].click();
-            return true;
-        })()`);
-        await h.ev("new Promise((r) => setTimeout(r, 400))");
-        await h.ev(`(() => {
-            const b = [...document.querySelectorAll('button')].find((x) => (x.textContent || '').trim() === 'Ask Jarvis');
-            if (b) b.click();
-            return true;
-        })()`);
-        await h.ev("new Promise((r) => setTimeout(r, 600))");
-        const after = await countThreads();
-        steps.push({
-            step: "Ask Jarvis twice on the same note -> one thread, re-primed rather than duplicated",
-            ok: before >= 100 && after === before,
-            detail: `before=${before} after=${after}`,
-        });
         return steps;
     },
     async teardown(h) {
@@ -4344,102 +4260,14 @@ const routePickerFlat = {
     },
 };
 
-// --- harness config sync ------------------------------------------------------------------------
-// The Settings section renders one row per catalog harness, driven by AgentSyncStatusCommand. This
-// asserts the RPC reaches the surface at all; the reconciler's own behavior is unit-tested in Go.
-// --- vault steering: the Steering tab shows each harness's real file, not just Arc's region ---
-// The regression this replaces: the tab previewed only the ARC-STEERING region, so a harness with no
-// region yet rendered as "(nothing projected here yet)" however much the user had written in it. The
-// assert is deliberately about the whole file being reachable, not about the own zone being non-empty:
-// after the rules are folded into Shared the own zone is empty ON PURPOSE, and an assert keyed to it
-// would start failing exactly when the feature had been used correctly.
-const vaultSteering = {
-    name: "vault-steering",
-    surface: "vault",
-    async arrange() {
-        return {};
-    },
-    async assert(h) {
-        const steps = [];
-        await h.goto("vault");
-        await h.ev(`(() => { document.querySelector('[data-vault-tab="steering"]')?.click(); return true; })()`);
-        await h.ev("new Promise((r) => setTimeout(r, 600))");
-
-        const status = await h.rpc("agentsyncstatus", null);
-        const present = (status?.harnesses ?? []).filter((x) => x.present).map((x) => x.runtime);
-        const tabs = await h.ev(
-            `(() => [...document.querySelectorAll('[data-vault-doc-tab]')].map((n) => n.getAttribute('data-vault-doc-tab')))()`
-        );
-        steps.push({
-            step: "steering -> a Shared tab plus one tab per catalog harness",
-            ok:
-                Array.isArray(tabs) &&
-                tabs[0] === "shared" &&
-                ["pi", "claude", "codex", "opencode"].every((r) => tabs.includes(r)),
-            detail: `tabs=${JSON.stringify(tabs)}`,
-        });
-        await h.shot("cdp-shots/vault-steering-shared.png");
-
-        for (const runtime of present) {
-            await h.ev(
-                `(() => { document.querySelector('[data-vault-doc-tab="${runtime}"]')?.click(); return true; })()`
-            );
-            await h.ev("new Promise((r) => setTimeout(r, 500))");
-            const doc = await h.rpc("agentsyncharnessread", { runtime });
-            // scoped to the steering pane, not the document: an unscoped textarea query picks up the
-            // Agent surface's hidden inputs, and an unscoped path search matches the footer's vault path
-            const shown = await h.ev(`(() => {
-                const tab = document.querySelector('[data-vault-doc-tab]');
-                let pane = tab; while (pane && !(pane.className || '').includes('overflow-hidden')) pane = pane.parentElement;
-                if (!pane) return null;
-                const ta = pane.querySelector('textarea');
-                return { own: ta ? ta.value.length : -1, text: pane.innerText || '' };
-            })()`);
-            const fileBytes = (doc?.own?.length ?? 0) + (doc?.shared?.length ?? 0) + (doc?.memory?.length ?? 0);
-            steps.push({
-                step: `${runtime} tab -> names its real file and puts that file's own zone in the editor`,
-                ok:
-                    !!shown &&
-                    fileBytes > 0 &&
-                    shown.own === (doc?.own?.length ?? 0) &&
-                    shown.text.includes(doc?.path ?? "\u0000"),
-                detail: `own=${shown?.own} backendOwn=${doc?.own?.length ?? 0} shared=${doc?.shared?.length ?? 0} memory=${doc?.memory?.length ?? 0} path=${doc?.path}`,
-            });
-            await h.shot(`cdp-shots/vault-steering-${runtime}.png`);
-        }
-
-        // the collection line and its button must agree: an empty shared doc cannot offer a sync that
-        // would dry-run to nothing, which is the contradiction the old line shipped with
-        await h.ev(`(() => { document.querySelector('[data-vault-doc-tab="shared"]')?.click(); return true; })()`);
-        await h.ev("new Promise((r) => setTimeout(r, 400))");
-        const line = await h.ev(`(() => {
-            const tab = document.querySelector('[data-vault-doc-tab]');
-            let pane = tab; while (pane && !(pane.className || '').includes('overflow-hidden')) pane = pane.parentElement;
-            const ta = pane && pane.querySelector('textarea');
-            const btn = [...document.querySelectorAll('button')].find((b) =>
-                ["Sync harnesses", "Start the shared doc"].includes((b.textContent || '').trim())
-            );
-            return { empty: ta ? ta.value.trim().length === 0 : null, label: btn ? (btn.textContent || '').trim() : null };
-        })()`);
-        steps.push({
-            step: "collection line agrees with its button (empty shared doc -> Start, otherwise Sync)",
-            ok: line.empty !== null && line.label === (line.empty ? "Start the shared doc" : "Sync harnesses"),
-            detail: JSON.stringify(line),
-        });
-        return steps;
-    },
-    async teardown() {},
-};
-
-// --- brief-contextual-map: the Brief's two contextual entries, and its honest graph exits --------------
-// In the Brief composition a source's "Ask Jarvis" primes one attached stateless thread rather than creating
-// a persisted conversation, and the graph peek mounts with the Brief's own exits: a record closes into the
-// peek, an Ask closes into the attached thread, and a run offers no control at all because B5 has not given
-// runs a Stage sheet yet. The request payload that carries the attached oref is unit-tested
-// (briefingstore.test.ts); this owns what the user can see of it.
+// --- brief-contextual-map: the Brief's honest graph exits ---------------------------------------------
+// The graph peek mounts with the Brief's own exits: a record closes into the peek, and a run offers no
+// control at all because B5 has not given runs a Stage sheet yet. It used to open by priming an attached
+// thread from a memory note's "Ask Jarvis"; that entry point went with the Vault surface, and the exits
+// below never depended on it. The surviving contextual entries are a radar finding and a run.
 const briefContextualMap = {
     name: "brief-contextual-map",
-    surface: "vault",
+    surface: "jarvis",
     async arrange() {
         return {};
     },
@@ -4452,52 +4280,10 @@ const briefContextualMap = {
         await h.ev("location.reload()");
         await settle(2600);
 
-        // 1. contextual entry into the Brief: one active chip and the suggested prompt, no Stage thread.
-        await h.goto("vault");
+        await h.goto("jarvis");
         await settle(500);
-        const asked = await h.ev(`(() => {
-            const rows = [...document.querySelectorAll('[data-vault-saved-row]')];
-            if (rows.length === 0) return false;
-            rows[0].click();
-            return true;
-        })()`);
-        await settle(400);
-        const clicked = await h.ev(`(() => {
-            const b = [...document.querySelectorAll('button')].find((x) => (x.innerText || '').trim() === 'Ask Jarvis');
-            if (!b) return false;
-            b.click();
-            return true;
-        })()`);
-        await settle(700);
-        const primed = await h.ev(`(() => {
-            const input = document.querySelector('[data-jarvis-brief-composer="input"]');
-            const scope = document.querySelector('[data-jarvis-brief-composer="scope"]');
-            const chips = [...document.querySelectorAll('[data-jarvis-brief-band="composer"] [data-jarvis-brief-composer]')].length;
-            return {
-                brief: !!document.querySelector('[data-jarvis-region="brief"]'),
-                surface: !!document.querySelector('[data-jarvis-region="surface"]'),
-                draft: input ? input.value : null,
-                scope: scope ? (scope.innerText || '').trim() : null,
-                threadRows: document.querySelectorAll('[data-jarvis-brief-row="turn"]').length,
-                composerHooks: chips,
-            };
-        })()`);
-        rec(
-            "1. Ask Jarvis from the Vault primes one attached Brief thread with the suggested prompt",
-            asked === true &&
-                clicked === true &&
-                primed.brief === true &&
-                primed.surface === false &&
-                primed.threadRows === 0 &&
-                typeof primed.draft === "string" &&
-                primed.draft.length > 0 &&
-                primed.scope != null &&
-                primed.scope.length > 0,
-            JSON.stringify(primed)
-        );
-        await h.shot("cdp-shots/brief-contextual-map-primed.png");
 
-        // 2. Shift+G mounts the graph peek in Brief mode. The Stage-only keys must stay absent: the Brief
+        // 1. Shift+G mounts the graph peek in Brief mode. The Stage-only keys must stay absent: the Brief
         //    has no rail to toggle and no Stage thread to start.
         await h.ev(
             `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'G', code: 'KeyG', shiftKey: true, bubbles: true }))`
@@ -4513,12 +4299,12 @@ const briefContextualMap = {
             };
         })()`);
         rec(
-            "2. Shift+G opens the graph peek over the Brief",
+            "1. Shift+G opens the graph peek over the Brief",
             peek != null && peek.text.includes("Graph peek"),
             JSON.stringify(peek)
         );
 
-        // 3. With nothing selected the overlay offers no node actions at all — the two exits are asserted
+        // 2. With nothing selected the overlay offers no node actions at all — the two exits are asserted
         //    where they can exist, on a focused task node (4b). Asserting them here would be asserting them
         //    against a state the graph deliberately does not have.
         const runControl = await h.ev(`(() => {
@@ -4529,23 +4315,23 @@ const briefContextualMap = {
             return { runs, ask };
         })()`);
         rec(
-            "3. the graph peek opens over the Brief with no node selected, so no node action is offered",
+            "2. the graph peek opens over the Brief with no node selected, so no node action is offered",
             runControl != null && runControl.runs === 0 && runControl.ask === 0,
             JSON.stringify(runControl)
         );
 
-        // 4. a task node closes into the record peek rather than onto a Stage that is not there. Reached
+        // 3. a task node closes into the record peek rather than onto a Stage that is not there. Reached
         //    through the record peek's own map button, which is the one route that names a record to focus.
         await h.ev(
             `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }))`
         );
         await settle(500);
         const closed = await h.ev(`document.querySelector('[data-jarvis-graph-peek]') == null`);
-        rec("4a. Escape closes the graph peek and leaves the Brief", closed === true, "");
+        rec("3a. Escape closes the graph peek and leaves the Brief", closed === true, "");
 
         const listed = await h.rpc("listtaskdossiers", null);
         if ((listed?.dossiers ?? []).length === 0) {
-            rec("4b. a task node closes into the record peek", false, "Vault Records requires at least one dossier");
+            rec("3b. a task node closes into the record peek", false, "no dossier in this profile - seed one before reading this as a pass");
             return steps;
         }
         // the palette is the only in-app route from the Brief to a record (see brief-peek for the full
@@ -4579,7 +4365,7 @@ const briefContextualMap = {
             return { open: open.length, runs };
         })()`);
         rec(
-            "4b. the record peek's map button focuses its task node: one Open record, no run control",
+            "3b. the record peek's map button focuses its task node: one Open record, no run control",
             mapClicked === true && focused != null && focused.open === 1 && focused.runs === 0,
             JSON.stringify({ mapClicked, focused })
         );
@@ -4598,7 +4384,7 @@ const briefContextualMap = {
             graph: !!document.querySelector('[data-jarvis-graph-peek]'),
         }))()`);
         rec(
-            "4c. Open record closes the graph into the Brief's record peek",
+            "3c. Open record closes the graph into the Brief's record peek",
             backToPeek === true && landed.peek === true && landed.graph === false,
             JSON.stringify({ backToPeek, landed })
         );
@@ -4889,13 +4675,18 @@ const briefInlineTracker = {
         const stages = await h.ev(`[...document.querySelectorAll('[data-jarvis-tracker-stage]')].map((b) => b.getAttribute('aria-expanded'))`);
         const chunks = await h.ev(`[...document.querySelectorAll('[data-jarvis-tracker-chunk]')].length`);
         const hasPlan = Array.isArray(stages) && stages.length > 0;
-        steps.push({
-            step: "2. exactly one stage starts expanded, and it is the only one contributing chunk rows",
-            ok: !hasPlan || (stages.filter((a) => a === "true").length === 1 && chunks > 0),
-            detail: hasPlan
-                ? JSON.stringify({ stages, chunks })
-                : "SKIP: no initiative with chunks in this dev store (fixture seeds summaries only)",
-        });
+        steps.push(
+            hasPlan
+                ? {
+                      step: "2. exactly one stage starts expanded, and it is the only one contributing chunk rows",
+                      ok: stages.filter((a) => a === "true").length === 1 && chunks > 0,
+                      detail: JSON.stringify({ stages, chunks }),
+                  }
+                : skipStep(
+                      "2. exactly one stage starts expanded, and it is the only one contributing chunk rows",
+                      "no initiative with chunks in this dev store - the fixture seeds summaries only"
+                  )
+        );
 
         // 3. a chunk row takes the Brief's cursor and opens its note sidebar
         let sidebar = { panel: false, cursorOnChunk: false };
@@ -4907,11 +4698,18 @@ const briefInlineTracker = {
                 cursorOnChunk: !!document.querySelector('[data-jarvis-tracker-chunk][aria-pressed="true"]'),
             }))()`);
         }
-        steps.push({
-            step: "3. selecting a chunk opens the note previews and marks that row selected",
-            ok: !hasPlan || chunks === 0 || (sidebar.panel === "previews" && sidebar.cursorOnChunk === true),
-            detail: hasPlan && chunks > 0 ? JSON.stringify(sidebar) : "SKIP: no chunk rows to select",
-        });
+        steps.push(
+            hasPlan && chunks > 0
+                ? {
+                      step: "3. selecting a chunk opens the note previews and marks that row selected",
+                      ok: sidebar.panel === "previews" && sidebar.cursorOnChunk === true,
+                      detail: JSON.stringify(sidebar),
+                  }
+                : skipStep(
+                      "3. selecting a chunk opens the note previews and marks that row selected",
+                      "no chunk rows to select - seed an initiative carrying a plan"
+                  )
+        );
         await h.shot("cdp-shots/brief-inline-tracker-notes.png");
 
         // 4. Escape backs out one rung at a time and never leaves the surface while a note is open
@@ -4932,11 +4730,18 @@ const briefInlineTracker = {
                 surface: !!document.querySelector('[data-jarvis-region="brief"]'),
             }))()`);
         }
-        steps.push({
-            step: "4. Escape closes the sidebar and stays on the Brief",
-            ok: !hasPlan || chunks === 0 || (esc.afterFirst === false && esc.surface === true),
-            detail: hasPlan && chunks > 0 ? JSON.stringify(esc) : "SKIP: sidebar never opened",
-        });
+        steps.push(
+            hasPlan && chunks > 0
+                ? {
+                      step: "4. Escape closes the sidebar and stays on the Brief",
+                      ok: esc.afterFirst === false && esc.surface === true,
+                      detail: JSON.stringify(esc),
+                  }
+                : skipStep(
+                      "4. Escape closes the sidebar and stays on the Brief",
+                      "sidebar never opened - step 3 had no chunk row to select"
+                  )
+        );
 
         // 5. collapsing removes the chunk rows again, so a stale cursor cannot survive on one
         await h.ev(`[...document.querySelectorAll('[data-jarvis-brief-row="initiative"]')][0]?.click()`);
@@ -5068,8 +4873,11 @@ const jarvisMotion = {
 
         // 6. the updates drawer. Task 14 moved the scroll container to an inner div: paneReveal
         //    animates the outer element's height and needs overflow-hidden there, which on the same
-        //    element would fight overflow-y-auto and clip the scrollbar mid-tween. An injected pet
-        //    event guarantees the drawer exists at all — it renders only when there are updates.
+        //    element would fight overflow-y-auto and clip the scrollbar mid-tween. TWO injected pet
+        //    events guarantee the drawer exists at all: the peek gives the newest update its own
+        //    LatestUpdate row and the drawer holds only updates.slice(1), so one event fills the
+        //    former and leaves the latter unmounted. One used to be enough because the pet had other
+        //    update sources; those were memory-derived and went with the memvault removal.
         await h.ev(`(() => {
             document.querySelector('button[aria-label="Close Jarvis panel"]')?.click();
             return true;
@@ -5078,13 +4886,21 @@ const jarvisMotion = {
         const pushed = await h.ev(`(() => {
             const mod = globalThis.__wavePetStore;
             if (mod == null) return "petstore test hook not exposed (dev build?)";
-            mod.pushPetEvent({
-                id: ${JSON.stringify(ctx.id)},
-                at: Date.now(),
-                kind: "loose-end",
-                text: "CDP motion probe - untouched for 21 days",
-                sources: [{ ref: "task:cdp-motion", title: "CDP motion probe", sourceType: "dossier" }],
-            });
+            for (const n of [1, 2]) {
+                mod.pushPetEvent({
+                    id: ${JSON.stringify(ctx.id)} + ":" + n,
+                    at: Date.now() + n,
+                    kind: "loose-end",
+                    text: "CDP motion probe " + n + " - untouched for 21 days",
+                    sources: [{ ref: "task:cdp-motion-" + n, title: "CDP motion probe " + n, sourceType: "dossier" }],
+                });
+            }
+            // and the busy shape, which is the only one that renders the drawer: the quiet card keeps the
+            // latest update alone. Cleared in teardown.
+            if (typeof mod.setAttention !== "function") return "petstore setAttention hook not exposed";
+            mod.setAttention([
+                { key: "gate:cdp-motion", kind: "gate", source: "CDP motion gate", text: "Approve before Jarvis proceeds.", action: "Review", waitingsince: Date.now() - 120000, channelid: "", runid: "cdp-motion", phaseidx: 0 },
+            ]);
             return true;
         })()`);
         await settle(400);
@@ -5131,6 +4947,9 @@ const jarvisMotion = {
             // the injected utterance advanced a PERSISTED watermark, so leaving it moved is a side
             // effect on the user's own creature rather than a test (jarvis-volunteer's rule)
             document.querySelector('button[aria-label="Close Jarvis panel"]')?.click();
+            // the injected gate is what put the peek in its busy shape; left behind it would follow the
+            // user out of the run as a waiting item that nothing can answer
+            globalThis.__wavePetStore?.setAttention?.([]);
             try {
                 globalThis.localStorage?.removeItem("wave:pet.watermark");
                 globalThis.localStorage?.removeItem("jarvis.subject.last");
@@ -5146,8 +4965,8 @@ const jarvisMotion = {
 // linkingdevhooks.ts seeds one answered exchange and the click under test is the real chip's. The chips point at
 // real objects read from this profile, because every landing proves its target exists first — invented ids
 // would only ever exercise the failure path. Nothing here writes. A profile missing a kind (no record holding a
-// decision, no memory, no investigated finding) fails that step and names what to seed, rather than passing on
-// a landing it never made.
+// decision, no scan report, no investigated finding) SKIPS that step and names what to seed: the landing was
+// never attempted, so neither a pass nor a failure would be a true reading of it.
 const resourceLinking = {
     name: "resource-linking",
     surface: "jarvis",
@@ -5162,7 +4981,6 @@ const resourceLinking = {
                 break;
             }
         }
-        const note = ((await h.rpc("memoryscan", null))?.notes ?? [])[0] ?? null;
         const reports = (await h.rpc("listradarreports", { projectpath: "" }))?.reports ?? [];
         const newest = new Map();
         for (const r of reports) {
@@ -5184,7 +5002,6 @@ const resourceLinking = {
         return {
             dossier: dossiers[0] ? { id: dossiers[0].id, objective: dossiers[0].objective } : null,
             decided,
-            note: note ? { id: note.id, title: note.title } : null,
             radar: cited
                 ? {
                       reportId: cited.oid,
@@ -5224,7 +5041,9 @@ const resourceLinking = {
         if (ctx.decided) {
             cards.push(card(2, "decision", "a decision", `task:${ctx.decided.dossierId}`, ctx.decided.decisionId));
         }
-        if (ctx.note) cards.push(card(3, "memory", ctx.note.title, `memnote:${ctx.note.id}`));
+        // seeded unconditionally: persisted turns still carry memnote: addresses, and what needs proving is
+        // that one is now inert rather than a button that navigates nowhere
+        cards.push(card(3, "memory", "a memory note", "memnote:a-note-the-vault-no-longer-serves"));
         if (ctx.radar) {
             cards.push(card(4, "radar", "a finding", `radarreport:${ctx.radar.reportId}`, ctx.radar.findingId));
         }
@@ -5239,7 +5058,7 @@ const resourceLinking = {
             if (!(await waitFor(`typeof window.__seedBriefCitations === 'function'`, 5000))) return false;
             await h.ev(`window.__seedBriefCitations(${JSON.stringify(cards)})`);
             return waitFor(
-                `document.querySelectorAll('button[data-jarvis-brief-row="cite"]').length >= ${cards.length}`,
+                `document.querySelectorAll('[data-jarvis-brief-row="cite"]').length >= ${cards.length}`,
                 3000
             );
         };
@@ -5291,10 +5110,11 @@ const resourceLinking = {
         }
 
         if (!ctx.decided) {
-            rec(
-                "3. a decision citation opens its record's peek",
-                false,
-                "no record with a decision among the first 25 - seed one before reading this as a pass"
+            steps.push(
+                skipStep(
+                    "3. a decision citation opens its record's peek",
+                    "no record with a decision among the first 25 - record one before reading this as a pass"
+                )
             );
         } else {
             const clicked = (await seed()) && (await clickCite(2));
@@ -5307,24 +5127,26 @@ const resourceLinking = {
             await dismissOverlay();
         }
 
-        if (!ctx.note) {
-            rec("4. a memory citation opens the note in the Vault", false, "no memory notes in this profile");
-        } else {
-            const clicked = (await seed()) && (await clickCite(3));
-            const shown = await waitFor(present(`[data-vault-note-detail="${ctx.note.id}"]`), 6000);
-            const surface = await h.activeSurfaceLabel();
+        {
+            const seeded = await seed();
+            const chip = await h.ev(`(() => {
+                const el = [...document.querySelectorAll('[data-jarvis-brief-row="cite"]')]
+                    .find((b) => (b.innerText || '').trim().startsWith('[3]'));
+                return el ? { tag: el.tagName, text: (el.innerText || '').trim() } : null;
+            })()`);
             rec(
-                "4. a memory citation opens the note in the Vault",
-                clicked && shown && surface === SURFACE_LABEL.vault,
-                JSON.stringify({ clicked, shown, surface, toasts: await toastText() })
+                "4. a memory citation renders inert: no button into a surface that is gone",
+                seeded && chip != null && chip.tag !== "BUTTON",
+                JSON.stringify({ seeded, chip })
             );
         }
 
         if (!ctx.radar) {
-            rec(
-                "5. a finding citation lands on that finding on a first Radar visit",
-                false,
-                "no scan report with findings in this profile"
+            steps.push(
+                skipStep(
+                    "5. a finding citation lands on that finding on a first Radar visit",
+                    "no scan report with findings in this profile - run a Radar scan before reading this as a pass"
+                )
             );
         } else {
             // a reload is what makes this Radar's first visit: its scope lives in module state
@@ -5342,10 +5164,11 @@ const resourceLinking = {
         }
 
         if (!ctx.investigated) {
-            rec(
-                "6. Radar's Open run lands on the run's sheet",
-                false,
-                "no investigated finding in this profile - start an investigation from Radar before reading this as a pass"
+            steps.push(
+                skipStep(
+                    "6. Radar's Open run lands on the run's sheet",
+                    "no investigated finding in this profile - start an investigation from Radar before reading this as a pass"
+                )
             );
         } else {
             const clicked = (await seed()) && (await clickCite(5));
@@ -5719,7 +5542,6 @@ const focusDivergenceRejoin = {
 };
 
 export const SCENARIOS = [
-    vaultSteering,
     briefContextualMap,
     briefRestore,
     runsLifecycle,
@@ -5739,7 +5561,6 @@ export const SCENARIOS = [
     briefPeek,
     briefProfile,
     jarvisAsk,
-    jarvisContextual,
     jarvisMultiturn,
     jarvisVaultRecall,
     jarvisPeek,

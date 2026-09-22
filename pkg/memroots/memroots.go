@@ -3,7 +3,7 @@
 
 // Package memroots is the single registry of Wave Vault locations: the Wave Vault root, its
 // memory collection (the one write target), and the project-label/scope derivation both scanners
-// share. Leaf package — pkg/memvault and pkg/wavevault both import it, neither imports the other.
+// share. Leaf package — pkg/wavevault imports it, it imports nothing of ours.
 package memroots
 
 import (
@@ -92,8 +92,7 @@ func buildAllRoots(memoryRoot string, mirrors []Mirror) []Mirror {
 	return append([]Mirror{{Path: memoryRoot, Source: "vault"}}, mirrors...)
 }
 
-// AllRoots is every durable-knowledge scan root: the vault's own memory collection only. This is
-// memvault's scan-root view.
+// AllRoots is every durable-knowledge scan root: the vault's own memory collection only.
 func AllRoots() []Mirror {
 	return buildAllRoots(MemoryRoot(), Mirrors())
 }

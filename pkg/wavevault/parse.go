@@ -41,7 +41,7 @@ func ContentHash(data []byte) string {
 // parseNode splits frontmatter from body, unmarshals the frontmatter into a map (order does not
 // matter for querying; the write path preserves order by splicing raw text, not re-serializing this
 // map), extracts deduped [[wikilinks]] in order, and hashes the raw bytes. ID is frontmatter id,
-// else name, else the filename stem. Frontmatter parsing follows memvault's --- delimiter handling.
+// else name, else the filename stem.
 func parseNode(path string, data []byte) (Node, string) {
 	n := Node{Path: path, ContentHash: ContentHash(data)}
 	body := string(data)

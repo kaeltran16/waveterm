@@ -1485,3 +1485,22 @@ Revive only on evidence that note bodies — not index lines — are what change
 
 Recovery: `git show f5e2179a:pkg/memvault/memvault.go` (and any other path) has the full pre-removal
 tree; `git show f5e2179a:frontend/app/view/agents/vaultsurface.tsx` for the surface.
+
+### Five agentsync RPCs left with no caller — deletion deferred on branch collision
+
+The Vault surface's Steering tab (`frontend/app/view/agents/vaultstore.ts`) was the only consumer of
+`AgentSyncSteeringRead`, `AgentSyncSteeringWrite`, `AgentSyncHarnessRead`, `AgentSyncHarnessWrite` and
+`AgentSyncSkills`. They are live handlers reachable over the wire with nothing calling them. The other
+four survive: `Status`, `Adopt` and `Fold` back `wsh agent-sync status|adopt|fold`, and `Apply` is called
+by both `wsh agent-sync sync` and `cockpit-actions.ts` at launch.
+
+- **What's deferred:** deleting those five from `wshrpctypes_agentsync.go` + `wshserver_agentsync.go`, and
+  regenerating. Every `pkg/agentsync` function stays either way — only the RPC surface goes.
+- **Why deferred rather than done:** three live branches still contain `vaultstore.ts` and would stop
+  typechecking — `worktree-dag-interaction` (c8f85403), `backlog-cleanup` (0e828c75),
+  `feat/surface-integration` (09e86573). Each already faces a Vault-surface conflict on merge; a broken
+  typecheck on top of it turns a mechanical conflict into a debugging session.
+- **No replacement needed:** the steering doc is a plain file at `memroots.SteeringDocPath()`,
+  `wsh agent-sync status` already reports current/stale/absent per harness, and `fold` covers the
+  own-rules move. The read/write RPCs existed to back an editor, and the editor is gone.
+- **To resume:** once those three branches land or are abandoned, delete the five and run `task generate`.

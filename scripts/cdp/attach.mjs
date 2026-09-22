@@ -16,7 +16,6 @@ export const SURFACE_LABEL = {
     radar: "Radar",
     sessions: "Sessions",
     files: "Diff",
-    vault: "Vault",
     usage: "Usage",
     code: "Code",
     settings: "Settings",

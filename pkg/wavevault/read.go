@@ -76,7 +76,7 @@ func searchableText(n Node, body string) string {
 
 // Retriever is a scope-limited read handle. It scans its scope's directories once on first use and
 // reuses the result for its lifetime; a new logical operation uses a fresh Retriever (no
-// process-wide cache, no invalidation machinery — matches memvault's re-scan model).
+// process-wide cache, no invalidation machinery).
 type Retriever struct {
 	v      *Vault
 	scope  Scope
@@ -88,7 +88,7 @@ func (v *Vault) Retriever(scope Scope) *Retriever {
 	return &Retriever{v: v, scope: scope}
 }
 
-// frontmatterScope reads an explicit scope. memvault writes it under metadata:, so that nesting is
+// frontmatterScope reads an explicit scope. Notes on disk carry it under metadata:, so that nesting is
 // checked first; a top-level key is accepted too. "" means derive it from the path instead.
 func frontmatterScope(fm map[string]any) string {
 	if meta, ok := fm["metadata"].(map[string]any); ok {

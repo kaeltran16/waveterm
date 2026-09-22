@@ -740,7 +740,7 @@ most common defect class — a bad hop *between* atoms, which is what findings 1
 while the unit suite was green. For those, drive the running app:
 
 ```
-task verify:ui -- jarvis-states jarvis-drawer jarvis-fleet jarvis-subject-state jarvis-contextual \
+task verify:ui -- jarvis-states jarvis-drawer jarvis-fleet jarvis-subject-state \
                   jarvis-collapse-order jarvis-narrow jarvis-volunteer
 ```
 
@@ -751,7 +751,6 @@ the right steps go red — a green scenario that cannot fail is not a net:
 |---|---|---|
 | `jarvis-drawer` | drawer scope + dismissal, Needs you with no subject | reverting the rail's mount guard turns steps 1–2 red, nothing else |
 | `jarvis-subject-state` | draft + picker per subject, one legend, peek focus, fleet line, unasked threads, last-subject restore, thread archive | a global draft/picker reddens 1 and 3; restoring the header legend reddens 4; the old `across M channels` line reddens 7 at 77px past the rail; skipping the prune reddens 8; dropping `getOnInit` reddens 9; removing `restoreDecision`'s list check reddens 10; not splitting archived threads out of `Threads` reddens 11 |
-| `jarvis-contextual` | one thread per source | minting per click makes the thread count climb |
 | `jarvis-volunteer` | the volunteered-knowledge chain (§16): push an utterance → creature speaks it → peek offers Open/Ask → Open lands on Jarvis and closes the peek | see the break table below |
 | `jarvis-collapse-order` | the *order* — rail before Subjects, never inverted, no document overflow | the order itself; unchanged by this pass beyond a rail probe that no longer assumes the `<aside>` is a direct child of the surface row |
 | `jarvis-narrow` | the two new steps' own widths: the overlay, and the nav rail collapsing itself | disabling `railOverlay` reddens both overlay steps; forcing `navRailCollapsed` false reddens the nav step **and** the overlaid-floor step — a true dependency, since 760px only clears the floor with both layers (the nav rail's 22px plus the rail's 44px) |

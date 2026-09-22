@@ -539,7 +539,6 @@ export function PetPeek({
                                                         model={model}
                                                         event={updates[0]}
                                                         now={now}
-
                                                         onLeave={leavePeek}
                                                     />
                                                 ) : null
@@ -613,7 +612,6 @@ export function PetPeek({
                                                                         model={model}
                                                                         event={event}
                                                                         now={now}
-
                                                                         onLeave={leavePeek}
                                                                     />
                                                                 ))}

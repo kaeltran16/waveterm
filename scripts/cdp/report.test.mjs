@@ -4,6 +4,7 @@ import { contactSheetHtml, exitCode, formatResults } from "./report.mjs";
 const pass = { name: "s1", steps: [{ step: "a", ok: true, detail: "d" }] };
 const fail = { name: "s2", steps: [{ step: "b", ok: false, detail: "boom" }] };
 const errored = { name: "s3", steps: [], error: "attach failed" };
+const skipped = { name: "s4", steps: [{ step: "c", skip: true, detail: "no scan report in this profile" }] };
 
 describe("exitCode", () => {
     it("is 0 when every step of every scenario passes", () => {
@@ -14,6 +15,12 @@ describe("exitCode", () => {
     });
     it("is 1 when a scenario errored", () => {
         expect(exitCode([pass, errored])).toBe(1);
+    });
+    it("is 0 when a step was skipped rather than run", () => {
+        expect(exitCode([pass, skipped])).toBe(0);
+    });
+    it("still fails when a real failure sits beside a skip", () => {
+        expect(exitCode([skipped, fail])).toBe(1);
     });
 });
 
@@ -26,6 +33,15 @@ describe("formatResults", () => {
     });
     it("surfaces a scenario error", () => {
         expect(formatResults([errored])).toContain("ERROR: attach failed");
+    });
+    it("labels a skip and keeps it out of the ran total", () => {
+        const out = formatResults([pass, skipped]);
+        expect(out).toContain("SKIP  c");
+        expect(out).toContain("1/1 steps passed, 1 skipped");
+    });
+    it("says nothing about skips when there are none", () => {
+        expect(formatResults([pass, fail])).toContain("1/2 steps passed");
+        expect(formatResults([pass, fail])).not.toContain("skipped");
     });
 });
 

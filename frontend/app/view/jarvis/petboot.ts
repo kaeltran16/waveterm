@@ -3,11 +3,10 @@
 //
 // A read that must land exactly once, retried until it does.
 //
-// Why this exists: the pet's three backend registers read on deliberately slow cadences — the index status
-// every 15 minutes (the handler reopens the index and walks the whole vault), the vault decay queue every 10
-// minutes (memgarden's sweep is hourly), and the launch narrative once ever (it is a durable DB row). That
-// makes them the opposite of AttentionPoller, whose comment states the property they lack: "a missed poll
-// self-heals on the next tick".
+// Why this exists: the pet's backend registers read on deliberately slow cadences — the index status every
+// 15 minutes (the handler reopens the index and walks the whole vault), and the launch narrative once ever
+// (it is a durable DB row). That makes them the opposite of AttentionPoller, whose comment states the
+// property they lack: "a missed poll self-heals on the next tick".
 //
 // Without a retry, a single failed read at mount leaves the creature claiming health — at-rest, and a peek
 // that says "not read yet" and "clear" — for fifteen minutes or for the whole session. That is precisely the
