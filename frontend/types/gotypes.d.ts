@@ -2155,6 +2155,8 @@ declare global {
         askts?: number;
         askdeadline?: number;
         freshnessts?: number;
+        verifystartedts?: number;
+        verifylastline?: string;
         recoveredretry?: boolean;
         mergestate: string;
         cleanupstate: string;

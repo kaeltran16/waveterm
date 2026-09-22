@@ -152,6 +152,23 @@ export function formatElapsed(ms: number): string {
     return `${Math.floor(m / 60)}h${m % 60}m`;
 }
 
+// verifyHeading is how a running Verify names itself wherever it appears — the worker row and the graph
+// peek — so the two cannot word it differently.
+export function verifyHeading(startedTs: number | undefined, nowMs: number): string {
+    const parts = ["Verify running"];
+    if (startedTs) {
+        parts.push(formatElapsed(Math.max(0, nowMs - startedTs)));
+    }
+    return parts.join(" · ");
+}
+
+// verifyRowLine is a worker row's Verify line: its age, and the last line Verify printed. Both come from
+// the digest, which derives them once for this row and for the CLI's. Verify runs outside a block, so
+// without this the row shows a reaped worker as though it were the live thing.
+export function verifyRowLine(td: DagTaskDigest | undefined, nowMs: number): string {
+    return [verifyHeading(td?.verifystartedts, nowMs), td?.verifylastline].filter(Boolean).join(" · ");
+}
+
 // reportChips is the run card's copy of the numbers the lead reports from. A zero carries no news and is
 // left out; an untested run is always said.
 export function reportChips(report: DagReportDigest | undefined): string[] {

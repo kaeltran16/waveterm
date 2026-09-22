@@ -34,13 +34,39 @@ func (m *Mutex) Lock(key string) {
 	e.mu.Lock()
 }
 
-func (m *Mutex) Unlock(key string) {
+// TryLock takes the key's lock only if it is free, reporting whether it did. For work with nothing to
+// gain by queueing behind a long holder: a progress publish that waits out the holder is worse than one
+// that skips a beat, because it delays whatever its own caller does next.
+func (m *Mutex) TryLock(key string) bool {
 	m.mu.Lock()
+	e := m.locks[key]
+	if e == nil {
+		e = &entry{}
+		m.locks[key] = e
+	}
+	e.refs++
+	m.mu.Unlock()
+	if e.mu.TryLock() {
+		return true
+	}
+	m.dropRef(key)
+	return false
+}
+
+func (m *Mutex) Unlock(key string) {
+	m.dropRef(key).mu.Unlock()
+}
+
+// dropRef releases the caller's claim on the key's entry and returns it, removing it from the map once
+// nobody holds or waits on it. The entry is returned because a caller unlocking it still needs it after
+// it has left the map.
+func (m *Mutex) dropRef(key string) *entry {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	e := m.locks[key]
 	e.refs--
 	if e.refs == 0 {
 		delete(m.locks, key)
 	}
-	m.mu.Unlock()
-	e.mu.Unlock()
+	return e
 }

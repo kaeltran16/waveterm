@@ -26,6 +26,7 @@ import {
     reportChips,
     taskBriefs,
     useDagDigest,
+    verifyRowLine,
     type DigestState,
 } from "./dagdigest";
 import { openDagTask } from "./dagmodalstate";
@@ -206,7 +207,9 @@ function WorkerRow({
                 {worker.state === "dispatched" && worker.agent ? (
                     <StatusLine agent={worker.agent} nowAtom={nav.model.nowAtom} className="mt-0.5" />
                 ) : null}
-                {activityText == null && worker.agent ? (
+                {task.state === "verifying" ? (
+                    <VerifyLine taskId={task.id} td={td} nowAtom={nav.model.nowAtom} />
+                ) : activityText == null && worker.agent ? (
                     <ActivityLine agent={worker.agent} nowAtom={nav.model.nowAtom} right={null} className="mt-0.5" />
                 ) : (
                     <div className="mt-0.5 font-mono text-[10.5px] text-muted">{activityText}</div>
@@ -214,6 +217,17 @@ function WorkerRow({
                 {recovery ? <RecoveryLine summary={recovery} task={task} nav={nav} /> : null}
             </div>
             <TaskRowSignal task={task} td={td} worker={worker} nav={nav} digestStale={digestStale} />
+        </div>
+    );
+}
+
+// VerifyLine is the row's live Verify line. It subscribes to the clock itself, like StatusLine and
+// ActivityLine beside it, so a ticking age does not re-render every worker row in the list.
+function VerifyLine({ taskId, td, nowAtom }: { taskId: string; td?: DagTaskDigest; nowAtom: Atom<number> }) {
+    const now = useAtomValue(nowAtom);
+    return (
+        <div data-task-verify={taskId} className="mt-0.5 truncate font-mono text-[10.5px] text-success-soft">
+            {verifyRowLine(td, now)}
         </div>
     );
 }

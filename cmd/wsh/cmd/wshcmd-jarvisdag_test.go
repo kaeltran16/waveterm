@@ -316,3 +316,26 @@ func TestDagStatusLinesCarriesWhatTheHumanToldWorkers(t *testing.T) {
 		t.Fatalf("status must show %q, got:\n%s", want, joined)
 	}
 }
+
+func TestDagStatusShowsARunningVerifysAgeAndLatestLine(t *testing.T) {
+	g := &waveobj.TaskGroup{ID: "d-1", Status: "running", Parallelism: 2, Tasks: []waveobj.TaskNode{
+		{ID: "t-0", Label: "first", State: "verifying"},
+		{ID: "t-1", Label: "second", State: "verifying"},
+	}}
+	// the signal is the digest's: the row formats it and never re-derives it from the task
+	rtn := &wshrpc.CommandDagStatusRtnData{Group: g, Digest: wshrpc.DagStatusDigest{
+		Tasks: []wshrpc.DagTaskDigest{
+			{TaskId: "t-0", VerifyStartedTs: 100_000, VerifyLastLine: "running pkg/two"},
+			{TaskId: "t-1", VerifyStartedTs: 340_000},
+		},
+	}}
+	joined := strings.Join(dagStatusLines(rtn, 400_000), "\n")
+	// the lead can tell a Verify five minutes in from one it is about to lose to the timeout
+	if !strings.Contains(joined, "5m · running pkg/two") {
+		t.Fatalf("a running Verify must show its age and latest output line, got:\n%s", joined)
+	}
+	// nothing written yet is the age alone, never a fabricated line
+	if !strings.Contains(joined, "t-1  verifying  1m") {
+		t.Fatalf("a Verify with no output yet shows its age alone, got:\n%s", joined)
+	}
+}

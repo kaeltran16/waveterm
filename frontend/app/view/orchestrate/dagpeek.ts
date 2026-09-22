@@ -5,7 +5,7 @@
 // description, and why the task is where it is. The worker's live activity line is not here; it needs the
 // roster and renders beside these rows.
 
-import { firstLine, formatElapsed, waitingText, type TaskBrief } from "./dagdigest";
+import { firstLine, formatElapsed, verifyHeading, waitingText, type TaskBrief } from "./dagdigest";
 
 export type PeekRow = { text: string; tone: "muted" | "warning" };
 // what a task's Verify has to show: a heading, and the output tail the plan's command left behind
@@ -53,10 +53,8 @@ export function taskPeek(
 export function verifySection(task: TaskNode, nowMs: number): VerifySection | null {
     const tail = (task.verifyoutput ?? "").trim();
     switch (task.state) {
-        case "verifying": {
-            const elapsed = task.verifystartedts ? ` · ${ago(nowMs, task.verifystartedts)}` : "";
-            return { heading: `Verify running${elapsed}`, tail, tone: "muted" };
-        }
+        case "verifying":
+            return { heading: verifyHeading(task.verifystartedts, nowMs), tail, tone: "muted" };
         case "verify-failed":
             return tail ? { heading: "Verify output", tail, tone: "warning" } : null;
         case "done":

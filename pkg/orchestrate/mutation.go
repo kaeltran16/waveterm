@@ -32,6 +32,20 @@ func WithDagMutation(dagID string, fn func() error) error {
 	return fn()
 }
 
+// TryWithDagMutation runs fn only if the dag's lock is free, reporting whether it ran. For a write with
+// nothing to gain by waiting: the plan's Setup command holds this lock for up to SetupTimeout, and a
+// cosmetic write that queues behind it delays whatever its own caller does next.
+func TryWithDagMutation(dagID string, fn func() error) (bool, error) {
+	if dagID == "" {
+		return false, fmt.Errorf("dag id is required")
+	}
+	if !dagMutationLocks.TryLock(dagID) {
+		return false, nil
+	}
+	defer dagMutationLocks.Unlock(dagID)
+	return true, fn()
+}
+
 func withDagMutation(dagID string, fn func() error) error {
 	return WithDagMutation(dagID, fn)
 }

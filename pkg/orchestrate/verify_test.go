@@ -609,3 +609,61 @@ func TestChunkCloseFailureDoesNotFailTheVerify(t *testing.T) {
 		t.Fatalf("one unresolvable chunk must not stop the others, got %q", c.Status)
 	}
 }
+
+func TestVerifyOutputIsReadableWhileItRuns(t *testing.T) {
+	f := newMergeFixture(t, []waveobj.TaskNode{
+		{ID: "t-0", Label: "first"},
+		{ID: "t-1", Label: "second", Deps: []string{"t-0"}},
+		{ID: "t-2", Label: "third", Deps: []string{"t-0"}},
+	})
+	f.setPlanCommands(t, verifyCmd, "")
+	f.finish(t, "t-0")
+	stubMerge(t, landedSha)
+	published, release := make(chan struct{}), make(chan struct{})
+	stubPlanCommandProgress(t, func(_ context.Context, _, _ string, progress planProgress) (string, error) {
+		// the sink declines while the dag is busy elsewhere, exactly as it does in the engine
+		for !progress("running pkg/one\nrunning pkg/two") {
+			time.Sleep(5 * time.Millisecond)
+		}
+		close(published)
+		<-release
+		return "ok pkg/two", nil
+	})
+	var spawned []string
+	stubSpawn(t, &spawned)
+	await := awaitVerify(t)
+
+	if err := Schedule(f.ctx, f.dagID); err != nil {
+		t.Fatal(err)
+	}
+	<-published
+
+	if task := f.dag(t).Tasks[0]; task.State != TaskState_Verifying || task.VerifyOutput != "running pkg/one\nrunning pkg/two" {
+		t.Fatalf("a running Verify's output must be readable before it exits, got %s %q", task.State, task.VerifyOutput)
+	}
+	close(release)
+	await()
+
+	if task := f.dag(t).Tasks[0]; task.State != TaskState_Done || task.VerifyOutput != "ok pkg/two" {
+		t.Fatalf("the recorded result replaces the progress tail, got %s %q", task.State, task.VerifyOutput)
+	}
+}
+
+func TestVerifyProgressNeverOverwritesARecordedResult(t *testing.T) {
+	f := newMergeFixture(t, []waveobj.TaskNode{{ID: "t-0", Label: "first"}})
+	if err := wstore.UpdateDag(f.ctx, f.dagID, func(cur *waveobj.TaskGroup) error {
+		cur.Tasks[0].State, cur.Tasks[0].VerifyOutput = TaskState_Done, "ok pkg/two"
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// a publish still in flight when the result was recorded: it must take nothing
+	if err := WithDagMutation(f.dagID, func() error {
+		return recordVerifyProgressLocked(f.ctx, f.dagID, "t-0", "running pkg/one")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if task := f.dag(t).Tasks[0]; task.State != TaskState_Done || task.VerifyOutput != "ok pkg/two" {
+		t.Fatalf("a late publish must not overwrite the final output, got %s %q", task.State, task.VerifyOutput)
+	}
+}

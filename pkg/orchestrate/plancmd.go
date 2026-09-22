@@ -18,6 +18,10 @@ const (
 	SetupTimeout = 2 * time.Minute
 	// VerifyTimeout bounds a plan's Verify command at a merge point.
 	VerifyTimeout = 20 * time.Minute
+	// VerifyProgressInterval is how often a running Verify publishes its output tail. Verify is the only
+	// engine step that runs a long command outside a block, so without this its output does not exist
+	// anywhere until it exits and a 20-minute run is opaque for 20 minutes.
+	VerifyProgressInterval = 10 * time.Second
 	// MaxPlanOutputLen is how much of a plan command's output is kept: the tail. It is sized so a failing
 	// early stage of a chained Verify is still in it after the later stages have run.
 	MaxPlanOutputLen = 8000
@@ -95,12 +99,18 @@ func shortDuration(d time.Duration) string {
 	return d.String()
 }
 
+// planProgress publishes a plan command's output tail while it is still running, reporting whether the
+// tail was taken — a sink that declines (its dag was busy, or the task has stopped verifying) must not be
+// recorded as having shown this tail, or it would go unpublished until the output changes again. nil for
+// a command nobody watches: only Verify has a surface waiting on its progress.
+type planProgress func(tail string) bool
+
 // runPlanCommand runs a plan command through a POSIX shell in dir and returns the tail of its output,
 // on a pass as well as a failure. A var so engine tests can script Setup and Verify without running
-// anything.
+// anything; a stub calls progress itself to script mid-run output.
 var runPlanCommand = execPlanCommand
 
-func execPlanCommand(ctx context.Context, dir, command string, timeout time.Duration) (string, error) {
+func execPlanCommand(ctx context.Context, dir, command string, timeout time.Duration, progress planProgress) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	c, err := shellCommand(ctx, command)
@@ -109,7 +119,7 @@ func execPlanCommand(ctx context.Context, dir, command string, timeout time.Dura
 	}
 	c.Dir = dir
 	c.WaitDelay = planCommandWaitDelay
-	out := &tailBuffer{max: MaxPlanOutputLen}
+	out := &tailBuffer{max: MaxPlanOutputLen, publish: progress, publishEvery: VerifyProgressInterval}
 	c.Stdout, c.Stderr = out, out
 	err = runShellCmd(c)
 	if err == nil {
@@ -128,10 +138,30 @@ func execPlanCommand(ctx context.Context, dir, command string, timeout time.Dura
 	return pe.output, pe
 }
 
-// tailBuffer keeps the last max bytes written to it.
+// lastOutputLine is the last non-blank line of a plan command's output: the one line a status row has
+// room for. "" when there is nothing to show yet.
+func lastOutputLine(output string) string {
+	lines := strings.Split(output, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if line := strings.TrimSpace(lines[i]); line != "" {
+			return line
+		}
+	}
+	return ""
+}
+
+// tailBuffer keeps the last max bytes written to it, and hands the tail to publish (when set) at most
+// once per publishEvery. Publishing from the write path rather than a ticker goroutine keeps every
+// publish inside the command's own lifetime — exec finishes copying output before Wait returns — so no
+// publish can outlive the run and overwrite the result it records. Needs no lock: os/exec copies a
+// command's output on one goroutine when Stdout and Stderr are the same writer.
 type tailBuffer struct {
-	max int
-	buf []byte
+	max          int
+	buf          []byte
+	publish      planProgress
+	publishEvery time.Duration
+	lastPublish  time.Time
+	lastSent     string
 }
 
 func (b *tailBuffer) Write(p []byte) (int, error) {
@@ -139,7 +169,21 @@ func (b *tailBuffer) Write(p []byte) (int, error) {
 	if over := len(b.buf) - b.max; over > 0 {
 		b.buf = append(b.buf[:0], b.buf[over:]...)
 	}
+	b.maybePublish(time.Now())
 	return len(p), nil
+}
+
+// maybePublish hands the tail over no more than once per publishEvery, and only when it has CHANGED: a
+// command whose tail has not moved costs no writes at all. The first write publishes immediately, so a
+// command that prints once and then thinks is not reported as silent.
+func (b *tailBuffer) maybePublish(now time.Time) {
+	if b.publish == nil || now.Sub(b.lastPublish) < b.publishEvery {
+		return
+	}
+	b.lastPublish = now
+	if cur := b.String(); cur != b.lastSent && b.publish(cur) {
+		b.lastSent = cur
+	}
 }
 
 // String drops a multi-byte character the cut went through rather than rendering half of it.

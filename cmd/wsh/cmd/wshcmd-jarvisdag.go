@@ -141,13 +141,7 @@ func dagStatusLines(rtn *wshrpc.CommandDagStatusRtnData, now int64) []string {
 		if !ok {
 			continue
 		}
-		signal := ""
-		if td.AskSummary != "" {
-			signal = "ask: " + compactText(td.AskSummary, 60)
-		} else if td.FreshnessTs > 0 && (t.State == orchestrate.TaskState_Running || t.State == orchestrate.TaskState_Stalled) {
-			signal = "idle " + compactDur(now-td.FreshnessTs)
-		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", t.ID, t.State, signal, strings.Join(td.HumanActions, ","), t.Label)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", t.ID, t.State, taskSignal(t.State, td, now), strings.Join(td.HumanActions, ","), t.Label)
 	}
 	w.Flush()
 	for _, row := range strings.Split(strings.TrimSuffix(buf.String(), "\n"), "\n") {
@@ -168,6 +162,34 @@ func dagStatusLines(rtn *wshrpc.CommandDagStatusRtnData, now int64) []string {
 		lines = append(lines, fmt.Sprintf("%s the human told this worker %s ago: %s", told.TaskId, durOrZero(now-told.Ts), strings.Join(strings.Fields(told.Text), " ")))
 	}
 	return lines
+}
+
+// taskSignal is a task row's "what is happening here" column: its pending question, a running Verify's
+// age and latest line, or how long a worker has been silent. Every value is the digest's, formatted here
+// and never re-derived from task state.
+func taskSignal(state string, td wshrpc.DagTaskDigest, now int64) string {
+	switch {
+	case td.AskSummary != "":
+		return "ask: " + compactText(td.AskSummary, 60)
+	case td.VerifyStartedTs > 0:
+		return verifySignal(td, now)
+	case td.FreshnessTs > 0 && (state == orchestrate.TaskState_Running || state == orchestrate.TaskState_Stalled):
+		return "idle " + compactDur(now-td.FreshnessTs)
+	}
+	return ""
+}
+
+// verifySignal is a running Verify's age and its latest output line. Verify runs outside a block, so
+// there is no terminal to watch: this row is the only progress it reports.
+func verifySignal(td wshrpc.DagTaskDigest, now int64) string {
+	var parts []string
+	if age := compactDur(now - td.VerifyStartedTs); age != "" {
+		parts = append(parts, age)
+	}
+	if td.VerifyLastLine != "" {
+		parts = append(parts, compactText(td.VerifyLastLine, 60))
+	}
+	return strings.Join(parts, " · ")
 }
 
 // reportLine carries what the lead's run-end report is written from.

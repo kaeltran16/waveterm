@@ -474,6 +474,12 @@ func buildTaskDigest(g *waveobj.TaskGroup, t *waveobj.TaskNode, askByTask map[st
 		td.HumanActions = taskHumanActions(g, t)
 		td.BlockingTaskIds = taskBlockingIds(g, t)
 	}
+	if t.State == TaskState_Verifying {
+		// Verify runs outside a block, so this is the only progress it reports. Derived here, once, because
+		// the CLI status row and the cockpit row both render it and must not say different things.
+		td.VerifyStartedTs = t.VerifyStartedTs
+		td.VerifyLastLine = truncateText(lastOutputLine(t.VerifyOutput), MaxVerifyLineLen)
+	}
 	if t.State == TaskState_Done && retried[t.ID] {
 		td.RecoveredRetry = true
 	}
@@ -765,6 +771,9 @@ func terminalEventTs(retained []waveobj.RunEvent) int64 {
 
 // MaxAskSummaryLen caps the ask summary the digest carries (and the ask lifecycle event writer uses).
 const MaxAskSummaryLen = 256
+
+// MaxVerifyLineLen bounds the running-Verify line a status row carries.
+const MaxVerifyLineLen = 120
 
 func truncateText(s string, max int) string {
 	if len(s) <= max {

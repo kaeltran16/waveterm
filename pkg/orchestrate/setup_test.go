@@ -39,13 +39,22 @@ func stubPlanCommand(t *testing.T, fn func(ctx context.Context, dir, command str
 // stubPlanCommandOutput is stubPlanCommand for a test that also scripts the output tail.
 func stubPlanCommandOutput(t *testing.T, fn func(ctx context.Context, dir, command string) (string, error)) *planCalls {
 	t.Helper()
+	return stubPlanCommandProgress(t, func(ctx context.Context, dir, command string, _ planProgress) (string, error) {
+		return fn(ctx, dir, command)
+	})
+}
+
+// stubPlanCommandProgress is stubPlanCommandOutput for a test that scripts what the command publishes
+// WHILE it runs, which is how a live Verify's output reaches the cockpit before it exits.
+func stubPlanCommandProgress(t *testing.T, fn func(ctx context.Context, dir, command string, progress planProgress) (string, error)) *planCalls {
+	t.Helper()
 	p := &planCalls{}
 	orig := runPlanCommand
-	runPlanCommand = func(ctx context.Context, dir, command string, _ time.Duration) (string, error) {
+	runPlanCommand = func(ctx context.Context, dir, command string, _ time.Duration, progress planProgress) (string, error) {
 		p.mu.Lock()
 		p.calls = append(p.calls, planCall{dir, command})
 		p.mu.Unlock()
-		return fn(ctx, dir, command)
+		return fn(ctx, dir, command, progress)
 	}
 	t.Cleanup(func() { runPlanCommand = orig })
 	return p

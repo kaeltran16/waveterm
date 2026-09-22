@@ -86,7 +86,17 @@ func startVerify(channelID, dagID, runID, taskID, projectPath, command string, l
 	go func() {
 		defer verifyFinished(dagID, taskID)
 		start := time.Now()
-		output, verr := runPlanCommand(ctx, projectPath, command, VerifyTimeout)
+		// a tail is cosmetic, so it skips a beat rather than queueing behind a Setup: waiting here would
+		// stall the command's own completion, and with it the project claim every other lane's merge needs
+		output, verr := runPlanCommand(ctx, projectPath, command, VerifyTimeout, func(tail string) bool {
+			ran, err := TryWithDagMutation(dagID, func() error {
+				return recordVerifyProgressLocked(context.Background(), dagID, taskID, tail)
+			})
+			if err != nil {
+				log.Printf("dag %s task %s: publishing verify progress: %v", dagID, taskID, err)
+			}
+			return ran && err == nil
+		})
 		cancel()
 		bg := context.Background()
 		if err := WithDagMutation(dagID, func() error {
@@ -100,6 +110,35 @@ func startVerify(channelID, dagID, runID, taskID, projectPath, command string, l
 			log.Printf("dag %s: schedule after verify: %v", dagID, err)
 		}
 	}()
+}
+
+// errVerifyProgressStale abandons a progress write with nothing to record. UpdateDag persists whatever
+// its callback leaves and bumps the version either way, and that version is the cockpit's digest-freshness
+// signal — so a no-op publish would cost a status refetch for output nobody changed.
+var errVerifyProgressStale = errors.New("verify progress no longer applies")
+
+// recordVerifyProgressLocked stores a still-running Verify's output tail so the cockpit can show what it
+// is doing. It records output only, never state: a task that stopped verifying (its dag was cancelled, or
+// the run already recorded its result) takes nothing, so a late publish cannot overwrite a final output or
+// resurrect a finished task. The caller holds the dag mutation lock.
+func recordVerifyProgressLocked(ctx context.Context, dagID, taskID, tail string) error {
+	err := wstore.UpdateDag(ctx, dagID, func(cur *waveobj.TaskGroup) error {
+		task := taskByID(cur, taskID)
+		if task == nil || task.State != TaskState_Verifying || task.VerifyOutput == tail {
+			return errVerifyProgressStale
+		}
+		task.VerifyOutput = tail
+		cur.UpdatedTs = time.Now().UnixMilli()
+		return nil
+	})
+	if errors.Is(err, errVerifyProgressStale) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, dagID))
+	return nil
 }
 
 // recordVerifyLocked moves a verifying task to done or verify-failed, keeping the command's output tail

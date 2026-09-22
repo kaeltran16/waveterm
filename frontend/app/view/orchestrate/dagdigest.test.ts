@@ -15,6 +15,7 @@ import {
     shouldRefreshDigest,
     digestStale,
     lastUpdatedText,
+    verifyRowLine,
     type TaskBrief,
 } from "./dagdigest";
 
@@ -274,5 +275,22 @@ describe("planWarnings", () => {
 
     it("says both for a plan with neither", () => {
         expect(planWarnings({ tasks: 3, lanes: 1, longestchain: 3 }, "")).toEqual(["serial", "unverified"]);
+    });
+});
+
+describe("verifyRowLine", () => {
+    it("carries the age and the latest output line the digest derived", () => {
+        const td = { taskid: "t-0", verifystartedts: 1_000, verifylastline: "running pkg/two" } as DagTaskDigest;
+        expect(verifyRowLine(td, 241_000)).toBe("Verify running · 4m · running pkg/two");
+    });
+
+    it("says it is running before anything is printed", () => {
+        const td = { taskid: "t-0", verifystartedts: 1_000 } as DagTaskDigest;
+        expect(verifyRowLine(td, 61_000)).toBe("Verify running · 1m");
+    });
+
+    // a digest that has not arrived yet must not invent a clock
+    it("names it without an age when the digest carries none", () => {
+        expect(verifyRowLine(undefined, 61_000)).toBe("Verify running");
     });
 });

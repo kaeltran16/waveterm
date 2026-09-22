@@ -460,7 +460,9 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 			}
 			if created && g.Setup != "" {
 				setupStart := time.Now()
-				_, serr := runPlanCommand(context.WithoutCancel(ctx), wt, g.Setup, SetupTimeout)
+				// no progress sink: Setup runs under the dag mutation lock, so nothing can read a
+				// partial tail while it holds the lock anyway
+				_, serr := runPlanCommand(context.WithoutCancel(ctx), wt, g.Setup, SetupTimeout, nil)
 				setupMs = time.Since(setupStart).Milliseconds()
 				if serr != nil {
 					// only a new tree is set up, so a retry must not reuse this half-prepared one. The branch

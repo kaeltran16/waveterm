@@ -186,6 +186,8 @@ type DagTaskDigest struct {
 	AskTs           int64    `json:"askts,omitempty"`
 	AskDeadline     int64    `json:"askdeadline,omitempty"` // UnixMilli past which a lead-held ask moves to the human
 	FreshnessTs     int64    `json:"freshnessts,omitempty"`
+	VerifyStartedTs int64    `json:"verifystartedts,omitempty"` // UnixMilli a RUNNING merge-point Verify started; 0 in every other state
+	VerifyLastLine  string   `json:"verifylastline,omitempty"`  // the last line that running Verify has printed
 	RecoveredRetry  bool     `json:"recoveredretry,omitempty"`
 	MergeState      string   `json:"mergestate"`   // not-required | waiting | ready | blocked | merged
 	CleanupState    string   `json:"cleanupstate"` // not-required | clear | pending | failed

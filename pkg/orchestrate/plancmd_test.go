@@ -13,7 +13,7 @@ import (
 
 func TestPlanCommandPassesQuotedArgumentsThrough(t *testing.T) {
 	dir := newGitRepo(t)
-	if _, err := execPlanCommand(context.Background(), dir, `git config wave.probe "two words"`, time.Minute); err != nil {
+	if _, err := execPlanCommand(context.Background(), dir, `git config wave.probe "two words"`, time.Minute, nil); err != nil {
 		t.Fatal(err)
 	}
 	if got := gitCmd(t, dir, "config", "wave.probe"); got != "two words" {
@@ -26,7 +26,7 @@ func TestPlanCommandRunsInAPosixShell(t *testing.T) {
 	// an inline VAR=value prefix and $(...), which cmd.exe rejected in acceptance 2, and a /-leading
 	// argument Git Bash would otherwise rewrite into a Windows path
 	command := `WAVE_PROBE="$(echo two) words" sh -c 'git config wave.one "$WAVE_PROBE"' && git config wave.two /usr`
-	if _, err := execPlanCommand(context.Background(), dir, command, time.Minute); err != nil {
+	if _, err := execPlanCommand(context.Background(), dir, command, time.Minute, nil); err != nil {
 		t.Fatal(err)
 	}
 	if got := gitCmd(t, dir, "config", "wave.one"); got != "two words" {
@@ -38,7 +38,7 @@ func TestPlanCommandRunsInAPosixShell(t *testing.T) {
 }
 
 func TestPlanCommandReportsExitCodeAndOutput(t *testing.T) {
-	_, err := execPlanCommand(context.Background(), newGitRepo(t), "git no-such-subcommand", time.Minute)
+	_, err := execPlanCommand(context.Background(), newGitRepo(t), "git no-such-subcommand", time.Minute, nil)
 	var pe *planCommandError
 	if !errors.As(err, &pe) {
 		t.Fatalf("want a planCommandError, got %v", err)
@@ -49,7 +49,7 @@ func TestPlanCommandReportsExitCodeAndOutput(t *testing.T) {
 }
 
 func TestExecPlanCommandReturnsOutputOnSuccess(t *testing.T) {
-	out, err := execPlanCommand(context.Background(), t.TempDir(), "echo all green", time.Minute)
+	out, err := execPlanCommand(context.Background(), t.TempDir(), "echo all green", time.Minute, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestExecPlanCommandReturnsOutputOnSuccess(t *testing.T) {
 }
 
 func TestPlanCommandTimesOut(t *testing.T) {
-	_, err := execPlanCommand(context.Background(), t.TempDir(), "sleep 5", 200*time.Millisecond)
+	_, err := execPlanCommand(context.Background(), t.TempDir(), "sleep 5", 200*time.Millisecond, nil)
 	var pe *planCommandError
 	if !errors.As(err, &pe) || pe.reason() != "timed out after 200ms" {
 		t.Fatalf("want a timeout, got %v", err)
@@ -112,5 +112,88 @@ func TestFailureDetailKeepsTheReasonPrefix(t *testing.T) {
 	timeout := failureDetail(&planCommandError{timeout: 20 * time.Minute, output: output})
 	if !strings.HasPrefix(timeout, "timed out after 20m: error: stage one broke") || len(timeout) > MaxFailureDetailLen {
 		t.Fatalf("want the timeout prefix then the first failure within the cap, got %q", timeout)
+	}
+}
+
+func TestTailBufferPublishesOnlyAChangedTailOncePerInterval(t *testing.T) {
+	var published []string
+	b := &tailBuffer{
+		max:          MaxPlanOutputLen,
+		publish:      func(tail string) bool { published = append(published, tail); return true },
+		publishEvery: time.Minute,
+	}
+	base := time.Now()
+
+	// the first write publishes at once, so a command that prints and then thinks is not read as silent
+	b.Write([]byte("running pkg/one\n"))
+	if len(published) != 1 || published[0] != "running pkg/one" {
+		t.Fatalf("want the first tail published immediately, got %q", published)
+	}
+	// inside the interval, however much is written
+	b.Write([]byte("running pkg/two\n"))
+	if len(published) != 1 {
+		t.Fatalf("want no second publish inside the interval, got %q", published)
+	}
+	// past it, the grown tail goes out once
+	b.lastPublish = base.Add(-2 * time.Minute)
+	b.maybePublish(base)
+	if len(published) != 2 || published[1] != "running pkg/one\nrunning pkg/two" {
+		t.Fatalf("want the grown tail published, got %q", published)
+	}
+	// a silent command costs no write, however many intervals pass
+	b.lastPublish = base.Add(-2 * time.Minute)
+	b.maybePublish(base)
+	if len(published) != 2 {
+		t.Fatalf("an unchanged tail must not be published again, got %q", published)
+	}
+}
+
+func TestTailBufferWithNoSinkKeepsItsTail(t *testing.T) {
+	b := &tailBuffer{max: MaxPlanOutputLen}
+	b.Write([]byte("setup output\n"))
+	if got := b.String(); got != "setup output" {
+		t.Fatalf("a command with no progress sink still keeps its tail, got %q", got)
+	}
+}
+
+func TestLastOutputLineIsTheLastNonBlankLine(t *testing.T) {
+	if got := lastOutputLine("ok pkg/one\nok pkg/two\n\n  \n"); got != "ok pkg/two" {
+		t.Fatalf("want the last line with content, got %q", got)
+	}
+	if got := lastOutputLine("  \n\n"); got != "" {
+		t.Fatalf("output with no content has no line to show, got %q", got)
+	}
+}
+
+// A sink that declines must leave the tail unsent, or it goes unpublished until the output changes
+// again — which for a Verify that has gone quiet means never.
+func TestTailBufferRepublishesATailTheSinkDeclined(t *testing.T) {
+	var published []string
+	accept := false
+	b := &tailBuffer{
+		max: MaxPlanOutputLen,
+		publish: func(tail string) bool {
+			published = append(published, tail)
+			return accept
+		},
+		publishEvery: time.Minute,
+	}
+	base := time.Now()
+
+	b.Write([]byte("running pkg/one\n"))
+	if len(published) != 1 {
+		t.Fatalf("want one offer, got %q", published)
+	}
+	accept = true
+	b.lastPublish = base.Add(-2 * time.Minute)
+	b.maybePublish(base)
+	if len(published) != 2 || published[1] != "running pkg/one" {
+		t.Fatalf("a declined tail must be offered again unchanged, got %q", published)
+	}
+	// once taken, it is not offered a third time
+	b.lastPublish = base.Add(-2 * time.Minute)
+	b.maybePublish(base)
+	if len(published) != 2 {
+		t.Fatalf("an accepted tail must not be republished, got %q", published)
 	}
 }
