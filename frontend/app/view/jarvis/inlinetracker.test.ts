@@ -75,6 +75,7 @@ describe("trackerRows", () => {
             ["Ticket #1", true],
             ["Ticket #2", false],
         ]);
+        expect(stages.map((s) => (s.kind === "stage" ? s.at : -1))).toEqual([0, 1]);
         // the collapsed stage contributes no chunk rows
         expect(rows.filter((r) => r.kind === "chunk")).toHaveLength(2);
     });

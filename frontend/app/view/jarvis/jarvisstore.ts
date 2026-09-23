@@ -29,6 +29,12 @@ export const briefComposerHeightAtom = atom(0);
 export const noteChunkAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 export const readingNoteAtom = atom<number | null>(null) as PrimitiveAtom<number | null>;
 
+// Alt+↑/↓ moves the chunk under the Brief cursor. The Brief publishes the handler while the cursor is on
+// a chunk, because only it holds the plan the move is computed against.
+export const chunkMoveAtom = atom<((dir: "up" | "down") => void) | null>(null) as PrimitiveAtom<
+    ((dir: "up" | "down") => void) | null
+>;
+
 // The graph peek overlay. Session-scoped, not persisted: a peek is a momentary look at one object's
 // neighbourhood, so reopening the app on top of one would be reopening a destination it is not.
 export const graphPeekOpenAtom = atom(false);

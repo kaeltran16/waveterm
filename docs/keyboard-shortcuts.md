@@ -91,6 +91,7 @@ Settings has no `Ctrl`+number slot — the nine positions are bound to `SURFACE_
 | `i` | Focus the composer |
 | `/` | Filter the Brief's rows (`Esc` clears) |
 | `Enter` | Open the row under the cursor |
+| `Alt`+`↑` / `Alt`+`↓` | Move the chunk under the cursor up / down within its stage |
 | `d` | Toggle the context rail |
 | `e` | Expand / collapse the record band |
 | `c` | New channel |

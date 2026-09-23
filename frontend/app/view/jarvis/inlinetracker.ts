@@ -20,7 +20,7 @@ import type { ChunkRowModel } from "./effortstore";
 export type TrackerRow =
     | { kind: "line"; id: string; line: BriefLine; expanded: boolean }
     | { kind: "facts"; id: string; oref: string; count: string }
-    | { kind: "stage"; id: string; oref: string; stage: string; fraction: string; collapsed: boolean }
+    | { kind: "stage"; id: string; oref: string; stage: string; fraction: string; collapsed: boolean; at: number }
     | { kind: "chunk"; id: string; oref: string; row: ChunkRowModel; notes: number; next: boolean }
     | { kind: "pending"; id: string; oref: string; message: string };
 
@@ -98,6 +98,7 @@ export function trackerRows(args: {
                 stage: group.stage,
                 fraction: group.fraction,
                 collapsed: !open,
+                at,
             });
             if (!open) {
                 return;

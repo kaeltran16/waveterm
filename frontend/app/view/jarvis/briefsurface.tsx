@@ -109,27 +109,38 @@ import {
 import { BriefSheet } from "./briefsheet";
 import { sheetFace } from "./briefsheetmodel";
 import { BriefToastView } from "./brieftoast";
-import { briefUndo, effortKey, pendingDeleteKeysAtom } from "./briefundo";
+import { briefUndo, chunkKey, effortKey, pendingDeleteKeysAtom } from "./briefundo";
+import { EffortCreateForm } from "./effortcreateform";
 import { effortFeed, feedNoteCounts } from "./effortfeed";
+import { stageOptions } from "./effortmodel";
 import {
-    addChunkOp,
+    addChunkAt,
     appendChunkNote,
+    deleteEffort,
     effortChunkRows,
     effortDetailAtom,
     loadEffortDetail,
+    moveChunk,
+    moveChunkToStage,
+    removeChunks,
+    renameChunk,
+    renameEffort,
+    setChunkStage,
     setChunkStatus,
     setEffortStatus,
+    unarchiveEffort,
 } from "./effortstore";
 import { freshKeys } from "./freshrows";
 import { type PeekFocus } from "./graphfocus";
 import { GraphPeek } from "./graphpeek";
 import { expandableORef, trackerNavIds, trackerRows, type DetailRow } from "./inlinetracker";
-import { InitiativeDetail, NoteSidebar } from "./inlinetrackerview";
+import { InitiativeDetail, NoteSidebar, type TrackerEdits } from "./inlinetrackerview";
 import {
     briefComposerHeightAtom,
     briefGraphRecordAtom,
     briefPeekRecordAtom,
     briefSheetOpenAtom,
+    chunkMoveAtom,
     graphPeekOpenAtom,
     noteChunkAtom,
     readingNoteAtom,
@@ -141,6 +152,7 @@ import { openAddress, openChannelSheet, openTarget } from "./openref";
 import { reducePrinciplePatch } from "./profilemodel";
 import { ProgressBar } from "./progressbar";
 import { loadTaskList, taskListAtom } from "./tasksstore";
+import { appendInStageAt, canRemove, chunkRef, moveTarget, stageMoveTarget, stageRunLabels } from "./trackeredit";
 
 const REGIONS = {
     waiting: {
@@ -925,7 +937,12 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         const rows = trackerRows({
             lines: view.visible,
             openLineId: openInitiative,
-            chunks: openEffort != null ? effortChunkRows(openEffort) : null,
+            chunks:
+                openEffort != null
+                    ? effortChunkRows(openEffort).filter(
+                          (r) => !pendingDeletes.has(chunkKey(openEffortORef ?? "", r.label))
+                      )
+                    : null,
             noteCounts: feedNoteCounts(feed),
             countLine: openCard?.countLine ?? "",
             stageOverrides,
@@ -936,7 +953,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
             navIds: trackerNavIds(rows),
             detail: rows.filter((r): r is DetailRow => r.kind !== "line"),
         };
-    }, [view.visible, openInitiative, openEffort, openCard, stageOverrides]);
+    }, [view.visible, openInitiative, openEffort, openEffortORef, openCard, stageOverrides, pendingDeletes]);
 
     const [storedCursor, setStoredCursor] = useAtom(briefCursorAtom);
     const cursor = resolveBriefCursor(tracker.navIds, storedCursor);
@@ -966,6 +983,117 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         setMutateError(null);
         fn().catch((e) => setMutateError(e instanceof Error ? e.message : String(e)));
     }, []);
+
+    // index math runs on the server's list, pending deletes included: the server still has them
+    const planChunks = useMemo(() => (openEffort != null ? effortChunkRows(openEffort) : []), [openEffort]);
+    const [renamingTitle, setRenamingTitle] = useState<string | null>(null);
+    const [detailsOpen, setDetailsOpen] = useState(false);
+    const edits = useMemo<TrackerEdits | null>(() => {
+        const oref = openEffortORef;
+        if (oref == null || openEffort == null) {
+            return null;
+        }
+        const chunks = planChunks;
+        const indexOf = (label: string) => chunks.findIndex((c) => c.label === label);
+        const ref = (label: string) => chunkRef(chunks, label);
+        const scheduleRemove = (labels: string[], text: string) => {
+            const pending = chunks.filter((c) => pendingDeletes.has(chunkKey(oref, c.label))).map((c) => c.label);
+            if (!canRemove(chunks, [...pending, ...labels])) {
+                setMutateError("An initiative keeps at least one chunk.");
+                return;
+            }
+            briefUndo.schedule(
+                labels.map((l) => chunkKey(oref, l)),
+                text,
+                () => removeChunks(oref, chunks, labels)
+            );
+        };
+        const status = openEffort.status;
+        return {
+            oid: oref.replace(/^effort:/, ""),
+            title: openEffort.title,
+            effortStatus: status,
+            total: chunks.length,
+            stages: stageOptions(chunks),
+            onSetStatus: (label, next) => {
+                const prev = chunks.find((c) => c.label === label)?.status ?? "pending";
+                runMutation(() => setChunkStatus(oref, ref(label), next));
+                briefUndo.notify(`Marked “${label}” ${next}`, () =>
+                    runMutation(() => setChunkStatus(oref, ref(label), prev))
+                );
+            },
+            onRenameChunk: (label, next) => runMutation(() => renameChunk(oref, chunks, label, next)),
+            canMove: (label, dir) => moveTarget(chunks, label, dir) != null,
+            onMoveChunk: (label, dir) => {
+                const at = moveTarget(chunks, label, dir);
+                if (at == null) {
+                    return;
+                }
+                const back = indexOf(label) + 1;
+                runMutation(() => moveChunk(oref, chunks, label, at));
+                briefUndo.notify(`Moved “${label}” ${dir}`, () =>
+                    runMutation(() => moveChunk(oref, chunks, label, back))
+                );
+            },
+            onMoveToStage: (label, stage) => {
+                const at = stageMoveTarget(chunks, label, stage);
+                const prev = chunks.find((c) => c.label === label);
+                if (at == null || prev == null) {
+                    return;
+                }
+                const back = indexOf(label) + 1;
+                runMutation(() => moveChunkToStage(oref, chunks, label, stage, at));
+                briefUndo.notify(`Moved to ${stage || "unstaged"}`, () =>
+                    runMutation(() => moveChunkToStage(oref, chunks, label, prev.stage, back))
+                );
+            },
+            onDeleteChunk: (label) => scheduleRemove([label], `Deleted “${label}”`),
+            onRenameStage: (at, next) =>
+                runMutation(() => setChunkStage(oref, stageRunLabels(chunks, at).map(ref), next)),
+            onDeleteStage: (at) => {
+                const labels = stageRunLabels(chunks, at);
+                const name = chunks.find((c) => c.label === labels[0])?.stage || "unstaged";
+                scheduleRemove(
+                    labels,
+                    `Deleted stage “${name}” · ${labels.length} chunk${labels.length === 1 ? "" : "s"}`
+                );
+            },
+            onAddChunk: (label, stage, runAt) =>
+                runMutation(() =>
+                    addChunkAt(oref, label, stage, runAt != null ? appendInStageAt(chunks, runAt) : undefined)
+                ),
+            onRename: (title) => setRenamingTitle(title),
+            onDetails: () => setDetailsOpen(true),
+            onTogglePause: () => {
+                const next = status === "paused" ? "active" : "paused";
+                runMutation(() => setEffortStatus(oref, next));
+                briefUndo.notify(next === "paused" ? "Paused" : "Resumed", () =>
+                    runMutation(() => setEffortStatus(oref, status))
+                );
+            },
+            onArchive: () => {
+                runMutation(() => setEffortStatus(oref, "archived"));
+                briefUndo.notify(`Archived “${openEffort.title}”`, () => runMutation(() => unarchiveEffort(oref)));
+            },
+            onUnarchive: () => runMutation(() => unarchiveEffort(oref)),
+            onDelete: () => {
+                setOpenInitiative(null);
+                briefUndo.schedule([effortKey(oref)], `Deleted “${openEffort.title}”`, () => deleteEffort(oref));
+            },
+        };
+    }, [openEffortORef, openEffort, planChunks, pendingDeletes, runMutation, setOpenInitiative]);
+
+    // Alt+↑/↓: published only while the cursor sits on a chunk of the open plan
+    const setChunkMove = useSetAtom(chunkMoveAtom);
+    useEffect(() => {
+        const row = tracker.rows.find((r) => r.id === cursor);
+        if (edits == null || row?.kind !== "chunk") {
+            setChunkMove(null);
+            return;
+        }
+        setChunkMove(() => (dir: "up" | "down") => edits.onMoveChunk(row.row.label, dir));
+        return () => setChunkMove(null);
+    }, [edits, cursor, tracker.rows, setChunkMove]);
     const sheetOpen = useAtomValue(briefSheetOpenAtom);
     const openLine = useCallback(
         (target: LineTarget) => {
@@ -1347,18 +1475,49 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                                                 ease: MOTION.easeFluid,
                                                             }}
                                                         >
-                                                            <LineRow
-                                                                line={l}
-                                                                hook="initiative"
-                                                                focused={cursor === l.id}
-                                                                fresh={freshInitiatives.has(keyOf(l))}
-                                                                onContextMenu={(ev) => showInitiativeMenu(l, ev)}
-                                                                expanded={l.id === openInitiative}
-                                                                onOpen={() => {
-                                                                    setCursor(l.id);
-                                                                    toggleInitiative(l.id);
-                                                                }}
-                                                            />
+                                                            {l.id === openInitiative && renamingTitle != null ? (
+                                                                <input
+                                                                    autoFocus
+                                                                    data-jarvis-rename-input
+                                                                    value={renamingTitle}
+                                                                    onChange={(e) => setRenamingTitle(e.target.value)}
+                                                                    onBlur={() => {
+                                                                        const t = renamingTitle.trim();
+                                                                        setRenamingTitle(null);
+                                                                        if (
+                                                                            t !== "" &&
+                                                                            openEffortORef != null &&
+                                                                            t !== openEffort?.title
+                                                                        ) {
+                                                                            runMutation(() =>
+                                                                                renameEffort(openEffortORef, t)
+                                                                            );
+                                                                        }
+                                                                    }}
+                                                                    onKeyDown={(e) => {
+                                                                        if (e.key === "Enter") {
+                                                                            e.currentTarget.blur();
+                                                                        } else if (e.key === "Escape") {
+                                                                            e.stopPropagation();
+                                                                            setRenamingTitle(null);
+                                                                        }
+                                                                    }}
+                                                                    className="my-1 w-full rounded-[6px] border border-accent/60 bg-background px-[11px] py-[5px] text-[13px] text-primary outline-none"
+                                                                />
+                                                            ) : (
+                                                                <LineRow
+                                                                    line={l}
+                                                                    hook="initiative"
+                                                                    focused={cursor === l.id}
+                                                                    fresh={freshInitiatives.has(keyOf(l))}
+                                                                    onContextMenu={(ev) => showInitiativeMenu(l, ev)}
+                                                                    expanded={l.id === openInitiative}
+                                                                    onOpen={() => {
+                                                                        setCursor(l.id);
+                                                                        toggleInitiative(l.id);
+                                                                    }}
+                                                                />
+                                                            )}
                                                             {/* the plan reveal: height+opacity on the macro duration, and NOT a
                                                                 layout node, so the reveal and the list's reflow don't fight. */}
                                                             <AnimatePresence initial={false}>
@@ -1371,42 +1530,36 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                                                         exit="exit"
                                                                         className="overflow-hidden"
                                                                     >
-                                                                        <InitiativeDetail
-                                                                            rows={tracker.detail}
-                                                                            cursor={cursor}
-                                                                            onSelectChunk={(id) => {
-                                                                                setCursor(id);
-                                                                                setNoteChunk(id);
-                                                                                setReadingNote(null);
-                                                                            }}
-                                                                            archived={openCard?.status === "archived"}
-                                                                            onToggleStage={(id, open) =>
-                                                                                setStageOverrides((cur) => ({
-                                                                                    ...cur,
-                                                                                    [id]: open,
-                                                                                }))
-                                                                            }
-                                                                            onAddChunk={(label) => {
-                                                                                if (openEffortORef != null) {
-                                                                                    runMutation(() =>
-                                                                                        addChunkOp(
-                                                                                            openEffortORef,
-                                                                                            label
-                                                                                        )
-                                                                                    );
+                                                                        {edits != null ? (
+                                                                            <InitiativeDetail
+                                                                                rows={tracker.detail}
+                                                                                cursor={cursor}
+                                                                                edits={edits}
+                                                                                onSelectChunk={(id) => {
+                                                                                    setCursor(id);
+                                                                                    setNoteChunk(id);
+                                                                                    setReadingNote(null);
+                                                                                }}
+                                                                                onToggleStage={(id, open) =>
+                                                                                    setStageOverrides((cur) => ({
+                                                                                        ...cur,
+                                                                                        [id]: open,
+                                                                                    }))
                                                                                 }
-                                                                            }}
-                                                                            onArchive={() => {
-                                                                                if (openEffortORef != null) {
-                                                                                    runMutation(() =>
-                                                                                        setEffortStatus(
-                                                                                            openEffortORef,
-                                                                                            "archived"
-                                                                                        )
-                                                                                    );
-                                                                                }
-                                                                            }}
-                                                                        />
+                                                                            />
+                                                                        ) : (
+                                                                            <p className="px-3 py-2 text-[12px] text-muted">
+                                                                                {tracker.detail[0]?.kind === "pending"
+                                                                                    ? tracker.detail[0].message
+                                                                                    : ""}
+                                                                            </p>
+                                                                        )}
+                                                                        {mutateError != null &&
+                                                                        selectedChunk == null ? (
+                                                                            <p className="px-3 pb-2 text-[11px] text-error">
+                                                                                {mutateError}
+                                                                            </p>
+                                                                        ) : null}
                                                                     </motion.div>
                                                                 ) : null}
                                                             </AnimatePresence>
@@ -1586,6 +1739,20 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                 launcher), or an initiative's chunk detail. */}
             <BriefSheet model={model} />
             <BriefProfileModal open={profileOpen} onClose={() => setProfileOpen(false)} />
+            {detailsOpen && openEffort != null && openEffortORef != null ? (
+                <EffortCreateForm
+                    onClose={() => setDetailsOpen(false)}
+                    edit={{
+                        oref: openEffortORef,
+                        details: {
+                            title: openEffort.title,
+                            project: openEffort.project ?? "",
+                            ticket: openEffort.ticket ?? "",
+                            parent: openEffort.parentoid ?? "",
+                        },
+                    }}
+                />
+            ) : null}
             {/* the plan-gate modal, mounted here because the Stage was the surface that hosted it */}
             <DagModal />
         </div>

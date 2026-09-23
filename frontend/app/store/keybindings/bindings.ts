@@ -46,7 +46,13 @@ import {
 } from "@/app/view/code/codestore";
 import { treeKeyAction, type TreeKey } from "@/app/view/code/codetreekeys";
 import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
-import { briefPeekRecordAtom, graphPeekOpenAtom, noteChunkAtom, readingNoteAtom } from "@/app/view/jarvis/jarvisstore";
+import {
+    briefPeekRecordAtom,
+    chunkMoveAtom,
+    graphPeekOpenAtom,
+    noteChunkAtom,
+    readingNoteAtom,
+} from "@/app/view/jarvis/jarvisstore";
 import { activeRunIdAtom, activeSubjectAtom, setActiveRunId } from "@/app/view/jarvis/jarvissubjectstore";
 import { petPeekOpenAtom } from "@/app/view/jarvis/petstore";
 import { dagModalStateAtom } from "@/app/view/orchestrate/dagmodalstate";
@@ -615,6 +621,22 @@ export function buildJarvisBindings(): Binding[] {
             label: "Previous run in this project",
             when: onStage,
             run: () => stepRun(-1),
+        },
+        {
+            id: "jarvis:chunk-up",
+            keys: "Alt:ArrowUp",
+            group: "Jarvis",
+            label: "Move the chunk up within its stage",
+            when: (ctx) => onStage(ctx) && globalStore.get(chunkMoveAtom) != null,
+            run: () => globalStore.get(chunkMoveAtom)?.("up"),
+        },
+        {
+            id: "jarvis:chunk-down",
+            keys: "Alt:ArrowDown",
+            group: "Jarvis",
+            label: "Move the chunk down within its stage",
+            when: (ctx) => onStage(ctx) && globalStore.get(chunkMoveAtom) != null,
+            run: () => globalStore.get(chunkMoveAtom)?.("down"),
         },
         {
             id: "jarvis:focus-composer",
