@@ -10,15 +10,11 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
 
-func TestJarvisAskSubcommandRegistered(t *testing.T) {
-	var found bool
+func TestJarvisAskSubcommandRetired(t *testing.T) {
 	for _, c := range jarvisCmd.Commands() {
 		if c.Name() == "ask" {
-			found = true
+			t.Fatal("wsh jarvis ask is retired but still registered")
 		}
-	}
-	if !found {
-		t.Fatal("`jarvis ask` subcommand is not registered")
 	}
 }
 

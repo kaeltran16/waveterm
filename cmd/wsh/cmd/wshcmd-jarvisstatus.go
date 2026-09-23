@@ -4,7 +4,6 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -12,19 +11,6 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc/wshclient"
 )
-
-// askRpcTimeoutMs bounds the stateless ask: retrieval + a cheap judge + a TierMid synthesize run
-// synchronously inside the handler, far beyond the 5s default RPC budget (the EC-TIME trap
-// SealEvidence/wsh jarvis complete hit). Two model calls, worst case.
-const askRpcTimeoutMs = 180_000
-
-var jarvisAskCmd = &cobra.Command{
-	Use:     "ask \"<question>\"",
-	Short:   "ask the work ledger a stateless question (status, history, decisions, bring-up)",
-	Args:    cobra.MinimumNArgs(1),
-	RunE:    jarvisAskRun,
-	PreRunE: preRunSetupRpcClient,
-}
 
 var jarvisStatusCmd = &cobra.Command{
 	Use:     "status",
@@ -35,38 +21,7 @@ var jarvisStatusCmd = &cobra.Command{
 }
 
 func init() {
-	jarvisAskCmd.Flags().String("cwd", "", "project directory to scope the question to")
-	jarvisAskCmd.Flags().Bool("json", false, "print the full response as JSON")
-	jarvisCmd.AddCommand(jarvisAskCmd)
 	jarvisCmd.AddCommand(jarvisStatusCmd)
-}
-
-func jarvisAskRun(cmd *cobra.Command, args []string) error {
-	question := strings.Join(args, " ")
-	cwd, _ := cmd.Flags().GetString("cwd")
-	rtn, err := wshclient.JarvisAskCommand(RpcClient, wshrpc.CommandJarvisAskData{Prompt: question, Cwd: cwd}, &wshrpc.RpcOpts{Timeout: askRpcTimeoutMs})
-	if err != nil {
-		return err
-	}
-	jsonOut, _ := cmd.Flags().GetBool("json")
-	if jsonOut {
-		b, err := json.MarshalIndent(rtn, "", "  ")
-		if err != nil {
-			return err
-		}
-		fmt.Println(string(b))
-		return nil
-	}
-	fmt.Println(rtn.Answer)
-	if len(rtn.Grounding) > 0 {
-		fmt.Println("\nSources:")
-		for _, c := range rtn.Grounding {
-			// the freshness rides along now that the answer carries one: a CLI reader deciding whether to
-			// trust a cited source needs the same reading the cockpit's band shows.
-			fmt.Printf("  [%d] %s · %s (%s)\n", c.N, c.NavTarget, c.Title, c.Freshness)
-		}
-	}
-	return nil
 }
 
 func jarvisStatusRun(cmd *cobra.Command, args []string) error {

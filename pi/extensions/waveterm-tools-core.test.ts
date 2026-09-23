@@ -6,7 +6,6 @@ import {
     openFileArgs,
     querySessionsArgs,
     runCommandArgs,
-    vaultAskArgs,
     withOrchestrationRules,
 } from "./waveterm-tools-core";
 
@@ -52,22 +51,5 @@ describe("waveterm-tools-core", () => {
             "error",
         ]);
         expect(notifyArgs("t", { level: "info" })).toEqual(["notify", "t"]);
-    });
-
-    it("builds wsh jarvis ask argv with json and optional cwd", () => {
-        expect(vaultAskArgs("did the ask bridge ship?", "C:\\proj")).toEqual([
-            "jarvis",
-            "ask",
-            "did the ask bridge ship?",
-            "--json",
-            "--cwd",
-            "C:\\proj",
-        ]);
-        expect(vaultAskArgs("did the ask bridge ship?")).toEqual([
-            "jarvis",
-            "ask",
-            "did the ask bridge ship?",
-            "--json",
-        ]);
     });
 });
