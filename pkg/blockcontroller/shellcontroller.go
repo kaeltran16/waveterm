@@ -325,8 +325,28 @@ func (sc *ShellController) run(logCtx context.Context, bdata *waveobj.Block, blo
 			err := sc.DoRunShellCommand(logCtx, &RunShellOpts{TermSize: termSize}, bdata.Meta)
 			if err != nil {
 				debugLog(logCtx, "error running shell: %v\n", err)
+				sc.failStart(err)
 			}
 		}()
+	}
+}
+
+// startFailedExitCode stands in for the exit code of a process that never existed: nonzero, so exit
+// reconcilers treat the failed start as a failure.
+const startFailedExitCode = -1
+
+// failStart ends a launch that produced no process the way a process exit ends: the block shows why and
+// the outcome hook hears it, so an agent worker's run fails instead of reading "starting" forever.
+// DoRunShellCommand only errors before the process exists, so no real exit can follow this one.
+func (sc *ShellController) failStart(err error) {
+	sc.writeMutedMessageToTerminal("[failed to start: " + err.Error() + "]")
+	sc.UpdateControllerAndSendUpdate(func() bool {
+		sc.ProcStatus = Status_Done
+		sc.ProcExitCode = startFailedExitCode
+		return true
+	})
+	if hook := exitHook(); hook != nil {
+		go hook(sc.BlockId, startFailedExitCode)
 	}
 }
 

@@ -4,7 +4,9 @@
 package blockcontroller
 
 import (
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -106,5 +108,29 @@ func TestAgentShouldCloseOnExit(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("%s: agentShouldCloseOnExit(%v, %v, %d) = %v, want %v", tc.name, tc.block, tc.tab, tc.exitCode, got, tc.want)
 		}
+	}
+}
+
+// a launch that never produced a process (CreateProcess refusing an over-long command line, a bad cwd) must
+// end like an exit: otherwise the controller reads "init" forever and a worker's run never learns it died
+func TestFailedStartEndsLikeAnExit(t *testing.T) {
+	oldHook := AgentOutcomeHook
+	exited := make(chan int, 1)
+	AgentOutcomeHook = func(_ string, exitCode int) { exited <- exitCode }
+	t.Cleanup(func() { AgentOutcomeHook = oldHook })
+
+	sc := MakeShellController("tab-1", "block-1", BlockController_Cmd, "").(*ShellController)
+	sc.failStart(errors.New("The filename or extension is too long."))
+
+	if st := sc.GetRuntimeStatus(); st.ShellProcStatus != Status_Done || st.ShellProcExitCode == 0 {
+		t.Fatalf("status = %q exit %d, want done with a nonzero exit", st.ShellProcStatus, st.ShellProcExitCode)
+	}
+	select {
+	case code := <-exited:
+		if code == 0 {
+			t.Fatal("the outcome hook must hear a failing exit code")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("the outcome hook never heard the failed start")
 	}
 }

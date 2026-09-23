@@ -6,6 +6,8 @@ package jarvis
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -389,5 +391,43 @@ func TestSpawnRunWorkerStoresBaseArgs(t *testing.T) {
 	}
 	if persisted["agent:runid"] != "run-1" || persisted["agent:taskid"] != "t-3" {
 		t.Fatalf("run/task ids = %v / %v", persisted["agent:runid"], persisted["agent:taskid"])
+	}
+}
+
+// a task's prompt carries its whole plan section; past the Windows command-line cap CreateProcess refuses the
+// launch and the worker never starts, so a prompt that could not fit travels as a file the worker reads
+func TestSpawnRunWorkerPassesALongPromptAsAFile(t *testing.T) {
+	stubWorkerSpawn(t)
+	oldDir, dir := promptFileDir, t.TempDir()
+	promptFileDir = func() string { return dir }
+	t.Cleanup(func() { promptFileDir = oldDir })
+	var persisted waveobj.MetaMapType
+	persistWorkerBlockMeta = func(_ context.Context, _ string, meta waveobj.MetaMapType) error {
+		persisted = meta
+		return nil
+	}
+	lastArg := func() string {
+		args, _ := persisted[waveobj.MetaKey_CmdArgs].([]string)
+		return args[len(args)-1]
+	}
+
+	if _, err := SpawnRunWorker(context.Background(), piCap(t), "ws-1", "proj", "", "do it", RunWorkerOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := lastArg(); got != "do it" {
+		t.Fatalf("a short prompt stays inline, got %q", got)
+	}
+
+	long := strings.Repeat("x", maxInlinePromptBytes+1)
+	if _, err := SpawnRunWorker(context.Background(), piCap(t), "ws-1", "proj", "", long, RunWorkerOptions{SessionId: "sess-9"}); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "sess-9.md")
+	if got := lastArg(); len(got) > maxInlinePromptBytes || !strings.Contains(got, path) {
+		t.Fatalf("a long prompt must be replaced by a pointer to %s, got %d bytes", path, len(got))
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != long {
+		t.Fatalf("prompt file holds %d bytes (err %v), want the whole prompt", len(data), err)
 	}
 }
