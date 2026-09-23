@@ -157,11 +157,44 @@ func dagStatusLines(rtn *wshrpc.CommandDagStatusRtnData, now int64) []string {
 			lines = append(lines, fmt.Sprintf("%s merge refused (attempt %d): %s", t.ID, t.MergeFailures, t.MergeError))
 		}
 	}
+	// what each task did and how its review went: the lead's account of the work, not just its state
+	for _, t := range g.Tasks {
+		td, ok := taskDigestByID[t.ID]
+		if !ok {
+			continue
+		}
+		if td.Result != "" {
+			lines = append(lines, fmt.Sprintf("%s result: %s", t.ID, flatText(td.Result)))
+		}
+		if td.ReviewNote != "" {
+			lines = append(lines, reviewLine(t.ID, td))
+		}
+	}
 	// nothing wakes the lead for what the human typed to a worker, so this is where it learns of it
 	for _, told := range d.Told {
 		lines = append(lines, fmt.Sprintf("%s the human told this worker %s ago: %s", told.TaskId, durOrZero(now-told.Ts), strings.Join(strings.Fields(told.Text), " ")))
 	}
 	return lines
+}
+
+// reviewLine is a task's latest review as one line: verdict, failed rounds, and what the reviewer said.
+func reviewLine(taskID string, td wshrpc.DagTaskDigest) string {
+	head := "review"
+	if td.ReviewVerdict != "" {
+		head += " " + td.ReviewVerdict
+	}
+	if td.ReviewRound > 0 {
+		head += fmt.Sprintf(" (failed rounds %d)", td.ReviewRound)
+	}
+	line := fmt.Sprintf("%s %s: %s", taskID, head, flatText(td.ReviewNote))
+	if td.ReviewDownstream != "" {
+		line += " · later tasks: " + flatText(td.ReviewDownstream)
+	}
+	return line
+}
+
+func flatText(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }
 
 // taskSignal is a task row's "what is happening here" column: its pending question, a running Verify's
@@ -486,6 +519,74 @@ var dagForwardCmd = &cobra.Command{
 	},
 }
 
+// dagReviewData is a reviewer's verdict payload. RunId resolves to the reviewer's own run, which is how the
+// server finds the task it reviews.
+func dagReviewData(cmd *cobra.Command, args []string) (wshrpc.CommandDagActionData, error) {
+	verdict := args[0]
+	if verdict != "pass" && verdict != "fail" {
+		return wshrpc.CommandDagActionData{}, fmt.Errorf("verdict must be pass or fail, got %q", verdict)
+	}
+	channelId, runId, err := dagIds(cmd)
+	if err != nil {
+		return wshrpc.CommandDagActionData{}, err
+	}
+	downstream, _ := cmd.Flags().GetString("downstream")
+	return wshrpc.CommandDagActionData{ChannelId: channelId, RunId: runId, Action: "review-" + verdict, Notes: args[1], Downstream: downstream}, nil
+}
+
+var dagReviewCmd = &cobra.Command{
+	Use:     "review <pass|fail> <note>",
+	Short:   "as a task's reviewer: record your verdict (a pass's summary, or a fail's findings), then end your session",
+	Args:    cobra.ExactArgs(2),
+	PreRunE: preRunSetupRpcClient,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		data, err := dagReviewData(cmd, args)
+		if err != nil {
+			return err
+		}
+		if err := wshclient.DagActionCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: 10_000}); err != nil {
+			return err
+		}
+		return reportRunPhase(wshrpc.CommandReportRunPhaseData{Action: "complete"})
+	},
+}
+
+// dagNoteData is the payload of a lead action that carries text for a task: amend's note, tell's message,
+// sendback's optional guidance.
+func dagNoteData(cmd *cobra.Command, action string, args []string) (wshrpc.CommandDagActionData, error) {
+	channelId, runId, err := dagIds(cmd)
+	if err != nil {
+		return wshrpc.CommandDagActionData{}, err
+	}
+	data := wshrpc.CommandDagActionData{ChannelId: channelId, RunId: runId, TaskId: args[0], Action: action}
+	if len(args) > 1 {
+		data.Notes = args[1]
+	}
+	return data, nil
+}
+
+func dagNoteCmd(use, action, short string, args cobra.PositionalArgs) *cobra.Command {
+	return &cobra.Command{
+		Use:     use,
+		Short:   short,
+		Args:    args,
+		PreRunE: preRunSetupRpcClient,
+		RunE: func(cmd *cobra.Command, a []string) error {
+			data, err := dagNoteData(cmd, action, a)
+			if err != nil {
+				return err
+			}
+			return wshclient.DagActionCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: 10_000})
+		},
+	}
+}
+
+var (
+	dagAmendCmd    = dagNoteCmd("amend <task-id> <note>", "amend", "add a note to a task that has not started; its worker's prompt carries it", cobra.ExactArgs(2))
+	dagTellCmd     = dagNoteCmd("tell <task-id> <text>", "tell", "type a message into a running worker's (or reviewer's) terminal", cobra.ExactArgs(2))
+	dagSendbackCmd = dagNoteCmd("sendback <task-id> [guidance]", "sendback", "send a task whose review failed back for one more round, with your guidance beside the findings", cobra.RangeArgs(1, 2))
+)
+
 var dagRulesInject bool
 
 // dagRulesCmd prints the orchestration rules for the caller's lead session (spec §7). It runs from a
@@ -555,8 +656,8 @@ func dagRulesText(ctx *wshrpc.CommandJarvisCtxRtnData, st *wshrpc.CommandDagStat
 }
 
 func init() {
-	jarvisDagCmd.AddCommand(dagSubmitCmd, dagStatusCmd, dagMergeCmd, dagAsksCmd, dagAnswerCmd, dagForwardCmd, dagRulesCmd)
-	jarvisDagCmd.AddCommand(dagAction("approve"), dagAction("sendback"), dagAction("retry"), dagAction("skip"), dagEscalateCmd, dagAction("cancel"))
+	jarvisDagCmd.AddCommand(dagSubmitCmd, dagStatusCmd, dagMergeCmd, dagAsksCmd, dagAnswerCmd, dagForwardCmd, dagRulesCmd, dagReviewCmd, dagAmendCmd, dagTellCmd)
+	jarvisDagCmd.AddCommand(dagAction("approve"), dagSendbackCmd, dagAction("retry"), dagAction("skip"), dagEscalateCmd, dagAction("cancel"))
 	for _, c := range jarvisDagCmd.Commands() {
 		c.Flags().String("runid", "", "run id")
 		c.Flags().String("channel", "", "channel id")
@@ -565,6 +666,7 @@ func init() {
 	dagSubmitCmd.Flags().String("spec", "", "the spec the plan implements; committed with the plan in the run's first merge")
 	dagEscalateCmd.Flags().String("model", "", "exact model id to retry on (e.g. sonnet, or opencode/deepseek-v4-pro for pi)")
 	dagEscalateCmd.Flags().String("runtime", "", "runtime to retry on; empty keeps the task's current runtime")
+	dagReviewCmd.Flags().String("downstream", "", "with pass: what a later task must know (a renamed API, a plan assumption that turned out wrong); wakes the lead")
 	dagMergeCmd.Flags().Bool("continue", false, "finish a resolved squash merge, or re-run a failed Verify after committing the fix")
 	dagRulesCmd.Flags().BoolVar(&dagRulesInject, "inject", false, "emit the rules as a Claude Code SessionStart hook's added context")
 	jarvisCmd.AddCommand(jarvisDagCmd)

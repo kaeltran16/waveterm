@@ -78,6 +78,7 @@ const ACTION_BY_STATE: Record<string, string[]> = {
     "verify-failed": ["resolve"],
     failed: ["retry", "skip"],
     stalled: ["retry", "skip"],
+    "review-failed": ["approve", "sendback", "retry", "skip"],
 };
 const GATE_DONE_ACTIONS = ["approve", "sendback"];
 

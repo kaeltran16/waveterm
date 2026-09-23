@@ -578,6 +578,26 @@ function liveTaskRow(input: SheetRowInput): SheetRow {
                 action: workerAction,
             };
         }
+        case "reviewing": {
+            const round = (task.reviewround ?? 0) + 1;
+            return {
+                ...base,
+                meta: round > 1 ? `review round ${round}` : "reviewer checking the commit",
+                metaTone: "success-soft",
+                state: "reviewing",
+                stateTone: "success",
+                action: "open-dag-task",
+            };
+        }
+        case "review-failed":
+            return {
+                ...base,
+                meta: firstLine(task.reviewnote) || "review failed",
+                metaTone: "warning",
+                state: "review failed",
+                stateTone: "warning",
+                action: "open-dag-task",
+            };
         case "failed":
         case "stalled":
             return {

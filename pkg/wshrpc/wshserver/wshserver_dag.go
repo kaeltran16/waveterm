@@ -335,6 +335,26 @@ func (ws *WshServer) DagActionCommand(ctx context.Context, data wshrpc.CommandDa
 		return orchestrate.TakeOverAsk(ctx, run.DagORef, data.TaskId)
 	case "relaunch-lead":
 		return orchestrate.RelaunchLead(ctx, data.ChannelId, data.RunId)
+	case "review-pass", "review-fail":
+		// RunId is the reviewer's own run: `dag review` resolves it from the reviewer's terminal
+		verdict := strings.TrimPrefix(data.Action, "review-")
+		if err := orchestrate.RecordReviewVerdict(ctx, run.DagORef, data.RunId, verdict, data.Notes, data.Downstream); err != nil {
+			return err
+		}
+		// the verdict is durable; the tick that applies it can spawn a worker, which outlasts the reviewer's RPC budget
+		dagID := run.DagORef
+		go func() {
+			if err := orchestrate.Schedule(context.Background(), dagID); err != nil {
+				log.Printf("dag schedule after review verdict: %v", err)
+			}
+		}()
+		return nil
+	case "amend":
+		return orchestrate.AmendTask(ctx, run.DagORef, data.TaskId, data.Notes)
+	case "tell":
+		return orchestrate.TellTask(ctx, run.DagORef, data.TaskId, data.Notes)
+	case "sendback":
+		return orchestrate.SendBack(ctx, run.DagORef, data.TaskId, data.Notes)
 	}
 	target := waveobj.RoutePin{Runtime: data.Runtime, Model: data.Model}
 	return orchestrate.ApplyAction(ctx, run.DagORef, data.TaskId, data.Action, target)

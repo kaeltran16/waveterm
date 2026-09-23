@@ -367,3 +367,83 @@ func TestSameDagProposalComparesPlanAndSpecPaths(t *testing.T) {
 		t.Fatal("a resubmission naming a different spec is a different proposal")
 	}
 }
+func TestDeriveTaskStatesSendsACommittedFinishToReview(t *testing.T) {
+	g := mustGroup(t, mkTasks())
+	g.Tasks[0].State = TaskState_Running
+	g.Tasks[0].RunID = "r-0"
+	g.Tasks[0].ReviewRespawns = 1
+	g.Tasks[0].ReviewVerdict = ReviewVerdict_Fail
+	DeriveTaskStates(g, map[string]*waveobj.Run{"r-0": {ID: "r-0", Status: jarvis.RunStatus_Done, BaseCommit: "base0", EndCommit: "work1"}})
+	got := g.Tasks[0]
+	if got.State != TaskState_Reviewing {
+		t.Fatalf("a finished worker with a commit must be reviewed, got %s", got.State)
+	}
+	if got.ReviewBase != "base0" || got.ReviewRespawns != 0 || got.ReviewVerdict != "" {
+		t.Fatalf("entering review must reset the round's bookkeeping and keep the base: %+v", got)
+	}
+}
+
+func TestDeriveTaskStatesKeepsTheFirstReviewBase(t *testing.T) {
+	g := mustGroup(t, mkTasks())
+	g.Tasks[0].State = TaskState_Running
+	g.Tasks[0].RunID = "r-0"
+	g.Tasks[0].ReviewBase = "first"
+	DeriveTaskStates(g, map[string]*waveobj.Run{"r-0": {ID: "r-0", Status: jarvis.RunStatus_Done, BaseCommit: "fix-base", EndCommit: "fix1"}})
+	if g.Tasks[0].ReviewBase != "first" {
+		t.Fatalf("a later round must diff the whole task, got base %q", g.Tasks[0].ReviewBase)
+	}
+}
+
+func TestDeriveTaskStatesDoneWithoutACommitSkipsReview(t *testing.T) {
+	g := mustGroup(t, mkTasks())
+	g.Tasks[0].State = TaskState_Running
+	g.Tasks[0].RunID = "r-0"
+	DeriveTaskStates(g, map[string]*waveobj.Run{"r-0": {ID: "r-0", Status: jarvis.RunStatus_Done}})
+	if g.Tasks[0].State != TaskState_Done {
+		t.Fatalf("nothing committed means nothing to review, got %s", g.Tasks[0].State)
+	}
+}
+
+func TestDeriveTaskStatesLeavesReviewStatesAlone(t *testing.T) {
+	for _, state := range []string{TaskState_Reviewing, TaskState_ReviewFailed, TaskState_Done} {
+		g := mustGroup(t, mkTasks())
+		g.Tasks[0].State = state
+		g.Tasks[0].RunID = "r-0"
+		DeriveTaskStates(g, map[string]*waveobj.Run{"r-0": {ID: "r-0", Status: jarvis.RunStatus_Done, EndCommit: "work1"}})
+		if g.Tasks[0].State != state {
+			t.Fatalf("a done worker run must not move a %s task, got %s", state, g.Tasks[0].State)
+		}
+	}
+}
+
+func TestReviewFailedBlocksTheDag(t *testing.T) {
+	g := mustGroup(t, mkTasks())
+	g.Tasks[0].State = TaskState_ReviewFailed
+	RecomputeDagStatus(g)
+	if g.Status != DagStatus_Blocked {
+		t.Fatalf("a failed review waits on judgment like a failed task, got %s", g.Status)
+	}
+}
+
+func TestNewTaskGroupRejectsReviewFields(t *testing.T) {
+	tasks := []waveobj.TaskNode{{ID: "t-1", Label: "one", ReviewVerdict: ReviewVerdict_Pass}}
+	if _, err := NewTaskGroup("run", "channel", "title", 1, true, tasks, 1, nil); err == nil {
+		t.Fatal("caller-supplied review fields must be rejected")
+	}
+}
+
+func TestDeriveTaskStatesNoNewCommitSkipsReview(t *testing.T) {
+	g := mustGroup(t, mkTasks())
+	g.Tasks[0].State = TaskState_Running
+	g.Tasks[0].RunID = "r-0"
+	DeriveTaskStates(g, map[string]*waveobj.Run{"r-0": {ID: "r-0", Status: jarvis.RunStatus_Done, BaseCommit: "same", EndCommit: "same"}})
+	if g.Tasks[0].State != TaskState_Done {
+		t.Fatalf("a worker that committed nothing has nothing to review, got %s", g.Tasks[0].State)
+	}
+	g.Tasks[0].State = TaskState_Running
+	g.Tasks[0].ReviewBase = "first"
+	DeriveTaskStates(g, map[string]*waveobj.Run{"r-0": {ID: "r-0", Status: jarvis.RunStatus_Done, BaseCommit: "same", EndCommit: "same"}})
+	if g.Tasks[0].State != TaskState_Reviewing {
+		t.Fatalf("a fix round that committed nothing is still judged, got %s", g.Tasks[0].State)
+	}
+}

@@ -609,6 +609,7 @@ declare global {
         model?: string;
         runtime?: string;
         notes?: string;
+        downstream?: string;
     };
 
     // wshrpc.CommandDagAnswerData
@@ -1918,6 +1919,11 @@ declare global {
         recoveredretry?: boolean;
         mergestate: string;
         cleanupstate: string;
+        result?: string;
+        reviewverdict?: string;
+        reviewround?: number;
+        reviewnote?: string;
+        reviewdownstream?: string;
     };
 
     // wshrpc.DagTaskDuration
@@ -3308,6 +3314,18 @@ declare global {
         verifystartedts?: number;
         mergeerror?: string;
         mergefailures?: number;
+        reviewrunid?: string;
+        reviewspawnedts?: number;
+        reviewrespawns?: number;
+        reviewround?: number;
+        reviewverdict?: string;
+        reviewnote?: string;
+        reviewdownstream?: string;
+        reviewbase?: string;
+        reviewcommit?: string;
+        leadguidance?: string;
+        leadnotes?: string[];
+        leadtold?: string[];
     };
 
     // waveobj.TermSize

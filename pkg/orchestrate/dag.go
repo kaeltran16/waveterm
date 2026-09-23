@@ -25,6 +25,8 @@ const (
 	TaskState_BlockedMerge = "blocked-merge"
 	TaskState_Verifying    = "verifying"     // merged; the plan's Verify is running in the project checkout
 	TaskState_VerifyFailed = "verify-failed" // merged, and Verify failed or timed out; fixed in the project tree, then `dag merge --continue`
+	TaskState_Reviewing    = "reviewing"     // the worker finished with a commit; a reviewer is judging it against the task and spec
+	TaskState_ReviewFailed = "review-failed" // review failed twice, or the reviewer could not do its job; the lead judges it
 )
 
 // landingState reports a state the merge path wrote after the child finished. Deriving from the done child
@@ -39,6 +41,35 @@ func landingState(state string) bool {
 // asks "was this task in flight?" must accept both, or a task that went silent once is stranded.
 func taskActive(state string) bool {
 	return state == TaskState_Running || state == TaskState_Stalled
+}
+
+// taskInFlight reports a task that still holds its parallelism slot and its lane: a live worker, or a finished
+// worker's commit under review. taskActive is about the worker process alone, which a reviewing task no
+// longer has.
+func taskInFlight(state string) bool {
+	return taskActive(state) || state == TaskState_Reviewing
+}
+
+// reviewState reports a state the review loop owns. The worker's done run would derive done and erase it.
+func reviewState(state string) bool {
+	return state == TaskState_Reviewing || state == TaskState_ReviewFailed
+}
+
+// Review verdicts a reviewer records with `wsh jarvis dag review`.
+const (
+	ReviewVerdict_Pass = "pass"
+	ReviewVerdict_Fail = "fail"
+)
+
+// enterReview starts a finished worker's review round. The round before's reviewer bookkeeping is cleared; the
+// base of the task's first reviewed attempt is kept, so every round diffs the whole task.
+func enterReview(t *waveobj.TaskNode, worker *waveobj.Run) {
+	t.State = TaskState_Reviewing
+	t.ReviewRunID, t.ReviewSpawnedTs, t.ReviewRespawns = "", 0, 0
+	t.ReviewVerdict, t.ReviewDownstream = "", ""
+	if t.ReviewBase == "" {
+		t.ReviewBase = worker.BaseCommit
+	}
 }
 
 // Dag statuses (derived by RecomputeDagStatus; cancelled is a terminal override).
@@ -221,6 +252,13 @@ func NewTaskGroup(runID, channelId, title string, parallelism int, mergeRequired
 		if t.Escalations != 0 {
 			return waveobj.TaskGroup{}, fmt.Errorf("task %q escalations must be zero", t.ID)
 		}
+		if t.ReviewRunID != "" || t.ReviewSpawnedTs != 0 || t.ReviewRespawns != 0 || t.ReviewRound != 0 ||
+			t.ReviewVerdict != "" || t.ReviewNote != "" || t.ReviewDownstream != "" || t.ReviewBase != "" || t.ReviewCommit != "" {
+			return waveobj.TaskGroup{}, fmt.Errorf("task %q review fields must be empty", t.ID)
+		}
+		if t.LeadGuidance != "" || len(t.LeadNotes) != 0 || len(t.LeadTold) != 0 {
+			return waveobj.TaskGroup{}, fmt.Errorf("task %q lead fields must be empty", t.ID)
+		}
 	}
 	tasksCopy := make([]waveobj.TaskNode, len(tasks))
 	for i, t := range tasks {
@@ -299,7 +337,7 @@ func RecomputeDagStatus(g *waveobj.TaskGroup) {
 		switch t.State {
 		case TaskState_Cancelled:
 			cancelled = true
-		case TaskState_Failed, TaskState_BlockedMerge, TaskState_VerifyFailed:
+		case TaskState_Failed, TaskState_BlockedMerge, TaskState_VerifyFailed, TaskState_ReviewFailed:
 			blocked = true
 		case TaskState_Done:
 			if t.Gate && !t.Released {
@@ -384,7 +422,7 @@ func dagCondition(g *waveobj.TaskGroup) string {
 func DeriveTaskStates(g *waveobj.TaskGroup, runs map[string]*waveobj.Run) {
 	for i := range g.Tasks {
 		t := &g.Tasks[i]
-		if t.RunID == "" || landingState(t.State) {
+		if t.RunID == "" || landingState(t.State) || reviewState(t.State) {
 			continue
 		}
 		r, ok := runs[t.RunID]
@@ -393,6 +431,13 @@ func DeriveTaskStates(g *waveobj.TaskGroup, runs map[string]*waveobj.Run) {
 		}
 		switch r.Status {
 		case jarvis.RunStatus_Done:
+			// only a worker finishing now is reviewed: a task that was already done when review shipped stays done.
+			// A first attempt that committed nothing has nothing to judge; a fix round is judged either way, or the
+			// rejected commit would land unreviewed.
+			if taskActive(t.State) && r.EndCommit != "" && (t.ReviewBase != "" || r.EndCommit != r.BaseCommit) {
+				enterReview(t, r)
+				continue
+			}
 			t.State = TaskState_Done
 		case jarvis.RunStatus_Cancelled:
 			t.State = TaskState_Cancelled

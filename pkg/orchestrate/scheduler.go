@@ -77,7 +77,7 @@ func NextToSpawn(g *waveobj.TaskGroup) []string {
 	}
 	busy := 0
 	for i := range g.Tasks {
-		if taskActive(g.Tasks[i].State) {
+		if taskInFlight(g.Tasks[i].State) {
 			busy++
 		}
 	}
@@ -89,7 +89,7 @@ func NextToSpawn(g *waveobj.TaskGroup) []string {
 	// beside a later one still running in it
 	lanes := map[string]bool{}
 	for i := range g.Tasks {
-		if taskActive(g.Tasks[i].State) {
+		if taskInFlight(g.Tasks[i].State) {
 			lanes[LaneWorktreeKey(g, g.Tasks[i].ID)] = true
 		}
 	}
@@ -179,7 +179,7 @@ func SkipTask(g *waveobj.TaskGroup, taskID string) error {
 		if g.Tasks[i].ID != taskID {
 			continue
 		}
-		if g.Tasks[i].State != TaskState_Failed && g.Tasks[i].State != TaskState_Stalled && g.Tasks[i].State != TaskState_Ready {
+		if g.Tasks[i].State != TaskState_Failed && g.Tasks[i].State != TaskState_Stalled && g.Tasks[i].State != TaskState_Ready && g.Tasks[i].State != TaskState_ReviewFailed {
 			return fmt.Errorf("task %q cannot be skipped from state %q", taskID, g.Tasks[i].State)
 		}
 		g.Tasks[i].State = TaskState_Skipped
@@ -197,7 +197,7 @@ func CancelGroup(g *waveobj.TaskGroup) *waveobj.TaskGroup {
 		switch t.State {
 		case TaskState_Pending, TaskState_Ready:
 			t.State = TaskState_Skipped
-		case TaskState_Running, TaskState_Stalled:
+		case TaskState_Running, TaskState_Stalled, TaskState_Reviewing, TaskState_ReviewFailed:
 			t.State = TaskState_Cancelled
 		}
 	}

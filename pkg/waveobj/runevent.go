@@ -88,6 +88,20 @@ const (
 	// tick. Without it the halt reaches nobody: the tasks stay merge-ready and the digest keeps offering
 	// resolve-merge, while the automatic path refuses every tick for a reason only the server log holds.
 	RunEventKindMergeHeld = "merge-held"
+
+	// the review loop and the lead's steering (spec 2026-09-23-orchestrator-review-and-lead-link):
+	//   task-review-started  a reviewer was spawned for a finished task ("taskid", "runid")
+	//   task-review-passed   "taskid", "note", "downstream"
+	//   task-review-failed   "taskid", "note", "round", "final" (true when it went to the lead)
+	//   review-overruled     the lead approved a task whose review failed ("taskid")
+	//   task-amended         the lead added a note to a task not started yet ("taskid", "text")
+	//   task-lead-told       the lead typed into a running worker or reviewer ("taskid", "text")
+	RunEventKindTaskReviewStarted = "task-review-started"
+	RunEventKindTaskReviewPassed  = "task-review-passed"
+	RunEventKindTaskReviewFailed  = "task-review-failed"
+	RunEventKindReviewOverruled   = "review-overruled"
+	RunEventKindTaskAmended       = "task-amended"
+	RunEventKindTaskLeadTold      = "task-lead-told"
 )
 
 // Detail payload keys per kind (values are built as map[string]any by writers):

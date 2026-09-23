@@ -63,6 +63,17 @@ func verifyFailedWake(taskID, reason string) string {
 	return fmt.Sprintf("wake: Verify failed after merging task %s (%s). wsh jarvis dag status", taskID, reason)
 }
 
+// reviewFailedWake hands a task's failed review to the lead; the findings are in its status.
+func reviewFailedWake(taskID string) string {
+	return fmt.Sprintf("wake: review failed for task %s. wsh jarvis dag status", taskID)
+}
+
+// downstreamWake carries what a passed task's reviewer said later tasks must know. A wake is typed as one
+// line, so the note is flattened.
+func downstreamWake(taskID, note string) string {
+	return fmt.Sprintf("wake: task %s passed review with a note for later tasks: %s. wsh jarvis dag status", taskID, strings.Join(strings.Fields(note), " "))
+}
+
 // RaiseChildAsk puts a dag child's question in its lead's queue and wakes the lead. question is the
 // first question's text, for the child-ask row.
 func RaiseChildAsk(ctx context.Context, g *waveobj.TaskGroup, target AskTarget, blockOref, question string) {
@@ -150,14 +161,14 @@ func ForwardTask(ctx context.Context, dagID, taskID, note string) error {
 		return nil
 	}
 	switch task.State {
-	case TaskState_Failed, TaskState_Stalled, TaskState_BlockedMerge, TaskState_VerifyFailed:
+	case TaskState_Failed, TaskState_Stalled, TaskState_BlockedMerge, TaskState_VerifyFailed, TaskState_ReviewFailed:
 		appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskForwarded, nil, map[string]any{
 			"taskid": task.ID,
 			"note":   truncateText(note, MaxAskSummaryLen),
 		})
 		return nil
 	}
-	return fmt.Errorf("task %s has no question, failure, stall, merge conflict or failed Verify to forward (state %q)", taskID, task.State)
+	return fmt.Errorf("task %s has no question, failure, stall, merge conflict, failed Verify or failed review to forward (state %q)", taskID, task.State)
 }
 
 // TakeOverAsk hands a task's question to the human who took it from the lead in the cockpit. The lead is

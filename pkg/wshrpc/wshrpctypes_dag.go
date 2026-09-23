@@ -66,13 +66,14 @@ type CommandDagStatusData struct {
 }
 
 type CommandDagActionData struct {
-	ChannelId string `json:"channelid"`
-	RunId     string `json:"runid"`
-	TaskId    string `json:"taskid"`
-	Action    string `json:"action"`            // approve | sendback | retry | skip | escalate | cancel | forward | takeover | relaunch-lead
-	Model     string `json:"model,omitempty"`   // escalate target model (exact id); required
-	Runtime   string `json:"runtime,omitempty"` // escalate target runtime; empty = task's current runtime
-	Notes     string `json:"notes,omitempty"`   // forward: what the lead checked and recommends, shown to the human
+	ChannelId  string `json:"channelid"`
+	RunId      string `json:"runid"`
+	TaskId     string `json:"taskid"`
+	Action     string `json:"action"`               // approve | sendback | retry | skip | escalate | cancel | forward | takeover | relaunch-lead | review-pass | review-fail | amend | tell
+	Model      string `json:"model,omitempty"`      // escalate target model (exact id); required
+	Runtime    string `json:"runtime,omitempty"`    // escalate target runtime; empty = task's current runtime
+	Notes      string `json:"notes,omitempty"`      // forward: what the lead checked; review: summary or findings; amend: the note; tell: the text; sendback: guidance
+	Downstream string `json:"downstream,omitempty"` // review-pass: what later tasks must know
 }
 
 type CommandDagMergeData struct {
@@ -177,20 +178,25 @@ type DagNextStep struct {
 }
 
 type DagTaskDigest struct {
-	TaskId          string   `json:"taskid"`
-	WaitReason      string   `json:"waitreason"` // none | dependency | parallelism | gate | ask | lead-ask | failure | merge | verify | cleanup | terminal
-	BlockingTaskIds []string `json:"blockingtaskids,omitempty"`
-	HumanActions    []string `json:"humanactions,omitempty"` // answer | approve | sendback | resolve-merge | retry | skip | escalate | retry-cleanup
-	AskId           string   `json:"askid,omitempty"`
-	AskSummary      string   `json:"asksummary,omitempty"`
-	AskTs           int64    `json:"askts,omitempty"`
-	AskDeadline     int64    `json:"askdeadline,omitempty"` // UnixMilli past which a lead-held ask moves to the human
-	FreshnessTs     int64    `json:"freshnessts,omitempty"`
-	VerifyStartedTs int64    `json:"verifystartedts,omitempty"` // UnixMilli a RUNNING merge-point Verify started; 0 in every other state
-	VerifyLastLine  string   `json:"verifylastline,omitempty"`  // the last line that running Verify has printed
-	RecoveredRetry  bool     `json:"recoveredretry,omitempty"`
-	MergeState      string   `json:"mergestate"`   // not-required | waiting | ready | blocked | merged
-	CleanupState    string   `json:"cleanupstate"` // not-required | clear | pending | failed
+	TaskId           string   `json:"taskid"`
+	WaitReason       string   `json:"waitreason"` // none | dependency | parallelism | gate | ask | lead-ask | failure | merge | verify | review | cleanup | terminal
+	BlockingTaskIds  []string `json:"blockingtaskids,omitempty"`
+	HumanActions     []string `json:"humanactions,omitempty"` // answer | approve | sendback | resolve-merge | retry | skip | escalate | retry-cleanup
+	AskId            string   `json:"askid,omitempty"`
+	AskSummary       string   `json:"asksummary,omitempty"`
+	AskTs            int64    `json:"askts,omitempty"`
+	AskDeadline      int64    `json:"askdeadline,omitempty"` // UnixMilli past which a lead-held ask moves to the human
+	FreshnessTs      int64    `json:"freshnessts,omitempty"`
+	VerifyStartedTs  int64    `json:"verifystartedts,omitempty"` // UnixMilli a RUNNING merge-point Verify started; 0 in every other state
+	VerifyLastLine   string   `json:"verifylastline,omitempty"`  // the last line that running Verify has printed
+	RecoveredRetry   bool     `json:"recoveredretry,omitempty"`
+	MergeState       string   `json:"mergestate"`                 // not-required | waiting | ready | blocked | merged
+	CleanupState     string   `json:"cleanupstate"`               // not-required | clear | pending | failed
+	Result           string   `json:"result,omitempty"`           // the worker's closing note, bounded
+	ReviewVerdict    string   `json:"reviewverdict,omitempty"`    // pass | fail: the latest review
+	ReviewRound      int      `json:"reviewround,omitempty"`      // failed reviews so far
+	ReviewNote       string   `json:"reviewnote,omitempty"`       // the reviewer's summary or findings, or why the review failed
+	ReviewDownstream string   `json:"reviewdownstream,omitempty"` // what later tasks must know, from a pass
 }
 
 type DagDurationDigest struct {

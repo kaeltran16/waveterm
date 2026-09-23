@@ -96,6 +96,7 @@ export interface AgentVM {
     cwd?: string; // background agent working dir — the resume target for Attach
     sessionId?: string; // pi control-channel session id (agentstatus --session-id)
     runId?: string; // the run this agent works for, when a run spawned it: a lead's own run, a worker's child run
+    atPrompt?: boolean; // the raw status was waiting or idle, whatever state it folds to: a lead between wakes
 }
 
 // Per-card ephemeral layout prefs (full-width span + dragged height). Not persisted this pass.
@@ -500,6 +501,9 @@ export function agentVMFromInput(input: LiveAgentInput, now: number): AgentVM {
     };
     if (input.runORef?.startsWith("run:")) {
         vm.runId = input.runORef.slice("run:".length);
+    }
+    if (input.status === "waiting" || input.status === "idle") {
+        vm.atPrompt = true;
     }
     if (state === "working") {
         vm.activeMs = age;

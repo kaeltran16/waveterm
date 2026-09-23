@@ -11,6 +11,7 @@ import {
     isEndedWorkerId,
     laneLabel,
     leadAgentOf,
+    leadStandingBy,
     runProgress,
     runRoleOf,
     runTitle,
@@ -161,5 +162,38 @@ describe("ended workers", () => {
             idleSince: undefined,
             transcriptPath: undefined,
         });
+    });
+});
+
+describe("runRoleOf for a reviewer", () => {
+    it("reads a task's reviewer run as that task's worker", () => {
+        const reviewed = {
+            ...dag,
+            tasks: [{ id: "t-1", runid: "child-run", reviewrunid: "review-run", state: "reviewing" }],
+        } as TaskGroup;
+        const run = { oid: "review-run", dagoref: "dag:dag-1", mode: "quick" } as Run;
+        expect(runRoleOf(run, reviewed)).toEqual({ kind: "worker", leadRunId: "lead-run", taskId: "t-1" });
+    });
+});
+
+describe("leadStandingBy", () => {
+    const run = {
+        runId: "lead-run",
+        channelId: "c",
+        title: "",
+        project: "",
+        dag: { ...dag, status: "running" } as TaskGroup,
+    };
+
+    it("reads a lead at its prompt while the plan executes as standing by", () => {
+        expect(leadStandingBy({ atPrompt: true }, run)).toBe(true);
+    });
+
+    it("keeps a busy lead, a finished run and a run with no plan as they are", () => {
+        expect(leadStandingBy({ atPrompt: undefined }, run)).toBe(false);
+        expect(leadStandingBy({ atPrompt: true }, { ...run, dag: { ...dag, status: "done" } as TaskGroup })).toBe(
+            false
+        );
+        expect(leadStandingBy({ atPrompt: true }, { ...run, dag: undefined })).toBe(false);
     });
 });

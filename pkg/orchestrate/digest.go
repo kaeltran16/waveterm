@@ -34,6 +34,7 @@ var (
 	digestActionResolveMerge      = []string{"resolve-merge"}
 	digestActionRetryCleanup      = []string{"retry-cleanup"}
 	digestActionRetrySkipEscalate = []string{"retry", "skip", "escalate"}
+	digestActionReviewFailed      = []string{"approve", "sendback", "retry", "skip", "escalate"}
 )
 
 // BuildDigest projects the group (+ its child runs, asks, and retained lifecycle history) onto the
@@ -57,10 +58,27 @@ func BuildDigest(sn DagDigestSnapshot) wshrpc.DagStatusDigest {
 	d.Shape = PlanShapeOf(g.Tasks)
 	d.Lanes = jarvis.Lanes(g.Tasks)
 	d.Told = toldMessages(sn.Retained)
+	runByID := map[string]*waveobj.Run{}
+	for _, r := range sn.Runs {
+		if r != nil {
+			runByID[r.ID] = r
+		}
+	}
 	for i := range g.Tasks {
-		d.Tasks = append(d.Tasks, buildTaskDigest(g, &g.Tasks[i], askByTask, retried))
+		td := buildTaskDigest(g, &g.Tasks[i], askByTask, retried)
+		withReview(&td, &g.Tasks[i], runByID[g.Tasks[i].RunID])
+		d.Tasks = append(d.Tasks, td)
 	}
 	return d
+}
+
+// withReview adds what the lead reads about a task's outcome: the worker's closing note and the latest review.
+func withReview(td *wshrpc.DagTaskDigest, t *waveobj.TaskNode, worker *waveobj.Run) {
+	if worker != nil && worker.Evidence != nil {
+		td.Result = truncateNote(worker.Evidence.Summary, handoffMaxSummaryLen)
+	}
+	td.ReviewVerdict, td.ReviewRound = t.ReviewVerdict, t.ReviewRound
+	td.ReviewNote, td.ReviewDownstream = t.ReviewNote, t.ReviewDownstream
 }
 
 // PlanShapeOf is a plan's shape from its tasks. + Run's preview and the run card both read it, so the lanes
@@ -150,7 +168,7 @@ func taskAttention(g *waveobj.TaskGroup, t *waveobj.TaskNode, askByTask map[stri
 	if t.Gate && t.State == TaskState_Done && !t.Released {
 		return true
 	}
-	if t.State == TaskState_Failed || t.State == TaskState_BlockedMerge || t.State == TaskState_VerifyFailed {
+	if t.State == TaskState_Failed || t.State == TaskState_BlockedMerge || t.State == TaskState_VerifyFailed || t.State == TaskState_ReviewFailed {
 		return true
 	}
 	if staleGate[t.ID] {
@@ -172,7 +190,7 @@ func buildCounts(g *waveobj.TaskGroup, askByTask map[string]wshrpc.DagAskItem, r
 			if mergeReadyTip(g, t) {
 				c.MergeReady++
 			}
-		case TaskState_Running:
+		case TaskState_Running, TaskState_Reviewing:
 			c.Running++
 		case TaskState_Stalled:
 			c.Stalled++
@@ -268,6 +286,9 @@ func buildNext(g *waveobj.TaskGroup, askByTask map[string]wshrpc.DagAskItem) wsh
 	// 1. required human action, ordered: answer -> approve/sendback -> resolve-merge -> retry-cleanup -> retry/skip/escalate
 	if ids := tasksWithAsk(g, askByTask, false); len(ids) > 0 {
 		return humanActionStep("answer", ids, digestActionAnswer)
+	}
+	if ids := tasksInState(g, TaskState_ReviewFailed); len(ids) > 0 {
+		return humanActionStep("approve/sendback", ids, digestActionReviewFailed)
 	}
 	if ids := unreleasedGateIDs(g); len(ids) > 0 {
 		return humanActionStep("approve/sendback", ids, digestActionApproveSendback)
@@ -412,7 +433,7 @@ func mergeReadyIDs(g *waveobj.TaskGroup) []string {
 func busyTaskIDs(g *waveobj.TaskGroup) []string {
 	var ids []string
 	for i := range g.Tasks {
-		if taskActive(g.Tasks[i].State) {
+		if taskInFlight(g.Tasks[i].State) {
 			ids = append(ids, g.Tasks[i].ID)
 		}
 	}
@@ -501,6 +522,8 @@ func taskWaitReason(g *waveobj.TaskGroup, t *waveobj.TaskNode) string {
 		return "merge"
 	case TaskState_Verifying, TaskState_VerifyFailed:
 		return "verify"
+	case TaskState_Reviewing, TaskState_ReviewFailed:
+		return "review"
 	case TaskState_Done:
 		return "terminal"
 	case TaskState_Skipped, TaskState_Cancelled:
@@ -525,7 +548,7 @@ func taskIsParallelismCapped(g *waveobj.TaskGroup, t *waveobj.TaskNode) bool {
 	}
 	busy := 0
 	for i := range g.Tasks {
-		if taskActive(g.Tasks[i].State) {
+		if taskInFlight(g.Tasks[i].State) {
 			busy++
 		}
 	}
@@ -558,6 +581,8 @@ func taskHumanActions(g *waveobj.TaskGroup, t *waveobj.TaskNode) []string {
 	switch {
 	case t.CleanupError != "":
 		return digestActionRetryCleanup
+	case t.State == TaskState_ReviewFailed:
+		return digestActionReviewFailed
 	case t.State == TaskState_Failed || t.State == TaskState_Stalled:
 		return digestActionRetrySkipEscalate
 	case t.State == TaskState_BlockedMerge || t.State == TaskState_VerifyFailed:

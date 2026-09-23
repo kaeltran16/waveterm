@@ -46,7 +46,14 @@ func HandleChildOutcome(ctx context.Context, workerORef string, data jarvis.Outc
 			return fmt.Errorf("loading dag for child outcome: %w", err)
 		}
 		task := taskByRunID(g, run.ID)
-		if task == nil || !taskActive(task.State) {
+		if task == nil {
+			// a reviewer's exit: judge now whether it left a verdict, not at the watchdog's next pass
+			if taskByReviewRunID(g, run.ID) != nil {
+				return scheduleLocked(context.WithoutCancel(ctx), g.OID)
+			}
+			return nil
+		}
+		if !taskActive(task.State) {
 			return nil
 		}
 		kind := classifyFailure(data.Summary, data.ExitCode)

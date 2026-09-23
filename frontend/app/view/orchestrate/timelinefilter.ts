@@ -24,6 +24,7 @@ export function timelineLayout(windowWidth: number): TimelineLayout {
 // ground. Resolutions (child-answered, child-ask-cleared, task-merged) are deliberately absent —
 // they are how attention ENDS, and listing them would keep a settled task in the filter forever.
 export const ATTENTION_KINDS = new Set<string>([
+    "task-review-failed",
     "child-ask",
     "dag-gate-open",
     "dag-plan-gated",
@@ -72,6 +73,12 @@ export type TimelineTarget =
 // this row" — the worker for anything about the child's work, the gate for a halt awaiting release,
 // the merge state for integration, the task itself for cleanup debt.
 const TASK_TARGET_KINDS: Record<string, TimelineTarget["kind"]> = {
+    "task-review-started": "worker",
+    "task-lead-told": "worker",
+    "task-review-passed": "dag-task",
+    "task-review-failed": "dag-task",
+    "review-overruled": "dag-task",
+    "task-amended": "dag-task",
     "task-spawned": "worker",
     "task-first-activity": "worker",
     "task-done": "worker",

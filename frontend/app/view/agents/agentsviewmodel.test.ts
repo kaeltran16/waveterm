@@ -299,6 +299,12 @@ describe("agentVMFromInput", () => {
         );
         expect(vm.project).toBe("waveterm");
     });
+
+    it("marks a waiting or idle row as at its prompt, and a working one not", () => {
+        expect(agentVMFromInput({ id: "t", name: "a", status: "waiting", ts: 1000 }, 2000).atPrompt).toBe(true);
+        expect(agentVMFromInput({ id: "t", name: "a", status: "idle", ts: 1000 }, 2000).atPrompt).toBe(true);
+        expect(agentVMFromInput({ id: "t", name: "a", status: "working", ts: 1000 }, 2000).atPrompt).toBeUndefined();
+    });
 });
 
 describe("agentVMFromInput status mapping", () => {

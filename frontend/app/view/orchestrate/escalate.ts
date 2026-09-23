@@ -5,7 +5,10 @@
 // the same cap; the UI mirrors it so the button disappears at the boundary).
 
 export function canEscalate(task: { state: string; escalations?: number }): boolean {
-    return (task.state === "failed" || task.state === "stalled") && (task.escalations ?? 0) < 1;
+    return (
+        (task.state === "failed" || task.state === "stalled" || task.state === "review-failed") &&
+        (task.escalations ?? 0) < 1
+    );
 }
 
 export function escalatePayload(channelId: string, runId: string, taskId: string, route: RoutePin): CommandDagActionData {
