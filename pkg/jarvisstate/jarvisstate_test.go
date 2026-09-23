@@ -191,3 +191,20 @@ func TestActiveWorkRunWithoutPhasesHasNoWorkerOrefs(t *testing.T) {
 		t.Fatalf("workerorefs=%v want nil (omitted on the wire)", items[0].WorkerORefs)
 	}
 }
+
+func TestShippedCarriesReportAndChunk(t *testing.T) {
+	r := trun("r1", "done", 100, 500, ev("sum"))
+	r.Report = "# t\n\nlead"
+	r.EffortRef = &waveobj.RunEffortRef{EffortOID: "e1", ChunkLabel: "N1 box upgrade"}
+	items := Shipped([]*waveobj.Run{r, trun("r2", "done", 100, 600, ev("b"))}, 0)
+	byID := map[string]wshrpc.ShippedItem{}
+	for _, it := range items {
+		byID[it.RunOID] = it
+	}
+	if !byID["r1"].HasReport || byID["r1"].EffortOID != "e1" || byID["r1"].ChunkLabel != "N1 box upgrade" {
+		t.Fatalf("r1 = %+v", byID["r1"])
+	}
+	if byID["r2"].HasReport || byID["r2"].EffortOID != "" {
+		t.Fatalf("r2 = %+v", byID["r2"])
+	}
+}

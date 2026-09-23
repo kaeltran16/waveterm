@@ -28,6 +28,9 @@ function line(id: string, over: Partial<BriefLine> = {}): BriefLine {
         stateTone: "ok",
         progress: { done: 21, total: 33, pct: 64 },
         target: { oref: OREF },
+        why: "",
+        age: "",
+        detail: "",
         ...over,
     };
 }

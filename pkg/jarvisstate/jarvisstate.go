@@ -9,6 +9,7 @@ package jarvisstate
 
 import (
 	"sort"
+	"strings"
 
 	"github.com/wavetermdev/waveterm/pkg/agentsessions"
 	"github.com/wavetermdev/waveterm/pkg/jarvisdossier"
@@ -115,10 +116,15 @@ func Shipped(runs []*waveobj.Run, windowStartMs int64) []wshrpc.ShippedItem {
 		if windowStartMs > 0 && r.CompletedTs < windowStartMs {
 			continue
 		}
-		out = append(out, wshrpc.ShippedItem{
+		item := wshrpc.ShippedItem{
 			Project: r.ProjectPath, RunOID: r.OID, Goal: r.Goal, Summary: r.Evidence.Summary,
 			Files: r.Evidence.Files, Verifs: r.Evidence.Verifs, CompletedTs: r.CompletedTs,
-		})
+			HasReport: strings.TrimSpace(r.Report) != "",
+		}
+		if r.EffortRef != nil {
+			item.EffortOID, item.ChunkLabel = r.EffortRef.EffortOID, r.EffortRef.ChunkLabel
+		}
+		out = append(out, item)
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].CompletedTs > out[j].CompletedTs })
 	return out

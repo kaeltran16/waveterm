@@ -788,7 +788,10 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     // render would re-register it every render. They are pure functions of the snapshot projection, so
     // pinning them to it also stops groupDelta's "now" drifting between renders of the same snapshot.
     const queue = useMemo(
-        () => (model_ != null ? buildAttentionQueue({ attention, efforts: model_.efforts }) : []),
+        () =>
+            model_ != null
+                ? buildAttentionQueue({ attention, efforts: model_.efforts, blockers: model_.blockers })
+                : [],
         [model_, attention]
     );
     // the full projection, not the window: a blocked chunk on the seventh initiative is still waiting on
@@ -806,7 +809,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     const initiativesOpen = expanded.initiatives === true;
     const sessionsOpen = expanded.sessions === true;
     const behindOpen = expanded.behind === true;
-    const queueSummary = useMemo(() => summarizeAttentionQueue(queue), [queue]);
+    const queueSummary = useMemo(() => summarizeAttentionQueue(queue, Date.now()), [queue]);
 
     const effortWindow = useMemo(() => capRegion(efforts, EFFORT_CAP, initiativesOpen), [efforts, initiativesOpen]);
     const sessions = useMemo(

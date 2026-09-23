@@ -7,9 +7,11 @@ import {
     behindGroups,
     filterLines,
     initiativeLine,
+    projectName,
     queueLine,
     sessionLine,
     sessionWindow,
+    sinceLabel,
     type BriefLine,
 } from "./briefrows";
 import { buildEffortCard } from "./effortmodel";
@@ -32,24 +34,32 @@ describe("queueLine", () => {
         attrib: "Orchestrator · S4c",
         why: "2 of 4 done",
         cites: [],
+        wireKind: "plan-gate",
+        channelId: "c1",
+        runId: "r1",
+        phaseIdx: 0,
+        taskId: "",
+        retry: false,
     };
 
     it("reads kind, title, why, attribution and wait as one line that opens its target", () => {
         expect(queueLine(q, NOW)).toMatchObject({
             id: "waiting:gate:1",
-            kind: "plan gate",
+            kind: "gate",
             kindTone: "asking",
             title: "Approve the plan",
             note: "2 of 4 done",
+            why: "2 of 4 done",
             meta: "Orchestrator · S4c · waveterm · #arc",
-            state: "5m",
+            state: "",
+            age: "5m",
             target: { queue: { kind: "channel", channelId: "c1", runId: "r1" } },
         });
     });
 
     it("stays static when it names nothing to open, and prints no wait it does not know", () => {
         const line = queueLine({ ...q, nav: null, ts: null, tone: "error" }, NOW);
-        expect([line.target, line.state, line.kindTone]).toEqual([null, "", "error"]);
+        expect([line.target, line.age, line.kindTone]).toEqual([null, "", "error"]);
     });
 });
 
@@ -134,6 +144,7 @@ describe("sessionLine", () => {
             state: "10d",
             stale: true,
             target: { oref: "run:r1" },
+            runOid: "r1",
         });
         expect(sessionLine({ ...run, ts: NOW - DAY }, NOW).stale).toBe(false);
     });
@@ -155,6 +166,7 @@ describe("sessionLine", () => {
             stateTone: "asking",
             stale: false,
             target: null,
+            agentId: "t1",
         });
     });
 });
@@ -163,13 +175,14 @@ describe("sessionWindow", () => {
     const runs = (n: number, ageMs: number, tag: string): RunRow[] =>
         Array.from({ length: n }, (_, i) => ({
             oref: `run:${tag}${i}`,
+            oid: `${tag}${i}`,
             goal: `${tag} ${i}`,
             project: "waveterm",
             status: "executing",
             workerOrefs: [],
             ts: NOW - ageMs - i * MIN,
         }));
-    const legs = (activeRuns: RunRow[]) => ({ activeRuns, blockers: [], directAgents: [] });
+    const legs = (activeRuns: RunRow[]) => ({ activeRuns, directAgents: [] });
 
     // capped first, a window of week-quiet runs showed nothing but the fold, and its "+N more" only fed the fold
     it("takes stale runs out before the cap, so the live ones still show", () => {
@@ -226,18 +239,49 @@ describe("behindGroups", () => {
             NOW
         );
         expect(groups.map((g) => g.label)).toEqual(["Today"]);
-        expect(groups[0].lines.map((l) => [l.id, l.kind, l.title, l.note, l.meta, l.state])).toEqual([
+        expect(groups[0].lines.map((l) => [l.id, l.kind, l.title, l.note, l.detail, l.state])).toEqual([
             [
                 "behind:effort:Today:effort:e1",
-                "initiative",
+                "Initiative",
                 "SIEM",
                 "Shipped the fold.",
                 "2 notes · 1 chunk done · 1 chunk added",
                 "1m",
             ],
-            ["behind:3", "Run completed", "execute plan", "", "", "3m"],
+            ["behind:3", "Run completed", "execute plan", "", "summary", "3m"],
         ]);
         expect(groups[0].lines[0].target).toEqual({ oref: "effort:e1" });
+        expect(groups[0].lines.map((l) => [l.group, l.kindTone])).toEqual([
+            ["delta", "muted"],
+            ["delta", "ok"],
+        ]);
+    });
+
+    it("keeps a record's event in the kind column and its status in the detail", () => {
+        const [group] = behindGroups(
+            [
+                {
+                    label: "Today",
+                    rows: [
+                        delta({
+                            key: "d",
+                            kind: "dossier",
+                            title: "Clear the gate",
+                            wording: "Record updated · current status: blocked",
+                            detail: "status: blocked",
+                            oref: "task:d1",
+                        }),
+                    ],
+                },
+            ],
+            [],
+            NOW
+        );
+        expect(group.lines[0]).toMatchObject({
+            kind: "Record updated",
+            kindTone: "asking",
+            detail: "current status: blocked",
+        });
     });
 
     it("says what an initiative did when it wrote no note", () => {
@@ -254,7 +298,7 @@ describe("behindGroups", () => {
             [],
             NOW
         );
-        expect([group.lines[0].note, group.lines[0].meta]).toEqual(["", "created · marked paused"]);
+        expect([group.lines[0].note, group.lines[0].detail]).toEqual(["", "created · marked paused"]);
     });
 
     it("keeps shipped runs as their own group", () => {
@@ -265,9 +309,12 @@ describe("behindGroups", () => {
                     oref: "run:r2",
                     goal: "ship it",
                     project: "waveterm",
-                    summary: "",
+                    summary: "Shipped the fold. Then more.",
                     completedTs: NOW - 2 * 60 * MIN,
                     fresh: true,
+                    hasReport: true,
+                    effortOid: "",
+                    chunkLabel: "",
                 },
             ],
             NOW
@@ -279,9 +326,13 @@ describe("behindGroups", () => {
             kind: "Shipped",
             kindTone: "ok",
             title: "ship it",
-            meta: "waveterm · new",
+            meta: "",
+            detail: "waveterm · Shipped the fold.",
             state: "2h",
             target: { oref: "run:r2" },
+            hasReport: true,
+            fresh: true,
+            group: "shipped",
         });
     });
 });
@@ -298,6 +349,9 @@ describe("filterLines", () => {
         stateTone: "muted",
         progress: null,
         target: null,
+        why: "",
+        age: "",
+        detail: "",
         ...over,
     });
 
@@ -306,5 +360,21 @@ describe("filterLines", () => {
         expect(filterLines(lines, "TRUST").map((l) => l.id)).toEqual(["b"]);
         expect(filterLines(lines, "cad").map((l) => l.id)).toEqual(["a"]);
         expect(filterLines(lines, "  ").map((l) => l.id)).toEqual(["a", "b"]);
+        expect(filterLines([line("c", { detail: "waveterm · shipped" })], "waveterm").map((l) => l.id)).toEqual(["c"]);
+    });
+});
+
+describe("design row helpers", () => {
+    it("names a project by its registry key, else the path's last segment", () => {
+        expect(projectName("C:/x/waveterm", { waveterm: { path: "C:/x/waveterm" } } as never)).toBe("waveterm");
+        expect(projectName("C:\\x\\orch-demo", {} as never)).toBe("orch-demo");
+        expect(projectName("", {} as never)).toBe("");
+    });
+    it("says since when the delta runs", () => {
+        const now = new Date(2026, 8, 23, 10, 0).getTime();
+        expect(sinceLabel(new Date(2026, 8, 22, 18, 40).getTime(), now, false)).toBe("since yesterday 18:40");
+        expect(sinceLabel(new Date(2026, 8, 23, 9, 5).getTime(), now, false)).toBe("since today 09:05");
+        expect(sinceLabel(new Date(2026, 8, 12, 9, 5).getTime(), now, false)).toBe("since Sep 12");
+        expect(sinceLabel(0, now, true)).toBe("the last 7 days");
     });
 });

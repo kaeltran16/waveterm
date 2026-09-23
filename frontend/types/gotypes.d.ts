@@ -190,6 +190,8 @@ declare global {
         action: string;
         phaseidx: number;
         waitingsince: number;
+        taskid?: string;
+        retry?: boolean;
         oref?: string;
         effortoid?: string;
         chunklabel?: string;
@@ -3029,6 +3031,9 @@ declare global {
         files?: EvidenceFile[];
         verifs?: EvidenceVerif[];
         completedts: number;
+        hasreport?: boolean;
+        effortoid?: string;
+        chunklabel?: string;
     };
 
     // wshrpc.SourceHealth

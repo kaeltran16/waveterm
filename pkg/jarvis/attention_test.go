@@ -367,3 +367,27 @@ func TestTriageWhySplitsNewFromRecurring(t *testing.T) {
 		t.Fatalf("triage why-line: %q", items[0].Why)
 	}
 }
+
+func TestDagItemsNameTheirTask(t *testing.T) {
+	gate := BuildAttention(AttentionInput{Dags: []*waveobj.TaskGroup{{
+		ID: "d1", RunID: "r1", ChannelId: "c1", Status: "awaiting-review", UpdatedTs: 5,
+		Tasks: []waveobj.TaskNode{{ID: "t-3", State: "done", Gate: true, LastActivity: 5}},
+	}}})
+	if len(gate) != 1 || gate[0].TaskId != "t-3" {
+		t.Fatalf("dag gate = %+v, want TaskId t-3", gate)
+	}
+	failed := BuildAttention(AttentionInput{Dags: []*waveobj.TaskGroup{{
+		ID: "d2", RunID: "r2", ChannelId: "c1", Status: "blocked", Failures: 2, UpdatedTs: 5,
+		Tasks: []waveobj.TaskNode{{ID: "t-1", State: "done"}, {ID: "t-4", State: "failed"}},
+	}}})
+	if failed[0].TaskId != "t-4" || !failed[0].Retry {
+		t.Fatalf("circuit break = %+v, want TaskId t-4 and Retry", failed[0])
+	}
+	merge := BuildAttention(AttentionInput{Dags: []*waveobj.TaskGroup{{
+		ID: "d3", RunID: "r3", ChannelId: "c1", Status: "blocked", UpdatedTs: 5,
+		Tasks: []waveobj.TaskNode{{ID: "t-2", State: "blocked-merge"}},
+	}}})
+	if merge[0].TaskId != "t-2" || merge[0].Retry {
+		t.Fatalf("merge block = %+v, want TaskId t-2 and no Retry", merge[0])
+	}
+}

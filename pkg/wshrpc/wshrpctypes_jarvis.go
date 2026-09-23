@@ -354,6 +354,9 @@ type ShippedItem struct {
 	Files       []waveobj.EvidenceFile  `json:"files,omitempty"`
 	Verifs      []waveobj.EvidenceVerif `json:"verifs,omitempty"`
 	CompletedTs int64                   `json:"completedts"`
+	HasReport   bool                    `json:"hasreport,omitempty"` // the lead filed a run report (Run.Report)
+	EffortOID   string                  `json:"effortoid,omitempty"` // the chunk the run executed, when attributed
+	ChunkLabel  string                  `json:"chunklabel,omitempty"`
 }
 
 // TimelineEvent is one merged, timestamp-descending "what happened when" event.
