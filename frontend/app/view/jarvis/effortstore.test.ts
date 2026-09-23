@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { effortChunkRows, effortDetailIsFresh } from "./effortstore";
+import { detailOps, effortChunkRows, effortDetailIsFresh } from "./effortstore";
 
 const effort = {
     oid: "abc",
@@ -61,5 +61,19 @@ describe("effortDetailIsFresh", () => {
     // refetching on every render
     it("trusts any cached copy when no timestamp is offered", () => {
         expect(effortDetailIsFresh(cached, undefined)).toBe(true);
+    });
+});
+
+describe("detailOps", () => {
+    const cur = { title: "T", project: "p", ticket: "", parent: "" };
+    it("sends only what changed", () => {
+        expect(detailOps(cur, { ...cur, title: " New " })).toEqual([{ op: "rename", title: "New" }]);
+        expect(detailOps(cur, cur)).toEqual([]);
+    });
+    it("clears with empty strings and strips the effort: prefix from a parent", () => {
+        expect(detailOps(cur, { ...cur, project: "", parent: "effort:abc" })).toEqual([
+            { op: "setProject", project: "" },
+            { op: "link", parentoid: "abc" },
+        ]);
     });
 });

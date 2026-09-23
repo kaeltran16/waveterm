@@ -10,6 +10,7 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
 import { loadBriefingAsync, stateRpcTimeoutMs } from "./briefingstore";
 import { chunkTone, type ChunkTone } from "./effortmodel";
+import { chunkRef, type EditChunk } from "./trackeredit";
 
 export const effortDetailAtom = atom<Map<string, Effort>>(new Map()) as PrimitiveAtom<Map<string, Effort>>;
 
@@ -124,4 +125,68 @@ export async function deleteEffort(oref: string): Promise<void> {
     cache.delete(oref);
     globalStore.set(effortDetailAtom, cache);
     void loadBriefingAsync();
+}
+
+export type EffortDetails = { title: string; project: string; ticket: string; parent: string };
+
+const bareOid = (s: string) => s.trim().replace(/^effort:/, "");
+
+// only what changed, so saving details that were never touched writes nothing to the trail
+export function detailOps(cur: EffortDetails, next: EffortDetails): EffortOp[] {
+    const ops: EffortOp[] = [];
+    if (next.title.trim() !== cur.title.trim()) {
+        ops.push({ op: "rename", title: next.title.trim() });
+    }
+    if (next.project.trim() !== cur.project.trim()) {
+        ops.push({ op: "setProject", project: next.project.trim() });
+    }
+    if (next.ticket.trim() !== cur.ticket.trim()) {
+        ops.push({ op: "setTicket", ticket: next.ticket.trim() });
+    }
+    if (bareOid(next.parent) !== bareOid(cur.parent)) {
+        ops.push({ op: "link", parentoid: bareOid(next.parent) });
+    }
+    return ops;
+}
+
+export async function renameEffort(oref: string, title: string): Promise<void> {
+    await mutateEffort(oref, [{ op: "rename", title: title.trim() }]);
+}
+export async function setEffortDetails(oref: string, cur: EffortDetails, next: EffortDetails): Promise<void> {
+    const ops = detailOps(cur, next);
+    if (ops.length > 0) {
+        await mutateEffort(oref, ops);
+    }
+}
+export async function renameChunk(oref: string, chunks: EditChunk[], label: string, next: string): Promise<void> {
+    await mutateEffort(oref, [{ op: "renameChunk", chunk: chunkRef(chunks, label), label: next.trim() }]);
+}
+export async function moveChunk(oref: string, chunks: EditChunk[], label: string, at: number): Promise<void> {
+    await mutateEffort(oref, [{ op: "moveChunk", chunk: chunkRef(chunks, label), at }]);
+}
+// one batch: a chunk restaged but not yet moved would render as a one-chunk run of its new stage
+export async function moveChunkToStage(
+    oref: string,
+    chunks: EditChunk[],
+    label: string,
+    stage: string,
+    at: number
+): Promise<void> {
+    const ref = chunkRef(chunks, label);
+    await mutateEffort(oref, [
+        { op: "setChunkStage", chunk: ref, stage },
+        { op: "moveChunk", chunk: ref, at },
+    ]);
+}
+// highest position first, so an index ref (see chunkRef) is never shifted by an earlier removal
+export async function removeChunks(oref: string, chunks: EditChunk[], labels: string[]): Promise<void> {
+    const idx = (l: string) => chunks.findIndex((c) => c.label === l);
+    const ordered = [...labels].sort((a, b) => idx(b) - idx(a));
+    await mutateEffort(
+        oref,
+        ordered.map((label) => ({ op: "removeChunk", chunk: chunkRef(chunks, label) }))
+    );
+}
+export async function addChunkAt(oref: string, label: string, stage: string, at?: number): Promise<void> {
+    await mutateEffort(oref, [{ op: "addChunk", label: label.trim(), stage: stage || undefined, at }]);
 }
