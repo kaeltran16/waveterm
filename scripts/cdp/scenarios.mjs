@@ -409,15 +409,10 @@ const surfaceSmoke = {
 // steps 1-3 and 6 walk the seeded, empty and stale states on the live surface.
 
 // --- brief surface: the Brief is the Jarvis surface ----------------------------------------------
-// The Brief replaces two of the three panes at once, so it lives behind a dev-only composition toggle
-// until the retirement step. Two things are worth a scenario. First, that the toggle actually isolates:
-// three-pane must still be the default and must still emit the region every other jarvis-* scenario
-// selects against, or this work silently breaks fourteen of them. Second, that the Brief's queue row
-// offers no control it cannot honour — the row's action is named, not offered, because the run body
-// that resolves a gate is not reachable from the Brief yet, and a bordered chip there reads as a button.
-//
-// composition is persisted, so teardown restores it; a leaked "brief" would strand every later scenario
-// on a surface that emits none of the selectors they use.
+// B5 retired the three-pane composition, so the Brief is the whole surface. Against the briefing fixtures
+// this walks its four regions, the compact Waiting summary and the queue rows it reveals (each opens what
+// it names and carries the design's one action), the j/k cursor, an initiative expanding in place, and
+// a blocked chunk opening its initiative's sheet.
 
 const briefSurface = {
     name: "brief-surface",
@@ -483,22 +478,24 @@ const briefSurface = {
         });
 
         // Review reveals the existing actionable rows; the disclosure changes presentation, not where a
-        // decision lands.
+        // decision lands. A row opens what it names, and carries the design's one action (Approve, Open,
+        // Retry) as its only control.
         await h.ev(`document.querySelector('[data-jarvis-brief-attention-summary]')?.click()`);
         await h.ev("new Promise((r) => setTimeout(r, 300))");
         const q = await h.ev(`(() => {
             const summary = document.querySelector('[data-jarvis-brief-attention-summary]');
             const rows = [...document.querySelectorAll('[data-jarvis-brief-row="queue"]')];
+            const controls = (r) => r.querySelectorAll('button, a, input, select, textarea');
             return {
                 expanded: summary?.getAttribute('aria-expanded') ?? null,
                 rows: rows.length,
-                openable: rows.filter((r) => r.tagName === 'BUTTON').length,
-                nested: rows.reduce((n, r) => n + r.querySelectorAll('button, a, input, select, textarea').length, 0),
+                openable: rows.filter((r) => r.classList.contains('cursor-pointer')).length,
+                oneAction: rows.filter((r) => controls(r).length === 1 && r.querySelector('[data-jarvis-queue-act]')).length,
             };
         })()`);
         steps.push({
-            step: "4. Review reveals queue rows that open what they name",
-            ok: q.expanded === "true" && q.rows > 0 && q.openable === q.rows && q.nested === 0,
+            step: "4. Review reveals queue rows that open what they name, each with its one action",
+            ok: q.expanded === "true" && q.rows > 0 && q.openable === q.rows && q.oneAction === q.rows,
             detail: JSON.stringify(q),
         });
 
@@ -552,36 +549,35 @@ const briefSurface = {
             detail: JSON.stringify(trail.map((t) => (t == null ? null : `${t.row}/${t.text}`))),
         });
 
-        // An initiative row is one line, and a click opens the initiative's own sheet, where the notes, the
-        // plan and every write live. A row nesting no control of its own is the point: the row is the one
-        // affordance. The fixture's efforts are fabricated, so what the sheet can prove here is the other
-        // half of the contract: it says the detail could not be fetched and offers a retry, rather than
-        // sitting on a skeleton or drawing an empty initiative.
+        // An initiative row is one line, and a click expands its plan in place (cd1a9ce4): it has no sheet to
+        // open any more. A row nesting no control of its own is the point: the row is the one affordance.
+        // The expansion and the sheet are module state, so whatever a previous run left open is closed first.
+        await h.ev(`[...document.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === 'Close detail sheet')?.click()`);
+        await h.ev(`document.querySelector('[data-jarvis-brief-row="initiative"][aria-expanded="true"]')?.click()`);
+        await h.ev("new Promise((r) => setTimeout(r, 300))");
         await h.ev(`document.querySelector('[data-jarvis-brief-row="initiative"]')?.click()`);
         await h.ev("new Promise((r) => setTimeout(r, 900))");
         const card = await h.ev(`(() => {
             const rows = [...document.querySelectorAll('[data-jarvis-brief-row="initiative"]')];
-            const sheet = document.querySelector('[data-jarvis-brief-sheet]');
-            const txt = (e) => (e?.innerText || "").replace(/\\s+/g, " ").trim();
             return {
                 rows: rows.length,
-                buttons: rows.filter((r) => r.tagName === 'BUTTON').length,
+                buttons: rows.filter((r) => r.getAttribute('role') === 'button').length,
                 nested: rows.reduce((n, r) => n + r.querySelectorAll('button, a, input, select, textarea').length, 0),
-                face: sheet ? sheet.dataset.jarvisBriefSheet : null,
-                body: txt(sheet).slice(0, 160),
+                expanded: rows[0]?.getAttribute('aria-expanded') ?? null,
+                sheet: !!document.querySelector('[data-jarvis-brief-sheet]'),
             };
         })()`);
         steps.push({
-            step: "7. an initiative row is one line that opens the initiative's sheet",
+            step: "7. an initiative row is one line that expands in place and opens no sheet",
             ok:
                 card.rows > 0 &&
                 card.buttons === card.rows &&
                 card.nested === 0 &&
-                card.face === "effort" &&
-                /retry/i.test(card.body ?? ""),
+                card.expanded === "true" &&
+                card.sheet === false,
             detail: JSON.stringify(card),
         });
-        await h.ev(`[...document.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === 'Close detail sheet')?.click()`);
+        await h.ev(`document.querySelector('[data-jarvis-brief-row="initiative"][aria-expanded="true"]')?.click()`);
         await h.ev("new Promise((r) => setTimeout(r, 300))");
 
         // The sideways arm into the effort sheet is still the one a blocked chunk takes, and it is still
@@ -606,8 +602,8 @@ const briefSurface = {
 
         // F8: the row states what it is waiting on and what it belongs to, on its one line. The "attention"
         // fixture is the one that carries wire attention items; "normal" has none, so the queue there is only
-        // blocked chunks, which carry no attribution by design. The row itself is the button (step 4), so it
-        // nests no control of its own. A one-line row has no room for cites, so it no longer draws them.
+        // blocked chunks, which carry no attribution by design. The row itself opens (step 4), so its one
+        // nested control is its action. A one-line row has no room for cites, so it no longer draws them.
         await h.ev(`document.querySelector('[data-briefing-fixture="attention"]')?.click()`);
         await h.ev("new Promise((r) => setTimeout(r, 600))");
         const ctx = await h.ev(`(() => {
@@ -615,7 +611,9 @@ const briefSurface = {
             const txt = (e) => (e.innerText || "").replace(/\\s+/g, " ").trim();
             return {
                 rows: rows.length,
-                nested: rows.reduce((n, r) => n + r.querySelectorAll('button, a, input, select, textarea').length, 0),
+                oneAction: rows.filter(
+                    (r) => r.querySelectorAll('button, a, input, select, textarea').length === 1 && r.querySelector('[data-jarvis-queue-act]')
+                ).length,
                 first: rows.length ? txt(rows[0]) : null,
             };
         })()`);
@@ -623,7 +621,7 @@ const briefSurface = {
             step: "9. a queue row names its initiative and why it is waiting, on one line",
             ok:
                 ctx.rows >= 3 &&
-                ctx.nested === 0 &&
+                ctx.oneAction === ctx.rows &&
                 // the effort title is joined on the frontend from the efforts already on the surface,
                 // so a raw oid here would mean the join silently failed
                 (ctx.first ?? "").includes("Scenario gate clearance \u00b7 Phase 3") &&
