@@ -359,7 +359,7 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
                 globalStore.get(briefPeekRecordAtom) == null &&
                 // the DAG modal takes Escape itself too, and the Brief mounts it as well as Channels
                 globalStore.get(dagModalStateAtom) == null &&
-                // and the Brief's note sidebar: while a note is open, Escape means "back out of the
+                // and the Brief's Chunk sidebar: while a note is open, Escape means "back out of the
                 // note", and going home too would do both at once
                 globalStore.get(noteChunkAtom) == null &&
                 // and the plan-editing menu above it, the innermost rung of all

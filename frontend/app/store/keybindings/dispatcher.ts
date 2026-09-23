@@ -70,7 +70,7 @@ export function deriveKeyContext(): KeyContext {
         // focus, and any key the finder's input did not swallow drove the surface underneath.
         globalStore.get(codeFinderOpenAtom) ||
         // the DAG modal too: left out, the Brief's bindings underneath took the graph's own keys first
-        // (Enter submitted an ask, Escape closed the note sidebar). Only the Brief mounts it, and its state
+        // (Enter submitted an ask, Escape closed the Chunk sidebar). Only the Brief mounts it, and its state
         // outlives a switch away, since opening a worker from the graph lands on the Agent surface.
         (surface === "jarvis" && globalStore.get(dagModalStateAtom) != null) ||
         globalStore.get(modalsModel.modalsAtom).length > 0;

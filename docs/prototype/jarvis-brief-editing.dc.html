@@ -1,0 +1,1840 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
+<style>
+html,body{margin:0;background:#0c0e11;color:#e6e9ed;font-family:"Hanken Grotesk",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+*{box-sizing:border-box}
+button,input,textarea{font-family:inherit}
+a{color:#5e9cff;text-decoration:none}
+a:hover{color:#8da3ff}
+input::placeholder,textarea::placeholder{color:#7f858b}
+@keyframes pulseDot{0%,100%{opacity:1}50%{opacity:.32}}
+</style>
+</helmet>
+<div tabIndex="-1" onKeyDown="{{ onRootKey }}" onClick="{{ onRootClick }}" style="position:relative;outline:none;height:{{ height }};width:100%;overflow:hidden;background:#0c0e11">
+<dc-import name="Window Shell" surface="jarvis" height="100%" project="All projects" focus="Everything" show-footer="{{ false }}" hint-size="100%,100%">
+<div style="position:absolute;inset:0;display:flex;flex-direction:column;background:#0c0e11;font-family:'Hanken Grotesk',system-ui,sans-serif">
+
+  <header style="display:flex;height:54px;flex:none;align-items:center;gap:10px;border-bottom:1px solid #161a20;background:#0e1116;padding:0 22px">
+    <span style="font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;color:#aebfff">◈</span>
+    <span style="flex:none;font-size:15px;font-weight:700;letter-spacing:-0.01em;color:#dfe4ea">Jarvis</span>
+    <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#9aa3ad;white-space:nowrap">all work · {{ projectCount }} projects</span>
+    <span style="width:1px;height:18px;background:#1c2128;margin:0 4px"></span>
+    <span style="display:flex;flex:none;align-items:center;gap:7px;border-radius:6px;border:1px solid {{ chip.border }};background:{{ chip.bg }};padding:3px 10px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:{{ chip.fg }}">
+      <span style="width:5px;height:5px;border-radius:999px;background:{{ chip.fg }};animation:{{ chip.anim }}"></span>{{ chip.label }}
+    </span>
+    <span style="flex:none;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#9aa3ad;white-space:nowrap">{{ fleetLine }}</span>
+    <span style="flex:1"></span>
+    <label style="display:flex;height:27px;width:190px;flex:none;align-items:center;gap:8px;border-radius:8px;border:1px solid #1c2128;padding:0 10px">
+      <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;color:#7f858b">/</span>
+      <input value="{{ query }}" onChange="{{ onQuery }}" placeholder="filter" aria-label="Filter the Brief" style="min-width:0;flex:1;border:0;background:transparent;font-size:12.5px;color:#dfe4ea;outline:none">
+      <sc-if value="{{ filtering }}" hint-placeholder-val="{{ false }}"><span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b">{{ hits }}</span></sc-if>
+    </label>
+    <button onClick="{{ cycleTier }}" title="Remote-approval policy · click to change" style="flex:none;border-radius:6px;border:1px solid #1c2128;background:transparent;padding:3px 10px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#9aa3ad;cursor:pointer" style-hover="color:#dfe4ea;border-color:#2a313a">{{ tierLabel }}</button>
+    <button onClick="{{ openProfile }}" style="flex:none;border-radius:6px;border:1px solid #1c2128;background:transparent;padding:3px 10px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#cfd5db;cursor:pointer" style-hover="color:#dfe4ea;border-color:#2a313a">Profile</button>
+    <sc-if value="{{ isAB }}" hint-placeholder-val="{{ true }}">
+      <button onClick="{{ newInitiative }}" style="flex:none;border-radius:6px;border:1px solid #1c2128;background:transparent;padding:3px 10px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#cfd5db;cursor:pointer" style-hover="color:#dfe4ea;border-color:#2a313a">+ Initiative</button>
+      <button onClick="{{ newRun }}" style="flex:none;border-radius:6px;border:1px solid rgba(94,156,255,.3);background:rgba(94,156,255,.12);padding:3px 10px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#aebfff;cursor:pointer" style-hover="background:rgba(94,156,255,.2)">+ Run</button>
+    </sc-if>
+    <sc-if value="{{ isC }}" hint-placeholder-val="{{ false }}">
+      <div style="position:relative;flex:none">
+        <button onClick="{{ toggleNewMenu }}" style="border-radius:6px;border:1px solid rgba(94,156,255,.3);background:rgba(94,156,255,.12);padding:3px 10px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#aebfff;cursor:pointer" style-hover="background:rgba(94,156,255,.2)">+ New ▾</button>
+        <sc-if value="{{ newMenuOpen }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;right:0;top:calc(100% + 7px);z-index:40;width:236px;overflow:hidden;border-radius:8px;border:1px solid #2a313a;background:#13171d;box-shadow:0 12px 34px rgba(0,0,0,.5);padding:6px">
+            <sc-for list="{{ newMenuItems }}" as="m" hint-placeholder-count="2">
+              <button onClick="{{ m.pick }}" style="display:flex;width:100%;align-items:center;gap:10px;border:0;border-radius:6px;background:transparent;padding:8px;text-align:left;cursor:pointer" style-hover="background:#171c22">
+                <span style="display:flex;width:18px;height:18px;flex:none;align-items:center;justify-content:center;border-radius:999px;background:rgba(94,156,255,.12);font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;color:#aebfff">{{ m.glyph }}</span>
+                <span style="flex:1;font-size:12.5px;font-weight:600;color:#cfd5db">{{ m.label }}</span>
+                <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b">{{ m.key }}</span>
+              </button>
+            </sc-for>
+          </div>
+        </sc-if>
+      </div>
+    </sc-if>
+  </header>
+
+  <div style="position:relative;display:flex;min-height:0;flex:1">
+    <div style="display:flex;min-height:0;min-width:0;flex:1;flex-direction:column;gap:26px;overflow-y:auto;padding:20px {{ listPadRight }} 18px 22px">
+
+      <section style="display:flex;flex-direction:column;gap:9px">
+        <div style="display:flex;align-items:center;gap:9px">
+          <sc-if value="{{ hasWaiting }}" hint-placeholder-val="{{ true }}"><span style="width:6px;height:6px;flex:none;border-radius:999px;background:#e6b450;animation:pulseDot 1.8s ease-in-out infinite"></span></sc-if>
+          <span style="flex:none;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:{{ waitingLabelFg }}">Waiting on you</span>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;color:#9aa3ad">{{ waitingCount }}</span>
+          <span style="height:1px;min-width:12px;flex:1;background:#161a20"></span>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b">gates before asks</span>
+        </div>
+        <sc-if value="{{ noWaiting }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;align-items:center;gap:11px;border-radius:10px;border:1px dashed #2a313a;background:#0e1116;padding:12px 16px">
+            <span style="font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;color:#54c79a">✓</span>
+            <span style="font-size:13px;color:#cfd5db">Nothing is waiting on you. The next gate or ask arrives here.</span>
+          </div>
+        </sc-if>
+        <sc-if value="{{ hasWaiting }}" hint-placeholder-val="{{ true }}">
+          <div style="display:grid;grid-template-columns:3px minmax(0,1fr) auto;align-items:center;gap:12px;border-radius:10px;border:1px solid #1c2128;background:#0e1116;padding:9px 11px 9px 12px">
+            <span style="align-self:stretch;border-radius:2px;background:#e6b450"></span>
+            <span style="min-width:0">
+              <span style="display:block;font-size:13px;font-weight:600;color:#dfe4ea">{{ queueTitle }}</span>
+              <span style="display:block;margin-top:2px;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#9aa3ad">{{ queueDetail }}</span>
+            </span>
+            <button onClick="{{ toggleWaiting }}" style="flex:none;border-radius:7px;border:1px solid #20262e;background:#13171d;padding:4px 10px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:600;color:#9aa3ad;cursor:pointer" style-hover="border-color:#2a313a;background:#171c22;color:#dfe4ea">{{ reviewLabel }}</button>
+          </div>
+          <sc-if value="{{ waitingOpen }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;flex-direction:column">
+              <sc-for list="{{ waitingLines }}" as="l" hint-placeholder-count="3">
+                <div style="display:flex;align-items:center;gap:13px;border-bottom:1px solid #161a20;border-radius:9px;padding:6px 11px" style-hover="background:#171c22">
+                  <span style="width:92px;flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:600;letter-spacing:.02em;color:{{ l.fg }}">{{ l.kind }}</span>
+                  <span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:#dfe4ea">{{ l.title }}<span style="color:#9aa3ad"> — {{ l.why }}</span></span>
+                  <span style="width:200px;flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;color:#9aa3ad">{{ l.meta }}</span>
+                  <span style="width:40px;flex:none;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;color:{{ l.fg }}">{{ l.age }}</span>
+                  <button onClick="{{ l.act }}" style="width:66px;flex:none;border-radius:6px;border:1px solid {{ l.actBorder }};background:{{ l.actBg }};padding:3px 0;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:600;color:{{ l.actFg }};cursor:pointer" style-hover="border-color:#2a313a;color:#dfe4ea">{{ l.actLabel }}</button>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+        </sc-if>
+      </section>
+
+      <section style="display:flex;flex-direction:column;gap:9px">
+        <div style="display:flex;align-items:center;gap:9px">
+          <span style="flex:none;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#9aa3ad">Initiatives</span>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;color:#9aa3ad">{{ initCount }}</span>
+          <span style="height:1px;min-width:12px;flex:1;background:#161a20"></span>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b">{{ initMeta }}</span>
+        </div>
+        <div style="display:flex;flex-direction:column">
+          <sc-if value="{{ noInits }}" hint-placeholder-val="{{ false }}"><span style="padding:4px 11px;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b">Nothing here matches the filter.</span></sc-if>
+          <sc-for list="{{ initLines }}" as="l" hint-placeholder-count="3">
+            <div style="position:relative">
+              <sc-if value="{{ l.fresh }}" hint-placeholder-val="{{ false }}"><span style="position:absolute;left:0;top:0;bottom:0;width:2px;border-radius:2px;background:#5e9cff;z-index:1"></span></sc-if>
+              <div onClick="{{ l.open }}" style="display:flex;align-items:center;gap:13px;border:1px solid {{ l.frame }};border-bottom-color:{{ l.divider }};border-radius:{{ l.radius }};background:{{ l.bg }};padding:7px 11px;cursor:pointer" style-hover="background:{{ l.hoverBg }}">
+                <span style="display:flex;width:92px;flex:none;align-items:center;gap:7px">
+                  <span style="height:4px;min-width:0;flex:1;overflow:hidden;border-radius:2px;background:#1c2128"><span style="display:block;height:100%;width:{{ l.pct }};border-radius:2px;background:{{ l.barFg }}"></span></span>
+                  <span style="flex:none;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#9aa3ad">{{ l.frac }}</span>
+                </span>
+                <sc-if value="{{ l.editing }}" hint-placeholder-val="{{ false }}">
+                  <input ref="{{ focusRef }}" value="{{ l.draft }}" onChange="{{ onEditDraft }}" onKeyDown="{{ onEditKey }}" onBlur="{{ commitEdit }}" onClick="{{ stop }}" style="min-width:0;flex:1;border-radius:6px;border:1px solid rgba(94,156,255,.6);background:#0c0e11;padding:2px 7px;font-size:13px;color:#dfe4ea;outline:none">
+                </sc-if>
+                <sc-if value="{{ l.notEditing }}" hint-placeholder-val="{{ true }}">
+                  <span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:{{ l.titleFg }}">{{ l.title }}<span style="color:#9aa3ad">{{ l.note }}</span></span>
+                </sc-if>
+                <span style="width:190px;flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;color:#9aa3ad">{{ l.meta }}</span>
+                <span style="width:76px;flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;color:{{ l.stateFg }}">{{ l.state }}</span>
+                <span style="width:10px;flex:none;text-align:center;font-size:10px;color:#7f858b">{{ l.caret }}</span>
+              </div>
+              <sc-if value="{{ l.expanded }}" hint-placeholder-val="{{ false }}">
+                <div style="margin-bottom:12px;border:1px solid #1c2128;border-top:0;border-radius:0 0 10px 10px;background:#0e1116;padding:12px 14px 10px 10px">
+                  <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;padding:0 6px 6px">
+                    <span style="height:6px;width:160px;flex:none;overflow:hidden;border-radius:3px;background:#1c2128"><span style="display:block;height:100%;width:{{ l.pct }};border-radius:3px;background:{{ l.barFg }}"></span></span>
+                    <span style="font-size:12px;color:#cfd5db">{{ l.summary }}</span>
+                    <sc-if value="{{ l.hasNext }}" hint-placeholder-val="{{ true }}"><span style="font-size:12px;color:#9aa3ad">Next: <span style="color:#dfe4ea">{{ l.next }}</span></span></sc-if>
+                  </div>
+                  <sc-for list="{{ l.tracker }}" as="r" hint-placeholder-count="4">
+                    <sc-if value="{{ r.isStage }}" hint-placeholder-val="{{ false }}">
+                      <div style="position:relative;display:flex;align-items:center;gap:8px;margin-top:{{ r.gapTop }};border-top:1px solid {{ r.rule }};padding:10px 6px 4px">
+                        <button onClick="{{ r.toggle }}" aria-label="Toggle stage" style="width:14px;flex:none;border:0;background:transparent;padding:0;text-align:center;font-size:10px;line-height:1;color:#9aa3ad;cursor:pointer">{{ r.caret }}</button>
+                        <sc-if value="{{ r.editing }}" hint-placeholder-val="{{ false }}">
+                          <input ref="{{ focusRef }}" value="{{ r.draft }}" onChange="{{ onEditDraft }}" onKeyDown="{{ onEditKey }}" onBlur="{{ commitEdit }}" onClick="{{ stop }}" placeholder="stage name" style="min-width:0;flex:1;border-radius:5px;border:1px solid rgba(94,156,255,.6);background:#0c0e11;padding:1px 6px;font-size:11.5px;font-weight:600;color:#e6e9ed;outline:none">
+                        </sc-if>
+                        <sc-if value="{{ r.notEditing }}" hint-placeholder-val="{{ true }}">
+                          <button onClick="{{ r.toggle }}" onDoubleClick="{{ r.edit }}" title="Double-click to rename" style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:0;background:transparent;padding:0;text-align:left;font-size:11.5px;font-weight:600;letter-spacing:0;color:#e6e9ed;cursor:pointer">{{ r.label }}</button>
+                        </sc-if>
+                        <span style="height:3px;width:48px;flex:none;overflow:hidden;border-radius:2px;background:#1c2128"><span style="display:block;height:100%;width:{{ r.pct }};border-radius:2px;background:#54c79a"></span></span>
+                        <span style="width:28px;flex:none;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#9aa3ad">{{ r.fraction }}</span>
+                        <button onClick="{{ r.toggleMenu }}" aria-label="Stage actions" style="width:22px;height:20px;flex:none;border-radius:5px;border:1px solid {{ r.menuBorder }};background:transparent;padding:0;font-size:12px;line-height:1;color:#9aa3ad;cursor:pointer" style-hover="border-color:#20262e;color:#dfe4ea">⋯</button>
+                        <sc-if value="{{ r.menuOpen }}" hint-placeholder-val="{{ false }}">
+                          <div onClick="{{ stop }}" style="position:absolute;right:4px;top:calc(100% - 2px);z-index:30;width:160px;border-radius:8px;border:1px solid #2a313a;background:#13171d;box-shadow:0 12px 34px rgba(0,0,0,.5);padding:5px">
+                            <button onClick="{{ r.edit }}" style="display:flex;width:100%;border:0;border-radius:5px;background:transparent;padding:6px 8px;text-align:left;font-size:12px;color:#cfd5db;cursor:pointer" style-hover="background:#171c22">Rename stage</button>
+                            <button onClick="{{ r.remove }}" style="display:flex;width:100%;border:0;border-radius:5px;background:transparent;padding:6px 8px;text-align:left;font-size:12px;color:#e0726c;cursor:pointer" style-hover="background:rgba(224,114,108,.12)">Delete stage</button>
+                          </div>
+                        </sc-if>
+                      </div>
+                    </sc-if>
+                    <sc-if value="{{ r.isChunk }}" hint-placeholder-val="{{ true }}">
+                      <div style="position:relative">
+                        <div onClick="{{ r.select }}" onDoubleClick="{{ r.edit }}" title="Click for notes · double-click to rename" style="display:flex;min-width:0;align-items:center;gap:8px;margin:1px 0;border-radius:6px;background:{{ r.bg }};padding:5px 6px 5px 7px;cursor:pointer" style-hover="background:{{ r.hoverBg }}">
+                          <span style="width:12px;flex:none;text-align:center;font-size:10px;color:{{ r.fg }}">{{ r.glyph }}</span>
+                          <sc-if value="{{ r.editing }}" hint-placeholder-val="{{ false }}">
+                            <input ref="{{ focusRef }}" value="{{ r.draft }}" onChange="{{ onEditDraft }}" onKeyDown="{{ onEditKey }}" onBlur="{{ commitEdit }}" onClick="{{ stop }}" style="min-width:0;flex:1;border-radius:5px;border:1px solid rgba(94,156,255,.6);background:#0c0e11;padding:1px 6px;font-size:12px;color:#dfe4ea;outline:none">
+                          </sc-if>
+                          <sc-if value="{{ r.notEditing }}" hint-placeholder-val="{{ true }}">
+                            <span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:1.4;font-weight:{{ r.weight }};color:{{ r.labelFg }};text-decoration:{{ r.strike }}">{{ r.label }}</span>
+                          </sc-if>
+                          <span style="flex:none;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#9aa3ad">{{ r.notes }}</span>
+                          <button onClick="{{ r.toggleMenu }}" title="Change status" style="display:flex;width:86px;flex:none;align-items:center;justify-content:space-between;gap:4px;border-radius:5px;border:1px solid {{ r.menuBorder }};background:transparent;padding:2px 7px;font-size:11px;font-weight:500;color:{{ r.fg }};cursor:pointer" style-hover="border-color:#20262e">{{ r.status }}<span style="font-size:8px;color:#7f858b">▾</span></button>
+                        </div>
+                        <sc-if value="{{ r.menuOpen }}" hint-placeholder-val="{{ false }}">
+                          <div onClick="{{ stop }}" style="position:absolute;right:4px;top:calc(100% + 2px);z-index:30;width:184px;border-radius:8px;border:1px solid #2a313a;background:#13171d;box-shadow:0 12px 34px rgba(0,0,0,.5);padding:5px">
+                            <div style="padding:4px 7px 5px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#9aa3ad">Status</div>
+                            <sc-for list="{{ r.opts }}" as="o" hint-placeholder-count="6">
+                              <button onClick="{{ o.pick }}" style="display:flex;width:100%;align-items:center;gap:8px;border:0;border-radius:5px;background:{{ o.bg }};padding:5px 7px;text-align:left;cursor:pointer" style-hover="background:#171c22">
+                                <span style="width:12px;text-align:center;font-size:10px;color:{{ o.fg }}">{{ o.glyph }}</span>
+                                <span style="flex:1;font-size:12px;color:#cfd5db">{{ o.label }}</span>
+                              </button>
+                            </sc-for>
+                            <div style="height:1px;margin:5px 2px;background:#1c2128"></div>
+                            <button onClick="{{ r.edit }}" style="display:flex;width:100%;align-items:center;gap:8px;border:0;border-radius:5px;background:transparent;padding:5px 7px;text-align:left;font-size:12px;color:#cfd5db;cursor:pointer" style-hover="background:#171c22"><span style="width:12px"></span>Rename</button>
+                            <button onClick="{{ r.up }}" style="display:flex;width:100%;align-items:center;gap:8px;border:0;border-radius:5px;background:transparent;padding:5px 7px;text-align:left;font-size:12px;color:#cfd5db;cursor:pointer" style-hover="background:#171c22"><span style="width:12px;text-align:center;color:#9aa3ad">↑</span><span style="flex:1">Move up</span><span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b">alt ↑</span></button>
+                            <button onClick="{{ r.down }}" style="display:flex;width:100%;align-items:center;gap:8px;border:0;border-radius:5px;background:transparent;padding:5px 7px;text-align:left;font-size:12px;color:#cfd5db;cursor:pointer" style-hover="background:#171c22"><span style="width:12px;text-align:center;color:#9aa3ad">↓</span><span style="flex:1">Move down</span><span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b">alt ↓</span></button>
+                            <sc-if value="{{ r.hasMove }}" hint-placeholder-val="{{ false }}">
+                              <div style="height:1px;margin:5px 2px;background:#1c2128"></div>
+                              <div style="padding:4px 7px 5px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#9aa3ad">Move to stage</div>
+                              <sc-for list="{{ r.moveOpts }}" as="mo" hint-placeholder-count="2">
+                                <button onClick="{{ mo.pick }}" style="display:flex;width:100%;align-items:center;gap:8px;border:0;border-radius:5px;background:transparent;padding:5px 7px;text-align:left;font-size:12px;color:#cfd5db;cursor:pointer" style-hover="background:#171c22"><span style="width:12px;text-align:center;color:#9aa3ad">→</span><span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ mo.label }}</span></button>
+                              </sc-for>
+                            </sc-if>
+                            <div style="height:1px;margin:5px 2px;background:#1c2128"></div>
+                            <button onClick="{{ r.remove }}" style="display:flex;width:100%;align-items:center;gap:8px;border:0;border-radius:5px;background:transparent;padding:5px 7px;text-align:left;font-size:12px;color:#e0726c;cursor:pointer" style-hover="background:rgba(224,114,108,.12)"><span style="width:12px"></span>Delete chunk</button>
+                          </div>
+                        </sc-if>
+                      </div>
+                    </sc-if>
+                    <sc-if value="{{ r.isAdd }}" hint-placeholder-val="{{ false }}">
+                      <sc-if value="{{ r.adding }}" hint-placeholder-val="{{ false }}">
+                        <div style="display:flex;align-items:center;gap:8px;padding:3px 5px 3px 7px">
+                          <span style="width:12px;text-align:center;font-size:10px;color:#7f858b">+</span>
+                          <input ref="{{ focusRef }}" value="{{ r.draft }}" onChange="{{ onChunkDraft }}" onKeyDown="{{ r.onKey }}" onBlur="{{ r.blur }}" placeholder="{{ r.placeholder }}" style="min-width:0;flex:1;border-radius:5px;border:1px solid #20262e;background:#0c0e11;padding:3px 7px;font-size:12px;color:#dfe4ea;outline:none">
+                          <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b">enter · esc</span>
+                        </div>
+                      </sc-if>
+                      <sc-if value="{{ r.notAdding }}" hint-placeholder-val="{{ true }}">
+                        <button onClick="{{ r.start }}" style="display:flex;align-items:center;gap:8px;border:0;background:transparent;padding:4px 7px;font-size:11.5px;font-weight:500;color:#9aa3ad;cursor:pointer" style-hover="color:#aebfff"><span style="width:12px;text-align:center;color:#9aa3ad">+</span>Add chunk</button>
+                      </sc-if>
+                    </sc-if>
+                    <sc-if value="{{ r.isNewStage }}" hint-placeholder-val="{{ false }}">
+                      <div style="margin-top:10px;border-top:1px solid #161a20;padding:8px 5px 0">
+                        <sc-if value="{{ r.on }}" hint-placeholder-val="{{ false }}">
+                          <div style="display:flex;align-items:center;gap:8px">
+                            <input ref="{{ focusRef }}" value="{{ r.draft }}" onChange="{{ r.onDraft }}" onKeyDown="{{ r.onKey }}" onBlur="{{ r.blur }}" placeholder="Stage name · enter, then add its first chunk" style="min-width:0;flex:1;border-radius:5px;border:1px solid #20262e;background:#0c0e11;padding:3px 7px;font-size:11.5px;font-weight:600;color:#dfe4ea;outline:none">
+                            <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b">enter · esc</span>
+                          </div>
+                        </sc-if>
+                        <sc-if value="{{ r.off }}" hint-placeholder-val="{{ true }}">
+                          <button onClick="{{ r.start }}" style="display:flex;align-items:center;gap:8px;border:0;background:transparent;padding:2px 2px;font-size:11.5px;font-weight:600;color:#9aa3ad;cursor:pointer" style-hover="color:#aebfff"><span style="width:12px;text-align:center;color:#9aa3ad">+</span>New stage</button>
+                        </sc-if>
+                      </div>
+                    </sc-if>
+                  </sc-for>
+                  <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:12px;border-top:1px solid #161a20;padding:10px 6px 0;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#9aa3ad">
+                    <button onClick="{{ l.copyId }}" title="copy this initiative's id" style="border:0;background:transparent;padding:0;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#9aa3ad;cursor:pointer" style-hover="color:#dfe4ea">{{ l.oid }}</button>
+                    <span>{{ l.count }}</span>
+                    <sc-if value="{{ l.notConfirming }}" hint-placeholder-val="{{ true }}">
+                    <span style="margin-left:auto;display:flex;align-items:center;gap:6px">
+                      <button onClick="{{ l.rename }}" style="border-radius:6px;border:1px solid #1c2128;background:transparent;padding:3px 8px;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#9aa3ad;cursor:pointer" style-hover="border-color:#2a313a;color:#dfe4ea">rename</button>
+                      <button onClick="{{ l.editDetails }}" style="border-radius:6px;border:1px solid #1c2128;background:transparent;padding:3px 8px;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#9aa3ad;cursor:pointer" style-hover="border-color:#2a313a;color:#dfe4ea">details</button>
+                      <button onClick="{{ l.pause }}" style="border-radius:6px;border:1px solid #1c2128;background:transparent;padding:3px 8px;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#9aa3ad;cursor:pointer" style-hover="border-color:#2a313a;color:#dfe4ea">{{ l.pauseLabel }}</button>
+                      <button onClick="{{ l.archive }}" style="border-radius:6px;border:1px solid #1c2128;background:transparent;padding:3px 8px;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#9aa3ad;cursor:pointer" style-hover="border-color:rgba(224,114,108,.5);color:#e0726c">archive</button>
+                      <button onClick="{{ l.askDelete }}" style="border-radius:6px;border:1px solid #1c2128;background:transparent;padding:3px 8px;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#9aa3ad;cursor:pointer" style-hover="border-color:rgba(224,114,108,.5);color:#e0726c">delete</button>
+                    </span>
+                    </sc-if>
+                    <sc-if value="{{ l.confirming }}" hint-placeholder-val="{{ false }}">
+                      <span style="margin-left:auto;display:flex;align-items:center;gap:8px;border-radius:7px;border:1px solid rgba(224,114,108,.4);background:rgba(224,114,108,.1);padding:3px 4px 3px 10px">
+                        <span style="font-family:'Hanken Grotesk',sans-serif;font-size:11.5px;color:#f0a9a4">Delete this initiative, its {{ l.total }} chunks and their notes?</span>
+                        <button onClick="{{ l.cancelDelete }}" style="border-radius:5px;border:1px solid #20262e;background:#13171d;padding:2px 8px;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#cfd5db;cursor:pointer" style-hover="color:#e6e9ed">cancel</button>
+                        <button onClick="{{ l.confirmDelete }}" style="border-radius:5px;border:0;background:#e0726c;padding:3px 9px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;color:#0c0e11;cursor:pointer">delete</button>
+                      </span>
+                    </sc-if>
+                  </div>
+                </div>
+              </sc-if>
+            </div>
+          </sc-for>
+          <sc-if value="{{ hasArchived }}" hint-placeholder-val="{{ false }}">
+            <button onClick="{{ toggleArchived }}" style="margin-top:4px;align-self:flex-start;border-radius:6px;border:1px solid #1c2128;background:transparent;padding:4px 10px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;color:#aebfff;cursor:pointer" style-hover="color:#dfe4ea">{{ archivedLabel }}</button>
+          </sc-if>
+        </div>
+      </section>
+
+      <section style="display:flex;flex-direction:column;gap:9px">
+          <div style="display:flex;align-items:center;gap:9px">
+            <span style="flex:none;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#9aa3ad">Runs</span>
+            <span style="height:1px;min-width:12px;flex:1;background:#161a20"></span>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b">{{ sessMeta }}</span>
+          </div>
+          <div style="display:flex;flex-direction:column">
+            <sc-if value="{{ sessEmpty }}" hint-placeholder-val="{{ false }}"><div style="padding:8px 11px;font-size:12.5px;color:#9aa3ad">No runs match.</div></sc-if>
+            <sc-for list="{{ sessLines }}" as="l" hint-placeholder-count="4">
+              <div onClick="{{ l.openSheet }}" style="display:flex;align-items:center;gap:12px;border-bottom:1px solid #161a20;border-radius:9px;padding:7px 11px;background:{{ l.rowBg }};cursor:pointer" style-hover="background:#171c22">
+                <span style="width:7px;height:7px;flex:none;border-radius:999px;background:{{ l.dot }};animation:{{ l.anim }}"></span>
+                <div style="display:flex;min-width:0;flex:1;flex-direction:column;gap:2px">
+                  <div style="display:flex;min-width:0;align-items:center;gap:8px"><span style="flex:none;border-radius:5px;border:1px solid {{ l.typeBorder }};padding:0 5px;font-family:'JetBrains Mono',monospace;font-size:10px;line-height:16px;color:{{ l.typeFg }}">{{ l.type }}</span><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:{{ l.titleFg }}">{{ l.title }}</span></div>
+                  <div style="display:flex;min-width:0;align-items:center;gap:8px;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b"><span style="flex:none;white-space:nowrap">{{ l.meta }} · {{ l.elapsed }}</span><sc-if value="{{ l.hasInit }}" hint-placeholder-val="{{ false }}"><button onClick="{{ l.openChunk }}" title="Open this chunk" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:0;background:transparent;padding:0;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b;cursor:pointer" style-hover="color:#aebfff">↳ {{ l.initTitle }}</button></sc-if></div>
+                </div>
+                                <span style="width:62px;flex:none;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;color:{{ l.stateFg }}">{{ l.state }}</span>
+                <div style="display:flex;flex:none;justify-content:flex-end;gap:4px">
+                  <sc-if value="{{ l.isAsking }}" hint-placeholder-val="{{ false }}"><button onClick="{{ l.answer }}" style="border-radius:6px;border:1px solid rgba(230,180,80,.35);background:rgba(230,180,80,.12);padding:3px 8px;font-size:10.5px;font-weight:700;color:#e6b450;cursor:pointer" style-hover="background:rgba(230,180,80,.2)">Answer</button></sc-if>
+                  <button onClick="{{ l.open }}" style="border-radius:6px;border:1px solid #1c2128;background:#13171d;padding:3px 8px;font-size:10.5px;font-weight:600;color:#cfd5db;cursor:pointer" style-hover="border-color:#2a313a;color:#e6e9ed">Open</button>
+                  <sc-if value="{{ l.canStop }}" hint-placeholder-val="{{ false }}"><button onClick="{{ l.stop }}" title="Stop this session" style="border-radius:6px;border:1px solid #1c2128;background:#13171d;padding:3px 8px;font-size:10.5px;font-weight:600;color:#9aa3ad;cursor:pointer" style-hover="border-color:rgba(224,114,108,.5);color:#e0726c">Stop</button></sc-if>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+      </section>
+      <section style="display:flex;flex-direction:column;gap:9px">
+          <div style="display:flex;align-items:center;gap:9px">
+            <span style="flex:none;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#9aa3ad">Behind you</span>
+            <span style="height:1px;min-width:12px;flex:1;background:#161a20"></span>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b">{{ behindMeta }}</span>
+            <sc-if value="{{ hasUnseen }}" hint-placeholder-val="{{ true }}"><button onClick="{{ markSeen }}" style="border:0;background:transparent;padding:0;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#aebfff;cursor:pointer" style-hover="text-decoration:underline">mark seen</button></sc-if>
+          </div>
+          <div style="display:flex;flex-direction:column">
+            <sc-if value="{{ noUnseen }}" hint-placeholder-val="{{ false }}"><div style="padding:7px 11px;font-size:12.5px;color:#9aa3ad">Nothing new since you last looked.</div></sc-if>
+            <sc-for list="{{ deltaGroups }}" as="g" hint-placeholder-count="2">
+              <div style="display:flex;flex-direction:column">
+                <div style="padding:6px 11px 2px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.09em;color:#7f858b">{{ g.label }}</div>
+                <sc-for list="{{ g.rows }}" as="l" hint-placeholder-count="2">
+                  <sc-if value="{{ l.clickable }}" hint-placeholder-val="{{ true }}"><div onClick="{{ l.open }}" style="display:flex;align-items:center;gap:13px;border-bottom:1px solid #161a20;border-radius:9px;padding:7px 11px;cursor:pointer" style-hover="background:#171c22">
+                    <span style="width:112px;flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:600;color:{{ l.kindFg }}">{{ l.wording }}</span>
+                    <div style="display:flex;min-width:0;flex:1;flex-direction:column;gap:2px">
+                      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:#dfe4ea">{{ l.title }}</span>
+                      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b">{{ l.detail }}</span>
+                    </div>
+                    <span style="width:48px;flex:none;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;color:#9aa3ad">{{ l.t }}</span>
+                  </div></sc-if>
+                  <sc-if value="{{ l.isStatic }}" hint-placeholder-val="{{ false }}"><div style="display:flex;align-items:center;gap:13px;border-bottom:1px solid #161a20;padding:7px 11px">
+                    <span style="width:112px;flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:600;color:{{ l.kindFg }}">{{ l.wording }}</span>
+                    <div style="display:flex;min-width:0;flex:1;flex-direction:column;gap:2px">
+                      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:#dfe4ea">{{ l.title }}</span>
+                      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b">{{ l.detail }}</span>
+                    </div>
+                    <span style="width:48px;flex:none;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;color:#9aa3ad">{{ l.t }}</span>
+                  </div></sc-if>
+                </sc-for>
+              </div>
+            </sc-for>
+            <div style="display:flex;align-items:center;gap:8px;padding:12px 11px 2px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.09em;color:#7f858b"><span>Shipped · 7 days</span><span style="font-weight:400;letter-spacing:.04em">{{ shippedCount }}</span></div>
+            <sc-if value="{{ noShipped }}" hint-placeholder-val="{{ false }}"><div style="padding:7px 11px;font-size:12.5px;color:#9aa3ad">Nothing shipped in the last seven days.</div></sc-if>
+            <sc-for list="{{ shippedRows }}" as="l" hint-placeholder-count="3">
+              <div onClick="{{ l.open }}" style="display:flex;align-items:center;gap:12px;border-bottom:1px solid #161a20;border-radius:9px;padding:7px 11px;background:{{ l.rowBg }};cursor:{{ l.cursor }}" style-hover="background:#171c22">
+                <span style="width:7px;height:7px;flex:none;border-radius:999px;background:#2f6b55"></span>
+                <div style="display:flex;min-width:0;flex:1;flex-direction:column;gap:2px">
+                  <div style="display:flex;min-width:0;align-items:center;gap:8px">
+                    <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:#dfe4ea">{{ l.goal }}</span>
+                    <sc-if value="{{ l.fresh }}" hint-placeholder-val="{{ false }}"><span style="flex:none;border-radius:5px;border:1px solid rgba(94,156,255,.4);padding:0 5px;font-family:'JetBrains Mono',monospace;font-size:9.5px;line-height:15px;color:#aebfff">new</span></sc-if>
+                  </div>
+                  <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b">{{ l.sub }}</span>
+                </div>
+                <sc-if value="{{ l.hasReport }}" hint-placeholder-val="{{ false }}"><span style="flex:none;font-family:'JetBrains Mono',monospace;font-size:10px;color:#9aa3ad">report</span></sc-if>
+                <span style="width:48px;flex:none;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;color:#9aa3ad">{{ l.t }}</span>
+              </div>
+            </sc-for>
+            <sc-if value="{{ shippedMore }}" hint-placeholder-val="{{ false }}"><button onClick="{{ toggleShipped }}" style="align-self:flex-start;border:0;background:transparent;padding:7px 11px;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#aebfff;cursor:pointer" style-hover="text-decoration:underline">{{ shippedMoreLabel }}</button></sc-if>
+          </div>
+      </section>
+    </div>
+
+    <sc-if value="{{ showSidebar }}" hint-placeholder-val="{{ false }}">
+      <aside aria-label="Chunk" style="position:absolute;top:0;right:0;bottom:0;z-index:4;display:flex;width:460px;flex-direction:column;overflow:hidden;border-left:1px solid #1c2128;background:#0c0e11;box-shadow:-18px 0 44px rgba(12,14,17,.9)">
+        <div style="display:flex;flex:none;align-items:center;gap:8px;border-bottom:1px solid #161a20;padding:9px 13px">
+          <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.09em;color:#9aa3ad">Chunk</span>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b">{{ nv.pos }}</span>
+          <div style="display:flex;gap:4px">
+            <button onClick="{{ nv.goPrev }}" title="Previous chunk (k)" aria-label="Previous chunk" style="width:24px;height:22px;border-radius:6px;border:1px solid #1c2128;background:#13171d;padding:0;font-size:11px;color:{{ nv.prevFg }};cursor:pointer" style-hover="border-color:#2a313a">↑</button>
+            <button onClick="{{ nv.goNext }}" title="Next chunk (j)" aria-label="Next chunk" style="width:24px;height:22px;border-radius:6px;border:1px solid #1c2128;background:#13171d;padding:0;font-size:11px;color:{{ nv.nextFg }};cursor:pointer" style-hover="border-color:#2a313a">↓</button>
+          </div>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#7f858b">j / k</span>
+          <button onClick="{{ nv.close }}" style="margin-left:auto;border-radius:7px;border:1px solid #1c2128;background:#13171d;padding:4px 9px;font-size:10px;font-weight:600;color:#9aa3ad;cursor:pointer" style-hover="border-color:#2a313a;color:#dfe4ea">Close</button>
+        </div>
+        <div style="min-height:0;flex:1;overflow-y:auto">
+          <div style="display:flex;flex-direction:column;gap:6px;padding:15px 18px 14px">
+            <div style="display:flex;align-items:center;gap:7px;font-family:'JetBrains Mono',monospace;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:#9aa3ad"><span>{{ nv.initTitle }}</span><span style="color:#4a525c">/</span><span>{{ nv.stage }}</span></div>
+            <div style="font-size:16px;font-weight:600;line-height:1.35;color:#e6e9ed;text-wrap:pretty">{{ nv.label }}</div>
+            <button onClick="{{ nv.copyHandle }}" title="Copy the CLI handle" style="align-self:flex-start;border:0;background:transparent;padding:0;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b;cursor:pointer" style-hover="color:#dfe4ea">{{ nv.handle }} ⧉</button>
+          </div>
+          <div style="padding:0 18px 16px">
+            <div role="radiogroup" aria-label="Status" style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:3px;border-radius:8px;border:1px solid #1c2128;background:#0e1116;padding:3px">
+              <sc-for list="{{ nv.statusChips }}" as="st" hint-placeholder-count="6">
+                <button onClick="{{ st.pick }}" role="radio" style="display:flex;min-width:0;flex-direction:column;align-items:center;gap:2px;border-radius:6px;border:1px solid {{ st.border }};background:{{ st.bg }};padding:5px 2px;cursor:pointer" style-hover="background:#171c22">
+                  <span style="font-size:11px;line-height:1;color:{{ st.fg }}">{{ st.glyph }}</span>
+                  <span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:{{ st.fg }}">{{ st.label }}</span>
+                </button>
+              </sc-for>
+            </div>
+          </div>
+          <div style="border-top:1px solid #161a20;padding:12px 18px 18px">
+            <div style="margin-bottom:8px;display:flex;align-items:center;gap:8px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#9aa3ad"><span>Notes</span><span style="font-weight:400;letter-spacing:.04em;color:#7f858b">{{ nv.countLabel }}</span></div>
+            <sc-if value="{{ nv.empty }}" hint-placeholder-val="{{ false }}"><p style="margin:0;font-size:12px;line-height:1.6;color:#9aa3ad">No notes on this chunk yet. Notes from you or an agent land here.</p></sc-if>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <sc-for list="{{ nv.notes }}" as="n" hint-placeholder-count="2">
+                <div style="border-radius:8px;border:1px solid {{ n.border }};background:#0e1116">
+                  <button onClick="{{ n.toggle }}" style="display:flex;width:100%;flex-direction:column;gap:5px;border:0;border-radius:8px;background:transparent;padding:9px 11px;text-align:left;cursor:pointer" style-hover="background:#12161b">
+                    <span style="display:flex;width:100%;align-items:center;gap:7px;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#9aa3ad"><span style="color:{{ n.whoFg }}">{{ n.who }}</span><span>{{ n.day }}{{ n.edited }}</span><span style="margin-left:auto;color:#7f858b">{{ n.chev }}</span></span>
+                    <sc-if value="{{ n.notEditing }}" hint-placeholder-val="{{ true }}">
+                      <span style="display:-webkit-box;-webkit-line-clamp:{{ n.clamp }};-webkit-box-orient:vertical;overflow:hidden;font-size:12.5px;line-height:1.6;color:#cfd5db;white-space:pre-wrap;word-break:break-word">{{ n.text }}</span>
+                    </sc-if>
+                  </button>
+                  <sc-if value="{{ n.editing }}" hint-placeholder-val="{{ false }}">
+                    <div style="display:flex;flex-direction:column;gap:6px;padding:0 11px 10px">
+                      <textarea ref="{{ focusRef }}" value="{{ n.editDraft }}" onChange="{{ n.onEditText }}" onKeyDown="{{ n.onEditKey }}" rows="6" style="width:100%;box-sizing:border-box;resize:vertical;border-radius:7px;border:1px solid rgba(94,156,255,.6);background:#0c0e11;padding:8px 10px;font-family:inherit;font-size:12.5px;line-height:1.6;color:#dfe4ea;outline:none"></textarea>
+                      <div style="display:flex;align-items:center;gap:6px">
+                        <span style="flex:1;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b">ctrl+enter save · esc cancel</span>
+                        <button onClick="{{ n.cancel }}" style="border-radius:7px;border:1px solid #1c2128;background:#13171d;padding:4px 11px;font-size:11px;font-weight:600;color:#cfd5db;cursor:pointer">Cancel</button>
+                        <button onClick="{{ n.save }}" style="border-radius:7px;border:0;background:#5e9cff;padding:4px 11px;font-size:11px;font-weight:700;color:#0c0e11;cursor:pointer">Save</button>
+                      </div>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ n.showActions }}" hint-placeholder-val="{{ false }}">
+                    <div style="display:flex;gap:12px;border-top:1px solid #161a20;padding:6px 11px">
+                      <button onClick="{{ n.startEdit }}" style="border:0;background:transparent;padding:0;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#9aa3ad;cursor:pointer" style-hover="color:#aebfff">edit</button>
+                      <button onClick="{{ n.remove }}" style="border:0;background:transparent;padding:0;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#9aa3ad;cursor:pointer" style-hover="color:#e0726c">delete</button>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ n.showRun }}" hint-placeholder-val="{{ false }}">
+                    <div style="display:flex;gap:12px;border-top:1px solid #161a20;padding:6px 11px">
+                      <button onClick="{{ n.openRun }}" style="border:0;background:transparent;padding:0;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#aebfff;cursor:pointer" style-hover="text-decoration:underline">open agent session ↗</button>
+                    </div>
+                  </sc-if>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+        <div style="flex:none;border-top:1px solid #1c2128;background:#0e1116;padding:10px 13px 12px">
+          <div style="display:flex;flex-direction:column;gap:6px;border-radius:8px;border:1px solid #20262e;background:#0c0e11;padding:7px 8px 7px 10px">
+            <textarea value="{{ nv.draft }}" onChange="{{ onNoteDraft }}" onKeyDown="{{ onNoteKey }}" rows="3" placeholder="{{ nv.placeholder }}" aria-label="New note" style="width:100%;box-sizing:border-box;resize:none;border:0;background:transparent;padding:0;font-family:inherit;font-size:12.5px;line-height:1.6;color:#e6e9ed;outline:none"></textarea>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="flex:1;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b">ctrl+enter to add</span>
+              <button onClick="{{ addNote }}" style="border-radius:6px;border:0;background:{{ nv.addBg }};padding:4px 11px;font-size:11px;font-weight:700;color:{{ nv.addFg }};cursor:pointer">Add note</button>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </sc-if>
+
+    <sc-if value="{{ showRunSheet }}" hint-placeholder-val="{{ false }}">
+      <aside aria-label="Detail sheet" style="position:absolute;top:0;right:0;bottom:0;z-index:5;display:flex;width:min(640px,92%);flex-direction:column;overflow:hidden;border-left:1px solid #1c2128;background:#0c0e11;box-shadow:-18px 0 44px rgba(12,14,17,.9)">
+        <header style="display:flex;flex:none;align-items:center;gap:10px;border-bottom:1px solid #161a20;padding:10px 16px">
+          <span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.13em;color:#9aa3ad;color:#aebfff">project</span>
+          <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13.5px;font-weight:600;color:#dfe4ea">{{ rs.project }}</span>
+          <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:10px;color:#7f858b">{{ rs.runLine }}</span>
+          <span style="flex:1"></span>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b">{{ rs.pos }}</span>
+          <div style="display:flex;gap:4px">
+            <button onClick="{{ rs.goPrev }}" title="Previous run (k)" aria-label="Previous run" style="width:24px;height:22px;border-radius:6px;border:1px solid #1c2128;background:#13171d;padding:0;font-size:11px;color:{{ rs.prevFg }};cursor:pointer" style-hover="border-color:#2a313a">↑</button>
+            <button onClick="{{ rs.goNext }}" title="Next run (j)" aria-label="Next run" style="width:24px;height:22px;border-radius:6px;border:1px solid #1c2128;background:#13171d;padding:0;font-size:11px;color:{{ rs.nextFg }};cursor:pointer" style-hover="border-color:#2a313a">↓</button>
+          </div>
+          <button onClick="{{ rs.newRun }}" style="border-radius:7px;border:1px solid #1c2128;background:#13171d;padding:4px 10px;font-size:11px;font-weight:600;color:#cfd5db;cursor:pointer" style-hover="border-color:#2a313a;color:#dfe4ea">New run</button>
+          <button onClick="{{ rs.close }}" aria-label="Close detail sheet" style="border-radius:7px;border:1px solid #1c2128;background:#13171d;padding:4px 10px;font-size:11px;font-weight:600;color:#cfd5db;cursor:pointer" style-hover="border-color:#2a313a;color:#dfe4ea">Close</button>
+        </header>
+        <div style="min-height:0;flex:1;overflow-y:auto">
+          <div style="display:flex;flex-direction:column;gap:11px;border-bottom:1px solid #161a20;padding:16px 16px 14px">
+            <div style="display:flex;align-items:center;gap:9px">
+              <span style="width:7px;height:7px;flex:none;border-radius:999px;background:{{ rs.dot }};animation:{{ rs.anim }}"></span>
+              <span style="flex:none;font-size:15px;font-weight:700;letter-spacing:-.01em;color:#e6e9ed">{{ rs.verb }}</span>
+              <span style="min-width:0;font-size:13px;line-height:1.35;color:#cfd5db">{{ rs.sub }}</span>
+            </div>
+            <sc-if value="{{ rs.hasMeter }}" hint-placeholder-val="{{ false }}">
+              <div role="img" aria-label="{{ rs.meterLabel }}" style="display:flex;gap:4px">
+                <sc-for list="{{ rs.meter }}" as="m" hint-placeholder-count="5"><span style="height:4px;flex:1;border-radius:2px;background:{{ m.bg }}"></span></sc-for>
+              </div>
+            </sc-if>
+            <div style="display:flex;flex-wrap:wrap;align-items:center;gap:4px 14px;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#9aa3ad">
+              <sc-for list="{{ rs.meta }}" as="m" hint-placeholder-count="3"><span>{{ m.text }}</span></sc-for>
+              <sc-if value="{{ rs.canAdjust }}" hint-placeholder-val="{{ false }}"><button onClick="{{ rs.toggleAdjust }}" aria-expanded="{{ rs.adjustOpen }}" style="border:0;background:transparent;padding:0;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#aebfff;cursor:pointer" style-hover="color:#5e9cff">{{ rs.adjustLabel }}</button></sc-if>
+            </div>
+            <sc-if value="{{ rs.adjustOpen }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;flex-direction:column;gap:12px;border-radius:9px;border:1px solid #1c2128;background:#0e1116;padding:11px 13px 13px">
+                <p style="margin:0;font-size:11.5px;line-height:1.5;color:#9aa3ad">Shape, machine and the lead route are fixed after launch. These two apply to workers dispatched from now on. Nothing already running changes.</p>
+                <div style="display:flex;align-items:flex-start;gap:16px">
+                  <label style="display:flex;flex-direction:column;gap:5px"><span style="font-size:11.5px;font-weight:600;color:#cfd5db">Worker parallelism</span><input type="number" min="1" max="8" value="{{ rs.par }}" onChange="{{ rs.onPar }}" style="width:72px;box-sizing:border-box;border-radius:7px;border:1px solid #1c2128;background:#0c0e11;padding:4px 8px;font-family:'JetBrains Mono',monospace;font-size:12px;color:#dfe4ea;outline:none"><span style="font-size:10.5px;color:#9aa3ad">1 through 8</span></label>
+                  <label style="display:flex;min-width:0;flex:1;flex-direction:column;gap:5px"><span style="font-size:11.5px;font-weight:600;color:#cfd5db">Worker route</span><select value="{{ rs.route }}" onChange="{{ rs.onRoute }}" style="border-radius:7px;border:1px solid #1c2128;background:#0c0e11;padding:4px 8px;font-size:11.5px;color:#dfe4ea"><option value="inherit">Inherit the lead</option><option value="claude-sonnet">claude-sonnet</option><option value="codex">codex</option></select></label>
+                </div>
+                <div style="display:flex;gap:8px">
+                  <button onClick="{{ rs.saveSettings }}" style="border-radius:7px;border:1px solid #1c2128;background:#13171d;padding:4px 10px;font-size:11px;font-weight:600;color:#cfd5db;cursor:pointer;border-color:rgba(94,156,255,.4);padding:5px 11px;color:#aebfff">Save settings</button>
+                  <button onClick="{{ rs.saveDefaults }}" style="border-radius:7px;border:1px solid #1c2128;background:#13171d;padding:4px 10px;font-size:11px;font-weight:600;color:#cfd5db;cursor:pointer;padding:5px 11px">Save as project defaults</button>
+                </div>
+              </div>
+            </sc-if>
+            <div onClick="{{ rs.toggleGoal }}" title="{{ rs.goalTitle }}" style="margin-top:2px;display:-webkit-box;-webkit-line-clamp:{{ rs.goalClamp }};-webkit-box-orient:vertical;overflow:hidden;cursor:pointer;font-size:{{ rs.goalSize }};font-weight:700;line-height:1.3;letter-spacing:-.01em;color:#e6e9ed;text-wrap:pretty" style-hover="opacity:.9">{{ rs.goal }}</div>
+            <sc-if value="{{ rs.hasInit }}" hint-placeholder-val="{{ false }}"><button onClick="{{ rs.openChunk }}" title="Open this chunk" style="align-self:flex-start;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:0;background:transparent;padding:0;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#9aa3ad;cursor:pointer" style-hover="color:#aebfff">↳ {{ rs.initLabel }}</button></sc-if>
+          </div>
+          <div style="padding:0 16px 14px">
+            <sc-if value="{{ rs.hasAsk }}" hint-placeholder-val="{{ false }}">
+              <div style="margin-top:14px;display:flex;flex-direction:column;gap:9px;border-radius:10px;border:1px solid rgba(230,180,80,.3);background:rgba(230,180,80,.08);padding:12px 13px">
+                <div style="display:flex;align-items:center;gap:8px"><span style="width:6px;height:6px;border-radius:999px;background:#e6b450"></span><span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.13em;color:#9aa3ad;color:#e6b450">worker asks</span><span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#9aa3ad">{{ rs.askWho }}</span></div>
+                <span style="font-size:13.5px;font-weight:600;line-height:1.4;color:#e6e9ed">{{ rs.askQ }}</span>
+                <div style="display:flex;flex-direction:column;gap:4px">
+                  <sc-for list="{{ rs.askOpts }}" as="o" hint-placeholder-count="3">
+                    <button onClick="{{ o.pick }}" style="display:flex;align-items:center;gap:9px;border-radius:7px;border:1px solid #20262e;background:#0c0e11;padding:6px 9px;text-align:left;cursor:pointer" style-hover="border-color:rgba(230,180,80,.6)">
+                      <span style="display:flex;width:16px;height:16px;flex:none;align-items:center;justify-content:center;border-radius:4px;border:1px solid #2a313a;font-family:'JetBrains Mono',monospace;font-size:10px;color:#cfd5db">{{ o.n }}</span>
+                      <span style="font-size:12.5px;color:#dfe4ea">{{ o.label }}</span>
+                    </button>
+                  </sc-for>
+                </div>
+                <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b">pick one, or answer in your own words below</span>
+              </div>
+            </sc-if>
+            <sc-if value="{{ rs.hasTasks }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;align-items:center;gap:10px;padding:16px 0 8px">
+                <span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.13em;color:#9aa3ad">tasks</span>
+                <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b">{{ rs.taskMeta }}</span>
+                <span style="flex:1"></span>
+                <button onClick="{{ rs.toggleTimeline }}" style="flex:none;border:0;background:transparent;padding:0;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#aebfff;cursor:pointer" style-hover="color:#5e9cff">{{ rs.timelineLabel }}</button>
+              </div>
+              <sc-if value="{{ rs.timelineOpen }}" hint-placeholder-val="{{ false }}">
+                <div style="margin-bottom:12px;display:flex;flex-direction:column;gap:5px;border-left:2px solid #20262e;padding-left:12px">
+                  <sc-for list="{{ rs.timeline }}" as="e" hint-placeholder-count="4">
+                    <div style="display:flex;gap:10px;font-family:'JetBrains Mono',monospace;font-size:10.5px;line-height:1.5"><span style="width:44px;flex:none;color:#7f858b">{{ e.t }}</span><span style="color:#cfd5db">{{ e.text }}</span></div>
+                  </sc-for>
+                </div>
+              </sc-if>
+              <div style="display:flex;flex-direction:column">
+                <sc-for list="{{ rs.tasks }}" as="t" hint-placeholder-count="4">
+                  <div style="display:grid;grid-template-columns:62px minmax(0,1fr) auto;align-items:baseline;gap:12px;border-bottom:1px solid #161a20;padding:11px 0">
+                    <span style="overflow:hidden;text-overflow:ellipsis;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:500;color:#cfd5db">{{ t.id }}</span>
+                    <div style="display:flex;min-width:0;flex-direction:column;gap:3px">
+                      <span style="font-size:12.5px;line-height:1.35;color:#dfe4ea">{{ t.label }}</span>
+                      <sc-if value="{{ t.noBlock }}" hint-placeholder-val="{{ true }}"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#9aa3ad">{{ t.meta }}</span></sc-if>
+                      <sc-if value="{{ t.hasBlock }}" hint-placeholder-val="{{ false }}"><button onClick="{{ t.openBlock }}" title="Open the run this task waits on" style="align-self:flex-start;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:0;background:transparent;padding:0;text-align:left;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#f0d79f;cursor:pointer" style-hover="text-decoration:underline">{{ t.blockLabel }}</button></sc-if>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:8px">
+                      <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:{{ t.stateFg }}">{{ t.state }}</span>
+                      <sc-if value="{{ t.hasAct }}" hint-placeholder-val="{{ false }}"><button onClick="{{ t.act }}" style="border-radius:5px;border:1px solid #1c2128;background:transparent;padding:2px 7px;font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#cfd5db;cursor:pointer" style-hover="border-color:#2a313a;color:#dfe4ea">Open in Agent ↗</button></sc-if>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+              <sc-if value="{{ rs.hasNext }}" hint-placeholder-val="{{ false }}"><div style="padding:13px 0 4px;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.5;color:#9aa3ad"><span style="color:#7f858b">next: </span>{{ rs.next }}</div></sc-if>
+            </sc-if>
+            <sc-if value="{{ rs.hasReport }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;flex-direction:column;gap:14px;padding-top:16px">
+                <div style="display:flex;align-items:center;gap:10px">
+                  <span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.13em;color:#9aa3ad">run report</span>
+                  <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b">{{ rs.reportTitle }}</span>
+                  <span style="flex:1"></span>
+                  <button onClick="{{ rs.toggleRaw }}" style="flex:none;border:0;background:transparent;padding:0;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#aebfff;cursor:pointer" style-hover="color:#5e9cff">{{ rs.rawLabel }}</button>
+                  <button onClick="{{ rs.copyReport }}" style="flex:none;border:0;background:transparent;padding:0;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#aebfff;cursor:pointer" style-hover="color:#5e9cff">copy</button>
+                </div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.55;color:#cfd5db;word-break:break-word">{{ rs.reportLead }}</div>
+                <sc-if value="{{ rs.rawOpen }}" hint-placeholder-val="{{ false }}">
+                  <pre style="margin:0;max-height:420px;overflow:auto;white-space:pre-wrap;word-break:break-word;border-radius:8px;border:1px solid #1c2128;background:#0e1116;padding:12px 13px;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.6;color:#cfd5db">{{ rs.reportRaw }}</pre>
+                </sc-if>
+                <sc-if value="{{ rs.rawClosed }}" hint-placeholder-val="{{ true }}">
+                  <sc-for list="{{ rs.sections }}" as="sec" hint-placeholder-count="4">
+                    <div style="display:flex;flex-direction:column;gap:2px">
+                      <div style="display:flex;align-items:center;gap:8px;padding-bottom:4px"><span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.13em;color:#9aa3ad">{{ sec.h }}</span><span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b">{{ sec.count }}</span></div>
+                      <sc-for list="{{ sec.items }}" as="it" hint-placeholder-count="2">
+                        <div style="display:flex;align-items:baseline;gap:10px;border-bottom:1px solid #161a20;padding:7px 0">
+                          <span style="width:6px;height:6px;flex:none;border-radius:999px;background:{{ it.dot }};transform:translateY(-1px)"></span>
+                          <sc-if value="{{ it.hasHash }}" hint-placeholder-val="{{ false }}"><button onClick="{{ it.openCommit }}" title="Open this commit's diff" style="width:64px;flex:none;border:0;background:transparent;padding:0;text-align:left;font-family:'JetBrains Mono',monospace;font-size:11px;color:#aebfff;cursor:pointer" style-hover="text-decoration:underline">{{ it.hash }}</button></sc-if>
+                          <span style="min-width:0;flex:1;font-size:12.5px;line-height:1.5;color:{{ it.fg }};word-break:break-word;text-wrap:pretty">{{ it.text }}</span>
+                          <sc-if value="{{ it.hasTag }}" hint-placeholder-val="{{ false }}"><span style="flex:none;border-radius:5px;border:1px solid #20262e;padding:0 5px;font-family:'JetBrains Mono',monospace;font-size:10px;line-height:16px;color:#9aa3ad">{{ it.tag }}</span></sc-if>
+                        </div>
+                      </sc-for>
+                    </div>
+                  </sc-for>
+                  <button onClick="{{ rs.openDiff }}" style="align-self:flex-start;border:0;background:transparent;padding:0;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#aebfff;cursor:pointer" style-hover="color:#5e9cff">open the repository diff ↗</button>
+                </sc-if>
+              </div>
+            </sc-if>
+            <sc-if value="{{ rs.isDoneNoReport }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;flex-direction:column;gap:16px;padding-top:16px">
+                <div style="display:flex;flex-direction:column;gap:9px">
+                  <span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.13em;color:#9aa3ad">what landed</span>
+                  <div style="display:flex;flex-direction:column">
+                    <sc-for list="{{ rs.files }}" as="f" hint-placeholder-count="3">
+                      <button onClick="{{ f.open }}" style="display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:baseline;gap:12px;border:0;border-bottom:1px solid #161a20;background:transparent;padding:9px 0;text-align:left;cursor:pointer" style-hover="background:#12161b">
+                        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#dfe4ea">{{ f.path }}</span>
+                        <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#9aa3ad">{{ f.delta }}</span>
+                      </button>
+                    </sc-for>
+                  </div>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:7px">
+                  <span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.13em;color:#9aa3ad">sealed evidence</span>
+                  <div style="display:flex;flex-direction:column;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.6;color:#cfd5db">
+                    <sc-for list="{{ rs.evLines }}" as="e" hint-placeholder-count="3"><span>{{ e.text }}</span></sc-for>
+                  </div>
+                  <p style="margin:0;font-size:12px;line-height:1.55;color:#cfd5db;text-wrap:pretty">{{ rs.summary }}</p>
+                  <button onClick="{{ rs.openDiff }}" style="align-self:flex-start;border:0;background:transparent;padding:0;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#aebfff;cursor:pointer" style-hover="color:#5e9cff">open the repository diff ↗</button>
+                </div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ rs.noTasks }}" hint-placeholder-val="{{ false }}">
+              <div style="margin-top:16px;display:flex;flex-direction:column;gap:7px;border-radius:10px;border:1px dashed #2a313a;padding:13px 14px">
+                <span style="font-size:12.5px;font-weight:600;color:#dfe4ea">No task graph</span>
+                <span style="font-size:11.5px;line-height:1.5;color:#9aa3ad">A quick run is one worker on one goal. Its transcript is the whole run; the Agent view is where it is watched.</span>
+                <button onClick="{{ rs.openAgent }}" style="margin-top:3px;align-self:flex-start;border-radius:7px;border:1px solid #1c2128;background:#13171d;padding:4px 10px;font-size:11px;font-weight:600;color:#cfd5db;cursor:pointer;padding:5px 11px" style-hover="border-color:#2a313a;color:#dfe4ea">Open in Agent ↗</button>
+              </div>
+            </sc-if>
+          </div>
+        </div>
+        <footer style="flex:none;border-top:1px solid #161a20;background:#0e1116">
+          <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 16px">
+            <sc-if value="{{ rs.canSaveDefaults }}" hint-placeholder-val="{{ false }}"><button onClick="{{ rs.saveDefaults }}" style="border-radius:7px;border:1px solid #1c2128;background:transparent;padding:6px 12px;font-size:11.5px;font-weight:600;color:#cfd5db;cursor:pointer;border-color:rgba(94,156,255,.5);background:rgba(94,156,255,.12);color:#aebfff">Save as project defaults</button></sc-if>
+            <sc-if value="{{ rs.hasDag }}" hint-placeholder-val="{{ false }}"><button onClick="{{ rs.openDag }}" style="border-radius:7px;border:1px solid #1c2128;background:transparent;padding:6px 12px;font-size:11.5px;font-weight:600;color:#cfd5db;cursor:pointer;border-color:rgba(94,156,255,.5);background:rgba(94,156,255,.12);color:#aebfff">Open DAG</button></sc-if>
+            <sc-if value="{{ rs.hasLead }}" hint-placeholder-val="{{ false }}"><button onClick="{{ rs.openLead }}" style="border-radius:7px;border:1px solid #1c2128;background:transparent;padding:6px 12px;font-size:11.5px;font-weight:600;color:#cfd5db;cursor:pointer" style-hover="border-color:#2a313a;color:#dfe4ea">Open lead ↗</button></sc-if>
+            <sc-if value="{{ rs.hasOpenAgent }}" hint-placeholder-val="{{ false }}"><button onClick="{{ rs.openAgent }}" style="border-radius:7px;border:1px solid #1c2128;background:transparent;padding:6px 12px;font-size:11.5px;font-weight:600;color:#cfd5db;cursor:pointer" style-hover="border-color:#2a313a;color:#dfe4ea">Open in Agent ↗</button></sc-if>
+            <span style="flex:1"></span>
+            <sc-if value="{{ rs.canCancel }}" hint-placeholder-val="{{ false }}"><button onClick="{{ rs.cancel }}" style="border-radius:7px;border:1px solid #1c2128;background:transparent;padding:6px 12px;font-size:11.5px;font-weight:600;color:#cfd5db;cursor:pointer;border-color:#20262e;color:#9aa3ad" style-hover="border-color:#e0726c;color:#e0726c">Cancel run</button></sc-if>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:6px;border-top:1px solid #161a20;padding:10px 16px 12px">
+            <div style="display:flex;align-items:center;gap:8px;font-family:'JetBrains Mono',monospace;font-size:10.5px"><span style="color:{{ rs.msgFg }}">{{ rs.msgAudience }}</span><span style="color:#7f858b">{{ rs.msgScope }}</span></div>
+            <div style="display:flex;align-items:flex-end;gap:8px;border-radius:8px;border:1px solid #20262e;background:#0c0e11;padding:7px 7px 7px 10px">
+              <textarea value="{{ rs.msg }}" onChange="{{ rs.onMsg }}" onKeyDown="{{ rs.onMsgKey }}" rows="2" placeholder="{{ rs.msgPlaceholder }}" aria-label="{{ rs.msgPlaceholder }}" style="min-width:0;flex:1;resize:none;border:0;background:transparent;padding:0;font-family:inherit;font-size:12.5px;line-height:1.55;color:#e6e9ed;outline:none"></textarea>
+              <button onClick="{{ rs.send }}" style="flex:none;border-radius:6px;border:0;background:{{ rs.sendBg }};padding:5px 11px;font-size:11px;font-weight:700;color:{{ rs.sendFg }};cursor:pointer">Send ⏎</button>
+            </div>
+          </div>
+        </footer>
+      </aside>
+    </sc-if>
+
+    <sc-if value="{{ isB }}" hint-placeholder-val="{{ false }}">
+      <aside style="display:flex;width:440px;flex:none;flex-direction:column;overflow:hidden;border-left:1px solid #1c2128;background:#0e1116">
+        <sc-if value="{{ paneEmpty }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;flex:1;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:30px;text-align:center">
+            <span style="font-size:15px;font-weight:600;color:#dfe4ea">Select an initiative</span>
+            <span style="max-width:280px;font-size:12.5px;line-height:1.6;color:#9aa3ad">Its plan, notes and details open here and can be edited in place.</span>
+            <button onClick="{{ newInitiative }}" style="margin-top:4px;border-radius:7px;border:1px solid rgba(94,156,255,.3);background:rgba(94,156,255,.12);padding:6px 12px;font-size:11.5px;font-weight:600;color:#aebfff;cursor:pointer" style-hover="background:rgba(94,156,255,.2)">+ New initiative</button>
+          </div>
+        </sc-if>
+        <sc-if value="{{ paneHas }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex:none;align-items:center;gap:8px;border-bottom:1px solid #161a20;padding:11px 16px">
+            <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.09em;color:{{ pane.headFg }}">{{ pane.head }}</span>
+            <button onClick="{{ pane.copyId }}" style="border:0;background:transparent;padding:0;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#9aa3ad;cursor:pointer" style-hover="color:#dfe4ea">{{ pane.oid }}</button>
+            <button onClick="{{ pane.close }}" style="margin-left:auto;border-radius:7px;border:1px solid #1c2128;background:#13171d;padding:4px 9px;font-size:10px;font-weight:600;color:#9aa3ad;cursor:pointer" style-hover="border-color:#2a313a;color:#dfe4ea">Close</button>
+          </div>
+          <div style="min-height:0;flex:1;overflow-y:auto;padding:14px 16px 18px">
+            <input ref="{{ pane.titleRef }}" value="{{ pane.title }}" onChange="{{ pane.onTitle }}" placeholder="Name this initiative" style="width:100%;border-radius:7px;border:1px solid transparent;background:transparent;padding:4px 6px;margin-left:-6px;font-size:19px;font-weight:600;letter-spacing:-.01em;color:#dfe4ea;outline:none" style-hover="border-color:#20262e" style-focus="border-color:rgba(94,156,255,.6);background:#0c0e11">
+            <sc-if value="{{ pane.titleError }}" hint-placeholder-val="{{ false }}"><div style="font-size:11px;color:#e0726c">Title is required</div></sc-if>
+            <div style="margin-top:12px;display:grid;grid-template-columns:64px minmax(0,1fr);align-items:center;gap:9px 10px">
+              <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.09em;color:#9aa3ad">Project</span>
+              <div style="display:flex;flex-wrap:wrap;gap:5px">
+                <sc-for list="{{ pane.projects }}" as="p" hint-placeholder-count="4">
+                  <button onClick="{{ p.pick }}" style="border-radius:6px;border:1px solid {{ p.border }};background:{{ p.bg }};padding:3px 8px;font-size:11.5px;font-weight:500;color:{{ p.fg }};cursor:pointer" style-hover="border-color:#5e9cff">{{ p.name }}</button>
+                </sc-for>
+              </div>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.09em;color:#9aa3ad">Ticket</span>
+              <input value="{{ pane.ticket }}" onChange="{{ pane.onTicket }}" placeholder="optional, e.g. INF-221" style="width:160px;border-radius:7px;border:1px solid #20262e;background:#0c0e11;padding:4px 9px;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#dfe4ea;outline:none" style-focus="border-color:rgba(94,156,255,.6)">
+              <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.09em;color:#9aa3ad">Status</span>
+              <div style="display:flex;gap:5px">
+                <sc-for list="{{ pane.statuses }}" as="p" hint-placeholder-count="2">
+                  <button onClick="{{ p.pick }}" style="border-radius:6px;border:1px solid {{ p.border }};background:{{ p.bg }};padding:3px 8px;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:{{ p.fg }};cursor:pointer" style-hover="border-color:#2a313a">{{ p.name }}</button>
+                </sc-for>
+              </div>
+            </div>
+            <div style="margin-top:16px;display:flex;align-items:center;gap:9px">
+              <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#9aa3ad">Plan</span>
+              <span style="height:4px;flex:1;overflow:hidden;border-radius:2px;background:#1c2128"><span style="display:block;height:100%;width:{{ pane.pct }};border-radius:2px;background:#54c79a"></span></span>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#9aa3ad">{{ pane.count }}</span>
+            </div>
+            <div style="margin-top:2px">
+              <sc-for list="{{ pane.tracker }}" as="r" hint-placeholder-count="4">
+                <sc-if value="{{ r.isStage }}" hint-placeholder-val="{{ false }}">
+                  <button onClick="{{ r.toggle }}" style="display:flex;width:100%;align-items:baseline;gap:7px;border:0;background:transparent;padding:14px 5px 1px;text-align:left;cursor:pointer">
+                    <span style="width:9px;flex:none;text-align:center;font-size:10px;line-height:1;color:#9aa3ad">{{ r.caret }}</span>
+                    <span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#9aa3ad">{{ r.label }}</span>
+                    <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#9aa3ad">{{ r.fraction }}</span>
+                  </button>
+                </sc-if>
+                <sc-if value="{{ r.isChunk }}" hint-placeholder-val="{{ true }}">
+                  <div style="position:relative">
+                    <div onClick="{{ r.select }}" onDoubleClick="{{ r.edit }}" title="Click for notes · double-click to rename" style="display:flex;min-width:0;align-items:center;gap:8px;margin:1px 0;border-radius:6px;background:{{ r.bg }};padding:4px 5px 4px 7px;cursor:pointer" style-hover="background:{{ r.hoverBg }}">
+                      <span style="width:12px;flex:none;text-align:center;font-size:10px;color:{{ r.fg }}">{{ r.glyph }}</span>
+                      <sc-if value="{{ r.editing }}" hint-placeholder-val="{{ false }}">
+                        <input ref="{{ focusRef }}" value="{{ r.draft }}" onChange="{{ onEditDraft }}" onKeyDown="{{ onEditKey }}" onBlur="{{ commitEdit }}" onClick="{{ stop }}" style="min-width:0;flex:1;border-radius:5px;border:1px solid rgba(94,156,255,.6);background:#0c0e11;padding:1px 6px;font-size:12px;color:#dfe4ea;outline:none">
+                      </sc-if>
+                      <sc-if value="{{ r.notEditing }}" hint-placeholder-val="{{ true }}">
+                        <span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:1.4;font-weight:{{ r.weight }};color:{{ r.labelFg }};text-decoration:{{ r.strike }}">{{ r.label }}</span>
+                      </sc-if>
+                      <span style="flex:none;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#9aa3ad">{{ r.notes }}</span>
+                      <button onClick="{{ r.toggleMenu }}" title="Change status" style="display:flex;width:78px;flex:none;align-items:center;justify-content:flex-end;gap:4px;border-radius:5px;border:1px solid {{ r.menuBorder }};background:transparent;padding:2px 7px;font-size:11px;font-weight:500;color:{{ r.fg }};cursor:pointer" style-hover="border-color:#20262e">{{ r.status }}<span style="font-size:8px;color:#7f858b">▾</span></button>
+                    </div>
+                    <sc-if value="{{ r.menuOpen }}" hint-placeholder-val="{{ false }}">
+                      <div onClick="{{ stop }}" style="position:absolute;right:4px;top:calc(100% + 2px);z-index:30;width:184px;border-radius:8px;border:1px solid #2a313a;background:#13171d;box-shadow:0 12px 34px rgba(0,0,0,.5);padding:5px">
+                        <div style="padding:4px 7px 5px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#9aa3ad">Status</div>
+                        <sc-for list="{{ r.opts }}" as="o" hint-placeholder-count="6">
+                          <button onClick="{{ o.pick }}" style="display:flex;width:100%;align-items:center;gap:8px;border:0;border-radius:5px;background:{{ o.bg }};padding:5px 7px;text-align:left;cursor:pointer" style-hover="background:#171c22">
+                            <span style="width:12px;text-align:center;font-size:10px;color:{{ o.fg }}">{{ o.glyph }}</span>
+                            <span style="flex:1;font-size:12px;color:#cfd5db">{{ o.label }}</span>
+                          </button>
+                        </sc-for>
+                        <div style="height:1px;margin:5px 2px;background:#1c2128"></div>
+                        <button onClick="{{ r.edit }}" style="display:flex;width:100%;align-items:center;gap:8px;border:0;border-radius:5px;background:transparent;padding:5px 7px;text-align:left;font-size:12px;color:#cfd5db;cursor:pointer" style-hover="background:#171c22"><span style="width:12px"></span>Rename</button>
+                        <button onClick="{{ r.remove }}" style="display:flex;width:100%;align-items:center;gap:8px;border:0;border-radius:5px;background:transparent;padding:5px 7px;text-align:left;font-size:12px;color:#e0726c;cursor:pointer" style-hover="background:rgba(224,114,108,.12)"><span style="width:12px"></span>Delete chunk</button>
+                      </div>
+                    </sc-if>
+                    <sc-if value="{{ r.selected }}" hint-placeholder-val="{{ false }}">
+                      <div style="margin:2px 0 8px 27px;display:flex;flex-direction:column;gap:6px;border-left:1px solid #20262e;padding:4px 0 4px 12px">
+                        <sc-for list="{{ nv.notes }}" as="n" hint-placeholder-count="1">
+                          <div style="display:flex;flex-direction:column;gap:2px">
+                            <span style="display:flex;gap:7px;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#9aa3ad"><span style="color:{{ n.whoFg }}">{{ n.who }}</span><span>{{ n.day }}</span></span>
+                            <span style="font-size:12px;line-height:1.55;color:#cfd5db;white-space:pre-wrap">{{ n.text }}</span>
+                          </div>
+                        </sc-for>
+                        <sc-if value="{{ nv.empty }}" hint-placeholder-val="{{ false }}"><span style="font-size:11.5px;color:#9aa3ad">No notes yet.</span></sc-if>
+                        <div style="display:flex;align-items:flex-end;gap:6px;border-radius:7px;border:1px solid #20262e;background:#0c0e11;padding:5px 5px 5px 9px">
+                          <textarea ref="{{ nv.focus }}" value="{{ nv.draft }}" onChange="{{ onNoteDraft }}" onKeyDown="{{ onNoteKey }}" rows="2" placeholder="{{ nv.placeholder }}" style="min-width:0;flex:1;resize:none;border:0;background:transparent;padding:2px 0;font-size:12px;line-height:1.5;color:#dfe4ea;outline:none"></textarea>
+                          <button onClick="{{ addNote }}" style="flex:none;border-radius:6px;border:0;background:{{ nv.addBg }};padding:4px 10px;font-size:11px;font-weight:700;color:{{ nv.addFg }};cursor:pointer">Add</button>
+                        </div>
+                      </div>
+                    </sc-if>
+                  </div>
+                </sc-if>
+                <sc-if value="{{ r.isAdd }}" hint-placeholder-val="{{ false }}">
+                  <sc-if value="{{ r.adding }}" hint-placeholder-val="{{ false }}">
+                    <div style="display:flex;align-items:center;gap:8px;padding:3px 5px 3px 7px">
+                      <span style="width:12px;text-align:center;font-size:10px;color:#7f858b">+</span>
+                      <input ref="{{ focusRef }}" value="{{ r.draft }}" onChange="{{ onChunkDraft }}" onKeyDown="{{ r.onKey }}" onBlur="{{ r.blur }}" placeholder="{{ r.placeholder }}" style="min-width:0;flex:1;border-radius:5px;border:1px solid #20262e;background:#0c0e11;padding:3px 7px;font-size:12px;color:#dfe4ea;outline:none">
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ r.notAdding }}" hint-placeholder-val="{{ true }}">
+                    <button onClick="{{ r.start }}" style="display:flex;align-items:center;gap:8px;border:0;background:transparent;padding:3px 7px;font-size:11.5px;color:#7f858b;cursor:pointer" style-hover="color:#aebfff"><span style="width:12px;text-align:center">+</span>{{ r.addLabel }}</button>
+                  </sc-if>
+                </sc-if>
+              </sc-for>
+            </div>
+          </div>
+          <div style="display:flex;flex:none;align-items:center;gap:8px;border-top:1px solid #1c2128;padding:11px 16px">
+            <sc-if value="{{ pane.isDraft }}" hint-placeholder-val="{{ false }}">
+              <span style="flex:1;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#9aa3ad">draft · not saved yet</span>
+              <button onClick="{{ pane.discard }}" style="border-radius:7px;border:1px solid #1c2128;background:#13171d;padding:6px 14px;font-size:11.5px;font-weight:600;color:#cfd5db;cursor:pointer" style-hover="color:#e6e9ed">Discard</button>
+              <button onClick="{{ pane.create }}" style="border-radius:7px;border:0;background:#5e9cff;padding:6px 14px;font-size:11.5px;font-weight:600;color:#0c0e11;cursor:pointer" style-hover="background:#8da3ff">Create initiative</button>
+            </sc-if>
+            <sc-if value="{{ pane.isSaved }}" hint-placeholder-val="{{ true }}">
+              <span style="flex:1;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b">edits save as you type</span>
+              <button onClick="{{ pane.archive }}" style="border-radius:7px;border:1px solid #1c2128;background:#13171d;padding:6px 14px;font-size:11.5px;font-weight:600;color:#cfd5db;cursor:pointer" style-hover="border-color:rgba(224,114,108,.5);color:#e0726c">Archive</button>
+            </sc-if>
+          </div>
+        </sc-if>
+      </aside>
+    </sc-if>
+  </div>
+
+
+  <sc-if value="{{ toastOn }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute;left:50%;bottom:24px;z-index:50;display:flex;transform:translateX(-50%);align-items:center;gap:12px;border-radius:9px;border:1px solid #2a313a;background:#13171d;box-shadow:0 12px 34px rgba(0,0,0,.5);padding:8px 10px 8px 14px">
+      <span style="font-size:12.5px;color:#cfd5db;white-space:nowrap">{{ toastText }}</span>
+      <sc-if value="{{ toastUndo }}" hint-placeholder-val="{{ false }}"><button onClick="{{ undo }}" style="border-radius:6px;border:1px solid #20262e;background:transparent;padding:3px 9px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:600;color:#aebfff;cursor:pointer" style-hover="color:#dfe4ea">Undo</button></sc-if>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ recOpen }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ rv.close }}" style="position:absolute;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;background:rgba(6,8,10,.62);padding:40px 0">
+      <div onClick="{{ stop }}" role="dialog" aria-label="Record" style="display:flex;max-height:100%;width:min(640px,93%);flex-direction:column;overflow:hidden;border-radius:12px;border:1px solid #20262e;background:#13171d;box-shadow:0 30px 80px rgba(0,0,0,.55)">
+        <div style="display:flex;min-width:0;flex:none;align-items:center;gap:10px;border-bottom:1px solid #1c2128;padding:12px 17px">
+          <span style="flex:none;font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:#7f858b">record</span>
+          <span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13.5px;font-weight:600;color:#dfe4ea">{{ rv.title }}</span>
+          <span style="flex:none;font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#7f858b">{{ rv.updated }}</span>
+          <button onClick="{{ rv.togglePicker }}" aria-label="Change what this record does" style="flex:none;border-radius:6px;border:1px solid #1c2128;background:#0e1116;padding:2px 8px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;color:{{ rv.statusFg }};cursor:pointer" style-hover="border-color:rgba(94,156,255,.4)">{{ rv.status }}</button>
+        </div>
+        <sc-if value="{{ rv.pickerOpen }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex:none;flex-direction:column;gap:1px;border-bottom:1px solid #1c2128;background:#0e1116;padding:6px 8px">
+            <sc-for list="{{ rv.statusRows }}" as="r" hint-placeholder-count="4">
+              <sc-if value="{{ r.current }}" hint-placeholder-val="{{ false }}"><div style="display:flex;align-items:baseline;gap:10px;border-radius:6px;padding:6px 10px"><span style="width:8px;flex:none;font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;color:{{ r.fg }}">{{ r.dot }}</span><span style="width:58px;flex:none;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;color:{{ r.fg }}">{{ r.label }}</span><span style="min-width:0;flex:1;font-size:11.5px;line-height:1.45;color:#9aa3ad">{{ r.note }}</span></div></sc-if>
+              <sc-if value="{{ r.pickable }}" hint-placeholder-val="{{ true }}"><button onClick="{{ r.pick }}" style="display:flex;align-items:baseline;gap:10px;border:0;border-radius:6px;background:transparent;padding:6px 10px;text-align:left;cursor:pointer" style-hover="background:#171c22"><span style="width:8px;flex:none"></span><span style="width:58px;flex:none;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;color:{{ r.fg }}">{{ r.label }}</span><span style="min-width:0;flex:1;font-size:11.5px;line-height:1.45;color:#9aa3ad">{{ r.note }}</span></button></sc-if>
+            </sc-for>
+          </div>
+        </sc-if>
+        <sc-if value="{{ rv.confirming }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex:none;flex-direction:column;gap:8px;border-bottom:1px solid #1c2128;background:#0e1116;padding:12px 17px">
+            <span style="font-size:13px;font-weight:600;color:#e6e9ed">{{ rv.pendingTitle }}</span>
+            <span style="font-size:12px;line-height:1.5;color:#9aa3ad">{{ rv.pendingBody }}</span>
+            <div style="display:flex;gap:8px">
+              <button onClick="{{ rv.cancelPending }}" style="border-radius:7px;border:1px solid #1c2128;background:#13171d;padding:5px 12px;font-size:11.5px;font-weight:600;color:#cfd5db;cursor:pointer">Cancel</button>
+              <button onClick="{{ rv.confirm }}" style="border-radius:7px;border:0;background:{{ rv.pendingBg }};padding:5px 12px;font-size:11.5px;font-weight:700;color:#0c0e11;cursor:pointer">{{ rv.pendingLabel }}</button>
+            </div>
+          </div>
+        </sc-if>
+        <div style="display:flex;min-height:0;flex-direction:column;gap:12px;overflow-y:auto;padding:16px 17px">
+          <p style="margin:0;font-size:13px;line-height:1.6;color:#cfd5db;text-wrap:pretty">{{ rv.body }}</p>
+          <div style="display:flex;flex-direction:column;overflow:hidden;border-radius:9px;border:1px solid #1c2128;background:#0c0e11">
+            <div style="display:flex;align-items:center;gap:10px;border-bottom:1px solid #161a20;padding:8px 12px">
+              <span style="flex:none;font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:#7f858b">Fleet · on this record</span>
+              <span style="height:1px;flex:1;background:#161a20"></span>
+              <span style="flex:none;font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#9aa3ad">{{ rv.fleetMeta }}</span>
+            </div>
+            <sc-if value="{{ rv.noRuns }}" hint-placeholder-val="{{ false }}"><div style="padding:10px 12px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#7f858b">{{ rv.runsAbsent }}</div></sc-if>
+            <sc-for list="{{ rv.runs }}" as="r" hint-placeholder-count="3">
+              <button onClick="{{ r.open }}" style="display:flex;width:100%;min-width:0;align-items:center;gap:10px;border:0;background:transparent;padding:7px 12px;text-align:left;cursor:pointer" style-hover="background:#171c22">
+                <span style="flex:none;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;color:#aebfff">{{ r.shortId }}</span>
+                <span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:#cfd5db">{{ r.headline }}</span>
+                <span style="flex:none;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#7f858b">{{ r.meta }}</span>
+                <span style="flex:none;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:9.5px;font-weight:600;color:{{ r.tone }}">{{ r.state }}</span>
+              </button>
+            </sc-for>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px">
+            <span style="border-radius:6px;border:1px solid #161a20;padding:4px 10px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#cfd5db">{{ rv.logLine }}</span>
+            <span style="align-self:flex-start;border-radius:6px;border:1px dashed #2a313a;padding:4px 10px;font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#7f858b">Record · you cannot message one. Ask in the composer and Jarvis reads it.</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <button onClick="{{ rv.openMap }}" style="border-radius:6px;border:1px solid #1c2128;background:#0e1116;padding:4px 10px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:600;color:#cfd5db;cursor:pointer" style-hover="border-color:rgba(94,156,255,.4);color:#e6e9ed">Where it sits on the map</button>
+          </div>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.5;color:#7f858b">What runs against it and what you set it to are brief business, so they are here. Its full history, its decision log and every past correction live on the Brief, with the record as its subject.</span>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+  <sc-if value="{{ modalInit }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeModal }}" style="position:absolute;inset:0;z-index:60;display:flex;align-items:flex-start;justify-content:center;background:rgba(6,8,10,.62);padding-top:70px">
+      <div onClick="{{ stop }}" onKeyDown="{{ onModalKey }}" style="display:flex;max-height:calc(100% - 110px);width:min(580px,93%);flex-direction:column;overflow:hidden;border-radius:12px;border:1px solid #20262e;background:#13171d;box-shadow:0 20px 56px rgba(0,0,0,.55)">
+        <div style="display:flex;flex:none;align-items:center;gap:11px;border-bottom:1px solid #1c2128;padding:15px 18px">
+          <div style="display:flex;width:18px;height:18px;align-items:center;justify-content:center;border-radius:999px;background:rgba(94,156,255,.12);font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;color:#aebfff">✦</div>
+          <span style="flex:1;font-size:15px;font-weight:600;color:#e6e9ed">{{ ni.heading }}</span>
+          <span style="border-radius:5px;border:1px solid #20262e;padding:2px 7px;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#9aa3ad">ctrl+⏎ to save</span>
+        </div>
+        <div style="display:flex;min-height:0;flex:1;flex-direction:column;gap:13px;overflow-y:auto;padding:16px 18px">
+          <div style="display:flex;flex-direction:column;gap:4px">
+            <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.09em;color:#9aa3ad">Title</span>
+            <input ref="{{ focusRef }}" value="{{ ni.title }}" onChange="{{ ni.onTitle }}" placeholder="e.g. Scenario gate clearance" style="width:100%;border-radius:7px;border:1px solid {{ ni.titleBorder }};background:#0c0e11;padding:6px 10px;font-size:12.5px;color:#e6e9ed;outline:none" style-focus="border-color:rgba(94,156,255,.6)">
+            <sc-if value="{{ ni.error }}" hint-placeholder-val="{{ false }}"><span style="font-size:11px;color:#e0726c">Title is required</span></sc-if>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.09em;color:#9aa3ad">Project</span>
+            <div style="display:flex;flex-wrap:wrap;gap:6px">
+              <sc-for list="{{ ni.projects }}" as="p" hint-placeholder-count="4">
+                <button onClick="{{ p.pick }}" style="border-radius:7px;border:1px solid {{ p.border }};background:{{ p.bg }};padding:5px 10px;font-size:12px;font-weight:500;color:{{ p.fg }};cursor:pointer" style-hover="border-color:#5e9cff">{{ p.name }}</button>
+              </sc-for>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:13px">
+            <div style="display:flex;flex-direction:column;gap:4px">
+              <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.09em;color:#9aa3ad">Ticket</span>
+              <input value="{{ ni.ticket }}" onChange="{{ ni.onTicket }}" placeholder="optional" style="width:100%;border-radius:7px;border:1px solid #20262e;background:#0c0e11;padding:6px 10px;font-family:'JetBrains Mono',monospace;font-size:12px;color:#e6e9ed;outline:none" style-focus="border-color:rgba(94,156,255,.6)">
+            </div>
+            <div style="display:flex;flex-direction:column;gap:4px">
+              <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.09em;color:#9aa3ad">Parent initiative</span>
+              <input value="{{ ni.parent }}" onChange="{{ ni.onParent }}" placeholder="optional · effort id" style="width:100%;border-radius:7px;border:1px solid #20262e;background:#0c0e11;padding:6px 10px;font-family:'JetBrains Mono',monospace;font-size:12px;color:#e6e9ed;outline:none" style-focus="border-color:rgba(94,156,255,.6)">
+            </div>
+          </div>
+          <sc-if value="{{ ni.isCreate }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <div style="display:flex;align-items:baseline;gap:8px">
+                <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.09em;color:#9aa3ad">Chunks · one per line</span>
+                <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b">Stage: chunk to group</span>
+              </div>
+              <textarea value="{{ ni.text }}" onChange="{{ ni.onText }}" spellcheck="false" placeholder="Phase 1: WAF posture scan&#10;Phase 1: Rule diff vs prod&#10;Phase 2: N1 box upgrade" style="min-height:110px;width:100%;resize:vertical;border-radius:7px;border:1px solid #20262e;background:#0c0e11;padding:8px 10px;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.7;color:#e6e9ed;outline:none" style-focus="border-color:rgba(94,156,255,.6)"></textarea>
+              <sc-if value="{{ ni.hasPreview }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:{{ ni.summaryFg }}">{{ ni.summary }}</span>
+                  <span style="flex:1"></span>
+                  <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b">tick what's already done</span>
+                </div>
+                <div style="display:flex;max-height:170px;flex-direction:column;overflow-y:auto;border-radius:7px;border:1px solid #161a20;background:#0e1116;padding:6px 8px">
+                  <sc-for list="{{ ni.preview }}" as="pv" hint-placeholder-count="3">
+                    <sc-if value="{{ pv.isStage }}" hint-placeholder-val="{{ false }}"><div style="padding:6px 4px 2px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#9aa3ad">{{ pv.label }}</div></sc-if>
+                    <sc-if value="{{ pv.isLine }}" hint-placeholder-val="{{ true }}">
+                      <button onClick="{{ pv.toggle }}" style="display:flex;width:100%;align-items:center;gap:8px;border:0;border-radius:4px;background:transparent;padding:3px 4px;text-align:left;cursor:pointer" style-hover="background:#171c22">
+                        <span style="display:flex;width:13px;height:13px;flex:none;align-items:center;justify-content:center;border-radius:3px;border:1px solid {{ pv.boxBorder }};background:{{ pv.boxBg }};font-size:10px;font-weight:700;color:#0c0e11">{{ pv.check }}</span>
+                        <span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:{{ pv.fg }};text-decoration:{{ pv.strike }}">{{ pv.label }}</span>
+                        <sc-if value="{{ pv.dupe }}" hint-placeholder-val="{{ false }}"><span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#e0726c">duplicate</span></sc-if>
+                      </button>
+                    </sc-if>
+                  </sc-for>
+                </div>
+              </sc-if>
+            </div>
+          </sc-if>
+          <sc-if value="{{ ni.isEdit }}" hint-placeholder-val="{{ false }}">
+            <span style="font-size:12px;color:#9aa3ad">Chunks are edited in the plan: double-click to rename, the status pill to change status.</span>
+          </sc-if>
+        </div>
+        <div style="display:flex;flex:none;align-items:center;gap:8px;border-top:1px solid #1c2128;padding:12px 18px">
+          <span style="flex:1;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#9aa3ad">{{ ni.footer }}</span>
+          <button onClick="{{ closeModal }}" style="border-radius:7px;border:1px solid #1c2128;background:#13171d;padding:6px 14px;font-size:11.5px;font-weight:600;color:#cfd5db;cursor:pointer" style-hover="color:#e6e9ed">Cancel</button>
+          <button onClick="{{ createInit }}" style="border-radius:7px;border:0;background:{{ ni.btnBg }};padding:6px 14px;font-size:11.5px;font-weight:600;color:{{ ni.btnFg }};cursor:pointer">{{ ni.btnLabel }}</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ modalRun }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeModal }}" style="position:absolute;inset:0;z-index:60;display:flex;align-items:flex-start;justify-content:center;background:rgba(6,8,10,.62);padding-top:70px">
+      <div onClick="{{ stop }}" onKeyDown="{{ onModalKey }}" style="display:flex;width:min(640px,93%);flex-direction:column;overflow:hidden;border-radius:12px;border:1px solid #20262e;background:#13171d;box-shadow:0 20px 56px rgba(0,0,0,.55)">
+        <div style="display:flex;align-items:center;gap:11px;border-bottom:1px solid #1c2128;padding:15px 18px">
+          <div style="display:flex;width:18px;height:18px;align-items:center;justify-content:center;border-radius:999px;background:rgba(94,156,255,.12);font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;color:#aebfff">▸</div>
+          <span style="flex:1;font-size:15px;font-weight:600;color:#e6e9ed">New run</span>
+          <span style="border-radius:5px;border:1px solid #20262e;padding:2px 7px;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#9aa3ad">ctrl+⏎ to start</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:18px;padding:16px 18px">
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.09em;color:#9aa3ad">Project</span>
+            <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px">
+              <sc-for list="{{ nr.projects }}" as="p" hint-placeholder-count="4">
+                <button onClick="{{ p.pick }}" style="display:flex;align-items:center;gap:8px;border-radius:7px;border:1px solid {{ p.border }};background:{{ p.bg }};padding:7px 10px;text-align:left;font-size:12px;font-weight:500;color:{{ p.fg }};cursor:pointer" style-hover="border-color:#5e9cff"><span style="width:7px;height:7px;border-radius:2px;background:{{ p.dot }}"></span><span style="flex:1">{{ p.name }}</span><span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b">{{ p.last }}</span></button>
+              </sc-for>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.09em;color:#9aa3ad">Shape</span>
+            <div style="display:flex;align-items:center;gap:6px">
+              <sc-for list="{{ nr.shapes }}" as="p" hint-placeholder-count="2">
+                <button onClick="{{ p.pick }}" style="display:flex;flex-direction:column;align-items:flex-start;gap:2px;border-radius:7px;border:1px solid {{ p.border }};background:{{ p.bg }};padding:7px 11px;text-align:left;cursor:pointer" style-hover="border-color:#2a313a"><span style="font-size:12px;font-weight:600;color:{{ p.fg }}">{{ p.name }}</span><span style="font-size:10.5px;color:#9aa3ad">{{ p.desc }}</span></button>
+              </sc-for>
+              <sc-if value="{{ nr.isOrch }}" hint-placeholder-val="{{ false }}">
+                <div style="margin-left:auto;display:flex;align-items:center;gap:6px">
+                  <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#9aa3ad">workers</span>
+                  <button onClick="{{ nr.dec }}" style="width:24px;height:24px;border-radius:6px;border:1px solid #20262e;background:#0c0e11;color:#cfd5db;cursor:pointer" style-hover="border-color:#2a313a">−</button>
+                  <span style="width:16px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:12px;color:#e6e9ed">{{ nr.parallel }}</span>
+                  <button onClick="{{ nr.inc }}" style="width:24px;height:24px;border-radius:6px;border:1px solid #20262e;background:#0c0e11;color:#cfd5db;cursor:pointer" style-hover="border-color:#2a313a">+</button>
+                </div>
+              </sc-if>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:4px">
+            <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.09em;color:#9aa3ad">Goal</span>
+            <textarea ref="{{ focusRef }}" value="{{ nr.goal }}" onChange="{{ nr.onGoal }}" rows="3" placeholder="What should it do?" style="width:100%;resize:none;border-radius:7px;border:1px solid #20262e;background:#0c0e11;padding:7px 10px;font-size:12.5px;line-height:1.5;color:#e6e9ed;outline:none" style-focus="border-color:rgba(94,156,255,.6)"></textarea>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;border-top:1px solid #1c2128;padding:12px 18px">
+          <span style="flex:1;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#9aa3ad">{{ nr.hint }}</span>
+          <button onClick="{{ closeModal }}" style="border-radius:7px;border:1px solid #1c2128;background:#13171d;padding:6px 14px;font-size:11.5px;font-weight:600;color:#cfd5db;cursor:pointer" style-hover="color:#e6e9ed">Cancel</button>
+          <button onClick="{{ startRun }}" style="border-radius:7px;border:0;background:{{ nr.btnBg }};padding:6px 14px;font-size:11.5px;font-weight:600;color:{{ nr.btnFg }};cursor:pointer">Start run</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ modalProfile }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeModal }}" style="position:absolute;inset:0;z-index:60;display:flex;align-items:flex-start;justify-content:center;background:rgba(6,8,10,.62);padding-top:50px">
+      <div onClick="{{ stop }}" style="display:flex;max-height:calc(100% - 80px);width:min(620px,93%);flex-direction:column;overflow:hidden;border-radius:12px;border:1px solid #20262e;background:#13171d;box-shadow:0 20px 56px rgba(0,0,0,.55)">
+        <div style="display:flex;flex:none;align-items:center;gap:11px;border-bottom:1px solid #1c2128;padding:15px 18px">
+          <span style="flex:1;font-size:15px;font-weight:600;color:#e6e9ed">Profile</span>
+          <div style="display:flex;border-radius:7px;border:1px solid #20262e;padding:2px">
+            <sc-for list="{{ pf.scopes }}" as="p" hint-placeholder-count="2">
+              <button onClick="{{ p.pick }}" style="border-radius:5px;border:0;background:{{ p.bg }};padding:3px 10px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:600;color:{{ p.fg }};cursor:pointer">{{ p.name }}</button>
+            </sc-for>
+          </div>
+        </div>
+        <div style="display:flex;min-height:0;flex:1;flex-direction:column;gap:18px;overflow-y:auto;padding:16px 18px">
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.09em;color:#9aa3ad">Run defaults</span>
+            <div style="display:grid;grid-template-columns:110px minmax(0,1fr);align-items:center;gap:10px">
+              <span style="font-size:12px;color:#cfd5db">Default shape</span>
+              <div style="display:flex;gap:6px">
+                <sc-for list="{{ pf.shapes }}" as="p" hint-placeholder-count="2">
+                  <button onClick="{{ p.pick }}" style="border-radius:6px;border:1px solid {{ p.border }};background:{{ p.bg }};padding:4px 10px;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:{{ p.fg }};cursor:pointer" style-hover="border-color:#2a313a">{{ p.name }}</button>
+                </sc-for>
+              </div>
+              <span style="font-size:12px;color:#cfd5db">Parallel workers</span>
+              <div style="display:flex;align-items:center;gap:6px">
+                <button onClick="{{ pf.dec }}" style="width:24px;height:24px;border-radius:6px;border:1px solid #20262e;background:#0c0e11;color:#cfd5db;cursor:pointer">−</button>
+                <span style="width:16px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:12px;color:#e6e9ed">{{ pf.parallel }}</span>
+                <button onClick="{{ pf.inc }}" style="width:24px;height:24px;border-radius:6px;border:1px solid #20262e;background:#0c0e11;color:#cfd5db;cursor:pointer">+</button>
+              </div>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <div style="display:flex;align-items:baseline;gap:8px">
+              <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.09em;color:#9aa3ad">Principles</span>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b">{{ pf.principleMeta }}</span>
+            </div>
+            <sc-for list="{{ pf.active }}" as="p" hint-placeholder-count="3">
+              <div style="border-radius:7px;border:1px solid #20262e;background:#0e1116;padding:8px 10px">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <span style="border-radius:4px;border:1px solid {{ p.badgeBorder }};background:{{ p.badgeBg }};padding:1px 6px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:{{ p.badgeFg }}">{{ p.kind }}</span>
+                  <span style="flex:1"></span>
+                  <sc-for list="{{ p.actions }}" as="a" hint-placeholder-count="2">
+                    <button onClick="{{ a.run }}" style="border:0;background:transparent;padding:0;font-size:10.5px;color:{{ a.fg }};cursor:pointer" style-hover="color:{{ a.hover }}">{{ a.label }}</button>
+                  </sc-for>
+                </div>
+                <sc-if value="{{ p.readonly }}" hint-placeholder-val="{{ true }}"><div style="margin-top:5px;font-size:12px;line-height:1.5;color:#cfd5db">{{ p.text }}</div></sc-if>
+                <sc-if value="{{ p.editable }}" hint-placeholder-val="{{ false }}">
+                  <textarea value="{{ p.text }}" onChange="{{ p.onText }}" rows="2" placeholder="Project principle…" style="margin-top:5px;width:100%;resize:none;border-radius:6px;border:1px solid #20262e;background:#0c0e11;padding:6px 8px;font-size:12px;line-height:1.5;color:#e6e9ed;outline:none" style-focus="border-color:rgba(94,156,255,.6)"></textarea>
+                </sc-if>
+                <sc-if value="{{ p.hasOriginal }}" hint-placeholder-val="{{ false }}"><div style="margin-top:4px;font-size:10.5px;line-height:1.4;color:#9aa3ad">original · {{ p.original }}</div></sc-if>
+              </div>
+            </sc-for>
+            <button onClick="{{ pf.add }}" style="border-radius:7px;border:1px dashed #20262e;background:transparent;padding:6px;font-size:11.5px;color:#9aa3ad;cursor:pointer" style-hover="color:#cfd5db;border-color:#2a313a">+ add principle</button>
+            <sc-if value="{{ pf.hasDisabled }}" hint-placeholder-val="{{ false }}">
+              <div style="border-radius:7px;border:1px solid #20262e;background:#0e1116;padding:7px 10px">
+                <div style="font-size:11px;color:#cfd5db">Disabled · {{ pf.disabledCount }}</div>
+                <sc-for list="{{ pf.disabled }}" as="p" hint-placeholder-count="1">
+                  <div style="margin-top:5px;display:flex;align-items:center;gap:8px">
+                    <span style="flex:1;font-size:11.5px;color:#9aa3ad;text-decoration:line-through">{{ p.text }}</span>
+                    <button onClick="{{ p.enable }}" style="border:0;background:transparent;padding:0;font-size:10.5px;color:#aebfff;cursor:pointer" style-hover="color:#5e9cff">re-enable</button>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+          </div>
+        </div>
+        <div style="display:flex;flex:none;align-items:center;gap:8px;border-top:1px solid #1c2128;padding:12px 18px">
+          <span style="flex:1;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:{{ pf.footerFg }}">{{ pf.footer }}</span>
+          <button onClick="{{ closeModal }}" style="border-radius:7px;border:1px solid #1c2128;background:#13171d;padding:6px 14px;font-size:11.5px;font-weight:600;color:#cfd5db;cursor:pointer" style-hover="color:#e6e9ed">Cancel</button>
+          <button onClick="{{ pf.save }}" style="border-radius:7px;border:0;background:{{ pf.btnBg }};padding:6px 14px;font-size:11.5px;font-weight:600;color:{{ pf.btnFg }};cursor:pointer">Save profile</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+</div>
+</dc-import>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:900},&quot;variant&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;a&quot;,&quot;b&quot;,&quot;c&quot;],&quot;default&quot;:&quot;a&quot;,&quot;tsType&quot;:&quot;'a'|'b'|'c'&quot;},&quot;height&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;string&quot;}}">
+const TONE = { ok: "#54c79a", active: "#aebfff", asking: "#e6b450", error: "#e0726c", muted: "#9aa3ad", faint: "#7f858b" };
+const CH = { pending: ["·", "#9aa3ad"], active: ["▶", "#5e9cff"], blocked: ["!", "#f0d79f"], deferred: ["❙❙", "#f0d79f"], skipped: ["–", "#9aa3ad"], done: ["✓", "#54c79a"] };
+const STATUSES = ["pending", "active", "blocked", "deferred", "skipped", "done"];
+const PROJECTS = ["waveterm", "arc-infra", "billing-svc", "docs-site"];
+const TIERS = ["L1 · ask first", "L2 · gated", "L3 · autonomous"];
+let uid = 1000;
+const nid = (p) => p + (uid++).toString(36);
+const hex = () => Math.random().toString(16).slice(2, 10);
+const ch = (label, stage, status, notes = []) => ({ id: nid("c"), label, stage, status, notes });
+const note = (who, day, text) => ({ id: nid("n"), who, day, text });
+
+function seed() {
+  return [
+    { id: "i1", oid: "8c21f0ae", title: "Scenario gate clearance", project: "arc-infra", ticket: "INF-221", status: "active", chunks: [
+      ch("WAF posture scan", "Phase 1 · scan", "done", [note("agent", "Sep 19", "Scan finished. 2 findings accepted as known: legacy /healthz path and the admin IP allowlist."), note("you", "Sep 18", "Run against the staging mirror first.")]),
+      ch("Rule diff vs prod", "Phase 1 · scan", "done"),
+      ch("N1 box upgrade", "Phase 2 · upgrade", "active", [note("agent", "2h", "Upgraded 3 of 5 boxes. Waiting on the canary region decision before the last two.")]),
+      ch("Canary on eu-west", "Phase 2 · upgrade", "blocked"),
+      ch("Rollback drill", "Phase 2 · upgrade", "pending"),
+      ch("Gate review with SRE", "Phase 3 · review", "pending"),
+    ] },
+    { id: "i2", oid: "3b7d0c19", title: "Cockpit keyboard model", project: "waveterm", ticket: "WAV-88", status: "active", chunks: [
+      ch("Leader-key dispatcher", "Bindings", "done"),
+      ch("which-key footer", "Bindings", "done"),
+      ch("Surface list nav", "Bindings", "active", [note("agent", "25m", "j/k works on Brief and Sessions. Radar still needs the cursor ring.")]),
+      ch("Cheatsheet modal", "Docs", "pending"),
+      ch("Chord conflicts audit", "Docs", "deferred"),
+    ] },
+    { id: "i3", oid: "f10e22b4", title: "Usage export to CSV", project: "billing-svc", ticket: "BIL-19", status: "paused", chunks: [
+      ch("Schema for export rows", "", "done"),
+      ch("Streaming writer", "", "pending"),
+      ch("Download endpoint", "", "pending"),
+    ] },
+  ];
+}
+const WAITING = [
+  { id: "w1", kind: "gate", title: "Merge gate · waveterm#412", why: "tests green, needs your approval", meta: "lead · run r-8c1 · waveterm", age: "12m", tone: "asking", act: "approve" },
+  { id: "w2", kind: "ask", title: "Which region first for the canary?", why: "N1 box upgrade", meta: "worker w-3 · arc-infra", age: "41m", tone: "asking", act: "answer" },
+  { id: "w3", kind: "failed", title: "Run r-77a stopped", why: "plan step 4 failed twice", meta: "billing-svc", age: "2h", tone: "error", act: "retry" },
+];
+const SESSIONS = [
+  { id: "s1", kind: "▶ run", title: "Surface list nav", type: "quick run", meta: "claude · waveterm", state: "running", tone: "ok", kindTone: "active", elapsed: "25m" },
+  { id: "s2", kind: "▶ run", title: "N1 box upgrade", type: "orchestrator", meta: "lead + 3 workers · arc-infra", state: "running", tone: "ok", kindTone: "active", elapsed: "2h" },
+  { id: "s3", kind: "! run", title: "Canary on eu-west", type: "quick run", meta: "claude · arc-infra", state: "asking", tone: "asking", kindTone: "asking", elapsed: "41m" },
+  { id: "s5", kind: "✓ run", title: "Retire the Jarvis recall arm", type: "orchestrator", meta: "lead + 3 workers · waveterm", state: "done", tone: "ok", kindTone: "ok", elapsed: "44m" },
+  { id: "s4", kind: "✓ run", title: "Rule diff vs prod", type: "quick run", meta: "claude · arc-infra", state: "done", tone: "ok", kindTone: "ok", elapsed: "38m" },
+];
+const REPORT_S5 = "# Retire the Jarvis recall arm — run report\n\nDAG 28484417-8f54-4852-addf-1efff7034f1b: 6/6 tasks done, 0 failures, 44m elapsed.\n\n## Landed\n- 9e4ec1a4 retire `wsh jarvis ask` + pi `wave_vault_ask` (t-3)\n- 3784695f drop attribution L4 and the recall volunteer (t-2)\n- 863a7030 docs: record the retirement (t-4)\n- c08e46e4 pet recall acts, OpenRouter key into Headless AI, steer-only Brief composer, Ask cascade (t-1 + t-5)\n- cd41207c delete jarvisproactive/jarvisrecall/jarvisembed, RPCs, JarvisConvo, migration 000020, config keys (t-6)\n- 64a258ff lead: drop the shipped plan (spec kept)\n\n## Verified on merged main\n- go build, go vet, go test ./pkg/... ./cmd/... — pass, no CGO_CFLAGS needed any more\n- vitest: 246 files / 3121 tests pass\n- tsc --noEmit: exit 0\n- remaining `jarvis_embedapikey` references are intentional (kept secret name); retired-key tests reference the old keys on purpose\n\n## Answered\n- t-1: keep the unreachable pet \"cannot-see\" expression (avatar code/tests untouched); follow-up chunk added\n\n## Forwarded\n- none\n\n## Live checks (dev app, CDP)\n- brief-composer-steer-only: PASS (no composer without a session sheet)\n- Settings: Embeddings section gone; Headless AI shows \"OpenRouter API key\" (password field) — PASS\n- NOT checked: composer present on a live-lead session sheet (needs a live lead session)\n- task verify:ui: failures in brief-surface 7, jarvis-motion 5, jarvis-volunteer Open, brief-profile 1-5,\n  brief-peek 3, jarvis-peek 4, runs-lifecycle, code-markdown, code-search, terminal-theme, tui-*.\n  No pre-run baseline, and brief-surface/jarvis-motion results vary run to run; recorded as an effort chunk.\n\n## Data cleanup (done with approval)\n- deleted prod index.db and the four memvault state files in both profiles\n- removed the three `jarvis:embed*` lines from prod settings.json (dev profile had none)";
+function parseReport(md) {
+  const out = { title: "", lead: "", sections: [] };
+  let sec = null, item = null;
+  md.split("\n").forEach((raw) => {
+    const l = raw.trimEnd();
+    if (/^# /.test(l)) { out.title = l.slice(2).trim(); return; }
+    if (/^## /.test(l)) { sec = { h: l.slice(3).trim(), items: [] }; out.sections.push(sec); item = null; return; }
+    if (/^- /.test(l) && sec) { item = { text: l.slice(2).trim() }; sec.items.push(item); return; }
+    if (/^\s+\S/.test(l) && item) { item.text += " " + l.trim(); return; }
+    if (l.trim() && !sec && !out.lead) out.lead = l.trim();
+  });
+  return out;
+}
+const RUNS = {
+  s1: { rid: "4d2a", project: "waveterm", goal: "Surface list nav: j/k across Brief, Sessions and Radar, with a visible cursor ring on the focused row", route: "claude-sonnet", cost: "$0.42" },
+  s2: { rid: "8c1f", project: "arc-infra", goal: "Upgrade the N1 boxes to the new WAF posture: five hosts, canary region first, rollback drill after", route: "claude-opus", cost: "$1.63", workers: 3,
+    tasks: [
+      { id: "t1", label: "Drain n1-a and upgrade", meta: "w-1 · 18m", state: "done" },
+      { id: "t2", label: "Drain n1-b and upgrade", meta: "w-2 · 21m", state: "done" },
+      { id: "t3", label: "Drain n1-c and upgrade", meta: "w-3 · 16m", state: "done" },
+      { id: "t4", label: "Upgrade n1-d", meta: "w-1 · 12m in · patching kernel", state: "running" },
+      { id: "t5", label: "Upgrade n1-e", meta: "waits on the canary region decision", state: "blocked", blockedBy: "s3" },
+    ],
+    timeline: [["1h 58m", "lead submitted a 5-task plan"], ["1h 40m", "t1 landed · 1 commit"], ["1h 18m", "t2 landed · 1 commit"], ["52m", "t3 landed · 1 commit"], ["12m", "t4 dispatched to w-1"]],
+    next: "t5 dispatches once the canary region is set" },
+  s3: { rid: "77c0", project: "arc-infra", goal: "Canary on eu-west: roll the WAF rules to one region and hold for 30 minutes of clean traffic", route: "claude-sonnet", cost: "$0.36",
+    ask: { q: "Which region first for the canary?", opts: ["eu-west-1 (lowest traffic)", "eu-central-1", "us-east-1"] } },
+  s5: { rid: "2848", project: "waveterm", goal: "Retire the Jarvis recall arm", route: "claude-opus", workers: 3,
+    tasks: ["t-1", "t-2", "t-3", "t-4", "t-5", "t-6"].map((id) => ({ id, label: id, meta: "", state: "done" })), report: REPORT_S5 },
+  s4: { rid: "b31e", project: "arc-infra", goal: "Rule diff vs prod: compare the staged WAF ruleset against production and list every drift", route: "claude-sonnet", cost: "$0.28",
+    evidence: { files: [["waf/rules/staged.yaml", 14, 3], ["waf/rules/allowlist.yaml", 2, 0], ["docs/waf-drift.md", 41, 0]],
+      lines: ["38m wall", "+57 −3 across 3 files", "verification: 2 passed, 0 failed"],
+      summary: "Found 4 drifts between staged and prod. Two are expected (legacy /healthz, admin allowlist); the other two were fixed in staged.yaml and written up in waf-drift.md." } },
+};
+const DELTA = [
+  { kind: "run-created", title: "Surface list nav", detail: "quick run · waveterm", when: "Today", t: "25m", ref: "s1" },
+  { kind: "run-created", title: "N1 box upgrade", detail: "orchestrator · arc-infra", when: "Today", t: "2h", ref: "s2" },
+  { kind: "decision", title: "Canary goes to eu-west before us-east", detail: "arc-infra", when: "Today", t: "3h" },
+  { kind: "dossier", title: "Clear the scenario gate for arc-infra before the Q4 freeze", detail: "status: paused", when: "Yesterday", t: "18:12", rec: "dos-221" },
+  { kind: "run-done", title: "docs-site preview fix", detail: "docs-site · sealed", when: "Earlier", t: "Sep 12" },
+];
+const DELTA_WORDING = { "run-created": "Run started", "run-done": "Run completed", decision: "Decision recorded", dossier: "Record updated" };
+const DELTA_TONE = { "run-created": "active", "run-done": "ok", decision: "muted", dossier: "asking" };
+const SHIPPED = [
+  { ref: "s5", goal: "Retire the Jarvis recall arm", project: "waveterm", summary: "6/6 tasks done, 0 failures, 44m elapsed.", t: "1h", fresh: true },
+  { ref: "s4", goal: "Rule diff vs prod", project: "arc-infra", summary: "Found 4 drifts between staged and prod.", t: "3h", fresh: true },
+  { goal: "which-key footer", project: "waveterm", summary: "", t: "2d" },
+  { goal: "Token ramp contrast fix", project: "waveterm", summary: "", t: "5d" },
+];
+const SHIPPED_CAP = 3;
+const RECORDS = {
+  "dos-221": { id: "dos-221", objective: "Clear the scenario gate for arc-infra before the Q4 freeze", status: "paused", updated: "updated 16h ago", decisions: 3, fleetMeta: "2 working · 1 waiting",
+    runs: [
+      { ref: "s2", shortId: "8c1f", headline: "N1 box upgrade", meta: "orchestrator · 2h", state: "running", tone: "#54c79a" },
+      { ref: "s3", shortId: "77c0", headline: "Canary on eu-west", meta: "quick · 41m", state: "blocked", tone: "#e6b450" },
+      { ref: "s4", shortId: "b31e", headline: "Rule diff vs prod", meta: "quick · 38m", state: "done", tone: "rgba(84,199,154,.7)" },
+    ] },
+};
+const REC_STATUS_FG = { active: "#54c79a", paused: "#e6b450", completed: "#aebfff", archived: "#9aa3ad" };
+const REC_STATUS_NOTE = {
+  active: "The default. Offered as a focus target, listed under Active.",
+  paused: "Still live, just not now. Still offered as a focus target, listed under Paused.",
+  completed: "The work is done. Listed under Done, no longer offered as a focus target.",
+  archived: "Out of the way. Reachable only through the palette, sorted last.",
+};
+const PRINCIPLES = [
+  { id: "g1", kind: "global", text: "Never push to main without a passing gate." },
+  { id: "g2", kind: "modified", text: "Prefer small PRs; split anything over 400 lines.", original: "Prefer small PRs." },
+  { id: "p1", kind: "project", text: "Run the canary in eu-west before us-east." },
+  { id: "g3", kind: "disabled", text: "Ask before installing new dependencies." },
+];
+const blankInit = (project = "arc-infra") => ({ mode: "create", id: null, title: "", project, ticket: "", parent: "", text: "", ticks: {}, error: false });
+const blankRun = () => ({ project: "arc-infra", shape: "single", parallel: 2, goal: "" });
+
+function parseLines(text, ticks) {
+  const out = [];
+  text.split("\n").forEach((raw, i) => {
+    let s = raw.trim();
+    if (!s) return;
+    let done = false;
+    const m = s.match(/^(\[x\]|x)\s+/i);
+    if (m) { done = true; s = s.slice(m[0].length); }
+    let stage = "";
+    const c = s.indexOf(": ");
+    if (c > 0 && c < 32) { stage = s.slice(0, c).trim(); s = s.slice(c + 2).trim(); }
+    if (!s) return;
+    const key = stage + "|" + s;
+    out.push({ key, label: s, stage, done: ticks[key] ?? done });
+  });
+  return out;
+}
+
+class Component extends DCLogic {
+  state = {
+    inits: seed(), waiting: WAITING, sessions: SESSIONS,
+    openInit: "i1", sel: null, editing: null, menu: null, adding: null, chunkDraft: "", noteDraft: "",
+    collapsed: {}, query: "", waitingOpen: false, showArchived: false,
+    modal: null, newInit: blankInit(), newRun: blankRun(),
+    principles: PRINCIPLES, pDraft: null, pShape: "orchestrator", pParallel: 2, pScope: "arc-infra",
+    toast: null, tier: 1, mode: "ask", ask: "", thread: [], thinking: false, newMenu: false, fresh: null, paneError: false,
+    pendingStages: {}, newStage: null, stageDraft: "", confirmDel: null, noteEdit: null, reading: null, noteAdding: false, expNote: {}, behindSeen: false, shippedOpen: false, runSel: null, goalOpen: false, timelineOpen: false, adjustOpen: false, par: 3, route: "inherit", runMsg: "", rawReport: false, records: RECORDS, recSel: null, recPicker: false, recPending: null,
+  };
+  focusRef = (el) => { if (el && document.activeElement !== el) { el.focus(); if (el.setSelectionRange && el.value) el.setSelectionRange(el.value.length, el.value.length); } };
+  askRef = (el) => { this.askEl = el; };
+  stop = (e) => e.stopPropagation();
+
+  componentWillUnmount() { clearTimeout(this._t); clearTimeout(this._r); }
+  get v() { return this.props.variant ?? "a"; }
+  toast(text, undo) { clearTimeout(this._t); this.setState({ toast: { text, undo } }); this._t = setTimeout(() => this.setState({ toast: null }), 4500); }
+  updInit(id, fn) { this.setState((s) => ({ inits: s.inits.map((i) => (i.id === id ? fn(i) : i)) })); }
+  updChunk(iid, cid, fn) { this.updInit(iid, (i) => ({ ...i, chunks: i.chunks.map((c) => (c.id === cid ? fn(c) : c)) })); }
+
+  commitEdit = () => {
+    const e = this.state.editing;
+    if (!e) return;
+    const v = e.draft.trim();
+    this.setState({ editing: null });
+    if (!v) return;
+    if (e.kind === "chunk") this.updChunk(e.iid, e.id, (c) => ({ ...c, label: v }));
+    else if (e.kind === "stage") {
+      this.updInit(e.iid, (i) => ({ ...i, chunks: i.chunks.map((c) => (c.stage === e.id ? { ...c, stage: v } : c)) }));
+      this.setState((s) => ({ pendingStages: { ...s.pendingStages, [e.iid]: (s.pendingStages[e.iid] || []).map((x) => (x === e.id ? v : x)) } }));
+    } else this.updInit(e.id, (i) => ({ ...i, title: v }));
+  };
+  onEditDraft = (e) => this.setState({ editing: { ...this.state.editing, draft: e.target.value } });
+  onEditKey = (e) => {
+    if (e.key === "Enter") { e.preventDefault(); this.commitEdit(); }
+    else if (e.key === "Escape") { e.stopPropagation(); this.setState({ editing: null }); }
+  };
+  onChunkDraft = (e) => this.setState({ chunkDraft: e.target.value });
+  onNoteDraft = (e) => this.setState({ noteDraft: e.target.value });
+  onNoteKey = (e) => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); this.addNote(); }
+    if (e.key === "Enter" && e.currentTarget.tagName === "INPUT") { e.preventDefault(); this.addNote(); }
+    if (e.key === "Escape") { e.stopPropagation(); this.setState({ noteAdding: false, noteDraft: "" }); }
+  };
+  addNote = () => {
+    const s = this.state, t = s.noteDraft.trim();
+    if (!s.sel || !t) return;
+    this.updChunk(s.sel.iid, s.sel.cid, (c) => ({ ...c, notes: [note("you", "now", t), ...c.notes] }));
+    this.setState({ noteDraft: "", noteAdding: false, reading: null });
+  };
+
+  moveChunk(iid, cid, dir) {
+    this.updInit(iid, (i) => {
+      const arr = [...i.chunks];
+      const k = arr.findIndex((x) => x.id === cid);
+      if (k < 0) return i;
+      let j = k + dir;
+      while (j >= 0 && j < arr.length && arr[j].stage !== arr[k].stage) j += dir;
+      if (j < 0 || j >= arr.length) return i;
+      [arr[k], arr[j]] = [arr[j], arr[k]];
+      return { ...i, chunks: arr };
+    });
+  }
+  moveToStage(iid, cid, stage) {
+    this.updInit(iid, (i) => {
+      const c = i.chunks.find((x) => x.id === cid);
+      const arr = i.chunks.filter((x) => x.id !== cid);
+      let at = -1;
+      arr.forEach((x, k) => { if (x.stage === stage) at = k; });
+      arr.splice(at < 0 ? arr.length : at + 1, 0, { ...c, stage });
+      return { ...i, chunks: arr };
+    });
+  }
+  newStageVM(it, s) {
+    const on = s.newStage === it.id;
+    return {
+      key: it.id + "+stage", isNewStage: true, on, off: !on, draft: on ? s.stageDraft : "",
+      start: (e) => { e.stopPropagation(); this.setState({ newStage: it.id, stageDraft: "" }); },
+      onDraft: (e) => this.setState({ stageDraft: e.target.value }),
+      onKey: (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          const n = this.state.stageDraft.trim();
+          if (!n) return;
+          this.setState((st) => ({ pendingStages: { ...st.pendingStages, [it.id]: [...(st.pendingStages[it.id] || []), n] }, newStage: null, adding: it.id + "|" + n, chunkDraft: "" }));
+        } else if (e.key === "Escape") { e.stopPropagation(); this.setState({ newStage: null }); }
+      },
+      blur: () => { if (this.state.newStage === it.id) this.setState({ newStage: null }); },
+    };
+  }
+
+  archive(it) {
+    const prev = it.status;
+    this.updInit(it.id, (i) => ({ ...i, status: "archived" }));
+    this.setState({ openInit: null, sel: null });
+    this.toast(`Archived “${it.title}”`, () => this.updInit(it.id, (i) => ({ ...i, status: prev })));
+  }
+  openEditModal(it) {
+    this.setState({ modal: "initiative", newInit: { ...blankInit(it.project), mode: "edit", id: it.id, title: it.title, ticket: it.ticket, parent: it.parent || "" } });
+  }
+
+  newInitiative = (e) => {
+    e && e.stopPropagation && e.stopPropagation();
+    if (this.v === "b") {
+      const id = nid("i");
+      const it = { id, oid: hex(), title: "", project: "arc-infra", ticket: "", status: "active", draft: true, chunks: [] };
+      this.setState((s) => ({ inits: [it, ...s.inits.filter((x) => !x.draft)], openInit: id, sel: null, paneError: false }));
+    } else if (this.v === "c") {
+      this.setState({ mode: "initiative", newMenu: false, newInit: blankInit() });
+    } else {
+      this.setState({ modal: "initiative", newInit: blankInit() });
+    }
+  };
+  newRun = (e) => {
+    e && e.stopPropagation && e.stopPropagation();
+    if (this.v === "c") this.setState({ mode: "run", newMenu: false, newRun: blankRun() });
+    else this.setState({ modal: "run", newRun: blankRun() });
+  };
+
+  createInit = () => {
+    const n = this.state.newInit, title = n.title.trim();
+    if (!title) { this.setState({ newInit: { ...n, error: true } }); return; }
+    if (n.mode === "edit") {
+      this.updInit(n.id, (i) => ({ ...i, title, project: n.project, ticket: n.ticket.trim(), parent: n.parent.trim() }));
+      this.setState({ modal: null });
+      this.toast("Initiative updated");
+      return;
+    }
+    const lines = parseLines(n.text, n.ticks);
+    const id = nid("i");
+    const it = { id, oid: hex(), title, project: n.project, ticket: n.ticket.trim(), status: "active",
+      chunks: lines.map((l) => ch(l.label, l.stage, l.done ? "done" : "pending")) };
+    this.setState((s) => ({ inits: [it, ...s.inits], modal: null, mode: "ask", openInit: id, sel: null, newInit: blankInit(), fresh: id }));
+    this.toast(`Created “${title}” · ${lines.length} chunks`);
+  };
+  startRun = () => {
+    const r = this.state.newRun;
+    if (!r.goal.trim()) return;
+    const id = nid("s");
+    const title = r.goal.trim().length > 60 ? r.goal.trim().slice(0, 57) + "…" : r.goal.trim();
+    const row = { id, kind: "▶ run", type: r.shape === "orchestrator" ? "orchestrator" : "quick run", title, meta: `${r.shape === "orchestrator" ? r.parallel + " workers" : "claude"} · ${r.project}`, state: "starting…", tone: "muted", kindTone: "active" };
+    this.setState((s) => ({ sessions: [row, ...s.sessions], modal: null, mode: "ask", newRun: blankRun() }));
+    this.toast(`Run started in ${r.project}`);
+    clearTimeout(this._r);
+    this._r = setTimeout(() => this.setState((s) => ({ sessions: s.sessions.map((x) => (x.id === id ? { ...x, state: "running", tone: "ok" } : x)) })), 1600);
+  };
+
+  sendAsk = () => {
+    const q = this.state.ask.trim();
+    if (!q) return;
+    this.setState((s) => ({ ask: "", thread: [...s.thread, { who: "You", text: q }], thinking: true }));
+    setTimeout(() => this.setState((s) => ({ thinking: false, thread: [...s.thread, { who: "Jarvis", text: "Two things need you: the merge gate on waveterm#412, and the canary region question from worker w-3. Scenario gate clearance is blocked until that region is picked; the other two initiatives are moving." }] })), 900);
+  };
+
+  closeTop() {
+    const s = this.state;
+    if (s.modal) return this.setState({ modal: null });
+    if (s.confirmDel || s.noteEdit) return this.setState({ confirmDel: null, noteEdit: null });
+    if (s.menu || s.newMenu) return this.setState({ menu: null, newMenu: false });
+    if (s.recPending) return this.setState({ recPending: null });
+    if (s.recSel) return this.setState({ recSel: null, recPicker: false });
+    if (s.runSel) return this.setState({ runSel: null });
+    if (s.sel && this.v !== "b" && s.reading != null) return this.setState({ reading: null });
+    if (s.sel && this.v !== "b") return this.setState({ sel: null });
+    if (this.v === "c" && s.mode !== "ask") return this.setState({ mode: "ask" });
+  }
+
+  projChips(sel, pick) {
+    return PROJECTS.map((p) => ({ key: p, name: p, pick: (e) => { e && e.stopPropagation(); pick(p); },
+      border: p === sel ? "rgba(94,156,255,.4)" : "#1c2128", bg: p === sel ? "rgba(94,156,255,.12)" : "#13171d", fg: p === sel ? "#aebfff" : "#9aa3ad",
+      dot: p === "arc-infra" ? "#e6b450" : "#54c79a", last: p === "arc-infra" ? "last used" : "" }));
+  }
+  seg(opts, sel, pick) {
+    return opts.map((o) => ({ key: o.name || o, name: o.name || o, desc: o.desc, pick: () => pick(o.name || o),
+      border: (o.name || o) === sel ? "rgba(94,156,255,.4)" : "#20262e", bg: (o.name || o) === sel ? "rgba(94,156,255,.12)" : "transparent", fg: (o.name || o) === sel ? "#aebfff" : "#9aa3ad" }));
+  }
+
+  chunkVM(it, c, s) {
+    const sel = !!s.sel && s.sel.cid === c.id;
+    const ed = !!s.editing && s.editing.kind === "chunk" && s.editing.id === c.id;
+    const [glyph, fg] = CH[c.status];
+    const edit = (e) => { e && e.stopPropagation(); this.setState({ editing: { kind: "chunk", id: c.id, iid: it.id, draft: c.label }, menu: null }); };
+    const stages = [...new Set([...it.chunks.map((x) => x.stage), ...(s.pendingStages[it.id] || [])])].filter((x) => x !== c.stage);
+    const mv = (dir) => (e) => { e.stopPropagation(); this.moveChunk(it.id, c.id, dir); this.setState({ menu: null }); };
+    return {
+      key: c.id, isChunk: true, isStage: false, isAdd: false, label: c.label, glyph, fg, status: c.status,
+      notes: c.notes.length ? `${c.notes.length} note${c.notes.length > 1 ? "s" : ""}` : "",
+      selected: sel, bg: sel ? "#1a222c" : "transparent", hoverBg: sel ? "#1a222c" : "#171c22",
+      weight: sel ? 600 : c.status === "active" ? 500 : 400, labelFg: sel ? "#e6e9ed" : c.status === "done" ? "#9aa3ad" : c.status === "skipped" ? "#9aa3ad" : "#dfe4ea", strike: c.status === "skipped" ? "line-through" : "none",
+      editing: ed, notEditing: !ed, draft: ed ? s.editing.draft : "",
+      select: () => this.setState({ sel: sel && this.v === "b" ? null : { iid: it.id, cid: c.id }, noteDraft: "", menu: null, reading: null, noteAdding: false, noteEdit: null }),
+      edit,
+      up: mv(-1), down: mv(1), hasMove: stages.length > 0,
+      moveOpts: stages.map((st) => ({ key: st || "~", label: st || "unstaged", pick: (e) => { e.stopPropagation(); this.moveToStage(it.id, c.id, st); this.setState({ menu: null }); this.toast(`Moved to ${st || "unstaged"}`); } })),
+      menuOpen: s.menu === c.id, menuBorder: s.menu === c.id ? "#2a313a" : "#1c2128",
+      toggleMenu: (e) => { e.stopPropagation(); this.setState({ menu: s.menu === c.id ? null : c.id }); },
+      opts: STATUSES.map((st, i) => ({ key: st, label: st, glyph: CH[st][0], fg: CH[st][1], bg: st === c.status ? "#1a222c" : "transparent", key2: i,
+        pick: (e) => { e.stopPropagation(); this.updChunk(it.id, c.id, (x) => ({ ...x, status: st })); this.setState({ menu: null }); } })),
+      remove: (e) => {
+        e.stopPropagation();
+        const prev = it.chunks;
+        this.updInit(it.id, (i) => ({ ...i, chunks: i.chunks.filter((x) => x.id !== c.id) }));
+        this.setState({ menu: null, sel: sel ? null : s.sel });
+        this.toast(`Deleted “${c.label}”`, () => this.updInit(it.id, (i) => ({ ...i, chunks: prev })));
+      },
+    };
+  }
+  addVM(it, stage, s, last) {
+    const key = it.id + "|" + stage;
+    const adding = s.adding === key;
+    const commit = () => {
+      const v = this.state.chunkDraft.trim();
+      if (!v) return false;
+      this.updInit(it.id, (i) => {
+        const chunks = [...i.chunks];
+        let at = -1;
+        chunks.forEach((c, k) => { if (c.stage === stage) at = k; });
+        chunks.splice(at < 0 ? chunks.length : at + 1, 0, ch(v, stage, "pending"));
+        return { ...i, chunks };
+      });
+      this.setState({ chunkDraft: "" });
+      return true;
+    };
+    return {
+      key: key + "+", isAdd: true, isStage: false, isChunk: false, adding, notAdding: !adding, draft: adding ? s.chunkDraft : "",
+      addLabel: it.chunks.length === 0 ? "add the first chunk" : "add chunk",
+      placeholder: stage ? `add to ${stage} · enter to add, esc to stop` : "chunk label · enter to add, esc to stop",
+      start: (e) => { e.stopPropagation(); this.setState({ adding: key, chunkDraft: "" }); },
+      onKey: (e) => { if (e.key === "Enter") { e.preventDefault(); commit(); } else if (e.key === "Escape") { e.stopPropagation(); this.setState({ adding: null }); } },
+      blur: () => { commit(); this.setState({ adding: null }); },
+    };
+  }
+  tracker(it, s) {
+    const groups = [], idx = {};
+    it.chunks.forEach((c) => { if (!(c.stage in idx)) { idx[c.stage] = groups.length; groups.push({ stage: c.stage, rows: [] }); } groups[idx[c.stage]].rows.push(c); });
+    (s.pendingStages[it.id] || []).forEach((n) => { if (!(n in idx)) { idx[n] = groups.length; groups.push({ stage: n, rows: [] }); } });
+    if (!groups.length) return this.v === "b" ? [this.addVM(it, "", s)] : [this.addVM(it, "", s), this.newStageVM(it, s)];
+    const rows = [];
+    const onlyUnstaged = groups.length === 1 && groups[0].stage === "";
+    groups.forEach((g) => {
+      const key = it.id + "|" + g.stage;
+      const done = g.rows.filter((c) => c.status === "done").length;
+      const collapsed = s.collapsed[key] ?? (g.rows.length > 0 && done === g.rows.length && g.rows.length > 1);
+      const firstStage = !rows.length;
+      const mk = "stage:" + key;
+      if (!onlyUnstaged) rows.push({ key: key + "#", isStage: true, isChunk: false, isAdd: false, label: g.stage || "unstaged", fraction: `${done}/${g.rows.length}`, caret: collapsed ? "▸" : "▾",
+        pct: g.rows.length ? Math.round((done / g.rows.length) * 100) + "%" : "0%", gapTop: firstStage ? "0" : "8px", rule: firstStage ? "transparent" : "#161a20",
+        menuOpen: s.menu === mk, menuBorder: s.menu === mk ? "#2a313a" : "transparent",
+        toggleMenu: (e) => { e.stopPropagation(); this.setState({ menu: s.menu === mk ? null : mk }); },
+        toggle: (e) => { e.stopPropagation(); this.setState((st) => ({ collapsed: { ...st.collapsed, [key]: !collapsed } })); },
+        editing: !!s.editing && s.editing.kind === "stage" && s.editing.iid === it.id && s.editing.id === g.stage,
+        notEditing: !(s.editing && s.editing.kind === "stage" && s.editing.iid === it.id && s.editing.id === g.stage),
+        draft: s.editing && s.editing.kind === "stage" ? s.editing.draft : "",
+        edit: (e) => { e.stopPropagation(); this.setState({ editing: { kind: "stage", id: g.stage, iid: it.id, draft: g.stage }, menu: null }); },
+        remove: (e) => {
+          e.stopPropagation();
+          this.setState({ menu: null });
+          const prev = it.chunks, prevP = s.pendingStages;
+          this.updInit(it.id, (i) => ({ ...i, chunks: i.chunks.filter((c) => c.stage !== g.stage) }));
+          this.setState((st) => ({ sel: st.sel && g.rows.some((c) => c.id === st.sel.cid) ? null : st.sel, pendingStages: { ...st.pendingStages, [it.id]: (st.pendingStages[it.id] || []).filter((x) => x !== g.stage) } }));
+          this.toast(`Deleted stage “${g.stage || "unstaged"}” · ${g.rows.length} chunk${g.rows.length === 1 ? "" : "s"}`, () => { this.updInit(it.id, (i) => ({ ...i, chunks: prev })); this.setState({ pendingStages: prevP }); });
+        } });
+      if (!collapsed) { g.rows.forEach((c) => rows.push(this.chunkVM(it, c, s))); rows.push(this.addVM(it, g.stage, s)); }
+    });
+    if (this.v !== "b") rows.push(this.newStageVM(it, s));
+    return rows;
+  }
+  facts(it) {
+    const done = it.chunks.filter((c) => c.status === "done").length, total = it.chunks.length;
+    return { done, total, pct: total ? Math.round((done / total) * 100) + "%" : "0%", count: `${total} chunk${total === 1 ? "" : "s"} · ${done} done` };
+  }
+  runVM(s) {
+    const cur = s.sessions.find((y) => y.id === s.runSel);
+    if (!cur) return null;
+    const list = s.sessions.filter((y) => (y.state === "done") === (cur.state === "done")), idx = list.indexOf(cur), x = cur;
+    const d = RUNS[x.id] || { rid: x.id.slice(-4), project: (x.meta.split(" · ")[1] || "").trim(), goal: x.title, route: "claude-sonnet", cost: "$0.00" };
+    const orch = x.type === "orchestrator", ask = x.state === "asking" && !!d.ask, stopped = x.state === "stopped", done = x.state === "done", run = x.state === "running";
+    const live = !stopped && !done;
+    const nDone = (d.tasks || []).filter((t) => t.state === "done").length, total = (d.tasks || []).length;
+    const TS = { done: "#54c79a", running: "#aebfff", blocked: "#e6b450", pending: "#7f858b" };
+    const go = (y) => y && this.setState({ runSel: y.id, goalOpen: false, timelineOpen: false, adjustOpen: false, runMsg: "", rawReport: false });
+    let fc = null;
+    for (const it of s.inits) { const c = it.chunks.find((z) => z.label === x.title); if (c) { fc = { it, c }; break; } }
+    const verb = done ? "Finished" : stopped ? "Cancelled" : ask ? "Asking" : x.state === "starting…" ? "Starting" : orch ? "Running" : "Working";
+    const sub = done && d.report ? `${nDone} of ${total} tasks · report filed` : done ? "evidence sealed" : stopped ? "stopped by you" : ask ? "the worker needs an answer to continue" : orch ? `${nDone} of ${total} tasks finished · 1 in flight` : "one worker on one goal";
+    const wr = s.route === "inherit" ? "workers inherit the lead" : `workers on ${s.route}`;
+    const meta = (done && orch ? [`lead ${d.route}`, `${d.workers || s.par} workers`, `${x.elapsed} elapsed`] : orch ? [`lead ${d.route}`, `${s.par} workers`, wr, x.elapsed || "now", d.cost] : [d.route, x.elapsed || "now", d.cost]).filter(Boolean);
+    const msg = s.runMsg, can = msg.trim() !== "";
+    const send = () => { if (!can) return; this.toast(done ? "Asked Jarvis about this run" : orch ? "Sent to the lead" : "Sent to the worker"); this.setState({ runMsg: "" }); };
+    const ev = d.evidence;
+    const rp = d.report ? parseReport(d.report) : null;
+    const DOT = { landed: "#54c79a", verified: "#54c79a", answered: "#aebfff", forwarded: "#7f858b", live: "#9aa3ad", data: "#9aa3ad" };
+    const sections = rp ? rp.sections.map((sc) => {
+      const k = sc.h.toLowerCase(), kind = k.startsWith("landed") ? "landed" : k.startsWith("verified") ? "verified" : k.startsWith("answered") ? "answered" : k.startsWith("forwarded") ? "forwarded" : k.startsWith("live") ? "live" : "data";
+      const real = sc.items.filter((i) => i.text.toLowerCase() !== "none");
+      return { key: sc.h, h: sc.h, count: real.length ? String(real.length) : "none", items: sc.items.map((i, n) => {
+        let t = i.text.replace(/`/g, ""), hash = "", tag = "";
+        const hm = kind === "landed" && t.match(/^([0-9a-f]{7,8})\s+(.*)$/); if (hm) { hash = hm[1]; t = hm[2]; }
+        const tm = t.match(/\s*\((t-\d+(?:\s*\+\s*t-\d+)*)\)\s*$/); if (tm) { tag = tm[1]; t = t.slice(0, tm.index); }
+        const pm = !tag && t.match(/^(t-\d+):\s*/); if (pm) { tag = pm[1]; t = t.slice(pm[0].length); }
+        const none = t.toLowerCase() === "none", notChecked = /^NOT checked/.test(t), fail = /failures in|fail(ed)?\b/i.test(t) && !/0 fail/i.test(t), pass = /\bPASS\b|\bpass\b|exit 0/.test(t);
+        const dot = none || notChecked ? "#2a313a" : kind === "live" || kind === "verified" ? (fail ? "#e6b450" : pass ? "#54c79a" : "#9aa3ad") : DOT[kind];
+        return { key: sc.h + n, text: t, hash, hasHash: !!hash, tag, hasTag: !!tag, dot, fg: none || notChecked ? "#9aa3ad" : "#dfe4ea", openCommit: () => this.toast(`Opens the diff for ${hash}`) };
+      }) };
+    }) : [];
+    return {
+      hasReport: done && !!rp, isDoneNoReport: done && !rp, reportTitle: rp ? rp.title : "", reportLead: rp ? rp.lead : "",
+      sections, rawOpen: s.rawReport, rawClosed: !s.rawReport, rawLabel: s.rawReport ? "structured" : "raw markdown", reportRaw: d.report || "",
+      toggleRaw: () => this.setState({ rawReport: !s.rawReport }),
+      copyReport: () => { navigator.clipboard?.writeText(d.report || ""); this.toast("Copied the run report"); },
+      project: d.project, runLine: `${orch ? "orchestrator" : "quick"} run ${d.rid}${done ? " · finished" : stopped ? " · cancelled" : ""}`,
+      pos: `${idx + 1} / ${list.length}`, goPrev: () => go(list[idx - 1]), goNext: () => go(list[idx + 1]),
+      prevFg: idx > 0 ? "#cfd5db" : "#4a525c", nextFg: idx < list.length - 1 ? "#cfd5db" : "#4a525c",
+      dot: done ? "#54c79a" : stopped ? "#2a313a" : ask ? "#e6b450" : "#54c79a", anim: run || ask ? "pulseDot 1.6s infinite" : "none",
+      verb, sub, hasMeter: orch && total > 0, meterLabel: `${nDone} of ${total} tasks finished`,
+      meter: Array.from({ length: total }, (_, i) => ({ key: i, bg: i < nDone ? "#54c79a" : "#20262e" })),
+      meta: meta.map((t) => ({ key: t, text: t })),
+      canAdjust: orch && live, adjustOpen: orch && live && s.adjustOpen, adjustLabel: s.adjustOpen ? "done" : "adjust",
+      toggleAdjust: () => this.setState({ adjustOpen: !s.adjustOpen }),
+      par: s.par, onPar: (e) => this.setState({ par: Math.max(1, Math.min(8, Number(e.target.value) || 1)) }),
+      route: s.route, onRoute: (e) => this.setState({ route: e.target.value }),
+      saveSettings: () => { this.setState({ adjustOpen: false }); this.toast("Saved. Applies to future dispatches."); },
+      saveDefaults: () => this.toast("Saved as this project's future-run defaults."),
+      goal: d.goal, goalClamp: s.goalOpen ? 99 : 2, goalSize: s.goalOpen ? "14px" : "17px", goalTitle: s.goalOpen ? "Collapse" : "Expand",
+      toggleGoal: () => this.setState({ goalOpen: !s.goalOpen }),
+      hasInit: !!fc, initLabel: fc ? `${fc.it.title} · ${fc.c.stage || "unstaged"} · ${fc.c.label}` : "",
+      openChunk: () => fc && this.setState({ runSel: null, openInit: fc.it.id, sel: this.v === "b" ? null : { iid: fc.it.id, cid: fc.c.id }, noteDraft: "", noteEdit: null, expNote: {} }),
+      hasAsk: ask, askQ: d.ask?.q ?? "", askWho: `worker w-1 · ${x.elapsed}`,
+      askOpts: (d.ask?.opts || []).map((o, i) => ({ key: o, n: String(i + 1), label: o, pick: () => {
+        this.setState({ sessions: s.sessions.map((y) => (y.id === x.id ? { ...y, state: "running", tone: "ok" } : y)), waiting: s.waiting.filter((w) => w.id !== "w2") });
+        this.toast(`Answered “${o}” · worker resumes`); } })),
+      hasTasks: orch && !done, noTasks: !orch && !done,
+      taskMeta: `${total} tasks · ${nDone} done · 3 lanes`,
+      timelineOpen: s.timelineOpen, timelineLabel: `${s.timelineOpen ? "▾" : "▸"} timeline · ${(d.timeline || []).length} events`,
+      toggleTimeline: () => this.setState({ timelineOpen: !s.timelineOpen }),
+      timeline: (d.timeline || []).map(([t, text]) => ({ key: t + text, t, text })),
+      tasks: (d.tasks || []).map((t) => {
+        const blk = t.blockedBy && list.find((y) => y.id === t.blockedBy);
+        const stillBlocked = blk && blk.state === "asking";
+        return { key: t.id, id: t.id, label: t.label, meta: stillBlocked || !blk ? t.meta : "unblocked · dispatching next",
+          hasBlock: !!stillBlocked, noBlock: !stillBlocked, blockLabel: stillBlocked ? `waits on “${blk.title}” (asking) ↗` : "", openBlock: () => go(blk),
+          state: blk && !stillBlocked ? "pending" : t.state, stateFg: TS[blk && !stillBlocked ? "pending" : t.state],
+          hasAct: t.state === "running", act: () => this.toast(`Opens ${t.id}'s worker in the Agent view`) };
+      }),
+      hasNext: !!d.next && live, next: d.next || "",
+      files: ev ? ev.files.map(([path, ad, de]) => ({ key: path, path, delta: `+${ad} −${de}`, open: () => this.toast(`Opens the diff for ${path}`) })) : [],
+      evLines: ev ? ev.lines.map((t) => ({ key: t, text: t })) : [], summary: ev ? ev.summary : "",
+      openDiff: () => this.toast("Opens the repository diff"),
+      openAgent: () => this.toast("Opens the worker in the Agent view"),
+      canSaveDefaults: done && orch, hasDag: orch, hasLead: orch && live, hasOpenAgent: !orch && !done, canCancel: live,
+      openDag: () => this.toast("Opens the live DAG"), openLead: () => this.toast("Opens the lead in the Agent view"),
+      newRun: () => this.v === "c" ? this.setState({ runSel: null, mode: "run", newRun: { ...blankRun(), project: d.project } }) : this.setState({ runSel: null, modal: "run", newRun: { ...blankRun(), project: d.project } }),
+      cancel: () => { const prev = s.sessions; this.setState({ sessions: prev.map((y) => (y.id === x.id ? { ...y, state: "stopped", tone: "muted" } : y)) }); this.toast(`Cancelled run ${d.rid}`, () => this.setState({ sessions: prev })); },
+      close: () => this.setState({ runSel: null }),
+      msgAudience: done || stopped ? "Jarvis" : orch ? "lead" : "worker w-1", msgFg: done || stopped ? "#aebfff" : "#54c79a",
+      msgScope: done || stopped ? "grounded in this run" : "scoped to this session",
+      msgPlaceholder: done || stopped ? "Ask about this run" : orch ? "Message the lead of this session" : "Message the worker on this run",
+      msg, onMsg: (e) => this.setState({ runMsg: e.target.value }),
+      onMsgKey: (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } else if (e.key === "Escape") { e.stopPropagation(); this.setState({ runSel: null }); } },
+      send, sendBg: can ? "#5e9cff" : "#1c2128", sendFg: can ? "#0c0e11" : "#7f858b",
+    };
+  }
+  notesVM(s) {
+    const it = s.sel && s.inits.find((i) => i.id === s.sel.iid);
+    const c = it && it.chunks.find((x) => x.id === s.sel.cid);
+    if (!c) return null;
+    const can = s.noteDraft.trim() !== "";
+    const idx = it.chunks.indexOf(c), sibs = it.chunks.filter((x) => (x.stage || "") === (c.stage || ""));
+    const go = (x) => x && this.setState({ sel: { iid: it.id, cid: x.id }, noteDraft: "", noteEdit: null, expNote: {} });
+    return {
+      pos: `${idx + 1} / ${it.chunks.length}`,
+      goPrev: () => go(it.chunks[idx - 1]), goNext: () => go(it.chunks[idx + 1]),
+      prevFg: idx > 0 ? "#cfd5db" : "#4a525c", nextFg: idx < it.chunks.length - 1 ? "#cfd5db" : "#4a525c",
+      stageProg: `${sibs.filter((x) => x.status === "done").length} of ${sibs.length} done`,
+      siblings: sibs.map((x) => ({ key: x.id, label: x.label, glyph: CH[x.status][0], gfg: CH[x.status][1],
+        fg: x === c ? "#e6e9ed" : x.status === "done" || x.status === "skipped" ? "#9aa3ad" : "#cfd5db",
+        bg: x === c ? "#1a222c" : "transparent", nn: x.notes.length ? `${x.notes.length}n` : "", go: () => go(x) })),
+      initTitle: it.title, stage: c.stage || "unstaged", label: c.label, draft: s.noteDraft, placeholder: `note on ${c.label}`,
+      status: c.status, statusOpts: STATUSES.map((x) => ({ key: x, value: x })),
+      onStatus: (e) => this.updChunk(it.id, c.id, (x) => ({ ...x, status: e.target.value })),
+      countLabel: `${c.notes.length} ${c.notes.length === 1 ? "note" : "notes"}`,
+      adding: s.noteAdding, toggleAdd: () => this.setState({ noteAdding: !s.noteAdding, noteDraft: "" }),
+      activity: () => this.toast(`Opens the activity feed for “${it.title}”`),
+      isReader: s.reading != null && !!c.notes[s.reading], isPreviews: !(s.reading != null && !!c.notes[s.reading]),
+      width: s.reading != null && c.notes[s.reading] ? "560px" : "360px",
+      headLabel: s.reading != null && c.notes[s.reading] ? "Task note" : "Task notes",
+      back: () => this.setState({ reading: null, noteEdit: null }),
+      focus: this.v === "b" ? this.focusRef : undefined,
+      addBg: can ? "#5e9cff" : "#1c2128", addFg: can ? "#0c0e11" : "#7f858b",
+      handle: `wsh effort note ${it.oid} "${c.label}"`,
+      copyHandle: () => { navigator.clipboard?.writeText(`wsh effort note ${it.oid} "${c.label}"`); this.toast("Copied CLI handle"); },
+      close: () => this.setState({ sel: null }),
+      empty: c.notes.length === 0,
+      notes: c.notes.map((n) => {
+        const ed = !!s.noteEdit && s.noteEdit.id === n.id;
+        const save = () => {
+          const t = (this.state.noteEdit?.draft ?? "").trim();
+          if (t) this.updChunk(it.id, c.id, (x) => ({ ...x, notes: x.notes.map((y) => (y.id === n.id ? { ...y, text: t, edited: true } : y)) }));
+          this.setState({ noteEdit: null });
+        };
+        const exp = !!s.expNote[n.id] || ed || (c.notes[0] === n && n.text.length < 280);
+        return {
+          toggle: () => !ed && this.setState((st) => ({ expNote: { ...st.expNote, [n.id]: !exp } })),
+          chev: n.text.length < 280 && c.notes[0] === n ? "" : exp ? "less ▴" : "more ▾",
+          border: ed ? "rgba(94,156,255,.45)" : "#1a1f26",
+          showRun: n.who === "agent" && exp && this.v !== "b",
+          openRun: () => this.toast(`Opens the agent session that wrote this note`),
+          key: n.id, who: n.who, day: n.day, text: n.text, whoFg: n.who === "you" ? "#aebfff" : "#54c79a",
+          edited: n.edited ? " · edited" : "", showActions: n.who === "you" && !ed && exp && this.v !== "b",
+          editing: ed, notEditing: !ed, editDraft: ed ? s.noteEdit.draft : "",
+          startEdit: () => this.setState({ noteEdit: { id: n.id, draft: n.text } }),
+          onEditText: (e) => this.setState({ noteEdit: { id: n.id, draft: e.target.value } }),
+          onEditKey: (e) => {
+            if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); save(); }
+            else if (e.key === "Escape") { e.stopPropagation(); this.setState({ noteEdit: null }); }
+          },
+          save, cancel: () => this.setState({ noteEdit: null }),
+          chars: n.text.length < 1000 ? n.text.length : (n.text.length / 1000).toFixed(1) + "k",
+          clamp: exp ? 999 : 3, fg: c.notes[0] === n ? "#cfd5db" : "#9aa3ad", earlier: c.notes[1] === n,
+          read: () => this.setState({ reading: c.notes.indexOf(n), noteEdit: null }),
+          remove: () => {
+            const prev = c.notes;
+            this.updChunk(it.id, c.id, (x) => ({ ...x, notes: x.notes.filter((y) => y.id !== n.id) }));
+            this.setState({ reading: null });
+            this.toast("Note deleted", () => this.updChunk(it.id, c.id, (x) => ({ ...x, notes: prev })));
+          },
+        };
+      }),
+      statusChips: STATUSES.map((st) => ({ key: st, label: st, glyph: CH[st][0], fg: st === c.status ? CH[st][1] : "#9aa3ad",
+        border: st === c.status ? "#2a313a" : "#1c2128", bg: st === c.status ? "#1a222c" : "transparent",
+        pick: () => this.updChunk(it.id, c.id, (x) => ({ ...x, status: st })) })),
+    };
+  }
+
+  renderVals() {
+    const s = this.state, v = this.v;
+    const q = s.query.trim().toLowerCase();
+    const match = (t) => !q || t.toLowerCase().includes(q);
+
+    const live = s.inits.filter((i) => i.status !== "archived" || s.showArchived);
+    const archivedN = s.inits.filter((i) => i.status === "archived").length;
+    const initsShown = live.filter((i) => match(i.title) || i.chunks.some((c) => match(c.label)));
+    const initLines = initsShown.map((it) => {
+      const f = this.facts(it);
+      const blocked = it.chunks.filter((c) => c.status === "blocked").length;
+      const active = it.chunks.find((c) => c.status === "active");
+      const [state, tone] = it.draft ? ["draft", "active"] : it.status === "archived" ? ["archived", "faint"] : blocked ? [`${blocked} blocked`, "asking"] : [it.status, it.status === "paused" ? "muted" : "ok"];
+      const open = s.openInit === it.id;
+      const expanded = v !== "b" && open;
+      const editing = !!s.editing && s.editing.kind === "init" && s.editing.id === it.id;
+      return {
+        key: it.id, title: it.title || "Untitled initiative", titleFg: it.title ? "#dfe4ea" : "#9aa3ad", note: active ? ` — ${active.label}` : "",
+        meta: [it.ticket, it.project || "no project"].filter(Boolean).join(" · "), state, stateFg: TONE[tone],
+        pct: f.pct, frac: `${f.done}/${f.total}`, barFg: blocked ? "#e6b450" : "#54c79a",
+        expanded, caret: v === "b" ? "" : expanded ? "▾" : "▸", fresh: s.fresh === it.id,
+        bg: open ? "#1a222c" : "transparent", hoverBg: open ? "#1a222c" : "#171c22",
+        radius: expanded ? "10px 10px 0 0" : "9px", divider: expanded ? "#1c2128" : open ? "transparent" : "#161a20", frame: expanded ? "#1c2128" : "transparent",
+        summary: `${f.done} of ${f.total} done${blocked ? ` · ${blocked} blocked` : ""}`,
+        next: (active || it.chunks.find((c) => c.status === "pending") || {}).label || "", hasNext: !!(active || it.chunks.find((c) => c.status === "pending")),
+        editing, notEditing: !editing, draft: editing ? s.editing.draft : "",
+        open: () => this.setState({ openInit: v === "b" ? it.id : open ? null : it.id, sel: null, menu: null, fresh: null, paneError: false }),
+        oid: it.oid, count: f.count,
+        copyId: (e) => { e.stopPropagation(); navigator.clipboard?.writeText(it.oid); this.toast("Copied initiative id"); },
+        rename: (e) => { e.stopPropagation(); this.setState({ editing: { kind: "init", id: it.id, draft: it.title } }); },
+        editDetails: (e) => { e.stopPropagation(); this.openEditModal(it); },
+        pauseLabel: it.status === "paused" ? "resume" : "pause",
+        pause: (e) => { e.stopPropagation(); this.updInit(it.id, (i) => ({ ...i, status: i.status === "paused" ? "active" : "paused" })); },
+        archive: (e) => { e.stopPropagation(); this.archive(it); },
+        total: f.total, confirming: s.confirmDel === it.id, notConfirming: s.confirmDel !== it.id,
+        askDelete: (e) => { e.stopPropagation(); this.setState({ confirmDel: it.id }); },
+        cancelDelete: (e) => { e.stopPropagation(); this.setState({ confirmDel: null }); },
+        confirmDelete: (e) => {
+          e.stopPropagation();
+          const prev = this.state.inits;
+          this.setState({ inits: prev.filter((x) => x.id !== it.id), confirmDel: null, openInit: null, sel: null });
+          this.toast(`Deleted “${it.title}”`, () => this.setState({ inits: prev }));
+        },
+        tracker: expanded ? this.tracker(it, s) : [],
+      };
+    });
+    const stalled = live.filter((i) => i.status === "paused").length;
+
+    const waitingShown = s.waiting.filter((w) => match(w.title));
+    const acts = { approve: "Approve", answer: "Open", retry: "Retry" };
+    const waitingLines = waitingShown.map((w) => ({
+      key: w.id, kind: w.kind, title: w.title, why: w.why, meta: w.meta, age: w.age, fg: TONE[w.tone],
+      actLabel: acts[w.act], actBorder: w.act === "approve" ? "rgba(84,199,154,.35)" : "#20262e", actBg: w.act === "approve" ? "rgba(84,199,154,.12)" : "transparent", actFg: w.act === "approve" ? "#54c79a" : "#cfd5db",
+      act: (e) => {
+        e.stopPropagation();
+        const prev = this.state.waiting;
+        if (w.act === "answer") { this.toast("Opening worker w-3 in the lead terminal"); return; }
+        this.setState({ waiting: prev.filter((x) => x.id !== w.id) });
+        if (w.act === "approve") this.toast("Approved waveterm#412 · merging", () => this.setState({ waiting: prev }));
+        else { this.toast("Retrying r-77a from step 4"); this.setState((st) => ({ sessions: [{ id: nid("s"), kind: "▶ run", title: "r-77a · retry from step 4", meta: "claude · billing-svc", state: "running", tone: "ok", kindTone: "active" }, ...st.sessions] })); }
+      },
+    }));
+    const nW = s.waiting.length;
+
+    const findChunk = (label) => { for (const i of s.inits) { const c = label && i.chunks.find((x) => x.label === label); if (c) return { it: i, c }; } return null; };
+    const openChunk = (f) => (e) => { e && e.stopPropagation(); f && this.setState({ openInit: f.it.id, sel: v === "b" ? null : { iid: f.it.id, cid: f.c.id }, noteDraft: "", noteEdit: null, expNote: {}, menu: null }); };
+    const sessLines = s.sessions.filter((x) => x.state !== "done" && match(x.title)).map((x) => {
+      const f = findChunk(x.title), run = x.state === "running", ask = x.state === "asking", stopped = x.state === "stopped";
+      const ty = x.type || "quick run";
+      return { key: x.id, title: x.title, meta: x.meta, type: ty, typeFg: ty === "orchestrator" ? "#aebfff" : ty === "agent" ? "#9aa3ad" : "#cfd5db", typeBorder: ty === "orchestrator" ? "rgba(174,191,255,.35)" : "#20262e", elapsed: x.elapsed || "now", state: x.state, stateFg: TONE[x.tone],
+        titleFg: stopped ? "#9aa3ad" : "#dfe4ea", dot: run ? "#54c79a" : ask ? "#e6b450" : x.state === "done" ? "#2f6b55" : "#4a525c", anim: run || ask ? "pulseDot 1.8s ease-in-out infinite" : "none",
+        hasInit: !!f, initTitle: f ? `${f.it.title} · ${f.c.stage || "unstaged"}` : "", openChunk: openChunk(f),
+        isAsking: ask, canStop: run || ask,
+        openSheet: () => this.setState({ runSel: x.id, sel: null, goalOpen: false, timelineOpen: false, adjustOpen: false, runMsg: "" }),
+        rowBg: s.runSel === x.id ? "#1a222c" : "transparent",
+        answer: (e) => { e.stopPropagation(); this.setState({ runSel: x.id, sel: null }); },
+        open: (e) => { e.stopPropagation(); this.toast(`Opens “${x.title}” in the Agent view`); },
+        stop: (e) => { e.stopPropagation(); const prev = s.sessions; this.setState({ sessions: prev.map((y) => (y.id === x.id ? { ...y, state: "stopped", tone: "muted" } : y)) }); this.toast(`Stopped “${x.title}”`, () => this.setState({ sessions: prev })); } };
+    });
+    const rs = this.runVM(s);
+    const nLive = s.sessions.filter((x) => x.state === "running" || x.state === "asking").length;
+    const openRun = (id) => id && this.setState({ runSel: id, sel: null, goalOpen: false, timelineOpen: false, adjustOpen: false, runMsg: "", rawReport: false });
+    const deltaRows = s.behindSeen ? [] : DELTA.filter((d) => match(d.title));
+    const deltaGroups = ["Today", "Yesterday", "Earlier"].map((label) => ({ key: label, label, rows: deltaRows.filter((d) => d.when === label).map((d, i) => ({
+      key: label + i, wording: DELTA_WORDING[d.kind] || d.kind, kindFg: TONE[DELTA_TONE[d.kind] || "muted"], title: d.title, t: d.t,
+      detail: d.kind === "dossier" && d.detail.startsWith("status: ") ? "current status: " + d.detail.slice(8) : d.detail,
+      clickable: !!(d.ref || d.rec), isStatic: !(d.ref || d.rec),
+      open: () => d.ref ? openRun(d.ref) : d.rec ? this.setState({ recSel: d.rec, recPicker: false, recPending: null, runSel: null }) : null })) })).filter((g) => g.rows.length);
+    const shipAll = SHIPPED.filter((x) => match(x.goal));
+    const shipShown = s.shippedOpen || q !== "" ? shipAll : shipAll.slice(0, SHIPPED_CAP);
+    const shippedRows = shipShown.map((x, i) => ({ key: x.goal, goal: x.goal, t: x.t, fresh: !!x.fresh && !s.behindSeen,
+      sub: [x.project, x.summary].filter(Boolean).join(" · "), hasReport: !!(x.ref && RUNS[x.ref]?.report),
+      rowBg: x.ref && s.runSel === x.ref ? "#1a222c" : "transparent", cursor: x.ref ? "pointer" : "default",
+      open: () => x.ref ? openRun(x.ref) : this.toast(`Opens “${x.goal}”`) }));
+    const unseenN = deltaRows.length;
+    const rec = s.recSel && s.records[s.recSel];
+    const setRec = (st) => this.setState((z) => ({ records: { ...z.records, [rec.id]: { ...z.records[rec.id], status: st, updated: "updated just now" } }, recPicker: false, recPending: null }));
+    const rv = rec ? {
+      title: rec.objective || rec.id, updated: rec.updated, status: rec.status, statusFg: REC_STATUS_FG[rec.status] || "#9aa3ad",
+      pickerOpen: s.recPicker, togglePicker: () => this.setState({ recPicker: !s.recPicker, recPending: null }),
+      statusRows: ["active", "paused", "completed", "archived"].filter((st) => st === rec.status || !(st === "paused" && rec.status === "completed")).map((st) => ({
+        key: st, label: st, note: REC_STATUS_NOTE[st], fg: REC_STATUS_FG[st], current: st === rec.status, pickable: st !== rec.status, dot: st === rec.status ? "•" : "",
+        pick: () => (st === "completed" || st === "archived") ? this.setState({ recPending: st, recPicker: false }) : setRec(st) })),
+      confirming: !!s.recPending, pendingTitle: `Mark this record ${s.recPending}?`, pendingBody: `This sets the record's status to "${s.recPending}". You can reactivate it later.`,
+      pendingLabel: `Yes, ${s.recPending}`, pendingBg: s.recPending === "archived" ? "#e0726c" : "#e6b450",
+      confirm: () => { const st = s.recPending; setRec(st); this.toast(`Record marked ${st}`); }, cancelPending: () => this.setState({ recPending: null }),
+      body: rec.objective || "This record states no objective yet.", fleetMeta: rec.fleetMeta,
+      hasRuns: rec.runs.length > 0, noRuns: rec.runs.length === 0, runsAbsent: "No session has ever been attributed to this record.",
+      runs: rec.runs.map((r) => ({ ...r, key: r.ref, open: () => this.setState({ recSel: null, recPicker: false, runSel: r.ref, sel: null, goalOpen: false, timelineOpen: false, adjustOpen: false, runMsg: "", rawReport: false }) })),
+      logLine: rec.decisions ? `${rec.decisions} decision${rec.decisions === 1 ? "" : "s"} · on the Brief` : "no decisions yet",
+      openMap: () => { this.setState({ recSel: null }); this.toast("Opens the graph peek on this record"); },
+      close: () => this.setState({ recSel: null, recPicker: false, recPending: null }),
+    } : null;
+    const regions = [];
+    const hits = waitingShown.length + initsShown.length + sessLines.length + unseenN + shipAll.length;
+
+    // new initiative (modal / composer)
+    const n = s.newInit;
+    const setN = (p) => this.setState({ newInit: { ...this.state.newInit, ...p } });
+    const lines = parseLines(n.text, n.ticks);
+    const seen = {}, preview = [];
+    let lastStage = null;
+    lines.forEach((l) => {
+      if (l.stage !== lastStage && (l.stage || lastStage !== null)) { preview.push({ key: "s" + preview.length, isStage: true, isLine: false, label: l.stage || "unstaged" }); }
+      lastStage = l.stage;
+      const dupe = !!seen[l.key]; seen[l.key] = true;
+      preview.push({ key: "l" + preview.length, isStage: false, isLine: true, label: l.label, dupe, check: l.done ? "✓" : "",
+        boxBorder: l.done ? "#54c79a" : "#2a313a", boxBg: l.done ? "#54c79a" : "transparent", fg: l.done ? "#9aa3ad" : "#e6e9ed", strike: l.done ? "line-through" : "none",
+        toggle: () => setN({ ticks: { ...this.state.newInit.ticks, [l.key]: !l.done } }) });
+    });
+    const dupes = preview.some((p) => p.dupe);
+    const stages = new Set(lines.map((l) => l.stage)).size;
+    const doneN = lines.filter((l) => l.done).length;
+    const canCreate = n.title.trim() !== "" && !dupes;
+    const ni = {
+      heading: n.mode === "edit" ? "Edit initiative" : "New initiative", isCreate: n.mode !== "edit", isEdit: n.mode === "edit",
+      title: n.title, ticket: n.ticket, parent: n.parent, text: n.text, error: n.error, titleBorder: n.error ? "rgba(224,114,108,.6)" : "#20262e",
+      onTitle: (e) => setN({ title: e.target.value, error: false }), onTicket: (e) => setN({ ticket: e.target.value }), onParent: (e) => setN({ parent: e.target.value }), onText: (e) => setN({ text: e.target.value }),
+      projects: this.projChips(n.project, (p) => setN({ project: p })),
+      preview, hasPreview: lines.length > 0,
+      summary: dupes ? "duplicate chunk labels" : lines.length ? `${lines.length} chunks · ${stages} stage${stages === 1 ? "" : "s"} · ${doneN} done` : "no chunks yet",
+      summaryFg: dupes ? "#e0726c" : "#9aa3ad",
+      footer: n.mode === "edit" ? "changes apply immediately" : "ticked lines save as already done",
+      btnLabel: n.mode === "edit" ? "Save changes" : "Create initiative",
+      btnBg: canCreate ? "#5e9cff" : "#1c2128", btnFg: canCreate ? "#0c0e11" : "#7f858b",
+    };
+
+    const r = s.newRun;
+    const setR = (p) => this.setState({ newRun: { ...this.state.newRun, ...p } });
+    const canRun = r.goal.trim() !== "";
+    const nr = {
+      goal: r.goal, onGoal: (e) => setR({ goal: e.target.value }), parallel: r.parallel, isOrch: r.shape === "orchestrator",
+      projects: this.projChips(r.project, (p) => setR({ project: p })),
+      shapes: this.seg([{ name: "single", desc: "one agent, one goal" }, { name: "orchestrator", desc: "lead plans, workers fan out" }], r.shape, (x) => setR({ shape: x })),
+      dec: () => setR({ parallel: Math.max(1, r.parallel - 1) }), inc: () => setR({ parallel: Math.min(6, r.parallel + 1) }),
+      hint: canRun ? `${r.shape}${r.shape === "orchestrator" ? " × " + r.parallel : ""} in ${r.project}` : "Write the goal",
+      btnBg: canRun ? "#5e9cff" : "#1c2128", btnFg: canRun ? "#0c0e11" : "#7f858b",
+    };
+
+    // profile
+    const P = s.pDraft ?? s.principles;
+    const setP = (list) => this.setState({ pDraft: list });
+    const upd = (id, patch) => setP(P.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+    const BADGE = { global: ["#20262e", "transparent", "#9aa3ad"], modified: ["transparent", "rgba(230,180,80,.1)", "#e6b450"], project: ["transparent", "rgba(94,156,255,.08)", "#aebfff"] };
+    const act = (label, run, danger) => ({ key: label, label, run, fg: danger ? "#9aa3ad" : label === "disable" || label === "reset" ? "#9aa3ad" : "#aebfff", hover: danger ? "#e0726c" : "#dfe4ea" });
+    const dirty = s.pDraft != null || s.pShapeDraft != null;
+    const pf = {
+      scopes: this.seg(["arc-infra", "global"], s.pScope, (x) => this.setState({ pScope: x })),
+      shapes: this.seg(["single", "orchestrator"], s.pShape, (x) => this.setState({ pShape: x, pShapeDraft: true })),
+      parallel: s.pParallel, dec: () => this.setState({ pParallel: Math.max(1, s.pParallel - 1), pShapeDraft: true }), inc: () => this.setState({ pParallel: Math.min(6, s.pParallel + 1), pShapeDraft: true }),
+      principleMeta: s.pScope === "global" ? "every project inherits these" : "global set, with this project's changes",
+      active: P.filter((p) => p.kind !== "disabled").map((p) => ({
+        key: p.id, kind: p.kind, text: p.text, original: p.original, hasOriginal: p.kind === "modified",
+        readonly: p.kind === "global", editable: p.kind !== "global",
+        badgeBorder: BADGE[p.kind][0], badgeBg: BADGE[p.kind][1], badgeFg: BADGE[p.kind][2],
+        onText: (e) => upd(p.id, { text: e.target.value }),
+        actions: p.kind === "global" ? [act("override", () => upd(p.id, { kind: "modified", original: p.text })), act("disable", () => upd(p.id, { kind: "disabled" }))]
+          : p.kind === "modified" ? [act("reset", () => upd(p.id, { kind: "global", text: p.original, original: undefined }))]
+          : [act("delete", () => setP(P.filter((x) => x.id !== p.id)), true)],
+      })),
+      add: () => setP([...P, { id: nid("p"), kind: "project", text: "" }]),
+      disabled: P.filter((p) => p.kind === "disabled").map((p) => ({ key: p.id, text: p.text, enable: () => upd(p.id, { kind: "global" }) })),
+      hasDisabled: P.some((p) => p.kind === "disabled"), disabledCount: P.filter((p) => p.kind === "disabled").length,
+      footer: dirty ? "unsaved changes · applies to future runs" : "no changes", footerFg: dirty ? "#e6b450" : "#7f858b",
+      btnBg: dirty ? "#5e9cff" : "#1c2128", btnFg: dirty ? "#0c0e11" : "#7f858b",
+      save: () => { if (!dirty) return; this.setState({ principles: P.filter((p) => p.text.trim() !== ""), pDraft: null, pShapeDraft: null, modal: null }); this.toast(`Profile saved for ${s.pScope} · applies to future runs`); },
+    };
+
+    // B pane
+    const paneIt = v === "b" && s.openInit ? s.inits.find((i) => i.id === s.openInit) : null;
+    let pane = {};
+    if (paneIt) {
+      const f = this.facts(paneIt);
+      pane = {
+        head: paneIt.draft ? "New initiative" : "Initiative", headFg: paneIt.draft ? "#aebfff" : "#777f89", oid: paneIt.oid,
+        title: paneIt.title, titleRef: paneIt.draft ? this.focusRef : undefined, titleError: s.paneError,
+        onTitle: (e) => { this.updInit(paneIt.id, (i) => ({ ...i, title: e.target.value })); if (s.paneError) this.setState({ paneError: false }); },
+        ticket: paneIt.ticket, onTicket: (e) => this.updInit(paneIt.id, (i) => ({ ...i, ticket: e.target.value })),
+        projects: this.projChips(paneIt.project, (p) => this.updInit(paneIt.id, (i) => ({ ...i, project: p }))),
+        statuses: this.seg(["active", "paused"], paneIt.status, (x) => this.updInit(paneIt.id, (i) => ({ ...i, status: x }))),
+        pct: f.pct, count: f.count, tracker: this.tracker(paneIt, s),
+        isDraft: !!paneIt.draft, isSaved: !paneIt.draft,
+        close: () => this.setState({ openInit: null, sel: null, inits: paneIt.draft ? s.inits.filter((i) => i.id !== paneIt.id) : s.inits }),
+        copyId: () => { navigator.clipboard?.writeText(paneIt.oid); this.toast("Copied initiative id"); },
+        discard: () => this.setState({ openInit: null, sel: null, inits: s.inits.filter((i) => i.id !== paneIt.id) }),
+        create: () => {
+          if (!paneIt.title.trim()) { this.setState({ paneError: true }); return; }
+          this.updInit(paneIt.id, (i) => ({ ...i, draft: false, title: i.title.trim() }));
+          this.setState({ fresh: paneIt.id });
+          this.toast(`Created “${paneIt.title.trim()}”`);
+        },
+        archive: () => this.archive(paneIt),
+      };
+    }
+
+    const nv = this.notesVM(s) || { notes: [], statusChips: [], statusOpts: [] };
+    nv.rd = (nv.isReader && nv.notes[s.reading]) || {};
+    if (nv.isReader) nv.readerMeta = `${nv.rd.who} · ${nv.rd.day} · ${nv.rd.chars} chars · ${s.reading + 1} of ${nv.notes.length}`;
+    const hasAsk = s.ask.trim() !== "";
+    const modeTabs = [["ask", "Ask"], ["run", "▸ New run"], ["initiative", "✦ New initiative"]].map(([k, label]) => ({ key: k, label, bg: s.mode === k ? "#1a222c" : "transparent", fg: s.mode === k ? "#aebfff" : "#9aa3ad", pick: () => this.setState({ mode: k }) }));
+    const nextMode = { ask: "run", run: "initiative", initiative: "ask" };
+
+    return {
+      height: this.props.height ?? "100vh",
+      focusRef: this.focusRef, askRef: this.askRef, stop: this.stop,
+      isAB: v !== "c", isC: v === "c", isB: v === "b",
+      projectCount: PROJECTS.length,
+      chip: nW ? { label: `${nW} waiting`, fg: "#e6b450", bg: "rgba(230,180,80,.15)", border: "rgba(230,180,80,.3)", anim: "pulseDot 1.8s ease-in-out infinite" } : { label: "all clear", fg: "#54c79a", bg: "rgba(84,199,154,.15)", border: "rgba(84,199,154,.3)", anim: "none" },
+      fleetLine: `${s.sessions.filter((x) => x.state === "running").length} sessions live · $2.41`,
+      query: s.query, onQuery: (e) => this.setState({ query: e.target.value }), filtering: q !== "", hits: `${hits} ${hits === 1 ? "hit" : "hits"}`,
+      tierLabel: TIERS[s.tier], cycleTier: () => { const t = (s.tier + 1) % 3; this.setState({ tier: t }); this.toast(`Autonomy set to ${TIERS[t]} for every project`); },
+      openProfile: () => this.setState({ modal: "profile", pDraft: null, pShapeDraft: null }),
+      newInitiative: this.newInitiative, newRun: this.newRun,
+      newMenuOpen: s.newMenu, toggleNewMenu: (e) => { e.stopPropagation(); this.setState({ newMenu: !s.newMenu }); },
+      newMenuItems: [{ key: "r", glyph: "▸", label: "New run", key2: "r", pick: this.newRun }, { key: "n", glyph: "✦", label: "New initiative", key2: "⇧N", pick: this.newInitiative }].map((m) => ({ ...m, key: m.key2 })),
+      listPadRight: v !== "b" && s.sel ? (s.reading != null ? "582px" : "382px") : "22px",
+      hasWaiting: nW > 0, noWaiting: nW === 0, waitingCount: nW || "", waitingLabelFg: nW ? "#e6b450" : "#777f89",
+      queueTitle: `${nW} ${nW === 1 ? "thing is" : "things are"} waiting on you`, queueDetail: s.waiting.map((w) => w.kind).join(" · ") + " · oldest 2h",
+      waitingOpen: s.waitingOpen || q !== "", reviewLabel: s.waitingOpen ? "Hide" : `Review ${nW}`, toggleWaiting: () => this.setState({ waitingOpen: !s.waitingOpen }),
+      waitingLines,
+      initCount: initsShown.length, initMeta: stalled ? `${stalled} paused` : "all moving", initLines, noInits: initLines.length === 0,
+      hasArchived: archivedN > 0, archivedLabel: s.showArchived ? "Hide archived" : `Show ${archivedN} archived`, toggleArchived: () => this.setState({ showArchived: !s.showArchived }),
+      regions, sessLines, sessEmpty: sessLines.length === 0, sessMeta: `${nLive} live`, showRunSheet: !!rs, rs, recOpen: !!rv, rv,
+      deltaGroups, hasUnseen: unseenN > 0, noUnseen: unseenN === 0,
+      behindMeta: s.behindSeen ? "since just now" : "since yesterday 18:40",
+      markSeen: () => { this.setState({ behindSeen: true }); this.toast("Marked seen", () => this.setState({ behindSeen: false })); },
+      shippedRows, noShipped: shipAll.length === 0, shippedCount: String(shipAll.length),
+      shippedMore: shipAll.length > SHIPPED_CAP && q === "", shippedMoreLabel: s.shippedOpen ? "show less" : `+${shipAll.length - SHIPPED_CAP} more`,
+      toggleShipped: () => this.setState({ shippedOpen: !s.shippedOpen }),
+      onEditDraft: this.onEditDraft, onEditKey: this.onEditKey, commitEdit: this.commitEdit, onChunkDraft: this.onChunkDraft,
+      showSidebar: v !== "b" && !!this.notesVM(s), nv, onNoteDraft: this.onNoteDraft, onNoteKey: this.onNoteKey, addNote: this.addNote,
+      paneEmpty: !paneIt, paneHas: !!paneIt, pane,
+      threadOpen: s.thread.length > 0 || s.thinking, thread: s.thread.map((t, i) => ({ key: i, ...t, whoFg: t.who === "Jarvis" ? "#aebfff" : "#9aa3ad" })), thinking: s.thinking,
+      threadTitle: s.thread[0]?.text ?? "", closeThread: () => this.setState({ thread: [] }),
+      modeTabs, modeAsk: v !== "c" || s.mode === "ask", modeInit: v === "c" && s.mode === "initiative", modeRun: v === "c" && s.mode === "run",
+      composerBorder: v === "c" && s.mode !== "ask" ? "#2a313a" : "#1c2128",
+      ask: s.ask, onAsk: (e) => this.setState({ ask: e.target.value }),
+      onAskKey: (e) => {
+        if (e.key === "Enter") { e.preventDefault(); this.sendAsk(); }
+        else if (e.key === "Tab" && v === "c") { e.preventDefault(); this.setState({ mode: "run" }); }
+        else if (e.key === "Escape" && s.thread.length) { e.stopPropagation(); this.setState({ thread: [] }); }
+      },
+      onComposerKey: (e) => {
+        if (e.key === "Tab") { e.preventDefault(); this.setState({ mode: nextMode[s.mode] }); }
+        else if (e.key === "Enter" && (e.ctrlKey || e.metaKey || e.target.tagName === "INPUT")) {
+          if (e.target.tagName === "INPUT" && s.mode === "initiative" && !(e.ctrlKey || e.metaKey)) return;
+          e.preventDefault(); s.mode === "run" ? this.startRun() : this.createInit();
+        } else if (e.key === "Escape") { e.stopPropagation(); this.setState({ mode: "ask" }); }
+      },
+      sendAsk: this.sendAsk, sendBorder: hasAsk ? "#2a313a" : "#1c2128", sendFg: hasAsk ? "#aebfff" : "#7f858b",
+      ni, nr, pf, createInit: this.createInit, startRun: this.startRun,
+      modalInit: s.modal === "initiative", modalRun: s.modal === "run", modalProfile: s.modal === "profile",
+      closeModal: () => this.setState({ modal: null }),
+      onModalKey: (e) => {
+        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); s.modal === "run" ? this.startRun() : this.createInit(); }
+        if (e.key === "Escape") { e.stopPropagation(); this.setState({ modal: null }); }
+      },
+      toastOn: !!s.toast, toastText: s.toast?.text ?? "", toastUndo: !!s.toast?.undo,
+      undo: () => { s.toast?.undo?.(); this.setState({ toast: null }); },
+      onRootKey: (e) => {
+        if (e.key === "Escape") this.closeTop();
+        else if ((e.key === "j" || e.key === "k") && s.runSel && !/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) { e.preventDefault(); const r = this.runVM(s); r && (e.key === "j" ? r.goNext() : r.goPrev()); }
+        else if ((e.key === "j" || e.key === "k") && s.sel && v !== "b" && !/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) { e.preventDefault(); const vm = this.notesVM(s); vm && (e.key === "j" ? vm.goNext() : vm.goPrev()); }
+        else if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown") && s.sel) { e.preventDefault(); this.moveChunk(s.sel.iid, s.sel.cid, e.key === "ArrowUp" ? -1 : 1); }
+      },
+      onRootClick: () => { if (s.menu || s.newMenu) this.setState({ menu: null, newMenu: false }); },
+    };
+  }
+}
+</script>
+</body>
+</html>
