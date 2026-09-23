@@ -17,7 +17,7 @@ import { buildAgentTree, treeAgentCount } from "./agenttreemodel";
 import { renamingRowAtom } from "./rowrenameatom";
 import { duplicateSession, renameSession, sessionCustomLabel } from "./session-models/sessionsidebarmodel";
 import { displayAgeMs, formatAgeShort, type AgentVM } from "./agentsviewmodel";
-import { endedWorkerId, laneLabel, leadStandingBy, runProgress, workerAsk, workerSubtext, type RunInfo } from "./runlineage";
+import { endedWorkerId, laneLabel, leadStandingBy, runProgress, unmetDeps, workerAsk, workerSubtext, type RunInfo } from "./runlineage";
 import { toggleRunCollapsed, toggleRunDoneOpen, treeFoldsAtom, useRunDigests } from "./runlineagestore";
 import { runStatusView } from "./runmodel";
 import {
@@ -34,12 +34,6 @@ import { StatusDot } from "./statusdot";
 import { focusSubagentAtom, subagentsByIdAtom } from "./subagentsstore";
 import { useSubagentTracking } from "./subagenttracking";
 
-const STATE_COLOR: Record<AgentVM["state"], string> = {
-    asking: "var(--color-warning)",
-    working: "var(--color-accent)",
-    idle: "var(--color-muted)",
-};
-const STATE_LABEL: Record<AgentVM["state"], string> = { asking: "asking", working: "working", idle: "idle" };
 const SUB_COLOR: Record<SubagentState, string> = {
     working: "var(--color-accent)",
     success: "var(--color-success)",
@@ -254,12 +248,8 @@ function ParentRow({
                         {subs.length}
                     </button>
                 ) : null}
-                <span
-                    className="font-mono text-[10px] font-medium transition-colors duration-[140ms]"
-                    style={{ color: STATE_COLOR[standingBy ? "idle" : agent.state] }}
-                >
-                    {standingBy ? "standing by" : STATE_LABEL[agent.state]}
-                </span>
+                {/* a row names its state only when it wants something; the dot already says working or idle */}
+                {asking ? <span className="font-mono text-[10px] font-medium text-warning">asking</span> : null}
             </div>
             {/* subagent reveal: the children block expands/collapses via composerReveal (height+opacity).
                 It is not a layout node itself, so its height animation and the row-list reflow don't fight. */}
@@ -299,12 +289,10 @@ function ParentRow({
                                     </div>
                                     <div className="truncate text-[9.5px] text-muted">{s.model ?? ""}</div>
                                 </div>
-                                <span
-                                    className="whitespace-nowrap font-mono text-[9.5px] font-medium"
-                                    style={{ color: SUB_COLOR[s.state] }}
-                                >
-                                    {s.state}
-                                </span>
+                                {/* the dot carries a live child's state; only a failure is worth the words */}
+                                {s.state === "failure" ? (
+                                    <span className="whitespace-nowrap font-mono text-[9.5px] font-medium text-error">failed</span>
+                                ) : null}
                             </div>
                         ))}
                     </motion.div>
@@ -352,20 +340,16 @@ function WorkerRow({
     const ask = done ? undefined : workerAsk(run.digest, task.id);
     const focusKey = done ? endedWorkerId(run.runId, task.id) : agent?.id;
     const selected = focusKey != null && focusId === focusKey;
-    const landed = task.merged ? "landed" : "done";
-
-    let sub: string;
-    let stateText: string;
-    let stateColor: string;
-    if (done) {
-        sub = [lane ? `lane ${lane}` : "", landed].filter(Boolean).join(" · ");
-        stateText = landed;
-        stateColor = "var(--color-success)";
-    } else {
-        sub = workerSubtext(ask, lane, agent ? formatAgeShort(displayAgeMs(agent, now)) : "", now);
-        stateText = ask?.owner === "lead" ? "→ lead" : agent ? STATE_LABEL[agent.state] : task.state;
-        stateColor = ask?.owner === "lead" || agent == null ? "var(--color-muted)" : STATE_COLOR[agent.state];
-    }
+    const waits = done ? undefined : unmetDeps(run.dag, task);
+    const asksYou = !done && ask?.owner !== "lead" && (ask?.owner === "you" || agent?.state === "asking");
+    const sub = workerSubtext({
+        taskId: task.id,
+        lane,
+        age: agent ? formatAgeShort(displayAgeMs(agent, now)) : "",
+        ask,
+        outcome: done ? (task.merged ? "landed" : "done") : undefined,
+        waits,
+    });
 
     const select = () => {
         if (focusKey == null) {
@@ -393,29 +377,30 @@ function WorkerRow({
                 focusKey != null && "cursor-pointer",
                 selected
                     ? "bg-accentbg"
-                    : ask?.owner === "you"
+                    : asksYou
                       ? "bg-warning/[0.06]"
                       : focusKey != null && "hover:bg-surface-hover"
             )}
         >
             <Elbow />
-            {done || agent == null ? (
-                <span
-                    className="h-[7px] w-[7px] shrink-0 rounded-full"
-                    style={{ background: done ? "var(--color-success)" : "var(--color-muted)" }}
-                />
+            {done ? (
+                <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-success" />
+            ) : waits ? (
+                <span className="h-[7px] w-[7px] shrink-0 rounded-full border border-muted" />
+            ) : agent == null ? (
+                <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-muted" />
             ) : (
                 <StatusDot state={agent.state} pulse={agent.state !== "idle"} className="!h-[7px] !w-[7px]" />
             )}
             <div className="min-w-0 flex-1">
-                <div className="truncate font-mono text-[11.5px] font-semibold text-ink-hi">
-                    {task.id} · {task.label || task.id}
-                </div>
-                <div className="truncate text-[10.5px] text-muted">{sub}</div>
+                <div className="truncate font-mono text-[11.5px] font-semibold text-ink-hi">{task.label || task.id}</div>
+                <div className={cn("truncate text-[10.5px]", asksYou ? "text-warning/85" : "text-muted")}>{sub}</div>
             </div>
-            <span className="whitespace-nowrap font-mono text-[10px] font-medium" style={{ color: stateColor }}>
-                {stateText}
-            </span>
+            {ask?.owner === "lead" ? (
+                <span className="whitespace-nowrap font-mono text-[10px] font-medium text-muted">→ lead</span>
+            ) : asksYou ? (
+                <span className="whitespace-nowrap font-mono text-[10px] font-medium text-warning">asking</span>
+            ) : null}
         </div>
     );
 }
@@ -485,7 +470,6 @@ function TerminalRow({ model, terminal }: { model: AgentsViewModel; terminal: Ag
                     <div className="truncate font-mono text-[12px] font-semibold text-ink-hi">{terminal.name}</div>
                 )}
             </div>
-            <span className="font-mono text-[10px] font-medium text-muted">terminal</span>
         </div>
     );
 }

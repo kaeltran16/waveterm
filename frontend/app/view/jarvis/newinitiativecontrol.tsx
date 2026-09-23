@@ -19,7 +19,7 @@ export function NewInitiativeControl() {
                 data-jarvis-new-initiative
                 aria-expanded={open}
                 onClick={() => setOpen(true)}
-                className="flex-none cursor-pointer rounded-[6px] border border-border px-2.5 py-[3px] font-mono text-[9.5px] font-bold uppercase tracking-[.06em] text-secondary hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                className="flex-none cursor-pointer rounded-[6px] border border-border px-2.5 py-[3px] font-mono text-[10.5px] font-bold uppercase tracking-[.06em] text-secondary hover:border-edge-strong hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
                 + Initiative
             </button>

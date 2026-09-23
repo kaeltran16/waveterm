@@ -34,8 +34,8 @@ export const NO_LINEAGE: Lineage = { roles: {}, runs: {} };
 
 // runRoleOf is an agent's part in a run. A dag's owning run is its lead's, and any other run holding the
 // dag is a task's child run. An orchestrator run with no dag yet, or whose dag has not loaded, is a lead.
-// Anything else is a plain agent: a Quick run, or a child whose task was retried onto a newer run.
-export function runRoleOf(run: Run | undefined, dag: TaskGroup | undefined): RunRole | null {
+// Anything else is a plain agent: a Quick run, or a child the engine no longer links that carries no task id.
+export function runRoleOf(run: Run | undefined, dag: TaskGroup | undefined, stampedTaskId?: string): RunRole | null {
     if (run == null) {
         return null;
     }
@@ -43,11 +43,23 @@ export function runRoleOf(run: Run | undefined, dag: TaskGroup | undefined): Run
         if (dag.runid === run.oid) {
             return { kind: "lead", runId: run.oid };
         }
-        // a task's reviewer works that task too, so it nests under the lead beside the worker it follows
-        const task = (dag.tasks ?? []).find((t) => t.runid === run.oid || t.reviewrunid === run.oid);
+        const tasks = dag.tasks ?? [];
+        // a task's reviewer works that task too, so it nests under the lead beside the worker it follows. the
+        // engine unlinks a run once it is over (a verdict applied, a retry dispatched) while its tab can live on,
+        // and a relaunch leaves such a tab for good; the task id stamped on it at spawn still places it
+        const task =
+            tasks.find((t) => t.runid === run.oid || t.reviewrunid === run.oid) ??
+            (stampedTaskId ? tasks.find((t) => t.id === stampedTaskId) : undefined);
         return task ? { kind: "worker", leadRunId: dag.runid, taskId: task.id } : null;
     }
     return run.mode === "orchestrator" ? { kind: "lead", runId: run.oid } : null;
+}
+
+// holdsTask reports whether agent's run is the one taskId currently points at, its worker or its reviewer, rather
+// than a tab left from an earlier attempt or a finished review.
+export function holdsTask(run: RunInfo, taskId: string, agent: Pick<AgentVM, "runId">): boolean {
+    const task = run.dag?.tasks?.find((t) => t.id === taskId);
+    return task != null && agent.runId != null && (task.runid === agent.runId || task.reviewrunid === agent.runId);
 }
 
 // leadAgentOf finds the roster agent leading runId, if it is in the roster.
@@ -69,17 +81,20 @@ export function agentProject(lineage: Lineage, agents: AgentVM[], agent: AgentVM
     return lead ? projectOf(lead) : (lineage.runs[role.leadRunId]?.project ?? "");
 }
 
-// taskAgentOf finds the roster agent working taskId of runId, if it is in the roster.
-export function taskAgentOf<T extends { id: string }>(
+// taskAgentOf finds the roster agent working taskId of runId, if it is in the roster: the task's current one
+// before a tab an earlier run left on it.
+export function taskAgentOf<T extends { id: string; runId?: string }>(
     lineage: Lineage,
     agents: T[],
     runId: string,
     taskId: string
 ): T | undefined {
-    return agents.find((a) => {
+    const onTask = agents.filter((a) => {
         const role = lineage.roles[a.id];
         return role?.kind === "worker" && role.leadRunId === runId && role.taskId === taskId;
     });
+    const run = lineage.runs[runId];
+    return (run && onTask.find((a) => holdsTask(run, taskId, a))) ?? onTask[0];
 }
 
 const ENDED_WORKER_PREFIX = "ended:";
@@ -113,7 +128,7 @@ export function endedRoles(runs: Record<string, RunInfo>): Record<string, RunRol
 export function endedWorkerVM(runId: string, task: TaskNode, child: Run | undefined, transcriptPath?: string): AgentVM {
     return {
         id: endedWorkerId(runId, task.id),
-        name: `${task.id} · ${task.label || task.id}`,
+        name: task.label || task.id,
         task: task.label ?? "",
         state: "idle",
         agent: child?.runtime || undefined,
@@ -160,17 +175,45 @@ export function formatLeft(ms: number): string {
     return ms < 60_000 ? "<1m left" : `${Math.floor(ms / 60_000)}m left`;
 }
 
-// workerSubtext is a worker row's second line: whose turn its question is, else its lane and age.
-export function workerSubtext(ask: WorkerAsk | undefined, lane: string | undefined, age: string, now: number): string {
-    if (ask?.owner === "you") {
-        return "waiting on you";
+export interface WorkerLine {
+    taskId: string;
+    lane?: string;
+    age: string;
+    ask?: WorkerAsk;
+    // a finished task's outcome ("landed" / "done")
+    outcome?: string;
+    // a task that has not started: the dependencies it still waits on (empty = just queued)
+    waits?: string[];
+}
+
+// workerSubtext is a worker row's second line, led by its task id since the row's title is the task's label:
+// what it came to, what it waits on, whose turn its question is, else its lane and age.
+export function workerSubtext(w: WorkerLine): string {
+    const lane = w.lane ? `lane ${w.lane}` : "";
+    let tail: string[];
+    if (w.outcome) {
+        tail = [lane, w.outcome];
+    } else if (w.waits) {
+        tail = [lane, w.waits.length > 0 ? `waits on ${w.waits.join(", ")}` : "queued"];
+    } else if (w.ask?.owner === "lead") {
+        tail = ["asked the lead", w.age];
+    } else if (w.ask?.owner === "you") {
+        tail = ["asks you", w.age];
+    } else {
+        tail = [lane, w.age];
     }
-    if (ask?.owner === "lead") {
-        return ask.deadline
-            ? `lead is answering · ${formatLeft(Math.max(0, ask.deadline - now))}`
-            : "lead is answering";
+    return [w.taskId, ...tail].filter(Boolean).join(" · ");
+}
+
+const NOT_STARTED = new Set(["pending", "ready"]);
+
+// unmetDeps is what a not-started task still waits on, or undefined once it has started.
+export function unmetDeps(dag: TaskGroup | undefined, task: TaskNode): string[] | undefined {
+    if (!NOT_STARTED.has(task.state)) {
+        return undefined;
     }
-    return [lane ? `lane ${lane}` : "", age].filter(Boolean).join(" · ");
+    const byId = new Map((dag?.tasks ?? []).map((t) => [t.id, t] as const));
+    return (task.deps ?? []).filter((d) => byId.get(d)?.state !== "done");
 }
 
 // runProgress counts a run's finished tasks: done or skipped, out of every task in the plan.

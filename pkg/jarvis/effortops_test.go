@@ -506,3 +506,28 @@ func TestApplyOpsNoteBatchAtomic(t *testing.T) {
 		t.Fatalf("first op applied: %+v", e.Chunks[1].Notes)
 	}
 }
+
+func TestApplyOpsAsStampsTheNoteAuthor(t *testing.T) {
+	e := mkEffort()
+	by := NoteAuthor{Who: "agent", Session: "agent:tab1", Run: "run:r1"}
+	err := ApplyEffortOpsAs(e, []wshrpc.EffortOp{{Op: "appendNote", Chunk: "Phase 2", Note: "halfway"}}, "", effortNow, by)
+	if err != nil {
+		t.Fatal(err)
+	}
+	notes := e.Chunks[1].Notes
+	n := notes[len(notes)-1]
+	if n.Text != "halfway" || n.Author != "agent" || n.Session != "agent:tab1" || n.Run != "run:r1" {
+		t.Fatalf("note = %+v, want the agent stamp", n)
+	}
+}
+
+func TestApplyOpsLeavesTheAuthorEmpty(t *testing.T) {
+	e := mkEffort()
+	if err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "appendNote", Chunk: "Phase 2", Note: "x"}}, "", effortNow); err != nil {
+		t.Fatal(err)
+	}
+	n := e.Chunks[1].Notes[len(e.Chunks[1].Notes)-1]
+	if n.Author != "" || n.Session != "" || n.Run != "" {
+		t.Fatalf("note = %+v, want no author", n)
+	}
+}

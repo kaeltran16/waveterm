@@ -43,6 +43,8 @@ var managedHooks = []managedHook{
 	{"SessionStart", "compact", "agent-hook", 10},
 	// a compaction drops a lead's launch prompt, so its orchestration rules come back in its place
 	{"SessionStart", "compact", "jarvis dag rules --inject", 15},
+	// /clear opens a new transcript: report it now so the cockpit follows the new file before the next prompt
+	{"SessionStart", "clear", "agent-hook", 10},
 }
 
 func managedEventOrder() []string {

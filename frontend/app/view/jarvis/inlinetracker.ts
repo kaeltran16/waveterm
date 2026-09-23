@@ -19,8 +19,24 @@ import type { ChunkRowModel } from "./effortstore";
 
 export type TrackerRow =
     | { kind: "line"; id: string; line: BriefLine; expanded: boolean }
-    | { kind: "facts"; id: string; oref: string; count: string }
-    | { kind: "stage"; id: string; oref: string; stage: string; fraction: string; collapsed: boolean; at: number }
+    | {
+          kind: "facts";
+          id: string;
+          oref: string;
+          count: string;
+      }
+    | {
+          kind: "stage";
+          id: string;
+          oref: string;
+          stage: string;
+          fraction: string;
+          done: number;
+          total: number;
+          collapsed: boolean;
+          at: number;
+          first: boolean;
+      }
     | { kind: "chunk"; id: string; oref: string; row: ChunkRowModel; notes: number; next: boolean }
     | { kind: "pending"; id: string; oref: string; message: string };
 
@@ -45,14 +61,13 @@ export const chunkRowId = (lineId: string, label: string): string => `${lineId}/
 export const stageRowId = (lineId: string, stage: string, at: number): string => `${lineId}/stage:${at}:${stage}`;
 
 /**
- * Which stages start open when an initiative is first expanded: the one holding the chunk the
- * initiative would pick up next, and no others. SIEM-1707 is 33 chunks across 3 stages — opening all
- * of them buries every other initiative and both the Sessions and Behind-you regions below the fold.
- * An explicit toggle always wins over this default.
+ * Which stages start open when an initiative is first expanded — the design's rule (design L1357): a
+ * stage of two or more chunks that is entirely done starts folded; every other stage starts open. An
+ * explicit toggle always wins over this default.
  */
-export function stageStartsOpen(rows: ChunkRowModel[], group: { rows: ChunkRowModel[] }): boolean {
-    const next = nextChunk(rows);
-    return next != null && group.rows.some((r) => r.label === next.label);
+export function stageStartsOpen(group: { rows: ChunkRowModel[] }): boolean {
+    const done = group.rows.filter((r) => r.status === "done").length;
+    return !(group.rows.length > 1 && done === group.rows.length);
 }
 
 /**
@@ -66,10 +81,9 @@ export function trackerRows(args: {
     openLineId: string | null;
     chunks: ChunkRowModel[] | null;
     noteCounts: Map<string, number>;
-    countLine: string;
     stageOverrides: Record<string, boolean>;
 }): TrackerRow[] {
-    const { lines, openLineId, chunks, noteCounts, countLine, stageOverrides } = args;
+    const { lines, openLineId, chunks, noteCounts, stageOverrides } = args;
     const out: TrackerRow[] = [];
     for (const line of lines) {
         const oref = expandableORef(line);
@@ -86,19 +100,28 @@ export function trackerRows(args: {
             out.push({ kind: "pending", id: line.id + "/pending", oref, message: "No chunks on this initiative yet." });
             continue;
         }
-        out.push({ kind: "facts", id: line.id + "/facts", oref, count: countLine });
+        const doneN = chunks.filter((c) => c.status === "done").length;
+        out.push({
+            kind: "facts",
+            id: line.id + "/facts",
+            oref,
+            count: `${chunks.length} chunk${chunks.length === 1 ? "" : "s"} · ${doneN} done`,
+        });
         const next = nextChunk(chunks);
         groupChunksByStage(chunks).forEach((group, at) => {
             const id = stageRowId(line.id, group.stage, at);
-            const open = stageOverrides[id] ?? stageStartsOpen(chunks, group);
+            const open = stageOverrides[id] ?? stageStartsOpen(group);
             out.push({
                 kind: "stage",
                 id,
                 oref,
                 stage: group.stage,
                 fraction: group.fraction,
+                done: group.done,
+                total: group.total,
                 collapsed: !open,
                 at,
+                first: at === 0,
             });
             if (!open) {
                 return;

@@ -25,7 +25,7 @@ import { MarkdownMessage } from "@/app/view/agents/markdownmessage";
 import { AskCard, CancelRunButton, CancelSurvivorsCard } from "@/app/view/agents/runcards";
 import { needsEvidenceSeal, verifCounts } from "@/app/view/agents/runcompletion";
 import { useRunEvents } from "@/app/view/agents/runeventstore";
-import { cancelSurvivors, isTerminal, leadAsker, leadWorker } from "@/app/view/agents/runmodel";
+import { cancelSurvivors, isTerminal, leadAsker, leadWorker, liveWorkers } from "@/app/view/agents/runmodel";
 import { buildRunTimeline } from "@/app/view/agents/runtimeline";
 import { eventsCount, GroupSection } from "@/app/view/agents/runtimelineview";
 import { attentionQueue, type QueueEntry } from "@/app/view/orchestrate/attentionqueue";
@@ -37,7 +37,10 @@ import { openTaskWorker, resolveTaskWorker, type TaskWorkerView } from "@/app/vi
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtomValue, type Atom } from "jotai";
 import { useEffect, useState, type ReactNode } from "react";
+import { RunComposer } from "./briefcomposer";
 import { RunSettingsPanel, saveRunAsDefaults, SHEET_BTN } from "./briefrunsheet";
+import { briefEffortIndexAtom, briefRevealChunkAtom } from "./jarvisstore";
+import { RunReportView } from "./runreportview";
 import { runSettingsDraft, type LinkedGroupRead } from "./runsettings";
 import {
     orderedTasks,
@@ -53,6 +56,8 @@ import {
 import { STAGE_PROSE } from "./stagemeasure";
 
 const EYEBROW = "font-mono text-[9.5px] font-bold uppercase tracking-[.13em] text-feed-label";
+// a finished run's evidence eyebrows are a step brighter (design L541-555)
+const EYEBROW_MID = "font-mono text-[9.5px] font-bold uppercase tracking-[.13em] text-ink-mid";
 const LINK =
     "cursor-pointer font-mono text-[10.5px] text-accent-soft hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent";
 const DOCK_BTN = cn(SHEET_BTN, "bg-transparent px-3 py-1.5 text-[11.5px]");
@@ -102,9 +107,20 @@ type SheetCtx = {
     run: Run;
     agents: AgentVM[];
     now: number;
+    onClose: () => void;
 };
 
-export function RunSheet({ model, channel, run: runProp }: { model: AgentsViewModel; channel: Channel; run: Run }) {
+export function RunSheet({
+    model,
+    channel,
+    run: runProp,
+    onClose,
+}: {
+    model: AgentsViewModel;
+    channel: Channel;
+    run: Run;
+    onClose: () => void;
+}) {
     // the run's live WOS object, falling back to the list entry until it hydrates; both track one run
     const run = useAtomValue(runAtom(runProp.id)) ?? runProp;
     const agents = useAtomValue(model.agentsAtom);
@@ -118,7 +134,7 @@ export function RunSheet({ model, channel, run: runProp }: { model: AgentsViewMo
         }
     }, [run.id, run.status, run.evidence]);
 
-    const ctx: SheetCtx = { model, channel, run, agents, now };
+    const ctx: SheetCtx = { model, channel, run, agents, now, onClose };
     const graph = runGraphRef(run);
     if (graph != null) {
         return <LinkedRunSheet ctx={ctx} dagOref={"dag:" + graph} />;
@@ -147,7 +163,7 @@ function RunSheetFrame({ ctx, dag }: { ctx: SheetCtx; dag: SheetDagRead | null }
 
     return (
         <div data-run-sheet={run.status} className="flex min-h-0 flex-1 flex-col bg-background">
-            <Reading run={run} status={status} onRetry={dag?.digest.retry} />
+            <Reading run={run} agents={agents} status={status} onRetry={dag?.digest.retry} />
             <div className="sc min-h-0 flex-1 overflow-y-auto px-4 pb-2.5">
                 {survivors > 0 ? (
                     <CancelSurvivorsCard model={ctx.model} channelId={channel.oid} run={run} agents={agents} />
@@ -158,24 +174,46 @@ function RunSheetFrame({ ctx, dag }: { ctx: SheetCtx; dag: SheetDagRead | null }
                         <ChildAskCard channelId={channel.oid} runId={run.id} />
                     </div>
                 ) : null}
+                {/* a filed report is the finished body; a run with none keeps its sealed evidence (design L508, L539) */}
                 {showEvidence ? (
-                    <Evidence ctx={ctx} dag={dag} />
+                    (run.report ?? "").trim() !== "" ? (
+                        <RunReportView model={ctx.model} run={run} />
+                    ) : (
+                        <Evidence ctx={ctx} dag={dag} />
+                    )
                 ) : (
                     <Tasks ctx={ctx} dag={dag} status={status} asks={asks} />
                 )}
             </div>
-            {/* the settings face's selector is kept on the dock: checks read it as "a run face is showing" */}
+            {/* the settings face's selector is kept on the dock: checks read it as "a run face is showing". The
+                configuration moved up into the reading; the composer sits under the dock (design L571-587). */}
             <footer data-jarvis-brief-sheet-face="settings" className="flex-none border-t border-edge-faint bg-surface">
-                <RunSettingsPanel run={run} />
                 <Dock ctx={ctx} group={dag?.group ?? null} />
+                <RunComposer model={ctx.model} channel={channel} run={run} onClose={ctx.onClose} />
             </footer>
         </div>
     );
 }
 
-function Reading({ run, status, onRetry }: { run: Run; status: SheetStatus; onRetry?: () => void }) {
+function Reading({
+    run,
+    agents,
+    status,
+    onRetry,
+}: {
+    run: Run;
+    agents: AgentVM[];
+    status: SheetStatus;
+    onRetry?: () => void;
+}) {
     const [goalOpen, setGoalOpen] = useState(false);
+    const index = useAtomValue(briefEffortIndexAtom);
+    const revealChunk = useAtomValue(briefRevealChunkAtom);
     const meter = status.meter;
+    // what the run has spent so far, off its live workers (design L1401)
+    const cost = liveWorkers(run, agents).reduce((sum, a) => sum + (a.usage?.costusd ?? 0), 0);
+    const ref = run.effortref;
+    const effort = ref != null ? index.get(ref.effortoid) : undefined;
     return (
         <div className="flex flex-none flex-col gap-[11px] border-b border-edge-faint px-4 pb-3.5 pt-4">
             <div className="flex items-center gap-[9px]">
@@ -183,7 +221,7 @@ function Reading({ run, status, onRetry }: { run: Run; status: SheetStatus; onRe
                     className={cn(
                         "h-[7px] w-[7px] flex-none rounded-full",
                         TONE_BG[status.tone],
-                        status.pulse && "animate-[pulseDot_1.6s_infinite] motion-reduce:animate-none"
+                        status.pulse && "animate-[pulseDot_1.8s_ease-in-out_infinite] motion-reduce:animate-none"
                     )}
                 />
                 <span
@@ -212,20 +250,25 @@ function Reading({ run, status, onRetry }: { run: Run; status: SheetStatus; onRe
                     ))}
                 </div>
             ) : null}
-            {status.meta.length > 0 || status.retry ? (
-                <div className="flex flex-wrap gap-x-3.5 gap-y-1 font-mono text-[10.5px]">
-                    {status.meta.map((m) => (
-                        <span key={m.text} className={TONE_TEXT[m.tone]}>
-                            {m.text}
-                        </span>
-                    ))}
-                    {status.retry && onRetry != null ? (
-                        <button type="button" onClick={onRetry} className={LINK}>
-                            retry
-                        </button>
-                    ) : null}
-                </div>
-            ) : null}
+            <RunSettingsPanel
+                run={run}
+                inline
+                meta={
+                    <>
+                        {status.meta.map((m) => (
+                            <span key={m.text} className={m.tone === "muted" ? "text-ink-mid" : TONE_TEXT[m.tone]}>
+                                {m.text}
+                            </span>
+                        ))}
+                        {cost > 0 ? <span className="text-ink-mid">${cost.toFixed(2)}</span> : null}
+                        {status.retry && onRetry != null ? (
+                            <button type="button" onClick={onRetry} className={LINK}>
+                                retry
+                            </button>
+                        ) : null}
+                    </>
+                }
+            />
             {/* collapsed, the goal is a two-line heading; expanded it becomes the prose it was written as. A div,
                 not a button: expanded markdown renders block elements a button may not contain. */}
             <div
@@ -244,6 +287,16 @@ function Reading({ run, status, onRetry }: { run: Run; status: SheetStatus; onRe
                     </div>
                 )}
             </div>
+            {ref != null && effort != null ? (
+                <button
+                    type="button"
+                    title="Open this chunk"
+                    onClick={() => revealChunk?.(effort.oref, ref.chunklabel)}
+                    className="max-w-full cursor-pointer self-start truncate font-mono text-[10.5px] text-ink-mid hover:text-accent-soft focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+                >
+                    ↳ {effort.title} · {effort.chunkStages[ref.chunklabel] || "unstaged"} · {ref.chunklabel}
+                </button>
+            ) : null}
         </div>
     );
 }
@@ -574,7 +627,7 @@ function Evidence({ ctx, dag }: { ctx: SheetCtx; dag: SheetDagRead | null }) {
     return (
         <div className="flex flex-col gap-4 pt-4" data-evidence-block>
             <div className="flex flex-col gap-[9px]">
-                <span className={EYEBROW}>what landed</span>
+                <span className={EYEBROW_MID}>what landed</span>
                 {commits.length > 0
                     ? commits.map((c) => (
                           <div
@@ -612,14 +665,14 @@ function Evidence({ ctx, dag }: { ctx: SheetCtx; dag: SheetDagRead | null }) {
                 ) : null}
             </div>
             <div className="flex flex-col gap-[7px]">
-                <span className={EYEBROW}>sealed evidence</span>
+                <span className={EYEBROW_MID}>sealed evidence</span>
                 <div className="flex flex-col font-mono text-[11px] leading-[1.6] text-secondary">
                     {lines.map((l) => (
                         <span key={l}>{l}</span>
                     ))}
                 </div>
                 {ev.summary ? (
-                    <p className="line-clamp-4 text-[12px] leading-[1.55] text-ink-mid">{ev.summary}</p>
+                    <p className="text-pretty text-[12px] leading-[1.55] text-secondary">{ev.summary}</p>
                 ) : null}
                 <button
                     type="button"
@@ -638,6 +691,8 @@ function Dock({ ctx, group }: { ctx: SheetCtx; group: TaskGroup | null }) {
     const [saving, setSaving] = useState(false);
     const [result, setResult] = useState<{ failed: boolean; text: string } | null>(null);
     const lead = run.mode === "orchestrator" && !isTerminal(run.status) ? leadWorker(run, agents) : undefined;
+    // a live quick run's one worker, opened where it is watched (design L576)
+    const worker = run.mode !== "orchestrator" && !isTerminal(run.status) ? leadWorker(run, agents) : undefined;
     // a finished orchestrator has no dials left, so the dock's first slot carries its configuration forward
     const carryForward = run.status === "done" && run.mode === "orchestrator";
     const saveDefaults = () => {
@@ -674,6 +729,11 @@ function Dock({ ctx, group }: { ctx: SheetCtx; group: TaskGroup | null }) {
                 {lead != null ? (
                     <button type="button" onClick={() => jumpToAgent(model, lead.id)} className={DOCK_BTN}>
                         Open lead ↗
+                    </button>
+                ) : null}
+                {worker != null ? (
+                    <button type="button" onClick={() => jumpToAgent(model, worker.id)} className={DOCK_BTN}>
+                        Open in Agent ↗
                     </button>
                 ) : null}
                 <span className="flex-1" />

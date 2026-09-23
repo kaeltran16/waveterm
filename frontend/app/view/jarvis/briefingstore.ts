@@ -138,6 +138,22 @@ export function ackBriefingVisit(): void {
     }
 }
 
+// "mark seen" (design L287, L1794): the visit cursor jumps to this snapshot's query start now instead of
+// after the dwell, and the Brief re-reads so Behind you empties. Returns the undo.
+export function markBriefingSeen(): () => void {
+    const prev = globalStore.get(briefingCursorAtom);
+    const st = globalStore.get(fetchedBriefingStateAtom);
+    if (st.snapshot == null) {
+        return () => {};
+    }
+    globalStore.set(briefingCursorAtom, st.snapshot.queryStartedAt);
+    loadBriefing();
+    return () => {
+        globalStore.set(briefingCursorAtom, prev);
+        loadBriefing();
+    };
+}
+
 // Refresh uses the same load and cursor rules as reopening Briefing.
 export function refreshBriefing(): void {
     loadBriefing();

@@ -42,6 +42,10 @@ type CommandEffortMutateData struct {
 	EffortOID string     `json:"effortoid"`
 	Ops       []EffortOp `json:"ops"`
 	Note      string     `json:"note,omitempty"` // appended to the affected trail as the batch's note
+	// Author stamps the notes this batch writes; only "you" is accepted from a caller (the cockpit). A
+	// terminal sends SourceBlock instead and the server derives "agent", its session and its run.
+	Author      string `json:"author,omitempty"`
+	SourceBlock string `json:"sourceblock,omitempty"` // "block:<id>" of the calling terminal
 }
 
 type CommandEffortMutateRtnData struct {

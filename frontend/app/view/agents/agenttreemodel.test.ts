@@ -88,9 +88,19 @@ describe("buildAgentTree with run lineage", () => {
             }
         });
 
-    it("nests live workers under their lead in plan order and folds the done ones", () => {
-        const r = run("run-1", [task("t-1", "done"), task("t-2", "running"), task("t-3", "running"), task("t-4", "pending")]);
-        const agents = [agent("w3", "working", ""), agent("lead", "working"), agent("solo", "idle"), agent("w2", "working", "")];
+    it("nests the done fold, then live workers in plan order, then queued tasks under their lead", () => {
+        const r = run("run-1", [
+            task("t-1", "done"),
+            task("t-2", "running"),
+            task("t-3", "running"),
+            task("t-4", "pending"),
+        ]);
+        const agents = [
+            agent("w3", "working", ""),
+            agent("lead", "working"),
+            agent("solo", "idle"),
+            agent("w2", "working", ""),
+        ];
         const rows = buildAgentTree(
             agents,
             ["w3", "lead", "solo", "w2"],
@@ -103,11 +113,14 @@ describe("buildAgentTree with run lineage", () => {
         expect(shape(rows)).toEqual([
             "group:waveterm:4:0",
             "lead:run-1:2",
+            "done:1:false",
             "worker:t-2:w2",
             "worker:t-3:w3",
-            "done:1:false",
+            "worker:t-4:-",
             "parent:solo",
         ]);
+        // a queued task has no session, so it is not counted as an agent
+        expect(treeAgentCount(rows)).toBe(4);
     });
 
     it("lists done workers when their fold is open, including ones whose session is gone", () => {
@@ -178,6 +191,38 @@ describe("buildAgentTree with run lineage", () => {
             })
         );
         expect(rows[0]).toMatchObject({ kind: "group", count: 3, attn: 1 });
+    });
+
+    it("keeps a tab left on a task by an earlier attempt under the run, behind the task's current agent", () => {
+        const r = run("run-1", [{ id: "t-1", label: "t-1", state: "running", runid: "new-run" } as TaskNode]);
+        const rows = buildAgentTree(
+            [
+                agent("lead", "working"),
+                { ...agent("old", "idle", ""), runId: "old-run" },
+                { ...agent("new", "working", ""), runId: "new-run" },
+            ],
+            ["lead", "old", "new"],
+            lineage([r], {
+                lead: { kind: "lead", runId: "run-1" },
+                old: { kind: "worker", leadRunId: "run-1", taskId: "t-1" },
+                new: { kind: "worker", leadRunId: "run-1", taskId: "t-1" },
+            })
+        );
+        expect(shape(rows)).toEqual(["group:waveterm:2:0", "lead:run-1:1", "worker:t-1:new", "worker:t-1:old"]);
+    });
+
+    it("folds a finished reviewer's tab into its done task", () => {
+        const r = run("run-1", [{ id: "t-1", label: "t-1", state: "done", runid: "work-run" } as TaskNode]);
+        const rows = buildAgentTree(
+            [{ ...agent("reviewer", "idle", ""), runId: "review-run" }, agent("lead", "idle")],
+            ["reviewer", "lead"],
+            lineage([r], {
+                lead: { kind: "lead", runId: "run-1" },
+                reviewer: { kind: "worker", leadRunId: "run-1", taskId: "t-1" },
+            }),
+            { collapsed: new Set(), doneOpen: new Set(["run-1"]) }
+        );
+        expect(shape(rows)).toEqual(["group:waveterm:1:0", "lead:run-1:0", "done:1:true", "worker:t-1:reviewer"]);
     });
 
     it("keeps an agent whose run is not loaded as a plain row", () => {

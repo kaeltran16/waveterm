@@ -4,7 +4,15 @@
 import { describe, expect, it } from "vitest";
 import type { BriefLine } from "./briefrows";
 import type { ChunkRowModel } from "./effortstore";
-import { chunkRowId, expandableORef, stageRowId, trackerNavIds, trackerRows, type TrackerRow } from "./inlinetracker";
+import {
+    chunkRowId,
+    expandableORef,
+    stageRowId,
+    stageStartsOpen,
+    trackerNavIds,
+    trackerRows,
+    type TrackerRow,
+} from "./inlinetracker";
 
 const OREF = "effort:7f2c";
 
@@ -20,6 +28,9 @@ function line(id: string, over: Partial<BriefLine> = {}): BriefLine {
         stateTone: "ok",
         progress: { done: 21, total: 33, pct: 64 },
         target: { oref: OREF },
+        why: "",
+        age: "",
+        detail: "",
         ...over,
     };
 }
@@ -41,7 +52,6 @@ const base = {
     openLineId: "initiatives:" + OREF,
     chunks: CHUNKS,
     noteCounts: new Map([["S8 item #2 campaign-level narration", 11]]),
-    countLine: "21 of 33 done",
     stageOverrides: {},
 };
 
@@ -68,7 +78,7 @@ describe("trackerRows", () => {
         expect(rows[0]).toMatchObject({ kind: "line", expanded: false });
     });
 
-    it("opens only the stage holding the next chunk, so a 33-chunk plan does not bury the Brief", () => {
+    it("folds the fully-done stage and opens the unfinished one", () => {
         const rows = trackerRows(base);
         const stages = rows.filter((r) => r.kind === "stage");
         expect(stages.map((s) => (s.kind === "stage" ? [s.stage, s.collapsed] : null))).toEqual([
@@ -162,5 +172,34 @@ describe("trackerNavIds", () => {
 
     it("drops the chunks again when the initiative collapses, so a stale cursor cannot survive", () => {
         expect(trackerNavIds(trackerRows({ ...base, openLineId: null }))).toEqual(["initiatives:" + OREF]);
+    });
+});
+
+describe("stageStartsOpen (design: fully-done stages of 2+ chunks fold)", () => {
+    it("folds a finished stage", () => {
+        expect(stageStartsOpen({ rows: [chunk("a", "done", "S"), chunk("b", "done", "S")] })).toBe(false);
+    });
+    it("keeps a one-chunk finished stage open", () => {
+        expect(stageStartsOpen({ rows: [chunk("a", "done", "S")] })).toBe(true);
+    });
+    it("opens every unfinished stage", () => {
+        expect(stageStartsOpen({ rows: [chunk("a", "done", "S"), chunk("b", "pending", "S")] })).toBe(true);
+    });
+});
+
+describe("trackerRows facts row", () => {
+    it("carries the footer's chunk count", () => {
+        const l = { id: "initiatives:effort:e1", target: { oref: "effort:e1" } } as BriefLine;
+        const rows = trackerRows({
+            lines: [l],
+            openLineId: l.id,
+            chunks: [chunk("a", "done", "P1"), chunk("b", "blocked", "P2"), chunk("c", "pending", "P2")],
+            noteCounts: new Map(),
+            stageOverrides: {},
+        });
+        const facts = rows.find((r) => r.kind === "facts");
+        expect(facts).toMatchObject({ count: "3 chunks · 1 done" });
+        const stages = rows.filter((r) => r.kind === "stage");
+        expect(stages.map((s) => (s as { first: boolean }).first)).toEqual([true, false]);
     });
 });

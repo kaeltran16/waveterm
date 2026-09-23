@@ -14,19 +14,24 @@ import { lastActivityByIdAtom, startTranscriptStream, stopTranscriptStream } fro
 
 export type WantedCard = { id: string; path: string; agent?: string; blockId?: string };
 
-// pure: given the currently-streamed ids and the wanted ids, which to start and which to stop.
-// dedups wanted ids; order follows wanted (start) / current insertion (stop).
-export function diffStreamSet(current: Set<string>, wantedIds: string[]): { toStart: string[]; toStop: string[] } {
-    const wanted = new Set(wantedIds);
+// pure: given the currently-streamed ids (-> the path each streams) and the wanted cards, which to start and
+// which to stop. an id whose path changed (/clear opens a new transcript under the same agent) is in both: stop
+// it, then start it on the new file. dedups wanted ids (last path wins); order follows wanted (start) / current
+// insertion (stop).
+export function diffStreamSet(
+    current: Map<string, string>,
+    wanted: { id: string; path: string }[]
+): { toStart: string[]; toStop: string[] } {
+    const wantedPaths = new Map(wanted.map((w) => [w.id, w.path]));
     const toStart: string[] = [];
-    for (const id of wanted) {
-        if (!current.has(id)) {
+    for (const [id, path] of wantedPaths) {
+        if (current.get(id) !== path) {
             toStart.push(id);
         }
     }
     const toStop: string[] = [];
-    for (const id of current) {
-        if (!wanted.has(id)) {
+    for (const [id, path] of current) {
+        if (wantedPaths.get(id) !== path) {
             toStop.push(id);
         }
     }
@@ -35,27 +40,19 @@ export function diffStreamSet(current: Set<string>, wantedIds: string[]): { toSt
 
 export function useCardStreams(wanted: WantedCard[], opts?: { trackGit?: boolean }): void {
     const trackGit = !!opts?.trackGit;
-    const streamedRef = useRef<Set<string>>(new Set());
+    const streamedRef = useRef<Map<string, string>>(new Map());
     const gitTrackedRef = useRef<Map<string, { path?: string; blockId?: string }>>(new Map());
     const gitSeenActivityRef = useRef<Map<string, number>>(new Map());
     const lastActivityById = useAtomValue(lastActivityByIdAtom);
 
-    const wantedKey = wanted.map((w) => w.id).join(",");
+    const wantedKey = wanted.map((w) => `${w.id}=${w.path}`).join(",");
     useEffect(() => {
         const byId = new Map<string, WantedCard>();
         for (const w of wanted) {
             byId.set(w.id, w);
         }
-        const { toStart, toStop } = diffStreamSet(streamedRef.current, [...byId.keys()]);
-        for (const id of toStart) {
-            const w = byId.get(id)!;
-            startTranscriptStream(id, w.path, w.agent);
-            streamedRef.current.add(id);
-            if (trackGit) {
-                gitTrackedRef.current.set(id, { path: w.path, blockId: w.blockId });
-                void refreshCardGit(id, w.path, w.blockId);
-            }
-        }
+        const { toStart, toStop } = diffStreamSet(streamedRef.current, [...byId.values()]);
+        // stops first: a restarted id must be gone before its start, which is a no-op for a live stream
         for (const id of toStop) {
             stopTranscriptStream(id);
             streamedRef.current.delete(id);
@@ -63,6 +60,15 @@ export function useCardStreams(wanted: WantedCard[], opts?: { trackGit?: boolean
                 gitTrackedRef.current.delete(id);
                 gitSeenActivityRef.current.delete(id);
                 dropCardGit(id);
+            }
+        }
+        for (const id of toStart) {
+            const w = byId.get(id)!;
+            startTranscriptStream(id, w.path, w.agent);
+            streamedRef.current.set(id, w.path);
+            if (trackGit) {
+                gitTrackedRef.current.set(id, { path: w.path, blockId: w.blockId });
+                void refreshCardGit(id, w.path, w.blockId);
             }
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -93,7 +99,7 @@ export function useCardStreams(wanted: WantedCard[], opts?: { trackGit?: boolean
 
     useEffect(() => {
         return () => {
-            for (const id of streamedRef.current) {
+            for (const id of streamedRef.current.keys()) {
                 stopTranscriptStream(id);
                 if (trackGit) {
                     dropCardGit(id);

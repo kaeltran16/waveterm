@@ -54,13 +54,13 @@ import {
 } from "@/app/view/agents/runconfigstore";
 import { RunLauncher } from "@/app/view/agents/runlauncher";
 import { isTerminal, leadAsker } from "@/app/view/agents/runmodel";
-import { fireAndForget } from "@/util/util";
+import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtomValue, useSetAtom } from "jotai";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { RunSettingsPanel, SHEET_BTN, SheetShell } from "./briefrunsheet";
 import { sheetFace, type SheetFace } from "./briefsheetmodel";
 import { EffortDetailView } from "./effortdetailview";
-import { briefComposerHeightAtom, briefSheetOpenAtom } from "./jarvisstore";
+import { briefRunListAtom, briefSheetOpenAtom } from "./jarvisstore";
 import {
     activeSubjectAtom,
     clearSubject,
@@ -73,6 +73,7 @@ import {
     toggleRecordBand,
 } from "./jarvissubjectstore";
 import { launchGoal, launchOptsFromConfig } from "./newrun";
+import { openAddress } from "./openref";
 import { recordBandCase } from "./recordband";
 import { RecordBand } from "./recordbandview";
 import { RunSheet } from "./runsheet";
@@ -82,6 +83,9 @@ const FIELD =
     "min-w-0 flex-1 rounded-[7px] border border-border bg-background px-2.5 py-1.5 text-[12.5px] text-ink-hi placeholder:text-ink-faint";
 
 const NO_RUN = atom<Run | null>(null);
+
+const STEP_BTN =
+    "h-[22px] w-6 cursor-pointer rounded-[6px] border border-border bg-surface-raised text-[11px] hover:border-edge-strong";
 
 // The goal row the launcher needs to be a launch. It reads the same config atoms RunLauncher edits, so a
 // control the user moved above is the control this dispatches with — a launch that ignored the launcher
@@ -219,10 +223,20 @@ function ChannelLaunch({ channel }: { channel: Channel }) {
 
 // Runs stored before slice 5c (pipeline, adaptive, parked at a plan gate) keep RunBody, which knows how to
 // draw them; every other run is the sheet. Both share the configuration dock.
-function ChannelRun({ model, channel, run }: { model: AgentsViewModel; channel: Channel; run: Run }) {
+function ChannelRun({
+    model,
+    channel,
+    run,
+    onClose,
+}: {
+    model: AgentsViewModel;
+    channel: Channel;
+    run: Run;
+    onClose: () => void;
+}) {
     const agents = useAtomValue(model.agentsAtom);
     if (sheetRoute(run) === "sheet") {
-        return <RunSheet model={model} channel={channel} run={run} />;
+        return <RunSheet model={model} channel={channel} run={run} onClose={onClose} />;
     }
     return (
         <div className="flex min-h-0 flex-1 flex-col">
@@ -298,7 +312,7 @@ export function BriefSheet({ model }: { model: AgentsViewModel }) {
     const recordDetails = useAtomValue(recordDetailAtom);
     const bandsOpen = useAtomValue(recordBandOpenAtom);
     const projects = useAtomValue(projectsAtom);
-    const composerHeight = useAtomValue(briefComposerHeightAtom);
+    const runList = useAtomValue(briefRunListAtom);
 
     useEffect(() => ensureAmbient(), []);
 
@@ -336,6 +350,20 @@ export function BriefSheet({ model }: { model: AgentsViewModel }) {
     // "none" is never drawn — `visible` below excludes it, so it is never latched.
     const title = face.kind === "channel" ? channelProjectLabel(channel, projects) : "";
     const meta = face.kind === "channel" && face.body === "run" && run != null ? runLine(run) : undefined;
+    // where the shown run sits in the list the Brief published (design L420-424); a run outside it (opened
+    // from Waiting, say) has no position and its arrows are inert
+    const at = run != null ? runList.indexOf(run.id) : -1;
+    const pos = {
+        n: at + 1,
+        total: at >= 0 ? runList.length : 0,
+        prev: at > 0 ? runList[at - 1] : null,
+        next: at >= 0 && at < runList.length - 1 ? runList[at + 1] : null,
+    };
+    const step = (id: string | null) => {
+        if (id != null) {
+            fireAndForget(() => openAddress(model, "run:" + id));
+        }
+    };
 
     const visible = open && face.kind !== "none";
     // the exit animation still needs something to draw after the subject clears, so the last shown
@@ -350,7 +378,7 @@ export function BriefSheet({ model }: { model: AgentsViewModel }) {
     return (
         <ModalShell open={visible} variant="sheet" onClose={close} className="h-full w-[640px] max-w-[92vw]">
             {shown == null ? null : (
-                <div className="flex h-full min-h-0 flex-col" style={{ paddingBottom: composerHeight }}>
+                <div className="flex h-full min-h-0 flex-col">
                     <SheetShell
                         face={shown.face.kind}
                         label={shown.face.kind === "effort" ? "initiative" : "project"}
@@ -360,13 +388,40 @@ export function BriefSheet({ model }: { model: AgentsViewModel }) {
                             // the only way to start a SECOND run in a channel: without it a channel that has any
                             // run could never compose another
                             face.kind === "channel" && face.body === "run" ? (
-                                <button
-                                    type="button"
-                                    onClick={() => setComposingRun(face.channelId, true)}
-                                    className={SHEET_BTN}
-                                >
-                                    New run
-                                </button>
+                                <>
+                                    {pos.total > 0 ? (
+                                        <span className="font-mono text-[10.5px] text-muted">
+                                            {pos.n} / {pos.total}
+                                        </span>
+                                    ) : null}
+                                    <div className="flex gap-1">
+                                        <button
+                                            type="button"
+                                            aria-label="Previous run"
+                                            title="Previous run (k)"
+                                            onClick={() => step(pos.prev)}
+                                            className={cn(STEP_BTN, pos.prev ? "text-secondary" : "text-feed-glyph")}
+                                        >
+                                            ↑
+                                        </button>
+                                        <button
+                                            type="button"
+                                            aria-label="Next run"
+                                            title="Next run (j)"
+                                            onClick={() => step(pos.next)}
+                                            className={cn(STEP_BTN, pos.next ? "text-secondary" : "text-feed-glyph")}
+                                        >
+                                            ↓
+                                        </button>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setComposingRun(face.channelId, true)}
+                                        className={SHEET_BTN}
+                                    >
+                                        New run
+                                    </button>
+                                </>
                             ) : null
                         }
                         onClose={close}
@@ -385,7 +440,7 @@ export function BriefSheet({ model }: { model: AgentsViewModel }) {
                             channel == null ? (
                                 <SheetChannelPending channelId={face.channelId} />
                             ) : face.body === "run" && run != null ? (
-                                <ChannelRun model={model} channel={channel} run={run} />
+                                <ChannelRun model={model} channel={channel} run={run} onClose={close} />
                             ) : (
                                 <div className="flex min-h-0 flex-1 flex-col bg-background">
                                     <LauncherReading />

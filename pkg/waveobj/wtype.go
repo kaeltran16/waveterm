@@ -561,6 +561,13 @@ type EffortNote struct {
 	Ts     int64  `json:"ts"`
 	Text   string `json:"text"`
 	Edited bool   `json:"edited,omitempty"`
+	// Author is who wrote the note: "you" from the cockpit, "agent" from `wsh effort` in a terminal.
+	// Empty on notes written before authorship was recorded; those render without one.
+	Author string `json:"author,omitempty"`
+	// Session and Run are the agent session ("agent:<tabid>") and the run ("run:<oid>") an agent note
+	// came from, when they resolve. They back "open agent session ↗" and the run report on the card.
+	Session string `json:"session,omitempty"`
+	Run     string `json:"run,omitempty"`
 }
 
 type EffortEvent struct {

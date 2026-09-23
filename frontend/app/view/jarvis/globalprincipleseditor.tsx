@@ -6,6 +6,7 @@
 // mean anything when the list you are editing IS the baseline. Global scope is a plain ordered list, and
 // reduceGlobalPrinciples is its pure reducer.
 
+import { PRINCIPLE_ADD_BTN, PRINCIPLE_CARD, PRINCIPLE_DELETE_BTN, PRINCIPLE_EDIT_BOX } from "./principleseditor";
 import { reduceGlobalPrinciples, type GlobalPrincipleAction } from "./profilemodel";
 
 export function GlobalPrinciplesEditor({
@@ -25,14 +26,14 @@ export function GlobalPrinciplesEditor({
             className="m-0 flex min-w-0 flex-col gap-2 border-0 p-0 disabled:opacity-60"
         >
             {principles.map((p, i) => (
-                <div key={p.id} className="rounded border border-edge-mid bg-surface p-2">
+                <div key={p.id} className={PRINCIPLE_CARD}>
                     <div className="flex items-center gap-1.5">
                         {i > 0 ? (
                             <button
                                 type="button"
                                 aria-label="Move principle up"
                                 onClick={() => dispatch({ type: "move", id: p.id, dir: -1 })}
-                                className="cursor-pointer px-1 text-[11px] text-muted hover:text-secondary"
+                                className="cursor-pointer px-1 text-[11px] text-ink-mid hover:text-secondary"
                             >
                                 ↑
                             </button>
@@ -42,7 +43,7 @@ export function GlobalPrinciplesEditor({
                                 type="button"
                                 aria-label="Move principle down"
                                 onClick={() => dispatch({ type: "move", id: p.id, dir: 1 })}
-                                className="cursor-pointer px-1 text-[11px] text-muted hover:text-secondary"
+                                className="cursor-pointer px-1 text-[11px] text-ink-mid hover:text-secondary"
                             >
                                 ↓
                             </button>
@@ -51,7 +52,7 @@ export function GlobalPrinciplesEditor({
                         <button
                             type="button"
                             onClick={() => dispatch({ type: "delete", id: p.id })}
-                            className="cursor-pointer text-[10px] text-muted hover:text-error"
+                            className={PRINCIPLE_DELETE_BTN}
                         >
                             delete
                         </button>
@@ -61,14 +62,14 @@ export function GlobalPrinciplesEditor({
                         onChange={(e) => dispatch({ type: "update", id: p.id, text: e.target.value })}
                         rows={2}
                         placeholder="Global principle…"
-                        className="mt-1 w-full rounded border border-edge-mid bg-background p-2 text-[11.5px] leading-[1.5] text-primary placeholder:text-muted focus:outline-none"
+                        className={PRINCIPLE_EDIT_BOX}
                     />
                 </div>
             ))}
             <button
                 type="button"
                 onClick={() => dispatch({ type: "add", principle: { id: `custom-${crypto.randomUUID()}`, text: "" } })}
-                className="cursor-pointer rounded-[7px] border border-dashed border-edge-mid py-1 text-[11px] text-muted hover:text-secondary"
+                className={PRINCIPLE_ADD_BTN}
             >
                 + add principle
             </button>

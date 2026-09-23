@@ -14,6 +14,7 @@
 // the re-home meta-spec 4a item 10 asked for.
 //
 // Nothing is written until Save, and a refused save leaves the draft standing with the server's message.
+// The one exception is the autonomy chip, which keeps its own write-on-pick behaviour from the header.
 
 import { ModalShell } from "@/app/modals/modalshell";
 import { channelsAtom, loadChannels } from "@/app/view/agents/channelsstore";
@@ -28,23 +29,22 @@ import {
     setChannelProfile,
     setGlobalProfile,
 } from "@/app/view/agents/runactions";
-import { MAX_PARALLELISM } from "@/app/view/agents/runconfig";
+import { clampParallelism, DEFAULT_PARALLELISM } from "@/app/view/agents/runconfig";
+import { WorkerStepper } from "@/app/view/agents/runlauncher";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect, useState, type ReactNode } from "react";
+import { AutonomyLadder } from "./autonomyladderview";
+import { briefUndo } from "./briefundo";
 import { GlobalPrinciplesEditor } from "./globalprincipleseditor";
 import { PrinciplesEditor } from "./principleseditor";
 import { globalProfileIsDirty, isDirty, profileOverrideIsEmpty, resetActionState } from "./profilemodel";
+import { ProjectChips } from "./projectchips";
 
-const LABEL = "font-mono text-[9.5px] font-bold uppercase tracking-[.13em] text-feed-label";
-const FIELD = "rounded-[7px] border border-border bg-background px-2 py-1 text-[11.5px] text-ink-hi";
-const BTN =
-    "rounded-[7px] border border-border bg-surface-raised px-2.5 py-1 text-[11px] font-semibold text-secondary hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-40 disabled:cursor-default";
-const SECTION = "flex flex-col gap-2 border-t border-edge-faint pt-4";
-// one width for every control, so the form reads as a column instead of a ragged left edge. 300px is the
-// container-xs token, which is also RoutePicker's own cap — the one control here that sizes to its content.
-const CONTROL = "w-full max-w-xs";
-const BADGE = "rounded-[4px] px-1.5 py-px font-mono text-[9px] font-semibold uppercase tracking-[.08em]";
+const LABEL = "font-mono text-[10.5px] font-bold uppercase tracking-[.09em] text-ink-mid";
+const BADGE = "rounded-[4px] px-1.5 py-px font-mono text-[10px] font-semibold uppercase tracking-[.08em]";
+const FOOTER_BTN = "cursor-pointer rounded-[7px] px-3.5 py-1.5 text-[11.5px] font-semibold disabled:cursor-default";
+const SHAPES = ["quick", "orchestrator"] as const;
 
 type Scope = "project" | "global";
 type Loaded = { global: JarvisProfile; override: ProfileOverride; diagnostics: PrincipleDiagnostic[] };
@@ -52,13 +52,15 @@ type Loaded = { global: JarvisProfile; override: ProfileOverride; diagnostics: P
 // that does not exist globally, which is why the lead-route row is passed in rather than rendered here.
 type Defaults = Pick<ProfileOverride, "defaultmode" | "parallelism" | "workerroute">;
 
-// one row per run default: a labelled control, where the value comes from, and the two ways back to
-// inheriting. disabled is the whole modal's save flag, so a reset cannot mutate the draft mid-write.
+// one row of the run-defaults grid (design L914-925): the label cell, then the control with where its value
+// comes from and the way back to inheriting. disabled is the whole modal's save flag, so a reset cannot
+// mutate the draft mid-write. The row's longer explanation rides on the label as a tooltip.
 function DefaultRow({
     label,
     hint,
     inheritable,
     inherited,
+    clearable = false,
     disabled,
     onReset,
     children,
@@ -69,39 +71,42 @@ function DefaultRow({
     // source and a reset that drops back to it would both describe something that does not exist.
     inheritable: boolean;
     inherited: boolean;
+    // global scope only: a set value can still be dropped back to "unset" (parallelism: the lead chooses)
+    clearable?: boolean;
     disabled: boolean;
     onReset: () => void;
     children: ReactNode;
 }) {
     const reset = resetActionState(inherited, disabled);
     return (
-        <div className="flex flex-col gap-1.5">
-            <div className="flex items-center gap-2">
-                <span className="text-[11.5px] font-semibold text-secondary">{label}</span>
+        <>
+            <span title={hint} className="text-[12px] text-secondary">
+                {label}
+            </span>
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+                {children}
                 {inheritable ? (
                     <span
                         className={cn(
                             BADGE,
-                            inherited ? "border border-edge-mid text-muted" : "bg-accentbg/50 text-accent-soft"
+                            inherited ? "border border-edge-mid text-ink-mid" : "bg-accent/8 text-accent-soft"
                         )}
                     >
                         {inherited ? "global" : "project"}
                     </span>
                 ) : null}
-                {inheritable && reset.show ? (
+                {(inheritable || clearable) && reset.show ? (
                     <button
                         type="button"
                         onClick={onReset}
                         disabled={reset.disabled}
-                        className="text-[10px] text-muted hover:text-secondary disabled:cursor-default disabled:text-muted disabled:opacity-40 disabled:hover:text-muted"
+                        className="cursor-pointer font-mono text-[10px] text-ink-mid hover:text-secondary disabled:cursor-default disabled:opacity-40"
                     >
                         reset
                     </button>
                 ) : null}
             </div>
-            {children}
-            <span className="text-[11px] text-muted">{hint}</span>
-        </div>
+        </>
     );
 }
 
@@ -115,6 +120,7 @@ function DefaultsFields({
     set,
     drop,
     routeRow,
+    autonomyRow,
 }: {
     inheritable: boolean;
     draft: Defaults;
@@ -123,6 +129,7 @@ function DefaultsFields({
     set: (patch: Defaults) => void;
     drop: (key: keyof Defaults) => void;
     routeRow?: ReactNode;
+    autonomyRow?: ReactNode;
 }) {
     const row = (key: keyof Defaults) => ({
         inheritable,
@@ -130,34 +137,47 @@ function DefaultsFields({
         disabled: saving,
         onReset: () => drop(key),
     });
+    const shape = draft.defaultmode ?? base.defaultmode ?? "quick";
+    const width = draft.parallelism ?? base.parallelism ?? null;
     return (
-        <>
-            <DefaultRow {...row("defaultmode")} label="Shape" hint="How a new run in this project is composed.">
-                <select
-                    value={draft.defaultmode ?? base.defaultmode ?? "quick"}
-                    disabled={saving}
-                    onChange={(e) => set({ defaultmode: e.target.value })}
-                    className={cn(FIELD, CONTROL)}
-                >
-                    <option value="quick">quick</option>
-                    <option value="orchestrator">orchestrator</option>
-                </select>
+        <div className="grid grid-cols-[110px_minmax(0,1fr)] items-center gap-2.5">
+            <DefaultRow {...row("defaultmode")} label="Default shape" hint="How a new run in this project is composed.">
+                <div className="flex gap-1.5">
+                    {SHAPES.map((name) => (
+                        <button
+                            key={name}
+                            type="button"
+                            aria-pressed={shape === name}
+                            disabled={saving}
+                            onClick={() => set({ defaultmode: name })}
+                            className={cn(
+                                "cursor-pointer rounded-[6px] border px-2.5 py-1 font-mono text-[10.5px] disabled:cursor-default",
+                                shape === name
+                                    ? "border-accent/40 bg-accentbg text-accent-soft"
+                                    : "border-edge-mid text-ink-mid hover:border-edge-strong"
+                            )}
+                        >
+                            {name}
+                        </button>
+                    ))}
+                </div>
             </DefaultRow>
             <DefaultRow
                 {...row("parallelism")}
-                label="Parallelism"
-                hint={`Engine children in flight at once. Leave it unset to let the lead choose (1 through ${MAX_PARALLELISM}).`}
+                clearable={!inheritable && draft.parallelism != null}
+                label="Parallel workers"
+                hint="Engine children in flight at once. Unset (–) lets the lead choose."
             >
-                <input
-                    type="number"
-                    min={1}
-                    max={MAX_PARALLELISM}
-                    value={draft.parallelism ?? base.parallelism ?? ""}
-                    disabled={saving}
-                    placeholder="let the lead choose"
-                    onChange={(e) => set({ parallelism: e.target.value === "" ? undefined : Number(e.target.value) })}
-                    className={cn(FIELD, CONTROL)}
-                />
+                <div className="flex items-center gap-1.5">
+                    <WorkerStepper
+                        value={width}
+                        disabled={saving}
+                        // an unset width starts from the launcher's own default rather than one step off it
+                        onStep={(delta) =>
+                            set({ parallelism: width == null ? DEFAULT_PARALLELISM : clampParallelism(width + delta) })
+                        }
+                    />
+                </div>
             </DefaultRow>
             {routeRow}
             <DefaultRow
@@ -173,7 +193,8 @@ function DefaultsFields({
                     onChange={(route) => (route == null ? drop("workerroute") : set({ workerroute: route }))}
                 />
             </DefaultRow>
-        </>
+            {autonomyRow}
+        </div>
     );
 }
 
@@ -188,7 +209,6 @@ export function BriefProfileModal({ open, onClose }: { open: boolean; onClose: (
     const [globalDraft, setGlobalDraft] = useState<JarvisProfile | null>(null);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [notice, setNotice] = useState<string | null>(null);
 
     useEffect(() => {
         if (open) {
@@ -223,7 +243,6 @@ export function BriefProfileModal({ open, onClose }: { open: boolean; onClose: (
         setGlobalLoaded(null);
         setGlobalDraft(null);
         setError(null);
-        setNotice(null);
         fireAndForget(async () => {
             try {
                 if (channelId === "") {
@@ -283,10 +302,15 @@ export function BriefProfileModal({ open, onClose }: { open: boolean; onClose: (
             return next;
         });
 
-    const save = () => {
+    // a landed save closes the modal and says so in the Brief's toast (design L1734); a refused one keeps
+    // the draft standing with the server's message
+    const save = (scopeLabel: string) => {
+        const saved = () => {
+            briefUndo.notify(`Profile saved for ${scopeLabel} · applies to future runs`);
+            onClose();
+        };
         setSaving(true);
         setError(null);
-        setNotice(null);
         fireAndForget(async () => {
             try {
                 if (isGlobal) {
@@ -302,7 +326,7 @@ export function BriefProfileModal({ open, onClose }: { open: boolean; onClose: (
                     if (channelId !== "") {
                         await refreshResolvedProfile(channelId);
                     }
-                    setNotice("Saved. Global defaults apply to future runs in every project.");
+                    saved();
                     return;
                 }
                 await setChannelProfile(channelId, draft);
@@ -312,7 +336,7 @@ export function BriefProfileModal({ open, onClose }: { open: boolean; onClose: (
                 // refresh only after the write landed: a cache refreshed on a refused save would describe
                 // a profile that does not exist.
                 await refreshResolvedProfile(channelId);
-                setNotice("Saved. This applies to future runs only.");
+                saved();
             } catch (e) {
                 setError(String(e));
             } finally {
@@ -340,30 +364,39 @@ export function BriefProfileModal({ open, onClose }: { open: boolean; onClose: (
                 />
             </DefaultRow>
         ) : null;
+    // the autonomy chip writes the tier the moment it is picked, like it did in the header; it is not part of
+    // the draft Save writes
+    const autonomyRow = (
+        <>
+            <span title="How much Jarvis decides without you, per project" className="text-[12px] text-secondary">
+                Autonomy
+            </span>
+            <div className="flex">
+                <AutonomyLadder channels={channels} />
+            </div>
+        </>
+    );
+
+    // the chips name projects, the modal edits channels: map one to the other, keeping a colliding label
+    // distinct so both channels stay reachable
+    const channelOptions = new Map<string, string>();
+    for (const c of dedupeByProject(channels ?? [])) {
+        const label = channelProjectLabel(c, projects) || c.oid.slice(0, 8);
+        channelOptions.set(channelOptions.has(label) ? `${label} (${c.oid.slice(0, 8)})` : label, c.oid);
+    }
+    const pickedLabel = [...channelOptions].find(([, oid]) => oid === channelId)?.[0] ?? null;
+    const projectLabel = channelProjectLabel(channel, projects) || "project";
 
     return (
-        <ModalShell
-            open={open}
-            onClose={onClose}
-            align="center"
-            className="flex max-h-[86vh] w-[560px] max-w-[94vw] flex-col"
-        >
+        <ModalShell open={open} onClose={onClose} className="flex max-h-[86vh] w-[min(620px,93vw)] flex-col">
             <div
                 data-jarvis-brief-modal="profile"
                 data-jarvis-profile-scope={scope}
                 className="flex min-h-0 flex-1 flex-col"
             >
-                <header className="flex flex-none items-center gap-2.5 border-b border-edge-faint px-4 py-3">
-                    <span className={cn(LABEL, "text-accent-soft")}>profile</span>
-                    <span className="min-w-0 flex-1 truncate text-[13.5px] font-semibold text-ink-hi">
-                        {isGlobal ? "Global defaults" : channelProjectLabel(channel, projects) || "No project"}
-                    </span>
-                    <button type="button" aria-label="Close profile" onClick={onClose} className={BTN}>
-                        Close
-                    </button>
-                </header>
-                <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-4 py-4">
-                    <div className="flex flex-none gap-1 rounded-[8px] border border-edge-mid p-0.5">
+                <header className="flex flex-none items-center gap-[11px] border-b border-border px-[18px] py-[15px]">
+                    <span className="flex-1 text-[15px] font-semibold text-primary">Profile</span>
+                    <div className="flex rounded-[7px] border border-edge-mid p-0.5">
                         {(["project", "global"] as const).map((s) => (
                             <button
                                 key={s}
@@ -373,38 +406,29 @@ export function BriefProfileModal({ open, onClose }: { open: boolean; onClose: (
                                 disabled={saving || (s === "project" && noProjects)}
                                 onClick={() => setScope(s)}
                                 className={cn(
-                                    "flex-1 cursor-pointer rounded-[6px] px-2 py-1 text-[11px] font-medium disabled:cursor-default disabled:opacity-40",
-                                    scope === s ? "bg-accentbg/50 text-accent-soft" : "text-muted hover:text-secondary"
+                                    "max-w-[200px] cursor-pointer truncate rounded-[5px] px-2.5 py-[3px] font-mono text-[10.5px] font-semibold disabled:cursor-default disabled:opacity-40",
+                                    scope === s ? "bg-accentbg text-accent-soft" : "text-ink-mid hover:text-secondary"
                                 )}
                             >
-                                {s === "project" ? "This project" : "Global defaults"}
+                                {s === "project" ? projectLabel : "global"}
                             </button>
                         ))}
                     </div>
-                    {!isGlobal && (channels?.length ?? 0) > 1 ? (
-                        <label className="flex flex-col gap-1.5">
-                            <span className={LABEL}>project</span>
-                            <select
-                                value={channelId}
-                                disabled={saving}
-                                onChange={(e) => setChannelId(e.target.value)}
-                                className={cn(FIELD, CONTROL)}
-                            >
-                                {dedupeByProject(channels ?? []).map((c) => (
-                                    <option key={c.oid} value={c.oid}>
-                                        {channelProjectLabel(c, projects)}
-                                    </option>
-                                ))}
-                            </select>
-                        </label>
-                    ) : null}
-                    {!isGlobal && channel?.projectpath ? (
-                        <span className="truncate font-mono text-[10.5px] text-muted">{channel.projectpath}</span>
-                    ) : null}
-                    {isGlobal ? (
-                        <span className="text-[11px] text-muted">
-                            Inherited by every project that has not overridden the section.
-                        </span>
+                </header>
+                <div className="flex min-h-0 flex-1 flex-col gap-[18px] overflow-y-auto px-[18px] py-4">
+                    {!isGlobal && channelOptions.size > 1 ? (
+                        <ProjectChips
+                            names={[...channelOptions.keys()]}
+                            picked={pickedLabel}
+                            recent={null}
+                            onPick={(label) => {
+                                const oid = channelOptions.get(label);
+                                if (oid != null && !saving) {
+                                    setChannelId(oid);
+                                }
+                            }}
+                            columns={1}
+                        />
                     ) : null}
                     {error != null ? (
                         <p data-jarvis-brief-modal-state="error" className="text-[11.5px] text-error">
@@ -416,8 +440,8 @@ export function BriefProfileModal({ open, onClose }: { open: boolean; onClose: (
                     ) : null}
                     {isGlobal && globalDraft != null ? (
                         <>
-                            <section className="flex flex-col gap-5">
-                                <span className={LABEL}>future-run defaults</span>
+                            <section className="flex flex-col gap-2">
+                                <span className={LABEL}>Run defaults</span>
                                 <DefaultsFields
                                     inheritable={false}
                                     draft={globalDraft}
@@ -427,8 +451,8 @@ export function BriefProfileModal({ open, onClose }: { open: boolean; onClose: (
                                     drop={dropGlobal}
                                 />
                             </section>
-                            <section className={SECTION}>
-                                <span className={LABEL}>standing rules</span>
+                            <section className="flex flex-col gap-2">
+                                <PrinciplesHeader meta="every project inherits these" />
                                 <GlobalPrinciplesEditor
                                     principles={globalDraft.principles ?? []}
                                     disabled={saving}
@@ -439,8 +463,8 @@ export function BriefProfileModal({ open, onClose }: { open: boolean; onClose: (
                     ) : null}
                     {!isGlobal && loaded != null ? (
                         <>
-                            <section className="flex flex-col gap-5">
-                                <span className={LABEL}>future-run defaults</span>
+                            <section className="flex flex-col gap-2">
+                                <span className={LABEL}>Run defaults</span>
                                 <DefaultsFields
                                     inheritable
                                     draft={draft}
@@ -449,10 +473,11 @@ export function BriefProfileModal({ open, onClose }: { open: boolean; onClose: (
                                     set={set}
                                     drop={drop}
                                     routeRow={leadRouteRow}
+                                    autonomyRow={autonomyRow}
                                 />
                             </section>
-                            <section className={SECTION}>
-                                <span className={LABEL}>standing rules</span>
+                            <section className="flex flex-col gap-2">
+                                <PrinciplesHeader meta="global set, with this project's changes" />
                                 <PrinciplesEditor
                                     global={loaded.global.principles ?? []}
                                     patch={draft.principles}
@@ -463,28 +488,43 @@ export function BriefProfileModal({ open, onClose }: { open: boolean; onClose: (
                             </section>
                         </>
                     ) : null}
-                    {notice != null ? (
-                        <p data-jarvis-brief-modal-state="saved" className="text-[11.5px] text-success">
-                            {notice}
-                        </p>
-                    ) : null}
                 </div>
-                <footer className="flex flex-none items-center gap-2 border-t border-edge-faint px-4 py-3">
+                <footer className="flex flex-none items-center gap-2 border-t border-border px-[18px] py-3">
+                    <span className={cn("flex-1 font-mono text-[10.5px]", dirty ? "text-asking" : "text-muted")}>
+                        {dirty ? "unsaved changes · applies to future runs" : "no changes"}
+                    </span>
                     <button
                         type="button"
-                        onClick={save}
-                        disabled={saving || !dirty || !ready}
-                        className={cn(BTN, "border-accent/40 text-accent-soft")}
+                        onClick={onClose}
+                        className={cn(
+                            FOOTER_BTN,
+                            "border border-border bg-surface-raised text-secondary hover:text-primary"
+                        )}
                     >
-                        {saving ? "Saving…" : isGlobal ? "Save global defaults" : "Save project profile"}
+                        Cancel
                     </button>
-                    <span className="text-[11px] text-muted">
-                        {isGlobal
-                            ? "Applies wherever a project has not overridden it."
-                            : "Edits affect future runs only."}
-                    </span>
+                    <button
+                        type="button"
+                        onClick={() => save(isGlobal ? "global" : projectLabel)}
+                        disabled={saving || !dirty || !ready}
+                        className={cn(
+                            FOOTER_BTN,
+                            dirty && ready ? "bg-accent text-background hover:bg-accenthover" : "bg-border text-muted"
+                        )}
+                    >
+                        {saving ? "Saving…" : "Save profile"}
+                    </button>
                 </footer>
             </div>
         </ModalShell>
+    );
+}
+
+function PrinciplesHeader({ meta }: { meta: string }) {
+    return (
+        <div className="flex items-baseline gap-2">
+            <span className={LABEL}>Principles</span>
+            <span className="font-mono text-[10.5px] text-muted">{meta}</span>
+        </div>
     );
 }

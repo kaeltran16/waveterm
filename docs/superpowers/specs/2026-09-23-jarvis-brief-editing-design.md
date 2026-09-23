@@ -165,3 +165,5 @@ query overlay rule below the breakpoint):
 
 Variants B and C; header, Waiting, Runs, Behind you, run sheet, Profile, New run (already shipped);
 a `wsh effort` note edit/remove subcommand; note authorship.
+
+Parity work on the rest of the design: `docs/superpowers/plans/2026-09-23-jarvis-brief-design-parity.md`.

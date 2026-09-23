@@ -191,3 +191,66 @@ func TestActiveWorkRunWithoutPhasesHasNoWorkerOrefs(t *testing.T) {
 		t.Fatalf("workerorefs=%v want nil (omitted on the wire)", items[0].WorkerORefs)
 	}
 }
+
+func TestShippedCarriesReportAndChunk(t *testing.T) {
+	r := trun("r1", "done", 100, 500, ev("sum"))
+	r.Report = "# t\n\nlead"
+	r.EffortRef = &waveobj.RunEffortRef{EffortOID: "e1", ChunkLabel: "N1 box upgrade"}
+	items := Shipped([]*waveobj.Run{r, trun("r2", "done", 100, 600, ev("b"))}, 0)
+	byID := map[string]wshrpc.ShippedItem{}
+	for _, it := range items {
+		byID[it.RunOID] = it
+	}
+	if !byID["r1"].HasReport || byID["r1"].EffortOID != "e1" || byID["r1"].ChunkLabel != "N1 box upgrade" {
+		t.Fatalf("r1 = %+v", byID["r1"])
+	}
+	if byID["r2"].HasReport || byID["r2"].EffortOID != "" {
+		t.Fatalf("r2 = %+v", byID["r2"])
+	}
+}
+
+// a DAG's task workers are represented by their orchestrator run: the ledger lists the lead only,
+// and the lead's row carries the workers' tabs so their live agents do not surface as direct agents
+func dagRuns() []*waveobj.Run {
+	lead := trun("lead", "executing", 100, 0, nil)
+	lead.Mode, lead.DagORef = "orchestrator", "dag:d1"
+	lead.Phases = []waveobj.RunPhase{{Kind: "plan", WorkerOrefs: []string{"tab:lead"}}}
+	w1 := trun("w1", "executing", 110, 0, nil)
+	w1.Mode, w1.DagORef = "quick", "dag:d1"
+	w1.Phases = []waveobj.RunPhase{{Kind: "execute", WorkerOrefs: []string{"tab:w1"}}}
+	w2 := trun("w2", "done", 120, 500, ev("worker landed"))
+	w2.Mode, w2.DagORef = "quick", "dag:d1"
+	w2.Phases = []waveobj.RunPhase{{Kind: "execute", WorkerOrefs: []string{"tab:w2"}}}
+	solo := trun("solo", "done", 130, 600, ev("solo landed"))
+	solo.Mode = "quick"
+	return []*waveobj.Run{lead, w1, w2, solo}
+}
+
+func TestActiveWorkFoldsDagWorkersIntoTheirLead(t *testing.T) {
+	items := ActiveWork(dagRuns(), nil, nil, nil)
+	if len(items) != 1 || items[0].NavTarget != "run:lead" {
+		t.Fatalf("items=%+v want only the lead", items)
+	}
+	if items[0].Mode != "orchestrator" {
+		t.Fatalf("mode=%q want orchestrator", items[0].Mode)
+	}
+	got := items[0].WorkerORefs
+	if len(got) != 3 || got[0] != "tab:lead" || got[1] != "tab:w1" || got[2] != "tab:w2" {
+		t.Fatalf("workerorefs=%v want the lead's and both workers' tabs", got)
+	}
+}
+
+func TestShippedLeavesOutDagWorkers(t *testing.T) {
+	items := Shipped(dagRuns(), 0)
+	if len(items) != 1 || items[0].RunOID != "solo" || items[0].Mode != "quick" {
+		t.Fatalf("items=%+v want only the solo quick run, with its mode", items)
+	}
+}
+
+func TestTimelineLeavesOutDagWorkers(t *testing.T) {
+	for _, e := range Timeline(dagRuns(), nil, nil, nil, nil, 0) {
+		if e.NavTarget == "run:w1" || e.NavTarget == "run:w2" {
+			t.Fatalf("event %+v is a DAG worker's", e)
+		}
+	}
+}

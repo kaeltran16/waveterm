@@ -43,14 +43,14 @@ tasks:
         cmd: node scripts/sync-tauri-version.mjs --check
 
     tauri:build:
-        desc: "Production build: bump the version, sync it everywhere, build the backend, and bundle the installer. BUMP=none|patch|minor|major (default patch) controls the bump."
+        desc: "Production build: optionally bump the version, sync it everywhere, build the backend, and bundle the installer. BUMP=none|patch|minor|major (default none) controls the bump — pass one for a release."
         aliases:
             - build:app
         cmds:
             # The bump must run in its own `task` process. Task resolves the global VERSION var once
             # per invocation, so bumping and building in one run would stamp the Go binaries and the
             # wsh-<version> filenames with the pre-bump version.
-            - node version.cjs {{.BUMP | default "patch"}}
+            - node version.cjs {{.BUMP | default "none"}}
             # a nested `task:` call would reuse this process and its stale VERSION, so shell out.
             # That makes it a CLI invocation, which is why the callee cannot be marked internal.
             - task tauri:build:post-bump
@@ -285,6 +285,8 @@ tasks:
             # the skills install to the user's Claude Code skills dir, not into the repo
             - cmd: mkdir -p "$HOME/.claude/skills/cockpit-runs" && cp pi/skills/cockpit-runs/SKILL.md "$HOME/.claude/skills/cockpit-runs/SKILL.md"
             - cmd: mkdir -p "$HOME/.claude/skills/effort-tracking" && cp pi/skills/effort-tracking/SKILL.md "$HOME/.claude/skills/effort-tracking/SKILL.md"
+            # repo-specific, so project scope (.claude/ is gitignored) rather than the user dir
+            - cmd: mkdir -p .claude/skills/ui-mockup && cp pi/skills/ui-mockup/SKILL.md .claude/skills/ui-mockup/SKILL.md
         sources:
             - pi/extensions/waveterm-status.ts
             - pi/themes/arc.json
@@ -297,6 +299,7 @@ tasks:
             - pi/extensions/waveterm-simplify-gate-core.ts
             - pi/skills/cockpit-runs/SKILL.md
             - pi/skills/effort-tracking/SKILL.md
+            - pi/skills/ui-mockup/SKILL.md
         generates:
             - cmd/wsh/cmd/pi-status-extension.ts
             - cmd/wsh/cmd/arc-theme.json
@@ -307,6 +310,7 @@ tasks:
             - cmd/wsh/cmd/pi-prose-core-extension.ts
             - cmd/wsh/cmd/pi-simplify-gate-extension.ts
             - cmd/wsh/cmd/pi-simplify-gate-core-extension.ts
+            - .claude/skills/ui-mockup/SKILL.md
 
     build:server:internal:
         deps:

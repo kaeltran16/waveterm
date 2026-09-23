@@ -9,15 +9,18 @@ import { ASK_OWNER_USER } from "./childaskmodel";
 import { laneLabel, workerAsk } from "./runlineage";
 import { eventText } from "./runtimeline";
 
-export type LaneDot = "done" | "working" | "asking" | "pending" | "failed" | "muted";
+// LaneState is where a lane's task in play stands; it picks the lane row's dot and the colour of its state text.
+export type LaneState = "done" | "working" | "asking" | "lead" | "pending" | "failed" | "muted";
 
 export interface LaneRow {
     key: string;
-    dots: LaneDot[];
-    name: string;
-    meta: string;
-    // the task a click on the row lands on
+    // the task in play, which a click on the row lands on
     taskId: string;
+    name: string;
+    // what came before it in the lane, and for a lane not started yet what it waits on
+    hist: string;
+    state: LaneState;
+    text: string;
 }
 
 const FINISHED = new Set(["done", "skipped", "cancelled"]);
@@ -27,7 +30,32 @@ const FAILING = new Set(["stalled", "failed", "verify-failed", "blocked-merge", 
 // COMMIT_CHARS is how much of a landed commit's hash a line shows, as git's short form does.
 const COMMIT_CHARS = 7;
 
-function laneDot(task: TaskNode, digest: DagStatusDigest | undefined): LaneDot {
+function landedCommit(digest: DagStatusDigest | undefined, taskId: string): string | undefined {
+    return digest?.report?.commits?.find((c) => c.taskid === taskId)?.commit.slice(0, COMMIT_CHARS);
+}
+
+function outcome(task: TaskNode): string {
+    return task.merged ? "landed" : task.state;
+}
+
+// endedLine is the banner over a done task's transcript: what the task came to, and that its session is over.
+export function endedLine(task: TaskNode, digest: DagStatusDigest | undefined): string {
+    const name = task.label ? `${task.id} · ${task.label}` : task.id;
+    const commit = landedCommit(digest, task.id);
+    const result = task.merged ? (commit ? `landed on main as ${commit}` : "landed on main") : task.state;
+    return `${name} ${result} · session ended`;
+}
+
+function taskName(task: TaskNode): string {
+    return task.label ? `${task.id} · ${task.label}` : task.id;
+}
+
+function runningFor(task: TaskNode, now: number): string {
+    return task.firstactivity ? formatAgeShort(now - task.firstactivity) : task.state;
+}
+
+// segmentState is one task's slot in the Run section's progress bar.
+function segmentState(task: TaskNode, digest: DagStatusDigest | undefined): LaneState {
     if (task.state === "done") {
         return "done";
     }
@@ -40,60 +68,58 @@ function laneDot(task: TaskNode, digest: DagStatusDigest | undefined): LaneDot {
     if (FAILING.has(task.state)) {
         return "failed";
     }
-    return workerAsk(digest, task.id) ? "asking" : "working";
+    return workerAsk(digest, task.id)?.owner === "you" ? "asking" : "working";
 }
 
-function landedCommit(digest: DagStatusDigest | undefined, taskId: string): string | undefined {
-    return digest?.report?.commits?.find((c) => c.taskid === taskId)?.commit.slice(0, COMMIT_CHARS);
+// thenTask names the first task not started yet: what the run moves on to once whatever holds it is settled.
+export function thenTask(dag: TaskGroup | undefined): string | undefined {
+    const t = (dag?.tasks ?? []).find((x) => NOT_STARTED.has(x.state));
+    return t ? taskName(t) : undefined;
 }
 
-// endedLine is the banner over a done task's transcript: its session ended, and what the task landed.
-export function endedLine(task: TaskNode, digest: DagStatusDigest | undefined): string {
-    const outcome = task.merged ? ["landed", landedCommit(digest, task.id)].filter(Boolean).join(" ") : task.state;
-    return ["Session ended", outcome, "read-only transcript"].join(" · ");
+// runSegments is the Run section's progress bar: one slot per task, in plan order.
+export function runSegments(dag: TaskGroup | undefined, digest: DagStatusDigest | undefined): LaneState[] {
+    return (dag?.tasks ?? []).map((t) => segmentState(t, digest));
 }
 
-function taskName(task: TaskNode): string {
-    return task.label ? `${task.id} ${task.label}` : task.id;
+function laneRow(key: string, tasks: TaskNode[], byId: Map<string, TaskNode>, digest?: DagStatusDigest): LaneRow {
+    const i = tasks.findIndex((t) => !FINISHED.has(t.state));
+    const current = i === -1 ? tasks[tasks.length - 1] : tasks[i];
+    const row = { key, taskId: current.id, name: taskName(current) };
+    if (i === -1) {
+        const done = current.state === "done";
+        return {
+            ...row,
+            hist: landedCommit(digest, current.id) ?? "",
+            state: done ? "done" : "muted",
+            text: outcome(current),
+        };
+    }
+    const prior = i > 0 ? `${tasks[i - 1].id} ${outcome(tasks[i - 1])}` : "";
+    if (NOT_STARTED.has(current.state)) {
+        const waits = (current.deps ?? []).filter((d) => byId.get(d)?.state !== "done");
+        const hist = [prior, waits.length > 0 ? `waits on ${waits.join(", ")}` : ""].filter(Boolean).join(" · ");
+        return { ...row, hist, state: "pending", text: "queued" };
+    }
+    if (FAILING.has(current.state)) {
+        return { ...row, hist: prior, state: "failed", text: current.state };
+    }
+    const ask = workerAsk(digest, current.id);
+    if (ask?.owner === "lead") {
+        return { ...row, hist: prior, state: "lead", text: "→ lead" };
+    }
+    if (ask?.owner === "you") {
+        return { ...row, hist: prior, state: "asking", text: "asks you" };
+    }
+    return { ...row, hist: prior, state: "working", text: "working" };
 }
 
-function runningFor(task: TaskNode, now: number): string {
-    return task.firstactivity ? formatAgeShort(now - task.firstactivity) : task.state;
-}
-
-// laneRows is the Run section's lane list: one row per lane with a dot per task, the task in play and
-// what it is doing, a lane that has not started saying which lanes it waits on.
-export function laneRows(dag: TaskGroup | undefined, digest: DagStatusDigest | undefined, now: number): LaneRow[] {
+// laneRows is the Run section's lane list: one row per lane naming its task in play and where that task stands.
+export function laneRows(dag: TaskGroup | undefined, digest: DagStatusDigest | undefined): LaneRow[] {
     const byId = new Map((dag?.tasks ?? []).map((t) => [t.id, t] as const));
     return (digest?.lanes ?? []).flatMap((ids) => {
         const tasks = ids.map((id) => byId.get(id)).filter((t): t is TaskNode => t != null);
-        if (tasks.length === 0) {
-            return [];
-        }
-        const key = laneLabel(digest, ids[0])!;
-        const dots = tasks.map((t) => laneDot(t, digest));
-        if (tasks.every((t) => NOT_STARTED.has(t.state))) {
-            const unmet = (tasks[0].deps ?? []).filter((d) => byId.get(d)?.state !== "done");
-            const waits = [...new Set(unmet.map((d) => laneLabel(digest, d)).filter(Boolean))];
-            const meta = waits.length > 0 ? `waits ${waits.join(", ")}` : "queued";
-            return [{ key, dots, name: ids.join(", "), meta, taskId: ids[0] }];
-        }
-        const current = tasks.find((t) => !FINISHED.has(t.state));
-        if (current == null) {
-            const tip = tasks[tasks.length - 1];
-            return [
-                { key, dots, name: taskName(tip), meta: landedCommit(digest, tip.id) ?? tip.state, taskId: tip.id },
-            ];
-        }
-        const ask = workerAsk(digest, current.id);
-        const meta = ask
-            ? ask.owner === "lead"
-                ? "asks lead"
-                : "asks you"
-            : current.state === "running"
-              ? runningFor(current, now)
-              : current.state;
-        return [{ key, dots, name: taskName(current), meta, taskId: current.id }];
+        return tasks.length === 0 ? [] : [laneRow(laneLabel(digest, ids[0])!, tasks, byId, digest)];
     });
 }
 

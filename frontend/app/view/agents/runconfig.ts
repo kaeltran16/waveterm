@@ -32,10 +32,10 @@ export interface ShapeCard {
     desc: string;
 }
 
-// The descriptions say what the machine does, not what the word means. There are two shapes to start.
+// The descriptions say what the machine does, not what the word means, in the design's words (design L1702).
 export const SHAPE_CARDS: ShapeCard[] = [
-    { id: "orchestrator", desc: "A lead and the engine: from a goal you shape together, or from your plan file." },
-    { id: "quick", desc: "One worker, no lead, no plan. It stops and asks if the goal turns out bigger." },
+    { id: "orchestrator", desc: "lead plans, workers fan out" },
+    { id: "quick", desc: "one agent, one goal" },
 ];
 
 export function clampParallelism(n: number): number {

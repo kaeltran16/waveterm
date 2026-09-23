@@ -409,15 +409,10 @@ const surfaceSmoke = {
 // steps 1-3 and 6 walk the seeded, empty and stale states on the live surface.
 
 // --- brief surface: the Brief is the Jarvis surface ----------------------------------------------
-// The Brief replaces two of the three panes at once, so it lives behind a dev-only composition toggle
-// until the retirement step. Two things are worth a scenario. First, that the toggle actually isolates:
-// three-pane must still be the default and must still emit the region every other jarvis-* scenario
-// selects against, or this work silently breaks fourteen of them. Second, that the Brief's queue row
-// offers no control it cannot honour — the row's action is named, not offered, because the run body
-// that resolves a gate is not reachable from the Brief yet, and a bordered chip there reads as a button.
-//
-// composition is persisted, so teardown restores it; a leaked "brief" would strand every later scenario
-// on a surface that emits none of the selectors they use.
+// B5 retired the three-pane composition, so the Brief is the whole surface. Against the briefing fixtures
+// this walks its four regions, the compact Waiting summary and the queue rows it reveals (each opens what
+// it names and carries the design's one action), the j/k cursor, an initiative expanding in place, and
+// a blocked chunk opening its initiative's sheet.
 
 const briefSurface = {
     name: "brief-surface",
@@ -483,22 +478,24 @@ const briefSurface = {
         });
 
         // Review reveals the existing actionable rows; the disclosure changes presentation, not where a
-        // decision lands.
+        // decision lands. A row opens what it names, and carries the design's one action (Approve, Open,
+        // Retry) as its only control.
         await h.ev(`document.querySelector('[data-jarvis-brief-attention-summary]')?.click()`);
         await h.ev("new Promise((r) => setTimeout(r, 300))");
         const q = await h.ev(`(() => {
             const summary = document.querySelector('[data-jarvis-brief-attention-summary]');
             const rows = [...document.querySelectorAll('[data-jarvis-brief-row="queue"]')];
+            const controls = (r) => r.querySelectorAll('button, a, input, select, textarea');
             return {
                 expanded: summary?.getAttribute('aria-expanded') ?? null,
                 rows: rows.length,
-                openable: rows.filter((r) => r.tagName === 'BUTTON').length,
-                nested: rows.reduce((n, r) => n + r.querySelectorAll('button, a, input, select, textarea').length, 0),
+                openable: rows.filter((r) => r.classList.contains('cursor-pointer')).length,
+                oneAction: rows.filter((r) => controls(r).length === 1 && r.querySelector('[data-jarvis-queue-act]')).length,
             };
         })()`);
         steps.push({
-            step: "4. Review reveals queue rows that open what they name",
-            ok: q.expanded === "true" && q.rows > 0 && q.openable === q.rows && q.nested === 0,
+            step: "4. Review reveals queue rows that open what they name, each with its one action",
+            ok: q.expanded === "true" && q.rows > 0 && q.openable === q.rows && q.oneAction === q.rows,
             detail: JSON.stringify(q),
         });
 
@@ -552,36 +549,35 @@ const briefSurface = {
             detail: JSON.stringify(trail.map((t) => (t == null ? null : `${t.row}/${t.text}`))),
         });
 
-        // An initiative row is one line, and a click opens the initiative's own sheet, where the notes, the
-        // plan and every write live. A row nesting no control of its own is the point: the row is the one
-        // affordance. The fixture's efforts are fabricated, so what the sheet can prove here is the other
-        // half of the contract: it says the detail could not be fetched and offers a retry, rather than
-        // sitting on a skeleton or drawing an empty initiative.
+        // An initiative row is one line, and a click expands its plan in place (cd1a9ce4): it has no sheet to
+        // open any more. A row nesting no control of its own is the point: the row is the one affordance.
+        // The expansion and the sheet are module state, so whatever a previous run left open is closed first.
+        await h.ev(`[...document.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === 'Close detail sheet')?.click()`);
+        await h.ev(`document.querySelector('[data-jarvis-brief-row="initiative"][aria-expanded="true"]')?.click()`);
+        await h.ev("new Promise((r) => setTimeout(r, 300))");
         await h.ev(`document.querySelector('[data-jarvis-brief-row="initiative"]')?.click()`);
         await h.ev("new Promise((r) => setTimeout(r, 900))");
         const card = await h.ev(`(() => {
             const rows = [...document.querySelectorAll('[data-jarvis-brief-row="initiative"]')];
-            const sheet = document.querySelector('[data-jarvis-brief-sheet]');
-            const txt = (e) => (e?.innerText || "").replace(/\\s+/g, " ").trim();
             return {
                 rows: rows.length,
-                buttons: rows.filter((r) => r.tagName === 'BUTTON').length,
+                buttons: rows.filter((r) => r.getAttribute('role') === 'button').length,
                 nested: rows.reduce((n, r) => n + r.querySelectorAll('button, a, input, select, textarea').length, 0),
-                face: sheet ? sheet.dataset.jarvisBriefSheet : null,
-                body: txt(sheet).slice(0, 160),
+                expanded: rows[0]?.getAttribute('aria-expanded') ?? null,
+                sheet: !!document.querySelector('[data-jarvis-brief-sheet]'),
             };
         })()`);
         steps.push({
-            step: "7. an initiative row is one line that opens the initiative's sheet",
+            step: "7. an initiative row is one line that expands in place and opens no sheet",
             ok:
                 card.rows > 0 &&
                 card.buttons === card.rows &&
                 card.nested === 0 &&
-                card.face === "effort" &&
-                /retry/i.test(card.body ?? ""),
+                card.expanded === "true" &&
+                card.sheet === false,
             detail: JSON.stringify(card),
         });
-        await h.ev(`[...document.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === 'Close detail sheet')?.click()`);
+        await h.ev(`document.querySelector('[data-jarvis-brief-row="initiative"][aria-expanded="true"]')?.click()`);
         await h.ev("new Promise((r) => setTimeout(r, 300))");
 
         // The sideways arm into the effort sheet is still the one a blocked chunk takes, and it is still
@@ -606,8 +602,8 @@ const briefSurface = {
 
         // F8: the row states what it is waiting on and what it belongs to, on its one line. The "attention"
         // fixture is the one that carries wire attention items; "normal" has none, so the queue there is only
-        // blocked chunks, which carry no attribution by design. The row itself is the button (step 4), so it
-        // nests no control of its own. A one-line row has no room for cites, so it no longer draws them.
+        // blocked chunks, which carry no attribution by design. The row itself opens (step 4), so its one
+        // nested control is its action. A one-line row has no room for cites, so it no longer draws them.
         await h.ev(`document.querySelector('[data-briefing-fixture="attention"]')?.click()`);
         await h.ev("new Promise((r) => setTimeout(r, 600))");
         const ctx = await h.ev(`(() => {
@@ -615,7 +611,9 @@ const briefSurface = {
             const txt = (e) => (e.innerText || "").replace(/\\s+/g, " ").trim();
             return {
                 rows: rows.length,
-                nested: rows.reduce((n, r) => n + r.querySelectorAll('button, a, input, select, textarea').length, 0),
+                oneAction: rows.filter(
+                    (r) => r.querySelectorAll('button, a, input, select, textarea').length === 1 && r.querySelector('[data-jarvis-queue-act]')
+                ).length,
                 first: rows.length ? txt(rows[0]) : null,
             };
         })()`);
@@ -623,7 +621,7 @@ const briefSurface = {
             step: "9. a queue row names its initiative and why it is waiting, on one line",
             ok:
                 ctx.rows >= 3 &&
-                ctx.nested === 0 &&
+                ctx.oneAction === ctx.rows &&
                 // the effort title is joined on the frontend from the efforts already on the surface,
                 // so a raw oid here would mean the join silently failed
                 (ctx.first ?? "").includes("Scenario gate clearance \u00b7 Phase 3") &&
@@ -4637,6 +4635,203 @@ const briefInlineTracker = {
     },
 };
 
+// --- brief-design-parity: the Brief drawn to its handoff design ----------------------------------
+// The structural half of the parity review against docs/prototype/jarvis-brief-editing.dc.html
+// (variant A); the visual half is cdp-shots/design/ (scripts/cdp/design-states.mjs) beside these shots.
+// Runs against the design's data: seed it first with `node scripts/cdp/seed-brief.mjs`.
+const PARITY_INITIATIVE = "Scenario gate clearance";
+const PARITY_CHUNK = "N1 box upgrade";
+const parityNap = (h, ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
+
+const briefDesignParity = {
+    name: "brief-design-parity",
+    surface: "jarvis",
+    async arrange(h) {
+        const { efforts = [] } = (await h.rpc("effortlist", {})) ?? {};
+        if (!efforts.some((e) => e.title === PARITY_INITIATIVE)) {
+            throw new Error(`no "${PARITY_INITIATIVE}" initiative - run node scripts/cdp/seed-brief.mjs first`);
+        }
+        return {};
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        await h.goto("jarvis");
+        // a briefing fixture another scenario left on hides the live data, and only a reload clears it
+        const fixtureOn = await h.ev(
+            `[...document.querySelectorAll('[data-briefing-fixture]')].some((b) => b.className.includes('bg-accentbg'))`
+        );
+        if (fixtureOn) {
+            try {
+                await h.ev("location.reload()");
+            } catch {
+                /* the evaluate is cut off by the navigation it just started */
+            }
+            for (let waited = 0; waited < 30000; waited += 500) {
+                const up = await h.ev("!!window.TabRpcClient && !!document.querySelector('nav button')").catch(() => false);
+                if (up) break;
+                await new Promise((r) => setTimeout(r, 500));
+            }
+            await h.goto("jarvis");
+        }
+        // a cold dev app draws the regions as empty skeletons first; wait for the seeded initiative's row
+        for (let waited = 0; waited < 15000; waited += 500) {
+            const up = await h.ev(
+                `[...document.querySelectorAll('[data-jarvis-brief-row="initiative"]')].some((r) => r.innerText.includes(${JSON.stringify(PARITY_INITIATIVE)}))`
+            );
+            if (up) break;
+            await parityNap(h, 500);
+        }
+        await parityNap(h, 900);
+
+        // (a) the four region labels, as rendered (uppercase comes from CSS, which innerText applies).
+        // a region's head is its first child: a button for waiting/initiatives, the button beside the kind
+        // filter for runs, a div for behind; the label is its first span with text
+        const labels = await h.ev(`[...document.querySelectorAll('section[data-jarvis-brief-region]')].map((s) =>
+            [...s.querySelectorAll(':scope > :first-child span')].map((x) => x.innerText.trim()).find((t) => t !== '') ?? null)`);
+        await h.shot("cdp-shots/brief-design-parity-a-regions.png");
+        steps.push({
+            step: "a. the region labels read WAITING ON YOU, INITIATIVES, RUNS, BEHIND YOU",
+            ok: JSON.stringify(labels) === JSON.stringify(["WAITING ON YOU", "INITIATIVES", "RUNS", "BEHIND YOU"]),
+            detail: JSON.stringify(labels),
+        });
+
+        // (b) header order, by document position inside the header
+        const order = await h.ev(`(() => {
+            const header = document.querySelector('[data-jarvis-region="brief"] > header');
+            if (!header) return null;
+            const all = [...header.querySelectorAll('*')];
+            const at = (sel) => all.indexOf(header.querySelector(sel));
+            return {
+                fleet: at('[data-jarvis-brief-band="fleet"]'),
+                filter: at('[data-jarvis-brief-filter]'),
+                tier: at('[data-jarvis-autonomy="chip"]'),
+                profile: at('[data-jarvis-brief-profile]'),
+                initiative: at('[data-jarvis-new-initiative]'),
+                run: at('[data-jarvis-new-run]'),
+            };
+        })()`);
+        const seq = order ? [order.fleet, order.filter, order.tier, order.profile, order.initiative, order.run] : [];
+        await h.shot("cdp-shots/brief-design-parity-b-header.png");
+        steps.push({
+            step: "b. the header runs fleet line, filter, tier, Profile, + Initiative, + Run",
+            ok: seq.length === 6 && seq.every((i, n) => i >= 0 && (n === 0 || i > seq[n - 1])),
+            detail: JSON.stringify(order),
+        });
+
+        // (c) the expanded initiative: the row head carries the fraction, next chunk and blocked count, so the
+        // plan beneath does not repeat them; its stages carry n/m fractions
+        const ROW = `[...document.querySelectorAll('[data-jarvis-brief-row="initiative"]')].find((r) => r.innerText.includes(${JSON.stringify(PARITY_INITIATIVE)}))`;
+        const DETAIL = `${ROW}?.parentElement?.querySelector('[data-jarvis-initiative-detail="true"]')`;
+        ctx.wasExpanded = (await h.ev(`${ROW}?.getAttribute('aria-expanded') ?? null`)) === "true";
+        if (!ctx.wasExpanded) await h.ev(`${ROW}?.click()`);
+        for (let waited = 0; waited < 3000 && !(await h.ev(`!!${DETAIL}`)); waited += 250) await parityNap(h, 250);
+        const card = await h.ev(`(() => {
+            const d = ${DETAIL};
+            if (!d) return null;
+            const text = d.innerText.replace(/\\s+/g, " ");
+            const head = (${ROW}?.innerText ?? "").replace(/\\s+/g, " ");
+            return {
+                head: /2\\/6/.test(head) && /— N1 box upgrade/.test(head) && /1 blocked/.test(head),
+                repeated: /of 6 done|Next:/.test(text),
+                // a stage head's direct spans are the empty bar, then the fraction
+                fractions: [...d.querySelectorAll('[data-jarvis-tracker-stage]')].map((s) =>
+                    [...s.querySelectorAll(':scope > span')].map((x) => x.innerText.trim()).find((t) => t !== "") ?? null),
+                footerId: d.querySelector('button[title="copy this initiative\\'s id"]')?.innerText.trim() ?? null,
+            };
+        })()`);
+        await h.shot("cdp-shots/brief-design-parity-c-initiative.png");
+        steps.push({
+            step: `c. "${PARITY_INITIATIVE}" heads with 2/6, N1 box upgrade and 1 blocked, unrepeated below, with n/m stage fractions`,
+            ok:
+                card != null &&
+                card.head &&
+                !card.repeated &&
+                card.fractions.length > 0 &&
+                card.fractions.every((f) => typeof f === "string" && /^\d+\/\d+$/.test(f)),
+            detail: JSON.stringify(card),
+        });
+
+        // (d) the footer id is the short oid
+        await h.shot("cdp-shots/brief-design-parity-d-footer.png");
+        steps.push({
+            step: "d. the initiative footer shows an 8-character id",
+            ok: typeof card?.footerId === "string" && /^[0-9a-f]{8}$/.test(card.footerId),
+            detail: String(card?.footerId),
+        });
+
+        // (e) a Runs row carries its type badge
+        const badges = await h.ev(`[...document.querySelectorAll('[data-jarvis-brief-row="session"]')]
+            .map((r) => r.querySelector(':scope > div > div > span')?.innerText.trim() ?? null)`);
+        await h.shot("cdp-shots/brief-design-parity-e-runs.png");
+        steps.push(
+            badges.length > 0
+                ? {
+                      step: "e. a Runs row leads with a quick run / orchestrator / agent badge",
+                      ok: badges.every((b) => ["quick run", "orchestrator", "agent"].includes(b)),
+                      detail: JSON.stringify(badges),
+                  }
+                : skipStep(
+                      "e. a Runs row leads with a quick run / orchestrator / agent badge",
+                      "no run in this dev store - start any quick run (+ Run) and rerun"
+                  )
+        );
+
+        // (f) Behind you's meta names the window it covers
+        const behindMeta = await h.ev(
+            `document.querySelector('section[data-jarvis-brief-region="behind"] > div:first-child > span:last-of-type')?.innerText.trim() ?? null`
+        );
+        await h.shot("cdp-shots/brief-design-parity-f-behind.png");
+        steps.push({
+            step: "f. Behind you's meta reads since … or the last 7 days",
+            ok: typeof behindMeta === "string" && /^since |^the last 7 days$/.test(behindMeta),
+            detail: String(behindMeta),
+        });
+
+        // (g) the Chunk sidebar's position
+        await h.ev(`${DETAIL}?.querySelector('[data-jarvis-tracker-chunk="' + CSS.escape(${JSON.stringify(PARITY_CHUNK)}) + '"]')?.click()`);
+        await parityNap(h, 500);
+        const position = await h.ev(
+            `document.querySelector('[data-jarvis-chunk-sidebar]')?.querySelector(':scope > div > span:nth-of-type(2)')?.innerText.trim() ?? null`
+        );
+        await h.shot("cdp-shots/brief-design-parity-g-sidebar.png");
+        steps.push({
+            step: "g. the Chunk sidebar shows its position as n / total",
+            ok: typeof position === "string" && /^\d+ \/ \d+$/.test(position),
+            detail: String(position),
+        });
+
+        // (h) the Runs kind filter narrows Runs to one badge, then all brings every row back
+        const KIND = (k) => `[...document.querySelectorAll('[data-jarvis-run-kind] button')].find((b) => b.innerText.trim() === '${k}')`;
+        const runBadges = `[...document.querySelectorAll('[data-jarvis-brief-row="session"]')].map((r) => r.querySelector(':scope > div > div > span')?.innerText.trim() ?? null)`;
+        const before = await h.ev(runBadges);
+        await h.ev(`${KIND("orchestrator")}?.click()`);
+        await parityNap(h, 700);
+        const orchOnly = await h.ev(runBadges);
+        await h.shot("cdp-shots/brief-design-parity-h-runkind.png");
+        await h.ev(`${KIND("all")}?.click()`);
+        await parityNap(h, 700);
+        const after = await h.ev(runBadges);
+        steps.push({
+            step: "h. the orchestrator filter leaves only orchestrator runs, and all restores the list",
+            ok: orchOnly.every((b) => b === "orchestrator") && after.length === before.length,
+            detail: JSON.stringify({ before: before.length, orchOnly, after: after.length }),
+        });
+
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await h.ev(
+            `[...(document.querySelector('[data-jarvis-chunk-sidebar]')?.querySelectorAll('button') ?? [])].find((b) => b.innerText.trim() === 'Close')?.click()`
+        );
+        if (ctx.wasExpanded === false) {
+            await h.ev(
+                `[...document.querySelectorAll('[data-jarvis-brief-row="initiative"][aria-expanded="true"]')].find((r) => r.innerText.includes(${JSON.stringify(PARITY_INITIATIVE)}))?.click()`
+            );
+        }
+        await h.goto("cockpit");
+    },
+};
+
 const jarvisMotion = {
     name: "jarvis-motion",
     surface: "jarvis",
@@ -5406,6 +5601,8 @@ export const SCENARIOS = [
     dagLifecycle,
     routePickerFlat,
     jarvisMotion,
+    // before brief-inline-tracker, which leaves a briefing fixture on over the seeded data
+    briefDesignParity,
     briefInlineTracker,
     resourceLinking,
     uiApi,

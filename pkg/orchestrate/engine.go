@@ -492,7 +492,10 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		spawnStart := time.Now()
 		// the worker block is stamped with its run before the run row exists, so the id is minted here
 		runID := uuid.NewString()
-		oref, err := spawnWorker(spawnCtx, capability, owner.WorkspaceId, "", cwd, prompt, jarvis.RunWorkerOptions{SessionId: sessionId, RunId: runID, TaskId: taskID})
+		// named after its task: a prompt too long for a command line moves to a file, and the ai-title of the
+		// pointer to it names every such worker the same
+		oref, err := spawnWorker(spawnCtx, capability, owner.WorkspaceId, "", cwd, prompt,
+			jarvis.RunWorkerOptions{SessionId: sessionId, RunId: runID, TaskId: taskID, Label: task.Label})
 		spawnMs := time.Since(spawnStart).Milliseconds()
 		if err != nil {
 			failDispatch(ctx, g, taskID, FailureKindSpawn, err, &afterCommit)

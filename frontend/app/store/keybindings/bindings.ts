@@ -544,8 +544,8 @@ export function buildJarvisBindings(): Binding[] {
         when: (ctx) =>
             onJarvis(ctx) && globalStore.get(noteChunkAtom) != null && globalStore.get(trackerMenuAtom) == null,
         run: () => {
-            if (globalStore.get(readingNoteAtom) != null) {
-                globalStore.set(readingNoteAtom, null);
+            if (globalStore.get(readingNoteAtom).size > 0) {
+                globalStore.set(readingNoteAtom, new Set());
                 return;
             }
             globalStore.set(noteChunkAtom, null);

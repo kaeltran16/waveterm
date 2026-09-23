@@ -34,6 +34,9 @@ export type FeedEntry = {
     // key editNote/removeNote take. Absent means read-only.
     noteAt?: number;
     edited?: boolean;
+    author?: string;
+    session?: string;
+    run?: string;
 };
 
 type LocatedNote = EffortNote & { chunk: EffortChunk; at: number };
@@ -96,6 +99,10 @@ export function effortFeed(effort: Effort): FeedEntry[] {
                               : "",
                 text: m != null ? (m[2] ?? "") : (ev.text ?? ""),
                 ...(ev.kind === "effort-note" && note != null ? { noteAt: note.at, edited: note.edited === true } : {}),
+                // only what the note carries: a legacy note has no author and reads that way
+                ...(note?.author ? { author: note.author } : {}),
+                ...(note?.session ? { session: note.session } : {}),
+                ...(note?.run ? { run: note.run } : {}),
             },
         ];
     });

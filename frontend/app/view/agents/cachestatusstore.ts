@@ -19,9 +19,17 @@ export const agentCacheStatusAtom = atom<CacheStatus | null>(null) as PrimitiveA
 
 const current = { id: "" };
 
-export async function loadCacheStatusForAgent(id: string, transcriptPath: string | undefined): Promise<void> {
+// silent: a periodic refresh of the same agent — keep the last status on screen while in flight and on
+// failure, so the countdown doesn't blink out every poll.
+export async function loadCacheStatusForAgent(
+    id: string,
+    transcriptPath: string | undefined,
+    opts?: { silent?: boolean }
+): Promise<void> {
     current.id = id;
-    globalStore.set(agentCacheStatusAtom, null);
+    if (!opts?.silent) {
+        globalStore.set(agentCacheStatusAtom, null);
+    }
     if (!transcriptPath) {
         return;
     }
@@ -32,7 +40,7 @@ export async function loadCacheStatusForAgent(id: string, transcriptPath: string
         }
         globalStore.set(agentCacheStatusAtom, rtn.lastwritets ? { lastWriteTs: rtn.lastwritets, oneHour: !!rtn.onehour } : null);
     } catch {
-        if (current.id === id) {
+        if (current.id === id && !opts?.silent) {
             globalStore.set(agentCacheStatusAtom, null);
         }
     }

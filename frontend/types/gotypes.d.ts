@@ -51,6 +51,7 @@ declare global {
         ts: number;
         navtarget?: string;
         workerorefs?: string[];
+        mode?: string;
     };
 
     // baseds.AgentAnswerItem
@@ -190,6 +191,8 @@ declare global {
         action: string;
         phaseidx: number;
         waitingsince: number;
+        taskid?: string;
+        retry?: boolean;
         oref?: string;
         effortoid?: string;
         chunklabel?: string;
@@ -761,6 +764,8 @@ declare global {
         effortoid: string;
         ops: EffortOp[];
         note?: string;
+        author?: string;
+        sourceblock?: string;
     };
 
     // wshrpc.CommandEffortMutateRtnData
@@ -2027,6 +2032,9 @@ declare global {
         ts: number;
         text: string;
         edited?: boolean;
+        author?: string;
+        session?: string;
+        run?: string;
     };
 
     // wshrpc.EffortOp
@@ -3024,6 +3032,10 @@ declare global {
         files?: EvidenceFile[];
         verifs?: EvidenceVerif[];
         completedts: number;
+        hasreport?: boolean;
+        effortoid?: string;
+        chunklabel?: string;
+        mode?: string;
     };
 
     // wshrpc.SourceHealth

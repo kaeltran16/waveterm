@@ -38,7 +38,7 @@ import {
     workerRouteAtom,
 } from "./runconfigstore";
 
-export const EYEBROW = "font-mono text-[9px] font-bold uppercase tracking-[.12em] text-muted";
+export const EYEBROW = "font-mono text-[10.5px] font-bold uppercase tracking-[.09em] text-ink-mid";
 
 // One selectable card treatment for both pickers, so the shape and the start read as the same kind of
 // choice. Tokens only — a literal colour here would opt the launcher out of every runtime theme.
@@ -58,12 +58,14 @@ function Section({ label, children }: { label: string; children: React.ReactNode
 }
 
 // Side by side rather than stacked: the two shapes are alternatives to one another, and a column made
-// the reader compare them in sequence instead of at a glance.
-function ShapeCards() {
+// the reader compare them in sequence instead of at a glance. The width sits on the same line (design
+// L869-883) because it only exists for the orchestrator shape it is next to.
+function ShapeCards({ showParallelism }: { showParallelism: boolean }) {
     const shape = useAtomValue(runShapeAtom);
+    const par = useAtomValue(parallelismAtom);
     return (
         <Section label="Shape">
-            <div className="grid grid-cols-2 gap-2">
+            <div className="flex items-center gap-1.5">
                 {SHAPE_CARDS.map((card) => (
                     <button
                         key={card.id}
@@ -71,14 +73,20 @@ function ShapeCards() {
                         aria-pressed={shape === card.id}
                         onClick={() => setRunShape(card.id)}
                         className={cn(
-                            "flex cursor-pointer flex-col gap-1 rounded-[9px] border px-3 py-2.5 text-left",
+                            "flex cursor-pointer flex-col items-start gap-0.5 rounded-[7px] border px-[11px] py-[7px] text-left",
                             pickTone(shape === card.id)
                         )}
                     >
-                        <span className="font-mono text-[12px] font-semibold capitalize">{card.id}</span>
-                        <span className="text-[11px] leading-[1.45] text-muted">{card.desc}</span>
+                        <span className="text-[12px] font-semibold">{card.id}</span>
+                        <span className="text-[10.5px] text-ink-mid">{card.desc}</span>
                     </button>
                 ))}
+                {showParallelism ? (
+                    <div className="ml-auto flex items-center gap-1.5">
+                        <span className="font-mono text-[10.5px] text-ink-mid">workers</span>
+                        <WorkerStepper value={par} onStep={stepParallelism} />
+                    </div>
+                ) : null}
             </div>
         </Section>
     );
@@ -183,37 +191,45 @@ function PlanPathField() {
     );
 }
 
-// The width dial. It sits with the plan rather than in a settings panel because it is the one control
-// whose cost the user pays directly: N concurrent children are N live worktrees and N token streams.
-function ParallelismStepper() {
-    const par = useAtomValue(parallelismAtom);
+const STEP_BTN =
+    "h-6 w-6 cursor-pointer rounded-[6px] border border-edge-mid bg-background text-secondary hover:border-edge-strong disabled:cursor-default disabled:opacity-40";
+
+// The width dial, shared with the Profile's "Parallel workers" row. It is the one control whose cost the
+// user pays directly: N concurrent children are N live worktrees and N token streams. A null value is a
+// profile that leaves the width to the lead.
+export function WorkerStepper({
+    value,
+    onStep,
+    disabled = false,
+}: {
+    value: number | null;
+    onStep: (delta: number) => void;
+    disabled?: boolean;
+}) {
     return (
-        <Section label="Parallelism">
-            <div className="flex items-center gap-2.5 self-start rounded-[8px] border border-edge-mid bg-surface-raised px-2.5 py-1.5">
-                <button
-                    type="button"
-                    onClick={() => stepParallelism(-1)}
-                    disabled={par <= 1}
-                    aria-label="Fewer concurrent children"
-                    className="h-6 w-6 cursor-pointer rounded-[6px] border border-edge-mid font-mono text-[13px] font-semibold text-secondary hover:text-primary disabled:cursor-default disabled:opacity-40"
-                >
-                    −
-                </button>
-                <span aria-live="polite" className="w-[18px] text-center font-mono text-[14px] font-bold text-primary">
-                    {par}
-                </span>
-                <button
-                    type="button"
-                    onClick={() => stepParallelism(1)}
-                    disabled={par >= MAX_PARALLELISM}
-                    aria-label="More concurrent children"
-                    className="h-6 w-6 cursor-pointer rounded-[6px] border border-edge-mid font-mono text-[13px] font-semibold text-secondary hover:text-primary disabled:cursor-default disabled:opacity-40"
-                >
-                    ＋
-                </button>
-                <span className="text-[11px] leading-[1.35] text-muted">concurrent children</span>
-            </div>
-        </Section>
+        <>
+            <button
+                type="button"
+                onClick={() => onStep(-1)}
+                disabled={disabled || (value != null && value <= 1)}
+                aria-label="Fewer concurrent workers"
+                className={STEP_BTN}
+            >
+                −
+            </button>
+            <span aria-live="polite" className="w-4 text-center font-mono text-[12px] text-primary">
+                {value ?? "–"}
+            </span>
+            <button
+                type="button"
+                onClick={() => onStep(1)}
+                disabled={disabled || (value != null && value >= MAX_PARALLELISM)}
+                aria-label="More concurrent workers"
+                className={STEP_BTN}
+            >
+                +
+            </button>
+        </>
     );
 }
 
@@ -254,9 +270,8 @@ export function RunLauncherSections() {
     const face = runLauncherFace(shape);
     return (
         <>
-            <ShapeCards />
+            <ShapeCards showParallelism={face.showParallelism} />
             {face.showStart ? <StartSection /> : null}
-            {face.showParallelism ? <ParallelismStepper /> : null}
             <RoutingSection showWorkerRoute={face.showWorkerRoute} />
         </>
     );

@@ -24,27 +24,31 @@ type PrinciplesEditorProps = {
     disabled?: boolean;
 };
 
-const badgeBase = "rounded-[4px] px-1.5 py-px font-mono text-[9px] font-semibold uppercase tracking-[.08em]";
-const accentBtn = "text-[10px] text-accent-soft hover:text-accent";
-const mutedBtn = "text-[10px] text-muted hover:text-secondary";
-const dangerBtn = "text-[10px] text-muted hover:text-error";
-const editBox =
-    "mt-1 w-full rounded border border-edge-mid bg-background p-2 text-[11.5px] leading-[1.5] text-primary placeholder:text-muted focus:outline-none";
+// the design's principle cards (design L932-957)
+export const PRINCIPLE_CARD = "rounded-[7px] border border-edge-mid bg-surface px-2.5 py-2";
+export const PRINCIPLE_EDIT_BOX =
+    "mt-[5px] w-full resize-none rounded-[6px] border border-edge-mid bg-background px-2 py-1.5 text-[12px] leading-[1.5] text-primary placeholder:text-muted outline-none focus:border-accent/60";
+export const PRINCIPLE_ADD_BTN =
+    "cursor-pointer rounded-[7px] border border-dashed border-edge-mid p-1.5 text-[11.5px] text-ink-mid hover:border-edge-strong hover:text-secondary";
+export const PRINCIPLE_DELETE_BTN = "cursor-pointer text-[10.5px] text-ink-mid hover:text-error";
+const badgeBase = "rounded-[4px] border px-1.5 py-px font-mono text-[10.5px] font-semibold uppercase tracking-[.08em]";
+const accentBtn = "cursor-pointer text-[10.5px] text-accent-soft hover:text-accent";
+const mutedBtn = "cursor-pointer text-[10.5px] text-ink-mid hover:text-secondary";
 
 function RowBadge({ kind }: { kind: "global" | "modified" | "project" }) {
     const tone =
         kind === "global"
-            ? "border border-edge-mid text-muted"
+            ? "border-edge-mid text-ink-mid"
             : kind === "modified"
-              ? "bg-warning/10 text-warning"
-              : "bg-accentbg/50 text-accent-soft";
+              ? "border-transparent bg-asking/10 text-asking"
+              : "border-transparent bg-accent/8 text-accent-soft";
     return <span className={`${badgeBase} ${tone}`}>{kind}</span>;
 }
 
 function ActiveRow({ row, dispatch }: { row: PrincipleRow; dispatch: (a: PrinciplePatchAction) => void }) {
     if (row.kind === "inherited") {
         return (
-            <div className="rounded border border-edge-mid bg-surface p-2">
+            <div className={PRINCIPLE_CARD}>
                 <div className="flex items-center gap-2">
                     <RowBadge kind="global" />
                     <div className="flex-1" />
@@ -59,13 +63,13 @@ function ActiveRow({ row, dispatch }: { row: PrincipleRow; dispatch: (a: Princip
                         disable
                     </button>
                 </div>
-                <div className="mt-1 text-[11.5px] leading-[1.5] text-secondary">{row.text}</div>
+                <div className="mt-[5px] text-[12px] leading-[1.5] text-secondary">{row.text}</div>
             </div>
         );
     }
     if (row.kind === "modified") {
         return (
-            <div className="rounded border border-edge-mid bg-surface p-2">
+            <div className={PRINCIPLE_CARD}>
                 <div className="flex items-center gap-2">
                     <RowBadge kind="modified" />
                     <div className="flex-1" />
@@ -77,22 +81,25 @@ function ActiveRow({ row, dispatch }: { row: PrincipleRow; dispatch: (a: Princip
                     value={row.text}
                     onChange={(e) => dispatch({ type: "override", id: row.id, text: e.target.value })}
                     rows={2}
-                    className={editBox}
+                    className={PRINCIPLE_EDIT_BOX}
                 />
-                <details className="mt-1">
-                    <summary className="cursor-pointer text-[10px] text-muted hover:text-secondary">original</summary>
-                    <div className="mt-1 whitespace-pre-wrap text-[10.5px] leading-[1.4] text-muted">{row.originalText}</div>
-                </details>
+                <div className="mt-1 whitespace-pre-wrap text-[10.5px] leading-[1.4] text-ink-mid">
+                    original · {row.originalText}
+                </div>
             </div>
         );
     }
     // project addition
     return (
-        <div className="rounded border border-edge-mid bg-surface p-2">
+        <div className={PRINCIPLE_CARD}>
             <div className="flex items-center gap-2">
                 <RowBadge kind="project" />
                 <div className="flex-1" />
-                <button type="button" onClick={() => dispatch({ type: "delete-addition", id: row.id })} className={dangerBtn}>
+                <button
+                    type="button"
+                    onClick={() => dispatch({ type: "delete-addition", id: row.id })}
+                    className={PRINCIPLE_DELETE_BTN}
+                >
                     delete
                 </button>
             </div>
@@ -101,7 +108,7 @@ function ActiveRow({ row, dispatch }: { row: PrincipleRow; dispatch: (a: Princip
                 onChange={(e) => dispatch({ type: "update-addition", id: row.id, text: e.target.value })}
                 rows={2}
                 placeholder="Project principle…"
-                className={editBox}
+                className={PRINCIPLE_EDIT_BOX}
             />
         </div>
     );
@@ -130,19 +137,17 @@ export function PrinciplesEditor({
             <button
                 type="button"
                 onClick={() => dispatch({ type: "add", principle: { id: `project-${crypto.randomUUID()}`, text: "" } })}
-                className="rounded-[7px] border border-dashed border-edge-mid py-1 text-[11px] text-muted hover:text-secondary"
+                className={PRINCIPLE_ADD_BTN}
             >
                 + add principle
             </button>
             {disabledRows.length > 0 ? (
-                <details className="rounded border border-edge-mid bg-surface">
-                    <summary className="cursor-pointer px-2 py-1 text-[11px] text-secondary">
-                        Disabled · {disabledRows.length}
-                    </summary>
-                    <div className="flex flex-col gap-1 px-2 pb-2">
+                <div className="rounded-[7px] border border-edge-mid bg-surface px-2.5 py-[7px]">
+                    <div className="text-[11px] text-secondary">Disabled · {disabledRows.length}</div>
+                    <div className="flex flex-col">
                         {disabledRows.map((row) => (
-                            <div key={row.id} className="flex items-center gap-2">
-                                <span className="flex-1 text-[11px] text-muted line-through">{row.text}</span>
+                            <div key={row.id} className="mt-[5px] flex items-center gap-2">
+                                <span className="flex-1 text-[11.5px] text-ink-mid line-through">{row.text}</span>
                                 <button
                                     type="button"
                                     onClick={() => dispatch({ type: "reenable", id: row.id })}
@@ -153,7 +158,7 @@ export function PrinciplesEditor({
                             </div>
                         ))}
                     </div>
-                </details>
+                </div>
             ) : null}
             {stale.map((row) => (
                 <div key={row.id} className="flex items-start gap-2 rounded border border-warning/40 bg-warning/10 p-2">
@@ -169,7 +174,7 @@ export function PrinciplesEditor({
                                     : { type: "reset", id: row.id }
                             )
                         }
-                        className={dangerBtn}
+                        className={PRINCIPLE_DELETE_BTN}
                     >
                         remove
                     </button>

@@ -6,18 +6,41 @@
 // Past the container breakpoint it floats over the index instead of compressing it (a container query:
 // the Brief is the whole surface, the window is not).
 
+import type { AgentsViewModel } from "@/app/view/agents/agents";
+import { runAtom } from "@/app/view/agents/channelsstore";
 import { cn } from "@/util/util";
+import { atom, useAtomValue, type Atom } from "jotai";
 import { useState } from "react";
-import { feedRows, type FeedEntry } from "./effortfeed";
+import { type FeedEntry } from "./effortfeed";
 import { chunkTone } from "./effortmodel";
 import { GLYPH, STATUSES, TONE_FG } from "./inlinetrackerview";
+import { RunReportView } from "./runreportview";
+import { sidebarNotes, type NoteCard } from "./sidebarnotes";
 
 const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
-const NOTE_PAGE = 40;
 const NAV_BUTTON =
-    "h-[22px] w-6 cursor-pointer rounded-[6px] border border-border bg-surface-raised text-[11px] hover:border-edge-strong disabled:cursor-default disabled:opacity-40";
+    "h-[22px] w-6 cursor-pointer rounded-[6px] border border-border bg-surface-raised text-[11px] hover:border-edge-strong disabled:cursor-default";
+
+const NO_RUN = atom<Run | undefined>(undefined);
+// the report a finished run left on this chunk (Task 2): the structured report when the lead filed one,
+// else the sealed summary
+function NoteRun({ model, runOid }: { model: AgentsViewModel; runOid: string }) {
+    const run = useAtomValue((runOid ? runAtom(runOid) : NO_RUN) as Atom<Run | undefined>);
+    if (run == null) {
+        return <span className="text-[11.5px] text-muted">Loading the run…</span>;
+    }
+    if ((run.report ?? "").trim() !== "") {
+        return <RunReportView model={model} run={run} compact />;
+    }
+    return (
+        <p className="m-0 text-[12px] leading-[1.55] text-secondary">
+            {run.evidence?.summary || "The run finished without a report."}
+        </p>
+    );
+}
 
 export function ChunkSidebar({
+    model,
     initiative,
     label,
     stage,
@@ -30,35 +53,38 @@ export function ChunkSidebar({
     error,
     onPrev,
     onNext,
-    onExpand,
+    onToggle,
     onClose,
     onActivity,
     onAddNote,
     onSetStatus,
     onEditNote,
     onDeleteNote,
+    onOpenSession,
 }: {
+    model: AgentsViewModel;
     initiative: string;
     label: string;
     stage: string;
     status: string;
     position: { n: number; total: number };
     feed: FeedEntry[];
-    expanded: number | null;
+    expanded: Set<string>;
     now: number;
     handle: string;
     error: string | null;
     onPrev: (() => void) | null;
     onNext: (() => void) | null;
-    onExpand: (i: number | null) => void;
+    onToggle: (key: string) => void;
     onClose: () => void;
     onActivity: () => void;
     onAddNote: (text: string) => void;
     onSetStatus: (status: string) => void;
     onEditNote: (entry: FeedEntry, text: string) => void;
     onDeleteNote: (entry: FeedEntry) => void;
+    onOpenSession: (card: NoteCard) => void;
 }) {
-    const notes = feedRows(feed, { only: label, limit: NOTE_PAGE, now }).rows.filter((r) => r.body !== "");
+    const cards = sidebarNotes(feed, label, now, expanded);
     const [draft, setDraft] = useState("");
     const [editing, setEditing] = useState<{ key: string; text: string } | null>(null);
     const submit = () => {
@@ -88,7 +114,7 @@ export function ChunkSidebar({
             <div className="flex flex-none items-center gap-2 border-b border-edge-faint px-[13px] py-[9px]">
                 <span className="font-mono text-[10.5px] font-bold uppercase tracking-[.09em] text-muted">Chunk</span>
                 <span className="font-mono text-[10.5px] text-muted">
-                    {position.n}/{position.total}
+                    {position.n} / {position.total}
                 </span>
                 <div className="flex gap-1">
                     <button
@@ -97,7 +123,7 @@ export function ChunkSidebar({
                         title="Previous chunk (k)"
                         disabled={onPrev == null}
                         onClick={onPrev ?? undefined}
-                        className={cn(NAV_BUTTON, FOCUS)}
+                        className={cn(NAV_BUTTON, onPrev == null ? "text-feed-glyph" : "text-secondary", FOCUS)}
                     >
                         ↑
                     </button>
@@ -107,17 +133,17 @@ export function ChunkSidebar({
                         title="Next chunk (j)"
                         disabled={onNext == null}
                         onClick={onNext ?? undefined}
-                        className={cn(NAV_BUTTON, FOCUS)}
+                        className={cn(NAV_BUTTON, onNext == null ? "text-feed-glyph" : "text-secondary", FOCUS)}
                     >
                         ↓
                     </button>
                 </div>
-                <span className="font-mono text-[10px] text-muted">j / k</span>
+                <span className="font-mono text-[10px] text-ink-mid">j / k</span>
                 <button
                     type="button"
                     onClick={onClose}
                     className={cn(
-                        "ml-auto cursor-pointer rounded-[7px] border border-border bg-surface-raised px-[9px] py-1 text-[10px] font-semibold text-muted hover:border-edge-strong hover:text-ink-hi",
+                        "ml-auto cursor-pointer rounded-[7px] border border-border bg-surface-raised px-[9px] py-1 text-[10px] font-semibold text-ink-mid hover:border-edge-strong hover:text-ink-hi",
                         FOCUS
                     )}
                 >
@@ -126,33 +152,35 @@ export function ChunkSidebar({
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto">
                 <div className="flex flex-col gap-1.5 px-[18px] pb-3.5 pt-[15px]">
-                    <div className="flex items-center gap-[7px] font-mono text-[10.5px] uppercase tracking-[.06em] text-muted">
-                        <span className="truncate">{initiative}</span>
-                        <span className="text-edge-strong">/</span>
-                        <span className="truncate">{stage || "unstaged"}</span>
+                    <div className="flex flex-wrap items-center gap-[7px] font-mono text-[10.5px] uppercase tracking-[.06em] text-ink-mid">
+                        <span>{initiative}</span>
+                        <span className="text-feed-glyph">/</span>
+                        <span>{stage || "unstaged"}</span>
+                    </div>
+                    <div className="text-pretty text-[16px] font-semibold leading-[1.35] text-primary">{label}</div>
+                    <div className="flex items-center gap-2.5">
+                        <button
+                            type="button"
+                            title={handle}
+                            onClick={() => void navigator.clipboard?.writeText(handle)}
+                            className={cn(
+                                "min-w-0 cursor-pointer truncate text-left font-mono text-[10.5px] text-muted hover:text-ink-hi",
+                                FOCUS
+                            )}
+                        >
+                            {handle} ⧉
+                        </button>
                         <button
                             type="button"
                             onClick={onActivity}
                             className={cn(
-                                "ml-auto cursor-pointer normal-case tracking-normal text-accent-soft hover:underline",
+                                "flex-none cursor-pointer font-mono text-[10.5px] text-accent-soft hover:underline",
                                 FOCUS
                             )}
                         >
-                            initiative activity ↗
+                            activity ↗
                         </button>
                     </div>
-                    <div className="text-pretty text-[16px] font-semibold leading-[1.35] text-primary">{label}</div>
-                    <button
-                        type="button"
-                        title="Copy the CLI handle"
-                        onClick={() => void navigator.clipboard?.writeText(handle)}
-                        className={cn(
-                            "self-start cursor-pointer font-mono text-[10.5px] text-muted hover:text-ink-hi",
-                            FOCUS
-                        )}
-                    >
-                        {handle} ⧉
-                    </button>
                 </div>
                 <div className="px-[18px] pb-4">
                     <div
@@ -176,10 +204,12 @@ export function ChunkSidebar({
                                         FOCUS
                                     )}
                                 >
-                                    <span className={cn("text-[11px] leading-none", on ? TONE_FG[tone] : "text-muted")}>
+                                    <span
+                                        className={cn("text-[11px] leading-none", on ? TONE_FG[tone] : "text-ink-mid")}
+                                    >
                                         {GLYPH[tone]}
                                     </span>
-                                    <span className={cn("font-mono text-[9.5px]", on ? TONE_FG[tone] : "text-muted")}>
+                                    <span className={cn("font-mono text-[9.5px]", on ? TONE_FG[tone] : "text-ink-mid")}>
                                         {s}
                                     </span>
                                 </button>
@@ -190,64 +220,74 @@ export function ChunkSidebar({
                 <div className="border-t border-edge-faint px-[18px] pb-[18px] pt-3">
                     <div className="mb-2 flex items-center gap-2 font-mono text-[10.5px] font-bold uppercase tracking-[.1em] text-muted">
                         <span>Notes</span>
-                        <span className="font-normal tracking-[.04em]">{notes.length}</span>
+                        <span className="font-normal tracking-[.04em] text-muted">
+                            {cards.length} {cards.length === 1 ? "note" : "notes"}
+                        </span>
                     </div>
-                    {notes.length === 0 ? (
+                    {cards.length === 0 ? (
                         <p className="text-[12px] leading-[1.6] text-muted">
                             No notes on this chunk yet. Notes from you or an agent land here.
                         </p>
                     ) : null}
                     {error != null ? <p className="mb-2 text-[11px] text-error">{error}</p> : null}
                     <div className="flex flex-col gap-2">
-                        {notes.map((n, i) => {
-                            const open = expanded === i;
-                            const isEditing = editing?.key === n.key;
-                            const editable = n.entry.noteAt != null;
+                        {cards.map((c) => {
+                            const isEditing = editing?.key === c.key;
                             return (
                                 <div
-                                    key={n.key}
-                                    data-jarvis-note-card={n.key}
+                                    key={c.key}
+                                    data-jarvis-note-card={c.key}
                                     className={cn(
                                         "rounded-[8px] border bg-surface",
-                                        open ? "border-edge-mid" : "border-border"
+                                        isEditing ? "border-accent/45" : "border-border"
                                     )}
                                 >
                                     <button
                                         type="button"
-                                        onClick={() => onExpand(open ? null : i)}
+                                        onClick={() => !isEditing && onToggle(c.key)}
                                         className={cn(
-                                            "flex w-full cursor-pointer flex-col gap-[5px] rounded-[8px] px-[11px] py-[9px] text-left hover:bg-surface-hover",
+                                            "flex w-full cursor-pointer flex-col gap-[5px] rounded-[8px] px-[11px] py-[9px] text-left hover:bg-lane",
                                             FOCUS
                                         )}
                                     >
-                                        <span className="flex w-full items-center gap-[7px] font-mono text-[10.5px] text-muted">
+                                        <span className="flex w-full items-center gap-[7px] font-mono text-[10.5px] text-ink-mid">
+                                            {c.who !== "" ? (
+                                                <span className={c.who === "you" ? "text-accent-soft" : "text-success"}>
+                                                    {c.who}
+                                                </span>
+                                            ) : null}
                                             <span>
-                                                {n.day || n.entry.marked}
-                                                {n.entry.edited ? " · edited" : ""}
+                                                {c.day}
+                                                {c.edited ? " · edited" : ""}
                                             </span>
-                                            <span className="ml-auto">{open ? "▾" : "▸"}</span>
+                                            <span className="ml-auto text-muted">{c.chev}</span>
                                         </span>
                                         {isEditing ? null : (
                                             <span
                                                 className={cn(
                                                     "whitespace-pre-wrap break-words text-[12.5px] leading-[1.6] text-secondary",
-                                                    !open && "line-clamp-3"
+                                                    !c.open && "line-clamp-3"
                                                 )}
                                             >
-                                                {n.body}
+                                                {c.text}
                                             </span>
                                         )}
                                     </button>
+                                    {c.open && c.runOid !== "" && !isEditing ? (
+                                        <div className="border-t border-edge-faint px-[11px] py-2.5">
+                                            <NoteRun model={model} runOid={c.runOid} />
+                                        </div>
+                                    ) : null}
                                     {isEditing ? (
                                         <div className="flex flex-col gap-1.5 px-[11px] pb-2.5">
                                             <textarea
                                                 autoFocus
                                                 rows={6}
                                                 value={editing.text}
-                                                onChange={(e) => setEditing({ key: n.key, text: e.target.value })}
+                                                onChange={(e) => setEditing({ key: c.key, text: e.target.value })}
                                                 onKeyDown={(e) => {
                                                     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-                                                        saveEdit(n.entry);
+                                                        saveEdit(c.entry);
                                                     } else if (e.key === "Escape") {
                                                         e.stopPropagation();
                                                         setEditing(null);
@@ -272,7 +312,7 @@ export function ChunkSidebar({
                                                 <button
                                                     type="button"
                                                     disabled={editing.text.trim() === ""}
-                                                    onClick={() => saveEdit(n.entry)}
+                                                    onClick={() => saveEdit(c.entry)}
                                                     className={cn(
                                                         "cursor-pointer rounded-[7px] bg-accent px-[11px] py-1 text-[11px] font-bold text-background disabled:cursor-default disabled:opacity-40",
                                                         FOCUS
@@ -282,12 +322,12 @@ export function ChunkSidebar({
                                                 </button>
                                             </div>
                                         </div>
-                                    ) : open && editable ? (
+                                    ) : c.open && c.editable ? (
                                         <div className="flex gap-3 border-t border-edge-faint px-[11px] py-1.5">
                                             <button
                                                 type="button"
                                                 data-jarvis-note-edit
-                                                onClick={() => setEditing({ key: n.key, text: n.entry.text })}
+                                                onClick={() => setEditing({ key: c.key, text: c.entry.text })}
                                                 className={cn(
                                                     "cursor-pointer font-mono text-[10.5px] text-muted hover:text-accent-soft",
                                                     FOCUS
@@ -298,13 +338,30 @@ export function ChunkSidebar({
                                             <button
                                                 type="button"
                                                 data-jarvis-note-delete
-                                                onClick={() => onDeleteNote(n.entry)}
+                                                onClick={() => onDeleteNote(c.entry)}
                                                 className={cn(
                                                     "cursor-pointer font-mono text-[10.5px] text-muted hover:text-error",
                                                     FOCUS
                                                 )}
                                             >
                                                 delete
+                                            </button>
+                                        </div>
+                                    ) : null}
+                                    {!isEditing &&
+                                    c.open &&
+                                    c.who === "agent" &&
+                                    (c.sessionTab !== "" || c.runOid !== "") ? (
+                                        <div className="flex gap-3 border-t border-edge-faint px-[11px] py-1.5">
+                                            <button
+                                                type="button"
+                                                onClick={() => onOpenSession(c)}
+                                                className={cn(
+                                                    "cursor-pointer font-mono text-[10.5px] text-accent-soft hover:underline",
+                                                    FOCUS
+                                                )}
+                                            >
+                                                {c.sessionTab !== "" ? "open agent session ↗" : "open run ↗"}
                                             </button>
                                         </div>
                                     ) : null}
@@ -340,7 +397,7 @@ export function ChunkSidebar({
                             disabled={draft.trim() === ""}
                             onClick={submit}
                             className={cn(
-                                "cursor-pointer rounded-[6px] bg-accent px-[11px] py-1 text-[11px] font-bold text-background disabled:cursor-default disabled:bg-surface-raised disabled:text-muted",
+                                "cursor-pointer rounded-[6px] bg-accent px-[11px] py-1 text-[11px] font-bold text-background disabled:cursor-default disabled:bg-border disabled:text-muted",
                                 FOCUS
                             )}
                         >

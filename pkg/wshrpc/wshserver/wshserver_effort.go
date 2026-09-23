@@ -84,9 +84,10 @@ func (ws *WshServer) EffortMutateCommand(ctx context.Context, data wshrpc.Comman
 			}
 		}
 	}
+	author := noteAuthorFor(ctx, data)
 	var updated *waveobj.Effort
 	err := wstore.UpdateEffort(ctx, data.EffortOID, func(e *waveobj.Effort) error {
-		if err := jarvis.ApplyEffortOps(e, data.Ops, data.Note, time.Now().UnixMilli()); err != nil {
+		if err := jarvis.ApplyEffortOpsAs(e, data.Ops, data.Note, time.Now().UnixMilli(), author); err != nil {
 			return err
 		}
 		updated = e
@@ -126,4 +127,28 @@ func (ws *WshServer) EffortGetCommand(ctx context.Context, data wshrpc.CommandEf
 
 func (ws *WshServer) EffortDeleteCommand(ctx context.Context, data wshrpc.CommandEffortDeleteData) error {
 	return wstore.DBDelete(ctx, waveobj.OType_Effort, data.EffortOID)
+}
+
+// noteAuthorFor attributes a batch's notes. A source block means `wsh effort` ran in a terminal, which
+// in this app is an agent: its tab is the session, and the run owning that tab, if any, is the run. A
+// caller-supplied Author is honoured only as "you" — anything else would let a terminal claim the human.
+func noteAuthorFor(ctx context.Context, data wshrpc.CommandEffortMutateData) jarvis.NoteAuthor {
+	if data.SourceBlock == "" {
+		if data.Author == "you" {
+			return jarvis.NoteAuthor{Who: "you"}
+		}
+		return jarvis.NoteAuthor{}
+	}
+	by := jarvis.NoteAuthor{Who: "agent"}
+	if oref, err := waveobj.ParseORef(data.SourceBlock); err == nil && oref.OType == waveobj.OType_Block {
+		if block, err := wstore.DBMustGet[*waveobj.Block](ctx, oref.OID); err == nil {
+			if tab, err := waveobj.ParseORef(block.ParentORef); err == nil && tab.OType == waveobj.OType_Tab {
+				by.Session = "agent:" + tab.OID
+			}
+		}
+	}
+	if run, _, ok := ownerRunForBlock(ctx, data.SourceBlock); ok {
+		by.Run = "run:" + run.OID
+	}
+	return by
 }

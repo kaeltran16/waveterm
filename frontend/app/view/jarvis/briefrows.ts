@@ -12,11 +12,11 @@ import { formatAge } from "@/app/view/agents/agentsviewmodel";
 import {
     ACTIVE_CAP,
     mergeActiveWork,
+    queueKindLabel,
     queueOpenTarget,
     SEVEN_DAYS_MS,
     type ActiveWorkRow,
     type AgentRow,
-    type BlockerRow,
     type DeltaGroup,
     type DeltaRow,
     type QueueOpenTarget,
@@ -27,7 +27,7 @@ import {
 import { headline, noteBody } from "./effortfeed";
 import type { EffortCardModel } from "./effortmodel";
 
-export type LineTone = "ok" | "active" | "asking" | "error" | "muted";
+export type LineTone = "ok" | "active" | "asking" | "error" | "muted" | "faint";
 export type LineTarget = { queue: QueueOpenTarget } | { oref: string } | null;
 
 export type BriefLine = {
@@ -42,6 +42,15 @@ export type BriefLine = {
     stateTone: LineTone;
     progress: { done: number; total: number; pct: number } | null;
     target: LineTarget;
+    // the per-region fields the design's row anatomies read; "" where a region has none
+    why: string;
+    age: string;
+    detail: string;
+    runOid?: string;
+    agentId?: string;
+    hasReport?: boolean;
+    fresh?: boolean;
+    group?: "delta" | "shipped";
 };
 
 export type LineGroup = { label: string; lines: BriefLine[] };
@@ -57,15 +66,18 @@ export function queueLine(q: QueueRow, now: number): BriefLine {
     const target = queueOpenTarget(q.nav);
     return {
         id: "waiting:" + q.key,
-        kind: q.kind,
+        kind: queueKindLabel(q),
         kindTone: tone,
         title: q.title,
         note: q.why,
         meta: joined([q.attrib, q.detail]),
-        state: q.ts != null ? age(q.ts, now) : "",
+        state: "",
         stateTone: tone,
         progress: null,
         target: target != null ? { queue: target } : null,
+        why: q.why,
+        age: q.ts != null ? age(q.ts, now) : "",
+        detail: "",
     };
 }
 
@@ -73,11 +85,13 @@ export function initiativeLine(card: EffortCardModel): BriefLine {
     const blocked = card.blockedChunks.length;
     // blocked first: it is the one state that is waiting on someone
     const [state, stateTone]: [string, LineTone] =
-        blocked > 0
-            ? [`${blocked} blocked`, "asking"]
-            : card.activeTone === "deferred"
-              ? ["deferred", "muted"]
-              : [card.status, card.status === "paused" ? "muted" : "ok"];
+        card.status === "archived"
+            ? ["archived", "faint"]
+            : blocked > 0
+              ? [`${blocked} blocked`, "asking"]
+              : card.activeTone === "deferred"
+                ? ["deferred", "muted"]
+                : [card.status, card.status === "paused" ? "muted" : "ok"];
     return {
         id: "initiatives:" + card.oref,
         kind: "",
@@ -90,6 +104,9 @@ export function initiativeLine(card: EffortCardModel): BriefLine {
         stateTone,
         progress: { done: card.done, total: card.done + card.remaining, pct: card.progressPct },
         target: { oref: card.oref },
+        why: "",
+        age: "",
+        detail: "",
     };
 }
 
@@ -115,19 +132,105 @@ export function sessionLine(row: ActiveWorkRow, now: number): BriefLine & { stal
         progress: null,
         // a run has a sheet; a blocker or a direct agent has none yet, so its row opens nothing
         target: row.kind === "run" ? { oref: row.oref } : null,
+        why: "",
+        age: age(row.ts, now),
+        detail: "",
+        runOid: row.kind === "run" ? row.oref.replace(/^run:/, "") : undefined,
+        agentId: row.kind === "agent" ? row.key.split(":")[1] : undefined,
         stale: isStale(row, now),
     };
 }
 
-// The Sessions region's rows. Stale runs leave before the cap: capped first, a window full of week-quiet runs
+export type RunRowFace = {
+    type: "quick run" | "orchestrator" | "agent";
+    meta: string;
+    elapsed: string;
+    state: string;
+    stateTone: LineTone;
+    dot: "live" | "asking" | "done" | "idle";
+    asking: boolean;
+    canStop: boolean;
+    stopped: boolean;
+    chunkLabel: string;
+    effortOref: string;
+    chunk: string;
+};
+
+export type EffortRef = { oref: string; title: string; chunkStages: Record<string, string> };
+// keyed by effort oid, the way a run's effortref names its effort
+export type EffortIndex = Map<string, EffortRef>;
+
+// A Runs row (design L266-278, model L1615-1627) from the live Run object and the roster.
+export function runRowFace(i: {
+    line: BriefLine;
+    run?: Run;
+    asking: boolean;
+    project: string;
+    effort?: EffortRef;
+}): RunRowFace {
+    const { line, run } = i;
+    if (run == null) {
+        const asking = i.asking || line.state === "asking";
+        return {
+            type: "agent",
+            meta: line.meta,
+            elapsed: line.age,
+            state: asking ? "asking" : line.state === "working" ? "running" : line.state,
+            stateTone: asking ? "asking" : "ok",
+            dot: asking ? "asking" : "live",
+            asking,
+            canStop: false,
+            stopped: false,
+            chunkLabel: "",
+            effortOref: "",
+            chunk: "",
+        };
+    }
+    const orch = run.mode === "orchestrator";
+    const status = run.status ?? "";
+    const [state, stateTone]: [string, LineTone] = i.asking
+        ? ["asking", "asking"]
+        : status === "blocked"
+          ? ["blocked", "asking"]
+          : status === "awaiting-review"
+            ? ["review", "asking"]
+            : status === "cancelled"
+              ? ["stopped", "faint"]
+              : status === "done"
+                ? ["done", "ok"]
+                : status === "planning"
+                  ? ["planning", "ok"]
+                  : ["running", "ok"];
+    const terminal = status === "done" || status === "cancelled";
+    const ref = run.effortref;
+    const linked = ref != null && i.effort != null;
+    const stage = linked ? (i.effort.chunkStages[ref.chunklabel] ?? "") : "";
+    return {
+        type: orch ? "orchestrator" : "quick run",
+        meta: orch ? `lead · ${i.project}` : `${run.runtime || "claude"} · ${i.project}`,
+        elapsed: line.age,
+        state,
+        stateTone,
+        dot: i.asking ? "asking" : terminal ? (status === "done" ? "done" : "idle") : "live",
+        asking: i.asking,
+        canStop: !terminal,
+        stopped: status === "cancelled",
+        chunkLabel: linked ? `${i.effort.title} · ${stage || "unstaged"}` : "",
+        effortOref: linked ? i.effort.oref : "",
+        chunk: ref?.chunklabel ?? "",
+    };
+}
+
+// The Sessions region's rows. Blockers are not among them: they wait on you, so they join the queue
+// (buildAttentionQueue). Stale runs leave before the cap: capped first, a window full of week-quiet runs
 // drew nothing but the fold, and its "+N more" only fed the fold. The live rows still cap per kind, as the
-// three legs always did, and the stale ones follow them, drawn only while the fold is open.
+// legs always did, and the stale ones follow them, drawn only while the fold is open.
 export function sessionWindow(
-    legs: { activeRuns: RunRow[]; blockers: BlockerRow[]; directAgents: AgentRow[] },
+    legs: { activeRuns: RunRow[]; directAgents: AgentRow[] },
     open: boolean,
     now: number
 ): { rows: ActiveWorkRow[]; more: number } {
-    const merged = mergeActiveWork(legs);
+    const merged = mergeActiveWork({ activeRuns: legs.activeRuns, blockers: [], directAgents: legs.directAgents });
     const live = merged.filter((r) => !isStale(r, now));
     const perKind = new Map<string, number>();
     const shown = live.filter((r) => {
@@ -136,6 +239,26 @@ export function sessionWindow(
         return open || n <= ACTIVE_CAP;
     });
     return { rows: [...shown, ...merged.filter((r) => isStale(r, now))], more: live.length - shown.length };
+}
+
+// The Runs filter. An orchestrator run carries the most to read, so it can be looked at alone; a direct
+// agent is neither kind, so a filtered view drops it. Any mode but orchestrator reads as a quick run,
+// the same split runRowFace badges.
+export type RunKindFilter = "all" | "orchestrator" | "quick";
+export const RUN_KIND_FILTERS: readonly RunKindFilter[] = ["all", "orchestrator", "quick"];
+
+export function keepsRunKind(filter: RunKindFilter, mode: string): boolean {
+    return filter === "all" || (mode === "orchestrator") === (filter === "orchestrator");
+}
+
+export function runKindLegs(
+    legs: { activeRuns: RunRow[]; directAgents: AgentRow[] },
+    filter: RunKindFilter
+): { activeRuns: RunRow[]; directAgents: AgentRow[] } {
+    if (filter === "all") {
+        return legs;
+    }
+    return { activeRuns: legs.activeRuns.filter((r) => keepsRunKind(filter, r.mode)), directAgents: [] };
 }
 
 const CHUNK_EVENTS = new Set(["effort-note", "chunk-status", "chunk-done", "chunk-added"]);
@@ -167,11 +290,12 @@ function digestLine(group: string, rows: DeltaRow[], now: number): BriefLine {
     const top = newestFirst[0];
     return {
         id: `behind:effort:${group}:${top.oref}`,
-        kind: "initiative",
+        kind: "Initiative",
         kindTone: "muted",
         title: top.title,
         note: notes.length > 0 ? headline(noteBody(notes[0])) : "",
-        meta: joined([
+        meta: "",
+        detail: joined([
             notes.length > 0 ? plural(notes.length, "note") : "",
             done > 0 ? plural(done, "chunk") + " done" : "",
             added > 0 ? plural(added, "chunk") + " added" : "",
@@ -182,14 +306,26 @@ function digestLine(group: string, rows: DeltaRow[], now: number): BriefLine {
         stateTone: "muted",
         progress: null,
         target: { oref: top.oref ?? "" },
+        why: "",
+        age: "",
+        group: "delta",
     };
 }
 
+const DELTA_TONE: Record<string, LineTone> = {
+    "run-created": "active",
+    "run-done": "ok",
+    decision: "muted",
+    dossier: "asking",
+};
+
 function deltaLine(row: DeltaRow, now: number): BriefLine {
+    const detail = row.detail ?? "";
     return {
         id: "behind:" + row.key,
-        kind: row.wording,
-        kindTone: "muted",
+        // a dossier's wording carries its status after " · "; the kind column takes only the event
+        kind: row.wording.split(" · ")[0],
+        kindTone: DELTA_TONE[row.kind] ?? "muted",
         title: row.title,
         note: "",
         meta: "",
@@ -197,6 +333,13 @@ function deltaLine(row: DeltaRow, now: number): BriefLine {
         stateTone: "muted",
         progress: null,
         target: row.oref != null ? { oref: row.oref } : null,
+        why: "",
+        age: "",
+        detail:
+            row.kind === "dossier" && detail.startsWith("status: ")
+                ? "current status: " + detail.slice("status: ".length)
+                : detail,
+        group: "delta",
     };
 }
 
@@ -228,11 +371,17 @@ export function behindGroups(groups: DeltaGroup[], shipped: ShippedRow[], now: n
                 kindTone: "ok",
                 title: s.goal,
                 note: "",
-                meta: joined([s.project, s.fresh ? "new" : ""]),
+                meta: "",
                 state: age(s.completedTs, now),
                 stateTone: "muted",
                 progress: null,
                 target: { oref: s.oref },
+                why: "",
+                age: "",
+                detail: joined([s.project, headline(s.summary)]),
+                hasReport: s.hasReport,
+                fresh: s.fresh,
+                group: "shipped" as const,
             })),
         });
     }
@@ -244,5 +393,40 @@ export function filterLines<T extends BriefLine>(lines: T[], query: string): T[]
     if (q === "") {
         return lines;
     }
-    return lines.filter((l) => [l.kind, l.title, l.note, l.meta, l.state].join(" ").toLowerCase().includes(q));
+    return lines.filter((l) =>
+        [l.kind, l.title, l.note, l.meta, l.detail, l.state].join(" ").toLowerCase().includes(q)
+    );
+}
+
+// a project's registry name for its path; the path's last segment when the registry has no entry
+export function projectName(path: string, projects: Record<string, { path?: string }> | null): string {
+    if (path === "") {
+        return "";
+    }
+    const norm = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+    const hit = Object.entries(projects ?? {}).find(([, v]) => v.path != null && norm(v.path) === norm(path));
+    return hit != null ? hit[0] : (path.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop() ?? path);
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const hhmm = (d: Date) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+
+// Behind you's meta (design L1793). firstVisit: no stored cursor, so the window is the seven-day default.
+export function sinceLabel(cursorTs: number, nowTs: number, firstVisit: boolean): string {
+    if (firstVisit) {
+        return "the last 7 days";
+    }
+    const d = new Date(cursorTs);
+    const today = new Date(nowTs);
+    today.setHours(0, 0, 0, 0);
+    const day = new Date(cursorTs);
+    day.setHours(0, 0, 0, 0);
+    const diff = Math.round((today.getTime() - day.getTime()) / 86_400_000);
+    if (diff === 0) {
+        return `since today ${hhmm(d)}`;
+    }
+    if (diff === 1) {
+        return `since yesterday ${hhmm(d)}`;
+    }
+    return `since ${MONTHS[d.getMonth()]} ${d.getDate()}`;
 }

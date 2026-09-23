@@ -6,6 +6,8 @@ package jarvis
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -344,8 +346,9 @@ func TestSpawnRunWorkerLabelsTheTab(t *testing.T) {
 	}
 }
 
-// a lead is named after its run: otherwise its label is the ai-title of its first prompt, a wake on a plan run
-func TestEnsureWorkersLabelsOnlyALeadWithItsRunTitle(t *testing.T) {
+// a lead is named after its run: otherwise its label is the ai-title of its first prompt, a wake on a plan run. So
+// is a run whose prompt moved to a file, whose first prompt is the pointer to it; any other keeps its ai-title.
+func TestEnsureWorkersLabelsALeadAndAMovedPromptWithTheRunTitle(t *testing.T) {
 	old := SpawnRunWorker
 	defer func() { SpawnRunWorker = old }()
 	var got []RunWorkerOptions
@@ -361,7 +364,11 @@ func TestEnsureWorkersLabelsOnlyALeadWithItsRunTitle(t *testing.T) {
 	if _, err := EnsureWorkers(context.Background(), &quick, piCap(t), "project", ""); err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 2 || got[0].Label != "Ship the auth rework" || got[1].Label != "" {
+	long := NewRun("Port the importer\n"+strings.Repeat("x", maxInlinePromptBytes), "ws", "/p", nil, RunMode_Quick, QuickPlaybook(), 1)
+	if _, err := EnsureWorkers(context.Background(), &long, piCap(t), "project", ""); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 || got[0].Label != "Ship the auth rework" || got[1].Label != "" || got[2].Label != "Port the importer" {
 		t.Fatalf("labels = %+v", got)
 	}
 }
@@ -389,5 +396,43 @@ func TestSpawnRunWorkerStoresBaseArgs(t *testing.T) {
 	}
 	if persisted["agent:runid"] != "run-1" || persisted["agent:taskid"] != "t-3" {
 		t.Fatalf("run/task ids = %v / %v", persisted["agent:runid"], persisted["agent:taskid"])
+	}
+}
+
+// a task's prompt carries its whole plan section; past the Windows command-line cap CreateProcess refuses the
+// launch and the worker never starts, so a prompt that could not fit travels as a file the worker reads
+func TestSpawnRunWorkerPassesALongPromptAsAFile(t *testing.T) {
+	stubWorkerSpawn(t)
+	oldDir, dir := promptFileDir, t.TempDir()
+	promptFileDir = func() string { return dir }
+	t.Cleanup(func() { promptFileDir = oldDir })
+	var persisted waveobj.MetaMapType
+	persistWorkerBlockMeta = func(_ context.Context, _ string, meta waveobj.MetaMapType) error {
+		persisted = meta
+		return nil
+	}
+	lastArg := func() string {
+		args, _ := persisted[waveobj.MetaKey_CmdArgs].([]string)
+		return args[len(args)-1]
+	}
+
+	if _, err := SpawnRunWorker(context.Background(), piCap(t), "ws-1", "proj", "", "do it", RunWorkerOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := lastArg(); got != "do it" {
+		t.Fatalf("a short prompt stays inline, got %q", got)
+	}
+
+	long := strings.Repeat("x", maxInlinePromptBytes+1)
+	if _, err := SpawnRunWorker(context.Background(), piCap(t), "ws-1", "proj", "", long, RunWorkerOptions{SessionId: "sess-9"}); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "sess-9.md")
+	if got := lastArg(); len(got) > maxInlinePromptBytes || !strings.Contains(got, path) {
+		t.Fatalf("a long prompt must be replaced by a pointer to %s, got %d bytes", path, len(got))
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != long {
+		t.Fatalf("prompt file holds %d bytes (err %v), want the whole prompt", len(data), err)
 	}
 }

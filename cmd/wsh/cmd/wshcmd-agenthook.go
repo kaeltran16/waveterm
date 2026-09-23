@@ -74,7 +74,8 @@ func planEmission(ev ccHookEvent) agentEmission {
 	case "SessionStart":
 		// the session is back at its prompt once the summary lands. an auto-compaction inside a turn reads
 		// idle only until that turn's next tool reports working, and a wake typed then queues behind it.
-		if ev.Source == "compact" {
+		// a /clear lands at the prompt too, on a new transcript this event carries
+		if ev.Source == "compact" || ev.Source == "clear" {
 			return agentEmission{State: baseds.AgentState_Idle}
 		}
 	}

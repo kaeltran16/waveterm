@@ -1,8 +1,9 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The autonomy control: how much Jarvis decides without you. The Brief's header carries the chip; the
-// three nested rungs, their blurbs and the Delegator-only dispatch mode live in the popover it opens.
+// The autonomy control: how much Jarvis decides without you. The Brief's header carries TierButton, a
+// one-click cycle across every project; AutonomyLadder — the three nested rungs, their blurbs and the
+// Delegator-only dispatch mode, one project at a time — is the per-project editor.
 //
 // Why a chip. The rungs used to sit in the header with the dispatch strip beside them, rendered only at
 // Delegator — so selecting that tier grew the group ~140px and slid all three rungs left, out from under
@@ -34,6 +35,7 @@ import {
     showsDispatchMode,
 } from "./autonomyladder";
 import { autonomySummary, channelAutonomy } from "./briefautonomy";
+import { briefUndo } from "./briefundo";
 
 // The ladder itself, at whatever width its host wants: 3px in the chip's glyph, 4px in a panel row. Bars
 // fill up to `tier`, so a row passed its own tier says what that tier includes — which makes the current
@@ -212,5 +214,53 @@ export function AutonomyLadder({ channels }: { channels: Channel[] | null }) {
                 </PopoverReveal>
             </div>
         </div>
+    );
+}
+
+// the design's three tier words (design L979), mapped onto the backend's nested tiers
+export const TIER_LABEL: Record<JarvisTier, string> = {
+    concierge: "L1 · ask first",
+    gatekeeper: "L2 · gated",
+    delegator: "L3 · autonomous",
+};
+
+// The header's tier control (design L41, L1779): one click moves every project one rung up the ladder,
+// wrapping, and the toast offers the way back. Per-project tiers and the dispatch mode are edited in the
+// Profile, where the other per-project policy lives.
+export function TierButton({ channels }: { channels: Channel[] | null }) {
+    const projects = useAtomValue(projectsAtom);
+    const rows = useMemo(() => channelAutonomy(channels, projects), [channels, projects]);
+    const summary = autonomySummary(rows);
+    if (summary == null) {
+        return null;
+    }
+    const label = summary.mixed ? `Mixed · ${TIER_LABEL[summary.tier]}` : TIER_LABEL[summary.tier];
+    const cycle = () => {
+        const order = LADDER.map((r) => r.tier);
+        const next = order[(order.indexOf(summary.tier) + 1) % order.length];
+        const prev = rows.map((r) => ({ id: r.channelId, tier: r.tier, mode: r.mode }));
+        fireAndForget(async () => {
+            try {
+                await Promise.all(rows.map((r) => setChannelTier(r.channelId, next, r.mode)));
+                briefUndo.notify(`Autonomy set to ${TIER_LABEL[next]} for every project`, () =>
+                    fireAndForget(async () => {
+                        await Promise.all(prev.map((p) => setChannelTier(p.id, p.tier, p.mode)));
+                    })
+                );
+            } catch (e) {
+                briefUndo.error(e instanceof Error ? e.message : String(e));
+            }
+        });
+    };
+    return (
+        <button
+            type="button"
+            data-jarvis-autonomy="chip"
+            onClick={cycle}
+            title="Remote-approval policy · click to change"
+            className="flex-none cursor-pointer whitespace-nowrap rounded-[6px] border border-border px-2.5 py-[3px] font-mono text-[10.5px] font-bold uppercase tracking-[.06em] text-ink-mid hover:border-edge-strong hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+            {label}
+        </button>
     );
 }

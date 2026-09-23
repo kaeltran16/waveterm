@@ -5,7 +5,7 @@
 // ordering, exact worker suppression, window filtering, wording and navigation normalization happens
 // here; React components do not reinterpret wire kinds inline.
 
-import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
+import { formatAge, type AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { buildEffortCard, type EffortCardModel } from "./effortmodel";
 
 export const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
@@ -16,7 +16,7 @@ export const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 export const EFFORT_CAP = 6;
 export const ACTIVE_CAP = 8;
 export const DELTA_CAP = 10;
-export const SHIPPED_CAP = 8;
+export const SHIPPED_CAP = 3;
 
 export interface CappedRows<T> {
     rows: T[];
@@ -40,10 +40,12 @@ export interface BriefingModelInput {
 
 export interface RunRow {
     oref: string;
+    oid: string;
     goal: string;
     project: string;
     status: string;
     workerOrefs: string[];
+    mode: string;
     ts: number;
 }
 export interface BlockerRow {
@@ -79,6 +81,10 @@ export interface ShippedRow {
     summary: string;
     completedTs: number;
     fresh: boolean;
+    hasReport: boolean;
+    effortOid: string;
+    chunkLabel: string;
+    mode: string;
 }
 // one recency-sorted list across runs, blockers and direct agents; the kind badge tells the
 // story the old per-leg sub-headers told, so the section reads as one triage queue.
@@ -131,7 +137,8 @@ export type QueueNav =
     // radar triage names no channel — a scan belongs to a project — so it is the one row addressed by
     // the oref the server sent. The full oref is carried, matching the effort variant: the consumer
     // strips the otype, so the model never has to know which surface answers for it.
-    | { kind: "radar"; oref: string };
+    | { kind: "radar"; oref: string }
+    | { kind: "record"; oref: string };
 export interface QueueRow {
     key: string;
     kind: string;
@@ -151,6 +158,13 @@ export interface QueueRow {
     // What the decision rests on, rendered as numbered labels. Never controls: the row itself is the
     // button, and a second control inside it is the affordance defect invariant 4 names.
     cites: string[];
+    // the raw wire kind and the ids an in-place Approve or Retry acts on (queueAction)
+    wireKind: string;
+    channelId: string;
+    runId: string | null;
+    phaseIdx: number;
+    taskId: string;
+    retry: boolean;
 }
 
 // dag-gate/dag-blocked are absent from the rail's map and fell through to the raw wire kind, which
@@ -185,7 +199,11 @@ const QUEUE_KIND_LABEL: Record<string, string> = {
     "radar-triage": "triage",
 };
 
-export function buildAttentionQueue(input: { attention: AttentionItem[]; efforts: EffortCardModel[] }): QueueRow[] {
+export function buildAttentionQueue(input: {
+    attention: AttentionItem[];
+    efforts: EffortCardModel[];
+    blockers?: BlockerRow[];
+}): QueueRow[] {
     // an effort the Brief is not holding (archived, or another project's) resolves to no title; the
     // chunk label still names the work, so the row keeps it rather than dropping the attribution.
     const effortTitles = new Map(input.efforts.map((e) => [e.oref.replace(/^effort:/, ""), e.title]));
@@ -222,6 +240,12 @@ export function buildAttentionQueue(input: { attention: AttentionItem[]; efforts
                     : "",
             why: a.why ?? "",
             cites: a.cites ?? [],
+            wireKind: a.kind,
+            channelId,
+            runId: a.runid || null,
+            phaseIdx: a.phaseidx ?? 0,
+            taskId: a.taskid ?? "",
+            retry: a.retry === true,
         };
     });
     // a blocked chunk is attention the server's attention leg never sees; it has no waiting-since to
@@ -243,8 +267,38 @@ export function buildAttentionQueue(input: { attention: AttentionItem[]; efforts
                 attrib: "",
                 why: "",
                 cites: [],
+                wireKind: "chunk-blocked",
+                channelId: "",
+                runId: null,
+                phaseIdx: 0,
+                taskId: "",
+                retry: false,
             });
         }
+    }
+    // a record with blockers waits on you as much as a gate does (design L1010: everything that needs you
+    // is in this one queue), so it leaves Runs and joins here, opening its record.
+    for (const b of input.blockers ?? []) {
+        rows.push({
+            key: "blocker:" + b.oref,
+            kind: "blocked",
+            wireKind: "blocker",
+            title: b.objective,
+            source: b.project ?? "",
+            detail: b.project ?? "",
+            ts: b.ts,
+            action: "Open",
+            nav: b.oref !== "" ? { kind: "record", oref: b.oref } : null,
+            tone: "asking",
+            attrib: "",
+            why: b.blockers,
+            cites: [],
+            channelId: "",
+            runId: null,
+            phaseIdx: 0,
+            taskId: "",
+            retry: false,
+        });
     }
     return rows;
 }
@@ -255,43 +309,58 @@ export interface QueueSummary {
     oldestTs: number | null;
 }
 
-const QUEUE_SUMMARY_SOURCE_CAP = 2;
+// the design's four kind words (design L1010-1013); every wire kind reads as one of them
+export function queueKindLabel(row: QueueRow): "gate" | "ask" | "failed" | "blocked" | "triage" {
+    switch (row.wireKind) {
+        case "gate":
+        case "plan-gate":
+        case "dag-gate":
+            return "gate";
+        case "ask":
+        case "escalation":
+            return "ask";
+        case "dag-blocked":
+            return row.retry ? "failed" : "blocked";
+        case "radar-triage":
+            return "triage";
+        default:
+            return "blocked";
+    }
+}
 
-export function summarizeAttentionQueue(rows: QueueRow[]): QueueSummary | null {
+export type QueueAct = {
+    label: "Approve" | "Retry" | "Open";
+    kind: "approve-gate" | "approve-dag" | "retry-dag" | "open";
+};
+
+// What the row's button does in place (design L1598-1609). Approve and Retry need the exact task or phase
+// the server named; without it the row opens its run rather than guessing one.
+export function queueAction(row: QueueRow): QueueAct {
+    if (row.wireKind === "gate" && row.channelId !== "" && row.runId != null) {
+        return { label: "Approve", kind: "approve-gate" };
+    }
+    if (row.wireKind === "dag-gate" && row.taskId !== "" && row.runId != null) {
+        return { label: "Approve", kind: "approve-dag" };
+    }
+    if (row.wireKind === "dag-blocked" && row.retry && row.taskId !== "" && row.runId != null) {
+        return { label: "Retry", kind: "retry-dag" };
+    }
+    return { label: "Open", kind: "open" };
+}
+
+export function summarizeAttentionQueue(rows: QueueRow[], now: number): QueueSummary | null {
     if (rows.length === 0) {
         return null;
     }
-    const oldestTs = rows.reduce<number | null>((oldest, row) => {
-        if (row.ts == null) {
-            return oldest;
-        }
-        return oldest == null ? row.ts : Math.min(oldest, row.ts);
-    }, null);
-    if (rows.length === 1) {
-        return {
-            title: rows[0]!.title,
-            detail: [rows[0]!.kind, rows[0]!.source].filter(Boolean).join(" · "),
-            oldestTs,
-        };
-    }
-
-    const kindCounts = new Map<string, number>();
-    for (const row of rows) {
-        kindCounts.set(row.kind, (kindCounts.get(row.kind) ?? 0) + 1);
-    }
-    const sources = [...new Set(rows.map((row) => row.source).filter(Boolean))];
-    const visibleSources = sources.slice(0, QUEUE_SUMMARY_SOURCE_CAP);
-    const hiddenSources = sources.length - visibleSources.length;
-    const detail = [
-        ...[...kindCounts].map(([kind, count]) => `${kind} ×${count}`),
-        ...visibleSources,
-        hiddenSources > 0 ? `+${hiddenSources} ${hiddenSources === 1 ? "source" : "sources"}` : null,
-    ]
-        .filter((part) => part != null)
-        .join(" · ");
+    const oldestTs = rows.reduce<number | null>(
+        (o, r) => (r.ts == null ? o : o == null ? r.ts : Math.min(o, r.ts)),
+        null
+    );
+    const n = rows.length;
+    const kinds = rows.map(queueKindLabel).join(" · ");
     return {
-        title: `${rows.length} items need your attention`,
-        detail,
+        title: `${n} ${n === 1 ? "thing is" : "things are"} waiting on you`,
+        detail: oldestTs != null ? `${kinds} · oldest ${formatAge(now - oldestTs)}` : kinds,
         oldestTs,
     };
 }
@@ -418,6 +487,7 @@ export function projectBriefing(input: BriefingModelInput): BriefingModel {
     const activeRuns: RunRow[] = sortBy(
         runItems.map((a) => ({
             oref: a.navtarget ?? "run:",
+            oid: (a.navtarget ?? "").replace(/^run:/, ""),
             goal: a.title,
             project: a.project,
             status:
@@ -425,6 +495,7 @@ export function projectBriefing(input: BriefingModelInput): BriefingModel {
                     ? a.detail.slice("status: ".length)
                     : (a.detail ?? ""),
             workerOrefs: a.workerorefs ?? [],
+            mode: a.mode ?? "",
             ts: a.ts,
         })),
         (r) => (r.status === "blocked" ? 0 : 1),
@@ -506,6 +577,10 @@ export function projectBriefing(input: BriefingModelInput): BriefingModel {
         summary: s.summary ?? "",
         completedTs: s.completedts,
         fresh: rawDelta.some((ev) => ev.kind === "run-done" && ev.navtarget === "run:" + s.runoid),
+        hasReport: s.hasreport === true,
+        effortOid: s.effortoid ?? "",
+        chunkLabel: s.chunklabel ?? "",
+        mode: s.mode ?? "",
     }));
 
     const missingLegs: string[] = [];

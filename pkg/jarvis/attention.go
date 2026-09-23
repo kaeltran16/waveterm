@@ -238,6 +238,22 @@ func firstLine(s string) string {
 	return s
 }
 
+// blockedTask is the task a blocked group is stopped on, and whether retrying it is the action: a merge
+// git refused or a failed Verify is resolved by hand, so only a failed task is retryable.
+func blockedTask(g *waveobj.TaskGroup) (string, bool) {
+	for _, t := range g.Tasks {
+		if t.State == "blocked-merge" || t.State == "verify-failed" {
+			return t.ID, false
+		}
+	}
+	for _, t := range g.Tasks {
+		if t.State == "failed" {
+			return t.ID, true
+		}
+	}
+	return "", false
+}
+
 // dagBlockedReason says what holds a blocked dag, in the order the engine's digest ranks the human's
 // actions: a merge, then a failed Verify, then failed tasks. A blocked merge is not a failure, and reading
 // it as one printed "0 consecutive failures".
@@ -345,9 +361,12 @@ func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
 		case "blocked":
 			blockedEffort, blockedChunk := attribution(findRun(in.Channels, g.RunID))
 			text, why := dagBlockedReason(g)
+			taskID, retry := blockedTask(g)
 			gates = append(gates, wshrpc.AttentionItem{
 				Kind:         AttentionDagBlocked,
 				Key:          "dag-blocked:" + g.ID,
+				TaskId:       taskID,
+				Retry:        retry,
 				ChannelId:    g.ChannelId,
 				ChannelName:  channelNameFor(in.Channels, g.ChannelId),
 				RunId:        g.RunID,
@@ -443,6 +462,7 @@ func dagGateItems(in AttentionInput, g *waveobj.TaskGroup) []wshrpc.AttentionIte
 		out = append(out, wshrpc.AttentionItem{
 			Kind:         AttentionDagGate,
 			Key:          "dag-gate:" + g.ID + ":" + t.ID,
+			TaskId:       t.ID,
 			ChannelId:    g.ChannelId,
 			ChannelName:  channelNameFor(in.Channels, g.ChannelId),
 			RunId:        g.RunID,

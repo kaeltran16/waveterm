@@ -7,7 +7,7 @@
 // they stay out of this pure helper.
 
 import { projectOf, type AgentVM } from "./agentsviewmodel";
-import { NO_LINEAGE, workerAsk, type Lineage, type RunInfo } from "./runlineage";
+import { holdsTask, NO_LINEAGE, workerAsk, type Lineage, type RunInfo } from "./runlineage";
 
 export const UNGROUPED_PROJECT = "ungrouped";
 
@@ -44,36 +44,44 @@ function workerNeedsYou(run: RunInfo, taskId: string, agent: AgentVM): boolean {
     return workerAsk(run.digest, taskId)?.owner === "you";
 }
 
+const QUEUED = new Set(["pending", "ready"]);
+
 function runRows(
     item: Extract<TopItem, { kind: "lead" | "run" }>,
-    workers: Map<string, AgentVM>,
+    workers: Map<string, AgentVM[]>,
     folds: TreeFolds
 ): { rows: AgentTreeRow[]; members: number; attn: number } {
     const { run, project } = item;
     const tasks = run.dag?.tasks ?? [];
     const live = tasks.filter((t) => t.state !== "done" && workers.has(t.id));
     const done = tasks.filter((t) => t.state === "done");
+    // tasks not dispatched yet have no session; they list after the live ones so the run's whole plan reads
+    const queued = tasks.filter((t) => QUEUED.has(t.state) && !workers.has(t.id));
     const open = !folds.collapsed.has(run.runId);
     const head: AgentTreeRow =
         item.kind === "lead"
             ? { kind: "lead", agent: item.agent, project, run, open, live: live.length }
             : { kind: "run", project, run, open, live: live.length };
     const rows: AgentTreeRow[] = [head];
-    if (open) {
-        for (const task of live) {
-            rows.push({ kind: "worker", agent: workers.get(task.id), project, run, task });
+    // a task's row is its current agent's; any other tab still open on the task follows it rather than leave the run
+    const pushTask = (task: TaskNode) => {
+        const agents = workers.get(task.id) ?? [undefined];
+        for (const agent of agents) {
+            rows.push({ kind: "worker", agent, project, run, task });
         }
+    };
+    if (open) {
+        // oldest first: what landed, what is running, what is still to come
         if (done.length > 0) {
             const doneOpen = folds.doneOpen.has(run.runId);
             rows.push({ kind: "done", project, run, count: done.length, open: doneOpen });
             if (doneOpen) {
-                for (const task of done) {
-                    rows.push({ kind: "worker", agent: workers.get(task.id), project, run, task });
-                }
+                done.forEach(pushTask);
             }
         }
+        [...live, ...queued].forEach(pushTask);
     }
-    const attn = live.filter((t) => workerNeedsYou(run, t.id, workers.get(t.id)!)).length;
+    const attn = live.filter((t) => workerNeedsYou(run, t.id, workers.get(t.id)![0])).length;
     return { rows, members: live.length, attn };
 }
 
@@ -92,7 +100,7 @@ export function buildAgentTree(
         (a, b) => (rank.get(a.id) ?? Number.POSITIVE_INFINITY) - (rank.get(b.id) ?? Number.POSITIVE_INFINITY)
     );
     const leads = new Map<string, AgentVM>();
-    const workers = new Map<string, Map<string, AgentVM>>();
+    const workers = new Map<string, Map<string, AgentVM[]>>();
     for (const a of sorted) {
         const role = lineage.roles[a.id];
         if (role?.kind === "lead" && lineage.runs[role.runId] && !leads.has(role.runId)) {
@@ -103,9 +111,14 @@ export function buildAgentTree(
                 byTask = new Map();
                 workers.set(role.leadRunId, byTask);
             }
-            if (!byTask.has(role.taskId)) {
-                byTask.set(role.taskId, a);
-            }
+            byTask.set(role.taskId, [...(byTask.get(role.taskId) ?? []), a]);
+        }
+    }
+    // the task's current run leads its agents, so a tab left from an earlier attempt never takes its row
+    for (const [runId, byTask] of workers) {
+        const run = lineage.runs[runId];
+        for (const [taskId, list] of byTask) {
+            list.sort((a, b) => Number(holdsTask(run, taskId, b)) - Number(holdsTask(run, taskId, a)));
         }
     }
 
@@ -126,7 +139,7 @@ export function buildAgentTree(
         if (role?.kind === "lead" && leads.get(role.runId) === a) {
             placedRuns.add(role.runId);
             push({ kind: "lead", agent: a, project: projectOf(a) || UNGROUPED_PROJECT, run: lineage.runs[role.runId] });
-        } else if (role?.kind === "worker" && workers.get(role.leadRunId)?.get(role.taskId) === a) {
+        } else if (role?.kind === "worker" && lineage.runs[role.leadRunId]) {
             if (leads.has(role.leadRunId) || placedRuns.has(role.leadRunId)) {
                 continue;
             }

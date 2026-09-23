@@ -13,6 +13,8 @@ import {
     groupDelta,
     mergeActiveWork,
     projectBriefing,
+    queueAction,
+    queueKindLabel,
     queueOpenTarget,
     SHIPPED_CAP,
     summarizeAttentionQueue,
@@ -20,6 +22,7 @@ import {
     type BlockerRow,
     type BriefingModelInput,
     type DeltaRow,
+    type QueueRow,
     type RunRow,
 } from "./briefingmodel";
 import type { EffortCardModel } from "./effortmodel";
@@ -312,7 +315,7 @@ describe("briefing projection", () => {
         expect(m.counts.runs).toBe(10);
         expect(m.counts.shipped).toBe(10);
         expect(capRegion(m.activeRuns, ACTIVE_CAP, false)).toMatchObject({ more: 2 });
-        expect(capRegion(m.shipped, SHIPPED_CAP, false)).toMatchObject({ more: 2 });
+        expect(capRegion(m.shipped, SHIPPED_CAP, false)).toMatchObject({ more: 7 });
     });
 });
 
@@ -360,10 +363,12 @@ describe("delta grouping", () => {
 describe("unified active work", () => {
     const run = (over: Partial<RunRow> = {}): RunRow => ({
         oref: "run:r1",
+        oid: "r1",
         goal: "run goal",
         project: "waveterm",
         status: "running",
         workerOrefs: [],
+        mode: "quick",
         ts: T0 - 2 * HOUR,
         ...over,
     });
@@ -645,68 +650,40 @@ describe("buildAttentionQueue", () => {
 });
 
 describe("summarizeAttentionQueue", () => {
-    it("keeps a single item's specific request", () => {
-        const summary = summarizeAttentionQueue([
-            {
-                key: "gate:r1",
-                kind: "gate",
-                title: "Approve before Jarvis proceeds.",
-                source: "ship the ledger",
-                detail: "ship the ledger · #waveterm",
-                ts: T0 - HOUR,
-                action: "Review",
-                nav: null,
-                tone: "asking",
-                attrib: "",
-                why: "",
-                cites: [],
-            },
-        ]);
-        expect(summary).toEqual({
-            title: "Approve before Jarvis proceeds.",
-            detail: "gate · ship the ledger",
-            oldestTs: T0 - HOUR,
-        });
-    });
-
-    it("summarizes multiple rows by kind and distinct source", () => {
+    it("summarises multiple rows by kind word and the oldest wait", () => {
         const queue = buildAttentionQueue({
             attention: [
-                attentionItem({
-                    kind: "radar-triage",
-                    key: "radar:one",
-                    source: "cyber_assistant",
-                    waitingsince: T0 - HOUR,
-                }),
-                attentionItem({ kind: "radar-triage", key: "radar:two", source: "waveterm", waitingsince: T0 - DAY }),
+                attentionItem({ kind: "radar-triage", key: "radar:one", waitingsince: T0 - HOUR }),
+                attentionItem({ kind: "radar-triage", key: "radar:two", waitingsince: T0 - DAY }),
             ],
             efforts: [],
         });
-        expect(summarizeAttentionQueue(queue)).toEqual({
-            title: "2 items need your attention",
-            detail: "triage ×2 · cyber_assistant · waveterm",
+        expect(summarizeAttentionQueue(queue, T0)).toEqual({
+            title: "2 things are waiting on you",
+            detail: "triage · triage · oldest 1d",
             oldestTs: T0 - DAY,
         });
     });
 
-    it("bounds source detail and ignores rows without an age", () => {
+    it("ignores rows without an age, and drops the oldest when none has one", () => {
         const queue = buildAttentionQueue({
             attention: [
-                attentionItem({ kind: "gate", key: "g1", source: "one", waitingsince: 0 }),
-                attentionItem({ kind: "ask", key: "a1", source: "two", waitingsince: T0 - HOUR }),
-                attentionItem({ kind: "ask", key: "a2", source: "three", waitingsince: T0 - 2 * HOUR }),
+                attentionItem({ kind: "gate", key: "g1", waitingsince: 0 }),
+                attentionItem({ kind: "ask", key: "a1", waitingsince: T0 - HOUR }),
+                attentionItem({ kind: "ask", key: "a2", waitingsince: T0 - 2 * HOUR }),
             ],
             efforts: [],
         });
-        expect(summarizeAttentionQueue(queue)).toEqual({
-            title: "3 items need your attention",
-            detail: "gate ×1 · ask ×2 · one · two · +1 source",
+        expect(summarizeAttentionQueue(queue, T0)).toEqual({
+            title: "3 things are waiting on you",
+            detail: "gate · ask · ask · oldest 2h",
             oldestTs: T0 - 2 * HOUR,
         });
+        expect(summarizeAttentionQueue(queue.slice(0, 1), T0)?.detail).toBe("gate");
     });
 
     it("returns null for an empty queue", () => {
-        expect(summarizeAttentionQueue([])).toBeNull();
+        expect(summarizeAttentionQueue([], T0)).toBeNull();
     });
 });
 
@@ -757,5 +734,74 @@ describe("queueOpenTarget", () => {
 
     it("leaves a standalone row with no destination inert", () => {
         expect(queueOpenTarget(null)).toBeNull();
+    });
+});
+
+describe("design queue wording", () => {
+    const q = (over: Partial<QueueRow>): QueueRow =>
+        ({
+            key: "k" + Math.random(),
+            kind: "gate",
+            wireKind: "gate",
+            title: "t",
+            source: "s",
+            detail: "",
+            ts: null,
+            action: "Review",
+            nav: null,
+            tone: "asking",
+            attrib: "",
+            why: "",
+            cites: [],
+            channelId: "c1",
+            runId: "r1",
+            phaseIdx: 0,
+            taskId: "",
+            retry: false,
+            ...over,
+        }) as QueueRow;
+    it("summarises as the design does", () => {
+        const now = 10 * 3_600_000;
+        const s = summarizeAttentionQueue(
+            [
+                q({ wireKind: "gate" }),
+                q({ wireKind: "ask", ts: now - 2 * 3_600_000 }),
+                q({ wireKind: "dag-blocked", retry: true }),
+            ],
+            now
+        )!;
+        expect(s.title).toBe("3 things are waiting on you");
+        expect(s.detail).toBe("gate · ask · failed · oldest 2h");
+    });
+    it("one item is singular", () => {
+        expect(summarizeAttentionQueue([q({})], 0)!.title).toBe("1 thing is waiting on you");
+    });
+    it("maps each wire kind to its in-place action", () => {
+        expect(queueAction(q({ wireKind: "gate" }))).toEqual({ label: "Approve", kind: "approve-gate" });
+        expect(queueAction(q({ wireKind: "dag-gate", taskId: "t-3" }))).toEqual({
+            label: "Approve",
+            kind: "approve-dag",
+        });
+        expect(queueAction(q({ wireKind: "dag-gate", taskId: "" }))).toEqual({ label: "Open", kind: "open" });
+        expect(queueAction(q({ wireKind: "dag-blocked", taskId: "t-4", retry: true }))).toEqual({
+            label: "Retry",
+            kind: "retry-dag",
+        });
+        expect(queueAction(q({ wireKind: "dag-blocked", taskId: "t-2", retry: false }))).toEqual({
+            label: "Open",
+            kind: "open",
+        });
+        expect(queueAction(q({ wireKind: "ask" }))).toEqual({ label: "Open", kind: "open" });
+    });
+    it("a record blocker joins the queue as blocked and opens its record", () => {
+        const rows = buildAttentionQueue({
+            attention: [],
+            efforts: [],
+            blockers: [{ oref: "task:d1", objective: "Clear the gate", blockers: "waits on SRE", project: "p", ts: 5 }],
+        });
+        expect(rows).toHaveLength(1);
+        expect(queueKindLabel(rows[0])).toBe("blocked");
+        expect(rows[0].nav).toEqual({ kind: "record", oref: "task:d1" });
+        expect(queueOpenTarget(rows[0].nav)).toEqual({ kind: "oref", oref: "task:d1" });
     });
 });
