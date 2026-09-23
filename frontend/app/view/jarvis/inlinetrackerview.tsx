@@ -13,6 +13,7 @@ import { Fragment, useEffect, useState } from "react";
 import { chunkTone, type ChunkTone } from "./effortmodel";
 import type { DetailRow } from "./inlinetracker";
 import { trackerMenuAtom } from "./jarvisstore";
+import { ProgressBar } from "./progressbar";
 
 const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 
@@ -32,14 +33,20 @@ export const TONE_FG: Record<ChunkTone, string> = {
     active: "text-accent",
     blocked: "text-warning-soft",
     deferred: "text-warning-soft",
-    skipped: "text-muted",
-    pending: "text-muted",
+    skipped: "text-ink-mid",
+    pending: "text-ink-mid",
 };
 
 export const STATUSES = ["pending", "active", "blocked", "deferred", "skipped", "done"];
 
 const SMALL_BUTTON =
-    "cursor-pointer rounded-[6px] border border-border px-2 py-[3px] font-mono text-[10px] text-muted hover:border-edge-strong hover:text-ink-hi";
+    "cursor-pointer rounded-[6px] border border-border px-2 py-[3px] font-mono text-[10.5px] text-ink-mid hover:border-edge-strong hover:text-ink-hi";
+
+const stageHeadClass = (first: boolean) =>
+    cn(
+        "relative flex items-center gap-2 border-t px-1.5 pb-1 pt-2.5",
+        first ? "mt-0 border-transparent" : "mt-2 border-edge-faint"
+    );
 
 export type TrackerEdits = {
     oid: string; // bare effort oid, for the footer's copy button (an empty plan has no facts row)
@@ -155,14 +162,14 @@ export function InitiativeDetail({
         // card rather than a row with a second block stepped in beneath it
         <div
             data-jarvis-initiative-detail="true"
-            className="mb-2 rounded-b-[9px] bg-surface-selected/40 pb-[11px] pl-1.5 pr-2.5 pt-[7px]"
+            className="mb-3 rounded-b-[10px] border border-t-0 border-border bg-surface pb-2.5 pl-2.5 pr-3.5 pt-3"
         >
             {rows.map((row, i) => {
                 const tail = addAfter.get(i);
                 const add =
                     tail != null ? (
                         <AddChunkRow
-                            placeholder={`chunk in ${tail.stage || "unstaged"}`}
+                            stage={tail.stage}
                             onAdd={(label) => edits.onAddChunk(label, tail.stage, tail.at)}
                         />
                     ) : null;
@@ -174,7 +181,24 @@ export function InitiativeDetail({
                     );
                 }
                 if (row.kind === "facts") {
-                    return null; // the footer below carries the id, count and actions now
+                    const pct = row.total > 0 ? Math.round((row.done / row.total) * 100) : 0;
+                    return (
+                        <div key={row.id} className="flex flex-wrap items-center gap-x-3.5 gap-y-1.5 px-1.5 pb-1.5">
+                            <ProgressBar
+                                pct={pct}
+                                tone={row.blocked > 0 ? "asking" : "success"}
+                                className="h-1.5 w-40 flex-none rounded-[3px]"
+                            />
+                            <span className="text-[12px] text-secondary">
+                                {row.done} of {row.total} done{row.blocked > 0 ? ` · ${row.blocked} blocked` : ""}
+                            </span>
+                            {row.next !== "" ? (
+                                <span className="text-[12px] text-ink-mid">
+                                    Next: <span className="text-ink-hi">{row.next}</span>
+                                </span>
+                            ) : null}
+                        </div>
+                    );
                 }
                 if (row.kind === "stage") {
                     const menuId = row.id + "#menu";
@@ -183,7 +207,7 @@ export function InitiativeDetail({
                             <div
                                 data-jarvis-tracker-stage={row.stage}
                                 aria-expanded={!row.collapsed}
-                                className="relative mt-2 flex items-center gap-2 border-t border-edge-faint px-1.5 pb-1 pt-2.5"
+                                className={stageHeadClass(row.first)}
                             >
                                 <button
                                     type="button"
@@ -212,15 +236,17 @@ export function InitiativeDetail({
                                         {row.stage === "" ? "unstaged" : row.stage}
                                     </button>
                                 )}
-                                <StageBar fraction={row.fraction} />
-                                <span className="w-7 flex-none font-mono text-[10.5px] text-muted">{row.fraction}</span>
+                                <StageBar done={row.done} total={row.total} />
+                                <span className="w-7 flex-none font-mono text-[10.5px] text-ink-mid">
+                                    {row.fraction}
+                                </span>
                                 <button
                                     type="button"
                                     aria-label="Stage actions"
                                     onClick={() => setMenu(menu === menuId ? null : menuId)}
                                     className={cn(
-                                        "h-5 w-[22px] flex-none cursor-pointer rounded-[5px] border text-[12px] leading-none text-muted hover:text-ink-hi",
-                                        menu === menuId ? "border-edge-mid" : "border-transparent",
+                                        "h-5 w-[22px] flex-none cursor-pointer rounded-[5px] border text-[12px] leading-none text-ink-mid hover:border-edge-mid hover:text-ink-hi",
+                                        menu === menuId ? "border-edge-strong" : "border-transparent",
                                         FOCUS
                                     )}
                                 >
@@ -280,7 +306,13 @@ export function InitiativeDetail({
                                     <span
                                         className={cn(
                                             "min-w-0 flex-1 truncate text-[12px] leading-[1.4]",
-                                            selected ? "font-semibold text-ink-hi" : "text-secondary",
+                                            selected
+                                                ? "font-semibold text-primary"
+                                                : row.row.status === "active"
+                                                  ? "font-medium text-ink-hi"
+                                                  : row.row.status === "done" || row.row.status === "skipped"
+                                                    ? "text-ink-mid"
+                                                    : "text-ink-hi",
                                             row.row.status === "skipped" && "line-through"
                                         )}
                                     >
@@ -288,7 +320,7 @@ export function InitiativeDetail({
                                     </span>
                                 )}
                                 {row.notes > 0 ? (
-                                    <span className="flex-none font-mono text-[10.5px] text-muted">
+                                    <span className="flex-none font-mono text-[10.5px] text-ink-mid">
                                         {row.notes} {row.notes === 1 ? "note" : "notes"}
                                     </span>
                                 ) : null}
@@ -302,7 +334,7 @@ export function InitiativeDetail({
                                     }}
                                     className={cn(
                                         "flex w-[86px] flex-none cursor-pointer items-center justify-between gap-1 rounded-[5px] border px-[7px] py-0.5 text-[11px] font-medium hover:border-edge-mid",
-                                        menu === menuId ? "border-edge-mid" : "border-transparent",
+                                        menu === menuId ? "border-edge-strong" : "border-transparent",
                                         TONE_FG[row.row.tone],
                                         FOCUS
                                     )}
@@ -388,11 +420,32 @@ export function InitiativeDetail({
                     </Fragment>
                 );
             })}
-            <NewStageRow
-                state={newStage}
-                onChange={setNewStage}
-                onAdd={(name, chunk) => edits.onAddChunk(chunk, name, null)}
-            />
+            {newStage?.chunk != null ? (
+                // a stage is a label on chunks, so this header is a placeholder until its first chunk lands
+                <>
+                    <div
+                        data-jarvis-tracker-stage={newStage.name}
+                        className={stageHeadClass(!rows.some((r) => r.kind === "stage"))}
+                    >
+                        <span className="w-3.5 flex-none text-center text-[10px] text-ink-mid">▾</span>
+                        <span className="min-w-0 flex-1 truncate text-[11.5px] font-semibold text-primary">
+                            {newStage.name}
+                        </span>
+                        <StageBar done={0} total={0} />
+                        <span className="w-7 flex-none font-mono text-[10.5px] text-ink-mid">0/0</span>
+                    </div>
+                    <AddChunkRow
+                        stage={newStage.name}
+                        initialDraft=""
+                        onAdd={(label) => {
+                            edits.onAddChunk(label, newStage.name, null);
+                            setNewStage(null);
+                        }}
+                        onCancel={() => setNewStage(null)}
+                    />
+                </>
+            ) : null}
+            <NewStageRow state={newStage} onChange={setNewStage} />
             <TrackerFooter
                 facts={rows.find((r): r is Extract<DetailRow, { kind: "facts" }> => r.kind === "facts") ?? null}
                 edits={edits}
@@ -403,8 +456,7 @@ export function InitiativeDetail({
     );
 }
 
-function StageBar({ fraction }: { fraction: string }) {
-    const [done, total] = fraction.split("/").map(Number);
+function StageBar({ done, total }: { done: number; total: number }) {
     const pct = total > 0 ? Math.round((done / total) * 100) : 0;
     return (
         <span className="h-[3px] w-12 flex-none overflow-hidden rounded-sm bg-border">
@@ -430,7 +482,7 @@ function Menu({ className, children }: { className: string; children: React.Reac
 
 function MenuHead({ children }: { children: React.ReactNode }) {
     return (
-        <div className="px-[7px] pb-[5px] pt-1 font-mono text-[10.5px] font-bold uppercase tracking-[.1em] text-muted">
+        <div className="px-[7px] pb-[5px] pt-1 font-mono text-[10.5px] font-bold uppercase tracking-[.1em] text-ink-mid">
             {children}
         </div>
     );
@@ -468,7 +520,7 @@ function MenuItem({
                 FOCUS
             )}
         >
-            <span className="w-3 flex-none text-center text-[10px] text-muted">{glyph}</span>
+            <span className="w-3 flex-none text-center text-[10px] text-ink-mid">{glyph}</span>
             <span className="min-w-0 flex-1 truncate">{children}</span>
             {hint != null ? <span className="font-mono text-[10.5px] text-muted">{hint}</span> : null}
         </button>
@@ -476,8 +528,18 @@ function MenuItem({
 }
 
 // "+ Add chunk" at the end of a stage run: a button that becomes its own input
-function AddChunkRow({ placeholder, onAdd }: { placeholder: string; onAdd: (label: string) => void }) {
-    const [draft, setDraft] = useState<string | null>(null);
+function AddChunkRow({
+    stage,
+    onAdd,
+    onCancel,
+    initialDraft = null,
+}: {
+    stage: string;
+    onAdd: (label: string) => void;
+    onCancel?: () => void;
+    initialDraft?: string | null;
+}) {
+    const [draft, setDraft] = useState<string | null>(initialDraft);
     if (draft == null) {
         return (
             <button
@@ -485,20 +547,26 @@ function AddChunkRow({ placeholder, onAdd }: { placeholder: string; onAdd: (labe
                 data-jarvis-add-chunk
                 onClick={() => setDraft("")}
                 className={cn(
-                    "flex cursor-pointer items-center gap-2 px-[7px] py-1 text-[11.5px] font-medium text-muted hover:text-accent-soft",
+                    "flex cursor-pointer items-center gap-2 px-[7px] py-1 text-[11.5px] font-medium text-ink-mid hover:text-accent-soft",
                     FOCUS
                 )}
             >
-                <span className="w-3 text-center">+</span>Add chunk
+                <span className="w-3 text-center text-ink-mid">+</span>Add chunk
             </button>
         );
     }
+    const leave = () => {
+        setDraft(null);
+        onCancel?.();
+    };
     const commit = () => {
         const label = draft.trim();
-        setDraft(null);
-        if (label !== "") {
-            onAdd(label);
+        if (label === "") {
+            leave();
+            return;
         }
+        setDraft(null);
+        onAdd(label);
     };
     return (
         <div className="flex items-center gap-2 py-[3px] pl-[7px] pr-1.5">
@@ -509,14 +577,16 @@ function AddChunkRow({ placeholder, onAdd }: { placeholder: string; onAdd: (labe
                 onChange={(e) => setDraft(e.target.value)}
                 onBlur={commit}
                 onKeyDown={(e) => {
-                    if (e.key === "Enter") {
+                    if (e.key === "Enter" && draft.trim() !== "") {
                         commit();
                     } else if (e.key === "Escape") {
                         e.stopPropagation();
-                        setDraft(null);
+                        leave();
                     }
                 }}
-                placeholder={placeholder}
+                placeholder={
+                    stage ? `add to ${stage} · enter to add, esc to stop` : "chunk label · enter to add, esc to stop"
+                }
                 aria-label="New chunk label"
                 className="min-w-0 flex-1 rounded-[5px] border border-edge-mid bg-background px-[7px] py-[3px] text-[12px] text-primary outline-none focus:border-accent/60"
             />
@@ -525,65 +595,48 @@ function AddChunkRow({ placeholder, onAdd }: { placeholder: string; onAdd: (labe
     );
 }
 
-// a stage is a label on chunks, so it exists only once its first chunk does: name, then first chunk
+// a stage is a label on chunks, so it exists only once its first chunk does: the name set here heads a
+// placeholder stage that InitiativeDetail draws, and its first chunk is added there
 function NewStageRow({
     state,
     onChange,
-    onAdd,
 }: {
     state: { name: string; chunk: string | null } | null;
     onChange: (s: { name: string; chunk: string | null } | null) => void;
-    onAdd: (name: string, chunk: string) => void;
 }) {
-    const input =
-        "min-w-0 flex-1 rounded-[5px] border border-edge-mid bg-background px-[7px] py-[3px] text-[11.5px] text-primary outline-none focus:border-accent/60";
     return (
         <div className="mt-2.5 border-t border-edge-faint px-[5px] pt-2">
-            {state == null ? (
+            {state == null || state.chunk != null ? (
                 <button
                     type="button"
                     data-jarvis-new-stage
                     onClick={() => onChange({ name: "", chunk: null })}
                     className={cn(
-                        "flex cursor-pointer items-center gap-2 px-0.5 py-0.5 text-[11.5px] font-semibold text-muted hover:text-accent-soft",
+                        "flex cursor-pointer items-center gap-2 px-0.5 py-0.5 text-[11.5px] font-semibold text-ink-mid hover:text-accent-soft",
                         FOCUS
                     )}
                 >
                     <span className="w-3 text-center">+</span>New stage
                 </button>
-            ) : state.chunk == null ? (
-                <input
-                    autoFocus
-                    value={state.name}
-                    onChange={(e) => onChange({ name: e.target.value, chunk: null })}
-                    onKeyDown={(e) => {
-                        if (e.key === "Enter" && state.name.trim() !== "") {
-                            onChange({ name: state.name.trim(), chunk: "" });
-                        } else if (e.key === "Escape") {
-                            e.stopPropagation();
-                            onChange(null);
-                        }
-                    }}
-                    placeholder="Stage name · enter, then add its first chunk"
-                    className={cn(input, "w-full font-semibold")}
-                />
             ) : (
-                <input
-                    autoFocus
-                    value={state.chunk}
-                    onChange={(e) => onChange({ name: state.name, chunk: e.target.value })}
-                    onKeyDown={(e) => {
-                        if (e.key === "Enter" && state.chunk?.trim()) {
-                            onAdd(state.name, state.chunk.trim());
-                            onChange(null);
-                        } else if (e.key === "Escape") {
-                            e.stopPropagation();
-                            onChange(null);
-                        }
-                    }}
-                    placeholder={`first chunk in ${state.name}`}
-                    className={cn(input, "w-full")}
-                />
+                <div className="flex items-center gap-2">
+                    <input
+                        autoFocus
+                        value={state.name}
+                        onChange={(e) => onChange({ name: e.target.value, chunk: null })}
+                        onKeyDown={(e) => {
+                            if (e.key === "Enter" && state.name.trim() !== "") {
+                                onChange({ name: state.name.trim(), chunk: "" });
+                            } else if (e.key === "Escape") {
+                                e.stopPropagation();
+                                onChange(null);
+                            }
+                        }}
+                        placeholder="Stage name · enter, then add its first chunk"
+                        className="min-w-0 flex-1 rounded-[5px] border border-edge-mid bg-background px-[7px] py-[3px] text-[11.5px] font-semibold text-primary outline-none focus:border-accent/60"
+                    />
+                    <span className="font-mono text-[10.5px] text-muted">enter · esc</span>
+                </div>
             )}
         </div>
     );
@@ -612,7 +665,7 @@ function TrackerFooter({
         </button>
     );
     return (
-        <div className="mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-1.5 border-t border-edge-faint px-1.5 pt-2.5 font-mono text-[10.5px] text-muted">
+        <div className="mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-1.5 border-t border-edge-faint px-1.5 pt-2.5 font-mono text-[10.5px] text-ink-mid">
             {/* the id is what you paste into a prompt or a `wsh effort` call, and a span is the one
                 thing you cannot lift out of a row you can click */}
             <button
@@ -621,7 +674,7 @@ function TrackerFooter({
                 onClick={() => void navigator.clipboard?.writeText(edits.oid)}
                 className={cn("cursor-pointer hover:text-ink-hi", FOCUS)}
             >
-                {edits.oid}
+                {edits.oid.slice(0, 8)}
             </button>
             {facts != null ? <span>{facts.count}</span> : null}
             {confirming ? (
@@ -629,10 +682,17 @@ function TrackerFooter({
                     data-jarvis-delete-confirm
                     className="ml-auto flex items-center gap-2 rounded-[7px] border border-error/40 bg-error/10 py-[3px] pl-2.5 pr-1"
                 >
-                    <span className="font-sans text-[11.5px] text-error">
+                    <span className="font-sans text-[11.5px] text-error-soft">
                         Delete this initiative, its {edits.total} chunks and their notes?
                     </span>
-                    <button type="button" onClick={() => onConfirm(false)} className={cn(SMALL_BUTTON, FOCUS)}>
+                    <button
+                        type="button"
+                        onClick={() => onConfirm(false)}
+                        className={cn(
+                            "cursor-pointer rounded-[5px] border border-edge-mid bg-surface-raised px-2 py-0.5 font-mono text-[10.5px] text-secondary hover:text-primary",
+                            FOCUS
+                        )}
+                    >
                         cancel
                     </button>
                     <button
