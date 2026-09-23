@@ -21,6 +21,23 @@ Seed chunks from the plan's phase list — one `--chunk` per line is the CLI for
 paste-and-tick list. Ticked lines become `done`; chunks you plan but have not started stay
 `pending` (never pre-mark done).
 
+## When the route is still unclear
+
+An effort too foggy to name its phases gets a tracker of decisions first, not build steps:
+
+- **`Decide: <question>`** — one chunk per question you can state precisely now, even if it cannot be
+  answered yet. Order it after the decisions it hangs on (`chunk move`).
+- **`Fog: <area>`** — one chunk per area you can tell is coming but cannot yet phrase as a question,
+  set `deferred` so it still counts as remaining. Do not pre-slice fog into decisions.
+- **Resolve one decision per session.** The answer is the done note:
+  `wsh effort chunk status <effort> "Decide: ..." done --note "<answer and why>"`. The note trail is
+  the decision record; do not copy it elsewhere.
+- **A decision waiting on the user is `blocked`** (`--note "needs: <question>"`), so it reaches the
+  briefing's attention banner. **Out of scope is `skipped`** with the reason as the note.
+- **Graduate fog as answers land:** add the `Decide:` chunks it now yields (`chunk add --at N`), then
+  rename or remove the `Fog:` chunk.
+- The route is clear when no `Decide:` or `Fog:` chunk is open. Add the build chunks then.
+
 ## Command reference
 
 | Command | What it does |
