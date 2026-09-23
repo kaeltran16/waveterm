@@ -4637,6 +4637,175 @@ const briefInlineTracker = {
     },
 };
 
+// --- brief-design-parity: the Brief drawn to its handoff design ----------------------------------
+// The structural half of the parity review against docs/prototype/jarvis-brief-editing.dc.html
+// (variant A); the visual half is cdp-shots/design/ (scripts/cdp/design-states.mjs) beside these shots.
+// Runs against the design's data: seed it first with `node scripts/cdp/seed-brief.mjs`.
+const PARITY_INITIATIVE = "Scenario gate clearance";
+const PARITY_CHUNK = "N1 box upgrade";
+const parityNap = (h, ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
+
+const briefDesignParity = {
+    name: "brief-design-parity",
+    surface: "jarvis",
+    async arrange(h) {
+        const { efforts = [] } = (await h.rpc("effortlist", {})) ?? {};
+        if (!efforts.some((e) => e.title === PARITY_INITIATIVE)) {
+            throw new Error(`no "${PARITY_INITIATIVE}" initiative - run node scripts/cdp/seed-brief.mjs first`);
+        }
+        return {};
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        await h.goto("jarvis");
+        // a briefing fixture another scenario left on hides the live data, and only a reload clears it
+        const fixtureOn = await h.ev(
+            `[...document.querySelectorAll('[data-briefing-fixture]')].some((b) => b.className.includes('bg-accentbg'))`
+        );
+        if (fixtureOn) {
+            try {
+                await h.ev("location.reload()");
+            } catch {
+                /* the evaluate is cut off by the navigation it just started */
+            }
+            for (let waited = 0; waited < 30000; waited += 500) {
+                const up = await h.ev("!!window.TabRpcClient && !!document.querySelector('nav button')").catch(() => false);
+                if (up) break;
+                await new Promise((r) => setTimeout(r, 500));
+            }
+            await h.goto("jarvis");
+        }
+        await parityNap(h, 900);
+
+        // (a) the four region labels, as rendered (uppercase comes from CSS, which innerText applies).
+        // a region's head is its first child: a button for waiting/initiatives/runs, a div for behind
+        const labels = await h.ev(`[...document.querySelectorAll('section[data-jarvis-brief-region]')].map((s) =>
+            [...s.querySelectorAll(':scope > :first-child > span')].map((x) => x.innerText.trim()).find((t) => t !== '') ?? null)`);
+        await h.shot("cdp-shots/brief-design-parity-a-regions.png");
+        steps.push({
+            step: "a. the region labels read WAITING ON YOU, INITIATIVES, RUNS, BEHIND YOU",
+            ok: JSON.stringify(labels) === JSON.stringify(["WAITING ON YOU", "INITIATIVES", "RUNS", "BEHIND YOU"]),
+            detail: JSON.stringify(labels),
+        });
+
+        // (b) header order, by document position inside the header
+        const order = await h.ev(`(() => {
+            const header = document.querySelector('[data-jarvis-region="brief"] > header');
+            if (!header) return null;
+            const all = [...header.querySelectorAll('*')];
+            const at = (sel) => all.indexOf(header.querySelector(sel));
+            return {
+                fleet: at('[data-jarvis-brief-band="fleet"]'),
+                filter: at('[data-jarvis-brief-filter]'),
+                tier: at('[data-jarvis-autonomy="chip"]'),
+                profile: at('[data-jarvis-brief-profile]'),
+                initiative: at('[data-jarvis-new-initiative]'),
+                run: at('[data-jarvis-new-run]'),
+            };
+        })()`);
+        const seq = order ? [order.fleet, order.filter, order.tier, order.profile, order.initiative, order.run] : [];
+        await h.shot("cdp-shots/brief-design-parity-b-header.png");
+        steps.push({
+            step: "b. the header runs fleet line, filter, tier, Profile, + Initiative, + Run",
+            ok: seq.length === 6 && seq.every((i, n) => i >= 0 && (n === 0 || i > seq[n - 1])),
+            detail: JSON.stringify(order),
+        });
+
+        // (c) the expanded initiative: summary, next chunk, stage fractions
+        const ROW = `[...document.querySelectorAll('[data-jarvis-brief-row="initiative"]')].find((r) => r.innerText.includes(${JSON.stringify(PARITY_INITIATIVE)}))`;
+        const DETAIL = `${ROW}?.parentElement?.querySelector('[data-jarvis-initiative-detail="true"]')`;
+        ctx.wasExpanded = (await h.ev(`${ROW}?.getAttribute('aria-expanded') ?? null`)) === "true";
+        if (!ctx.wasExpanded) await h.ev(`${ROW}?.click()`);
+        for (let waited = 0; waited < 3000 && !(await h.ev(`!!${DETAIL}`)); waited += 250) await parityNap(h, 250);
+        const card = await h.ev(`(() => {
+            const d = ${DETAIL};
+            if (!d) return null;
+            const text = d.innerText.replace(/\\s+/g, " ");
+            return {
+                summary: /2 of 6 done · 1 blocked/.test(text),
+                next: /Next: N1 box upgrade/.test(text),
+                // a stage head's direct spans are the empty bar, then the fraction
+                fractions: [...d.querySelectorAll('[data-jarvis-tracker-stage]')].map((s) =>
+                    [...s.querySelectorAll(':scope > span')].map((x) => x.innerText.trim()).find((t) => t !== "") ?? null),
+                footerId: d.querySelector('button[title="copy this initiative\\'s id"]')?.innerText.trim() ?? null,
+            };
+        })()`);
+        await h.shot("cdp-shots/brief-design-parity-c-initiative.png");
+        steps.push({
+            step: `c. "${PARITY_INITIATIVE}" reads 2 of 6 done · 1 blocked, Next: N1 box upgrade, with n/m stage fractions`,
+            ok:
+                card != null &&
+                card.summary &&
+                card.next &&
+                card.fractions.length > 0 &&
+                card.fractions.every((f) => typeof f === "string" && /^\d+\/\d+$/.test(f)),
+            detail: JSON.stringify(card),
+        });
+
+        // (d) the footer id is the short oid
+        await h.shot("cdp-shots/brief-design-parity-d-footer.png");
+        steps.push({
+            step: "d. the initiative footer shows an 8-character id",
+            ok: typeof card?.footerId === "string" && /^[0-9a-f]{8}$/.test(card.footerId),
+            detail: String(card?.footerId),
+        });
+
+        // (e) a Runs row carries its type badge
+        const badges = await h.ev(`[...document.querySelectorAll('[data-jarvis-brief-row="session"]')]
+            .map((r) => r.querySelector(':scope > div > div > span')?.innerText.trim() ?? null)`);
+        await h.shot("cdp-shots/brief-design-parity-e-runs.png");
+        steps.push(
+            badges.length > 0
+                ? {
+                      step: "e. a Runs row leads with a quick run / orchestrator / agent badge",
+                      ok: badges.every((b) => ["quick run", "orchestrator", "agent"].includes(b)),
+                      detail: JSON.stringify(badges),
+                  }
+                : skipStep(
+                      "e. a Runs row leads with a quick run / orchestrator / agent badge",
+                      "no run in this dev store - start any quick run (+ Run) and rerun"
+                  )
+        );
+
+        // (f) Behind you's meta names the window it covers
+        const behindMeta = await h.ev(
+            `document.querySelector('section[data-jarvis-brief-region="behind"] > div:first-child > span:last-of-type')?.innerText.trim() ?? null`
+        );
+        await h.shot("cdp-shots/brief-design-parity-f-behind.png");
+        steps.push({
+            step: "f. Behind you's meta reads since … or the last 7 days",
+            ok: typeof behindMeta === "string" && /^since |^the last 7 days$/.test(behindMeta),
+            detail: String(behindMeta),
+        });
+
+        // (g) the Chunk sidebar's position
+        await h.ev(`${DETAIL}?.querySelector('[data-jarvis-tracker-chunk="' + CSS.escape(${JSON.stringify(PARITY_CHUNK)}) + '"]')?.click()`);
+        await parityNap(h, 500);
+        const position = await h.ev(
+            `document.querySelector('[data-jarvis-chunk-sidebar]')?.querySelector(':scope > div > span:nth-of-type(2)')?.innerText.trim() ?? null`
+        );
+        await h.shot("cdp-shots/brief-design-parity-g-sidebar.png");
+        steps.push({
+            step: "g. the Chunk sidebar shows its position as n / total",
+            ok: typeof position === "string" && /^\d+ \/ \d+$/.test(position),
+            detail: String(position),
+        });
+
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await h.ev(
+            `[...(document.querySelector('[data-jarvis-chunk-sidebar]')?.querySelectorAll('button') ?? [])].find((b) => b.innerText.trim() === 'Close')?.click()`
+        );
+        if (ctx.wasExpanded === false) {
+            await h.ev(
+                `[...document.querySelectorAll('[data-jarvis-brief-row="initiative"][aria-expanded="true"]')].find((r) => r.innerText.includes(${JSON.stringify(PARITY_INITIATIVE)}))?.click()`
+            );
+        }
+        await h.goto("cockpit");
+    },
+};
+
 const jarvisMotion = {
     name: "jarvis-motion",
     surface: "jarvis",
@@ -5406,6 +5575,8 @@ export const SCENARIOS = [
     dagLifecycle,
     routePickerFlat,
     jarvisMotion,
+    // before brief-inline-tracker, which leaves a briefing fixture on over the seeded data
+    briefDesignParity,
     briefInlineTracker,
     resourceLinking,
     uiApi,

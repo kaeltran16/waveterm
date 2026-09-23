@@ -97,6 +97,7 @@ Settings has no `Ctrl`+number slot — the nine positions are bound to `SURFACE_
 | `c` | New channel |
 | `Shift`+`G` | Graph peek (`Esc` closes) |
 | `Shift`+`J` / `Shift`+`K` | Next / previous run in this channel |
+| `j` / `k` | With a run sheet open: next / previous run in the list it counts (Runs, or Shipped for a finished run) |
 | `1`…`9` | Answer an ask option on a run body |
 | `Enter` | Submit the answer |
 | `Esc` | Leave the composer |
