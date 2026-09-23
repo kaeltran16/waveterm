@@ -4,8 +4,7 @@ Guidance for AI coding agents working in this repository — the single project 
 read by both Pi and Claude Code (which loads `AGENTS.md` for a project that has no `CLAUDE.md`).
 
 Personal working-style conventions are projected into every harness by Arc (`~/.claude/CLAUDE.md`,
-`~/.pi/agent/AGENTS.md`) and apply here too; "Working style" at the end of this file holds only the
-repo-specific additions.
+`~/.pi/agent/AGENTS.md`) and apply here too; they are not repeated in this file.
 
 ## Project status
 
@@ -133,19 +132,3 @@ Load-bearing rules:
 - Deliberately-deferred items and fabricated placeholder data: `docs/deferred.md`.
 - Agent-cockpit integration notes (hooks, ask protocol, usage reporting): `docs/agents/`.
 - **Plans the engine runs** (`wsh jarvis dag submit --plan`, or + Run → Orchestrator → A plan file) follow `jarvis.PlanFormat` (`pkg/jarvis/plan.go`): optional `**Verify:**` and `**Setup:**` commands in backticks before the first task, which run in a POSIX shell (Git Bash on Windows, so this repo's CGO header is `CGO_CFLAGS="-O2 -g -I$(pwd -W)/pkg/jarvisembed/csrc" go test ./pkg/...`); `### Task N: <title>` (or `##`) headings numbered 1, 2, 3…; and, as a task's first line, an optional `**Depends on:**` — `none`, or `Task 1, Task 3`; left out, the task runs after the previous one, so a plan with no Depends lines is serial. The engine runs tasks with nothing between them at the same time, so split a plan by what can proceed independently — the Depends lines are what set its width.
-
-## Working style
-
-Personal preferences reach every harness through Arc's generated steering files and are not repeated
-here. These are the additions that only apply in this repo.
-
-- **Solution ladder**, in order: need it? → already in this codebase? → stdlib → native platform
-  feature → installed dependency → one line → minimum that works. Check the earlier rungs before
-  writing; be lazy about the solution, never about reading.
-- **Reuse before write.** Grep for an existing helper or caller before writing a new one. Bug fix =
-  root cause, not symptom: fix the shared function once, not the path the ticket names.
-- **Stay minimal, but** minimality never cuts input validation, error handling, or security; tests
-  are not bloat.
-- **Before any commit:** run the relevant tests, then show the files with status (M/A/D) plus a brief
-  change summary, and the message as `type(scope): description` (subject < 72 chars, explaining WHY),
-  and ask for approval.
