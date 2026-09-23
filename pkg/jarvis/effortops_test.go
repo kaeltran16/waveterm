@@ -410,3 +410,99 @@ func TestApplyOpsMoveChunkCarriesStage(t *testing.T) {
 		t.Fatalf("chunks: %+v", e.Chunks)
 	}
 }
+
+func mkNotedEffort() *waveobj.Effort {
+	e := mkEffort()
+	if err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "appendNote", Chunk: "Phase 2", Note: "first"}}, "", effortNow+1); err != nil {
+		panic(err)
+	}
+	if err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "appendNote", Chunk: "Phase 2", Note: "second"}}, "", effortNow+2); err != nil {
+		panic(err)
+	}
+	return e
+}
+
+func TestApplyOpsEditNoteRewritesNoteAndEvent(t *testing.T) {
+	e := mkNotedEffort()
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "editNote", Chunk: "Phase 2", At: intPtr(1), NoteTs: effortNow + 1, Note: "first, fixed"}}, "", effortNow+3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := e.Chunks[1].Notes[0]
+	if n.Text != "first, fixed" || !n.Edited || n.Ts != effortNow+1 {
+		t.Fatalf("note: %+v", n)
+	}
+	found := false
+	for _, ev := range e.Events {
+		if ev.Kind == "effort-note" && ev.Ts == effortNow+1 {
+			found = ev.Text == "first, fixed"
+		}
+	}
+	if !found {
+		t.Fatalf("event not rewritten: %+v", e.Events)
+	}
+}
+
+func TestApplyOpsRemoveNoteDropsNoteAndEvent(t *testing.T) {
+	e := mkNotedEffort()
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "removeNote", Chunk: "Phase 2", At: intPtr(1), NoteTs: effortNow + 1}}, "", effortNow+3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(e.Chunks[1].Notes) != 1 || e.Chunks[1].Notes[0].Text != "second" {
+		t.Fatalf("notes: %+v", e.Chunks[1].Notes)
+	}
+	for _, ev := range e.Events {
+		if ev.Kind == "effort-note" && ev.Text == "first" {
+			t.Fatalf("event kept: %+v", e.Events)
+		}
+	}
+}
+
+func TestApplyOpsNoteOpStaleTs(t *testing.T) {
+	e := mkNotedEffort()
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "removeNote", Chunk: "Phase 2", At: intPtr(1), NoteTs: effortNow + 2}}, "", effortNow+3)
+	expectErrCode(t, err, "EC-STALE-NOTE")
+	if len(e.Chunks[1].Notes) != 2 {
+		t.Fatalf("applied despite stale ts: %+v", e.Chunks[1].Notes)
+	}
+}
+
+func TestApplyOpsNoteOpOutOfRange(t *testing.T) {
+	e := mkNotedEffort()
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "editNote", Chunk: "Phase 2", At: intPtr(9), NoteTs: effortNow + 1, Note: "x"}}, "", effortNow+3)
+	expectErrCode(t, err, "EC-INVALID-INDEX")
+}
+
+func TestApplyOpsEditNoteEmptyText(t *testing.T) {
+	e := mkNotedEffort()
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "editNote", Chunk: "Phase 2", At: intPtr(1), NoteTs: effortNow + 1, Note: "   "}}, "", effortNow+3)
+	expectErrCode(t, err, "EC-EMPTY-NOTE")
+}
+
+func TestApplyOpsEditStampNoteLeavesEvents(t *testing.T) {
+	e := mkEffort()
+	if err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "setChunkStage", Chunk: "Phase 3", Stage: "Later"}}, "", effortNow+1); err != nil {
+		t.Fatal(err)
+	}
+	events := len(e.Events)
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "editNote", Chunk: "Phase 3", At: intPtr(1), NoteTs: effortNow + 1, Note: "stage fixed"}}, "", effortNow+2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e.Chunks[2].Notes[0].Text != "stage fixed" || len(e.Events) != events {
+		t.Fatalf("notes %+v events %+v", e.Chunks[2].Notes, e.Events)
+	}
+}
+
+func TestApplyOpsNoteBatchAtomic(t *testing.T) {
+	e := mkNotedEffort()
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{
+		{Op: "editNote", Chunk: "Phase 2", At: intPtr(1), NoteTs: effortNow + 1, Note: "ok"},
+		{Op: "removeNote", Chunk: "Phase 2", At: intPtr(2), NoteTs: 42},
+	}, "", effortNow+3)
+	expectErrCode(t, err, "EC-STALE-NOTE")
+	if e.Chunks[1].Notes[0].Text != "first" {
+		t.Fatalf("first op applied: %+v", e.Chunks[1].Notes)
+	}
+}

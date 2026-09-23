@@ -534,8 +534,9 @@ type ChunkWorkRef struct {
 }
 
 type EffortNote struct {
-	Ts   int64  `json:"ts"`
-	Text string `json:"text"`
+	Ts     int64  `json:"ts"`
+	Text   string `json:"text"`
+	Edited bool   `json:"edited,omitempty"`
 }
 
 type EffortEvent struct {

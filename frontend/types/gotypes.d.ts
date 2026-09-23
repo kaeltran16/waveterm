@@ -2020,6 +2020,7 @@ declare global {
     type EffortNote = {
         ts: number;
         text: string;
+        edited?: boolean;
     };
 
     // wshrpc.EffortOp
@@ -2036,6 +2037,7 @@ declare global {
         owner?: string;
         stage?: string;
         note?: string;
+        notets?: number;
         kind?: string;
         oref?: string;
     };

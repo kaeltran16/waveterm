@@ -75,6 +75,31 @@ func effortEvent(e *waveobj.Effort, kind, label, text string, now int64) {
 	e.Events = append(e.Events, waveobj.EffortEvent{Ts: now, Kind: kind, Label: label, Text: text})
 }
 
+// resolveNote finds the note an editNote/removeNote names. At is its 1-based place in the chunk's trail
+// and NoteTs the stamp the caller last saw there; both must agree, because one batch can stamp several
+// notes with the same ts and an index alone goes stale the moment the trail changes.
+func resolveNote(c waveobj.EffortChunk, op wshrpc.EffortOp) (int, error) {
+	at := derefAt(op.At)
+	if at < 1 || at > len(c.Notes) {
+		return -1, fmt.Errorf("EC-INVALID-INDEX: note %d out of range (1..%d)", at, len(c.Notes))
+	}
+	if c.Notes[at-1].Ts != op.NoteTs {
+		return -1, fmt.Errorf("EC-STALE-NOTE: note %d on %q changed since it was read", at, c.Label)
+	}
+	return at - 1, nil
+}
+
+// noteEvent is the effort-note event a chunk note was written with (appendNote writes both with one
+// stamp and one text), so the feed, which reads events, stays in step with the chunk's trail.
+func noteEvent(e *waveobj.Effort, label string, n waveobj.EffortNote) int {
+	for i, ev := range e.Events {
+		if ev.Kind == "effort-note" && ev.Ts == n.Ts && ev.Label == label && ev.Text == n.Text {
+			return i
+		}
+	}
+	return -1
+}
+
 // preArchiveStatus is the status an unarchive restores. Archiving does not record what it replaced,
 // but the event log already has it: the last effort-status before the archive is where the effort
 // came from. Trailing archive events are skipped so a second archive cycle does not read its own
@@ -181,6 +206,17 @@ func ApplyEffortOps(e *waveobj.Effort, ops []wshrpc.EffortOp, cmdNote string, no
 				return err
 			}
 			if strings.TrimSpace(op.Note) == "" && strings.TrimSpace(cmdNote) == "" {
+				return fmt.Errorf("EC-EMPTY-NOTE: note text is empty")
+			}
+		case "editNote", "removeNote":
+			idx, err := ResolveChunkIndex(e, op.Chunk)
+			if err != nil {
+				return err
+			}
+			if _, err := resolveNote(e.Chunks[idx], op); err != nil {
+				return err
+			}
+			if op.Op == "editNote" && strings.TrimSpace(op.Note) == "" {
 				return fmt.Errorf("EC-EMPTY-NOTE: note text is empty")
 			}
 		case "setProject", "setTicket", "link", "advance":
@@ -290,6 +326,33 @@ func ApplyEffortOps(e *waveobj.Effort, ops []wshrpc.EffortOp, cmdNote string, no
 			idx, _ := ResolveChunkIndex(e, op.Chunk)
 			chunkNote(e, idx, note, now)
 			effortEvent(e, "effort-note", e.Chunks[idx].Label, note, now)
+		case "editNote":
+			idx, _ := ResolveChunkIndex(e, op.Chunk)
+			ni, err := resolveNote(e.Chunks[idx], op)
+			if err != nil {
+				return err
+			}
+			// no trail stamp: this edits the trail itself, and a note about a note says nothing
+			n := &e.Chunks[idx].Notes[ni]
+			text := strings.TrimSpace(op.Note)
+			if ev := noteEvent(e, e.Chunks[idx].Label, *n); ev >= 0 {
+				e.Events[ev].Text = text
+			}
+			n.Text = text
+			n.Edited = true
+			e.Chunks[idx].UpdatedTs = now
+		case "removeNote":
+			idx, _ := ResolveChunkIndex(e, op.Chunk)
+			ni, err := resolveNote(e.Chunks[idx], op)
+			if err != nil {
+				return err
+			}
+			c := &e.Chunks[idx]
+			if ev := noteEvent(e, c.Label, c.Notes[ni]); ev >= 0 {
+				e.Events = append(e.Events[:ev], e.Events[ev+1:]...)
+			}
+			c.Notes = append(c.Notes[:ni], c.Notes[ni+1:]...)
+			c.UpdatedTs = now
 		case "setChunkStage":
 			// trail-only, like rename/move/owner: a stage is a grouping label, so changing it moves
 			// nothing and completes nothing. The delta stays "what changed that matters".
