@@ -332,7 +332,7 @@ export function NewRunControl({ model }: { model: AgentsViewModel }) {
                 aria-expanded={open}
                 onClick={() => setOpen(true)}
                 className={cn(
-                    "cursor-pointer rounded-[6px] border px-2.5 py-[3px] font-mono text-[9.5px] font-bold uppercase tracking-[.06em] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                    "cursor-pointer rounded-[6px] border px-2.5 py-[3px] font-mono text-[10.5px] font-bold uppercase tracking-[.06em] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
                     "border-accent/30 bg-accentbg text-accent-soft hover:bg-accent/20"
                 )}
             >

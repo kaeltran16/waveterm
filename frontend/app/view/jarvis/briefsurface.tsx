@@ -64,7 +64,7 @@ import {
     type CSSProperties,
     type ReactNode,
 } from "react";
-import { AutonomyLadder } from "./autonomyladderview";
+import { TierButton } from "./autonomyladderview";
 import { resolveComposerLabels, type ComposerLabels } from "./briefcompose";
 import { resolveBriefComposerTarget, type BriefComposerTarget } from "./briefcomposertarget";
 import { briefFleet } from "./brieffleet";
@@ -1232,41 +1232,17 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                 </span>
                 <span className="flex-none text-[15px] font-bold tracking-[-.01em] text-ink-hi">Jarvis</span>
                 {projectCount > 0 ? (
-                    <span className="min-w-0 truncate font-mono text-[10.5px] text-muted">
+                    <span className="whitespace-nowrap font-mono text-[10.5px] text-ink-mid">
                         all work · {projectCount} {projectCount === 1 ? "project" : "projects"}
                     </span>
                 ) : null}
-                <span className="flex-1" />
-                <label className="flex h-[27px] w-[200px] flex-none items-center gap-2 rounded-[8px] border border-border px-2.5 focus-within:border-accent/60">
-                    <span aria-hidden className="flex-none font-mono text-[10px] font-medium text-ink-faint">
-                        /
-                    </span>
-                    <input
-                        data-jarvis-brief-filter
-                        aria-label="Filter the Brief"
-                        placeholder="filter"
-                        value={query}
-                        onChange={(e) => setQuery(e.target.value)}
-                        onKeyDown={(e) => {
-                            if (e.key === "Escape") {
-                                setQuery("");
-                                e.currentTarget.blur();
-                            }
-                        }}
-                        className="min-w-0 flex-1 bg-transparent text-[12.5px] text-ink-hi outline-none placeholder:text-ink-faint"
-                    />
-                    {filtering ? (
-                        <span className="flex-none font-mono text-[9.5px] text-ink-faint">
-                            {view.visible.length} {view.visible.length === 1 ? "hit" : "hits"}
-                        </span>
-                    ) : null}
-                </label>
+                <span aria-hidden className="mx-1 h-[18px] w-px flex-none bg-border" />
                 {/* the chip needs a snapshot: "all clear" over a load that has not landed is a lie */}
                 {model_ != null ? (
                     <span
                         data-jarvis-brief-band="waiting"
                         className={cn(
-                            "flex flex-none items-center gap-[7px] rounded-[6px] border px-2.5 py-[3px] font-mono text-[9.5px] font-bold uppercase tracking-[.06em] transition-colors duration-[140ms]",
+                            "flex flex-none items-center gap-[7px] rounded-[6px] border px-2.5 py-[3px] font-mono text-[10.5px] font-bold uppercase tracking-[.06em] transition-colors duration-[140ms]",
                             queue.length === 0
                                 ? "border-success/30 bg-success/15 text-success"
                                 : "border-asking/30 bg-asking/15 text-asking"
@@ -1289,13 +1265,38 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                         )}
                     </span>
                 ) : null}
-                <span data-jarvis-brief-band="fleet" className="flex-none font-mono text-[10px] text-muted">
+                <span
+                    data-jarvis-brief-band="fleet"
+                    className="flex-none whitespace-nowrap font-mono text-[10.5px] text-ink-mid"
+                >
                     {fleet.line}
                 </span>
-                {/* the remote-approval policy, and the one header item that is a summary rather than a
-                    reading: the tier is per-channel in the backend, so the chip states what every project
-                    agrees on and the popover it opens edits them one at a time. */}
-                <AutonomyLadder channels={channels} />
+                <span className="flex-1" />
+                <label className="flex h-[27px] w-[190px] flex-none items-center gap-2 rounded-[8px] border border-border px-2.5 focus-within:border-accent/60">
+                    <span aria-hidden className="font-mono text-[10.5px] font-medium text-muted">
+                        /
+                    </span>
+                    <input
+                        data-jarvis-brief-filter
+                        aria-label="Filter the Brief"
+                        placeholder="filter"
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === "Escape") {
+                                setQuery("");
+                                e.currentTarget.blur();
+                            }
+                        }}
+                        className="min-w-0 flex-1 bg-transparent text-[12.5px] text-ink-hi outline-none placeholder:text-muted"
+                    />
+                    {filtering ? (
+                        <span className="flex-none font-mono text-[10.5px] text-muted">
+                            {view.visible.length} {view.visible.length === 1 ? "hit" : "hits"}
+                        </span>
+                    ) : null}
+                </label>
+                <TierButton channels={channels} />
                 {/* A real control with the control recipe's border: invariant 4 forbids camouflaging it among
                     the status chips above, which are borderless labels. */}
                 <button
@@ -1303,7 +1304,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                     data-jarvis-brief-profile
                     aria-expanded={profileOpen}
                     onClick={() => setProfileOpen(true)}
-                    className="flex-none cursor-pointer rounded-[6px] border border-border px-2.5 py-[3px] font-mono text-[9.5px] font-bold uppercase tracking-[.06em] text-secondary hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    className="flex-none cursor-pointer rounded-[6px] border border-border px-2.5 py-[3px] font-mono text-[10.5px] font-bold uppercase tracking-[.06em] text-secondary hover:border-edge-strong hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 >
                     Profile
                 </button>
