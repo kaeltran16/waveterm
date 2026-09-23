@@ -594,6 +594,34 @@ func TestRunCancelWritesRunCancelledEvent(t *testing.T) {
 	}
 }
 
+// A done run is terminal: cancelling it would rewrite a finished run's status to cancelled, which no
+// later action can undo, so the RPC refuses and leaves the run as it was.
+func TestCancelRunRefusesDoneRun(t *testing.T) {
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "cancel-done", t.TempDir())
+	if err != nil {
+		t.Fatalf("CreateChannel: %v", err)
+	}
+	run := jarvis.NewRun("finished", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), 1)
+	run.Status = jarvis.RunStatus_Done
+	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
+		t.Fatalf("AppendRun: %v", err)
+	}
+	if err := (&WshServer{}).CancelRunCommand(ctx, wshrpc.CommandCancelRunData{ChannelId: ch.OID, RunId: run.ID}); err == nil {
+		t.Fatal("CancelRunCommand must refuse a done run")
+	}
+	got, err := wstore.GetRun(ctx, ch.OID, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if got.Status != jarvis.RunStatus_Done {
+		t.Fatalf("status = %s, want done left untouched", got.Status)
+	}
+	if containsKind(mustKinds(t, ch.OID, run.ID), waveobj.RunEventKindRunCancelled) {
+		t.Fatal("a refused cancel must not log run-cancelled")
+	}
+}
+
 func TestCreateRunDeferStart(t *testing.T) {
 	ctx := context.Background()
 	ch, err := wstore.CreateChannel(ctx, "create-deferred", t.TempDir())

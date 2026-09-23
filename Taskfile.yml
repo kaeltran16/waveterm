@@ -282,7 +282,8 @@ tasks:
             - cmd: cp pi/extensions/waveterm-prose-core.ts cmd/wsh/cmd/pi-prose-core-extension.ts
             - cmd: cp pi/extensions/waveterm-simplify-gate.ts cmd/wsh/cmd/pi-simplify-gate-extension.ts
             - cmd: cp pi/extensions/waveterm-simplify-gate-core.ts cmd/wsh/cmd/pi-simplify-gate-core-extension.ts
-            # the skill installs to the user's Claude Code skills dir, not into the repo
+            # the skills install to the user's Claude Code skills dir, not into the repo
+            - cmd: mkdir -p "$HOME/.claude/skills/cockpit-runs" && cp pi/skills/cockpit-runs/SKILL.md "$HOME/.claude/skills/cockpit-runs/SKILL.md"
             - cmd: mkdir -p "$HOME/.claude/skills/effort-tracking" && cp pi/skills/effort-tracking/SKILL.md "$HOME/.claude/skills/effort-tracking/SKILL.md"
         sources:
             - pi/extensions/waveterm-status.ts
@@ -294,6 +295,7 @@ tasks:
             - pi/extensions/waveterm-prose-core.ts
             - pi/extensions/waveterm-simplify-gate.ts
             - pi/extensions/waveterm-simplify-gate-core.ts
+            - pi/skills/cockpit-runs/SKILL.md
             - pi/skills/effort-tracking/SKILL.md
         generates:
             - cmd/wsh/cmd/pi-status-extension.ts
