@@ -4,10 +4,8 @@
 // Effort mutation logic, pure and DB-free: one validation pass, then one apply pass. The handler
 // wraps this in wstore.UpdateEffort so a rejected batch never touches the store.
 //
-// It lives here rather than in jarvisstate because both the engine and the wsh CLI reach it, and
-// jarvisstate imports jarvisembed for the embedding index. Routing these pure functions through that
-// package put sqlite-vec's cgo on wsh's import path, which the CGO_ENABLED=0 release build cannot
-// compile. Keep this file's imports to waveobj, wshrpc and the standard library.
+// It lives here rather than in jarvisstate because both the engine and the wsh CLI reach it; wsh builds
+// with CGO_ENABLED=0, so keep this file's imports to waveobj, wshrpc and the standard library.
 
 package jarvis
 

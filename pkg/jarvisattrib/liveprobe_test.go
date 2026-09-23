@@ -11,7 +11,7 @@
 // It costs NO provider spend by construction: every attribution layer is deterministic, so every
 // figure is too.
 //
-//	CGO_ENABLED=1 CGO_CFLAGS="-O2 -g -I<repo>/pkg/jarvisembed/csrc" \
+//	CGO_ENABLED=1 \
 //	WAVETERM_CONFIG_HOME=<copy>/config WAVETERM_DATA_HOME=<copy>/data \
 //	go test -tags liveprobe,osusergo,sqlite_omit_load_extension -run TestLiveCorpusShape -v ./pkg/jarvisattrib/
 //
@@ -95,7 +95,7 @@ func TestLiveCorpusShape(t *testing.T) {
 	if len(perDossier) > 0 {
 		maxEdges = perDossier[len(perDossier)-1]
 	}
-	t.Logf("max edges on one dossier=%d (expandFanout=%d binds only above this)", maxEdges, expandFanoutRef())
+	t.Logf("max edges on one dossier=%d", maxEdges)
 
 	// Lifecycle windows. AttributedEdge carries no timestamp, so probation and the time box are
 	// measured against the runs the edges point at — which is what lifecycle itself compares.
@@ -139,7 +139,3 @@ func TestLiveCorpusShape(t *testing.T) {
 			"figure above is vacuous")
 	}
 }
-
-// expandFanoutRef reports jarvisrecall's traversal fan-out cap without importing that package (which
-// would be an import cycle through the recall engine). Keep in sync with jarvisrecall.expandFanout.
-func expandFanoutRef() int { return 8 }

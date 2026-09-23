@@ -5,7 +5,6 @@ package wshserver
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"sort"
@@ -17,7 +16,6 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/jarvisattrib"
 	"github.com/wavetermdev/waveterm/pkg/jarvisdossier"
-	"github.com/wavetermdev/waveterm/pkg/jarvisrecall"
 	"github.com/wavetermdev/waveterm/pkg/jarvisstate"
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
 	"github.com/wavetermdev/waveterm/pkg/runroute"
@@ -218,113 +216,6 @@ func (ws *WshServer) JarvisCommand(ctx context.Context, data wshrpc.CommandJarvi
 		postJarvisReply(data, reply)
 	}()
 	return rtn
-}
-
-func (ws *WshServer) JarvisConverseCommand(ctx context.Context, data wshrpc.CommandJarvisConverseData) chan wshrpc.RespOrErrorUnion[wshrpc.JarvisConverseChunk] {
-	rtn := make(chan wshrpc.RespOrErrorUnion[wshrpc.JarvisConverseChunk])
-	go func() {
-		defer func() { panichandler.PanicHandler("JarvisConverseCommand", recover()) }()
-		defer close(rtn)
-		if _, err := waveobj.ParseORef(waveobj.OType_JarvisConversation + ":" + data.ConversationId); err != nil {
-			rtn <- wshrpc.RespOrErrorUnion[wshrpc.JarvisConverseChunk]{Error: fmt.Errorf("invalid conversationid: %w", err)}
-			return
-		}
-		emit := func(chunk wshrpc.JarvisConverseChunk) {
-			select {
-			case rtn <- wshrpc.RespOrErrorUnion[wshrpc.JarvisConverseChunk]{Response: chunk}:
-			case <-ctx.Done():
-			}
-		}
-		convo, err := wstore.GetJarvisConversation(ctx, data.ConversationId)
-		if errors.Is(err, wstore.ErrNotFound) {
-			convo, err = wstore.CreateJarvisConversation(ctx, data.ConversationId, firstLine(data.Prompt), data.ScopeMode, data.ProjectPath, data.AttachedORefs)
-		}
-		if err != nil {
-			rtn <- wshrpc.RespOrErrorUnion[wshrpc.JarvisConverseChunk]{Error: fmt.Errorf("loading conversation: %w", err)}
-			return
-		}
-		priorTurns := convo.Turns
-		persistJarvisTurn(convo.OID, waveobj.JarvisConvoTurn{
-			Role:        "user",
-			Text:        strings.TrimSpace(data.Prompt),
-			Attachments: attachmentsFromORefs(convo.AttachedORefs),
-		})
-		scope := jarvisrecall.ScopeArgs{
-			Mode:          convo.ScopeMode,
-			ProjectPath:   convo.ProjectPath,
-			AttachedORefs: convo.AttachedORefs,
-		}
-		answerTurn, converseErr := jarvisrecall.Converse(ctx, scope, priorTurns, data.Prompt, emit)
-		if answerTurn.Role != "" {
-			persistJarvisTurn(convo.OID, answerTurn)
-		}
-		if converseErr != nil {
-			log.Printf("jarvis converse: %v", converseErr)
-			if answerTurn.Role == "" {
-				rtn <- wshrpc.RespOrErrorUnion[wshrpc.JarvisConverseChunk]{Error: converseErr}
-			}
-		}
-	}()
-	return rtn
-}
-
-func persistJarvisTurn(convoID string, turn waveobj.JarvisConvoTurn) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := wstore.AppendJarvisTurn(ctx, convoID, turn); err != nil {
-		log.Printf("jarvis: persist turn: %v", err)
-		return
-	}
-	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_JarvisConversation, convoID))
-}
-
-func firstLine(s string) string {
-	s = strings.TrimSpace(s)
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		s = s[:i]
-	}
-	runes := []rune(s)
-	if len(runes) > 120 {
-		s = string(runes[:120])
-	}
-	if s == "" {
-		return "New conversation"
-	}
-	return s
-}
-
-func attachmentsFromORefs(orefs []string) []waveobj.JarvisConvoSourceRef {
-	if len(orefs) == 0 {
-		return nil
-	}
-	out := make([]waveobj.JarvisConvoSourceRef, 0, len(orefs))
-	for _, ref := range orefs {
-		sourceType := ref
-		if i := strings.IndexByte(ref, ':'); i > 0 {
-			sourceType = ref[:i]
-		}
-		out = append(out, waveobj.JarvisConvoSourceRef{ORef: ref, SourceType: sourceType})
-	}
-	return out
-}
-func (ws *WshServer) ListJarvisConversationsCommand(ctx context.Context) (*wshrpc.CommandListJarvisConversationsRtnData, error) {
-	conversations, err := wstore.GetJarvisConversations(ctx)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]wshrpc.JarvisConversationSummary, 0, len(conversations))
-	for _, conversation := range conversations {
-		archived, _ := conversation.Meta[wstore.MetaKey_Archived].(bool)
-		out = append(out, wshrpc.JarvisConversationSummary{
-			Id:            conversation.OID,
-			Title:         conversation.Title,
-			ScopeMode:     conversation.ScopeMode,
-			UpdatedTs:     conversation.UpdatedTs,
-			AttachedORefs: conversation.AttachedORefs,
-			Archived:      archived,
-		})
-	}
-	return &wshrpc.CommandListJarvisConversationsRtnData{Conversations: out}, nil
 }
 
 func routeCapabilitiesForProbe(result harness.ProbeResult) []runroute.Capability {
@@ -1008,52 +899,6 @@ func (ws *WshServer) JarvisStatusCommand(ctx context.Context, data wshrpc.Comman
 		return nil, err
 	}
 	return &wshrpc.CommandJarvisStatusRtnData{Status: st}, nil
-}
-
-// JarvisAskCommand answers one stateless question from the work ledger + judged prose recall. The
-// ledger closure maps a routed kind to the matching FetchWorkState derivation, so the recall
-// package stays ledger-agnostic. Note: this runs two model calls (judge + synthesize) inside the
-// handler — the CLI must pass a raised RpcOpts.Timeout (the 5s default would EC-TIME).
-func jarvisAskScope(data wshrpc.CommandJarvisAskData) jarvisrecall.ScopeArgs {
-	scope := jarvisrecall.ScopeArgs{Mode: "all", AttachedORefs: data.AttachedORefs}
-	if data.Cwd != "" {
-		scope.Mode = "project"
-		scope.ProjectPath = data.Cwd
-	}
-	return scope
-}
-
-func (ws *WshServer) JarvisAskCommand(ctx context.Context, data wshrpc.CommandJarvisAskData) (*wshrpc.CommandJarvisAskRtnData, error) {
-	scope := jarvisAskScope(data)
-	ledgerFn := func(ctx context.Context, kind string, windowMs int64) ([]jarvisrecall.LedgerFact, error) {
-		state, err := jarvisstate.FetchWorkState(ctx, scope.ProjectPath, windowMs)
-		if err != nil {
-			return nil, err
-		}
-		var facts []jarvisrecall.LedgerFact
-		for _, p := range state.Projects {
-			switch kind {
-			case jarvisrecall.AskKindStatus:
-				for _, a := range p.Active {
-					facts = append(facts, jarvisrecall.LedgerFact{SourceType: "status", Title: a.Title, Snippet: a.Detail, NavTarget: a.NavTarget, Ts: a.Ts})
-				}
-			case jarvisrecall.AskKindHistory:
-				for _, s := range p.Shipped {
-					facts = append(facts, jarvisrecall.LedgerFact{SourceType: "shipped", Title: s.Goal, Snippet: s.Summary, NavTarget: "run:" + s.RunOID, Ts: s.CompletedTs})
-				}
-			case jarvisrecall.AskKindDelta:
-				for _, e := range p.Delta {
-					facts = append(facts, jarvisrecall.LedgerFact{SourceType: "delta", Title: e.Title, Snippet: e.Detail, NavTarget: e.NavTarget, Ts: e.Ts})
-				}
-			}
-		}
-		return facts, nil
-	}
-	res, err := jarvisrecall.Ask(ctx, scope, data.Prompt, ledgerFn)
-	if err != nil {
-		return nil, err
-	}
-	return &wshrpc.CommandJarvisAskRtnData{Answer: res.Answer, Grounding: res.Grounding, Terminal: res.Terminal}, nil
 }
 
 // JarvisRunEventsCommand lists a run's lifecycle events newest-first, for the run-card timeline.

@@ -21,8 +21,10 @@ import (
 
 const (
 	openRouterChatEndpoint = "https://openrouter.ai/api/v1/chat/completions"
-	openRouterSecretName   = "jarvis_embedapikey"
-	openRouterTimeout      = 5 * time.Minute
+	// named for the embedding lane that first stored it (retired 2026-09-23); kept because renaming it
+	// would orphan every key already stored. Settings → Headless AI writes it.
+	openRouterSecretName = "jarvis_embedapikey"
+	openRouterTimeout    = 5 * time.Minute
 )
 
 type openrouterBackend struct{}

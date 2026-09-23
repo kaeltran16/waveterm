@@ -16,7 +16,6 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/jarviscapture"
 	"github.com/wavetermdev/waveterm/pkg/jarviscontinuity"
-	"github.com/wavetermdev/waveterm/pkg/jarvisproactive"
 	"github.com/wavetermdev/waveterm/pkg/jarvisstate"
 	"github.com/wavetermdev/waveterm/pkg/jarvisvolunteer"
 	"github.com/wavetermdev/waveterm/pkg/orchestrate"
@@ -84,31 +83,6 @@ var captureAsync = func(fn func()) { go fn() }
 
 // continuityCaptureTimeout bounds the detached boundary-summary model call (PLACEHOLDER; see docs/deferred.md).
 const continuityCaptureTimeout = 90 * time.Second
-
-// proactiveAsync dispatches the S3 proactive-resurfacing evaluation off the RPC
-// handler's goroutine — it makes an embedding + model call and must never sit on
-// the 5s RPC budget. A seam so tests capture the dispatch without running it.
-var proactiveAsync = func(fn func()) { go fn() }
-
-// proactiveDispatchTimeout bounds the detached dispatch evaluation (PLACEHOLDER; see docs/deferred.md).
-const proactiveDispatchTimeout = 90 * time.Second
-
-// writeProactive stamps a proactive record onto a run's metadata. The pending marker and the final
-// verdict share this one path so they cannot drift; a write failure is logged and swallowed, because a
-// non-essential feature's bookkeeping must never fail the run it is describing.
-func writeProactive(ctx context.Context, channelId, runId string, sug jarvisproactive.ProactiveSuggestion) {
-	if err := wstore.UpdateRun(ctx, channelId, runId, func(r *waveobj.Run) error {
-		if r.Meta == nil {
-			r.Meta = waveobj.MetaMapType{}
-		}
-		r.Meta[jarvisproactive.MetaKeyProactive] = sug
-		return nil
-	}); err != nil {
-		log.Printf("CreateRun: persisting proactive %q failed (non-fatal): %v", sug.Status, err)
-		return
-	}
-	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, channelId))
-}
 
 // SealDoneRunEvidenceAsync is the seal seam the orchestrate engine calls when it closes a lead-free run
 // itself. Same dispatch AdvanceRun uses, so a caller holding the dag mutation lock never waits on a git
@@ -383,7 +357,7 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 		return nil, fmt.Errorf("appending run: %w", err)
 	}
 	// AppendRun stamps identity on its own copy (it takes the run by value), so mirror it locally:
-	// the dossier capture below links [[run-<oid>]], and S3 excludes that node by the same key.
+	// the dossier capture below links [[run-<oid>]] by that key.
 	run.OID = run.ID
 	run.ChannelOID = data.ChannelId
 	// lifecycle log seeded before worker spawn, so a spawn failure still shows the run was created.
@@ -391,13 +365,13 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 	if effortRef != nil {
 		// non-fatal: the run is already persisted; a failed attach only loses the live marker, the
 		// ref stays on the run itself.
-		proactiveAsync(func() {
+		go func() {
 			actx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			if aerr := jarvisstate.AttachRunToChunk(actx, effortRef.EffortOID, effortRef.ChunkLabel, "run:"+run.ID); aerr != nil {
 				log.Printf("CreateRun: attaching effort workref failed (non-fatal): %v", aerr)
 			}
-		})
+		}()
 	}
 	if run.RadarOrigin != nil {
 		inv := reporadar.InvestigationFromRun(&run, data.ChannelId, "executing", run.CreatedTs)
@@ -408,32 +382,9 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 	if err := jarviscapture.CaptureRunDispatch(ctx, &run); err != nil {
 		log.Printf("CreateRun: capturing dossier failed (non-fatal): %v", err)
 	}
-	proactiveAsync(func() {
-		pctx, cancel := context.WithTimeout(context.Background(), proactiveDispatchTimeout)
-		defer cancel()
-		// Marker first: a run left holding "pending" is a timeout or a crash, and is visible. Without
-		// it, "never ran" and "ran and found nothing" are the same absence. Deliberately breaks the
-		// package's invariant 10 ("embeddings off is a total no-op"); one metadata field on a non-fatal
-		// path keeps the run protected while removing the blindness.
-		writeProactive(pctx, data.ChannelId, run.ID, jarvisproactive.ProactiveSuggestion{
-			Status: jarvisproactive.StatusPending,
-		})
-		sug, perr := jarvisproactive.EvaluateDispatch(pctx, &run)
-		if perr != nil {
-			log.Printf("CreateRun: proactive dispatch eval failed (non-fatal): %v", perr)
-		}
-		if sug == nil {
-			sug = &jarvisproactive.ProactiveSuggestion{
-				Status: jarvisproactive.StatusNone,
-				Reason: jarvisproactive.ReasonQueryError,
-			}
-		}
-		writeProactive(pctx, data.ChannelId, run.ID, *sug)
-		// the recall producer reads the suggestion this block just persisted, so it must run after the
-		// write, not beside it. Detached: the judge is a headless CLI process.
-		jarvisvolunteer.EvaluateAsync(jarvisvolunteer.Trigger{
-			Kind: jarvisvolunteer.TriggerRunCreated, ChannelID: data.ChannelId, RunID: run.ID,
-		})
+	// detached: the volunteer judge is a headless CLI process
+	jarvisvolunteer.EvaluateAsync(jarvisvolunteer.Trigger{
+		Kind: jarvisvolunteer.TriggerRunCreated, ChannelID: data.ChannelId, RunID: run.ID,
 	})
 	switch {
 	case data.PlanPath != "":
@@ -674,7 +625,7 @@ func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandA
 				return // no dossier references this run, or it has no narrative yet
 			}
 			// persist the narrative onto the run so returning to it resurfaces where it stands with no
-			// second model call — same run.Meta + waveobj:update channel S3's proactive card rides.
+			// second model call.
 			if uerr := wstore.UpdateRun(cctx, channelId, runId, func(r *waveobj.Run) error {
 				if r.Meta == nil {
 					r.Meta = waveobj.MetaMapType{}

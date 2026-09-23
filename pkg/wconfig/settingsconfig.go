@@ -119,9 +119,6 @@ type SettingsType struct {
 	HeadlessOpenRouterMidModel   string `json:"headless:openroutermidmodel,omitempty"`
 	HeadlessOpenRouterLongModel  string `json:"headless:openrouterlongmodel,omitempty"`
 	JarvisVaultPath              string `json:"jarvis:vaultpath,omitempty"`
-	JarvisEmbedEnabled           bool   `json:"jarvis:embedenabled,omitempty"`
-	JarvisEmbedBaseURL           string `json:"jarvis:embedbaseurl,omitempty"`
-	JarvisEmbedModel             string `json:"jarvis:embedmodel,omitempty"`
 
 	EditorMinimapEnabled      bool    `json:"editor:minimapenabled,omitempty"`
 	EditorStickyScrollEnabled bool    `json:"editor:stickyscrollenabled,omitempty"`

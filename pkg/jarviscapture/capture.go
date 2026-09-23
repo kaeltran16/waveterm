@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package jarviscapture is the thin dispatch->dossier writer for the Jarvis second brain.
-// It creates a real dossier when a Run is dispatched so recall (sub-project C) has vault nodes
-// to traverse. Deliberately separate from pkg/jarvisrecall, which stays a pure reader.
+// It creates a real dossier when a Run is dispatched so the vault holds a node for the work.
 package jarviscapture
 
 import (

@@ -88,8 +88,8 @@ describe("wording", () => {
     });
 
     it("only claims recall is keyword-only when it actually is, and no longer promises a remedy in prose", () => {
-        // A behind index still does semantic recall: jarvisrecall calls the index, and the index reconciles
-        // itself inside that query (jarvisembed prepareQuery). Saying "keyword-only" there described a
+        // A behind index still did semantic recall: the recall engine queried the index, and the index
+        // reconciled itself inside that query. Saying "keyword-only" there described a
         // degradation that was not happening. Embeddings being OFF is the case that genuinely is keyword-only.
         //
         // Neither line names an action any more. The stale line used to read "ask me anything and I will

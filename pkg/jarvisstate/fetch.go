@@ -11,7 +11,6 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/agentsessions"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/jarvisdossier"
-	"github.com/wavetermdev/waveterm/pkg/jarvisembed"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wavevault"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -26,7 +25,7 @@ const (
 )
 
 // fetchSeams names every leg reader FetchWorkState uses, so tests can point individual legs at
-// boundary failures without a broken database or vault (same discipline as jarvisrecall.SetOpenVaultForTest).
+// boundary failures without a broken database or vault.
 type fetchSeams struct {
 	getChannels     func(ctx context.Context) ([]*waveobj.Channel, error)
 	getChannelRuns  func(ctx context.Context, channelId string) ([]*waveobj.Run, error)
@@ -200,12 +199,6 @@ func FetchCaptureStatus(ctx context.Context) (wshrpc.CaptureStatus, error) {
 				st.NoteCounts[n.Collection]++
 			}
 		}
-	}
-	if ix, err := jarvisembed.OpenIndex(ctx); err == nil {
-		st.IndexAvailable = ix.Available()
-		ix.Close()
-	} else {
-		st.IndexError = err.Error()
 	}
 	if efforts, err := defaultSeams.getEfforts(ctx); err == nil {
 		for _, e := range efforts {

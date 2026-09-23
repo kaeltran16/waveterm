@@ -15,9 +15,7 @@ Workflow for changing code in this repository (Tauri cockpit + Go backend).
    `pkg/wshrpc/wshclient/wshclient.go`).
 2. **Build.** `task build:backend` (sets the CGO flags itself). For a quick server-only build on
    Windows: `task build:backend:quickdev:windows`.
-3. **Test.** Frontend: `npx vitest run <file>`. Backend: `go test ./pkg/...` from PowerShell with
-   `$env:CGO_CFLAGS = "-O2 -g -I$((Get-Location).Path -replace '\\','/')/pkg/jarvisembed/csrc"`
-   (bare `go test ./pkg/...` fails on sqlite-vec headers). Rust: `cargo test --manifest-path
+3. **Test.** Frontend: `npx vitest run <file>`. Backend: `go test ./pkg/...`. Rust: `cargo test --manifest-path
 src-tauri/Cargo.toml`.
 4. **Typecheck.** `npx tsc` stack-overflows here. Use
    `node --stack-size=4000 node_modules/typescript/lib/tsc.js --noEmit` (baseline is clean).

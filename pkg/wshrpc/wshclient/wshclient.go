@@ -52,39 +52,9 @@ func AgentSyncFoldCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentSyncFoldDat
 	return resp, err
 }
 
-// command "agentsyncharnessread", wshserver.AgentSyncHarnessReadCommand
-func AgentSyncHarnessReadCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentSyncHarnessReadData, opts *wshrpc.RpcOpts) (*wshrpc.CommandAgentSyncHarnessReadRtnData, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAgentSyncHarnessReadRtnData](w, "agentsyncharnessread", data, opts)
-	return resp, err
-}
-
-// command "agentsyncharnesswrite", wshserver.AgentSyncHarnessWriteCommand
-func AgentSyncHarnessWriteCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentSyncHarnessWriteData, opts *wshrpc.RpcOpts) (*wshrpc.CommandAgentSyncHarnessWriteRtnData, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAgentSyncHarnessWriteRtnData](w, "agentsyncharnesswrite", data, opts)
-	return resp, err
-}
-
-// command "agentsyncskills", wshserver.AgentSyncSkillsCommand
-func AgentSyncSkillsCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandAgentSyncSkillsRtnData, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAgentSyncSkillsRtnData](w, "agentsyncskills", nil, opts)
-	return resp, err
-}
-
 // command "agentsyncstatus", wshserver.AgentSyncStatusCommand
 func AgentSyncStatusCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandAgentSyncStatusRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAgentSyncStatusRtnData](w, "agentsyncstatus", nil, opts)
-	return resp, err
-}
-
-// command "agentsyncsteeringread", wshserver.AgentSyncSteeringReadCommand
-func AgentSyncSteeringReadCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandAgentSyncSteeringReadRtnData, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAgentSyncSteeringReadRtnData](w, "agentsyncsteeringread", nil, opts)
-	return resp, err
-}
-
-// command "agentsyncsteeringwrite", wshserver.AgentSyncSteeringWriteCommand
-func AgentSyncSteeringWriteCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentSyncSteeringWriteData, opts *wshrpc.RpcOpts) (*wshrpc.CommandAgentSyncSteeringWriteRtnData, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAgentSyncSteeringWriteRtnData](w, "agentsyncsteeringwrite", data, opts)
 	return resp, err
 }
 
@@ -441,12 +411,6 @@ func ElectronEncryptCommand(w *wshutil.WshRpc, data wshrpc.CommandElectronEncryp
 	return resp, err
 }
 
-// command "embedreconcile", wshserver.EmbedReconcileCommand
-func EmbedReconcileCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "embedreconcile", nil, opts)
-	return err
-}
-
 // command "eventpublish", wshserver.EventPublishCommand
 func EventPublishCommand(w *wshutil.WshRpc, data wps.WaveEvent, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "eventpublish", data, opts)
@@ -623,12 +587,6 @@ func GetChannelsCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.Comman
 // command "getdossier", wshserver.GetDossierCommand
 func GetDossierCommand(w *wshutil.WshRpc, data wshrpc.CommandGetDossierData, opts *wshrpc.RpcOpts) (*wshrpc.DossierDetail, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.DossierDetail](w, "getdossier", data, opts)
-	return resp, err
-}
-
-// command "getembedindexstatus", wshserver.GetEmbedIndexStatusCommand
-func GetEmbedIndexStatusCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.EmbedIndexStatus, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.EmbedIndexStatus](w, "getembedindexstatus", nil, opts)
 	return resp, err
 }
 
@@ -847,17 +805,6 @@ func JarvisCommand(w *wshutil.WshRpc, data wshrpc.CommandJarvisData, opts *wshrp
 	return sendRpcRequestResponseStreamHelper[wshrpc.JarvisChunk](w, "jarvis", data, opts)
 }
 
-// command "jarvisask", wshserver.JarvisAskCommand
-func JarvisAskCommand(w *wshutil.WshRpc, data wshrpc.CommandJarvisAskData, opts *wshrpc.RpcOpts) (*wshrpc.CommandJarvisAskRtnData, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandJarvisAskRtnData](w, "jarvisask", data, opts)
-	return resp, err
-}
-
-// command "jarvisconverse", wshserver.JarvisConverseCommand
-func JarvisConverseCommand(w *wshutil.WshRpc, data wshrpc.CommandJarvisConverseData, opts *wshrpc.RpcOpts) chan wshrpc.RespOrErrorUnion[wshrpc.JarvisConverseChunk] {
-	return sendRpcRequestResponseStreamHelper[wshrpc.JarvisConverseChunk](w, "jarvisconverse", data, opts)
-}
-
 // command "jarvisctx", wshserver.JarvisCtxCommand
 func JarvisCtxCommand(w *wshutil.WshRpc, data wshrpc.CommandJarvisCtxData, opts *wshrpc.RpcOpts) (*wshrpc.CommandJarvisCtxRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandJarvisCtxRtnData](w, "jarvisctx", data, opts)
@@ -999,18 +946,6 @@ func ListDossiersCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.Comma
 // command "listharnesses", wshserver.ListHarnessesCommand
 func ListHarnessesCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandListHarnessesRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandListHarnessesRtnData](w, "listharnesses", nil, opts)
-	return resp, err
-}
-
-// command "listjarvisconversations", wshserver.ListJarvisConversationsCommand
-func ListJarvisConversationsCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandListJarvisConversationsRtnData, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandListJarvisConversationsRtnData](w, "listjarvisconversations", nil, opts)
-	return resp, err
-}
-
-// command "listproactiverefusals", wshserver.ListProactiveRefusalsCommand
-func ListProactiveRefusalsCommand(w *wshutil.WshRpc, data wshrpc.CommandListProactiveRefusalsData, opts *wshrpc.RpcOpts) (*wshrpc.CommandListProactiveRefusalsRtnData, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandListProactiveRefusalsRtnData](w, "listproactiverefusals", data, opts)
 	return resp, err
 }
 

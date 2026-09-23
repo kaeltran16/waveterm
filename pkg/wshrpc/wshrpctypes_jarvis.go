@@ -12,8 +12,6 @@ import (
 type JarvisCommands interface {
 	ConsultCommand(ctx context.Context, data CommandConsultData) chan RespOrErrorUnion[ConsultChunk]                                       // one-shot headless CLI consult; streams reply chunks, posts a consult-reply on completion
 	JarvisCommand(ctx context.Context, data CommandJarvisData) chan RespOrErrorUnion[JarvisChunk]                                          // Jarvis (observe-only manager): headless claude summary of a channel's fleet; streams chunks, posts a jarvis-reply on completion
-	JarvisConverseCommand(ctx context.Context, data CommandJarvisConverseData) chan RespOrErrorUnion[JarvisConverseChunk]                  // recall shim: streams working-steps + grounding + prose + terminal
-	ListJarvisConversationsCommand(ctx context.Context) (*CommandListJarvisConversationsRtnData, error)                                    // list persisted recall conversations, newest-first
 	ListDossiersCommand(ctx context.Context) (*CommandListDossiersRtnData, error)                                                          // list focusable task dossiers (active|paused), newest-updated first
 	ResolveFocusScopeCommand(ctx context.Context, data CommandResolveFocusScopeData) (*SpaceScope, error)                                  // resolve a focus target's scope bundle (runs -> channels + worker tabs)
 	VaultGraphCommand(ctx context.Context) (*CommandVaultGraphRtnData, error)                                                              // whole-vault wikilink graph (U3 base canvas): all vault nodes + resolved [[links]], no runs/attribution
@@ -34,57 +32,11 @@ type JarvisCommands interface {
 	// RefreshRouteCatalogCommand clears the cached run-route model catalog; the next
 	// ListHarnessesCommand re-enumerates from the installed harnesses.
 	RefreshRouteCatalogCommand(ctx context.Context) error
-	GetEmbedIndexStatusCommand(ctx context.Context) (*EmbedIndexStatus, error)                                                             // is semantic recall actually working right now: ok | off | stale, and why
-	EmbedReconcileCommand(ctx context.Context) error                                                                                       // start catching the embedding index up to the vault; returns as soon as the work is dispatched
-	JarvisStateCommand(ctx context.Context, data CommandJarvisStateData) (*CommandJarvisStateRtnData, error)                               // work-ledger query: per-project active/shipped/timeline/delta + source health
-	JarvisStatusCommand(ctx context.Context, data CommandJarvisStatusData) (*CommandJarvisStatusRtnData, error)                            // capture accounting: note counts, index availability, distill queue
-	JarvisAskCommand(ctx context.Context, data CommandJarvisAskData) (*CommandJarvisAskRtnData, error)                                     // stateless ask: ledger facts + judged prose recall, one answer
-	JarvisCtxCommand(ctx context.Context, data CommandJarvisCtxData) (*CommandJarvisCtxRtnData, error)                                     // resolve the run context (channel/run/dag) owning the caller's block
-	JarvisRunEventsCommand(ctx context.Context, data CommandJarvisRunEventsData) (*CommandJarvisRunEventsRtnData, error)                   // run visibility timeline: list a run's lifecycle events, newest-first
-	ListProactiveRefusalsCommand(ctx context.Context, data CommandListProactiveRefusalsData) (*CommandListProactiveRefusalsRtnData, error) // recent persisted "I found nothing" verdicts from proactive recall, with their causes
-	GetLatestResumeCommand(ctx context.Context) (*CommandGetLatestResumeRtnData, error)                                                    // the newest rest-transition narrative across all runs — "where we were" at launch
-}
-
-// EmbedIndexStatus mirrors jarvisembed.IndexStatus. State is ok | off | stale: off means recall cannot
-// happen (disabled, unkeyed, unreachable provider, unreadable vault), stale means the index exists but no
-// longer matches what a query needs (indexed under a different model, never built, or content drifted).
-// The counts make "stale" legible as a magnitude — one edited note and a never-built index are not the
-// same problem. Mirrored rather than re-exported so pkg/wshrpc stays free of the CGO sqlite-vec build.
-type EmbedIndexStatus struct {
-	State        string `json:"state"`
-	Reason       string `json:"reason,omitempty"`
-	Detail       string `json:"detail,omitempty"`
-	Enabled      bool   `json:"enabled"`
-	HasKey       bool   `json:"haskey"`
-	Model        string `json:"model,omitempty"`
-	IndexedModel string `json:"indexedmodel,omitempty"`
-	Dims         int    `json:"dims,omitempty"`
-	IndexedNodes int    `json:"indexednodes"`
-	VaultNodes   int    `json:"vaultnodes"`
-	StaleNodes   int    `json:"stalenodes"`
-}
-
-// ProactiveRefusal is one persisted decision by proactive recall not to speak. The evaluator writes a
-// verdict into run.Meta on every dispatch precisely so a silence is auditable rather than
-// indistinguishable from never having run; this read is what finally makes that record reachable.
-type ProactiveRefusal struct {
-	RunORef    string `json:"runoref"`
-	ChannelOid string `json:"channeloid,omitempty"`
-	Goal       string `json:"goal,omitempty"`
-	Reason     string `json:"reason"` // no-candidates | judge-declined | judge-error | embeddings-off | index-error | vault-error | query-error
-	Ts         int64  `json:"ts"`     // the run's createdts — when the dispatch that refused was evaluated
-}
-
-type CommandListProactiveRefusalsData struct {
-	Limit int `json:"limit,omitempty"` // 0 = server default; capped server-side
-}
-
-// CommandListProactiveRefusalsRtnData carries the newest refusals plus the count of every refusal on
-// record — all of history, not a recent window. Total exists so truncation does not hide the scale; each
-// row carries its own Ts, so a caller that wants "lately" windows the rows itself.
-type CommandListProactiveRefusalsRtnData struct {
-	Refusals []ProactiveRefusal `json:"refusals"`
-	Total    int                `json:"total"`
+	JarvisStateCommand(ctx context.Context, data CommandJarvisStateData) (*CommandJarvisStateRtnData, error)             // work-ledger query: per-project active/shipped/timeline/delta + source health
+	JarvisStatusCommand(ctx context.Context, data CommandJarvisStatusData) (*CommandJarvisStatusRtnData, error)          // capture accounting: note counts, distill queue
+	JarvisCtxCommand(ctx context.Context, data CommandJarvisCtxData) (*CommandJarvisCtxRtnData, error)                   // resolve the run context (channel/run/dag) owning the caller's block
+	JarvisRunEventsCommand(ctx context.Context, data CommandJarvisRunEventsData) (*CommandJarvisRunEventsRtnData, error) // run visibility timeline: list a run's lifecycle events, newest-first
+	GetLatestResumeCommand(ctx context.Context) (*CommandGetLatestResumeRtnData, error)                                  // the newest rest-transition narrative across all runs — "where we were" at launch
 }
 
 // ResumeCardData mirrors jarviscontinuity.ResumeCard field for field, json tags included, so the generated
@@ -151,53 +103,6 @@ type CommandJarvisData struct {
 
 type JarvisChunk struct {
 	Text string `json:"text"`
-}
-
-// CommandJarvisConverseData is one recall conversation turn: a question plus the resolved scope. The shim
-// (pkg/jarvisrecall) filters retrieval by ScopeMode; the model is never asked to ignore out-of-scope objects.
-type CommandJarvisConverseData struct {
-	ConversationId string   `json:"conversationid"`
-	Prompt         string   `json:"prompt"`
-	ScopeMode      string   `json:"scopemode"` // object | project | all | attached
-	ProjectPath    string   `json:"projectpath,omitempty"`
-	AttachedORefs  []string `json:"attachedorefs,omitempty"`
-	RequestId      string   `json:"requestid"`
-}
-
-// JarvisWorkingStep is one deterministic retrieval/synthesis step, streamed as it runs.
-type JarvisWorkingStep struct {
-	Id     string `json:"id"`
-	Label  string `json:"label"`
-	Status string `json:"status"` // done | active | pending
-}
-
-// JarvisConverseChunk is one streamed update. Exactly one payload is meaningful per chunk, keyed by Kind:
-//   - "step":      Step is set (a working-step lifecycle update)
-//   - "grounding": Grounding is set (one deterministic source card)
-//   - "text":      Text is set (an incremental fragment of the model's prose answer)
-//   - "terminal":  Terminal is set (answered | weak | notfound; the last chunk of the turn)
-type JarvisConverseChunk struct {
-	Kind      string                            `json:"kind"`
-	Step      *JarvisWorkingStep                `json:"step,omitempty"`
-	Grounding *waveobj.JarvisConvoGroundingCard `json:"grounding,omitempty"`
-	Text      string                            `json:"text,omitempty"`
-	Terminal  string                            `json:"terminal,omitempty"`
-}
-
-type JarvisConversationSummary struct {
-	Id        string `json:"id"`
-	Title     string `json:"title"`
-	ScopeMode string `json:"scopemode"`
-	UpdatedTs int64  `json:"updatedts"`
-	// the frontend only ever sees summaries, so a field the summary omits is unreachable: without
-	// AttachedORefs the per-source dedup cannot survive a restart, and without Archived the flag is
-	// write-only.
-	AttachedORefs []string `json:"attachedorefs,omitempty"`
-	Archived      bool     `json:"archived,omitempty"`
-}
-
-type CommandListJarvisConversationsRtnData struct {
-	Conversations []JarvisConversationSummary `json:"conversations"`
 }
 
 type RouteCapabilityInfo struct {
@@ -476,12 +381,10 @@ type SourceHealth struct {
 type CommandJarvisStatusData struct{}
 
 // CaptureStatus is the observability answer to "did it skip my session?": vault note counts per
-// collection and embedding index availability.
+// collection and effort tracker accounting.
 type CaptureStatus struct {
-	NoteCounts     map[string]int       `json:"notecounts,omitempty"`
-	IndexAvailable bool                 `json:"indexavailable"`
-	IndexError     string               `json:"indexerror,omitempty"`
-	Efforts        CaptureEffortsStatus `json:"efforts"`
+	NoteCounts map[string]int       `json:"notecounts,omitempty"`
+	Efforts    CaptureEffortsStatus `json:"efforts"`
 }
 
 // CaptureEffortsStatus is the tracker accounting for the `wsh jarvis status` efforts line.
@@ -493,21 +396,6 @@ type CaptureEffortsStatus struct {
 
 type CommandJarvisStatusRtnData struct {
 	Status CaptureStatus `json:"status"`
-}
-
-// CommandJarvisAskData is one stateless ask. Cwd resolves the project scope ("" = all projects).
-type CommandJarvisAskData struct {
-	Prompt        string   `json:"prompt"`
-	Cwd           string   `json:"cwd,omitempty"`
-	AttachedORefs []string `json:"attachedorefs,omitempty"`
-}
-
-type CommandJarvisAskRtnData struct {
-	Answer string `json:"answer"`
-	// the full grounding card, not a bare source ref: the "Drew on" band's freshness reading has no other
-	// live feed, and jarvisrecall already computes project/age/freshness per candidate (see AskResult).
-	Grounding []waveobj.JarvisConvoGroundingCard `json:"grounding,omitempty"`
-	Terminal  string                             `json:"terminal"`
 }
 
 // CommandJarvisCtxData is the run-context resolve request. BlockORef is the block whose owner run is

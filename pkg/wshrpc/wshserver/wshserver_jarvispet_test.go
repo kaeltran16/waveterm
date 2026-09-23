@@ -4,11 +4,9 @@
 package wshserver
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/jarviscontinuity"
-	"github.com/wavetermdev/waveterm/pkg/jarvisproactive"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
 
@@ -18,77 +16,11 @@ func runWithMeta(oid, channelOID, goal string, createdTs int64, meta waveobj.Met
 	return &waveobj.Run{OID: oid, ID: oid, ChannelOID: channelOID, Goal: goal, CreatedTs: createdTs, Meta: meta}
 }
 
-func proactiveMeta(status, reason string) waveobj.MetaMapType {
-	return waveobj.MetaMapType{
-		jarvisproactive.MetaKeyProactive: map[string]any{"status": status, "reason": reason},
-	}
-}
-
 func resumeMeta(taskID, summary, status string, updated int64) waveobj.MetaMapType {
 	return waveobj.MetaMapType{
 		jarviscontinuity.MetaKeyResume: map[string]any{
 			"taskId": taskID, "summary": summary, "status": status, "updated": updated,
 		},
-	}
-}
-
-func TestBuildProactiveRefusalsKeepsOnlyRefusalsNewestFirst(t *testing.T) {
-	runs := []*waveobj.Run{
-		runWithMeta("r-hit", "c1", "a hit", 500, waveobj.MetaMapType{
-			jarvisproactive.MetaKeyProactive: map[string]any{"status": "hit", "nodeId": "n1"},
-		}),
-		runWithMeta("r-old", "c1", "old refusal", 100, proactiveMeta("none", jarvisproactive.ReasonNoCandidates)),
-		runWithMeta("r-new", "c2", "new refusal", 900, proactiveMeta("none", jarvisproactive.ReasonEmbeddingsOff)),
-		runWithMeta("r-pending", "c1", "still evaluating", 800, proactiveMeta("pending", "")),
-		runWithMeta("r-never", "c1", "never evaluated", 700, nil),
-	}
-
-	got := buildProactiveRefusals(runs, 0)
-
-	if got.Total != 2 {
-		t.Fatalf("total = %d, want 2 (a hit, a pending and a never-ran are not refusals): %+v", got.Total, got.Refusals)
-	}
-	if len(got.Refusals) != 2 {
-		t.Fatalf("refusals = %+v", got.Refusals)
-	}
-	if got.Refusals[0].RunORef != "run:r-new" {
-		t.Fatalf("newest refusal = %q, want run:r-new", got.Refusals[0].RunORef)
-	}
-	if got.Refusals[0].Reason != jarvisproactive.ReasonEmbeddingsOff {
-		t.Fatalf("reason = %q, want %q", got.Refusals[0].Reason, jarvisproactive.ReasonEmbeddingsOff)
-	}
-	if got.Refusals[0].ChannelOid != "c2" || got.Refusals[0].Goal != "new refusal" || got.Refusals[0].Ts != 900 {
-		t.Fatalf("refusal lost its context: %+v", got.Refusals[0])
-	}
-	if got.Refusals[1].RunORef != "run:r-old" {
-		t.Fatalf("second refusal = %q, want run:r-old", got.Refusals[1].RunORef)
-	}
-}
-
-// Total must count every refusal, not just the page: the useful diagnostic is the pattern, and it is the
-// only thing that survives truncation.
-func TestBuildProactiveRefusalsTruncatesButTotalsAll(t *testing.T) {
-	const total = maxRefusalLimit + 10
-	var runs []*waveobj.Run
-	for i := 0; i < total; i++ {
-		runs = append(runs, runWithMeta(
-			fmt.Sprintf("r%d", i), "c1", "goal", int64(i),
-			proactiveMeta("none", jarvisproactive.ReasonNoCandidates)))
-	}
-
-	got := buildProactiveRefusals(runs, 3)
-	if len(got.Refusals) != 3 {
-		t.Fatalf("refusals = %d, want 3", len(got.Refusals))
-	}
-	if got.Total != total {
-		t.Fatalf("total = %d, want %d", got.Total, total)
-	}
-	if got.Refusals[0].Ts != total-1 {
-		t.Fatalf("truncated the wrong end: first ts = %d, want %d", got.Refusals[0].Ts, total-1)
-	}
-
-	if capped := buildProactiveRefusals(runs, 999); len(capped.Refusals) != maxRefusalLimit {
-		t.Fatalf("limit not capped: got %d, want %d", len(capped.Refusals), maxRefusalLimit)
 	}
 }
 
@@ -154,21 +86,4 @@ func TestBuildLatestResumeWithNoNarratives(t *testing.T) {
 	if got.Card != nil {
 		t.Fatalf("card = %+v, want nil", got.Card)
 	}
-}
-
-// The guard, not the reconcile. A double-press must not run two whole-vault rebuilds against one index db,
-// and the second press is not an error the user should see — it is already happening.
-func TestReconcileSingleFlight(t *testing.T) {
-	reconcileRunning.Store(false)
-	if !tryStartReconcile() {
-		t.Fatal("first start should win")
-	}
-	if tryStartReconcile() {
-		t.Error("second start should be refused while the first is running")
-	}
-	finishReconcile()
-	if !tryStartReconcile() {
-		t.Error("a start after completion should win again")
-	}
-	finishReconcile()
 }

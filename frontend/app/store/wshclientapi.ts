@@ -54,40 +54,10 @@ export class RpcApiType {
         return client.wshRpcCall("agentsyncfold", data, opts);
     }
 
-    // command "agentsyncharnessread" [call]
-    AgentSyncHarnessReadCommand(client: WshClient, data: CommandAgentSyncHarnessReadData, opts?: RpcOpts): Promise<CommandAgentSyncHarnessReadRtnData> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "agentsyncharnessread", data, opts);
-        return client.wshRpcCall("agentsyncharnessread", data, opts);
-    }
-
-    // command "agentsyncharnesswrite" [call]
-    AgentSyncHarnessWriteCommand(client: WshClient, data: CommandAgentSyncHarnessWriteData, opts?: RpcOpts): Promise<CommandAgentSyncHarnessWriteRtnData> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "agentsyncharnesswrite", data, opts);
-        return client.wshRpcCall("agentsyncharnesswrite", data, opts);
-    }
-
-    // command "agentsyncskills" [call]
-    AgentSyncSkillsCommand(client: WshClient, opts?: RpcOpts): Promise<CommandAgentSyncSkillsRtnData> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "agentsyncskills", null, opts);
-        return client.wshRpcCall("agentsyncskills", null, opts);
-    }
-
     // command "agentsyncstatus" [call]
     AgentSyncStatusCommand(client: WshClient, opts?: RpcOpts): Promise<CommandAgentSyncStatusRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "agentsyncstatus", null, opts);
         return client.wshRpcCall("agentsyncstatus", null, opts);
-    }
-
-    // command "agentsyncsteeringread" [call]
-    AgentSyncSteeringReadCommand(client: WshClient, opts?: RpcOpts): Promise<CommandAgentSyncSteeringReadRtnData> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "agentsyncsteeringread", null, opts);
-        return client.wshRpcCall("agentsyncsteeringread", null, opts);
-    }
-
-    // command "agentsyncsteeringwrite" [call]
-    AgentSyncSteeringWriteCommand(client: WshClient, data: CommandAgentSyncSteeringWriteData, opts?: RpcOpts): Promise<CommandAgentSyncSteeringWriteRtnData> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "agentsyncsteeringwrite", data, opts);
-        return client.wshRpcCall("agentsyncsteeringwrite", data, opts);
     }
 
     // command "answeragent" [call]
@@ -444,12 +414,6 @@ export class RpcApiType {
         return client.wshRpcCall("electronencrypt", data, opts);
     }
 
-    // command "embedreconcile" [call]
-    EmbedReconcileCommand(client: WshClient, opts?: RpcOpts): Promise<void> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "embedreconcile", null, opts);
-        return client.wshRpcCall("embedreconcile", null, opts);
-    }
-
     // command "eventpublish" [call]
     EventPublishCommand(client: WshClient, data: WaveEvent, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "eventpublish", data, opts);
@@ -628,12 +592,6 @@ export class RpcApiType {
     GetDossierCommand(client: WshClient, data: CommandGetDossierData, opts?: RpcOpts): Promise<DossierDetail> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getdossier", data, opts);
         return client.wshRpcCall("getdossier", data, opts);
-    }
-
-    // command "getembedindexstatus" [call]
-    GetEmbedIndexStatusCommand(client: WshClient, opts?: RpcOpts): Promise<EmbedIndexStatus> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getembedindexstatus", null, opts);
-        return client.wshRpcCall("getembedindexstatus", null, opts);
     }
 
     // command "getfullconfig" [call]
@@ -852,18 +810,6 @@ export class RpcApiType {
         return client.wshRpcStream("jarvis", data, opts);
     }
 
-    // command "jarvisask" [call]
-    JarvisAskCommand(client: WshClient, data: CommandJarvisAskData, opts?: RpcOpts): Promise<CommandJarvisAskRtnData> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "jarvisask", data, opts);
-        return client.wshRpcCall("jarvisask", data, opts);
-    }
-
-    // command "jarvisconverse" [responsestream]
-	JarvisConverseCommand(client: WshClient, data: CommandJarvisConverseData, opts?: RpcOpts): AsyncGenerator<JarvisConverseChunk, void, boolean> {
-        if (this.mockClient) return this.mockClient.mockWshRpcStream(client, "jarvisconverse", data, opts);
-        return client.wshRpcStream("jarvisconverse", data, opts);
-    }
-
     // command "jarvisctx" [call]
     JarvisCtxCommand(client: WshClient, data: CommandJarvisCtxData, opts?: RpcOpts): Promise<CommandJarvisCtxRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "jarvisctx", data, opts);
@@ -1006,18 +952,6 @@ export class RpcApiType {
     ListHarnessesCommand(client: WshClient, opts?: RpcOpts): Promise<CommandListHarnessesRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "listharnesses", null, opts);
         return client.wshRpcCall("listharnesses", null, opts);
-    }
-
-    // command "listjarvisconversations" [call]
-    ListJarvisConversationsCommand(client: WshClient, opts?: RpcOpts): Promise<CommandListJarvisConversationsRtnData> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "listjarvisconversations", null, opts);
-        return client.wshRpcCall("listjarvisconversations", null, opts);
-    }
-
-    // command "listproactiverefusals" [call]
-    ListProactiveRefusalsCommand(client: WshClient, data: CommandListProactiveRefusalsData, opts?: RpcOpts): Promise<CommandListProactiveRefusalsRtnData> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "listproactiverefusals", data, opts);
-        return client.wshRpcCall("listproactiverefusals", data, opts);
     }
 
     // command "listradarreports" [call]

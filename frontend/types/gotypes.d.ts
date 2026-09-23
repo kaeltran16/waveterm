@@ -121,21 +121,6 @@ declare global {
         note?: string;
     };
 
-    // wshrpc.AgentSyncSkill
-    type AgentSyncSkill = {
-        name: string;
-        description?: string;
-        states: {[key: string]: string};
-        deltas?: {[key: string]: string[]};
-    };
-
-    // wshrpc.AgentSyncSkillColumn
-    type AgentSyncSkillColumn = {
-        runtime: string;
-        label: string;
-        present: boolean;
-    };
-
     // wshrpc.AgentSyncSkillMove
     type AgentSyncSkillMove = {
         runtime: string;
@@ -330,8 +315,6 @@ declare global {
     // wshrpc.CaptureStatus
     type CaptureStatus = {
         notecounts?: {[key: string]: number};
-        indexavailable: boolean;
-        indexerror?: string;
         efforts: CaptureEffortsStatus;
     };
 
@@ -424,68 +407,11 @@ declare global {
         seeded: boolean;
     };
 
-    // wshrpc.CommandAgentSyncHarnessReadData
-    type CommandAgentSyncHarnessReadData = {
-        runtime: string;
-    };
-
-    // wshrpc.CommandAgentSyncHarnessReadRtnData
-    type CommandAgentSyncHarnessReadRtnData = {
-        runtime: string;
-        path: string;
-        present: boolean;
-        own: string;
-        shared: string;
-        memory: string;
-        state: string;
-        mtime: number;
-        carried: number;
-    };
-
-    // wshrpc.CommandAgentSyncHarnessWriteData
-    type CommandAgentSyncHarnessWriteData = {
-        runtime: string;
-        own: string;
-        basemtime: number;
-    };
-
-    // wshrpc.CommandAgentSyncHarnessWriteRtnData
-    type CommandAgentSyncHarnessWriteRtnData = {
-        mtime: number;
-        conflict: boolean;
-    };
-
-    // wshrpc.CommandAgentSyncSkillsRtnData
-    type CommandAgentSyncSkillsRtnData = {
-        skills: AgentSyncSkill[];
-        columns: AgentSyncSkillColumn[];
-        skillsroot: string;
-    };
-
     // wshrpc.CommandAgentSyncStatusRtnData
     type CommandAgentSyncStatusRtnData = {
         harnesses: AgentSyncHarness[];
         steeringdoc: string;
         skillsroot: string;
-    };
-
-    // wshrpc.CommandAgentSyncSteeringReadRtnData
-    type CommandAgentSyncSteeringReadRtnData = {
-        path: string;
-        content: string;
-        mtime: number;
-    };
-
-    // wshrpc.CommandAgentSyncSteeringWriteData
-    type CommandAgentSyncSteeringWriteData = {
-        content: string;
-        basemtime: number;
-    };
-
-    // wshrpc.CommandAgentSyncSteeringWriteRtnData
-    type CommandAgentSyncSteeringWriteRtnData = {
-        mtime: number;
-        conflict: boolean;
     };
 
     // wshrpc.CommandAnswerAgentData
@@ -1283,30 +1209,6 @@ declare global {
         patch?: string;
     };
 
-    // wshrpc.CommandJarvisAskData
-    type CommandJarvisAskData = {
-        prompt: string;
-        cwd?: string;
-        attachedorefs?: string[];
-    };
-
-    // wshrpc.CommandJarvisAskRtnData
-    type CommandJarvisAskRtnData = {
-        answer: string;
-        grounding?: JarvisConvoGroundingCard[];
-        terminal: string;
-    };
-
-    // wshrpc.CommandJarvisConverseData
-    type CommandJarvisConverseData = {
-        conversationid: string;
-        prompt: string;
-        scopemode: string;
-        projectpath?: string;
-        attachedorefs?: string[];
-        requestid: string;
-    };
-
     // wshrpc.CommandJarvisCtxData
     type CommandJarvisCtxData = {
         blockoref?: string;
@@ -1457,22 +1359,6 @@ declare global {
     // wshrpc.CommandListHarnessesRtnData
     type CommandListHarnessesRtnData = {
         harnesses: HarnessInfo[];
-    };
-
-    // wshrpc.CommandListJarvisConversationsRtnData
-    type CommandListJarvisConversationsRtnData = {
-        conversations: JarvisConversationSummary[];
-    };
-
-    // wshrpc.CommandListProactiveRefusalsData
-    type CommandListProactiveRefusalsData = {
-        limit?: number;
-    };
-
-    // wshrpc.CommandListProactiveRefusalsRtnData
-    type CommandListProactiveRefusalsRtnData = {
-        refusals: ProactiveRefusal[];
-        total: number;
     };
 
     // wshrpc.CommandListRadarReportsData
@@ -2169,21 +2055,6 @@ declare global {
         updatedts: number;
     };
 
-    // wshrpc.EmbedIndexStatus
-    type EmbedIndexStatus = {
-        state: string;
-        reason?: string;
-        detail?: string;
-        enabled: boolean;
-        haskey: boolean;
-        model?: string;
-        indexedmodel?: string;
-        dims?: number;
-        indexednodes: number;
-        vaultnodes: number;
-        stalenodes: number;
-    };
-
     // waveobj.EvidenceArtifact
     type EvidenceArtifact = {
         path: string;
@@ -2379,78 +2250,12 @@ declare global {
         text: string;
     };
 
-    // wshrpc.JarvisConversationSummary
-    type JarvisConversationSummary = {
-        id: string;
-        title: string;
-        scopemode: string;
-        updatedts: number;
-        attachedorefs?: string[];
-        archived?: boolean;
-    };
-
-    // wshrpc.JarvisConverseChunk
-    type JarvisConverseChunk = {
-        kind: string;
-        step?: JarvisWorkingStep;
-        grounding?: JarvisConvoGroundingCard;
-        text?: string;
-        terminal?: string;
-    };
-
-    // waveobj.JarvisConvo
-    type JarvisConvo = WaveObj & {
-        title: string;
-        scopemode: string;
-        projectpath?: string;
-        attachedorefs?: string[];
-        turns: JarvisConvoTurn[];
-        createdts: number;
-        updatedts: number;
-    };
-
-    // waveobj.JarvisConvoGroundingCard
-    type JarvisConvoGroundingCard = {
-        n: number;
-        sourcetype: string;
-        title: string;
-        project: string;
-        agems: number;
-        freshness: string;
-        navtarget: string;
-        anchor?: string;
-    };
-
-    // waveobj.JarvisConvoSourceRef
-    type JarvisConvoSourceRef = {
-        oref: string;
-        sourcetype: string;
-        title: string;
-    };
-
-    // waveobj.JarvisConvoTurn
-    type JarvisConvoTurn = {
-        role: string;
-        text?: string;
-        attachments?: JarvisConvoSourceRef[];
-        prose?: string;
-        grounding?: JarvisConvoGroundingCard[];
-        terminal?: string;
-    };
-
     // waveobj.JarvisProfile
     type JarvisProfile = {
         principles?: Principle[];
         defaultmode?: string;
         parallelism?: number;
         workerroute?: RoutePin;
-    };
-
-    // wshrpc.JarvisWorkingStep
-    type JarvisWorkingStep = {
-        id: string;
-        label: string;
-        status: string;
     };
 
     // waveobj.Job
@@ -2740,15 +2545,6 @@ declare global {
         additions?: Principle[];
         replacements?: {[key: string]: string};
         disabled?: string[];
-    };
-
-    // wshrpc.ProactiveRefusal
-    type ProactiveRefusal = {
-        runoref: string;
-        channeloid?: string;
-        goal?: string;
-        reason: string;
-        ts: number;
     };
 
     // waveobj.ProfileOverride
@@ -3164,9 +2960,6 @@ declare global {
         "headless:openroutermidmodel"?: string;
         "headless:openrouterlongmodel"?: string;
         "jarvis:vaultpath"?: string;
-        "jarvis:embedenabled"?: boolean;
-        "jarvis:embedbaseurl"?: string;
-        "jarvis:embedmodel"?: string;
         "editor:minimapenabled"?: boolean;
         "editor:stickyscrollenabled"?: boolean;
         "editor:wordwrap"?: boolean;

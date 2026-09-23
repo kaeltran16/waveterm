@@ -126,9 +126,9 @@ func TestSupersedeDecisionPreservesRationale(t *testing.T) {
 	}
 }
 
-// A decision's subject must live in frontmatter, not only in the filename. jarvisembed.embedText
-// serializes frontmatter + body, and never the node id — so a subject that exists only in the filename
-// is absent from the vector, and the decision cannot be retrieved by what it is about (J9b). The
+// A decision's subject must live in frontmatter, not only in the filename. Readers see frontmatter +
+// body, never the node id — so a subject that exists only in the filename is lost, and the decision
+// cannot be found by what it is about (J9b). The
 // rationale body says *why* and routinely never restates the topic, so it is not a fallback.
 func TestAppendDecisionStampsSubjectIntoFrontmatter(t *testing.T) {
 	fixedNow(t, 1753324800000)

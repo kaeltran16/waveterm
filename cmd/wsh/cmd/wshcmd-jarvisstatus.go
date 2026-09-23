@@ -14,7 +14,7 @@ import (
 
 var jarvisStatusCmd = &cobra.Command{
 	Use:     "status",
-	Short:   "capture accounting: vault note counts, index availability, distill queue",
+	Short:   "capture accounting: vault note counts, distill queue",
 	Args:    cobra.NoArgs,
 	RunE:    jarvisStatusRun,
 	PreRunE: preRunSetupRpcClient,
@@ -44,14 +44,6 @@ func renderCaptureStatus(st wshrpc.CaptureStatus) string {
 		for _, coll := range []string{"memory", "tasks", "decisions"} {
 			fmt.Fprintf(&b, "  %-10s %d\n", coll, st.NoteCounts[coll])
 		}
-	}
-	b.WriteString("embedding index: ")
-	if st.IndexAvailable {
-		b.WriteString("available\n")
-	} else if st.IndexError != "" {
-		fmt.Fprintf(&b, "unavailable (%s)\n", st.IndexError)
-	} else {
-		b.WriteString("unavailable\n")
 	}
 	fmt.Fprintf(&b, "efforts: %d active · %d of %d chunks\n", st.Efforts.Active, st.Efforts.ChunksDone, st.Efforts.ChunksTotal)
 	return strings.TrimRight(b.String(), "\n")

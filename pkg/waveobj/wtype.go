@@ -22,41 +22,39 @@ const (
 )
 
 const (
-	OType_Client             = "client"
-	OType_Window             = "window"
-	OType_Workspace          = "workspace"
-	OType_Tab                = "tab"
-	OType_Channel            = "channel"
-	OType_LayoutState        = "layout"
-	OType_Block              = "block"
-	OType_MainServer         = "mainserver"
-	OType_Job                = "job"
-	OType_Temp               = "temp"
-	OType_RadarReport        = "radarreport"
-	OType_Run                = "run"
-	OType_ChannelMessage     = "channelmessage"
-	OType_JarvisConversation = "jarvisconversation"
-	OType_Effort             = "effort"
-	OType_Dag                = "dag"
+	OType_Client         = "client"
+	OType_Window         = "window"
+	OType_Workspace      = "workspace"
+	OType_Tab            = "tab"
+	OType_Channel        = "channel"
+	OType_LayoutState    = "layout"
+	OType_Block          = "block"
+	OType_MainServer     = "mainserver"
+	OType_Job            = "job"
+	OType_Temp           = "temp"
+	OType_RadarReport    = "radarreport"
+	OType_Run            = "run"
+	OType_ChannelMessage = "channelmessage"
+	OType_Effort         = "effort"
+	OType_Dag            = "dag"
 )
 
 var ValidOTypes = map[string]bool{
-	OType_Client:             true,
-	OType_Window:             true,
-	OType_Workspace:          true,
-	OType_Tab:                true,
-	OType_Channel:            true,
-	OType_LayoutState:        true,
-	OType_Block:              true,
-	OType_MainServer:         true,
-	OType_Job:                true,
-	OType_Temp:               true,
-	OType_RadarReport:        true,
-	OType_Run:                true,
-	OType_ChannelMessage:     true,
-	OType_JarvisConversation: true,
-	OType_Effort:             true,
-	OType_Dag:                true,
+	OType_Client:         true,
+	OType_Window:         true,
+	OType_Workspace:      true,
+	OType_Tab:            true,
+	OType_Channel:        true,
+	OType_LayoutState:    true,
+	OType_Block:          true,
+	OType_MainServer:     true,
+	OType_Job:            true,
+	OType_Temp:           true,
+	OType_RadarReport:    true,
+	OType_Run:            true,
+	OType_ChannelMessage: true,
+	OType_Effort:         true,
+	OType_Dag:            true,
 }
 
 type WaveObjUpdate struct {
@@ -454,8 +452,8 @@ type RunEvidence struct {
 	DelTotal   int                `json:"deltotal"`
 	Verifs     []EvidenceVerif    `json:"verifs,omitempty"`
 	Artifacts  []EvidenceArtifact `json:"artifacts,omitempty"`
-	RuntimeMs  int64              `json:"runtimems"`  // Σ phase active spans (active compute)
-	DurationMs int64              `json:"durationms"` // wall clock (CompletedTs - CreatedTs)
+	RuntimeMs  int64              `json:"runtimems"`         // Σ phase active spans (active compute)
+	DurationMs int64              `json:"durationms"`        // wall clock (CompletedTs - CreatedTs)
 	Harness    string             `json:"harness,omitempty"` // the runtime that ran the work
 	Model      string             `json:"model,omitempty"`   // the model the transcript reports, else the route's pin; empty when neither is known
 }
@@ -866,7 +864,6 @@ func AllWaveObjTypes() []reflect.Type {
 		reflect.TypeOf(&Job{}),
 		reflect.TypeOf(&Run{}),
 		reflect.TypeOf(&ChannelMessage{}),
-		reflect.TypeOf(&JarvisConvo{}),
 		reflect.TypeOf(&Effort{}),
 		reflect.TypeOf(&TaskGroup{}),
 	}

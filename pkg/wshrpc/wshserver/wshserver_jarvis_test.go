@@ -5,115 +5,12 @@ package wshserver
 
 import (
 	"context"
-	"slices"
 	"testing"
 
-	"github.com/wavetermdev/waveterm/pkg/jarvisrecall"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
-
-func TestJarvisConverseCreatesAndPersistsTurns(t *testing.T) {
-	old := jarvisrecall.SetSynthesizeForTest(func(ctx context.Context, cwd, prompt string, onChunk func(string)) (string, error) {
-		onChunk("grounded answer [1]")
-		return "grounded answer [1]", nil
-	})
-	defer jarvisrecall.SetSynthesizeForTest(old)
-
-	ctx := context.Background()
-	convoID := "dddddddd-0000-0000-0000-000000000001"
-	t.Cleanup(func() {
-		if err := wstore.DBDelete(ctx, waveobj.OType_JarvisConversation, convoID); err != nil {
-			t.Errorf("cleanup conversation: %v", err)
-		}
-	})
-	ws := &WshServer{}
-	data := wshrpc.CommandJarvisConverseData{
-		ConversationId: convoID,
-		Prompt:         "why?",
-		ScopeMode:      "all",
-		RequestId:      "r1",
-	}
-	for range ws.JarvisConverseCommand(ctx, data) {
-	}
-	convo, err := wstore.GetJarvisConversation(ctx, data.ConversationId)
-	if err != nil {
-		t.Fatalf("conversation not created/persisted: %v", err)
-	}
-	if len(convo.Turns) != 2 {
-		t.Fatalf("want 2 persisted turns (user + jarvis), got %d: %+v", len(convo.Turns), convo.Turns)
-	}
-	if convo.Turns[0].Role != "user" || convo.Turns[0].Text != "why?" {
-		t.Fatalf("user turn mismatch: %+v", convo.Turns[0])
-	}
-	if convo.Turns[1].Role != "jarvis" || convo.Turns[1].Terminal == "" {
-		t.Fatalf("answer turn mismatch: %+v", convo.Turns[1])
-	}
-	if convo.Title != "why?" {
-		t.Fatalf("title = %q, want first prompt", convo.Title)
-	}
-}
-
-func TestJarvisConverseRejectsInvalidConversationID(t *testing.T) {
-	ctx := context.Background()
-	const convoID = "not-a-uuid"
-	t.Cleanup(func() {
-		_ = wstore.DBDelete(ctx, waveobj.OType_JarvisConversation, convoID)
-	})
-	var streamErr error
-	for result := range (&WshServer{}).JarvisConverseCommand(ctx, wshrpc.CommandJarvisConverseData{
-		ConversationId: convoID,
-		Prompt:         "why?",
-		ScopeMode:      "all",
-	}) {
-		if result.Error != nil {
-			streamErr = result.Error
-		}
-	}
-	if streamErr == nil {
-		t.Fatal("expected invalid conversation id to be rejected")
-	}
-}
-
-// newTestConvo creates a conversation with a deterministic UUID and removes it when the test ends.
-func newTestConvo(t *testing.T, ctx context.Context, oid, title string, orefs []string) *waveobj.JarvisConvo {
-	t.Helper()
-	convo, err := wstore.CreateJarvisConversation(ctx, oid, title, "all", "", orefs)
-	if err != nil {
-		t.Fatalf("creating conversation: %v", err)
-	}
-	t.Cleanup(func() {
-		// already-deleted is fine: the delete test removes it itself
-		_ = wstore.DBDelete(ctx, waveobj.OType_JarvisConversation, oid)
-	})
-	return convo
-}
-
-func TestListJarvisConversationsCarriesAttachedORefs(t *testing.T) {
-	ctx := context.Background()
-	orefs := []string{"run:dddddddd-0000-0000-0000-0000000000f1"}
-	convo := newTestConvo(t, ctx, "dddddddd-0000-0000-0000-0000000000d3", "about a run", orefs)
-	got := findSummary(t, &WshServer{}, ctx, convo.OID).AttachedORefs
-	if len(got) != 1 || got[0] != orefs[0] {
-		t.Fatalf("expected the summary to carry %v, got %v", orefs, got)
-	}
-}
-
-func findSummary(t *testing.T, ws *WshServer, ctx context.Context, oid string) wshrpc.JarvisConversationSummary {
-	t.Helper()
-	rtn, err := ws.ListJarvisConversationsCommand(ctx)
-	if err != nil {
-		t.Fatalf("listing: %v", err)
-	}
-	for _, s := range rtn.Conversations {
-		if s.Id == oid {
-			return s
-		}
-	}
-	t.Fatalf("conversation %s missing from the list", oid)
-	return wshrpc.JarvisConversationSummary{}
-}
 
 func TestListDetachedEdgesRequiresAnId(t *testing.T) {
 	ws := &WshServer{}
@@ -179,71 +76,6 @@ func TestJarvisStatusCommandReturnsSections(t *testing.T) {
 	}
 	if rtn.Status.NoteCounts == nil {
 		t.Fatalf("status=%+v want non-nil note counts (may be empty)", rtn.Status)
-	}
-}
-
-func TestJarvisAskScopeCarriesAttachedORefs(t *testing.T) {
-	attachments := []string{"task:task-a", "run:run-b"}
-
-	project := jarvisAskScope(wshrpc.CommandJarvisAskData{
-		Cwd:           `C:\work\wave`,
-		AttachedORefs: attachments,
-	})
-	if project.Mode != "project" || project.ProjectPath != `C:\work\wave` {
-		t.Fatalf("project scope = %#v", project)
-	}
-	if !slices.Equal(attachments, project.AttachedORefs) {
-		t.Fatalf("project attached orefs = %#v", project.AttachedORefs)
-	}
-
-	all := jarvisAskScope(wshrpc.CommandJarvisAskData{AttachedORefs: attachments})
-	if all.Mode != "all" || all.ProjectPath != "" {
-		t.Fatalf("all scope = %#v", all)
-	}
-	if !slices.Equal(attachments, all.AttachedORefs) {
-		t.Fatalf("all attached orefs = %#v", all.AttachedORefs)
-	}
-}
-
-func TestJarvisAskCommandAttachesLedgerFacts(t *testing.T) {
-	ctx := context.Background()
-	ws := &WshServer{}
-	ch, err := wstore.CreateChannel(ctx, "rpc", "/p/one")
-	if err != nil {
-		t.Fatalf("create channel: %v", err)
-	}
-	if err := wstore.AppendRun(ctx, ch.OID, waveobj.Run{OID: "r-ask-1", ID: "r-ask-1", Goal: "the ask bridge", Status: "executing", ProjectPath: "/p/one", CreatedTs: 100}); err != nil {
-		t.Fatalf("append run: %v", err)
-	}
-	// "all" is the documented keep-all judge reply (no digits → ambiguous → keep everything). The
-	// plan's "1" only works when prose retrieval returns nothing; the real vault returns candidates
-	// that would outrank the appended ledger fact.
-	restoreJ := jarvisrecall.SetJudgeForTest(func(_ context.Context, _, _ string) (string, error) { return "all", nil })
-	defer restoreJ()
-	restoreS := jarvisrecall.SetSynthesizeForTest(func(_ context.Context, _, _ string, _ func(string)) (string, error) {
-		return "the ask bridge is executing [1]", nil
-	})
-	defer jarvisrecall.SetSynthesizeForTest(restoreS)
-	rtn, err := ws.JarvisAskCommand(ctx, wshrpc.CommandJarvisAskData{Prompt: "what is the status of the ask bridge", Cwd: "/p/one"})
-	if err != nil {
-		t.Fatalf("JarvisAskCommand: %v", err)
-	}
-	if rtn.Answer != "the ask bridge is executing [1]" {
-		t.Fatalf("answer=%q want the stub synthesize output", rtn.Answer)
-	}
-	var ledger *waveobj.JarvisConvoGroundingCard
-	for i, c := range rtn.Grounding {
-		if c.SourceType == "status" && c.NavTarget == "run:r-ask-1" {
-			ledger = &rtn.Grounding[i]
-		}
-	}
-	if ledger == nil {
-		t.Fatalf("grounding=%+v want the ledger fact from FetchWorkState", rtn.Grounding)
-	}
-	// the handler must hand the band a reading, not just a routable ref — that gap is what forced the
-	// "Drew on" band to label every ask citation unverified
-	if ledger.Freshness == "" || ledger.N == 0 {
-		t.Fatalf("ledger card carries no reading: %+v", *ledger)
 	}
 }
 

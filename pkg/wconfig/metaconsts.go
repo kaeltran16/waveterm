@@ -68,9 +68,6 @@ const (
 	ConfigKey_HeadlessOpenRouterLongModel    = "headless:openrouterlongmodel"
 
 	ConfigKey_JarvisVaultPath                = "jarvis:vaultpath"
-	ConfigKey_JarvisEmbedEnabled             = "jarvis:embedenabled"
-	ConfigKey_JarvisEmbedBaseURL             = "jarvis:embedbaseurl"
-	ConfigKey_JarvisEmbedModel               = "jarvis:embedmodel"
 
 	ConfigKey_EditorMinimapEnabled           = "editor:minimapenabled"
 	ConfigKey_EditorStickyScrollEnabled      = "editor:stickyscrollenabled"
