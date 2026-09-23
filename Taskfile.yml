@@ -43,14 +43,14 @@ tasks:
         cmd: node scripts/sync-tauri-version.mjs --check
 
     tauri:build:
-        desc: "Production build: bump the version, sync it everywhere, build the backend, and bundle the installer. BUMP=none|patch|minor|major (default patch) controls the bump."
+        desc: "Production build: optionally bump the version, sync it everywhere, build the backend, and bundle the installer. BUMP=none|patch|minor|major (default none) controls the bump — pass one for a release."
         aliases:
             - build:app
         cmds:
             # The bump must run in its own `task` process. Task resolves the global VERSION var once
             # per invocation, so bumping and building in one run would stamp the Go binaries and the
             # wsh-<version> filenames with the pre-bump version.
-            - node version.cjs {{.BUMP | default "patch"}}
+            - node version.cjs {{.BUMP | default "none"}}
             # a nested `task:` call would reuse this process and its stale VERSION, so shell out.
             # That makes it a CLI invocation, which is why the callee cannot be marked internal.
             - task tauri:build:post-bump
