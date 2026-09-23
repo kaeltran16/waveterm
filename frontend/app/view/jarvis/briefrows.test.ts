@@ -9,6 +9,7 @@ import {
     initiativeLine,
     projectName,
     queueLine,
+    runRowFace,
     sessionLine,
     sessionWindow,
     sinceLabel,
@@ -121,6 +122,11 @@ describe("initiativeLine", () => {
             ])
         );
         expect(initiativeLine(card)).toMatchObject({ state: "1 blocked", stateTone: "asking" });
+    });
+
+    it("reads an archived initiative as archived, faint, ahead of a blocked chunk", () => {
+        const card = buildEffortCard(summary([{ label: "B", status: "blocked" }], { status: "archived" }));
+        expect(initiativeLine(card)).toMatchObject({ state: "archived", stateTone: "faint" });
     });
 });
 
@@ -376,5 +382,78 @@ describe("design row helpers", () => {
         expect(sinceLabel(new Date(2026, 8, 23, 9, 5).getTime(), now, false)).toBe("since today 09:05");
         expect(sinceLabel(new Date(2026, 8, 12, 9, 5).getTime(), now, false)).toBe("since Sep 12");
         expect(sinceLabel(0, now, true)).toBe("the last 7 days");
+    });
+});
+
+describe("runRowFace", () => {
+    const line = { id: "sessions:run:r1", title: "N1 box upgrade", age: "2h", runOid: "r1" } as BriefLine;
+    const run = {
+        id: "r1",
+        mode: "orchestrator",
+        status: "executing",
+        runtime: "claude",
+        createdts: 0,
+        effortref: { effortoid: "e1", chunklabel: "N1 box upgrade" },
+    } as unknown as Run;
+    const effort = {
+        oref: "effort:e1",
+        title: "Scenario gate clearance",
+        chunkStages: { "N1 box upgrade": "Phase 2 · upgrade" },
+    };
+    it("reads an orchestrator run as the design does", () => {
+        const f = runRowFace({ line, run, asking: false, project: "arc-infra", effort });
+        expect(f).toMatchObject({
+            type: "orchestrator",
+            meta: "lead · arc-infra",
+            elapsed: "2h",
+            state: "running",
+            stateTone: "ok",
+            dot: "live",
+            canStop: true,
+            chunkLabel: "Scenario gate clearance · Phase 2 · upgrade",
+        });
+    });
+    it("an asking quick run shows asking and can be answered", () => {
+        const f = runRowFace({
+            line,
+            run: { ...run, mode: "", runtime: "claude" } as Run,
+            asking: true,
+            project: "arc-infra",
+        });
+        expect(f).toMatchObject({
+            type: "quick run",
+            meta: "claude · arc-infra",
+            state: "asking",
+            stateTone: "asking",
+            dot: "asking",
+            chunkLabel: "",
+        });
+    });
+    it("a direct agent has no Stop", () => {
+        const f = runRowFace({
+            line: { ...line, runOid: undefined, agentId: "a1", meta: "claude · waveterm", state: "working" },
+            asking: false,
+            project: "",
+        });
+        expect(f).toMatchObject({ type: "agent", meta: "claude · waveterm", canStop: false, state: "running" });
+    });
+    it("a cancelled run reads stopped, faint, and cannot be stopped again", () => {
+        const f = runRowFace({ line, run: { ...run, status: "cancelled" } as Run, asking: false, project: "p" });
+        expect(f).toMatchObject({ state: "stopped", stateTone: "faint", dot: "idle", canStop: false, stopped: true });
+    });
+});
+
+describe("sessionLine age", () => {
+    it("carries the row's age for the Runs meta line", () => {
+        const now = 10 * DAY;
+        const row = {
+            kind: "run",
+            key: "run:r1",
+            oref: "run:r1",
+            name: "x",
+            meta: "",
+            ts: now - 2 * 60 * MIN,
+        } as ActiveWorkRow;
+        expect(sessionLine(row, now).age).toBe("2h");
     });
 });

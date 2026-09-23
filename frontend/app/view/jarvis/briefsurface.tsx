@@ -108,6 +108,7 @@ import {
 } from "./briefrows";
 import { BriefSheet } from "./briefsheet";
 import { sheetFace } from "./briefsheetmodel";
+import { CURSOR_RING, cursorAttrs } from "./briefstyle";
 import { BriefToastView } from "./brieftoast";
 import { briefUndo, chunkKey, effortKey, noteKey, pendingDeleteKeysAtom } from "./briefundo";
 import { ChunkSidebar } from "./chunksidebar";
@@ -179,17 +180,6 @@ type RegionId = keyof typeof REGIONS;
 
 const REGION_LABEL = "flex-none font-mono text-[9.5px] font-bold uppercase tracking-[.13em]";
 const SUB_LABEL = "px-2.5 pb-0.5 pt-1.5 font-mono text-[9px] font-bold uppercase tracking-[.12em] text-ink-faint";
-
-// The j/k cursor. A ring rather than a fill: the cursor says "the keys are here", not "this is
-// selected" — nothing on the Brief is selectable yet, and the rows carry their own tone (a waiting row
-// is already asking-coloured) which a background swap would overwrite. Inset, because the Waiting rows sit
-// in the reveal's overflow-hidden wrapper, which cuts an outer ring down to its four rounded corners.
-const CURSOR_RING = "ring-1 ring-inset ring-accent/70";
-
-// Every row takes the same two, so the four renderers stay uniform and the scroller can find the cursor.
-function cursorAttrs(focused: boolean) {
-    return { "data-jarvis-brief-cursor": focused ? "true" : undefined };
-}
 
 // A heading is also how one region is read alone: pressing it hides the other regions, pressing it again
 // brings them back. The count is a plain label inside it, because a bordered pill inside a button would
@@ -333,6 +323,7 @@ const TONE_FG: Record<LineTone, string> = {
     asking: "text-asking",
     error: "text-error",
     muted: "text-muted",
+    faint: "text-muted",
 };
 
 // the key the fresh and entrance sets are built with: a line's id minus its region prefix

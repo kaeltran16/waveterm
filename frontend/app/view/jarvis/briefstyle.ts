@@ -25,3 +25,14 @@ export const TONE_TEXT: Record<Tone, string> = {
     muted: "text-ink-mid",
     faint: "text-muted",
 };
+
+// The j/k cursor. A ring rather than a fill: the cursor says "the keys are here", not "this is
+// selected", and the rows carry their own tone (a waiting row is already asking-coloured) which a
+// background swap would overwrite. Inset, because the Waiting rows sit in the reveal's overflow-hidden
+// wrapper, which cuts an outer ring down to its four rounded corners.
+export const CURSOR_RING = "ring-1 ring-inset ring-accent/70";
+
+// every row takes the same attrs, so the scroller can find the cursor
+export function cursorAttrs(focused: boolean) {
+    return { "data-jarvis-brief-cursor": focused ? "true" : undefined };
+}

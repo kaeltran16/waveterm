@@ -27,7 +27,7 @@ import {
 import { headline, noteBody } from "./effortfeed";
 import type { EffortCardModel } from "./effortmodel";
 
-export type LineTone = "ok" | "active" | "asking" | "error" | "muted";
+export type LineTone = "ok" | "active" | "asking" | "error" | "muted" | "faint";
 export type LineTarget = { queue: QueueOpenTarget } | { oref: string } | null;
 
 export type BriefLine = {
@@ -85,11 +85,13 @@ export function initiativeLine(card: EffortCardModel): BriefLine {
     const blocked = card.blockedChunks.length;
     // blocked first: it is the one state that is waiting on someone
     const [state, stateTone]: [string, LineTone] =
-        blocked > 0
-            ? [`${blocked} blocked`, "asking"]
-            : card.activeTone === "deferred"
-              ? ["deferred", "muted"]
-              : [card.status, card.status === "paused" ? "muted" : "ok"];
+        card.status === "archived"
+            ? ["archived", "faint"]
+            : blocked > 0
+              ? [`${blocked} blocked`, "asking"]
+              : card.activeTone === "deferred"
+                ? ["deferred", "muted"]
+                : [card.status, card.status === "paused" ? "muted" : "ok"];
     return {
         id: "initiatives:" + card.oref,
         kind: "",
@@ -131,11 +133,91 @@ export function sessionLine(row: ActiveWorkRow, now: number): BriefLine & { stal
         // a run has a sheet; a blocker or a direct agent has none yet, so its row opens nothing
         target: row.kind === "run" ? { oref: row.oref } : null,
         why: "",
-        age: "",
+        age: age(row.ts, now),
         detail: "",
         runOid: row.kind === "run" ? row.oref.replace(/^run:/, "") : undefined,
         agentId: row.kind === "agent" ? row.key.split(":")[1] : undefined,
         stale: isStale(row, now),
+    };
+}
+
+export type RunRowFace = {
+    type: "quick run" | "orchestrator" | "agent";
+    meta: string;
+    elapsed: string;
+    state: string;
+    stateTone: LineTone;
+    dot: "live" | "asking" | "done" | "idle";
+    asking: boolean;
+    canStop: boolean;
+    stopped: boolean;
+    chunkLabel: string;
+    effortOref: string;
+    chunk: string;
+};
+
+export type EffortRef = { oref: string; title: string; chunkStages: Record<string, string> };
+// keyed by effort oid, the way a run's effortref names its effort
+export type EffortIndex = Map<string, EffortRef>;
+
+// A Runs row (design L266-278, model L1615-1627) from the live Run object and the roster.
+export function runRowFace(i: {
+    line: BriefLine;
+    run?: Run;
+    asking: boolean;
+    project: string;
+    effort?: EffortRef;
+}): RunRowFace {
+    const { line, run } = i;
+    if (run == null) {
+        const asking = i.asking || line.state === "asking";
+        return {
+            type: "agent",
+            meta: line.meta,
+            elapsed: line.age,
+            state: asking ? "asking" : line.state === "working" ? "running" : line.state,
+            stateTone: asking ? "asking" : "ok",
+            dot: asking ? "asking" : "live",
+            asking,
+            canStop: false,
+            stopped: false,
+            chunkLabel: "",
+            effortOref: "",
+            chunk: "",
+        };
+    }
+    const orch = run.mode === "orchestrator";
+    const status = run.status ?? "";
+    const [state, stateTone]: [string, LineTone] = i.asking
+        ? ["asking", "asking"]
+        : status === "blocked"
+          ? ["blocked", "asking"]
+          : status === "awaiting-review"
+            ? ["review", "asking"]
+            : status === "cancelled"
+              ? ["stopped", "faint"]
+              : status === "done"
+                ? ["done", "ok"]
+                : status === "planning"
+                  ? ["planning", "ok"]
+                  : ["running", "ok"];
+    const terminal = status === "done" || status === "cancelled";
+    const ref = run.effortref;
+    const linked = ref != null && i.effort != null;
+    const stage = linked ? (i.effort.chunkStages[ref.chunklabel] ?? "") : "";
+    return {
+        type: orch ? "orchestrator" : "quick run",
+        meta: orch ? `lead · ${i.project}` : `${run.runtime || "claude"} · ${i.project}`,
+        elapsed: line.age,
+        state,
+        stateTone,
+        dot: i.asking ? "asking" : terminal ? (status === "done" ? "done" : "idle") : "live",
+        asking: i.asking,
+        canStop: !terminal,
+        stopped: status === "cancelled",
+        chunkLabel: linked ? `${i.effort.title} · ${stage || "unstaged"}` : "",
+        effortOref: linked ? i.effort.oref : "",
+        chunk: ref?.chunklabel ?? "",
     };
 }
 
