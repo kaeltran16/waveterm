@@ -128,7 +128,7 @@ export function endedRoles(runs: Record<string, RunInfo>): Record<string, RunRol
 export function endedWorkerVM(runId: string, task: TaskNode, child: Run | undefined, transcriptPath?: string): AgentVM {
     return {
         id: endedWorkerId(runId, task.id),
-        name: `${task.id} · ${task.label || task.id}`,
+        name: task.label || task.id,
         task: task.label ?? "",
         state: "idle",
         agent: child?.runtime || undefined,

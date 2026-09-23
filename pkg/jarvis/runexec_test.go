@@ -346,8 +346,9 @@ func TestSpawnRunWorkerLabelsTheTab(t *testing.T) {
 	}
 }
 
-// a lead is named after its run: otherwise its label is the ai-title of its first prompt, a wake on a plan run
-func TestEnsureWorkersLabelsOnlyALeadWithItsRunTitle(t *testing.T) {
+// a lead is named after its run: otherwise its label is the ai-title of its first prompt, a wake on a plan run. So
+// is a run whose prompt moved to a file, whose first prompt is the pointer to it; any other keeps its ai-title.
+func TestEnsureWorkersLabelsALeadAndAMovedPromptWithTheRunTitle(t *testing.T) {
 	old := SpawnRunWorker
 	defer func() { SpawnRunWorker = old }()
 	var got []RunWorkerOptions
@@ -363,7 +364,11 @@ func TestEnsureWorkersLabelsOnlyALeadWithItsRunTitle(t *testing.T) {
 	if _, err := EnsureWorkers(context.Background(), &quick, piCap(t), "project", ""); err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 2 || got[0].Label != "Ship the auth rework" || got[1].Label != "" {
+	long := NewRun("Port the importer\n"+strings.Repeat("x", maxInlinePromptBytes), "ws", "/p", nil, RunMode_Quick, QuickPlaybook(), 1)
+	if _, err := EnsureWorkers(context.Background(), &long, piCap(t), "project", ""); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 || got[0].Label != "Ship the auth rework" || got[1].Label != "" || got[2].Label != "Port the importer" {
 		t.Fatalf("labels = %+v", got)
 	}
 }

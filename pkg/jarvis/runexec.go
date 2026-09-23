@@ -286,8 +286,9 @@ func EnsureWorkers(ctx context.Context, run *waveobj.Run, cap runroute.Capabilit
 		// without a session id the evidence seal can only guess the transcript from the worker's cwd, where
 		// another agent's session may be newer
 		opts := RunWorkerOptions{KeepOnExit: run.Mode == RunMode_Orchestrator, SessionId: uuid.NewString(), RunId: run.ID}
-		if run.Mode == RunMode_Orchestrator {
-			// named after its run: its ai-title would come from its first prompt, which on a plan run is a wake
+		if run.Mode == RunMode_Orchestrator || len(workerPrompt) > maxInlinePromptBytes {
+			// named after its run: its ai-title would come from its first prompt, which on a plan run is a wake,
+			// and for a prompt too long for a command line is the pointer to the file holding it
 			opts.Label = strings.TrimSpace(strings.SplitN(run.Goal, "\n", 2)[0])
 		}
 		oref, err := SpawnRunWorker(ctx, cap, run.WorkspaceId, projectName, run.ProjectPath, workerPrompt, opts)

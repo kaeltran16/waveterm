@@ -303,6 +303,45 @@ func allowWorkerHarnessForTest(t *testing.T) {
 	t.Cleanup(func() { validateWorkerHarness = old })
 }
 
+// a worker is named after its task: its ai-title would come from its first message, which for a prompt too long for a
+// command line is the pointer to the prompt's file
+func TestScheduleOnceLabelsAWorkerWithItsTask(t *testing.T) {
+	allowWorkerHarnessForTest(t)
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "engine-label-test", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := jarvis.NewRun("owner goal", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
+	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
+		t.Fatal(err)
+	}
+	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 2, false, []waveobj.TaskNode{
+		{ID: "t-0", Label: "Chunk sidebar"},
+		{ID: "t-1", Label: "Run sheet"},
+	}, 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := wstore.AppendDag(ctx, &g); err != nil {
+		t.Fatal(err)
+	}
+	labels := map[string]string{}
+	old := spawnWorker
+	spawnWorker = func(_ context.Context, _ runroute.Capability, _, _, _, _ string, opts jarvis.RunWorkerOptions) (string, error) {
+		labels[opts.TaskId] = opts.Label
+		return "tab:worker", nil
+	}
+	defer func() { spawnWorker = old }()
+
+	if err := ScheduleOnce(ctx, &g); err != nil {
+		t.Fatal(err)
+	}
+	if labels["t-0"] != "Chunk sidebar" || labels["t-1"] != "Run sheet" {
+		t.Fatalf("labels = %v", labels)
+	}
+}
+
 func TestScheduleOnceSpawnsUpToCap(t *testing.T) {
 	allowWorkerHarnessForTest(t)
 	ctx := context.Background()

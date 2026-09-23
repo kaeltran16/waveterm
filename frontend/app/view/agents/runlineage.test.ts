@@ -170,7 +170,7 @@ describe("ended workers", () => {
         const child = { runtime: "claude", model: "claude-sonnet-4-6", completedts: 5000 } as Run;
         expect(endedWorkerVM("r1", done, child, "C:/t.jsonl")).toEqual({
             id: endedWorkerId("r1", "t-1"),
-            name: "t-1 · link model",
+            name: "link model",
             task: "link model",
             state: "idle",
             agent: "claude",
