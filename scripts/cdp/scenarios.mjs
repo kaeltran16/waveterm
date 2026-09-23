@@ -4675,12 +4675,21 @@ const briefDesignParity = {
             }
             await h.goto("jarvis");
         }
+        // a cold dev app draws the regions as empty skeletons first; wait for the seeded initiative's row
+        for (let waited = 0; waited < 15000; waited += 500) {
+            const up = await h.ev(
+                `[...document.querySelectorAll('[data-jarvis-brief-row="initiative"]')].some((r) => r.innerText.includes(${JSON.stringify(PARITY_INITIATIVE)}))`
+            );
+            if (up) break;
+            await parityNap(h, 500);
+        }
         await parityNap(h, 900);
 
         // (a) the four region labels, as rendered (uppercase comes from CSS, which innerText applies).
-        // a region's head is its first child: a button for waiting/initiatives/runs, a div for behind
+        // a region's head is its first child: a button for waiting/initiatives, the button beside the kind
+        // filter for runs, a div for behind; the label is its first span with text
         const labels = await h.ev(`[...document.querySelectorAll('section[data-jarvis-brief-region]')].map((s) =>
-            [...s.querySelectorAll(':scope > :first-child > span')].map((x) => x.innerText.trim()).find((t) => t !== '') ?? null)`);
+            [...s.querySelectorAll(':scope > :first-child span')].map((x) => x.innerText.trim()).find((t) => t !== '') ?? null)`);
         await h.shot("cdp-shots/brief-design-parity-a-regions.png");
         steps.push({
             step: "a. the region labels read WAITING ON YOU, INITIATIVES, RUNS, BEHIND YOU",
@@ -4711,7 +4720,8 @@ const briefDesignParity = {
             detail: JSON.stringify(order),
         });
 
-        // (c) the expanded initiative: summary, next chunk, stage fractions
+        // (c) the expanded initiative: the row head carries the fraction, next chunk and blocked count, so the
+        // plan beneath does not repeat them; its stages carry n/m fractions
         const ROW = `[...document.querySelectorAll('[data-jarvis-brief-row="initiative"]')].find((r) => r.innerText.includes(${JSON.stringify(PARITY_INITIATIVE)}))`;
         const DETAIL = `${ROW}?.parentElement?.querySelector('[data-jarvis-initiative-detail="true"]')`;
         ctx.wasExpanded = (await h.ev(`${ROW}?.getAttribute('aria-expanded') ?? null`)) === "true";
@@ -4721,9 +4731,10 @@ const briefDesignParity = {
             const d = ${DETAIL};
             if (!d) return null;
             const text = d.innerText.replace(/\\s+/g, " ");
+            const head = (${ROW}?.innerText ?? "").replace(/\\s+/g, " ");
             return {
-                summary: /2 of 6 done · 1 blocked/.test(text),
-                next: /Next: N1 box upgrade/.test(text),
+                head: /2\\/6/.test(head) && /— N1 box upgrade/.test(head) && /1 blocked/.test(head),
+                repeated: /of 6 done|Next:/.test(text),
                 // a stage head's direct spans are the empty bar, then the fraction
                 fractions: [...d.querySelectorAll('[data-jarvis-tracker-stage]')].map((s) =>
                     [...s.querySelectorAll(':scope > span')].map((x) => x.innerText.trim()).find((t) => t !== "") ?? null),
@@ -4732,11 +4743,11 @@ const briefDesignParity = {
         })()`);
         await h.shot("cdp-shots/brief-design-parity-c-initiative.png");
         steps.push({
-            step: `c. "${PARITY_INITIATIVE}" reads 2 of 6 done · 1 blocked, Next: N1 box upgrade, with n/m stage fractions`,
+            step: `c. "${PARITY_INITIATIVE}" heads with 2/6, N1 box upgrade and 1 blocked, unrepeated below, with n/m stage fractions`,
             ok:
                 card != null &&
-                card.summary &&
-                card.next &&
+                card.head &&
+                !card.repeated &&
                 card.fractions.length > 0 &&
                 card.fractions.every((f) => typeof f === "string" && /^\d+\/\d+$/.test(f)),
             detail: JSON.stringify(card),
@@ -4789,6 +4800,23 @@ const briefDesignParity = {
             step: "g. the Chunk sidebar shows its position as n / total",
             ok: typeof position === "string" && /^\d+ \/ \d+$/.test(position),
             detail: String(position),
+        });
+
+        // (h) the Runs kind filter narrows Runs to one badge, then all brings every row back
+        const KIND = (k) => `[...document.querySelectorAll('[data-jarvis-run-kind] button')].find((b) => b.innerText.trim() === '${k}')`;
+        const runBadges = `[...document.querySelectorAll('[data-jarvis-brief-row="session"]')].map((r) => r.querySelector(':scope > div > div > span')?.innerText.trim() ?? null)`;
+        const before = await h.ev(runBadges);
+        await h.ev(`${KIND("orchestrator")}?.click()`);
+        await parityNap(h, 700);
+        const orchOnly = await h.ev(runBadges);
+        await h.shot("cdp-shots/brief-design-parity-h-runkind.png");
+        await h.ev(`${KIND("all")}?.click()`);
+        await parityNap(h, 700);
+        const after = await h.ev(runBadges);
+        steps.push({
+            step: "h. the orchestrator filter leaves only orchestrator runs, and all restores the list",
+            ok: orchOnly.every((b) => b === "orchestrator") && after.length === before.length,
+            detail: JSON.stringify({ before: before.length, orchOnly, after: after.length }),
         });
 
         return steps;

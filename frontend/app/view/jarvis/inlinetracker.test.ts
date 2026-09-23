@@ -188,7 +188,7 @@ describe("stageStartsOpen (design: fully-done stages of 2+ chunks fold)", () => 
 });
 
 describe("trackerRows facts row", () => {
-    it("carries the design's count and summary inputs", () => {
+    it("carries the footer's chunk count", () => {
         const l = { id: "initiatives:effort:e1", target: { oref: "effort:e1" } } as BriefLine;
         const rows = trackerRows({
             lines: [l],
@@ -198,7 +198,7 @@ describe("trackerRows facts row", () => {
             stageOverrides: {},
         });
         const facts = rows.find((r) => r.kind === "facts");
-        expect(facts).toMatchObject({ count: "3 chunks · 1 done", done: 1, total: 3, blocked: 1, next: "c" });
+        expect(facts).toMatchObject({ count: "3 chunks · 1 done" });
         const stages = rows.filter((r) => r.kind === "stage");
         expect(stages.map((s) => (s as { first: boolean }).first)).toEqual([true, false]);
     });

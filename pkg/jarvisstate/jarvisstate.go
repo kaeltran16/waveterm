@@ -28,30 +28,54 @@ var runTerminalStatuses = map[string]bool{"done": true, "cancelled": true}
 // identity for their workers elsewhere on the wire; this is what lets the frontend suppress a live
 // agent already represented by its Run.
 func workerORefsFor(r *waveobj.Run) []string {
+	var all []string
+	for _, p := range r.Phases {
+		all = append(all, p.WorkerOrefs...)
+	}
+	return sortedUnique(all)
+}
+
+// sortedUnique drops empties and duplicates and sorts; nil when nothing is left, so the wire omits it.
+func sortedUnique(orefs []string) []string {
 	seen := make(map[string]bool)
 	var out []string
-	for _, p := range r.Phases {
-		for _, oref := range p.WorkerOrefs {
-			if oref != "" && !seen[oref] {
-				seen[oref] = true
-				out = append(out, oref)
-			}
+	for _, oref := range orefs {
+		if oref != "" && !seen[oref] {
+			seen[oref] = true
+			out = append(out, oref)
 		}
 	}
 	sort.Strings(out)
 	return out
 }
 
+// isDagWorker reports a run the engine launched for one task of an orchestrator's DAG. Its lead's run
+// stands for it in the ledger; listed on its own it reads as a run you started, one per task.
+func isDagWorker(r *waveobj.Run) bool {
+	return r.DagORef != "" && r.Mode != "orchestrator"
+}
+
 func ActiveWork(runs []*waveobj.Run, sessions []agentsessions.SessionInfo, attention []wshrpc.AttentionItem, dossiers []jarvisdossier.Dossier) []wshrpc.ActiveWorkItem {
+	// a worker's tabs ride on its lead's row, which is what keeps them from surfacing as direct agents
+	crewTabs := map[string][]string{}
+	for _, r := range runs {
+		if isDagWorker(r) {
+			crewTabs[r.DagORef] = append(crewTabs[r.DagORef], workerORefsFor(r)...)
+		}
+	}
 	var out []wshrpc.ActiveWorkItem
 	for _, r := range runs {
-		if runTerminalStatuses[r.Status] {
+		if runTerminalStatuses[r.Status] || isDagWorker(r) {
 			continue
+		}
+		tabs := workerORefsFor(r)
+		if r.DagORef != "" && len(crewTabs[r.DagORef]) > 0 {
+			tabs = sortedUnique(append(tabs, crewTabs[r.DagORef]...))
 		}
 		out = append(out, wshrpc.ActiveWorkItem{
 			Project: r.ProjectPath, Kind: "run", Title: r.Goal,
 			Detail: "status: " + r.Status, Ts: r.CreatedTs, NavTarget: "run:" + r.OID,
-			WorkerORefs: workerORefsFor(r),
+			WorkerORefs: tabs, Mode: r.Mode,
 		})
 	}
 	runByID := make(map[string]*waveobj.Run, len(runs))
@@ -110,7 +134,7 @@ func joinBlockers(bs []string) string {
 func Shipped(runs []*waveobj.Run, windowStartMs int64) []wshrpc.ShippedItem {
 	var out []wshrpc.ShippedItem
 	for _, r := range runs {
-		if r.Status != "done" || r.Evidence == nil {
+		if r.Status != "done" || r.Evidence == nil || isDagWorker(r) {
 			continue
 		}
 		if windowStartMs > 0 && r.CompletedTs < windowStartMs {
@@ -119,7 +143,7 @@ func Shipped(runs []*waveobj.Run, windowStartMs int64) []wshrpc.ShippedItem {
 		item := wshrpc.ShippedItem{
 			Project: r.ProjectPath, RunOID: r.OID, Goal: r.Goal, Summary: r.Evidence.Summary,
 			Files: r.Evidence.Files, Verifs: r.Evidence.Verifs, CompletedTs: r.CompletedTs,
-			HasReport: strings.TrimSpace(r.Report) != "",
+			HasReport: strings.TrimSpace(r.Report) != "", Mode: r.Mode,
 		}
 		if r.EffortRef != nil {
 			item.EffortOID, item.ChunkLabel = r.EffortRef.EffortOID, r.EffortRef.ChunkLabel
@@ -150,6 +174,9 @@ func Timeline(runs []*waveobj.Run, sessions []agentsessions.SessionInfo, decisio
 		evs = append(evs, ev)
 	}
 	for _, r := range runs {
+		if isDagWorker(r) {
+			continue
+		}
 		add(wshrpc.TimelineEvent{Ts: r.CreatedTs, Kind: "run-created", Project: r.ProjectPath, Title: r.Goal, Detail: "status: " + r.Status, NavTarget: "run:" + r.OID})
 		if r.CompletedTs > 0 {
 			detail := ""

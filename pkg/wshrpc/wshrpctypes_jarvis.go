@@ -343,6 +343,7 @@ type ActiveWorkItem struct {
 	Ts          int64    `json:"ts"`
 	NavTarget   string   `json:"navtarget,omitempty"`   // "run:<oid>" | "task:<id>"
 	WorkerORefs []string `json:"workerorefs,omitempty"` // run rows only: sorted deduped phase worker orefs ("tab:<id>")
+	Mode        string   `json:"mode,omitempty"`        // run rows only: the Run's mode (quick | pipeline | orchestrator)
 }
 
 // ShippedItem is one completed, evidence-sealed run within the window.
@@ -357,6 +358,7 @@ type ShippedItem struct {
 	HasReport   bool                    `json:"hasreport,omitempty"` // the lead filed a run report (Run.Report)
 	EffortOID   string                  `json:"effortoid,omitempty"` // the chunk the run executed, when attributed
 	ChunkLabel  string                  `json:"chunklabel,omitempty"`
+	Mode        string                  `json:"mode,omitempty"` // the Run's mode (quick | pipeline | orchestrator)
 }
 
 // TimelineEvent is one merged, timestamp-descending "what happened when" event.

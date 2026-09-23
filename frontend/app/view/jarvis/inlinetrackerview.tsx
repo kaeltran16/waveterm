@@ -13,7 +13,6 @@ import { Fragment, useEffect, useState } from "react";
 import { chunkTone, type ChunkTone } from "./effortmodel";
 import type { DetailRow } from "./inlinetracker";
 import { trackerMenuAtom } from "./jarvisstore";
-import { ProgressBar } from "./progressbar";
 
 const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 
@@ -180,25 +179,10 @@ export function InitiativeDetail({
                         </p>
                     );
                 }
+                // the row head above already reads the fraction, the next chunk and what is blocked; the
+                // facts row only feeds the footer's count
                 if (row.kind === "facts") {
-                    const pct = row.total > 0 ? Math.round((row.done / row.total) * 100) : 0;
-                    return (
-                        <div key={row.id} className="flex flex-wrap items-center gap-x-3.5 gap-y-1.5 px-1.5 pb-1.5">
-                            <ProgressBar
-                                pct={pct}
-                                tone={row.blocked > 0 ? "asking" : "success"}
-                                className="h-1.5 w-40 flex-none rounded-[3px]"
-                            />
-                            <span className="text-[12px] text-secondary">
-                                {row.done} of {row.total} done{row.blocked > 0 ? ` · ${row.blocked} blocked` : ""}
-                            </span>
-                            {row.next !== "" ? (
-                                <span className="text-[12px] text-ink-mid">
-                                    Next: <span className="text-ink-hi">{row.next}</span>
-                                </span>
-                            ) : null}
-                        </div>
-                    );
+                    return null;
                 }
                 if (row.kind === "stage") {
                     const menuId = row.id + "#menu";
@@ -334,7 +318,7 @@ export function InitiativeDetail({
                                     }}
                                     className={cn(
                                         "flex w-[86px] flex-none cursor-pointer items-center justify-between gap-1 rounded-[5px] border px-[7px] py-0.5 text-[11px] font-medium hover:border-edge-mid",
-                                        menu === menuId ? "border-edge-strong" : "border-transparent",
+                                        menu === menuId ? "border-edge-strong" : "border-border",
                                         TONE_FG[row.row.tone],
                                         FOCUS
                                     )}

@@ -24,10 +24,6 @@ export type TrackerRow =
           id: string;
           oref: string;
           count: string;
-          done: number;
-          total: number;
-          blocked: number;
-          next: string;
       }
     | {
           kind: "stage";
@@ -110,11 +106,6 @@ export function trackerRows(args: {
             id: line.id + "/facts",
             oref,
             count: `${chunks.length} chunk${chunks.length === 1 ? "" : "s"} · ${doneN} done`,
-            done: doneN,
-            total: chunks.length,
-            blocked: chunks.filter((c) => c.status === "blocked").length,
-            next:
-                (chunks.find((c) => c.status === "active") ?? chunks.find((c) => c.status === "pending"))?.label ?? "",
         });
         const next = nextChunk(chunks);
         groupChunksByStage(chunks).forEach((group, at) => {

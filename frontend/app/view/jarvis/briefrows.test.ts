@@ -7,8 +7,10 @@ import {
     behindGroups,
     filterLines,
     initiativeLine,
+    keepsRunKind,
     projectName,
     queueLine,
+    runKindLegs,
     runRowFace,
     sessionLine,
     sessionWindow,
@@ -186,6 +188,7 @@ describe("sessionWindow", () => {
             project: "waveterm",
             status: "executing",
             workerOrefs: [],
+            mode: "quick",
             ts: NOW - ageMs - i * MIN,
         }));
     const legs = (activeRuns: RunRow[]) => ({ activeRuns, directAgents: [] });
@@ -321,6 +324,7 @@ describe("behindGroups", () => {
                     hasReport: true,
                     effortOid: "",
                     chunkLabel: "",
+                    mode: "orchestrator",
                 },
             ],
             NOW
@@ -455,5 +459,55 @@ describe("sessionLine age", () => {
             ts: now - 2 * 60 * MIN,
         } as ActiveWorkRow;
         expect(sessionLine(row, now).age).toBe("2h");
+    });
+});
+
+describe("the Runs kind filter", () => {
+    const row = (oid: string, mode: string): RunRow => ({
+        oref: "run:" + oid,
+        oid,
+        goal: oid,
+        project: "waveterm",
+        status: "executing",
+        workerOrefs: [],
+        mode,
+        ts: NOW,
+    });
+    const agent = {
+        oref: "agent:a1",
+        id: "a1",
+        name: "a1",
+        task: "t",
+        runtime: "claude",
+        project: null,
+        state: "working" as const,
+        startedTs: NOW,
+    };
+    const legs = {
+        activeRuns: [row("lead", "orchestrator"), row("q", "quick"), row("legacy", "pipeline"), row("old", "")],
+        directAgents: [agent],
+    };
+
+    it("keeps everything on all", () => {
+        expect(runKindLegs(legs, "all")).toBe(legs);
+    });
+
+    it("keeps only orchestrator runs, and no direct agent", () => {
+        const got = runKindLegs(legs, "orchestrator");
+        expect(got.activeRuns.map((r) => r.oid)).toEqual(["lead"]);
+        expect(got.directAgents).toEqual([]);
+    });
+
+    it("reads every other mode as a quick run", () => {
+        const got = runKindLegs(legs, "quick");
+        expect(got.activeRuns.map((r) => r.oid)).toEqual(["q", "legacy", "old"]);
+        expect(got.directAgents).toEqual([]);
+    });
+
+    it("filters a shipped run by its mode the same way", () => {
+        expect(keepsRunKind("orchestrator", "orchestrator")).toBe(true);
+        expect(keepsRunKind("orchestrator", "quick")).toBe(false);
+        expect(keepsRunKind("quick", "orchestrator")).toBe(false);
+        expect(keepsRunKind("all", "quick")).toBe(true);
     });
 });

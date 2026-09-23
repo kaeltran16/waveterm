@@ -51,6 +51,7 @@ declare global {
         ts: number;
         navtarget?: string;
         workerorefs?: string[];
+        mode?: string;
     };
 
     // baseds.AgentAnswerItem
@@ -3034,6 +3035,7 @@ declare global {
         hasreport?: boolean;
         effortoid?: string;
         chunklabel?: string;
+        mode?: string;
     };
 
     // wshrpc.SourceHealth

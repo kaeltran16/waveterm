@@ -42,7 +42,7 @@ import { setDagModalAgentsContext } from "@/app/view/orchestrate/dagmodalstate";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtom, useAtomValue, useSetAtom, type Atom, type PrimitiveAtom } from "jotai";
 import { Copy } from "lucide-react";
-import { AnimatePresence, motion, MotionConfig } from "motion/react";
+import { AnimatePresence, motion, MotionConfig, type Variants } from "motion/react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { TierButton } from "./autonomyladderview";
 import { briefFleet } from "./brieffleet";
@@ -79,8 +79,11 @@ import {
     behindGroups,
     filterLines,
     initiativeLine,
+    keepsRunKind,
     projectName,
     queueLine,
+    RUN_KIND_FILTERS,
+    runKindLegs,
     runRowFace,
     sessionLine,
     sessionWindow,
@@ -88,6 +91,7 @@ import {
     sinceLabel,
     type BriefLine,
     type LineTarget,
+    type RunKindFilter,
 } from "./briefrows";
 import { DeltaRowView, InitiativeRow, RunRowView, ShippedRowView, WaitingRow } from "./briefrowviews";
 import { BriefSheet } from "./briefsheet";
@@ -211,15 +215,46 @@ function RegionHead({
     );
 }
 
+// Which kind of run Runs and Shipped show. Sits beside the region head, not in it: the head is a button.
+function RunKindToggle({ value, onChange }: { value: RunKindFilter; onChange: (v: RunKindFilter) => void }) {
+    return (
+        <div
+            role="group"
+            aria-label="Show runs of kind"
+            data-jarvis-run-kind
+            className="flex flex-none items-center gap-1"
+        >
+            {RUN_KIND_FILTERS.map((k) => (
+                <button
+                    key={k}
+                    type="button"
+                    aria-pressed={value === k}
+                    onClick={() => onChange(k)}
+                    className={cn(
+                        "cursor-pointer rounded-[5px] border px-1.5 py-px font-mono text-[10.5px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                        value === k
+                            ? "border-edge-strong text-ink-hi"
+                            : "border-transparent text-muted hover:text-ink-hi"
+                    )}
+                >
+                    {k}
+                </button>
+            ))}
+        </div>
+    );
+}
+
 function Region({
     id,
     meta,
     count,
     alert,
     empty,
+    absent,
     gap,
     only,
     onOnly,
+    tools,
     children,
 }: {
     id: RegionId;
@@ -227,23 +262,28 @@ function Region({
     count?: number;
     alert?: boolean;
     empty: boolean;
+    absent?: string;
     gap: string;
     only: boolean;
     onOnly: () => void;
+    tools?: ReactNode;
     children: ReactNode;
 }) {
     const region = REGIONS[id];
+    const head = (
+        <RegionHead id={id} label={region.label} meta={meta} count={count} alert={alert} only={only} onOnly={onOnly} />
+    );
     return (
         <section data-jarvis-brief-region={id} className={cn("flex flex-col", gap)}>
-            <RegionHead
-                id={id}
-                label={region.label}
-                meta={meta}
-                count={count}
-                alert={alert}
-                only={only}
-                onOnly={onOnly}
-            />
+            {tools != null ? (
+                // a control cannot nest inside the head, which is itself a button
+                <div className="flex items-center gap-2.5">
+                    {head}
+                    {tools}
+                </div>
+            ) : (
+                head
+            )}
             {empty ? (
                 <div className="flex items-center gap-[11px] rounded-[10px] border border-dashed border-edge-strong bg-surface px-4 py-3">
                     {region.ok ? (
@@ -251,7 +291,7 @@ function Region({
                             ✓
                         </span>
                     ) : null}
-                    <span className="text-[13px] text-secondary">{region.absent}</span>
+                    <span className="text-[13px] text-secondary">{absent ?? region.absent}</span>
                 </div>
             ) : (
                 children
@@ -370,6 +410,16 @@ const briefExpandedAtom = atom<Partial<Record<RegionId, boolean>>>({});
 // the same reason as the two above.
 const briefStaleOpenAtom = atom(false);
 const briefShippedOpenAtom = atom(false);
+// which kind of run Runs and Shipped show; module scope for the same reason
+const briefRunKindAtom = atom<RunKindFilter>("all") as PrimitiveAtom<RunKindFilter>;
+
+// The plan reveal clips only while its height animates: left clipped, it cut off the chunk and stage menus
+// that drop below the card's edge.
+const planReveal: Variants = {
+    initial: { ...(paneReveal.initial as object), overflow: "hidden" },
+    animate: { ...(paneReveal.animate as object), transitionEnd: { overflow: "visible" } },
+    exit: { ...(paneReveal.exit as object), overflow: "hidden" },
+};
 
 // a stable empty list, so a region with no rows does not churn the memos that read it
 const NO_LINES: BriefLine[] = [];
@@ -566,9 +616,13 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     const queueSummary = useMemo(() => summarizeAttentionQueue(queue, Date.now()), [queue]);
 
     const effortWindow = useMemo(() => capRegion(efforts, EFFORT_CAP, initiativesOpen), [efforts, initiativesOpen]);
+    const [runKind, setRunKind] = useAtom(briefRunKindAtom);
     const sessions = useMemo(
-        () => (model_ == null ? { rows: [], more: 0 } : sessionWindow(model_, sessionsOpen, Date.now())),
-        [model_, sessionsOpen]
+        () =>
+            model_ == null
+                ? { rows: [], more: 0 }
+                : sessionWindow(runKindLegs(model_, runKind), sessionsOpen, Date.now()),
+        [model_, sessionsOpen, runKind]
     );
     // moment 1: which rows are new to YOU. Excludes `behind` deliberately — that region is entirely
     // since-your-last-visit by construction, so marking it would mark every row and its own label
@@ -614,7 +668,10 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     const toggleOnly = (id: RegionId) => setOnly((cur) => (cur === id ? null : id));
     const filtering = query.trim() !== "";
     const [shippedOpen, setShippedOpen] = useAtom(briefShippedOpenAtom);
-    const shippedAll = useMemo(() => model_?.shipped ?? [], [model_]);
+    const shippedAll = useMemo(
+        () => (model_?.shipped ?? []).filter((s) => keepsRunKind(runKind, s.mode)),
+        [model_, runKind]
+    );
     const shipped = useMemo(
         () => capRegion(shippedAll, SHIPPED_CAP, shippedOpen || filtering),
         [shippedAll, shippedOpen, filtering]
@@ -1400,6 +1457,12 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                                                 duration: MOTION.durMacro,
                                                                 ease: MOTION.easeFluid,
                                                             }}
+                                                            // each row's layout transform is its own stacking context, so a
+                                                            // plan menu hanging past the card would paint under the rows
+                                                            // after it; the open card is lifted above them
+                                                            className={
+                                                                l.id === openInitiative ? "relative z-10" : undefined
+                                                            }
                                                         >
                                                             <InitiativeRow
                                                                 line={l}
@@ -1453,11 +1516,10 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                                                 {l.id === openInitiative ? (
                                                                     <motion.div
                                                                         key="detail"
-                                                                        variants={paneReveal}
+                                                                        variants={planReveal}
                                                                         initial="initial"
                                                                         animate="animate"
                                                                         exit="exit"
-                                                                        className="overflow-hidden"
                                                                     >
                                                                         {edits != null ? (
                                                                             <InitiativeDetail
@@ -1523,10 +1585,12 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                     <Region
                                         id="sessions"
                                         empty={sessions.rows.length === 0}
+                                        absent={runKind === "all" ? undefined : `No ${runKind} run is going.`}
                                         gap="gap-[9px]"
                                         meta={`${liveN} live`}
                                         only={only === "sessions"}
                                         onOnly={() => toggleOnly("sessions")}
+                                        tools={<RunKindToggle value={runKind} onChange={setRunKind} />}
                                     >
                                         <div className="flex flex-col">
                                             {filtering && view.sessionLines.length === 0 ? <NoMatch /> : null}

@@ -368,6 +368,7 @@ describe("unified active work", () => {
         project: "waveterm",
         status: "running",
         workerOrefs: [],
+        mode: "quick",
         ts: T0 - 2 * HOUR,
         ...over,
     });

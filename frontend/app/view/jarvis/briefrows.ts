@@ -241,6 +241,26 @@ export function sessionWindow(
     return { rows: [...shown, ...merged.filter((r) => isStale(r, now))], more: live.length - shown.length };
 }
 
+// The Runs filter. An orchestrator run carries the most to read, so it can be looked at alone; a direct
+// agent is neither kind, so a filtered view drops it. Any mode but orchestrator reads as a quick run,
+// the same split runRowFace badges.
+export type RunKindFilter = "all" | "orchestrator" | "quick";
+export const RUN_KIND_FILTERS: readonly RunKindFilter[] = ["all", "orchestrator", "quick"];
+
+export function keepsRunKind(filter: RunKindFilter, mode: string): boolean {
+    return filter === "all" || (mode === "orchestrator") === (filter === "orchestrator");
+}
+
+export function runKindLegs(
+    legs: { activeRuns: RunRow[]; directAgents: AgentRow[] },
+    filter: RunKindFilter
+): { activeRuns: RunRow[]; directAgents: AgentRow[] } {
+    if (filter === "all") {
+        return legs;
+    }
+    return { activeRuns: legs.activeRuns.filter((r) => keepsRunKind(filter, r.mode)), directAgents: [] };
+}
+
 const CHUNK_EVENTS = new Set(["effort-note", "chunk-status", "chunk-done", "chunk-added"]);
 const EFFORT_EVENTS = new Set([...CHUNK_EVENTS, "effort-created", "effort-status"]);
 

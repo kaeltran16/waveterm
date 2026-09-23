@@ -45,6 +45,7 @@ export interface RunRow {
     project: string;
     status: string;
     workerOrefs: string[];
+    mode: string;
     ts: number;
 }
 export interface BlockerRow {
@@ -83,6 +84,7 @@ export interface ShippedRow {
     hasReport: boolean;
     effortOid: string;
     chunkLabel: string;
+    mode: string;
 }
 // one recency-sorted list across runs, blockers and direct agents; the kind badge tells the
 // story the old per-leg sub-headers told, so the section reads as one triage queue.
@@ -493,6 +495,7 @@ export function projectBriefing(input: BriefingModelInput): BriefingModel {
                     ? a.detail.slice("status: ".length)
                     : (a.detail ?? ""),
             workerOrefs: a.workerorefs ?? [],
+            mode: a.mode ?? "",
             ts: a.ts,
         })),
         (r) => (r.status === "blocked" ? 0 : 1),
@@ -577,6 +580,7 @@ export function projectBriefing(input: BriefingModelInput): BriefingModel {
         hasReport: s.hasreport === true,
         effortOid: s.effortoid ?? "",
         chunkLabel: s.chunklabel ?? "",
+        mode: s.mode ?? "",
     }));
 
     const missingLegs: string[] = [];
