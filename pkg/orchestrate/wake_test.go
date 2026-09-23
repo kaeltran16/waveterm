@@ -552,3 +552,48 @@ func TestRelaunchLeadCarriesTheHeldLines(t *testing.T) {
 		}
 	}
 }
+
+func TestQuietLinesWaitForAWake(t *testing.T) {
+	f := newFakeLead(t)
+	ctx := context.Background()
+	PostQuiet(ctx, wakeChannel, wakeRun, "t-1 passed review: adds fmtDate")
+	if len(f.sends) != 0 {
+		t.Fatalf("a quiet line must not wake the lead: %q", f.sends)
+	}
+	PostWake(ctx, wakeChannel, wakeRun, failedLine)
+	want := "Since your last wake:\nt-1 passed review: adds fmtDate\n" + failedLine
+	if len(f.sends) != 1 || f.sends[0] != want {
+		t.Fatalf("the wake must carry the quiet lines first, got %q", f.sends)
+	}
+	NoteLeadStatus(ctx, f.status(baseds.AgentState_Working))
+	PostWake(ctx, wakeChannel, wakeRun, finishedLine)
+	NoteLeadStatus(ctx, f.status(baseds.AgentState_Idle))
+	if len(f.sends) != 2 || f.sends[1] != finishedLine {
+		t.Fatalf("delivered quiet lines must not repeat, got %q", f.sends)
+	}
+}
+
+func TestQuietLinesAloneLaunchNoLead(t *testing.T) {
+	f := newFakeLead(t)
+	f.state = leadState{NoLead: true}
+	launched := stubLaunch(t)
+	ctx := context.Background()
+	PostQuiet(ctx, wakeChannel, wakeRun, "t-1 passed review: adds fmtDate")
+	PostWake(ctx, wakeChannel, wakeRun, finishedLine)
+	if len(*launched) != 0 {
+		t.Fatalf("a clean finish with only quiet lines needs no lead, launched %q", *launched)
+	}
+}
+
+func TestLaunchedLeadGetsTheQuietLines(t *testing.T) {
+	f := newFakeLead(t)
+	f.state = leadState{NoLead: true}
+	launched := stubLaunch(t)
+	ctx := context.Background()
+	PostQuiet(ctx, wakeChannel, wakeRun, "t-1 passed review: adds fmtDate")
+	PostWake(ctx, wakeChannel, wakeRun, failedLine)
+	want := "Since your last wake:\nt-1 passed review: adds fmtDate\n" + failedLine
+	if len(*launched) != 1 || (*launched)[0] != want {
+		t.Fatalf("the first lead must learn what landed before it, got %q", *launched)
+	}
+}

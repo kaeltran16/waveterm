@@ -43,7 +43,8 @@ export function runRoleOf(run: Run | undefined, dag: TaskGroup | undefined): Run
         if (dag.runid === run.oid) {
             return { kind: "lead", runId: run.oid };
         }
-        const task = (dag.tasks ?? []).find((t) => t.runid === run.oid);
+        // a task's reviewer works that task too, so it nests under the lead beside the worker it follows
+        const task = (dag.tasks ?? []).find((t) => t.runid === run.oid || t.reviewrunid === run.oid);
         return task ? { kind: "worker", leadRunId: dag.runid, taskId: task.id } : null;
     }
     return run.mode === "orchestrator" ? { kind: "lead", runId: run.oid } : null;
@@ -176,4 +177,11 @@ export function workerSubtext(ask: WorkerAsk | undefined, lane: string | undefin
 export function runProgress(dag: TaskGroup | undefined): { done: number; total: number } {
     const tasks = dag?.tasks ?? [];
     return { done: tasks.filter((t) => t.state === "done" || t.state === "skipped").length, total: tasks.length };
+}
+
+// leadStandingBy reports a lead sitting at its prompt while its run's plan executes: between wakes it only waits
+// for the engine, and the roster's folding of waiting into working would read that as busy.
+export function leadStandingBy(agent: Pick<AgentVM, "atPrompt">, run: RunInfo): boolean {
+    const status = run.dag?.status;
+    return agent.atPrompt === true && run.dag != null && status !== "done" && status !== "cancelled";
 }

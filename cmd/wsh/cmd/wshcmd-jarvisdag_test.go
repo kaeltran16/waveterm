@@ -339,3 +339,54 @@ func TestDagStatusShowsARunningVerifysAgeAndLatestLine(t *testing.T) {
 		t.Fatalf("a Verify with no output yet shows its age alone, got:\n%s", joined)
 	}
 }
+
+func TestDagReviewData(t *testing.T) {
+	cmd := newDagEscalateTestCmd(t, map[string]string{"channel": "ch", "runid": "reviewer-run"})
+	cmd.Flags().String("downstream", "", "")
+	if err := cmd.Flags().Set("downstream", "fmtDate moved"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := dagReviewData(cmd, []string{"pass", "adds fmtDate"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := wshrpc.CommandDagActionData{ChannelId: "ch", RunId: "reviewer-run", Action: "review-pass", Notes: "adds fmtDate", Downstream: "fmtDate moved"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("review data = %+v, want %+v", got, want)
+	}
+	if _, err := dagReviewData(cmd, []string{"maybe", "x"}); err == nil {
+		t.Fatal("an unknown verdict must be refused before it is sent")
+	}
+}
+
+func TestDagNoteDataSendbackWithoutGuidance(t *testing.T) {
+	cmd := newDagEscalateTestCmd(t, map[string]string{"channel": "ch", "runid": "run"})
+	got, err := dagNoteData(cmd, "sendback", []string{"t-2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := wshrpc.CommandDagActionData{ChannelId: "ch", RunId: "run", TaskId: "t-2", Action: "sendback"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("sendback data = %+v, want %+v", got, want)
+	}
+}
+
+func TestDagStatusLinesPrintResultAndReview(t *testing.T) {
+	rtn := &wshrpc.CommandDagStatusRtnData{
+		Group: &waveobj.TaskGroup{ID: "d", Tasks: []waveobj.TaskNode{{ID: "t-1", Label: "a", State: "done"}, {ID: "t-2", Label: "b", State: "review-failed"}}},
+		Digest: wshrpc.DagStatusDigest{Tasks: []wshrpc.DagTaskDigest{
+			{TaskId: "t-1", Result: "Added fmtDate.", ReviewVerdict: "pass", ReviewNote: "adds fmtDate", ReviewDownstream: "fmtDate is in util"},
+			{TaskId: "t-2", ReviewVerdict: "fail", ReviewRound: 2, ReviewNote: "misses\nempty input"},
+		}},
+	}
+	out := strings.Join(dagStatusLines(rtn, 0), "\n")
+	for _, want := range []string{
+		"t-1 result: Added fmtDate.",
+		"t-1 review pass: adds fmtDate · later tasks: fmtDate is in util",
+		"t-2 review fail (failed rounds 2): misses empty input",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("status missing %q:\n%s", want, out)
+		}
+	}
+}

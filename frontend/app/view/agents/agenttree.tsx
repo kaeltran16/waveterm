@@ -17,7 +17,7 @@ import { buildAgentTree, treeAgentCount } from "./agenttreemodel";
 import { renamingRowAtom } from "./rowrenameatom";
 import { duplicateSession, renameSession, sessionCustomLabel } from "./session-models/sessionsidebarmodel";
 import { displayAgeMs, formatAgeShort, type AgentVM } from "./agentsviewmodel";
-import { endedWorkerId, laneLabel, runProgress, workerAsk, workerSubtext, type RunInfo } from "./runlineage";
+import { endedWorkerId, laneLabel, leadStandingBy, runProgress, workerAsk, workerSubtext, type RunInfo } from "./runlineage";
 import { toggleRunCollapsed, toggleRunDoneOpen, treeFoldsAtom, useRunDigests } from "./runlineagestore";
 import { runStatusView } from "./runmodel";
 import {
@@ -175,6 +175,7 @@ function ParentRow({
     const expanded = subagentExpanded(subs, expandOverride);
     const selected = focusId === agent.id;
     const asking = agent.state === "asking";
+    const standingBy = lead != null && leadStandingBy(agent, lead.run);
     // m4: one-shot settle when this agent reaches idle (working/asking -> idle)
     const settling = useSettle(agent.state === "idle");
 
@@ -219,7 +220,11 @@ function ParentRow({
                     settling && "animate-[settle_0.5s_ease-out] motion-reduce:animate-none"
                 )}
             >
-                <StatusDot state={agent.state} pulse={agent.state !== "idle"} className="!h-[7px] !w-[7px]" />
+                <StatusDot
+                    state={standingBy ? "idle" : agent.state}
+                    pulse={agent.state !== "idle" && !standingBy}
+                    className="!h-[7px] !w-[7px]"
+                />
                 <div className="min-w-0 flex-1">
                     {renaming ? (
                         <RenameBox tabId={agent.id} />
@@ -249,8 +254,11 @@ function ParentRow({
                         {subs.length}
                     </button>
                 ) : null}
-                <span className="font-mono text-[10px] font-medium transition-colors duration-[140ms]" style={{ color: STATE_COLOR[agent.state] }}>
-                    {STATE_LABEL[agent.state]}
+                <span
+                    className="font-mono text-[10px] font-medium transition-colors duration-[140ms]"
+                    style={{ color: STATE_COLOR[standingBy ? "idle" : agent.state] }}
+                >
+                    {standingBy ? "standing by" : STATE_LABEL[agent.state]}
                 </span>
             </div>
             {/* subagent reveal: the children block expands/collapses via composerReveal (height+opacity).

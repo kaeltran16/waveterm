@@ -29,9 +29,11 @@ export function workerBucket(td: DagTaskDigest, node: TaskNode): WorkerSortBucke
         case "stalled":
         case "blocked-merge":
         case "verify-failed":
+        case "review-failed":
             return "attention";
         case "running":
         case "verifying":
+        case "reviewing":
             return "running";
         case "done":
         case "merged":

@@ -143,3 +143,16 @@ describe("mergeReadyIds", () => {
         expect(mergeReadyIds(undefined, false).size).toBe(0);
     });
 });
+
+describe("buildViewData for a failed review", () => {
+    it("offers the lead's review actions", () => {
+        const reviewGroup = {
+            id: "dag-2",
+            runid: "run-1",
+            parallelism: 1,
+            tasks: [{ id: "t-0", label: "x", state: "review-failed" }],
+        } as any;
+        const { nodes } = buildViewData(reviewGroup, owner, harnesses, none);
+        expect(nodes[0].actions).toEqual(["approve", "sendback", "retry", "skip", "escalate"]);
+    });
+});

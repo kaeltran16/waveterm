@@ -154,3 +154,15 @@ describe("verifySection", () => {
         expect(taskPeek(task({ state: "done" }), undefined, briefs, NOW).verify).toBeNull();
     });
 });
+
+describe("taskPeek review rows", () => {
+    it("shows a failed review's findings as a warning", () => {
+        const peek = taskPeek(
+            task({ state: "review-failed", reviewverdict: "fail", reviewnote: "misses empty input\nsee parse.ts" }),
+            undefined,
+            briefs,
+            NOW
+        );
+        expect(peek.rows).toContainEqual({ text: "review fail: misses empty input", tone: "warning" });
+    });
+});

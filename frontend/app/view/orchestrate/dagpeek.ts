@@ -34,6 +34,19 @@ export function taskPeek(
         const attempt = (task.attempts ?? 0) > 1 ? ` · attempt ${task.attempts}` : "";
         rows.push({ text: `last failure: ${task.lastfailurekind}${attempt}`, tone: "warning" });
     }
+    if (task.state === "reviewing") {
+        const round = (task.reviewround ?? 0) + 1;
+        rows.push({
+            text: round > 1 ? `reviewer checking the fix · round ${round}` : "reviewer checking the commit",
+            tone: "muted",
+        });
+    }
+    const reviewNote = firstLine(task.reviewnote);
+    if (reviewNote) {
+        const failed = task.state === "review-failed" || task.reviewverdict === "fail";
+        const verdict = task.reviewverdict ? ` ${task.reviewverdict}` : "";
+        rows.push({ text: `review${verdict}: ${reviewNote}`, tone: failed ? "warning" : "muted" });
+    }
     for (const err of [task.verifyerror, task.mergeerror, task.cleanuperror]) {
         const line = firstLine(err);
         if (line) {

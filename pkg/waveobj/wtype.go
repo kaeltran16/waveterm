@@ -375,6 +375,30 @@ type TaskNode struct {
 	// when the merge lands.
 	MergeError    string `json:"mergeerror,omitempty"`
 	MergeFailures int    `json:"mergefailures,omitempty"`
+	// The review loop (spec 2026-09-23-orchestrator-review-and-lead-link): a worker's finished commit is judged
+	// by a reviewer before the task counts as done. ReviewRunID is the reviewer's child run while the task is
+	// reviewing, ReviewSpawnedTs when it was spawned (UnixMilli; the review timeout runs from it), and
+	// ReviewRespawns how many of this round's reviewers were replaced after ending without a verdict.
+	ReviewRunID     string `json:"reviewrunid,omitempty"`
+	ReviewSpawnedTs int64  `json:"reviewspawnedts,omitempty"`
+	ReviewRespawns  int    `json:"reviewrespawns,omitempty"`
+	// ReviewRound counts failed reviews; at the limit the lead judges the task.
+	ReviewRound int `json:"reviewround,omitempty"`
+	// ReviewVerdict (pass | fail), ReviewNote (the summary, the findings, or why the review itself failed) and
+	// ReviewDownstream (what later tasks must know, from a pass) are the latest review's outcome.
+	ReviewVerdict    string `json:"reviewverdict,omitempty"`
+	ReviewNote       string `json:"reviewnote,omitempty"`
+	ReviewDownstream string `json:"reviewdownstream,omitempty"`
+	// ReviewBase is the commit the task's first reviewed attempt started from, so a fix after a failed round
+	// is judged together with the work it fixes; ReviewCommit is the worker commit the latest verdict judged.
+	ReviewBase   string `json:"reviewbase,omitempty"`
+	ReviewCommit string `json:"reviewcommit,omitempty"`
+	// LeadGuidance is the lead's note for the attempt after a sendback, LeadNotes what the lead added with
+	// `dag amend` before the task started, and LeadTold what the lead typed with `dag tell` that the scan
+	// for the human's messages has not matched yet.
+	LeadGuidance string   `json:"leadguidance,omitempty"`
+	LeadNotes    []string `json:"leadnotes,omitempty"`
+	LeadTold     []string `json:"leadtold,omitempty"`
 }
 
 // RunSpec is the child-run launch form a task wants (runtime/mode/goal override).

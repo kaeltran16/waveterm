@@ -320,6 +320,10 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		if tracked && (t.State == TaskState_Running || t.State == TaskState_Stalled) {
 			for _, p := range toldSince(runs[t.RunID], t.ToldTs) {
 				t.ToldTs = p.Ts
+				// the lead's own `dag tell`, which the transcript shows as typed input
+				if takeLeadTold(t, p.Text) {
+					continue
+				}
 				// an answer to the worker's prose question was typed for whoever answered it, and its ask rows say who
 				if agentask.GlobalRegistry.TakeTypedAnswer(g.OID, t.ID, p.Text, p.Ts) {
 					continue
@@ -356,11 +360,14 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 			t.State = TaskState_Stalled
 		}
 	}
+	// review: apply verdicts, replace a reviewer that ended without one, spawn the missing ones. Before the
+	// task-done accounting below, so a pass is counted done in the tick that applied it.
+	advanceReviews(ctx, spawnCtx, g, owner, runs, now, &afterCommit)
 	// child-done: record the task-done lifecycle boundary (task id + child run id). A done child is not
 	// judgment, so the lead is not woken; the merge that follows wakes it only on a conflict.
 	for i := range g.Tasks {
 		t := &g.Tasks[i]
-		if t.State == TaskState_Done && t.RunID != "" && taskActive(prevStates[t.ID]) {
+		if t.State == TaskState_Done && t.RunID != "" && taskInFlight(prevStates[t.ID]) {
 			taskID := t.ID
 			childRunID := t.RunID
 			afterCommit = append(afterCommit, func() {
@@ -396,7 +403,7 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 	// circuit-break at MaxConsecutiveFailures could never trip once any task had ever succeeded.
 	freshSuccess := false
 	for i := range g.Tasks {
-		if !taskActive(prevStates[g.Tasks[i].ID]) || g.Tasks[i].State != TaskState_Done {
+		if !taskInFlight(prevStates[g.Tasks[i].ID]) || g.Tasks[i].State != TaskState_Done {
 			continue
 		}
 		freshSuccess = true
@@ -641,6 +648,7 @@ func workerContract(g *waveobj.TaskGroup, task *waveobj.TaskNode, runtime string
 		fmt.Fprintf(&b, "You are the worker for task %s of this run's dag.\n", task.ID)
 	}
 	fmt.Fprintf(&b, "The plan is approved: don't re-plan or pause for design approval. If a consequential decision isn't pinned, or the plan and the code disagree, ask once with %s and concrete options, then wait; the lead or the human answers.\n", jarvis.AskTool(runtime))
+	b.WriteString("A reviewer checks your commit against this task and the spec before it lands, and the lead reads your final message: end with what you did, anything you did differently from the task and why, and anything a later task must know.\n")
 	b.WriteString("Run the tests your task names")
 	if g.Check != "" {
 		fmt.Fprintf(&b, ", and `%s`,", g.Check)
@@ -752,6 +760,16 @@ func taskPrompt(g *waveobj.TaskGroup, task *waveobj.TaskNode, owner *waveobj.Run
 	if task.Description != "" {
 		b.WriteString("\n\n")
 		b.WriteString(task.Description)
+	}
+	if len(task.LeadNotes) > 0 {
+		b.WriteString("\n\nThe lead added after earlier tasks landed:")
+		for _, n := range task.LeadNotes {
+			fmt.Fprintf(&b, "\n- %s", n)
+		}
+	}
+	if feedback := reviewFeedback(task); feedback != "" {
+		b.WriteString("\n\n")
+		b.WriteString(feedback)
 	}
 	if handoff != "" {
 		b.WriteString("\n\n")

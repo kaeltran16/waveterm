@@ -52,7 +52,8 @@ function needsAttention(task: TaskNode, row: DagTaskDigest): boolean {
         task.state === "failed" ||
         task.state === "stalled" ||
         task.state === "blocked-merge" ||
-        task.state === "verify-failed"
+        task.state === "verify-failed" ||
+        task.state === "review-failed"
     ) {
         return true;
     }

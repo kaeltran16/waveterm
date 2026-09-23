@@ -35,9 +35,14 @@ func toldSince(run *waveobj.Run, since int64) []agentsessions.HumanPrompt {
 }
 
 func toldText(s string) string {
+	return clipRunes(s, MaxToldLen)
+}
+
+// clipRunes bounds s to n runes, marking a cut with an ellipsis.
+func clipRunes(s string, n int) string {
 	r := []rune(s)
-	if len(r) <= MaxToldLen {
+	if len(r) <= n {
 		return s
 	}
-	return string(r[:MaxToldLen-1]) + "…"
+	return string(r[:n-1]) + "…"
 }

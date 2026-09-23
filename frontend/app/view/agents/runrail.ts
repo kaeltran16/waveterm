@@ -22,7 +22,7 @@ export interface LaneRow {
 
 const FINISHED = new Set(["done", "skipped", "cancelled"]);
 const NOT_STARTED = new Set(["pending", "ready"]);
-const FAILING = new Set(["stalled", "failed", "verify-failed", "blocked-merge"]);
+const FAILING = new Set(["stalled", "failed", "verify-failed", "blocked-merge", "review-failed"]);
 
 // COMMIT_CHARS is how much of a landed commit's hash a line shows, as git's short form does.
 const COMMIT_CHARS = 7;

@@ -154,3 +154,27 @@ func TestCancelGroup(t *testing.T) {
 		t.Fatalf("cancel: running=%s stalled=%s status=%s", g.Tasks[1].State, g.Tasks[2].State, g.Status)
 	}
 }
+func TestNextToSpawnReviewingHoldsSlot(t *testing.T) {
+	g := groupWith(TaskState_Done, TaskState_Reviewing)
+	g.Parallelism = 1
+	if got := NextToSpawn(g); len(got) != 0 {
+		t.Fatalf("a reviewing task holds its slot, got %v", got)
+	}
+}
+
+func TestReviewingTaskDoesNotSatisfyDependents(t *testing.T) {
+	g := groupWith(TaskState_Done, TaskState_Reviewing, TaskState_Done)
+	for _, id := range ReadyTasks(g) {
+		if id == "t-3" {
+			t.Fatal("t-3 depends on a task still under review")
+		}
+	}
+}
+
+func TestCancelGroupCancelsReviewStates(t *testing.T) {
+	g := groupWith(TaskState_Done, TaskState_Reviewing, TaskState_ReviewFailed)
+	CancelGroup(g)
+	if g.Tasks[1].State != TaskState_Cancelled || g.Tasks[2].State != TaskState_Cancelled {
+		t.Fatalf("cancel must end review states, got %s and %s", g.Tasks[1].State, g.Tasks[2].State)
+	}
+}

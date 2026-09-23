@@ -1362,3 +1362,35 @@ func TestRunningTaskWithNoControllerGoesStalled(t *testing.T) {
 		t.Fatalf("a running task whose controller is gone must stall, got %s", g.Tasks[0].State)
 	}
 }
+
+func TestWorkerContractNamesTheReviewerAndTheLead(t *testing.T) {
+	c := workerContract(&waveobj.TaskGroup{}, &waveobj.TaskNode{ID: "t-1"}, "claude")
+	for _, want := range []string{"A reviewer checks your commit against this task and the spec", "the lead reads your final message", "anything a later task must know"} {
+		if !strings.Contains(c, want) {
+			t.Fatalf("contract missing %q: %q", want, c)
+		}
+	}
+}
+
+func TestTaskPromptCarriesReviewFindingsAndGuidance(t *testing.T) {
+	owner := jarvis.NewRun("owner", "ws-1", "/p", nil, jarvis.RunMode_Orchestrator, nil, 1)
+	task := &waveobj.TaskNode{
+		ID: "t-1", Label: "add fmtDate",
+		ReviewVerdict: ReviewVerdict_Fail, ReviewCommit: "work111", ReviewNote: "misses the empty-input case",
+		LeadGuidance: "reuse parseDate",
+	}
+	p := taskPrompt(&waveobj.TaskGroup{}, task, &owner, "claude", "")
+	for _, want := range []string{
+		"A reviewer rejected the previous attempt (commit work111): misses the empty-input case",
+		"Fix these on top of that commit; don't restart.",
+		"The lead's guidance: reuse parseDate",
+	} {
+		if !strings.Contains(p, want) {
+			t.Fatalf("prompt missing %q: %q", want, p)
+		}
+	}
+	passed := &waveobj.TaskNode{ID: "t-2", Label: "x", ReviewVerdict: ReviewVerdict_Pass, ReviewNote: "fine", ReviewCommit: "c"}
+	if strings.Contains(taskPrompt(&waveobj.TaskGroup{}, passed, &owner, "claude", ""), "rejected") {
+		t.Fatal("a passed review carries no findings")
+	}
+}

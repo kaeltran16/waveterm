@@ -20,7 +20,7 @@ history, not instructions.
 Everything else in this guide is how to watch those three and what to do when they need you.
 
 **The division of labor.** Code does the mechanics: scheduling, worktrees, Setup, merges, Verify, retries.
-The lead only judges: questions, failures, conflicts, a failed Verify. You get what the lead cannot or should
+The lead only judges: questions, failures, conflicts, a failed Verify, a failed review. You get what the lead cannot or should
 not decide.
 
 ---
@@ -208,13 +208,10 @@ that every task must edit is what sets a plan's width, so keep that edit out of 
 - `**Depends on:**` must be the first line after the heading. Left out, the task depends on the task before it,
   so a plan with no Depends lines is **serial**. `none` means independent. References must point backwards.
 - There is no task cap.
-- **A worker sees only its own task.** Its prompt is the engine's worker contract, which names the plan's path
-  and Verify, followed by its task's section (`workerContract`, `engine.go`). Anything above Task 1 reaches no
-  worker unless the worker opens the plan. The backlog plan's header said "Never edit `docs/`. Task 13 writes all
-  docs." Five lanes edited `docs/open-issues.md` anyway, and two of them then conflicted on neighbouring rows.
-  The same header held the exact `wsh effort chunk status …` command that every task's "Close the chunk"
-  step relied on. Only t-4 closed its chunks, so the tracker read 3/16 when all 13 tasks had landed.
-  Repeat every rule and command a worker needs inside each task that needs it.
+- **Every worker gets the plan's header.** Its prompt is the engine's worker contract, then the prose above
+  Task 1, then its own task's section (`taskPrompt`, `engine.go`). This used to be the task alone: the backlog
+  plan's header said "Never edit `docs/`. Task 13 writes all docs." and five lanes edited `docs/open-issues.md`
+  anyway. Put rules every task shares in the header; a rule for one task belongs in that task.
 - **Worker commit ids don't survive the merge.** A worker cites the commit on its lane branch, but the lane lands
   as a new squash commit. On the backlog run t-8's doc row cited `3f6d5814`, and what landed was `5eac07ed`.
   A later task that records commits should take them from `dag status` (its `landed` lines). A
@@ -321,12 +318,10 @@ working · 0/13 done"). The lead stops there; the engine wakes it when it needs 
 
 ![The lead after submitting its plan](images/orchestrator-guide/22-agent-tree-executing.png)
 
-Between wakes the lead's conversation says nothing about the run, and the lead doesn't know about a task until a
-wake names it. On the backlog run the lead's last turn was the t-9 merge conflict at 10:29. After that the engine
-landed five lanes and dispatched t-6 without waking it. Watch the run in the rail's Run section or on the run
-sheet, both of which read the DAG. The lead's row still says "working" the whole time. Claude Code's idle
-notification sets the lead's status to `waiting`, and the roster shows `waiting` as working (`agentVMFromInput`,
-`agentsviewmodel.ts`).
+A landing doesn't wake the lead. Each task that passes review queues a line (`t-4 passed review: …`) that goes
+out ahead of the lead's next wake, and the run-finished wake carries whatever is left, so the lead learns what
+landed without a turn per task. `wsh jarvis dag status` shows each task's result and latest review. While the lead
+waits at its prompt, its row reads `standing by`.
 
 ---
 
@@ -341,10 +336,35 @@ you.
 |---|---|---|
 | **Merge conflict** at a lane merge | fixes it in the project checkout, commits, `wsh jarvis dag merge <task> --continue` | nothing, unless the lead forwards it or is dead |
 | **Verify failed** after a merge | fixes it, commits, `dag merge <task> --continue` (re-runs Verify at HEAD) | same |
+| **Review failed** twice, or the reviewer couldn't do its job | reads the findings in `dag status`; `dag sendback <task> "<guidance>"`, `dag approve <task>`, retry, escalate, skip or forward | forwarded review failures |
+| **A passed task with a note for later tasks** | amends the pending tasks the note affects (`dag amend`), or tells a running one (`dag tell`) | nothing |
 | **A worker's question** | answers from the spec, plan and code, or forwards a product call with a note | forwarded questions and any it does not answer within **10 minutes** |
 | **Task failed** with its retry spent | `dag retry`, `dag escalate --model`, `dag skip`, or forwards | forwarded failures |
 | **Worker hung** (15 min silent, process alive, no ask pending) | same as a failure | same |
 | **Run finished** | fixes what the landed tasks left behind, writes the report, adds open issues to the initiative, asks you about them; `wsh jarvis complete` only when you say so | the report and its questions, then the Done face |
+
+### A task's review
+
+Tests are not the only check. When a worker finishes with a commit, the task goes to **reviewing** and the engine
+starts a reviewer in the task's lane worktree, on the **lead's** model. The reviewer reads the task, the spec and
+`git diff` of the task's commits, checks the change against what the task asked for (missing requirements,
+contradictions of the spec, cut corners, changes outside the task), and ends with one command:
+
+- `wsh jarvis dag review pass "<summary>"`: the task lands as before. Adding `--downstream "<note>"` wakes the lead
+  with what later tasks must know.
+- `wsh jarvis dag review fail "<findings>"`: the first time, the task goes back to a worker in the same worktree,
+  starting from the rejected commit with the findings in its prompt. The second time, it goes to
+  **review-failed** and the lead wakes.
+
+A reviewer that ends without a verdict or runs past 20 minutes is replaced once; a reviewer that commits has its
+verdict thrown out. Either way the task goes to review-failed after that. A worker that commits nothing is not
+reviewed.
+
+On a review-failed task the lead (or you, from the DAG) can `approve` it (overrule the reviewer; it lands as it
+is), `sendback` it with guidance for one more round, or `retry`, `escalate`, `skip` or `forward` it.
+
+The lead steers later tasks with `dag amend <task> "<note>"` (added to the prompt of a task that hasn't started)
+and `dag tell <task> "<text>"` (typed into a running worker's terminal, logged as `lead told t-N`).
 
 ### Merge conflict and failed Verify
 
@@ -451,26 +471,12 @@ Done doesn't mean finished. The work after the last merge splits three ways:
 | Work | Whose job | On the backlog run |
 |---|---|---|
 | The run's report | **The lead's.** Its rules (`OrchestrationRules`, `leadprompt.go`) have it fix and commit what the landed tasks left behind, write the report, add each open issue as a pending chunk on the initiative (creating one if the run has none), and ask you about them. It runs `wsh jarvis complete` only when you say so, because `complete` closes its tab mid-turn. | Not written. The rules then said "write the report …, then `wsh jarvis complete`". The lead ran `complete` first, and the engine closed its tab before it could recover. The sandbox lead did the same. |
-| Closing the initiative's tracker chunks | **Nobody's.** The lead's rules use the initiative only to add open issues, so closing chunks falls to whatever the plan says. | The plan gave it to workers through a header line they never see. The tracker read 3/16 with all 13 tasks landed. |
+| Closing the initiative's tracker chunks | **The engine's.** A task names its chunks with `**Chunk:**` lines after its Depends line, and the engine marks each done with the landed commit once the task's merge passes Verify. | The plan gave it to workers through a header line they never saw. The tracker read 3/16 with all 13 tasks landed. |
 | Merging the branch, checking the fixes live in the app, committing anything | **Yours.** The engine lands work on the project checkout's branch and stops there. | Four fixes still need a live check once the branch is on `main` and running in the dev app. |
 
-Until the first two are fixed, plan for them yourself:
-
-- **Put "close the chunk" inside each task**, with the exact `wsh effort chunk status` command. Better still,
-  close the chunks yourself after the run, using the landed commits from `dag status`.
-- **Read the report from the lead's terminal, not the Done face.** If the sealed summary is a half-sentence,
-  the lead ran `complete` before reporting. Its last full message is the closest thing to a report.
-
-Two engine changes would close these gaps:
-
-1. **Make the report impossible to lose.** `wsh jarvis complete` would take the report as an argument (for
-   example `--report <file>`) and seal that. The rules now hold `complete` until you say so, so the report
-   lands a turn before the tab closes. That is still a rule a lead can skip: the old one said "report, then
-   complete" and two leads got the order wrong. Carrying the report in the command is the code-level guard.
-2. **Let the engine close the tracker.** A plan task would name its chunk (a `**Chunk:**` line beside
-   `**Depends on:**`), and the engine would mark that chunk done with the landed commit once the task's
-   merge passes Verify. Closing chunks is deterministic bookkeeping, so it belongs in code. It also removes the
-   lane-commit mix-up, since only the engine knows which commit landed.
+Both gaps the backlog run hit are closed in code: `wsh jarvis complete --report <file>` seals the report the lead
+wrote, and `**Chunk:**` lines let the engine close the tracker. If a sealed summary is still a half-sentence, the
+lead ran `complete` without `--report`; its last full message is the closest thing to a report.
 
 ### What the backlog run left open
 
@@ -511,9 +517,9 @@ closed in `docs/open-issues.md` point here.
 ## Tracking an initiative across runs
 
 Big efforts live as initiatives (`wsh effort`, the Brief's **Initiatives** region). A run does not attach
-itself to one: the goal names the effort, and chunks close only when an agent runs
-`wsh effort chunk status <effort> "<chunk>" done --note "…"`. Nothing in the engine does it (see
-[Who wraps up](#who-wraps-up)). When a run finishes, its lead adds each open issue as a pending chunk on the
+itself to one: the goal names the effort, and a chunk closes when an agent runs
+`wsh effort chunk status <effort> "<chunk>" done --note "…"`, or when the engine lands a task that names it
+in a `**Chunk:**` line (see [Who wraps up](#who-wraps-up)). When a run finishes, its lead adds each open issue as a pending chunk on the
 initiative the goal, spec or plan names, and creates one when there is none. To show a run against a chunk, attach it:
 `wsh effort chunk attach <effort> "<chunk>" --run <run-oid>`. Expanding an initiative on the Brief shows each
 chunk's status and note trail. On the backlog run the lead closed chunk 1 as already fixed, with its evidence,
@@ -532,6 +538,11 @@ Inside a lead's or worker's terminal, the run is inferred. Elsewhere pass `--cha
 | `dag asks` | questions the lead holds, oldest first, with every option |
 | `dag answer <task> <answers-json>` | answer as the lead |
 | `dag forward <task> "<note>"` | hand a question, failure, stall or conflict to the human |
+| `dag amend <task> "<note>"` | add a note to a task that hasn't started; its worker's prompt carries it |
+| `dag tell <task> "<text>"` | type into a running worker's or reviewer's terminal |
+| `dag sendback <task> ["<guidance>"]` | one more round for a review-failed task, with your guidance beside the findings |
+| `dag approve <task>` | overrule a failed review; the task lands as it is |
+| `dag review <pass\|fail> "<note>" [--downstream "<note>"]` | a reviewer's verdict; ends the reviewer's session |
 | `dag retry <task>` / `dag skip <task>` | retry or skip a failed or stalled task |
 | `dag escalate <task> --model <id> [--runtime <rt>]` | re-queue on another model, once per task |
 | `dag merge <task> [--continue]` | squash-merge a lane end, or finish a resolved conflict / re-run a failed Verify |

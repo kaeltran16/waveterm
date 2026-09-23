@@ -185,3 +185,20 @@ func TestEveryCommittingPromptCarriesTheNoAttributionRule(t *testing.T) {
 		}
 	}
 }
+
+func TestOrchestrationRulesCoverReviewAndDownstream(t *testing.T) {
+	r := OrchestrationRules("run-1", "", "")
+	for _, want := range []string{
+		"- a task passed review with a note for later tasks:",
+		"wsh jarvis dag amend <task>",
+		"wsh jarvis dag tell <task>",
+		"never add, remove or reorder tasks",
+		"- review failed:",
+		"wsh jarvis dag sendback <task>",
+		"wsh jarvis dag approve <task>",
+	} {
+		if !strings.Contains(r, want) {
+			t.Fatalf("rules missing %q:\n%s", want, r)
+		}
+	}
+}

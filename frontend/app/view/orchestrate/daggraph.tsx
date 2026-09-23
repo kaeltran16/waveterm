@@ -54,6 +54,8 @@ const STATE_TONE: Record<string, string> = {
     "blocked-merge": "border-warning/70 bg-warning/15 text-warning",
     verifying: "border-accent/60 bg-accent/15 text-accent-soft",
     "verify-failed": "border-warning/70 bg-warning/15 text-warning",
+    reviewing: "border-accent/60 bg-accent/15 text-accent-soft",
+    "review-failed": "border-warning/70 bg-warning/15 text-warning",
     pending: "border-edge-mid bg-surface-raised text-secondary",
 };
 

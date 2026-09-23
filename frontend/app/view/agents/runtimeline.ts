@@ -58,6 +58,12 @@ const RUN_GROUP_KINDS = new Set([
     "dag-plan-approved",
     "dag-plan-sent-back",
     "merge-held",
+    "task-review-started",
+    "task-review-passed",
+    "task-review-failed",
+    "review-overruled",
+    "task-amended",
+    "task-lead-told",
 ]);
 
 export function buildRunTimeline(run: Run, events: RunEvent[]): { groups: RunTimelineGroup[]; preview: RunEvent[] } {
@@ -134,6 +140,12 @@ const KIND_TITLE: Record<string, string> = {
     "dag-plan-approved": "Plan approved",
     "dag-plan-sent-back": "Plan sent back",
     "merge-held": "Merges held",
+    "task-review-started": "Review started",
+    "task-review-passed": "Review passed",
+    "task-review-failed": "Review failed",
+    "review-overruled": "Lead overruled the review",
+    "task-amended": "Lead amended a task",
+    "task-lead-told": "Lead told a worker",
 };
 
 // KIND_TONE stays inside the EXISTING status/phase tone utilities (the same token classes
@@ -176,6 +188,12 @@ const KIND_TONE: Record<string, string> = {
     "worker-exited": "text-warning",
     "task-verify-failed": "text-warning",
     "merge-held": "text-warning",
+    "task-review-passed": "text-success",
+    "task-review-failed": "text-warning",
+    "task-review-started": "text-muted",
+    "review-overruled": "text-muted",
+    "task-amended": "text-muted",
+    "task-lead-told": "text-muted",
     "child-cancelled": "text-muted",
     "run-cancelled": "text-muted",
     "dag-cancelled": "text-muted",
@@ -220,6 +238,13 @@ export function eventText(event: RunEvent): string {
             return `${task} answered`;
         case "task-told":
             return [`you told ${task}`, d?.text?.replace(/\s+/g, " ")].filter(Boolean).join(" · ");
+        case "task-lead-told":
+            return [`lead told ${task}`, d?.text?.replace(/\s+/g, " ")].filter(Boolean).join(" · ");
+        case "task-amended":
+            return [`lead amended ${task}`, d?.text?.replace(/\s+/g, " ")].filter(Boolean).join(" · ");
+        case "task-review-passed":
+        case "task-review-failed":
+            return [`${eventTitle(event)} · ${task}`, d?.note?.replace(/\s+/g, " ")].filter(Boolean).join(" · ");
         case "merge-held":
             return [`${d?.held ?? 0} merge(s) held`, d?.reason].filter(Boolean).join(" · ");
         default:

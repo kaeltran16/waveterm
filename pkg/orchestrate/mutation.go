@@ -61,6 +61,10 @@ func childRunIDs(g *waveobj.TaskGroup) []string {
 		if g.Tasks[i].RunID != "" {
 			out = append(out, g.Tasks[i].RunID)
 		}
+		// a live reviewer is a child too: cancelling the dag must stop it
+		if g.Tasks[i].ReviewRunID != "" {
+			out = append(out, g.Tasks[i].ReviewRunID)
+		}
 	}
 	return out
 }
@@ -103,7 +107,7 @@ func escalationTarget(task *waveobj.TaskNode, owner *waveobj.Run, group *waveobj
 	if task == nil {
 		return waveobj.RoutePin{}, fmt.Errorf("task is required")
 	}
-	if task.State != TaskState_Failed && task.State != TaskState_Stalled && task.State != TaskState_BlockedMerge {
+	if task.State != TaskState_Failed && task.State != TaskState_Stalled && task.State != TaskState_BlockedMerge && task.State != TaskState_ReviewFailed {
 		return waveobj.RoutePin{}, fmt.Errorf("task %q cannot be escalated from state %q", task.ID, task.State)
 	}
 	if task.Escalations >= 1 {
@@ -142,13 +146,22 @@ func applyActionLocked(ctx context.Context, dagID, taskID, action string, target
 	if g.Status == DagStatus_Cancelled {
 		return fmt.Errorf("dag %s is cancelled", dagID)
 	}
+	var emit []func()
 	switch action {
 	case "approve":
-		g2, err := ApproveGate(g, taskID)
-		if err != nil {
-			return err
+		if reviewFailed(g, taskID) {
+			// the lead overrules the reviewer: the worker's commit lands as it is
+			taskByID(g, taskID).State = TaskState_Done
+			emit = append(emit, func() {
+				appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindReviewOverruled, nil, map[string]any{"taskid": taskID})
+			})
+		} else {
+			g2, err := ApproveGate(g, taskID)
+			if err != nil {
+				return err
+			}
+			g = g2
 		}
-		g = g2
 	case "sendback":
 		g2, err := SendBackGate(g, taskID)
 		if err != nil {
@@ -160,17 +173,30 @@ func applyActionLocked(ctx context.Context, dagID, taskID, action string, target
 		if task == nil {
 			return fmt.Errorf("no task %q", taskID)
 		}
-		if task.State != TaskState_Failed && task.State != TaskState_Stalled && task.State != TaskState_Ready {
+		if task.State != TaskState_Failed && task.State != TaskState_Stalled && task.State != TaskState_Ready && task.State != TaskState_ReviewFailed {
 			return fmt.Errorf("task %q cannot be skipped from state %q", taskID, task.State)
 		}
-		if err := cancelAndStopTaskRun(ctx, g, taskID); err != nil {
+		// a failed review's worker already finished: cancelling its run would rewrite a done run. Its rejected
+		// commit is still on the lane branch, which lands by squashing, so the branch goes back to before the task.
+		if task.State == TaskState_ReviewFailed {
+			if err := dropRejectedCommit(ctx, g, task); err != nil {
+				return err
+			}
+		} else if err := cancelAndStopTaskRun(ctx, g, taskID); err != nil {
 			return err
 		}
 		if err := SkipTask(g, taskID); err != nil {
 			return err
 		}
 	case "retry":
-		if err := cancelAndStopTaskRun(ctx, g, taskID); err != nil {
+		if task := taskByID(g, taskID); task != nil && task.State == TaskState_Reviewing {
+			// its worker finished and a reviewer is judging it; the review's own guards end a stuck reviewer
+			return fmt.Errorf("task %q is under review; wait for the verdict (a reviewer silent past %s is replaced)", taskID, ReviewTimeout)
+		}
+		if reviewFailed(g, taskID) {
+			// the rounds start over from the findings; the worker's run already finished
+			taskByID(g, taskID).ReviewRound = 0
+		} else if err := cancelAndStopTaskRun(ctx, g, taskID); err != nil {
 			return err
 		}
 		if err := RetryTask(g, taskID); err != nil {
@@ -189,7 +215,9 @@ func applyActionLocked(ctx context.Context, dagID, taskID, action string, target
 		if err != nil {
 			return err
 		}
-		if err := cancelAndStopTaskRun(ctx, g, taskID); err != nil {
+		if task.State == TaskState_ReviewFailed {
+			task.ReviewRound = 0
+		} else if err := cancelAndStopTaskRun(ctx, g, taskID); err != nil {
 			return err
 		}
 		applyEscalation(task, target)
@@ -211,6 +239,9 @@ func applyActionLocked(ctx context.Context, dagID, taskID, action string, target
 		return err
 	}
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, g.OID))
+	for _, fn := range emit {
+		fn()
+	}
 	return nil
 }
 

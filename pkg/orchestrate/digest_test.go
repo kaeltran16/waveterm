@@ -4,6 +4,7 @@
 package orchestrate
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -790,5 +791,43 @@ func TestMergeGateWithoutDoneEventIsNotStale(t *testing.T) {
 	d := BuildDigest(DagDigestSnapshot{Group: g, Now: time.Now()})
 	if d.Health != "healthy" {
 		t.Fatalf("a gate with no done boundary has no age; want healthy, got %q", d.Health)
+	}
+}
+
+func TestDigestCarriesTheWorkersResultAndReview(t *testing.T) {
+	g := digestGroup(t, false, []waveobj.TaskNode{{ID: "t-1", Label: "a"}})
+	g.Tasks[0].State = TaskState_Done
+	g.Tasks[0].RunID = "run-1"
+	g.Tasks[0].ReviewVerdict = ReviewVerdict_Pass
+	g.Tasks[0].ReviewNote = "adds fmtDate"
+	g.Tasks[0].ReviewDownstream = "fmtDate lives in util/date.go"
+	run := childRun("run-1", nil)
+	run.Evidence = &waveobj.RunEvidence{Summary: "Added fmtDate and its tests."}
+	d := BuildDigest(digestSnapshot(g, []*waveobj.Run{run}, nil, nil, time.UnixMilli(10_000)))
+	td := d.Tasks[0]
+	if td.Result != "Added fmtDate and its tests." || td.ReviewVerdict != ReviewVerdict_Pass || td.ReviewNote != "adds fmtDate" || td.ReviewDownstream != "fmtDate lives in util/date.go" {
+		t.Fatalf("the lead must read what the task did, got %+v", td)
+	}
+}
+
+func TestDigestNamesAFailedReviewForJudgment(t *testing.T) {
+	g := digestGroup(t, false, []waveobj.TaskNode{{ID: "t-1", Label: "a"}, {ID: "t-2", Label: "b", Deps: []string{"t-1"}}})
+	g.Tasks[0].State = TaskState_ReviewFailed
+	RecomputeDagStatus(g)
+	d := BuildDigest(digestSnapshot(g, nil, nil, nil, time.UnixMilli(10_000)))
+	if d.Next.Kind != "human-action" || strings.Join(d.Next.Actions, ",") != "approve,sendback,retry,skip,escalate" {
+		t.Fatalf("want the review-failed actions, got %+v", d.Next)
+	}
+	if d.Tasks[0].WaitReason != "review" || d.Health != "needs-you" || d.Counts.Attention != 1 {
+		t.Fatalf("a failed review needs judgment, got %+v health %s", d.Tasks[0], d.Health)
+	}
+}
+
+func TestDigestCountsAReviewingTaskAsBusy(t *testing.T) {
+	g := digestGroup(t, false, []waveobj.TaskNode{{ID: "t-1", Label: "a"}})
+	g.Tasks[0].State = TaskState_Reviewing
+	d := BuildDigest(digestSnapshot(g, nil, nil, nil, time.UnixMilli(10_000)))
+	if d.Counts.Running != 1 || d.Next.Kind != "parallelism-wait" || d.Tasks[0].WaitReason != "review" {
+		t.Fatalf("a review in flight is busy work, got counts %+v next %+v task %+v", d.Counts, d.Next, d.Tasks[0])
 	}
 }
