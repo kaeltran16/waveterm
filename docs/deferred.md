@@ -1486,24 +1486,7 @@ Revive only on evidence that note bodies — not index lines — are what change
 Recovery: `git show f5e2179a:pkg/memvault/memvault.go` (and any other path) has the full pre-removal
 tree; `git show f5e2179a:frontend/app/view/agents/vaultsurface.tsx` for the surface.
 
-### Five agentsync RPCs left with no caller — deletion deferred on branch collision
-
-The Vault surface's Steering tab (`frontend/app/view/agents/vaultstore.ts`) was the only consumer of
-`AgentSyncSteeringRead`, `AgentSyncSteeringWrite`, `AgentSyncHarnessRead`, `AgentSyncHarnessWrite` and
-`AgentSyncSkills`. They are live handlers reachable over the wire with nothing calling them. The other
-four survive: `Status`, `Adopt` and `Fold` back `wsh agent-sync status|adopt|fold`, and `Apply` is called
-by both `wsh agent-sync sync` and `cockpit-actions.ts` at launch.
-
-- **What's deferred:** deleting those five from `wshrpctypes_agentsync.go` + `wshserver_agentsync.go`, and
-  regenerating. Every `pkg/agentsync` function stays either way — only the RPC surface goes.
-- **Why deferred rather than done:** three live branches still contain `vaultstore.ts` and would stop
-  typechecking — `worktree-dag-interaction` (c8f85403), `backlog-cleanup` (0e828c75),
-  `feat/surface-integration` (09e86573). Each already faces a Vault-surface conflict on merge; a broken
-  typecheck on top of it turns a mechanical conflict into a debugging session.
-- **No replacement needed:** the steering doc is a plain file at `memroots.SteeringDocPath()`,
-  `wsh agent-sync status` already reports current/stale/absent per harness, and `fold` covers the
-  own-rules move. The read/write RPCs existed to back an editor, and the editor is gone.
-- **To resume:** once those three branches land or are abandoned, delete the five and run `task generate`.
+Five agentsync RPCs left with no caller — deleted with the recall arm (2026-09-23); `pkg/agentsync` functions stay.
 
 ### The corpus deleted too (2026-09-22), after measuring what still read it
 
@@ -1538,5 +1521,26 @@ Still orphaned by all this, not yet cleaned:
 - Four state files in `%LOCALAPPDATA%\dev.arc.app\data\` have no writer left in the tree:
   `memgarden-state.json`, `memory-distill-queue.json`, `memory-decay-restore-done.txt`,
   `memory-recall-epoch.txt`. They go inert once a build from `main` is installed.
-- `jarvisproactive` and the Ask surface still exist and now read a corpus of `tasks/` + `decisions/`
-  only. Retiring them is the coherent next step if the replacement system supersedes them.
+- `jarvisproactive` and the Ask surface — retired 2026-09-23, see "The Jarvis recall arm" below.
+
+### The Jarvis recall arm — retired 2026-09-23
+
+Proactive "related prior work" cards, the Ask surface (the Brief's ask thread, the palette's Ask group,
+the Ask Jarvis buttons, the pet's Ask act, `wsh jarvis ask`, pi's `wave_vault_ask`, persisted
+conversations) and the embedding index (`pkg/jarvisembed`, attribution layer 4, the Settings Embeddings
+section) are deleted. Spec: `docs/superpowers/specs/2026-09-23-retire-jarvis-recall-arm-design.md`.
+
+Evidence, measured 2026-09-23: of 89 runs with a proactive evaluation, 14 hit and one hit was useful;
+~14 of 22 agent `wave_vault_ask` calls returned not-found; attribution L4 produced 0 of 352 edges.
+
+Kept: the resume narrative (`jarviscontinuity`), the ledger, attribution L1–3, OpenRouter as the headless
+runtime. Its key still lives in the secret `jarvis_embedapikey`, now set from Settings → Headless AI.
+
+Recovery: `git log --diff-filter=D --oneline -- pkg/jarvisrecall pkg/jarvisproactive pkg/jarvisembed`
+names the deleting commit; then `git show <commit>^:pkg/jarvisrecall/ask.go` (any path). The table is
+recreated by `db/migrations-wstore/000020_drop_jarvisconversation.down.sql`.
+
+Manual cleanup on an existing profile (no code touches user data): delete `data\jarvis\index.db`, the
+`jarvis:embedenabled` / `jarvis:embedbaseurl` / `jarvis:embedmodel` lines in `settings.json`, and the
+inert `memgarden-state.json`, `memory-distill-queue.json`, `memory-decay-restore-done.txt`,
+`memory-recall-epoch.txt` in `data\`.
