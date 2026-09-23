@@ -72,7 +72,8 @@ export function lineageAtomFor(agentsAtom: Atom<AgentVM[]>): Atom<Lineage> {
             const dag = run?.dagoref
                 ? get(WOS.getWaveObjectAtom<TaskGroup>(WOS.makeORef("dag", run.dagoref)))
                 : undefined;
-            const role = runRoleOf(run, dag);
+            const block = a.blockId ? get(WOS.getWaveObjectAtom<Block>(WOS.makeORef("block", a.blockId))) : undefined;
+            const role = runRoleOf(run, dag, block?.meta?.["agent:taskid"]);
             if (role == null) {
                 continue;
             }

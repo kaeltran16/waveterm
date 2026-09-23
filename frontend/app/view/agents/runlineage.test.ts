@@ -8,6 +8,7 @@ import {
     endedWorkerId,
     endedWorkerVM,
     formatLeft,
+    holdsTask,
     isEndedWorkerId,
     laneLabel,
     leadAgentOf,
@@ -194,6 +195,33 @@ describe("runRoleOf for a reviewer", () => {
         } as TaskGroup;
         const run = { oid: "review-run", dagoref: "dag:dag-1", mode: "quick" } as Run;
         expect(runRoleOf(run, reviewed)).toEqual({ kind: "worker", leadRunId: "lead-run", taskId: "t-1" });
+    });
+
+    it("keeps a reviewer under its task by its stamped task id once its verdict clears the task's link", () => {
+        const passed = {
+            ...dag,
+            tasks: [{ id: "t-1", runid: "child-run", reviewrunid: "", reviewverdict: "pass", state: "done" }],
+        } as TaskGroup;
+        const run = { oid: "review-run", dagoref: "dag:dag-1", mode: "quick" } as Run;
+        expect(runRoleOf(run, passed, "t-1")).toEqual({ kind: "worker", leadRunId: "lead-run", taskId: "t-1" });
+        // a stamp naming no task of the dag places nothing
+        expect(runRoleOf(run, passed, "t-9")).toBeNull();
+    });
+
+    it("tells a task's current agent from a tab an earlier run left on it", () => {
+        const info = { runId: "lead-run", channelId: "c", title: "", project: "", dag };
+        expect(holdsTask(info, "t-1", { runId: "child-run" })).toBe(true);
+        expect(holdsTask(info, "t-1", { runId: "old-attempt" })).toBe(false);
+        expect(holdsTask(info, "t-1", {})).toBe(false);
+        const roles = {
+            stale: { kind: "worker", leadRunId: "lead-run", taskId: "t-1" },
+            live: { kind: "worker", leadRunId: "lead-run", taskId: "t-1" },
+        } as const;
+        const agents = [
+            { id: "stale", runId: "old-attempt" },
+            { id: "live", runId: "child-run" },
+        ];
+        expect(taskAgentOf({ roles, runs: { "lead-run": info } }, agents, "lead-run", "t-1")?.id).toBe("live");
     });
 });
 

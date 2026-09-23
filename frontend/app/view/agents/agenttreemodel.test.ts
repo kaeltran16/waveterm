@@ -193,6 +193,38 @@ describe("buildAgentTree with run lineage", () => {
         expect(rows[0]).toMatchObject({ kind: "group", count: 3, attn: 1 });
     });
 
+    it("keeps a tab left on a task by an earlier attempt under the run, behind the task's current agent", () => {
+        const r = run("run-1", [{ id: "t-1", label: "t-1", state: "running", runid: "new-run" } as TaskNode]);
+        const rows = buildAgentTree(
+            [
+                agent("lead", "working"),
+                { ...agent("old", "idle", ""), runId: "old-run" },
+                { ...agent("new", "working", ""), runId: "new-run" },
+            ],
+            ["lead", "old", "new"],
+            lineage([r], {
+                lead: { kind: "lead", runId: "run-1" },
+                old: { kind: "worker", leadRunId: "run-1", taskId: "t-1" },
+                new: { kind: "worker", leadRunId: "run-1", taskId: "t-1" },
+            })
+        );
+        expect(shape(rows)).toEqual(["group:waveterm:2:0", "lead:run-1:1", "worker:t-1:new", "worker:t-1:old"]);
+    });
+
+    it("folds a finished reviewer's tab into its done task", () => {
+        const r = run("run-1", [{ id: "t-1", label: "t-1", state: "done", runid: "work-run" } as TaskNode]);
+        const rows = buildAgentTree(
+            [{ ...agent("reviewer", "idle", ""), runId: "review-run" }, agent("lead", "idle")],
+            ["reviewer", "lead"],
+            lineage([r], {
+                lead: { kind: "lead", runId: "run-1" },
+                reviewer: { kind: "worker", leadRunId: "run-1", taskId: "t-1" },
+            }),
+            { collapsed: new Set(), doneOpen: new Set(["run-1"]) }
+        );
+        expect(shape(rows)).toEqual(["group:waveterm:1:0", "lead:run-1:0", "done:1:true", "worker:t-1:reviewer"]);
+    });
+
     it("keeps an agent whose run is not loaded as a plain row", () => {
         const rows = buildAgentTree(
             [agent("w1", "working")],
