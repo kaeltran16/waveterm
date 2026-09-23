@@ -108,6 +108,8 @@ import {
 } from "./briefrows";
 import { BriefSheet } from "./briefsheet";
 import { sheetFace } from "./briefsheetmodel";
+import { BriefToastView } from "./brieftoast";
+import { briefUndo, effortKey, pendingDeleteKeysAtom } from "./briefundo";
 import { effortFeed, feedNoteCounts } from "./effortfeed";
 import {
     addChunkOp,
@@ -848,6 +850,18 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     const [staleOpen, setStaleOpen] = useAtom(briefStaleOpenAtom);
     const toggleOnly = (id: RegionId) => setOnly((cur) => (cur === id ? null : id));
     const filtering = query.trim() !== "";
+    // a delete waiting out its undo window is already gone as far as the reader is concerned
+    const pendingDeletes = useAtomValue(pendingDeleteKeysAtom);
+    // leaving the Brief or the app inside the window still performs the delete the user did not undo;
+    // beforeunload is best-effort, the RPCs are already in flight when the page goes
+    useEffect(() => {
+        const flush = () => void briefUndo.flushAll();
+        window.addEventListener("beforeunload", flush);
+        return () => {
+            window.removeEventListener("beforeunload", flush);
+            flush();
+        };
+    }, []);
     const lines = useMemo(() => {
         const now = Date.now();
         return {
@@ -855,7 +869,10 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                 queue.map((q) => queueLine(q, now)),
                 query
             ),
-            initiatives: filterLines(effortWindow.rows.map(initiativeLine), query),
+            initiatives: filterLines(
+                effortWindow.rows.filter((r) => !pendingDeletes.has(effortKey(r.oref))).map(initiativeLine),
+                query
+            ),
             sessions: filterLines(
                 sessions.rows.map((r) => sessionLine(r, now)),
                 query
@@ -864,7 +881,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                 .map((g) => ({ ...g, lines: filterLines(g.lines, query) }))
                 .filter((g) => g.lines.length > 0),
         };
-    }, [queue, effortWindow, sessions, deltaGroups, shipped, query]);
+    }, [queue, effortWindow, sessions, deltaGroups, shipped, query, pendingDeletes]);
     const staleCount = lines.sessions.filter((l) => l.stale).length;
     const waitingShown = waitingOpen || filtering;
     const view = useMemo(() => {
@@ -1542,6 +1559,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                         }
                     />
                 ) : null}
+                <BriefToastView />
             </div>
             <BriefComposer model={model} />
             {/* the Brief's destination for a record address: openref.ts's record landing sets the atom this reads.
