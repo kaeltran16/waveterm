@@ -17,8 +17,9 @@ import { useAtomValue } from "jotai";
 import { CircleStop, Maximize2, Minimize2, PanelRight, X } from "lucide-react";
 import { motion } from "motion/react";
 import { confirmCloseSession } from "./agentactions";
+import { contextLevel, contextTokens } from "./agentrailmodel";
 import type { AgentsViewModel } from "./agents";
-import { usageLevel, type AgentVM } from "./agentsviewmodel";
+import type { AgentVM } from "./agentsviewmodel";
 import { railVisibleAtom, terminalFullscreenAtom } from "./railstore";
 import { agentProject, isEndedWorkerId, leadAgentOf } from "./runlineage";
 import { RuntimeMark } from "./runtimemark";
@@ -32,7 +33,7 @@ const STATE_COLOR: Record<AgentVM["state"], string> = {
 };
 const STATE_LABEL: Record<AgentVM["state"], string> = { asking: "asking", working: "working", idle: "idle" };
 
-// header context% chip color by occupancy band (mirrors the rail gauge, as text not fill)
+// header context chip color by context level (mirrors the rail gauge, as text not fill)
 const CTX_TEXT: Record<"ok" | "warn" | "hot", string> = {
     ok: "text-accent",
     warn: "text-warning",
@@ -169,12 +170,14 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                     ) : null}
                     {agent.usage?.contextpct != null ? (
                         <span
+                            title={`context: ${Math.round(agent.usage.contextpct)}% of the window`}
                             className={cn(
                                 "font-mono text-[10.5px] font-semibold",
-                                CTX_TEXT[usageLevel(agent.usage.contextpct)]
+                                CTX_TEXT[contextLevel(agent.usage.contextpct, agent.usage.contextmax)]
                             )}
                         >
-                            {Math.round(agent.usage.contextpct)}%
+                            {contextTokens(agent.usage.contextpct, agent.usage.contextmax) ??
+                                `${Math.round(agent.usage.contextpct)}%`}
                         </span>
                     ) : null}
                 </div>

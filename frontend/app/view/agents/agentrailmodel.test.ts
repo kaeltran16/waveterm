@@ -2,12 +2,52 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { contextNote, filesSummary, linkedWorktree, railAction, toolChips } from "./agentrailmodel";
+import {
+    cacheRewriteTitle,
+    contextLevel,
+    contextNote,
+    contextTokens,
+    filesSummary,
+    linkedWorktree,
+    offersContextReset,
+    railAction,
+    toolChips,
+} from "./agentrailmodel";
+
+describe("contextLevel", () => {
+    it("colors a big window by the tokens every turn re-reads, not by how full it is", () => {
+        expect(contextLevel(10, 1_000_000)).toBe("ok");
+        expect(contextLevel(15, 1_000_000)).toBe("warn");
+        expect(contextLevel(30, 1_000_000)).toBe("hot");
+    });
+
+    it("keeps the fullness warning for a small window", () => {
+        expect(contextLevel(62, 200_000)).toBe("warn");
+        expect(contextLevel(90, 200_000)).toBe("hot");
+    });
+
+    it("falls back to fullness when the window size is unknown", () => {
+        expect(contextLevel(30, undefined)).toBe("ok");
+        expect(contextLevel(70, undefined)).toBe("warn");
+    });
+});
+
+describe("contextTokens", () => {
+    it("labels the tokens in context, or nothing without a window size", () => {
+        expect(contextTokens(18.2, 1_000_000)).toBe("182k");
+        expect(contextTokens(18.2, undefined)).toBeUndefined();
+    });
+});
 
 describe("contextNote", () => {
     it("says how much of the window is used, in the window's own size", () => {
         expect(contextNote(62, 200_000)).toBe("124k of 200k tokens");
-        expect(contextNote(38, 1_000_000)).toBe("380k of 1M tokens");
+        expect(contextNote(10, 1_000_000)).toBe("100k of 1M tokens");
+    });
+
+    it("says what each turn re-reads once the context is costly", () => {
+        expect(contextNote(18.2, 1_000_000)).toBe("182k re-read every turn");
+        expect(contextNote(38, 1_000_000)).toBe("380k re-read every turn");
     });
 
     it("warns instead once the window is nearly full", () => {
@@ -16,6 +56,37 @@ describe("contextNote", () => {
 
     it("says nothing when the window size is unknown", () => {
         expect(contextNote(40, undefined)).toBe("");
+    });
+});
+
+describe("offersContextReset", () => {
+    const base = { isClaude: true, state: "idle" as const, level: "warn" as const, live: true };
+
+    it("offers Compact and Clear to an idle Claude agent carrying a costly context", () => {
+        expect(offersContextReset(base)).toBe(true);
+        expect(offersContextReset({ ...base, level: "hot" })).toBe(true);
+    });
+
+    it("offers nothing mid-turn, where the command would queue into the agent's input", () => {
+        expect(offersContextReset({ ...base, state: "working" })).toBe(false);
+        expect(offersContextReset({ ...base, state: "asking" })).toBe(false);
+    });
+
+    it("offers nothing for a cheap context, another runtime, or no live terminal", () => {
+        expect(offersContextReset({ ...base, level: "ok" })).toBe(false);
+        expect(offersContextReset({ ...base, isClaude: false })).toBe(false);
+        expect(offersContextReset({ ...base, live: false })).toBe(false);
+    });
+});
+
+describe("cacheRewriteTitle", () => {
+    it("says what an expired cache costs the next turn", () => {
+        expect(cacheRewriteTitle(18.2, 1_000_000)).toBe("if the cache expires, the next turn rewrites ~182k");
+    });
+
+    it("says nothing without a context reading", () => {
+        expect(cacheRewriteTitle(undefined, 1_000_000)).toBeUndefined();
+        expect(cacheRewriteTitle(18, undefined)).toBeUndefined();
     });
 });
 

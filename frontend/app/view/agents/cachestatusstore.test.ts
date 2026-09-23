@@ -1,8 +1,46 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, expect, test } from "vitest";
-import { formatCacheCountdown } from "./cachestatusstore";
+import { describe, expect, test, vi } from "vitest";
+
+const getCacheStatus = vi.fn();
+vi.mock("@/app/store/wshclientapi", () => ({
+    RpcApi: { GetCacheStatusCommand: (...a: any[]) => getCacheStatus(...a) },
+}));
+vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
+
+import { globalStore } from "@/app/store/jotaiStore";
+import { agentCacheStatusAtom, formatCacheCountdown, loadCacheStatusForAgent } from "./cachestatusstore";
+
+describe("loadCacheStatusForAgent", () => {
+    test("a silent reload picks up a newer cache write for the same agent", async () => {
+        getCacheStatus.mockResolvedValueOnce({ lastwritets: 1000, onehour: true });
+        await loadCacheStatusForAgent("a", "/a.jsonl");
+        getCacheStatus.mockResolvedValueOnce({ lastwritets: 2000, onehour: true });
+        await loadCacheStatusForAgent("a", "/a.jsonl", { silent: true });
+        expect(globalStore.get(agentCacheStatusAtom)).toEqual({ lastWriteTs: 2000, oneHour: true });
+    });
+
+    test("a silent reload keeps the last status while in flight and on failure", async () => {
+        getCacheStatus.mockResolvedValueOnce({ lastwritets: 1000, onehour: false });
+        await loadCacheStatusForAgent("b", "/b.jsonl");
+        let reject!: (e: Error) => void;
+        getCacheStatus.mockReturnValueOnce(new Promise((_, r) => (reject = r)));
+        const reload = loadCacheStatusForAgent("b", "/b.jsonl", { silent: true });
+        expect(globalStore.get(agentCacheStatusAtom)).toEqual({ lastWriteTs: 1000, oneHour: false });
+        reject(new Error("rpc down"));
+        await reload;
+        expect(globalStore.get(agentCacheStatusAtom)).toEqual({ lastWriteTs: 1000, oneHour: false });
+    });
+
+    test("a focus change clears the previous agent's status", async () => {
+        getCacheStatus.mockResolvedValueOnce({ lastwritets: 1000, onehour: true });
+        await loadCacheStatusForAgent("c", "/c.jsonl");
+        getCacheStatus.mockReturnValueOnce(new Promise(() => {}));
+        void loadCacheStatusForAgent("d", "/d.jsonl");
+        expect(globalStore.get(agentCacheStatusAtom)).toBeNull();
+    });
+});
 
 describe("formatCacheCountdown", () => {
     test("no status -> em dash", () => {

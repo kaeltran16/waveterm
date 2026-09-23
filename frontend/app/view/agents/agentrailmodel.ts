@@ -16,8 +16,39 @@ function tokensLabel(n: number): string {
     return `${Math.round(n / 1000)}k`;
 }
 
-// contextNote is the line under the context bar: a warning once the window is nearly full, else how much of it
-// is used. Empty when the window size is unknown.
+type Level = ReturnType<typeof usageLevel>;
+
+// every turn re-reads the whole context from cache, so its size is the per-turn cost however much window is left:
+// a 1M window at 18% is as costly as a 200k window at 91%
+const CONTEXT_WARN_TOKENS = 150_000;
+const CONTEXT_HOT_TOKENS = 300_000;
+const LEVEL_RANK: Record<Level, number> = { ok: 0, warn: 1, hot: 2 };
+
+function tokenLevel(tokens: number): Level {
+    if (tokens >= CONTEXT_HOT_TOKENS) {
+        return "hot";
+    }
+    return tokens >= CONTEXT_WARN_TOKENS ? "warn" : "ok";
+}
+
+// contextLevel colors the context gauge: the worse of how full the window is and how many tokens every turn
+// re-reads. Fullness alone when the window size is unknown.
+export function contextLevel(pct: number, max: number | undefined): Level {
+    const byFullness = usageLevel(pct);
+    if (!max) {
+        return byFullness;
+    }
+    const byTokens = tokenLevel((pct / 100) * max);
+    return LEVEL_RANK[byTokens] > LEVEL_RANK[byFullness] ? byTokens : byFullness;
+}
+
+// contextTokens labels how many tokens are in context. Undefined when the window size is unknown.
+export function contextTokens(pct: number, max: number | undefined): string | undefined {
+    return max ? tokensLabel((pct / 100) * max) : undefined;
+}
+
+// contextNote is the line under the context bar: a warning once the window is nearly full, what every turn re-reads
+// once that is costly, else how much of the window is used. Empty when the window size is unknown.
 export function contextNote(pct: number, max: number | undefined): string {
     if (usageLevel(pct) === "hot") {
         return "Near the limit.";
@@ -25,7 +56,28 @@ export function contextNote(pct: number, max: number | undefined): string {
     if (!max) {
         return "";
     }
-    return `${tokensLabel((pct / 100) * max)} of ${tokensLabel(max)} tokens`;
+    const tokens = (pct / 100) * max;
+    if (tokenLevel(tokens) !== "ok") {
+        return `${tokensLabel(tokens)} re-read every turn`;
+    }
+    return `${tokensLabel(tokens)} of ${tokensLabel(max)} tokens`;
+}
+
+// offersContextReset says when the rail offers Compact and Clear: they type a slash command into the terminal, which
+// only Claude takes and which mid-turn would queue into the agent's input instead of running.
+export function offersContextReset(o: {
+    isClaude: boolean;
+    state: AgentVM["state"];
+    level: Level;
+    live: boolean;
+}): boolean {
+    return o.isClaude && o.live && o.state === "idle" && o.level !== "ok";
+}
+
+// cacheRewriteTitle is the Session line's tooltip: an expired cache makes the next turn write the whole context again.
+export function cacheRewriteTitle(pct: number | undefined, max: number | undefined): string | undefined {
+    const tokens = pct != null ? contextTokens(pct, max) : undefined;
+    return tokens ? `if the cache expires, the next turn rewrites ~${tokens}` : undefined;
 }
 
 export type RailAction = { kind: "resume" | "stop"; hint: string };

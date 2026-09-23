@@ -13,16 +13,17 @@ import { useAtomValue } from "jotai";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect } from "react";
 import { agentDiffScope, openDiff } from "./agentdiffnav";
-import { contextNote, filesSummary, railAction, toolChips } from "./agentrailmodel";
-import type { AgentsViewModel } from "./agents";
 import {
-    displayAgeMs,
-    formatAgeShort,
-    recentActions,
-    summarizeActions,
-    usageLevel,
-    type AgentVM,
-} from "./agentsviewmodel";
+    cacheRewriteTitle,
+    contextLevel,
+    contextNote,
+    filesSummary,
+    offersContextReset,
+    railAction,
+    toolChips,
+} from "./agentrailmodel";
+import type { AgentsViewModel } from "./agents";
+import { displayAgeMs, formatAgeShort, recentActions, summarizeActions, type AgentVM } from "./agentsviewmodel";
 import { agentCacheStatusAtom, formatCacheCountdown, loadCacheStatusForAgent } from "./cachestatusstore";
 import { ASK_OWNER_USER } from "./childaskmodel";
 import { capFiles, statusColor } from "./gitstatus";
@@ -87,8 +88,12 @@ function DetailLine({
     );
 }
 
-function ContextLine({ pct, max }: { pct: number; max?: number }) {
-    const level = usageLevel(pct);
+const RESET_BTN =
+    "flex-none cursor-pointer rounded-[6px] px-[6px] py-[2px] font-mono text-[10.5px] font-semibold text-accent-soft hover:bg-surface-hover";
+
+// onReset, when given, offers Compact and Clear under the note: they shrink what every turn re-reads
+function ContextLine({ pct, max, onReset }: { pct: number; max?: number; onReset?: (cmd: string) => void }) {
+    const level = contextLevel(pct, max);
     const note = contextNote(pct, max);
     return (
         <>
@@ -100,6 +105,26 @@ function ContextLine({ pct, max }: { pct: number; max?: number }) {
                 </span>
             </div>
             {note ? <div className="pl-[62px] font-mono text-[10.5px] text-muted">{note}</div> : null}
+            {onReset ? (
+                <div className="flex gap-[4px] pl-[56px]">
+                    <button
+                        type="button"
+                        onClick={() => onReset("/compact\r")}
+                        title="summarize the conversation so far and keep going from the summary"
+                        className={RESET_BTN}
+                    >
+                        Compact
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => onReset("/clear\r")}
+                        title="start a fresh conversation; /resume brings this one back"
+                        className={RESET_BTN}
+                    >
+                        Clear
+                    </button>
+                </div>
+            ) : null}
         </>
     );
 }
@@ -110,8 +135,8 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 // RailStrip is the collapsed rail: the expand chevron, a badge for questions waiting on you, and the context
 // window as a vertical gauge, so both read without opening the rail.
-function RailStrip({ needs, ctxPct }: { needs: number; ctxPct?: number }) {
-    const level = ctxPct != null ? usageLevel(ctxPct) : "ok";
+function RailStrip({ needs, ctxPct, ctxMax }: { needs: number; ctxPct?: number; ctxMax?: number }) {
+    const level = ctxPct != null ? contextLevel(ctxPct, ctxMax) : "ok";
     const reduce = useReducedMotion();
     const tween = (props: string[]) =>
         reduce ? undefined : props.map((p) => `${p} ${MOTION.durMacro}s ${easeFluidCss}`).join(", ");
@@ -242,8 +267,17 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
 
     useEffect(() => {
         fireAndForget(() => loadRailForAgent(agent.id, agent.transcriptPath, agent.blockId));
-        fireAndForget(() => loadCacheStatusForAgent(agent.id, agent.transcriptPath));
     }, [agent.id, agent.transcriptPath, agent.blockId]);
+
+    // re-read while focused: every turn writes the cache again, so a status read once at focus
+    // counts down to "expired" under an agent that is still working
+    useEffect(() => {
+        fireAndForget(() => loadCacheStatusForAgent(agent.id, agent.transcriptPath));
+        const refresh = setInterval(() => {
+            fireAndForget(() => loadCacheStatusForAgent(agent.id, agent.transcriptPath, { silent: true }));
+        }, USAGE_REFRESH_MS);
+        return () => clearInterval(refresh);
+    }, [agent.id, agent.transcriptPath]);
 
     // token usage follows the transcript in view: a subagent's own while its interior is open
     const usageId = sub ? `sub:${sub.agentId}` : agent.id;
@@ -282,7 +316,11 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
     const cacheCountdown = isClaude ? formatCacheCountdown(cacheStatus, now) : "—";
     const branch = ended ? ended.branch : railState?.branch;
     const worktree = ended ? undefined : railState?.worktree;
-    const action = sub ? null : railAction(agent.state, age, agent.blockId != null && !ended);
+    const live = agent.blockId != null && !ended;
+    const action = sub ? null : railAction(agent.state, age, live);
+    const offerReset =
+        ctxPct != null &&
+        offersContextReset({ isClaude, state: agent.state, level: contextLevel(ctxPct, usage?.contextmax), live });
 
     const subHead: RailSection[] =
         sub != null
@@ -358,7 +396,12 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                                     {worktree}
                                 </DetailLine>
                             ) : null}
-                            <DetailLine label="Session">
+                            <DetailLine
+                                label="Session"
+                                title={
+                                    cacheCountdown !== "—" ? cacheRewriteTitle(ctxPct, usage?.contextmax) : undefined
+                                }
+                            >
                                 {ended ? (
                                     <>ended {age} ago</>
                                 ) : (
@@ -373,7 +416,13 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                                     </>
                                 ) : null}
                             </DetailLine>
-                            {ctxPct != null ? <ContextLine pct={ctxPct} max={usage?.contextmax} /> : null}
+                            {ctxPct != null ? (
+                                <ContextLine
+                                    pct={ctxPct}
+                                    max={usage?.contextmax}
+                                    onReset={offerReset ? drive : undefined}
+                                />
+                            ) : null}
                         </>
                     )}
                 </div>
@@ -563,7 +612,9 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
             ariaLabel="Agent details"
             sections={sections}
             strip={{
-                content: <RailStrip needs={yours.length} ctxPct={sub ? undefined : ctxPct} />,
+                content: (
+                    <RailStrip needs={yours.length} ctxPct={sub ? undefined : ctxPct} ctxMax={usage?.contextmax} />
+                ),
                 title: `${stripTitle} (${formatChordString("d")})`,
             }}
             footer={
