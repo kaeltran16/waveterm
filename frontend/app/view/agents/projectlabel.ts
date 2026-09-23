@@ -11,17 +11,35 @@ function leaf(cwd: string): string {
     return parts[parts.length - 1] ?? "";
 }
 
-function samePath(a: string, b: string): boolean {
-    const norm = (p: string) => p.replace(/[\\/]+$/, "").replace(/\\/g, "/").toLowerCase();
-    return norm(a) === norm(b);
+function normPath(p: string): string {
+    return p
+        .replace(/[\\/]+$/, "")
+        .replace(/\\/g, "/")
+        .toLowerCase();
+}
+
+// The registered project whose path is, or contains, cwd; "" if none. The most specific path wins, so a
+// worktree registered in its own right beats the repo it lives in, while an unregistered worktree nested
+// in a repo (orchestrator task dirs, .claude/worktrees) resolves to that repo.
+export function registeredProjectFor(cwd: string, projects: Record<string, { path?: string }>): string {
+    if (!cwd) return "";
+    const want = normPath(cwd);
+    let best = "";
+    let bestLen = -1;
+    for (const [name, pk] of Object.entries(projects ?? {})) {
+        if (!pk?.path) continue;
+        const p = normPath(pk.path);
+        if ((want === p || want.startsWith(p + "/")) && p.length > bestLen) {
+            best = name;
+            bestLen = p.length;
+        }
+    }
+    return best;
 }
 
 export function projectLabel(cwd: string, projects: Record<string, { path?: string }>): string {
     if (!cwd) return "";
-    for (const [name, pk] of Object.entries(projects ?? {})) {
-        if (pk?.path && samePath(pk.path, cwd)) return name;
-    }
-    return leaf(cwd);
+    return registeredProjectFor(cwd, projects) || leaf(cwd);
 }
 
 // The one name a channel is allowed to show. A channel is storage for "work in this project", so what a

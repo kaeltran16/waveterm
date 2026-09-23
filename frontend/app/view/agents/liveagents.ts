@@ -14,6 +14,8 @@ import { atom, type Atom, type PrimitiveAtom } from "jotai";
 import { agentVMFromInput, askingCount, deriveTerminalVMs, isAskStale, withAsk, type AgentEntry, type AgentVM } from "./agentsviewmodel";
 import { getAgentAskAtom } from "./agentaskstore";
 import { fetchPreviousInfo } from "./previousinfo";
+import { registeredProjectFor } from "./projectlabel";
+import { projectsAtom } from "./projectsstore";
 
 interface PreviousInfoEntry {
     entries: AgentEntry[];
@@ -31,6 +33,7 @@ const previousInfoLoading = new Set<string>();
 // excluded. Recomputes on any sidebar/status change; age is computed at recompute time.
 export const liveAgentBaseAtom: Atom<AgentVM[]> = atom((get) => {
     const vm = get(sessionSidebarViewModelAtom);
+    const projects = get(projectsAtom);
     const now = Date.now();
     const agents: AgentVM[] = [];
     for (const row of flattenVisualOrder(vm)) {
@@ -52,7 +55,9 @@ export const liveAgentBaseAtom: Atom<AgentVM[]> = atom((get) => {
                 ts: status.ts,
                 transcriptPath: status.transcriptpath,
                 blockId: row.termBlockOref?.split(":")[1],
-                project: row.projectLabel,
+                // the registry at the agent's cwd is authoritative; the launch-time tag and the lossy
+                // transcript-path guess (projectOf) only cover agents outside every registered project
+                project: registeredProjectFor(row.cwd ?? "", projects) || row.projectLabel,
                 runORef: row.runORef,
                 sessionId: status.sessionid,
             },

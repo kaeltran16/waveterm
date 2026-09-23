@@ -312,6 +312,10 @@ describe("buildSessionViewModel — project label (launch default)", () => {
         const vm = buildSessionViewModel([input({ tabId: "t1", agent: "claude", projectLabel: "waveterm", cwd: "/src/X" })]);
         expect(vm.groups[0].sessions[0].projectLabel).toBe("waveterm");
     });
+    it("carries the cwd onto the row so the roster can resolve its registered project", () => {
+        const vm = buildSessionViewModel([input({ tabId: "t1", agent: "claude", cwd: "/src/X" })]);
+        expect(vm.groups[0].sessions[0].cwd).toBe("/src/X");
+    });
 });
 
 describe("toggleCollapsed", () => {

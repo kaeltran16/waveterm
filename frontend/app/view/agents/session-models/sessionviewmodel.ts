@@ -78,6 +78,7 @@ export interface SessionRowVM {
     label: string;
     customLabel?: string;
     projectLabel?: string; // launch-time project name; the roster groups by this (not the lossy transcript-path derivation)
+    cwd?: string; // the session terminal's cwd; resolves the registered project the agent works in
     runORef?: string; // the run this session works for: a lead's own run, a worker's child run
     agent?: string; // session:agent runtime (claude/codex/…); undefined for plain terminals
     status: SessionStatus;
@@ -151,6 +152,7 @@ function toRow(s: SessionInput, includeService: boolean): SessionRowVM {
         label: rowLabel(s, includeService),
         customLabel: s.customLabel,
         projectLabel: s.projectLabel,
+        cwd: s.cwd,
         runORef: s.runORef,
         agent: s.agent,
         status,

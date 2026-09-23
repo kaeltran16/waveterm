@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { channelProjectLabel, dedupeByProject, projectLabel } from "./projectlabel";
+import { channelProjectLabel, dedupeByProject, projectLabel, registeredProjectFor } from "./projectlabel";
 
 describe("projectLabel", () => {
     const projects = { "Krypton API": { path: "C:\\Users\\k\\IdeaProjects\\krypton" } };
@@ -15,6 +15,36 @@ describe("projectLabel", () => {
     });
     it("returns empty for empty cwd", () => {
         expect(projectLabel("", {})).toBe("");
+    });
+    it("names the registered project that contains the cwd", () => {
+        expect(projectLabel("C:\\Users\\k\\IdeaProjects\\krypton\\pkg\\api", projects)).toBe("Krypton API");
+    });
+});
+
+describe("registeredProjectFor", () => {
+    const projects = {
+        waveterm: { path: "C:\\Users\\k\\IdeaProjects\\waveterm" },
+        "exp-arc": { path: "C:/Users/k/IdeaProjects/waveterm/.worktrees/exp-arc" },
+        "MP-Frontend": { path: "C:/Users/k/IdeaProjects/MP-Frontend" },
+    };
+
+    it("maps an orchestrator worktree nested in a repo to that repo", () => {
+        const taskDir = "C:/Users/k/IdeaProjects/waveterm/.waveterm-worktrees/f7dc/t-6";
+        expect(registeredProjectFor(taskDir, projects)).toBe("waveterm");
+    });
+    it("prefers the most specific registered path", () => {
+        const inWorktree = "C:\\Users\\k\\IdeaProjects\\waveterm\\.worktrees\\exp-arc\\src";
+        expect(registeredProjectFor(inWorktree, projects)).toBe("exp-arc");
+    });
+    it("keeps hyphenated names and ignores case and separators", () => {
+        expect(registeredProjectFor("c:\\users\\k\\ideaprojects\\mp-frontend", projects)).toBe("MP-Frontend");
+    });
+    it("does not match a sibling that only shares a name prefix", () => {
+        expect(registeredProjectFor("C:/Users/k/IdeaProjects/waveterm-old", projects)).toBe("");
+    });
+    it("returns empty for an unregistered or empty cwd", () => {
+        expect(registeredProjectFor("/tmp/scratch", projects)).toBe("");
+        expect(registeredProjectFor("", projects)).toBe("");
     });
 });
 
