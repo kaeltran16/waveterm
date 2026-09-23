@@ -6,6 +6,8 @@ package jarvis
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -14,6 +16,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
 	"github.com/wavetermdev/waveterm/pkg/harness"
 	"github.com/wavetermdev/waveterm/pkg/runroute"
+	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
 	"github.com/wavetermdev/waveterm/pkg/wps"
@@ -136,9 +139,44 @@ func makeWorkerBlockMeta(spec RunWorkerSpec, cwd string, keepOnExit bool) waveob
 	return m
 }
 
+// maxInlinePromptBytes is the largest prompt passed on the worker's command line. Windows caps a whole
+// command line at 32,767 UTF-16 units and the pwsh wrapper escapes every quote, so a prompt can nearly
+// double; half the cap always fits. UTF-8 bytes never undercount UTF-16 units.
+const maxInlinePromptBytes = 16 * 1024
+
+// promptFileDir holds the prompts too long for a command line. Resolved per call because the data dir is
+// only known once the server has started; a var so tests write to a temp dir.
+var promptFileDir = func() string { return filepath.Join(wavebase.GetWaveDataDir(), "jarvis", "prompts") }
+
+// launchPrompt is the prompt to put on the command line: the prompt itself when it fits, otherwise a
+// pointer to a file holding it. Only long prompts move, because claude titles a session from its first
+// message and a pointer would give every worker the same title.
+func launchPrompt(prompt, sessionId string) (string, error) {
+	if len(prompt) <= maxInlinePromptBytes {
+		return prompt, nil
+	}
+	name := sessionId
+	if name == "" {
+		name = uuid.NewString()
+	}
+	dir := promptFileDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("creating prompt dir: %w", err)
+	}
+	path := filepath.Join(dir, name+".md")
+	if err := os.WriteFile(path, []byte(prompt), 0o644); err != nil {
+		return "", fmt.Errorf("writing prompt file: %w", err)
+	}
+	return fmt.Sprintf("Your instructions are in the file %s (too long for a command line). Read the whole file now and follow it exactly, as if it were this message.", path), nil
+}
+
 var SpawnRunWorker = func(ctx context.Context, cap runroute.Capability, workspaceId, projectName, cwd, prompt string, opts RunWorkerOptions) (string, error) {
 	if workspaceId == "" {
 		return "", fmt.Errorf("workspaceId is required to spawn a worker")
+	}
+	prompt, err := launchPrompt(prompt, opts.SessionId)
+	if err != nil {
+		return "", err
 	}
 	spec, ok := RunWorkerSpecFor(cap, opts.SessionId, prompt)
 	if !ok {
