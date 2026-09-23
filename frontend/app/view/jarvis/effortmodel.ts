@@ -31,6 +31,9 @@ export type EffortCardModel = {
     chips: ChunkChip[];
     chipOverflow: number;
     blockedChunks: string[];
+    shortId: string;
+    // each chunk's stage by label, for rows that name a chunk without its effort detail loaded
+    chunkStages: Record<string, string>;
     // carried so the card can tell the detail cache how fresh the summary it is drawing from is
     updatedts: number;
 };
@@ -70,6 +73,8 @@ export function buildEffortCard(e: EffortSummary): EffortCardModel {
         chips,
         chipOverflow: Math.max(0, chunks.length - CHIP_CAP),
         blockedChunks: chunks.filter((c) => c.status === "blocked").map((c) => c.label),
+        shortId: e.oref.replace(/^effort:/, "").slice(0, 8),
+        chunkStages: Object.fromEntries(chunks.map((c) => [c.label, c.stage ?? ""])),
     };
 }
 
@@ -77,16 +82,13 @@ export function buildEffortCard(e: EffortSummary): EffortCardModel {
 // group-by. Chunk order is the plan's order, so gathering scattered same-stage chunks would silently
 // reorder the plan; a stage that reappears later simply prints its header again. Chunks with no
 // stage form their own unlabelled runs and render without a header.
-export type StageGroup<T> = { stage: string; rows: T[]; fraction: string };
+export type StageGroup<T> = { stage: string; rows: T[]; fraction: string; done: number; total: number };
 
 // the card's rule, kept: skipped chunks shrink the denominator, so a stage finished by skipping
 // reads as finished rather than stuck.
-function stageFraction(rows: { status: string }[]): string {
+function stageCounts(rows: { status: string }[]): { done: number; total: number } {
     const skipped = rows.filter((r) => r.status === "skipped").length;
-    if (skipped === rows.length) {
-        return "all skipped";
-    }
-    return `${rows.filter((r) => r.status === "done").length} of ${rows.length - skipped}`;
+    return { done: rows.filter((r) => r.status === "done").length, total: rows.length - skipped };
 }
 
 export function groupChunksByStage<T extends { stage: string; status: string }>(rows: T[]): StageGroup<T>[] {
@@ -97,9 +99,12 @@ export function groupChunksByStage<T extends { stage: string; status: string }>(
             last.rows.push(row);
             continue;
         }
-        groups.push({ stage: row.stage, rows: [row], fraction: "" });
+        groups.push({ stage: row.stage, rows: [row], fraction: "", done: 0, total: 0 });
     }
-    return groups.map((g) => ({ ...g, fraction: stageFraction(g.rows) }));
+    return groups.map((g) => {
+        const { done, total } = stageCounts(g.rows);
+        return { ...g, done, total, fraction: `${done}/${total}` };
+    });
 }
 
 // The datalist behind every stage editor: the stages already on this effort, in first-seen order.

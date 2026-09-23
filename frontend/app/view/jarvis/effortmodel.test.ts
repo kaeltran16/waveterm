@@ -168,13 +168,11 @@ describe("groupChunksByStage", () => {
             row("A", "pending", "3"),
             row("A", "blocked", "4"),
         ]);
-        expect(groups[0].fraction).toBe("1 of 3");
+        expect(groups[0].fraction).toBe("1/3");
     });
 
-    it("reads an all-skipped stage as finished, not stuck", () => {
-        expect(groupChunksByStage([row("A", "skipped", "1"), row("A", "skipped", "2")])[0].fraction).toBe(
-            "all skipped"
-        );
+    it("reads an all-skipped stage as 0/0, never NaN", () => {
+        expect(groupChunksByStage([row("A", "skipped", "1"), row("A", "skipped", "2")])[0].fraction).toBe("0/0");
     });
 
     it("returns no groups for no chunks", () => {
@@ -269,5 +267,18 @@ describe("effortFacts", () => {
         expect(effortFacts(effort({ chunks: [chunk("A", "done"), chunk("B", "skipped")] }), []).next).toBe(
             "No open chunk."
         );
+    });
+});
+
+describe("groupChunksByStage fractions", () => {
+    const row = (stage: string, status: string) => ({ stage, status, label: stage + status + Math.random() });
+    it("prints done/total with a slash, skips out of the denominator", () => {
+        const [g] = groupChunksByStage([row("A", "done"), row("A", "pending"), row("A", "skipped")]);
+        expect(g.fraction).toBe("1/2");
+        expect([g.done, g.total]).toEqual([1, 2]);
+    });
+    it("an all-skipped stage is 0/0, never a word that wraps", () => {
+        const [g] = groupChunksByStage([row("A", "skipped")]);
+        expect(g.fraction).toBe("0/0");
     });
 });

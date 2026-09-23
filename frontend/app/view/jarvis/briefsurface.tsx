@@ -960,7 +960,6 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                       )
                     : null,
             noteCounts: feedNoteCounts(feed),
-            countLine: openCard?.countLine ?? "",
             stageOverrides,
         });
         return {
