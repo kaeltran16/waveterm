@@ -59,8 +59,17 @@ func chunkLabels(e *waveobj.Effort) string {
 	return strings.Join(labels, ", ")
 }
 
-func chunkNote(e *waveobj.Effort, idx int, text string, now int64) {
-	e.Chunks[idx].Notes = append(e.Chunks[idx].Notes, waveobj.EffortNote{Ts: now, Text: text})
+// NoteAuthor is who the notes a batch appends are attributed to. The zero value writes no author.
+type NoteAuthor struct {
+	Who     string // "you" | "agent" | ""
+	Session string // "agent:<tabid>"
+	Run     string // "run:<oid>"
+}
+
+func chunkNote(e *waveobj.Effort, idx int, text string, now int64, by NoteAuthor) {
+	e.Chunks[idx].Notes = append(e.Chunks[idx].Notes, waveobj.EffortNote{
+		Ts: now, Text: text, Author: by.Who, Session: by.Session, Run: by.Run,
+	})
 	e.Chunks[idx].UpdatedTs = now
 }
 
@@ -135,6 +144,11 @@ func noteSuffix(cmdNote string) string {
 // nothing is applied (the caller runs this inside a store transaction for atomicity). cmdNote is
 // appended to the affected trail as the batch's note when an op carries no note of its own.
 func ApplyEffortOps(e *waveobj.Effort, ops []wshrpc.EffortOp, cmdNote string, now int64) error {
+	return ApplyEffortOpsAs(e, ops, cmdNote, now, NoteAuthor{})
+}
+
+// ApplyEffortOpsAs is ApplyEffortOps with every chunk note the batch appends attributed to by.
+func ApplyEffortOpsAs(e *waveobj.Effort, ops []wshrpc.EffortOp, cmdNote string, now int64, by NoteAuthor) error {
 	// ---- validation pass ----
 	for _, op := range ops {
 		switch op.Op {
@@ -301,14 +315,14 @@ func ApplyEffortOps(e *waveobj.Effort, ops []wshrpc.EffortOp, cmdNote string, no
 			idx, _ := ResolveChunkIndex(e, op.Chunk)
 			old := e.Chunks[idx].Label
 			e.Chunks[idx].Label = op.Label
-			chunkNote(e, idx, "renamed from "+old, now)
+			chunkNote(e, idx, "renamed from "+old, now, by)
 		case "moveChunk":
 			idx, _ := ResolveChunkIndex(e, op.Chunk)
 			c := e.Chunks[idx]
 			e.Chunks = append(e.Chunks[:idx], e.Chunks[idx+1:]...)
 			at := *op.At - 1
 			e.Chunks = append(e.Chunks[:at], append([]waveobj.EffortChunk{c}, e.Chunks[at:]...)...)
-			chunkNote(e, at, "moved to position "+strconv.Itoa(*op.At), now)
+			chunkNote(e, at, "moved to position "+strconv.Itoa(*op.At), now, by)
 		case "setChunkStatus":
 			idx, _ := ResolveChunkIndex(e, op.Chunk)
 			e.Chunks[idx].Status = op.Status
@@ -316,7 +330,7 @@ func ApplyEffortOps(e *waveobj.Effort, ops []wshrpc.EffortOp, cmdNote string, no
 			if note != "" {
 				text += " · " + note
 			}
-			chunkNote(e, idx, text, now)
+			chunkNote(e, idx, text, now, by)
 			kind := "chunk-status"
 			if op.Status == "done" {
 				kind = "chunk-done"
@@ -324,7 +338,7 @@ func ApplyEffortOps(e *waveobj.Effort, ops []wshrpc.EffortOp, cmdNote string, no
 			effortEvent(e, kind, e.Chunks[idx].Label, note, now)
 		case "appendNote":
 			idx, _ := ResolveChunkIndex(e, op.Chunk)
-			chunkNote(e, idx, note, now)
+			chunkNote(e, idx, note, now, by)
 			effortEvent(e, "effort-note", e.Chunks[idx].Label, note, now)
 		case "editNote":
 			idx, _ := ResolveChunkIndex(e, op.Chunk)
@@ -358,13 +372,13 @@ func ApplyEffortOps(e *waveobj.Effort, ops []wshrpc.EffortOp, cmdNote string, no
 			// nothing and completes nothing. The delta stays "what changed that matters".
 			idx, _ := ResolveChunkIndex(e, op.Chunk)
 			e.Chunks[idx].Stage = strings.TrimSpace(op.Stage)
-			chunkNote(e, idx, "stage set to "+orNone(e.Chunks[idx].Stage), now)
+			chunkNote(e, idx, "stage set to "+orNone(e.Chunks[idx].Stage), now, by)
 		case "setOwner":
 			idx, _ := ResolveChunkIndex(e, op.Chunk)
 			e.Chunks[idx].Owner = op.Owner
-			chunkNote(e, idx, "owner set to "+orNone(op.Owner), now)
+			chunkNote(e, idx, "owner set to "+orNone(op.Owner), now, by)
 		case "advance":
-			advance(e, note, now)
+			advance(e, note, now, by)
 		case "reopen":
 			idx, _ := ResolveChunkIndex(e, op.Chunk)
 			// undo of advance: reopened chunk active, the previously active chunk back to pending
@@ -374,7 +388,7 @@ func ApplyEffortOps(e *waveobj.Effort, ops []wshrpc.EffortOp, cmdNote string, no
 				}
 			}
 			e.Chunks[idx].Status = "active"
-			chunkNote(e, idx, "reopened"+noteSuffix(note), now)
+			chunkNote(e, idx, "reopened"+noteSuffix(note), now, by)
 		case "attachWork":
 			idx, _ := ResolveChunkIndex(e, op.Chunk)
 			ref := waveobj.ChunkWorkRef{Kind: op.Kind, ORef: op.ORef, Ts: now}
@@ -389,7 +403,7 @@ func ApplyEffortOps(e *waveobj.Effort, ops []wshrpc.EffortOp, cmdNote string, no
 			if !replaced {
 				e.Chunks[idx].WorkRefs = append(e.Chunks[idx].WorkRefs, ref)
 			}
-			chunkNote(e, idx, op.Kind+" attached: "+op.ORef, now)
+			chunkNote(e, idx, op.Kind+" attached: "+op.ORef, now, by)
 		case "detachWork":
 			removeRef := func(idx int) bool {
 				out := e.Chunks[idx].WorkRefs[:0]
@@ -407,12 +421,12 @@ func ApplyEffortOps(e *waveobj.Effort, ops []wshrpc.EffortOp, cmdNote string, no
 			if op.Chunk != "" {
 				idx, _ := ResolveChunkIndex(e, op.Chunk)
 				if removeRef(idx) {
-					chunkNote(e, idx, "detached: "+op.ORef, now)
+					chunkNote(e, idx, "detached: "+op.ORef, now, by)
 				}
 			} else {
 				for i := range e.Chunks {
 					if removeRef(i) {
-						chunkNote(e, i, "detached: "+op.ORef, now)
+						chunkNote(e, i, "detached: "+op.ORef, now, by)
 					}
 				}
 			}
@@ -423,7 +437,7 @@ func ApplyEffortOps(e *waveobj.Effort, ops []wshrpc.EffortOp, cmdNote string, no
 
 // advance marks the active chunk done and activates the next non-done chunk (the run-card contract:
 // one active at a time). With no active chunk it activates the first non-done.
-func advance(e *waveobj.Effort, note string, now int64) {
+func advance(e *waveobj.Effort, note string, now int64, by NoteAuthor) {
 	active := -1
 	for i, c := range e.Chunks {
 		if c.Status == "active" {
@@ -437,13 +451,13 @@ func advance(e *waveobj.Effort, note string, now int64) {
 		if note != "" {
 			text += " · " + note
 		}
-		chunkNote(e, active, text, now)
+		chunkNote(e, active, text, now, by)
 		effortEvent(e, "chunk-done", e.Chunks[active].Label, note, now)
 	}
 	for i, c := range e.Chunks {
 		if c.Status == "pending" || c.Status == "blocked" || c.Status == "deferred" {
 			e.Chunks[i].Status = "active"
-			chunkNote(e, i, "activated", now)
+			chunkNote(e, i, "activated", now, by)
 			return
 		}
 	}

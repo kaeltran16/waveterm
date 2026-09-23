@@ -375,7 +375,11 @@ func workRefFromFlags(cmd *cobra.Command) (string, string, error) {
 
 // mutateOne sends a single-op batch; asJSON prints the post-mutation object when set.
 func mutateOne(effortOID string, op wshrpc.EffortOp, asJSON bool) error {
-	rtn, err := wshclient.EffortMutateCommand(RpcClient, wshrpc.CommandEffortMutateData{EffortOID: effortOID, Ops: []wshrpc.EffortOp{op}}, nil)
+	data := wshrpc.CommandEffortMutateData{EffortOID: effortOID, Ops: []wshrpc.EffortOp{op}}
+	if RpcContext.BlockId != "" {
+		data.SourceBlock = "block:" + RpcContext.BlockId
+	}
+	rtn, err := wshclient.EffortMutateCommand(RpcClient, data, nil)
 	if err != nil {
 		return err
 	}

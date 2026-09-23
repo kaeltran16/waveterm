@@ -761,6 +761,8 @@ declare global {
         effortoid: string;
         ops: EffortOp[];
         note?: string;
+        author?: string;
+        sourceblock?: string;
     };
 
     // wshrpc.CommandEffortMutateRtnData
@@ -2027,6 +2029,9 @@ declare global {
         ts: number;
         text: string;
         edited?: boolean;
+        author?: string;
+        session?: string;
+        run?: string;
     };
 
     // wshrpc.EffortOp

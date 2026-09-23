@@ -47,7 +47,7 @@ const effortOid = (oref: string) => oref.replace(/^effort:/, "");
 async function mutateEffort(oref: string, ops: EffortOp[]): Promise<void> {
     const rtn = await RpcApi.EffortMutateCommand(
         TabRpcClient,
-        { effortoid: effortOid(oref), ops },
+        { effortoid: effortOid(oref), ops, author: "you" },
         { timeout: stateRpcTimeoutMs }
     );
     const cache = new Map(globalStore.get(effortDetailAtom));
