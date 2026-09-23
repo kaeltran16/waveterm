@@ -190,3 +190,9 @@ export async function removeChunks(oref: string, chunks: EditChunk[], labels: st
 export async function addChunkAt(oref: string, label: string, stage: string, at?: number): Promise<void> {
     await mutateEffort(oref, [{ op: "addChunk", label: label.trim(), stage: stage || undefined, at }]);
 }
+export async function editNote(oref: string, chunk: string, at: number, ts: number, text: string): Promise<void> {
+    await mutateEffort(oref, [{ op: "editNote", chunk, at, notets: ts, note: text.trim() }]);
+}
+export async function removeNote(oref: string, chunk: string, at: number, ts: number): Promise<void> {
+    await mutateEffort(oref, [{ op: "removeNote", chunk, at, notets: ts }]);
+}

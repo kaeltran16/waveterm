@@ -29,6 +29,11 @@ export const briefComposerHeightAtom = atom(0);
 export const noteChunkAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 export const readingNoteAtom = atom<number | null>(null) as PrimitiveAtom<number | null>;
 
+// The one open plan-editing menu (a chunk's status menu or a stage's actions), by row id. Here for the
+// same reason: it is the innermost Escape layer, and the dispatcher runs on window capture ahead of any
+// listener the menu could register itself.
+export const trackerMenuAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
+
 // Alt+↑/↓ moves the chunk under the Brief cursor. The Brief publishes the handler while the cursor is on
 // a chunk, because only it holds the plan the move is computed against.
 export const chunkMoveAtom = atom<((dir: "up" | "down") => void) | null>(null) as PrimitiveAtom<

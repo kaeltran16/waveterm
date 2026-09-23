@@ -38,7 +38,17 @@ describe("effortFeed", () => {
             [{ ts: T, kind: "effort-note", label: "2", text: "shipped the fold" }]
         );
         expect(effortFeed(e)).toEqual([
-            { seq: 0, ts: T, kind: "effort-note", chunk: "B", status: "active", marked: "", text: "shipped the fold" },
+            {
+                seq: 0,
+                ts: T,
+                kind: "effort-note",
+                chunk: "B",
+                status: "active",
+                marked: "",
+                text: "shipped the fold",
+                noteAt: 1,
+                edited: false,
+            },
         ]);
     });
 
@@ -214,5 +224,35 @@ describe("feedNoteCounts", () => {
 describe("kilo", () => {
     it("shortens a count past a thousand to one decimal", () => {
         expect([kilo(950), kilo(1740)]).toEqual(["950", "1.7k"]);
+    });
+});
+
+describe("effortFeed noteAt", () => {
+    const effort = {
+        oid: "e",
+        chunks: [
+            {
+                label: "A",
+                status: "active",
+                notes: [
+                    { ts: 10, text: "marked active" },
+                    { ts: 20, text: "a real note", edited: true },
+                ],
+            },
+        ],
+        events: [
+            { ts: 10, kind: "chunk-status", label: "A", text: "" },
+            { ts: 20, kind: "effort-note", label: "A", text: "a real note" },
+        ],
+    } as unknown as Effort;
+
+    it("gives an effort-note its 1-based place in the chunk's trail, and carries edited", () => {
+        const note = effortFeed(effort).find((e) => e.kind === "effort-note");
+        expect(note?.noteAt).toBe(2);
+        expect(note?.edited).toBe(true);
+    });
+    it("leaves status entries without noteAt, so they stay read-only", () => {
+        const status = effortFeed(effort).find((e) => e.kind === "chunk-status");
+        expect(status?.noteAt).toBeUndefined();
     });
 });

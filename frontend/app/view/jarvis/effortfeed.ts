@@ -30,13 +30,19 @@ export type FeedEntry = {
     status: string;
     marked: string;
     text: string;
+    // effort-note entries located on their chunk: the note's 1-based place in that chunk's trail, the
+    // key editNote/removeNote take. Absent means read-only.
+    noteAt?: number;
+    edited?: boolean;
 };
 
-type LocatedNote = EffortNote & { chunk: EffortChunk };
+type LocatedNote = EffortNote & { chunk: EffortChunk; at: number };
 
 export function effortFeed(effort: Effort): FeedEntry[] {
     const chunks = effort.chunks ?? [];
-    const notes: LocatedNote[] = chunks.flatMap((chunk) => (chunk.notes ?? []).map((n) => ({ ...n, chunk })));
+    const notes: LocatedNote[] = chunks.flatMap((chunk) =>
+        (chunk.notes ?? []).map((n, i) => ({ ...n, chunk, at: i + 1 }))
+    );
     const used = new Set<LocatedNote>();
     const suffix = (n: LocatedNote) => STATUS_NOTE.exec(n.text)?.[2] ?? "";
 
@@ -89,6 +95,7 @@ export function effortFeed(effort: Effort): FeedEntry[] {
                               ? "status changed"
                               : "",
                 text: m != null ? (m[2] ?? "") : (ev.text ?? ""),
+                ...(ev.kind === "effort-note" && note != null ? { noteAt: note.at, edited: note.edited === true } : {}),
             },
         ];
     });

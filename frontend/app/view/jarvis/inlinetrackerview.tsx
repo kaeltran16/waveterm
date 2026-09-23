@@ -1,24 +1,18 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The inline initiative tracker and its note sidebar — the views over inlinetracker.ts.
+// The inline initiative tracker — the view over inlinetracker.ts.
 //
-// Two rules decide the shapes below. The plan reads first: an expanded initiative shows its stages and
-// chunks in place, and prose moves out to the sidebar, because an initiative's notes here average ~1.1k
-// characters and the sheet this replaces could not hold plan and prose at 640px. And the sidebar is not
-// modal: the Brief behind it stays readable and clickable, so reading a note never costs your place in
-// the index.
-//
-// The reader's width is the one adaptive rule. Docking it steals 580px, which a ~1000px window cannot
-// spare, so past a container breakpoint the reader stops compressing the index and floats over it under
-// a scrim instead. That is a CONTAINER query, not a media query: the Brief is the whole surface, and the
-// window is not the surface.
+// The plan reads first: an expanded initiative shows its stages and chunks in place, and prose moves out
+// to the Chunk sidebar (chunksidebar.tsx), because an initiative's notes here average ~1.1k characters and
+// the sheet this replaces could not hold plan and prose at 640px.
 
 import { cn } from "@/util/util";
+import { useAtom } from "jotai";
 import { Fragment, useEffect, useState } from "react";
-import { feedRows, kilo, type FeedEntry } from "./effortfeed";
 import { chunkTone, type ChunkTone } from "./effortmodel";
 import type { DetailRow } from "./inlinetracker";
+import { trackerMenuAtom } from "./jarvisstore";
 
 const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 
@@ -42,7 +36,6 @@ export const TONE_FG: Record<ChunkTone, string> = {
     pending: "text-muted",
 };
 
-const NOTE_PAGE = 40;
 export const STATUSES = ["pending", "active", "blocked", "deferred", "skipped", "done"];
 
 const SMALL_BUTTON =
@@ -87,33 +80,25 @@ export function InitiativeDetail({
     onToggleStage: (id: string, open: boolean) => void;
 }) {
     // one menu and one inline editor at a time, across every row of this plan
-    const [menu, setMenu] = useState<string | null>(null);
+    // an atom, not local state: Escape closing it is a keybinding (jarvis:close-tracker-menu)
+    const [menu, setMenu] = useAtom(trackerMenuAtom);
     const [editing, setEditing] = useState<Editing>(null);
     const [confirming, setConfirming] = useState(false);
     const [newStage, setNewStage] = useState<{ name: string; chunk: string | null } | null>(null);
+    // a menu left open when the plan unmounts would hold Escape away from the surface
+    useEffect(() => () => setMenu(null), [setMenu]);
     useEffect(() => {
         if (menu == null) {
             return;
         }
         const close = (e: Event) => {
-            if (e instanceof KeyboardEvent) {
-                if (e.key !== "Escape") {
-                    return;
-                }
-                // the menu is the innermost layer: Escape closes it, not the sidebar or the surface
-                e.stopPropagation();
-            } else if ((e.target as Element | null)?.closest("[data-jarvis-tracker-menu]") != null) {
-                return;
+            if ((e.target as Element | null)?.closest("[data-jarvis-tracker-menu]") == null) {
+                setMenu(null);
             }
-            setMenu(null);
         };
         document.addEventListener("mousedown", close);
-        document.addEventListener("keydown", close, true);
-        return () => {
-            document.removeEventListener("mousedown", close);
-            document.removeEventListener("keydown", close, true);
-        };
-    }, [menu]);
+        return () => document.removeEventListener("mousedown", close);
+    }, [menu, setMenu]);
 
     if (rows.length === 0) {
         return null;
@@ -676,228 +661,5 @@ function TrackerFooter({
                 </span>
             )}
         </div>
-    );
-}
-
-export function NoteSidebar({
-    label,
-    stage,
-    status,
-    feed,
-    reading,
-    now,
-    handle,
-    error,
-    onRead,
-    onBack,
-    onClose,
-    onActivity,
-    onAddNote,
-    onSetStatus,
-}: {
-    label: string;
-    stage: string;
-    status: string;
-    feed: FeedEntry[];
-    reading: number | null;
-    now: number;
-    handle: string;
-    error: string | null;
-    onRead: (i: number) => void;
-    onBack: () => void;
-    onClose: () => void;
-    onActivity: () => void;
-    onAddNote: (text: string) => void;
-    onSetStatus: (status: string) => void;
-}) {
-    const { rows } = feedRows(feed, { only: label, limit: NOTE_PAGE, now });
-    const notes = rows.filter((r) => r.body !== "");
-    const open = reading != null ? (notes[reading] ?? null) : null;
-    const [noteDraft, setNoteDraft] = useState<string | null>(null);
-
-    const submitNote = () => {
-        const text = (noteDraft ?? "").trim();
-        setNoteDraft(null);
-        if (text !== "") {
-            onAddNote(text);
-        }
-    };
-
-    return (
-        <aside
-            aria-label={open != null ? "Task note" : "Task notes"}
-            data-jarvis-note-sidebar={open != null ? "reader" : "previews"}
-            className={cn(
-                "absolute inset-y-0 right-0 z-[4] flex flex-col overflow-hidden border-l border-border bg-background",
-                // docked at 360; the reader widens to 560 and, below the breakpoint, stops pushing the
-                // index and casts a shadow over it instead
-                open != null
-                    ? "w-[560px] @max-[1280px]:w-[min(560px,84cqw)] @max-[1280px]:shadow-[-26px_0_64px_var(--color-background)] @max-[980px]:w-[min(560px,88cqw)]"
-                    : "w-[360px] @max-[980px]:w-[min(360px,92cqw)] @max-[980px]:shadow-[-18px_0_44px_var(--color-background)]"
-            )}
-        >
-            <div className="flex flex-none items-center gap-2 border-b border-edge-faint px-[13px] py-[11px]">
-                <span className="font-mono text-[9px] font-bold uppercase tracking-[.12em] text-feed-label">
-                    {open != null ? "Task note" : "Task notes"}
-                </span>
-                <button
-                    type="button"
-                    onClick={onActivity}
-                    className={cn("cursor-pointer font-mono text-[9px] text-accent-soft hover:underline", FOCUS)}
-                >
-                    initiative activity ↗
-                </button>
-                <button
-                    type="button"
-                    onClick={onClose}
-                    className={cn(
-                        "ml-auto cursor-pointer rounded-[7px] border border-border bg-surface-raised px-[9px] py-1 text-[10px] font-semibold text-muted hover:border-edge-strong hover:text-ink-hi",
-                        FOCUS
-                    )}
-                >
-                    Close
-                </button>
-            </div>
-
-            {open != null ? (
-                <div className="min-h-0 flex-1 overflow-y-auto">
-                    <div className="sticky top-0 z-[2] flex items-center gap-[9px] border-b border-edge-faint bg-background px-3.5 py-2.5">
-                        <button
-                            type="button"
-                            onClick={onBack}
-                            className={cn(
-                                "cursor-pointer font-mono text-[9.5px] text-accent-soft hover:underline",
-                                FOCUS
-                            )}
-                        >
-                            ← notes
-                        </button>
-                        <span className="ml-auto whitespace-nowrap font-mono text-[9px] text-muted">
-                            {open.day} · {kilo(open.body.length)} chars · {(reading ?? 0) + 1} of {notes.length}
-                        </span>
-                    </div>
-                    <div className="px-[18px] pt-[15px]">
-                        <div className="mb-[5px] font-mono text-[8.5px] uppercase tracking-[.06em] text-muted">
-                            {stage}
-                        </div>
-                        <div className="max-w-[68ch] text-[13px] font-semibold leading-[1.45] text-ink-hi">{label}</div>
-                    </div>
-                    <div className="max-w-[68ch] whitespace-pre-wrap break-words px-[18px] pb-8 pt-3.5 text-[13px] leading-[1.72] text-secondary">
-                        {open.body}
-                    </div>
-                </div>
-            ) : (
-                <div className="min-h-0 flex-1 overflow-y-auto px-3.5 pb-4 pt-[13px]">
-                    {stage !== "" ? (
-                        <div className="mb-2 font-mono text-[8.5px] uppercase tracking-[.06em] text-muted">{stage}</div>
-                    ) : null}
-                    <div className="text-pretty text-[13px] font-semibold leading-[1.45] text-ink-hi">{label}</div>
-                    <div className="mt-1.5 flex flex-wrap gap-1.5 font-mono text-[8.5px] uppercase tracking-[.04em] text-muted">
-                        <span>{status}</span>
-                        <span>·</span>
-                        <span>
-                            {notes.length} {notes.length === 1 ? "note" : "notes"}
-                        </span>
-                    </div>
-                    <div className="mt-3 flex flex-wrap items-center gap-2">
-                        <button
-                            type="button"
-                            onClick={() => setNoteDraft(noteDraft == null ? "" : null)}
-                            aria-expanded={noteDraft != null}
-                            className={cn(
-                                "flex-none cursor-pointer rounded-[7px] border border-accent bg-accent px-3 py-1.5 text-[11.5px] font-bold text-background hover:bg-accenthover",
-                                FOCUS
-                            )}
-                        >
-                            Add note
-                        </button>
-                        <select
-                            value={status}
-                            aria-label="Set this task's status"
-                            onChange={(e) => onSetStatus(e.target.value)}
-                            className={cn(
-                                "min-w-0 flex-1 cursor-pointer rounded-[6px] border border-border bg-surface-raised px-[7px] py-1 text-[10px] text-secondary",
-                                FOCUS
-                            )}
-                        >
-                            {STATUSES.map((s) => (
-                                <option key={s} value={s}>
-                                    {s}
-                                </option>
-                            ))}
-                        </select>
-                    </div>
-                    {noteDraft != null ? (
-                        <input
-                            autoFocus
-                            value={noteDraft}
-                            onChange={(e) => setNoteDraft(e.target.value)}
-                            onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                    submitNote();
-                                } else if (e.key === "Escape") {
-                                    // stopped here: the sidebar's Escape ladder would otherwise close the
-                                    // panel out from under a half-typed note
-                                    e.stopPropagation();
-                                    setNoteDraft(null);
-                                }
-                            }}
-                            placeholder={`note on ${label}`}
-                            aria-label="New note"
-                            className="mt-2 w-full rounded-[7px] border border-edge-mid bg-background px-2.5 py-1.5 text-[12.5px] text-primary outline-none focus:border-accent/60"
-                        />
-                    ) : null}
-                    {error != null ? <p className="mt-2 text-[11px] text-error">{error}</p> : null}
-                    <button
-                        type="button"
-                        title="copy the CLI handle"
-                        onClick={() => void navigator.clipboard?.writeText(handle)}
-                        className={cn("mt-2 cursor-pointer font-mono text-[9.5px] text-muted hover:text-ink-hi", FOCUS)}
-                    >
-                        {handle}
-                    </button>
-                    {notes.length === 0 ? (
-                        <p className="mt-3 text-[12px] leading-[1.6] text-muted">
-                            No notes on this task yet. A note written by you or by an agent lands here.
-                        </p>
-                    ) : (
-                        <div className="mt-3 flex flex-col gap-1">
-                            {notes.map((n, i) => (
-                                <div key={n.key}>
-                                    {i === 1 ? (
-                                        <div className="mx-[7px] mt-1.5 border-t border-edge-faint pt-[9px] font-mono text-[8.5px] font-bold uppercase tracking-[.1em] text-muted">
-                                            Earlier
-                                        </div>
-                                    ) : null}
-                                    <button
-                                        type="button"
-                                        onClick={() => onRead(i)}
-                                        data-jarvis-note-preview={n.key}
-                                        className={cn(
-                                            "flex w-full cursor-pointer flex-col gap-[3px] rounded-[6px] p-[7px] text-left hover:bg-surface-hover",
-                                            FOCUS
-                                        )}
-                                    >
-                                        <span className="flex items-center gap-[7px] font-mono text-[9px] text-muted">
-                                            <span>{n.day}</span>
-                                            <span>{kilo(n.body.length)} chars</span>
-                                            <span className="ml-auto text-accent-soft">open</span>
-                                        </span>
-                                        <span
-                                            className={cn(
-                                                "overflow-hidden text-[12px] leading-[1.55]",
-                                                i === 0 ? "line-clamp-5 text-secondary" : "line-clamp-3 text-ink-mid"
-                                            )}
-                                        >
-                                            {n.body}
-                                        </span>
-                                    </button>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </div>
-            )}
-        </aside>
     );
 }

@@ -31,7 +31,13 @@ import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
 import { codeFinderOpenAtom, codeTreeFocusedAtom } from "@/app/view/code/codestore";
 import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
-import { briefPeekRecordAtom, chunkMoveAtom, graphPeekOpenAtom, noteChunkAtom } from "@/app/view/jarvis/jarvisstore";
+import {
+    briefPeekRecordAtom,
+    chunkMoveAtom,
+    graphPeekOpenAtom,
+    noteChunkAtom,
+    trackerMenuAtom,
+} from "@/app/view/jarvis/jarvisstore";
 import { petPeekOpenAtom } from "@/app/view/jarvis/petstore";
 import { dagModalStateAtom } from "@/app/view/orchestrate/dagmodalstate";
 import { atom, type Atom, type PrimitiveAtom } from "jotai";
@@ -48,6 +54,7 @@ export const PREDICATE_ATOMS: Atom<unknown>[] = [
     graphPeekOpenAtom, // buildJarvisBindings: onStage, surface:back-home
     noteChunkAtom, // buildJarvisBindings: jarvis:close-notes, and surface:back-home yields to it
     chunkMoveAtom, // buildJarvisBindings: jarvis:chunk-up / jarvis:chunk-down
+    trackerMenuAtom, // buildJarvisBindings: jarvis:close-tracker-menu, jarvis:close-notes, surface:back-home
     // (readingNoteAtom is deliberately absent: jarvis:close-notes reads it in run(), never in when())
     autonomyPanelOpenAtom, // surface:back-home
     petPeekOpenAtom, // surface:back-home

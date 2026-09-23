@@ -52,6 +52,7 @@ import {
     graphPeekOpenAtom,
     noteChunkAtom,
     readingNoteAtom,
+    trackerMenuAtom,
 } from "@/app/view/jarvis/jarvisstore";
 import { activeRunIdAtom, activeSubjectAtom, setActiveRunId } from "@/app/view/jarvis/jarvissubjectstore";
 import { petPeekOpenAtom } from "@/app/view/jarvis/petstore";
@@ -360,7 +361,9 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
                 globalStore.get(dagModalStateAtom) == null &&
                 // and the Brief's note sidebar: while a note is open, Escape means "back out of the
                 // note", and going home too would do both at once
-                globalStore.get(noteChunkAtom) == null,
+                globalStore.get(noteChunkAtom) == null &&
+                // and the plan-editing menu above it, the innermost rung of all
+                globalStore.get(trackerMenuAtom) == null,
             run: () => globalStore.set(model.surfaceAtom, "cockpit"),
         },
     ];
@@ -530,15 +533,16 @@ export function buildJarvisBindings(): Binding[] {
     // see. Only its own toggle stays live (the peek also closes on Escape, which it owns while open).
     const onStage = (ctx: KeyContext) => onJarvis(ctx) && !globalStore.get(graphPeekOpenAtom);
 
-    // One rung per press: the reader returns to the previews, the previews close. Only then does Escape
+    // One rung per press: an expanded note card folds, then the sidebar closes. Only then does Escape
     // fall through to esc-home, which is guarded on the same atom — otherwise a single press would close
     // the note AND leave the surface.
     const noteSidebarEscape: Binding = {
         id: "jarvis:close-notes",
         keys: "Escape",
         group: "Jarvis",
-        label: "Back out of the note sidebar",
-        when: (ctx) => onJarvis(ctx) && globalStore.get(noteChunkAtom) != null,
+        label: "Back out of the Chunk sidebar",
+        when: (ctx) =>
+            onJarvis(ctx) && globalStore.get(noteChunkAtom) != null && globalStore.get(trackerMenuAtom) == null,
         run: () => {
             if (globalStore.get(readingNoteAtom) != null) {
                 globalStore.set(readingNoteAtom, null);
@@ -546,6 +550,16 @@ export function buildJarvisBindings(): Binding[] {
             }
             globalStore.set(noteChunkAtom, null);
         },
+    };
+
+    // an open status or stage menu sits above the sidebar: Escape closes the menu and nothing else
+    const trackerMenuEscape: Binding = {
+        id: "jarvis:close-tracker-menu",
+        keys: "Escape",
+        group: "Jarvis",
+        label: "Close the plan menu",
+        when: (ctx) => onJarvis(ctx) && globalStore.get(trackerMenuAtom) != null,
+        run: () => globalStore.set(trackerMenuAtom, null),
     };
 
     const clickThrough = (selector: string): boolean | void => {
@@ -580,6 +594,7 @@ export function buildJarvisBindings(): Binding[] {
     };
 
     return [
+        trackerMenuEscape,
         noteSidebarEscape,
         ...buildJarvisGraphBindings(),
         {

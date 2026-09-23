@@ -4485,25 +4485,25 @@ const briefInlineTracker = {
                   )
         );
 
-        // 3. a chunk row takes the Brief's cursor and opens its note sidebar
+        // 3. a chunk row takes the Brief's cursor and opens its Chunk sidebar
         let sidebar = { panel: false, cursorOnChunk: false };
         if (hasPlan && chunks > 0) {
             await h.ev(`[...document.querySelectorAll('[data-jarvis-tracker-chunk]')][0]?.click()`);
             await h.ev("new Promise((r) => setTimeout(r, 500))");
             sidebar = await h.ev(`(() => ({
-                panel: document.querySelector('[data-jarvis-note-sidebar]')?.dataset.jarvisNoteSidebar ?? null,
+                panel: !!document.querySelector('[data-jarvis-chunk-sidebar]'),
                 cursorOnChunk: !!document.querySelector('[data-jarvis-tracker-chunk][aria-pressed="true"]'),
             }))()`);
         }
         steps.push(
             hasPlan && chunks > 0
                 ? {
-                      step: "3. selecting a chunk opens the note previews and marks that row selected",
-                      ok: sidebar.panel === "previews" && sidebar.cursorOnChunk === true,
+                      step: "3. selecting a chunk opens the Chunk sidebar and marks that row selected",
+                      ok: sidebar.panel === true && sidebar.cursorOnChunk === true,
                       detail: JSON.stringify(sidebar),
                   }
                 : skipStep(
-                      "3. selecting a chunk opens the note previews and marks that row selected",
+                      "3. selecting a chunk opens the Chunk sidebar and marks that row selected",
                       "no chunk rows to select - seed an initiative carrying a plan"
                   )
         );
@@ -4523,7 +4523,7 @@ const briefInlineTracker = {
             }
             await h.ev("new Promise((r) => setTimeout(r, 400))");
             esc = await h.ev(`(() => ({
-                afterFirst: !!document.querySelector('[data-jarvis-note-sidebar]'),
+                afterFirst: !!document.querySelector('[data-jarvis-chunk-sidebar]'),
                 surface: !!document.querySelector('[data-jarvis-region="brief"]'),
             }))()`);
         }
@@ -4540,7 +4540,87 @@ const briefInlineTracker = {
                   )
         );
 
-        // 5. collapsing removes the chunk rows again, so a stale cursor cannot survive on one
+        // 5-8. the editing layer. Every step asserts and none commits a write: the delete is taken back
+        // with Undo inside its window, so no RPC is ever sent against the dev store.
+        if (hasPlan && chunks > 0) {
+            // 5. the status pill opens a menu with the six statuses
+            await h.ev(`document.querySelector('[data-jarvis-chunk-status]')?.click()`);
+            await h.ev("new Promise((r) => setTimeout(r, 200))");
+            // each item leads with a glyph span, so read the label span rather than the whole button
+            const menu = await h.ev(`(() => {
+                const m = document.querySelector('[data-jarvis-tracker-menu]');
+                return m ? [...m.querySelectorAll('button')].map((b) => b.querySelector('.flex-1')?.textContent.trim() ?? "") : null;
+            })()`);
+            await h.shot("cdp-shots/brief-inline-tracker-menu.png");
+            // real keys again: the menu's Escape rung is a window-capture binding, and it must close the
+            // menu without also backing out of the surface
+            for (const type of ["keyDown", "keyUp"]) {
+                await h.cdp("Input.dispatchKeyEvent", { type, key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+            }
+            await h.ev("new Promise((r) => setTimeout(r, 300))");
+            const afterEsc = await h.ev(`(() => ({
+                menu: !!document.querySelector('[data-jarvis-tracker-menu]'),
+                brief: !!document.querySelector('[data-jarvis-region="brief"]'),
+                chunks: document.querySelectorAll('[data-jarvis-tracker-chunk]').length,
+            }))()`);
+            const six = ["pending", "active", "blocked", "deferred", "skipped", "done"];
+            steps.push({
+                step: "5. the status pill opens a menu listing all six statuses, and Escape closes only the menu",
+                ok:
+                    Array.isArray(menu) &&
+                    six.every((s) => menu.includes(s)) &&
+                    afterEsc.menu === false &&
+                    afterEsc.brief === true &&
+                    afterEsc.chunks === chunks,
+                detail: JSON.stringify({ menu, afterEsc }),
+            });
+
+            // 6. double-click renames in place, and Escape leaves the label untouched
+            await h.ev(`document.querySelector('[data-jarvis-tracker-chunk]')?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))`);
+            await h.ev("new Promise((r) => setTimeout(r, 200))");
+            const renaming = await h.ev(`!!document.querySelector('[data-jarvis-rename-input]')`);
+            steps.push({ step: "6. double-clicking a chunk opens its rename input", ok: renaming === true, detail: String(renaming) });
+            await h.ev(`document.querySelector('[data-jarvis-rename-input]')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+            await h.ev("new Promise((r) => setTimeout(r, 150))");
+
+            // 7. delete hides the row at once, and Undo brings it back without a write
+            const label = await h.ev(`document.querySelectorAll('[data-jarvis-tracker-chunk]').length > 1 ? document.querySelector('[data-jarvis-tracker-chunk]').getAttribute('data-jarvis-tracker-chunk') : null`);
+            if (label != null) {
+                const sel = `document.querySelector('[data-jarvis-tracker-chunk="' + CSS.escape(${JSON.stringify(label)}) + '"]')`;
+                await h.ev(`document.querySelector('[data-jarvis-chunk-status]')?.click()`);
+                await h.ev("new Promise((r) => setTimeout(r, 200))");
+                await h.ev(`[...document.querySelectorAll('[data-jarvis-tracker-menu] button')].find((b) => b.textContent.trim() === 'Delete chunk')?.click()`);
+                await h.ev("new Promise((r) => setTimeout(r, 200))");
+                const gone = await h.ev(`!${sel} && !!document.querySelector('[data-jarvis-toast-undo]')`);
+                await h.ev(`document.querySelector('[data-jarvis-toast-undo]')?.click()`);
+                await h.ev("new Promise((r) => setTimeout(r, 300))");
+                const back = await h.ev(`!!${sel}`);
+                steps.push({
+                    step: "7. delete hides the chunk behind an Undo toast, and Undo restores it",
+                    ok: gone === true && back === true,
+                    detail: JSON.stringify({ label, gone, back }),
+                });
+            } else {
+                steps.push(skipStep("7. delete hides the chunk behind an Undo toast, and Undo restores it", "the plan has one chunk"));
+            }
+
+            // 8. the footer's delete asks first
+            await h.ev(`document.querySelector('[data-jarvis-initiative-action="delete"]')?.click()`);
+            await h.ev("new Promise((r) => setTimeout(r, 200))");
+            const confirm = await h.ev(`document.querySelector('[data-jarvis-delete-confirm]')?.textContent ?? null`);
+            steps.push({
+                step: "8. deleting an initiative asks for confirmation first",
+                ok: typeof confirm === "string" && confirm.includes("Delete this initiative"),
+                detail: String(confirm),
+            });
+            await h.shot("cdp-shots/brief-inline-tracker-confirm.png");
+            await h.ev(`[...document.querySelectorAll('[data-jarvis-delete-confirm] button')].find((b) => b.textContent.trim() === 'cancel')?.click()`);
+            await h.ev("new Promise((r) => setTimeout(r, 150))");
+        } else {
+            steps.push(skipStep("5-8. the editing layer: status menu, rename, delete + undo, delete confirm", "no initiative with chunks in this dev store"));
+        }
+
+        // 9. collapsing removes the chunk rows again, so a stale cursor cannot survive on one
         await h.ev(`[...document.querySelectorAll('[data-jarvis-brief-row="initiative"]')][0]?.click()`);
         await h.ev("new Promise((r) => setTimeout(r, 500))");
         const collapsed = await h.ev(`(() => ({
@@ -4548,7 +4628,7 @@ const briefInlineTracker = {
             chunks: document.querySelectorAll('[data-jarvis-tracker-chunk]').length,
         }))()`);
         steps.push({
-            step: "5. collapsing the initiative removes its plan rows",
+            step: "9. collapsing the initiative removes its plan rows",
             ok: collapsed.detail === false && collapsed.chunks === 0,
             detail: JSON.stringify(collapsed),
         });

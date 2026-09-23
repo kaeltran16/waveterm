@@ -109,7 +109,8 @@ import {
 import { BriefSheet } from "./briefsheet";
 import { sheetFace } from "./briefsheetmodel";
 import { BriefToastView } from "./brieftoast";
-import { briefUndo, chunkKey, effortKey, pendingDeleteKeysAtom } from "./briefundo";
+import { briefUndo, chunkKey, effortKey, noteKey, pendingDeleteKeysAtom } from "./briefundo";
+import { ChunkSidebar } from "./chunksidebar";
 import { EffortCreateForm } from "./effortcreateform";
 import { effortFeed, feedNoteCounts } from "./effortfeed";
 import { stageOptions } from "./effortmodel";
@@ -117,12 +118,14 @@ import {
     addChunkAt,
     appendChunkNote,
     deleteEffort,
+    editNote,
     effortChunkRows,
     effortDetailAtom,
     loadEffortDetail,
     moveChunk,
     moveChunkToStage,
     removeChunks,
+    removeNote,
     renameChunk,
     renameEffort,
     setChunkStage,
@@ -133,8 +136,8 @@ import {
 import { freshKeys } from "./freshrows";
 import { type PeekFocus } from "./graphfocus";
 import { GraphPeek } from "./graphpeek";
-import { expandableORef, trackerNavIds, trackerRows, type DetailRow } from "./inlinetracker";
-import { InitiativeDetail, NoteSidebar, type TrackerEdits } from "./inlinetrackerview";
+import { chunkRowId, expandableORef, stageRowId, trackerNavIds, trackerRows, type DetailRow } from "./inlinetracker";
+import { InitiativeDetail, type TrackerEdits } from "./inlinetrackerview";
 import {
     briefComposerHeightAtom,
     briefGraphRecordAtom,
@@ -152,7 +155,15 @@ import { openAddress, openChannelSheet, openTarget } from "./openref";
 import { reducePrinciplePatch } from "./profilemodel";
 import { ProgressBar } from "./progressbar";
 import { loadTaskList, taskListAtom } from "./tasksstore";
-import { appendInStageAt, canRemove, chunkRef, moveTarget, stageMoveTarget, stageRunLabels } from "./trackeredit";
+import {
+    appendInStageAt,
+    canRemove,
+    chunkRef,
+    moveTarget,
+    stageMoveTarget,
+    stageRunLabels,
+    stepChunk,
+} from "./trackeredit";
 
 const REGIONS = {
     waiting: {
@@ -933,7 +944,12 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     }, [openEffortORef, openFreshTs]);
 
     const tracker = useMemo(() => {
-        const feed = openEffort != null ? effortFeed(openEffort) : [];
+        const feed =
+            openEffort != null
+                ? effortFeed(openEffort).filter(
+                      (e) => !pendingDeletes.has(noteKey(openEffortORef ?? "", e.chunk, e.ts))
+                  )
+                : [];
         const rows = trackerRows({
             lines: view.visible,
             openLineId: openInitiative,
@@ -1094,6 +1110,23 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         setChunkMove(() => (dir: "up" | "down") => edits.onMoveChunk(row.row.label, dir));
         return () => setChunkMove(null);
     }, [edits, cursor, tracker.rows, setChunkMove]);
+    // the sidebar's ↑/↓ move the ONE Brief cursor, opening the target's stage if it is collapsed
+    const stepTo = (dir: "prev" | "next"): (() => void) | null => {
+        if (selectedChunk == null || openInitiative == null) {
+            return null;
+        }
+        const visible = planChunks.filter((c) => !pendingDeletes.has(chunkKey(selectedChunk.oref, c.label)));
+        const to = stepChunk(visible, selectedChunk.row.label, dir);
+        if (to == null) {
+            return null;
+        }
+        return () => {
+            const stage = visible.find((c) => c.label === to.label)?.stage ?? "";
+            // stageRowId's run index is counted on this same filtered list, which is what trackerRows groups
+            setStageOverrides((cur) => ({ ...cur, [stageRowId(openInitiative, stage, to.runAt)]: true }));
+            setCursor(chunkRowId(openInitiative, to.label));
+        };
+    };
     const sheetOpen = useAtomValue(briefSheetOpenAtom);
     const openLine = useCallback(
         (target: LineTarget) => {
@@ -1120,7 +1153,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     const cursorRow = tracker.rows.find((r) => r.id === cursor) ?? null;
     const cursorTarget = cursorRow?.kind === "line" ? cursorRow.line.target : null;
     // Enter's primary action, by what the cursor is on: an initiative expands in place (it no longer has
-    // a sheet to open), a chunk opens its newest note in the reader, every other row opens its target.
+    // a sheet to open), a chunk expands its newest note card, every other row opens its target.
     const toggleInitiative = useCallback(
         (lineId: string) => {
             setOpenInitiative((cur) => (cur === lineId ? null : lineId));
@@ -1309,10 +1342,8 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                 <div
                     className={cn(
                         "flex min-h-0 flex-1 flex-col gap-[26px] overflow-y-auto px-[22px] pb-2.5 pt-5",
-                        // the index reserves the PREVIEW's width and does not reflow when a note opens;
-                        // only the wide band lets the reader push it further.
-                        selectedChunk != null && "pr-[380px]",
-                        selectedChunk != null && readingNote != null && "@min-[1281px]:pr-[580px]"
+                        // the sidebar docks only in the wide band; below it, it floats over the index
+                        selectedChunk != null && "@min-[1281px]:pr-[480px]"
                     )}
                     aria-live="polite"
                 >
@@ -1548,7 +1579,10 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                                                                 }
                                                                             />
                                                                         ) : (
-                                                                            <p className="px-3 py-2 text-[12px] text-muted">
+                                                                            <p
+                                                                                data-jarvis-initiative-detail="loading"
+                                                                                className="px-3 py-2 text-[12px] text-muted"
+                                                                            >
                                                                                 {tracker.detail[0]?.kind === "pending"
                                                                                     ? tracker.detail[0].message
                                                                                     : ""}
@@ -1682,34 +1716,54 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                         ) : null}
                     </AnimatePresence>
                 </div>
-                {/* the scrim is what makes the reader's overlap read as a layer instead of a clipped row.
-                It never takes a click, so the Brief behind it stays live — this is not a modal. */}
-                {selectedChunk != null && readingNote != null ? (
-                    <div
-                        aria-hidden
-                        className="pointer-events-none absolute inset-0 z-[3] hidden bg-background/60 @max-[1280px]:block"
-                    />
-                ) : null}
-                {selectedChunk != null ? (
-                    <NoteSidebar
+                {selectedChunk != null && openInitiative != null ? (
+                    <ChunkSidebar
+                        initiative={openEffort?.title ?? ""}
                         label={selectedChunk.row.label}
                         stage={selectedChunk.row.stage}
                         status={selectedChunk.row.status}
+                        position={{
+                            n: planChunks.findIndex((c) => c.label === selectedChunk.row.label) + 1,
+                            total: planChunks.length,
+                        }}
                         feed={tracker.feed}
-                        reading={readingNote}
+                        expanded={readingNote}
                         now={Date.now()}
-                        handle={"wsh effort show " + selectedChunk.oref.replace(/^effort:/, "")}
+                        handle={`wsh effort note ${selectedChunk.oref.replace(/^effort:/, "")} "${selectedChunk.row.label}"`}
                         error={mutateError}
-                        onRead={setReadingNote}
-                        onBack={() => setReadingNote(null)}
+                        onPrev={stepTo("prev")}
+                        onNext={stepTo("next")}
+                        onExpand={setReadingNote}
                         onClose={closeNotes}
                         onActivity={() => openLine({ oref: selectedChunk.oref })}
                         onAddNote={(text) =>
                             runMutation(() => appendChunkNote(selectedChunk.oref, selectedChunk.row.label, text))
                         }
-                        onSetStatus={(status) =>
-                            runMutation(() => setChunkStatus(selectedChunk.oref, selectedChunk.row.label, status))
+                        onSetStatus={(status) => edits?.onSetStatus(selectedChunk.row.label, status)}
+                        onEditNote={(entry, text) =>
+                            entry.noteAt != null &&
+                            runMutation(() =>
+                                editNote(
+                                    selectedChunk.oref,
+                                    chunkRef(planChunks, entry.chunk),
+                                    entry.noteAt!,
+                                    entry.ts,
+                                    text
+                                )
+                            )
                         }
+                        onDeleteNote={(entry) => {
+                            if (entry.noteAt == null) {
+                                return;
+                            }
+                            const at = entry.noteAt;
+                            setReadingNote(null);
+                            briefUndo.schedule(
+                                [noteKey(selectedChunk.oref, entry.chunk, entry.ts)],
+                                "Note deleted",
+                                () => removeNote(selectedChunk.oref, chunkRef(planChunks, entry.chunk), at, entry.ts)
+                            );
+                        }}
                     />
                 ) : null}
                 <BriefToastView />
