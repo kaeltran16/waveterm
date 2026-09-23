@@ -47,7 +47,7 @@ func TestPrefilterCapsShortlist(t *testing.T) {
 
 func TestPrefilterDropsUnstampedCandidate(t *testing.T) {
 	resetGateForTest()
-	got := prefilter([]Candidate{{Class: ClassRecall, ID: "no-at", At: 0}, cand("ok", 5)})
+	got := prefilter([]Candidate{{Class: ClassLedger, ID: "no-at", At: 0}, cand("ok", 5)})
 	if len(got) != 1 || got[0].ID != "ok" {
 		t.Fatalf("a candidate with no At can never advance the watermark and must be dropped, got %+v", got)
 	}

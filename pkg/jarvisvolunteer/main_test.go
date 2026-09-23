@@ -9,7 +9,7 @@ import (
 )
 
 // TestMain isolates the git-backed fixture vault from the machine's ambient git config so commits are
-// deterministic. Mirrors pkg/jarvisproactive/main_test.go.
+// deterministic.
 func TestMain(m *testing.M) {
 	os.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 	os.Setenv("GIT_CONFIG_SYSTEM", os.DevNull)

@@ -81,8 +81,8 @@ func TestConnectionSkipsDetachedEdge(t *testing.T) {
 func TestConnectionCarriesWeakBucket(t *testing.T) {
 	edges := map[string][]jarvisattrib.AttributedEdge{
 		"task-y": {{
-			DossierID: "task-y", RunORef: "run:run-9", Layers: []int{4},
-			Confidence: 0.2, State: jarvisattrib.StateInforming,
+			DossierID: "task-y", RunORef: "run:run-9", Layers: []int{3},
+			Confidence: 0.3, State: jarvisattrib.StateInforming,
 		}},
 	}
 	run := &waveobj.Run{OID: "run-9", CompletedTs: 2500}
@@ -91,9 +91,9 @@ func TestConnectionCarriesWeakBucket(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("a weak edge is still eligible, got %d", len(got))
 	}
-	want := jarvisattrib.BucketFor([]int{4})
+	want := jarvisattrib.BucketFor([]int{3})
 	if want == "" {
-		t.Fatalf("layer 4 must map to a named confidence bucket")
+		t.Fatalf("layer 3 must map to a named confidence bucket")
 	}
 	if !strings.Contains(got[0].Snippet, want) {
 		t.Fatalf("snippet %q must carry the confidence bucket %q so the utterance can hedge", got[0].Snippet, want)

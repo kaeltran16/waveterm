@@ -18,7 +18,6 @@ const (
 	weightLayer1 = 1.0 // canonical dispatch reference (written by F, read by D)
 	weightLayer2 = 0.8 // identifier (ticket) match
 	weightLayer3 = 0.3 // structural correlation (same repo + overlapping window)
-	weightLayer4 = 0.2 // semantic similarity — always renders "weak" (see BucketFor)
 )
 
 // Lifecycle windows in UnixMilli — PLACEHOLDER tuning, see docs/deferred.md.
@@ -32,7 +31,6 @@ const (
 	provTicket     = "ticket-match"
 	provStructural = "structural"
 	provAccept     = "human-accept"
-	provSemantic   = "semantic"
 )
 
 // nowFn is the clock, overridable in tests for probation/time-box coverage (mirrors jarvisdossier).
@@ -69,8 +67,6 @@ func confidenceFor(layers []int) float64 {
 			w = weightLayer2
 		case 3:
 			w = weightLayer3
-		case 4:
-			w = weightLayer4
 		}
 		if w > max {
 			max = w
@@ -101,13 +97,13 @@ func provenanceFor(layers []int) string {
 	case 3:
 		return provStructural
 	default:
-		return provSemantic
+		return ""
 	}
 }
 
 // BucketFor maps an edge's firing layers to its display bucket. It reads the layers rather than the
-// confidence float because confidenceFor takes the MAX of four fixed layer weights and never blends
-// them: the reachable confidence set is {0.2, 0.3, 0.8, 1.0}, so a float-threshold bucket had a band
+// confidence float because confidenceFor takes the MAX of three fixed layer weights and never blends
+// them: the reachable confidence set is {0.3, 0.8, 1.0}, so a float-threshold bucket had a band
 // no edge could occupy. One mapping over what actually fires cannot drift out of sync with itself the
 // way two coupled constant sets did. No layers means no signal, so the bucket is absent rather than a
 // fabricated "weak" — the contract wshrpctypes_jarvis.go documents for a detached edge.
@@ -117,8 +113,8 @@ func BucketFor(layers []int) string {
 		return "strong" // canonical dispatch reference
 	case 2:
 		return "medium" // identifier (ticket) match
-	case 3, 4:
-		return "weak" // structural correlation, semantic similarity
+	case 3:
+		return "weak" // structural correlation
 	default:
 		return ""
 	}

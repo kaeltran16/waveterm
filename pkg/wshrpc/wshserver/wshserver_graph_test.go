@@ -64,7 +64,7 @@ func TestBuildDossierGraphMapsRunsAndTypedEdges(t *testing.T) {
 	// it, so an edge without Layers is one the engine cannot produce. Set all three consistently.
 	edges := []jarvisattrib.AttributedEdge{
 		{DossierID: "task-1", RunORef: "run:r1", Layers: []int{1}, Provenance: "dispatch", Confidence: 1.0, State: jarvisattrib.StateConfirmed},
-		{DossierID: "task-1", RunORef: "run:r2", Layers: []int{4}, Provenance: "semantic", Confidence: 0.2, State: jarvisattrib.StateInforming},
+		{DossierID: "task-1", RunORef: "run:r2", Layers: []int{3}, Provenance: "structural", Confidence: 0.3, State: jarvisattrib.StateInforming},
 		{DossierID: "task-1", RunORef: "run:missing", Layers: []int{3}, Provenance: "structural", Confidence: 0.3, State: jarvisattrib.StateInforming},
 	}
 	byORef := map[string]*waveobj.Run{
@@ -98,7 +98,7 @@ func TestBuildDossierGraphMapsRunsAndTypedEdges(t *testing.T) {
 	if byTo["run:r1"].Bucket != "strong" || byTo["run:r1"].State != "confirmed" || byTo["run:r1"].Provenance != "dispatch" {
 		t.Fatalf("edge->r1 = %+v, want bucket=strong state=confirmed provenance=dispatch", byTo["run:r1"])
 	}
-	if byTo["run:r2"].Bucket != "weak" || byTo["run:r2"].State != "informing" || byTo["run:r2"].Provenance != "semantic" {
-		t.Fatalf("edge->r2 = %+v, want bucket=weak state=informing provenance=semantic", byTo["run:r2"])
+	if byTo["run:r2"].Bucket != "weak" || byTo["run:r2"].State != "informing" || byTo["run:r2"].Provenance != "structural" {
+		t.Fatalf("edge->r2 = %+v, want bucket=weak state=informing provenance=structural", byTo["run:r2"])
 	}
 }

@@ -23,10 +23,8 @@ func TestBucketForIsTotalOverFiringLayers(t *testing.T) {
 		{[]int{1}, "strong"},    // canonical dispatch reference
 		{[]int{2}, "medium"},    // identifier (ticket) match
 		{[]int{3}, "weak"},      // structural correlation
-		{[]int{4}, "weak"},      // semantic similarity
 		{[]int{3, 2}, "medium"}, // strongest layer wins regardless of input order
 		{[]int{2, 1}, "strong"},
-		{[]int{4, 3}, "weak"},
 		{nil, ""}, // no layers means no signal: absent, never a fabricated "weak"
 		{[]int{}, ""},
 		{[]int{9}, ""}, // unknown layer is not silently labelled
@@ -43,7 +41,7 @@ func TestBucketForIsTotalOverFiringLayers(t *testing.T) {
 // fails this, because no layer weight falls inside the old [0.4, 0.75) medium band.
 func TestEveryBucketIsReachableFromSomeFiringLayer(t *testing.T) {
 	reachable := map[string]bool{}
-	for _, l := range []int{1, 2, 3, 4} {
+	for _, l := range []int{1, 2, 3} {
 		reachable[BucketFor([]int{l})] = true
 	}
 	for _, want := range []string{"weak", "medium", "strong"} {

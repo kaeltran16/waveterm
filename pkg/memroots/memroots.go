@@ -15,12 +15,6 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wconfig"
 )
 
-// Mirror is one scan location and its provenance tag.
-type Mirror struct {
-	Path   string
-	Source string // "vault" | "claude" | "codex"
-}
-
 // IndexFile is a per-hub table of contents, not knowledge — every scanner skips it. Its copies also
 // carry no frontmatter name, so all of them would collide on the id "MEMORY".
 const IndexFile = "MEMORY.md"
@@ -73,28 +67,6 @@ func SkillsRoot() string {
 // LegacyRoot is the pre-unification memory root that MigrateLegacyRoot retires.
 func LegacyRoot() string {
 	return filepath.Join(wavebase.GetHomeDir(), legacySubpath)
-}
-
-// buildMirrors returns the external scan roots. None by design: claude hubs / codex / pi-memory
-// are derived sync surfaces (harvested into the vault), not independent memory sources — scanning
-// them is what produced the duplicate memory rows. Kept as a function for the composition test.
-func buildMirrors(home, customLegacy string) []Mirror {
-	return nil
-}
-
-// Mirrors are the external roots federated into the memory collection. None: every external
-// agent-native memory dir is a derived sync surface, not a scan root.
-func Mirrors() []Mirror {
-	return buildMirrors(wavebase.GetHomeDir(), "")
-}
-
-func buildAllRoots(memoryRoot string, mirrors []Mirror) []Mirror {
-	return append([]Mirror{{Path: memoryRoot, Source: "vault"}}, mirrors...)
-}
-
-// AllRoots is every durable-knowledge scan root: the vault's own memory collection only.
-func AllRoots() []Mirror {
-	return buildAllRoots(MemoryRoot(), Mirrors())
 }
 
 // ProjectHash encodes a cwd the way Claude Code names its per-project dir: every path separator

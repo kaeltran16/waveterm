@@ -8,10 +8,8 @@
 // re-checked cheaply instead of by another ad-hoc pass — which matters because timeBoxMs becomes
 // measurable by waiting rather than by collecting more data.
 //
-// It costs NO provider spend by construction: every figure is deterministic, and the semantic layer
-// (L4) is the only thing here that could embed anything. L4 runs only for a dossier with no
-// deterministic edge at all, so the orphan count this probe reports is also the answer to "could this
-// have spent anything" — zero orphans means zero embedding calls.
+// It costs NO provider spend by construction: every attribution layer is deterministic, so every
+// figure is too.
 //
 //	CGO_ENABLED=1 CGO_CFLAGS="-O2 -g -I<repo>/pkg/jarvisembed/csrc" \
 //	WAVETERM_CONFIG_HOME=<copy>/config WAVETERM_DATA_HOME=<copy>/data \
@@ -27,7 +25,6 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/wavetermdev/waveterm/pkg/jarvisembed"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/wavevault"
 	"github.com/wavetermdev/waveterm/pkg/wconfig"
@@ -50,8 +47,6 @@ func TestLiveCorpusShape(t *testing.T) {
 		t.Fatalf("open vault: %v", err)
 	}
 	t.Logf("profile: config=%s data=%s", wavebase.GetWaveConfigDir(), wavebase.GetWaveDataDir())
-	t.Logf("embeddings available=%v (L4 fires only for a dossier with zero deterministic edges)",
-		jarvisembed.Available())
 
 	byDossier, err := AllEdges(ctx, v)
 	if err != nil {

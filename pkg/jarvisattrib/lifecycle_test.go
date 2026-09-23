@@ -167,32 +167,13 @@ func TestDetachedEdgesFiltersByRunAcrossDossiers(t *testing.T) {
 	}
 }
 
-// A dossier the human has corrected is not an orphan. Detach also strips the hardened canonical ref, so
-// the deterministic layers fall silent for a dossier that was attributed a moment ago — and reading that
-// as "never attributed" sends every subsequent read through the semantic (L4) proposal, which costs an
-// embedding sweep whose only purpose here would be to second-guess the correction just made. Live, that
-// sweep overran the 5s rpc budget and ResolveSpaceScope failed with "loading runs: context deadline
-// exceeded", so a record whose single run was detached could no longer load its runs at all.
-func TestSemanticProposalSkippedForACorrectedDossier(t *testing.T) {
-	signal := []AttributedEdge{{DossierID: "d1", RunORef: "run:r1"}}
-	cases := []struct {
-		name string
-		raw  []AttributedEdge
-		ov   map[string]string
-		want bool
-	}{
-		{"a true orphan still gets a semantic proposal", nil, nil, true},
-		{"deterministic signal present, so L1-3 are not silent", signal, nil, false},
-		{"the only signal was detached — corrected, not orphaned", nil, map[string]string{"d1|run:r1": "detach"}, false},
-		{"another dossier's detach must not suppress this one", nil, map[string]string{"d2|run:r1": "detach"}, true},
-		{"an accept is not a reason to stop proposing", nil, map[string]string{"d1|run:r1": "accept"}, true},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := shouldProposeSemantic(tc.raw, "d1", tc.ov); got != tc.want {
-				t.Fatalf("shouldProposeSemantic = %v, want %v", got, tc.want)
-			}
-		})
+// With L4 gone an orphan dossier stays an orphan: the deterministic layers are the whole answer, and a
+// read never reaches for an embedding index.
+func TestOrphanDossierHasNoEdges(t *testing.T) {
+	d := &jarvisdossier.Dossier{ID: "d1"}
+	got := edgesForDossier(context.Background(), d, nil, edgeLookups{}, map[string]string{}, 0)
+	if len(got) != 0 {
+		t.Fatalf("orphan dossier edges = %v, want none", got)
 	}
 }
 

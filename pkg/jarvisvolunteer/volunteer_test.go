@@ -225,7 +225,7 @@ func TestProducersForSelectsByTriggerKind(t *testing.T) {
 		kind string
 		want []string
 	}{
-		{TriggerRunCreated, []string{ClassRecall, ClassLedger}},
+		{TriggerRunCreated, []string{ClassLedger}},
 		{TriggerRunRest, []string{ClassConnection, ClassLedger}},
 		{TriggerSweep, []string{ClassLooseEnd}},
 	}

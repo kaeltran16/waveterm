@@ -251,35 +251,9 @@ func memoizeCommits(lk edgeLookups) edgeLookups {
 }
 
 // edgesForDossier is the shared per-dossier core behind EdgesFor and AllEdges: the deterministic layers
-// with the override log applied, falling back to the semantic (L4) proposal only when they are silent.
+// with the override log applied.
 func edgesForDossier(ctx context.Context, d *jarvisdossier.Dossier, runs []*waveobj.Run, lk edgeLookups, ov map[string]string, now int64) []AttributedEdge {
-	raw := assembleEdges(d, runs, lk, now)
-	det := applyOverrides(raw, ov)
-	if !shouldProposeSemantic(raw, d.ID, ov) {
-		return det
-	}
-	// Orphan dossier: propose semantic (L4) edges. Degrades to det (empty) when embeddings are off.
-	// Re-apply overrides so a previously-detached semantic edge stays suppressed.
-	return applyOverrides(proposeSemanticEdges(ctx, d, runs, lk, now), ov)
-}
-
-// shouldProposeSemantic reports whether the semantic (L4) proposal should run for a dossier. It is a
-// fallback for a dossier nothing has attributed, so it must read the edges *before* the override log is
-// applied: a dossier whose deterministic edges were assembled and then suppressed by a human has been
-// corrected, not orphaned. Detach also strips the hardened canonical ref, so such a dossier can assemble
-// to nothing at all — the override log is the only remaining evidence that it was ever attributed, and
-// without this the proposal re-runs on every read to second-guess the correction.
-func shouldProposeSemantic(raw []AttributedEdge, dossierID string, ov map[string]string) bool {
-	if len(raw) > 0 {
-		return false // L1-3 are not silent
-	}
-	prefix := dossierID + "|"
-	for k, action := range ov {
-		if action == "detach" && strings.HasPrefix(k, prefix) {
-			return false
-		}
-	}
-	return true
+	return applyOverrides(assembleEdges(d, runs, lk, now), ov)
 }
 
 // EdgesFor is the D->C seam: the unified, confidence-descending dossier->Run edges (canonical layer-1

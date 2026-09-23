@@ -38,7 +38,7 @@ func TestParseJudgeReply(t *testing.T) {
 
 func TestBuildJudgePromptListsEveryCandidate(t *testing.T) {
 	cands := []Candidate{
-		{Class: ClassRecall, Title: "Drop-oldest on overflow", Snippet: "backpressure stalled the writer"},
+		{Class: ClassConnection, Title: "Drop-oldest on overflow", Snippet: "backpressure stalled the writer"},
 		{Class: ClassLooseEnd, Title: "Finish the migration", Snippet: "untouched for 21 days"},
 	}
 	p := buildJudgePrompt(cands)
@@ -50,7 +50,7 @@ func TestBuildJudgePromptListsEveryCandidate(t *testing.T) {
 }
 
 // The real judge body must select the cheap tier. Overriding judgeRun (the process seam) rather than
-// judge (the whole call) is what makes the tier observable — see the same pattern in jarvisproactive.
+// judge (the whole call) is what makes the tier observable.
 func TestJudgeUsesCheapTier(t *testing.T) {
 	var gotModel string
 	old := judgeRun

@@ -9,24 +9,6 @@ import (
 	"testing"
 )
 
-func TestMirrorsEmpty(t *testing.T) {
-	got := buildMirrors("/home/u", "/custom/notes")
-	if len(got) != 0 {
-		t.Fatalf("buildMirrors = %v, want none (claude/codex are derived sync surfaces now)", got)
-	}
-}
-
-func TestAllRootsVaultOnly(t *testing.T) {
-	got := buildAllRoots("/home/u/.waveterm/vault/memory", buildMirrors("/home/u", ""))
-	want := []string{"vault"}
-	if len(got) != len(want) || got[0].Source != "vault" {
-		t.Fatalf("buildAllRoots = %v, want vault root only", got)
-	}
-	if got[0].Path != "/home/u/.waveterm/vault/memory" {
-		t.Fatalf("memory root = %q", got[0].Path)
-	}
-}
-
 func TestProjectHash(t *testing.T) {
 	if got := ProjectHash(`C:\Users\kael02\IdeaProjects\waveterm`); got != "C--Users-kael02-IdeaProjects-waveterm" {
 		t.Fatalf("ProjectHash(win) = %q", got)

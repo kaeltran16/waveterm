@@ -17,8 +17,8 @@ import (
 var ticketRe = regexp.MustCompile(`\b[A-Z][A-Z0-9]+-\d+\b`)
 
 // contradictsTicket reports whether any ticket-shaped token in the commit subjects is a concrete
-// ticket other than the dossier's — a signal the work belongs elsewhere. Shared by layer-3 structural
-// self-correction and layer-4 semantic proposal.
+// ticket other than the dossier's — a signal the work belongs elsewhere. Used by layer-3 structural
+// self-correction.
 func contradictsTicket(dossierTicket string, commitSubjects []string) bool {
 	for _, s := range commitSubjects {
 		for _, m := range ticketRe.FindAllString(s, -1) {
