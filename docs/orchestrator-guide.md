@@ -476,7 +476,9 @@ Done doesn't mean finished. The work after the last merge splits three ways:
 
 Both gaps the backlog run hit are closed in code: `wsh jarvis complete --report <file>` seals the report the lead
 wrote, and `**Chunk:**` lines let the engine close the tracker. If a sealed summary is still a half-sentence, the
-lead ran `complete` without `--report`; its last full message is the closest thing to a report.
+lead ran `complete` without `--report`, or the engine closed the run itself because the lead could not be woken when
+the DAG finished. Either way a later `wsh jarvis complete --report <file>` still attaches the report and replaces
+that summary.
 
 ### What the backlog run left open
 

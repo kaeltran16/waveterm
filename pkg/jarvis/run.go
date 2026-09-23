@@ -188,6 +188,26 @@ func CompletePhase(run waveobj.Run, phaseIdx int, artifacts []string, ts int64) 
 	return run, nil
 }
 
+// AttachReport records a lead's report on a run that is already done. The engine closes a plan run
+// itself when the DAG finishes and the lead cannot be woken, sealing the lead's last chat line as the
+// summary; without this, the lead's later `complete --report` is refused and the report is lost. The
+// report replaces that fallback summary, the one field of the sealed evidence a report owns.
+func AttachReport(run waveobj.Run, report string) (waveobj.Run, error) {
+	if run.Status != RunStatus_Done {
+		return run, fmt.Errorf("run is %q, not done: complete it instead", run.Status)
+	}
+	if strings.TrimSpace(report) == "" {
+		return run, fmt.Errorf("report is empty")
+	}
+	run.Report = report
+	if run.Evidence != nil {
+		ev := *run.Evidence
+		ev.Summary = report
+		run.Evidence = &ev
+	}
+	return run, nil
+}
+
 // FailPhase marks a running phase failed so recomputeStatus derives blocked. Nothing else in the
 // engine ever writes PhaseState_Failed, which is why a lead whose process died kept reading as
 // executing: the status is derived from the phases, and no phase ever failed. Out of range /

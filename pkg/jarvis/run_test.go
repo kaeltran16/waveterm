@@ -275,3 +275,28 @@ func TestCompletePhaseReleasesAStoredGate(t *testing.T) {
 		t.Fatalf("status = %q, want the run to be running its next phase rather than parked", r.Status)
 	}
 }
+
+func TestAttachReportReplacesTheSealedSummaryOfADoneRun(t *testing.T) {
+	r := NewRun("g", "ws", "/r", nil, RunMode_Pipeline, storedPipeline()[:1], 1)
+	r, _ = CompletePhase(r, 0, nil, 0)
+	r.Evidence = &waveobj.RunEvidence{Summary: "the lead's last chat line"}
+	got, err := AttachReport(r, "landed t-1..t-7")
+	if err != nil {
+		t.Fatalf("AttachReport on a done run: %v", err)
+	}
+	if got.Report != "landed t-1..t-7" || got.Evidence.Summary != "landed t-1..t-7" {
+		t.Errorf("report not attached: Report=%q Summary=%q", got.Report, got.Evidence.Summary)
+	}
+}
+
+func TestAttachReportRefusesARunStillGoingAndAnEmptyReport(t *testing.T) {
+	r := NewRun("g", "ws", "/r", nil, RunMode_Pipeline, storedPipeline(), 1)
+	if _, err := AttachReport(r, "report"); err == nil {
+		t.Errorf("expected error attaching a report to a run that is not done")
+	}
+	r = NewRun("g", "ws", "/r", nil, RunMode_Pipeline, storedPipeline()[:1], 1)
+	r, _ = CompletePhase(r, 0, nil, 0)
+	if _, err := AttachReport(r, "  "); err == nil {
+		t.Errorf("expected error attaching an empty report")
+	}
+}

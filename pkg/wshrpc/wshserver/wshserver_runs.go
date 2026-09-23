@@ -530,6 +530,11 @@ func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandA
 		preStatus = pre.Status
 		preRun = pre
 	}
+	// the engine already closed this run (its lead could not be woken when the DAG finished), so the
+	// done transition's side effects have run: only the report is new
+	if data.Action == jarvis.RunAction_Complete && data.Report != "" && preStatus == jarvis.RunStatus_Done {
+		return attachLateReport(ctx, data)
+	}
 	// a lead ends its plan run with a bare `wsh jarvis complete`. Every task landed through the engine's
 	// merges, so the project head is the run's work, as it is for a run the engine closes with no lead
 	// (orchestrate.MaybeCompleteLeadFreeRun). Without it the seal diffs the working tree, where the
@@ -654,6 +659,28 @@ func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandA
 	if freshRun, err := wstore.GetRun(ctx, data.ChannelId, data.RunId); err == nil && freshRun.DagORef != "" && (freshRun.Status == jarvis.RunStatus_Done || freshRun.Status == jarvis.RunStatus_Cancelled) {
 		if dag, err := wstore.GetDag(ctx, freshRun.DagORef); err == nil {
 			_, _ = orchestrate.MaybeCloseOrchestratorLead(ctx, freshRun, dag)
+		}
+	}
+	return nil
+}
+
+func attachLateReport(ctx context.Context, data wshrpc.CommandAdvanceRunData) error {
+	err := wstore.UpdateRun(ctx, data.ChannelId, data.RunId, func(r *waveobj.Run) error {
+		next, e := jarvis.AttachReport(*r, data.Report)
+		if e != nil {
+			return e
+		}
+		*r = next
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("attaching report: %w", err)
+	}
+	publishRunUpdate(data.ChannelId, data.RunId)
+	// `complete` promises to close the lead's tab; a lead reporting late is still sitting in it
+	if run, gerr := wstore.GetRun(ctx, data.ChannelId, data.RunId); gerr == nil && run.DagORef != "" {
+		if dag, derr := wstore.GetDag(ctx, run.DagORef); derr == nil {
+			_, _ = orchestrate.MaybeCloseOrchestratorLead(ctx, run, dag)
 		}
 	}
 	return nil
