@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Restoring the last subject on boot. The hard part is not persistence but validation: a stored id can name
-// a channel, record or thread that no longer exists, and the lists load asynchronously. So each kind's list
+// a channel or record that no longer exists, and the lists load asynchronously. So each kind's list
 // is null until it has loaded, and the decision waits only on the ONE list the stored subject needs.
 //
 // Degrading to the empty Stage is deliberate and silent — the surface's rule is absent rather than empty.
@@ -20,25 +20,17 @@ export interface StoredSubject {
 export interface SubjectListState {
     channels: string[] | null;
     dossiers: string[] | null;
-    conversations: string[] | null;
 }
 
 export type RestoreAction = { action: "wait" } | { action: "select"; subject: StoredSubject } | { action: "clear" };
 
-function listFor(kind: SubjectKind, lists: SubjectListState): string[] | null {
-    if (kind === "channel") {
-        return lists.channels;
-    }
-    return kind === "dossier" ? lists.dossiers : lists.conversations;
-}
-
 export function restoreDecision(stored: StoredSubject | null, lists: SubjectListState): RestoreAction {
-    // briefing is never a stored subject; treat it as absent rather than waiting on a list that
-    // will never load.
-    if (stored == null || stored.kind === "briefing") {
+    // only channels and dossiers are restorable; anything else stored (a briefing, or a conversation from
+    // before Ask was retired) is treated as absent rather than waiting on a list that never loads.
+    if (stored == null || (stored.kind !== "channel" && stored.kind !== "dossier")) {
         return { action: "clear" };
     }
-    const list = listFor(stored.kind, lists);
+    const list = stored.kind === "channel" ? lists.channels : lists.dossiers;
     if (list == null) {
         return { action: "wait" };
     }

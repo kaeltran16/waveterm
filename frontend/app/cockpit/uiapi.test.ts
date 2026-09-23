@@ -55,7 +55,6 @@ describe("selectionFor", () => {
     });
 
     it("omits subjects that have no address", () => {
-        expect(selectionFor("jarvis", { ...empty, subject: { kind: "conversation", id: "x" } })).toEqual([]);
         expect(selectionFor("jarvis", { ...empty, subject: { kind: "briefing", id: "x" } })).toEqual([]);
     });
 

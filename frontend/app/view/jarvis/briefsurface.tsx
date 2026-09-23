@@ -13,8 +13,7 @@
 //
 // The record peek is here (BriefPeek, opened by a record oref) and the palette extends the app's own. Every
 // row is one line that opens its sheet in a click (briefrows.ts), because the sheet is where the actions
-// live; a region's overflow and its folded stale runs open in place. The composer and the thread it grows
-// into are here.
+// live; a region's overflow and its folded stale runs open in place. The steer-only composer is here.
 //
 // One presentation rule runs through the whole file and decides every border below: a bordered chip is
 // the control recipe, a borderless one is a label. Dressing something inert as a control and camouflaging
@@ -34,8 +33,7 @@ import { buildJarvisBindings } from "@/app/store/keybindings/bindings";
 import { useSurfaceListNav, type ListNavController } from "@/app/store/keybindings/listnav";
 import { useKeybindings } from "@/app/store/keybindings/store";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
-import { formatAge } from "@/app/view/agents/agentsviewmodel";
-import { ambientProviderAtom, ensureAmbient } from "@/app/view/agents/ambientstore";
+import { formatAge, type AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { attentionAtom } from "@/app/view/agents/attentionstore";
 import { steerWorker } from "@/app/view/agents/channelactions";
 import { resolveTargetChannel } from "@/app/view/agents/channelderive";
@@ -66,12 +64,9 @@ import {
     type CSSProperties,
     type ReactNode,
 } from "react";
-import { parseAddress, type AddressHint } from "./address";
 import { AutonomyLadder } from "./autonomyladderview";
-import { resolveComposerLabels, type BriefComposeState } from "./briefcompose";
-import { resolveBriefComposerTarget } from "./briefcomposertarget";
-import { drewOn, type DrewRow } from "./briefdrew";
-import { turnProse, turnVerdict } from "./briefturn";
+import { resolveComposerLabels, type ComposerLabels } from "./briefcompose";
+import { resolveBriefComposerTarget, type BriefComposerTarget } from "./briefcomposertarget";
 import { briefFleet } from "./brieffleet";
 import { BRIEFING_FIXTURES } from "./briefingfixtures";
 import {
@@ -88,21 +83,12 @@ import {
 } from "./briefingmodel";
 import {
     ackBriefingVisit,
-    askAcrossWork,
     briefDraftAtom,
-    briefingAnswerAtom,
-    briefingAskStateAtom,
     briefingFixtureAtom,
     briefingStateAtom,
     briefRestoreConsumedAtom,
-    briefScopeAtom,
-    briefThreadAtom,
-    clearBriefThread,
-    hydrateBriefThread,
     loadBriefing,
     refreshBriefing,
-    type BriefExchange,
-    type BriefingAnswer,
 } from "./briefingstore";
 import { resolveBriefCursor } from "./briefnav";
 import { BriefPeek } from "./briefpeekview";
@@ -122,7 +108,6 @@ import {
 } from "./briefrows";
 import { BriefSheet } from "./briefsheet";
 import { sheetFace } from "./briefsheetmodel";
-import { openJarvisWithSource } from "./contextualentry";
 import { effortFeed, feedNoteCounts } from "./effortfeed";
 import {
     addChunkOp,
@@ -134,39 +119,25 @@ import {
     setEffortStatus,
 } from "./effortstore";
 import { freshKeys } from "./freshrows";
-import { peekFocus, type PeekFocus } from "./graphfocus";
+import { type PeekFocus } from "./graphfocus";
 import { GraphPeek } from "./graphpeek";
 import { expandableORef, trackerNavIds, trackerRows, type DetailRow } from "./inlinetracker";
 import { InitiativeDetail, NoteSidebar } from "./inlinetrackerview";
-import {
-    isAnswerTurn,
-    type Freshness,
-    type JarvisConversation,
-    type JarvisTurn,
-    type SourceRef,
-    type Terminal,
-} from "./jarviscontract";
 import {
     briefComposerHeightAtom,
     briefGraphRecordAtom,
     briefPeekRecordAtom,
     briefSheetOpenAtom,
-    conversationsByIdAtom,
     graphPeekOpenAtom,
-    loadJarvisConversations,
     noteChunkAtom,
-    persistedSummariesAtom,
     readingNoteAtom,
-    selectConversation,
 } from "./jarvisstore";
 import { activeSubjectAtom, persistedSubjectAtom, stageRunAtom } from "./jarvissubjectstore";
-import { mentionedDossierIds } from "./mentions";
 import { NewInitiativeControl } from "./newinitiativecontrol";
 import { NewRunControl } from "./newruncontrol";
 import { openAddress, openChannelSheet, openTarget } from "./openref";
 import { reducePrinciplePatch } from "./profilemodel";
 import { ProgressBar } from "./progressbar";
-import { ageLabel, freshnessLabel } from "./recallderive";
 import { loadTaskList, taskListAtom } from "./tasksstore";
 
 const REGIONS = {
@@ -483,19 +454,8 @@ function LineRow({
     );
 }
 
-// --- the composer, and the thread it grows into ----------------------------------------------------
-// One composer that never moves: asking grows a thread above it and Escape collapses it back to a line.
-// Every word on it — scope, placeholder, action, the optional second thing Enter could do — comes from
-// resolveComposerLabels, so nothing here can describe the composer differently from briefcompose's tests.
-// Who a keystroke reaches never changes on this surface: it is composertarget's `jarvis-briefing` case,
-// one audience (Jarvis) over all work, which is why the labels never have to name a worker.
-//
-// The ask is briefingstore's existing all-work ask, unchanged. It is stateless and is never a persisted
-// JarvisConversation, so the turns accumulate here and Escape discards them — there is nothing on the
-// wire to resume a collapsed one from, and the thread list deliberately does not carry one-shot lookups.
-
 // module scope, not useState: a j/k cursor that reset on every glance at another surface would be worse
-// than none. Composer state lives in briefingstore so contextual entry can seed it before this mounts.
+// than none.
 // Cast per this repo's convention: under the pinned jotai, atom<T | undefined>(undefined) infers a
 // read-only Atom, and the setter is only callable once it is a PrimitiveAtom.
 const briefCursorAtom = atom<string | undefined>(undefined) as PrimitiveAtom<string | undefined>;
@@ -515,195 +475,46 @@ const briefExpandedAtom = atom<Partial<Record<RegionId, boolean>>>({});
 // Whether Sessions shows its runs older than seven days. Module scope for the same reason as the two above.
 const briefStaleOpenAtom = atom(false);
 
+// --- the composer ------------------------------------------------------------------------------------
+// Steer-only: it exists on a session sheet with a live lead and nowhere else (briefcomposertarget.ts), and
+// every word on it comes from resolveComposerLabels, so nothing here can describe it differently from
+// briefcompose's tests. The Ask thread it used to grow was retired 2026-09-23 (docs/deferred.md).
+
 const COMPOSER_CHIP = "flex-none font-mono text-[9.5px] font-semibold";
-const TURN_WHO = "flex-none font-mono text-[9px] font-bold uppercase tracking-[.11em]";
-const BAND_LABEL = "flex-none font-mono text-[9px] font-bold uppercase tracking-[.12em] text-ink-faint";
-
-function userTurn(text: string, attachments: SourceRef[]): JarvisTurn {
-    return { role: "user", text, attachments };
-}
-
-function answerTurn(a: BriefingAnswer): JarvisTurn {
-    return {
-        role: "jarvis",
-        workingSteps: [],
-        segments: [{ text: a.answer }],
-        // the ask now returns the same grounding card the conversation path builds, carrying a real
-        // project, age and freshness reading. This was a local re-derivation over a wire shape that
-        // carried none of the three, which is what forced every citation here to read "unverified".
-        grounding: a.grounding,
-        terminal: a.terminal as Terminal,
-    };
-}
-
-// invariant 7: a thread resting on something stale or gone has to say so, as a word. groundingrail.tsx is
-// the only other renderer of freshness in the repo and that rail is being retired, so this band is where
-// it has to stay legible — hence the label first, and the colour only alongside it.
-function freshnessFg(f: Freshness): string {
-    switch (f) {
-        case "fresh":
-            return "text-success";
-        case "stale":
-            return "text-warning";
-        case "unavailable":
-            return "text-error";
-        // an absence of verification is not a health reading, so it stays off the success/warning/error scale
-        case "unverified":
-            return "text-muted";
-    }
-}
-
-// A citation opens its source, so it is bordered; one the router would refuse is a label, because there is
-// nothing to open. The gate reads the same hint the click passes, so the two cannot disagree. `unavailable`
-// and unopenable stay separate reads: a converse thread can report a source stale or gone while its address
-// still opens, and that row must still be clickable.
-function SourceChip({
-    hook,
-    target,
-    hint,
-    model,
-    children,
-}: {
-    hook: string;
-    target: string;
-    hint?: AddressHint;
-    model: AgentsViewModel;
-    children: ReactNode;
-}) {
-    const shell =
-        "flex max-w-[300px] min-w-0 items-center gap-[7px] rounded-[6px] px-[9px] py-1 font-mono text-[10px] text-muted";
-    if (parseAddress(target, hint).kind === "unsupported") {
-        return (
-            <span data-jarvis-brief-row={hook} className={shell}>
-                {children}
-            </span>
-        );
-    }
-    return (
-        <button
-            type="button"
-            data-jarvis-brief-row={hook}
-            onClick={() => fireAndForget(() => openAddress(model, target, hint))}
-            className={cn(
-                shell,
-                "cursor-pointer border border-border bg-surface hover:border-accent/40 hover:text-ink-mid focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-            )}
-        >
-            {children}
-        </button>
-    );
-}
-
-function TurnView({ exchange, model }: { exchange: BriefExchange; model: AgentsViewModel }) {
-    const turn = exchange.turn;
-    const jarvis = isAnswerTurn(turn);
-    const refs = isAnswerTurn(turn) ? turn.grounding : [];
-    const verdict = isAnswerTurn(turn) ? turnVerdict(turn.terminal) : null;
-    return (
-        <div data-jarvis-brief-row="turn" className="flex min-w-0 flex-col gap-1.5">
-            <div className="flex items-center gap-[9px]">
-                <span className={cn(TURN_WHO, jarvis ? "text-accent-soft" : "text-muted")}>
-                    {jarvis ? "Jarvis" : "You"}
-                </span>
-                <span className="flex-none font-mono text-[9.5px] text-ink-faint">
-                    {formatAge(Date.now() - exchange.ts)}
-                </span>
-                {verdict != null ? (
-                    <span
-                        className={cn(
-                            "flex-none font-mono text-[9.5px] font-semibold",
-                            verdict.tone === "warning" ? "text-warning" : "text-muted"
-                        )}
-                    >
-                        {verdict.label}
-                    </span>
-                ) : null}
-            </div>
-            <span className="whitespace-pre-wrap text-[13px] leading-[1.6] text-ink-mid">{turnProse(turn)}</span>
-            {refs.length > 0 ? (
-                // the prose carries the model's own [n] markers, so the per-turn chips are that legend;
-                // the Drew band below is the thread's footing, deduped and with the freshness on it.
-                <div className="flex min-w-0 flex-wrap gap-[7px]">
-                    {refs.map((c) => (
-                        <SourceChip
-                            key={c.n}
-                            hook="cite"
-                            target={c.navTarget}
-                            hint={{ sourceType: c.sourceType, anchor: c.anchor }}
-                            model={model}
-                        >
-                            <span className="flex-none font-bold text-accent-soft">[{c.n}]</span>
-                            <span className="min-w-0 truncate">{c.title}</span>
-                        </SourceChip>
-                    ))}
-                </div>
-            ) : null}
-        </div>
-    );
-}
-
-function DrewChip({ row, model }: { row: DrewRow; model: AgentsViewModel }) {
-    return (
-        <SourceChip
-            hook="drew"
-            target={row.navTarget}
-            hint={{ sourceType: row.sourceType, anchor: row.anchor }}
-            model={model}
-        >
-            <span className="flex-none text-ink-faint">{row.sourceType}</span>
-            <span className="min-w-0 truncate">{row.title}</span>
-            {row.citations > 1 ? <span className="flex-none text-ink-faint">×{row.citations}</span> : null}
-            {/* the age is the reading's own timestamp, so it sits beside the word rather than under the
-                title: "20d ago · Stale" is one observation, and the age alone was never the claim. */}
-            <span className="flex-none text-ink-faint">{ageLabel(row.ageMs)}</span>
-            <span className={cn("flex-none font-semibold", freshnessFg(row.freshness))}>
-                {freshnessLabel(row.freshness)}
-            </span>
-        </SourceChip>
-    );
-}
-
-// Pinned under the turns: what the whole thread drew on, which is the question you ask before trusting it.
-function DrewBand({ conversation, model }: { conversation: JarvisConversation; model: AgentsViewModel }) {
-    const { rows, meta } = drewOn(conversation);
-    if (rows.length === 0) {
-        // absence is a sentence, never a heading over an empty frame
-        return (
-            <div
-                data-jarvis-brief-band="drew"
-                className="flex-none border-t border-border bg-surface-raised px-[22px] py-2.5 text-[12.5px] text-secondary"
-            >
-                This thread cited nothing on file — nothing here is resting on a record.
-            </div>
-        );
-    }
-    return (
-        <div
-            data-jarvis-brief-band="drew"
-            className="flex min-w-0 flex-none flex-wrap items-center gap-[9px] border-t border-border bg-surface-raised px-[22px] py-2.5"
-        >
-            <span className={BAND_LABEL}>Drew on</span>
-            {rows.map((r) => (
-                <DrewChip key={r.key} row={r} model={model} />
-            ))}
-            <span className="flex-1" />
-            <span className="flex-none font-mono text-[9.5px] text-ink-faint">{meta}</span>
-        </div>
-    );
-}
 
 function BriefComposer({ model }: { model: AgentsViewModel }) {
-    const [draft, setDraft] = useAtom(briefDraftAtom);
-    const [thread, setThread] = useAtom(briefThreadAtom);
-    const scope = useAtomValue(briefScopeAtom);
-    const askState = useAtomValue(briefingAskStateAtom);
-    const answer = useAtomValue(briefingAnswerAtom);
-    // Who a keystroke reaches. The composer never moves, so the only thing that can change its meaning is
-    // what the detail sheet is drawing — hence it reads the sheet's inputs rather than owning state.
+    // who a keystroke reaches is whatever the detail sheet is drawing, so this reads the sheet's inputs
+    // rather than owning state — and renders nothing when there is no one to talk to.
     const agents = useAtomValue(model.agentsAtom);
     const subject = useAtomValue(activeSubjectAtom);
     const sheetRun = useAtomValue(stageRunAtom);
     const sheetOpen = useAtomValue(briefSheetOpenAtom);
+    const channel = useAtomValue(activeChannelAtom);
+    const projects = useAtomValue(projectsAtom);
+    const project = channelProjectLabel(channel, projects);
+    const target = resolveBriefComposerTarget({
+        sheetOpen,
+        face: sheetFace(subject, sheetRun),
+        run: sheetRun,
+        agents,
+        projectName: project,
+    });
+    if (target == null) {
+        return null;
+    }
+    return <SteerComposer target={target} agents={agents} labels={resolveComposerLabels(project)} />;
+}
+
+function SteerComposer({
+    target,
+    agents,
+    labels,
+}: {
+    target: BriefComposerTarget;
+    agents: AgentVM[];
+    labels: ComposerLabels;
+}) {
+    const [draft, setDraft] = useAtom(briefDraftAtom);
     const footerRef = useRef<HTMLElement>(null);
     useEffect(() => {
         const el = footerRef.current;
@@ -717,77 +528,9 @@ function BriefComposer({ model }: { model: AgentsViewModel }) {
             globalStore.set(briefComposerHeightAtom, 0);
         };
     }, []);
-    const channel = useAtomValue(activeChannelAtom);
-    const projects = useAtomValue(projectsAtom);
-    const effortCache = useAtomValue(effortDetailAtom);
-    // a send that left Jarvis has no thread to land in, so its outcome is said here or nowhere
+    // a directive lands in a terminal, not a thread, so its outcome is said here or nowhere
     const [status, setStatus] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
-
-    const last = thread[thread.length - 1];
-    const awaitingReply = last != null && last.turn.role === "user";
-    const alreadyThreaded = answer != null && thread.some((e) => e.answer === answer);
-    // an answer becomes a turn only while this thread is waiting for one, and only once: one that landed
-    // before the thread opened, after Escape collapsed it, or under a failed ask belongs to no turn here.
-    useEffect(() => {
-        if (answer == null || askState !== "answered" || !awaitingReply || alreadyThreaded) {
-            return;
-        }
-        setThread((t) => [
-            ...t,
-            { key: `a${t.length}:${Date.now()}`, ts: Date.now(), turn: answerTurn(answer), answer },
-        ]);
-    }, [answer, askState, awaitingReply, alreadyThreaded, setThread]);
-
-    const asked = thread.filter((e) => e.turn.role === "user").length;
-    const title = thread.length > 0 ? turnProse(thread[0].turn) : (scope.attached[0]?.title ?? "");
-    const sourceChip = scope.chips.find((chip) => chip.active)?.label;
-    const face = sheetFace(subject, sheetRun);
-    const target = resolveBriefComposerTarget({
-        sheetOpen,
-        face,
-        run: sheetRun,
-        agents,
-        projectName: channelProjectLabel(channel, projects),
-        effortTitle: face.kind === "effort" ? effortCache.get(`effort:${face.effortId}`)?.title : undefined,
-    });
-    // `sheet` is briefcompose's third shape: an open drawer is a narrower context than the thread behind
-    // it, so it wins. The target decides, not the sheet's openness — a drawer with nothing to talk to
-    // resolves to the Brief, and then these labels must not claim otherwise.
-    const state: BriefComposeState =
-        target.audience === "worker"
-            ? {
-                  peek: "sheet",
-                  kind: "session",
-                  name: target.sessionName,
-                  project: channelProjectLabel(channel, projects),
-              }
-            : target.audience === "initiative"
-              ? { peek: "sheet", kind: "initiative", name: target.name }
-              : thread.length === 0 && sourceChip == null
-                ? { peek: "launch" }
-                : { peek: "thread", title, turnCount: thread.length, sourceChip };
-    const labels = resolveComposerLabels(state);
-    const conversation: JarvisConversation = {
-        id: "brief-ask",
-        title,
-        turns: thread.map((e) => e.turn),
-        scope,
-    };
-    const answered = thread.some((e) => isAnswerTurn(e.turn));
-    // held only while this thread's own question is still out — a second one would supersede the first ask
-    // and leave the turn it belonged to unanswered. A pending ask from anywhere else is not this composer's
-    // to hold, and a failed one must stay retryable, so neither disables it.
-    // a directive goes straight into a terminal, so it is never "in flight" the way an ask is
-    const inFlight = target.audience !== "worker" && awaitingReply && askState === "pending";
-    const canSend = draft.trim() !== "" && !inFlight;
-
-    const askJarvis = (text: string, scopedTo: string[]) => {
-        setThread((t) => [
-            ...t,
-            { key: `q${t.length}:${Date.now()}`, ts: Date.now(), turn: userTurn(text, scope.attached) },
-        ]);
-        askAcrossWork(text, [...scopedTo, ...scope.attached.map((ref) => ref.oref)]);
-    };
+    const canSend = draft.trim() !== "";
 
     const submit = () => {
         if (!canSend) {
@@ -796,30 +539,26 @@ function BriefComposer({ model }: { model: AgentsViewModel }) {
         const text = draft.trim();
         setDraft("");
         setStatus(null);
-        if (target.audience === "worker") {
-            fireAndForget(async () => {
-                const sent = await steerWorker({
-                    channelId: target.channelId,
-                    workerORef: target.workerORef,
-                    agents,
-                    text,
-                });
-                if (!sent) {
-                    // the roster moved between render and send: give the words back rather than eat them
-                    setDraft(text);
-                    setStatus({ tone: "error", text: `${target.workerName} is no longer live — nothing was sent.` });
-                }
+        fireAndForget(async () => {
+            const sent = await steerWorker({
+                channelId: target.channelId,
+                workerORef: target.workerORef,
+                agents,
+                text,
             });
-            return;
-        }
-        askJarvis(text, target.audience === "initiative" ? [target.effortORef] : []);
+            if (!sent) {
+                // the roster moved between render and send: give the words back rather than eat them
+                setDraft(text);
+                setStatus({ tone: "error", text: `${target.workerName} is no longer live — nothing was sent.` });
+            }
+        });
     };
 
     // ⇧⏎: the standing rule the composer offers on a session sheet. It is a principle on the channel's
     // profile — the same list the profile modal edits — so the rule outlives the session that prompted it.
     const addStandingRule = () => {
         const text = draft.trim();
-        if (target.audience !== "worker" || text === "") {
+        if (text === "") {
             return;
         }
         const { channelId, sessionName } = target;
@@ -856,130 +595,58 @@ function BriefComposer({ model }: { model: AgentsViewModel }) {
         if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
             submit();
-            return;
-        }
-        if (e.key === "Escape" && thread.length > 0) {
-            e.preventDefault();
-            clearBriefThread();
         }
     };
 
+    // z-30 clears the detail sheet's backdrop: the sheet dims and covers the ground on purpose, but the
+    // composer talks to the session that sheet is showing, which a backdrop over it would make unreachable.
     return (
-        <>
-            {thread.length > 0 ? (
-                <div
-                    data-jarvis-brief-thread
-                    className="flex max-h-[54vh] min-h-0 flex-none flex-col border-t border-edge-strong bg-surface"
-                >
-                    <div className="flex min-w-0 flex-none items-center gap-2.5 border-b border-border px-[22px] py-2.5">
-                        <span className={cn(TURN_WHO, "text-accent-soft")}>Thread</span>
-                        <span className="min-w-0 truncate text-[13px] font-semibold text-ink-hi">{title}</span>
-                        <span className="flex-none font-mono text-[10px] text-muted">
-                            {asked} {asked === 1 ? "question" : "questions"}
-                        </span>
-                        <span className="flex-1" />
-                        <button
-                            type="button"
-                            onClick={clearBriefThread}
-                            className="flex-none cursor-pointer rounded-[6px] border border-border bg-surface-raised px-2 py-0.5 font-mono text-[10px] font-semibold text-muted hover:border-edge-strong hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                        >
-                            Collapse · esc
-                        </button>
-                    </div>
-                    <div
-                        className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-[22px] py-3.5"
-                        aria-live="polite"
-                    >
-                        {/* opacity only, and no layout: these wrap prose that streams in, and animating
-                            layout on streaming text is the perf trap the cockpit spec names. initial={false}
-                            so reopening a restored thread does not replay every turn. */}
-                        <AnimatePresence initial={false}>
-                            {thread.map((e) => (
-                                <motion.div
-                                    key={e.key}
-                                    initial={{ opacity: 0 }}
-                                    animate={{ opacity: 1 }}
-                                    transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
-                                >
-                                    <TurnView exchange={e} model={model} />
-                                </motion.div>
-                            ))}
-                        </AnimatePresence>
-                        {inFlight ? (
-                            <div className="flex items-center gap-[9px]">
-                                <span className={cn(TURN_WHO, "text-accent-soft")}>Jarvis</span>
-                                <span className="font-mono text-[12px] text-ink-faint">reading across your work</span>
-                            </div>
-                        ) : null}
-                        {askState === "error" && awaitingReply ? (
-                            <span className="text-[12.5px] text-secondary">Ask failed — try again.</span>
-                        ) : null}
-                    </div>
-                    <AnimatePresence initial={false}>
-                        {answered ? (
-                            <motion.div
-                                key="drew"
-                                initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                exit={{ opacity: 0 }}
-                                transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
-                            >
-                                <DrewBand conversation={conversation} model={model} />
-                            </motion.div>
-                        ) : null}
-                    </AnimatePresence>
-                </div>
-            ) : null}
-            {/* z-30 clears the detail sheet's backdrop. The sheet dims and covers the ground on purpose,
-                but the composer is not ground: its whole contract is that it stays reachable and retargets
-                to whatever the sheet opened on, which a backdrop over it would make impossible. */}
-            <footer
-                ref={footerRef}
-                data-jarvis-brief-band="composer"
-                className="relative z-30 flex-none border-t border-edge-faint bg-surface px-[22px] pb-4 pt-2.5"
-            >
-                <div className="flex flex-col gap-2.5 rounded-[9px] border border-border bg-surface-raised px-[15px] py-3 focus-within:border-edge-strong">
-                    <input
-                        data-jarvis-brief-composer="input"
-                        value={draft}
-                        onChange={(e) => setDraft(e.target.value)}
-                        onKeyDown={onKey}
-                        placeholder={labels.hint}
-                        aria-label={labels.hint}
-                        className="h-6 w-full min-w-0 border-0 bg-transparent text-[13.5px] text-ink-hi placeholder:text-ink-faint focus:outline-none"
-                    />
-                    <div className="flex min-w-0 flex-wrap items-center gap-[9px]">
-                        <span data-jarvis-brief-composer="scope" className={cn(COMPOSER_CHIP, "text-accent-soft")}>
-                            {labels.scope}
-                        </span>
-                        {labels.alt != null ? (
-                            <span data-jarvis-brief-composer="alt" className={cn(COMPOSER_CHIP, "text-muted")}>
-                                {labels.alt}
-                            </span>
-                        ) : null}
-                        <span className="flex-1" />
-                        <button
-                            type="button"
-                            data-jarvis-brief-composer="send"
-                            onClick={submit}
-                            disabled={!canSend}
-                            className="flex-none rounded-[6px] border border-edge-strong px-3.5 py-1.5 text-[12px] font-semibold text-accent-soft enabled:cursor-pointer hover:border-accent hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:border-border disabled:text-ink-faint"
-                        >
-                            {labels.action}
-                        </button>
-                    </div>
-                    {status != null ? (
-                        <span
-                            data-jarvis-brief-composer="status"
-                            aria-live="polite"
-                            className={cn("text-[11.5px]", status.tone === "ok" ? "text-success" : "text-error")}
-                        >
-                            {status.text}
+        <footer
+            ref={footerRef}
+            data-jarvis-brief-band="composer"
+            className="relative z-30 flex-none border-t border-edge-faint bg-surface px-[22px] pb-4 pt-2.5"
+        >
+            <div className="flex flex-col gap-2.5 rounded-[9px] border border-border bg-surface-raised px-[15px] py-3 focus-within:border-edge-strong">
+                <input
+                    data-jarvis-brief-composer="input"
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    onKeyDown={onKey}
+                    placeholder={labels.hint}
+                    aria-label={labels.hint}
+                    className="h-6 w-full min-w-0 border-0 bg-transparent text-[13.5px] text-ink-hi placeholder:text-ink-faint focus:outline-none"
+                />
+                <div className="flex min-w-0 flex-wrap items-center gap-[9px]">
+                    <span data-jarvis-brief-composer="scope" className={cn(COMPOSER_CHIP, "text-accent-soft")}>
+                        {labels.scope}
+                    </span>
+                    {labels.alt != null ? (
+                        <span data-jarvis-brief-composer="alt" className={cn(COMPOSER_CHIP, "text-muted")}>
+                            {labels.alt}
                         </span>
                     ) : null}
+                    <span className="flex-1" />
+                    <button
+                        type="button"
+                        data-jarvis-brief-composer="send"
+                        onClick={submit}
+                        disabled={!canSend}
+                        className="flex-none rounded-[6px] border border-edge-strong px-3.5 py-1.5 text-[12px] font-semibold text-accent-soft enabled:cursor-pointer hover:border-accent hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:border-border disabled:text-ink-faint"
+                    >
+                        {labels.action}
+                    </button>
                 </div>
-            </footer>
-        </>
+                {status != null ? (
+                    <span
+                        data-jarvis-brief-composer="status"
+                        aria-live="polite"
+                        className={cn("text-[11.5px]", status.tone === "ok" ? "text-success" : "text-error")}
+                    >
+                        {status.text}
+                    </span>
+                ) : null}
+            </div>
+        </footer>
     );
 }
 
@@ -1006,7 +673,6 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     // composition the Subjects column does not mount, and that column is what loads both of these today.
     useEffect(() => {
         loadTaskList();
-        loadJarvisConversations();
         // channels, because a Radar draft names a project and the landing has to resolve it to a channel
         loadChannels();
     }, []);
@@ -1031,15 +697,11 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     }, [pendingDraft, channels, setPendingDraft]);
 
     // Boot restore, Brief edition. A subject stored by the three-pane composition has no Stage to land on
-    // here, so it lands on the peek or in the composer instead (briefrestore.ts). One-shot: this surface
-    // unmounts on every nav switch, and a restore that re-ran would re-open a peek the user had closed.
+    // here, so it lands on the record peek or a channel's sheet instead (briefrestore.ts). One-shot: this
+    // surface unmounts on every nav switch, and a restore that re-ran would re-open a peek the user had closed.
     const storedSubject = useAtomValue(persistedSubjectAtom);
     const dossiers = useAtomValue(taskListAtom);
-    const summaries = useAtomValue(persistedSummariesAtom);
-    const conversations = useAtomValue(conversationsByIdAtom);
     const [restoreConsumed, consumeRestore] = useAtom(briefRestoreConsumedAtom);
-    // the conversation half of the restore, held between the decision and its turns arriving
-    const [restoreConversationId, setRestoreConversationId] = useState<string | null>(null);
 
     useEffect(() => {
         if (restoreConsumed) {
@@ -1050,7 +712,6 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
             // to tell "that channel is gone" from "the list has not arrived"
             channels: channels?.map((c) => c.oid) ?? null,
             dossiers: dossiers?.map((d) => d.id) ?? null,
-            conversations: summaries == null ? null : summaries.map((s) => s.id),
         });
         if (plan.action === "wait") {
             return;
@@ -1060,36 +721,12 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
             globalStore.set(briefPeekRecordAtom, plan.id);
             return;
         }
-        if (plan.action === "conversation") {
-            setRestoreConversationId(plan.id);
-            selectConversation(plan.id);
-            return;
-        }
         if (plan.action === "channel") {
             void openChannelSheet(plan.id, null);
             return;
         }
         globalStore.set(persistedSubjectAtom, null);
-    }, [storedSubject, dossiers, summaries, channels, restoreConsumed, consumeRestore]);
-
-    useEffect(() => {
-        if (restoreConversationId == null) {
-            return;
-        }
-        const convo = conversations[restoreConversationId];
-        // the summary is where the turns' one available timestamp comes from; without it there is no honest
-        // age to print, and the thread was deleted between the decision and its load anyway
-        const summary = summaries?.find((s) => s.id === restoreConversationId);
-        if (convo == null || summary == null) {
-            return;
-        }
-        setRestoreConversationId(null);
-        // a thread the user started while this was loading is theirs, not the restore's to discard
-        if (globalStore.get(briefThreadAtom).length > 0 || globalStore.get(briefDraftAtom) !== "") {
-            return;
-        }
-        hydrateBriefThread(convo, summary.updatedts);
-    }, [restoreConversationId, conversations, summaries]);
+    }, [storedSubject, dossiers, channels, restoreConsumed, consumeRestore]);
 
     // dwell, not load: a glance-and-close must leave the delta unseen so it repeats on the next visit.
     const snapshotComplete = snapshot?.complete === true;
@@ -1390,40 +1027,16 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     // subject, so what is open lives in the subject store and this surface only reports it.
     const [profileOpen, setProfileOpen] = useState(false);
 
-    // The surface's own keys: new thread, the run switcher, the record band, the composer's i/Escape, and
+    // The surface's own keys: the run switcher, the record band, the composer's i/Escape, and
     // the graph peek. The Stage used to register these for a composition that no longer exists.
     const jarvisBindings = useMemo(() => buildJarvisBindings(), []);
     useKeybindings(jarvisBindings);
 
-    // Where the graph peek opens. The Brief has no Stage subject, so the derivation starts from what the
-    // Brief itself is about: the record the peek's map button named, else the thread's attached sources,
-    // else the records its answers cited. peekFocus already implements that order, so this names no second
-    // one. tagsFor is real rather than empty because an attached RUN source resolves to a record only
-    // through the ambient attribution map, and an empty one would silently focus nothing.
+    // Where the graph peek opens: the record the peek's map button named. The Brief has no Stage subject
+    // and no thread, so with no record named the peek opens on nothing rather than guessing one.
     const graphRecord = useAtomValue(briefGraphRecordAtom);
     const graphOpen = useAtomValue(graphPeekOpenAtom);
-    const scope = useAtomValue(briefScopeAtom);
-    const thread = useAtomValue(briefThreadAtom);
-    const ambient = useAtomValue(ambientProviderAtom);
-    useEffect(() => ensureAmbient(), []);
-    const graphFocus = useMemo<PeekFocus>(
-        () =>
-            graphRecord != null
-                ? { dossierId: graphRecord, runORef: null }
-                : peekFocus({
-                      subject: null,
-                      runORef: null,
-                      attachedORefs: scope.attached.map((a) => a.oref),
-                      mentionedDossierIds: mentionedDossierIds({
-                          id: "brief-ask",
-                          title: "",
-                          turns: thread.map((e) => e.turn),
-                          scope,
-                      }),
-                      tagsFor: (oref) => ambient.tagsFor({ oref }),
-                  }),
-        [graphRecord, scope, thread, ambient]
-    );
+    const graphFocus = useMemo<PeekFocus>(() => ({ dossierId: graphRecord ?? null, runORef: null }), [graphRecord]);
     // closing clears the explicit record too: leaving it set would re-centre every later open on a record
     // the user has moved on from
     const closeBriefGraph = () => {
@@ -1938,7 +1551,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
             {/* The same overlay the Stage used to mount, with the Brief's own exits. canOpenRuns is true
                 now that a run has a destination: openref.ts's run landing opens the channel's detail sheet, which
                 is where the run body and its gate live. A graph-selected record closes into the record
-                peek; an Ask closes into the attached Brief thread. */}
+                peek. */}
             <AnimatePresence>
                 {graphOpen ? (
                     <GraphPeek
@@ -1947,7 +1560,6 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                         focus={graphFocus}
                         canOpenRuns
                         onOpenRecord={(id) => globalStore.set(briefPeekRecordAtom, id)}
-                        onAskAbout={(ref) => openJarvisWithSource(model, ref)}
                         onClose={closeBriefGraph}
                     />
                 ) : null}

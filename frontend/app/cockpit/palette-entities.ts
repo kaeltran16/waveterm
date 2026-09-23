@@ -1,12 +1,11 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The command palette's extended entity sources: records, conversation threads and initiatives (efforts).
-// These were the kinds ⌘K could not reach at all, archived ones most of all. They arrive as three more
-// ranked groups inside the existing palette — no second overlay, no new shortcut.
+// The command palette's extended entity sources: records and initiatives (efforts). These were the kinds
+// ⌘K could not reach at all, archived ones most of all. They arrive as two more ranked groups inside the
+// existing palette — no second overlay, no new shortcut.
 //
-// Records and threads reuse the jarvis stores that already own those lists (tasksstore, jarvisstore): one
-// list, one truth, and the Subjects column already primes them exactly this way. Efforts have no list
+// Records reuse the jarvis store that already owns that list (tasksstore): one list, one truth. Efforts have no list
 // store of their own — effortslistview.tsx fetches into component state — so this module owns one.
 //
 // Nothing here runs at boot. loadPaletteEntities is called from the palette's open effect, beside
@@ -16,7 +15,6 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import type { BriefKind } from "@/app/view/jarvis/briefpalette";
-import { loadJarvisConversations } from "@/app/view/jarvis/jarvisstore";
 import { loadTaskList } from "@/app/view/jarvis/tasksstore";
 import { fireAndForget } from "@/util/util";
 import { atom, type PrimitiveAtom } from "jotai";
@@ -24,7 +22,7 @@ import { fuzzyScore } from "./palette-match";
 
 // The BriefKinds the palette sources here. Sessions are deliberately absent: the palette already has a
 // Sessions group whose Enter resumes the session rather than navigating to it.
-export const BRIEF_GROUP_KINDS: BriefKind[] = ["record", "thread", "effort"];
+export const BRIEF_GROUP_KINDS: BriefKind[] = ["record", "effort"];
 
 // null until the first list lands. A failed load leaves the last good list in place rather than clobbering
 // it with an empty one, and an unloaded source simply contributes no rows.
@@ -47,12 +45,11 @@ async function loadPaletteEfforts(): Promise<void> {
     }
 }
 
-// Three independent reads. Each swallows its own failure (loadTaskList into tasksErrorAtom,
-// loadJarvisConversations and this one through fireAndForget), so one list failing costs its own rows and
-// nothing else — the palette still opens and the other two still rank.
+// Two independent reads. Each swallows its own failure (loadTaskList into tasksErrorAtom, this one through
+// fireAndForget), so one list failing costs its own rows and nothing else — the palette still opens and the
+// other still ranks.
 export function loadPaletteEntities(): void {
     loadTaskList();
-    loadJarvisConversations();
     fireAndForget(loadPaletteEfforts);
 }
 

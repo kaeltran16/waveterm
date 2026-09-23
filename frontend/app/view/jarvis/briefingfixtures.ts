@@ -6,9 +6,8 @@
 // special-case them — and the timestamps hang off a fixed `now` so the shots are deterministic. Compiled
 // out of production builds (only reachable through the briefingFixtureAtom seam, which import.meta.env.DEV
 // gates).
-import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
-import { briefingAnswerAtom, briefingAskStateAtom, type BriefingLoadState } from "./briefingstore";
+import type { BriefingLoadState } from "./briefingstore";
 
 export type BriefingFixtureName = "normal" | "attention" | "empty" | "partial" | "failed";
 export interface BriefingFixture {
@@ -244,35 +243,3 @@ export const BRIEFING_FIXTURES: Record<BriefingFixtureName, BriefingFixture> = {
     partial: { load: loaded(partialState), agents, attention: [] },
     failed: { load: { snapshot: null, loading: false, error: "fixture failure" }, agents: [], attention: [] },
 };
-
-// The ask fixture answers once and stays: the inline ask is launch-local state, so the answer is
-// seeded directly rather than through a fake RPC.
-export function setBriefingAskFixtureForDev(): void {
-    globalStore.set(briefingAskStateAtom, "answered");
-    globalStore.set(briefingAnswerAtom, {
-        answer: "Two runs are moving: the briefing itself is executing and the usage charts are blocked. The memory recentralization shipped yesterday [1].",
-        // one routable-and-fresh, one gardener-flagged stale, so the Drew band's two readings are both
-        // visible in the fixture rather than only the happy one
-        grounding: [
-            {
-                n: 1,
-                sourceType: "run",
-                title: "Memory recentralization",
-                project: "waveterm",
-                ageMs: 26 * 60 * 60 * 1000,
-                freshness: "fresh",
-                navTarget: "run:r-briefing-shipped",
-            },
-            {
-                n: 2,
-                sourceType: "memory",
-                title: "vault scoping note",
-                project: "waveterm",
-                ageMs: 41 * 24 * 60 * 60 * 1000,
-                freshness: "stale",
-                navTarget: "memory:m-briefing-1",
-            },
-        ],
-        terminal: "answered",
-    });
-}

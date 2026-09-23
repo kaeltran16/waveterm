@@ -3,8 +3,8 @@
 //
 // Which subject the Brief's detail sheet owns. The rule under test is a routing one, and it earns a test
 // because a kind that silently falls through to "none" loses its only destination now that the Stage is
-// gone: dossier, conversation and briefing are each rendered by another Brief surface (the peek, the
-// thread, the Brief itself), so "none" has to mean "someone else draws this", never "nothing does".
+// gone: dossier and briefing are each rendered by another Brief surface (the peek, the Brief itself), so
+// "none" has to mean "someone else draws this", never "nothing does".
 
 import { describe, expect, it } from "vitest";
 import { sheetFace } from "./briefsheetmodel";
@@ -41,7 +41,7 @@ describe("sheetFace", () => {
     });
 
     // the sheet must not become a second renderer for a subject that already has one
-    it.each(["dossier", "conversation", "briefing"] as const)("leaves %s to its own Brief destination", (kind) => {
+    it.each(["dossier", "briefing"] as const)("leaves %s to its own Brief destination", (kind) => {
         expect(sheetFace(subject(kind), run)).toEqual({ kind: "none" });
     });
 });

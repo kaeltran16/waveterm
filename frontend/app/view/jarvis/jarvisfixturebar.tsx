@@ -8,7 +8,7 @@
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { BRIEFING_FIXTURES, setBriefingAskFixtureForDev, type BriefingFixtureName } from "./briefingfixtures";
+import { BRIEFING_FIXTURES, type BriefingFixtureName } from "./briefingfixtures";
 import { briefingFixtureAtom } from "./briefingstore";
 
 export function JarvisFixtureBar() {
@@ -39,19 +39,6 @@ export function JarvisFixtureBar() {
                         {s}
                     </button>
                 ))}
-                <button
-                    type="button"
-                    data-briefing-fixture="ask"
-                    onClick={() => {
-                        // the answer needs a snapshot to hang on; the ask fixture seeds the normal state
-                        // so the ask section renders beside the answer.
-                        globalStore.set(briefingFixtureAtom, "normal");
-                        setBriefingAskFixtureForDev();
-                    }}
-                    className="cursor-pointer rounded-[6px] px-2 py-0.5 text-[11px] text-ink-mid hover:bg-surface-hover"
-                >
-                    ask
-                </button>
             </div>
         </div>
     );

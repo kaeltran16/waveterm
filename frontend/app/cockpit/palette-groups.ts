@@ -12,7 +12,6 @@ import { SCORE_PER_CHAR, fuzzyScore } from "./palette-match";
 export type GroupKind =
     | "recent"
     | "launch"
-    | "ask-jarvis"
     | "act-on"
     | "focus-task"
     | "command"
@@ -22,13 +21,12 @@ export type GroupKind =
     // the jarvis entity kinds the palette also sources (see palette-entities.ts). Named to match
     // briefpalette's BriefKind so its rows drop straight in — BriefKind is a subset of this union.
     | "record"
-    | "thread"
     | "effort";
 
 export interface GroupableItem {
     key: string;
     kind: GroupKind;
-    search: string; // matched text; "" for launch/ask rows, which are never ranked
+    search: string; // matched text; "" for launch rows, which are never ranked
 }
 
 export interface PaletteGroup<T> {
@@ -39,15 +37,15 @@ export interface PaletteGroup<T> {
 // Ranked kinds, in the order they are shown below any lead group. The jarvis entity kinds come last
 // because they are the widest lists; a query that actually names one of them floats it to the lead
 // anyway (leadKind below), so this order only decides what follows.
-export const GROUP_ORDER: GroupKind[] = ["focus-task", "command", "agent", "session", "record", "thread", "effort"];
+export const GROUP_ORDER: GroupKind[] = ["focus-task", "command", "agent", "session", "record", "effort"];
 
 // Groups whose rows render as rich fast-dispatch cards rather than plain list rows. A type predicate,
 // not a plain boolean: the renderer's other branch indexes a Record keyed on the *plain* kinds, and
 // this repo compiles with strict off — without narrowing, that lookup degrades to `any` and a kind
 // added later with no label would render a blank heading instead of failing the typecheck.
-export type RichGroupKind = "launch" | "ask-jarvis" | "act-on";
+export type RichGroupKind = "launch" | "act-on";
 
-const RICH_KINDS = new Set<GroupKind>(["launch", "ask-jarvis", "act-on"]);
+const RICH_KINDS = new Set<GroupKind>(["launch", "act-on"]);
 
 export function isRichGroup(kind: GroupKind): kind is RichGroupKind {
     return RICH_KINDS.has(kind);
@@ -79,12 +77,11 @@ export interface DefaultGroupsInput<T extends GroupableItem> {
     query: string;
     ranked: T[]; // focus tasks + commands + agents + sessions, already ranked best-first
     launchItems: T[]; // [] when there is no goal or no active channel
-    askItems: T[]; // [] when there is no goal
     recent: T[]; // most-recently-used rows, resolved against the current pool
 }
 
 export function assembleDefaultGroups<T extends GroupableItem>(input: DefaultGroupsInput<T>): PaletteGroup<T>[] {
-    const { query, ranked, launchItems, askItems, recent } = input;
+    const { query, ranked, launchItems, recent } = input;
     const showRecent = query.trim() === "" && recent.length > 0;
     // A row shown under Recent is not repeated in its own group below.
     const recentKeys = new Set(showRecent ? recent.map((it) => it.key) : []);
@@ -110,17 +107,13 @@ export function assembleDefaultGroups<T extends GroupableItem>(input: DefaultGro
     }
     if (isConfidentMatch(query, ranked)) {
         groups.push(...rankedGroups);
-        const actOn = [...launchItems, ...askItems];
-        if (actOn.length > 0) {
-            groups.push({ kind: "act-on", items: actOn });
+        if (launchItems.length > 0) {
+            groups.push({ kind: "act-on", items: launchItems });
         }
         return groups;
     }
     if (launchItems.length > 0) {
         groups.push({ kind: "launch", items: launchItems });
-    }
-    if (askItems.length > 0) {
-        groups.push({ kind: "ask-jarvis", items: askItems });
     }
     groups.push(...rankedGroups);
     return groups;

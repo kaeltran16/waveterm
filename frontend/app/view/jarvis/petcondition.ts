@@ -6,22 +6,19 @@
 // renderer rather than the thing that decides (design §5).
 //
 // The precedence is strict and lives here and nowhere else (design §3):
-//   1 cannot-see — semantic recall degraded to keyword matching. Silent degradation is the worst failure
-//                  mode: if recall is quietly keyword-only, nothing else the creature reports is
-//                  trustworthy, so it outranks everything.
+//   1 cannot-see — semantic recall degraded to keyword matching. No signal feeds it since the embedding
+//                  index was retired; the register is kept so the avatar's rendering of it survives.
 //   2 tired      — the rate-limit window depleting. Cyclical, legible within a day, and not your fault.
 // Nothing present => at-rest.
 //
 // Every input field is optional, and an absent field is "no signal" — never "signal absent". That
-// distinction is load-bearing rather than pedantic: petsources.tsx leaves `index` unset until its read
-// lands, so a backend that has not answered yet cannot present here as a clean bill of health.
+// distinction is load-bearing rather than pedantic: a source that has not answered yet cannot present here
+// as a clean bill of health.
 
 import { formatReset, usageLevel } from "@/app/view/agents/agentsviewmodel";
 import { providerLabel } from "@/app/view/agents/cockpitrailmodel";
 
 export interface PetSignals {
-    // rank 1: semantic recall's honesty about itself. Fed from jarvisembed.Status via petjoin.indexSignal.
-    index?: { state: "ok" | "off" | "stale" };
     // rank 2: highest 5-hour utilisation across providers (0..100). `resetAt` is epoch SECONDS, matching
     // AgentUsage.fivehourreset and formatReset — the whole cockpit carries this window in seconds.
     // `provider` is required because the reading is per-provider and the highest wins: unnamed, a codex
@@ -57,10 +54,6 @@ export function isWindowConstrained(rateLimit: PetSignals["rateLimit"]): boolean
 // an empty list is how quiet is spelled.
 export function conditionsFor(signals: PetSignals): PetExpression[] {
     const out: PetExpression[] = [];
-    const index = signals.index?.state;
-    if (index === "off" || index === "stale") {
-        out.push({ kind: "cannot-see", reason: index });
-    }
     const rl = signals.rateLimit;
     if (rl != null && isWindowConstrained(rl)) {
         out.push({ kind: "tired", provider: rl.provider, pct: rl.pct, resetAt: rl.resetAt });

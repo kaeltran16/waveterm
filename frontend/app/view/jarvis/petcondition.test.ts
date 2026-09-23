@@ -10,16 +10,9 @@ import {
     type PetSignals,
 } from "./petcondition";
 
-const OFF: PetSignals["index"] = { state: "off" };
-const STALE: PetSignals["index"] = { state: "stale" };
 const HOT: PetSignals["rateLimit"] = { provider: "claude", pct: 94, resetAt: 1_800_000_000 };
 
 describe("expressionFor — each rank fires in isolation", () => {
-    it("rank 1: an index that is off or stale is cannot-see, carrying which", () => {
-        expect(expressionFor({ index: OFF })).toEqual({ kind: "cannot-see", reason: "off" });
-        expect(expressionFor({ index: STALE })).toEqual({ kind: "cannot-see", reason: "stale" });
-    });
-
     it("rank 2: a depleting window is tired, carrying whose reading it is, the reading, and its reset", () => {
         expect(expressionFor({ rateLimit: HOT })).toEqual({
             kind: "tired",
@@ -31,15 +24,10 @@ describe("expressionFor — each rank fires in isolation", () => {
 });
 
 describe("expressionFor — strict precedence", () => {
-    it("keeps the underlying window constraint available when recall wins the expression", () => {
-        expect(expressionFor({ index: OFF, rateLimit: HOT }).kind).toBe("cannot-see");
+    it("reads a window as constrained only past the cockpit's ok band", () => {
         expect(isWindowConstrained(HOT)).toBe(true);
         expect(isWindowConstrained({ provider: "claude", pct: 60 })).toBe(false);
         expect(isWindowConstrained(undefined)).toBe(false);
-    });
-
-    it("cannot-see beats every lower rank present at the same time", () => {
-        expect(expressionFor({ index: OFF, rateLimit: HOT }).kind).toBe("cannot-see");
     });
 
     it("ranks the three expressions in the design's order", () => {
@@ -56,7 +44,6 @@ describe("expressionFor — nothing present is at-rest", () => {
     // an absent field means "no signal", never "signal absent" — which is what lets the ranks with no
     // source yet ship inert instead of firing on undefined.
     it("yields at-rest when a signal is present but says nothing is wrong", () => {
-        expect(expressionFor({ index: { state: "ok" } }).kind).toBe("at-rest");
         expect(expressionFor({ rateLimit: { provider: "claude", pct: 12 } }).kind).toBe("at-rest");
         expect(expressionFor({ attention: { reviewGates: 3, escalations: 1, blockedWorkers: 2 } }).kind).toBe(
             "at-rest"
@@ -84,11 +71,10 @@ describe("postureFor", () => {
     // precedence in expressionFor must not silence what is waiting.
     it("is unaffected by the condition signals", () => {
         const signals: PetSignals = {
-            index: OFF,
             rateLimit: HOT,
             attention: { reviewGates: 0, escalations: 2, blockedWorkers: 0 },
         };
-        expect(expressionFor(signals).kind).toBe("cannot-see");
+        expect(expressionFor(signals).kind).toBe("tired");
         expect(postureFor(signals)).toBe("escalation");
     });
 });
@@ -157,16 +143,10 @@ describe("wording", () => {
 describe("conditionsFor — every standing condition, in rank order", () => {
     it("returns nothing to say when no signal is degraded", () => {
         expect(conditionsFor({})).toEqual([]);
-        expect(conditionsFor({ index: { state: "ok" } })).toEqual([]);
-    });
-
-    it("lists one entry per degraded signal, ranked, not just the winner", () => {
-        expect(conditionsFor({ index: OFF, rateLimit: HOT }).map((c) => c.kind)).toEqual(["cannot-see", "tired"]);
     });
 
     it("carries each condition whole, so conditionLine can word it without re-deriving", () => {
-        expect(conditionsFor({ index: OFF, rateLimit: HOT })).toEqual([
-            { kind: "cannot-see", reason: "off" },
+        expect(conditionsFor({ rateLimit: HOT })).toEqual([
             { kind: "tired", provider: "claude", pct: 94, resetAt: 1_800_000_000 },
         ]);
     });
@@ -178,7 +158,7 @@ describe("conditionsFor — every standing condition, in rank order", () => {
     // the crossing rule: the creature wears one face, and the peek's lead line must be that same face.
     // Two derivations of the same precedence would let the corner and the panel disagree.
     it("leads with exactly the expression the creature is wearing", () => {
-        for (const signals of [{ index: OFF, rateLimit: HOT }, { rateLimit: HOT }, { index: STALE }]) {
+        for (const signals of [{ rateLimit: HOT }]) {
             expect(conditionsFor(signals)[0]).toEqual(expressionFor(signals));
         }
     });

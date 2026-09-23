@@ -48,7 +48,7 @@ export function selectionFor(surface: SurfaceKey, s: SelectionSnapshot): string[
     }
 }
 
-// conversation and briefing subjects have no address, so they are not reported
+// briefing subjects have no address, so they are not reported
 function jarvisSelection(s: SelectionSnapshot): string[] {
     const out: string[] = [];
     const subject = s.subject;

@@ -33,29 +33,23 @@ describe("isConfidentMatch", () => {
 describe("assembleDefaultGroups", () => {
     const ranked = [item("c1", "command", "Go to Usage"), item("a1", "agent", "worker one")];
     const launchItems = [item("launch:quick", "launch", ""), item("launch:run", "launch", "")];
-    const askItems = [item("ask-jarvis", "ask-jarvis", "")];
 
     it("leads with the ranked groups and trails with one act-on block on a confident match", () => {
-        const groups = assembleDefaultGroups({ query: "usage", ranked, launchItems, askItems, recent: [] });
+        const groups = assembleDefaultGroups({ query: "usage", ranked, launchItems, recent: [] });
         expect(groups.map((g) => g.kind)).toEqual(["command", "agent", "act-on"]);
         expect(groups[0].items[0].key).toBe("c1"); // Enter navigates
-        expect(groups[2].items.map((i) => i.key)).toEqual(["launch:quick", "launch:run", "ask-jarvis"]);
+        expect(groups[2].items.map((i) => i.key)).toEqual(["launch:quick", "launch:run"]);
     });
 
     it("leads with the launch block when nothing matched confidently", () => {
         const goal = "fix the flaky projectname test";
-        const groups = assembleDefaultGroups({ query: goal, ranked: [], launchItems, askItems, recent: [] });
-        expect(groups.map((g) => g.kind)).toEqual(["launch", "ask-jarvis"]);
+        const groups = assembleDefaultGroups({ query: goal, ranked: [], launchItems, recent: [] });
+        expect(groups.map((g) => g.kind)).toEqual(["launch"]);
         expect(groups[0].items[0].key).toBe("launch:quick"); // Enter dispatches
     });
 
-    it("leads with ask-jarvis when there is no active channel", () => {
-        const groups = assembleDefaultGroups({ query: "some goal", ranked: [], launchItems: [], askItems, recent: [] });
-        expect(groups.map((g) => g.kind)).toEqual(["ask-jarvis"]);
-    });
-
     it("omits the act-on block when there is nothing to act with", () => {
-        const groups = assembleDefaultGroups({ query: "usage", ranked, launchItems: [], askItems: [], recent: [] });
+        const groups = assembleDefaultGroups({ query: "usage", ranked, launchItems: [], recent: [] });
         expect(groups.map((g) => g.kind)).toEqual(["command", "agent"]);
     });
 
@@ -64,7 +58,7 @@ describe("assembleDefaultGroups", () => {
             query: "",
             ranked,
             launchItems: [],
-            askItems: [],
+           
             recent: [ranked[0]],
         });
         expect(groups.map((g) => g.kind)).toEqual(["recent", "agent"]);
@@ -80,7 +74,7 @@ describe("assembleDefaultGroups", () => {
             query: "usage",
             ranked: [cmd, focus], // ranked is best-first
             launchItems: [],
-            askItems: [],
+           
             recent: [],
         });
         expect(groups[0].kind).toBe("command");
@@ -95,7 +89,7 @@ describe("assembleDefaultGroups", () => {
             query: "",
             ranked: [cmd, focus],
             launchItems: [],
-            askItems: [],
+           
             recent: [],
         });
         expect(groups.map((g) => g.kind)).toEqual(["focus-task", "command"]);
@@ -106,7 +100,7 @@ describe("assembleDefaultGroups", () => {
             query: "",
             ranked: [],
             launchItems: [],
-            askItems: [],
+           
             recent: [],
         });
         expect(groups).toEqual([]);

@@ -13,10 +13,6 @@
 //                       were out" work when it fired before this window opened. Note the broker's persist
 //                       buffer is in-memory, so a wavesrv restart replays nothing — the durable half of
 //                       Voice is the launch narrative above, which is why that one reads the DB.
-//   index status      — read at launch and every 15 minutes. NOT on the 10s attention cadence: the backend
-//                       read parses the whole vault to count drift. A stale read starts the hash-gated
-//                       catch-up; configuration/provider failures stay manual so a bad paid boundary is
-//                       never retried in the background.
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { waveEventSubscribeSingle } from "@/app/store/wps";
@@ -26,7 +22,6 @@ import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { focusedBlockId } from "@/util/focusutil";
 import { useEffect } from "react";
 import { readUntilLanded } from "./petboot";
-import { loadAndCatchUpIndex } from "./petindex";
 import {
     askAgent,
     eventFromAsk,
@@ -38,7 +33,6 @@ import {
 } from "./petjoin";
 import { pushPetEvent, removePetEvent } from "./petstore";
 
-const INDEX_POLL_MS = 15 * 60_000;
 const ACTIVITY_BACKLOG = 20;
 
 // session-unique sequence for notify event ids (the events themselves are session-scoped)
@@ -81,14 +75,12 @@ async function loadVolunteerBacklog(): Promise<boolean> {
 
 export function PetSources({ model }: { model: AgentsViewModel }) {
     useEffect(() => {
-        // Retried until each lands: all three are one-shot or near-enough (15 min), so a read lost to a
-        // backend that was not ready at mount would otherwise stay lost for the session. See petboot.ts.
+        // Retried until each lands: both are one-shot, so a read lost to a backend that was not ready at
+        // mount would otherwise stay lost for the session. See petboot.ts.
         let mounted = true;
         const live = () => mounted;
         void readUntilLanded({ read: loadLaunchNarrative, live });
         void readUntilLanded({ read: loadVolunteerBacklog, live });
-        void readUntilLanded({ read: loadAndCatchUpIndex, live });
-        const t = setInterval(() => void loadAndCatchUpIndex(), INDEX_POLL_MS);
         const unsubVolunteer = waveEventSubscribeSingle({
             eventType: "jarvis:volunteer",
             handler: (event) => {
@@ -130,9 +122,8 @@ export function PetSources({ model }: { model: AgentsViewModel }) {
                     return;
                 }
                 // `agent:<tabId>` is an address openAddress lands on the agent (address.ts reads it as an
-                // alias of tab:); askAboutSource tolerates the unknown sourceType (generic chip, never a wrong
-                // destination — jarvissubjectstore.ts:305). A roster-less ask still speaks, just with
-                // no open affordance — the same rule as a volunteer with no ref.
+                // alias of tab:). A roster-less ask still speaks, just with no open affordance — the same rule
+                // as a volunteer with no ref.
                 pushPetEvent(
                     agent != null
                         ? {
@@ -145,7 +136,6 @@ export function PetSources({ model }: { model: AgentsViewModel }) {
         });
         return () => {
             mounted = false;
-            clearInterval(t);
             unsubVolunteer();
             unsubNotify();
             unsubAsk();

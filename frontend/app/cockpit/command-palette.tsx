@@ -3,7 +3,7 @@
 
 // Command palette overlay — Ctrl+P everywhere except the Code surface, which leads with its file
 // finder and hands off here on a leading '>'. Fuzzy-searches live agents, resumable sessions,
-// cockpit commands, and the jarvis entities (records, threads, initiatives — archived included, see
+// cockpit commands, and the jarvis entities (records and initiatives — archived included, see
 // palette-entities.ts), and dispatches the selected item's action. This is the ONE palette: a new
 // findable kind is a new entry source here, never a second overlay or a second shortcut. Hand-rolled to
 // match the NewAgentModal overlay pattern (jotai visibility atom + fixed overlay from cockpit-root).
@@ -23,10 +23,7 @@ import { createRun, resolveChannelLaunchRoute } from "@/app/view/agents/runactio
 import { loadSessionsArchive, sessionsArchiveAtom } from "@/app/view/agents/sessionsarchivestore";
 import { activeFocusAtom, enterFocusFor, exitFocus, loadFocuses, focusesAtom } from "@/app/view/agents/focusstore";
 import { themeOverridesAtom, themePresetAtom } from "@/app/view/agents/themestore";
-import { askBriefThread } from "@/app/view/jarvis/briefingstore";
 import { buildBriefIndex, rankBriefRows, type BriefRow } from "@/app/view/jarvis/briefpalette";
-import { persistedSummariesAtom } from "@/app/view/jarvis/jarvisstore";
-import { selectSubject } from "@/app/view/jarvis/jarvissubjectstore";
 import { openAddress, openTarget } from "@/app/view/jarvis/openref";
 import { taskListAtom } from "@/app/view/jarvis/tasksstore";
 import { formatChord } from "@/util/keysym";
@@ -34,7 +31,6 @@ import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { runPaletteAction } from "./palette-action";
-import { buildAskItems } from "./palette-ask";
 import { buildCommandItems, buildExtraItems, postCloseContext } from "./palette-commands";
 import { loadPaletteEntities, mergeRanked, paletteEffortsAtom } from "./palette-entities";
 import { buildFocusItems } from "./palette-focus";
@@ -59,7 +55,7 @@ interface PaletteItem {
     subtitle?: string;
     hint?: string; // right-aligned (session age)
     chord?: string; // keybinding chord for derived command rows
-    archived?: boolean; // renders the archived pill and greys the title (record/thread/effort rows)
+    archived?: boolean; // renders the archived pill and greys the title (record/effort rows)
     run: () => void;
     // launch group only (rich fast-dispatch row):
     glyph?: string; // monospace badge glyph
@@ -78,7 +74,6 @@ const GROUP_LABELS: Record<Exclude<GroupKind, RichGroupKind>, string> = {
     session: "Sessions",
     channel: "Projects",
     record: "Records",
-    thread: "Threads",
     effort: "Initiatives", // the user-facing word for an effort (briefpalette's BRIEF_KIND_LABELS)
 };
 
@@ -122,7 +117,6 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     const spaces = useAtomValue(focusesAtom);
     const activeSpace = useAtomValue(activeFocusAtom);
     const records = useAtomValue(taskListAtom);
-    const threads = useAtomValue(persistedSummariesAtom);
     const efforts = useAtomValue(paletteEffortsAtom);
     const surface = useAtomValue(model.surfaceAtom);
     const bindings = useAtomValue(bindingsAtom);
@@ -156,7 +150,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         }
         if (open) {
             loadFocuses();
-            // records / threads / initiatives: re-read per open (as loadFocuses does) so archiving one in
+            // records / initiatives: re-read per open (as loadFocuses does) so archiving one in
             // the Jarvis surface is reflected the next time the palette is asked to find it.
             loadPaletteEntities();
         }
@@ -293,20 +287,6 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         }));
     }, [showLaunch, targetChannel, launchGoal, agents, model, projects]);
 
-    // "Ask Jarvis" lead group: turn the typed goal into a recall conversation and open the Jarvis surface.
-    // Reuses jarvisstore's module-scope streaming so the answer keeps arriving after the palette closes.
-    const askDeps = {
-        ask: (question: string) => {
-            // B5: the Brief is the only composition, so this no longer mints a persisted conversation and
-            // makes it the Stage subject — nothing renders that, and the typed question was being lost.
-            // It asks the Brief's own thread, which is where an all-work question is answered.
-            askBriefThread(question);
-            globalStore.set(model.surfaceAtom, "jarvis");
-            close();
-        },
-    };
-    const askItems = buildAskItems(launchGoal, askDeps);
-
     // Project picker rows (# scope, no goal). Enter switches the active project and opens the surface.
     const channelItems = useMemo<PaletteItem[]>(
         () =>
@@ -352,35 +332,27 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         [spaces, activeSpace, model]
     );
 
-    // Selection navigates through the seams that already exist. A record and an initiative are addresses, so
-    // openAddress lands them (and flips the surface itself); a thread has no address — it is only ever a Stage
-    // subject, which is the same seam the Ask Jarvis row above uses. Sessions are not sourced here (see
-    // BRIEF_GROUP_KINDS), so "thread" is the only remaining kind.
+    // Selection navigates through the seams that already exist: a record and an initiative are addresses,
+    // so openAddress lands them (and flips the surface itself). Sessions are not sourced here (see
+    // BRIEF_GROUP_KINDS).
     const openBriefRow = (row: BriefRow) => {
-        if (row.kind === "record") {
-            fireAndForget(() => openAddress(model, `task:${row.id}`));
-            return;
-        }
-        if (row.kind === "effort") {
-            fireAndForget(() => openAddress(model, row.id)); // an effort row's id is already an address
-            return;
-        }
-        selectSubject({ kind: "conversation", id: row.id });
-        globalStore.set(model.surfaceAtom, "jarvis");
+        // an effort row's id is already an address
+        const address = row.kind === "record" ? `task:${row.id}` : row.id;
+        fireAndForget(() => openAddress(model, address));
     };
 
-    // Records, threads and initiatives — the entity kinds the palette could not reach at all, archived
+    // Records and initiatives — the entity kinds the palette could not reach at all, archived
     // ones included. briefpalette owns the index and the ranking (it flags archived rows and sinks them
     // below every live one), so this only maps its rows onto palette rows. Its order is used as given:
     // re-ranking here would undo the archived-last guarantee.
     const briefIndex = useMemo(
-        () => buildBriefIndex({ records: records ?? [], threads: threads ?? [], efforts: efforts ?? [] }),
-        [records, threads, efforts]
+        () => buildBriefIndex({ records: records ?? [], efforts: efforts ?? [] }),
+        [records, efforts]
     );
     const briefItems = useMemo<PaletteItem[]>(() => {
         const now = Date.now();
         // Deliberately uncapped here. rankBriefRows sorts archived rows last across the WHOLE index, so any
-        // cap applied before the rows are split into their three groups eats the archived tail first — the
+        // cap applied before the rows are split into their groups eats the archived tail first — the
         // exact rows this feature exists to surface. capGroups caps per group and reports the overflow,
         // which is the only place a cap can be applied without starving one kind to feed another.
         return rankBriefRows(briefIndex, query, briefIndex.length).rows.map((r) => ({
@@ -413,22 +385,10 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         // briefpalette's order (archived last) while the merged head is still the best match overall —
         // which is what decides the leading group and the relevance floor below.
         const ranked = mergeRanked(query, rankPaletteItems(pool, query), briefItems);
-        const askPalItems: PaletteItem[] = askItems.map((ai) => ({
-            key: ai.key,
-            kind: "ask-jarvis" as const,
-            search: "",
-            title: ai.mode,
-            glyph: ai.glyph,
-            mode: ai.mode,
-            desc: ai.desc,
-            footer: ai.footer,
-            run: ai.run,
-        }));
         groups = assembleDefaultGroups({
             query,
             ranked,
             launchItems,
-            askItems: askPalItems,
             recent: recentItems([...pool, ...briefItems], mru, MAX_RECENT),
         });
     } else {
@@ -452,7 +412,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     const selClamped = flat.length === 0 ? 0 : Math.min(sel, flat.length - 1);
     const flatIndex = new Map(flat.map((it, i) => [it.key, i]));
     const selected = flat[selClamped];
-    const selFooter = selected?.kind === "launch" || selected?.kind === "ask-jarvis" ? selected.footer : undefined;
+    const selFooter = selected?.kind === "launch" ? selected.footer : undefined;
 
     // Arrow-keying past the visible rows used to move the selection out of view — the scroll container
     // was never told to follow it.
@@ -460,7 +420,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         listRef.current?.querySelector(`[data-idx="${selClamped}"]`)?.scrollIntoView({ block: "nearest" });
     }, [selClamped]);
 
-    // Launch and ask rows are not recorded: their keys are generic ("launch:quick"), they never enter the
+    // Launch rows are not recorded: their keys are generic ("launch:quick"), they never enter the
     // ranked pool, and floating them would mean nothing.
     const fire = (it: PaletteItem | undefined) => {
         if (it == null) {
@@ -550,12 +510,10 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                                                         #{channelProjectLabel(targetChannel, projects)}
                                                     </span>
                                                 </>
-                                            ) : g.kind === "act-on" ? (
+                                            ) : (
                                                 <>
                                                     Act on <span className="text-accent-100">“{query.trim()}”</span>
                                                 </>
-                                            ) : (
-                                                "Ask Jarvis"
                                             )}
                                         </div>
                                         {g.items.map((it) => {

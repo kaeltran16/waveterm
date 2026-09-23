@@ -5,13 +5,10 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const openAddress = vi.fn();
-const askAboutSource = vi.fn();
-const startIndexCatchUp = vi.fn();
 const postMessage = vi.fn();
 const consult = vi.fn();
 
 vi.mock("./openref", () => ({ openAddress: (...a: any[]) => openAddress(...a) }));
-vi.mock("./jarvissubjectstore", () => ({ askAboutSource: (...a: any[]) => askAboutSource(...a) }));
 vi.mock("@/app/store/wshclientapi", () => ({
     RpcApi: {
         PostChannelMessageCommand: (...a: any[]) => postMessage(...a),
@@ -19,9 +16,7 @@ vi.mock("@/app/store/wshclientapi", () => ({
     },
 }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
-vi.mock("./petindex", () => ({ startIndexCatchUp: (...a: any[]) => startIndexCatchUp(...a) }));
 
-import { pendingSettingsSectionAtom, SETTINGS_SECTION_EMBEDDINGS } from "@/app/view/agents/settingsstore";
 import { atom } from "jotai";
 import { runAct, sendErrand } from "./petactrun";
 import type { PetAct } from "./petacts";
@@ -33,7 +28,6 @@ const model = { surfaceAtom: atom("cockpit") } as any;
 afterEach(() => {
     vi.clearAllMocks();
     globalStore.set(petActStateAtom, {});
-    globalStore.set(pendingSettingsSectionAtom, null);
     globalStore.set(petPeekOpenAtom, false);
 });
 
@@ -69,55 +63,6 @@ describe("runAct — escorts", () => {
             status: "error",
             text: "That record no longer exists",
         });
-    });
-
-    it("routes the settings escort to the settings surface, naming the embeddings section", async () => {
-        const act: PetAct = { id: "s", verb: "open", label: "Set up", target: { kind: "settings-embeddings" } };
-        await runAct(model, act);
-        expect(globalStore.get(model.surfaceAtom)).toBe("settings");
-        expect(globalStore.get(pendingSettingsSectionAtom)).toBe(SETTINGS_SECTION_EMBEDDINGS);
-    });
-});
-
-describe("runAct — ask", () => {
-    it("seeds the question and lands on Jarvis", async () => {
-        const act: PetAct = {
-            id: "a",
-            verb: "ask",
-            label: "Ask",
-            seed: { ref: "task:abc", sourceType: "dossier", title: "a record", prompt: "Tell me more." },
-        };
-        await runAct(model, act);
-        expect(askAboutSource).toHaveBeenCalledWith("task:abc", "dossier", "a record", "Tell me more.");
-        expect(globalStore.get(model.surfaceAtom)).toBe("jarvis");
-    });
-});
-
-describe("runAct — catch up the index", () => {
-    it("delegates the shared catch-up lifecycle using the action's id", async () => {
-        startIndexCatchUp.mockResolvedValue(undefined);
-        const act: PetAct = {
-            id: "recall:catchup",
-            verb: "do",
-            label: "Catch up",
-            op: { kind: "reconcile-index" },
-        };
-
-        await runAct(model, act);
-
-        expect(startIndexCatchUp).toHaveBeenCalledWith("recall:catchup");
-    });
-
-    it("reports a refused dispatch on the row", async () => {
-        startIndexCatchUp.mockRejectedValue(new Error("EC-TIME"));
-        const act: PetAct = {
-            id: "recall:retry",
-            verb: "do",
-            label: "Retry",
-            op: { kind: "reconcile-index" },
-        };
-        await runAct(model, act);
-        expect(globalStore.get(petActStateAtom)["recall:retry"]).toEqual({ status: "error", text: "EC-TIME" });
     });
 });
 

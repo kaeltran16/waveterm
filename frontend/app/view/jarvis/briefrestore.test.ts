@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { briefRestorePlan } from "./briefrestore";
 
-const LOADED = { channels: ["c1"], dossiers: ["d1"], conversations: ["t1"] };
+const LOADED = { channels: ["c1"], dossiers: ["d1"] };
 
 describe("briefRestorePlan", () => {
     it("does nothing when nothing was stored", () => {
@@ -15,15 +15,12 @@ describe("briefRestorePlan", () => {
         expect(briefRestorePlan({ kind: "dossier", id: "d1" }, LOADED)).toEqual({ action: "record", id: "d1" });
     });
 
-    it("sends a stored conversation to a hydrated thread", () => {
-        expect(briefRestorePlan({ kind: "conversation", id: "t1" }, LOADED)).toEqual({
-            action: "conversation",
-            id: "t1",
-        });
+    it("clears a stored conversation left over from before Ask was retired", () => {
+        expect(briefRestorePlan({ kind: "conversation", id: "t1" } as any, LOADED)).toEqual({ action: "clear" });
     });
 
     it("waits on the one list the stored kind needs", () => {
-        expect(briefRestorePlan({ kind: "conversation", id: "t1" }, { ...LOADED, conversations: null })).toEqual({
+        expect(briefRestorePlan({ kind: "dossier", id: "d1" }, { ...LOADED, dossiers: null })).toEqual({
             action: "wait",
         });
     });

@@ -4,8 +4,8 @@
 import { describe, expect, it } from "vitest";
 import { restoreDecision } from "./subjectrestore";
 
-const LOADED = { channels: ["c1"], dossiers: ["d1"], conversations: ["t1"] };
-const UNLOADED = { channels: null, dossiers: null, conversations: null };
+const LOADED = { channels: ["c1"], dossiers: ["d1"] };
+const UNLOADED = { channels: null, dossiers: null };
 
 describe("restoreDecision", () => {
     it("does nothing when nothing was stored", () => {
@@ -20,18 +20,23 @@ describe("restoreDecision", () => {
     });
 
     it("does not wait on a list it does not need", () => {
-        // a stored channel must not be held up by a thread list that has not landed
-        expect(restoreDecision({ kind: "channel", id: "c1" }, { ...LOADED, conversations: null })).toEqual({
+        // a stored channel must not be held up by a record list that has not landed
+        expect(restoreDecision({ kind: "channel", id: "c1" }, { ...LOADED, dossiers: null })).toEqual({
             action: "select",
             subject: { kind: "channel", id: "c1" },
         });
     });
 
     it("selects the stored subject once its list holds the id", () => {
-        expect(restoreDecision({ kind: "conversation", id: "t1" }, LOADED)).toEqual({
+        expect(restoreDecision({ kind: "dossier", id: "d1" }, LOADED)).toEqual({
             action: "select",
-            subject: { kind: "conversation", id: "t1" },
+            subject: { kind: "dossier", id: "d1" },
         });
+    });
+
+    it("clears a stored conversation left over from before Ask was retired", () => {
+        const lists = { channels: ["c1"], dossiers: ["d1"] };
+        expect(restoreDecision({ kind: "conversation", id: "x" } as any, lists)).toEqual({ action: "clear" });
     });
 
     it("clears a stored subject its loaded list no longer holds", () => {

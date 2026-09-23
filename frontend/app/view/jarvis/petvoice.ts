@@ -30,9 +30,7 @@ export interface PetEvent {
         | "sweep"
         | "distill-batch"
         | "bg-agent-done"
-        | "recall-ready"
         // volunteered knowledge: what Jarvis knows about your work, not what the system did
-        | "recall"
         | "connection"
         | "loose-end"
         | "ledger"

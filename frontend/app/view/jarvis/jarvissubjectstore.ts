@@ -15,14 +15,6 @@ import { fireAndForget } from "@/util/util";
 import { atom, type Atom, type PrimitiveAtom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import { loadEffortDetail } from "./effortstore";
-import type { JarvisScope, SourceType } from "./jarviscontract";
-import {
-    getConversation,
-    pruneEmptyConversation,
-    selectConversation,
-    startConversation,
-    submitJarvisQuery,
-} from "./jarvisstore";
 import type { SubjectKind } from "./subjects";
 
 export interface ActiveSubject {
@@ -51,31 +43,6 @@ export const recordScopeAtom = atom<Record<string, SpaceScope>>({}) as Primitive
 // not a live subscription: a record's attributed runs are history by the time they are attributed.
 export const recordRunsAtom = atom<Record<string, Run[]>>({}) as PrimitiveAtom<Record<string, Run[]>>;
 
-// Leaving a thread nobody asked anything in discards it, along with the draft and source mapping that
-// pointed at it. Re-selecting the same subject is not leaving it — asking about one source twice in a row
-// lands back on the thread already showing, and pruning there would delete what the click is opening.
-function pruneOnLeave(next: ActiveSubject): void {
-    const prev = globalStore.get(activeSubjectAtom);
-    if (prev == null || prev.kind !== "conversation" || (prev.kind === next.kind && prev.id === next.id)) {
-        return;
-    }
-    if (!pruneEmptyConversation(prev.id)) {
-        return;
-    }
-    const drafts = { ...globalStore.get(jarvisDraftAtom) };
-    delete drafts[prev.id];
-    globalStore.set(jarvisDraftAtom, drafts);
-    const sources = globalStore.get(sourceConversationAtom);
-    const stale = Object.entries(sources).filter(([, id]) => id === prev.id);
-    if (stale.length > 0) {
-        const kept = { ...sources };
-        for (const [oref] of stale) {
-            delete kept[oref];
-        }
-        globalStore.set(sourceConversationAtom, kept);
-    }
-}
-
 // Deselect everything: the sheet's Close, and the only way the persisted subject is ever forgotten. Both
 // halves move together on purpose — leaving the stored one behind would reopen on the next launch the very
 // subject the user just dismissed.
@@ -85,7 +52,6 @@ export function clearSubject(): void {
 }
 
 export function selectSubject(subject: ActiveSubject): void {
-    pruneOnLeave(subject);
     // leaving a channel drops a run selection that has gone cold, so coming back to it lands on live
     // work or the fresh-run state — never the finished run that was selected last time. A live run's
     // selection survives (it is the default anyway), and re-selecting the channel you are on is not
@@ -122,17 +88,7 @@ export function selectSubject(subject: ActiveSubject): void {
     if (subject.kind === "dossier") {
         loadRecordDetail(subject.id);
         loadRecordScope(subject.id);
-        return;
     }
-    selectConversation(subject.id);
-}
-
-// "an empty thread, on the Stage, now" — the Subjects column's + Thread button and the keyboard's `n` are
-// the same action, so they share one definition rather than each spelling out the empty scope.
-export function startJarvisThread(): string {
-    const id = startConversation({ mode: "all", chips: [], attached: [] });
-    selectSubject({ kind: "conversation", id });
-    return id;
 }
 
 export function loadRecordScope(dossierId: string): void {
@@ -254,76 +210,6 @@ export const composingRunAtom = atom<Record<string, boolean>>({}) as PrimitiveAt
 export function setComposingRun(channelId: string, composing: boolean): void {
     const prev = globalStore.get(composingRunAtom);
     globalStore.set(composingRunAtom, { ...prev, [channelId]: composing });
-}
-
-// One thread per source object, keyed by that object's oref. Asking about a record or a Run has to land
-// somewhere and neither has a turn list of its own; the attachment is also what makes the thread
-// discoverable later, since a conversation's only link back to an object is what it cited. Asking twice
-// about the same object continues the same thread rather than minting a second one — a new thread per
-// click is what filled the Threads group with duplicate rows (four questions, twelve rows).
-export const sourceConversationAtom = atom<Record<string, string>>({}) as PrimitiveAtom<Record<string, string>>;
-
-export function conversationForSource(oref: string, scope: JarvisScope): string {
-    const existing = globalStore.get(sourceConversationAtom)[oref];
-    // a mapping can outlive its thread (an unasked one is pruned on the way out). Submitting into an id
-    // nothing holds any more is a silent no-op, so a dead mapping mints a fresh thread.
-    if (existing != null && getConversation(existing) != null) {
-        return existing;
-    }
-    const id = startConversation(scope);
-    globalStore.set(sourceConversationAtom, { ...globalStore.get(sourceConversationAtom), [oref]: id });
-    return id;
-}
-
-// A chip is a short badge, so it names the KIND of source and lets the attachment carry the full title.
-// Same convention as contextualentry.tsx's CHIP_LABEL, which is the newer of the two patterns here.
-const SOURCE_CHIP_LABEL: Partial<Record<SourceType, string>> = {
-    task: "This record",
-    decision: "This decision",
-    memory: "This memory",
-    run: "This Run",
-};
-
-const SOURCE_TYPES: readonly string[] = [
-    "memory",
-    "decision",
-    "run",
-    "channel",
-    "radar",
-    "commit",
-    "agent",
-    "session",
-    "task",
-];
-
-// The vault names a record's type "dossier" (pkg/jarvisdossier), which is what the volunteer payload
-// carries; this union calls the same thing "task", which is also its oref prefix. Narrowed here rather
-// than widening SourceType, so the wire keeps the backend's vocabulary and the view keeps one. Null for
-// a type this union does not know, so the caller labels it generically instead of asserting a kind.
-function asSourceType(raw: string): SourceType | null {
-    const alias = raw === "dossier" ? "task" : raw;
-    return SOURCE_TYPES.includes(alias) ? (alias as SourceType) : null;
-}
-
-// Ask Jarvis about any grounding source. conversationForSource keys one thread per source oref, so
-// asking twice about the same utterance continues one thread rather than minting duplicates — the
-// property the jarvis-contextual CDP scenario guards.
-export function askAboutSource(oref: string, sourceType: string, title: string, text: string): void {
-    const narrowed = asSourceType(sourceType);
-    const convId = conversationForSource(oref, {
-        mode: "object",
-        chips: [{ label: (narrowed != null ? SOURCE_CHIP_LABEL[narrowed] : null) ?? "This source", active: true }],
-        // the field is required, so an unknown type still needs a value; it drives the chip and the
-        // grounding icon only — navigation reads the oref — so the cost is a generic badge, never a
-        // wrong destination
-        attached: [{ oref, sourceType: narrowed ?? "task", title }],
-    });
-    submitJarvisQuery(convId, text);
-}
-
-// kept so existing callers do not change: a record is one source type among several
-export function askAboutRecord(dossierId: string, objective: string, text: string): void {
-    askAboutSource("task:" + dossierId, "task", objective, text);
 }
 
 // The cache-guarded read: a band that opens the same record twice must not refetch it. Every mutation

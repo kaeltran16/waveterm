@@ -10,4 +10,4 @@
 // EffortsListView, the Brief's Initiatives region is not a subject, and a kind nothing can select is a
 // kind that would silently render as nothing.
 
-export type SubjectKind = "channel" | "dossier" | "conversation" | "briefing" | "effort";
+export type SubjectKind = "channel" | "dossier" | "briefing" | "effort";

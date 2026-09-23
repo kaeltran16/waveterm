@@ -24,7 +24,6 @@ import { approachMood, buildAvatarScene, settledMood, type AvatarScene, type Ren
 import type { AvatarThree } from "./avatarthree";
 import { PetBubble } from "./petbubble";
 import { expressionFor, postureFor, type PetSignals } from "./petcondition";
-import { indexSignal } from "./petjoin";
 import { breathPhase, idleOrbit, impulseEnvelope, JOLT_MS, RIPPLE_MS, utteranceEnvelope } from "./petmotion";
 import { PetPeek } from "./petpeek";
 import {
@@ -32,7 +31,6 @@ import {
     petBubbleAtom,
     petCornerAtom,
     petEventsAtom,
-    petIndexAtom,
     petPeekOpenAtom,
     petSpokeAtAtom,
     petUnreadAtom,
@@ -87,14 +85,12 @@ function count(items: AttentionItem[], kind: string): number {
     return items.reduce((n, i) => (i.kind === kind ? n + 1 : n), 0);
 }
 
-// Every signal the avatar reads. All four ranks are live: `index` is fed by petsources.tsx on a slow
-// cadence and stays undefined — "no signal", never "signal absent" — until that read lands.
+// Every signal the avatar reads.
 function usePetSignals(model: AgentsViewModel): PetSignals {
     const agents = useAtomValue(model.agentsAtom);
     const saved = useAtomValue(savedRateLimitsAtom);
     const now = useAtomValue(model.nowAtom);
     const attention = useAtomValue(attentionAtom);
-    const index = useAtomValue(petIndexAtom);
 
     const donuts = mergeRateLimitWindows(providerPlanUsage(liveWindowAgents(agents)), saved, now);
     const top = topProviderUsage(donuts);
@@ -108,7 +104,6 @@ function usePetSignals(model: AgentsViewModel): PetSignals {
             : undefined;
 
     return {
-        index: indexSignal(index),
         rateLimit,
         attention: {
             reviewGates: count(attention, ATTENTION_GATE),

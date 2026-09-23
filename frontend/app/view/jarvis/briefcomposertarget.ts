@@ -1,27 +1,25 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// Who a keystroke in the Brief's one composer reaches. The composer never moves and never unmounts, so
-// this is the only thing that decides whether Enter lands in Jarvis or in a running worker's terminal;
-// briefcompose.ts says that decision out loud and this makes it.
+// Whether the Brief has a composer at all, and whose terminal a keystroke in it reaches. The composer is
+// steer-only: it exists on a session sheet with a live lead and nowhere else, since every other shape it
+// once had asked Jarvis, and the Ask audiences were retired 2026-09-23 (docs/deferred.md).
 //
-// It replaces composertarget.ts, which answered the same question for the Stage and was deleted with it
-// (git show cd5f1560^:frontend/app/view/jarvis/composertarget.ts). The difference: the Stage carried a
-// composerTarget field on its composition, while the Brief has no such field — what the detail sheet is
-// currently drawing IS the context, so the target is derived from the sheet face.
+// The target is derived from the sheet face: what the detail sheet is drawing IS the context.
 
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { steerTarget } from "@/app/view/agents/runmodel";
 import type { SheetFace } from "./briefsheetmodel";
 
-export type BriefComposerTarget =
-    // the Brief's own thread: an ask across all work, or grounded in whatever the thread attached
-    | { audience: "brief" }
-    // an initiative drawer. Still Jarvis — an initiative has no worker to message — but the ask carries
-    // the effort so the answer is scoped to it rather than to everything.
-    | { audience: "initiative"; effortORef: string; name: string }
-    // a session drawer with a live lead. This is the only shape whose Enter leaves Jarvis entirely.
-    | { audience: "worker"; channelId: string; workerORef: string; workerName: string; sessionName: string };
+// The one shape a Brief composer has: a session drawer with a live lead. Anything else has no one to
+// talk to, so there is no composer.
+export type BriefComposerTarget = {
+    audience: "worker";
+    channelId: string;
+    workerORef: string;
+    workerName: string;
+    sessionName: string;
+};
 
 export interface BriefTargetInput {
     sheetOpen: boolean;
@@ -29,32 +27,20 @@ export interface BriefTargetInput {
     run: Run | null;
     agents: AgentVM[];
     projectName?: string;
-    effortTitle?: string;
 }
 
-/** Pure: what the sheet is drawing -> who the composer is talking to. */
-export function resolveBriefComposerTarget(input: BriefTargetInput): BriefComposerTarget {
+/** Pure: what the sheet is drawing -> who the composer is talking to, or null for no composer. */
+export function resolveBriefComposerTarget(input: BriefTargetInput): BriefComposerTarget | null {
     const face = input.face;
-    if (!input.sheetOpen || face.kind === "none") {
-        return { audience: "brief" };
-    }
-    if (face.kind === "effort") {
-        return {
-            audience: "initiative",
-            effortORef: `effort:${face.effortId}`,
-            name: input.effortTitle?.trim() ?? "",
-        };
-    }
     // the launcher face has no run at all, and a terminal run has no live lead: steerTarget answers both.
-    if (face.body !== "run" || input.run == null) {
-        return { audience: "brief" };
+    if (!input.sheetOpen || face.kind !== "channel" || face.body !== "run" || input.run == null) {
+        return null;
     }
     const lead = steerTarget(input.run, input.agents);
-    // A worker with no blockId has no terminal to write to, so steerWorker would no-op. Claiming "Message
-    // the lead of this session" over a send that silently does nothing is the same defect as an inert
-    // label, so the absence of a writable block drops the composer back to Jarvis, which does work.
+    // a worker with no blockId has no terminal to write to, so steerWorker would no-op: no composer
+    // rather than one whose send silently does nothing.
     if (lead?.blockId == null || lead.blockId === "") {
-        return { audience: "brief" };
+        return null;
     }
     return {
         audience: "worker",

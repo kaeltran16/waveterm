@@ -38,7 +38,6 @@ import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtomValue, type Atom } from "jotai";
 import { useEffect, useState, type ReactNode } from "react";
 import { RunSettingsPanel, saveRunAsDefaults, SHEET_BTN } from "./briefrunsheet";
-import { openJarvisWithSource, sourceRefForRun } from "./contextualentry";
 import { runSettingsDraft, type LinkedGroupRead } from "./runsettings";
 import {
     orderedTasks,
@@ -677,13 +676,6 @@ function Dock({ ctx, group }: { ctx: SheetCtx; group: TaskGroup | null }) {
                         Open lead ↗
                     </button>
                 ) : null}
-                <button
-                    type="button"
-                    onClick={() => openJarvisWithSource(model, sourceRefForRun(run))}
-                    className={DOCK_BTN}
-                >
-                    Ask Jarvis
-                </button>
                 <span className="flex-1" />
                 {!isTerminal(run.status) ? (
                     <CancelRunButton

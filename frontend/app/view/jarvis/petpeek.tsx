@@ -39,14 +39,7 @@ import {
     queueRows,
     type PeekRow,
 } from "./petpeekmodel";
-import {
-    petActStateAtom,
-    petIndexAtom,
-    petPeekDestAtom,
-    petPeekOpenAtom,
-    petSaidAtom,
-    type PetCorner,
-} from "./petstore";
+import { petActStateAtom, petPeekDestAtom, petPeekOpenAtom, petSaidAtom, type PetCorner } from "./petstore";
 import type { PetEvent } from "./petvoice";
 import { ageLabel } from "./recallderive";
 
@@ -78,23 +71,7 @@ const ROW_BAR: Record<string, string> = {
     ask: "bg-accent",
 };
 
-// Only a "do" stays: it reports its outcome on the row that offered it. Every other verb navigates, so the
-// peek would be covering the destination it just sent you to.
-function actLeavesPeek(act: PetAct): boolean {
-    return act.verb !== "do";
-}
-
-function ActButton({
-    model,
-    act,
-    tone,
-    onLeave,
-}: {
-    model: AgentsViewModel;
-    act: PetAct;
-    tone: "primary" | "quiet";
-    onLeave: () => void;
-}) {
+function ActButton({ model, act, onLeave }: { model: AgentsViewModel; act: PetAct; onLeave: () => void }) {
     const state = useAtomValue(petActStateAtom);
     const running = state[act.id]?.status === "running";
     return (
@@ -103,18 +80,15 @@ function ActButton({
             data-pet-act={act.id}
             disabled={running}
             onClick={() => {
-                if (actLeavesPeek(act)) {
-                    onLeave();
-                }
+                // every act navigates, so the peek would cover the destination it just sent you to
+                onLeave();
                 fireAndForget(() => runAct(model, act));
             }}
             className={cn(
                 "flex-none whitespace-nowrap rounded-md px-2.5 text-[10.5px] font-semibold",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
                 "disabled:cursor-default disabled:bg-surface-hover disabled:text-muted",
-                tone === "primary"
-                    ? "h-6 bg-accent font-bold text-background hover:bg-accenthover"
-                    : "h-[22px] border border-edge-mid bg-transparent text-accent-soft hover:border-accent hover:bg-surface-hover"
+                "h-6 bg-accent font-bold text-background hover:bg-accenthover"
             )}
         >
             {/* an act mid-flight becomes its own progress in place: same box, same width, so the row does
@@ -181,9 +155,7 @@ function QueueRow({
                         <span className="flex-none font-mono text-[9.5px] text-ink-faint">
                             {ageLabel(Math.max(0, now - row.waitingsince))}
                         </span>
-                        {row.primary != null ? (
-                            <ActButton model={model} act={row.primary} tone="primary" onLeave={onLeave} />
-                        ) : null}
+                        {row.primary != null ? <ActButton model={model} act={row.primary} onLeave={onLeave} /> : null}
                     </div>
                     {/* only kinds whose text is the payload get a detail line — see DETAIL_KINDS. It wraps
                         rather than truncating: an escalation IS its question, and hiding it behind the
@@ -223,9 +195,7 @@ function UpdateRow({
                         type="button"
                         data-pet-act={act.id}
                         onClick={() => {
-                            if (actLeavesPeek(act)) {
-                                onLeave();
-                            }
+                            onLeave();
                             fireAndForget(() => runAct(model, act));
                         }}
                         className="whitespace-nowrap text-[10.5px] font-semibold text-accent-soft hover:text-accenthover hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
@@ -268,9 +238,7 @@ function LatestUpdate({
                             type="button"
                             data-pet-act={act.id}
                             onClick={() => {
-                                if (actLeavesPeek(act)) {
-                                    onLeave();
-                                }
+                                onLeave();
                                 fireAndForget(() => runAct(model, act));
                             }}
                             className="text-[10.5px] font-semibold text-accent-soft hover:text-accenthover hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
@@ -301,7 +269,6 @@ export function PetPeek({
     const channels = useAtomValue(channelsAtom);
     const activeChannel = useAtomValue(activeChannelAtom);
     const picked = useAtomValue(petPeekDestAtom);
-    const indexStatus = useAtomValue(petIndexAtom);
     const now = useAtomValue(model.nowAtom);
     const titleId = useId();
     const panelRef = useRef<HTMLDivElement | null>(null);
@@ -356,7 +323,7 @@ export function PetPeek({
         return () => document.removeEventListener("focusin", onFocusIn);
     }, [open, anchor]);
 
-    const conditions = peekConditions(signals, { index: indexStatus });
+    const conditions = peekConditions(signals);
     const rows = queueRows(items);
     const updates = dedupeUpdates(said, items);
     const quiet = rows.length === 0;
@@ -386,9 +353,7 @@ export function PetPeek({
         if (act == null) {
             return false;
         }
-        if (actLeavesPeek(act)) {
-            leavePeek();
-        }
+        leavePeek();
         fireAndForget(() => runAct(model, act));
         return true;
     };
@@ -689,15 +654,6 @@ export function PetPeek({
                                                                                 >
                                                                                     {conditionLine(condition.expr, now)}
                                                                                 </span>
-                                                                                {condition.acts.map((act) => (
-                                                                                    <ActButton
-                                                                                        key={act.id}
-                                                                                        model={model}
-                                                                                        act={act}
-                                                                                        tone="quiet"
-                                                                                        onLeave={leavePeek}
-                                                                                    />
-                                                                                ))}
                                                                                 {condition.readout ? (
                                                                                     <span
                                                                                         title="this condition has no remedy — it is a readout"
@@ -707,10 +663,6 @@ export function PetPeek({
                                                                                     </span>
                                                                                 ) : null}
                                                                             </div>
-                                                                            <ActOutcome
-                                                                                acts={condition.acts}
-                                                                                className="pl-3.5"
-                                                                            />
                                                                         </motion.div>
                                                                     ))}
                                                                 </AnimatePresence>

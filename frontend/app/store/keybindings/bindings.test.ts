@@ -230,8 +230,8 @@ describe("jarvis surface bindings", () => {
         const shared = graphOnly[0];
         const fromFull = byId("jarvis:graph-peek");
         expect(shared.keys).toBe(fromFull.keys);
-        // the Stage's d and n act on panes the Brief does not have
-        expect(graphOnly.some((b) => b.id === "jarvis:toggle-rail" || b.id === "jarvis:new-thread")).toBe(false);
+        // the Stage-only keys act on panes the Brief does not have
+        expect(graphOnly.some((b) => b.id === "jarvis:toggle-rail" || b.id === "jarvis:new-run")).toBe(false);
     });
 
     // the click-through bindings (+ Channel, the record band) and composer focus act on rendered DOM, so
@@ -250,11 +250,11 @@ describe("jarvis surface bindings", () => {
 
     it("suppresses the surface keys while the graph peek owns the surface", () => {
         globalStore.set(graphPeekOpenAtom, true);
-        for (const id of ["jarvis:new-thread", "jarvis:record-band", "jarvis:next-run"]) {
+        for (const id of ["jarvis:new-run", "jarvis:record-band", "jarvis:next-run"]) {
             expect(byId(id).when!(jarvisCtx)).toBe(false);
         }
         globalStore.set(graphPeekOpenAtom, false);
-        expect(byId("jarvis:new-thread").when!(jarvisCtx)).toBe(true);
+        expect(byId("jarvis:new-run").when!(jarvisCtx)).toBe(true);
     });
 
     // the Brief's filter takes / the way the Diff history's does, on its own surface
@@ -276,15 +276,6 @@ describe("jarvis surface bindings", () => {
         for (const b of buildJarvisBindings().filter((x) => x.id !== "jarvis:blur-composer")) {
             expect(b.when!({ ...jarvisCtx, editable: true })).toBe(false);
         }
-    });
-
-    it("opens a new thread with n and puts it on the Stage", () => {
-        globalStore.set(graphPeekOpenAtom, false);
-        globalStore.set(activeSubjectAtom, null);
-        byId("jarvis:new-thread").run(jarvisCtx);
-        const subject = globalStore.get(activeSubjectAtom);
-        expect(subject?.kind).toBe("conversation");
-        expect(subject?.id).toBeTruthy();
     });
 
     it("steps the selected channel's runs with Shift:j / Shift:k, clamped at both ends", () => {
@@ -310,7 +301,7 @@ describe("jarvis surface bindings", () => {
 
     it("passes the run keys through when the subject is not a channel, or has nothing to switch", () => {
         globalStore.set(graphPeekOpenAtom, false);
-        globalStore.set(activeSubjectAtom, { kind: "conversation", id: "c1" });
+        globalStore.set(activeSubjectAtom, { kind: "dossier", id: "d1" });
         expect(byId("jarvis:next-run").run(jarvisCtx)).toBe(false);
 
         globalStore.set(activeSubjectAtom, { kind: "channel", id: "ch1" });

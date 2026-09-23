@@ -118,15 +118,6 @@ export function rememberSaid(event: PetEvent): void {
     globalStore.set(petSaidAtom, [event, ...said].slice(0, PET_SAID_MAX));
 }
 
-// The embedding index's status, or null when it has not been read yet (or the read failed). Held as the
-// raw wire shape rather than the narrowed signal so the peek can show `reason`/`detail` — the diagnostic
-// half of the rank-1 condition, which is what turns "why is Jarvis useless" into an answer.
-//
-// Deliberately NOT on the attention poller's 10s cadence: the backend read parses the whole vault to count
-// drift, and index state changes on the order of minutes to hours. petsources.tsx reads it at launch and
-// on a slow interval.
-export const petIndexAtom = atom<EmbedIndexStatus | null>(null) as PrimitiveAtom<EmbedIndexStatus | null>;
-
 // The peek overlay's open state. Global for the same reason graphPeekOpenAtom and autonomyPanelOpenAtom
 // are: Escape on a deep surface is bound to "back to Cockpit" (bindings.ts surface:back-home) and the
 // dispatcher runs on window CAPTURE, so floating-ui's own Escape handling can never pre-empt it. Without
@@ -159,12 +150,6 @@ export const petActStateAtom = atom<Record<string, PetActState>>({}) as Primitiv
 
 export function setActState(id: string, state: PetActState): void {
     globalStore.set(petActStateAtom, { ...globalStore.get(petActStateAtom), [id]: state });
-}
-
-export function clearActState(id: string): void {
-    const next = { ...globalStore.get(petActStateAtom) };
-    delete next[id];
-    globalStore.set(petActStateAtom, next);
 }
 
 

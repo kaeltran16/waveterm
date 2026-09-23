@@ -42,6 +42,7 @@ import {
     filterSections,
     flagRowId,
     groupSections,
+    OPENROUTER_SECRET_NAME,
     resolveSelection,
     settingsSections,
     type SettingRowDef,
@@ -210,7 +211,6 @@ export function SettingsSurface(_props: { model: AgentsViewModel }) {
     const selected = resolveSelection(visibleSections, wanted);
     const bindings = useRowBindings(sections, flagRuntime);
 
-    // Deep-link landing (petactrun sends the user to Embeddings to add a key).
     useEffect(() => {
         const want = takePendingSettingsSection();
         if (want != null) {
@@ -676,8 +676,6 @@ function SectionBody({ id, runtime, onRuntime }: { id: string; runtime: Runtime;
             return <TerminalSection />;
         case "memory":
             return <MemorySection />;
-        case "embeddings":
-            return <EmbeddingsSection />;
         case "headless":
             return <HeadlessAISection />;
         case "about":
@@ -1024,36 +1022,39 @@ function MemorySection() {
     );
 }
 
-// The secret the embedding provider reads (pkg/jarvisembed/embed.go). Never read back into the UI.
-// Underscore, not colon: SetSecret validates against the shell env-var charset and rejects colons.
-const EMBED_SECRET_NAME = "jarvis_embedapikey";
-
-// Embeddings (BYOK) — the opt-in semantic lane behind jarvisembed. Config goes through the ordinary
-// settings-write path; the key goes to the OS secret store via SetSecrets, write-only in both directions
-// (the UI can ask whether a key exists, never what it is).
-function EmbeddingsSection() {
-    const enabled = (useAtomValue(getSettingsKeyAtom("jarvis:embedenabled")) as boolean) ?? false;
-    const baseURL = (useAtomValue(getSettingsKeyAtom("jarvis:embedbaseurl")) as string) ?? "";
-    const model = (useAtomValue(getSettingsKeyAtom("jarvis:embedmodel")) as string) ?? "";
+function HeadlessAISection() {
+    const runtime = (useAtomValue(getSettingsKeyAtom("headless:runtime")) as string) ?? "";
+    const cheapModel = (useAtomValue(getSettingsKeyAtom("headless:openroutercheapmodel")) as string) ?? "";
+    const midModel = (useAtomValue(getSettingsKeyAtom("headless:openroutermidmodel")) as string) ?? "";
+    const longModel = (useAtomValue(getSettingsKeyAtom("headless:openrouterlongmodel")) as string) ?? "";
 
     const [hasKey, setHasKey] = useState(false);
     const [error, setError] = useState<string | null>(null);
-
+    const [harnesses, setHarnesses] = useState<HarnessInfo[]>([]);
     useEffect(() => {
         fireAndForget(async () => {
             try {
                 const names = await RpcApi.GetSecretsNamesCommand(TabRpcClient);
-                setHasKey((names ?? []).includes(EMBED_SECRET_NAME));
-            } catch (e) {
-                setError(String(e));
+                setHasKey((names ?? []).includes(OPENROUTER_SECRET_NAME));
+            } catch (_) {
+                // best-effort probe; the key warning below simply stays "missing" on failure
+            }
+        });
+        fireAndForget(async () => {
+            try {
+                const rtn = await RpcApi.ListHarnessesCommand(TabRpcClient);
+                setHarnesses(rtn?.harnesses ?? []);
+            } catch (_) {
+                // best-effort probe; a failed catalog leaves the selector with openrouter only
             }
         });
     }, []);
 
+    // Write-only in both directions: the UI can ask whether a key exists, never what it is.
     const saveKey = async (key: string): Promise<boolean> => {
         setError(null);
         try {
-            await RpcApi.SetSecretsCommand(TabRpcClient, { [EMBED_SECRET_NAME]: key });
+            await RpcApi.SetSecretsCommand(TabRpcClient, { [OPENROUTER_SECRET_NAME]: key });
             setHasKey(true);
             return true;
         } catch (e) {
@@ -1068,7 +1069,7 @@ function EmbeddingsSection() {
         fireAndForget(async () => {
             setError(null);
             try {
-                await RpcApi.SetSecretsCommand(TabRpcClient, { [EMBED_SECRET_NAME]: null } as unknown as Record<
+                await RpcApi.SetSecretsCommand(TabRpcClient, { [OPENROUTER_SECRET_NAME]: null } as unknown as Record<
                     string,
                     string
                 >);
@@ -1077,87 +1078,6 @@ function EmbeddingsSection() {
                 setError(String(e));
             }
         });
-
-    // jarvisembed.Available() needs all four; short of that the lane stays dark however the toggle reads.
-    const missing = [baseURL === "" && "a base URL", model === "" && "a model", !hasKey && "an API key"].filter(
-        Boolean
-    ) as string[];
-
-    return (
-        <div>
-            <SettingRow id="embeddings.enabled">
-                <Toggle
-                    on={enabled}
-                    onToggle={() => writeConfig({ "jarvis:embedenabled": !enabled })}
-                    label="Enable semantic recall"
-                />
-            </SettingRow>
-            <SettingRow id="embeddings.baseurl">
-                <CommitText
-                    value={baseURL}
-                    placeholder="https://api.openai.com/v1"
-                    onCommit={(v) => writeConfig({ "jarvis:embedbaseurl": v })}
-                />
-            </SettingRow>
-            <SettingRow id="embeddings.model">
-                <CommitText
-                    value={model}
-                    placeholder="text-embedding-3-small"
-                    onCommit={(v) => writeConfig({ "jarvis:embedmodel": v })}
-                />
-            </SettingRow>
-            <SettingRow id="embeddings.apikey">
-                <span className={cn("text-[12px] font-semibold", hasKey ? "text-success-soft" : "text-muted")}>
-                    {hasKey ? "A key is stored." : "No key stored."}
-                </span>
-                <SecretInput
-                    placeholder={hasKey ? "••••••••  (enter a new key to replace)" : "sk-…"}
-                    onCommit={saveKey}
-                />
-                {hasKey ? (
-                    <button
-                        type="button"
-                        onClick={clearKey}
-                        className="flex-none cursor-pointer rounded border border-edge-mid px-3 py-[6px] text-[12px] font-semibold text-secondary transition-colors hover:border-error/50 hover:text-error"
-                    >
-                        Clear
-                    </button>
-                ) : null}
-            </SettingRow>
-            {enabled && missing.length > 0 ? (
-                <Note>Enabled, but still needs {missing.join(", ")} — semantic recall stays off until then.</Note>
-            ) : null}
-            {error ? <Note tone="error">{error}</Note> : null}
-        </div>
-    );
-}
-
-function HeadlessAISection() {
-    const runtime = (useAtomValue(getSettingsKeyAtom("headless:runtime")) as string) ?? "";
-    const cheapModel = (useAtomValue(getSettingsKeyAtom("headless:openroutercheapmodel")) as string) ?? "";
-    const midModel = (useAtomValue(getSettingsKeyAtom("headless:openroutermidmodel")) as string) ?? "";
-    const longModel = (useAtomValue(getSettingsKeyAtom("headless:openrouterlongmodel")) as string) ?? "";
-
-    const [hasKey, setHasKey] = useState(false);
-    const [harnesses, setHarnesses] = useState<HarnessInfo[]>([]);
-    useEffect(() => {
-        fireAndForget(async () => {
-            try {
-                const names = await RpcApi.GetSecretsNamesCommand(TabRpcClient);
-                setHasKey((names ?? []).includes(EMBED_SECRET_NAME));
-            } catch (_) {
-                // best-effort probe; the key warning below simply stays "missing" on failure
-            }
-        });
-        fireAndForget(async () => {
-            try {
-                const rtn = await RpcApi.ListHarnessesCommand(TabRpcClient);
-                setHarnesses(rtn?.harnesses ?? []);
-            } catch (_) {
-                // best-effort probe; a failed catalog leaves the selector with openrouter only
-            }
-        });
-    }, []);
 
     // empty setting means openrouter (the backend default); only openrouter reads the model keys.
     const isOpenRouter = runtime === "" || runtime === "openrouter";
@@ -1277,15 +1197,31 @@ function HeadlessAISection() {
                     })}
                 </div>
             </SettingRow>
+            <SettingRow id="headless.apikey">
+                <span className={cn("text-[12px] font-semibold", hasKey ? "text-success-soft" : "text-muted")}>
+                    {hasKey ? "A key is stored." : "No key stored."}
+                </span>
+                <SecretInput
+                    placeholder={hasKey ? "••••••••  (enter a new key to replace)" : "sk-or-…"}
+                    onCommit={saveKey}
+                />
+                {hasKey ? (
+                    <button
+                        type="button"
+                        onClick={clearKey}
+                        className="flex-none cursor-pointer rounded border border-edge-mid px-3 py-[6px] text-[12px] font-semibold text-secondary transition-colors hover:border-error/50 hover:text-error"
+                    >
+                        Clear
+                    </button>
+                ) : null}
+            </SettingRow>
             {modelRow("headless.cheap", cheapModel, "deepseek/deepseek-v4-flash", "headless:openroutercheapmodel")}
             {modelRow("headless.mid", midModel, "deepseek/deepseek-v4-pro", "headless:openroutermidmodel")}
             {modelRow("headless.long", longModel, "deepseek/deepseek-v4-pro", "headless:openrouterlongmodel")}
             {isOpenRouter && !hasKey ? (
-                <Note>
-                    OpenRouter key not set — background AI features stay off until a key is stored (same key as
-                    Embeddings).
-                </Note>
+                <Note>OpenRouter key not set — background AI features stay off until a key is stored.</Note>
             ) : null}
+            {error ? <Note tone="error">{error}</Note> : null}
         </div>
     );
 }

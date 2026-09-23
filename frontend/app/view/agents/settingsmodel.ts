@@ -41,8 +41,10 @@ export type SettingGroup = {
 
 export const GROUP_ORDER = ["Cockpit", "Agents", "Data", "Build"] as const;
 
-// Deep-link target for the Embeddings section (petactrun sends the user here to add an API key).
-export const SECTION_EMBEDDINGS = "embeddings";
+// The secret pkg/consult/openrouter.go reads. Named for the embedding lane that first stored it; the name
+// stays because renaming it would orphan every key already stored. Never read back into the UI.
+// Underscore, not colon: SetSecret validates against the shell env-var charset and rejects colons.
+export const OPENROUTER_SECRET_NAME = "jarvis_embedapikey";
 
 const THEME_OVERRIDE_KEY = "cockpit.theme.overrides";
 const LAUNCH_FLAGS_KEY = "agent.launch.flags";
@@ -255,45 +257,6 @@ export function settingsSections(flagRuntime: Runtime): SettingSectionDef[] {
             ],
         },
         {
-            id: SECTION_EMBEDDINGS,
-            name: "Embeddings",
-            blurb: "Opt-in semantic recall against an OpenAI-compatible endpoint you supply and pay for.",
-            group: "Data",
-            rows: [
-                {
-                    id: "embeddings.enabled",
-                    title: "Enable semantic recall",
-                    desc: "Index the vault and match on meaning, not just wording.",
-                    key: "jarvis:embedenabled",
-                    scope: "synced",
-                    config: true,
-                },
-                {
-                    id: "embeddings.baseurl",
-                    title: "Base URL",
-                    desc: "Root of the OpenAI-compatible API, without the /embeddings suffix.",
-                    key: "jarvis:embedbaseurl",
-                    scope: "synced",
-                    config: true,
-                },
-                {
-                    id: "embeddings.model",
-                    title: "Model",
-                    desc: "Embedding model id. Changing it re-indexes the vault on the next query.",
-                    key: "jarvis:embedmodel",
-                    scope: "synced",
-                    config: true,
-                },
-                {
-                    id: "embeddings.apikey",
-                    title: "API key",
-                    desc: "OS secret store — never in settings, never shown again.",
-                    key: "keychain",
-                    scope: "local",
-                },
-            ],
-        },
-        {
             id: "headless",
             name: "Headless AI",
             blurb: "The runtime background jobs call when no agent is attached.",
@@ -308,9 +271,16 @@ export function settingsSections(flagRuntime: Runtime): SettingSectionDef[] {
                     config: true,
                 },
                 {
+                    id: "headless.apikey",
+                    title: "OpenRouter API key",
+                    desc: "OS secret store — never in settings, never shown again.",
+                    key: "keychain",
+                    scope: "local",
+                },
+                {
                     id: "headless.cheap",
                     title: "Cheap model",
-                    desc: "For mechanical tasks: gatekeeper, decompose, continuity, proactive.",
+                    desc: "For mechanical tasks: gatekeeper, decompose, continuity, volunteer judge.",
                     key: "headless:openroutercheapmodel",
                     scope: "synced",
                     config: true,
@@ -318,7 +288,7 @@ export function settingsSections(flagRuntime: Runtime): SettingSectionDef[] {
                 {
                     id: "headless.mid",
                     title: "Mid model",
-                    desc: "For synthesis and conversation: recall, radar, Jarvis.",
+                    desc: "For synthesis: radar, Jarvis.",
                     key: "headless:openroutermidmodel",
                     scope: "synced",
                     config: true,

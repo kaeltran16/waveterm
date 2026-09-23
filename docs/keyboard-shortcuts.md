@@ -93,7 +93,6 @@ Settings has no `Ctrl`+number slot — the nine positions are bound to `SURFACE_
 | `Enter` | Open the row under the cursor |
 | `d` | Toggle the context rail |
 | `e` | Expand / collapse the record band |
-| `n` | New thread |
 | `c` | New channel |
 | `Shift`+`G` | Graph peek (`Esc` closes) |
 | `Shift`+`J` / `Shift`+`K` | Next / previous run in this channel |

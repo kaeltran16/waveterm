@@ -128,7 +128,10 @@ describe("dedupeUpdates — report each thing once", () => {
     });
 
     it("leaves every other kind of update alone", () => {
-        const events: PetEvent[] = [sweep, { id: "recall:1", at: 3, kind: "recall", text: "You argued this before." }];
+        const events: PetEvent[] = [
+            sweep,
+            { id: "connection:1", at: 3, kind: "connection", text: "This ties to the parser work." },
+        ];
         expect(dedupeUpdates(events, [ASK, GATE])).toEqual(events);
     });
 });
@@ -177,36 +180,18 @@ describe("peekActForCommand", () => {
     });
 });
 
-describe("peekConditions — a remedy on the row, or an honest readout", () => {
-    const OFF = { state: "off", reason: "disabled" } as EmbedIndexStatus;
+describe("peekConditions — every standing condition, readout marked", () => {
     const HOT = { provider: "claude", pct: 94, resetAt: 1_800_000_000 };
-    const none = { index: null };
-
-    it("hands each condition the acts that resolve it", () => {
-        const [recall] = peekConditions({ index: { state: "off" } }, { index: OFF });
-        expect(recall.acts.map((a) => a.label)).toEqual(["Set up"]);
-    });
 
     // documented in petacts.ts: the countdown is the one row with genuinely nothing to do, and it is
-    // honest rather than an omission. It must not read as a row whose button failed to load.
-    it("marks a depleting window a readout, with no acts", () => {
-        const [tired] = peekConditions({ rateLimit: HOT }, none);
+    // honest rather than an omission.
+    it("marks a depleting window a readout", () => {
+        const [tired] = peekConditions({ rateLimit: HOT });
         expect(tired.expr.kind).toBe("tired");
-        expect(tired.acts).toEqual([]);
         expect(tired.readout).toBe(true);
     });
 
-    // an empty act list is not the same fact as having no remedy: the index status is null until its read
-    // lands, so treating "no acts yet" as a readout would lie about a condition that does have a remedy.
-    it("does not call a condition a readout merely because its acts have not loaded", () => {
-        const [recall] = peekConditions({ index: { state: "off" } }, none);
-        expect(recall.acts).toEqual([]);
-        expect(recall.readout).toBe(false);
-    });
-
-    it("keeps the ranked order and stays empty when nothing is degraded", () => {
-        const all = peekConditions({ index: { state: "off" }, rateLimit: HOT }, none);
-        expect(all.map((c) => c.expr.kind)).toEqual(["cannot-see", "tired"]);
-        expect(peekConditions({}, none)).toEqual([]);
+    it("stays empty when nothing is degraded", () => {
+        expect(peekConditions({})).toEqual([]);
     });
 });

@@ -5,7 +5,7 @@
 // are not already one of those rows. Pure, like petcondition.ts — petpeek.tsx is a renderer, not the thing
 // that decides.
 
-import { actsForAttention, actsForRecall, type PetAct } from "./petacts";
+import { actsForAttention, type PetAct } from "./petacts";
 import { conditionsFor, type PetExpression, type PetSignals } from "./petcondition";
 import type { PetEvent } from "./petvoice";
 
@@ -95,16 +95,9 @@ export function peekActForCommand(row: PeekRow | undefined, command: PeekKeyComm
     return command === "open" ? row.primary : null;
 }
 
-export interface ConditionSources {
-    index: EmbedIndexStatus | null | undefined;
-}
-
 export interface PeekCondition {
     expr: PetExpression;
-    acts: PetAct[];
-    // true only where the KIND has no remedy to offer. Deliberately not "acts.length === 0": a source that
-    // has not been read yet offers nothing either, and calling that a readout would report "still loading"
-    // as "nothing to do".
+    // true only where the KIND has no remedy to offer
     readout: boolean;
 }
 
@@ -112,12 +105,10 @@ export interface PeekCondition {
 // here rather than inferring it keeps "no remedy" and "no remedy yet" distinguishable.
 const READOUT_KINDS = new Set<PetExpression["kind"]>(["tired"]);
 
-// Every standing condition with the verb that resolves it, in rank order. One derivation so the renderer
-// cannot pair a condition with the wrong remedy, and so a new condition cannot ship without deciding which.
-export function peekConditions(signals: PetSignals, sources: ConditionSources): PeekCondition[] {
+// Every standing condition in rank order, each marked readout or not.
+export function peekConditions(signals: PetSignals): PeekCondition[] {
     return conditionsFor(signals).map((expr) => ({
         expr,
-        acts: expr.kind === "cannot-see" ? actsForRecall(sources.index) : [],
         readout: READOUT_KINDS.has(expr.kind),
     }));
 }

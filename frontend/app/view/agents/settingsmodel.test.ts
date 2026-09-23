@@ -9,9 +9,9 @@ import {
     filterSections,
     flagRowId,
     groupSections,
+    OPENROUTER_SECRET_NAME,
     resolveSelection,
     rowMatches,
-    SECTION_EMBEDDINGS,
     settingsSections,
     type SettingSectionDef,
 } from "./settingsmodel";
@@ -40,8 +40,23 @@ describe("settingsSections", () => {
         expect(rows.map((r) => r.id)).toEqual(["newagent.remember", "newagent.runtime"]);
     });
 
-    it("keeps the embeddings deep-link target pointing at a real section", () => {
-        expect(sections().some((s) => s.id === SECTION_EMBEDDINGS)).toBe(true);
+    it("offers the OpenRouter key where the OpenRouter models are set", () => {
+        const headless = sections().find((s) => s.id === "headless")!;
+        const key = headless.rows.find((r) => r.id === "headless.apikey")!;
+        expect(key.key).toBe("keychain");
+        expect(key.scope).toBe("local");
+        expect(key.config).toBeUndefined();
+    });
+
+    it("reads the OpenRouter key from the secret it has always been stored under", () => {
+        // renaming it would orphan every stored key; pkg/consult/openrouter.go reads the same name
+        expect(OPENROUTER_SECRET_NAME).toBe("jarvis_embedapikey");
+    });
+
+    it("has no embeddings section", () => {
+        expect(sections().some((s) => s.id === "embeddings")).toBe(false);
+        const keys = sections().flatMap((s) => s.rows.map((r) => r.key));
+        expect(keys.some((k) => k.startsWith("jarvis:embed"))).toBe(false);
     });
 
     it("leaves read-only build info without a provenance scope", () => {
@@ -60,9 +75,6 @@ describe("settingsSections", () => {
             "term:scrollback",
             "term:copyonselect",
             "memory:vaultpath",
-            "jarvis:embedenabled",
-            "jarvis:embedbaseurl",
-            "jarvis:embedmodel",
             "headless:runtime",
             "headless:openroutercheapmodel",
             "headless:openroutermidmodel",

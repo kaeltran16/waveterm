@@ -3,7 +3,7 @@
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { describe, expect, it } from "vitest";
-import { pendingSettingsSectionAtom, SETTINGS_SECTION_EMBEDDINGS, takePendingSettingsSection } from "./settingsstore";
+import { pendingSettingsSectionAtom, takePendingSettingsSection } from "./settingsstore";
 
 describe("takePendingSettingsSection", () => {
     it("returns nothing when no escort is pending", () => {
@@ -12,8 +12,8 @@ describe("takePendingSettingsSection", () => {
     });
 
     it("honours one escort exactly once, so a remount does not re-scroll", () => {
-        globalStore.set(pendingSettingsSectionAtom, SETTINGS_SECTION_EMBEDDINGS);
-        expect(takePendingSettingsSection()).toBe(SETTINGS_SECTION_EMBEDDINGS);
+        globalStore.set(pendingSettingsSectionAtom, "headless");
+        expect(takePendingSettingsSection()).toBe("headless");
         expect(takePendingSettingsSection()).toBeNull();
     });
 });

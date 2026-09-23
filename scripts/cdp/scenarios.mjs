@@ -361,237 +361,12 @@ const surfaceSmoke = {
     },
 };
 
-// --- shared jarvis drivers ---------------------------------------------------------------------
-// The Brief is the only Jarvis composition now, so these drive its composer. `n` is the surface's
-// new-thread chord (buildJarvisBindings), and the field is addressed by its own test hook rather than by
-// its placeholder, because the placeholder changes with what the composer means (resolveComposerLabels).
-const newBriefThread = async (h) => {
-    // focus has to leave the composer first: the registry stands down while a field has it, so a chord
-    // dispatched with the cursor still in the input would be swallowed by the field.
-    await h.ev(`document.activeElement?.blur?.()`);
-    await h.ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', bubbles: true }))`);
-    await h.ev("new Promise((r) => setTimeout(r, 600))");
-    return true;
-};
-
-// Type a question into the Brief's composer and submit it.
-const askBrief = (h, text) =>
-    h.ev(`(() => {
-        const input = document.querySelector('[data-jarvis-brief-composer="input"]');
-        if (!input) return false;
-        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-        setter.call(input, ${JSON.stringify(text)});
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-        return true;
-    })()`);
-
 // --- jarvis fleet, the rail's roster and the ambient feeds: RETIRED BY B5 -----------------------
 // Their subjects are gone with the retired panes: the per-worker fleet roster and the ambient rail's
 // resume/proactive cards were mounted only by the context rail, and the layout scenarios
 // (jarvis-collapse-order, jarvis-narrow, jarvis-measure, jarvis-drawer) existed only to assert the
 // three-pane allocation. Their capabilities are recorded as deferred in docs/deferred.md rather than
 // re-homed, so there is nothing left here to assert against.
-
-// --- jarvis ask: Ctrl+P "Ask Jarvis" lead group hands a question off to the Jarvis surface (Plan 4) ---
-// Open the palette via its global chord (Ctrl:p; bindings.ts id "palette", no `when` guard). The
-// dispatcher listens on window capture, so a keydown dispatched on document reaches it. Type a goal,
-// assert the Ask lead row renders, fire it, then assert the active surface is Jarvis and the typed
-// question shows as a user turn. We do NOT assert the streamed answer (live backend, timing-sensitive).
-const jarvisAsk = {
-    name: "jarvis-ask",
-    surface: "cockpit",
-    async arrange(h) {
-        // The palette is session state and this scenario's first act is to TOGGLE it open. A palette or a
-        // dialog left open by whatever ran before would close it instead, and the run would read as "no Ask
-        // row" — pass or fail depending on its neighbours, which is the one thing a regression net must
-        // never do.
-        await h.goto("cockpit");
-        await h.ev(
-            `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }))`
-        );
-        await h.ev("new Promise((r) => setTimeout(r, 300))");
-        return {};
-    },
-    async assert(h) {
-        const steps = [];
-        await h.goto("cockpit");
-        const opened = await h.ev(`(() => {
-            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', code: 'KeyP', ctrlKey: true, bubbles: true }));
-            return true;
-        })()`);
-        await h.ev("new Promise((r) => setTimeout(r, 250))");
-        const typed = await h.ev(`(() => {
-            const inp = document.querySelector('input[placeholder^="Search"]');
-            if (!inp) return false;
-            const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-            setter.call(inp, 'why did we drop worktrees');
-            inp.dispatchEvent(new Event('input', { bubbles: true }));
-            return true;
-        })()`);
-        await h.ev("new Promise((r) => setTimeout(r, 250))");
-        const askRow = await h.ev(`(() => (document.body.innerText || '').includes('Ask Jarvis'))()`);
-        steps.push({
-            step: "type goal -> Ask Jarvis lead row present",
-            ok: opened === true && typed === true && askRow === true,
-            detail: `typed=${typed} askRow=${askRow}`,
-        });
-        await h.ev(`(() => {
-            const b = [...document.querySelectorAll('button')].find((x) => (x.textContent || '').includes('Ask Jarvis'));
-            if (b) b.click();
-            return true;
-        })()`);
-        await h.ev("new Promise((r) => setTimeout(r, 600))");
-        const activeLabel = await h.activeSurfaceLabel();
-        // The Brief's handoff primes ONE attached stateless thread: the question arrives in the composer as
-        // a draft with the source attached, and it becomes a turn when the user sends it. So the assertion
-        // reads the field, not the page text — an input's value never appears in innerText, and a scenario
-        // that looked for the words on the page was asserting a submitted turn no composition submits here.
-        const landed = await h.ev(`(() => {
-            const input = document.querySelector('[data-jarvis-brief-composer="input"]');
-            const scope = document.querySelector('[data-jarvis-brief-composer="scope"]');
-            const body = document.body.innerText || '';
-            return {
-                turn: body.includes('why did we drop worktrees'),
-                draft: !!input && (input.value || '').includes('why did we drop worktrees'),
-                scope: (scope ? scope.textContent || '' : '').trim(),
-            };
-        })()`);
-        steps.push({
-            step: "fire Ask row -> the Brief asks the question itself, as a turn on its one thread",
-            ok: activeLabel === SURFACE_LABEL.jarvis && landed.turn === true && landed.scope !== "",
-            detail: JSON.stringify({ activeLabel, ...landed }),
-        });
-        await h.shot("cdp-shots/jarvis-ask.png");
-        return steps;
-    },
-    async teardown(h) {
-        await h.goto("cockpit");
-    },
-};
-
-// --- jarvis multi-turn + persistence: ask a question, reload -> conversation persists in the rail (Plan F) --
-const jarvisMultiturn = {
-    name: "jarvis-multiturn",
-    surface: "jarvis",
-    async arrange() {
-        return {};
-    },
-    async assert(h) {
-        const steps = [];
-        await h.goto("jarvis");
-        const threaded = await newBriefThread(h);
-        await h.ev("new Promise((resolve) => setTimeout(resolve, 400))");
-        const asked = await askBrief(h, "what changed in the worktree work");
-        await h.ev("new Promise((resolve) => setTimeout(resolve, 4000))");
-        const firstTurn = await h.ev(
-            `(() => (document.body.innerText || '').includes('what changed in the worktree work'))()`
-        );
-        steps.push({
-            step: "first question renders as a user turn",
-            ok: threaded === true && asked === true && firstTurn === true,
-            detail: `threaded=${threaded} asked=${asked} firstTurn=${firstTurn}`,
-        });
-
-        // RETIRED (B5): "conversation persists across reload in the history rail" tested two things that no
-        // longer exist together. The rail was the deleted Subjects column's thread list, and the Brief's
-        // all-work ask is stateless ON PURPOSE ("launch-local; never a JarvisConversation", briefingstore) —
-        // so this ask leaves nothing to persist. What survives of the claim is asserted where it can be:
-        // brief-restore step 2 reloads a PERSISTED conversation and checks the Brief hydrates its turns
-        // without submitting a new ask. The gap this leaves — nothing in the UI submits an ask INTO a
-        // persisted thread any more, so the `n` chord's thread can never be filled — is recorded in
-        // docs/deferred.md. The step is removed rather than weakened to match the new behaviour: a green
-        // line here would say persistence works, and for this ask it does not.
-
-        await h.shot("cdp-shots/jarvis-multiturn.png");
-        return steps;
-    },
-    async teardown(h) {
-        await h.goto("cockpit");
-    },
-};
-
-// --- jarvis vault recall: a dispatched Run captures a dossier; recall traverses the vault (sub-project C) --
-// arrange dispatches a REAL Run via createrun — which now (Task 1 hook) writes a dossier into the Wave Vault
-// carrying the run's ticket + objective and a [[run-<oid>]] reference, committed before createrun returns.
-// We then ask Jarvis a question matching that ticket and assert recall surfaced a grounding card (dossier or
-// run) rather than the empty-vault notfound state. Grounding cards stream before synthesis, so the assert
-// does not depend on a live claude synthesis completing. The run goal keeps the spawned worker inert (like
-// runs-lifecycle); worker block + run + channel + temp dir are cleaned up in teardown.
-const VAULT_TICKET = "ZZZ-4242";
-const VAULT_GOAL = `${VAULT_TICKET} spawn-test only: do nothing, make no file changes, stop immediately`;
-
-const jarvisVaultRecall = {
-    name: "jarvis-vault-recall",
-    surface: "jarvis",
-    async arrange(h) {
-        const cwd = mkdtempSync(join(tmpdir(), "verify-vault-"));
-        const wslist = await h.rpc("workspacelist", null);
-        const workspaceId = wslist[0].workspacedata.oid;
-        const ch = await h.rpc("createchannel", { name: "verify-vault", projectpath: cwd });
-        const created = await h.rpc("createrun", {
-            channelid: ch.oid,
-            workspaceid: workspaceId,
-            goal: VAULT_GOAL,
-            runtime: "claude",
-        });
-        const run = created.run;
-        const worker = run.phases && run.phases[0] && run.phases[0].workerorefs && run.phases[0].workerorefs[0];
-        return { cwd, channelId: ch.oid, runId: run.id, workers: worker ? [worker] : [] };
-    },
-    async assert(h, ctx) {
-        const steps = [];
-        await h.goto("jarvis");
-        await newBriefThread(h);
-        await h.ev("new Promise((r) => setTimeout(r, 400))");
-        const asked = await askBrief(h, `what is the ${VAULT_TICKET} spawn test about`);
-        // grounding cards stream before synthesis; poll briefly for a non-notfound grounded answer.
-        let grounded = { cards: 0, notfound: false };
-        for (let i = 0; i < 20; i++) {
-            await h.ev("new Promise((r) => setTimeout(r, 500))");
-            grounded = await h.ev(`(() => {
-                const body = document.body.innerText || '';
-                const cards = document.querySelectorAll('button[class*="rounded-[10px]"]').length;
-                return { cards, notfound: body.includes('No Wave source in scope references this') };
-            })()`);
-            if (grounded.cards > 0) break;
-        }
-        steps.push({
-            step: "ask matching question -> >=1 grounding card, not the empty-vault notfound state",
-            ok: asked === true && grounded.cards > 0 && grounded.notfound === false,
-            detail: JSON.stringify(grounded),
-        });
-        await h.shot("cdp-shots/jarvis-vault-recall.png");
-        return steps;
-    },
-    async teardown(h, ctx) {
-        await h.goto("cockpit"); // leave the app where a human expects it
-        try {
-            await h.rpc("cancelrun", { channelid: ctx.channelId, runid: ctx.runId });
-        } catch {
-            // best-effort cleanup
-        }
-        for (const oref of ctx.workers) {
-            try {
-                const tab = await h.rpc("gettab", oref.slice(4));
-                const bid = tab && tab.blockids && tab.blockids[0];
-                if (bid) await h.rpc("deleteblock", { blockid: bid });
-            } catch {
-                // best-effort cleanup
-            }
-        }
-        try {
-            await h.rpc("deletechannel", { channelid: ctx.channelId });
-        } catch {
-            // best-effort cleanup
-        }
-        try {
-            rmSync(ctx.cwd, { recursive: true, force: true });
-        } catch {
-            // best-effort cleanup
-        }
-    },
-};
 
 // --- jarvis attribution: RETIRED by B5, subject re-homed -------------------------------------------
 // This scenario walked the Subjects column's Records group, selected each record until one had an attributed
@@ -2515,7 +2290,7 @@ const jarvisPeek = {
 // The unit tests cover each hop in isolation; what they structurally cannot see is a bad hop BETWEEN
 // atoms, which is the defect class this surface's findings keep landing in. So this drives the whole
 // chain in the real app: push a knowledge utterance -> the creature speaks it -> the peek lists it with
-// Open and Ask -> Open lands on the Jarvis surface.
+// Open and no Ask (the recall act was retired) -> Open lands on the Jarvis surface.
 //
 // It injects the pet event rather than arranging a real utterance. A real one needs a headless CLI judge
 // run (up to 90s) behind a 45-minute quiet window, which is the same live-model limit that keeps the
@@ -2589,7 +2364,7 @@ const jarvisVolunteer = {
         });
         await h.shot("cdp-shots/jarvis-volunteer-peek.png");
 
-        // with no attention queue, the adaptive card shows the latest update directly. It keeps both acts:
+        // with no attention queue, the adaptive card shows the latest update directly. It keeps its Open act:
         // compacting the card must not turn the volunteered fact into a dead readout.
         const verbs = await h.ev(`(() => {
             const panel = document.querySelector('[data-pet-peek]');
@@ -2599,8 +2374,8 @@ const jarvisVolunteer = {
             };
         })()`);
         steps.push({
-            step: "latest update offers Open and Ask",
-            ok: verbs?.open === true && verbs?.ask === true,
+            step: "latest update offers Open, and no retired Ask",
+            ok: verbs?.open === true && verbs?.ask === false,
             detail: JSON.stringify(verbs),
         });
 
@@ -4395,10 +4170,43 @@ const briefContextualMap = {
     },
 };
 
+// --- brief-composer-steer-only: no composer without a live lead to message --------------------------
+// The Brief's composer only steers a running session's lead (briefcomposertarget.ts); the Ask audiences it
+// used to have were retired. So with no session sheet open there is no composer at all. The "composer
+// present" half needs a live worker, so it is checked by hand at the final verification.
+const briefComposerSteerOnly = {
+    name: "brief-composer-steer-only",
+    surface: "jarvis",
+    async arrange(h) {
+        // start with no sheet open: Escape closes whatever a previous scenario left behind
+        await h.goto("jarvis");
+        await h.ev(
+            `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }))`
+        );
+        await h.ev("new Promise((r) => setTimeout(r, 400))");
+        return {};
+    },
+    async assert(h) {
+        const steps = [];
+        await h.goto("jarvis");
+        await h.ev("new Promise((r) => setTimeout(r, 700))");
+        steps.push({
+            step: "1. the Brief shows no composer while no session sheet is open",
+            ok:
+                (await h.ev(`!!document.querySelector('[data-jarvis-region="brief"]')`)) === true &&
+                (await h.ev(`document.querySelector('[data-jarvis-brief-composer]') == null`)) === true,
+            detail: "",
+        });
+        await h.shot("cdp-shots/brief-composer-steer-only.png");
+        return steps;
+    },
+    async teardown(h) {},
+};
+
 // --- brief-restore: the stored subject, landed three different ways -------------------------------
-// What the same stored value means now (briefrestore.ts): a dossier opens the record peek, a conversation
-// hydrates the thread, and a channel opens its own sheet. Each case needs its own reload, because the
-// restore is once per frontend load by design.
+// What the same stored value means now (briefrestore.ts): a dossier opens the record peek, a channel opens
+// its own sheet, and a conversation left over from before Ask was retired is cleared. Each case needs its
+// own reload, because the restore is once per frontend load by design.
 const briefRestore = {
     name: "brief-restore",
     surface: "jarvis",
@@ -4453,36 +4261,25 @@ const briefRestore = {
             );
         }
 
-        // 2. a conversation hydrates its turns and attached scope without submitting a new ask
-        const convos = await h.rpc("listjarvisconversations", null);
-        const convo = (convos?.conversations ?? [])[0];
-        if (convo == null) {
-            rec(
-                "2. a stored conversation hydrates the Brief thread",
-                false,
-                "no persisted conversation in this profile — seed one before reading this as a pass"
-            );
-        } else {
-            await withStored({ kind: "conversation", id: convo.id });
-            const hydrated = await h.ev(`(() => {
-                const thread = document.querySelector('[data-jarvis-brief-thread]');
-                const rows = [...document.querySelectorAll('[data-jarvis-brief-row="turn"]')];
-                const text = document.body.innerText || '';
-                return {
-                    thread: !!thread,
-                    turns: rows.length,
-                    // the in-flight marker is the one visible trace a submitted ask leaves
-                    pending: text.includes('reading across your work'),
-                    draft: (document.querySelector('[data-jarvis-brief-composer="input"]') || {}).value || '',
-                };
-            })()`);
-            rec(
-                "2. a stored conversation hydrates its turns without submitting a new ask",
-                hydrated.thread === true && hydrated.turns > 0 && hydrated.pending === false && hydrated.draft === "",
-                JSON.stringify({ id: convo.id, ...hydrated })
-            );
-            await h.shot("cdp-shots/brief-restore-thread.png");
-        }
+        // 2. a conversation stored before Ask was retired clears rather than waiting on a list that no longer
+        //    loads: no subject selected, nothing opened, no error overlay
+        await withStored({ kind: "conversation", id: "gone" });
+        const cleared = await h.ev(`(() => ({
+            stored: localStorage.getItem('jarvis.subject.last'),
+            brief: !!document.querySelector('[data-jarvis-region="brief"]'),
+            peek: !!document.querySelector('[data-jarvis-brief-band="peek"]'),
+            sheet: !!document.querySelector('[data-jarvis-brief-sheet]'),
+            overlay: !!document.querySelector('vite-error-overlay'),
+        }))()`);
+        rec(
+            "2. a stored conversation from before Ask was retired is cleared",
+            cleared.brief === true &&
+                cleared.peek === false &&
+                cleared.sheet === false &&
+                cleared.overlay === false &&
+                (cleared.stored == null || cleared.stored === "null"),
+            JSON.stringify(cleared)
+        );
 
         // 3. the channel opens its OWN sheet: B5 gave a stored channel a destination, so it is now decided
         //    like every other kind — the id still existing is exactly what decides it.
@@ -4961,10 +4758,10 @@ const jarvisMotion = {
 };
 
 // --- resource linking: an address opens what it names --------------------------------------------------------
-// The router's live check. A citation chip exists only after a live synthesis, so the DEV hook in
-// linkingdevhooks.ts seeds one answered exchange and the click under test is the real chip's. The chips point at
-// real objects read from this profile, because every landing proves its target exists first — invented ids
-// would only ever exercise the failure path. Nothing here writes. A profile missing a kind (no record holding a
+// The router's live check, driven through the DEV hook in linkingdevhooks.ts (the citation chips that used to
+// carry these addresses went with the Ask thread). The addresses name real objects read from this profile,
+// because every landing proves its target exists first — invented ids would only ever exercise the failure
+// path. Nothing here writes. A profile missing a kind (no record holding a
 // decision, no scan report, no investigated finding) SKIPS that step and names what to seed: the landing was
 // never attempted, so neither a pass nor a failure would be a true reading of it.
 const resourceLinking = {
@@ -5026,50 +4823,12 @@ const resourceLinking = {
         const present = (selector) => `!!document.querySelector(${JSON.stringify(selector)})`;
         const toastText = () =>
             h.ev(`[...document.querySelectorAll('[data-notification-toast]')].map((t) => t.innerText).join(' | ')`);
-        const card = (n, sourceType, title, navTarget, anchor) => ({
-            n,
-            sourceType,
-            title,
-            project: "",
-            ageMs: 0,
-            freshness: "fresh",
-            navTarget,
-            anchor,
-        });
-        const cards = [];
-        if (ctx.dossier) cards.push(card(1, "dossier", ctx.dossier.objective, `task:${ctx.dossier.id}`));
-        if (ctx.decided) {
-            cards.push(card(2, "decision", "a decision", `task:${ctx.decided.dossierId}`, ctx.decided.decisionId));
-        }
-        // seeded unconditionally: persisted turns still carry memnote: addresses, and what needs proving is
-        // that one is now inert rather than a button that navigates nowhere
-        cards.push(card(3, "memory", "a memory note", "memnote:a-note-the-vault-no-longer-serves"));
-        if (ctx.radar) {
-            cards.push(card(4, "radar", "a finding", `radarreport:${ctx.radar.reportId}`, ctx.radar.findingId));
-        }
-        if (ctx.investigated) {
-            const { reportId, findingId } = ctx.investigated;
-            cards.push(card(5, "radar", "an investigated finding", `radarreport:${reportId}`, findingId));
-        }
-        // the hooks install when the Brief mounts, and a reload undoes them; seeding again before every click also
-        // means a peek or thread collapse from the previous step cannot take the chips with it
-        const seed = async () => {
+        // the hook installs when the Brief mounts, and a reload undoes it, so every step re-arms it first
+        const open = async (address, hint) => {
             await h.goto("jarvis");
-            if (!(await waitFor(`typeof window.__seedBriefCitations === 'function'`, 5000))) return false;
-            await h.ev(`window.__seedBriefCitations(${JSON.stringify(cards)})`);
-            return waitFor(
-                `document.querySelectorAll('[data-jarvis-brief-row="cite"]').length >= ${cards.length}`,
-                3000
-            );
+            if (!(await waitFor(`typeof window.__openAddress === 'function'`, 5000))) return null;
+            return h.ev(`window.__openAddress(${JSON.stringify(address)}, ${JSON.stringify(hint ?? null)})`);
         };
-        const clickCite = (n) =>
-            h.ev(`(() => {
-                const chip = [...document.querySelectorAll('button[data-jarvis-brief-row="cite"]')]
-                    .find((b) => (b.innerText || '').trim().startsWith('[${n}]'));
-                if (!chip) return false;
-                chip.click();
-                return true;
-            })()`);
         const peekShows = (objective) =>
             waitFor(
                 `(document.querySelector('[data-jarvis-brief-band="peek"]')?.innerText || '').includes(${JSON.stringify(
@@ -5086,25 +4845,26 @@ const resourceLinking = {
             await waitFor(`!document.querySelector('[data-jarvis-brief-band="peek"]')`, 2000);
         };
 
+        await h.goto("jarvis");
         rec(
-            "1. the DEV hook seeds a citation chip per kind this profile holds",
-            (await seed()) === true,
-            `chips=${cards.map((c) => c.n).join(",")}`
+            "1. the DEV hook that opens an address is installed on the Brief",
+            (await waitFor(`typeof window.__openAddress === 'function'`, 5000)) === true,
+            ""
         );
 
         if (!ctx.dossier) {
             rec(
-                "2. a record citation opens the record's peek",
+                "2. a record address opens the record's peek",
                 false,
                 "no record in this profile - seed one before reading this as a pass"
             );
         } else {
-            const clicked = (await seed()) && (await clickCite(1));
+            const result = await open(`task:${ctx.dossier.id}`, { sourceType: "dossier" });
             const shown = await peekShows(ctx.dossier.objective);
             rec(
-                "2. a record citation opens the record's peek",
-                clicked && shown,
-                JSON.stringify({ clicked, shown, toasts: await toastText() })
+                "2. a record address opens the record's peek",
+                result?.ok === true && shown,
+                JSON.stringify({ result, shown, toasts: await toastText() })
             );
             await dismissOverlay();
         }
@@ -5112,39 +4872,40 @@ const resourceLinking = {
         if (!ctx.decided) {
             steps.push(
                 skipStep(
-                    "3. a decision citation opens its record's peek",
+                    "3. a decision address opens its record's peek",
                     "no record with a decision among the first 25 - record one before reading this as a pass"
                 )
             );
         } else {
-            const clicked = (await seed()) && (await clickCite(2));
+            const result = await open(`task:${ctx.decided.dossierId}`, {
+                sourceType: "decision",
+                anchor: ctx.decided.decisionId,
+            });
             const shown = await peekShows(ctx.decided.objective);
             rec(
-                "3. a decision citation opens its record's peek",
-                clicked && shown,
-                JSON.stringify({ clicked, shown, toasts: await toastText() })
+                "3. a decision address opens its record's peek",
+                result?.ok === true && shown,
+                JSON.stringify({ result, shown, toasts: await toastText() })
             );
             await dismissOverlay();
         }
 
         {
-            const seeded = await seed();
-            const chip = await h.ev(`(() => {
-                const el = [...document.querySelectorAll('[data-jarvis-brief-row="cite"]')]
-                    .find((b) => (b.innerText || '').trim().startsWith('[3]'));
-                return el ? { tag: el.tagName, text: (el.innerText || '').trim() } : null;
-            })()`);
+            // persisted work refs still carry memnote: addresses, and what needs proving is that one opens
+            // nothing rather than navigating into a surface that is gone
+            const result = await open("memnote:a-note-the-vault-no-longer-serves", { sourceType: "memory" });
+            const surface = await h.activeSurfaceLabel();
             rec(
-                "4. a memory citation renders inert: no button into a surface that is gone",
-                seeded && chip != null && chip.tag !== "BUTTON",
-                JSON.stringify({ seeded, chip })
+                "4. a memory address opens nothing and leaves the surface where it was",
+                result?.ok === false && surface === SURFACE_LABEL.jarvis,
+                JSON.stringify({ result, surface })
             );
         }
 
         if (!ctx.radar) {
             steps.push(
                 skipStep(
-                    "5. a finding citation lands on that finding on a first Radar visit",
+                    "5. a finding address lands on that finding on a first Radar visit",
                     "no scan report with findings in this profile - run a Radar scan before reading this as a pass"
                 )
             );
@@ -5152,14 +4913,17 @@ const resourceLinking = {
             // a reload is what makes this Radar's first visit: its scope lives in module state
             await h.ev("location.reload()");
             await settle(2800);
-            const clicked = (await seed()) && (await clickCite(4));
+            const result = await open(`radarreport:${ctx.radar.reportId}`, {
+                sourceType: "radar",
+                anchor: ctx.radar.findingId,
+            });
             const selector = `[data-radar-finding-detail="${ctx.radar.findingId}"][data-radar-report="${ctx.radar.reportId}"]`;
             const shown = await waitFor(present(selector), 8000);
             const surface = await h.activeSurfaceLabel();
             rec(
-                "5. a finding citation lands on that finding on a first Radar visit",
-                clicked && shown && surface === SURFACE_LABEL.radar,
-                JSON.stringify({ clicked, shown, surface, olderThanNewest: !ctx.radar.newest, toasts: await toastText() })
+                "5. a finding address lands on that finding on a first Radar visit",
+                result?.ok === true && shown && surface === SURFACE_LABEL.radar,
+                JSON.stringify({ result, shown, surface, olderThanNewest: !ctx.radar.newest, toasts: await toastText() })
             );
         }
 
@@ -5171,8 +4935,9 @@ const resourceLinking = {
                 )
             );
         } else {
-            const clicked = (await seed()) && (await clickCite(5));
-            const detail = `[data-radar-finding-detail="${ctx.investigated.findingId}"]`;
+            const { reportId, findingId } = ctx.investigated;
+            const result = await open(`radarreport:${reportId}`, { sourceType: "radar", anchor: findingId });
+            const detail = `[data-radar-finding-detail="${findingId}"]`;
             const onFinding = await waitFor(present(detail), 8000);
             const opened =
                 onFinding &&
@@ -5190,8 +4955,8 @@ const resourceLinking = {
             const surface = await h.activeSurfaceLabel();
             rec(
                 "6. Radar's Open run lands on the run's sheet",
-                clicked && opened && runBody && surface === SURFACE_LABEL.jarvis,
-                JSON.stringify({ clicked, onFinding, opened, runBody, surface, toasts: await toastText() })
+                result?.ok === true && opened && runBody && surface === SURFACE_LABEL.jarvis,
+                JSON.stringify({ result, onFinding, opened, runBody, surface, toasts: await toastText() })
             );
             await dismissOverlay();
         }
@@ -5213,14 +4978,6 @@ const resourceLinking = {
         return steps;
     },
     async teardown(h) {
-        await h.goto("jarvis");
-        // the seeded exchange is launch-local, but a later scenario reading the Brief should not find it
-        await h.ev(`(() => {
-            const b = [...document.querySelectorAll('[data-jarvis-brief-thread] button')]
-                .find((x) => (x.textContent || '').includes('Collapse'));
-            if (b) b.click();
-            return true;
-        })()`);
         await h.goto("cockpit");
     },
 };
@@ -5544,6 +5301,7 @@ const focusDivergenceRejoin = {
 export const SCENARIOS = [
     briefContextualMap,
     briefRestore,
+    briefComposerSteerOnly,
     runsLifecycle,
     terminalTheme,
     tuiLeader,
@@ -5560,9 +5318,6 @@ export const SCENARIOS = [
     briefSurface,
     briefPeek,
     briefProfile,
-    jarvisAsk,
-    jarvisMultiturn,
-    jarvisVaultRecall,
     jarvisPeek,
     jarvisVolunteer,
     usageCharts,

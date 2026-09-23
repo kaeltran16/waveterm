@@ -9,51 +9,9 @@
 // Every adapter is total: a shape it does not recognise yields undefined/null rather than a guess. That is
 // the no-guessing property (design §2) applied at the boundary where it is easiest to lose.
 
-import type { PetSignals } from "./petcondition";
 import type { PetEvent } from "./petvoice";
 import { ageLabel } from "./recallderive";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
-
-const INDEX_STATES = ["ok", "off", "stale"] as const;
-type IndexState = (typeof INDEX_STATES)[number];
-
-// EmbedIndexStatus.state crosses the wire as a bare string (generated from a Go string field), so it is
-// narrowed here. An unrecognised state yields undefined — "no signal" — never "ok": reading an unknown
-// state as healthy is exactly the silent degradation the rank-1 condition exists to expose.
-export function indexSignal(status: EmbedIndexStatus | null | undefined): PetSignals["index"] | undefined {
-    const state = status?.state;
-    if (state == null || !(INDEX_STATES as readonly string[]).includes(state)) {
-        return undefined;
-    }
-    return { state: state as IndexState };
-}
-
-// Why recall is degraded, in words. This is the diagnostic half of the rank-1 condition: "embeddings are
-// off" explains a whole class of "why is Jarvis useless" without a bug report (design §3, Integrity).
-// An unrecognised reason falls through to the raw string rather than being swallowed — a reason the UI has
-// not been taught is still more useful than silence.
-const RECALL_REASON: Record<string, string> = {
-    disabled: "embeddings are turned off",
-    "no-key": "no API key configured",
-    "provider-error": "the embedding provider failed",
-    "index-error": "the index could not be opened",
-    "vault-error": "the vault could not be read",
-    "model-mismatch": "indexed with a different model",
-    "not-built": "the index has not been built",
-    "content-drift": "notes have changed since indexing",
-};
-
-export function recallLine(status: EmbedIndexStatus | null | undefined): { text: string; dim: boolean } {
-    if (status == null) {
-        return { text: "not read yet", dim: true };
-    }
-    const why = status.reason != null ? (RECALL_REASON[status.reason] ?? status.reason) : null;
-    if (status.state === "ok") {
-        return { text: status.indexednodes > 0 ? `ok · ${status.indexednodes} indexed` : "ok", dim: false };
-    }
-    const drift = status.state === "stale" && status.stalenodes > 0 ? ` (${status.stalenodes})` : "";
-    return { text: why != null ? `${status.state} — ${why}${drift}` : status.state, dim: false };
-}
 
 // The launch narrative. The id has to be stable across relaunches or the creature re-says "where we were"
 // on every start; keying it to the run plus the narrative's own timestamp makes it stable until a NEW
@@ -79,14 +37,14 @@ export function eventFromResume(rtn: CommandGetLatestResumeRtnData | null | unde
     };
 }
 
-const VOLUNTEER_KINDS = ["recall", "connection", "loose-end", "ledger"] as const;
+const VOLUNTEER_KINDS = ["connection", "loose-end", "ledger"] as const;
 type VolunteerKind = (typeof VOLUNTEER_KINDS)[number];
 
 // The backend stamps id and at from the FACT, not from emission time, so an unchanged fact re-emitted
 // after a restart carries an identical pair and nextUtterance discards it against the watermark. This
 // adapter must therefore pass both through untouched — deriving either here would break say-once.
 //
-// A payload with no `ref` still speaks; it just carries no source, so the peek grows no Open/Ask pair.
+// A payload with no `ref` still speaks; it just carries no source, so the peek grows no Open.
 // The backend drops an address it could not resolve rather than faking one, and a bubble with nothing
 // to open is better than a button that navigates nowhere.
 export function eventFromVolunteer(d: VolunteerData | null | undefined): PetEvent | null {

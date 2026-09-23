@@ -31,8 +31,6 @@ const KIND_LABEL: Record<PetEvent["kind"], string> = {
     sweep: "While you were out",
     "distill-batch": "While you were out",
     "bg-agent-done": "While you were out",
-    "recall-ready": "Recall",
-    recall: "You have been here before",
     connection: "This just connected",
     "loose-end": "Still open",
     ledger: "Work state",

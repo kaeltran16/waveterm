@@ -11,9 +11,7 @@ import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
-import { sourceRefForGraphNode } from "./contextualentry";
 import type { PeekFocus } from "./graphfocus";
-import type { SourceRef } from "./jarviscontract";
 import { JarvisGraph } from "./jarvisgraph";
 import { attributionStyle, mergeGraph } from "./jarvisgraphderive";
 import {
@@ -70,14 +68,12 @@ export function GraphPeek({
     focus,
     onClose,
     onOpenRecord,
-    onAskAbout,
     canOpenRuns = true,
 }: {
     model: AgentsViewModel;
     focus: PeekFocus;
     onClose: () => void;
     onOpenRecord: (dossierId: string) => void;
-    onAskAbout: (ref: SourceRef) => void;
     // false in the Brief: runs have no Stage-sheet destination until B5, and a control that navigates
     // nowhere is worse than its absence
     canOpenRuns?: boolean;
@@ -136,14 +132,6 @@ export function GraphPeek({
 
     const openRun = (runORef: string) => {
         fireAndForget(() => openAddress(model, runORef));
-        onClose();
-    };
-
-    // one thread per node, like every other "ask about this object" entry. The dedup lives in the caller's
-    // route (openJarvisWithSource), which keys a thread per oref, so both compositions get it from one place
-    // rather than this overlay carrying a second copy of the rule.
-    const askAbout = (n: GraphNode) => {
-        onAskAbout(sourceRefForGraphNode(n));
         onClose();
     };
 
@@ -309,7 +297,6 @@ export function GraphPeek({
                                         }}
                                     />
                                 ) : null}
-                                <ActionButton label="Ask Jarvis about this node" onClick={() => askAbout(node)} />
                             </div>
                         </>
                     )}

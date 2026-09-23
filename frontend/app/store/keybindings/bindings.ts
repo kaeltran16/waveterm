@@ -47,12 +47,7 @@ import {
 import { treeKeyAction, type TreeKey } from "@/app/view/code/codetreekeys";
 import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
 import { briefPeekRecordAtom, graphPeekOpenAtom, noteChunkAtom, readingNoteAtom } from "@/app/view/jarvis/jarvisstore";
-import {
-    activeRunIdAtom,
-    activeSubjectAtom,
-    setActiveRunId,
-    startJarvisThread,
-} from "@/app/view/jarvis/jarvissubjectstore";
+import { activeRunIdAtom, activeSubjectAtom, setActiveRunId } from "@/app/view/jarvis/jarvissubjectstore";
 import { petPeekOpenAtom } from "@/app/view/jarvis/petstore";
 import { dagModalStateAtom } from "@/app/view/orchestrate/dagmodalstate";
 import type { MutableRefObject } from "react";
@@ -580,14 +575,6 @@ export function buildJarvisBindings(): Binding[] {
 
     return [
         noteSidebarEscape,
-        {
-            id: "jarvis:new-thread",
-            keys: "n",
-            group: "Jarvis",
-            label: "New thread",
-            when: onStage,
-            run: () => void startJarvisThread(),
-        },
         ...buildJarvisGraphBindings(),
         {
             id: "jarvis:new-run",

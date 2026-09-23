@@ -3,7 +3,6 @@
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { openInCode } from "@/app/view/code/codestore";
-import { AskJarvisButton, sourceRefForRadar } from "@/app/view/jarvis/contextualentry";
 import { openTarget } from "@/app/view/jarvis/openref";
 import { cn, fireAndForget } from "@/util/util";
 import { ArrowRight, Target } from "lucide-react";
@@ -337,7 +336,6 @@ export function RadarFindingDetail({
                             {dismissed ? "Reopen finding" : "Unsuppress pattern"}
                         </button>
                     ) : null}
-                    <AskJarvisButton model={model} sourceRef={sourceRefForRadar(finding)} label="Explain with Jarvis" />
                 </div>
 
                 {!dismissed && !suppressed ? (

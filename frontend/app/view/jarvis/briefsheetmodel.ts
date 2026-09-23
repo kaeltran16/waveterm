@@ -29,6 +29,6 @@ export function sheetFace(subject: ActiveSubject | null, run: Run | null): Sheet
     if (subject.kind === "effort") {
         return { kind: "effort", effortId: subject.id };
     }
-    // dossier -> the record peek, conversation -> the Brief thread, briefing and effort-list -> the Brief
+    // dossier -> the record peek, briefing -> the Brief
     return { kind: "none" };
 }

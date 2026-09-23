@@ -97,7 +97,7 @@ describe("the palette's brief pipeline", () => {
             kind: r.kind,
             search: r.search,
         }));
-        return capGroups(assembleDefaultGroups({ query, ranked, launchItems: [], askItems: [], recent: [] }));
+        return capGroups(assembleDefaultGroups({ query, ranked, launchItems: [], recent: [] }));
     }
 
     it("lets an archived row reach its group even when live rows outnumber the old cap", () => {

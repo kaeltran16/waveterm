@@ -16,7 +16,6 @@ import { cardVariants, computeEntrances, initialEntranceState } from "@/app/elem
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { AskJarvisButton, sourceRefForRun } from "@/app/view/jarvis/contextualentry";
 import { STAGE_BAND_INSET, STAGE_GUTTER, STAGE_PROSE, STAGE_SCROLLER } from "@/app/view/jarvis/stagemeasure";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
@@ -146,7 +145,6 @@ export function CompactStepper({ run, expanded, onToggle }: { run: Run; expanded
 // composer Talk face replaces the inline Steer affordance entirely.
 export function RunHeader({
     run,
-    model,
     agents,
     channel,
     steering,
@@ -157,7 +155,6 @@ export function RunHeader({
     hideSteer,
 }: {
     run: Run;
-    model: AgentsViewModel;
     agents: AgentVM[];
     channel: Channel;
     steering: boolean;
@@ -185,7 +182,7 @@ export function RunHeader({
                             <span className="h-1.5 w-1.5 rounded-full bg-current opacity-60" />
                             {runtimeView.label}
                         </span>
-                        <AmbientTags oref={sourceRefForRun(run).oref} />
+                        <AmbientTags oref={`run:${run.id}`} />
                     </div>
                     {/* the collapsed goal is a two-line heading and takes the width; expanded it becomes real
                         prose (markdown, paragraphs) and caps at a reading measure */}
@@ -207,7 +204,6 @@ export function RunHeader({
                     </div>
                 </div>
                 <div className="flex flex-none gap-1.5">
-                    <AskJarvisButton model={model} sourceRef={sourceRefForRun(run)} label="Ask Jarvis" />
                     {run.dagoref ? (
                         <button
                             type="button"
@@ -405,7 +401,6 @@ export function OrchestratorBody({
             <div className={cn(STAGE_GUTTER, "flex min-h-0 flex-1 flex-col pb-3 pt-5")}>
                 <RunHeader
                     run={run}
-                    model={model}
                     agents={agents}
                     channel={channel}
                     steering={steering}
@@ -684,7 +679,6 @@ export function RunBody({
                 <div className={cn(STAGE_GUTTER, "pb-3 pt-5")}>
                     <RunHeader
                         run={run}
-                        model={model}
                         agents={agents}
                         channel={channel}
                         steering={false}

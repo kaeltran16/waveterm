@@ -11,12 +11,9 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
-import { pendingSettingsSectionAtom, SETTINGS_SECTION_EMBEDDINGS } from "@/app/view/agents/settingsstore";
-import { askAboutSource } from "./jarvissubjectstore";
 import { openAddress } from "./openref";
-import type { PetAct, PetOp } from "./petacts";
-import { startIndexCatchUp } from "./petindex";
-import { clearActState, petErrandAtom, petPeekOpenAtom, setActState } from "./petstore";
+import type { PetAct } from "./petacts";
+import { petErrandAtom, petPeekOpenAtom, setActState } from "./petstore";
 
 // The same budget the Channels surface gives a consult (CONSULT_RPC_TIMEOUT_MS in channelactions.ts): the
 // backend's consultTimeout is 120s and the rpc layer's 5s default would kill the stream long before a reply
@@ -27,57 +24,23 @@ function errText(e: unknown): string {
     return e instanceof Error ? e.message : String(e);
 }
 
-// The peek closes before a surface escort: an overlay anchored to the creature, left open over a surface it just
-// navigated away from, is stranded (the same reasoning petpeek.tsx already applies to its Open buttons). An
-// address escort closes it only once the landing succeeds — a landing that cannot open leaves the user where
+// An escort closes the peek only once the landing succeeds: an overlay anchored to the creature, left open over
+// a surface it just navigated away from, is stranded — but a landing that cannot open leaves the user where
 // they were, and its failure is set on the act, which only an open peek shows.
-async function escort(model: AgentsViewModel, act: PetAct & { verb: "open" }): Promise<void> {
+async function escort(model: AgentsViewModel, act: PetAct): Promise<void> {
     const target = act.target;
-    if (target.kind === "oref") {
-        const result = await openAddress(model, target.ref, { anchor: target.anchor }, (r) => {
-            if ("reason" in r) {
-                setActState(act.id, { status: "error", text: r.message });
-            }
-        });
-        if (result.ok) {
-            globalStore.set(petPeekOpenAtom, false);
+    const result = await openAddress(model, target.ref, { anchor: target.anchor }, (r) => {
+        if ("reason" in r) {
+            setActState(act.id, { status: "error", text: r.message });
         }
-        return;
+    });
+    if (result.ok) {
+        globalStore.set(petPeekOpenAtom, false);
     }
-    globalStore.set(petPeekOpenAtom, false);
-    globalStore.set(pendingSettingsSectionAtom, SETTINGS_SECTION_EMBEDDINGS);
-    globalStore.set(model.surfaceAtom, "settings");
-}
-
-async function perform(act: PetAct & { verb: "do" }): Promise<void> {
-    const op = act.op;
-    if (op.kind === "reconcile-index") {
-        await startIndexCatchUp(act.id);
-        return;
-    }
-    // Exhaustiveness backstop. Every PetOp is handled above, so `op` is `never` here and the cast is what
-    // keeps the line compiling: adding another operation without wiring it should be a visible error on the
-    // row that offered it, not a button that silently does nothing.
-    throw new Error(`unwired operation: ${(op as PetOp).kind}`);
 }
 
 export async function runAct(model: AgentsViewModel, act: PetAct): Promise<void> {
-    if (act.verb === "open") {
-        await escort(model, act);
-        return;
-    }
-    if (act.verb === "ask") {
-        globalStore.set(petPeekOpenAtom, false);
-        askAboutSource(act.seed.ref, act.seed.sourceType, act.seed.title, act.seed.prompt);
-        globalStore.set(model.surfaceAtom, "jarvis");
-        return;
-    }
-    setActState(act.id, { status: "running" });
-    try {
-        await perform(act);
-    } catch (e) {
-        setActState(act.id, { status: "error", text: errText(e) });
-    }
+    await escort(model, act);
 }
 
 // The errand reuses the Channels surface's consult path exactly (channelactions.ts): post the question as a

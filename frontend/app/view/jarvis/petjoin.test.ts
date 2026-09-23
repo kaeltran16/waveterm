@@ -2,71 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import {
-    eventFromResume,
-    eventFromVolunteer,
-    indexSignal,
-    recallLine,
-} from "./petjoin";
-
-function status(over: Partial<EmbedIndexStatus>): EmbedIndexStatus {
-    return { state: "ok", enabled: true, haskey: true, indexednodes: 0, vaultnodes: 0, stalenodes: 0, ...over };
-}
-
-
-describe("indexSignal", () => {
-    it("narrows each state the backend can report", () => {
-        expect(indexSignal(status({ state: "ok" }))).toEqual({ state: "ok" });
-        expect(indexSignal(status({ state: "off" }))).toEqual({ state: "off" });
-        expect(indexSignal(status({ state: "stale" }))).toEqual({ state: "stale" });
-    });
-
-    // the important one: an unknown state must not read as healthy, or a future backend state would
-    // silently present as "recall is fine" — the exact failure rank 1 exists to expose.
-    it("yields no signal for an unrecognised state rather than defaulting to ok", () => {
-        expect(indexSignal(status({ state: "rebuilding" }))).toBeUndefined();
-        expect(indexSignal(status({ state: "" }))).toBeUndefined();
-    });
-
-    it("yields no signal when the read failed entirely", () => {
-        expect(indexSignal(null)).toBeUndefined();
-        expect(indexSignal(undefined)).toBeUndefined();
-    });
-});
-
-describe("recallLine", () => {
-    it("distinguishes never-read from read-and-healthy", () => {
-        expect(recallLine(null)).toEqual({ text: "not read yet", dim: true });
-        expect(recallLine(status({ state: "ok", indexednodes: 373 }))).toEqual({
-            text: "ok · 373 indexed",
-            dim: false,
-        });
-    });
-
-    it("names why recall is degraded, which is the diagnostic the register exists for", () => {
-        expect(recallLine(status({ state: "off", reason: "disabled" })).text).toBe("off — embeddings are turned off");
-        expect(recallLine(status({ state: "off", reason: "no-key" })).text).toBe("off — no API key configured");
-        expect(recallLine(status({ state: "stale", reason: "model-mismatch" })).text).toBe(
-            "stale — indexed with a different model"
-        );
-    });
-
-    it("carries the drift count when staleness is measurable", () => {
-        expect(recallLine(status({ state: "stale", reason: "content-drift", stalenodes: 7 })).text).toBe(
-            "stale — notes have changed since indexing (7)"
-        );
-    });
-
-    // a reason this build has never been taught is still more useful than silence
-    it("falls through to the raw reason rather than swallowing an unknown one", () => {
-        expect(recallLine(status({ state: "off", reason: "quota-exhausted" })).text).toBe("off — quota-exhausted");
-    });
-
-    it("reports a bare state when no reason came back", () => {
-        expect(recallLine(status({ state: "stale" })).text).toBe("stale");
-    });
-});
-
+import { eventFromResume, eventFromVolunteer } from "./petjoin";
 
 describe("eventFromResume", () => {
     const card: ResumeCardData = {
@@ -135,7 +71,7 @@ describe("eventFromVolunteer", () => {
     });
 
     it("carries an anchor through so a decision can name its card", () => {
-        const ev = eventFromVolunteer({ ...base, class: "recall", ref: "task:task-p", anchor: "dec-abc123" });
+        const ev = eventFromVolunteer({ ...base, class: "connection", ref: "task:task-p", anchor: "dec-abc123" });
         expect(ev!.sources?.[0].anchor).toBe("dec-abc123");
     });
 

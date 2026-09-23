@@ -1,8 +1,8 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The Brief palette's pure index: the four wire lists -> one ranked, bounded row list. The Brief
-// deliberately shows nothing unbounded, so records, threads, initiatives and finished sessions are
+// The Brief palette's pure index: the three wire lists -> one ranked, bounded row list. The Brief
+// deliberately shows nothing unbounded, so records, initiatives and finished sessions are
 // reachable only from here — archived ones included. Archiving takes something out of what surfaces
 // at you, not out of what you can find, so archived rows stay searchable, carry the flag the row uses
 // to grey itself, and can never outrank live work. Nothing else is filtered: what matched is what shows,
@@ -19,15 +19,14 @@ import { fuzzyMatch, highlightRuns, rankPaletteItems } from "@/app/cockpit/palet
 // The mockup caps the list at 8 (docs/prototype/jarvis-brief-launch.dc.html).
 export const BRIEF_PALETTE_CAP = 8;
 
-// The one status value that means archived across dossiers and efforts (threads carry a bool instead).
+// The one status value that means archived across dossiers and efforts.
 const ARCHIVED_STATUS = "archived";
 
-export type BriefKind = "record" | "thread" | "effort" | "session";
+export type BriefKind = "record" | "effort" | "session";
 
 // The kind column the row renders. "Initiative" is the user-facing word for an effort.
 export const BRIEF_KIND_LABELS: Record<BriefKind, string> = {
     record: "Record",
-    thread: "Thread",
     effort: "Initiative",
     session: "Session",
 };
@@ -46,7 +45,6 @@ export interface BriefRow {
 
 export interface BriefPaletteInput {
     records?: SpaceSummary[]; // ListTaskDossiersCommand — every status, archived included
-    threads?: JarvisConversationSummary[];
     efforts?: EffortSummary[]; // EffortListCommand with IncludeArchived
     sessions?: SessionActivity[];
 }
@@ -80,16 +78,6 @@ export function buildBriefIndex(input: BriefPaletteInput): BriefRow[] {
             r.updated
         )
     );
-    const threads = (input.threads ?? []).map((t) =>
-        row(
-            "thread",
-            t.id,
-            t.title || "(untitled thread)",
-            metaLine([t.archived && ARCHIVED_STATUS, t.scopemode]),
-            t.archived === true,
-            t.updatedts
-        )
-    );
     const efforts = (input.efforts ?? []).map((e) =>
         row(
             "effort",
@@ -111,10 +99,10 @@ export function buildBriefIndex(input: BriefPaletteInput): BriefRow[] {
             s.lastactivets
         )
     );
-    return [...records, ...threads, ...efforts, ...sessions];
+    return [...records, ...efforts, ...sessions];
 }
 
-// Recency, because the four lists arrive kind-by-kind: without this the default set would be eight
+// Recency, because the three lists arrive kind-by-kind: without this the default set would be eight
 // records and nothing else.
 function byRecency(rows: BriefRow[]): BriefRow[] {
     return [...rows].sort((a, b) => b.ts - a.ts);

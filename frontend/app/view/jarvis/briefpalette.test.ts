@@ -18,14 +18,6 @@ const record = (over: Partial<SpaceSummary>): SpaceSummary => ({
     ...over,
 });
 
-const thread = (over: Partial<JarvisConversationSummary>): JarvisConversationSummary => ({
-    id: "cv-1",
-    title: "why the poller drifts",
-    scopemode: "project",
-    updatedts: T0 - 30 * MIN,
-    ...over,
-});
-
 const effort = (over: Partial<EffortSummary>): EffortSummary => ({
     oref: "effort:e-1",
     title: "Attention reliability",
@@ -63,10 +55,6 @@ const FULL: BriefPaletteInput = {
         record({}),
         record({ id: "sp-2", objective: "in-memory attention fast path", status: "archived", updated: T0 - 120 * MIN }),
     ],
-    threads: [
-        thread({}),
-        thread({ id: "cv-2", title: "vault pruning rules", archived: true, updatedts: T0 - 180 * MIN }),
-    ],
     efforts: [
         effort({}),
         effort({
@@ -85,18 +73,16 @@ const keys = (input: BriefPaletteInput, query: string, cap?: number) =>
     rankBriefRows(buildBriefIndex(input), query, cap).rows.map((r) => r.key);
 
 describe("brief palette index", () => {
-    it("reaches a record, a thread, an initiative and a session by a query on its title", () => {
+    it("reaches a record, an initiative and a session by a query on its title", () => {
         const rows = buildBriefIndex(FULL);
         expect(rankBriefRows(rows, "append").rows[0]).toMatchObject({ kind: "record", id: "sp-1" });
-        expect(rankBriefRows(rows, "drifts").rows[0]).toMatchObject({ kind: "thread", id: "cv-1" });
         expect(rankBriefRows(rows, "reliability").rows[0]).toMatchObject({ kind: "effort", id: "effort:e-1" });
         expect(rankBriefRows(rows, "junction").rows[0]).toMatchObject({ kind: "session", id: "claude:s-1" });
     });
 
-    it("marks archived records, threads and initiatives, and never a finished session", () => {
+    it("marks archived records and initiatives, and never a finished session", () => {
         const byKey = new Map(buildBriefIndex(FULL).map((r) => [r.key, r]));
         expect(byKey.get("record:sp-2").archived).toBe(true);
-        expect(byKey.get("thread:cv-2").archived).toBe(true);
         expect(byKey.get("effort:effort:e-2").archived).toBe(true);
         expect(byKey.get("record:sp-1").archived).toBe(false);
         expect(byKey.get("session:claude:s-1").archived).toBe(false);
@@ -110,12 +96,11 @@ describe("brief palette index", () => {
         });
         expect(byKey.get("effort:effort:e-1").meta).toBe("active · 3/7 · waveterm");
         expect(byKey.get("session:claude:s-1").meta).toBe("done · waveterm · main");
-        expect(byKey.get("thread:cv-2").meta).toBe("archived · project");
     });
 
     it("survives absent and empty input lists", () => {
         expect(buildBriefIndex({})).toEqual([]);
-        expect(buildBriefIndex({ records: null, threads: undefined, efforts: null, sessions: null })).toEqual([]);
+        expect(buildBriefIndex({ records: null, efforts: undefined, sessions: null })).toEqual([]);
         expect(rankBriefRows(buildBriefIndex({}), "anything")).toEqual({ rows: [], confident: false });
         expect(rankBriefRows([], "")).toEqual({ rows: [], confident: false });
     });
@@ -126,7 +111,7 @@ describe("archived ordering", () => {
     // one is the *better* match
     const input: BriefPaletteInput = {
         records: [record({ id: "sp-live", objective: "reauthorize the poller" })],
-        threads: [thread({ id: "cv-arch", title: "auth", archived: true })],
+        efforts: [effort({ oref: "effort:e-arch", title: "auth", status: "archived", total: 0, project: "" })],
         // no "auth" subsequence anywhere in its search text, so its absence proves the query ranked
         // rather than fell back to the default set
         sessions: [session({ id: "s-noise", task: "unrelated shipping work" })],
@@ -137,53 +122,56 @@ describe("archived ordering", () => {
         const live = rows.find((r) => r.id === "sp-live");
         const archived = rows.find((r) => r.archived);
         expect(fuzzyScore("auth", archived.search)).toBeGreaterThan(fuzzyScore("auth", live.search));
-        expect(keys(input, "auth")).toEqual(["record:sp-live", "thread:cv-arch"]);
+        expect(keys(input, "auth")).toEqual(["record:sp-live", "effort:effort:e-arch"]);
     });
 
     it("keeps live rows ahead of archived rows on an empty query, each pool most-recent first", () => {
         expect(keys(FULL, "")).toEqual([
             "session:claude:s-1",
             "effort:effort:e-1",
-            "thread:cv-1",
             "record:sp-1",
             "record:sp-2",
-            "thread:cv-2",
             "effort:effort:e-2",
         ]);
     });
 
     it("preserves input order among equally scored rows inside each pool", () => {
         const same = (id: string, archived: boolean) =>
-            thread({ id, title: "identical title", archived, updatedts: T0 });
+            record({ id, objective: "identical title", status: archived ? "archived" : "active", updated: T0 });
         const input: BriefPaletteInput = {
-            threads: [same("a", false), same("b", true), same("c", false), same("d", true)],
+            records: [same("a", false), same("b", true), same("c", false), same("d", true)],
         };
-        expect(keys(input, "identical")).toEqual(["thread:a", "thread:c", "thread:b", "thread:d"]);
+        expect(keys(input, "identical")).toEqual(["record:a", "record:c", "record:b", "record:d"]);
     });
 });
 
 describe("brief palette bounds", () => {
     const many = (n: number, archived = false) =>
         Array.from({ length: n }, (_, i) =>
-            thread({ id: `cv-${i}`, title: `poller drift note ${i}`, archived, updatedts: T0 - i * MIN })
+            record({
+                id: `sp-${i}`,
+                objective: `poller drift note ${i}`,
+                status: archived ? "archived" : "active",
+                updated: T0 - i * MIN,
+            })
         );
 
     it("caps at the mockup's default", () => {
         expect(BRIEF_PALETTE_CAP).toBe(8);
-        expect(keys({ threads: many(20) }, "").length).toBe(BRIEF_PALETTE_CAP);
-        expect(keys({ threads: many(20) }, "poller").length).toBe(BRIEF_PALETTE_CAP);
+        expect(keys({ records: many(20) }, "").length).toBe(BRIEF_PALETTE_CAP);
+        expect(keys({ records: many(20) }, "poller").length).toBe(BRIEF_PALETTE_CAP);
     });
 
     it("takes the cap as a parameter", () => {
-        expect(keys({ threads: many(20) }, "poller", 3).length).toBe(3);
-        expect(keys({ threads: many(20) }, "", 0)).toEqual([]);
+        expect(keys({ records: many(20) }, "poller", 3).length).toBe(3);
+        expect(keys({ records: many(20) }, "", 0)).toEqual([]);
     });
 
     it("drops archived rows entirely once live matches fill the cap", () => {
         const input: BriefPaletteInput = {
-            threads: [...many(BRIEF_PALETTE_CAP), thread({ id: "cv-arch", title: "poller", archived: true })],
+            records: [...many(BRIEF_PALETTE_CAP), record({ id: "sp-arch", objective: "poller", status: "archived" })],
         };
-        expect(keys(input, "poller")).not.toContain("thread:cv-arch");
+        expect(keys(input, "poller")).not.toContain("record:sp-arch");
     });
 });
 
@@ -191,7 +179,7 @@ describe("brief palette relevance floor", () => {
     // the record is a subsequence match for "goat" (g-o-a-t inside "long goal about"), just not a dense one
     const input: BriefPaletteInput = {
         records: [record({ id: "sp-goal", objective: "a long goal about the untidy session" })],
-        threads: [thread({ id: "cv-1" })],
+        efforts: [effort({})],
         sessions: [session({})],
     };
 
@@ -204,7 +192,7 @@ describe("brief palette relevance floor", () => {
         expect(res.rows.length).toBeGreaterThan(0);
         // every row is a real match, so this is the ranked result and not the recency default
         expect(res.rows.every((r) => fuzzyScore("goat", r.search) != null)).toBe(true);
-        expect(res.rows.map((r) => r.key)).not.toContain("thread:cv-1");
+        expect(res.rows.map((r) => r.key)).not.toContain("effort:effort:e-1");
     });
 
     it("reports a genuine name query as confident", () => {
