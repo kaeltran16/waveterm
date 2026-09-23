@@ -77,8 +77,9 @@ before working in an area you don't already know.
   dynamic ports, and runs `wsh install-agent-hooks` on every launch. Five Tauri commands only; the
   window is borderless and the titlebar is drawn in React.
 - **Go backend (`cmd/`, `pkg/`)** — `wavesrv` (SQLite object store + HTTP + websocket RPC) and `wsh`
-  (CLI helper shipped into terminals). **Agents report into the cockpit through `wsh`** (`wsh agent-hook`,
-  `wsh ask`). The launch-time `install-agent-hooks` writes the Claude Code hooks into
+  (CLI helper shipped into terminals). **Agents report into and drive the cockpit through `wsh`**
+  (`wsh agent-hook`, `wsh ask`; `wsh runs`, `wsh ui`, `wsh effort`). The launch-time
+  `install-agent-hooks` writes the Claude Code hooks into
   `~/.claude/settings.json` and the pi/opencode extensions, all pointing at a fixed copy under
   `~/.arc/bin/` — not PATH. The managed hook list is `cmd/wsh/cmd/wshcmd-installhooks.go`.
 - **Frontend — React 19 + Vite + Tailwind 4 + jotai (`frontend/`)** — `frontend/tauri/main.tsx` is the
@@ -125,4 +126,4 @@ Load-bearing rules:
 - Live issue trackers: `docs/open-issues.md` (the single "what's left" list) and `docs/orchestrator-redesign-flaws.md` (the orchestrator engine). The `docs/jarvis-*-open-issues.md` files are archived. `docs/README.md` maps the rest of `docs/`.
 - Deliberately-deferred items and fabricated placeholder data: `docs/deferred.md`.
 - Agent-cockpit integration notes (hooks, ask protocol, usage reporting): `docs/agents/`.
-- **Plans the engine runs** (`wsh jarvis dag submit --plan`, or + Run → Orchestrator → A plan file) follow `jarvis.PlanFormat` (`pkg/jarvis/plan.go`): optional `**Verify:**` and `**Setup:**` commands in backticks before the first task, which run in a POSIX shell (Git Bash on Windows); `### Task N: <title>` (or `##`) headings numbered 1, 2, 3…; and, as a task's first line, an optional `**Depends on:**` — `none`, or `Task 1, Task 3`; left out, the task runs after the previous one, so a plan with no Depends lines is serial. The engine runs tasks with nothing between them at the same time, so split a plan by what can proceed independently — the Depends lines are what set its width.
+- **Plans the engine runs** (`wsh runs start --plan <file>`, or + Run → Orchestrator → A plan file; a lead hands its own plan over with `wsh jarvis dag submit --plan`) follow `jarvis.PlanFormat` (`pkg/jarvis/plan.go`): optional `**Verify:**` and `**Setup:**` commands in backticks before the first task, which run in a POSIX shell (Git Bash on Windows); `### Task N: <title>` (or `##`) headings numbered 1, 2, 3…; and, as a task's first line, an optional `**Depends on:**` — `none`, or `Task 1, Task 3`; left out, the task runs after the previous one, so a plan with no Depends lines is serial. The engine runs tasks with nothing between them at the same time, so split a plan by what can proceed independently — the Depends lines are what set its width.

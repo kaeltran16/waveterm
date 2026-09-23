@@ -56,20 +56,29 @@ func normProjectPath(p string) string {
 // answer to "which channel is this project's". Reads through GetChannels, which sorts newest-first, so a
 // pre-collapse project with duplicates resolves to the same one the frontend's resolveTargetChannel picks.
 func ChannelAtPath(ctx context.Context, projectPath string) (*waveobj.Channel, error) {
-	want := normProjectPath(projectPath)
-	if want == "" {
+	if normProjectPath(projectPath) == "" {
 		return nil, nil
 	}
 	chans, err := GetChannels(ctx)
 	if err != nil {
 		return nil, err
 	}
+	return MatchChannelAtPath(chans, projectPath), nil
+}
+
+// MatchChannelAtPath is ChannelAtPath over a channel list the caller already holds (wsh reads it over
+// RPC), so both sides agree on what "this project's channel" means. First match wins.
+func MatchChannelAtPath(chans []*waveobj.Channel, projectPath string) *waveobj.Channel {
+	want := normProjectPath(projectPath)
+	if want == "" {
+		return nil
+	}
 	for _, ch := range chans {
 		if normProjectPath(ch.ProjectPath) == want {
-			return ch, nil
+			return ch
 		}
 	}
-	return nil, nil
+	return nil
 }
 
 func CreateChannel(ctx context.Context, name, projectPath string) (*waveobj.Channel, error) {

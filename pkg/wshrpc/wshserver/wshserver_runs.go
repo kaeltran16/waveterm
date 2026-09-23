@@ -717,6 +717,10 @@ func (ws *WshServer) CancelRunCommand(ctx context.Context, data wshrpc.CommandCa
 	if err != nil {
 		return fmt.Errorf("loading run: %w", err)
 	}
+	// done is terminal and the rewrite to cancelled cannot be undone, so a stale caller must not get it
+	if linkedRun.Status == jarvis.RunStatus_Done {
+		return fmt.Errorf("run %s is done; a finished run cannot be cancelled", data.RunId)
+	}
 	if linkedRun.DagORef != "" {
 		grp, err := wstore.GetDag(ctx, linkedRun.DagORef)
 		if err != nil {

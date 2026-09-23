@@ -96,7 +96,7 @@ var jarvisRunCmd = &cobra.Command{
 }
 
 func init() {
-	jarvisRunCmd.Flags().String("mode", "", "child run mode: quick|pipeline|orchestrator (default: inherit the channel strategy)")
+	jarvisRunCmd.Flags().String("mode", "", "child run mode: quick|orchestrator (default: inherit the channel strategy)")
 	jarvisCompleteCmd.Flags().String("commit", "", "SHA of your finished work (e.g. $(git rev-parse HEAD)); scopes this run's evidence diff to its own commits")
 	jarvisCompleteCmd.Flags().String("report", "", "path to a file holding your final report; read relative to this process's working directory and sealed as the run's evidence summary")
 	jarvisCmd.AddCommand(jarvisCompleteCmd)
