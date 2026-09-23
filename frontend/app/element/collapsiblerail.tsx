@@ -64,6 +64,7 @@ export function CollapsibleRail({
     extraIcons,
     hideWhenCollapsed,
     forceCollapsed,
+    strip,
 }: {
     openAtom: PrimitiveAtom<boolean>;
     sections: RailSection[];
@@ -81,6 +82,9 @@ export function CollapsibleRail({
     // has taken the shared right-edge slot, so this rail slides out of the way instead of stacking
     // beside it. The width animation is preserved so it collapses as the sibling expands.
     forceCollapsed?: boolean;
+    // what the collapsed strip's expand control shows instead of the first section's icon: a caller that
+    // wants the rail's key figures readable while it is closed. The title is the control's tooltip.
+    strip?: { content: ReactNode; title: string };
 }) {
     const [open, setOpen] = useAtom(openAtom);
     const collapsedWidth = hideWhenCollapsed ? 0 : RAIL_COLLAPSED_PX;
@@ -139,16 +143,28 @@ export function CollapsibleRail({
                     </>
                 ) : hideWhenCollapsed ? null : (
                     <div className="flex flex-col items-center gap-1 pt-3">
-                        <Tooltip content={ariaLabel ?? "Expand"} placement="left">
+                        {strip ? (
                             <button
                                 type="button"
                                 onClick={() => setOpen(true)}
                                 aria-label={ariaLabel ?? "Expand panel"}
-                                className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-[8px] text-[18px] text-accent hover:bg-surface-hover hover:text-accent-soft"
+                                title={strip.title}
+                                className="flex w-[34px] cursor-pointer flex-col items-center gap-[8px] rounded-[8px] pb-[8px] pt-[7px] text-muted hover:bg-surface-hover hover:text-secondary"
                             >
-                                {sections[0]?.icon}
+                                {strip.content}
                             </button>
-                        </Tooltip>
+                        ) : (
+                            <Tooltip content={ariaLabel ?? "Expand"} placement="left">
+                                <button
+                                    type="button"
+                                    onClick={() => setOpen(true)}
+                                    aria-label={ariaLabel ?? "Expand panel"}
+                                    className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-[8px] text-[18px] text-accent hover:bg-surface-hover hover:text-accent-soft"
+                                >
+                                    {sections[0]?.icon}
+                                </button>
+                            </Tooltip>
+                        )}
                         {extraIcons?.map((ei) => (
                             <ExtraIcon key={ei.key} ei={ei} />
                         ))}

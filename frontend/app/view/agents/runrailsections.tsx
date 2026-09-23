@@ -1,9 +1,9 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The details rail's run sections: Run for a lead (status, the questions on the run, lanes, the newest
-// timeline rows) and Task for a worker (its lead, lane, dependencies, attempt and question). A question the
-// lead holds can be taken over; one the human holds is answered in place.
+// The details rail's run sections: Needs you (the run's questions waiting on the human, answered in place), Run
+// for a lead (status, lanes with the lead's questions under them, activity) and Task for a worker (its lead,
+// lane, dependencies, attempt and the lead's question). A question the lead holds can be taken over.
 
 import { globalStore } from "@/app/store/jotaiStore";
 import * as WOS from "@/app/store/wos";
@@ -32,23 +32,70 @@ import {
 import { useRunEvents } from "./runeventstore";
 import { formatLeft, leadAgentOf, runProgress, taskAgentOf, type RunInfo } from "./runlineage";
 import { runStatusView } from "./runmodel";
-import { laneRows, questionOrder, runElapsedMs, runLog, taskFacts, type LaneDot } from "./runrail";
+import {
+    laneRows,
+    questionOrder,
+    runElapsedMs,
+    runLog,
+    runSegments,
+    taskFacts,
+    thenTask,
+    type LaneState,
+} from "./runrail";
 import { tsLabel } from "./runtimeline";
 
-const LANE_DOT: Record<LaneDot, string> = {
+const LANE_DOT: Record<LaneState, string> = {
     done: "bg-success",
     working: "bg-accent animate-[pulseDot_1.6s_infinite] motion-reduce:animate-none",
     asking: "bg-warning animate-[pulseDot_1.6s_infinite] motion-reduce:animate-none",
+    lead: "bg-muted",
     pending: "border border-muted bg-transparent",
     failed: "bg-error",
     muted: "bg-muted",
 };
 
+const LANE_TEXT: Record<LaneState, string> = {
+    done: "text-success",
+    working: "text-accent",
+    asking: "text-warning",
+    lead: "text-muted",
+    pending: "text-muted",
+    failed: "text-error",
+    muted: "text-muted",
+};
+
+const SEG_FILL: Record<LaneState, string> = {
+    done: "bg-success",
+    working: "bg-accent",
+    asking: "bg-warning",
+    lead: "bg-accent",
+    pending: "bg-edge-strong",
+    failed: "bg-error",
+    muted: "bg-muted",
+};
+
+// what the Run section's status line says for each digest health; one the UI does not know falls back to
+// healthView's wording
+const RUN_STATUS: Record<string, { text: string; tone: string }> = {
+    "needs-you": { text: "Waiting on you", tone: "text-warning" },
+    stalled: { text: "Stalled", tone: "text-error" },
+    healthy: { text: "On track", tone: "text-accent" },
+    done: { text: "✓ Done", tone: "text-success" },
+    cancelled: { text: "Cancelled", tone: "text-muted" },
+};
+
+// how many timeline rows the expanded Activity list shows
+const ACTIVITY_MAX = 8;
+
 const LINK =
     "-ml-[6px] w-fit cursor-pointer rounded-[7px] px-[6px] py-[3px] font-mono text-[10.5px] font-semibold text-accent-soft hover:bg-surface-hover";
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
-    return <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[.1em] text-ink-mid">{children}</h3>;
+function SectionLabel({ children, className }: { children: React.ReactNode; className?: string }) {
+    return (
+        <h3 className={cn("font-mono text-[11px] font-semibold uppercase tracking-[.1em] text-ink-mid", className)}>
+            {children}
+        </h3>
+    );
 }
 
 function FactRow({ label, children }: { label: string; children: React.ReactNode }) {
@@ -82,15 +129,32 @@ function openRunDag(model: AgentsViewModel, run: RunInfo, taskId?: string) {
     });
 }
 
-function useRunAsks(run: RunInfo): DagAskItem[] {
+// useRunAsks is the open questions on a run, yours first. A rail with no run gets none.
+export function useRunAsks(run: RunInfo | undefined): DagAskItem[] {
     useEffect(() => {
-        bindChildAsks(run.channelId, run.runId);
-    }, [run.channelId, run.runId]);
-    return questionOrder(useAtomValue(childAsksAtom)[run.runId] ?? []);
+        if (run) {
+            bindChildAsks(run.channelId, run.runId);
+        }
+    }, [run?.channelId, run?.runId]);
+    const all = useAtomValue(childAsksAtom);
+    return run ? questionOrder(all[run.runId] ?? []) : [];
 }
 
-function QuestionCard({ model, run, ask }: { model: AgentsViewModel; run: RunInfo; ask: DagAskItem }) {
-    const now = useAtomValue(model.nowAtom);
+function leadAnswering(ask: DagAskItem, now: number): string {
+    return ask.deadline ? `lead is answering · ${formatLeft(Math.max(0, ask.deadline - now))}` : "lead is answering";
+}
+
+// NeedsYouCard is a worker's question the human holds, answered in place: pick, then send.
+function NeedsYouCard({
+    run,
+    ask,
+    onOpen,
+}: {
+    run: RunInfo;
+    ask: DagAskItem;
+    // set on a lead's rail, where the asking worker is a different session from the one in view
+    onOpen?: () => void;
+}) {
     const events = useRunEvents(run.runId, run.channelId);
     const key = childAskKey(ask);
     const selections = useAtomValue(childAskSelAtom)[key] ?? {};
@@ -98,117 +162,214 @@ function QuestionCard({ model, run, ask }: { model: AgentsViewModel; run: RunInf
     const sentTs = useAtomValue(childAskSentAtom)[key];
     const error = useAtomValue(childAskErrorAtom)[key];
     const [activeQuestion, setActiveQuestion] = useState(0);
-    const yours = ask.owner === ASK_OWNER_USER;
-    const first = ask.questions[0];
-
-    const meta = (
-        <div className="flex items-center gap-[7px] overflow-hidden whitespace-nowrap font-mono text-[10.5px] text-muted">
-            <span className="h-[7px] w-[7px] flex-none animate-[pulseDot_1.6s_infinite] rounded-full bg-warning motion-reduce:animate-none" />
-            <b className="font-semibold text-primary">{ask.taskid}</b>
-            <span className={cn("truncate", yours && "text-warning")}>
-                {yours
-                    ? "waiting on you"
-                    : ask.deadline
-                      ? `lead is answering · ${formatLeft(Math.max(0, ask.deadline - now))}`
-                      : "lead is answering"}
-            </span>
-        </div>
-    );
-    const errorLine = error ? <div className="mt-[6px] text-[11px] text-warning">{error}</div> : null;
-
-    if (!yours) {
-        return (
-            <div className="rounded-[9px] border border-edge-mid bg-surface-raised px-[11px] py-[9px]">
-                {meta}
-                {first?.header ? (
-                    <span className="mt-[6px] inline-block font-mono text-[9.5px] font-semibold uppercase tracking-[.09em] text-muted">
-                        {first.header}
-                    </span>
-                ) : null}
-                <div className="mt-[2px] text-[12.5px] leading-[1.45] text-primary">{first?.question}</div>
-                {ask.questions.length > 1 ? (
-                    <div className="mt-[2px] font-mono text-[10.5px] text-muted">+{ask.questions.length - 1} more</div>
-                ) : null}
-                {errorLine}
-                <div className="mt-[7px] flex justify-end">
-                    <button
-                        type="button"
-                        onClick={() => takeOverChildAsk(run.channelId, run.runId, ask)}
-                        title="Answer it yourself; the lead leaves it to you"
-                        className="cursor-pointer whitespace-nowrap rounded-[7px] border border-edge-mid bg-surface px-[9px] py-[3px] font-mono text-[10.5px] font-semibold text-secondary hover:border-edge-strong hover:text-primary"
-                    >
-                        Take over
-                    </button>
-                </div>
-            </div>
-        );
-    }
-
     const agent = childAskAgent(ask);
     const answered = childAskSent(sentTs, ask, events);
     const ready = canSubmitAsk(agent.ask?.questions ?? [], selections, texts);
+    const send = () => submitChildAnswer(run.channelId, run.runId, ask);
+
     return (
         <div className="rounded-[9px] border border-warning/45 bg-warning/[0.06] px-[11px] py-[9px]">
-            {meta}
+            <div className="flex items-center gap-[7px] overflow-hidden whitespace-nowrap font-mono text-[10.5px] text-muted">
+                <span className="h-[7px] w-[7px] flex-none animate-[pulseDot_1.6s_infinite] rounded-full bg-warning motion-reduce:animate-none" />
+                <b className="font-semibold text-primary">{ask.taskid}</b>
+                <span className="truncate text-warning">waiting on you</span>
+            </div>
             <AnswerBar
                 agent={agent}
                 selections={selections}
                 texts={texts}
                 sent={answered}
+                radio
                 showHint={false}
                 activeQuestion={activeQuestion}
                 onSelectQuestion={setActiveQuestion}
                 onToggle={(qi, oi) => toggleChildAnswer(ask, qi, oi)}
                 onText={(qi, value) => setChildAnswerText(ask, qi, value)}
-                onSubmit={() => submitChildAnswer(run.channelId, run.runId, ask)}
+                onSubmit={send}
+                className={answered ? "mt-[6px]" : undefined}
             />
-            {errorLine}
+            {error ? <div className="mt-[6px] text-[11px] text-warning">{error}</div> : null}
             {answered ? null : (
-                <button
-                    type="button"
-                    disabled={!ready}
-                    onClick={() => submitChildAnswer(run.channelId, run.runId, ask)}
-                    className="mt-[8px] cursor-pointer rounded-[7px] bg-accent px-[12px] py-[5px] font-mono text-[10.5px] font-semibold text-background disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                    Send answer
-                </button>
+                <div className="mt-[8px] flex items-center gap-[10px]">
+                    <button
+                        type="button"
+                        disabled={!ready}
+                        onClick={send}
+                        className="cursor-pointer rounded-[7px] bg-accent px-[12px] py-[5px] font-mono text-[10.5px] font-semibold text-background disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                        Send answer
+                    </button>
+                    {onOpen ? (
+                        <button
+                            type="button"
+                            onClick={onOpen}
+                            className="cursor-pointer font-mono text-[10.5px] font-semibold text-accent-soft hover:underline"
+                        >
+                            open {ask.taskid} ↗
+                        </button>
+                    ) : null}
+                </div>
             )}
         </div>
     );
 }
 
-function Lanes({ model, run }: { model: AgentsViewModel; run: RunInfo }) {
+// NeedsYouSection heads the rail with the run's questions waiting on the human: every one on a lead's rail, the
+// worker's own on a worker's.
+export function NeedsYouSection({
+    model,
+    run,
+    asks,
+    lead,
+}: {
+    model: AgentsViewModel;
+    run: RunInfo;
+    asks: DagAskItem[];
+    lead: boolean;
+}) {
+    const agents = useAtomValue(model.agentsAtom);
+    const lineage = useAtomValue(model.lineageAtom);
+    return (
+        <div className="flex flex-col gap-[8px]">
+            <div className="flex items-center justify-between">
+                <SectionLabel className="text-warning">Needs you</SectionLabel>
+                <span className="rounded-[20px] bg-warning/[0.12] px-[8px] py-[1px] font-mono text-[11px] font-semibold text-warning">
+                    {asks.length}
+                </span>
+            </div>
+            {asks.map((a) => {
+                const worker = lead ? taskAgentOf(lineage, agents, run.runId, a.taskid) : undefined;
+                return (
+                    <NeedsYouCard
+                        key={childAskKey(a)}
+                        run={run}
+                        ask={a}
+                        onOpen={worker ? () => globalStore.set(model.focusIdAtom, worker.id) : undefined}
+                    />
+                );
+            })}
+        </div>
+    );
+}
+
+// LeadAskCard is a worker's question the lead is answering, which the human can take over.
+function LeadAskCard({ model, run, ask }: { model: AgentsViewModel; run: RunInfo; ask: DagAskItem }) {
     const now = useAtomValue(model.nowAtom);
+    const error = useAtomValue(childAskErrorAtom)[childAskKey(ask)];
+    const first = ask.questions[0];
+    return (
+        <div className="rounded-[9px] border border-edge-mid bg-surface-raised px-[11px] py-[9px]">
+            <div className="flex items-center gap-[7px] overflow-hidden whitespace-nowrap font-mono text-[10.5px] text-muted">
+                <span className="h-[7px] w-[7px] flex-none animate-[pulseDot_1.6s_infinite] rounded-full bg-warning motion-reduce:animate-none" />
+                <b className="font-semibold text-primary">{ask.taskid}</b>
+                <span className="truncate">{leadAnswering(ask, now)}</span>
+            </div>
+            {first?.header ? (
+                <span className="mt-[6px] inline-block font-mono text-[9.5px] font-semibold uppercase tracking-[.09em] text-muted">
+                    {first.header}
+                </span>
+            ) : null}
+            <div className="mt-[2px] text-[12.5px] leading-[1.45] text-primary">{first?.question}</div>
+            {ask.questions.length > 1 ? (
+                <div className="mt-[2px] font-mono text-[10.5px] text-muted">+{ask.questions.length - 1} more</div>
+            ) : null}
+            {error ? <div className="mt-[6px] text-[11px] text-warning">{error}</div> : null}
+            <div className="mt-[7px] flex justify-end">
+                <button
+                    type="button"
+                    onClick={() => takeOverChildAsk(run.channelId, run.runId, ask)}
+                    title="Answer it yourself; the lead leaves it to you"
+                    className="cursor-pointer whitespace-nowrap rounded-[7px] border border-edge-mid bg-surface px-[9px] py-[3px] font-mono text-[10.5px] font-semibold text-secondary hover:border-edge-strong hover:text-primary"
+                >
+                    Take over
+                </button>
+            </div>
+        </div>
+    );
+}
+
+// LaneAsk is the lead's question, shown under the lane whose task raised it.
+function LaneAsk({ model, run, ask }: { model: AgentsViewModel; run: RunInfo; ask: DagAskItem }) {
+    const now = useAtomValue(model.nowAtom);
+    const error = useAtomValue(childAskErrorAtom)[childAskKey(ask)];
+    return (
+        <div className="mb-[6px] ml-[33px] mr-[6px] border-l-2 border-edge-strong py-[2px] pl-[10px]">
+            <div className="flex items-baseline gap-[8px] font-mono text-[10px] text-muted">
+                <span className="min-w-0 flex-1 truncate">
+                    {ask.deadline
+                        ? `asked the lead · ${formatLeft(Math.max(0, ask.deadline - now))}`
+                        : "asked the lead"}
+                </span>
+                <button
+                    type="button"
+                    onClick={() => takeOverChildAsk(run.channelId, run.runId, ask)}
+                    title="Answer it yourself; the lead leaves it to you"
+                    className="flex-none cursor-pointer font-semibold text-accent-soft hover:underline"
+                >
+                    Take over
+                </button>
+            </div>
+            <div className="mt-[2px] text-[12px] leading-[1.45] text-secondary">{ask.questions[0]?.question}</div>
+            {error ? <div className="mt-[4px] text-[11px] text-warning">{error}</div> : null}
+        </div>
+    );
+}
+
+function Lanes({ model, run, leadAsks }: { model: AgentsViewModel; run: RunInfo; leadAsks: DagAskItem[] }) {
     const agents = useAtomValue(model.agentsAtom);
     const lineage = useAtomValue(model.lineageAtom);
     const focusId = useAtomValue(model.focusIdAtom);
-    const rows = laneRows(run.dag, run.digest, now);
+    const rows = laneRows(run.dag, run.digest);
     if (rows.length === 0) {
         return null;
     }
     return (
-        <div className="mt-[2px] flex flex-col gap-px">
+        <div className="flex flex-col gap-[2px]">
             {rows.map((r) => {
                 const agent = taskAgentOf(lineage, agents, run.runId, r.taskId);
+                const ask = leadAsks.find((a) => a.taskid === r.taskId);
                 return (
                     <div
                         key={r.key}
-                        onClick={agent ? () => globalStore.set(model.focusIdAtom, agent.id) : undefined}
                         className={cn(
-                            "flex items-center gap-[6px] overflow-hidden whitespace-nowrap rounded-[6px] px-[5px] py-[4px] font-mono text-[11.5px] text-secondary",
-                            agent && "cursor-pointer hover:bg-surface-hover",
-                            agent != null && agent.id === focusId && "bg-surface-selected"
+                            "rounded-[7px]",
+                            agent != null && agent.id === focusId
+                                ? "bg-surface-selected"
+                                : agent != null && "hover:bg-surface-hover"
                         )}
                     >
-                        <span className="w-[12px] flex-none font-semibold text-muted">{r.key}</span>
-                        {r.dots.map((d, i) => (
-                            <span key={i} className="contents">
-                                {i > 0 ? <span className="text-ink-faint">→</span> : null}
-                                <span className={cn("h-[7px] w-[7px] flex-none rounded-full", LANE_DOT[d])} />
+                        <div
+                            onClick={agent ? () => globalStore.set(model.focusIdAtom, agent.id) : undefined}
+                            className={cn(
+                                "grid grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-[9px] p-[6px]",
+                                agent && "cursor-pointer"
+                            )}
+                        >
+                            <span className="flex h-[18px] w-[18px] items-center justify-center rounded-[5px] border border-edge-mid font-mono text-[9.5px] font-semibold text-muted">
+                                {r.key}
                             </span>
-                        ))}
-                        <span className="min-w-0 truncate">{r.name}</span>
-                        <span className="ml-auto pl-[6px] text-[10.5px] text-muted">{r.meta}</span>
+                            <div className="min-w-0">
+                                <div
+                                    className={cn(
+                                        "truncate font-mono text-[11.5px] font-medium",
+                                        r.state === "pending" ? "text-ink-mid" : "text-ink-hi"
+                                    )}
+                                >
+                                    {r.name}
+                                </div>
+                                {r.hist ? <div className="truncate text-[10.5px] text-muted">{r.hist}</div> : null}
+                            </div>
+                            <span
+                                className={cn(
+                                    "flex items-center gap-[5px] whitespace-nowrap font-mono text-[10.5px] font-medium",
+                                    LANE_TEXT[r.state]
+                                )}
+                            >
+                                <span className={cn("h-[6px] w-[6px] rounded-full", LANE_DOT[r.state])} />
+                                {r.text}
+                            </span>
+                        </div>
+                        {ask ? <LaneAsk model={model} run={run} ask={ask} /> : null}
                     </div>
                 );
             })}
@@ -216,23 +377,93 @@ function Lanes({ model, run }: { model: AgentsViewModel; run: RunInfo }) {
     );
 }
 
-export function RunSection({ model, run }: { model: AgentsViewModel; run: RunInfo }) {
-    const now = useAtomValue(model.nowAtom);
+function Activity({ model, run }: { model: AgentsViewModel; run: RunInfo }) {
     const events = useRunEvents(run.runId, run.channelId);
-    const asks = useRunAsks(run);
+    const [open, setOpen] = useState(false);
+    const log = runLog(events, ACTIVITY_MAX);
+    if (log.length === 0 && run.dag == null) {
+        return null;
+    }
+    // collapsed shows the newest row; open reads the rows in the order they happened
+    const shown = open ? [...log].reverse() : log.slice(0, 1);
+    const more = log.length - 1;
+    return (
+        <div className="flex flex-col gap-[5px] border-t border-edge-faint pt-[10px]">
+            <div className="flex items-center gap-[4px]">
+                <span className="font-mono text-[9px] font-semibold uppercase tracking-[.09em] text-muted">
+                    Activity
+                </span>
+                <span className="flex-1" />
+                {more > 0 ? (
+                    <button
+                        type="button"
+                        onClick={() => setOpen((v) => !v)}
+                        className="cursor-pointer rounded-[6px] px-[6px] py-[2px] font-mono text-[10px] font-semibold text-muted hover:bg-surface-hover hover:text-secondary"
+                    >
+                        {open ? "less" : `+${more} more`}
+                    </button>
+                ) : null}
+                {run.dag ? (
+                    <button
+                        type="button"
+                        onClick={() => openRunDag(model, run)}
+                        className="cursor-pointer rounded-[6px] px-[6px] py-[2px] font-mono text-[10px] font-semibold text-accent-soft hover:bg-surface-hover"
+                    >
+                        timeline ↗
+                    </button>
+                ) : null}
+            </div>
+            {shown.map((l) => (
+                <div key={l.id} className="flex gap-[9px] font-mono text-[11px] leading-[1.45] text-secondary">
+                    <span className="flex-none text-ink-faint">{tsLabel(l.ts)}</span>
+                    <span className="min-w-0">{l.text}</span>
+                </div>
+            ))}
+        </div>
+    );
+}
+
+// RunStatus is the Run section's headline: the run's title, a slot per task, and where the run stands.
+function RunStatus({ run, waitingOnYou }: { run: RunInfo; waitingOnYou: boolean }) {
     const digest = run.digest;
-    const { done, total } = runProgress(run.dag);
     const state = { digest, loading: digest == null, stale: digestStale(digest, run.dag?.version) };
-    const health = healthView(state);
-    const next = nextStepView(state, taskBriefs(run.dag));
+    const known = digest != null && !state.stale ? RUN_STATUS[digest.health] : undefined;
+    const status = waitingOnYou ? RUN_STATUS["needs-you"] : (known ?? healthView(state));
     const finished = !state.stale && digest?.health === "done";
+    // waiting on you, the engine's next step only repeats that; what the run moves on to afterwards is news
+    const then = waitingOnYou ? thenTask(run.dag) : undefined;
+    const next = finished || waitingOnYou ? null : nextStepView(state, taskBriefs(run.dag));
+    const tail = then ? `· then ${then}` : next ? `· next ${next}` : "";
+    return (
+        <div className="flex flex-col gap-[8px]">
+            <div className="truncate text-[13px] font-semibold text-primary">{run.title}</div>
+            <div className="flex h-[4px] gap-[3px]">
+                {runSegments(run.dag, digest).map((st, i) => (
+                    <span key={i} className={cn("flex-1 rounded-[2px]", SEG_FILL[st])} />
+                ))}
+            </div>
+            <div className="flex min-w-0 items-baseline gap-[6px] text-[12px]">
+                <span className={cn("flex-none font-semibold", status.tone)}>{status.text}</span>
+                {tail ? <span className="min-w-0 truncate text-muted">{tail}</span> : null}
+            </div>
+        </div>
+    );
+}
+
+export function RunSection({ model, run, asks }: { model: AgentsViewModel; run: RunInfo; asks: DagAskItem[] }) {
+    const now = useAtomValue(model.nowAtom);
+    const { done, total } = runProgress(run.dag);
+    const digest = run.digest;
+    const finished = !digestStale(digest, run.dag?.version) && digest?.health === "done";
     const report = digest?.report;
-    const lanes = digest?.shape?.lanes;
     const elapsed = runElapsedMs(run.dag, digest, now);
-    const log = runLog(events);
+    const leadAsks = asks.filter((a) => a.owner !== ASK_OWNER_USER);
+    const laneTasks = new Set(laneRows(run.dag, digest).map((r) => r.taskId));
+    // a lead question whose task is not any lane's task in play still needs somewhere to be taken over
+    const looseAsks = leadAsks.filter((a) => !laneTasks.has(a.taskid));
 
     return (
-        <div className="flex flex-col gap-[10px]">
+        <div className="flex flex-col gap-[12px]">
             <div className="flex items-baseline justify-between gap-[8px]">
                 <SectionLabel>Run</SectionLabel>
                 {run.dag ? (
@@ -248,71 +479,49 @@ export function RunSection({ model, run }: { model: AgentsViewModel; run: RunInf
                     {runStatusView(run.status ?? "planning").label} · no plan submitted
                 </div>
             ) : (
-                <div>
-                    <div>
-                        <span
-                            className={cn("font-mono text-[12px] font-bold", finished ? "text-success" : health.tone)}
-                        >
-                            {finished ? "✓ " : ""}
-                            {health.text.replace(/-/g, " ")}
-                        </span>
-                        {lanes ? (
-                            <span className="font-mono text-[11px] text-muted">
-                                {" "}
-                                · {lanes} {lanes === 1 ? "lane" : "lanes"} ·{" "}
-                                {report?.unverified ? "unverified" : "verified"}
-                            </span>
-                        ) : null}
-                    </div>
-                    {next && !finished ? (
-                        <div className="mt-[2px] font-mono text-[11px] text-muted">next: {next}</div>
-                    ) : null}
-                    {finished && report ? (
-                        <div className="mt-[10px]">
-                            <FactRow label="Landed">
-                                {report.commits?.length ?? 0} {report.commits?.length === 1 ? "commit" : "commits"}
-                            </FactRow>
-                            {elapsed ? <FactRow label="Elapsed">{formatElapsed(elapsed)}</FactRow> : null}
-                            <FactRow label="Worker time">{formatElapsed(report.workerms)}</FactRow>
-                            <FactRow label="Answered">{report.answered}</FactRow>
-                            <FactRow label="Forwarded">{report.forwarded}</FactRow>
-                        </div>
-                    ) : null}
-                </div>
+                <RunStatus run={run} waitingOnYou={asks.some((a) => a.owner === ASK_OWNER_USER)} />
             )}
-            {asks.map((a) => (
-                <QuestionCard key={childAskKey(a)} model={model} run={run} ask={a} />
-            ))}
-            <Lanes model={model} run={run} />
-            {log.length > 0 ? (
-                <div className="flex flex-col gap-[3px]">
-                    {log.map((l) => (
-                        <div key={l.id} className="flex gap-[9px] font-mono text-[11px] leading-[1.45] text-secondary">
-                            <span className="flex-none text-muted">{tsLabel(l.ts)}</span>
-                            <span className="min-w-0">{l.text}</span>
-                        </div>
-                    ))}
+            {finished && report ? (
+                <div>
+                    <FactRow label="Landed">
+                        {report.commits?.length ?? 0} {report.commits?.length === 1 ? "commit" : "commits"}
+                    </FactRow>
+                    {elapsed ? <FactRow label="Elapsed">{formatElapsed(elapsed)}</FactRow> : null}
+                    <FactRow label="Worker time">{formatElapsed(report.workerms)}</FactRow>
+                    <FactRow label="Answered">{report.answered}</FactRow>
+                    <FactRow label="Forwarded">{report.forwarded}</FactRow>
                 </div>
             ) : null}
-            {run.dag ? (
-                <button type="button" onClick={() => openRunDag(model, run)} className={LINK}>
-                    timeline ↗
-                </button>
-            ) : null}
+            <Lanes model={model} run={run} leadAsks={leadAsks} />
+            {looseAsks.map((a) => (
+                <LeadAskCard key={childAskKey(a)} model={model} run={run} ask={a} />
+            ))}
+            <Activity model={model} run={run} />
         </div>
     );
 }
 
-export function TaskSection({ model, run, taskId }: { model: AgentsViewModel; run: RunInfo; taskId: string }) {
+export function TaskSection({
+    model,
+    run,
+    taskId,
+    asks,
+}: {
+    model: AgentsViewModel;
+    run: RunInfo;
+    taskId: string;
+    asks: DagAskItem[];
+}) {
     const now = useAtomValue(model.nowAtom);
     const agents = useAtomValue(model.agentsAtom);
     const lineage = useAtomValue(model.lineageAtom);
-    const ask = useRunAsks(run).find((a) => a.taskid === taskId);
+    // the human's own question heads the rail as Needs you; only the lead's is taken over from here
+    const leadAsk = asks.find((a) => a.taskid === taskId && a.owner !== ASK_OWNER_USER);
     const facts = taskFacts(run.dag, run.digest, taskId, now);
     const lead = leadAgentOf(lineage, agents, run.runId);
 
     return (
-        <div className="flex flex-col gap-[8px]">
+        <div className="flex flex-col gap-[12px]">
             <div className="flex items-baseline justify-between gap-[8px]">
                 <SectionLabel>Task</SectionLabel>
                 <button type="button" onClick={() => openRunDag(model, run, taskId)} className={cn(LINK, "ml-0")}>
@@ -341,7 +550,7 @@ export function TaskSection({ model, run, taskId }: { model: AgentsViewModel; ru
                     </FactRow>
                 ) : null}
             </div>
-            {ask ? <QuestionCard model={model} run={run} ask={ask} /> : null}
+            {leadAsk ? <LeadAskCard model={model} run={run} ask={leadAsk} /> : null}
         </div>
     );
 }

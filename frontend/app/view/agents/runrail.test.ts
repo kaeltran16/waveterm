@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { endedLine, laneRows, questionOrder, runElapsedMs, runLog, taskFacts } from "./runrail";
+import { endedLine, laneRows, questionOrder, runElapsedMs, runLog, runSegments, taskFacts, thenTask } from "./runrail";
 
 const MIN = 60_000;
 const NOW = 100 * MIN;
@@ -29,17 +29,24 @@ const digest = {
 } as DagStatusDigest;
 
 describe("laneRows", () => {
-    it("names each lane's task in play and what it is doing", () => {
-        expect(laneRows(dag, digest, NOW)).toEqual([
-            { key: "A", dots: ["done", "working"], name: "t-3 do t-3", meta: "4m", taskId: "t-3" },
-            { key: "B", dots: ["done", "asking"], name: "t-4 do t-4", meta: "asks lead", taskId: "t-4" },
-            { key: "C", dots: ["pending"], name: "t-5", meta: "waits A, B", taskId: "t-5" },
+    it("names each lane's task in play and where it stands", () => {
+        expect(laneRows(dag, digest)).toEqual([
+            { key: "A", taskId: "t-3", name: "t-3 · do t-3", hist: "t-1 landed", state: "working", text: "working" },
+            { key: "B", taskId: "t-4", name: "t-4 · do t-4", hist: "t-2 landed", state: "lead", text: "→ lead" },
+            {
+                key: "C",
+                taskId: "t-5",
+                name: "t-5 · do t-5",
+                hist: "waits on t-3, t-4",
+                state: "pending",
+                text: "queued",
+            },
         ]);
     });
 
     it("reads a question the human holds as asking you", () => {
         const held = { ...digest, tasks: [{ taskid: "t-4", waitreason: "ask" }] } as DagStatusDigest;
-        expect(laneRows(dag, held, NOW)[1].meta).toBe("asks you");
+        expect(laneRows(dag, held)[1]).toMatchObject({ state: "asking", text: "asks you" });
     });
 
     it("shows a finished lane's tip with its landed commit", () => {
@@ -47,13 +54,27 @@ describe("laneRows", () => {
             tasks: [task("t-1", "done", { merged: true }), task("t-2", "done", { merged: true, deps: ["t-1"] })],
         } as TaskGroup;
         const d = { lanes: [["t-1", "t-2"]], report: { commits: [{ taskid: "t-2", commit: "9e04f1aa77" }] } };
-        expect(laneRows(finished, d as DagStatusDigest, NOW)).toEqual([
-            { key: "A", dots: ["done", "done"], name: "t-2 do t-2", meta: "9e04f1a", taskId: "t-2" },
+        expect(laneRows(finished, d as DagStatusDigest)).toEqual([
+            { key: "A", taskId: "t-2", name: "t-2 · do t-2", hist: "9e04f1a", state: "done", text: "landed" },
         ]);
     });
 
     it("has no rows before the digest lists lanes", () => {
-        expect(laneRows(dag, undefined, NOW)).toEqual([]);
+        expect(laneRows(dag, undefined)).toEqual([]);
+    });
+});
+
+describe("thenTask", () => {
+    it("names the first task not started yet", () => {
+        expect(thenTask(dag)).toBe("t-5 · do t-5");
+        expect(thenTask({ tasks: [task("t-1", "done")] } as TaskGroup)).toBeUndefined();
+    });
+});
+
+describe("runSegments", () => {
+    it("gives each task a slot in plan order", () => {
+        const held = { ...digest, tasks: [{ taskid: "t-4", waitreason: "ask" }] } as DagStatusDigest;
+        expect(runSegments(dag, held)).toEqual(["done", "done", "working", "asking", "pending"]);
     });
 });
 
@@ -115,14 +136,14 @@ describe("runLog", () => {
 });
 
 describe("endedLine", () => {
-    it("says a done task's session ended and what it landed", () => {
+    it("says what a done task came to and that its session ended", () => {
         const digest = { report: { commits: [{ taskid: "t-1", commit: "a1b2c3d4e5f6" }] } } as DagStatusDigest;
         expect(endedLine(task("t-1", "done", { merged: true }), digest)).toBe(
-            "Session ended · landed a1b2c3d · read-only transcript"
+            "t-1 · do t-1 landed on main as a1b2c3d · session ended"
         );
         expect(endedLine(task("t-2", "done", { merged: true }), undefined)).toBe(
-            "Session ended · landed · read-only transcript"
+            "t-2 · do t-2 landed on main · session ended"
         );
-        expect(endedLine(task("t-3", "done"), digest)).toBe("Session ended · done · read-only transcript");
+        expect(endedLine(task("t-3", "done"), digest)).toBe("t-3 · do t-3 done · session ended");
     });
 });

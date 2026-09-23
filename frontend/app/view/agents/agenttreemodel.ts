@@ -44,6 +44,8 @@ function workerNeedsYou(run: RunInfo, taskId: string, agent: AgentVM): boolean {
     return workerAsk(run.digest, taskId)?.owner === "you";
 }
 
+const QUEUED = new Set(["pending", "ready"]);
+
 function runRows(
     item: Extract<TopItem, { kind: "lead" | "run" }>,
     workers: Map<string, AgentVM>,
@@ -53,6 +55,8 @@ function runRows(
     const tasks = run.dag?.tasks ?? [];
     const live = tasks.filter((t) => t.state !== "done" && workers.has(t.id));
     const done = tasks.filter((t) => t.state === "done");
+    // tasks not dispatched yet have no session; they list after the live ones so the run's whole plan reads
+    const queued = tasks.filter((t) => QUEUED.has(t.state) && !workers.has(t.id));
     const open = !folds.collapsed.has(run.runId);
     const head: AgentTreeRow =
         item.kind === "lead"
@@ -60,9 +64,7 @@ function runRows(
             : { kind: "run", project, run, open, live: live.length };
     const rows: AgentTreeRow[] = [head];
     if (open) {
-        for (const task of live) {
-            rows.push({ kind: "worker", agent: workers.get(task.id), project, run, task });
-        }
+        // oldest first: what landed, what is running, what is still to come
         if (done.length > 0) {
             const doneOpen = folds.doneOpen.has(run.runId);
             rows.push({ kind: "done", project, run, count: done.length, open: doneOpen });
@@ -71,6 +73,9 @@ function runRows(
                     rows.push({ kind: "worker", agent: workers.get(task.id), project, run, task });
                 }
             }
+        }
+        for (const task of [...live, ...queued]) {
+            rows.push({ kind: "worker", agent: workers.get(task.id), project, run, task });
         }
     }
     const attn = live.filter((t) => workerNeedsYou(run, t.id, workers.get(t.id)!)).length;

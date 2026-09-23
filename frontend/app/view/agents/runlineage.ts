@@ -160,17 +160,45 @@ export function formatLeft(ms: number): string {
     return ms < 60_000 ? "<1m left" : `${Math.floor(ms / 60_000)}m left`;
 }
 
-// workerSubtext is a worker row's second line: whose turn its question is, else its lane and age.
-export function workerSubtext(ask: WorkerAsk | undefined, lane: string | undefined, age: string, now: number): string {
-    if (ask?.owner === "you") {
-        return "waiting on you";
+export interface WorkerLine {
+    taskId: string;
+    lane?: string;
+    age: string;
+    ask?: WorkerAsk;
+    // a finished task's outcome ("landed" / "done")
+    outcome?: string;
+    // a task that has not started: the dependencies it still waits on (empty = just queued)
+    waits?: string[];
+}
+
+// workerSubtext is a worker row's second line, led by its task id since the row's title is the task's label:
+// what it came to, what it waits on, whose turn its question is, else its lane and age.
+export function workerSubtext(w: WorkerLine): string {
+    const lane = w.lane ? `lane ${w.lane}` : "";
+    let tail: string[];
+    if (w.outcome) {
+        tail = [lane, w.outcome];
+    } else if (w.waits) {
+        tail = [lane, w.waits.length > 0 ? `waits on ${w.waits.join(", ")}` : "queued"];
+    } else if (w.ask?.owner === "lead") {
+        tail = ["asked the lead", w.age];
+    } else if (w.ask?.owner === "you") {
+        tail = ["asks you", w.age];
+    } else {
+        tail = [lane, w.age];
     }
-    if (ask?.owner === "lead") {
-        return ask.deadline
-            ? `lead is answering · ${formatLeft(Math.max(0, ask.deadline - now))}`
-            : "lead is answering";
+    return [w.taskId, ...tail].filter(Boolean).join(" · ");
+}
+
+const NOT_STARTED = new Set(["pending", "ready"]);
+
+// unmetDeps is what a not-started task still waits on, or undefined once it has started.
+export function unmetDeps(dag: TaskGroup | undefined, task: TaskNode): string[] | undefined {
+    if (!NOT_STARTED.has(task.state)) {
+        return undefined;
     }
-    return [lane ? `lane ${lane}` : "", age].filter(Boolean).join(" · ");
+    const byId = new Map((dag?.tasks ?? []).map((t) => [t.id, t] as const));
+    return (task.deps ?? []).filter((d) => byId.get(d)?.state !== "done");
 }
 
 // runProgress counts a run's finished tasks: done or skipped, out of every task in the plan.

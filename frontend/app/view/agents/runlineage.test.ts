@@ -16,6 +16,7 @@ import {
     runRoleOf,
     runTitle,
     taskAgentOf,
+    unmetDeps,
     workerAsk,
     workerSubtext,
 } from "./runlineage";
@@ -83,14 +84,34 @@ describe("run facts", () => {
     });
 
     it("writes a worker's second line from its question, else its lane and age", () => {
-        expect(workerSubtext({ owner: "lead", deadline: 481_000 }, "A", "4m", 1_000)).toBe(
-            "lead is answering · 8m left"
+        expect(workerSubtext({ taskId: "t-2", ask: { owner: "lead", deadline: 481_000 }, lane: "B", age: "6m" })).toBe(
+            "t-2 · asked the lead · 6m"
         );
-        expect(workerSubtext({ owner: "lead" }, "A", "4m", 0)).toBe("lead is answering");
-        expect(workerSubtext({ owner: "you" }, "A", "4m", 0)).toBe("waiting on you");
-        expect(workerSubtext(undefined, "B", "6m", 0)).toBe("lane B · 6m");
-        expect(workerSubtext(undefined, undefined, "6m", 0)).toBe("6m");
+        expect(workerSubtext({ taskId: "t-3", ask: { owner: "you" }, lane: "C", age: "3m" })).toBe(
+            "t-3 · asks you · 3m"
+        );
+        expect(workerSubtext({ taskId: "t-2", lane: "B", age: "6m" })).toBe("t-2 · lane B · 6m");
+        expect(workerSubtext({ taskId: "t-2", age: "6m" })).toBe("t-2 · 6m");
+        expect(workerSubtext({ taskId: "t-1", lane: "A", age: "", outcome: "landed" })).toBe("t-1 · lane A · landed");
+        expect(workerSubtext({ taskId: "t-4", lane: "A", age: "", waits: ["t-2", "t-3"] })).toBe(
+            "t-4 · lane A · waits on t-2, t-3"
+        );
+        expect(workerSubtext({ taskId: "t-4", lane: "A", age: "", waits: [] })).toBe("t-4 · lane A · queued");
         expect(formatLeft(59_000)).toBe("<1m left");
+    });
+
+    it("lists what a not-started task still waits on, and nothing once it has started", () => {
+        const g = {
+            tasks: [
+                { id: "t-1", state: "done" },
+                { id: "t-2", state: "running" },
+                { id: "t-3", state: "pending", deps: ["t-1", "t-2"] },
+                { id: "t-4", state: "ready", deps: ["t-1"] },
+            ],
+        } as TaskGroup;
+        expect(unmetDeps(g, g.tasks[2])).toEqual(["t-2"]);
+        expect(unmetDeps(g, g.tasks[3])).toEqual([]);
+        expect(unmetDeps(g, g.tasks[1])).toBeUndefined();
     });
 
     it("finds the roster agents leading a run and working its tasks", () => {

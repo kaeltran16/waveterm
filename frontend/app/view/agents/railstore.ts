@@ -33,6 +33,10 @@ export const railVisibleAtom = atomWithStorage("agent.rail.visible", DEFAULT_RAI
 // hidden so the focused agent's live terminal fills the surface. Session-scoped UI, not persisted.
 export const terminalFullscreenAtom = atom(false);
 
+// whether the rail's Token usage section shows its per-class and per-model breakdown. Session-scoped, not
+// persisted; global so it holds while the surface unmounts.
+export const usageBreakdownAtom = atom(false);
+
 export const railStateAtom = atom<RailGitState | null>(null) as PrimitiveAtom<RailGitState | null>;
 
 // guards against a stale focus's load overwriting a newer one (same pattern as filesstore.ts)

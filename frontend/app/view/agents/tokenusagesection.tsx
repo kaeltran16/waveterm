@@ -1,15 +1,17 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// "Token usage" rail section for the focused agent: per-class split (tokens + ≈ spend) and a
-// per-model breakdown, from the session's own transcript (transcriptusagestore/sessionusage).
+// "Token usage" rail section for the focused agent: the totals and a tokens bar, with the per-class split
+// (tokens + ≈ spend) and per-model breakdown folded behind a toggle, from the session's own transcript
+// (transcriptusagestore/sessionusage).
 // Class fills come from usagestats.ts's CLASS_FILL (theme tokens only). Spend is an estimate.
 
 import { StackedMeter } from "@/app/element/meter";
 import { SkeletonLine } from "@/app/element/skeleton";
 import { cn } from "@/util/util";
-import { useAtomValue } from "jotai";
+import { useAtom, useAtomValue } from "jotai";
 import { prettyModel } from "./modellabel";
+import { usageBreakdownAtom } from "./railstore";
 import { sessionUsageAtom } from "./transcriptusagestore";
 import { CLASS_FILL, fmt, usd } from "./usagestats";
 import type { TokenClass } from "./usagestats";
@@ -27,6 +29,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 export function TokenUsageSection() {
     const usage = useAtomValue(sessionUsageAtom);
+    const [breakdown, setBreakdown] = useAtom(usageBreakdownAtom);
 
     if (usage == null) {
         return (
@@ -84,82 +87,94 @@ export function TokenUsageSection() {
                 total={totalTokens}
             />
 
-            {/* spend bar */}
-            <div className="mb-[6px] mt-[13px] flex items-baseline justify-between">
-                <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.09em] text-muted">≈ Spend</span>
-                <span className="font-mono text-[11px] text-secondary">{usd(totalSpendUsd)}</span>
-            </div>
-            <StackedMeter
-                height={11}
-                radius={5}
-                segs={classes.map((c) => ({ key: c.cls, value: c.spendUsd, fill: CLASS_FILL[c.cls] }))}
-                total={totalSpendUsd}
-            />
-
-            {/* insight */}
-            {insight ? (
-                <div className="mt-[13px] flex gap-[8px] rounded-[9px] border border-border bg-surface-raised px-[11px] py-[9px]">
-                    <span className="flex-none text-[12px] leading-[1.4] text-warning">◆</span>
-                    <p className="text-[11.5px] leading-[1.5] text-secondary">
-                        Cache reads are {pctStr(insight.readTokPct)} of tokens but {pctStr(insight.readCostPct)} of spend;{" "}
-                        {topLabel.toLowerCase()} drives the cost.
-                    </p>
-                </div>
-            ) : null}
-
-            {/* per-class table */}
-            <div className="mt-[14px] flex flex-col">
-                {classes.map((c) => (
-                    <div
-                        key={c.cls}
-                        className="flex items-center gap-[9px] border-b border-edge-faint py-[7px] last:border-b-0"
-                    >
-                        <span className={cn("h-[9px] w-[9px] flex-none rounded-[3px]", CLASS_FILL[c.cls])} />
-                        <span className="min-w-0 flex-1 text-[12px] text-secondary">{c.label}</span>
-                        <span className="w-[52px] text-right font-mono text-[11.5px] text-secondary">{fmt(c.tokens)}</span>
-                        <span className="w-[34px] text-right font-mono text-[9.5px] text-muted">
-                            {pctStr(totalTokens > 0 ? (c.tokens / totalTokens) * 100 : 0)}
-                        </span>
-                        <span className="w-[48px] text-right font-mono text-[11.5px] text-muted">{usd(c.spendUsd)}</span>
+            {breakdown ? (
+                <>
+                    {/* spend bar */}
+                    <div className="mb-[6px] mt-[13px] flex items-baseline justify-between">
+                        <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.09em] text-muted">≈ Spend</span>
+                        <span className="font-mono text-[11px] text-secondary">{usd(totalSpendUsd)}</span>
                     </div>
-                ))}
-            </div>
+                    <StackedMeter
+                        height={11}
+                        radius={5}
+                        segs={classes.map((c) => ({ key: c.cls, value: c.spendUsd, fill: CLASS_FILL[c.cls] }))}
+                        total={totalSpendUsd}
+                    />
 
-            {/* by model */}
-            <div className="mb-[11px] mt-[16px] flex items-center gap-[8px]">
-                <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.09em] text-muted">By model</span>
-                <div className="h-px flex-1 bg-edge-faint" />
-                <span className="font-mono text-[10px] text-muted">{single ? "1 model" : `${models.length} models`}</span>
-            </div>
-            <div className="flex flex-col gap-[11px]">
-                {models.map((m) => (
-                    <div key={m.model}>
-                        <div className="mb-[6px] flex items-center gap-[8px]">
-                            <span className="min-w-0 flex-1 truncate font-mono text-[12px] font-semibold text-secondary" title={m.model}>
-                                {prettyModel(m.model)}
-                            </span>
-                            <span className="font-mono text-[11px] text-muted">{fmt(m.tokens)}</span>
-                            <span className="w-[48px] text-right font-mono text-[11px] text-muted">{usd(m.spendUsd)}</span>
+                    {/* insight */}
+                    {insight ? (
+                        <div className="mt-[13px] flex gap-[8px] rounded-[9px] border border-border bg-surface-raised px-[11px] py-[9px]">
+                            <span className="flex-none text-[12px] leading-[1.4] text-warning">◆</span>
+                            <p className="text-[11.5px] leading-[1.5] text-secondary">
+                                Cache reads are {pctStr(insight.readTokPct)} of tokens but {pctStr(insight.readCostPct)} of spend;{" "}
+                                {topLabel.toLowerCase()} drives the cost.
+                            </p>
                         </div>
-                        {single ? null : (
-                            <StackedMeter
-                                height={11}
-                                radius={5}
-                                segs={(Object.keys(m.classes) as TokenClass[]).map((cls) => ({
-                                    key: cls,
-                                    value: m.classes[cls],
-                                    fill: CLASS_FILL[cls],
-                                }))}
-                                total={m.tokens}
-                            />
-                        )}
-                    </div>
-                ))}
-            </div>
+                    ) : null}
 
-            <p className="mt-[13px] font-mono text-[10px] leading-[1.5] text-muted">
-                Priced per class from a bundled table. Subagents run in separate transcripts — see Subagents.
-            </p>
+                    {/* per-class table */}
+                    <div className="mt-[14px] flex flex-col">
+                        {/* a class the session never used is noise in the table */}
+                        {classes.filter((c) => c.tokens > 0).map((c) => (
+                            <div
+                                key={c.cls}
+                                className="flex items-center gap-[9px] border-b border-edge-faint py-[7px] last:border-b-0"
+                            >
+                                <span className={cn("h-[9px] w-[9px] flex-none rounded-[3px]", CLASS_FILL[c.cls])} />
+                                <span className="min-w-0 flex-1 text-[12px] text-secondary">{c.label}</span>
+                                <span className="w-[52px] text-right font-mono text-[11.5px] text-secondary">{fmt(c.tokens)}</span>
+                                <span className="w-[34px] text-right font-mono text-[9.5px] text-muted">
+                                    {pctStr(totalTokens > 0 ? (c.tokens / totalTokens) * 100 : 0)}
+                                </span>
+                                <span className="w-[48px] text-right font-mono text-[11.5px] text-muted">{usd(c.spendUsd)}</span>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* by model */}
+                    <div className="mb-[11px] mt-[16px] flex items-center gap-[8px]">
+                        <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.09em] text-muted">By model</span>
+                        <div className="h-px flex-1 bg-edge-faint" />
+                        <span className="font-mono text-[10px] text-muted">{single ? "1 model" : `${models.length} models`}</span>
+                    </div>
+                    <div className="flex flex-col gap-[11px]">
+                        {models.map((m) => (
+                            <div key={m.model}>
+                                <div className="mb-[6px] flex items-center gap-[8px]">
+                                    <span className="min-w-0 flex-1 truncate font-mono text-[12px] font-semibold text-secondary" title={m.model}>
+                                        {prettyModel(m.model)}
+                                    </span>
+                                    <span className="font-mono text-[11px] text-muted">{fmt(m.tokens)}</span>
+                                    <span className="w-[48px] text-right font-mono text-[11px] text-muted">{usd(m.spendUsd)}</span>
+                                </div>
+                                {single ? null : (
+                                    <StackedMeter
+                                        height={11}
+                                        radius={5}
+                                        segs={(Object.keys(m.classes) as TokenClass[]).map((cls) => ({
+                                            key: cls,
+                                            value: m.classes[cls],
+                                            fill: CLASS_FILL[cls],
+                                        }))}
+                                        total={m.tokens}
+                                    />
+                                )}
+                            </div>
+                        ))}
+                    </div>
+
+                    <p className="mt-[13px] font-mono text-[10px] leading-[1.5] text-muted">
+                        Priced per class from a bundled table. Subagents run in separate transcripts — see Subagents.
+                    </p>
+                </>
+            ) : null}
+            <button
+                type="button"
+                onClick={() => setBreakdown((v) => !v)}
+                className="-ml-[6px] mt-[8px] cursor-pointer rounded-[7px] px-[6px] py-[3px] font-mono text-[10.5px] font-semibold text-accent-soft hover:bg-surface-hover"
+            >
+                {breakdown ? "Hide breakdown ▴" : "Show breakdown ▾"}
+            </button>
         </div>
     );
 }

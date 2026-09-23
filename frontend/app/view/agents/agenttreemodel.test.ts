@@ -88,9 +88,19 @@ describe("buildAgentTree with run lineage", () => {
             }
         });
 
-    it("nests live workers under their lead in plan order and folds the done ones", () => {
-        const r = run("run-1", [task("t-1", "done"), task("t-2", "running"), task("t-3", "running"), task("t-4", "pending")]);
-        const agents = [agent("w3", "working", ""), agent("lead", "working"), agent("solo", "idle"), agent("w2", "working", "")];
+    it("nests the done fold, then live workers in plan order, then queued tasks under their lead", () => {
+        const r = run("run-1", [
+            task("t-1", "done"),
+            task("t-2", "running"),
+            task("t-3", "running"),
+            task("t-4", "pending"),
+        ]);
+        const agents = [
+            agent("w3", "working", ""),
+            agent("lead", "working"),
+            agent("solo", "idle"),
+            agent("w2", "working", ""),
+        ];
         const rows = buildAgentTree(
             agents,
             ["w3", "lead", "solo", "w2"],
@@ -103,11 +113,14 @@ describe("buildAgentTree with run lineage", () => {
         expect(shape(rows)).toEqual([
             "group:waveterm:4:0",
             "lead:run-1:2",
+            "done:1:false",
             "worker:t-2:w2",
             "worker:t-3:w3",
-            "done:1:false",
+            "worker:t-4:-",
             "parent:solo",
         ]);
+        // a queued task has no session, so it is not counted as an agent
+        expect(treeAgentCount(rows)).toBe(4);
     });
 
     it("lists done workers when their fold is open, including ones whose session is gone", () => {

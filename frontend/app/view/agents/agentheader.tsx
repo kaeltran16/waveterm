@@ -20,7 +20,7 @@ import { confirmCloseSession } from "./agentactions";
 import type { AgentsViewModel } from "./agents";
 import { usageLevel, type AgentVM } from "./agentsviewmodel";
 import { railVisibleAtom, terminalFullscreenAtom } from "./railstore";
-import { agentProject, isEndedWorkerId, laneLabel, leadAgentOf } from "./runlineage";
+import { agentProject, isEndedWorkerId, leadAgentOf } from "./runlineage";
 import { RuntimeMark } from "./runtimemark";
 import { runtimeMeta } from "./runtimemeta";
 import { StatusDot } from "./statusdot";
@@ -43,8 +43,8 @@ const CTX_TEXT: Record<"ok" | "warn" | "hot", string> = {
 const ICON_BTN =
     "cursor-pointer rounded-[7px] border border-edge-mid bg-surface-raised px-[9px] py-[6px] text-secondary";
 
-// useRunLineage reads what the header says about an agent a run spawned: a lead's run, or a worker's task,
-// lane and lead.
+// useRunLineage reads what the header says about an agent a run spawned: a lead's run, or a worker's task
+// and lead.
 function useRunLineage(model: AgentsViewModel, agent: AgentVM) {
     const lineage = useAtomValue(model.lineageAtom);
     const agents = useAtomValue(model.agentsAtom);
@@ -61,7 +61,6 @@ function useRunLineage(model: AgentsViewModel, agent: AgentVM) {
         kind: "worker" as const,
         run,
         task,
-        lane: laneLabel(run?.digest, role.taskId),
         lead: leadAgentOf(lineage, agents, role.leadRunId),
     };
 }
@@ -197,7 +196,6 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                             ) : (
                                 <span>↑ {lineage.run?.title ?? "no lead"}</span>
                             )}
-                            {lineage.lane ? <> · lane {lineage.lane}</> : null}
                         </>
                     ) : null}
                 </div>
