@@ -3,12 +3,14 @@
 
 import { CollapsibleRail, type RailSection } from "@/app/element/collapsiblerail";
 import { Meter } from "@/app/element/meter";
+import { MOTION, easeFluidCss, popoverReveal } from "@/app/element/motiontokens";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { formatChordString } from "@/util/keysym";
 import { cn, fireAndForget, stringToBase64 } from "@/util/util";
 import { useAtomValue } from "jotai";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect } from "react";
 import { agentDiffScope, openDiff } from "./agentdiffnav";
 import { contextNote, filesSummary, railAction, toolChips } from "./agentrailmodel";
@@ -28,6 +30,7 @@ import { entriesAtomFor, liveEntriesByIdAtom } from "./livetranscriptatoms";
 import { prettyModel } from "./modellabel";
 import { RAIL_ICON } from "./railicons";
 import { loadRailForAgent, railStateAtom, railVisibleAtom } from "./railstore";
+import { agentProject } from "./runlineage";
 import { NeedsYouSection, RunSection, TaskSection, useRunAsks } from "./runrailsections";
 import type { SubagentState } from "./session-models/sessionviewmodel";
 import { focusSubagentAtom, subagentsByIdAtom } from "./subagentsstore";
@@ -56,14 +59,29 @@ const SUB_COLOR: Record<SubagentState, string> = {
 const RailFilesCap = 8; // a 296px rail can't show a large worktree; the summary line under it counts them all
 const USAGE_REFRESH_MS = 15_000;
 
-// Details is the rail's facts about the session the header does not already say: its branch, how long it has
-// been in its state, and how full its context window is.
-function DetailLine({ label, title, children }: { label: string; title?: string; children: React.ReactNode }) {
+// Details is the rail's facts about the session: its project, its branch and the worktree it works in, how long it
+// has been in its state, and how full its context window is.
+function DetailLine({
+    label,
+    title,
+    clipStart,
+    children,
+}: {
+    label: string;
+    title?: string;
+    // clipStart elides the start of a long value instead of its end, for a path whose tail names it
+    clipStart?: boolean;
+    children: React.ReactNode;
+}) {
     return (
         <div className="flex min-w-0 items-baseline gap-[10px]">
             <span className="w-[52px] shrink-0 text-[12px] text-muted">{label}</span>
-            <span title={title} className="min-w-0 flex-1 truncate font-mono text-[11.5px] font-medium text-secondary">
-                {children}
+            <span
+                title={title}
+                dir={clipStart ? "rtl" : undefined}
+                className="min-w-0 flex-1 truncate text-left font-mono text-[11.5px] font-medium text-secondary"
+            >
+                {clipStart ? <bdi dir="ltr">{children}</bdi> : children}
             </span>
         </div>
     );
@@ -94,25 +112,43 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 // window as a vertical gauge, so both read without opening the rail.
 function RailStrip({ needs, ctxPct }: { needs: number; ctxPct?: number }) {
     const level = ctxPct != null ? usageLevel(ctxPct) : "ok";
+    const reduce = useReducedMotion();
+    const tween = (props: string[]) =>
+        reduce ? undefined : props.map((p) => `${p} ${MOTION.durMacro}s ${easeFluidCss}`).join(", ");
     return (
         <>
             <span className="relative block h-[18px] w-[18px]">
                 <span className="flex h-[18px] w-[18px] items-center justify-center text-[16px] leading-none">‹</span>
-                {needs > 0 ? (
-                    <span className="absolute -right-[7px] -top-[5px] flex h-[14px] min-w-[14px] items-center justify-center rounded-[7px] border-2 border-surface bg-warning px-[3px] font-mono text-[8.5px] font-bold leading-none text-on-warning">
-                        {needs}
-                    </span>
-                ) : null}
+                <AnimatePresence initial={false}>
+                    {needs > 0 ? (
+                        <motion.span
+                            key="needs"
+                            variants={popoverReveal}
+                            initial="initial"
+                            animate="animate"
+                            exit="exit"
+                            className="absolute -right-[7px] -top-[5px] flex h-[14px] min-w-[14px] items-center justify-center rounded-[7px] border-2 border-surface bg-warning px-[3px] font-mono text-[8.5px] font-bold leading-none text-on-warning"
+                        >
+                            {needs}
+                        </motion.span>
+                    ) : null}
+                </AnimatePresence>
             </span>
             {ctxPct != null ? (
                 <>
                     <span className="relative block h-[44px] w-[4px] overflow-hidden rounded-[2px] bg-border">
                         <span
                             className={cn("absolute inset-x-0 bottom-0", GAUGE_FILL[level])}
-                            style={{ height: `${Math.min(100, Math.max(0, ctxPct))}%` }}
+                            style={{
+                                height: `${Math.min(100, Math.max(0, ctxPct))}%`,
+                                transition: tween(["height", "background-color"]),
+                            }}
                         />
                     </span>
-                    <span className={cn("font-mono text-[9.5px] font-semibold", GAUGE_TEXT[level])}>
+                    <span
+                        className={cn("font-mono text-[9.5px] font-semibold", GAUGE_TEXT[level])}
+                        style={{ transition: tween(["color"]) }}
+                    >
                         {Math.round(ctxPct)}%
                     </span>
                 </>
@@ -186,6 +222,7 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
     const subEntries = useAtomValue(liveEntriesByIdAtom)[sub ? `sub:${sub.agentId}` : ""] ?? [];
     const entries = sub ? subEntries : liveEntries.length > 0 ? liveEntries : (agent.previousInfo ?? []);
     const lineage = useAtomValue(model.lineageAtom);
+    const agents = useAtomValue(model.agentsAtom);
     const usage = agent.usage;
     const ctxPct = usage?.contextpct;
     const tools = toolChips(summarizeActions(recentActions(entries, 0)).byVerb);
@@ -244,6 +281,7 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
     // "—" is a cache nobody has read yet; the line leaves it out rather than say so
     const cacheCountdown = isClaude ? formatCacheCountdown(cacheStatus, now) : "—";
     const branch = ended ? ended.branch : railState?.branch;
+    const worktree = ended ? undefined : railState?.worktree;
     const action = sub ? null : railAction(agent.state, age, agent.blockId != null && !ended);
 
     const subHead: RailSection[] =
@@ -294,6 +332,10 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
         icon: RAIL_ICON.info,
         content: (
             <div>
+                {/* only the lead's rail: a worker's own question is already on screen, in its terminal's picker */}
+                {!sub && roleRun && role?.kind === "lead" ? (
+                    <NeedsYouSection key={agent.id} model={model} run={roleRun} asks={yours} />
+                ) : null}
                 <div className="mb-[10px]">
                     <SectionLabel>Details</SectionLabel>
                 </div>
@@ -307,9 +349,15 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                         </>
                     ) : (
                         <>
+                            <DetailLine label="Project">{agentProject(lineage, agents, agent) || "—"}</DetailLine>
                             <DetailLine label="Branch" title={branch || undefined}>
                                 {branch || "—"}
                             </DetailLine>
+                            {worktree ? (
+                                <DetailLine label="Worktree" title={railState?.cwd ?? undefined} clipStart>
+                                    {worktree}
+                                </DetailLine>
+                            ) : null}
                             <DetailLine label="Session">
                                 {ended ? (
                                     <>ended {age} ago</>
@@ -335,18 +383,6 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
 
     const sections: RailSection[] = [
         ...subHead,
-        ...(!sub && roleRun && yours.length > 0
-            ? [
-                  {
-                      id: "needs",
-                      label: "Needs you",
-                      icon: RAIL_ICON.info,
-                      content: (
-                          <NeedsYouSection model={model} run={roleRun} asks={yours} lead={role?.kind === "lead"} />
-                      ),
-                  },
-              ]
-            : []),
         details,
         ...(!sub && role && roleRun
             ? [
@@ -356,9 +392,15 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                       icon: RAIL_ICON.autonomy,
                       content:
                           role.kind === "lead" ? (
-                              <RunSection model={model} run={roleRun} asks={asks} />
+                              <RunSection key={agent.id} model={model} run={roleRun} asks={asks} />
                           ) : (
-                              <TaskSection model={model} run={roleRun} taskId={role.taskId} asks={asks} />
+                              <TaskSection
+                                  key={agent.id}
+                                  model={model}
+                                  run={roleRun}
+                                  taskId={role.taskId}
+                                  asks={asks}
+                              />
                           ),
                   },
               ]

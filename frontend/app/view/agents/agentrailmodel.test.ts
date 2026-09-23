@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { contextNote, filesSummary, railAction, toolChips } from "./agentrailmodel";
+import { contextNote, filesSummary, linkedWorktree, railAction, toolChips } from "./agentrailmodel";
 
 describe("contextNote", () => {
     it("says how much of the window is used, in the window's own size", () => {
@@ -54,5 +54,30 @@ describe("filesSummary", () => {
             ])
         ).toBe("2 files · +37 −17");
         expect(filesSummary([{ adds: 1, dels: 0 }])).toBe("1 file · +1 −0");
+    });
+});
+
+describe("linkedWorktree", () => {
+    const main = { path: "C:\\src\\arc-api", branch: "main", ismain: true };
+    const wt = { path: "C:\\src\\arc-api\\.waveterm\\worktrees\\r-1\\t-3", branch: "run/t-3" };
+    const outside = { path: "D:/wt/arc-api-agent", branch: "arc-api-agent" };
+
+    it("names a worktree under the main checkout by its path from there", () => {
+        expect(linkedWorktree("C:/src/arc-api/.waveterm/worktrees/r-1/t-3", [main, wt])).toBe(
+            ".waveterm/worktrees/r-1/t-3"
+        );
+        expect(linkedWorktree("c:\\src\\arc-api\\.waveterm\\worktrees\\r-1\\t-3\\pkg", [main, wt])).toBe(
+            ".waveterm/worktrees/r-1/t-3"
+        );
+    });
+
+    it("names a worktree outside the main checkout by its full path", () => {
+        expect(linkedWorktree("D:/wt/arc-api-agent", [main, outside])).toBe("D:/wt/arc-api-agent");
+    });
+
+    it("says nothing in the main checkout or outside every worktree", () => {
+        expect(linkedWorktree("C:/src/arc-api/pkg", [main, wt])).toBeUndefined();
+        expect(linkedWorktree("C:/elsewhere", [main, wt])).toBeUndefined();
+        expect(linkedWorktree("C:/src/arc-api", [])).toBeUndefined();
     });
 });

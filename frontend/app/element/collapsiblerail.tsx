@@ -8,7 +8,7 @@
 // represents the rail) — one affordance, since per-section jump anchors all just opened the panel.
 // See docs/superpowers/specs/2026-07-03-collapsible-rail-and-cockpit-motion-gaps-design.md.
 
-import { MotionConfig, motion } from "motion/react";
+import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { useAtom, type PrimitiveAtom } from "jotai";
 import { type ReactNode } from "react";
 import { cn } from "@/util/util";
@@ -102,74 +102,92 @@ export function CollapsibleRail({
                     width > 0 && "border-l border-border"
                 )}
             >
-                {forceCollapsed ? null : open ? (
-                    <>
-                        <div
-                            className={cn(
-                                "flex shrink-0 items-center",
-                                title != null
-                                    ? "h-11 justify-between border-b border-border bg-surface px-[18px]"
-                                    : "justify-end px-2 pt-2"
-                            )}
+                {/* the content fades in under the width slide, so a swap between strip and panel reads as one
+                    change instead of a snap clipped mid-slide; no exit, the outgoing content is already clipped */}
+                <AnimatePresence initial={false}>
+                    {forceCollapsed ? null : open ? (
+                        <motion.div
+                            key="panel"
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            transition={{ duration: MOTION.durMacro, ease: MOTION.easeFluid }}
+                            className="flex min-h-0 flex-1 flex-col"
                         >
-                            {title != null ? (
-                                <span className="font-mono text-[9.5px] font-bold uppercase tracking-[.12em] text-muted">
-                                    {title}
-                                </span>
-                            ) : null}
-                            {/* the extra glyphs group with the collapse control rather than being spread by
-                                justify-between: they are this edge's controls, and the title is the label. */}
-                            <div className="flex items-center gap-0.5">
-                                {extraIcons?.map((ei) => (
-                                    <ExtraIcon key={ei.key} ei={ei} />
-                                ))}
-                                <button
-                                    type="button"
-                                    onClick={() => setOpen(false)}
-                                    aria-label="Collapse panel"
-                                    title="Collapse"
-                                    className="cursor-pointer rounded-[7px] px-2 py-1 text-[14px] leading-none text-muted hover:bg-surface-hover hover:text-secondary"
-                                >
-                                    ›
-                                </button>
-                            </div>
-                        </div>
-                        <div className="flex min-h-0 flex-1 flex-col gap-[24px] overflow-y-auto px-[18px] pb-[40px] pt-[8px]">
-                            {sections.map((s) => (
-                                <div key={s.id}>{s.content}</div>
-                            ))}
-                        </div>
-                        {footer ? <div className="shrink-0 border-t border-border px-[18px] py-3">{footer}</div> : null}
-                    </>
-                ) : hideWhenCollapsed ? null : (
-                    <div className="flex flex-col items-center gap-1 pt-3">
-                        {strip ? (
-                            <button
-                                type="button"
-                                onClick={() => setOpen(true)}
-                                aria-label={ariaLabel ?? "Expand panel"}
-                                title={strip.title}
-                                className="flex w-[34px] cursor-pointer flex-col items-center gap-[8px] rounded-[8px] pb-[8px] pt-[7px] text-muted hover:bg-surface-hover hover:text-secondary"
+                            <div
+                                className={cn(
+                                    "flex shrink-0 items-center",
+                                    title != null
+                                        ? "h-11 justify-between border-b border-border bg-surface px-[18px]"
+                                        : "justify-end px-2 pt-2"
+                                )}
                             >
-                                {strip.content}
-                            </button>
-                        ) : (
-                            <Tooltip content={ariaLabel ?? "Expand"} placement="left">
+                                {title != null ? (
+                                    <span className="font-mono text-[9.5px] font-bold uppercase tracking-[.12em] text-muted">
+                                        {title}
+                                    </span>
+                                ) : null}
+                                {/* the extra glyphs group with the collapse control rather than being spread by
+                                    justify-between: they are this edge's controls, and the title is the label. */}
+                                <div className="flex items-center gap-0.5">
+                                    {extraIcons?.map((ei) => (
+                                        <ExtraIcon key={ei.key} ei={ei} />
+                                    ))}
+                                    <button
+                                        type="button"
+                                        onClick={() => setOpen(false)}
+                                        aria-label="Collapse panel"
+                                        title="Collapse"
+                                        className="cursor-pointer rounded-[7px] px-2 py-1 text-[14px] leading-none text-muted hover:bg-surface-hover hover:text-secondary"
+                                    >
+                                        ›
+                                    </button>
+                                </div>
+                            </div>
+                            <div className="flex min-h-0 flex-1 flex-col gap-[24px] overflow-y-auto px-[18px] pb-[40px] pt-[8px]">
+                                {sections.map((s) => (
+                                    <div key={s.id}>{s.content}</div>
+                                ))}
+                            </div>
+                            {footer ? (
+                                <div className="shrink-0 border-t border-border px-[18px] py-3">{footer}</div>
+                            ) : null}
+                        </motion.div>
+                    ) : hideWhenCollapsed ? null : (
+                        <motion.div
+                            key="strip"
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            transition={{ duration: MOTION.durMacro, ease: MOTION.easeFluid }}
+                            className="flex flex-col items-center gap-1 pt-3"
+                        >
+                            {strip ? (
                                 <button
                                     type="button"
                                     onClick={() => setOpen(true)}
                                     aria-label={ariaLabel ?? "Expand panel"}
-                                    className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-[8px] text-[18px] text-accent hover:bg-surface-hover hover:text-accent-soft"
+                                    title={strip.title}
+                                    className="flex w-[34px] cursor-pointer flex-col items-center gap-[8px] rounded-[8px] pb-[8px] pt-[7px] text-muted hover:bg-surface-hover hover:text-secondary"
                                 >
-                                    {sections[0]?.icon}
+                                    {strip.content}
                                 </button>
-                            </Tooltip>
-                        )}
-                        {extraIcons?.map((ei) => (
-                            <ExtraIcon key={ei.key} ei={ei} />
-                        ))}
-                    </div>
-                )}
+                            ) : (
+                                <Tooltip content={ariaLabel ?? "Expand"} placement="left">
+                                    <button
+                                        type="button"
+                                        onClick={() => setOpen(true)}
+                                        aria-label={ariaLabel ?? "Expand panel"}
+                                        className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-[8px] text-[18px] text-accent hover:bg-surface-hover hover:text-accent-soft"
+                                    >
+                                        {sections[0]?.icon}
+                                    </button>
+                                </Tooltip>
+                            )}
+                            {extraIcons?.map((ei) => (
+                                <ExtraIcon key={ei.key} ei={ei} />
+                            ))}
+                        </motion.div>
+                    )}
+                </AnimatePresence>
             </motion.aside>
         </MotionConfig>
     );

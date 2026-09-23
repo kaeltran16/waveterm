@@ -1,8 +1,8 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// Pure: what the Agent details rail says in its context row, its footer action, its tool chips and its
-// files summary. No React.
+// Pure: what the Agent details rail says in its context row, its footer action, its tool chips, its files summary
+// and the worktree line under its branch. No React.
 
 import { usageLevel, type AgentVM } from "./agentsviewmodel";
 
@@ -53,4 +53,25 @@ export function filesSummary(files: { adds: number; dels: number }[]): string {
     const adds = files.reduce((n, f) => n + f.adds, 0);
     const dels = files.reduce((n, f) => n + f.dels, 0);
     return `${files.length} ${files.length === 1 ? "file" : "files"} · +${adds} −${dels}`;
+}
+
+const slashed = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "");
+// windows paths compare case-insensitively
+const samePath = (p: string) => slashed(p).toLowerCase();
+const isUnder = (p: string, root: string) => samePath(p).startsWith(samePath(root) + "/");
+
+// linkedWorktree names the linked worktree cwd is inside, relative to the main checkout when it sits under it, else
+// by its full path. Undefined in the main checkout or outside every listed worktree.
+export function linkedWorktree(cwd: string, worktrees: GitWorktree[]): string | undefined {
+    const own = worktrees
+        .filter((wt) => samePath(cwd) === samePath(wt.path) || isUnder(cwd, wt.path))
+        .sort((a, b) => b.path.length - a.path.length)[0];
+    if (own == null || own.ismain) {
+        return undefined;
+    }
+    const main = worktrees.find((wt) => wt.ismain);
+    if (main == null || !isUnder(own.path, main.path)) {
+        return slashed(own.path);
+    }
+    return slashed(own.path).slice(slashed(main.path).length + 1);
 }

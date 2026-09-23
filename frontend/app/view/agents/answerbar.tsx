@@ -44,61 +44,11 @@ const ACCENT_DEFAULT: Accent = {
 const isRec = (label: string) => /\(recommended\)/i.test(label);
 const cleanLabel = (label: string) => label.replace(/\s*\(recommended\)\s*/i, " ").trim();
 
-// RadioOption is an option row in the radio form: a ring that fills when picked, then the label. Picking does not
-// send; the caller's own Send control does.
-function RadioOption({
-    label,
-    description,
-    selected,
-    multi,
-    onClick,
-}: {
-    label: string;
-    description?: string;
-    selected: boolean;
-    multi?: boolean;
-    onClick: () => void;
-}) {
-    return (
-        <button
-            type="button"
-            onClick={onClick}
-            className={cn(
-                "flex w-full cursor-pointer items-center gap-[8px] rounded-[7px] border px-[9px] py-[6px] text-left text-[12px] font-medium",
-                selected
-                    ? "border-warning bg-warning/10 text-warning-soft"
-                    : "border-edge-strong text-secondary hover:bg-surface-hover"
-            )}
-        >
-            <span
-                className={cn(
-                    "flex h-[12px] w-[12px] flex-none items-center justify-center border",
-                    multi ? "rounded-[3px]" : "rounded-full",
-                    selected ? "border-warning" : "border-edge-strong"
-                )}
-            >
-                <span
-                    className={cn(
-                        "h-[6px] w-[6px]",
-                        multi ? "rounded-[1px]" : "rounded-full",
-                        selected && "bg-warning"
-                    )}
-                />
-            </span>
-            <span className="min-w-0 flex-1">
-                {label}
-                {description ? <span className="block text-[11px] font-normal text-muted">{description}</span> : null}
-            </span>
-        </button>
-    );
-}
-
 function QuestionGroup({
     question,
     accent,
     numbered,
     hideQuestion,
-    radio,
     selections,
     onClickOption,
     text,
@@ -109,7 +59,6 @@ function QuestionGroup({
     accent: Accent;
     numbered?: boolean;
     hideQuestion?: boolean;
-    radio?: boolean;
     selections: Set<number>;
     onClickOption: (oi: number) => void;
     text?: string;
@@ -126,43 +75,6 @@ function QuestionGroup({
     const withPreview = previewMode(question);
     const [focusIndex, setFocusIndex] = useState(0);
     const preview = withPreview ? activePreview(question, focusIndex) : undefined;
-    if (radio) {
-        return (
-            <div>
-                {question.header ? (
-                    <span className="mt-[6px] inline-block font-mono text-[9.5px] font-semibold uppercase tracking-[.09em] text-muted">
-                        {question.header}
-                    </span>
-                ) : null}
-                <div className="mt-[2px] text-[12.5px] leading-[1.45] text-primary">{question.question}</div>
-                <div className="mt-[8px] flex flex-col gap-[5px]">
-                    {options.map((opt, oi) => (
-                        <RadioOption
-                            key={oi}
-                            label={cleanLabel(opt.label)}
-                            description={opt.description}
-                            selected={selections.has(oi)}
-                            multi={question.multiSelect}
-                            onClick={() => onClickOption(oi)}
-                        />
-                    ))}
-                </div>
-                {onText ? (
-                    <input
-                        type="text"
-                        value={text ?? ""}
-                        onChange={(e) => onText(e.target.value)}
-                        onClick={(e) => e.stopPropagation()}
-                        placeholder="or type your own answer…"
-                        className={cn(
-                            "mt-[5px] w-full rounded-[7px] border bg-transparent px-[9px] py-[6px] text-[12px] text-primary placeholder:text-muted focus:outline-none",
-                            (text ?? "").trim() !== "" ? "border-warning" : "border-edge-strong focus:border-warning/60"
-                        )}
-                    />
-                ) : null}
-            </div>
-        );
-    }
     const optionList = (
         <div className="flex flex-col gap-1.5">
             {options.map((opt, oi) => {
@@ -330,7 +242,6 @@ export function AnswerBar({
     sent,
     numbered,
     hideQuestion,
-    radio,
     activeQuestion,
     onToggle,
     onText,
@@ -346,8 +257,6 @@ export function AnswerBar({
     sent?: boolean;
     numbered?: boolean;
     hideQuestion?: boolean;
-    // radio: stacked radio rows that a pick never sends; the caller renders its own Send control
-    radio?: boolean;
     activeQuestion?: number;
     onToggle: (qi: number, oi: number) => void;
     onText?: (qi: number, value: string) => void;
@@ -414,7 +323,6 @@ export function AnswerBar({
             accent={accent}
             numbered={numbered}
             hideQuestion={hideQuestion}
-            radio={radio}
             selections={selections[qi] ?? new Set()}
             text={texts?.[qi]}
             onText={onText ? (value: string) => onText(qi, value) : undefined}
@@ -422,14 +330,6 @@ export function AnswerBar({
             onClickOption={(oi) => {
                 onToggle(qi, oi);
                 if (questions[qi].multiSelect) {
-                    return;
-                }
-                if (radio) {
-                    // a pick moves on to the next open question but leaves sending to the caller's control
-                    const next = nextUnansweredQuestion(questions, selections, texts ?? {}, qi);
-                    if (next !== -1 && next !== qi) {
-                        onSelectQuestion?.(next);
-                    }
                     return;
                 }
                 advance(qi);

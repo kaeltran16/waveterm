@@ -1,10 +1,11 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The details rail's run sections: Needs you (the run's questions waiting on the human, answered in place), Run
+// The details rail's run sections: Needs you (a lead's run's questions waiting on the human), Run
 // for a lead (status, lanes with the lead's questions under them, activity) and Task for a worker (its lead,
 // lane, dependencies, attempt and the lead's question). A question the lead holds can be taken over.
 
+import { paneReveal } from "@/app/element/motiontokens";
 import { globalStore } from "@/app/store/jotaiStore";
 import * as WOS from "@/app/store/wos";
 import { openTarget } from "@/app/view/jarvis/openref";
@@ -12,23 +13,11 @@ import { digestStale, formatElapsed, healthView, nextStepView, taskBriefs } from
 import { openDagLive, openDagTask } from "@/app/view/orchestrate/dagmodalstate";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
+import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
 import type { AgentsViewModel } from "./agents";
-import { canSubmitAsk } from "./agentsviewmodel";
-import { AnswerBar } from "./answerbar";
-import { ASK_OWNER_USER, childAskAgent, childAskKey, childAskSent } from "./childaskmodel";
-import {
-    bindChildAsks,
-    childAskErrorAtom,
-    childAskSelAtom,
-    childAskSentAtom,
-    childAskTextAtom,
-    childAsksAtom,
-    setChildAnswerText,
-    submitChildAnswer,
-    takeOverChildAsk,
-    toggleChildAnswer,
-} from "./childaskstore";
+import { ASK_OWNER_USER, childAskKey } from "./childaskmodel";
+import { bindChildAsks, childAskErrorAtom, childAsksAtom, takeOverChildAsk } from "./childaskstore";
 import { useRunEvents } from "./runeventstore";
 import { formatLeft, leadAgentOf, runProgress, taskAgentOf, type RunInfo } from "./runlineage";
 import { runStatusView } from "./runmodel";
@@ -140,33 +129,33 @@ export function useRunAsks(run: RunInfo | undefined): DagAskItem[] {
     return run ? questionOrder(all[run.runId] ?? []) : [];
 }
 
+// Reveal grows a question, or the run's older activity, in and out, so one arriving or clearing pushes the rail
+// instead of jumping it. The sections holding it are keyed by agent, so switching agents never replays it. In a
+// flex column with a gap, the caller cancels the gap with a negative top margin here and pads it back inside, so
+// the gap animates with the height rather than snapping at either end.
+function Reveal({ className, children }: { className?: string; children: React.ReactNode }) {
+    return (
+        <motion.div
+            variants={paneReveal}
+            initial="initial"
+            animate="animate"
+            exit="exit"
+            className={cn("overflow-hidden", className)}
+        >
+            {children}
+        </motion.div>
+    );
+}
+
 function leadAnswering(ask: DagAskItem, now: number): string {
     return ask.deadline ? `lead is answering · ${formatLeft(Math.max(0, ask.deadline - now))}` : "lead is answering";
 }
 
-// NeedsYouCard is a worker's question the human holds, answered in place: pick, then send.
-function NeedsYouCard({
-    run,
-    ask,
-    onOpen,
-}: {
-    run: RunInfo;
-    ask: DagAskItem;
-    // set on a lead's rail, where the asking worker is a different session from the one in view
-    onOpen?: () => void;
-}) {
-    const events = useRunEvents(run.runId, run.channelId);
-    const key = childAskKey(ask);
-    const selections = useAtomValue(childAskSelAtom)[key] ?? {};
-    const texts = useAtomValue(childAskTextAtom)[key] ?? {};
-    const sentTs = useAtomValue(childAskSentAtom)[key];
-    const error = useAtomValue(childAskErrorAtom)[key];
-    const [activeQuestion, setActiveQuestion] = useState(0);
-    const agent = childAskAgent(ask);
-    const answered = childAskSent(sentTs, ask, events);
-    const ready = canSubmitAsk(agent.ask?.questions ?? [], selections, texts);
-    const send = () => submitChildAnswer(run.channelId, run.runId, ask);
-
+// NeedsYouCard flags a worker's question the human holds, on the lead's rail. It is answered in the worker's own
+// terminal, where Claude Code shows the question with its full picker; the rail is too narrow for a long one.
+function NeedsYouCard({ ask, action }: { ask: DagAskItem; action: { label: string; run: () => void } }) {
+    const first = ask.questions[0];
+    const more = ask.questions.length - 1;
     return (
         <div className="rounded-[9px] border border-warning/45 bg-warning/[0.06] px-[11px] py-[9px]">
             <div className="flex items-center gap-[7px] overflow-hidden whitespace-nowrap font-mono text-[10.5px] text-muted">
@@ -174,81 +163,75 @@ function NeedsYouCard({
                 <b className="font-semibold text-primary">{ask.taskid}</b>
                 <span className="truncate text-warning">waiting on you</span>
             </div>
-            <AnswerBar
-                agent={agent}
-                selections={selections}
-                texts={texts}
-                sent={answered}
-                radio
-                showHint={false}
-                activeQuestion={activeQuestion}
-                onSelectQuestion={setActiveQuestion}
-                onToggle={(qi, oi) => toggleChildAnswer(ask, qi, oi)}
-                onText={(qi, value) => setChildAnswerText(ask, qi, value)}
-                onSubmit={send}
-                className={answered ? "mt-[6px]" : undefined}
-            />
-            {error ? <div className="mt-[6px] text-[11px] text-warning">{error}</div> : null}
-            {answered ? null : (
-                <div className="mt-[8px] flex items-center gap-[10px]">
-                    <button
-                        type="button"
-                        disabled={!ready}
-                        onClick={send}
-                        className="cursor-pointer rounded-[7px] bg-accent px-[12px] py-[5px] font-mono text-[10.5px] font-semibold text-background disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                        Send answer
-                    </button>
-                    {onOpen ? (
-                        <button
-                            type="button"
-                            onClick={onOpen}
-                            className="cursor-pointer font-mono text-[10.5px] font-semibold text-accent-soft hover:underline"
-                        >
-                            open {ask.taskid} ↗
-                        </button>
-                    ) : null}
-                </div>
-            )}
+            {first?.header ? (
+                <span className="mt-[6px] inline-block font-mono text-[9.5px] font-semibold uppercase tracking-[.09em] text-muted">
+                    {first.header}
+                </span>
+            ) : null}
+            <div className="mt-[2px] line-clamp-2 text-[12.5px] leading-[1.45] text-primary">{first?.question}</div>
+            <div className="mt-[7px] flex items-center gap-[10px] font-mono text-[10.5px]">
+                {more > 0 ? <span className="text-muted">+{more} more</span> : null}
+                <div className="flex-1" />
+                <button
+                    type="button"
+                    onClick={action.run}
+                    className="cursor-pointer font-semibold text-accent-soft hover:underline"
+                >
+                    {action.label}
+                </button>
+            </div>
         </div>
     );
 }
 
-// NeedsYouSection heads the rail with the run's questions waiting on the human: every one on a lead's rail, the
-// worker's own on a worker's.
-export function NeedsYouSection({
-    model,
-    run,
-    asks,
-    lead,
-}: {
-    model: AgentsViewModel;
-    run: RunInfo;
-    asks: DagAskItem[];
-    lead: boolean;
-}) {
+// NeedsYouSection heads a lead's rail with the run's questions waiting on the human, each opening the worker that
+// asked, or the run's sheet once that session is gone.
+export function NeedsYouSection({ model, run, asks }: { model: AgentsViewModel; run: RunInfo; asks: DagAskItem[] }) {
     const agents = useAtomValue(model.agentsAtom);
     const lineage = useAtomValue(model.lineageAtom);
+    // it heads the Details section rather than being a rail section of its own, so the space under it grows and
+    // shrinks with it instead of the rail's section gap snapping
     return (
-        <div className="flex flex-col gap-[8px]">
-            <div className="flex items-center justify-between">
-                <SectionLabel className="text-warning">Needs you</SectionLabel>
-                <span className="rounded-[20px] bg-warning/[0.12] px-[8px] py-[1px] font-mono text-[11px] font-semibold text-warning">
-                    {asks.length}
-                </span>
-            </div>
-            {asks.map((a) => {
-                const worker = lead ? taskAgentOf(lineage, agents, run.runId, a.taskid) : undefined;
-                return (
-                    <NeedsYouCard
-                        key={childAskKey(a)}
-                        run={run}
-                        ask={a}
-                        onOpen={worker ? () => globalStore.set(model.focusIdAtom, worker.id) : undefined}
-                    />
-                );
-            })}
-        </div>
+        <AnimatePresence initial={false}>
+            {asks.length > 0 ? (
+                <Reveal key="needs">
+                    <div className="pb-[24px]">
+                        <div className="flex items-center justify-between">
+                            <SectionLabel className="text-warning">Needs you</SectionLabel>
+                            <span className="rounded-[20px] bg-warning/[0.12] px-[8px] py-[1px] font-mono text-[11px] font-semibold text-warning">
+                                {asks.length}
+                            </span>
+                        </div>
+                        <AnimatePresence initial={false}>
+                            {asks.map((a) => {
+                                const worker = taskAgentOf(lineage, agents, run.runId, a.taskid);
+                                const action = worker
+                                    ? {
+                                          label: `answer in ${a.taskid} ↗`,
+                                          run: () => globalStore.set(model.focusIdAtom, worker.id),
+                                      }
+                                    : {
+                                          label: "answer in the run ↗",
+                                          run: () =>
+                                              void openTarget(model, {
+                                                  kind: "channel",
+                                                  channelId: run.channelId,
+                                                  runId: run.runId,
+                                              }),
+                                      };
+                                return (
+                                    <Reveal key={childAskKey(a)}>
+                                        <div className="pt-[8px]">
+                                            <NeedsYouCard ask={a} action={action} />
+                                        </div>
+                                    </Reveal>
+                                );
+                            })}
+                        </AnimatePresence>
+                    </div>
+                </Reveal>
+            ) : null}
+        </AnimatePresence>
     );
 }
 
@@ -369,7 +352,13 @@ function Lanes({ model, run, leadAsks }: { model: AgentsViewModel; run: RunInfo;
                                 {r.text}
                             </span>
                         </div>
-                        {ask ? <LaneAsk model={model} run={run} ask={ask} /> : null}
+                        <AnimatePresence initial={false}>
+                            {ask ? (
+                                <Reveal key={childAskKey(ask)}>
+                                    <LaneAsk model={model} run={run} ask={ask} />
+                                </Reveal>
+                            ) : null}
+                        </AnimatePresence>
                     </div>
                 );
             })}
@@ -384,9 +373,16 @@ function Activity({ model, run }: { model: AgentsViewModel; run: RunInfo }) {
     if (log.length === 0 && run.dag == null) {
         return null;
     }
-    // collapsed shows the newest row; open reads the rows in the order they happened
-    const shown = open ? [...log].reverse() : log.slice(0, 1);
-    const more = log.length - 1;
+    // collapsed shows the newest row; open reads the rows in the order they happened, so the older ones unfold
+    // above it
+    const [newest, ...older] = log;
+    const more = older.length;
+    const row = (l: (typeof log)[number]) => (
+        <div key={l.id} className="flex gap-[9px] font-mono text-[11px] leading-[1.45] text-secondary">
+            <span className="flex-none text-ink-faint">{tsLabel(l.ts)}</span>
+            <span className="min-w-0">{l.text}</span>
+        </div>
+    );
     return (
         <div className="flex flex-col gap-[5px] border-t border-edge-faint pt-[10px]">
             <div className="flex items-center gap-[4px]">
@@ -413,12 +409,14 @@ function Activity({ model, run }: { model: AgentsViewModel; run: RunInfo }) {
                     </button>
                 ) : null}
             </div>
-            {shown.map((l) => (
-                <div key={l.id} className="flex gap-[9px] font-mono text-[11px] leading-[1.45] text-secondary">
-                    <span className="flex-none text-ink-faint">{tsLabel(l.ts)}</span>
-                    <span className="min-w-0">{l.text}</span>
-                </div>
-            ))}
+            <AnimatePresence initial={false}>
+                {open && more > 0 ? (
+                    <Reveal key="older" className="-mt-[5px]">
+                        <div className="flex flex-col gap-[5px] pt-[5px]">{[...older].reverse().map(row)}</div>
+                    </Reveal>
+                ) : null}
+            </AnimatePresence>
+            {newest ? row(newest) : null}
         </div>
     );
 }
@@ -493,9 +491,15 @@ export function RunSection({ model, run, asks }: { model: AgentsViewModel; run: 
                 </div>
             ) : null}
             <Lanes model={model} run={run} leadAsks={leadAsks} />
-            {looseAsks.map((a) => (
-                <LeadAskCard key={childAskKey(a)} model={model} run={run} ask={a} />
-            ))}
+            <AnimatePresence initial={false}>
+                {looseAsks.map((a) => (
+                    <Reveal key={childAskKey(a)} className="-mt-[12px]">
+                        <div className="pt-[12px]">
+                            <LeadAskCard model={model} run={run} ask={a} />
+                        </div>
+                    </Reveal>
+                ))}
+            </AnimatePresence>
             <Activity model={model} run={run} />
         </div>
     );
@@ -550,7 +554,15 @@ export function TaskSection({
                     </FactRow>
                 ) : null}
             </div>
-            {leadAsk ? <LeadAskCard model={model} run={run} ask={leadAsk} /> : null}
+            <AnimatePresence initial={false}>
+                {leadAsk ? (
+                    <Reveal key={childAskKey(leadAsk)} className="-mt-[12px]">
+                        <div className="pt-[12px]">
+                            <LeadAskCard model={model} run={run} ask={leadAsk} />
+                        </div>
+                    </Reveal>
+                ) : null}
+            </AnimatePresence>
         </div>
     );
 }

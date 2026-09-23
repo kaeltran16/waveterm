@@ -13,6 +13,7 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import { resolveCwd } from "./agentcwdresolve";
+import { linkedWorktree } from "./agentrailmodel";
 import { ensureSessionStart } from "./agentsessionstore";
 import { parseGitChanges, type GitChanges } from "./gitstatus";
 
@@ -21,6 +22,8 @@ export interface RailGitState {
     branch: string;
     isRepo: boolean;
     changes: GitChanges | null;
+    // the linked worktree the agent works in, as linkedWorktree names it; unset in the main checkout
+    worktree?: string;
 }
 
 // First persisted FE pref in frontend/app: rail is global + off by default (localStorage key
@@ -63,12 +66,17 @@ export async function loadRailForAgent(
     try {
         // sessionstartts: match the card pill / Diff tab — the branch's changed-file list vs the
         // session-start commit. Null ts degrades to the live working-tree-vs-HEAD diff.
-        const ch = await RpcApi.GitChangesCommand(TabRpcClient, { cwd, sessionstartts: startTs ?? undefined });
+        // the worktree list only names the worktree, so a failure there leaves the line out rather than the rail
+        const [ch, wts] = await Promise.all([
+            RpcApi.GitChangesCommand(TabRpcClient, { cwd, sessionstartts: startTs ?? undefined }),
+            RpcApi.GitListWorktreesCommand(TabRpcClient, { cwd }).catch(() => null),
+        ]);
         if (current.id !== id) {
             return;
         }
         const changes = ch.isrepo ? parseGitChanges(ch.statusz, ch.numstat) : null;
-        globalStore.set(railStateAtom, { cwd, branch: ch.branch, isRepo: ch.isrepo, changes });
+        const worktree = ch.isrepo ? linkedWorktree(cwd, wts?.worktrees ?? []) : undefined;
+        globalStore.set(railStateAtom, { cwd, branch: ch.branch, isRepo: ch.isrepo, changes, worktree });
     } catch {
         if (current.id === id) {
             globalStore.set(railStateAtom, { ...EMPTY, cwd });
