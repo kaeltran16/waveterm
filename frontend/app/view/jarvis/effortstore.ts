@@ -54,6 +54,19 @@ async function mutateEffort(oref: string, ops: EffortOp[]): Promise<void> {
     cache.set(oref, rtn.effort);
     globalStore.set(effortDetailAtom, cache);
     void loadBriefingAsync(); // summary leg refresh; failure degrades to the next load
+    // archive and unarchive move a row between the Brief's two initiative lists
+    void loadArchivedEfforts().catch(() => {});
+}
+
+// the archived initiatives the Brief can reveal (design L251, "Show N archived"); the briefing leg drops
+// archived efforts server-side, so these come from the effort list with includearchived.
+export const archivedEffortsAtom = atom<EffortSummary[]>([]) as PrimitiveAtom<EffortSummary[]>;
+export async function loadArchivedEfforts(): Promise<void> {
+    const rtn = await RpcApi.EffortListCommand(TabRpcClient, { includearchived: true }, { timeout: stateRpcTimeoutMs });
+    globalStore.set(
+        archivedEffortsAtom,
+        (rtn.efforts ?? []).filter((e) => e.status === "archived")
+    );
 }
 
 // The cache was fetch-once, and only a mutate made THROUGH this store replaced an entry. An effort

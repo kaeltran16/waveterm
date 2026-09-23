@@ -31,6 +31,7 @@ import {
     effectiveRunConfig,
     engineDefaultsPatch,
     parallelismInvalid,
+    routeLabel,
     runSettingsDraft,
     runSettingsPanelState,
     settingsPayload,
@@ -39,7 +40,7 @@ import {
 } from "./runsettings";
 import { configLine, configNote } from "./runsheetmodel";
 
-const LABEL = "font-mono text-[9.5px] font-bold uppercase tracking-[.13em] text-feed-label";
+const META_ROW = "flex flex-wrap items-center gap-x-3.5 gap-y-1 font-mono text-[10.5px]";
 const FIELD = "rounded-[7px] border border-border bg-background px-2 py-1 text-[11.5px] text-ink-hi";
 export const SHEET_BTN =
     "cursor-pointer rounded-[7px] border border-border bg-surface-raised px-2.5 py-1 text-[11px] font-semibold text-secondary hover:border-edge-strong hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-default disabled:opacity-40";
@@ -71,10 +72,12 @@ export function SheetShell({
             // positioning, width, scrim and edge now belong to ModalShell variant="sheet"
             className="flex h-full min-h-0 flex-col"
         >
-            <header className="flex flex-none items-center gap-2.5 border-b border-edge-faint px-4 py-3">
-                <span className={cn(LABEL, "text-accent-soft")}>{label}</span>
+            <header className="flex flex-none items-center gap-2.5 border-b border-edge-faint px-4 py-2.5">
+                <span className="font-mono text-[9.5px] font-bold uppercase tracking-[.13em] text-accent-soft">
+                    {label}
+                </span>
                 <span className="min-w-0 truncate text-[13.5px] font-semibold text-ink-hi">{title}</span>
-                {meta ? <span className="min-w-0 truncate font-mono text-[10px] text-ink-faint">{meta}</span> : null}
+                {meta ? <span className="min-w-0 truncate font-mono text-[10px] text-muted">{meta}</span> : null}
                 <span className="flex-1" />
                 {actions}
                 <button type="button" aria-label="Close detail sheet" onClick={onClose} className={SHEET_BTN}>
@@ -97,7 +100,22 @@ export async function saveRunAsDefaults(run: Run, draft: RunSettingsDraft): Prom
     await refreshResolvedProfile(channelId);
 }
 
-function LoadedConfig({ run, group, groupRead }: { run: Run; group: TaskGroup | null; groupRead: LinkedGroupRead }) {
+// The inline form lives in the run sheet's reading (design L436-452): the run's meta, then the configuration
+// as spans with an adjust toggle, and the dials as a block below that row rather than in a dock.
+type ConfigProps = {
+    run: Run;
+    inline?: boolean;
+    // inline only: what the reading prints ahead of the configuration on the same row
+    meta?: ReactNode;
+};
+
+function LoadedConfig({
+    run,
+    group,
+    groupRead,
+    inline,
+    meta,
+}: ConfigProps & { group: TaskGroup | null; groupRead: LinkedGroupRead }) {
     const [open, setOpen] = useState(false);
     const [draft, setDraft] = useState<RunSettingsDraft | null>(null);
     const [baseline, setBaseline] = useState<RunSettingsDraft | null>(null);
@@ -123,14 +141,22 @@ function LoadedConfig({ run, group, groupRead }: { run: Run; group: TaskGroup | 
     }, [run.oid, group?.oid, seed, state.kind]);
 
     const note = configNote(run, state);
+    const lead = `${run.mode === "orchestrator" ? "lead " : ""}${run.runtime || "claude"}/${run.model || "default"}`;
     if (note != null) {
+        const readState = state.kind === "loading" || state.kind === "unavailable" ? state.kind : undefined;
+        if (inline) {
+            // the note's reason rides on the span: the meta row has no room for a paragraph
+            return (
+                <div className={META_ROW}>
+                    {meta}
+                    <span data-jarvis-brief-sheet-state={readState} title={note.title} className="text-ink-mid">
+                        {lead}
+                    </span>
+                </div>
+            );
+        }
         return (
-            <div
-                data-jarvis-brief-sheet-state={
-                    state.kind === "loading" || state.kind === "unavailable" ? state.kind : undefined
-                }
-                className="flex items-start gap-[9px] px-4 py-[11px]"
-            >
+            <div data-jarvis-brief-sheet-state={readState} className="flex items-start gap-[9px] px-4 py-[11px]">
                 <span
                     className={cn(
                         "mt-1 h-1.5 w-1.5 flex-none rounded-full",
@@ -146,7 +172,12 @@ function LoadedConfig({ run, group, groupRead }: { run: Run; group: TaskGroup | 
         );
     }
     if (draft == null || baseline == null) {
-        return null;
+        return inline ? (
+            <div className={META_ROW}>
+                {meta}
+                <span className="text-ink-mid">{lead}</span>
+            </div>
+        ) : null;
     }
 
     const busy = saving != null;
@@ -155,6 +186,7 @@ function LoadedConfig({ run, group, groupRead }: { run: Run; group: TaskGroup | 
     // the scheduler runs at the baseline until a save lands, so a draft it refused (or never received) is
     // printed as not saved rather than as the configuration in force
     const notSaved = dirty && (invalid || error != null);
+    const shown = notSaved ? draft : baseline;
 
     const submit = (label: string, work: () => Promise<void>, onDone: () => void) => {
         setSaving(label);
@@ -188,17 +220,118 @@ function LoadedConfig({ run, group, groupRead }: { run: Run; group: TaskGroup | 
             () => setNotice("Saved as this project's future-run defaults.")
         );
 
+    const dials = (
+        <>
+            <p className="text-[11.5px] leading-[1.5] text-muted">
+                Shape, machine and the lead route are fixed after launch. These two apply to workers dispatched from now
+                on. Nothing already running changes.
+            </p>
+            <div className="flex items-start gap-4">
+                <label className="flex flex-col gap-[5px]">
+                    <span className="text-[11.5px] font-semibold text-secondary">Worker parallelism</span>
+                    <input
+                        type="number"
+                        min={1}
+                        max={MAX_PARALLELISM}
+                        value={draft.parallelism}
+                        disabled={busy}
+                        onChange={(e) => setDraft({ ...draft, parallelism: Number(e.target.value) })}
+                        className={cn(FIELD, "w-[72px] font-mono text-[12px]")}
+                    />
+                    <span className="text-[10.5px] text-muted">1 through {MAX_PARALLELISM}</span>
+                </label>
+                <div className="flex min-w-0 flex-1 flex-col gap-[5px]">
+                    <span className="text-[11.5px] font-semibold text-secondary">Worker route</span>
+                    <RoutePicker
+                        value={draft.workerRoute}
+                        canInherit
+                        inheritedLabel="Inherit the lead"
+                        disabled={busy}
+                        onChange={(route) => setDraft({ ...draft, workerRoute: route })}
+                    />
+                </div>
+            </div>
+            {invalid ? (
+                <p data-jarvis-brief-sheet-state="error" className="text-[11.5px] text-error">
+                    Enter a whole number from 1 through {MAX_PARALLELISM}. The scheduler is still running at{" "}
+                    {baseline.parallelism}.
+                </p>
+            ) : null}
+            {error != null ? (
+                <p data-jarvis-brief-sheet-state="error" className="text-[11.5px] text-error">
+                    {error}
+                </p>
+            ) : null}
+            {notice != null ? (
+                <p data-jarvis-brief-sheet-state="saved" className="text-[11.5px] text-success">
+                    {notice}
+                </p>
+            ) : null}
+            <div className="flex items-center gap-2">
+                <button
+                    type="button"
+                    onClick={save}
+                    disabled={busy || !dirty || invalid || channelId === ""}
+                    className={cn(SHEET_BTN, "border-accent/40 px-[11px] py-[5px] text-accent-soft")}
+                >
+                    {saving === "settings" ? "Saving…" : "Save settings"}
+                </button>
+                <button
+                    type="button"
+                    onClick={saveDefaults}
+                    disabled={busy || invalid || channelId === ""}
+                    className={cn(SHEET_BTN, "px-[11px] py-[5px]")}
+                >
+                    {saving === "defaults" ? "Saving…" : "Save as project defaults"}
+                </button>
+            </div>
+        </>
+    );
+
+    if (inline) {
+        const tone = notSaved ? "text-error" : "text-ink-mid";
+        const workers =
+            (shown.workerRoute?.runtime ?? "") === ""
+                ? "workers inherit the lead"
+                : `workers on ${routeLabel(shown.workerRoute)}`;
+        return (
+            <>
+                <div data-jarvis-brief-sheet-config="editable" className={META_ROW}>
+                    {meta}
+                    <span className={tone}>{lead}</span>
+                    {/* a run launched before widths were resolved at launch stores 0: the engine picks at submit */}
+                    {shown.parallelism > 0 ? <span className={tone}>{shown.parallelism} workers</span> : null}
+                    <span className={tone}>{workers}</span>
+                    {notSaved ? <span className="text-error">not saved</span> : null}
+                    <button
+                        type="button"
+                        aria-expanded={open}
+                        onClick={() => setOpen((o) => !o)}
+                        className="cursor-pointer font-mono text-[10.5px] text-accent-soft hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+                    >
+                        {open ? "done" : "adjust"}
+                    </button>
+                </div>
+                {open ? (
+                    <div className="flex flex-col gap-3 rounded-[9px] border border-border bg-surface px-[13px] pb-[13px] pt-[11px]">
+                        {dials}
+                    </div>
+                ) : null}
+            </>
+        );
+    }
+
     return (
         <div data-jarvis-brief-sheet-config="editable">
             <div className="flex items-center gap-2.5 px-4 py-[11px]">
                 <span
-                    title={configLine(run, notSaved ? draft : baseline, notSaved)}
+                    title={configLine(run, shown, notSaved)}
                     className={cn(
                         "min-w-0 flex-1 truncate font-mono text-[10.5px]",
                         notSaved ? "text-error" : "text-muted"
                     )}
                 >
-                    {configLine(run, notSaved ? draft : baseline, notSaved)}
+                    {configLine(run, shown, notSaved)}
                 </span>
                 <button
                     type="button"
@@ -210,71 +343,7 @@ function LoadedConfig({ run, group, groupRead }: { run: Run; group: TaskGroup | 
                 </button>
             </div>
             {open ? (
-                <div className="flex flex-col gap-3 border-t border-edge-faint px-4 pb-3.5">
-                    <p className="mt-[11px] text-[11.5px] leading-[1.5] text-muted">
-                        Shape, machine and the lead route are fixed after launch. These two apply to workers dispatched
-                        from now on — nothing already running changes.
-                    </p>
-                    <div className="flex items-start gap-4">
-                        <label className="flex flex-col gap-[5px]">
-                            <span className="text-[11.5px] font-semibold text-secondary">Worker parallelism</span>
-                            <input
-                                type="number"
-                                min={1}
-                                max={MAX_PARALLELISM}
-                                value={draft.parallelism}
-                                disabled={busy}
-                                onChange={(e) => setDraft({ ...draft, parallelism: Number(e.target.value) })}
-                                className={cn(FIELD, "w-[72px] font-mono text-[12px]")}
-                            />
-                            <span className="text-[10.5px] text-muted">1 through {MAX_PARALLELISM}</span>
-                        </label>
-                        <div className="flex min-w-0 flex-1 flex-col gap-[5px]">
-                            <span className="text-[11.5px] font-semibold text-secondary">Worker route</span>
-                            <RoutePicker
-                                value={draft.workerRoute}
-                                canInherit
-                                inheritedLabel="Inherit the lead"
-                                disabled={busy}
-                                onChange={(route) => setDraft({ ...draft, workerRoute: route })}
-                            />
-                        </div>
-                    </div>
-                    {invalid ? (
-                        <p data-jarvis-brief-sheet-state="error" className="text-[11.5px] text-error">
-                            Enter a whole number from 1 through {MAX_PARALLELISM}. The scheduler is still running at{" "}
-                            {baseline.parallelism}.
-                        </p>
-                    ) : null}
-                    {error != null ? (
-                        <p data-jarvis-brief-sheet-state="error" className="text-[11.5px] text-error">
-                            {error}
-                        </p>
-                    ) : null}
-                    {notice != null ? (
-                        <p data-jarvis-brief-sheet-state="saved" className="text-[11.5px] text-success">
-                            {notice}
-                        </p>
-                    ) : null}
-                    <div className="flex items-center gap-2">
-                        <button
-                            type="button"
-                            onClick={save}
-                            disabled={busy || !dirty || invalid || channelId === ""}
-                            className={cn(SHEET_BTN, "border-accent/40 px-[11px] py-[5px] text-accent-soft")}
-                        >
-                            {saving === "settings" ? "Saving…" : "Save settings"}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={saveDefaults}
-                            disabled={busy || invalid || channelId === ""}
-                            className={cn(SHEET_BTN, "px-[11px] py-[5px]")}
-                        >
-                            {saving === "defaults" ? "Saving…" : "Save as project defaults"}
-                        </button>
-                    </div>
-                </div>
+                <div className="flex flex-col gap-3 border-t border-edge-faint px-4 pb-3.5 pt-[11px]">{dials}</div>
             ) : null}
         </div>
     );
@@ -283,19 +352,21 @@ function LoadedConfig({ run, group, groupRead }: { run: Run; group: TaskGroup | 
 // Mounted only when the run actually links a dag, so the WOS subscription below always names a real object.
 // The read state is carried whole — loading, arrived, failed, gone — because a failed or deleted group is not
 // a group that is still loading.
-function LinkedRunConfig({ run, dagId }: { run: Run; dagId: string }) {
+function LinkedRunConfig({ dagId, ...props }: ConfigProps & { dagId: string }) {
     const oref = WOS.makeORef("dag", dagId);
     const [group, loading] = useDagGroup(oref);
     const errored = useAtomValue(WOS.getWaveObjectErrorAtom(oref));
     const groupRead: LinkedGroupRead = loading ? "loading" : group != null ? "ready" : errored ? "error" : "missing";
-    return <LoadedConfig run={run} group={group ?? null} groupRead={groupRead} />;
+    return <LoadedConfig {...props} group={group ?? null} groupRead={groupRead} />;
 }
 
-// The run's configuration dock for whichever run the sheet is showing. The linked/unlinked split is a
-// component boundary rather than a hook inside a branch: useDagGroup has to be called unconditionally.
-export function RunSettingsPanel({ run }: { run: Run }) {
-    if ((run.dagoref ?? "") !== "") {
-        return <LinkedRunConfig run={run} dagId={run.dagoref} />;
+// The run's configuration for whichever run the sheet is showing: a dock of its own, or, inline, the tail of
+// the reading's meta row. The linked/unlinked split is a component boundary rather than a hook inside a
+// branch: useDagGroup has to be called unconditionally.
+export function RunSettingsPanel(props: ConfigProps) {
+    const dagId = props.run.dagoref ?? "";
+    if (dagId !== "") {
+        return <LinkedRunConfig {...props} dagId={dagId} />;
     }
-    return <LoadedConfig run={run} group={null} groupRead="ready" />;
+    return <LoadedConfig {...props} group={null} groupRead="ready" />;
 }
