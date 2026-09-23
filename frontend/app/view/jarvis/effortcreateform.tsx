@@ -7,24 +7,30 @@
 import { ModalShell } from "@/app/modals/modalshell";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { loadBriefingAsync, stateRpcTimeoutMs } from "./briefingstore";
+import { setEffortDetails, type EffortDetails } from "./effortstore";
 
 export interface ParsedChunkLine {
     label: string;
+    stage: string;
     checked: boolean;
 }
 
-// pure parse: split lines, trim, drop blanks, nothing ticked by default — ticks live in the form's
-// state and survive re-parses by label.
+// pure parse: one chunk per line, `Stage: chunk` groups it (split on the FIRST ": ", so a label may
+// itself contain one after the stage). The preview shows stage headers, so a line that merely
+// contains ": " is visible as a stage before anything is created. Ticks live in the form's state.
 export function parseChunkLines(text: string): ParsedChunkLine[] {
     const lines: ParsedChunkLine[] = [];
     for (const raw of text.split("\n")) {
-        const label = raw.trim();
-        if (label === "") {
+        const line = raw.trim();
+        if (line === "") {
             continue;
         }
-        lines.push({ label, checked: false });
+        const cut = line.indexOf(": ");
+        const stage = cut > 0 ? line.slice(0, cut).trim() : "";
+        const label = cut > 0 ? line.slice(cut + 2).trim() : line;
+        lines.push({ label: label === "" ? line : label, stage: label === "" ? "" : stage, checked: false });
     }
     return lines;
 }
@@ -33,11 +39,18 @@ const inputCls =
     "w-full rounded-[7px] border border-edge-mid bg-background px-2.5 py-1.5 text-[12px] text-primary placeholder:text-muted outline-none focus:border-accent/60";
 const fieldLabel = "font-mono text-[9.5px] font-bold uppercase tracking-[.12em] text-muted";
 
-export function EffortCreateForm({ onClose }: { onClose: () => void }) {
-    const [title, setTitle] = useState("");
-    const [project, setProject] = useState("");
-    const [ticket, setTicket] = useState("");
-    const [parent, setParent] = useState("");
+export function EffortCreateForm({
+    onClose,
+    edit,
+}: {
+    onClose: () => void;
+    // details mode: the same fields over an existing initiative; its chunks are edited in the plan
+    edit?: { oref: string; details: EffortDetails };
+}) {
+    const [title, setTitle] = useState(edit?.details.title ?? "");
+    const [project, setProject] = useState(edit?.details.project ?? "");
+    const [ticket, setTicket] = useState(edit?.details.ticket ?? "");
+    const [parent, setParent] = useState(edit?.details.parent ?? "");
     const [text, setText] = useState("");
     const [lines, setLines] = useState<ParsedChunkLine[]>([]);
     const [submitting, setSubmitting] = useState(false);
@@ -54,7 +67,7 @@ export function EffortCreateForm({ onClose }: { onClose: () => void }) {
 
     const ticked = lines.filter((l) => l.checked).length;
     const dupes = lines.some((l, i) => lines.findIndex((x) => x.label === l.label) !== i);
-    const canSubmit = !submitting && !dupes && title.trim() !== "";
+    const canSubmit = !submitting && title.trim() !== "" && (edit != null || !dupes);
 
     const submit = async (): Promise<void> => {
         setTitleError(title.trim() === "" ? "title is required" : null);
@@ -63,6 +76,16 @@ export function EffortCreateForm({ onClose }: { onClose: () => void }) {
         }
         setError(null);
         setSubmitting(true);
+        if (edit != null) {
+            try {
+                await setEffortDetails(edit.oref, edit.details, { title, project, ticket, parent });
+                onClose();
+            } catch (e) {
+                setError(e instanceof Error ? e.message : String(e));
+                setSubmitting(false);
+            }
+            return;
+        }
         try {
             const parentOid = parent.trim().replace(/^effort:/, "");
             const rtn = await RpcApi.EffortCreateCommand(
@@ -76,14 +99,19 @@ export function EffortCreateForm({ onClose }: { onClose: () => void }) {
                 },
                 { timeout: stateRpcTimeoutMs }
             );
-            // the chunk seed carries no status, so ticked lines become done in one atomic batch.
-            const doneOps = lines
-                .filter((l) => l.checked)
-                .map((l) => ({ op: "setChunkStatus", chunk: l.label, status: "done" }));
-            if (doneOps.length > 0) {
+            // the chunk seed carries neither status nor stage, so both land in one atomic follow-up batch
+            const followOps: EffortOp[] = [
+                ...lines
+                    .filter((l) => l.stage !== "")
+                    .map((l) => ({ op: "setChunkStage", chunk: l.label, stage: l.stage })),
+                ...lines
+                    .filter((l) => l.checked)
+                    .map((l) => ({ op: "setChunkStatus", chunk: l.label, status: "done" })),
+            ];
+            if (followOps.length > 0) {
                 await RpcApi.EffortMutateCommand(
                     TabRpcClient,
-                    { effortoid: rtn.effortoid, ops: doneOps },
+                    { effortoid: rtn.effortoid, ops: followOps },
                     { timeout: stateRpcTimeoutMs }
                 );
             }
@@ -107,7 +135,9 @@ export function EffortCreateForm({ onClose }: { onClose: () => void }) {
                 <div className="flex h-[18px] w-[18px] items-center justify-center rounded-full bg-accentbg font-mono text-[10px] font-bold text-accent-soft">
                     ✦
                 </div>
-                <span className="flex-1 text-[15px] font-semibold text-primary">New initiative</span>
+                <span className="flex-1 text-[15px] font-semibold text-primary">
+                    {edit != null ? "Edit initiative" : "New initiative"}
+                </span>
                 <span className="rounded-[5px] border border-edge-mid px-[7px] py-0.5 font-mono text-[10.5px] text-muted">
                     ⌘⏎ to save
                 </span>
@@ -143,59 +173,74 @@ export function EffortCreateForm({ onClose }: { onClose: () => void }) {
                         className={inputCls}
                     />
                 </div>
-                <div className="flex flex-col gap-1.5">
-                    <span className={fieldLabel}>Chunks · one per line</span>
-                    <textarea
-                        value={text}
-                        onChange={(e) => setText(e.target.value)}
-                        placeholder={"Phase 1 — WAF posture scan\nPhase 2 — N1 box upgrade\nPhase 3 — gate review"}
-                        spellCheck={false}
-                        className="min-h-[130px] w-full resize-y rounded-[7px] border border-edge-mid bg-background px-2.5 py-2 font-mono text-[11px] leading-[1.7] text-primary placeholder:text-muted outline-none focus:border-accent/60"
-                    />
-                    {lines.length > 0 ? (
-                        <>
-                            <div className="flex items-center gap-2">
-                                <span className="font-mono text-[10px] text-muted">
-                                    {lines.length} chunks · {ticked} already done
-                                </span>
-                                {dupes ? (
-                                    <span className="font-mono text-[10px] text-error">duplicate chunk labels</span>
-                                ) : null}
-                            </div>
-                            <div className="flex max-h-[140px] flex-col gap-px overflow-y-auto rounded-[7px] border border-edge-faint bg-surface px-2 py-1.5">
-                                {lines.map((l, i) => (
-                                    <label
-                                        key={l.label + ":" + i}
-                                        className="flex cursor-pointer items-center gap-2 rounded-[4px] px-1 py-[2px] hover:bg-surface-hover"
-                                    >
-                                        <input
-                                            type="checkbox"
-                                            checked={l.checked}
-                                            onChange={() =>
-                                                setLines((prev) =>
-                                                    prev.map((x, j) =>
-                                                        j === i ? { ...x, checked: !x.checked } : x
-                                                    )
-                                                )
-                                            }
-                                            className="h-[12px] w-[12px] accent-success"
-                                        />
-                                        <span className="truncate font-mono text-[11.5px] text-primary">
-                                            {l.label}
-                                        </span>
-                                    </label>
-                                ))}
-                            </div>
-                        </>
-                    ) : null}
-                </div>
+                {edit == null ? (
+                    <div className="flex flex-col gap-1.5">
+                        <div className="flex items-baseline gap-2">
+                            <span className={fieldLabel}>Chunks · one per line</span>
+                            <span className="font-mono text-[10px] text-muted">Stage: chunk to group</span>
+                        </div>
+                        <textarea
+                            value={text}
+                            onChange={(e) => setText(e.target.value)}
+                            placeholder={
+                                "Phase 1: WAF posture scan\nPhase 1: Rule diff vs prod\nPhase 2: N1 box upgrade"
+                            }
+                            spellCheck={false}
+                            className="min-h-[130px] w-full resize-y rounded-[7px] border border-edge-mid bg-background px-2.5 py-2 font-mono text-[11px] leading-[1.7] text-primary placeholder:text-muted outline-none focus:border-accent/60"
+                        />
+                        {lines.length > 0 ? (
+                            <>
+                                <div className="flex items-center gap-2">
+                                    <span className="font-mono text-[10px] text-muted">
+                                        {lines.length} chunks · {ticked} already done
+                                    </span>
+                                    {dupes ? (
+                                        <span className="font-mono text-[10px] text-error">duplicate chunk labels</span>
+                                    ) : null}
+                                </div>
+                                <div className="flex max-h-[140px] flex-col gap-px overflow-y-auto rounded-[7px] border border-edge-faint bg-surface px-2 py-1.5">
+                                    {lines.map((l, i) => (
+                                        <Fragment key={l.label + ":" + i}>
+                                            {l.stage !== "" && l.stage !== lines[i - 1]?.stage ? (
+                                                <div className="px-1 pb-0.5 pt-1.5 font-mono text-[10px] font-bold uppercase tracking-[.08em] text-muted">
+                                                    {l.stage}
+                                                </div>
+                                            ) : null}
+                                            <label className="flex cursor-pointer items-center gap-2 rounded-[4px] px-1 py-[2px] hover:bg-surface-hover">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={l.checked}
+                                                    onChange={() =>
+                                                        setLines((prev) =>
+                                                            prev.map((x, j) =>
+                                                                j === i ? { ...x, checked: !x.checked } : x
+                                                            )
+                                                        )
+                                                    }
+                                                    className="h-[12px] w-[12px] accent-success"
+                                                />
+                                                <span className="truncate font-mono text-[11.5px] text-primary">
+                                                    {l.label}
+                                                </span>
+                                            </label>
+                                        </Fragment>
+                                    ))}
+                                </div>
+                            </>
+                        ) : null}
+                    </div>
+                ) : (
+                    <span className="text-[12px] text-muted">
+                        Chunks are edited in the plan: double-click to rename, the status pill to change status.
+                    </span>
+                )}
             </div>
             <div className="flex shrink-0 items-center gap-2 border-t border-border px-[18px] py-3">
                 {error != null ? (
                     <span className="min-w-0 flex-1 truncate text-[11px] text-error">{error}</span>
                 ) : (
                     <span className="flex-1 font-mono text-[10px] text-muted">
-                        ticked lines save as already done
+                        {edit == null ? "ticked lines save as already done" : ""}
                     </span>
                 )}
                 <button
@@ -211,7 +256,7 @@ export function EffortCreateForm({ onClose }: { onClose: () => void }) {
                     onClick={() => void submit()}
                     className="cursor-pointer rounded-[7px] bg-accent px-3.5 py-1.5 text-[11.5px] font-semibold text-background hover:bg-accenthover disabled:cursor-default disabled:opacity-40"
                 >
-                    {submitting ? "Creating…" : "Create initiative"}
+                    {edit != null ? "Save" : submitting ? "Creating…" : "Create initiative"}
                 </button>
             </div>
         </ModalShell>
