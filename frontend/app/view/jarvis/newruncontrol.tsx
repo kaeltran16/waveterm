@@ -22,7 +22,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { harnessPreferenceAtom } from "@/app/view/agents/harnessstore";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtomValue, type PrimitiveAtom } from "jotai";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { AgentsViewModel } from "../agents/agents";
 import { channelsAtom, createChannel } from "../agents/channelsstore";
 import { projectsAtom } from "../agents/projectsstore";
@@ -48,15 +48,16 @@ import {
     workerRouteAtom,
 } from "../agents/runconfigstore";
 import { RunLauncherSections } from "../agents/runlauncher";
-import { initialPick, launchGoal, launchOptsFromConfig, rankProjects, resolveChannelTarget, stepPick } from "./newrun";
+import { initialPick, launchGoal, launchOptsFromConfig, resolveChannelTarget, stepPick } from "./newrun";
 import { openTarget } from "./openref";
+import { ProjectChips } from "./projectchips";
 
 // Module scope, not component state: NewRunControl unmounts the modal on close, so a project picked for
 // one launch was gone by the next one and every run started by re-picking the same project. Not persisted
 // — where you last started work is a convenience for the session, not a setting.
 const lastPickedProjectAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 
-const FIELD_LABEL = "font-mono text-[9.5px] font-bold uppercase tracking-[.12em] text-muted";
+const FIELD_LABEL = "font-mono text-[10.5px] font-bold uppercase tracking-[.09em] text-ink-mid";
 const CANCEL_BTN =
     "cursor-pointer rounded-[7px] border border-border bg-surface-raised px-3.5 py-1.5 text-[11.5px] font-semibold text-secondary hover:text-primary";
 
@@ -75,27 +76,20 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
     const runRoute = useAtomValue(runRouteAtom);
     const routeTouched = useAtomValue(routeTouchedAtom);
     const entries = Object.entries(projects ?? {});
+    // read once: "last used" names where the previous launch went, not the pick being made now
+    const [recent] = useState(() => globalStore.get(lastPickedProjectAtom));
     // the project you last started work in, else the only one there is — either way the common case is
     // type-a-goal-and-go rather than pick-the-same-project-again
     const [picked, setPicked] = useState<string | null>(() =>
         initialPick(
             entries.map(([name]) => name),
-            globalStore.get(lastPickedProjectAtom)
+            recent
         )
     );
-    const [query, setQuery] = useState("");
     const [goal, setGoal] = useState("");
     const [starting, setStarting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const goalRef = useRef<HTMLTextAreaElement>(null);
-    const pickedRef = useRef<HTMLButtonElement>(null);
-
-    // not memoised on purpose: a registry this size scores in microseconds, and every key that would
-    // make a dependency array correct here is a string built out of the very names it has to track
-    const rows = rankProjects(
-        entries.map(([name]) => name),
-        query
-    );
     const config = { shape, parallelism, workerRoute, start: startFrom, planPath };
     // a plan start is named by its plan, so it has no goal field to fill
     const planStart = shape === "orchestrator" && startFrom === "plan";
@@ -126,13 +120,6 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
         }
     }, [pickedOid, profileRoute, routeTouched]);
 
-    // The row list is 150px — about four projects — so a pick you cannot see is a pick you do not trust.
-    // Covers both ways one happens off-screen: the remembered project this modal opens on, and an
-    // arrow-key walk past the visible rows.
-    useEffect(() => {
-        pickedRef.current?.scrollIntoView({ block: "nearest" });
-    }, [picked]);
-
     const select = (project: string) => {
         setPicked(project);
         globalStore.set(lastPickedProjectAtom, project);
@@ -141,10 +128,10 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
         goalRef.current?.focus();
     };
 
-    // Arrow keys walk the filtered rows without leaving the search box; Enter takes the highlighted one.
-    // Enter is swallowed rather than allowed to bubble, because ModalShell's onSubmit would otherwise read
-    // it as "start the run" while the user is still choosing which project to start it in.
-    const onSearchKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // Arrow keys walk the chips the search leaves without leaving the search box; Enter takes the
+    // highlighted one. Enter is swallowed rather than allowed to bubble, because ModalShell's onSubmit would
+    // otherwise read it as "start the run" while the user is still choosing which project to start it in.
+    const onSearchKey = (e: KeyboardEvent<HTMLInputElement>, rows: string[]) => {
         if (e.key === "ArrowDown" || e.key === "ArrowUp") {
             e.preventDefault();
             setPicked(stepPick(rows, picked, e.key === "ArrowDown" ? 1 : -1));
@@ -200,14 +187,14 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
     };
 
     return (
-        <ModalShell open onClose={onClose} onSubmit={start} className="flex max-h-[88vh] w-[min(760px,94vw)] flex-col">
+        <ModalShell open onClose={onClose} onSubmit={start} className="flex max-h-[88vh] w-[min(640px,94vw)] flex-col">
             <div className="flex shrink-0 items-center gap-[11px] border-b border-border px-[18px] py-[15px]">
-                <div className="flex h-[18px] w-[18px] items-center justify-center rounded-full bg-accentbg font-mono text-[10px] font-bold text-accent-soft">
+                <div className="flex h-[18px] w-[18px] items-center justify-center rounded-full bg-accentbg font-mono text-[10.5px] font-bold text-accent-soft">
                     ▸
                 </div>
                 <span className="flex-1 text-[15px] font-semibold text-primary">New run</span>
-                <span className="rounded-[5px] border border-edge-mid px-[7px] py-0.5 font-mono text-[10.5px] text-muted">
-                    ⌘⏎ to start
+                <span className="rounded-[5px] border border-edge-mid px-[7px] py-0.5 font-mono text-[10.5px] text-ink-mid">
+                    ctrl+⏎ to start
                 </span>
             </div>
             {entries.length === 0 ? (
@@ -228,51 +215,17 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
                 </div>
             ) : (
                 <>
-                    <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-[18px] py-4">
-                        <div className="flex min-h-0 flex-col gap-1.5">
-                            <div className="flex items-baseline gap-2">
-                                <span className={FIELD_LABEL}>Project</span>
-                                {/* the count only earns its width once a filter is actually narrowing something */}
-                                {query.trim() !== "" ? (
-                                    <span className="font-mono text-[9.5px] text-muted">
-                                        {rows.length} of {entries.length} · up/down, enter
-                                    </span>
-                                ) : null}
-                            </div>
-                            {entries.length > 1 ? (
-                                <input
-                                    autoFocus
-                                    value={query}
-                                    aria-label="Filter projects"
-                                    onChange={(e) => setQuery(e.target.value)}
-                                    onKeyDown={onSearchKey}
-                                    placeholder="Search projects…"
-                                    className="w-full rounded-[7px] border border-edge-mid bg-background px-2.5 py-1.5 text-[12px] text-primary placeholder:text-muted outline-none focus:border-accent/60"
-                                />
-                            ) : null}
-                            <div className="flex max-h-[150px] flex-col gap-1 overflow-y-auto">
-                                {rows.map((project) => (
-                                    <button
-                                        key={project}
-                                        ref={picked === project ? pickedRef : undefined}
-                                        type="button"
-                                        title={project}
-                                        aria-pressed={picked === project}
-                                        onClick={() => select(project)}
-                                        className={cn(
-                                            "shrink-0 cursor-pointer truncate rounded-[7px] border px-2.5 py-1.5 text-left text-[12px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
-                                            picked === project
-                                                ? "border-accent/40 bg-accentbg text-accent-soft"
-                                                : "border-border bg-surface-raised text-ink-mid hover:border-accent"
-                                        )}
-                                    >
-                                        {project}
-                                    </button>
-                                ))}
-                                {rows.length === 0 ? (
-                                    <span className="px-2.5 py-1.5 text-[12px] text-muted">No project matches.</span>
-                                ) : null}
-                            </div>
+                    <div className="flex min-h-0 flex-1 flex-col gap-[18px] overflow-y-auto px-[18px] py-4">
+                        <div className="flex flex-col gap-1.5">
+                            <span className={FIELD_LABEL}>Project</span>
+                            <ProjectChips
+                                names={entries.map(([name]) => name)}
+                                picked={picked}
+                                recent={recent}
+                                onPick={select}
+                                columns={2}
+                                onKeyDown={onSearchKey}
+                            />
                         </div>
                         <RunLauncherSections />
                         {planStart ? null : (
@@ -280,7 +233,7 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
                                 <span className={FIELD_LABEL}>Goal</span>
                                 <textarea
                                     ref={goalRef}
-                                    autoFocus={entries.length === 1}
+                                    autoFocus
                                     rows={3}
                                     value={goal}
                                     onChange={(e) => setGoal(e.target.value)}
@@ -294,11 +247,14 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
                         {error != null ? (
                             <span className="min-w-0 flex-1 truncate text-[11px] text-error">{error}</span>
                         ) : (
-                            <span className="flex-1 truncate font-mono text-[10px] text-muted">
+                            <span className="flex-1 truncate font-mono text-[10.5px] text-ink-mid">
                                 {/* the blocker first whenever there is one: a disabled Start run that
                                     named the shape instead of saying "Write the goal" read as a dead
                                     button, which is what a silent click on it looks like */}
-                                {picked == null ? "pick a project" : (blocker ?? `${shape} in ${picked}`)}
+                                {picked == null
+                                    ? "pick a project"
+                                    : (blocker ??
+                                      `${shape}${shape === "orchestrator" ? " × " + parallelism : ""} in ${picked}`)}
                             </span>
                         )}
                         <button type="button" onClick={onClose} className={CANCEL_BTN}>
@@ -308,7 +264,7 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
                             type="button"
                             disabled={picked == null || blocker != null || starting}
                             onClick={start}
-                            className="cursor-pointer rounded-[7px] bg-accent px-3.5 py-1.5 text-[11.5px] font-semibold text-background hover:bg-accenthover disabled:cursor-default disabled:opacity-40"
+                            className="cursor-pointer rounded-[7px] bg-accent px-3.5 py-1.5 text-[11.5px] font-semibold text-background hover:bg-accenthover disabled:cursor-default disabled:bg-border disabled:text-muted"
                         >
                             {starting ? "Starting…" : "Start run"}
                         </button>

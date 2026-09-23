@@ -58,7 +58,7 @@ describe("shape cards", () => {
     it("describes the machine rather than restating the name", () => {
         for (const card of SHAPE_CARDS) {
             expect(card.desc.toLowerCase()).not.toBe(card.id);
-            expect(card.desc.length).toBeGreaterThan(20);
+            expect(card.desc.split(" ").length).toBeGreaterThan(2);
         }
     });
 });
