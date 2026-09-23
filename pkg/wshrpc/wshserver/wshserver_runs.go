@@ -121,6 +121,10 @@ func sealDoneRunEvidence(channelId, runId string) {
 		log.Printf("AdvanceRun: persisting evidence for run %s failed: %v", runId, uerr)
 		return
 	}
+	if run.EffortRef != nil {
+		// same seal-ctx expiry concern as the event append below: the note is a quick write.
+		noteFinishedRunOnChunk(context.WithoutCancel(ctx), run, "AdvanceRun")
+	}
 	if run.RadarOrigin != nil {
 		inv := reporadar.InvestigationFromRun(run, channelId, "done", run.CompletedTs)
 		if rerr := reporadar.RecordInvestigation(ctx, run.ProjectPath, run.RadarOrigin.Fingerprint, inv); rerr != nil {
@@ -143,6 +147,14 @@ func sealDoneRunEvidence(channelId, runId string) {
 	jarvisvolunteer.EvaluateAsync(jarvisvolunteer.Trigger{
 		Kind: jarvisvolunteer.TriggerRunRest, ChannelID: channelId, RunID: runId,
 	})
+}
+
+// noteFinishedRunOnChunk leaves the sealed run's note (and its oref, which the Chunk sidebar renders the
+// report from) on the chunk it executed. Non-fatal: the note is a pointer, the run itself holds the record.
+func noteFinishedRunOnChunk(ctx context.Context, run *waveobj.Run, logPrefix string) {
+	if nerr := jarvisstate.NoteRunFinished(ctx, *run.EffortRef, "run:"+run.ID, jarvisstate.RunFinishedText(run)); nerr != nil {
+		log.Printf("%s: noting the finished run on its chunk failed (non-fatal): %v", logPrefix, nerr)
+	}
 }
 
 // spawnRunWorkers starts each newly running phase's worker on the prompt its phase derives.
@@ -855,6 +867,7 @@ func (ws *WshServer) SealRunEvidenceCommand(ctx context.Context, data wshrpc.Com
 		if derr := jarvisstate.DetachRunFromChunk(ctx, run.EffortRef.EffortOID, "run:"+run.ID); derr != nil {
 			log.Printf("SealRunEvidence: detaching effort workref failed (non-fatal): %v", derr)
 		}
+		noteFinishedRunOnChunk(ctx, run, "SealRunEvidence")
 	}
 	if run.RadarOrigin != nil {
 		inv := reporadar.InvestigationFromRun(run, data.ChannelId, "done", run.CompletedTs)

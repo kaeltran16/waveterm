@@ -121,3 +121,42 @@ func TestDetachRunFromChunkUnknownEffort(t *testing.T) {
 		t.Fatal("want error")
 	}
 }
+
+func TestRunFinishedTextPrefersTheReportTitle(t *testing.T) {
+	r := &waveobj.Run{Goal: "Retire the recall arm", Report: "# Retire the recall arm — run report\n\nDAG x: 6/6 tasks done."}
+	if got := RunFinishedText(r); got != "Run finished: Retire the recall arm — run report" {
+		t.Fatalf("got %q", got)
+	}
+	r = &waveobj.Run{Goal: "Rule diff vs prod", Evidence: &waveobj.RunEvidence{Summary: "Found 4 drifts.\nTwo expected."}}
+	if got := RunFinishedText(r); got != "Run finished: Found 4 drifts." {
+		t.Fatalf("got %q", got)
+	}
+	r = &waveobj.Run{Goal: "Only a goal"}
+	if got := RunFinishedText(r); got != "Run finished: Only a goal" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestNoteRunFinishedStampsTheRunOnceAsAgent(t *testing.T) {
+	ctx := context.Background()
+	e := &waveobj.Effort{Title: "t", Status: "active",
+		Chunks: []waveobj.EffortChunk{{Label: "Phase 1", Status: "active"}}}
+	if err := wstore.CreateEffort(ctx, e); err != nil {
+		t.Fatal(err)
+	}
+	cleanupEffort(t, e.OID)
+	ref := waveobj.RunEffortRef{EffortOID: e.OID, ChunkLabel: "Phase 1"}
+	for i := 0; i < 2; i++ {
+		if err := NoteRunFinished(ctx, ref, "run:r1", "Run finished: x"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, _ := wstore.GetEffort(ctx, e.OID)
+	notes := got.Chunks[0].Notes
+	if len(notes) != 1 {
+		t.Fatalf("want one note, got %+v", notes)
+	}
+	if n := notes[0]; n.Author != "agent" || n.Run != "run:r1" || n.Text != "Run finished: x" {
+		t.Fatalf("note: %+v", n)
+	}
+}
