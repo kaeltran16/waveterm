@@ -5,6 +5,7 @@ package orchestrate
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"slices"
@@ -113,7 +114,7 @@ func spawnReviewer(ctx, spawnCtx context.Context, g *waveobj.TaskGroup, t *waveo
 		failReview(ctx, g, t, "reviewer could not start: "+err.Error(), afterCommit)
 		return
 	}
-	prompt := reviewPrompt(g, t, worker)
+	prompt := reviewPrompt(g, t, worker, toldToTask(ctx, g, t.ID))
 	runID, sessionId := uuid.NewString(), uuid.NewString()
 	oref, err := spawnWorker(spawnCtx, capability, owner.WorkspaceId, "", worker.ProjectPath, prompt,
 		jarvis.RunWorkerOptions{SessionId: sessionId, RunId: runID, TaskId: t.ID, Label: "review " + t.ID})
@@ -393,7 +394,7 @@ func downstreamTargets(g *waveobj.TaskGroup, reviewed string, names []string) ([
 
 // reviewPrompt is a reviewer's whole brief: what the task asked for, where the spec and plan are, what the
 // worker said it did, and the one diff to judge. It checks intent, not tests: Verify runs those at the merge.
-func reviewPrompt(g *waveobj.TaskGroup, task *waveobj.TaskNode, worker *waveobj.Run) string {
+func reviewPrompt(g *waveobj.TaskGroup, task *waveobj.TaskNode, worker *waveobj.Run, told []string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "You are the reviewer for task %s", task.ID)
 	if g.PlanPath != "" {
@@ -433,7 +434,57 @@ func reviewPrompt(g *waveobj.TaskGroup, task *waveobj.TaskNode, worker *waveobj.
 			fmt.Fprintf(&b, "\n\nThe worker reported: %s", note)
 		}
 	}
+	if extra := reviewAdditions(task, told); extra != "" {
+		b.WriteString("\n\n")
+		b.WriteString(extra)
+	}
 	return b.String()
+}
+
+// reviewAdditions is what the task gained after the plan was written: notes the lead or an earlier reviewer
+// added (LeadNotes), the lead's guidance after a sendback, and what was typed to its worker. The worker was
+// asked to act on them, so a reviewer judging against the plan alone reads a requested change as scope creep.
+func reviewAdditions(task *waveobj.TaskNode, told []string) string {
+	lines := append([]string{}, task.LeadNotes...)
+	if task.LeadGuidance != "" {
+		lines = append(lines, "the lead's guidance after a sendback: "+task.LeadGuidance)
+	}
+	for _, s := range told {
+		lines = append(lines, "typed to the worker: "+s)
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("The worker was also told these after the plan was written; judge the change against them too:")
+	for _, l := range lines {
+		fmt.Fprintf(&b, "\n- %s", l)
+	}
+	return b.String()
+}
+
+// toldToTask is what was typed into a task's worker, oldest first: the lead's `dag tell` and a reviewer's
+// downstream note typed to a live worker (task-lead-told), and the human's own messages (task-told). A failed
+// read leaves the brief without them rather than failing the review.
+func toldToTask(ctx context.Context, g *waveobj.TaskGroup, taskID string) []string {
+	kinds := []string{waveobj.RunEventKindTaskLeadTold, waveobj.RunEventKindTaskTold}
+	evs, err := wstore.QueryRunEventsByKind(ctx, g.ChannelId, g.RunID, kinds, 0)
+	if err != nil {
+		log.Printf("dag %s task %s: reading what its worker was told: %v", g.OID, taskID, err)
+		return nil
+	}
+	var out []string
+	for i := len(evs) - 1; i >= 0; i-- {
+		var d struct {
+			TaskId string `json:"taskid"`
+			Text   string `json:"text"`
+		}
+		if json.Unmarshal(evs[i].Detail, &d) != nil || d.TaskId != taskID || d.Text == "" {
+			continue
+		}
+		out = append(out, d.Text)
+	}
+	return out
 }
 
 // tasksAhead lists the tasks a downstream note can still reach, each with its title, for the reviewer to name.

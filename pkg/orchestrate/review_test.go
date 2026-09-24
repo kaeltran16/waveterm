@@ -528,3 +528,44 @@ func TestReviewDownstreamSkipsAWorkerWaitingOnAQuestion(t *testing.T) {
 		t.Fatalf("the lead must be woken to route it, got %q", f.sends)
 	}
 }
+
+// The worker was told more than the plan says: a note an earlier reviewer sent downstream, the lead's guidance,
+// and text typed into its terminal. Its reviewer judges against all of it, or a requested change reads as scope
+// creep. What was typed to another task's worker stays out.
+func TestReviewerBriefCarriesWhatTheWorkerWasTold(t *testing.T) {
+	ctx, dag, worker := seedReviewDag(t)
+	if err := wstore.UpdateDag(ctx, dag.OID, func(g *waveobj.TaskGroup) error {
+		g.Tasks[0].LeadNotes = []string{"t-1's reviewer: install the latch only once the layout has loaded"}
+		g.Tasks[0].LeadGuidance = "keep the skeleton card-shaped"
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, ev := range []map[string]any{
+		{"taskid": "t-0", "text": "also gate on the workspace atom"},
+		{"taskid": "t-9", "text": "a note for someone else"},
+	} {
+		if _, err := wstore.AppendRunEvent(ctx, dag.ChannelId, dag.RunID, waveobj.RunEventKindTaskLeadTold, nil, ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stubReviewTree(t, worker.EndCommit)
+	calls := captureSpawns(t)
+	schedule(t, ctx, dag.OID)
+	if len(*calls) != 1 {
+		t.Fatalf("want one reviewer, got %d", len(*calls))
+	}
+	p := (*calls)[0].prompt
+	for _, want := range []string{
+		"install the latch only once the layout has loaded",
+		"keep the skeleton card-shaped",
+		"also gate on the workspace atom",
+	} {
+		if !strings.Contains(p, want) {
+			t.Fatalf("reviewer brief missing %q:\n%s", want, p)
+		}
+	}
+	if strings.Contains(p, "a note for someone else") {
+		t.Fatalf("reviewer brief carries another task's message:\n%s", p)
+	}
+}
