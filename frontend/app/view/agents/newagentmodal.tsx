@@ -12,6 +12,7 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { formatChordString } from "@/util/keysym";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
+import { Check, Plus, SquareTerminal, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
@@ -20,6 +21,7 @@ import { liveProjectsForLaunch } from "./agentsviewmodel";
 import {
     composeStartupCommand,
     deriveBranch,
+    isRuntimeOffered,
     RUNTIME_FLAGS,
     runtimeLaunchLabel,
     runtimeShowsTask,
@@ -28,17 +30,20 @@ import {
     worktreeOutcome,
     type Runtime,
 } from "./launch";
-import { naFlagsAtom, naRememberFlagsAtom } from "./naflagsstore";
+import { naFlagsAtom, naLastProjectAtom, naRememberFlagsAtom } from "./naflagsstore";
 import { harnessPreferenceAtom, harnessesAtom, resolveDefaultRuntime } from "./harnessstore";
-import { launchCandidates, projectsAtom, type LaunchCandidate } from "./projectsstore";
+import { lastUsedFirst, launchCandidates, projectsAtom, type LaunchCandidate } from "./projectsstore";
+import { RuntimeMark } from "./runtimemark";
 
-const RUNTIMES: { id: Runtime; name: string; glyph: string }[] = [
-    { id: "claude", name: "Claude Code", glyph: "✳" },
-    { id: "codex", name: "Codex", glyph: "{ }" },
-    { id: "opencode", name: "OpenCode", glyph: "◇" },
-    { id: "pi", name: "Pi", glyph: "Pi" },
-    { id: "terminal", name: "Terminal", glyph: "›_" },
+const RUNTIMES: { id: Runtime; name: string }[] = [
+    { id: "claude", name: "Claude Code" },
+    { id: "codex", name: "Codex" },
+    { id: "opencode", name: "OpenCode" },
+    { id: "pi", name: "Pi" },
+    { id: "terminal", name: "Terminal" },
 ];
+
+const LABEL = "font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-muted";
 
 const CWD_TAIL_LINES = 200;
 
@@ -48,12 +53,14 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
     const agents = useAtomValue(model.agentsAtom);
     const naFlags = useAtomValue(naFlagsAtom);
     const remember = useAtomValue(naRememberFlagsAtom);
+    const lastProject = useAtomValue(naLastProjectAtom);
+    const harnesses = useAtomValue(harnessesAtom);
     const [runtime, setRuntime] = useState<Runtime>("claude");
     const [project, setProject] = useState<string>("");
     const [task, setTask] = useState("");
+    const [taskOpen, setTaskOpen] = useState(false);
     const [startup, setStartup] = useState("claude");
     const [flagMenuOpen, setFlagMenuOpen] = useState(false);
-    const [flagQuery, setFlagQuery] = useState("");
     const [useWorktree, setUseWorktree] = useState(false);
     const [branch, setBranch] = useState("");
     const [branchEdited, setBranchEdited] = useState(false);
@@ -63,7 +70,7 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
     const [resolvedPaths, setResolvedPaths] = useState<Record<string, string>>({});
     const [error, setError] = useState<string | null>(null);
     const reqIdRef = useRef(0);
-    const taskRef = useRef<HTMLTextAreaElement>(null);
+    const launchingRef = useRef(false);
     const defaultAppliedRef = useRef(false);
     // Default the modal's runtime to the resolved harness preference on first open (Part A: Pi wins
     // for fresh installs / new sessions). Later opens keep whatever the user last picked in this modal.
@@ -79,8 +86,13 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
             setStartup(runtimeStartupCommand(chosen as Runtime));
         }
     }, [open]);
-    // Launcher targets mirror the project switcher: registered projects ∪ live-derived ones.
-    const candidates = useMemo(() => launchCandidates(registry, liveProjectsForLaunch(agents)), [registry, agents]);
+    // Launcher targets mirror the project switcher: registered projects ∪ live-derived ones, with the
+    // last-launched project first so it is the default.
+    const candidates = useMemo(
+        () => lastUsedFirst(launchCandidates(registry, liveProjectsForLaunch(agents)), lastProject),
+        [registry, agents, lastProject]
+    );
+    const offeredRuntimes = RUNTIMES.filter((r) => isRuntimeOffered(r.id, harnesses));
     const pathFor = (c: LaunchCandidate | undefined): string => (c ? c.path || resolvedPaths[c.name] || "" : "");
     const selectedProject = project || candidates[0]?.name || "";
     const selectedCandidate = candidates.find((c) => c.name === selectedProject);
@@ -88,23 +100,21 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
     const branchNames = branches.map((b) => b.name);
     // The field shows the project's current branch until the user types/picks their own.
     const effectiveBranch = branchEdited ? branch : currentBranch;
-    // Flags: the selected runtime's catalog, the enabled subset (as chips), the search-filtered menu,
-    // and the resolved command that launch will actually run (base field + enabled flags). Flag state
-    // is scoped per runtime, so read/write only the selected runtime's subrecord.
+    // Flags: the selected runtime's catalog and its enabled subset (shown as chips in the command
+    // field). Flag state is scoped per runtime, so read/write only the selected runtime's subrecord.
     const flagCatalog = RUNTIME_FLAGS[runtime];
     const runtimeFlags = naFlags[runtime] ?? {};
     const enabledFlags = flagCatalog.filter((f) => runtimeFlags[f.id]);
-    const flagQ = flagQuery.trim().toLowerCase();
-    const menuFlags = flagCatalog.filter(
-        (f) => !flagQ || f.flag.toLowerCase().includes(flagQ) || f.desc.toLowerCase().includes(flagQ)
-    );
-    const commandPreview = composeStartupCommand(startup, runtime, runtimeFlags);
     const setFlag = (id: string, on: boolean) =>
         globalStore.set(naFlagsAtom, (prev) => ({ ...prev, [runtime]: { ...prev[runtime], [id]: on } }));
-    const toggleFlagMenu = () => {
-        setFlagQuery("");
-        setFlagMenuOpen((v) => !v);
-    };
+    const wantsWorktree = useWorktree && runtimeSupportsWorktree(runtime);
+    // git can't reuse the already-checked-out branch; branch a fresh one off it instead.
+    const landingBranch = (chosen: string) =>
+        chosen === currentBranch ? deriveBranch(currentBranch, branchNames) : chosen;
+    const chosenBranch = effectiveBranch.trim();
+    const footBranch = wantsWorktree
+        ? chosenBranch && `worktree on ${landingBranch(chosenBranch)}`
+        : currentBranch && `on ${currentBranch}`;
     const close = () => {
         globalStore.set(model.newAgentOpenAtom, false);
         setError(null);
@@ -151,13 +161,6 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
         // resolvedPaths is read for the dedup filter but kept out of deps: the merge is functional and
         // re-running on every resolution would loop.
     }, [open, candidates]);
-    // Focus the Task field when the modal opens (C1). runtime is intentionally out of deps — switching
-    // runtime while the modal is open must not steal focus back to the task box.
-    useEffect(() => {
-        if (open && runtimeShowsTask(runtime)) {
-            taskRef.current?.focus();
-        }
-    }, [open]);
     // Pull the project's branches (recency-ordered) for the worktree-branch suggestions. Terminal
     // runtime and non-repo projects degrade to free-text (empty list).
     useEffect(() => {
@@ -213,8 +216,13 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
     const pickRuntime = (r: Runtime) => {
         setRuntime(r);
         setStartup(runtimeStartupCommand(r));
+        setFlagMenuOpen(false);
     };
     const launch = async () => {
+        // a held Enter on the focused Launch button repeats the click; one launch per open
+        if (launchingRef.current) {
+            return;
+        }
         const c = candidates.find((p) => p.name === selectedProject);
         const path = pathFor(c);
         if (!c || !path) {
@@ -222,15 +230,14 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
             return;
         }
         let branchArg: string | undefined;
-        if (useWorktree && runtimeSupportsWorktree(runtime)) {
-            const chosen = effectiveBranch.trim();
-            if (!chosen) {
+        if (wantsWorktree) {
+            if (!chosenBranch) {
                 setError("Enter a branch name or turn off the worktree option.");
                 return;
             }
-            // git can't reuse the already-checked-out branch; branch a fresh one off it instead.
-            branchArg = chosen === currentBranch ? deriveBranch(currentBranch, branchNames) : chosen;
+            branchArg = landingBranch(chosenBranch);
         }
+        launchingRef.current = true;
         try {
             // Persist live-derived projects on first launch so they become stable, registered targets.
             if (!c.registered) {
@@ -239,7 +246,7 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
             await launchAgent(model, {
                 runtime,
                 startupCommand: composeStartupCommand(startup, runtime, runtimeFlags),
-                task,
+                task: runtimeShowsTask(runtime) ? task : "",
                 projectPath: path,
                 projectName: c.name,
                 branch: branchArg,
@@ -248,355 +255,360 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
             if (!globalStore.get(naRememberFlagsAtom)) {
                 globalStore.set(naFlagsAtom, {});
             }
+            globalStore.set(naLastProjectAtom, c.name);
+            setTask("");
+            setTaskOpen(false);
             close();
         } catch (e) {
             setError(String(e));
+        } finally {
+            launchingRef.current = false;
         }
     };
     return (
         <ModalShell open={open} onClose={close} onSubmit={() => void launch()} className="flex flex-col w-[min(640px,93vw)] max-h-[86vh]" dismissOnBackdrop={false}>
             {open ? (
                 <>
-                <div className="flex shrink-0 items-center gap-[11px] border-b border-border px-[18px] py-[15px]">
-                    <div className="flex h-[18px] w-[18px] items-center justify-center rounded-full bg-gradient-to-br from-accent-300 to-accent-500">
-                        <div className="h-[7px] w-[7px] rounded-full bg-surface" />
-                    </div>
-                    <span className="flex-1 text-[15px] font-semibold text-primary">New agent</span>
-                    <span className="rounded-[5px] border border-edge-mid px-[7px] py-0.5 font-mono text-[10.5px] text-muted">
-                        esc
-                    </span>
+                <div className="flex shrink-0 items-center gap-[10px] border-b border-border py-[13px] pl-[18px] pr-3">
+                    <h2 className="m-0 flex-1 text-[15px] font-semibold text-primary">New agent</h2>
+                    <button
+                        type="button"
+                        aria-label="Close"
+                        onClick={close}
+                        className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-[7px] text-muted hover:bg-surface-hover hover:text-primary"
+                    >
+                        <X size={15} strokeWidth={2} />
+                    </button>
                 </div>
-                <div className="flex min-h-0 flex-1 flex-col gap-[15px] overflow-y-auto px-[18px] py-4">
-                    <Section label="Runtime">
-                        <div className="grid grid-cols-4 gap-2">
-                            {RUNTIMES.map((r) => (
-                                <button
-                                    key={r.id}
-                                    onClick={() => pickRuntime(r.id)}
-                                    className={cn(
-                                        "flex cursor-pointer flex-col items-center gap-2 rounded-[11px] border bg-surface px-2 py-[13px] hover:border-edge-strong",
-                                        runtime === r.id ? "border-accent-700 bg-accentbg" : "border-edge-mid"
-                                    )}
-                                >
-                                    <div className="flex h-[30px] w-[30px] items-center justify-center rounded-[9px] bg-accentbg font-mono text-[13px] font-bold text-accent-soft">
-                                        {r.glyph}
-                                    </div>
-                                    <span
+                <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+                    <div className="grid shrink-0 grid-cols-[190px_minmax(0,1fr)] border-b border-border">
+                        <div role="radiogroup" aria-label="Runtime" className="flex flex-col gap-px border-r border-border px-2 py-3">
+                            <div className={cn(LABEL, "px-2 pb-[7px] pt-0.5")}>Runtime</div>
+                            {offeredRuntimes.map((r) => {
+                                const sel = runtime === r.id;
+                                return (
+                                    <button
+                                        key={r.id}
+                                        type="button"
+                                        role="radio"
+                                        aria-checked={sel}
+                                        onClick={() => pickRuntime(r.id)}
                                         className={cn(
-                                            "text-[12px] font-semibold",
-                                            runtime === r.id ? "text-primary" : "text-muted-foreground"
+                                            "flex cursor-pointer items-center gap-[9px] rounded-[7px] p-2 text-left",
+                                            sel ? "bg-surface-selected" : "hover:bg-surface-hover"
                                         )}
                                     >
-                                        {r.name}
-                                    </span>
-                                </button>
-                            ))}
-                        </div>
-                    </Section>
-                    <Section label="Project">
-                        {candidates.length === 0 ? (
-                            <div className="text-[12.5px] text-muted">
-                                No projects yet — add one from the project switcher (+ New project).
-                            </div>
-                        ) : (
-                            <div className="flex flex-wrap gap-[7px]">
-                                {candidates.map((p) => {
-                                    const failed = !p.registered && p.name in resolvedPaths && !resolvedPaths[p.name];
-                                    const resolving = !p.registered && !pathFor(p) && !failed;
-                                    return (
-                                        <button
-                                            key={p.name}
-                                            disabled={failed}
-                                            onClick={() => setProject(p.name)}
-                                            title={failed ? "No working directory found for this project" : undefined}
+                                        <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+                                            {r.id === "terminal" ? (
+                                                <SquareTerminal size={16} strokeWidth={1.8} className="text-ink-mid" />
+                                            ) : (
+                                                <RuntimeMark
+                                                    runtime={r.id}
+                                                    className="font-mono text-[12px] font-bold text-accent-soft"
+                                                    imageClassName="h-4 w-4 rounded-[3px]"
+                                                />
+                                            )}
+                                        </span>
+                                        <span
                                             className={cn(
-                                                "flex items-center gap-[7px] rounded border bg-surface px-[11px] py-[7px]",
-                                                failed
-                                                    ? "cursor-not-allowed opacity-40"
-                                                    : "cursor-pointer hover:border-edge-strong",
-                                                selectedProject === p.name ? "border-accent-700 bg-accentbg" : "border-edge-mid"
+                                                "flex-1 text-[12.5px] font-semibold",
+                                                sel ? "text-primary" : "text-muted-foreground"
                                             )}
                                         >
-                                            <div
+                                            {r.name}
+                                        </span>
+                                        {sel ? <Check size={14} strokeWidth={2.4} className="text-accent" /> : null}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                        <div role="radiogroup" aria-label="Project" className="flex min-w-0 flex-col gap-px px-2 py-3">
+                            <div className="flex items-baseline gap-2 px-2 pb-[7px] pt-0.5">
+                                <span className={cn(LABEL, "flex-1")}>Project</span>
+                                {candidates.length > 1 ? (
+                                    <span className="text-[10.5px] text-muted">last used first</span>
+                                ) : null}
+                            </div>
+                            {candidates.length === 0 ? (
+                                <div className="px-2 text-[12.5px] text-muted">
+                                    No projects yet — add one from the project switcher (+ New project).
+                                </div>
+                            ) : (
+                                <div className="flex max-h-[236px] flex-col gap-px overflow-y-auto">
+                                    {candidates.map((p) => {
+                                        const sel = selectedProject === p.name;
+                                        const failed = !p.registered && p.name in resolvedPaths && !resolvedPaths[p.name];
+                                        const resolving = !p.registered && !pathFor(p) && !failed;
+                                        return (
+                                            <button
+                                                key={p.name}
+                                                type="button"
+                                                role="radio"
+                                                aria-checked={sel}
+                                                disabled={failed}
+                                                onClick={() => setProject(p.name)}
+                                                title={failed ? "No working directory found for this project" : pathFor(p) || undefined}
                                                 className={cn(
-                                                    "h-[7px] w-[7px] rounded-[2px]",
-                                                    selectedProject === p.name ? "bg-accent" : "bg-muted"
-                                                )}
-                                            />
-                                            <span
-                                                className={cn(
-                                                    "text-[12.5px] font-medium",
-                                                    selectedProject === p.name ? "text-primary" : "text-muted-foreground"
+                                                    "flex items-center gap-[10px] rounded-[7px] p-2 text-left",
+                                                    failed ? "cursor-not-allowed opacity-40" : "cursor-pointer",
+                                                    sel ? "bg-surface-selected" : failed ? "" : "hover:bg-surface-hover"
                                                 )}
                                             >
-                                                {p.name}
-                                            </span>
-                                            {resolving ? <span className="font-mono text-[9.5px] text-muted">…</span> : null}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                        )}
-                    </Section>
-                    {runtimeShowsTask(runtime) ? (
-                        <Section label="Task">
-                            <textarea
-                                ref={taskRef}
-                                value={task}
-                                onChange={(e) => setTask(e.target.value)}
-                                placeholder="Describe what this agent should do…"
-                                className="h-[84px] w-full resize-none rounded-[10px] border border-edge-mid bg-surface px-[13px] py-[11px] text-[13.5px] leading-normal text-primary outline-none focus:border-accent-700"
-                            />
-                        </Section>
-                    ) : null}
-                    <Section label="Startup command · optional">
-                        <div className="flex items-center gap-[9px] rounded border border-edge-mid bg-surface px-3 py-[9px]">
-                            <span className="font-mono text-[12.5px] font-semibold text-success">›</span>
-                            <input
-                                value={startup}
-                                onChange={(e) => setStartup(e.target.value)}
-                                placeholder={runtime === "terminal" ? "bash" : "claude"}
-                                className="flex-1 bg-transparent font-mono text-[12.5px] text-secondary outline-none"
-                            />
+                                                <span
+                                                    className={cn(
+                                                        "min-w-0 flex-1 truncate text-[12.5px] font-semibold",
+                                                        sel ? "text-primary" : "text-muted-foreground"
+                                                    )}
+                                                >
+                                                    {p.name}
+                                                </span>
+                                                {resolving ? <span className="font-mono text-[10.5px] text-muted">…</span> : null}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            )}
                         </div>
-                    </Section>
-                    {flagCatalog.length > 0 ? (
+                    </div>
+                    <div className="flex flex-col gap-[14px] px-[18px] pb-4 pt-[14px]">
                         <div>
-                            <div className="mb-[9px] flex items-center gap-2">
-                                <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">
-                                    Flags
-                                </span>
-                                <div className="flex-1" />
-                                <button
-                                    type="button"
-                                    onClick={() => globalStore.set(naRememberFlagsAtom, (v) => !v)}
-                                    title="Reuse the enabled flags for every new agent"
-                                    className="flex cursor-pointer items-center gap-[6px]"
-                                >
-                                    <span
-                                        className={cn(
-                                            "flex h-[12px] w-[12px] items-center justify-center rounded-[3px] border font-mono text-xxxs font-bold text-background",
-                                            remember ? "border-accent bg-accent" : "border-edge-strong"
-                                        )}
+                            <div className="mb-2 flex items-center gap-2">
+                                <label htmlFor="na-cmd" className={cn(LABEL, "flex-1")}>
+                                    Command
+                                </label>
+                                {flagCatalog.length > 0 ? (
+                                    <label
+                                        title="Reuse the enabled flags for every new agent"
+                                        className="flex cursor-pointer items-center gap-[6px] text-[11.5px] text-muted"
                                     >
-                                        {remember ? "✓" : ""}
-                                    </span>
-                                    <span
-                                        className={cn(
-                                            "text-[10.5px] font-medium",
-                                            remember ? "text-accent-soft" : "text-muted"
-                                        )}
-                                    >
-                                        Remember
-                                    </span>
-                                </button>
+                                        <input
+                                            type="checkbox"
+                                            checked={remember}
+                                            onChange={() => globalStore.set(naRememberFlagsAtom, (v) => !v)}
+                                            className="m-0 h-[13px] w-[13px] cursor-pointer accent-accent"
+                                        />
+                                        <span>Remember flags</span>
+                                    </label>
+                                ) : null}
                             </div>
-                            <div className="flex flex-wrap items-center gap-[6px]">
+                            <div className="flex min-h-[38px] flex-wrap items-center gap-[6px] rounded-[8px] border border-edge-mid bg-surface py-[5px] pl-3 pr-[6px] focus-within:border-accent-700">
+                                <span className="font-mono text-[12.5px] font-semibold text-success">›</span>
+                                <input
+                                    id="na-cmd"
+                                    value={startup}
+                                    onChange={(e) => setStartup(e.target.value)}
+                                    placeholder={runtime === "terminal" ? "default shell" : runtimeStartupCommand(runtime)}
+                                    style={{ width: `${Math.max(startup.length + 1, runtime === "terminal" && !startup ? 14 : 4)}ch` }}
+                                    className="bg-transparent font-mono text-[12.5px] text-secondary outline-none"
+                                />
                                 {enabledFlags.map((f) => (
-                                    <button
+                                    <span
                                         key={f.id}
-                                        type="button"
-                                        onClick={() => setFlag(f.id, false)}
-                                        title={`${f.desc} — click to remove`}
-                                        className="flex cursor-pointer items-center gap-[7px] rounded-[7px] border border-accent-700 bg-accentbg py-[5px] pl-[9px] pr-[8px] hover:border-accent-600"
+                                        title={f.desc}
+                                        className="flex items-center gap-0.5 rounded-[6px] border border-accent-700 bg-accentbg py-0.5 pl-2 pr-0.5"
                                     >
-                                        <span className="font-mono text-[11.5px] font-semibold text-accent-soft">
-                                            {f.flag}
-                                        </span>
-                                        <span className="font-mono text-[13px] leading-none text-muted">×</span>
-                                    </button>
+                                        <span className="font-mono text-[11.5px] font-semibold text-accent-soft">{f.flag}</span>
+                                        <button
+                                            type="button"
+                                            aria-label={`Remove ${f.flag}`}
+                                            onClick={() => setFlag(f.id, false)}
+                                            className="flex h-5 w-5 cursor-pointer items-center justify-center rounded-[4px] text-muted hover:text-primary"
+                                        >
+                                            <X size={11} strokeWidth={2.4} />
+                                        </button>
+                                    </span>
                                 ))}
-                                <button
-                                    type="button"
-                                    onClick={toggleFlagMenu}
-                                    className={cn(
-                                        "flex cursor-pointer items-center gap-[5px] rounded-[7px] border border-dashed bg-surface px-[10px] py-[5px] hover:border-edge-strong",
-                                        flagMenuOpen ? "border-accent-700 text-accent-soft" : "border-edge-strong text-muted"
-                                    )}
-                                >
-                                    <span className="font-mono text-[13px] leading-none">+</span>
-                                    <span className="text-[11.5px] font-medium">Add flag</span>
-                                </button>
+                                <div className="flex-1" />
+                                {flagCatalog.length > 0 ? (
+                                    <button
+                                        type="button"
+                                        aria-expanded={flagMenuOpen}
+                                        onClick={() => setFlagMenuOpen((v) => !v)}
+                                        className={cn(
+                                            "flex cursor-pointer items-center gap-[5px] rounded-[6px] px-2 py-1 text-[11.5px] font-semibold",
+                                            flagMenuOpen
+                                                ? "bg-accentbg text-accent-soft"
+                                                : "text-ink-mid hover:bg-surface-hover hover:text-primary"
+                                        )}
+                                    >
+                                        <Plus size={12} strokeWidth={2.2} />
+                                        <span>Flag</span>
+                                    </button>
+                                ) : null}
                             </div>
                             <AnimatePresence>
-                                {flagMenuOpen && (
+                                {flagMenuOpen && flagCatalog.length > 0 && (
                                     <motion.div
                                         variants={composerReveal}
                                         initial="initial"
                                         animate="animate"
                                         exit="exit"
-                                        className="mt-2 overflow-hidden rounded-[10px] border border-edge-mid bg-surface"
+                                        className="mt-[6px] flex flex-col overflow-hidden rounded-[10px] border border-edge-mid bg-surface p-1"
                                     >
-                                        <div className="flex items-center gap-2 border-b border-edge-faint px-[11px] py-2">
-                                            <span className="font-mono text-[12px] font-semibold text-success">/</span>
-                                            <input
-                                                value={flagQuery}
-                                                onChange={(e) => setFlagQuery(e.target.value)}
-                                                placeholder="Search flags…"
-                                                className="flex-1 bg-transparent font-mono text-[12px] text-secondary outline-none"
-                                            />
-                                            <span className="whitespace-nowrap font-mono text-[10px] text-muted">
-                                                {flagCatalog.length} for {RUNTIMES.find((r) => r.id === runtime)?.name}
-                                            </span>
-                                        </div>
-                                        <div className="max-h-[158px] overflow-y-auto p-[5px]">
-                                            {menuFlags.length === 0 ? (
-                                                <div className="p-[14px] text-center text-[11.5px] text-muted">
-                                                    No matching flags
-                                                </div>
-                                            ) : (
-                                                menuFlags.map((f) => {
-                                                    const on = !!runtimeFlags[f.id];
-                                                    return (
-                                                        <button
-                                                            key={f.id}
-                                                            type="button"
-                                                            onClick={() => setFlag(f.id, !on)}
-                                                            className={cn(
-                                                                "flex w-full cursor-pointer items-center gap-[10px] rounded-[7px] px-[9px] py-[7px] text-left hover:bg-surface-hover",
-                                                                on ? "bg-accentbg" : ""
-                                                            )}
-                                                        >
-                                                            <span
-                                                                className={cn(
-                                                                    "flex h-[15px] w-[15px] shrink-0 items-center justify-center rounded-[4px] border font-mono text-[9px] font-bold text-background",
-                                                                    on ? "border-accent bg-accent" : "border-edge-strong"
-                                                                )}
-                                                            >
-                                                                {on ? "✓" : ""}
-                                                            </span>
-                                                            <span
-                                                                className={cn(
-                                                                    "shrink-0 font-mono text-[11.5px] font-semibold",
-                                                                    on ? "text-accent-soft" : "text-muted-foreground"
-                                                                )}
-                                                            >
-                                                                {f.flag}
-                                                            </span>
-                                                            <span className="flex-1 truncate text-right text-[11px] text-muted">
-                                                                {f.desc}
-                                                            </span>
-                                                        </button>
-                                                    );
-                                                })
-                                            )}
-                                        </div>
+                                        {flagCatalog.map((f) => {
+                                            const on = !!runtimeFlags[f.id];
+                                            return (
+                                                <label
+                                                    key={f.id}
+                                                    className={cn(
+                                                        "flex cursor-pointer items-center gap-[10px] rounded-[7px] px-2 py-[6px]",
+                                                        on ? "bg-accentbg" : "hover:bg-surface-hover"
+                                                    )}
+                                                >
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={on}
+                                                        onChange={() => setFlag(f.id, !on)}
+                                                        className="m-0 h-[13px] w-[13px] cursor-pointer accent-accent"
+                                                    />
+                                                    <span
+                                                        className={cn(
+                                                            "shrink-0 font-mono text-[11.5px] font-semibold",
+                                                            on ? "text-accent-soft" : "text-muted-foreground"
+                                                        )}
+                                                    >
+                                                        {f.flag}
+                                                    </span>
+                                                    <span className="flex-1 truncate text-right text-[11px] text-muted">
+                                                        {f.desc}
+                                                    </span>
+                                                </label>
+                                            );
+                                        })}
                                     </motion.div>
                                 )}
                             </AnimatePresence>
                         </div>
-                    ) : runtime !== "terminal" ? (
-                        <div className="text-[11.5px] text-muted">No launch flags available</div>
-                    ) : null}
-                    {runtimeSupportsWorktree(runtime) ? (
-                        <Section label="Worktree">
-                            <div className="flex items-center gap-[10px]">
+                        {runtimeSupportsWorktree(runtime) ? (
+                            <div>
                                 <button
                                     type="button"
                                     role="switch"
                                     aria-checked={useWorktree}
                                     onClick={() => setUseWorktree((v) => !v)}
-                                    className={cn(
-                                        "relative h-[20px] w-[34px] shrink-0 cursor-pointer rounded-full transition-colors",
-                                        useWorktree ? "bg-accent" : "bg-edge-strong"
-                                    )}
+                                    className="flex cursor-pointer items-center gap-[10px]"
                                 >
                                     <span
                                         className={cn(
-                                            "absolute top-[3px] h-[14px] w-[14px] rounded-full bg-background transition-all",
-                                            useWorktree ? "left-[18px]" : "left-[2px]"
+                                            "relative h-[20px] w-[34px] shrink-0 rounded-full transition-colors",
+                                            useWorktree ? "bg-accent" : "bg-edge-strong"
                                         )}
-                                    />
-                                </button>
-                                <span
-                                    onClick={() => setUseWorktree((v) => !v)}
-                                    className="cursor-pointer text-[12.5px] font-medium text-secondary"
-                                >
-                                    Run in an isolated git worktree
-                                </span>
-                            </div>
-                            {useWorktree ? (
-                                <div className="relative mt-[11px]">
-                                    <div className="flex items-center rounded border border-edge-mid bg-surface focus-within:border-accent-700">
-                                        <input
-                                            value={effectiveBranch}
-                                            onChange={(e) => {
-                                                setBranch(e.target.value);
-                                                setBranchEdited(true);
-                                            }}
-                                            onFocus={() => setBranchListOpen(true)}
-                                            placeholder={currentBranch || "feat/new-agent"}
-                                            className="flex-1 bg-transparent px-3 py-[9px] font-mono text-[12.5px] text-secondary outline-none"
-                                        />
-                                        {branches.length > 0 ? (
-                                            <button
-                                                type="button"
-                                                onClick={() => setBranchListOpen((v) => !v)}
-                                                className="cursor-pointer px-3 py-[9px] text-[10px] text-muted hover:text-primary"
-                                            >
-                                                ▾
-                                            </button>
-                                        ) : null}
-                                    </div>
-                                    <PopoverReveal
-                                        open={branchListOpen && branches.length > 0}
-                                        origin="bottom left"
-                                        className="absolute bottom-full left-0 right-0 z-10 mb-1 max-h-[168px] overflow-y-auto rounded border border-edge-mid bg-modalbg py-1 shadow-popover"
                                     >
-                                        {branches.map((b) => (
-                                            <button
-                                                key={b.name}
-                                                type="button"
-                                                onClick={() => {
-                                                    setBranch(b.name);
+                                        <span
+                                            className={cn(
+                                                "absolute top-[3px] h-[14px] w-[14px] rounded-full bg-background transition-all",
+                                                useWorktree ? "left-[18px]" : "left-[2px]"
+                                            )}
+                                        />
+                                    </span>
+                                    <span className="text-[12.5px] font-medium text-secondary">
+                                        Run in an isolated git worktree
+                                    </span>
+                                </button>
+                                {useWorktree ? (
+                                    <div className="relative mt-[11px] pl-[44px]">
+                                        <div className="flex items-center rounded-[8px] border border-edge-mid bg-surface focus-within:border-accent-700">
+                                            <input
+                                                aria-label="Branch"
+                                                value={effectiveBranch}
+                                                onChange={(e) => {
+                                                    setBranch(e.target.value);
                                                     setBranchEdited(true);
-                                                    setBranchListOpen(false);
                                                 }}
-                                                className={cn(
-                                                    "flex w-full cursor-pointer items-center gap-2 px-3 py-[7px] text-left hover:bg-surface-hover",
-                                                    b.name === effectiveBranch ? "text-primary" : "text-secondary"
-                                                )}
-                                            >
-                                                <span
+                                                onFocus={() => setBranchListOpen(true)}
+                                                placeholder={currentBranch || "feat/new-agent"}
+                                                className="flex-1 bg-transparent px-3 py-2 font-mono text-[12.5px] text-secondary outline-none"
+                                            />
+                                            {branches.length > 0 ? (
+                                                <button
+                                                    type="button"
+                                                    aria-label="Show branches"
+                                                    onClick={() => setBranchListOpen((v) => !v)}
+                                                    className="cursor-pointer px-3 py-2 text-[10px] text-muted hover:text-primary"
+                                                >
+                                                    ▾
+                                                </button>
+                                            ) : null}
+                                        </div>
+                                        <PopoverReveal
+                                            open={branchListOpen && branches.length > 0}
+                                            origin="bottom left"
+                                            className="absolute bottom-full left-[44px] right-0 z-10 mb-1 max-h-[168px] overflow-y-auto rounded border border-edge-mid bg-modalbg py-1 shadow-popover"
+                                        >
+                                            {branches.map((b) => (
+                                                <button
+                                                    key={b.name}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setBranch(b.name);
+                                                        setBranchEdited(true);
+                                                        setBranchListOpen(false);
+                                                    }}
                                                     className={cn(
-                                                        "h-[6px] w-[6px] shrink-0 rounded-full",
-                                                        b.name === effectiveBranch ? "bg-accent" : "bg-muted"
+                                                        "flex w-full cursor-pointer items-center gap-2 px-3 py-[7px] text-left hover:bg-surface-hover",
+                                                        b.name === effectiveBranch ? "text-primary" : "text-secondary"
                                                     )}
-                                                />
-                                                <span className="flex-1 truncate font-mono text-[12px]">
-                                                    {b.name}
-                                                </span>
-                                                {b.age ? (
-                                                    <span className="shrink-0 text-[10.5px] text-muted">{b.age}</span>
-                                                ) : null}
-                                            </button>
-                                        ))}
-                                    </PopoverReveal>
-                                    <div className="mt-[7px] text-[11px] text-muted">
-                                        {worktreeOutcome({ branch: effectiveBranch, currentBranch, branchNames })}
+                                                >
+                                                    <span
+                                                        className={cn(
+                                                            "h-[6px] w-[6px] shrink-0 rounded-full",
+                                                            b.name === effectiveBranch ? "bg-accent" : "bg-muted"
+                                                        )}
+                                                    />
+                                                    <span className="flex-1 truncate font-mono text-[12px]">{b.name}</span>
+                                                    {b.age ? (
+                                                        <span className="shrink-0 text-[10.5px] text-muted">{b.age}</span>
+                                                    ) : null}
+                                                </button>
+                                            ))}
+                                        </PopoverReveal>
+                                        <div className="mt-[7px] text-[11.5px] text-muted">
+                                            {worktreeOutcome({ branch: effectiveBranch, currentBranch, branchNames })}
+                                        </div>
                                     </div>
-                                </div>
-                            ) : null}
-                        </Section>
-                    ) : null}
-                    {error ? <div className="text-[12px] text-error">{error}</div> : null}
+                                ) : null}
+                            </div>
+                        ) : null}
+                        {runtimeShowsTask(runtime) ? (
+                            taskOpen ? (
+                                <textarea
+                                    aria-label="Task"
+                                    autoFocus
+                                    value={task}
+                                    onChange={(e) => setTask(e.target.value)}
+                                    placeholder="Sent as the first prompt…"
+                                    className="block h-[72px] w-full resize-none rounded-[10px] border border-edge-mid bg-surface px-3 py-[10px] text-[13px] leading-normal text-primary outline-none focus:border-accent-700"
+                                />
+                            ) : (
+                                <button
+                                    type="button"
+                                    onClick={() => setTaskOpen(true)}
+                                    className="flex cursor-pointer items-center gap-[6px] self-start text-[12px] font-semibold text-ink-mid hover:text-primary"
+                                >
+                                    <Plus size={12} strokeWidth={2.2} />
+                                    <span>Start with a task</span>
+                                </button>
+                            )
+                        ) : null}
+                        {error ? <div className="text-[12px] text-error">{error}</div> : null}
+                    </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-3 border-t border-border px-[18px] py-[13px]">
-                    <div className="flex min-w-0 flex-col gap-[3px] overflow-hidden">
-                        <span className="font-mono text-[10px] text-muted">
-                            Starting in <span className="text-accent-soft">{selectedProject || "—"}</span>
-                        </span>
-                        {commandPreview ? (
-                            <span className="truncate font-mono text-[11px] font-semibold text-ink-mid">
-                                {commandPreview}
-                            </span>
-                        ) : null}
+                    <div title={selectedPath || undefined} className="min-w-0 flex-1 truncate text-[12px] text-muted">
+                        Starts in <span className="font-mono text-[11px] text-ink-hi">{selectedPath || "—"}</span>
+                        {footBranch ? ` · ${footBranch}` : null}
                     </div>
-                    <div className="flex-1" />
                     <DialogButton variant="secondary" hint="esc" onClick={close}>
                         Cancel
                     </DialogButton>
-                    <DialogButton variant="primary" hint={formatChordString("Cmd:Enter")} onClick={() => void launch()}>
+                    {/* focused on open, so a plain Enter launches with the defaults */}
+                    <DialogButton
+                        variant="primary"
+                        autoFocus
+                        hint={formatChordString("Cmd:Enter")}
+                        onClick={() => void launch()}
+                        className="focus:outline-2 focus:outline-offset-2 focus:outline-accent-300"
+                    >
                         {runtimeLaunchLabel(runtime)}
                     </DialogButton>
                 </div>
@@ -604,18 +616,4 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
             ) : null}
         </ModalShell>
     );
-}
-
-function Section({ label, action, children }: { label: string; action?: React.ReactNode; children: React.ReactNode }) {
-    return (
-        <div>
-            <div className="mb-[9px] flex min-h-[16px] items-center gap-[9px]">
-                <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">
-                    {label}
-                </span>
-                {action ? <div className="ml-auto flex items-center">{action}</div> : null}
-            </div>
-            {children}
-    </div>
-);
 }

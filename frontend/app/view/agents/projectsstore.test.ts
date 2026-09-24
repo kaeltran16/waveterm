@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { launchCandidates, mergeSwitcherProjects, type SwitcherProject } from "./projectsstore";
+import { lastUsedFirst, launchCandidates, mergeSwitcherProjects, type SwitcherProject } from "./projectsstore";
 
 describe("mergeSwitcherProjects", () => {
     it("appends registry-only projects with zero counts and flags registered rows", () => {
@@ -44,5 +44,18 @@ describe("launchCandidates", () => {
         expect(launchCandidates({} as any, [{ name: "docs", transcriptPath: "/d.jsonl" }])).toEqual([
             { name: "docs", path: "", transcriptPath: "/d.jsonl", registered: false },
         ]);
+    });
+});
+
+describe("lastUsedFirst", () => {
+    const c = (name: string) => ({ name, path: `/${name}`, registered: true });
+    const list = [c("a"), c("b"), c("c")];
+    it("moves the last-used project to the top and keeps the rest in order", () => {
+        expect(lastUsedFirst(list, "c").map((p) => p.name)).toEqual(["c", "a", "b"]);
+    });
+    it("leaves the order alone when the last-used project is first, unknown, or unset", () => {
+        expect(lastUsedFirst(list, "a").map((p) => p.name)).toEqual(["a", "b", "c"]);
+        expect(lastUsedFirst(list, "gone").map((p) => p.name)).toEqual(["a", "b", "c"]);
+        expect(lastUsedFirst(list, "").map((p) => p.name)).toEqual(["a", "b", "c"]);
     });
 });

@@ -6,6 +6,7 @@ import {
     buildLaunchMeta,
     composeStartupCommand,
     deriveBranch,
+    isRuntimeOffered,
     resumeArgsForClaude,
     resumeArgsForOpencode,
     resumeArgsForPi,
@@ -256,5 +257,23 @@ describe("resumeArgsForPi", () => {
         const args = resumeArgsForPi("C:\\Users\\Jane Doe\\.pi\\agent\\sessions\\s.jsonl");
         expect(args).toEqual(["--session", "C:\\Users\\Jane Doe\\.pi\\agent\\sessions\\s.jsonl"]);
         expect(args.filter((a) => a.includes(" "))).toHaveLength(1);
+    });
+});
+
+describe("isRuntimeOffered", () => {
+    const harnesses = [
+        { runtime: "claude", installed: true },
+        { runtime: "codex", installed: false },
+    ];
+    it("offers installed runtimes and hides uninstalled or unknown ones", () => {
+        expect(isRuntimeOffered("claude", harnesses)).toBe(true);
+        expect(isRuntimeOffered("codex", harnesses)).toBe(false);
+        expect(isRuntimeOffered("pi", harnesses)).toBe(false);
+    });
+    it("always offers the terminal", () => {
+        expect(isRuntimeOffered("terminal", harnesses)).toBe(true);
+    });
+    it("offers everything while the catalog is empty", () => {
+        expect(isRuntimeOffered("codex", [])).toBe(true);
     });
 });

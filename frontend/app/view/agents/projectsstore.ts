@@ -61,3 +61,12 @@ export function launchCandidates(
     }
     return out.sort((a, b) => a.name.localeCompare(b.name));
 }
+
+// Moves the last-launched project to the top so it is the launcher's default; the rest keep their order.
+export function lastUsedFirst(candidates: LaunchCandidate[], lastUsed: string): LaunchCandidate[] {
+    const i = candidates.findIndex((c) => c.name === lastUsed);
+    if (i <= 0) {
+        return candidates;
+    }
+    return [candidates[i], ...candidates.slice(0, i), ...candidates.slice(i + 1)];
+}

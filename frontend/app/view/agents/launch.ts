@@ -72,6 +72,15 @@ export function runtimeCreatesAgentPanel(runtime: Runtime): boolean {
     return runtime !== "terminal";
 }
 
+// The launcher hides runtimes whose CLI isn't installed. Terminal needs no CLI, and an empty catalog
+// (not loaded yet, or the listing failed) offers everything rather than an empty picker.
+export function isRuntimeOffered(runtime: Runtime, harnesses: { runtime: string; installed?: boolean }[]): boolean {
+    if (runtime === "terminal" || harnesses.length === 0) {
+        return true;
+    }
+    return harnesses.some((h) => h.runtime === runtime && h.installed);
+}
+
 // Worktrees only make sense for the agent runtimes; a terminal launches in the project dir.
 export function runtimeSupportsWorktree(runtime: Runtime): boolean {
     return runtime !== "terminal";

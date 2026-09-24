@@ -22,3 +22,6 @@ export const naFlagsAtom = atomWithStorage<Partial<Record<Runtime, Record<string
 export const DEFAULT_REMEMBER_FLAGS = true;
 
 export const naRememberFlagsAtom = atomWithStorage<boolean>("agent.launch.remember", DEFAULT_REMEMBER_FLAGS);
+
+// The project the last agent launched in; the launcher lists it first and selects it by default.
+export const naLastProjectAtom = atomWithStorage<string>("agent.launch.project", "");
