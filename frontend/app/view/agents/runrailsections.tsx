@@ -100,7 +100,7 @@ function FactRow({ label, children }: { label: string; children: React.ReactNode
 
 // openRunDag lands on the run's Brief sheet, where the DAG modal lives, with the modal open on the run or
 // one of its tasks.
-function openRunDag(model: AgentsViewModel, run: RunInfo, taskId?: string) {
+export function openRunDag(model: AgentsViewModel, run: RunInfo, taskId?: string) {
     const dag = run.dag;
     if (dag == null) {
         return;

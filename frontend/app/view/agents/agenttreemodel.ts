@@ -37,7 +37,7 @@ type TopItem =
 
 // A worker waits on the human only when the human holds its question; one asking its lead does not. With
 // no digest yet, asking is the only signal there is.
-function workerNeedsYou(run: RunInfo, taskId: string, agent: AgentVM): boolean {
+export function workerNeedsYou(run: RunInfo, taskId: string, agent: AgentVM): boolean {
     if (run.digest == null) {
         return agent.state === "asking";
     }

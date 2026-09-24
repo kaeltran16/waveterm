@@ -8,7 +8,7 @@ import { waveEventSubscribeSingle } from "@/app/store/wps";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { fireAndForget } from "@/util/util";
-import { atom, useAtomValue, type PrimitiveAtom } from "jotai";
+import { atom, useAtomValue, type Atom, type PrimitiveAtom } from "jotai";
 import { useEffect } from "react";
 
 const eventsAtoms = new Map<string, PrimitiveAtom<RunEvent[]>>();
@@ -106,4 +106,16 @@ export function useRunEvents(runId: string, channelId: string): RunEvent[] {
 export function useRunEventsState(runId: string, channelId: string): { events: RunEvent[]; status: RunEventsStatus } {
     const events = useRunEvents(runId, channelId);
     return { events, status: useAtomValue(statusAtomFor(runId)) };
+}
+
+// runEventsAtom is one run's event list for readers that are not a single card: the grid's lead cards and the
+// Events rail read many runs at once, which a hook per run cannot do.
+export function runEventsAtom(runId: string): Atom<RunEvent[]> {
+    return eventsAtomFor(runId);
+}
+
+// ensureRunEvents is useRunEvents without the hook: subscribe to the live stream and load history once.
+export function ensureRunEvents(runId: string, channelId: string): void {
+    ensureSubscription();
+    fireAndForget(() => load(runId, channelId));
 }

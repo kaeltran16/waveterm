@@ -2,180 +2,170 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
+import type { AgentVM } from "./agentsviewmodel";
 import {
-    computeGridLayout,
-    distributeColumns,
-    GRID_MIN_ROW_PX,
-    GRID_ROW_GAP_PX,
-    nextFullWidth,
-    normalizeWeights,
-    resizeRowWeights,
-    rowHeightsPx,
+    askerAt,
+    buildGridCards,
+    CARD_MIN_PX,
+    cardMatchesChip,
+    cardShare,
+    columnJump,
+    columnNavIds,
+    isBackgroundedRun,
+    resolveCursor,
+    splitGridColumns,
+    withActiveRunLeads,
 } from "./cardgridlayout";
-import type { AgentVM, CardPref } from "./agentsviewmodel";
+import type { Lineage, RunInfo } from "./runlineage";
 
-describe("distributeColumns", () => {
-    it("splits round-robin: even index -> A, odd -> B", () => {
-        expect(distributeColumns(["a0", "a1", "a2", "a3"])).toEqual({
-            colA: ["a0", "a2"],
-            colB: ["a1", "a3"],
-        });
+const isRun = (s: string) => s.startsWith("L");
+
+describe("splitGridColumns", () => {
+    it("puts runs in column 1 and agents in column 2 when both kinds are present", () => {
+        expect(splitGridColumns(["a1", "L1", "a2", "L2", "a3"], isRun)).toEqual([
+            ["L1", "L2"],
+            ["a1", "a2", "a3"],
+        ]);
     });
-
-    it("puts a lone card in A with an empty B", () => {
-        expect(distributeColumns(["a0"])).toEqual({ colA: ["a0"], colB: [] });
+    it("alternates one kind across both columns, as the old grid did", () => {
+        expect(splitGridColumns(["a1", "a2", "a3"], isRun)).toEqual([["a1", "a3"], ["a2"]]);
+        expect(splitGridColumns(["L1", "L2"], isRun)).toEqual([["L1"], ["L2"]]);
     });
-
-    it("gives A the extra card on an odd count", () => {
-        expect(distributeColumns(["a0", "a1", "a2"])).toEqual({ colA: ["a0", "a2"], colB: ["a1"] });
+    it("gives a lone card one full-width column", () => {
+        expect(splitGridColumns(["L1"], isRun)).toEqual([["L1"]]);
     });
-
-    it("fills 2x3 for six cards", () => {
-        expect(distributeColumns(["a0", "a1", "a2", "a3", "a4", "a5"])).toEqual({
-            colA: ["a0", "a2", "a4"],
-            colB: ["a1", "a3", "a5"],
-        });
-    });
-
-    it("is empty for an empty list", () => {
-        expect(distributeColumns([])).toEqual({ colA: [], colB: [] });
+    it("returns no columns for no cards", () => {
+        expect(splitGridColumns([], isRun)).toEqual([]);
     });
 });
 
-describe("rowHeightsPx", () => {
-    it("divides the viewport by weight when rows fit the page", () => {
-        expect(rowHeightsPx([1, 1, 1], 300)).toEqual([100, 100, 100]);
-        expect(rowHeightsPx([2, 1], 300)).toEqual([200, 100]);
-    });
-
-    it("keeps the page row-height and overflows when rows exceed the page", () => {
-        // 4 rows, page = 3 -> base 100 each -> total 400 > 300 (scrolls)
-        expect(rowHeightsPx([1, 1, 1, 1], 300)).toEqual([100, 100, 100, 100]);
-    });
-
-    it("is empty for no rows", () => {
-        expect(rowHeightsPx([], 300)).toEqual([]);
+describe("cardShare", () => {
+    it("doubles the share of a card that needs you and raises its floor", () => {
+        expect(cardShare(false, false)).toEqual({ grow: 1, minPx: CARD_MIN_PX.agent });
+        expect(cardShare(false, true)).toEqual({ grow: 2, minPx: CARD_MIN_PX.agentAsk });
+        expect(cardShare(true, false)).toEqual({ grow: 1, minPx: CARD_MIN_PX.run });
+        expect(cardShare(true, true)).toEqual({ grow: 2, minPx: CARD_MIN_PX.runAsk });
     });
 });
 
-describe("resizeRowWeights", () => {
-    it("moves height across the dragged boundary, preserving the pair total", () => {
-        // [1,1,1] @ vp 600 -> px [200,200,200]; drag boundary 0 by +30 -> [230,170,...],
-        // both neighbours stay well above the 96px min, so nothing clamps.
-        expect(resizeRowWeights([1, 1, 1], 0, 30, 600)).toEqual([230, 170, 200]);
-    });
+const vm = (id: string, state: AgentVM["state"] = "working") => ({ id, name: id, task: "", state }) as AgentVM;
+const R: RunInfo = { runId: "R", channelId: "C", title: "t", project: "p" };
 
-    it("clamps so neither neighbour drops below the minimum", () => {
-        // pair = 200; min 96 -> above clamps to 104, below to 96
-        expect(resizeRowWeights([1, 1, 1], 0, 1000, 300, 96)).toEqual([104, 96, 100]);
-    });
+describe("buildGridCards", () => {
+    const lineage: Lineage = {
+        roles: {
+            L: { kind: "lead", runId: "R" },
+            w1: { kind: "worker", leadRunId: "R", taskId: "t1" },
+            w2: { kind: "worker", leadRunId: "R", taskId: "t2" },
+        },
+        runs: { R },
+    };
 
-    it("returns the weights unchanged for an out-of-range boundary", () => {
-        expect(resizeRowWeights([1, 1], 1, 30, 300)).toEqual([1, 1]);
-        expect(resizeRowWeights([1, 1], -1, 30, 300)).toEqual([1, 1]);
+    it("folds a run's workers into its lead's card", () => {
+        const shown = [vm("a"), vm("w1"), vm("L"), vm("w2")];
+        expect(buildGridCards(shown, lineage, shown).map((c) => `${c.kind}:${c.id}`)).toEqual(["agent:a", "run:L"]);
+    });
+    it("leadless run: one card at its first worker's place", () => {
+        const shown = [vm("a"), vm("w1"), vm("w2")];
+        const cards = buildGridCards(shown, lineage, shown);
+        expect(cards.map((c) => `${c.kind}:${c.id}`)).toEqual(["agent:a", "run:run:R"]);
+        expect(cards[1]).toMatchObject({ kind: "run", lead: undefined });
+    });
+    it("a lead parked or filtered out of view keeps its run's card while a worker is shown", () => {
+        const roster = [vm("a"), vm("w1"), vm("L", "idle")];
+        const cards = buildGridCards([vm("a"), vm("w1")], lineage, roster);
+        expect(cards.map((c) => `${c.kind}:${c.id}`)).toEqual(["agent:a", "run:L"]);
+        expect(cards[1]).toMatchObject({ kind: "run", lead: { id: "L" } });
+    });
+    it("no card for a run when neither its lead nor a worker is shown", () => {
+        expect(buildGridCards([vm("a")], lineage, [vm("a"), vm("w1"), vm("L")]).map((c) => c.id)).toEqual(["a"]);
     });
 });
 
-describe("nextFullWidth", () => {
-    it("turns on past the positive threshold and off past the negative", () => {
-        expect(nextFullWidth(false, 60, 48)).toBe(true);
-        expect(nextFullWidth(true, -60, 48)).toBe(false);
+describe("withActiveRunLeads", () => {
+    const lin = (status: string): Lineage => ({
+        roles: { L: { kind: "lead", runId: "R" } },
+        runs: { R: { ...R, dag: { status } as RunInfo["dag"] } },
     });
-    it("holds within the deadzone", () => {
-        expect(nextFullWidth(false, 10, 48)).toBe(false);
-        expect(nextFullWidth(true, 10, 48)).toBe(true);
+    it("appends an in-scope lead whose run is still going, though the lead is parked", () => {
+        const out = withActiveRunLeads([vm("a")], [vm("a"), vm("L", "idle")], lin("running"));
+        expect(out.map((a) => a.id)).toEqual(["a", "L"]);
     });
-});
-
-describe("normalizeWeights", () => {
-    it("rescales pixel-scale weights to mean 1, preserving ratios", () => {
-        // resizeRowWeights output (px) -> ratios centred on 1; keeps the overflow branch (base*w) sane
-        expect(normalizeWeights([230, 170, 200])).toEqual([1.15, 0.85, 1]);
-    });
-    it("leaves equal weights at 1", () => {
-        expect(normalizeWeights([5, 5, 5])).toEqual([1, 1, 1]);
-    });
-    it("falls back to 1 when the mean is not positive", () => {
-        expect(normalizeWeights([0, 0])).toEqual([1, 1]);
-    });
-    it("is empty for an empty list", () => {
-        expect(normalizeWeights([])).toEqual([]);
+    it("leaves a finished run's lead parked, and never duplicates a shown lead", () => {
+        expect(withActiveRunLeads([vm("a")], [vm("a"), vm("L", "idle")], lin("done")).map((a) => a.id)).toEqual(["a"]);
+        expect(withActiveRunLeads([vm("L")], [vm("L")], lin("running")).map((a) => a.id)).toEqual(["L"]);
     });
 });
 
-// minimal AgentVM stand-ins — computeGridLayout only reads `id`
-const card = (id: string): AgentVM => ({ id }) as AgentVM;
-
-describe("computeGridLayout", () => {
-    const W = 1000;
-    const H = 600;
-
-    it("splits non-full-width cards across two equal columns, colB offset by half+gap", () => {
-        const cards = [card("a"), card("b"), card("c"), card("d")];
-        const { rects, colA, colB, fullWidth } = computeGridLayout(cards, {}, W, H);
-        expect(fullWidth).toHaveLength(0);
-        expect(colA.map((c) => c.id)).toEqual(["a", "c"]); // distributeColumns: even indices
-        expect(colB.map((c) => c.id)).toEqual(["b", "d"]);
-        const colW = (W - GRID_ROW_GAP_PX) / 2;
-        expect(rects.get("a")!.x).toBe(0);
-        expect(rects.get("a")!.w).toBeCloseTo(colW);
-        expect(rects.get("b")!.x).toBeCloseTo(colW + GRID_ROW_GAP_PX);
+describe("isBackgroundedRun", () => {
+    const run = { kind: "run", id: "L", run: R, lead: vm("L") } as const;
+    it("hides a run whose lead was backgrounded, until something in it needs you", () => {
+        expect(isBackgroundedRun(run, new Set(["L"]), false)).toBe(true);
+        expect(isBackgroundedRun(run, new Set(["L"]), true)).toBe(false);
+        expect(isBackgroundedRun(run, new Set(), false)).toBe(false);
+        expect(isBackgroundedRun({ kind: "agent", id: "L", agent: vm("L") }, new Set(["L"]), false)).toBe(false);
     });
+});
 
-    it("spans a single column card across the full width (not half), still filling height", () => {
-        const { rects, colA, colB } = computeGridLayout([card("solo")], {}, W, H);
-        expect(colA.map((c) => c.id)).toEqual(["solo"]);
-        expect(colB).toHaveLength(0);
-        const r = rects.get("solo")!;
-        expect(r.x).toBe(0);
-        expect(r.w).toBe(W);
-        expect(r.h).toBeCloseTo(H);
+describe("askerAt", () => {
+    const roster = [vm("a", "asking"), vm("w1", "asking")];
+    const rows = { "row:L:t1": { askAgentId: "w1", actions: [] }, "row:L:t2": { actions: [] } };
+    it("is the card's agent on a card, and the row's asking worker on a task row", () => {
+        expect(askerAt("a", roster, rows)?.id).toBe("a");
+        expect(askerAt("row:L:t1", roster, rows)?.id).toBe("w1");
+        expect(askerAt("row:L:t2", roster, rows)).toBeUndefined();
+        expect(askerAt(undefined, roster, rows)).toBeUndefined();
     });
+});
 
-    it("stacks equal-weight column cards top-to-bottom with a gap between them", () => {
-        const cards = [card("a"), card("b"), card("c")]; // a (idx0) + c (idx2) both land in colA
-        const { rects } = computeGridLayout(cards, {}, W, H);
-        const a = rects.get("a")!;
-        const c = rects.get("c")!;
-        expect(a.y).toBe(0);
-        expect(c.y).toBeCloseTo(a.h + GRID_ROW_GAP_PX);
+describe("cardMatchesChip", () => {
+    it("matches a run card on what its run needs, a plain card on state", () => {
+        const run = { kind: "run", id: "L", run: R, lead: vm("L", "working") } as const;
+        expect(cardMatchesChip(run, "asking", true)).toBe(true);
+        expect(cardMatchesChip(run, "asking", false)).toBe(false);
+        expect(cardMatchesChip(run, "working", false)).toBe(true);
+        expect(cardMatchesChip({ kind: "agent", id: "a", agent: vm("a", "idle") }, "idle", false)).toBe(true);
+        expect(cardMatchesChip({ kind: "agent", id: "a", agent: vm("a", "idle") }, "all", false)).toBe(true);
     });
+});
 
-    it("floats full-width cards to a top stack spanning the full width", () => {
-        const cards = [card("fw"), card("a"), card("b")];
-        const prefs: Record<string, CardPref> = { fw: { fullWidth: true } };
-        const { rects, fullWidth, colA } = computeGridLayout(cards, prefs, W, H);
-        expect(fullWidth.map((c) => c.id)).toEqual(["fw"]);
-        expect(rects.get("fw")!).toMatchObject({ x: 0, y: 0, w: W });
-        expect(colA.map((c) => c.id)).toEqual(["a"]); // "a" is first of the remaining
-        // columns start below the FW stack + one gap
-        expect(rects.get("a")!.y).toBeCloseTo(rects.get("fw")!.h + GRID_ROW_GAP_PX);
+describe("columnNavIds", () => {
+    it("lists each card then its rows, column by column", () => {
+        const cols = [
+            [{ kind: "run", id: "L", run: R } as const],
+            [{ kind: "agent", id: "a", agent: vm("a") } as const],
+        ];
+        expect(columnNavIds(cols, (c) => (c.id === "L" ? ["row:L:t1", "row:L:t2"] : []))).toEqual([
+            ["L", "row:L:t1", "row:L:t2"],
+            ["a"],
+        ]);
     });
+});
 
-    it("clamps full-width height to [GRID_MIN_ROW_PX, FULLWIDTH_MAX_VIEWPORT_FRAC*H]", () => {
-        const cards = [card("tall"), card("short")];
-        const prefs: Record<string, CardPref> = {
-            tall: { fullWidth: true, heightWeight: 100 }, // way over the cap
-            short: { fullWidth: true, heightWeight: 0.0001 }, // under the floor
-        };
-        const { rects } = computeGridLayout(cards, prefs, W, H);
-        expect(rects.get("tall")!.h).toBeCloseTo(0.6 * H); // FULLWIDTH_MAX_VIEWPORT_FRAC
-        expect(rects.get("short")!.h).toBe(GRID_MIN_ROW_PX);
+describe("columnJump", () => {
+    const cols = [
+        ["L", "row:L:t1", "M"],
+        ["a", "b"],
+    ];
+    const cardOf = (id: string) => (id.startsWith("row:") ? id.split(":")[1] : id);
+    it("moves to the same card index in the other column", () => {
+        expect(columnJump(cols, cardOf, "M", 1)).toBe("b");
+        expect(columnJump(cols, cardOf, "b", -1)).toBe("M");
     });
-
-    it("totalHeight is the viewport when content fits, and grows when a column overflows", () => {
-        const fit = computeGridLayout([card("a"), card("b")], {}, W, H);
-        expect(fit.totalHeight).toBe(H);
-
-        // 8 cards in one column (>GRID_PAGE_ROWS) overflow -> totalHeight exceeds H
-        const many = Array.from({ length: 8 }, (_, i) => card(`c${i}`));
-        const over = computeGridLayout(many, {}, W, H);
-        expect(over.totalHeight).toBeGreaterThan(H);
+    it("moves from a task row by its card's index", () => {
+        expect(columnJump(cols, cardOf, "row:L:t1", 1)).toBe("a");
     });
+    it("stays put at the edge or with one column", () => {
+        expect(columnJump(cols, cardOf, "L", -1)).toBeUndefined();
+        expect(columnJump([["a"]], cardOf, "a", 1)).toBeUndefined();
+    });
+});
 
-    it("returns empty rects for no cards", () => {
-        const { rects, totalHeight } = computeGridLayout([], {}, W, H);
-        expect(rects.size).toBe(0);
-        expect(totalHeight).toBe(H);
+describe("resolveCursor", () => {
+    it("keeps a valid cursor, else follows the alias, else takes the first", () => {
+        expect(resolveCursor("b", ["a", "b"], {})).toBe("b");
+        expect(resolveCursor("w1", ["L", "row:L:t1"], { w1: "row:L:t1" })).toBe("row:L:t1");
+        expect(resolveCursor("gone", ["a"], {})).toBe("a");
+        expect(resolveCursor("a", [], {})).toBeUndefined();
     });
 });

@@ -1,8 +1,8 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The cockpit's right rail: the usage windows (per-provider 5-hour/weekly bars) and the recent-activity
-// list. Extracted from cockpitsurface.tsx; presentational + the UsageBar it renders.
+// The cockpit's right rail: the usage windows (per-provider 5-hour/weekly bars) and the Events
+// rail. Extracted from cockpitsurface.tsx; presentational + the UsageBar it renders.
 
 import { CollapsibleRail, type RailSection } from "@/app/element/collapsiblerail";
 import { Meter } from "@/app/element/meter";
@@ -10,12 +10,13 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import type { AgentsViewModel } from "./agents";
-import { formatReset, formatTokens, usageLevel, type AgentVM } from "./agentsviewmodel";
+import { formatReset, formatTokens, usageLevel } from "./agentsviewmodel";
+import { CockpitEventsRail } from "./cockpiteventsrail";
 import { providerDot, providerLabel, usageBarShowsMeta, usageBarVisible, windowUsedTokens } from "./cockpitrailmodel";
 import { ICON } from "./navrail";
 import { mergeRateLimitWindows } from "./ratelimitstore";
-import { RecentActivityRail } from "./recentactivityrail";
 import { RollingCount } from "./rollingcount";
+import type { Lineage } from "./runlineage";
 import { type WindowTokens } from "./windowtokenstore";
 
 const PLAN_BAR: Record<"ok" | "warn" | "hot", string> = { ok: "bg-accent", warn: "bg-warning", hot: "bg-error" };
@@ -62,13 +63,15 @@ export function CockpitRail({
     model,
     usageDonuts,
     windowTokens,
-    agents,
+    lineage,
+    runEvents,
     onSelectAgent,
 }: {
     model: AgentsViewModel;
     usageDonuts: ReturnType<typeof mergeRateLimitWindows>;
     windowTokens: WindowTokens | null;
-    agents: AgentVM[];
+    lineage: Lineage;
+    runEvents: Record<string, RunEvent[]>;
     onSelectAgent: (id: string) => void;
 }) {
     // Self-source the 1s tick here (was prop-drilled from CockpitSurface) so the usage reset
@@ -77,7 +80,7 @@ export function CockpitRail({
     return (
         <CollapsibleRail
             openAtom={model.railOpenAtom}
-            ariaLabel="Usage and recent activity"
+            ariaLabel="Usage and events"
             sections={[
                 {
                     id: "usage",
@@ -132,12 +135,17 @@ export function CockpitRail({
                     ),
                 },
                 {
-                    id: "recent-activity",
-                    label: "Recent activity",
+                    id: "events",
+                    label: "Events",
                     icon: ICON.sessions,
-                    // Self-subscribing leaf: reads the whole-map transcript atoms + nowAtom itself, so a
-                    // stream chunk or the 1s tick re-renders only it (renders null when there's none).
-                    content: <RecentActivityRail agents={agents} model={model} onSelectAgent={onSelectAgent} />,
+                    content: (
+                        <CockpitEventsRail
+                            model={model}
+                            lineage={lineage}
+                            runEvents={runEvents}
+                            onSelect={onSelectAgent}
+                        />
+                    ),
                 } as RailSection,
             ]}
         />

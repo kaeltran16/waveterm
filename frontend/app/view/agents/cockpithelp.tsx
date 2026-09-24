@@ -15,6 +15,7 @@ export function HintsBar({ onOpenHelp }: { onOpenHelp: () => void }) {
     // Built at render (not module-eval) so the platform-aware modifier glyphs resolve after boot.
     const HINTS: [string, string][] = [
         ["↑↓ / j k", "move"],
+        ["← → / h l", "column"],
         ["⏎", "open"],
         ["esc", "back"],
         ["1–9", "answer"],

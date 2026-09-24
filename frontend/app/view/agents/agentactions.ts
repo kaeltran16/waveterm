@@ -5,7 +5,9 @@ import { atoms } from "@/app/store/global-atoms";
 import { globalStore } from "@/app/store/jotaiStore";
 import { modalsModel } from "@/app/store/modalmodel";
 import { WorkspaceService } from "@/app/store/services";
-import { fireAndForget } from "@/util/util";
+import { RpcApi } from "@/app/store/wshclientapi";
+import { TabRpcClient } from "@/app/store/wshrpcutil";
+import { fireAndForget, stringToBase64 } from "@/util/util";
 import type { AgentVM } from "./agentsviewmodel";
 
 // Close a whole session (its id is the tabId). Shows the same confirm modal as the header Close
@@ -28,4 +30,17 @@ export function confirmCloseSession(vm: Pick<AgentVM, "id" | "name" | "kind">) {
         destructive: true,
         onConfirm: () => fireAndForget(() => WorkspaceService.CloseTab(ws.oid, vm.id, false)),
     });
+}
+
+// NUDGE_INPUT is what the rail's Resume types: a quiet agent picks it up as a new turn
+export const NUDGE_INPUT = "continue\r";
+
+// driveAgent types into an agent's terminal; a card without a terminal block has nothing to drive
+export function driveAgent(blockId: string | undefined, data: string): void {
+    if (!blockId) {
+        return;
+    }
+    fireAndForget(() =>
+        RpcApi.ControllerInputCommand(TabRpcClient, { blockid: blockId, inputdata64: stringToBase64(data) })
+    );
 }

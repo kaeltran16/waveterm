@@ -26,24 +26,16 @@ export function isFinishTransition(prev: AgentState, next: AgentState): boolean 
 }
 
 export type AgentRowMenuItem =
-    | { key: "open" | "terminal" | "diff" | "fullwidth" | "mute" | "copy" | "close"; label: string; danger?: boolean }
+    | { key: "open" | "terminal" | "diff" | "mute" | "copy" | "close"; label: string; danger?: boolean }
     | { separator: true };
 
-export function agentRowMenuItems(flags: {
-    hasDiff: boolean;
-    canToggleFullWidth: boolean;
-    fullWidth: boolean;
-    hasMute: boolean;
-}): AgentRowMenuItem[] {
+export function agentRowMenuItems(flags: { hasDiff: boolean; hasMute: boolean }): AgentRowMenuItem[] {
     const items: AgentRowMenuItem[] = [
         { key: "open", label: "Open" },
         { key: "terminal", label: "Open terminal" },
     ];
     if (flags.hasDiff) {
         items.push({ key: "diff", label: "Review changes" });
-    }
-    if (flags.canToggleFullWidth) {
-        items.push({ key: "fullwidth", label: flags.fullWidth ? "Exit full width" : "Full width" });
     }
     if (flags.hasMute) {
         items.push({ key: "mute", label: "Move to background" });

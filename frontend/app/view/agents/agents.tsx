@@ -19,7 +19,6 @@ import {
     nextAskId,
     toggleSelection,
     type AgentVM,
-    type CardPref,
     type PendingLaunch,
 } from "./agentsviewmodel";
 import { CockpitSurface } from "./cockpitsurface";
@@ -131,10 +130,9 @@ export class AgentsViewModel implements ViewModel {
     paletteSeedAtom = atom("");
 
     // handoff-parity filters + per-card layout (spec §State). Project scope is a single source bound to
-    // both the app-bar switcher and the header button; card prefs are ephemeral (not persisted).
+    // both the app-bar switcher and the header button.
     projectFilterAtom = atom<string>("all"); // "all" | <projectName>
     liveOnlyAtom = atom(false);
-    cardPrefsAtom = atom<Record<string, CardPref>>({}) as PrimitiveAtom<Record<string, CardPref>>;
     // which card's composer is expanded (one at a time); asking cards are always expanded regardless
     openComposerIdAtom = atom<string | undefined>(undefined) as PrimitiveAtom<string | undefined>;
 

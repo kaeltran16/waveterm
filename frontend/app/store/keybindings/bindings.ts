@@ -723,12 +723,12 @@ export function buildCockpitBindings(): Binding[] {
         run: () => false, // never consume — usecockpitkeyboard.ts performs the action
     });
     return [
-        doc("cockpit:next", "j", "Next agent (↓ / j)"),
-        doc("cockpit:prev", "k", "Previous agent (↑ / k)"),
+        doc("cockpit:next", "j", "Next card or task row (↓ / j)"),
+        doc("cockpit:prev", "k", "Previous card or task row (↑ / k)"),
         doc("cockpit:next-ask", "n", "Jump to next ask"),
-        doc("cockpit:switch-question", "h", "Switch question (← → / h l)"),
-        doc("cockpit:answer", "1", "Select an answer option (1–9)"),
-        doc("cockpit:open", "Enter", "Confirm answer, else open focus"),
+        doc("cockpit:column", "h", "Other column (← → / h l); on a multi-question ask, switch question"),
+        doc("cockpit:answer", "1", "Select an answer option (1–9); on a task row with no question, run its action"),
+        doc("cockpit:open", "Enter", "Confirm answer, else open focus; on a task row, open its worker"),
         doc("cockpit:reply", "r", "Reply inline to the agent"),
         doc("cockpit:terminal", "t", "Open the agent's terminal"),
         doc("cockpit:background", "b", "Background the agent (keeps running)"),

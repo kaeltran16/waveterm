@@ -56,7 +56,7 @@ describe("isFinishTransition", () => {
 
 describe("agentRowMenuItems", () => {
     it("always includes open, terminal, copy, a separator, and a danger close", () => {
-        const items = agentRowMenuItems({ hasDiff: false, canToggleFullWidth: false, fullWidth: false, hasMute: false });
+        const items = agentRowMenuItems({ hasDiff: false, hasMute: false });
         expect(items).toEqual([
             { key: "open", label: "Open" },
             { key: "terminal", label: "Open terminal" },
@@ -66,22 +66,16 @@ describe("agentRowMenuItems", () => {
         ]);
     });
     it("adds Review changes when there is a diff", () => {
-        const items = agentRowMenuItems({ hasDiff: true, canToggleFullWidth: false, fullWidth: false, hasMute: false });
+        const items = agentRowMenuItems({ hasDiff: true, hasMute: false });
         expect(items.some((i) => "key" in i && i.key === "diff" && i.label === "Review changes")).toBe(true);
     });
-    it("labels the full-width toggle by current state", () => {
-        const collapsed = agentRowMenuItems({ hasDiff: false, canToggleFullWidth: true, fullWidth: false, hasMute: false });
-        const expanded = agentRowMenuItems({ hasDiff: false, canToggleFullWidth: true, fullWidth: true, hasMute: false });
-        expect(collapsed.find((i) => "key" in i && i.key === "fullwidth")).toEqual({ key: "fullwidth", label: "Full width" });
-        expect(expanded.find((i) => "key" in i && i.key === "fullwidth")).toEqual({ key: "fullwidth", label: "Exit full width" });
-    });
     it("adds Move to background when a mute action exists", () => {
-        const items = agentRowMenuItems({ hasDiff: false, canToggleFullWidth: false, fullWidth: false, hasMute: true });
+        const items = agentRowMenuItems({ hasDiff: false, hasMute: true });
         expect(items.some((i) => "key" in i && i.key === "mute" && i.label === "Move to background")).toBe(true);
     });
-    it("orders optional items diff -> fullwidth -> mute between terminal and copy", () => {
-        const items = agentRowMenuItems({ hasDiff: true, canToggleFullWidth: true, fullWidth: false, hasMute: true });
+    it("orders optional items diff -> mute between terminal and copy", () => {
+        const items = agentRowMenuItems({ hasDiff: true, hasMute: true });
         const keys = items.map((i) => ("key" in i ? i.key : "sep"));
-        expect(keys).toEqual(["open", "terminal", "diff", "fullwidth", "mute", "copy", "sep", "close"]);
+        expect(keys).toEqual(["open", "terminal", "diff", "mute", "copy", "sep", "close"]);
     });
 });

@@ -18,6 +18,7 @@ import {
     focusedAskId,
     formatAge,
     formatAgeShort,
+    formatAgo,
     formatReset,
     formatTokens,
     groupAgents,
@@ -1218,5 +1219,16 @@ describe("withAsk prose", () => {
     it("leaves prose unset when the ask is not prose", () => {
         const vm = withAsk(baseWorking(), { oref: "block:x", askid: "a1", questions: [] }, NOW);
         expect(vm.ask?.prose).toBeUndefined();
+    });
+});
+
+describe("formatAgo", () => {
+    it("says just now under a minute and when the age is unknown", () => {
+        expect(formatAgo(undefined)).toBe("just now");
+        expect(formatAgo(59_000)).toBe("just now");
+    });
+    it("says how long ago past a minute", () => {
+        expect(formatAgo(5 * 60_000)).toBe("5m ago");
+        expect(formatAgo(3 * 3_600_000)).toBe("3h ago");
     });
 });

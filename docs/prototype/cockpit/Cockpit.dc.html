@@ -1,0 +1,1523 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
+<style>
+html,body{margin:0;height:100%;background:#0c0e11;color:#e6e9ed;font-family:"Hanken Grotesk",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+*{box-sizing:border-box}
+button{font-family:inherit;cursor:pointer}
+input{font-family:inherit}
+a{color:#5e9cff;text-decoration:none}
+a:hover{color:#8da3ff}
+@keyframes pulseDot{0%,100%{opacity:1}50%{opacity:.32}}
+@keyframes flowBar{0%{transform:translateX(-110%)}100%{transform:translateX(420%)}}
+</style>
+</helmet>
+<div ref="{{ rootRef }}" tabIndex="0" onKeyDown="{{ onKey }}" data-screen-label="Cockpit" style="position:relative;outline:none;height:{{ height }};width:100%;overflow:hidden;background:#0c0e11">
+<dc-import name="Window Shell" style="height:100%" surface="cockpit" height="100%" project="All projects" focus="Everything" badges="{{ badges }}" hints="{{ hints }}" hint-size="100%,100%">
+<div style="position:absolute;inset:0;display:flex;background:#0c0e11;color:#cfd5db;font-family:'Hanken Grotesk',system-ui,sans-serif">
+  <div style="display:flex;min-width:0;flex:1;flex-direction:column">
+
+    <div style="flex-shrink:0;border-bottom:1px solid #1c2128;background:#0c0e11;padding:18px 24px 12px">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap">
+        <div style="min-width:0">
+          <h1 style="margin:0;font-size:25px;font-weight:700;letter-spacing:-0.02em;color:#e6e9ed">Cockpit</h1>
+          <div style="margin-top:4px;font-size:13px;color:#cfd5db">{{ total }} agents · {{ projects }} projects · <span style="font-weight:600;color:#e6b450">{{ needsYou }} need you</span></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <sc-if value="{{ isA2 }}" hint-placeholder-val="{{ false }}">
+            <button onClick="{{ usageDetails }}" title="Plan usage · open Usage" style="display:flex;align-items:center;gap:10px;height:30px;border-radius:6px;border:1px solid #20262e;background:transparent;padding:0 10px" style-hover="border-color:#2a313a;background:#13171d">
+              <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#7f858b">5h</span>
+              <span style="display:block;width:44px;height:5px;overflow:hidden;border-radius:3px;background:#171c22"><span style="display:block;width:74%;height:100%;background:#e6b450"></span></span>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;color:#e6b450">74%</span>
+              <span style="width:1px;height:14px;background:#20262e"></span>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#7f858b">wk</span>
+              <span style="display:block;width:44px;height:5px;overflow:hidden;border-radius:3px;background:#171c22"><span style="display:block;width:38%;height:100%;background:#5e9cff"></span></span>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;color:#5e9cff">38%</span>
+            </button>
+          </sc-if>
+          <button onClick="{{ projectMenu }}" style="display:flex;align-items:center;gap:7px;border-radius:6px;border:1px solid #20262e;background:#171c22;padding:6px 10px;font-size:12px;font-weight:500;color:#cfd5db" style-hover="border-color:#2a313a">All projects<span style="font-size:9px;color:#7f858b">▾</span></button>
+          <button onClick="{{ toggleLive }}" style="display:flex;align-items:center;gap:7px;border-radius:6px;border:1px solid {{ live.border }};background:{{ live.bg }};padding:6px 10px;font-size:12px;font-weight:500;color:{{ live.color }}"><span style="width:6px;height:6px;border-radius:999px;background:#54c79a"></span>Live only</button>
+        </div>
+      </div>
+      <sc-if value="{{ isA2 }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;flex-wrap:wrap;gap:2px;margin:12px 0 -12px -4px">
+          <sc-for list="{{ v2.tabs }}" as="tb" hint-placeholder-count="4">
+            <button onClick="{{ tb.go }}" style="display:flex;align-items:baseline;gap:7px;border:0;border-bottom:2px solid {{ tb.line }};background:transparent;padding:6px 10px 9px" style-hover="background:rgba(255,255,255,.03)">
+              <span style="font-family:'JetBrains Mono',monospace;font-size:17px;font-weight:600;color:{{ tb.numColor }}">{{ tb.count }}</span>
+              <span style="font-size:12.5px;font-weight:500;color:{{ tb.labelColor }}">{{ tb.label }}</span>
+            </button>
+          </sc-for>
+        </div>
+      </sc-if>
+      <sc-if value="{{ showChips }}" hint-placeholder-val="{{ true }}">
+        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:14px">
+          <sc-for list="{{ chips }}" as="c" hint-placeholder-count="4">
+            <button onClick="{{ c.go }}" style="display:grid;grid-template-columns:minmax(0,auto) 1.25rem;align-items:center;border-radius:6px;border:1px solid {{ c.border }};background:{{ c.bg }};padding:6px 12px;font-size:12.5px;color:{{ c.labelColor }}">
+              <span style="line-height:1">{{ c.label }}</span>
+              <span style="justify-self:end;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;line-height:1;color:{{ c.numColor }}">{{ c.count }}</span>
+            </button>
+          </sc-for>
+        </div>
+      </sc-if>
+    </div>
+
+    <sc-if value="{{ isA }}" hint-placeholder-val="{{ true }}">
+      <div style="display:flex;min-height:0;flex:1;flex-direction:column">
+        <div style="display:flex;flex-shrink:0;align-items:center;gap:10px;padding:16px 24px 0">
+          <span style="width:9px;height:9px;flex-shrink:0;border-radius:999px;background:#aebfff;animation:pulseDot 1.6s infinite"></span>
+          <h2 style="margin:0;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:#aebfff">Live agents</h2>
+          <span style="border-radius:999px;background:rgba(94,156,255,.1);padding:2px 8px;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;color:#aebfff">{{ liveCount }}</span>
+          <div style="height:1px;flex:1;background:linear-gradient(to right,rgba(94,156,255,.2),transparent)"></div>
+        </div>
+        <div style="min-height:0;flex:1;overflow-y:auto;padding:10px 24px 20px">
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,380px),1fr));gap:12px">
+            <sc-for list="{{ shown }}" as="a" hint-placeholder-count="4">
+              <div data-agent-id="{{ a.id }}" onClick="{{ a.select }}" style="position:relative;display:flex;height:344px;flex-direction:column;overflow:hidden;border-radius:12px;border:1px solid {{ a.border }};background:#101317;box-shadow:{{ a.shadow }};cursor:pointer">
+                <div style="display:flex;flex-shrink:0;align-items:center;gap:6px;border-bottom:1px solid #20262e;background:#13171d;padding:6px 8px 6px 12px">
+                  <span style="width:8px;height:8px;flex-shrink:0;border-radius:999px;background:{{ a.dot }};animation:{{ a.anim }}"></span>
+                  <span title="{{ a.rtLabel }}" style="flex-shrink:0;margin-left:2px;font-family:'JetBrains Mono',monospace;font-size:10px;line-height:1;color:{{ a.rtColor }}">{{ a.rtMark }}</span>
+                  <b style="min-width:30px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:13.5px;font-weight:600;color:#e6e9ed">{{ a.name }}</b>
+                  <span style="flex-shrink:0;border-radius:5px;border:1px solid #20262e;background:#171c22;padding:1px 6px;font-family:'JetBrains Mono',monospace;font-size:10px;color:#7f858b">{{ a.project }}</span>
+                  <sc-if value="{{ a.hasTasks }}" hint-placeholder-val="{{ false }}">
+                    <button onClick="{{ a.tasksGo }}" title="Task list" style="display:flex;height:23px;flex-shrink:0;align-items:center;justify-content:center;gap:4px;border-radius:6px;border:1px solid #20262e;background:transparent;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;padding:0 7px;color:#cfd5db" style-hover="border-color:#2a313a;background:rgba(255,255,255,.04)">{{ a.tasks }}</button>
+                  </sc-if>
+                  <sc-if value="{{ a.hasSubs }}" hint-placeholder-val="{{ false }}">
+                    <button onClick="{{ a.open }}" title="{{ a.subsTitle }}" style="display:flex;height:23px;flex-shrink:0;align-items:center;justify-content:center;gap:4px;border-radius:6px;border:1px solid #20262e;background:transparent;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;padding:0 7px;color:#9aa3ad" style-hover="border-color:#5e9cff;color:#aebfff">⑃ {{ a.subs }}</button>
+                  </sc-if>
+                  <sc-if value="{{ a.hasDiff }}" hint-placeholder-val="{{ false }}">
+                    <button onClick="{{ a.diffGo }}" title="Review changes in Diff" style="display:flex;height:23px;flex-shrink:0;align-items:center;justify-content:center;gap:4px;border-radius:6px;border:1px solid #20262e;background:transparent;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;padding:0 7px" style-hover="border-color:#5e9cff;background:rgba(94,156,255,.1)"><span style="color:#54c79a">{{ a.diff.add }}</span><span style="color:#e0726c">{{ a.diff.del }}</span></button>
+                  </sc-if>
+                  <button onClick="{{ a.term }}" title="Open terminal (T)" style="display:flex;height:23px;flex-shrink:0;align-items:center;justify-content:center;gap:4px;border-radius:6px;border:1px solid #20262e;background:transparent;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;width:25px;font-size:9px;color:#cfd5db" style-hover="border-color:#2a313a;background:rgba(255,255,255,.04)">&gt;_</button>
+                  <sc-if value="{{ a.canBackground }}" hint-placeholder-val="{{ false }}">
+                    <button onClick="{{ a.mute }}" title="Move to background (B)" style="display:flex;height:23px;flex-shrink:0;align-items:center;justify-content:center;gap:4px;border-radius:6px;border:1px solid #20262e;background:transparent;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;width:25px;color:#cfd5db" style-hover="border-color:#2a313a;background:rgba(255,255,255,.04)"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5 L8 9 L12 5"></path><path d="M4 11.5 H12"></path></svg></button>
+                  </sc-if>
+                  <sc-if value="{{ a.canDismiss }}" hint-placeholder-val="{{ false }}">
+                    <button onClick="{{ a.mute }}" title="Dismiss to Idle (B)" style="display:flex;height:23px;flex-shrink:0;align-items:center;justify-content:center;gap:4px;border-radius:6px;border:1px solid #20262e;background:transparent;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;width:25px;font-family:inherit;font-size:12px;font-weight:400;color:#cfd5db" style-hover="border-color:#2a313a;background:rgba(255,255,255,.04)">✕</button>
+                  </sc-if>
+                </div>
+                <sc-if value="{{ a.working }}" hint-placeholder-val="{{ false }}">
+                  <div style="height:2px;flex-shrink:0;overflow:hidden;background:#101317"><div style="width:26%;height:100%;background:linear-gradient(to right,transparent,#5e9cff,transparent);animation:flowBar 1.9s linear infinite"></div></div>
+                </sc-if>
+                <sc-if value="{{ a.asking }}" hint-placeholder-val="{{ false }}">
+                  <div style="display:flex;flex-shrink:0;align-items:center;gap:8px;background:#e6b450;padding:7px 14px">
+                    <span style="font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1;color:#0c0e11">◆</span>
+                    <span style="font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.09em;color:#0c0e11">Waiting on you</span>
+                    <span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;font-weight:600;color:rgba(12,14,17,.6)">{{ a.age }}</span>
+                  </div>
+                  <div style="display:flex;flex-shrink:0;flex-direction:column;gap:8px;border-bottom:1px solid #20262e;padding:10px 12px 10px 14px">
+                    <p style="margin:0;font-size:14px;font-weight:600;line-height:1.45;color:#e6e9ed;text-wrap:pretty">{{ a.ask.q }}</p>
+                    <div style="display:flex;flex-direction:column;gap:5px">
+                      <sc-for list="{{ a.ask.opts }}" as="o" hint-placeholder-count="2">
+                        <button onClick="{{ o.pick }}" style="display:flex;width:100%;align-items:center;gap:10px;border-radius:6px;border:1px solid {{ o.border }};background:transparent;padding:6px 10px;text-align:left" style-hover="background:rgba(230,180,80,.08)">
+                          <span style="display:inline-flex;width:16px;height:16px;flex-shrink:0;align-items:center;justify-content:center;border-radius:4px;background:rgba(0,0,0,.3);font-family:'JetBrains Mono',monospace;font-size:10px;color:#cfd5db">{{ o.num }}</span>
+                          <span style="min-width:0;flex:1;font-size:12.5px;font-weight:600;color:#e6e9ed">{{ o.label }}</span>
+                          <sc-if value="{{ o.rec }}" hint-placeholder-val="{{ false }}"><span style="flex-shrink:0;border-radius:5px;border:1px solid rgba(230,180,80,.4);background:rgba(230,180,80,.1);padding:1px 6px;font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:#e6b450">recommended</span></sc-if>
+                        </button>
+                      </sc-for>
+                    </div>
+                  </div>
+                </sc-if>
+                <sc-if value="{{ a.recentIdle }}" hint-placeholder-val="{{ false }}">
+                  <div style="display:flex;flex-shrink:0;align-items:center;gap:8px;border-bottom:1px solid #20262e;background:rgba(94,156,255,.06);padding:7px 14px">
+                    <span style="font-size:11px;line-height:1;color:#aebfff">✓</span>
+                    <span style="font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.09em;color:#aebfff">Finished</span>
+                    <span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;font-weight:600;color:#7f858b">{{ a.age }} ago · reply or dismiss</span>
+                  </div>
+                </sc-if>
+                <div style="display:flex;min-height:0;flex:1;flex-direction:column;overflow-y:auto;overflow-x:hidden">
+                  <div style="flex-shrink:0;flex-grow:1;padding:6px 12px 6px 14px">
+                    <sc-if value="{{ a.working }}" hint-placeholder-val="{{ false }}">
+                      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;border-bottom:1px solid #20262e;padding-bottom:6px">
+                        <span style="width:6px;height:6px;flex-shrink:0;border-radius:999px;background:#5e9cff;animation:pulseDot 1.6s infinite"></span>
+                        <span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.4;color:#aebfff">{{ a.activity }}</span>
+                      </div>
+                    </sc-if>
+                    <sc-for list="{{ a.lines }}" as="l" hint-placeholder-count="4">
+                      <div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;line-height:1.6;color:{{ l.color }};white-space:pre-wrap;word-break:break-word">{{ l.t }}</div>
+                    </sc-for>
+                  </div>
+                  <div style="flex-shrink:0;border-top:1px solid #20262e">
+                    <sc-if value="{{ a.composerOpen }}" hint-placeholder-val="{{ false }}">
+                      <div onClick="{{ stop }}" style="padding:8px 12px">
+                        <input data-composer="1" value="{{ draft }}" onChange="{{ onDraft }}" onKeyDown="{{ a.composerKey }}" placeholder="{{ a.placeholder }}" style="width:100%;border-radius:6px;border:1px solid rgba(94,156,255,.6);background:rgba(0,0,0,.2);padding:7px 10px;font-size:12.5px;color:#e6e9ed;outline:none">
+                      </div>
+                    </sc-if>
+                    <sc-if value="{{ a.composerClosed }}" hint-placeholder-val="{{ true }}">
+                      <div onClick="{{ a.openComposer }}" style="display:flex;cursor:text;align-items:center;gap:8px;padding:6px 12px 6px 14px" style-hover="background:#13171d">
+                        <span style="display:flex;width:13px;height:13px;flex-shrink:0;align-items:center;justify-content:center;border-radius:5px;border:1px solid #20262e;font-size:10px;line-height:1;color:#7f858b">+</span>
+                        <span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:#9aa3ad">{{ a.placeholder }}</span>
+                        <span style="flex-shrink:0;border-radius:5px;border:1px solid #20262e;padding:2px 6px;font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#7f858b">R</span>
+                      </div>
+                    </sc-if>
+                  </div>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+          <sc-if value="{{ shownEmpty }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:60px 0;text-align:center;font-size:13px;color:#7f858b">{{ emptyText }}</div>
+          </sc-if>
+        </div>
+        <div style="flex-shrink:0;display:flex;flex-direction:column;border-top:1px solid #1c2128;padding:4px 24px 8px">
+          <sc-if value="{{ hasBg }}" hint-placeholder-val="{{ false }}">
+            <div onClick="{{ toggleBg }}" style="display:flex;cursor:pointer;align-items:center;gap:10px;padding:8px 0">
+              <span style="width:12px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:9px;color:#7f858b">{{ bgCaret }}</span>
+              <span style="width:9px;height:9px;flex-shrink:0;border-radius:999px;background:#5e9cff"></span>
+              <h2 style="margin:0;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:#9aa3ad">Backgrounded</h2>
+              <span style="border-radius:999px;background:#171c22;padding:2px 8px;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;color:#9aa3ad">{{ bgCount }}</span>
+              <span style="font-size:11.5px;color:#7f858b">still running</span>
+              <div style="height:1px;flex:1;background:linear-gradient(to right,#20262e,transparent)"></div>
+            </div>
+            <sc-if value="{{ bgOpen }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;flex-direction:column;gap:2px;padding-bottom:4px">
+                <sc-for list="{{ bgRows }}" as="r" hint-placeholder-count="2">
+                  <div onClick="{{ r.open }}" style="display:grid;grid-template-columns:22px 8px auto auto minmax(0,1fr) auto auto;align-items:center;column-gap:10px;border-radius:6px;padding:6px 8px 6px 0;cursor:pointer" style-hover="background:rgba(255,255,255,.04)">
+                    <span></span>
+                    <span style="width:8px;height:8px;border-radius:999px;background:#5e9cff;opacity:.5"></span>
+                    <b style="font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;color:#cfd5db">{{ r.name }}</b>
+                    <span style="border-radius:5px;border:1px solid #20262e;background:#171c22;padding:1px 6px;font-family:'JetBrains Mono',monospace;font-size:10px;color:#7f858b">{{ r.project }}</span>
+                    <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:#9aa3ad">{{ r.rowText }}</span>
+                    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#7f858b">{{ r.rowAge }}</span>
+                    <button onClick="{{ r.restore }}" style="height:23px;border-radius:6px;border:1px solid #20262e;background:transparent;padding:0 9px;font-size:11.5px;color:#cfd5db" style-hover="border-color:#2a313a;background:rgba(255,255,255,.04)">Restore</button>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+          </sc-if>
+          <sc-if value="{{ showParked }}" hint-placeholder-val="{{ true }}">
+            <div onClick="{{ toggleIdle }}" style="display:flex;cursor:pointer;align-items:center;gap:10px;padding:8px 0">
+              <span style="width:12px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:9px;color:#7f858b">{{ idleCaret }}</span>
+              <span style="width:9px;height:9px;flex-shrink:0;border-radius:999px;background:#7f858b"></span>
+              <h2 style="margin:0;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:#7f858b">Idle</h2>
+              <span style="border-radius:999px;background:#171c22;padding:2px 8px;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;color:#7f858b">{{ parkedCount }}</span>
+              
+              <div style="height:1px;flex:1;background:linear-gradient(to right,#20262e,transparent)"></div>
+            </div>
+            <sc-if value="{{ idleOpen }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;flex-direction:column;gap:2px;padding-bottom:4px">
+                <sc-for list="{{ idleRows }}" as="r" hint-placeholder-count="2">
+                  <div onClick="{{ r.open }}" style="display:grid;grid-template-columns:22px 8px auto auto minmax(0,1fr) auto auto;align-items:center;column-gap:10px;border-radius:6px;padding:6px 8px 6px 0;cursor:pointer" style-hover="background:rgba(255,255,255,.04)">
+                    <span></span>
+                    <span style="width:8px;height:8px;border-radius:999px;background:#7f858b"></span>
+                    <b style="font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;color:#cfd5db">{{ r.name }}</b>
+                    <span style="border-radius:5px;border:1px solid #20262e;background:#171c22;padding:1px 6px;font-family:'JetBrains Mono',monospace;font-size:10px;color:#7f858b">{{ r.project }}</span>
+                    <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:#9aa3ad">{{ r.rowText }}</span>
+                    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#7f858b">{{ r.rowAge }}</span>
+                    <button onClick="{{ r.openComposerIdle }}" style="height:23px;border-radius:6px;border:1px solid #20262e;background:transparent;padding:0 9px;font-size:11.5px;color:#cfd5db" style-hover="border-color:#2a313a;background:rgba(255,255,255,.04)">Reply</button>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+          </sc-if>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isA2 }}" hint-placeholder-val="{{ false }}">
+      <div data-v2-scroll="1" style="min-height:0;flex:1;overflow-y:auto;container-type:size">
+        <div style="display:flex;flex-direction:column;gap:22px;padding:18px 24px 24px">
+
+          <sc-if value="{{ v2.sectioned }}" hint-placeholder-val="{{ true }}">
+          <sc-if value="{{ v2.showAsks }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="width:9px;height:9px;flex-shrink:0;border-radius:999px;background:#e6b450"></span>
+            <h2 style="margin:0;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:#e6b450">Needs you</h2>
+            <span style="border-radius:999px;background:rgba(230,180,80,.12);padding:2px 8px;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;color:#e6b450">{{ v2.askCount }}</span>
+            <span style="font-size:11.5px;color:#7f858b">answer with 1–9 · n for next</span>
+            <div style="height:1px;flex:1;background:linear-gradient(to right,#20262e,transparent)"></div>
+          </div>
+              <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,400px),1fr));gap:12px">
+                <sc-for list="{{ v2.asks }}" as="a" hint-placeholder-count="2">
+                  <div data-agent-id="{{ a.id }}" onClick="{{ a.select }}" style="display:flex;flex-direction:column;overflow:hidden;border-radius:12px;border:1px solid rgba(230,180,80,.4);background:#101317;box-shadow:{{ a.shadow }};cursor:pointer">
+                    <div style="display:flex;align-items:center;gap:8px;background:#e6b450;padding:7px 10px 7px 14px">
+                      <span style="font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1;color:#0c0e11">◆</span>
+                      <b style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;color:#0c0e11">{{ a.name }}</b>
+                      <sc-if value="{{ a.hasVia }}" hint-placeholder-val="{{ false }}"><button onClick="{{ a.viaGo }}" title="Go to the lead" style="flex-shrink:0;border:0;border-radius:4px;background:rgba(12,14,17,.12);padding:1px 6px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;color:#0c0e11" style-hover="background:rgba(12,14,17,.22)">↑ {{ a.viaLead }} · {{ a.viaTask }}</button></sc-if>
+                      <span style="flex-shrink:0;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;color:rgba(12,14,17,.6)">{{ a.project }} · {{ a.askHeader }}</span>
+                      <div style="flex:1"></div>
+                      <span style="flex-shrink:0;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;color:rgba(12,14,17,.6)">{{ a.age }}</span>
+                      <button onClick="{{ a.term }}" title="Open terminal (T)" style="display:flex;height:21px;width:24px;align-items:center;justify-content:center;border-radius:5px;border:1px solid rgba(12,14,17,.2);background:rgba(12,14,17,.08);font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;color:#0c0e11" style-hover="background:rgba(12,14,17,.16)">&gt;_</button>
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:10px;padding:12px 14px">
+                      <sc-if value="{{ a.isSpec }}" hint-placeholder-val="{{ false }}">
+                        <p style="margin:0;font-size:14.5px;font-weight:600;line-height:1.45;color:#e6e9ed">Review the spec before I write the plan</p>
+                        <div style="display:flex;align-items:center;gap:10px;border-radius:7px;border:1px solid #20262e;background:#0c0e11;padding:8px 10px">
+                          <div style="min-width:0;flex:1"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;color:#e6e9ed">{{ a.sp.file }}</div><div style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b">{{ a.sp.meta }}</div></div>
+                          <button onClick="{{ a.sp.open }}" title="wsh open {{ a.sp.path }}" style="flex-shrink:0;height:25px;border-radius:6px;border:1px solid rgba(94,156,255,.45);background:transparent;padding:0 10px;font-size:11.5px;font-weight:600;color:#aebfff" style-hover="background:rgba(94,156,255,.1)">Open in Code ↗</button>
+                        </div>
+                        <div style="display:flex;flex-direction:column;gap:4px">
+                          <span style="font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:#7f858b">Decisions in it</span>
+                          <sc-for list="{{ a.sp.decisions }}" as="d" hint-placeholder-count="3"><div style="display:grid;grid-template-columns:10px minmax(0,1fr);font-size:12.5px;line-height:1.45;color:#cfd5db"><span style="color:#7f858b">·</span><span>{{ d.t }}</span></div></sc-for>
+                        </div>
+                        <div style="display:flex;flex-wrap:wrap;gap:6px">
+                          <sc-for list="{{ a.sp.acts }}" as="o" hint-placeholder-count="2">
+                            <button onClick="{{ o.go }}" style="display:flex;align-items:center;gap:8px;border-radius:6px;border:1px solid {{ o.border }};background:{{ o.bg }};padding:6px 11px 6px 7px" style-hover="border-color:#e6b450">
+                              <span style="display:inline-flex;width:16px;height:16px;flex-shrink:0;align-items:center;justify-content:center;border-radius:4px;background:rgba(0,0,0,.3);font-family:'JetBrains Mono',monospace;font-size:10px;color:#cfd5db">{{ o.num }}</span>
+                              <span style="font-size:12.5px;font-weight:600;color:#e6e9ed">{{ o.label }}</span>
+                              <sc-if value="{{ o.hasDesc }}" hint-placeholder-val="{{ false }}"><span style="font-size:11px;color:#7f858b">{{ o.desc }}</span></sc-if>
+                            </button>
+                          </sc-for>
+                        </div>
+                        <input onClick="{{ stop }}" value="{{ a.sp.guide }}" onChange="{{ a.sp.onGuide }}" onKeyDown="{{ a.sp.guideKey }}" placeholder="what should change… (Enter requests changes)" style="width:100%;border-radius:6px;border:1px solid #20262e;background:rgba(0,0,0,.2);padding:6px 10px;font-size:12.5px;color:#e6e9ed;outline:none">
+                        <span style="font-size:11px;color:#9aa3ad">Press 1–2 · Open in Code runs wsh open on the spec</span>
+                      </sc-if>
+                      <sc-if value="{{ a.isReview }}" hint-placeholder-val="{{ false }}">
+                        <div style="display:flex;align-items:baseline;gap:8px;border-radius:6px;background:rgba(174,191,255,.06);padding:6px 9px"><span style="flex-shrink:0;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;color:#aebfff">◆ lead</span><span style="font-size:11.5px;line-height:1.45;color:#b4bcc6;text-wrap:pretty">{{ a.note }}</span></div>
+                        <p style="margin:0;font-size:14.5px;font-weight:600;line-height:1.45;color:#e6e9ed">{{ a.rv.title }}</p>
+                        <div style="display:flex;flex-direction:column;gap:6px">
+                          <sc-for list="{{ a.rv.findings }}" as="fd" hint-placeholder-count="2">
+                            <div style="display:grid;grid-template-columns:62px minmax(0,1fr);column-gap:8px;align-items:baseline"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;color:#e0726c">{{ fd.r }}</span><span style="font-size:12.5px;line-height:1.45;color:#cfd5db;text-wrap:pretty">{{ fd.t }}</span></div>
+                          </sc-for>
+                        </div>
+                        <div style="display:flex;flex-wrap:wrap;gap:6px">
+                          <sc-for list="{{ a.rv.acts }}" as="o" hint-placeholder-count="4">
+                            <button onClick="{{ o.go }}" style="display:flex;align-items:center;gap:8px;border-radius:6px;border:1px solid {{ o.border }};background:{{ o.bg }};padding:6px 11px 6px 7px" style-hover="border-color:#e6b450">
+                              <span style="display:inline-flex;width:16px;height:16px;flex-shrink:0;align-items:center;justify-content:center;border-radius:4px;background:rgba(0,0,0,.3);font-family:'JetBrains Mono',monospace;font-size:10px;color:#cfd5db">{{ o.num }}</span>
+                              <span style="font-size:12.5px;font-weight:600;color:#e6e9ed">{{ o.label }}</span>
+                              <sc-if value="{{ o.hasDesc }}" hint-placeholder-val="{{ false }}"><span style="font-size:11px;color:#7f858b">{{ o.desc }}</span></sc-if>
+                            </button>
+                          </sc-for>
+                        </div>
+                        <input onClick="{{ stop }}" value="{{ a.rv.guide }}" onChange="{{ a.rv.onGuide }}" onKeyDown="{{ a.rv.guideKey }}" placeholder="guidance for the next round… (Enter sends back)" style="width:100%;border-radius:6px;border:1px solid #20262e;background:rgba(0,0,0,.2);padding:6px 10px;font-size:12.5px;color:#e6e9ed;outline:none">
+                        <div style="display:flex;align-items:center;gap:8px;min-height:23px">
+                          <span style="min-width:0;flex:1;font-size:11px;color:#9aa3ad">Press 1–4 · the lead sees what you chose at its next wake</span>
+                          <button onClick="{{ a.rv.reviewDiff }}" style="height:23px;border-radius:6px;border:1px solid #20262e;background:transparent;padding:0 10px;font-size:11.5px;font-weight:500;color:#cfd5db" style-hover="border-color:#5e9cff">View diff <span style="font-family:'JetBrains Mono',monospace;font-size:10px"><span style="color:#54c79a">{{ a.diff.add }}</span> <span style="color:#e0726c">{{ a.diff.del }}</span></span></button>
+                        </div>
+                      </sc-if>
+                      <sc-if value="{{ a.hasAsk }}" hint-placeholder-val="{{ true }}">
+                      <sc-if value="{{ a.ask.hasTabs }}" hint-placeholder-val="{{ false }}">
+                        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px">
+                          <sc-for list="{{ a.ask.tabs }}" as="tb" hint-placeholder-count="3">
+                            <button onClick="{{ tb.go }}" style="display:flex;align-items:center;gap:6px;border-radius:5px;border:1px solid {{ tb.border }};background:{{ tb.bg }};padding:3px 9px;font-size:11.5px;color:{{ tb.color }}"><span style="width:6px;height:6px;border-radius:999px;background:{{ tb.dot }}"></span>{{ tb.label }}</button>
+                          </sc-for>
+                          <span style="margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:10px;color:#7f858b">{{ a.ask.progress }}</span>
+                        </div>
+                      </sc-if>
+                      <sc-if value="{{ a.hasNote }}" hint-placeholder-val="{{ false }}"><div style="display:flex;align-items:baseline;gap:8px;border-radius:6px;background:rgba(174,191,255,.06);padding:6px 9px"><span style="flex-shrink:0;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;color:#aebfff">◆ lead</span><span style="font-size:11.5px;line-height:1.45;color:#b4bcc6;text-wrap:pretty">{{ a.note }}</span></div></sc-if>
+                      <div style="display:flex;flex-direction:column;align-items:flex-start;gap:4px">
+                        <p style="margin:0;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:{{ a.ask.clamp }};overflow:hidden;font-size:14.5px;font-weight:600;line-height:1.45;color:#e6e9ed;text-wrap:pretty">{{ a.ask.q }}</p>
+                        <sc-if value="{{ a.ask.long }}" hint-placeholder-val="{{ false }}"><button onClick="{{ a.ask.toggleQ }}" style="border:0;background:transparent;padding:0;font-size:11.5px;color:#5e9cff" style-hover="color:#8da3ff">{{ a.ask.moreLabel }}</button></sc-if>
+                      </div>
+                      <sc-if value="{{ a.ask.chips }}" hint-placeholder-val="{{ true }}">
+                        <div style="display:flex;flex-wrap:wrap;gap:6px">
+                          <sc-for list="{{ a.ask.opts }}" as="o" hint-placeholder-count="2">
+                            <button onClick="{{ o.pick }}" style="display:flex;align-items:center;gap:8px;border-radius:6px;border:1px solid {{ o.border }};background:{{ o.bg }};padding:6px 11px 6px 7px" style-hover="border-color:#e6b450">
+                              <span style="display:inline-flex;width:16px;height:16px;flex-shrink:0;align-items:center;justify-content:center;border-radius:4px;background:{{ o.numBg }};font-family:'JetBrains Mono',monospace;font-size:10px;color:{{ o.numColor }}">{{ o.num }}</span>
+                              <span style="font-size:12.5px;font-weight:600;color:#e6e9ed">{{ o.label }}</span>
+                              <sc-if value="{{ o.rec }}" hint-placeholder-val="{{ false }}"><span style="font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:#e6b450">rec</span></sc-if>
+                              <sc-if value="{{ o.checked }}" hint-placeholder-val="{{ false }}"><span style="font-size:12px;color:#e6b450">{{ o.check }}</span></sc-if>
+                            </button>
+                          </sc-for>
+                        </div>
+                      </sc-if>
+                      <sc-if value="{{ a.ask.stacked }}" hint-placeholder-val="{{ false }}">
+                        <div style="display:flex;flex-direction:column;gap:5px">
+                          <sc-for list="{{ a.ask.opts }}" as="o" hint-placeholder-count="2">
+                            <button onClick="{{ o.pick }}" style="display:flex;width:100%;align-items:flex-start;gap:10px;border-radius:6px;border:1px solid {{ o.border }};background:{{ o.bg }};padding:8px 11px;text-align:left" style-hover="border-color:#e6b450">
+                              <span style="display:inline-flex;width:16px;height:16px;margin-top:1px;flex-shrink:0;align-items:center;justify-content:center;border-radius:4px;background:{{ o.numBg }};font-family:'JetBrains Mono',monospace;font-size:10px;color:{{ o.numColor }}">{{ o.num }}</span>
+                              <span style="display:flex;min-width:0;flex:1;flex-direction:column;gap:2px">
+                                <span style="display:flex;flex-wrap:wrap;align-items:center;gap:8px"><span style="font-size:12.5px;font-weight:600;color:#e6e9ed">{{ o.label }}</span><sc-if value="{{ o.rec }}" hint-placeholder-val="{{ false }}"><span style="border-radius:5px;border:1px solid rgba(230,180,80,.4);background:rgba(230,180,80,.1);padding:1px 6px;font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:600;text-transform:uppercase;color:#e6b450">recommended</span></sc-if></span>
+                                <sc-if value="{{ o.hasDesc }}" hint-placeholder-val="{{ false }}"><span style="font-size:11.5px;line-height:1.45;color:#9aa3ad">{{ o.desc }}</span></sc-if>
+                              </span>
+                              <sc-if value="{{ o.checked }}" hint-placeholder-val="{{ false }}"><span style="margin-top:1px;font-size:12px;color:#e6b450">{{ o.check }}</span></sc-if>
+                            </button>
+                          </sc-for>
+                        </div>
+                      </sc-if>
+                      <input onClick="{{ stop }}" value="{{ a.ask.text }}" onChange="{{ a.ask.onText }}" onKeyDown="{{ a.ask.textKey }}" placeholder="or type your own answer…" style="width:100%;border-radius:6px;border:1px solid {{ a.ask.textBorder }};background:rgba(0,0,0,.2);padding:6px 10px;font-size:12.5px;color:#e6e9ed;outline:none">
+                      <div style="display:flex;align-items:center;gap:8px;min-height:23px">
+                        <span style="min-width:0;flex:1;font-size:11px;color:#9aa3ad">{{ a.ask.hint }}</span>
+                        <sc-if value="{{ a.ask.showSend }}" hint-placeholder-val="{{ false }}"><button onClick="{{ a.ask.send }}" style="height:23px;border:0;border-radius:6px;background:#e6b450;padding:0 12px;font-size:11.5px;font-weight:700;color:#0c0e11;opacity:{{ a.ask.sendOp }}">{{ a.ask.sendLabel }}</button></sc-if>
+                      </div>
+                      </sc-if>
+                      <div style="display:flex;align-items:center;gap:8px;border-top:1px solid #1c2128;padding-top:9px">
+                        <span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:11px;color:#7f858b">{{ a.finalLine }}</span>
+                        <sc-if value="{{ a.hasDiff }}" hint-placeholder-val="{{ false }}"><button onClick="{{ a.diffGo }}" style="display:flex;height:23px;flex-shrink:0;align-items:center;justify-content:center;gap:4px;border-radius:6px;border:1px solid #20262e;background:transparent;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;padding:0 7px" style-hover="border-color:#5e9cff"><span style="color:#54c79a">{{ a.diff.add }}</span><span style="color:#e0726c">{{ a.diff.del }}</span></button></sc-if>
+                        <button onClick="{{ a.openComposer }}" style="display:flex;height:23px;flex-shrink:0;align-items:center;justify-content:center;gap:4px;border-radius:6px;border:1px solid #20262e;background:transparent;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;padding:0 10px;font-family:inherit;font-size:11.5px;font-weight:500;color:#cfd5db" style-hover="border-color:#2a313a;background:rgba(255,255,255,.04)">Reply <span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#7f858b">R</span></button>
+                      </div>
+                    </div>
+                <sc-if value="{{ a.composerOpen }}" hint-placeholder-val="{{ false }}">
+                  <div onClick="{{ stop }}" style="padding:0 14px 12px">
+                    <input data-composer="1" value="{{ draft }}" onChange="{{ onDraft }}" onKeyDown="{{ a.composerKey }}" placeholder="{{ a.placeholder }}" style="width:100%;border-radius:6px;border:1px solid rgba(94,156,255,.6);background:rgba(0,0,0,.2);padding:7px 10px;font-size:12.5px;color:#e6e9ed;outline:none">
+                  </div>
+                </sc-if>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ v2.showWork }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="width:9px;height:9px;flex-shrink:0;border-radius:999px;background:#5e9cff"></span>
+            <h2 style="margin:0;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:#aebfff">Working</h2>
+            <span style="border-radius:999px;background:rgba(94,156,255,.1);padding:2px 8px;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;color:#aebfff">{{ v2.workCount }}</span>
+            <sc-if value="{{ v2.hasHung }}" hint-placeholder-val="{{ false }}"><span style="font-size:11.5px;font-weight:600;color:#e6b450">{{ v2.hungNote }}</span></sc-if>
+            <div style="height:1px;flex:1;background:linear-gradient(to right,#20262e,transparent)"></div>
+          </div>
+              <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,340px),1fr));gap:10px;align-items:start">
+                <sc-for list="{{ v2.work }}" as="a" hint-placeholder-count="4">
+                  <div data-agent-id="{{ a.id }}" onClick="{{ a.toggle }}" style="grid-column:{{ a.span }};display:flex;flex-direction:column;overflow:hidden;border-radius:12px;border:1px solid {{ a.border }};background:#101317;box-shadow:{{ a.shadow }};cursor:pointer" style-hover="background:#12161b">
+                    <div style="display:flex;align-items:center;gap:6px;padding:9px 8px 8px 14px">
+                  <span style="width:8px;height:8px;flex-shrink:0;border-radius:999px;background:{{ a.dot }};box-shadow:inset 0 0 0 1.5px {{ a.dotLine }};animation:{{ a.anim }}"></span>
+                  <sc-if value="{{ a.isLead }}" hint-placeholder-val="{{ false }}"><span title="Orchestrator lead" style="flex-shrink:0;margin-left:2px;font-size:10px;line-height:1;color:#aebfff">◆</span></sc-if>
+                  <span title="{{ a.rtLabel }}" style="flex-shrink:0;margin-left:2px;font-family:'JetBrains Mono',monospace;font-size:10px;line-height:1;color:{{ a.rtColor }}">{{ a.rtMark }}</span>
+                  <b style="min-width:30px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;color:#e6e9ed">{{ a.name }}</b>
+                  <span style="flex-shrink:0;border-radius:5px;border:1px solid #20262e;background:#171c22;padding:1px 6px;font-family:'JetBrains Mono',monospace;font-size:10px;color:#7f858b">{{ a.project }}</span>
+                      <sc-if value="{{ a.noLead }}" hint-placeholder-val="{{ false }}"><span title="A lead starts at the run's first judgment event" style="flex-shrink:0;font-family:'JetBrains Mono',monospace;font-size:10px;color:#7f858b">no lead</span></sc-if>
+                      <div style="flex:1"></div>
+                      <sc-if value="{{ a.hasSubs }}" hint-placeholder-val="{{ false }}"><button onClick="{{ a.open }}" title="{{ a.subsTitle }}" style="display:flex;height:23px;flex-shrink:0;align-items:center;justify-content:center;gap:4px;border-radius:6px;border:1px solid #20262e;background:transparent;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;padding:0 7px;color:#9aa3ad" style-hover="border-color:#5e9cff;color:#aebfff">⑃ {{ a.subs }}</button></sc-if>
+                      <sc-if value="{{ a.hasDiff }}" hint-placeholder-val="{{ false }}"><button onClick="{{ a.diffGo }}" title="Review changes in Diff" style="display:flex;height:23px;flex-shrink:0;align-items:center;justify-content:center;gap:4px;border-radius:6px;border:1px solid #20262e;background:transparent;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;padding:0 7px" style-hover="border-color:#5e9cff;background:rgba(94,156,255,.1)"><span style="color:#54c79a">{{ a.diff.add }}</span><span style="color:#e0726c">{{ a.diff.del }}</span></button></sc-if>
+                      <button onClick="{{ a.term }}" title="Open terminal (T)" style="display:flex;height:23px;flex-shrink:0;align-items:center;justify-content:center;gap:4px;border-radius:6px;border:1px solid #20262e;background:transparent;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;width:25px;font-size:9px;color:#cfd5db" style-hover="border-color:#2a313a;background:rgba(255,255,255,.04)">&gt;_</button>
+                      <button onClick="{{ a.mute }}" title="Move to background (B)" style="display:flex;height:23px;flex-shrink:0;align-items:center;justify-content:center;gap:4px;border-radius:6px;border:1px solid #20262e;background:transparent;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;width:25px;color:#cfd5db" style-hover="border-color:#2a313a;background:rgba(255,255,255,.04)"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5 L8 9 L12 5"></path><path d="M4 11.5 H12"></path></svg></button>
+                    </div>
+                    <div style="height:2px;margin:0 14px;overflow:hidden;border-radius:2px;background:#1c2128">
+                      <sc-if value="{{ a.isLead }}" hint-placeholder-val="{{ false }}"><div style="display:flex;gap:3px;height:100%;background:#101317"><sc-for list="{{ a.run.segs }}" as="sg" hint-placeholder-count="4"><div style="flex:1;height:100%;border-radius:2px;background:{{ sg.bg }}"></div></sc-for></div></sc-if>
+                      <sc-if value="{{ a.barTasks }}" hint-placeholder-val="{{ false }}"><div style="width:{{ a.taskW }};height:100%;background:#5e9cff"></div></sc-if>
+                      <sc-if value="{{ a.flow }}" hint-placeholder-val="{{ false }}"><div style="width:26%;height:100%;background:linear-gradient(to right,transparent,#5e9cff,transparent);animation:flowBar 1.9s linear infinite"></div></sc-if>
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:4px;padding:9px 14px 11px">
+                      <sc-if value="{{ a.hung }}" hint-placeholder-val="{{ false }}">
+                        <div style="display:flex;align-items:center;gap:8px">
+                          <span style="width:6px;height:6px;flex-shrink:0;border-radius:999px;background:#e6b450"></span>
+                          <span style="min-width:0;flex:1;font-family:'JetBrains Mono',monospace;font-size:12px;color:#e6b450">{{ a.hungText }}</span>
+                          <button onClick="{{ a.nudge }}" style="display:flex;height:23px;flex-shrink:0;align-items:center;justify-content:center;gap:4px;border-radius:6px;border:1px solid #20262e;background:transparent;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;padding:0 9px;border-color:rgba(230,180,80,.45);font-family:inherit;font-size:11.5px;font-weight:600;color:#e6b450" style-hover="background:rgba(230,180,80,.1)">Nudge</button>
+                        </div>
+                      </sc-if>
+                      <sc-if value="{{ a.live }}" hint-placeholder-val="{{ true }}">
+                        <div style="display:flex;align-items:center;gap:8px">
+                          <span style="width:6px;height:6px;flex-shrink:0;border-radius:999px;background:#5e9cff;animation:pulseDot 1.6s infinite"></span>
+                          <span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:12px;color:#aebfff">{{ a.activity }}</span>
+                          <sc-if value="{{ a.hasTasks }}" hint-placeholder-val="{{ false }}"><span style="flex-shrink:0;font-family:'JetBrains Mono',monospace;font-size:10px;color:#7f858b">{{ a.tasks }} tasks</span></sc-if>
+                          <sc-if value="{{ a.hasCost }}" hint-placeholder-val="{{ false }}"><span title="Across the lead and every worker" style="flex-shrink:0;font-family:'JetBrains Mono',monospace;font-size:10px;color:#7f858b">{{ a.costText }}</span></sc-if>
+                          <span style="flex-shrink:0;font-family:'JetBrains Mono',monospace;font-size:10px;color:#7f858b">{{ a.age }}</span>
+                        </div>
+                      </sc-if>
+                      <sc-if value="{{ a.isLead }}" hint-placeholder-val="{{ false }}">
+                        <sc-if value="{{ a.run.down }}" hint-placeholder-val="{{ false }}">
+                          <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:3px;border-radius:7px;border:1px solid rgba(224,114,108,.35);background:rgba(224,114,108,.08);padding:8px 10px">
+                            <div style="min-width:180px;flex:1"><div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:600;color:#e0726c">Lead wake failed · 2m ago</div><div style="font-size:11.5px;line-height:1.45;color:#b4bcc6">Its judgment events and held questions come to you until you relaunch it.</div></div>
+                            <button onClick="{{ a.run.relaunch }}" style="height:23px;border:0;border-radius:6px;background:#e0726c;padding:0 11px;font-size:11.5px;font-weight:700;color:#0c0e11">Relaunch lead</button>
+                          </div>
+                        </sc-if>
+                        <sc-if value="{{ a.run.planning }}" hint-placeholder-val="{{ false }}">
+                          <div style="display:flex;align-items:center;gap:10px;margin-top:3px;border-radius:7px;background:#0c0e11;padding:9px 11px">
+                            <div style="min-width:0;flex:1;font-size:12px;line-height:1.5;color:#9aa3ad;text-wrap:pretty"><b style="font-weight:600;color:#cfd5db">Planning · no plan submitted yet.</b> The lead works the goal with you in its terminal. Tasks appear here when it submits a plan.</div>
+                            <button onClick="{{ a.open }}" style="flex-shrink:0;height:23px;border-radius:6px;border:1px solid #20262e;background:transparent;padding:0 9px;font-size:11.5px;font-weight:500;color:#cfd5db" style-hover="border-color:#5e9cff">Open lead ↗</button>
+                          </div>
+                        </sc-if>
+                        <div style="display:flex;flex-direction:column;gap:1px;margin:3px -6px 0">
+                          <sc-for list="{{ a.run.rows }}" as="t" hint-placeholder-count="3">
+                            <div onClick="{{ t.go }}" style="display:grid;grid-template-columns:8px minmax(0,1fr) auto;align-items:center;column-gap:9px;border-radius:7px;background:{{ t.bg }};box-shadow:{{ t.focus }};padding:5px 6px;cursor:{{ t.cursor }}" style-hover="background:rgba(255,255,255,.04)">
+                              <span style="width:7px;height:7px;border-radius:999px;background:{{ t.dot }};box-shadow:inset 0 0 0 1.5px {{ t.ring }};animation:{{ t.anim }}"></span>
+                              <div style="min-width:0">
+                                <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:600;color:#e6e9ed">{{ t.label }}</div>
+                                <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px;color:{{ t.subColor }}">{{ t.sub }}</div>
+                                <sc-if value="{{ t.hasTold }}" hint-placeholder-val="{{ false }}"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px;color:#aebfff">{{ t.told }}</div></sc-if>
+                                <sc-if value="{{ t.telling }}" hint-placeholder-val="{{ false }}"><input data-composer="1" onClick="{{ stop }}" value="{{ draft }}" onChange="{{ onDraft }}" onKeyDown="{{ t.tellKey }}" placeholder="{{ t.tellPh }}" style="width:100%;margin-top:4px;border-radius:6px;border:1px solid rgba(94,156,255,.6);background:rgba(0,0,0,.2);padding:5px 9px;font-size:12px;color:#e6e9ed;outline:none"></sc-if>
+                              </div>
+                              <div style="display:flex;align-items:center;gap:6px">
+                                <sc-if value="{{ t.hasTag }}" hint-placeholder-val="{{ false }}"><span title="{{ t.tagTitle }}" style="white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:500;color:{{ t.tagColor }}">{{ t.tag }}</span></sc-if>
+                                <sc-for list="{{ t.acts }}" as="ac" hint-placeholder-count="0"><button onClick="{{ ac.go }}" title="{{ ac.title }}" style="height:21px;border-radius:5px;border:1px solid {{ ac.border }};background:transparent;padding:0 8px;font-size:11px;font-weight:600;color:{{ ac.color }}" style-hover="background:rgba(255,255,255,.06)">{{ ac.label }}</button></sc-for>
+                              </div>
+                            </div>
+                          </sc-for>
+                          <sc-if value="{{ a.run.hasWait }}" hint-placeholder-val="{{ false }}">
+                            <div onClick="{{ a.run.toggleWait }}" style="display:flex;align-items:center;gap:9px;border-radius:7px;padding:5px 6px;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b;cursor:pointer" style-hover="background:rgba(255,255,255,.04);color:#9aa3ad"><span style="width:7px;height:7px;flex-shrink:0;border-radius:999px;box-shadow:inset 0 0 0 1.5px #7f858b"></span>{{ a.run.waitLabel }}<span style="margin-left:auto">{{ a.run.waitCaret }}</span></div>
+                            <sc-if value="{{ a.run.waitOpen }}" hint-placeholder-val="{{ false }}">
+                              <sc-for list="{{ a.run.waitRows }}" as="t" hint-placeholder-count="3">
+                            <div onClick="{{ t.go }}" style="display:grid;grid-template-columns:8px minmax(0,1fr) auto;align-items:center;column-gap:9px;border-radius:7px;background:{{ t.bg }};box-shadow:{{ t.focus }};padding:5px 6px;cursor:{{ t.cursor }}" style-hover="background:rgba(255,255,255,.04)">
+                              <span style="width:7px;height:7px;border-radius:999px;background:{{ t.dot }};box-shadow:inset 0 0 0 1.5px {{ t.ring }};animation:{{ t.anim }}"></span>
+                              <div style="min-width:0">
+                                <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:600;color:#e6e9ed">{{ t.label }}</div>
+                                <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px;color:{{ t.subColor }}">{{ t.sub }}</div>
+                                <sc-if value="{{ t.hasTold }}" hint-placeholder-val="{{ false }}"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px;color:#aebfff">{{ t.told }}</div></sc-if>
+                                <sc-if value="{{ t.telling }}" hint-placeholder-val="{{ false }}"><input data-composer="1" onClick="{{ stop }}" value="{{ draft }}" onChange="{{ onDraft }}" onKeyDown="{{ t.tellKey }}" placeholder="{{ t.tellPh }}" style="width:100%;margin-top:4px;border-radius:6px;border:1px solid rgba(94,156,255,.6);background:rgba(0,0,0,.2);padding:5px 9px;font-size:12px;color:#e6e9ed;outline:none"></sc-if>
+                              </div>
+                              <div style="display:flex;align-items:center;gap:6px">
+                                <sc-if value="{{ t.hasTag }}" hint-placeholder-val="{{ false }}"><span title="{{ t.tagTitle }}" style="white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:500;color:{{ t.tagColor }}">{{ t.tag }}</span></sc-if>
+                                <sc-for list="{{ t.acts }}" as="ac" hint-placeholder-count="0"><button onClick="{{ ac.go }}" title="{{ ac.title }}" style="height:21px;border-radius:5px;border:1px solid {{ ac.border }};background:transparent;padding:0 8px;font-size:11px;font-weight:600;color:{{ ac.color }}" style-hover="background:rgba(255,255,255,.06)">{{ ac.label }}</button></sc-for>
+                              </div>
+                            </div>
+                          </sc-for>
+                            </sc-if>
+                          </sc-if>
+                          <sc-if value="{{ a.run.hasDone }}" hint-placeholder-val="{{ true }}">
+                            <div onClick="{{ a.run.toggleDone }}" style="display:flex;align-items:center;gap:9px;border-radius:7px;padding:5px 6px;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b;cursor:pointer" style-hover="background:rgba(255,255,255,.04);color:#9aa3ad"><span style="width:8px;text-align:center;color:#54c79a">✓</span>{{ a.run.doneLabel }}<span style="margin-left:auto">{{ a.run.doneCaret }}</span></div>
+                            <sc-if value="{{ a.run.doneOpen }}" hint-placeholder-val="{{ false }}">
+                              <sc-for list="{{ a.run.doneRows }}" as="t" hint-placeholder-count="3">
+                            <div onClick="{{ t.go }}" style="display:grid;grid-template-columns:8px minmax(0,1fr) auto;align-items:center;column-gap:9px;border-radius:7px;background:{{ t.bg }};box-shadow:{{ t.focus }};padding:5px 6px;cursor:{{ t.cursor }}" style-hover="background:rgba(255,255,255,.04)">
+                              <span style="width:7px;height:7px;border-radius:999px;background:{{ t.dot }};box-shadow:inset 0 0 0 1.5px {{ t.ring }};animation:{{ t.anim }}"></span>
+                              <div style="min-width:0">
+                                <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:600;color:#e6e9ed">{{ t.label }}</div>
+                                <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px;color:{{ t.subColor }}">{{ t.sub }}</div>
+                                <sc-if value="{{ t.hasTold }}" hint-placeholder-val="{{ false }}"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px;color:#aebfff">{{ t.told }}</div></sc-if>
+                                <sc-if value="{{ t.telling }}" hint-placeholder-val="{{ false }}"><input data-composer="1" onClick="{{ stop }}" value="{{ draft }}" onChange="{{ onDraft }}" onKeyDown="{{ t.tellKey }}" placeholder="{{ t.tellPh }}" style="width:100%;margin-top:4px;border-radius:6px;border:1px solid rgba(94,156,255,.6);background:rgba(0,0,0,.2);padding:5px 9px;font-size:12px;color:#e6e9ed;outline:none"></sc-if>
+                              </div>
+                              <div style="display:flex;align-items:center;gap:6px">
+                                <sc-if value="{{ t.hasTag }}" hint-placeholder-val="{{ false }}"><span title="{{ t.tagTitle }}" style="white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:500;color:{{ t.tagColor }}">{{ t.tag }}</span></sc-if>
+                                <sc-for list="{{ t.acts }}" as="ac" hint-placeholder-count="0"><button onClick="{{ ac.go }}" title="{{ ac.title }}" style="height:21px;border-radius:5px;border:1px solid {{ ac.border }};background:transparent;padding:0 8px;font-size:11px;font-weight:600;color:{{ ac.color }}" style-hover="background:rgba(255,255,255,.06)">{{ ac.label }}</button></sc-for>
+                              </div>
+                            </div>
+                          </sc-for>
+                            </sc-if>
+                          </sc-if>
+                        </div>
+                        <div onClick="{{ stop }}" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:4px;border-top:1px solid #1c2128;padding-top:8px">
+                          <span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b">{{ a.run.settings }}</span>
+                          <button onClick="{{ a.run.adjust }}" style="height:23px;border-radius:6px;border:1px solid #20262e;background:transparent;padding:0 9px;font-size:11.5px;font-weight:500;color:#cfd5db" style-hover="border-color:#2a313a;background:rgba(255,255,255,.04)">Adjust</button>
+                          <button onClick="{{ a.run.dag }}" style="height:23px;border-radius:6px;border:1px solid #20262e;background:transparent;padding:0 9px;font-size:11.5px;font-weight:500;color:#cfd5db" style-hover="border-color:#2a313a;background:rgba(255,255,255,.04)">DAG ↗</button>
+                          <button onClick="{{ a.run.askCancel }}" style="height:23px;border-radius:6px;border:1px solid #20262e;background:transparent;padding:0 9px;font-size:11.5px;font-weight:500;color:#cfd5db;color:#e0726c" style-hover="border-color:rgba(224,114,108,.45)">Cancel run</button>
+                        </div>
+                        <sc-if value="{{ a.run.adjustOpen }}" hint-placeholder-val="{{ false }}">
+                          <div onClick="{{ stop }}" style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:6px;border-radius:7px;background:#0c0e11;padding:7px 10px">
+                            <span style="font-size:11.5px;color:#9aa3ad">Worker parallelism</span>
+                            <button onClick="{{ a.run.dec }}" style="width:23px;height:23px;border-radius:6px;border:1px solid #20262e;background:transparent;padding:0 9px;font-size:11.5px;font-weight:500;color:#cfd5db;padding:0" style-hover="border-color:#5e9cff">−</button>
+                            <span style="min-width:14px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;color:#e6e9ed">{{ a.run.par }}</span>
+                            <button onClick="{{ a.run.inc }}" style="width:23px;height:23px;border-radius:6px;border:1px solid #20262e;background:transparent;padding:0 9px;font-size:11.5px;font-weight:500;color:#cfd5db;padding:0" style-hover="border-color:#5e9cff">+</button>
+                            <span style="min-width:0;flex:1;font-size:11px;color:#7f858b">applies to new dispatches</span>
+                            <button onClick="{{ a.run.parDone }}" style="height:23px;border:0;border-radius:6px;background:#5e9cff;padding:0 11px;font-size:11.5px;font-weight:600;color:#0c0e11">Save</button>
+                          </div>
+                        </sc-if>
+                        <sc-if value="{{ a.run.cancelOpen }}" hint-placeholder-val="{{ false }}">
+                          <div onClick="{{ stop }}" style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:6px;border-radius:7px;background:rgba(224,114,108,.08);padding:8px 10px">
+                            <span style="min-width:200px;flex:1;font-size:11.5px;line-height:1.45;color:#e6e9ed">{{ a.run.cancelText }}</span>
+                            <button onClick="{{ a.run.keep }}" style="height:23px;border-radius:6px;border:1px solid #20262e;background:transparent;padding:0 9px;font-size:11.5px;font-weight:500;color:#cfd5db" style-hover="border-color:#2a313a">Keep running</button>
+                            <button onClick="{{ a.run.doCancel }}" style="height:23px;border:0;border-radius:6px;background:#e0726c;padding:0 11px;font-size:11.5px;font-weight:700;color:#0c0e11">Cancel run</button>
+                          </div>
+                        </sc-if>
+                      </sc-if>
+                      <sc-if value="{{ a.showLines2 }}" hint-placeholder-val="{{ true }}">
+                        <sc-for list="{{ a.lines2 }}" as="l" hint-placeholder-count="2">
+                          <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:11.5px;line-height:1.6;color:{{ l.color }}">{{ l.t }}</div>
+                        </sc-for>
+                      </sc-if>
+                      <sc-if value="{{ a.expanded }}" hint-placeholder-val="{{ false }}">
+                        <div style="max-height:260px;overflow-y:auto;margin-top:4px;border-radius:8px;background:#0c0e11;padding:8px 12px">
+                          <sc-for list="{{ a.allLines }}" as="l" hint-placeholder-count="5">
+                            <div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;line-height:1.6;color:{{ l.color }};white-space:pre-wrap;word-break:break-word">{{ l.t }}</div>
+                          </sc-for>
+                        </div>
+                        <div onClick="{{ stop }}" style="display:flex;align-items:center;gap:8px;margin-top:6px">
+                          <input data-composer="1" value="{{ draft }}" onChange="{{ onDraft }}" onKeyDown="{{ a.composerKey }}" placeholder="{{ a.placeholder }}" style="min-width:0;flex:1;border-radius:6px;border:1px solid #20262e;background:#13171d;padding:7px 10px;font-size:12.5px;color:#e6e9ed;outline:none">
+                          <button onClick="{{ a.open }}" style="flex-shrink:0;height:31px;border-radius:6px;border:0;background:#5e9cff;padding:0 12px;font-size:12px;font-weight:600;color:#0c0e11" style-hover="background:#8da3ff">Open in Agent</button>
+                        </div>
+                      </sc-if>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ v2.showDone }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="width:9px;height:9px;flex-shrink:0;border-radius:999px;background:#aebfff"></span>
+            <h2 style="margin:0;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:#aebfff">Ready for review</h2>
+            <span style="border-radius:999px;background:rgba(94,156,255,.1);padding:2px 8px;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;color:#aebfff">{{ v2.doneCount }}</span>
+            
+            <div style="height:1px;flex:1;background:linear-gradient(to right,#20262e,transparent)"></div>
+          </div>
+              <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,340px),1fr));gap:10px">
+                <sc-for list="{{ v2.done }}" as="a" hint-placeholder-count="1">
+                  <div data-agent-id="{{ a.id }}" onClick="{{ a.select }}" style="display:flex;flex-direction:column;overflow:hidden;border-radius:12px;border:1px solid {{ a.boardBorder }};background:#101317;box-shadow:{{ a.pulseRing }};cursor:pointer">
+                    <div style="display:flex;flex-direction:column;gap:9px;padding:10px 8px 12px 14px">
+                      <div style="display:flex;align-items:center;gap:6px">
+                        <span style="flex-shrink:0;font-size:11px;color:#aebfff">✓</span>
+                        <b style="min-width:30px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;color:#e6e9ed">{{ a.name }}</b>
+                        <span style="flex-shrink:0;border-radius:5px;border:1px solid #20262e;background:#171c22;padding:1px 6px;font-family:'JetBrains Mono',monospace;font-size:10px;color:#7f858b">{{ a.project }}</span>
+                        <span style="flex-shrink:0;font-family:'JetBrains Mono',monospace;font-size:10px;color:#7f858b">{{ a.age }} ago</span>
+                        <div style="flex:1"></div>
+                        <button onClick="{{ a.mute }}" title="Dismiss to Idle (B)" style="display:flex;height:23px;flex-shrink:0;align-items:center;justify-content:center;gap:4px;border-radius:6px;border:1px solid #20262e;background:transparent;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;width:25px;font-family:inherit;font-size:12px;font-weight:400;color:#cfd5db" style-hover="border-color:#2a313a;background:rgba(255,255,255,.04)">✕</button>
+                      </div>
+                      <div style="padding-right:6px;font-size:13px;line-height:1.5;color:#cfd5db;text-wrap:pretty">{{ a.finalLine }}</div>
+                      <sc-if value="{{ a.hasReport }}" hint-placeholder-val="{{ false }}"><div style="display:flex;flex-wrap:wrap;gap:4px 14px;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b"><span style="color:#54c79a">{{ a.report.landed }}</span><span>{{ a.report.time }}</span></div></sc-if>
+                      <div style="display:flex;flex-wrap:wrap;gap:6px">
+                        <sc-if value="{{ a.hasReport }}" hint-placeholder-val="{{ false }}"><button onClick="{{ a.closeRun }}" title="Seals the run's evidence" style="height:23px;border:0;border-radius:6px;background:#5e9cff;padding:0 11px;font-size:11.5px;font-weight:600;color:#0c0e11" style-hover="background:#8da3ff">Close run</button></sc-if>
+                        <sc-if value="{{ a.hasDiff }}" hint-placeholder-val="{{ false }}"><button onClick="{{ a.diffGo }}" style="display:flex;height:23px;flex-shrink:0;align-items:center;justify-content:center;gap:4px;border-radius:6px;border:1px solid #20262e;background:transparent;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;gap:6px;padding:0 10px;border-color:rgba(94,156,255,.45);font-family:inherit;font-size:11.5px;font-weight:600;color:#aebfff" style-hover="background:rgba(94,156,255,.1)">Review changes <span style="font-family:'JetBrains Mono',monospace;font-size:10px"><span style="color:#54c79a">{{ a.diff.add }}</span> <span style="color:#e0726c">{{ a.diff.del }}</span></span></button></sc-if>
+                        <button onClick="{{ a.openComposer }}" style="display:flex;height:23px;flex-shrink:0;align-items:center;justify-content:center;gap:4px;border-radius:6px;border:1px solid #20262e;background:transparent;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;padding:0 10px;font-family:inherit;font-size:11.5px;font-weight:500;color:#cfd5db" style-hover="border-color:#2a313a;background:rgba(255,255,255,.04)">Reply</button>
+                        <button onClick="{{ a.open }}" style="display:flex;height:23px;flex-shrink:0;align-items:center;justify-content:center;gap:4px;border-radius:6px;border:1px solid #20262e;background:transparent;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;padding:0 10px;font-family:inherit;font-size:11.5px;font-weight:500;color:#cfd5db" style-hover="border-color:#2a313a;background:rgba(255,255,255,.04)">Open ↗</button>
+                      </div>
+                    </div>
+                <sc-if value="{{ a.composerOpen }}" hint-placeholder-val="{{ false }}">
+                  <div onClick="{{ stop }}" style="padding:0 14px 12px">
+                    <input data-composer="1" value="{{ draft }}" onChange="{{ onDraft }}" onKeyDown="{{ a.composerKey }}" placeholder="{{ a.placeholder }}" style="width:100%;border-radius:6px;border:1px solid rgba(94,156,255,.6);background:rgba(0,0,0,.2);padding:7px 10px;font-size:12.5px;color:#e6e9ed;outline:none">
+                  </div>
+                </sc-if>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </sc-if>
+
+          </sc-if>
+
+          <sc-if value="{{ isA3 }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:flex-start;gap:10px">
+              <sc-for list="{{ v2.cols }}" as="col" hint-placeholder-count="2">
+              <div style="display:flex;min-width:0;flex:1;flex-direction:column;gap:10px;min-height:{{ v2.colMinH }}">
+              <sc-for list="{{ col.cards }}" as="a" hint-placeholder-count="2">
+                <sc-if value="{{ a.plainCard }}" hint-placeholder-val="{{ true }}">
+                  <div data-agent-id="{{ a.id }}" onClick="{{ a.select }}" style="flex:{{ a.grow }} 0 0px;min-height:{{ a.minH }};display:flex;flex-direction:column;overflow:hidden;border-radius:12px;border:1px solid {{ a.gridBorder }};background:#101317;box-shadow:{{ a.shadow }};cursor:pointer">
+                    <div style="display:flex;flex-shrink:0;align-items:center;gap:6px;border-bottom:1px solid #20262e;background:#13171d;padding:6px 8px 6px 12px">
+                      <span style="width:8px;height:8px;flex-shrink:0;border-radius:999px;background:{{ a.dot }};box-shadow:inset 0 0 0 1.5px {{ a.dotLine }};animation:{{ a.anim }}"></span>
+                      <span title="{{ a.rtLabel }}" style="flex-shrink:0;margin-left:2px;font-family:'JetBrains Mono',monospace;font-size:10px;line-height:1;color:{{ a.rtColor }}">{{ a.rtMark }}</span>
+                      <b style="min-width:30px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:13.5px;font-weight:600;color:#e6e9ed">{{ a.name }}</b>
+                      <span style="flex-shrink:0;border-radius:5px;border:1px solid #20262e;background:#171c22;padding:1px 6px;font-family:'JetBrains Mono',monospace;font-size:10px;color:#7f858b">{{ a.project }}</span>
+                      <sc-if value="{{ a.hasSubs }}" hint-placeholder-val="{{ false }}"><button onClick="{{ a.open }}" title="{{ a.subsTitle }}" style="display:flex;height:23px;flex-shrink:0;align-items:center;gap:4px;border-radius:6px;border:1px solid #20262e;background:transparent;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;padding:0 7px;color:#9aa3ad" style-hover="border-color:#5e9cff;color:#aebfff">⑃ {{ a.subs }}</button></sc-if>
+                      <sc-if value="{{ a.hasDiff }}" hint-placeholder-val="{{ false }}"><button onClick="{{ a.diffGo }}" title="Review changes in Diff" style="display:flex;height:23px;flex-shrink:0;align-items:center;gap:4px;border-radius:6px;border:1px solid #20262e;background:transparent;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;padding:0 7px" style-hover="border-color:#5e9cff;background:rgba(94,156,255,.1)"><span style="color:#54c79a">{{ a.diff.add }}</span><span style="color:#e0726c">{{ a.diff.del }}</span></button></sc-if>
+                      <button onClick="{{ a.term }}" title="Open terminal (T)" style="display:flex;height:23px;width:25px;flex-shrink:0;align-items:center;justify-content:center;border-radius:6px;border:1px solid #20262e;background:transparent;font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;color:#cfd5db" style-hover="border-color:#2a313a;background:rgba(255,255,255,.04)">&gt;_</button>
+                      <sc-if value="{{ a.canBackground }}" hint-placeholder-val="{{ false }}"><button onClick="{{ a.mute }}" title="Move to background (B)" style="display:flex;height:23px;width:25px;flex-shrink:0;align-items:center;justify-content:center;border-radius:6px;border:1px solid #20262e;background:transparent;color:#cfd5db" style-hover="border-color:#2a313a;background:rgba(255,255,255,.04)"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5 L8 9 L12 5"></path><path d="M4 11.5 H12"></path></svg></button></sc-if>
+                      <sc-if value="{{ a.canDismiss }}" hint-placeholder-val="{{ false }}"><button onClick="{{ a.mute }}" title="Dismiss to Idle (B)" style="display:flex;height:23px;width:25px;flex-shrink:0;align-items:center;justify-content:center;border-radius:6px;border:1px solid #20262e;background:transparent;font-size:12px;color:#cfd5db" style-hover="border-color:#2a313a;background:rgba(255,255,255,.04)">✕</button></sc-if>
+                    </div>
+                    <sc-if value="{{ a.flowFull }}" hint-placeholder-val="{{ false }}">
+                      <div style="height:2px;flex-shrink:0;overflow:hidden;background:#101317"><div style="width:26%;height:100%;background:linear-gradient(to right,transparent,#5e9cff,transparent);animation:flowBar 1.9s linear infinite"></div></div>
+                    </sc-if>
+                    <sc-if value="{{ a.asking }}" hint-placeholder-val="{{ false }}">
+                      <div style="display:flex;flex-shrink:0;align-items:center;gap:8px;background:#e6b450;padding:6px 14px">
+                        <span style="font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1;color:#0c0e11">◆</span>
+                        <span style="font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.09em;color:#0c0e11">Waiting on you</span>
+                        <span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;font-weight:600;color:rgba(12,14,17,.6)">{{ a.askHeader }} · {{ a.age }}</span>
+                      </div>
+                    </sc-if>
+                    <sc-if value="{{ a.finished }}" hint-placeholder-val="{{ false }}">
+                      <div onClick="{{ stop }}" style="display:flex;flex-shrink:0;align-items:center;gap:8px;border-bottom:1px solid #20262e;background:rgba(94,156,255,.06);padding:5px 8px 5px 14px">
+                        <span style="font-size:11px;line-height:1;color:#aebfff">✓</span>
+                        <span style="font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.09em;color:#aebfff">Finished</span>
+                        <span style="min-width:0;flex:1;font-family:'JetBrains Mono',monospace;font-size:9.5px;font-weight:600;color:#7f858b">{{ a.age }} ago</span>
+                        <sc-if value="{{ a.hasDiff }}" hint-placeholder-val="{{ false }}"><button onClick="{{ a.diffGo }}" style="display:flex;height:23px;flex-shrink:0;align-items:center;gap:6px;border-radius:6px;border:1px solid rgba(94,156,255,.45);background:transparent;padding:0 9px;font-size:11.5px;font-weight:600;color:#aebfff" style-hover="background:rgba(94,156,255,.1)">Review changes <span style="font-family:'JetBrains Mono',monospace;font-size:10px"><span style="color:#54c79a">{{ a.diff.add }}</span> <span style="color:#e0726c">{{ a.diff.del }}</span></span></button></sc-if>
+                        <button onClick="{{ a.open }}" style="height:23px;flex-shrink:0;border-radius:6px;border:1px solid #20262e;background:transparent;padding:0 9px;font-size:11.5px;color:#cfd5db" style-hover="border-color:#2a313a;background:rgba(255,255,255,.04)">Open ↗</button>
+                      </div>
+                    </sc-if>
+                    <div style="display:flex;min-height:0;flex:1;flex-direction:column;overflow-y:auto;overflow-x:hidden">
+                      <sc-if value="{{ a.hasAsk }}" hint-placeholder-val="{{ false }}">
+                        <div style="display:flex;flex-shrink:0;flex-direction:column;gap:8px;border-bottom:1px solid #20262e;padding:10px 12px 10px 14px">
+                          <sc-if value="{{ a.ask.hasTabs }}" hint-placeholder-val="{{ false }}">
+                            <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px">
+                              <sc-for list="{{ a.ask.tabs }}" as="tb" hint-placeholder-count="2"><button onClick="{{ tb.go }}" style="display:flex;align-items:center;gap:6px;border-radius:5px;border:1px solid {{ tb.border }};background:{{ tb.bg }};padding:3px 9px;font-size:11.5px;color:{{ tb.color }}"><span style="width:6px;height:6px;border-radius:999px;background:{{ tb.dot }}"></span>{{ tb.label }}</button></sc-for>
+                              <span style="margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:10px;color:#7f858b">{{ a.ask.progress }}</span>
+                            </div>
+                          </sc-if>
+                          <p style="margin:0;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:{{ a.ask.clamp }};overflow:hidden;font-size:14px;font-weight:600;line-height:1.45;color:#e6e9ed;text-wrap:pretty">{{ a.ask.q }}</p>
+                          <sc-if value="{{ a.ask.long }}" hint-placeholder-val="{{ false }}"><button onClick="{{ a.ask.toggleQ }}" style="align-self:flex-start;border:0;background:transparent;padding:0;font-size:11.5px;color:#5e9cff" style-hover="color:#8da3ff">{{ a.ask.moreLabel }}</button></sc-if>
+                          <sc-if value="{{ a.ask.chips }}" hint-placeholder-val="{{ false }}">
+                            <div style="display:flex;flex-wrap:wrap;gap:6px">
+                              <sc-for list="{{ a.ask.opts }}" as="o" hint-placeholder-count="2"><button onClick="{{ o.pick }}" style="display:flex;align-items:center;gap:8px;border-radius:6px;border:1px solid {{ o.border }};background:{{ o.bg }};padding:5px 11px 5px 7px" style-hover="border-color:#e6b450"><span style="display:inline-flex;width:16px;height:16px;flex-shrink:0;align-items:center;justify-content:center;border-radius:4px;background:{{ o.numBg }};font-family:'JetBrains Mono',monospace;font-size:10px;color:{{ o.numColor }}">{{ o.num }}</span><span style="font-size:12.5px;font-weight:600;color:#e6e9ed">{{ o.label }}</span><sc-if value="{{ o.rec }}" hint-placeholder-val="{{ false }}"><span style="font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:600;text-transform:uppercase;color:#e6b450">rec</span></sc-if><sc-if value="{{ o.checked }}" hint-placeholder-val="{{ false }}"><span style="font-size:12px;color:#e6b450">{{ o.check }}</span></sc-if></button></sc-for>
+                            </div>
+                          </sc-if>
+                          <sc-if value="{{ a.ask.stacked }}" hint-placeholder-val="{{ false }}">
+                            <div style="display:flex;flex-direction:column;gap:5px">
+                              <sc-for list="{{ a.ask.opts }}" as="o" hint-placeholder-count="2"><button onClick="{{ o.pick }}" style="display:flex;width:100%;align-items:flex-start;gap:10px;border-radius:6px;border:1px solid {{ o.border }};background:{{ o.bg }};padding:7px 11px;text-align:left" style-hover="border-color:#e6b450"><span style="display:inline-flex;width:16px;height:16px;margin-top:1px;flex-shrink:0;align-items:center;justify-content:center;border-radius:4px;background:{{ o.numBg }};font-family:'JetBrains Mono',monospace;font-size:10px;color:{{ o.numColor }}">{{ o.num }}</span><span style="display:flex;min-width:0;flex:1;flex-direction:column;gap:2px"><span style="display:flex;flex-wrap:wrap;align-items:center;gap:8px"><span style="font-size:12.5px;font-weight:600;color:#e6e9ed">{{ o.label }}</span><sc-if value="{{ o.rec }}" hint-placeholder-val="{{ false }}"><span style="border-radius:5px;border:1px solid rgba(230,180,80,.4);background:rgba(230,180,80,.1);padding:1px 6px;font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:600;text-transform:uppercase;color:#e6b450">recommended</span></sc-if></span><sc-if value="{{ o.hasDesc }}" hint-placeholder-val="{{ false }}"><span style="font-size:11.5px;line-height:1.45;color:#9aa3ad">{{ o.desc }}</span></sc-if></span></button></sc-for>
+                            </div>
+                          </sc-if>
+                          <input onClick="{{ stop }}" value="{{ a.ask.text }}" onChange="{{ a.ask.onText }}" onKeyDown="{{ a.ask.textKey }}" placeholder="or type your own answer…" style="width:100%;border-radius:6px;border:1px solid {{ a.ask.textBorder }};background:rgba(0,0,0,.2);padding:6px 10px;font-size:12.5px;color:#e6e9ed;outline:none">
+                          <div style="display:flex;align-items:center;gap:8px;min-height:23px">
+                            <span style="min-width:0;flex:1;font-size:11px;color:#9aa3ad">{{ a.ask.hint }}</span>
+                            <sc-if value="{{ a.ask.showSend }}" hint-placeholder-val="{{ false }}"><button onClick="{{ a.ask.send }}" style="height:23px;border:0;border-radius:6px;background:#e6b450;padding:0 12px;font-size:11.5px;font-weight:700;color:#0c0e11;opacity:{{ a.ask.sendOp }}">{{ a.ask.sendLabel }}</button></sc-if>
+                          </div>
+                        </div>
+                      </sc-if>
+                      <div style="flex-shrink:0;flex-grow:1;padding:6px 12px 6px 14px">
+                        <sc-if value="{{ a.hung }}" hint-placeholder-val="{{ false }}">
+                          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;border-bottom:1px solid #20262e;padding-bottom:6px">
+                            <span style="width:6px;height:6px;flex-shrink:0;border-radius:999px;background:#e6b450"></span>
+                            <span style="min-width:0;flex:1;font-family:'JetBrains Mono',monospace;font-size:12px;color:#e6b450">{{ a.hungText }}</span>
+                            <button onClick="{{ a.nudge }}" style="height:23px;flex-shrink:0;border-radius:6px;border:1px solid rgba(230,180,80,.45);background:transparent;padding:0 9px;font-size:11.5px;font-weight:600;color:#e6b450" style-hover="background:rgba(230,180,80,.1)">Nudge</button>
+                          </div>
+                        </sc-if>
+                        <sc-if value="{{ a.working }}" hint-placeholder-val="{{ false }}"><sc-if value="{{ a.live }}" hint-placeholder-val="{{ true }}">
+                          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;border-bottom:1px solid #20262e;padding-bottom:6px">
+                            <span style="width:6px;height:6px;flex-shrink:0;border-radius:999px;background:#5e9cff;animation:pulseDot 1.6s infinite"></span>
+                            <span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.4;color:#aebfff">{{ a.activity }}</span>
+                            <sc-if value="{{ a.hasTasks }}" hint-placeholder-val="{{ false }}"><button onClick="{{ a.tasksGo }}" title="Task list" style="flex-shrink:0;border-radius:5px;border:1px solid #20262e;background:#171c22;padding:1px 6px;font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#cfd5db">{{ a.tasks }}</button></sc-if>
+                          </div>
+                        </sc-if></sc-if>
+                        <sc-for list="{{ a.linesFull }}" as="l" hint-placeholder-count="5">
+                          <div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;line-height:1.6;color:{{ l.color }};white-space:pre-wrap;word-break:break-word">{{ l.t }}</div>
+                        </sc-for>
+                      </div>
+                    </div>
+                    <div style="flex-shrink:0;border-top:1px solid #20262e">
+                      <sc-if value="{{ a.composerOpen }}" hint-placeholder-val="{{ false }}">
+                        <div onClick="{{ stop }}" style="padding:7px 12px">
+                          <input data-composer="1" value="{{ draft }}" onChange="{{ onDraft }}" onKeyDown="{{ a.composerKey }}" placeholder="{{ a.placeholder }}" style="width:100%;border-radius:6px;border:1px solid rgba(94,156,255,.6);background:rgba(0,0,0,.2);padding:6px 10px;font-size:12.5px;color:#e6e9ed;outline:none">
+                        </div>
+                      </sc-if>
+                      <sc-if value="{{ a.composerClosed }}" hint-placeholder-val="{{ true }}">
+                        <div onClick="{{ a.openComposer }}" style="display:flex;cursor:text;align-items:center;gap:8px;padding:6px 12px 6px 14px" style-hover="background:#13171d">
+                          <span style="display:flex;width:13px;height:13px;flex-shrink:0;align-items:center;justify-content:center;border-radius:5px;border:1px solid #20262e;font-size:10px;line-height:1;color:#7f858b">+</span>
+                          <span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:#9aa3ad">{{ a.placeholder }}</span>
+                          <span style="flex-shrink:0;border-radius:5px;border:1px solid #20262e;padding:2px 6px;font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#7f858b">R</span>
+                        </div>
+                      </sc-if>
+                    </div>
+                  </div>
+                </sc-if>
+
+                <sc-if value="{{ a.leadCard }}" hint-placeholder-val="{{ false }}">
+                  <div data-agent-id="{{ a.id }}" onClick="{{ a.select }}" style="flex:{{ a.grow }} 0 0px;min-height:{{ a.minH }};display:flex;flex-direction:column;overflow:hidden;border-radius:12px;border:1px solid {{ a.gridBorder }};background:#101317;box-shadow:{{ a.shadow }};cursor:pointer">
+                    <div style="display:flex;flex-shrink:0;align-items:center;gap:6px;border-bottom:1px solid #20262e;background:#13171d;padding:6px 8px 6px 12px">
+                      <span style="width:8px;height:8px;flex-shrink:0;border-radius:999px;background:{{ a.dot }};box-shadow:inset 0 0 0 1.5px {{ a.dotLine }};animation:{{ a.anim }}"></span>
+                      <span title="Orchestrator lead" style="flex-shrink:0;margin-left:2px;font-size:10px;line-height:1;color:#aebfff">◆</span>
+                      <b style="min-width:30px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:13.5px;font-weight:600;color:#e6e9ed">{{ a.name }}</b>
+                      <span style="flex-shrink:0;border-radius:5px;border:1px solid #20262e;background:#171c22;padding:1px 6px;font-family:'JetBrains Mono',monospace;font-size:10px;color:#7f858b">{{ a.project }}</span>
+                      <sc-if value="{{ a.noLead }}" hint-placeholder-val="{{ false }}"><span title="A lead starts at the run's first judgment event" style="flex-shrink:0;font-family:'JetBrains Mono',monospace;font-size:10px;color:#7f858b">no lead</span></sc-if>
+                      <sc-if value="{{ a.hasAskBadge }}" hint-placeholder-val="{{ false }}"><span title="Worker questions answered in this card; n cycles them" style="flex-shrink:0;border-radius:5px;background:rgba(230,180,80,.14);padding:1px 7px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;color:#e6b450">{{ a.askBadge }}</span></sc-if>
+                      <div style="flex:1"></div>
+                      <sc-if value="{{ a.hasDiff }}" hint-placeholder-val="{{ false }}"><button onClick="{{ a.diffGo }}" title="Review changes in Diff" style="display:flex;height:23px;flex-shrink:0;align-items:center;gap:4px;border-radius:6px;border:1px solid #20262e;background:transparent;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;padding:0 7px" style-hover="border-color:#5e9cff;background:rgba(94,156,255,.1)"><span style="color:#54c79a">{{ a.diff.add }}</span><span style="color:#e0726c">{{ a.diff.del }}</span></button></sc-if>
+                      <button onClick="{{ a.term }}" title="Open the lead's terminal (T)" style="display:flex;height:23px;width:25px;flex-shrink:0;align-items:center;justify-content:center;border-radius:6px;border:1px solid #20262e;background:transparent;font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;color:#cfd5db" style-hover="border-color:#2a313a;background:rgba(255,255,255,.04)">&gt;_</button>
+                      <sc-if value="{{ a.canBackground }}" hint-placeholder-val="{{ false }}"><button onClick="{{ a.mute }}" title="Move to background (B)" style="display:flex;height:23px;width:25px;flex-shrink:0;align-items:center;justify-content:center;border-radius:6px;border:1px solid #20262e;background:transparent;color:#cfd5db" style-hover="border-color:#2a313a;background:rgba(255,255,255,.04)"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5 L8 9 L12 5"></path><path d="M4 11.5 H12"></path></svg></button></sc-if>
+                    </div>
+                    <sc-if value="{{ a.asking }}" hint-placeholder-val="{{ false }}">
+                      <div style="display:flex;flex-shrink:0;align-items:center;gap:8px;background:#e6b450;padding:6px 14px">
+                        <span style="font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1;color:#0c0e11">◆</span>
+                        <span style="font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.09em;color:#0c0e11">Waiting on you</span>
+                        <span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;font-weight:600;color:rgba(12,14,17,.6)">{{ a.askHeader }} · {{ a.age }}</span>
+                      </div>
+                    </sc-if>
+                    <div style="display:flex;flex-shrink:0;flex-direction:column;gap:6px;padding:8px 14px 6px">
+                      <div style="display:flex;gap:3px;height:3px"><sc-for list="{{ a.run.segs }}" as="sg" hint-placeholder-count="4"><div style="flex:1;height:100%;border-radius:2px;background:{{ sg.bg }}"></div></sc-for></div>
+                      <sc-if value="{{ a.hung }}" hint-placeholder-val="{{ false }}">
+                        <div style="display:flex;align-items:center;gap:8px"><span style="width:6px;height:6px;flex-shrink:0;border-radius:999px;background:#e6b450"></span><span style="min-width:0;flex:1;font-family:'JetBrains Mono',monospace;font-size:12px;color:#e6b450">{{ a.hungText }}</span><button onClick="{{ a.nudge }}" style="height:23px;border-radius:6px;border:1px solid rgba(230,180,80,.45);background:transparent;padding:0 9px;font-size:11.5px;font-weight:600;color:#e6b450">Nudge</button></div>
+                      </sc-if>
+                      <sc-if value="{{ a.live }}" hint-placeholder-val="{{ true }}">
+                        <div style="display:flex;align-items:center;gap:8px">
+                          <span style="width:6px;height:6px;flex-shrink:0;border-radius:999px;background:{{ a.dot }};animation:{{ a.anim }}"></span>
+                          <span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:12px;color:#aebfff">{{ a.activity }}</span>
+                          <sc-if value="{{ a.hasTasks }}" hint-placeholder-val="{{ false }}"><span style="flex-shrink:0;font-family:'JetBrains Mono',monospace;font-size:10px;color:#7f858b">{{ a.tasks }} tasks</span></sc-if>
+                          <sc-if value="{{ a.hasCost }}" hint-placeholder-val="{{ false }}"><span title="Across the lead and every worker" style="flex-shrink:0;font-family:'JetBrains Mono',monospace;font-size:10px;color:#7f858b">{{ a.costText }}</span></sc-if>
+                        </div>
+                      </sc-if>
+                    </div>
+                    <sc-if value="{{ a.hasReport }}" hint-placeholder-val="{{ false }}">
+                      <div onClick="{{ stop }}" style="display:flex;flex-shrink:0;flex-wrap:wrap;align-items:center;gap:8px;margin:0 14px 6px;border-radius:7px;background:rgba(94,156,255,.06);padding:7px 10px">
+                        <span style="font-size:11px;color:#aebfff">✓</span>
+                        <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:600;color:#54c79a">{{ a.report.landed }}</span>
+                        <span style="min-width:0;flex:1;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b">{{ a.report.time }}</span>
+                        <button onClick="{{ a.closeRun }}" title="Seals the run's evidence" style="height:23px;border:0;border-radius:6px;background:#5e9cff;padding:0 11px;font-size:11.5px;font-weight:600;color:#0c0e11" style-hover="background:#8da3ff">Close run</button>
+                      </div>
+                    </sc-if>
+                    <div style="min-height:0;flex:1;overflow-y:auto;overflow-x:hidden;padding:0 14px 8px">
+                      <sc-if value="{{ a.run.down }}" hint-placeholder-val="{{ false }}">
+                        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:2px 0 6px;border-radius:7px;border:1px solid rgba(224,114,108,.35);background:rgba(224,114,108,.08);padding:8px 10px">
+                          <div style="min-width:180px;flex:1"><div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:600;color:#e0726c">Lead wake failed · 2m ago</div><div style="font-size:11.5px;line-height:1.45;color:#b4bcc6">Its judgment events and held questions come to you until you relaunch it.</div></div>
+                          <button onClick="{{ a.run.relaunch }}" style="height:23px;border:0;border-radius:6px;background:#e0726c;padding:0 11px;font-size:11.5px;font-weight:700;color:#0c0e11">Relaunch lead</button>
+                        </div>
+                      </sc-if>
+                      <sc-if value="{{ a.run.planning }}" hint-placeholder-val="{{ false }}">
+                        <div style="margin:2px 0 8px;border-radius:7px;background:#0c0e11;padding:9px 11px;font-size:12px;line-height:1.5;color:#9aa3ad;text-wrap:pretty"><b style="font-weight:600;color:#cfd5db">Planning · no plan submitted yet.</b> The lead works the goal with you in its terminal. Tasks appear here when it submits a plan.</div>
+                      </sc-if>
+                      <sc-if value="{{ a.isSpec }}" hint-placeholder-val="{{ false }}">
+                        <div onClick="{{ stop }}" style="display:flex;flex-direction:column;gap:9px;margin-bottom:8px">
+                          <p style="margin:0;font-size:14px;font-weight:600;line-height:1.45;color:#e6e9ed">Review the spec before I write the plan</p>
+                          <div style="display:flex;align-items:center;gap:10px;border-radius:7px;border:1px solid #20262e;background:#0c0e11;padding:8px 10px">
+                            <div style="min-width:0;flex:1"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;color:#e6e9ed">{{ a.sp.file }}</div><div style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b">{{ a.sp.meta }}</div></div>
+                            <button onClick="{{ a.sp.open }}" title="wsh open {{ a.sp.path }}" style="flex-shrink:0;height:25px;border-radius:6px;border:1px solid rgba(94,156,255,.45);background:transparent;padding:0 10px;font-size:11.5px;font-weight:600;color:#aebfff" style-hover="background:rgba(94,156,255,.1)">Open in Code ↗</button>
+                          </div>
+                          <div style="display:flex;flex-direction:column;gap:4px">
+                            <span style="font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:#7f858b">Decisions in it</span>
+                            <sc-for list="{{ a.sp.decisions }}" as="d" hint-placeholder-count="3"><div style="display:grid;grid-template-columns:10px minmax(0,1fr);font-size:12.5px;line-height:1.45;color:#cfd5db"><span style="color:#7f858b">·</span><span>{{ d.t }}</span></div></sc-for>
+                          </div>
+                          <div style="display:flex;flex-wrap:wrap;gap:6px">
+                            <sc-for list="{{ a.sp.acts }}" as="o" hint-placeholder-count="2"><button onClick="{{ o.go }}" style="display:flex;align-items:center;gap:8px;border-radius:6px;border:1px solid {{ o.border }};background:{{ o.bg }};padding:5px 11px 5px 7px" style-hover="border-color:#e6b450"><span style="display:inline-flex;width:16px;height:16px;align-items:center;justify-content:center;border-radius:4px;background:rgba(0,0,0,.3);font-family:'JetBrains Mono',monospace;font-size:10px;color:#cfd5db">{{ o.num }}</span><span style="font-size:12.5px;font-weight:600;color:#e6e9ed">{{ o.label }}</span><sc-if value="{{ o.hasDesc }}" hint-placeholder-val="{{ false }}"><span style="font-size:11px;color:#7f858b">{{ o.desc }}</span></sc-if></button></sc-for>
+                          </div>
+                          <input onClick="{{ stop }}" value="{{ a.sp.guide }}" onChange="{{ a.sp.onGuide }}" onKeyDown="{{ a.sp.guideKey }}" placeholder="what should change… (Enter requests changes)" style="width:100%;border-radius:6px;border:1px solid #20262e;background:rgba(0,0,0,.2);padding:6px 10px;font-size:12.5px;color:#e6e9ed;outline:none">
+                        </div>
+                      </sc-if>
+                      <div style="display:flex;flex-direction:column;gap:1px;margin:0 -6px">
+                        <sc-for list="{{ a.run.rows }}" as="t" hint-placeholder-count="3">
+                          <div onClick="{{ t.go }}" style="display:grid;grid-template-columns:8px minmax(0,1fr) auto;align-items:center;column-gap:9px;border-radius:7px;background:{{ t.bg }};box-shadow:{{ t.focus }};padding:5px 6px;cursor:{{ t.cursor }}" style-hover="background:rgba(255,255,255,.04)">
+                            <span style="width:7px;height:7px;border-radius:999px;background:{{ t.dot }};box-shadow:inset 0 0 0 1.5px {{ t.ring }};animation:{{ t.anim }}"></span>
+                            <div style="min-width:0">
+                              <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:600;color:#e6e9ed">{{ t.label }}</div>
+                              <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px;color:{{ t.subColor }}">{{ t.sub }}</div>
+                              <sc-if value="{{ t.hasTold }}" hint-placeholder-val="{{ false }}"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px;color:#aebfff">{{ t.told }}</div></sc-if>
+                              <sc-if value="{{ t.telling }}" hint-placeholder-val="{{ false }}"><input data-composer="1" onClick="{{ stop }}" value="{{ draft }}" onChange="{{ onDraft }}" onKeyDown="{{ t.tellKey }}" placeholder="{{ t.tellPh }}" style="width:100%;margin-top:4px;border-radius:6px;border:1px solid rgba(94,156,255,.6);background:rgba(0,0,0,.2);padding:5px 9px;font-size:12px;color:#e6e9ed;outline:none"></sc-if>
+                            </div>
+                            <div style="display:flex;align-items:center;gap:6px">
+                              <sc-if value="{{ t.hasTag }}" hint-placeholder-val="{{ false }}"><span title="{{ t.tagTitle }}" style="white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:500;color:{{ t.tagColor }}">{{ t.tag }}</span></sc-if>
+                              <sc-for list="{{ t.acts }}" as="ac" hint-placeholder-count="0"><button onClick="{{ ac.go }}" title="{{ ac.title }}" style="height:21px;border-radius:5px;border:1px solid {{ ac.border }};background:transparent;padding:0 8px;font-size:11px;font-weight:600;color:{{ ac.color }}" style-hover="background:rgba(255,255,255,.06)">{{ ac.label }}</button></sc-for>
+                            </div>
+                          </div>
+                          <sc-if value="{{ t.inlineAsk }}" hint-placeholder-val="{{ false }}">
+                            <div onClick="{{ stop }}" style="display:flex;flex-direction:column;gap:7px;margin:0 6px 6px 23px;border-left:2px solid rgba(230,180,80,.55);padding:3px 0 5px 11px">
+                              <sc-if value="{{ t.w.hasNote }}" hint-placeholder-val="{{ false }}"><div style="display:flex;align-items:baseline;gap:8px;border-radius:6px;background:rgba(174,191,255,.06);padding:5px 8px"><span style="flex-shrink:0;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;color:#aebfff">◆ lead</span><span style="font-size:11.5px;line-height:1.45;color:#b4bcc6;text-wrap:pretty">{{ t.w.note }}</span></div></sc-if>
+                              <p style="margin:0;font-size:13px;font-weight:600;line-height:1.45;color:#e6e9ed;text-wrap:pretty">{{ t.w.ask.q }}</p>
+                              <sc-if value="{{ t.w.ask.chips }}" hint-placeholder-val="{{ false }}">
+                                <div style="display:flex;flex-wrap:wrap;gap:6px"><sc-for list="{{ t.w.ask.opts }}" as="o" hint-placeholder-count="2"><button onClick="{{ o.pick }}" style="display:flex;align-items:center;gap:8px;border-radius:6px;border:1px solid {{ o.border }};background:{{ o.bg }};padding:4px 10px 4px 6px" style-hover="border-color:#e6b450"><span style="display:inline-flex;width:16px;height:16px;align-items:center;justify-content:center;border-radius:4px;background:{{ o.numBg }};font-family:'JetBrains Mono',monospace;font-size:10px;color:{{ o.numColor }}">{{ o.num }}</span><span style="font-size:12px;font-weight:600;color:#e6e9ed">{{ o.label }}</span><sc-if value="{{ o.rec }}" hint-placeholder-val="{{ false }}"><span style="font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:600;text-transform:uppercase;color:#e6b450">rec</span></sc-if></button></sc-for></div>
+                              </sc-if>
+                              <sc-if value="{{ t.w.ask.stacked }}" hint-placeholder-val="{{ false }}">
+                                <div style="display:flex;flex-direction:column;gap:5px"><sc-for list="{{ t.w.ask.opts }}" as="o" hint-placeholder-count="2"><button onClick="{{ o.pick }}" style="display:flex;width:100%;align-items:flex-start;gap:9px;border-radius:6px;border:1px solid {{ o.border }};background:{{ o.bg }};padding:6px 10px;text-align:left" style-hover="border-color:#e6b450"><span style="display:inline-flex;width:16px;height:16px;flex-shrink:0;align-items:center;justify-content:center;border-radius:4px;background:{{ o.numBg }};font-family:'JetBrains Mono',monospace;font-size:10px;color:{{ o.numColor }}">{{ o.num }}</span><span style="display:flex;min-width:0;flex:1;flex-direction:column;gap:2px"><span style="font-size:12px;font-weight:600;color:#e6e9ed">{{ o.label }}</span><sc-if value="{{ o.hasDesc }}" hint-placeholder-val="{{ false }}"><span style="font-size:11px;line-height:1.4;color:#9aa3ad">{{ o.desc }}</span></sc-if></span></button></sc-for></div>
+                              </sc-if>
+                              <input onClick="{{ stop }}" value="{{ t.w.ask.text }}" onChange="{{ t.w.ask.onText }}" onKeyDown="{{ t.w.ask.textKey }}" placeholder="or type your own answer…" style="width:100%;border-radius:6px;border:1px solid {{ t.w.ask.textBorder }};background:rgba(0,0,0,.2);padding:5px 9px;font-size:12px;color:#e6e9ed;outline:none">
+                              <span style="font-size:11px;color:#9aa3ad">{{ t.w.ask.hint }} · focus the row, then 1–9</span>
+                            </div>
+                          </sc-if>
+                          <sc-if value="{{ t.inlineReview }}" hint-placeholder-val="{{ false }}">
+                            <div onClick="{{ stop }}" style="display:flex;flex-direction:column;gap:7px;margin:0 6px 6px 23px;border-left:2px solid rgba(230,180,80,.55);padding:3px 0 5px 11px">
+                              <sc-if value="{{ t.w.hasNote }}" hint-placeholder-val="{{ false }}"><div style="display:flex;align-items:baseline;gap:8px;border-radius:6px;background:rgba(174,191,255,.06);padding:5px 8px"><span style="flex-shrink:0;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;color:#aebfff">◆ lead</span><span style="font-size:11.5px;line-height:1.45;color:#b4bcc6;text-wrap:pretty">{{ t.w.note }}</span></div></sc-if>
+                              <sc-for list="{{ t.w.rv.findings }}" as="fd" hint-placeholder-count="2"><div style="display:grid;grid-template-columns:58px minmax(0,1fr);column-gap:8px;align-items:baseline"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;color:#e0726c">{{ fd.r }}</span><span style="font-size:12px;line-height:1.45;color:#cfd5db;text-wrap:pretty">{{ fd.t }}</span></div></sc-for>
+                              <div style="display:flex;flex-wrap:wrap;gap:6px"><sc-for list="{{ t.w.rv.acts }}" as="o" hint-placeholder-count="4"><button onClick="{{ o.go }}" style="display:flex;align-items:center;gap:7px;border-radius:6px;border:1px solid {{ o.border }};background:{{ o.bg }};padding:4px 10px 4px 6px" style-hover="border-color:#e6b450"><span style="display:inline-flex;width:16px;height:16px;align-items:center;justify-content:center;border-radius:4px;background:rgba(0,0,0,.3);font-family:'JetBrains Mono',monospace;font-size:10px;color:#cfd5db">{{ o.num }}</span><span style="font-size:12px;font-weight:600;color:#e6e9ed">{{ o.label }}</span></button></sc-for></div>
+                              <input onClick="{{ stop }}" value="{{ t.w.rv.guide }}" onChange="{{ t.w.rv.onGuide }}" onKeyDown="{{ t.w.rv.guideKey }}" placeholder="guidance for the next round… (Enter sends back)" style="width:100%;border-radius:6px;border:1px solid #20262e;background:rgba(0,0,0,.2);padding:5px 9px;font-size:12px;color:#e6e9ed;outline:none">
+                              <div style="display:flex;align-items:center;gap:8px"><span style="min-width:0;flex:1;font-size:11px;color:#9aa3ad">The lead sees what you chose at its next wake</span><button onClick="{{ t.w.rv.reviewDiff }}" style="height:23px;border-radius:6px;border:1px solid #20262e;background:transparent;padding:0 9px;font-size:11.5px;color:#cfd5db" style-hover="border-color:#5e9cff">View diff <span style="font-family:'JetBrains Mono',monospace;font-size:10px"><span style="color:#54c79a">{{ t.w.diff.add }}</span> <span style="color:#e0726c">{{ t.w.diff.del }}</span></span></button></div>
+                            </div>
+                          </sc-if>
+                        </sc-for>
+                        <sc-if value="{{ a.run.hasWait }}" hint-placeholder-val="{{ false }}">
+                          <div onClick="{{ a.run.toggleWait }}" style="display:flex;align-items:center;gap:9px;border-radius:7px;padding:5px 6px;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b;cursor:pointer" style-hover="background:rgba(255,255,255,.04);color:#9aa3ad"><span style="width:7px;height:7px;flex-shrink:0;border-radius:999px;box-shadow:inset 0 0 0 1.5px #7f858b"></span>{{ a.run.waitLabel }}<span style="margin-left:auto">{{ a.run.waitCaret }}</span></div>
+                          <sc-if value="{{ a.run.waitOpen }}" hint-placeholder-val="{{ false }}">
+                            <sc-for list="{{ a.run.waitRows }}" as="t" hint-placeholder-count="2"><div onClick="{{ t.go }}" style="display:grid;grid-template-columns:8px minmax(0,1fr);align-items:center;column-gap:9px;border-radius:7px;background:{{ t.bg }};box-shadow:{{ t.focus }};padding:4px 6px"><span style="width:7px;height:7px;border-radius:999px;box-shadow:inset 0 0 0 1.5px {{ t.ring }}"></span><div style="min-width:0"><div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:600;color:#cfd5db">{{ t.label }}</div><div style="font-size:10.5px;color:#7f858b">{{ t.sub }}</div></div></div></sc-for>
+                          </sc-if>
+                        </sc-if>
+                        <sc-if value="{{ a.run.hasDone }}" hint-placeholder-val="{{ false }}">
+                          <div onClick="{{ a.run.toggleDone }}" style="display:flex;align-items:center;gap:9px;border-radius:7px;padding:5px 6px;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b;cursor:pointer" style-hover="background:rgba(255,255,255,.04);color:#9aa3ad"><span style="width:8px;text-align:center;color:#54c79a">✓</span>{{ a.run.doneLabel }}<span style="margin-left:auto">{{ a.run.doneCaret }}</span></div>
+                          <sc-if value="{{ a.run.doneOpen }}" hint-placeholder-val="{{ false }}">
+                            <sc-for list="{{ a.run.doneRows }}" as="t" hint-placeholder-count="2"><div onClick="{{ t.go }}" style="display:grid;grid-template-columns:8px minmax(0,1fr);align-items:center;column-gap:9px;border-radius:7px;background:{{ t.bg }};box-shadow:{{ t.focus }};padding:4px 6px;cursor:{{ t.cursor }}"><span style="width:7px;height:7px;border-radius:999px;background:{{ t.dot }}"></span><div style="min-width:0"><div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:600;color:#cfd5db">{{ t.label }}</div><div style="font-size:10.5px;color:#7f858b">{{ t.sub }}</div></div></div></sc-for>
+                          </sc-if>
+                        </sc-if>
+                      </div>
+                      <sc-if value="{{ a.expanded }}" hint-placeholder-val="{{ false }}">
+                        <div style="margin-top:8px;border-radius:8px;background:#0c0e11;padding:8px 12px">
+                          <sc-for list="{{ a.allLines }}" as="l" hint-placeholder-count="4"><div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;line-height:1.6;color:{{ l.color }};white-space:pre-wrap;word-break:break-word">{{ l.t }}</div></sc-for>
+                        </div>
+                        <div onClick="{{ stop }}" style="margin-top:6px"><input data-composer="1" value="{{ draft }}" onChange="{{ onDraft }}" onKeyDown="{{ a.composerKey }}" placeholder="{{ a.placeholder }}" style="width:100%;border-radius:6px;border:1px solid #20262e;background:#13171d;padding:6px 10px;font-size:12.5px;color:#e6e9ed;outline:none"></div>
+                      </sc-if>
+                    </div>
+                    <div onClick="{{ stop }}" style="display:flex;flex-shrink:0;flex-wrap:wrap;align-items:center;gap:6px;border-top:1px solid #20262e;padding:7px 12px 7px 14px">
+                      <span style="min-width:120px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b">{{ a.run.settings }}</span>
+                      <button onClick="{{ a.toggle }}" title="The lead's own transcript (Enter)" style="height:23px;border-radius:6px;border:1px solid #20262e;background:transparent;padding:0 9px;font-size:11.5px;font-weight:500;color:#cfd5db" style-hover="border-color:#2a313a;background:rgba(255,255,255,.04)">{{ a.transcriptLabel }}</button>
+                      <button onClick="{{ a.run.adjust }}" style="height:23px;border-radius:6px;border:1px solid #20262e;background:transparent;padding:0 9px;font-size:11.5px;font-weight:500;color:#cfd5db" style-hover="border-color:#2a313a;background:rgba(255,255,255,.04)">Adjust</button>
+                      <button onClick="{{ a.run.dag }}" style="height:23px;border-radius:6px;border:1px solid #20262e;background:transparent;padding:0 9px;font-size:11.5px;font-weight:500;color:#cfd5db" style-hover="border-color:#2a313a;background:rgba(255,255,255,.04)">DAG ↗</button>
+                      <button onClick="{{ a.run.askCancel }}" style="height:23px;border-radius:6px;border:1px solid #20262e;background:transparent;padding:0 9px;font-size:11.5px;font-weight:500;color:#e0726c" style-hover="border-color:rgba(224,114,108,.45)">Cancel run</button>
+                      <sc-if value="{{ a.run.adjustOpen }}" hint-placeholder-val="{{ false }}">
+                        <div style="display:flex;width:100%;flex-wrap:wrap;align-items:center;gap:8px;border-radius:7px;background:#0c0e11;padding:7px 10px">
+                          <span style="font-size:11.5px;color:#9aa3ad">Worker parallelism</span>
+                          <button onClick="{{ a.run.dec }}" style="width:23px;height:23px;border-radius:6px;border:1px solid #20262e;background:transparent;padding:0;font-size:11.5px;color:#cfd5db">−</button>
+                          <span style="min-width:14px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;color:#e6e9ed">{{ a.run.par }}</span>
+                          <button onClick="{{ a.run.inc }}" style="width:23px;height:23px;border-radius:6px;border:1px solid #20262e;background:transparent;padding:0;font-size:11.5px;color:#cfd5db">+</button>
+                          <span style="min-width:0;flex:1;font-size:11px;color:#7f858b">applies to new dispatches</span>
+                          <button onClick="{{ a.run.parDone }}" style="height:23px;border:0;border-radius:6px;background:#5e9cff;padding:0 11px;font-size:11.5px;font-weight:600;color:#0c0e11">Save</button>
+                        </div>
+                      </sc-if>
+                      <sc-if value="{{ a.run.cancelOpen }}" hint-placeholder-val="{{ false }}">
+                        <div style="display:flex;width:100%;flex-wrap:wrap;align-items:center;gap:8px;border-radius:7px;background:rgba(224,114,108,.08);padding:8px 10px">
+                          <span style="min-width:200px;flex:1;font-size:11.5px;line-height:1.45;color:#e6e9ed">{{ a.run.cancelText }}</span>
+                          <button onClick="{{ a.run.keep }}" style="height:23px;border-radius:6px;border:1px solid #20262e;background:transparent;padding:0 9px;font-size:11.5px;color:#cfd5db">Keep running</button>
+                          <button onClick="{{ a.run.doCancel }}" style="height:23px;border:0;border-radius:6px;background:#e0726c;padding:0 11px;font-size:11.5px;font-weight:700;color:#0c0e11">Cancel run</button>
+                        </div>
+                      </sc-if>
+                    </div>
+                  </div>
+                </sc-if>
+              </sc-for>
+              </div>
+              </sc-for>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ v2.empty }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;flex-direction:column;align-items:center;gap:12px;padding:60px 0;text-align:center;font-size:13px;color:#7f858b">{{ v2.emptyText }}
+              <sc-if value="{{ v2.emptyNew }}" hint-placeholder-val="{{ false }}"><button onClick="{{ newAgent }}" style="height:30px;border:0;border-radius:7px;background:#5e9cff;padding:0 14px;font-size:12.5px;font-weight:600;color:#0c0e11" style-hover="background:#8da3ff">+ New agent</button></sc-if>
+            </div>
+          </sc-if>
+
+          <div style="display:flex;flex-direction:column;gap:2px;border-top:1px solid #1c2128;padding-top:10px">
+            <sc-if value="{{ hasBg }}" hint-placeholder-val="{{ false }}">
+              <sc-for list="{{ bgRows }}" as="r" hint-placeholder-count="1">
+                <div data-agent-id="{{ r.id }}" onClick="{{ r.open }}" style="display:grid;grid-template-columns:8px auto auto minmax(0,1fr) auto auto;align-items:center;column-gap:10px;border-radius:6px;box-shadow:{{ r.pulseRing }};padding:6px 8px;cursor:pointer" style-hover="background:rgba(255,255,255,.04)">
+                  <span style="width:8px;height:8px;border-radius:999px;background:#5e9cff;opacity:.5"></span>
+                  <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:#7f858b">{{ bgLabel }}</span>
+                  <b style="font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;color:#cfd5db">{{ r.name }}</b>
+                  <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#7f858b">{{ r.rowText }}</span>
+                  <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#7f858b">{{ r.rowAge }}</span>
+                  <button onClick="{{ r.restore }}" style="height:23px;border-radius:6px;border:1px solid #20262e;background:transparent;padding:0 9px;font-size:11.5px;color:#cfd5db" style-hover="border-color:#2a313a;background:rgba(255,255,255,.04)">Restore</button>
+                </div>
+              </sc-for>
+            </sc-if>
+            <sc-if value="{{ hasDetached }}" hint-placeholder-val="{{ false }}">
+              <sc-for list="{{ detachedRows }}" as="r" hint-placeholder-count="1">
+                <div title="A detached session with no terminal here. Attach resumes it in a new one." style="display:grid;grid-template-columns:8px auto auto minmax(0,1fr) auto auto;align-items:center;column-gap:10px;border-radius:6px;padding:6px 8px">
+                  <span style="width:8px;height:8px;border-radius:999px;box-shadow:inset 0 0 0 1.5px #7f858b"></span>
+                  <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:#7f858b">Detached</span>
+                  <b style="font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;color:#cfd5db">{{ r.name }}</b>
+                  <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#7f858b">{{ r.text }}</span>
+                  <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#7f858b">{{ r.age }}</span>
+                  <button onClick="{{ r.attach }}" style="height:23px;border-radius:6px;border:1px solid #20262e;background:transparent;padding:0 9px;font-size:11.5px;color:#cfd5db" style-hover="border-color:#2a313a;background:rgba(255,255,255,.04)">Attach</button>
+                </div>
+              </sc-for>
+            </sc-if>
+            <sc-if value="{{ showParked }}" hint-placeholder-val="{{ true }}">
+              <div onClick="{{ toggleIdle }}" style="display:flex;cursor:pointer;align-items:center;gap:10px;border-radius:6px;padding:6px 8px" style-hover="background:rgba(255,255,255,.04)">
+                <span style="width:8px;height:8px;flex-shrink:0;border-radius:999px;background:#7f858b"></span>
+                <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:#7f858b">Idle · {{ parkedCount }}</span>
+                <span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:#7f858b">{{ v2.idleNames }}</span>
+                <span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#7f858b">{{ idleCaret }}</span>
+              </div>
+              <sc-if value="{{ idleOpen }}" hint-placeholder-val="{{ false }}">
+                <sc-for list="{{ idleRows }}" as="r" hint-placeholder-count="3">
+                  <div data-agent-id="{{ r.id }}" onClick="{{ r.open }}" style="display:grid;grid-template-columns:8px auto auto minmax(0,1fr) auto auto;align-items:center;column-gap:10px;border-radius:6px;box-shadow:{{ r.pulseRing }};padding:6px 8px 6px 26px;cursor:pointer" style-hover="background:rgba(255,255,255,.04)">
+                    <span style="width:6px;height:6px;border-radius:999px;background:#7f858b"></span>
+                    <b style="font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;color:#cfd5db">{{ r.name }}</b>
+                    <span style="border-radius:5px;border:1px solid #20262e;background:#171c22;padding:1px 6px;font-family:'JetBrains Mono',monospace;font-size:10px;color:#7f858b">{{ r.project }}</span>
+                    <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:#9aa3ad">{{ r.rowText }}</span>
+                    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#7f858b">{{ r.rowAge }}</span>
+                    <button onClick="{{ r.openComposerIdle }}" style="height:23px;border-radius:6px;border:1px solid #20262e;background:transparent;padding:0 9px;font-size:11.5px;color:#cfd5db" style-hover="border-color:#2a313a;background:rgba(255,255,255,.04)">Reply</button>
+                  </div>
+                </sc-for>
+              </sc-if>
+            </sc-if>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+  </div>
+
+  <sc-if value="{{ railOpen }}" hint-placeholder-val="{{ true }}">
+    <aside style="display:flex;width:300px;flex-shrink:0;flex-direction:column;overflow-y:auto;border-left:1px solid #1c2128;background:#0e1116">
+      <div style="display:flex;justify-content:flex-end;padding:8px 10px 0">
+        <button onClick="{{ toggleRail }}" title="Collapse rail" style="border:0;border-radius:5px;background:transparent;padding:3px 7px;font-size:13px;color:#7f858b" style-hover="background:#171c22;color:#cfd5db">»</button>
+      </div>
+      <sc-if value="{{ isA }}" hint-placeholder-val="{{ true }}"><div style="border-bottom:1px solid #1c2128;padding:4px 20px 20px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <h3 style="margin:0;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:#7f858b">Usage</h3>
+          <button onClick="{{ usageDetails }}" style="border:0;background:transparent;padding:0;font-size:11.5px;color:#5e9cff">Details →</button>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:16px">
+          <div>
+            <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:7px"><span style="font-size:12.5px;font-weight:500;color:#cfd5db">5-hour window</span><span style="font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;color:#e6b450">74%</span></div>
+            <div style="height:7px;overflow:hidden;border-radius:4px;background:#171c22"><div style="width:74%;height:100%;border-radius:4px;background:#e6b450"></div></div>
+            <div style="display:flex;justify-content:space-between;margin-top:6px;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b"><span>2.3M tok</span><span>resets in 1h 12m</span></div>
+          </div>
+          <div>
+            <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:7px"><span style="font-size:12.5px;font-weight:500;color:#cfd5db">Weekly</span><span style="font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;color:#5e9cff">38%</span></div>
+            <div style="height:7px;overflow:hidden;border-radius:4px;background:#171c22"><div style="width:38%;height:100%;border-radius:4px;background:#5e9cff"></div></div>
+            <div style="display:flex;justify-content:space-between;margin-top:6px;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7f858b"><span>11.6M tok</span><span>resets Thu 09:00</span></div>
+          </div>
+        </div>
+      </div></sc-if>
+      <sc-if value="{{ isA2 }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;flex-direction:column;gap:4px;padding:2px 12px 20px">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:0 8px 8px">
+          <h3 style="margin:0;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:#7f858b">Events</h3>
+          <sc-if value="{{ ev.hasNew }}" hint-placeholder-val="{{ false }}"><button onClick="{{ ev.markAll }}" style="border:0;background:transparent;padding:0;font-size:11.5px;color:#5e9cff" style-hover="color:#8da3ff">Mark all read</button></sc-if>
+        </div>
+        <sc-if value="{{ ev.hasNew }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;align-items:center;gap:8px;padding:2px 8px 4px"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:#aebfff">New · {{ ev.newCount }}</span><div style="height:1px;flex:1;background:#1c2128"></div></div>
+          <sc-for list="{{ ev.fresh }}" as="e" hint-placeholder-count="4">
+            <div onClick="{{ e.go }}" style="display:grid;grid-template-columns:16px minmax(0,1fr) auto;column-gap:10px;border-radius:7px;background:{{ e.bg }};padding:8px 8px;cursor:pointer" style-hover="background:#13171d">
+              <span style="padding-top:1px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.4;color:{{ e.c }}">{{ e.glyph }}</span>
+              <div style="display:flex;min-width:0;flex-direction:column;gap:3px">
+                <div style="display:flex;min-width:0;align-items:center;gap:6px">
+                  <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:600;color:#cfd5db">{{ e.name }}</span>
+                  <sc-if value="{{ e.hasTag }}" hint-placeholder-val="{{ false }}"><span style="flex-shrink:0;border-radius:4px;border:1px solid #20262e;padding:0 5px;font-family:'JetBrains Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.06em;color:#7f858b">{{ e.tag }}</span></sc-if>
+                </div>
+                <span style="font-size:12px;line-height:1.4;color:{{ e.textColor }};text-wrap:pretty">{{ e.verb }} <span style="color:#9aa3ad">{{ e.text }}</span></span>
+                <sc-if value="{{ e.hasMore }}" hint-placeholder-val="{{ false }}"><button onClick="{{ e.toggleMore }}" style="align-self:flex-start;border:0;background:transparent;padding:0;font-size:11px;color:#5e9cff" style-hover="color:#8da3ff">{{ e.moreLabel }}</button></sc-if>
+              </div>
+              <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;padding-top:1px">
+                <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#7f858b">{{ e.t }}</span>
+                <sc-if value="{{ e.isNew }}" hint-placeholder-val="{{ false }}"><span style="width:6px;height:6px;border-radius:999px;background:#5e9cff"></span></sc-if>
+              </div>
+            </div>
+          </sc-for>
+        </sc-if>
+        <sc-if value="{{ ev.hasOld }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;align-items:center;gap:8px;padding:10px 8px 4px"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:#7f858b">Earlier</span><div style="height:1px;flex:1;background:#1c2128"></div></div>
+          <sc-for list="{{ ev.old }}" as="e" hint-placeholder-count="4">
+            <div onClick="{{ e.go }}" style="display:grid;grid-template-columns:16px minmax(0,1fr) auto;column-gap:10px;border-radius:7px;background:{{ e.bg }};padding:8px 8px;cursor:pointer" style-hover="background:#13171d">
+              <span style="padding-top:1px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.4;color:{{ e.c }}">{{ e.glyph }}</span>
+              <div style="display:flex;min-width:0;flex-direction:column;gap:3px">
+                <div style="display:flex;min-width:0;align-items:center;gap:6px">
+                  <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:600;color:#cfd5db">{{ e.name }}</span>
+                  <sc-if value="{{ e.hasTag }}" hint-placeholder-val="{{ false }}"><span style="flex-shrink:0;border-radius:4px;border:1px solid #20262e;padding:0 5px;font-family:'JetBrains Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.06em;color:#7f858b">{{ e.tag }}</span></sc-if>
+                </div>
+                <span style="font-size:12px;line-height:1.4;color:{{ e.textColor }};text-wrap:pretty">{{ e.verb }} <span style="color:#9aa3ad">{{ e.text }}</span></span>
+                <sc-if value="{{ e.hasMore }}" hint-placeholder-val="{{ false }}"><button onClick="{{ e.toggleMore }}" style="align-self:flex-start;border:0;background:transparent;padding:0;font-size:11px;color:#5e9cff" style-hover="color:#8da3ff">{{ e.moreLabel }}</button></sc-if>
+              </div>
+              <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;padding-top:1px">
+                <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#7f858b">{{ e.t }}</span>
+                <sc-if value="{{ e.isNew }}" hint-placeholder-val="{{ false }}"><span style="width:6px;height:6px;border-radius:999px;background:#5e9cff"></span></sc-if>
+              </div>
+            </div>
+          </sc-for>
+        </sc-if>
+        <span style="padding:12px 8px 0;font-size:11px;line-height:1.5;color:#7f858b">State changes only. Tool calls stay on the cards.</span>
+      </div>
+      </sc-if>
+      <sc-if value="{{ isA }}" hint-placeholder-val="{{ true }}">
+      <div style="padding:18px 20px 20px">
+        <h3 style="margin:0 0 12px;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:#7f858b">Recent activity</h3>
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <sc-for list="{{ recent }}" as="e" hint-placeholder-count="6">
+            <div onClick="{{ e.go }}" style="display:grid;grid-template-columns:7px minmax(0,1fr) auto;align-items:baseline;column-gap:9px;border-radius:6px;padding:6px 6px;cursor:pointer" style-hover="background:#13171d">
+              <span style="width:6px;height:6px;border-radius:999px;background:{{ e.c }};transform:translateY(-1px)"></span>
+              <div style="display:flex;min-width:0;flex-direction:column;gap:2px">
+                <span style="font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:600;color:#cfd5db">{{ e.name }}</span>
+                <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11.5px;color:#9aa3ad">{{ e.text }}</span>
+              </div>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#7f858b">{{ e.t }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      </sc-if>
+    </aside>
+  </sc-if>
+  <sc-if value="{{ railClosed }}" hint-placeholder-val="{{ false }}">
+    <aside style="display:flex;width:44px;flex-shrink:0;flex-direction:column;align-items:center;gap:6px;border-left:1px solid #1c2128;background:#0e1116;padding-top:10px">
+      <sc-if value="{{ isA }}" hint-placeholder-val="{{ true }}"><button onClick="{{ toggleRail }}" title="Usage" style="display:flex;width:30px;height:30px;align-items:center;justify-content:center;border:0;border-radius:7px;background:transparent;color:#e6b450" style-hover="background:#171c22"><span style="display:block;width:16px;height:16px;background:currentColor;-webkit-mask:url(https://unpkg.com/lucide-static@0.460.0/icons/gauge.svg) center / 16px 16px no-repeat;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/gauge.svg) center / 16px 16px no-repeat"></span></button></sc-if>
+      <button onClick="{{ toggleRail }}" title="{{ stripTitle }}" style="position:relative;display:flex;width:30px;height:30px;align-items:center;justify-content:center;border:0;border-radius:7px;background:transparent;color:#7f858b" style-hover="background:#171c22;color:#cfd5db"><span style="display:block;width:16px;height:16px;background:currentColor;-webkit-mask:url(https://unpkg.com/lucide-static@0.460.0/icons/square-stack.svg) center / 16px 16px no-repeat;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/square-stack.svg) center / 16px 16px no-repeat"></span><sc-if value="{{ ev.hasNew }}" hint-placeholder-val="{{ false }}"><span style="position:absolute;right:-1px;top:0;display:flex;height:15px;min-width:15px;align-items:center;justify-content:center;border-radius:999px;background:#5e9cff;padding:0 4px;font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;color:#0c0e11">{{ ev.newCount }}</span></sc-if></button>
+    </aside>
+  </sc-if>
+</div>
+</dc-import>
+
+<div style="position:absolute;right:16px;bottom:40px;z-index:40;display:flex;align-items:center;gap:4px;border-radius:10px;border:1px solid #2a313a;background:#13171d;padding:4px;box-shadow:0 12px 32px rgba(0,0,0,.45)">
+  <sc-if value="{{ isA2 }}" hint-placeholder-val="{{ true }}">
+    <span style="padding:0 8px 0 6px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:#7f858b">Run</span>
+    <sc-for list="{{ phases }}" as="ph" hint-placeholder-count="5"><button onClick="{{ ph.go }}" style="border:0;border-radius:7px;background:{{ ph.bg }};padding:5px 9px;font-size:12px;font-weight:600;color:{{ ph.color }}">{{ ph.label }}</button></sc-for>
+    <span style="width:1px;height:18px;margin:0 4px;background:#2a313a"></span>
+  </sc-if>
+  <span style="padding:0 8px 0 6px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:#7f858b">Variant</span>
+  <sc-for list="{{ variants }}" as="v" hint-placeholder-count="3">
+    <button onClick="{{ v.go }}" style="display:flex;align-items:center;gap:6px;border:0;border-radius:7px;background:{{ v.bg }};padding:5px 10px;font-size:12px;font-weight:600;color:{{ v.color }}">
+      <span style="font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700">{{ v.id }}</span>{{ v.label }}
+    </button>
+  </sc-for>
+</div>
+
+<sc-if value="{{ hasToast }}" hint-placeholder-val="{{ false }}">
+  <div style="position:absolute;left:50%;bottom:44px;z-index:50;transform:translateX(-50%);border-radius:8px;border:1px solid #2a313a;background:#171c22;padding:8px 14px;font-size:12.5px;color:#e6e9ed;box-shadow:0 12px 32px rgba(0,0,0,.5)">{{ toast }}</div>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;variant&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;a&quot;,&quot;a2&quot;,&quot;a3&quot;],&quot;default&quot;:&quot;a3&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;height&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;string&quot;},&quot;leadPhase&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;executing&quot;,&quot;planning&quot;,&quot;no lead&quot;,&quot;lead down&quot;,&quot;finished&quot;],&quot;default&quot;:&quot;executing&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Orchestrator&quot;}}">
+const C = { acc: "#5e9cff", soft: "#aebfff", warn: "#e6b450", ok: "#54c79a", err: "#e0726c", muted: "#7f858b" };
+const RT = {
+  claude: { label: "Claude", mark: "✳", fg: "#e8a47c" },
+  codex: { label: "Codex", mark: "◎", fg: "#9fd3c7" },
+};
+const LINE_C = { u: "#aebfff", t: "#dfe4ea", tool: "#9aa3ad", out: "#7f858b", add: "#54c79a", spin: "#aebfff" };
+const L = (k, t) => ({ k, t });
+const SEED = [
+  { id: "flaky", name: "flaky-e2e", rt: "claude", project: "arc-web", state: "asking", age: "2m", tasks: [3, 5], diff: [18, 4],
+    ask: { questions: [{ header: "Flake fix", q: "The checkout spec fails 5 of 40 runs on CI. Every failure is the same: the card iframe (#card-frame) finishes loading after Playwright has already clicked Pay, so the click lands on the placeholder and the test times out waiting for the confirmation page. Locally it never fails because the Stripe mock responds in under 50ms. Should I wait for the iframe's ready event before clicking, or retry the step up to 3 times?",
+      opts: [{ l: "Wait for ready event", d: "Deterministic. Adds a data-ready hook inside the iframe that tests can await.", rec: true }, { l: "Retry up to 3 times", d: "No app change, but it hides a slow load that real users also hit." }, { l: "Both", d: "Wait for ready, and keep one retry as a safety net." }] },
+      { header: "Browsers", q: "Which browsers should CI repeat the spec on?", multi: true, opts: [{ l: "Chromium" }, { l: "WebKit" }, { l: "Firefox" }] }] },
+    lines: [L("u", "› checkout.spec is flaky on CI, find out why"), L("tool", "⏺ Bash(pnpm e2e checkout --repeat 40)"), L("out", "  ⎿  5 of 40 failed · timeout on #card-frame"), L("t", "⏺ Every failure is the card iframe answering after the click. Two ways to fix it.")] },
+  { id: "t3", name: "auth-t3", rt: "claude", project: "arc-api", state: "asking", age: "6m", diff: [23, 9], lead: "auth", task: "t-3", note: "Forwarded: a product call. Mobile 3.2 still sends sid and I can't tell how many users are on it.",
+    ask: { questions: [{ header: "Legacy cookie", q: "Keep accepting the legacy sid cookie for one release, or reject it now?", opts: [{ l: "Keep for one release", rec: true }, { l: "Reject now" }] }] },
+    lines: [L("u", "› T3 · Cookie middleware. Read session id from cookie, attach user to req."), L("tool", "⏺ Read(src/http/middleware/auth.ts)"), L("out", "  ⎿  Read 91 lines"), L("t", "⏺ Mobile clients still send the old sid cookie.")] },
+  { id: "billing", name: "billing-webhooks", rt: "claude", project: "arc-api", state: "working", age: "4m", subs: 2, diff: [41, 6], tasks: [3, 5], activity: "Writing retry.test.ts",
+    lines: [L("t", "⏺ The handler acks before it processes, so a crash drops the event."), L("tool", "⏺ Update(src/billing/retry.ts)"), L("out", "  ⎿  Added 41 lines"), L("add", "     + if (await seen(`whk:${evt.id}`)) return;"), L("tool", "⏺ Task(Explore: find other webhook consumers)")] },
+  { id: "search", name: "search-reindex", rt: "claude", project: "arc-web", state: "working", age: "18m", quiet: "6m", diff: [12, 3], activity: "Bash(pnpm test search)",
+    lines: [L("u", "› reindex search after the schema change, keep the old index until the new one is green"), L("tool", "⏺ Bash(pnpm search:reindex --shadow)"), L("out", "  ⎿  indexed 48,211 docs into search_v7"), L("t", "⏺ Shadow index built. Running the search suite against it before swapping."), L("tool", "⏺ Bash(pnpm test search)")] },
+  { id: "t2", name: "auth-t2", rt: "claude", project: "arc-api", state: "working", age: "11m", lead: "auth", task: "t-2", told: "keep the TTL configurable per org", toldAge: "4m", diff: [64, 0], tasks: [2, 4], activity: "Write(src/auth/session-store.ts)",
+    lines: [L("u", "› T2 · Session store. Redis-backed, 14-day sliding TTL."), L("tool", "⏺ Read(src/db/redis.ts)"), L("out", "  ⎿  Read 62 lines"), L("tool", "⏺ Write(src/auth/session-store.ts)")] },
+  { id: "auth", name: "auth-lead", rt: "claude", project: "arc-api", state: "working", age: "22m", standingBy: true, activity: "standing by · engine running 3 lanes",
+    run: { title: "Session auth rewrite", par: 6, cost: "1h42m worker · 2.1M tokens", tasks: [
+      { id: "t-1", label: "Token model", lane: "A", state: "done" },
+      { id: "t-6", label: "Password reset tokens", lane: "E", review: { round: 1, age: "2m", activity: "checking the diff against spec §3" } },
+      { id: "t-7", label: "Audit log events", lane: "F", agent: "t7", reviewFailed: "reviewer and spec disagree on logout" },
+      { id: "t-8", label: "Session cleanup job", lane: "G", blocked: "Verify failed after merge · exit 1" },
+      { id: "t-9", label: "Rate-limit headers", lane: "H", stalled: "no output 15m · process alive" },
+      { id: "t-10", label: "Auth docs", slot: true },
+      { id: "t-2", label: "Session store", lane: "B", agent: "t2" },
+      { id: "t-3", label: "Cookie middleware", lane: "C", agent: "t3" },
+      { id: "t-4", label: "Login rate limit", lane: "D", agent: "t4" },
+      { id: "t-5", label: "Wire routes + e2e", deps: ["t-2", "t-3"] },
+    ] },
+    lines: [L("t", "⏺ Plan submitted: 4 tasks across 3 lanes."), L("tool", "⏺ dispatch(T2 · Session store, lane B)"), L("tool", "⏺ dispatch(T3 · Cookie middleware, lane C)"), L("t", "⏺ T1 landed on main. T3 raised a question for you.")] },
+  { id: "t4", name: "auth-t4", rt: "claude", project: "arc-api", state: "working", age: "3m", lead: "auth", task: "t-4", activity: "Asked the lead about lockout",
+    leadAsk: { left: "8m left", questions: [{ header: "Lockout", q: "Lock the account after 5 failed logins, or only throttle by IP?", opts: [{ l: "Throttle by IP", d: "No lockouts. Slows a single source to 1 try per 10s.", rec: true }, { l: "Lock after 5 failures", d: "Stops credential stuffing across IPs, but anyone can lock out a user." }] }] },
+    lines: [L("u", "› T4 · Login rate limit."), L("tool", "⏺ Read(src/auth/login.ts)"), L("t", "⏺ Asked the lead whether to lock accounts or throttle by IP.")] },
+  { id: "t7", name: "auth-t7", rt: "claude", project: "arc-api", state: "asking", age: "5m", lead: "auth", task: "t-7", diff: [37, 4],
+    note: "Forwarded: the reviewer reads spec §4 as requiring a logout event with the session id; I think logging the raw id is the bigger risk. Your call.",
+    review: { title: "Audit log events", findings: [{ r: "Round 1", t: "No audit event on logout. Spec §4 lists login, logout and password reset." }, { r: "Round 2", t: "Logout event added, but it writes the raw session id to the audit log." }] },
+    lines: [L("u", "› T7 · Audit log events."), L("tool", "⏺ Update(src/auth/audit.ts)"), L("t", "⏺ Review failed twice. Forwarded to you by the lead.")] },
+  { id: "i18n", name: "i18n-strings", rt: "claude", project: "arc-web", state: "idle", age: "1m", diff: [142, 0],
+    lines: [L("tool", "⏺ Bash(pnpm i18n:extract)"), L("out", "  ⎿  142 strings → locales/en.json"), L("t", "⏺ Done. Extracted 142 strings; 3 need a translator note.")] },
+  { id: "pg", name: "pg16-lead", rt: "claude", project: "arc-api", state: "working", age: "9m", standingBy: true, activity: "standing by · engine running 2 lanes",
+    run: { title: "Postgres 16 upgrade", par: 3, cost: "24m worker · 410k tokens", tasks: [
+      { id: "p-1", label: "Bump driver + pool config", lane: "A", state: "done" },
+      { id: "p-2", label: "Replace deprecated casts", lane: "B", review: { round: 1, age: "1m", activity: "reading the migration diff" } },
+      { id: "p-3", label: "CI matrix on 16", lane: "C", stalled: "no output 9m · process alive" },
+      { id: "p-4", label: "Drop 14 compat shims", deps: ["p-2", "p-3"] },
+    ] },
+    lines: [L("t", "⏺ Plan submitted: 4 tasks across 3 lanes."), L("tool", "⏺ dispatch(P2 · Replace deprecated casts, lane B)"), L("t", "⏺ P1 landed on main.")] },
+  { id: "perf", name: "perf-profiler", rt: "claude", project: "arc-web", state: "working", bg: true, age: "14m", activity: "Profiling /dashboard cold load", lines: [L("tool", "⏺ Bash(pnpm perf dashboard)")] },
+  { id: "notes", name: "release-notes", rt: "claude", project: "arc-api", state: "idle", parked: true, age: "38m", lines: [L("t", "⏺ Draft for 2.14 is in RELEASE.md.")] },
+  { id: "lint", name: "lint-cleanup", rt: "codex", project: "arc-web", state: "idle", parked: true, age: "1h", lines: [L("t", "⏺ Fixed 61 warnings across 14 files.")] },
+  { id: "deps", name: "deps-bump", rt: "claude", project: "arc-api", state: "idle", parked: true, age: "3h", lines: [L("t", "⏺ Bumped 9 packages; tests green.")] },
+];
+// detached `claude --bg` sessions: no Wave block, so view + attach only
+const DETACHED = [{ id: "nightly", name: "nightly-audit", project: "arc-api", text: "claude --bg · dependency audit across 3 repos", age: "2h" }];
+const RECENT = [
+  { id: "billing", t: "now", c: C.ok, name: "billing-webhooks", text: "Update(src/billing/retry.ts)" },
+  { id: "t2", t: "12s", c: C.ok, name: "auth-t2", text: "Write(src/auth/session-store.ts)" },
+  { id: "flaky", t: "40s", c: C.warn, name: "flaky-e2e", text: "Asked: wait for ready event or retry?" },
+  { id: "i18n", t: "1m", c: C.soft, name: "i18n-strings", text: "Finished · 142 strings extracted" },
+  { id: "search", t: "2m", c: C.ok, name: "search-reindex", text: "Bash(pnpm test search)" },
+  { id: "t3", t: "6m", c: C.warn, name: "auth-t3", text: "Asked about the legacy sid cookie" },
+];
+const EV_KIND = {
+  asked: ["◆", C.warn, "asked"], answered: ["›", C.soft, "you answered"], finished: ["✓", C.soft, "finished"], quiet: ["○", C.warn, "went quiet"],
+  failed: ["✕", C.err, "failed"], told: ["›", C.soft, "you told"], committed: ["●", C.ok, "committed"], nudged: ["›", C.soft, "you nudged"],
+};
+const EVENTS = [
+  { k: "e1", id: "flaky", t: "40s", kind: "asked", text: "wait for the iframe ready event, or retry?" },
+  { k: "e3", id: "i18n", t: "1m", kind: "finished", text: "142 strings extracted, 3 need notes" },
+  { k: "e4", id: "billing", t: "3m", kind: "failed", text: "subagent test-runner · 2 specs" },
+  { k: "e5", id: "perf", t: "4m", kind: "committed", text: "a91c2e4 · baseline profile for /dashboard" },
+  { k: "e6", id: "t3", t: "6m", kind: "asked", text: "keep the legacy sid cookie for a release?" },
+  { k: "e7", id: "t2", t: "9m", kind: "committed", text: "4be19c0 · session store scaffold" },
+  { k: "e10", id: "auth", t: "8m", kind: "committed", text: "t-1 landed · 5eac07e · Token model" },
+  { k: "e11", id: "auth", t: "5m", kind: "failed", text: "t-7 failed review twice · forwarded to you" },
+  { k: "e12", id: "auth", t: "2m", kind: "quiet", text: "t-9 stalled · no output for 15m" },
+  { k: "e13", id: "auth", t: "4m", kind: "failed", text: "t-8 Verify failed after merge · lead fixing" },
+  { k: "e14", id: "search", t: "6m", kind: "quiet", text: "no output for 6m · process alive" },
+  { k: "e8", id: "notes", t: "38m", kind: "finished", text: "release notes for 2.14 drafted" },
+];
+const HINTS = [
+  { glyph: "↑↓ / j k", label: "move" }, { glyph: "⏎", label: "open" }, { glyph: "1–9", label: "answer" }, { glyph: "r", label: "reply" },
+  { glyph: "t", label: "terminal" }, { glyph: "b", label: "background" }, { glyph: "n", label: "next ask" }, { glyph: "Ctrl+P", label: "palette" }, { glyph: "?", label: "shortcuts" },
+];
+const VARIANTS = [["a", "Current"], ["a2", "Upgrade"], ["a3", "Revised"]];
+const PHASES = [["executing", "Executing"], ["planning", "Planning"], ["no lead", "No lead"], ["lead down", "Lead down"], ["finished", "Finished"]];
+const stop = (e) => e && e.stopPropagation && e.stopPropagation();
+
+class Component extends DCLogic {
+  state = { variant: null, agents: SEED.map((a) => ({ ...a, lines: [...a.lines] })), chip: "all", liveOnly: false, cursor: "flaky", composer: null, draft: "", idleOpen: false, bgOpen: false, railOpen: null, f2: "all", expand: null, sel: {}, texts: {}, qtab: {}, qOpen: {}, doneOpen: {}, waitOpen: {}, guide: {}, tellRow: null, evOpen: {}, phase: null, par: {}, adjust: null, cancelAsk: null, events: EVENTS, unread: ["e1", "e3", "e4", "e12", "e13"], pulse: null, toast: null };
+  rootRef = React.createRef();
+  componentDidMount() { this.rootRef.current?.focus(); if (this.props.leadPhase && this.props.leadPhase !== "executing") this.applyPhase(this.props.leadPhase); }
+  componentDidUpdate(pp, ps) {
+    if (pp.leadPhase !== this.props.leadPhase) this.applyPhase(this.props.leadPhase || "executing");
+    if (this._jumpTo) {
+      const id = this._jumpTo; this._jumpTo = null;
+      const box = document.querySelector('[data-v2-scroll="1"]'), el = box && box.querySelector(`[data-agent-id="${id}"]`);
+      if (box && el) { const r = el.getBoundingClientRect(), br = box.getBoundingClientRect(); box.scrollTo({ top: box.scrollTop + r.top - br.top - 24, behavior: "smooth" }); }
+    }
+    if (this.state.tellRow && ps.tellRow !== this.state.tellRow) document.querySelector('[data-composer="1"]')?.focus();
+    if (this.state.composer && ps.composer !== this.state.composer) document.querySelector('[data-composer="1"]')?.focus();
+  }
+  componentWillUnmount() { clearTimeout(this._t); clearTimeout(this._pt); }
+  toast(msg) { clearTimeout(this._t); this.setState({ toast: msg }); this._t = setTimeout(() => this.setState({ toast: null }), 2200); }
+  logEvent(id, kind, text) { this.setState((s) => ({ events: [{ k: "x" + Date.now(), id, t: "now", kind, text }, ...s.events] })); }
+  jump(id) {
+    const a = this.ag(id); if (!a) return;
+    const off = a.bg || a.parked;
+    // a3: a worker has no card of its own; land on its task row inside the lead card
+    const inLead = this._variant === "a3" && a.lead && this.ag(a.lead);
+    const card = inLead ? a.lead : id, cursor = inLead ? `row:${a.lead}:${a.task}` : id;
+    this.setState((s) => ({ cursor, f2: "all", pulse: card, idleOpen: a.parked ? true : s.idleOpen, expand: this._variant === "a2" && a.state === "working" && !off ? id : s.expand }));
+    this._jumpTo = card;
+    clearTimeout(this._pt); this._pt = setTimeout(() => this.setState((s) => (s.pulse === card ? { pulse: null } : null)), 1400);
+  }
+  ag(id) { return this.state.agents.find((a) => a.id === id); }
+  upd(id, fn) { this.setState((s) => ({ agents: s.agents.map((a) => (a.id === id ? { ...a, ...fn(a) } : a)) })); }
+  // a2 expands any working card inline; a3 keeps plain agents as full live cards, so only a lead's transcript sits behind expand
+  expands(a) { return !!a && (this._variant === "a3" ? !!a.run : this._variant === "a2" && a.state === "working"); }
+  takeOver(id) {
+    const g = this.ag(id); if (!g || !g.leadAsk) return;
+    this.upd(id, () => ({ state: "asking", ask: { questions: g.leadAsk.questions }, leadAsk: null, note: "You took this over. The lead can no longer answer it." }));
+    this.logEvent(id, "asked", `taken over from the lead · ${g.leadAsk.questions[0].header.toLowerCase()}`);
+    this.toast(`Took over ${g.name}'s question`); this.jump(id);
+  }
+  reviewAct(id, act) {
+    const g = this.ag(id); if (!g || !g.review) return;
+    const guide = (this.state.guide[id] || "").trim();
+    const patch = { approve: { state: "done", approved: true }, sendback: { fixing: "worker fixing findings · round 3" }, retry: { fixing: "fresh worker · retrying" }, skip: { state: "skipped" } }[act];
+    this.upd(g.lead, (ld) => ({ run: { ...ld.run, tasks: ld.run.tasks.map((t) => (t.id === g.task ? { ...t, ...patch, reviewFailed: null, agent: null } : t)) } }));
+    this.setState((st) => ({ agents: st.agents.filter((x) => x.id !== id), guide: { ...st.guide, [id]: "" }, cursor: g.lead }));
+    const words = { approve: "approved as it is", sendback: guide ? `sent back · “${guide}”` : "sent back for one more round", retry: "retried on a fresh worker", skip: "skipped" }[act];
+    this.toast(`${g.task} ${words}`); this.logEvent(g.lead, "answered", `${g.task} ${words}`);
+  }
+  taskAct(leadId, taskId, patch, msg) {
+    this.upd(leadId, (ld) => ({ run: { ...ld.run, tasks: ld.run.tasks.map((t) => (t.id === taskId ? { ...t, ...patch } : t)) } }));
+    if (msg) { this.toast(msg); this.logEvent(leadId, "answered", msg); }
+  }
+  applyPhase(ph) {
+    let ag = SEED.map((a) => ({ ...a, lines: [...a.lines], run: a.run ? { ...a.run, tasks: a.run.tasks.map((t) => ({ ...t })) } : undefined }));
+    const lead = ag.find((a) => a.id === "auth"); const keep = (ids) => ag.filter((a) => a.lead !== "auth" || ids.includes(a.id));
+    if (ph === "planning") { ag = keep([]); Object.assign(lead, { standingBy: false, age: "6m", state: "asking", activity: "brainstorming the goal · no plan yet",
+      spec: { path: "docs/specs/2026-09-24-session-auth.md", meta: "212 lines · 6 sections · uncommitted", decisions: ["Redis sessions with a 14-day sliding TTL, configurable per org", "Accept the legacy sid cookie for one release, then reject", "Throttle logins by IP; no account lockout", "Audit login, logout and password reset, never the raw session id"] }, run: { ...lead.run, phase: "planning", tasks: [] },
+      lines: [L("u", "› Rewrite session auth: Redis sessions, cookie middleware, lockout."), L("tool", "⏺ Skill(superpowers:brainstorming)"), L("tool", "⏺ Read(src/auth/*.ts)"), L("t", "⏺ This is architectural. Writing the spec next; I'll ask you to review it.")] }); }
+    else if (ph === "no lead") { ag = keep(["t2"]); Object.assign(lead, { name: "Session auth rewrite", noLead: true, activity: "engine running · a lead starts at the first judgment event",
+      run: { ...lead.run, phase: "nolead", tasks: lead.run.tasks.filter((t) => ["t-1", "t-2", "t-5", "t-6", "t-10"].includes(t.id)) } }); }
+    else if (ph === "lead down") { Object.assign(lead, { down: true, standingBy: false, activity: "lead exited · its events come to you", run: { ...lead.run, phase: "down" } });
+      const t4 = ag.find((a) => a.id === "t4"); Object.assign(t4, { state: "asking", ask: { questions: t4.leadAsk.questions }, leadAsk: null, note: "The lead is down, so the question it held came to you." }); }
+    else if (ph === "finished") { ag = keep([]); Object.assign(lead, { state: "idle", standingBy: false, age: "4m", diff: [612, 148], report: { landed: "9 landed · 1 skipped", time: "3h12m wall · 5h46m worker time" },
+      run: { ...lead.run, phase: "finished", tasks: lead.run.tasks.map((t) => ({ id: t.id, label: t.label, lane: t.lane, state: t.id === "t-9" ? "skipped" : "done" })) },
+      lines: [...lead.lines, L("t", "⏺ Run complete. Report written; 2 open issues added to the initiative. Tell me to close the run when you've read it.")] }); }
+    const events = EVENTS.filter((e) => ag.some((a) => a.id === e.id) && !(ph === "planning" && e.id === "auth"));
+    this.setState((st) => ({ agents: ag, events, unread: st.unread.filter((k) => events.some((e) => e.k === k)), phase: ph, sel: {}, texts: {}, qtab: {}, adjust: null, cancelAsk: null, expand: null, composer: null }));
+  }
+  specAct(id, act) {
+    const a = this.ag(id); if (!a || !a.spec) return; const note = (this.state.guide[id] || "").trim();
+    if (act === "approve") { this.upd(id, (g) => ({ state: "working", spec: null, activity: "writing the plan · superpowers:writing-plans", lines: [...g.lines, L("u", "› Spec approved."), L("spin", "✻ Writing the plan…")] })); this.toast("Spec approved · the lead is writing the plan"); this.logEvent(id, "answered", "approved the spec"); }
+    else { this.upd(id, (g) => ({ state: "working", spec: null, activity: "revising the spec", lines: [...g.lines, L("u", "› " + (note || "Changes requested on the spec."))] })); this.toast("Sent your changes to the lead"); this.logEvent(id, "answered", note ? `spec changes · “${note}”` : "requested spec changes"); }
+    this.setState((st) => ({ guide: { ...st.guide, [id]: "" } }));
+  }
+  cancelRun(id) {
+    const ld = this.ag(id); const T = ld.run.tasks; const landed = T.filter((t) => t.state === "done").length;
+    this.setState((st) => ({ cancelAsk: null, agents: st.agents.filter((a) => a.lead !== id).map((a) => (a.id !== id ? a : { ...a, state: "idle", standingBy: false, down: false, age: "now",
+      report: { landed: `${landed} landed · ${T.length - landed} cancelled`, time: "cancelled after 22m" },
+      run: { ...a.run, phase: "finished", tasks: T.map((t) => (t.state === "done" ? t : { id: t.id, label: t.label, lane: t.lane, state: "skipped" })) },
+      lines: [...a.lines, L("t", `⏺ Run cancelled. ${landed} task landed; running workers were stopped.`)] })) }));
+    this.toast("Run cancelled · landed work kept"); this.logEvent(id, "failed", "run cancelled by you");
+  }
+  runVm(lead) {
+    const s = this.state, T = lead.run.tasks, down = !!lead.down, ph = lead.run.phase || "executing", rev = this._variant === "a3";
+    const fin = (t) => t.state === "done" || t.state === "skipped";
+    const doneIds = new Set(T.filter(fin).map((t) => t.id));
+    const act = (label, fn, tone, title) => ({ label, title: title || "", go: (e) => { stop(e); fn(); }, color: tone === "warn" ? C.warn : tone === "err" ? C.err : "#cfd5db", border: tone === "warn" ? "rgba(230,180,80,.45)" : tone === "err" ? "rgba(224,114,108,.45)" : "#2a313a" });
+    const TA = (t, patch, msg) => this.taskAct(lead.id, t.id, patch, msg);
+    const row = (t) => {
+      const g = t.agent ? this.ag(t.agent) : null; const lane = t.lane ? `lane ${t.lane}` : "";
+      const unmet = (t.deps || []).filter((d) => !doneIds.has(d));
+      const key = `row:${lead.id}:${t.id}`, focus = s.cursor === key;
+      const r = { label: t.label, dot: C.acc, ring: "transparent", anim: "pulseDot 1.6s infinite", tag: "", tagTitle: "", tagColor: C.muted, subColor: C.muted, bg: "transparent", kind: "live", acts: [], fn: null };
+      if (t.state === "skipped") Object.assign(r, { dot: C.muted, anim: "none", sub: [t.id, lane, "skipped"].filter(Boolean).join(" · "), kind: "done" });
+      else if (t.state === "done") Object.assign(r, { dot: C.ok, anim: "none", sub: [t.id, lane, t.approved ? "approved by you" : "passed review", "landed"].filter(Boolean).join(" · "), kind: "done", fn: () => this.toast(`Opening ${t.id} transcript · read-only`) });
+      else if (t.review) Object.assign(r, { dot: C.soft, sub: `${t.id} · reviewer · round ${t.review.round} · ${t.review.activity}`, tag: "reviewing", tagColor: C.soft, fn: () => this.toast(`Opening ${t.id} reviewer in Agent`) });
+      else if (t.reviewFailed) { const fw = g && g.state === "asking"; Object.assign(r, { dot: C.err, anim: "none", sub: `${t.id} · failed review twice · ${t.reviewFailed}`, tag: fw ? "asks you" : "lead judging", tagColor: fw ? C.warn : C.err, bg: fw ? "rgba(230,180,80,.06)" : "transparent", fn: () => (fw ? this.jump(g.id) : this.toast(`Opening ${t.id} findings`)) }); }
+      else if (t.blocked) Object.assign(r, { dot: C.err, anim: "none", sub: `${t.id} · ${lane} · ${t.blocked}`, tag: down ? "" : "lead fixing", tagColor: C.err,
+        acts: down ? [act("Resolve", () => TA(t, { blocked: null, fixing: "Verify re-running at HEAD" }, `${t.id} resolved · Verify re-running`), "err", "Fix and commit in the project checkout first")] : [], fn: () => this.toast(`Opening ${t.id} in the DAG`) });
+      else if (t.stalled) Object.assign(r, { dot: "transparent", ring: C.warn, anim: "none", sub: `${t.id} · ${lane} · ${t.stalled}`, subColor: C.warn, tag: down ? "" : "lead judging",
+        acts: down ? [act("Retry", () => TA(t, { stalled: null, fixing: "retrying on a fresh worker" }, `${t.id} retried`)), act("Escalate", () => TA(t, { stalled: null, fixing: "re-queued on opus" }, `${t.id} escalated to opus`), null, "Re-queue on another model, once per task"), act("Skip", () => TA(t, { stalled: null, state: "skipped" }, `${t.id} skipped`))] : [],
+        fn: () => this.toast(`Opening ${t.id} worker in Agent`) });
+      else if (t.fixing) Object.assign(r, { sub: `${t.id} · ${lane} · ${t.fixing}`, fn: () => this.toast(`Opening ${t.id} worker in Agent`) });
+      else if (!g) Object.assign(r, { dot: "transparent", ring: C.muted, anim: "none", kind: "wait", why: unmet.length ? "deps" : "slot", sub: `${t.id} · ${unmet.length ? "waits on " + unmet.join(", ") : t.slot ? "waiting for a slot" : "queued"}` });
+      else if (g.state === "asking") Object.assign(r, { dot: C.warn, sub: `${t.id} · asks you · ${g.age}`, subColor: "rgba(230,180,80,.85)", tag: "asking", tagColor: C.warn, bg: "rgba(230,180,80,.06)", fn: () => this.jump(g.id) });
+      else if (g.leadAsk) Object.assign(r, { anim: "none", sub: `${t.id} · asked the lead · ${g.age}`, tag: `→ lead · ${g.leadAsk.left}`, tagTitle: "Comes to you if the lead hasn't answered when this runs out",
+        acts: [act("Take over", () => this.takeOver(g.id), "warn", "Move this question to you")], fn: () => this.toast(`Opening ${g.name} in Agent`) });
+      else Object.assign(r, { sub: `${t.id} · ${lane} · ${g.activity}`, fn: () => this.toast(`Opening ${g.name} in Agent`),
+        acts: [act("Tell", () => this.setState({ tellRow: key, draft: "", cursor: key }), null, "Type into its terminal. The lead sees it at its next wake.")] });
+      const telling = s.tellRow === key && g;
+      if (focus) r.acts = r.acts.map((x, i) => ({ ...x, label: `${i + 1} ${x.label}` }));
+      const w = rev && g && g.state === "asking" ? this._vm(g) : null;
+      this._rows[key] = { fn: r.fn, acts: r.acts, askId: w ? g.id : null };
+      return { ...r, key, w, inlineAsk: !!(w && w.hasAsk && !w.isReview), inlineReview: !!(w && w.isReview), focus: focus ? "inset 2px 0 0 #5e9cff" : "none", bg: focus ? "#171c22" : r.bg,
+        hasTold: !!(g && g.told), told: g && g.told ? `› you told ${t.id} · “${g.told}” · ${g.toldAge || "now"}` : "",
+        telling: !!telling, tellPh: g ? `tell ${t.id}… (Enter sends, Esc cancels)` : "",
+        tellKey: (e) => { e.stopPropagation(); if (e.key === "Escape") { this.setState({ tellRow: null }); this.rootRef.current?.focus(); }
+          else if (e.key === "Enter") { const v = this.state.draft.trim(); if (!v) return; e.preventDefault(); this.upd(g.id, () => ({ told: v, toldAge: "now" })); this.setState({ tellRow: null, draft: "" }); this.toast(`Told ${t.id} · the lead sees it at its next wake`); this.logEvent(g.id, "told", `“${v}”`); this.rootRef.current?.focus(); } },
+ hasTag: !!r.tag, cursor: r.fn ? "pointer" : "default", go: (e) => { stop(e); r.fn && r.fn(); } };
+    };
+    const rows = T.map(row), done = rows.filter((r) => r.kind === "done"), wait = rows.filter((r) => r.kind === "wait"), live = rows.filter((r) => r.kind === "live");
+    const open = !!s.doneOpen[lead.id], wOpen = !!s.waitOpen[lead.id];
+    const nD = wait.filter((r) => r.why === "deps").length, nS = wait.length - nD;
+    const par = s.par[lead.id] ?? lead.run.par ?? 3;
+    const navKeys = [...live, ...(wOpen ? wait : []), ...(open ? done : [])].map((r) => r.key);
+    const setPar = (d) => (e) => { stop(e); this.setState((st) => ({ par: { ...st.par, [lead.id]: Math.max(1, Math.min(8, (st.par[lead.id] ?? lead.run.par ?? 3) + d)) } })); };
+    return {
+      rows: live, doneRows: done, hasDone: done.length > 0, doneOpen: open, doneLabel: `${done.length} done`, doneCaret: open ? "▾" : "▸",
+      toggleDone: (e) => { stop(e); this.setState((st) => ({ doneOpen: { ...st.doneOpen, [lead.id]: !st.doneOpen[lead.id] } })); },
+      waitRows: wait, hasWait: wait.length > 0, waitOpen: wOpen, waitCaret: wOpen ? "▾" : "▸",
+      waitLabel: [`${wait.length} waiting`, nD ? `${nD} on dependencies` : "", nS ? `${nS} for a slot` : ""].filter(Boolean).join(" · "),
+      toggleWait: (e) => { stop(e); this.setState((st) => ({ waitOpen: { ...st.waitOpen, [lead.id]: !st.waitOpen[lead.id] } })); },
+      segs: T.map((t) => { const g = t.agent && this.ag(t.agent); return { bg: t.state === "done" ? C.ok : t.state === "skipped" ? C.muted : t.review ? C.soft : t.reviewFailed || t.blocked ? C.err : t.stalled ? C.warn : t.fixing ? C.acc : !g ? "#2a313a" : g.state === "asking" ? C.warn : C.acc }; }),
+      planning: ph === "planning", down, navKeys,
+      settings: `${lead.noLead ? "no lead" : "lead opus"} · workers sonnet · ×${par}`,
+      par: String(par), adjustOpen: s.adjust === lead.id, cancelOpen: s.cancelAsk === lead.id,
+      adjust: (e) => { stop(e); this.setState((st) => ({ adjust: st.adjust === lead.id ? null : lead.id, cancelAsk: null })); },
+      dec: setPar(-1), inc: setPar(1),
+      parDone: (e) => { stop(e); this.setState({ adjust: null }); this.toast(`Parallelism ${par} · applies to new dispatches`); },
+      dag: (e) => { stop(e); this.toast("Opening the DAG view"); },
+      askCancel: (e) => { stop(e); this.setState((st) => ({ cancelAsk: st.cancelAsk === lead.id ? null : lead.id, adjust: null })); },
+      keep: (e) => { stop(e); this.setState({ cancelAsk: null }); },
+      cancelText: `Stop ${live.length} running workers and cancel this run? Landed tasks, transcripts and artifacts are kept.`,
+      doCancel: (e) => { stop(e); this.cancelRun(lead.id); },
+      relaunch: (e) => { stop(e); this.applyPhase("executing"); this.toast("Relaunched the lead · it starts from the events it missed"); },
+    };
+  }
+  answer(id, oi) { this.pick(id, this.state.qtab[id] || 0, oi); }
+  pick(id, qi, oi) {
+    const a = this.ag(id); const Q = a?.ask?.questions[qi]; if (!Q || !Q.opts[oi]) return;
+    const cur = (this.state.sel[id] || {})[qi] || [];
+    const next = Q.multi ? (cur.includes(oi) ? cur.filter((x) => x !== oi) : [...cur, oi]) : [oi];
+    const sel = { ...this.state.sel, [id]: { ...(this.state.sel[id] || {}), [qi]: next } };
+    this.setState({ sel });
+    if (!Q.multi) this.advance(id, qi, sel);
+  }
+  advance(id, qi, sel = this.state.sel) {
+    const a = this.ag(id); const qs = a.ask.questions; const tx = this.state.texts[id] || {}; const sa = sel[id] || {};
+    const ans = (i) => (sa[i] || []).length > 0 || (tx[i] || "").trim() !== "";
+    let nx = -1;
+    for (let k = 1; k <= qs.length; k++) { const i = (qi + k) % qs.length; if (!ans(i)) { nx = i; break; } }
+    if (nx === -1) this.submit(id, sa, tx); else this.setState((st) => ({ qtab: { ...st.qtab, [id]: nx } }));
+  }
+  submit(id, sa, tx) {
+    const a = this.ag(id); const qs = a.ask.questions;
+    const picks = qs.map((q, i) => (tx[i] || "").trim() || (sa[i] || []).map((oi) => q.opts[oi].l).join(", "));
+    const summary = picks.join(" · ");
+    const clear = (o) => { const n = { ...o }; delete n[id]; return n; };
+    this.setState((st) => ({ sel: clear(st.sel), texts: clear(st.texts), qtab: clear(st.qtab), qOpen: clear(st.qOpen) }));
+    this.upd(id, (g) => ({ state: "working", ask: null, note: null, activity: `Resuming · ${picks[0]}`, lines: [...g.lines, ...picks.map((p, i) => L("u", qs.length > 1 ? `› ${qs[i].header}: ${p}` : "› " + p)), L("spin", "✻ Resuming with your answer… (esc to interrupt)")] }));
+    this.toast(`Answered ${a.name} · ${summary}`);
+    this.logEvent(id, "answered", summary);
+  }
+  send(id) {
+    const text = this.state.draft.trim(); const a = this.ag(id); if (!text || !a) return;
+    const wake = a.state === "idle";
+    this.upd(id, (g) => ({ state: wake ? "working" : g.state, parked: false, activity: wake ? "Picking up your message" : g.activity, lines: [...g.lines, L("u", "› " + text)] }));
+    this.setState({ draft: "", composer: null });
+    this.toast(`Sent to ${a.name}`);
+  }
+  mute(id) {
+    const a = this.ag(id); if (!a) return;
+    if (a.state === "idle") { this.upd(id, () => ({ parked: true })); this.toast(`Dismissed ${a.name} to Idle`); }
+    else { this.upd(id, () => ({ bg: true })); this.toast(`Moved ${a.name} to background`); }
+  }
+  digit(id, n) {
+    const a = this.ag(id);
+    if (a?.spec) { const act = ["approve", "changes"][n - 1]; if (act) this.specAct(id, act); return; }
+    if (a?.review) { const act = ["approve", "sendback", "retry", "skip"][n - 1]; if (act) this.reviewAct(id, act); }
+    else if (a?.state === "asking") this.answer(id, n - 1);
+  }
+  onKey = (e) => {
+    const tag = e.target?.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA") return;
+    const nav = this._nav || []; const cur = this.state.cursor; const i = nav.indexOf(cur);
+    const k = e.key;
+    if (k === "j" || k === "ArrowDown") { e.preventDefault(); if (nav.length) this.setState({ cursor: nav[Math.min(nav.length - 1, i + 1)] }); }
+    else if (k === "k" || k === "ArrowUp") { e.preventDefault(); if (nav.length) this.setState({ cursor: nav[Math.max(0, i - 1)] }); }
+    else if (/^[1-9]$/.test(k) && this._rows && this._rows[cur]) { const R = this._rows[cur]; if (R.askId) this.digit(R.askId, +k); else { const ac = R.acts[+k - 1]; if (ac) ac.go(); } }
+    else if (k === "Enter" && this._rows && this._rows[cur]) { const fn = this._rows[cur].fn; if (fn) fn(); }
+    else if (/^[1-9]$/.test(k)) this.digit(cur, +k);
+    else if (k === "r" || k === "R") {
+      e.preventDefault();
+      if (cur) this.setState({ composer: cur, draft: "", expand: this.expands(this.ag(cur)) ? cur : this.state.expand });
+    }
+    else if (k === "b" || k === "B") { const a = this.ag(cur); if (a && (a.state === "working" || a.state === "idle") && !a.bg && !a.parked) this.mute(cur); }
+    else if (k === "t" || k === "T") { const a = this.ag(cur); if (a) this.toast(`Opened ${a.name} terminal`); }
+    else if (k === "n") { const asks = nav.filter((id) => this.ag(id)?.state === "asking" || this._rows?.[id]?.askId); if (!asks.length) this.toast("Nothing is waiting on you"); else this.setState({ cursor: asks[(asks.indexOf(cur) + 1) % asks.length] }); }
+    else if (k === "Enter") { const a = this.ag(cur); if (!a) return;
+      if (a.state === "asking" && a.ask) { const qi = this.state.qtab[cur] || 0; const has = ((this.state.sel[cur] || {})[qi] || []).length || ((this.state.texts[cur] || {})[qi] || "").trim(); if (has) this.advance(cur, qi); return; } if (this.expands(a)) this.setState((st) => ({ expand: st.expand === cur ? null : cur })); else this.toast(`Opening ${a.name} in Agent`); }
+    else if ((k === "h" || k === "l" || k === "ArrowLeft" || k === "ArrowRight") && this._cols?.length === 2) {
+      e.preventDefault();
+      const card = cur?.startsWith("row:") ? cur.split(":")[1] : cur;
+      const from = this._cols.findIndex((c) => c.includes(card)), to = k === "h" || k === "ArrowLeft" ? 0 : 1;
+      if (from >= 0 && from !== to) { const col = this._cols[to]; this.setState({ cursor: col[Math.min(this._cols[from].indexOf(card), col.length - 1)] }); }
+    }
+    else if (k === "Escape") { this.setState({ expand: null, composer: null }); }
+  };
+  renderVals() {
+    const s = this.state, p = this.props; this._rows = {};
+    const variant = s.variant ?? p.variant ?? "a3";
+    const up = variant !== "a", rev = variant === "a3";
+    this._variant = variant;
+    const all = s.agents;
+    const live = all.filter((a) => !a.bg && !a.parked);
+    const liveV = up ? live.filter((a) => !a.lead || a.state === "asking") : live;
+    const liveAsking = liveV.filter((a) => a.state === "asking");
+    const liveWorking = liveV.filter((a) => a.state === "working");
+    const recentIdle = liveV.filter((a) => a.state === "idle");
+    const parked = all.filter((a) => a.parked);
+    const bg = all.filter((a) => a.bg);
+    const counts = { all: all.length, asking: all.filter((a) => a.state === "asking").length, working: all.filter((a) => a.state === "working").length, idle: all.filter((a) => a.state === "idle").length };
+
+    const vm = (a) => {
+      const rt = RT[a.rt]; const cur = s.cursor === a.id;
+      const asking = a.state === "asking", working = a.state === "working", idle = a.state === "idle";
+      const workerAsks = a.run ? all.filter((w) => w.lead === a.id && w.state === "asking").length : 0;
+      const last = a.lines[a.lines.length - 1];
+      const tint = asking ? C.warn : C.acc;
+      const mapL = (l) => ({ t: l.t, color: LINE_C[l.k] });
+      const qs = a.ask ? a.ask.questions : []; const qi = Math.max(0, Math.min(s.qtab[a.id] || 0, qs.length - 1)); const Q = qs[qi];
+      const selA = s.sel[a.id] || {}, txA = s.texts[a.id] || {};
+      const answered = (i) => (selA[i] || []).length > 0 || (txA[i] || "").trim() !== "";
+      return {
+        id: a.id, name: a.name, project: a.project, rtMark: rt.mark, rtColor: rt.fg, rtLabel: rt.label,
+        asking, working, idle, recentIdle: idle && !a.parked, parked: !!a.parked, age: a.age, idleText: `${a.age} idle`,
+        dot: a.down ? C.err : a.noLead ? "transparent" : asking ? C.warn : working ? (a.quiet ? "transparent" : a.standingBy ? C.muted : C.acc) : C.muted, anim: idle || a.quiet || a.standingBy || a.down || a.noLead ? "none" : "pulseDot 1.6s infinite",
+        stateText: asking ? "waiting on you" : working ? `working · ${a.age}` : `idle · ${a.age}`, stateColor: asking ? C.warn : working ? C.acc : C.muted,
+        border: asking ? "rgba(230,180,80,.4)" : "#20262e",
+        pulseRing: s.pulse === a.id ? "0 0 0 2px #e6b450" : "none",
+        shadow: s.pulse === a.id ? "0 0 0 2px #e6b450, 0 0 28px rgba(230,180,80,.25)" : cur ? `0 0 0 1.5px ${tint}` : asking ? "0 0 24px rgba(230,180,80,.07)" : "none",
+        boardBorder: cur ? tint : asking ? "rgba(230,180,80,.4)" : "#20262e",
+        rowBg: cur ? "#171c22" : "transparent", rowRing: cur ? `inset 2px 0 0 ${tint}` : "none",
+        activity: a.activity || "", lines: a.lines.slice(-5).map(mapL), allLines: a.lines.map(mapL), finalLine: last ? last.t.replace(/^⏺\s*/, "") : "",
+        hasAsk: !!a.ask, askHeader: a.spec ? "spec review" : a.review ? "failed review" : qs.length > 1 ? `${qs.length} questions` : Q ? Q.header : "",
+        ask: Q ? {
+          q: Q.q, long: Q.q.length > 170, clamp: s.qOpen[a.id] ? "unset" : "3", moreLabel: s.qOpen[a.id] ? "Show less" : "Show full question",
+          toggleQ: (e) => { stop(e); this.setState((st) => ({ qOpen: { ...st.qOpen, [a.id]: !st.qOpen[a.id] } })); },
+          stacked: Q.opts.some((o) => o.d), chips: !Q.opts.some((o) => o.d),
+          hasTabs: qs.length > 1, progress: qs.length > 1 ? `${qs.filter((_, i) => answered(i)).length} of ${qs.length} answered` : "",
+          tabs: qs.map((qq, i) => ({ label: qq.header || `Q${i + 1}`, dot: answered(i) ? C.warn : "rgba(127,133,139,.4)", border: i === qi ? C.warn : "#20262e", bg: i === qi ? "rgba(230,180,80,.15)" : "transparent", color: i === qi ? "#e6e9ed" : "#9aa3ad", go: (e) => { stop(e); this.setState((st) => ({ qtab: { ...st.qtab, [a.id]: i } })); } })),
+          opts: Q.opts.map((o, oi) => { const on = (selA[qi] || []).includes(oi);
+            return { label: o.l, desc: o.d || "", hasDesc: !!o.d, rec: !!o.rec, num: oi + 1, checked: on, check: Q.multi ? "✓" : "●",
+              border: on ? C.warn : o.rec ? "rgba(230,180,80,.5)" : "#20262e", bg: on ? "rgba(230,180,80,.15)" : o.rec ? "rgba(230,180,80,.06)" : "transparent",
+              numBg: on ? C.warn : "rgba(0,0,0,.3)", numColor: on ? "#0c0e11" : "#cfd5db", pick: (e) => { stop(e); this.pick(a.id, qi, oi); } }; }),
+          text: txA[qi] || "", textBorder: (txA[qi] || "").trim() ? C.warn : "#20262e",
+          onText: (e) => { const v = e.target.value; this.setState((st) => ({ texts: { ...st.texts, [a.id]: { ...(st.texts[a.id] || {}), [qi]: v } } })); },
+          textKey: (e) => { e.stopPropagation(); if (e.key === "Enter" && !e.shiftKey && (txA[qi] || "").trim()) { e.preventDefault(); this.advance(a.id, qi); } },
+          hint: Q.multi ? "Pick any that apply" : qs.length > 1 ? `Pick 1–${Math.min(9, Q.opts.length)} · moves to the next question` : `Press 1–${Math.min(9, Q.opts.length)} to answer`,
+          showSend: !!Q.multi || !!(txA[qi] || "").trim(), sendOp: answered(qi) ? "1" : ".4",
+          sendLabel: qs.some((_, i) => i !== qi && !answered(i)) ? "Next" : "Send",
+          send: (e) => { stop(e); if (answered(qi)) this.advance(a.id, qi); },
+        } : null,
+        hasDiff: !!a.diff, diff: a.diff ? { add: `+${a.diff[0]}`, del: `−${a.diff[1]}` } : null,
+        barTasks: !!a.tasks, hasTasks: !!a.tasks || (!!a.run && a.run.tasks.length > 0), tasks: a.run ? `${a.run.tasks.filter((t) => t.state === "done" || t.state === "skipped").length}/${a.run.tasks.length}` : a.tasks ? `${a.tasks[0]}/${a.tasks[1]}` : "", taskW: a.tasks ? `${Math.round((a.tasks[0] / a.tasks[1]) * 100)}%` : "0%",
+        hasSubs: !!a.subs, subs: a.subs || 0, hasCost: !!(a.run && a.run.cost && a.state !== "idle"), costText: a.run ? a.run.cost || "" : "",
+        isLead: !!a.run, run: a.run ? this.runVm(a) : null, showLines2: s.expand !== a.id && !a.run,
+        hasVia: !!a.lead, viaLead: a.lead ? (this.ag(a.lead)?.name || "") : "", viaTask: a.task || "", viaGo: (e) => { stop(e); this.jump(a.lead); },
+        hasNote: !!a.note, note: a.note || "",
+        isSpec: !!a.spec, sp: a.spec ? {
+          path: a.spec.path, file: a.spec.path.split("/").pop(), meta: a.spec.meta, decisions: a.spec.decisions.map((t) => ({ t })),
+          open: (e) => { stop(e); this.toast(`wsh open ${a.spec.path} · opened in Code`); },
+          guide: s.guide[a.id] || "", onGuide: (e) => { const v = e.target.value; this.setState((st) => ({ guide: { ...st.guide, [a.id]: v } })); },
+          guideKey: (e) => { e.stopPropagation(); if (e.key === "Enter" && (s.guide[a.id] || "").trim()) { e.preventDefault(); this.specAct(a.id, "changes"); } },
+          acts: [["approve", "Approve", "writes the plan"], ["changes", "Request changes", ""]].map(([k, label, desc], i) => ({ num: i + 1, label, desc, hasDesc: !!desc, go: (e) => { stop(e); this.specAct(a.id, k); },
+            border: k === "approve" ? "rgba(230,180,80,.5)" : "#20262e", bg: k === "approve" ? "rgba(230,180,80,.06)" : "transparent" })),
+        } : null,
+        isReview: !!a.review, rv: a.review ? {
+          title: `${a.task} · ${a.review.title} failed review twice`, findings: a.review.findings,
+          guide: s.guide[a.id] || "", onGuide: (e) => { const v = e.target.value; this.setState((st) => ({ guide: { ...st.guide, [a.id]: v } })); },
+          guideKey: (e) => { e.stopPropagation(); if (e.key === "Enter") { e.preventDefault(); this.reviewAct(a.id, "sendback"); } },
+          acts: [["approve", "Approve", "lands as it is"], ["sendback", "Send back", "one more round"], ["retry", "Retry", "fresh worker"], ["skip", "Skip", ""]].map(([k, label, desc], i) => ({
+            num: i + 1, label, desc, hasDesc: !!desc, go: (e) => { stop(e); this.reviewAct(a.id, k); },
+            border: k === "sendback" && (s.guide[a.id] || "").trim() ? C.warn : "#20262e", bg: k === "sendback" && (s.guide[a.id] || "").trim() ? "rgba(230,180,80,.12)" : "transparent" })),
+          reviewDiff: (e) => { stop(e); this.toast(`Reviewing ${a.task} in Diff`); },
+        } : null,
+        summary: asking && Q ? Q.q : working ? a.activity : last ? last.t.replace(/^⏺\s*/, "") : "",
+        summaryColor: asking ? "#cfd5db" : working ? C.soft : C.muted,
+        summaryFont: working ? "'JetBrains Mono',monospace" : "'Hanken Grotesk',system-ui,sans-serif",
+        hung: working && !!a.quiet, live: !(working && a.quiet), hungText: `quiet · no output for ${a.quiet}`, flow: working && !a.tasks && !a.quiet && (!a.run || a.run.phase === "planning"),
+        dotLine: a.noLead || (working && a.quiet) ? C.muted : "transparent", noLead: !!a.noLead,
+        hasReport: !!a.report, report: a.report || { landed: "", time: "" },
+        closeRun: (e) => { stop(e); this.upd(a.id, () => ({ parked: true })); this.toast(`Closed ${a.name} · evidence sealed`); this.logEvent(a.id, "finished", "run closed · evidence sealed"); },
+        nudge: (e) => { stop(e); this.upd(a.id, (g) => ({ quiet: null, lines: [...g.lines, L("u", "› continue"), L("spin", "✻ Resuming… (esc to interrupt)")] })); this.toast(`Nudged ${a.name}`); this.logEvent(a.id, "nudged", "sent “continue”"); },
+        expanded: s.expand === a.id, collapsed: s.expand !== a.id, span: s.expand === a.id ? "1 / -1" : "auto",
+        plainCard: !a.run, leadCard: !!a.run, finished: idle && !a.report,
+        gridBorder: asking || workerAsks ? "rgba(230,180,80,.4)" : "#20262e", hasAskBadge: workerAsks > 0, askBadge: `${workerAsks} asking you`,
+        flowFull: working && !a.quiet, linesFull: a.lines.slice(-10).map(mapL),
+        transcriptLabel: s.expand === a.id ? "Hide transcript" : "Lead transcript",
+        toggle: () => this.setState((st) => ({ cursor: a.id, expand: st.expand === a.id ? null : a.id, composer: null })),
+        lines2: a.lines.slice(-2).map(mapL),
+        canMute: !a.bg && !a.parked && (working || idle), canBackground: !a.bg && !a.parked && working, canDismiss: !a.parked && idle,
+        subsTitle: `${a.subs || 0} subagents`, tasksGo: (e) => { stop(e); this.toast(`${a.name} · ${a.tasks ? a.tasks[0] + " of " + a.tasks[1] : ""} tasks done`); },
+        rowText: a.bg ? a.activity : last ? last.t.replace(/^⏺\s*/, "") : "", rowAge: a.bg ? a.age : `${a.age} idle`,
+        openComposerIdle: (e) => { stop(e); this.upd(a.id, () => ({ parked: false })); this.setState({ composer: a.id, draft: "", cursor: a.id, chip: "all" }); }, muteTitle: idle ? "Dismiss to Idle" : "Move to background (B)", muteShort: idle ? "Dismiss" : "Background",
+        select: () => this.setState({ cursor: a.id }),
+        open: (e) => { stop(e); this.toast(`Opening ${a.name} in Agent`); },
+        term: (e) => { stop(e); this.toast(`Opened ${a.name} terminal`); },
+        diffGo: (e) => { stop(e); this.toast(`Reviewing ${a.name} in Diff`); },
+        mute: (e) => { stop(e); this.mute(a.id); },
+        restore: (e) => { stop(e); this.upd(a.id, () => ({ bg: false })); this.toast(`Restored ${a.name}`); },
+        composerOpen: s.composer === a.id, composerClosed: s.composer !== a.id,
+        openComposer: (e) => { stop(e); this.setState({ composer: a.id, draft: "", cursor: a.id }); },
+        composerKey: (e) => {
+          e.stopPropagation();
+          if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); this.send(a.id); }
+          else if (e.key === "Escape") { this.setState({ composer: null }); e.target.blur(); this.rootRef.current?.focus(); }
+        },
+        placeholder: `message ${a.name}…`,
+      };
+    };
+    this._vm = vm;
+
+    const chipDef = { all: live, asking: liveAsking, working: liveWorking, idle: recentIdle };
+    const shownRaw = chipDef[s.chip];
+    const CH = { all: ["#4a525c", "#171c22", "#e6e9ed"], asking: [C.warn, "rgba(230,180,80,.12)", C.warn], working: [C.acc, "rgba(94,156,255,.12)", C.soft], idle: ["#4a525c", "#171c22", "#cfd5db"] };
+    const chipCount = { all: live.length, asking: liveAsking.length, working: liveWorking.length, idle: recentIdle.length + (s.liveOnly ? 0 : parked.length) };
+    const chips = [["all", "All"], ["asking", "Asking"], ["working", "Working"], ["idle", "Idle"]].map(([key, label]) => {
+      const on = s.chip === key;
+      return { key, label, count: chipCount[key], go: () => this.setState(key === "idle" ? { chip: key, idleOpen: true } : { chip: key }), border: on ? CH[key][0] : "#1c2128", bg: on ? CH[key][1] : "transparent", labelColor: on ? "#e6e9ed" : C.muted, numColor: on ? CH[key][2] : "#cfd5db" };
+    });
+
+    const showParked = !s.liveOnly && parked.length > 0;
+        const railShown = s.railOpen ?? (typeof window === "undefined" || window.innerWidth >= (up ? 1400 : 1200));
+    const unread = new Set(s.unread);
+    const evVm = (e) => { const g = this.ag(e.id); const [glyph, c, verb] = EV_KIND[e.kind]; const isNew = unread.has(e.k);
+      const ld = g && g.lead ? this.ag(g.lead) : null;
+      return { glyph, c, verb, text: e.text, t: e.t, name: g ? (ld ? `◆ ${ld.name} · ${g.task}` : g.run ? `◆ ${g.name}` : g.name) : e.id, isNew, bg: isNew ? "rgba(94,156,255,.05)" : "transparent",
+        tag: g && g.bg ? "background" : g && g.parked ? "idle" : "", hasTag: !!(g && (g.bg || g.parked)), textColor: c,
+        go: () => { this.setState((st) => ({ unread: st.unread.filter((x) => x !== e.k) })); this.jump(e.id); } }; };
+    const fresh = s.events.filter((e) => unread.has(e.k)), old = s.events.filter((e) => !unread.has(e.k));
+    const runOf = (e) => { const g = this.ag(e.id); return g ? (g.lead || (g.run ? g.id : null)) : null; };
+    const group = (list) => {
+      const cnt = {}; list.forEach((e) => { const r = runOf(e); if (r) cnt[r] = (cnt[r] || 0) + 1; });
+      const seen = {}; const out = [];
+      for (const e of list) { const r = runOf(e); const v = { ...evVm(e), hasMore: false, moreLabel: "", toggleMore: stop };
+        if (r && cnt[r] > 1) { if (seen[r]) { if (!s.evOpen[r]) continue; } else { seen[r] = true; const ln = this.ag(r)?.name || r;
+          Object.assign(v, { hasMore: true, moreLabel: s.evOpen[r] ? `show less from ${ln}` : `+${cnt[r] - 1} more from ${ln}`, toggleMore: (ev2) => { stop(ev2); this.setState((st) => ({ evOpen: { ...st.evOpen, [r]: !st.evOpen[r] } })); } }); } }
+        out.push(v); }
+      return out;
+    };
+    const ev = { fresh: group(fresh), old: group(old), newCount: fresh.length, hasNew: fresh.length > 0, hasOld: old.length > 0, markAll: () => this.setState({ unread: [] }) };
+    const f = s.f2;
+    const v2Asks = !rev && ["all", "asking"].includes(f) ? liveAsking : [];
+    const v2Work = !rev && ["all", "working"].includes(f) ? liveWorking : [];
+    const v2Done = !rev && ["all", "done"].includes(f) ? recentIdle : [];
+    const leadAsking = (ld) => all.some((w) => w.lead === ld.id && w.state === "asking");
+    const gridF = { all: () => true, asking: (a) => a.state === "asking" || (!!a.run && leadAsking(a)), working: (a) => a.state === "working", done: (a) => a.state === "idle" }[f];
+    const v2Grid = rev ? liveV.filter((a) => !a.lead && gridF(a)) : [];
+    // leads in column 1, agents in column 2; one kind alone alternates across both, as the live grid does
+    const gridLeads = v2Grid.filter((a) => a.run), gridPlain = v2Grid.filter((a) => !a.run);
+    const split = gridLeads.length > 0 && gridPlain.length > 0;
+    const gridCols = split ? [gridLeads, gridPlain] : v2Grid.length === 1 ? [v2Grid] : [v2Grid.filter((_, i) => i % 2 === 0), v2Grid.filter((_, i) => i % 2 === 1)];
+    // a column fills the viewport; a card that needs you takes a double share. only card minimums past the viewport scroll it
+    const PAD_PX = 42, MIN_PX = { agent: 200, agentAsk: 320, lead: 280, leadAsk: 400 };
+    const gridCard = (a) => { const v = vm(a), pri = v.asking || v.hasAskBadge; return { ...v, grow: pri ? 2 : 1, minH: `${MIN_PX[(a.run ? "lead" : "agent") + (pri ? "Ask" : "")]}px` }; };
+    this._cols = rev ? gridCols.filter((c) => c.length).map((c) => c.map((a) => a.id)) : null;
+    const hung = liveWorking.filter((a) => a.quiet);
+    const TB = { asking: [C.warn, "need you"], working: [C.acc, "working"], done: [C.soft, "ready for review"], all: ["#e6e9ed", "live"] };
+    const v2 = {
+      tabs: ["asking", "working", "done", "all"].map((k) => { const on = f === k; const n = { asking: liveAsking.length, working: liveWorking.length, done: recentIdle.length, all: liveV.length }[k];
+        return { count: n, label: TB[k][1], go: () => this.setState({ f2: on && k !== "all" ? "all" : k }), line: on ? TB[k][0] : "transparent", numColor: n || on ? TB[k][0] : "#7f858b", labelColor: on ? "#e6e9ed" : "#9aa3ad" }; }),
+      asks: v2Asks.map(vm), askCount: v2Asks.length, showAsks: v2Asks.length > 0,
+      work: v2Work.map(vm), workCount: v2Work.length, showWork: v2Work.length > 0,
+      hasHung: hung.length > 0, hungNote: hung.length ? `${hung.length} quiet · ${hung.map((a) => a.name).join(", ")}` : "",
+      done: v2Done.map(vm), doneCount: v2Done.length, showDone: v2Done.length > 0,
+      emptyNew: rev && f === "all",
+      grid: (split ? [...gridLeads, ...gridPlain] : v2Grid).map(vm), sectioned: !rev,
+      cols: gridCols.filter((c) => c.length).map((c) => ({ cards: c.map(gridCard) })), colMinH: `calc(100cqh - ${PAD_PX}px)`,
+      empty: !v2Asks.length && !v2Work.length && !v2Done.length && !v2Grid.length, emptyText: f === "asking" ? "Nothing is waiting on you." : f === "done" ? "Nothing to review." : "No live agents.",
+      idleNames: parked.map((a) => a.name).join(" · "),
+    };
+    this._nav = up ? [...v2.asks, ...v2.work, ...v2.done, ...v2.grid].flatMap((x) => (x.isLead && x.run ? [x.id, ...x.run.navKeys] : [x.id])) : shownRaw.map((a) => a.id);
+    return {
+      height: p.height ?? "100vh",
+      badges: { cockpit: counts.asking, jarvis: 1 }, hints: rev ? [HINTS[0], { glyph: "← → / h l", label: "column" }, ...HINTS.slice(1)] : HINTS,
+      total: all.length, projects: new Set(all.map((a) => a.project)).size, needsYou: counts.asking,
+      live: s.liveOnly ? { border: "rgba(84,199,154,.6)", bg: "rgba(84,199,154,.1)", color: C.ok } : { border: "#20262e", bg: "#171c22", color: "#9aa3ad" },
+      toggleLive: () => this.setState((st) => ({ liveOnly: !st.liveOnly })),
+      projectMenu: () => this.toast("Project switcher"),
+      showChips: variant === "a", chips, v2,
+      isA: variant === "a", isA2: up, isA3: rev,
+      liveCount: live.length, liveAsking: liveAsking.length, liveWorking: liveWorking.length,
+      shown: shownRaw.map(vm), shownEmpty: shownRaw.length === 0,
+      hasBg: bg.length > 0, bgCount: bg.length, bgRows: bg.map(vm), bgLabel: rev ? "Backgrounded" : "Background",
+      hasDetached: rev && DETACHED.length > 0,
+      detachedRows: DETACHED.map((d) => ({ ...d, attach: (e) => { stop(e); this.toast(`Attached ${d.name} · resumed in a new terminal`); } })),
+      newAgent: () => this.toast("New agent"),
+      showParked, parkedCount: parked.length, parkedRows: parked.map(vm), idleOpen: s.idleOpen, bgOpen: s.bgOpen, bgCaret: s.bgOpen ? "▾" : "▸", toggleBg: () => this.setState((st) => ({ bgOpen: !st.bgOpen })), idleRows: parked.map(vm),
+      emptyText: s.chip === "idle" ? "Nothing finished recently. Older idle agents are listed below." : "No live agents match this filter.", idleCaret: s.idleOpen ? "▾" : "▸",
+      toggleIdle: () => this.setState((st) => ({ idleOpen: !st.idleOpen })),
+      draft: s.draft, onDraft: (e) => this.setState({ draft: e.target.value }), stop,
+      railOpen: railShown, railClosed: !railShown, ev, stripTitle: up ? "Events" : "Recent activity", toggleRail: () => this.setState({ railOpen: !railShown }),
+      usageDetails: () => this.toast("Opening Usage"),
+      recent: RECENT.map((r) => ({ ...r, go: () => this.setState({ cursor: r.id }) })),
+      phases: PHASES.map(([id, label]) => { const on = (s.phase || "executing") === id; return { label, go: () => this.applyPhase(id), bg: on ? "#2a313a" : "transparent", color: on ? "#e6e9ed" : "#9aa3ad" }; }),
+      variants: VARIANTS.map(([id, label]) => ({ id, label, go: () => this.setState({ variant: id, composer: null, railOpen: null }), bg: variant === id ? "#5e9cff" : "transparent", color: variant === id ? "#0c0e11" : "#cfd5db" })),
+      hasToast: !!s.toast, toast: s.toast || "",
+      rootRef: this.rootRef, onKey: this.onKey,
+    };
+  }
+}
+</script>
+</body>
+</html>
