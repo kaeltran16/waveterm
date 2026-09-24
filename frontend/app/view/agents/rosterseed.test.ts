@@ -3,7 +3,7 @@
 
 import { atom, createStore } from "jotai";
 import { describe, expect, it } from "vitest";
-import { isRosterSeeded, latchWhenTrue } from "./rosterseed";
+import { isLayoutLoaded, isRosterSeeded, latchWhenTrue } from "./rosterseed";
 
 describe("isRosterSeeded", () => {
     it("is seeded with no terminals, so the real empty state shows", () => {
@@ -17,6 +17,25 @@ describe("isRosterSeeded", () => {
     });
     it("counts a live status as seeded before its history read settles", () => {
         expect(isRosterSeeded(["block:a"], () => true, new Set())).toBe(true);
+    });
+});
+
+describe("isLayoutLoaded", () => {
+    const loaded = { loading: false, blockIds: ["b1"] };
+    it("is not loaded before the workspace is", () => {
+        expect(isLayoutLoaded(null, () => false)).toBe(false);
+    });
+    it("is not loaded while any tab is still loading", () => {
+        expect(isLayoutLoaded([loaded, { loading: true, blockIds: [] }], () => false)).toBe(false);
+    });
+    it("is not loaded while a block a tab holds is still loading", () => {
+        expect(isLayoutLoaded([loaded], (b) => b === "b1")).toBe(false);
+    });
+    it("counts a failed tab load as settled, so it cannot stall the gate", () => {
+        expect(isLayoutLoaded([loaded, { loading: false, blockIds: [] }], () => false)).toBe(true);
+    });
+    it("is loaded for a workspace with no tabs", () => {
+        expect(isLayoutLoaded([], () => true)).toBe(true);
     });
 });
 

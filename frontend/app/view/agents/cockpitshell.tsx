@@ -15,6 +15,7 @@ import { CodeSurface } from "@/app/view/code/codesurface";
 import { CockpitSurface } from "./cockpitsurface";
 import { FilesSurface } from "./filessurface";
 import { reresolveFocus } from "./focusstore";
+import { setupRosterSeededLatch } from "./liveagents";
 import { JarvisSurface } from "@/app/view/jarvis/jarvissurface";
 import { NavRail } from "./navrail";
 import { RadarSurface } from "./radarsurface";
@@ -99,6 +100,8 @@ export function CockpitShell({ model, tabId }: { model: AgentsViewModel; tabId: 
     useEffect(() => {
         fireAndForget(primeChannels);
     }, []);
+    // the roster's first-load gate; here rather than at boot, because boot subscribes before the workspace loads
+    useEffect(() => setupRosterSeededLatch(), []);
     const surface = useAtomValue(model.surfaceAtom);
     // The scope bundle is a snapshot; arriving at a surface that consumes it is when a stale one shows.
     useEffect(() => {

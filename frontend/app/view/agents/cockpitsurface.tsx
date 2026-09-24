@@ -1,6 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { Skeleton } from "@/app/element/skeleton";
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtomValue, useSetAtom, type PrimitiveAtom } from "jotai";
@@ -38,7 +39,7 @@ import {
     type GridCard,
     type RowTarget,
 } from "./cardgridlayout";
-import { dismissKey, isCockpitEmpty, splitRecentlyIdle, toggleInSet } from "./cockpitsurfacemodel";
+import { dismissKey, rosterLoadPhase, splitRecentlyIdle, toggleInSet } from "./cockpitsurfacemodel";
 import { BackgroundAgentsStrip } from "./backgroundagentsstrip";
 import { BackgroundedSection } from "./backgroundedsection";
 import { channelsAtom } from "./channelsstore";
@@ -50,7 +51,7 @@ import { IdleSection } from "./idlesection";
 import { LeadCard } from "./leadcard";
 import { rowAction } from "./leadcardactions";
 import { buildLeadCard, isLeadDown, rowKeyActions, stopSelector, type LeadCardVM } from "./leadcardmodel";
-import { ensurePreviousInfo } from "./liveagents";
+import { ensurePreviousInfo, rosterSeededAtom } from "./liveagents";
 import { CockpitEmptyState } from "./cockpitemptystate";
 import { CockpitRail } from "./cockpitrail";
 import { useRailTracking } from "./cockpiteventsrail";
@@ -87,6 +88,7 @@ function useModelAtom<T>(a: PrimitiveAtom<T>): [T, (v: T | ((p: T) => T)) => voi
 
 export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     const agents = useAtomValue(model.agentsAtom);
+    const seeded = useAtomValue(rosterSeededAtom);
     useSubagentTracking(agents);
     const { asking, working, idle } = groupAgents(agents);
 
@@ -454,7 +456,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
         );
     };
 
-    const empty = isCockpitEmpty(asking, working, idle);
+    const phase = rosterLoadPhase(seeded, asking.length + working.length + idle.length);
 
     return (
         <MotionConfig reducedMotion="user">
@@ -551,11 +553,13 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
 
                 <div className="relative flex min-h-0 flex-1 flex-col">
                     <AnimatePresence initial={false}>
-                        {empty ? (
+                        {phase === "empty" ? (
                             <CockpitEmptyState
                                 key="empty"
                                 onNewAgent={() => globalStore.set(model.newAgentOpenAtom, true)}
                             />
+                        ) : phase === "loading" ? (
+                            <CockpitGridSkeleton key="loading" />
                         ) : null}
                     </AnimatePresence>
 
@@ -580,7 +584,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                     </div>
                 </div>
 
-                {!empty ? <HintsBar onOpenHelp={() => globalStore.set(cheatsheetOpenAtom, true)} /> : null}
+                {phase === "ready" ? <HintsBar onOpenHelp={() => globalStore.set(cheatsheetOpenAtom, true)} /> : null}
             </div>
 
             <CockpitRail
@@ -598,3 +602,16 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     );
 }
 
+// Card-shaped placeholders in the grid's own gutters, so the first cards land where the skeleton was.
+function CockpitGridSkeleton() {
+    return (
+        <div aria-hidden="true" className="absolute inset-0 z-[1] flex items-start gap-3.5 px-5 pt-2.5">
+            {[0, 1, 2].map((col) => (
+                <div key={col} className="flex min-w-0 flex-1 flex-col gap-3.5">
+                    <Skeleton className="h-[148px] rounded-[13px]" />
+                    {col < 2 ? <Skeleton className="h-[112px] rounded-[13px]" /> : null}
+                </div>
+            ))}
+        </div>
+    );
+}

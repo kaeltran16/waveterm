@@ -3,12 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { AgentVM } from "./agentsviewmodel";
-import {
-    dismissKey,
-    isCockpitEmpty,
-    splitRecentlyIdle,
-    toggleInSet,
-} from "./cockpitsurfacemodel";
+import { dismissKey, rosterLoadPhase, splitRecentlyIdle, toggleInSet } from "./cockpitsurfacemodel";
 
 function agent(over: Partial<AgentVM>): AgentVM {
     return { id: "t1", name: "claude", task: "", state: "working", ...over };
@@ -23,12 +18,16 @@ describe("dismissKey", () => {
     });
 });
 
-describe("isCockpitEmpty", () => {
-    it("is true only when every section is empty", () => {
-        expect(isCockpitEmpty([], [], [])).toBe(true);
-        expect(isCockpitEmpty([agent({})], [], [])).toBe(false);
-        expect(isCockpitEmpty([], [agent({})], [])).toBe(false);
-        expect(isCockpitEmpty([], [], [agent({})])).toBe(false);
+describe("rosterLoadPhase", () => {
+    it("is loading, never empty, while an empty roster has not been read yet", () => {
+        expect(rosterLoadPhase(false, 0)).toBe("loading");
+    });
+    it("is empty once the roster has been read and holds no agents", () => {
+        expect(rosterLoadPhase(true, 0)).toBe("empty");
+    });
+    it("is ready whenever there are agents to show, read or not", () => {
+        expect(rosterLoadPhase(false, 2)).toBe("ready");
+        expect(rosterLoadPhase(true, 1)).toBe("ready");
     });
 });
 

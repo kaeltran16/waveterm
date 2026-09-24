@@ -12,6 +12,7 @@
 // cycle broken.
 
 import { CockpitFocusPane } from "@/app/cockpit/focus-pane";
+import { Skeleton, SkeletonLine } from "@/app/element/skeleton";
 import { globalStore } from "@/app/store/jotaiStore";
 import { buildAgentBindings } from "@/app/store/keybindings/bindings";
 import { useKeybindings } from "@/app/store/keybindings/store";
@@ -25,9 +26,11 @@ import { AgentHeader } from "./agentheader";
 import { AgentLaunchHero } from "./agentlaunchhero";
 import { AgentTree } from "./agenttree";
 import { projectOf } from "./agentsviewmodel";
+import { rosterLoadPhase } from "./cockpitsurfacemodel";
 import { EndedTranscript } from "./endedtranscript";
 import { DivergenceBanner } from "./focusbanner";
 import { subjectDecision } from "./focussubject";
+import { rosterSeededAtom } from "./liveagents";
 import { terminalFullscreenAtom } from "./railstore";
 import { isEndedWorkerId } from "./runlineage";
 import { SubagentInterior } from "./subagentinterior";
@@ -41,6 +44,7 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
     const fullscreen = useAtomValue(terminalFullscreenAtom);
     const focusSub = useAtomValue(focusSubagentAtom);
     const ended = useAtomValue(model.endedWorkerAtom);
+    const seeded = useAtomValue(rosterSeededAtom);
     const wrapRef = useRef<HTMLDivElement>(null);
     // Focusable set = agents + background terminals. handoff (dc.html:1790): focusAgent = …find(fid) ||
     // list[0] — the Focus surface always shows something, defaulting to the first agent in order (never
@@ -93,7 +97,11 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
     };
 
     if (!agent) {
-        return <AgentLaunchHero model={model} />;
+        return rosterLoadPhase(seeded, agents.length) === "loading" ? (
+            <AgentSurfaceSkeleton />
+        ) : (
+            <AgentLaunchHero model={model} />
+        );
     }
 
     return (
@@ -129,5 +137,23 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
                 {!fullscreen && agent.kind !== "terminal" ? <AgentDetailsRail model={model} agent={agent} /> : null}
             </div>
         </MotionConfig>
+    );
+}
+
+// the tree column and the terminal pane, so the first agent lands where the skeleton was
+function AgentSurfaceSkeleton() {
+    return (
+        <div aria-hidden="true" className="flex h-full w-full bg-background">
+            <div className="flex w-[248px] shrink-0 flex-col gap-3 border-r border-border bg-surface px-4 pt-4">
+                <SkeletonLine className="h-[12px] w-[90px]" />
+                {[0, 1, 2, 3].map((i) => (
+                    <SkeletonLine key={i} className="h-[30px] w-full rounded-[8px]" />
+                ))}
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col gap-3 p-5">
+                <SkeletonLine className="h-[18px] w-[220px]" />
+                <Skeleton className="min-h-0 flex-1 rounded-[10px]" />
+            </div>
+        </div>
     );
 }

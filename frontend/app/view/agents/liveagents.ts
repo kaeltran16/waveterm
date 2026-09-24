@@ -6,7 +6,9 @@
 // running sessions) + per-block agent status. previous-info + task are fetched on demand for
 // asking agents only (spec §10.3). ask routing via getAgentAskAtom + withAsk (Plan 3c).
 
+import { atoms } from "@/app/store/global-atoms";
 import { globalStore } from "@/app/store/jotaiStore";
+import * as WOS from "@/app/store/wos";
 import {
     getAgentStatusAtom,
     getAgentUsageAtom,
@@ -20,7 +22,7 @@ import { getAgentAskAtom } from "./agentaskstore";
 import { fetchPreviousInfo } from "./previousinfo";
 import { registeredProjectFor } from "./projectlabel";
 import { projectsAtom } from "./projectsstore";
-import { isRosterSeeded, latchWhenTrue } from "./rosterseed";
+import { isLayoutLoaded, isRosterSeeded, latchWhenTrue } from "./rosterseed";
 
 interface PreviousInfoEntry {
     entries: AgentEntry[];
@@ -84,8 +86,23 @@ export const liveTerminalsAtom: Atom<AgentVM[]> = atom((get) => {
     return deriveTerminalVMs(flattenVisualOrder(vm), (oref) => !!get(getAgentStatusAtom(oref))?.state);
 });
 
-// Every terminal in the sidebar has either a status or a settled retained read.
+// The workspace, its tabs, and their blocks have loaded, and every terminal in the sidebar has either a status
+// or a settled retained read.
 const rosterSeedCheckAtom: Atom<boolean> = atom((get) => {
+    const ws = get(atoms.workspace);
+    const tabs =
+        ws == null
+            ? null
+            : (ws.tabids ?? []).map((tabId) => {
+                  const oref = WOS.makeORef("tab", tabId);
+                  return {
+                      loading: get(WOS.getWaveObjectLoadingAtom(oref)),
+                      blockIds: get(WOS.getWaveObjectAtom<Tab>(oref))?.blockids ?? [],
+                  };
+              });
+    if (!isLayoutLoaded(tabs, (blockId) => get(WOS.getWaveObjectLoadingAtom(WOS.makeORef("block", blockId))))) {
+        return false;
+    }
     const orefs = flattenVisualOrder(get(sessionSidebarViewModelAtom))
         .map((row) => row.termBlockOref)
         .filter((oref): oref is string => !!oref);
