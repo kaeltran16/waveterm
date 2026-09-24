@@ -56,7 +56,8 @@ import { ProjectChips } from "./projectchips";
 
 const FOOTER_BTN = "h-8 cursor-pointer rounded-[7px] px-3.5 text-[12.5px] font-semibold disabled:cursor-default";
 const SEGMENTS = "flex w-fit rounded-[7px] border border-edge-mid p-0.5";
-const SEGMENT = "cursor-pointer rounded-[5px] font-semibold disabled:cursor-default disabled:opacity-40";
+const SEGMENT =
+    "cursor-pointer whitespace-nowrap rounded-[5px] font-semibold disabled:cursor-default disabled:opacity-40";
 const segmentTone = (on: boolean) => (on ? "bg-accentbg text-accent-soft" : "text-ink-mid hover:text-secondary");
 const SHAPES = [
     ["quick", "Quick"],
@@ -99,7 +100,7 @@ function DefaultRow({
     children: ReactNode;
 }) {
     return (
-        <div className="grid grid-cols-[172px_minmax(0,1fr)_140px] items-center gap-x-3.5 px-3.5 py-[11px]">
+        <div className="grid grid-cols-[156px_minmax(0,1fr)_140px] items-center gap-x-3.5 px-3.5 py-[11px]">
             <div className="flex flex-col gap-0.5">
                 <span className="text-[13px] font-medium text-ink-hi">{label}</span>
                 <span className="text-[11.5px] leading-[1.35] text-muted">{hint}</span>

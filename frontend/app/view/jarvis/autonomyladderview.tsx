@@ -22,7 +22,16 @@ import type { JarvisTier } from "@/app/view/agents/channelmessages";
 import { setChannelTier } from "@/app/view/agents/channelsstore";
 import { projectsAtom } from "@/app/view/agents/projectsstore";
 import { cn, fireAndForget } from "@/util/util";
-import { autoUpdate, offset, useClick, useDismiss, useFloating, useInteractions } from "@floating-ui/react";
+import {
+    autoUpdate,
+    flip,
+    offset,
+    shift,
+    useClick,
+    useDismiss,
+    useFloating,
+    useInteractions,
+} from "@floating-ui/react";
 import { useAtom, useAtomValue } from "jotai";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -76,11 +85,14 @@ export function AutonomyLadder({ channels }: { channels: Channel[] | null }) {
     const face = chipParts(tier, mode);
     // bottom-end + useDismiss is the cockpit's popover pattern (settingssurface TermThemeDropdown): both
     // Escape and an outside click close it, where a hand-rolled backdrop only ever closed on click.
+    // fixed, like RoutePicker beside it: the Profile modal's scroll body is an overflow container that
+    // clipped an absolute panel to the row it opened from.
     const { refs, floatingStyles, context } = useFloating({
         open,
         onOpenChange: setOpen,
         placement: "bottom-end",
-        middleware: [offset(6)],
+        strategy: "fixed",
+        middleware: [offset(6), flip({ padding: 8 }), shift({ padding: 8 })],
         whileElementsMounted: autoUpdate,
     });
     const { getReferenceProps, getFloatingProps } = useInteractions([useClick(context), useDismiss(context)]);
