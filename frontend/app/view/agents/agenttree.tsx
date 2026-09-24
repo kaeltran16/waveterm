@@ -142,7 +142,8 @@ function RunSubline({ run, open, live, leadless }: { run: RunInfo; open: boolean
     if (run.dag.status === "done") {
         progress = "run complete";
     } else if (leadless) {
-        progress = `${done}/${total} · ${run.leadStarted ? "lead closed" : "lead not started"}`;
+        // a plan-path run gets its lead only at its first judgment event, so no lead yet is the normal case
+        progress = `${done}/${total} · ${run.leadStarted ? "lead closed" : "lead starts if needed"}`;
     }
     return (
         <div className="mt-[2px] flex min-w-0 items-center gap-[6px]">
@@ -327,7 +328,6 @@ function RunRow({ run, open, live }: { run: RunInfo; open: boolean; live: number
                 </div>
                 <RunSubline run={run} open={open} live={live} leadless />
             </div>
-            <span className="whitespace-nowrap font-mono text-[10px] font-medium text-muted">no lead</span>
         </div>
     );
 }
