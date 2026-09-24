@@ -368,3 +368,53 @@ func TestCleanupTaskWorktreeReapsTheLanesWorkersFirst(t *testing.T) {
 		t.Fatalf("cleanup of lane tip t-2 did %v, want %v", order, want)
 	}
 }
+
+// A reviewer runs in the lane tree and stays at its prompt after its verdict, holding the tree as its cwd; the
+// run's ReviewRunID is cleared by then, so only the tree path finds it (run 28caa81f lost five trees this way).
+func TestCleanupTaskWorktreeReapsEveryRunInTheTree(t *testing.T) {
+	ctx := context.Background()
+	projectDir := newGitRepo(t)
+	ch, err := wstore.CreateChannel(ctx, "cleanup-reap-tree", projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, err := NewTaskGroup("run-1", ch.OID, "reap tree group", 2, false, []waveobj.TaskNode{
+		{ID: "t-1", Label: "one"},
+		{ID: "t-2", Label: "two"},
+	}, time.Now().UnixMilli(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.Tasks[0].RunID, g.Tasks[0].State, g.Tasks[0].Merged = "worker-t-1", TaskState_Done, true
+	g.Tasks[0].CleanupPending = true
+	tree := worktreeDir(projectDir, LaneWorktreeKey(&g, "t-1"))
+	otherTree := worktreeDir(projectDir, LaneWorktreeKey(&g, "t-2"))
+	for _, r := range []waveobj.Run{
+		{ID: "worker-t-1", DagORef: g.OID, ProjectPath: tree},
+		{ID: "reviewer-t-1", DagORef: g.OID, ProjectPath: tree},
+		{ID: "reviewer-t-2", DagORef: g.OID, ProjectPath: otherTree},
+		{ID: "other-dag", DagORef: "some-other-dag", ProjectPath: tree},
+	} {
+		r.Phases = []waveobj.RunPhase{{WorkerOrefs: []string{"tab:" + r.ID}}}
+		if err := wstore.AppendRun(ctx, ch.OID, r); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var stopped []string
+	oldStop := stopRunWorkers
+	stopRunWorkers = func(_ context.Context, run *waveobj.Run) error {
+		stopped = append(stopped, run.ID)
+		return nil
+	}
+	t.Cleanup(func() { stopRunWorkers = oldStop })
+	stubCleanupRemover(t, func(context.Context, string, string) error { return nil })
+
+	if err := CleanupTaskWorktree(ctx, &g, "t-1"); err != nil {
+		t.Fatalf("cleanup: %v", err)
+	}
+	slices.Sort(stopped)
+	if want := []string{"reviewer-t-1", "worker-t-1"}; !slices.Equal(stopped, want) {
+		t.Fatalf("cleanup of t-1 stopped %v, want %v (never another tree's reviewer or another dag's run)", stopped, want)
+	}
+}
