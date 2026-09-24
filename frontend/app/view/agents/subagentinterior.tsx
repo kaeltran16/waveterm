@@ -14,6 +14,7 @@ import { liveEntriesByIdAtom, startTranscriptStream, stopTranscriptStream } from
 import { NarrationTimeline } from "./narrationtimeline";
 import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
 import { focusSubagentAtom, type FocusSubagent } from "./subagentsstore";
+import { TranscriptSkeleton } from "./transcriptskeleton";
 
 export function SubagentInterior({ sub, parentName }: { sub: FocusSubagent; parentName: string }) {
     const streamId = `sub:${sub.agentId}`;
@@ -47,9 +48,7 @@ export function SubagentInterior({ sub, parentName }: { sub: FocusSubagent; pare
                     {entries.length > 0 ? (
                         <NarrationTimeline entries={entries} accentLatest active />
                     ) : (
-                        <div className="flex h-full items-center justify-center text-[12px] text-muted">
-                            Loading subagent transcript…
-                        </div>
+                        <TranscriptSkeleton />
                     )}
                 </div>
                 {!atBottom ? <JumpToLatestPill onClick={jumpToBottom} /> : null}

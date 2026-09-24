@@ -42,6 +42,7 @@ import { filterSessionsByFocus, focusBannerText } from "./focusscope";
 import { activeFocusAtom, focusRevealAtom, focusScopeAtom } from "./focusstore";
 import { SurfaceEmptyState, SurfaceError, SurfaceHeader } from "./surfacescaffold";
 import { projectorFor } from "./transcriptregistry";
+import { TranscriptSkeleton } from "./transcriptskeleton";
 
 const EVENT_COLOR: Record<string, string> = {
     started: "var(--color-success)",
@@ -451,7 +452,7 @@ function SessionDetail({ model, session, now }: { model: AgentsViewModel; sessio
             </div>
 
             {entries == null ? (
-                <div className="text-[13px] text-muted">Loading transcript…</div>
+                <TranscriptSkeleton />
             ) : entries.length === 0 ? (
                 <div className="text-[13px] text-muted">No activity to show.</div>
             ) : (

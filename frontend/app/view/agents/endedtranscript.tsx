@@ -18,6 +18,7 @@ import { leadAgentOf } from "./runlineage";
 import { loadRunTranscriptPath, runTranscriptPathsAtom } from "./runlineagestore";
 import { endedLine } from "./runrail";
 import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
+import { TranscriptSkeleton } from "./transcriptskeleton";
 
 export function EndedTranscript({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
     const lineage = useAtomValue(model.lineageAtom);
@@ -80,10 +81,12 @@ export function EndedTranscript({ model, agent }: { model: AgentsViewModel; agen
                 >
                     {entries.length > 0 ? (
                         <NarrationTimeline entries={entries} active={false} />
-                    ) : (
+                    ) : missing ? (
                         <div className="flex h-full items-center justify-center text-[12px] text-muted">
-                            {missing ? "No transcript found for this session." : "Loading transcript…"}
+                            No transcript found for this session.
                         </div>
+                    ) : (
+                        <TranscriptSkeleton />
                     )}
                 </div>
                 {!atBottom ? <JumpToLatestPill onClick={jumpToBottom} /> : null}
