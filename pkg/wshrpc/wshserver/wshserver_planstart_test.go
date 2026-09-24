@@ -77,6 +77,29 @@ func TestCreateRunFromPlanPath(t *testing.T) {
 		}
 	})
 
+	t.Run("a relative plan path is read from the channel's project and kept absolute", func(t *testing.T) {
+		ch := newChannel(t)
+		planPath := filepath.Join(ch.ProjectPath, "docs", "plan.md")
+		if err := os.MkdirAll(filepath.Dir(planPath), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(planPath, []byte(plan), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		rtn, err := start(ch, wshrpc.CommandCreateRunData{Mode: jarvis.RunMode_Orchestrator, PlanPath: "docs/plan.md"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		g, err := wstore.GetDag(ctx, rtn.Run.DagORef)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// workers and the landing fold read this from their own cwd, so the dag must not keep it relative
+		if g.PlanPath != planPath {
+			t.Fatalf("dag planpath = %q, want %q", g.PlanPath, planPath)
+		}
+	})
+
 	t.Run("a goal given with the plan names the run", func(t *testing.T) {
 		ch := newChannel(t)
 		rtn, err := start(ch, wshrpc.CommandCreateRunData{Mode: jarvis.RunMode_Orchestrator, Goal: "coupons, first cut", PlanPath: writePlan(t, plan)})
@@ -96,7 +119,7 @@ func TestCreateRunFromPlanPath(t *testing.T) {
 			errPart string
 		}{
 			{"unparseable plan", wshrpc.CommandCreateRunData{Mode: jarvis.RunMode_Orchestrator, PlanPath: writePlan(t, "just prose\n")}, "no tasks"},
-			{"relative path", wshrpc.CommandCreateRunData{Mode: jarvis.RunMode_Orchestrator, PlanPath: "plan.md"}, "absolute"},
+			{"relative path missing from the project", wshrpc.CommandCreateRunData{Mode: jarvis.RunMode_Orchestrator, PlanPath: "missing.md"}, "missing.md"},
 			{"quick shape", wshrpc.CommandCreateRunData{Mode: jarvis.RunMode_Quick, PlanPath: writePlan(t, plan)}, "orchestrator"},
 		}
 		for _, c := range cases {

@@ -39,7 +39,8 @@ type CommandDagSubmitData struct {
 }
 
 type CommandDagPlanPreviewData struct {
-	PlanPath string `json:"planpath"` // absolute path to a plan in jarvis.PlanFormat
+	PlanPath    string `json:"planpath"`              // path to a plan in jarvis.PlanFormat; absolute, or relative to projectpath
+	ProjectPath string `json:"projectpath,omitempty"` // the project the run will start in
 }
 
 // CommandDagPlanPreviewRtnData is what + Run shows before it starts a plan: its name, its two plan-level

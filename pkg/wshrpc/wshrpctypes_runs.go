@@ -38,8 +38,9 @@ type CommandCreateRunData struct {
 	// DeferStart persists the run in planning without spawning phase workers; the caller (the
 	// draft-first composer) submits the TaskGroup explicitly and DagSubmit transitions it to executing.
 	DeferStart bool `json:"deferstart,omitempty"`
-	// PlanPath starts an orchestrator run from an absolute plan path in jarvis.PlanFormat: the engine
-	// submits it at start and no lead runs until something needs judgment. Goal defaults to the plan's name.
+	// PlanPath starts an orchestrator run from a plan in jarvis.PlanFormat, absolute or relative to the
+	// channel's project: the engine submits it at start and no lead runs until something needs judgment.
+	// Goal defaults to the plan's name.
 	PlanPath string `json:"planpath,omitempty"`
 }
 

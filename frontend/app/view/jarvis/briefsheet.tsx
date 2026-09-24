@@ -444,7 +444,7 @@ export function BriefSheet({ model }: { model: AgentsViewModel }) {
                             ) : (
                                 <div className="flex min-h-0 flex-1 flex-col bg-background">
                                     <LauncherReading />
-                                    <RunLauncher />
+                                    <RunLauncher projectPath={channel.projectpath ?? ""} />
                                     <ChannelLaunch channel={channel} />
                                 </div>
                             )

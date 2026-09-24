@@ -227,7 +227,7 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
                                 onKeyDown={onSearchKey}
                             />
                         </div>
-                        <RunLauncherSections />
+                        <RunLauncherSections projectPath={picked != null ? (projects?.[picked]?.path ?? "") : ""} />
                         {planStart ? null : (
                             <div className="flex flex-col gap-1">
                                 <span className={FIELD_LABEL}>Goal</span>

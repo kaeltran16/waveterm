@@ -297,6 +297,11 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 		if data.Mode != jarvis.RunMode_Orchestrator {
 			return nil, fmt.Errorf("planpath needs an orchestrator run: only the engine runs a plan")
 		}
+		ch, err := wstore.DBMustGet[*waveobj.Channel](ctx, data.ChannelId)
+		if err != nil {
+			return nil, fmt.Errorf("loading channel: %w", err)
+		}
+		data.PlanPath = resolvePlanPath(ch.ProjectPath, data.PlanPath)
 		plan, err := readPlanFile(data.PlanPath)
 		if err != nil {
 			return nil, err

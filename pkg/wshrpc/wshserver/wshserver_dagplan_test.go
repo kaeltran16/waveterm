@@ -217,13 +217,24 @@ func TestDagPlanPreview(t *testing.T) {
 		}
 	})
 
+	t.Run("a relative path is read from the project", func(t *testing.T) {
+		plan := write(t, "coupons.md", "### Task 1: input\n")
+		got, err := (&WshServer{}).DagPlanPreviewCommand(ctx, wshrpc.CommandDagPlanPreviewData{PlanPath: "coupons.md", ProjectPath: filepath.Dir(plan)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Title != "coupons" || got.Shape.Tasks != 1 {
+			t.Fatalf("preview = %+v", *got)
+		}
+	})
+
 	t.Run("a plan that will not run is refused with the parser's message", func(t *testing.T) {
 		cases := []struct {
 			name    string
 			path    string
 			errPart string
 		}{
-			{"relative path", "plan.md", "absolute"},
+			{"relative path with no project", "plan.md", "absolute"},
 			{"missing file", filepath.Join(t.TempDir(), "missing.md"), "missing.md"},
 			{"no tasks", write(t, "prose.md", "just prose\n"), "no tasks"},
 		}

@@ -96,7 +96,7 @@ const START_LABEL: Record<StartFrom, string> = { goal: "A goal", plan: "A plan f
 
 // Where an orchestrator starts. It sits under the shape because it decides whether a lead runs at all: a plan
 // file hands the engine work you already decomposed, and a lead appears only when something needs judgment.
-function StartSection() {
+function StartSection({ projectPath }: { projectPath: string }) {
     const start = useAtomValue(startAtom);
     return (
         <Section label="Start from">
@@ -117,7 +117,7 @@ function StartSection() {
                 ))}
             </div>
             <span className="text-[11px] leading-[1.45] text-muted">{startNote(start)}</span>
-            {start === "plan" ? <PlanPathField /> : null}
+            {start === "plan" ? <PlanPathField projectPath={projectPath} /> : null}
         </Section>
     );
 }
@@ -127,18 +127,19 @@ const PLAN_PREVIEW_DELAY_MS = 300;
 
 // The plan is parsed here, before anything is created (spec §1): a plan that will not run shows the parser's
 // message and holds the start, and one that will shows the shape the engine is about to run.
-function PlanPathField() {
+function PlanPathField({ projectPath }: { projectPath: string }) {
     const path = useAtomValue(planPathAtom);
     const preview = useAtomValue(planPreviewAtom);
     useEffect(() => {
         const trimmed = path.trim();
+        // cleared on every change, so a relative path's reading from the previous project is never shown
+        globalStore.set(planPreviewAtom, null);
         if (trimmed === "") {
-            globalStore.set(planPreviewAtom, null);
             return;
         }
         let live = true;
         const timer = setTimeout(() => {
-            RpcApi.DagPlanPreviewCommand(TabRpcClient, { planpath: trimmed })
+            RpcApi.DagPlanPreviewCommand(TabRpcClient, { planpath: trimmed, projectpath: projectPath })
                 .then((result) => {
                     if (live) {
                         globalStore.set(planPreviewAtom, { path: trimmed, result });
@@ -157,7 +158,7 @@ function PlanPathField() {
             live = false;
             clearTimeout(timer);
         };
-    }, [path]);
+    }, [path, projectPath]);
     const current = preview != null && preview.path === path.trim() ? preview : null;
     return (
         <div className="flex flex-col gap-1">
@@ -166,7 +167,7 @@ function PlanPathField() {
                 value={path}
                 aria-label="Plan file path"
                 onChange={(e) => setPlanPath(e.target.value)}
-                placeholder="Absolute path to the plan"
+                placeholder="Plan path, absolute or relative to the project"
                 className="w-full rounded-[7px] border border-edge-mid bg-background px-2.5 py-1.5 font-mono text-[11.5px] text-primary placeholder:text-muted outline-none focus:border-accent/60"
             />
             {current?.error != null ? (
@@ -274,13 +275,13 @@ function RoutingSection({ showWorkerRoute }: { showWorkerRoute: boolean }) {
 
 // The controls themselves, without the intro. The + Run modal names the project and the action in its own
 // header, so it renders these directly rather than printing a second heading over the same three sections.
-export function RunLauncherSections() {
+export function RunLauncherSections({ projectPath }: { projectPath: string }) {
     const shape = useAtomValue(runShapeAtom);
     const face = runLauncherFace(shape);
     return (
         <>
             <ShapeCards showParallelism={face.showParallelism} />
-            {face.showStart ? <StartSection /> : null}
+            {face.showStart ? <StartSection projectPath={projectPath} /> : null}
             <RoutingSection showWorkerRoute={face.showWorkerRoute} />
         </>
     );
@@ -289,7 +290,7 @@ export function RunLauncherSections() {
 // No Launch button of its own: the goal and its `Run ⏎` are in the composer immediately below, and a
 // second button here would have to reach across components to submit through that same face. The sheet's
 // reading above it already names the project, so this opens on the controls.
-export function RunLauncher() {
+export function RunLauncher({ projectPath }: { projectPath: string }) {
     return (
         <div className="sc min-h-0 flex-1 overflow-y-auto px-4 pb-2 pt-4">
             <div className="flex w-full flex-col gap-5">
@@ -301,7 +302,7 @@ export function RunLauncher() {
                         Set it up here, then give Jarvis the goal below and press Run ⏎.
                     </span>
                 </div>
-                <RunLauncherSections />
+                <RunLauncherSections projectPath={projectPath} />
             </div>
         </div>
     );

@@ -24,6 +24,16 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
+// resolvePlanPath roots a relative plan path at the project, the one directory someone typing it into + Run
+// can mean. It stays absolute from here on because workers, reviewers and the landing fold each read it from
+// their own cwd. With no project the path is returned as is, for readPlanFile to refuse.
+func resolvePlanPath(projectPath, path string) string {
+	if projectPath == "" || path == "" || filepath.IsAbs(path) {
+		return path
+	}
+	return filepath.Join(projectPath, path)
+}
+
 // readPlanFile reads and parses the plan at path. wavesrv does not share the caller's cwd, so only an
 // absolute path names the file the caller meant.
 func readPlanFile(path string) (jarvis.Plan, error) {
@@ -81,12 +91,13 @@ func loadDagPlan(data *wshrpc.CommandDagSubmitData) (jarvis.Plan, error) {
 // DagPlanPreviewCommand parses a plan for + Run before a run exists, so a plan that will not run is refused
 // before start and the human sees the shape the engine will run.
 func (ws *WshServer) DagPlanPreviewCommand(ctx context.Context, data wshrpc.CommandDagPlanPreviewData) (*wshrpc.CommandDagPlanPreviewRtnData, error) {
-	plan, err := readPlanFile(data.PlanPath)
+	path := resolvePlanPath(data.ProjectPath, data.PlanPath)
+	plan, err := readPlanFile(path)
 	if err != nil {
 		return nil, err
 	}
 	return &wshrpc.CommandDagPlanPreviewRtnData{
-		Title:  planTitle(plan, data.PlanPath),
+		Title:  planTitle(plan, path),
 		Verify: plan.Verify,
 		Setup:  plan.Setup,
 		Check:  plan.Check,

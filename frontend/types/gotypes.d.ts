@@ -702,6 +702,7 @@ declare global {
     // wshrpc.CommandDagPlanPreviewData
     type CommandDagPlanPreviewData = {
         planpath: string;
+        projectpath?: string;
     };
 
     // wshrpc.CommandDagPlanPreviewRtnData
