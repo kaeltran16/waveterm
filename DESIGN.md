@@ -437,13 +437,14 @@ UI changes get a validated high-fidelity HTML mockup before implementation — p
 first, always. The mockup is the design proposal; it must be seen and approved before
 code is written.
 
-- Build it with the `design-local` Claude Code skill: a `.dc.html` canvas under
-  `docs/prototype/<topic>/`. This file is its design system — every rule above applies to
-  the mockup as it will to the code.
+- Build it with the `design-local` Claude Code skill: a `.dc.html` canvas under the gitignored
+  `.superpowers/design/<topic>/`, served on `:8766`. This file is its design system — every rule
+  above applies to the mockup as it will to the code.
 - Token values come from `frontend/tailwindsetup.css` `@theme`, never from memory or an
   older canvas.
-- Serve with `python -m http.server 8766` from `docs/prototype/` and open
-  `http://localhost:8766/<topic>/project/Main.dc.html`.
+- A mockup is scaffolding, never committed: once its feature ships the code is the design, so
+  delete the topic folder. The canvases already under `docs/prototype/` predate this rule and
+  stay only because code comments and specs cite them.
 
 ## Architecture & Patterns
 
