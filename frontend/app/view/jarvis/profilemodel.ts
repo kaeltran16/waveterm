@@ -209,6 +209,85 @@ export function globalProfileIsDirty(a: JarvisProfile, b: JarvisProfile): boolea
     return JSON.stringify(a) !== JSON.stringify(b);
 }
 
+// the run defaults a project can set for itself, in the order the modal lists them
+const OVERRIDE_FIELDS = ["defaultmode", "parallelism", "route", "workerroute"] as const;
+export type GlobalDefaultKey = "defaultmode" | "parallelism" | "workerroute";
+
+// the project-scope Run defaults meta: how many rows this project sets instead of inheriting
+export function overrideSummary(o: ProfileOverride): string {
+    const n = OVERRIDE_FIELDS.filter((k) => o[k] != null).length;
+    return n === 0 ? "All from global" : `${n} set for this project`;
+}
+
+// the project-scope Principles meta, counted off the same rows the editor draws
+export function principleSummary(rows: PrincipleRow[]): string {
+    const count = (kind: PrincipleRowKind) => rows.filter((r) => r.kind === kind).length;
+    const fromGlobal = `${count("inherited") + count("modified") + count("disabled")} from global`;
+    const changes = (
+        [
+            [count("modified"), "customized"],
+            [count("project"), "added"],
+            [count("disabled"), "disabled"],
+        ] as const
+    )
+        .filter(([n]) => n > 0)
+        .map(([n, label]) => `${n} ${label}`);
+    return changes.length === 0 ? `${fromGlobal}, no changes here` : [fromGlobal, ...changes].join(" · ");
+}
+
+// one project's stored override, under the name the modal's project chips give it
+export type ProjectOverride = { name: string; override: ProfileOverride };
+export type Reach = { main: string; sub?: string };
+
+// how far a global default reaches: every project that sets no value of its own inherits it. null with no
+// projects, where there is nobody to reach.
+export function defaultReach(projects: ProjectOverride[], key: GlobalDefaultKey): Reach | null {
+    const total = projects.length;
+    if (total === 0) {
+        return null;
+    }
+    const own = projects.filter((p) => p.override[key] != null).map((p) => p.name);
+    if (own.length === 0) {
+        return { main: total === 1 ? "1 project" : `All ${total} projects` };
+    }
+    const sub = own.length === 1 ? `${own[0]} sets its own` : `${own.length} set their own`;
+    if (own.length === total) {
+        return { main: "No projects", sub };
+    }
+    return { main: `${total - own.length} of ${total} projects`, sub };
+}
+
+function nameList(names: string[]): string {
+    return names.length <= 2 ? names.join(" and ") : `${names.length} projects`;
+}
+
+// the line under a global principle naming the projects an edit to it will not reach. A disable wins over a
+// replacement, as it does in principleRows. `edited` turns it into a warning while the draft differs.
+export function principleNote(
+    projects: ProjectOverride[],
+    id: string,
+    edited: boolean
+): { text: string; warn: boolean } | null {
+    const disabled = projects.filter((p) => p.override.principles?.disabled?.includes(id)).map((p) => p.name);
+    const reworded = projects
+        .filter((p) => p.override.principles?.replacements?.[id] != null && !disabled.includes(p.name))
+        .map((p) => p.name);
+    if (disabled.length === 0 && reworded.length === 0) {
+        return null;
+    }
+    if (edited) {
+        return { text: `This edit won't reach ${nameList([...reworded, ...disabled])}`, warn: true };
+    }
+    const parts: string[] = [];
+    if (reworded.length > 0) {
+        parts.push(`${nameList(reworded)} ${reworded.length === 1 ? "uses its" : "use their"} own wording`);
+    }
+    if (disabled.length > 0) {
+        parts.push(`Disabled in ${nameList(disabled)}`);
+    }
+    return { text: parts.join(" · "), warn: false };
+}
+
 // The kinds a playbook phase can be authored as. Deliberately not Go's full PhaseKind set: the profile
 // playbook only ever composes a pipeline run — resolveRunPlan builds quick and orchestrator runs from their
 // own fixed playbooks — so an "orchestrate" phase authored here would never be dispatched.

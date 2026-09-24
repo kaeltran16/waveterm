@@ -37,76 +37,129 @@ import { useEffect, useState, type ReactNode } from "react";
 import { AutonomyLadder } from "./autonomyladderview";
 import { briefUndo } from "./briefundo";
 import { GlobalPrinciplesEditor } from "./globalprincipleseditor";
-import { PrinciplesEditor } from "./principleseditor";
-import { globalProfileIsDirty, isDirty, profileOverrideIsEmpty, resetActionState } from "./profilemodel";
+import { PrinciplesEditor, PROFILE_PANEL } from "./principleseditor";
+import {
+    defaultReach,
+    globalProfileIsDirty,
+    isDirty,
+    overrideSummary,
+    principleNote,
+    principleRows,
+    principleSummary,
+    profileOverrideIsEmpty,
+    resetActionState,
+    type GlobalDefaultKey,
+    type ProjectOverride,
+    type Reach,
+} from "./profilemodel";
 import { ProjectChips } from "./projectchips";
 
-const LABEL = "font-mono text-[10.5px] font-bold uppercase tracking-[.09em] text-ink-mid";
-const BADGE = "rounded-[4px] px-1.5 py-px font-mono text-[10px] font-semibold uppercase tracking-[.08em]";
-const FOOTER_BTN = "cursor-pointer rounded-[7px] px-3.5 py-1.5 text-[11.5px] font-semibold disabled:cursor-default";
-const SHAPES = ["quick", "orchestrator"] as const;
+const FOOTER_BTN = "h-8 cursor-pointer rounded-[7px] px-3.5 text-[12.5px] font-semibold disabled:cursor-default";
+const SEGMENTS = "flex w-fit rounded-[7px] border border-edge-mid p-0.5";
+const SEGMENT = "cursor-pointer rounded-[5px] font-semibold disabled:cursor-default disabled:opacity-40";
+const segmentTone = (on: boolean) => (on ? "bg-accentbg text-accent-soft" : "text-ink-mid hover:text-secondary");
+const SHAPES = [
+    ["quick", "Quick"],
+    ["orchestrator", "Orchestrator"],
+] as const;
 
 type Scope = "project" | "global";
 type Loaded = { global: JarvisProfile; override: ProfileOverride; diagnostics: PrincipleDiagnostic[] };
 // the fields both scopes share. ProfileOverride and JarvisProfile agree on all of them; `route` is the one
 // that does not exist globally, which is why the lead-route row is passed in rather than rendered here.
-type Defaults = Pick<ProfileOverride, "defaultmode" | "parallelism" | "workerroute">;
+type Defaults = Pick<ProfileOverride, GlobalDefaultKey>;
 
-// one row of the run-defaults grid (design L914-925): the label cell, then the control with where its value
-// comes from and the way back to inheriting. disabled is the whole modal's save flag, so a reset cannot
-// mutate the draft mid-write. The row's longer explanation rides on the label as a tooltip.
+// the chips name projects, the modal edits channels: map one to the other, keeping a colliding label
+// distinct so both channels stay reachable
+function channelOptionsOf(channels: Channel[] | null, projects: Record<string, ProjectKeywords>): Map<string, string> {
+    const options = new Map<string, string>();
+    for (const c of dedupeByProject(channels ?? [])) {
+        const label = channelProjectLabel(c, projects) || c.oid.slice(0, 8);
+        options.set(options.has(label) ? `${label} (${c.oid.slice(0, 8)})` : label, c.oid);
+    }
+    return options;
+}
+
+// one row of the run-defaults panel: the label with its explanation, the control, and a right-hand cell
+// that says where the value comes from (project scope) or how far it reaches (global scope)
 function DefaultRow({
     label,
     hint,
-    inheritable,
-    inherited,
-    clearable = false,
-    disabled,
-    onReset,
+    aside,
     children,
 }: {
     label: string;
     hint: string;
-    // false in global scope: there is nothing above the global profile to inherit from, so a badge naming a
-    // source and a reset that drops back to it would both describe something that does not exist.
-    inheritable: boolean;
-    inherited: boolean;
-    // global scope only: a set value can still be dropped back to "unset" (parallelism: the lead chooses)
-    clearable?: boolean;
-    disabled: boolean;
-    onReset: () => void;
+    aside: ReactNode;
     children: ReactNode;
 }) {
-    const reset = resetActionState(inherited, disabled);
     return (
-        <>
-            <span title={hint} className="text-[12px] text-secondary">
-                {label}
-            </span>
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
-                {children}
-                {inheritable ? (
-                    <span
-                        className={cn(
-                            BADGE,
-                            inherited ? "border border-edge-mid text-ink-mid" : "bg-accent/8 text-accent-soft"
-                        )}
-                    >
-                        {inherited ? "global" : "project"}
-                    </span>
-                ) : null}
-                {(inheritable || clearable) && reset.show ? (
-                    <button
-                        type="button"
-                        onClick={onReset}
-                        disabled={reset.disabled}
-                        className="cursor-pointer font-mono text-[10px] text-ink-mid hover:text-secondary disabled:cursor-default disabled:opacity-40"
-                    >
-                        reset
-                    </button>
-                ) : null}
+        <div className="grid grid-cols-[172px_minmax(0,1fr)_140px] items-center gap-x-3.5 px-3.5 py-[11px]">
+            <div className="flex flex-col gap-0.5">
+                <span className="text-[13px] font-medium text-ink-hi">{label}</span>
+                <span className="text-[11.5px] leading-[1.35] text-muted">{hint}</span>
             </div>
-        </>
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5">{children}</div>
+            {aside}
+        </div>
+    );
+}
+
+// project scope: inheriting reads as a hollow "Global" dot, a project value as a filled one with the way back.
+// The reset is inert for the whole save, since a reset mutates the draft the in-flight write carries.
+function SourceCell({
+    label,
+    inherited,
+    saving,
+    onReset,
+}: {
+    label: string;
+    inherited: boolean;
+    saving: boolean;
+    onReset: () => void;
+}) {
+    const reset = resetActionState(inherited, saving);
+    return (
+        <div className="flex items-center justify-end gap-2.5 text-[11.5px]">
+            {inherited ? (
+                <span className="flex items-center gap-1.5 text-muted">
+                    <span className="h-1.5 w-1.5 rounded-full border border-ink-faint" />
+                    Global
+                </span>
+            ) : (
+                <span className="flex items-center gap-1.5 text-accent-soft">
+                    <span className="h-1.5 w-1.5 rounded-full bg-accent" />
+                    Project
+                </span>
+            )}
+            {reset.show ? (
+                <button
+                    type="button"
+                    aria-label={`Reset ${label.toLowerCase()} to global`}
+                    onClick={onReset}
+                    disabled={reset.disabled}
+                    className="h-[22px] cursor-pointer rounded-[5px] border border-edge-mid px-2 text-ink-mid hover:border-edge-strong hover:text-secondary disabled:cursor-default disabled:opacity-40"
+                >
+                    Reset
+                </button>
+            ) : null}
+        </div>
+    );
+}
+
+function ReachCell({ reach }: { reach: Reach | null }) {
+    if (reach == null) {
+        return <div />;
+    }
+    return (
+        <div className="flex min-w-0 flex-col items-end gap-px text-right">
+            <span className="text-[11.5px] text-ink-mid">{reach.main}</span>
+            {reach.sub != null ? (
+                <span title={reach.sub} className="max-w-full truncate text-[11px] text-muted">
+                    {reach.sub}
+                </span>
+            ) : null}
+        </div>
     );
 }
 
@@ -119,6 +172,7 @@ function DefaultsFields({
     saving,
     set,
     drop,
+    aside,
     routeRow,
     autonomyRow,
 }: {
@@ -127,23 +181,24 @@ function DefaultsFields({
     base: JarvisProfile;
     saving: boolean;
     set: (patch: Defaults) => void;
-    drop: (key: keyof Defaults) => void;
+    drop: (key: GlobalDefaultKey) => void;
+    aside: (key: GlobalDefaultKey, label: string) => ReactNode;
     routeRow?: ReactNode;
     autonomyRow?: ReactNode;
 }) {
-    const row = (key: keyof Defaults) => ({
-        inheritable,
-        inherited: inheritable && draft[key] == null,
-        disabled: saving,
-        onReset: () => drop(key),
-    });
     const shape = draft.defaultmode ?? base.defaultmode ?? "quick";
     const width = draft.parallelism ?? base.parallelism ?? null;
+    // a project that inherits the worker route inherits whatever global says, which is the lead unless set
+    const workerInherits = inheritable && base.workerroute != null ? "Same as global" : "Same as lead";
     return (
-        <div className="grid grid-cols-[110px_minmax(0,1fr)] items-center gap-2.5">
-            <DefaultRow {...row("defaultmode")} label="Default shape" hint="How a new run in this project is composed.">
-                <div className="flex gap-1.5">
-                    {SHAPES.map((name) => (
+        <div className={PROFILE_PANEL}>
+            <DefaultRow
+                label="Default shape"
+                hint="How new runs are composed"
+                aside={aside("defaultmode", "Default shape")}
+            >
+                <div role="group" aria-label="Default shape" className={cn(SEGMENTS, "bg-surface-raised")}>
+                    {SHAPES.map(([name, label]) => (
                         <button
                             key={name}
                             type="button"
@@ -151,49 +206,68 @@ function DefaultsFields({
                             disabled={saving}
                             onClick={() => set({ defaultmode: name })}
                             className={cn(
-                                "cursor-pointer rounded-[6px] border px-2.5 py-1 font-mono text-[10.5px] disabled:cursor-default",
-                                shape === name
-                                    ? "border-accent/40 bg-accentbg text-accent-soft"
-                                    : "border-edge-mid text-ink-mid hover:border-edge-strong"
+                                SEGMENT,
+                                "h-6 px-[11px] text-[12.5px] font-medium",
+                                segmentTone(shape === name)
                             )}
                         >
-                            {name}
+                            {label}
                         </button>
                     ))}
                 </div>
             </DefaultRow>
             <DefaultRow
-                {...row("parallelism")}
-                clearable={!inheritable && draft.parallelism != null}
                 label="Parallel workers"
-                hint="Engine children in flight at once. Unset (–) lets the lead choose."
+                hint="Auto lets the lead choose"
+                aside={aside("parallelism", "Parallel workers")}
             >
-                <div className="flex items-center gap-1.5">
-                    <WorkerStepper
-                        value={width}
+                <WorkerStepper
+                    value={width}
+                    unsetLabel="auto"
+                    disabled={saving}
+                    // an unset width starts from the launcher's own default rather than one step off it
+                    onStep={(delta) =>
+                        set({ parallelism: width == null ? DEFAULT_PARALLELISM : clampParallelism(width + delta) })
+                    }
+                />
+                {/* only in global scope: nothing sits above it to reset to, but a set width can go back to unset */}
+                {!inheritable && draft.parallelism != null ? (
+                    <button
+                        type="button"
                         disabled={saving}
-                        // an unset width starts from the launcher's own default rather than one step off it
-                        onStep={(delta) =>
-                            set({ parallelism: width == null ? DEFAULT_PARALLELISM : clampParallelism(width + delta) })
-                        }
-                    />
-                </div>
+                        onClick={() => drop("parallelism")}
+                        className="ml-1.5 h-[22px] cursor-pointer rounded-[5px] px-[7px] text-[12px] text-ink-mid underline decoration-edge-strong underline-offset-[3px] hover:text-secondary disabled:cursor-default disabled:opacity-40"
+                    >
+                        Back to auto
+                    </button>
+                ) : null}
             </DefaultRow>
             {routeRow}
             <DefaultRow
-                {...row("workerroute")}
                 label="Worker route"
-                hint="The route engine children launch on. Unset inherits the lead."
+                hint="Where engine workers run"
+                aside={aside("workerroute", "Worker route")}
             >
                 <RoutePicker
                     value={draft.workerroute ?? null}
                     canInherit
-                    inheritedLabel="Inherit the lead"
+                    inheritedLabel={workerInherits}
                     disabled={saving}
                     onChange={(route) => (route == null ? drop("workerroute") : set({ workerroute: route }))}
                 />
             </DefaultRow>
             {autonomyRow}
+        </div>
+    );
+}
+
+function SectionHeader({ title, meta, metaTitle }: { title: string; meta: string; metaTitle?: string }) {
+    return (
+        <div className="flex items-baseline gap-2">
+            <h2 className="m-0 text-[13px] font-semibold text-primary">{title}</h2>
+            <span title={metaTitle} className="text-[12px] text-muted">
+                {meta}
+            </span>
         </div>
     );
 }
@@ -207,6 +281,9 @@ export function BriefProfileModal({ open, onClose }: { open: boolean; onClose: (
     const [draft, setDraft] = useState<ProfileOverride>({});
     const [globalLoaded, setGlobalLoaded] = useState<JarvisProfile | null>(null);
     const [globalDraft, setGlobalDraft] = useState<JarvisProfile | null>(null);
+    // every project's stored override, for global scope to say whom an edit reaches
+    const [projectOverrides, setProjectOverrides] = useState<ProjectOverride[] | null>(null);
+    const [overridesError, setOverridesError] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -273,6 +350,36 @@ export function BriefProfileModal({ open, onClose }: { open: boolean; onClose: (
         };
     }, [open, channelId, noProjects]);
 
+    // one read per project, only once global scope is showing: it is the only face that uses them
+    useEffect(() => {
+        if (!open || scope !== "global" || channels == null) {
+            return;
+        }
+        let live = true;
+        setProjectOverrides(null);
+        setOverridesError(null);
+        fireAndForget(async () => {
+            try {
+                const list = await Promise.all(
+                    [...channelOptionsOf(channels, projects)].map(async ([name, oid]) => ({
+                        name,
+                        override: (await getJarvisProfile(oid)).override ?? {},
+                    }))
+                );
+                if (live) {
+                    setProjectOverrides(list);
+                }
+            } catch (e) {
+                if (live) {
+                    setOverridesError(String(e));
+                }
+            }
+        });
+        return () => {
+            live = false;
+        };
+    }, [open, scope, channels, projects]);
+
     if (!open) {
         return null;
     }
@@ -292,7 +399,7 @@ export function BriefProfileModal({ open, onClose }: { open: boolean; onClose: (
             return next;
         });
     const setGlobal = (patch: Partial<JarvisProfile>) => setGlobalDraft((g) => (g ? { ...g, ...patch } : g));
-    const dropGlobal = (key: keyof Defaults) =>
+    const dropGlobal = (key: GlobalDefaultKey) =>
         setGlobalDraft((g) => {
             if (g == null) {
                 return g;
@@ -345,47 +452,51 @@ export function BriefProfileModal({ open, onClose }: { open: boolean; onClose: (
         });
     };
 
+    const sourceCell = (key: keyof ProfileOverride, label: string) => (
+        <SourceCell label={label} inherited={draft[key] == null} saving={saving} onReset={() => drop(key)} />
+    );
     const leadRouteRow =
         loaded != null ? (
             <DefaultRow
                 label="Lead route"
-                inheritable
-                inherited={draft.route == null}
-                disabled={saving}
-                onReset={() => drop("route")}
-                hint="The route every phase worker and the lead launch on."
+                hint="Where the lead and phase workers run"
+                aside={sourceCell("route", "Lead route")}
             >
                 <RoutePicker
                     value={draft.route ?? null}
                     canInherit
-                    inheritedLabel="Inherit the global route"
+                    inheritedLabel="Same as global"
                     disabled={saving}
                     onChange={(route) => (route == null ? drop("route") : set({ route }))}
                 />
             </DefaultRow>
         ) : null;
     // the autonomy chip writes the tier the moment it is picked, like it did in the header; it is not part of
-    // the draft Save writes
+    // the draft Save writes, and its right-hand cell says so
     const autonomyRow = (
-        <>
-            <span title="How much Jarvis decides without you, per project" className="text-[12px] text-secondary">
-                Autonomy
-            </span>
-            <div className="flex">
-                <AutonomyLadder channels={channels} />
-            </div>
-        </>
+        <DefaultRow
+            label="Autonomy"
+            hint="How much Jarvis decides without you"
+            aside={<span className="text-right text-[11.5px] text-muted">Saves on pick</span>}
+        >
+            <AutonomyLadder channels={channels} />
+        </DefaultRow>
     );
 
-    // the chips name projects, the modal edits channels: map one to the other, keeping a colliding label
-    // distinct so both channels stay reachable
-    const channelOptions = new Map<string, string>();
-    for (const c of dedupeByProject(channels ?? [])) {
-        const label = channelProjectLabel(c, projects) || c.oid.slice(0, 8);
-        channelOptions.set(channelOptions.has(label) ? `${label} (${c.oid.slice(0, 8)})` : label, c.oid);
-    }
+    const channelOptions = channelOptionsOf(channels, projects);
     const pickedLabel = [...channelOptions].find(([, oid]) => oid === channelId)?.[0] ?? null;
     const projectLabel = channelProjectLabel(channel, projects) || "project";
+
+    const globalReach = (key: GlobalDefaultKey) => (
+        <ReachCell reach={projectOverrides == null ? null : defaultReach(projectOverrides, key)} />
+    );
+    const loadedText = new Map((globalLoaded?.principles ?? []).map((p) => [p.id, p.text]));
+    const principleNotes = Object.fromEntries(
+        (globalDraft?.principles ?? []).map((p) => [
+            p.id,
+            principleNote(projectOverrides ?? [], p.id, loadedText.has(p.id) && loadedText.get(p.id) !== p.text),
+        ])
+    );
 
     return (
         <ModalShell open={open} onClose={onClose} className="flex max-h-[86vh] w-[min(620px,93vw)] flex-col">
@@ -394,9 +505,14 @@ export function BriefProfileModal({ open, onClose }: { open: boolean; onClose: (
                 data-jarvis-profile-scope={scope}
                 className="flex min-h-0 flex-1 flex-col"
             >
-                <header className="flex flex-none items-center gap-[11px] border-b border-border px-[18px] py-[15px]">
-                    <span className="flex-1 text-[15px] font-semibold text-primary">Profile</span>
-                    <div className="flex rounded-[7px] border border-edge-mid p-0.5">
+                <header className="flex flex-none items-center gap-3 border-b border-border px-5 py-4">
+                    <div className="flex flex-1 flex-col gap-0.5">
+                        <span className="text-[15px] font-semibold text-primary">Profile</span>
+                        <span className="text-[12px] text-muted">
+                            {isGlobal ? "The base every project inherits" : "Defaults Jarvis uses for future runs"}
+                        </span>
+                    </div>
+                    <div role="group" aria-label="Scope" className={cn(SEGMENTS, "rounded-[8px] bg-surface")}>
                         {(["project", "global"] as const).map((s) => (
                             <button
                                 key={s}
@@ -406,42 +522,54 @@ export function BriefProfileModal({ open, onClose }: { open: boolean; onClose: (
                                 disabled={saving || (s === "project" && noProjects)}
                                 onClick={() => setScope(s)}
                                 className={cn(
-                                    "max-w-[200px] cursor-pointer truncate rounded-[5px] px-2.5 py-[3px] font-mono text-[10.5px] font-semibold disabled:cursor-default disabled:opacity-40",
-                                    scope === s ? "bg-accentbg text-accent-soft" : "text-ink-mid hover:text-secondary"
+                                    SEGMENT,
+                                    "h-[26px] rounded-[6px] px-3 text-[12px]",
+                                    segmentTone(scope === s)
                                 )}
                             >
-                                {s === "project" ? projectLabel : "global"}
+                                {s === "project" ? "Project" : "Global"}
                             </button>
                         ))}
                     </div>
                 </header>
-                <div className="flex min-h-0 flex-1 flex-col gap-[18px] overflow-y-auto px-[18px] py-4">
-                    {!isGlobal && channelOptions.size > 1 ? (
-                        <ProjectChips
-                            names={[...channelOptions.keys()]}
-                            picked={pickedLabel}
-                            recent={null}
-                            onPick={(label) => {
-                                const oid = channelOptions.get(label);
-                                if (oid != null && !saving) {
-                                    setChannelId(oid);
-                                }
-                            }}
-                            columns={1}
-                        />
+                <div className="flex min-h-0 flex-1 flex-col gap-[22px] overflow-y-auto px-5 pt-[18px] pb-5">
+                    {!isGlobal && channelOptions.size > 0 ? (
+                        <div className="flex items-start gap-3">
+                            <span className="w-14 flex-none pt-[5px] text-[12px] text-ink-mid">Project</span>
+                            <ProjectChips
+                                names={[...channelOptions.keys()]}
+                                picked={pickedLabel}
+                                recent={null}
+                                onPick={(label) => {
+                                    const oid = channelOptions.get(label);
+                                    if (oid != null && !saving) {
+                                        setChannelId(oid);
+                                    }
+                                }}
+                                columns={1}
+                            />
+                        </div>
                     ) : null}
                     {error != null ? (
-                        <p data-jarvis-brief-modal-state="error" className="text-[11.5px] text-error">
+                        <p data-jarvis-brief-modal-state="error" className="text-[12px] text-error">
                             {error}
                         </p>
                     ) : null}
                     {!ready && error == null ? (
-                        <div className="h-24 animate-pulse rounded-[10px] bg-surface-raised motion-reduce:animate-none" />
+                        <div className="h-24 animate-pulse rounded-[8px] bg-surface motion-reduce:animate-none" />
                     ) : null}
                     {isGlobal && globalDraft != null ? (
                         <>
                             <section className="flex flex-col gap-2">
-                                <span className={LABEL}>Run defaults</span>
+                                <SectionHeader
+                                    title="Run defaults"
+                                    meta={
+                                        overridesError == null
+                                            ? "Projects without their own value use these"
+                                            : "Couldn't load which projects override these"
+                                    }
+                                    metaTitle={overridesError ?? undefined}
+                                />
                                 <DefaultsFields
                                     inheritable={false}
                                     draft={globalDraft}
@@ -449,12 +577,17 @@ export function BriefProfileModal({ open, onClose }: { open: boolean; onClose: (
                                     saving={saving}
                                     set={setGlobal}
                                     drop={dropGlobal}
+                                    aside={globalReach}
                                 />
+                                <p className="m-0 text-[11.5px] leading-[1.45] text-muted">
+                                    Lead route and autonomy are set per project.
+                                </p>
                             </section>
                             <section className="flex flex-col gap-2">
-                                <PrinciplesHeader meta="every project inherits these" />
+                                <SectionHeader title="Principles" meta="Every project starts from these" />
                                 <GlobalPrinciplesEditor
                                     principles={globalDraft.principles ?? []}
+                                    notes={principleNotes}
                                     disabled={saving}
                                     onChange={(principles) => setGlobal({ principles })}
                                 />
@@ -464,7 +597,7 @@ export function BriefProfileModal({ open, onClose }: { open: boolean; onClose: (
                     {!isGlobal && loaded != null ? (
                         <>
                             <section className="flex flex-col gap-2">
-                                <span className={LABEL}>Run defaults</span>
+                                <SectionHeader title="Run defaults" meta={overrideSummary(draft)} />
                                 <DefaultsFields
                                     inheritable
                                     draft={draft}
@@ -472,12 +605,22 @@ export function BriefProfileModal({ open, onClose }: { open: boolean; onClose: (
                                     saving={saving}
                                     set={set}
                                     drop={drop}
+                                    aside={sourceCell}
                                     routeRow={leadRouteRow}
                                     autonomyRow={autonomyRow}
                                 />
                             </section>
                             <section className="flex flex-col gap-2">
-                                <PrinciplesHeader meta="global set, with this project's changes" />
+                                <SectionHeader
+                                    title="Principles"
+                                    meta={principleSummary(
+                                        principleRows(
+                                            loaded.global.principles ?? [],
+                                            draft.principles,
+                                            loaded.diagnostics
+                                        )
+                                    )}
+                                />
                                 <PrinciplesEditor
                                     global={loaded.global.principles ?? []}
                                     patch={draft.principles}
@@ -489,10 +632,17 @@ export function BriefProfileModal({ open, onClose }: { open: boolean; onClose: (
                         </>
                     ) : null}
                 </div>
-                <footer className="flex flex-none items-center gap-2 border-t border-border px-[18px] py-3">
-                    <span className={cn("flex-1 font-mono text-[10.5px]", dirty ? "text-asking" : "text-muted")}>
-                        {dirty ? "unsaved changes · applies to future runs" : "no changes"}
-                    </span>
+                <footer className="flex flex-none items-center gap-2 border-t border-border bg-surface-raised px-5 py-3">
+                    {dirty ? (
+                        <span className="flex flex-1 items-center gap-[7px] text-[12px] text-asking">
+                            <span className="h-1.5 w-1.5 rounded-full bg-asking" />
+                            {isGlobal
+                                ? "Unsaved · reaches every project that inherits it"
+                                : "Unsaved changes · apply to future runs"}
+                        </span>
+                    ) : (
+                        <span className="flex-1 text-[12px] text-muted">No changes</span>
+                    )}
                     <button
                         type="button"
                         onClick={onClose}
@@ -512,19 +662,10 @@ export function BriefProfileModal({ open, onClose }: { open: boolean; onClose: (
                             dirty && ready ? "bg-accent text-background hover:bg-accenthover" : "bg-border text-muted"
                         )}
                     >
-                        {saving ? "Saving…" : "Save profile"}
+                        {saving ? "Saving…" : isGlobal ? "Save global profile" : "Save profile"}
                     </button>
                 </footer>
             </div>
         </ModalShell>
-    );
-}
-
-function PrinciplesHeader({ meta }: { meta: string }) {
-    return (
-        <div className="flex items-baseline gap-2">
-            <span className={LABEL}>Principles</span>
-            <span className="font-mono text-[10.5px] text-muted">{meta}</span>
-        </div>
     );
 }

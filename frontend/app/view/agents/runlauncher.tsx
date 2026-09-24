@@ -201,10 +201,13 @@ export function WorkerStepper({
     value,
     onStep,
     disabled = false,
+    unsetLabel = "–",
 }: {
     value: number | null;
     onStep: (delta: number) => void;
     disabled?: boolean;
+    // what a null value reads as: the launcher's dash, or the profile's "auto"
+    unsetLabel?: string;
 }) {
     return (
         <>
@@ -217,8 +220,14 @@ export function WorkerStepper({
             >
                 −
             </button>
-            <span aria-live="polite" className="w-4 text-center font-mono text-[12px] text-primary">
-                {value ?? "–"}
+            <span
+                aria-live="polite"
+                className={cn(
+                    "min-w-4 text-center font-mono text-[12px]",
+                    value == null ? "text-ink-mid" : "text-primary"
+                )}
+            >
+                {value ?? unsetLabel}
             </span>
             <button
                 type="button"

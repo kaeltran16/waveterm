@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+    defaultReach,
     DIAGNOSTIC_MISSING_DISABLED,
     DIAGNOSTIC_MISSING_REPLACEMENT,
     isDirty,
+    overrideSummary,
+    principleNote,
     principleRows,
+    principleSummary,
     profileOverrideIsEmpty,
+    type ProjectOverride,
     reduceGlobalPrinciples,
     reducePlaybook,
     reducePrinciplePatch,
@@ -220,5 +225,81 @@ describe("reducePlaybook", () => {
     it("is a no-op for an update or remove that names a phase which is gone", () => {
         expect(reducePlaybook(P, { type: "update", index: 7, phase: P[0] })).toEqual(P);
         expect(reducePlaybook(P, { type: "remove", index: 7 })).toEqual(P);
+    });
+});
+
+describe("overrideSummary", () => {
+    it("counts the rows a project sets, including the lead route", () => {
+        expect(overrideSummary({})).toBe("All from global");
+        expect(overrideSummary({ parallelism: 3, route: { runtime: "claude" } })).toBe("2 set for this project");
+    });
+    it("does not count principles, which have their own section", () => {
+        expect(overrideSummary({ principles: { disabled: ["a"] } })).toBe("All from global");
+    });
+});
+
+describe("principleSummary", () => {
+    it("says so when the project changes nothing", () => {
+        expect(principleSummary(principleRows(G, undefined, []))).toBe("3 from global, no changes here");
+    });
+    it("counts customized, added and disabled, keeping disabled globals in the global count", () => {
+        const patch: PrinciplePatch = {
+            replacements: { a: "A2" },
+            disabled: ["b"],
+            additions: [{ id: "p1", text: "Mine" }],
+        };
+        expect(principleSummary(principleRows(G, patch, []))).toBe(
+            "3 from global · 1 customized · 1 added · 1 disabled"
+        );
+    });
+});
+
+const P = (name: string, override: ProfileOverride = {}): ProjectOverride => ({ name, override });
+
+describe("defaultReach", () => {
+    it("is null with no projects to reach", () => {
+        expect(defaultReach([], "parallelism")).toBeNull();
+    });
+    it("reaches every project that sets nothing", () => {
+        expect(defaultReach([P("opal"), P("wave")], "parallelism")).toEqual({ main: "All 2 projects" });
+        expect(defaultReach([P("opal")], "parallelism")).toEqual({ main: "1 project" });
+    });
+    it("names the one project that sets its own", () => {
+        expect(defaultReach([P("opal"), P("wave", { defaultmode: "orchestrator" })], "defaultmode")).toEqual({
+            main: "1 of 2 projects",
+            sub: "wave sets its own",
+        });
+    });
+    it("counts several projects that set their own, and none reached", () => {
+        const all = [P("a", { workerroute: { runtime: "pi" } }), P("b", { workerroute: { runtime: "claude" } })];
+        expect(defaultReach(all, "workerroute")).toEqual({ main: "No projects", sub: "2 set their own" });
+    });
+});
+
+describe("principleNote", () => {
+    it("is null when no project touches the principle", () => {
+        expect(principleNote([P("opal")], "a", false)).toBeNull();
+    });
+    it("names rewording and disabling projects", () => {
+        const projects = [
+            P("opal", { principles: { replacements: { a: "A2" } } }),
+            P("wave", { principles: { disabled: ["a"] } }),
+        ];
+        expect(principleNote(projects, "a", false)).toEqual({
+            text: "opal uses its own wording · Disabled in wave",
+            warn: false,
+        });
+    });
+    it("lets a disable win over a replacement in the same project", () => {
+        const projects = [P("opal", { principles: { replacements: { a: "A2" }, disabled: ["a"] } })];
+        expect(principleNote(projects, "a", false)?.text).toBe("Disabled in opal");
+    });
+    it("warns while the principle is edited", () => {
+        const projects = [
+            P("opal", { principles: { replacements: { a: "A2" } } }),
+            P("wave", { principles: { replacements: { a: "A3" } } }),
+            P("zinc", { principles: { disabled: ["a"] } }),
+        ];
+        expect(principleNote(projects, "a", true)).toEqual({ text: "This edit won't reach 3 projects", warn: true });
     });
 });
