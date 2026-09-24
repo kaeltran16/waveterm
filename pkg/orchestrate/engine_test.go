@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/wavetermdev/waveterm/pkg/baseds"
+	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -1285,6 +1287,28 @@ func TestStalledTaskAutoRetriesWithoutALead(t *testing.T) {
 	}
 	if n := f.countKind(waveobj.RunEventKindTaskRetried); n != 1 {
 		t.Fatalf("want one task-retried event, got %d", n)
+	}
+	if len(f.sends) != 0 {
+		t.Fatalf("a task the engine retried does not wake a lead, got %q", f.sends)
+	}
+}
+
+// the exit path reports idle too, but a dead worker has no prompt to sit at with finished work: with no lead
+// alive its stall is still the engine's to retry
+func TestStalledDeadWorkerAutoRetriesDespiteItsExitIdle(t *testing.T) {
+	f, ctx, g, oldRun := stalledNoLead(t, "auto-retry-exit-idle", false)
+	stubSpawnWorker(t, "tab:retry-worker", nil)
+	const deadBlock = "7e1f0c2d-3b4a-4c5d-8e6f-9a0b1c2d3e4f"
+	wps.Broker.Publish(blockcontroller.AgentStatusEvent(deadBlock, baseds.AgentState_Idle, "pi", time.Now().Add(-time.Hour).UnixMilli()))
+	prev := workerBlockFn
+	workerBlockFn = func(context.Context, *waveobj.Run) (string, bool) { return deadBlock, false }
+	t.Cleanup(func() { workerBlockFn = prev })
+
+	if err := ScheduleOnce(ctx, g); err != nil {
+		t.Fatal(err)
+	}
+	if task := g.Tasks[0]; task.StallRetries != 1 || task.RunID == oldRun {
+		t.Fatalf("a dead worker's stall is retried with no lead, got stallretries=%d run=%q (was %q)", task.StallRetries, task.RunID, oldRun)
 	}
 	if len(f.sends) != 0 {
 		t.Fatalf("a task the engine retried does not wake a lead, got %q", f.sends)

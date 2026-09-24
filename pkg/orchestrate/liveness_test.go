@@ -14,10 +14,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/agentask"
 	"github.com/wavetermdev/waveterm/pkg/agentobserve"
+	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wps"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
@@ -344,6 +346,16 @@ func TestIdleHarnessCPUTrickleIsNotWork(t *testing.T) {
 				t.Fatalf("childStillWorking = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+// an empty id makes the scope "", which the broker keeps every event under: a worker with no tab must not read
+// another block's status as its own
+func TestLatestAgentStatusIgnoresAnEmptyScope(t *testing.T) {
+	const otherBlock = "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"
+	wps.Broker.Publish(blockcontroller.AgentStatusEvent(otherBlock, baseds.AgentState_Idle, "claude", time.Now().UnixMilli()))
+	if st := latestAgentStatus("9f8e7d6c-5b4a-4938-8271-605f4e3d2c1b", ""); st.State != "" {
+		t.Fatalf("a block with no status of its own read %q from another block", st.State)
 	}
 }
 

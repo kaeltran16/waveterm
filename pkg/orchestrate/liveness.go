@@ -251,10 +251,11 @@ var workerControllerGone = func(ctx context.Context, run *waveobj.Run) bool {
 }
 
 // workerTurnEndedAt is when a worker last reported its turn over (the Stop hook's idle), 0 while its latest
-// report is anything else or it has none. A var so tests can script it.
+// report is anything else, it has none, or its process is gone: the exit path publishes idle too, and a dead
+// worker is not sitting at a prompt with finished work. A var so tests can script it.
 var workerTurnEndedAt = func(ctx context.Context, run *waveobj.Run) int64 {
-	blockId, _ := workerBlockFn(ctx, run)
-	if blockId == "" {
+	blockId, alive := workerBlockFn(ctx, run)
+	if blockId == "" || !alive {
 		return 0
 	}
 	st := latestAgentStatus(blockId, runTabID(run))

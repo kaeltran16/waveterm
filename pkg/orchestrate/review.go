@@ -464,8 +464,9 @@ func reviewAdditions(task *waveobj.TaskNode, told []string) string {
 }
 
 // toldToTask is what was typed into a task's worker, oldest first: the lead's `dag tell` and a reviewer's
-// downstream note typed to a live worker (task-lead-told), and the human's own messages (task-told). A failed
-// read leaves the brief without them rather than failing the review.
+// downstream note typed to a live worker (task-lead-told), and the human's own messages (task-told). A tell
+// that went to a reviewer is left out. A failed read leaves the brief without them rather than failing the
+// review.
 func toldToTask(ctx context.Context, g *waveobj.TaskGroup, taskID string) []string {
 	kinds := []string{waveobj.RunEventKindTaskLeadTold, waveobj.RunEventKindTaskTold}
 	evs, err := wstore.QueryRunEventsByKind(ctx, g.ChannelId, g.RunID, kinds, 0)
@@ -478,8 +479,9 @@ func toldToTask(ctx context.Context, g *waveobj.TaskGroup, taskID string) []stri
 		var d struct {
 			TaskId string `json:"taskid"`
 			Text   string `json:"text"`
+			To     string `json:"to"`
 		}
-		if json.Unmarshal(evs[i].Detail, &d) != nil || d.TaskId != taskID || d.Text == "" {
+		if json.Unmarshal(evs[i].Detail, &d) != nil || d.TaskId != taskID || d.Text == "" || d.To == "reviewer" {
 			continue
 		}
 		out = append(out, d.Text)

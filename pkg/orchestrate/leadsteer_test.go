@@ -5,6 +5,7 @@ package orchestrate
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -158,6 +159,41 @@ func TestTellTypesIntoTheRunningWorker(t *testing.T) {
 	}
 	if f.countKind(waveobj.RunEventKindTaskLeadTold) != 1 {
 		t.Fatal("want one task-lead-told row")
+	}
+}
+
+// what the lead typed into a reviewer was for that review round: a later reviewer's brief must not present it
+// as something the worker was told
+func TestToldToTaskLeavesOutWhatWasTypedToAReviewer(t *testing.T) {
+	ctx, dag := seedRunningTask(t)
+	realAppend := appendRunEvent
+	newFakeLead(t)
+	appendRunEvent = realAppend
+	old := runBlockORefs
+	runBlockORefs = func(context.Context, *waveobj.Run) []string {
+		return []string{waveobj.MakeORef(waveobj.OType_Block, wakeLeadBlock).String()}
+	}
+	t.Cleanup(func() { runBlockORefs = old })
+	if err := TellTask(ctx, dag.OID, "t-0", "use fmtDate from t-1"); err != nil {
+		t.Fatal(err)
+	}
+	reviewer := jarvis.NewRun("reviewer goal", "ws-1", t.TempDir(), nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), 2)
+	reviewer.DagORef = dag.OID
+	if err := wstore.AppendRun(ctx, dag.ChannelId, reviewer); err != nil {
+		t.Fatal(err)
+	}
+	if err := wstore.UpdateDag(ctx, dag.OID, func(g *waveobj.TaskGroup) error {
+		g.Tasks[0].State = TaskState_Reviewing
+		g.Tasks[0].ReviewRunID = reviewer.ID
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := TellTask(ctx, dag.OID, "t-0", "check the timezone edge case too"); err != nil {
+		t.Fatal(err)
+	}
+	if got := toldToTask(ctx, mustLoadDag(t, ctx, dag.OID), "t-0"); !slices.Equal(got, []string{"use fmtDate from t-1"}) {
+		t.Fatalf("want only what the worker was told, got %q", got)
 	}
 }
 

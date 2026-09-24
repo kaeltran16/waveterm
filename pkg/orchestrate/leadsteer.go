@@ -73,6 +73,7 @@ func TellTask(ctx context.Context, dagID, taskID, text string) error {
 	}
 	var g *waveobj.TaskGroup
 	var blockId string
+	var toReviewer bool
 	err := withDagMutation(dagID, func() error {
 		var err error
 		if g, err = wstore.GetDag(ctx, dagID); err != nil {
@@ -88,6 +89,7 @@ func TellTask(ctx context.Context, dagID, taskID, text string) error {
 		if blockId, err = taskTerminal(ctx, g, task); err != nil {
 			return err
 		}
+		toReviewer = task.State == TaskState_Reviewing
 		task.LeadTold = append(task.LeadTold, text)
 		return persistDag(ctx, g)
 	})
@@ -95,7 +97,12 @@ func TellTask(ctx context.Context, dagID, taskID, text string) error {
 		return err
 	}
 	sendWakeFn(blockId, text)
-	appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskLeadTold, nil, map[string]any{"taskid": taskID, "text": toldText(text)})
+	detail := map[string]any{"taskid": taskID, "text": toldText(text)}
+	// a later reviewer's brief lists what the worker was told, which a message to this reviewer is not
+	if toReviewer {
+		detail["to"] = "reviewer"
+	}
+	appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskLeadTold, nil, detail)
 	return nil
 }
 

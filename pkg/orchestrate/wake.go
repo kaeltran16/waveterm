@@ -562,6 +562,10 @@ func latestAgentStatus(blockId, tabId string) baseds.AgentStatusData {
 	var best baseds.AgentStatusData
 	scopes := []string{waveobj.MakeORef(waveobj.OType_Block, blockId).String(), waveobj.MakeORef(waveobj.OType_Tab, tabId).String()}
 	for _, scope := range scopes {
+		// an empty id's oref is "", the scope the broker keeps every event under
+		if scope == "" {
+			continue
+		}
 		for _, ev := range wps.Broker.ReadEventHistory(wps.Event_AgentStatus, scope, 1) {
 			var d baseds.AgentStatusData
 			if utilfn.ReUnmarshal(&d, ev.Data) == nil && d.State != "" && d.Ts >= best.Ts {
