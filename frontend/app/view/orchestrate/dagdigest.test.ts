@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 import {
     acceptDigest,
+    cleanupOnly,
     formatElapsed,
     freshCounts,
     healthView,
@@ -293,4 +294,28 @@ describe("verifyRowLine", () => {
     it("names it without an age when the digest carries none", () => {
         expect(verifyRowLine(undefined, 61_000)).toBe("Verify running");
     });
+});
+
+describe("cleanupOnly", () => {
+    const task = (taskid: string, humanactions?: string[]) => ({ taskid, humanactions }) as DagTaskDigest;
+    const digest = (health: string, tasks: DagTaskDigest[]) => ({ health, tasks }) as DagStatusDigest;
+
+    it("is true when every task asking the human only needs its worktree removed", () => {
+        expect(cleanupOnly(digest("needs-you", [task("t-1"), task("t-2", ["retry-cleanup"])]))).toBe(true);
+    });
+    it("is false when a question, gate or failure also needs the human", () => {
+        expect(cleanupOnly(digest("needs-you", [task("t-1", ["answer"]), task("t-2", ["retry-cleanup"])]))).toBe(false);
+        expect(cleanupOnly(digest("needs-you", [task("t-1", ["retry", "skip", "escalate"])]))).toBe(false);
+    });
+    it("is false for a healthy digest, a blocked dag with no task actions, or none at all", () => {
+        expect(cleanupOnly(digest("healthy", [task("t-1", ["retry-cleanup"])]))).toBe(false);
+        expect(cleanupOnly(digest("needs-you", [task("t-1")]))).toBe(false);
+        expect(cleanupOnly(undefined)).toBe(false);
+    });
+});
+
+it("names worktree cleanup as what it is", () => {
+    expect(nextStepText({ kind: "human-action", taskids: ["t-2", "t-3"], actions: ["retry-cleanup"] })).toBe(
+        "worktrees not removed: t-2, t-3 — wsh jarvis dag retry-cleanup"
+    );
 });

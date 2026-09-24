@@ -552,6 +552,7 @@ Inside a lead's or worker's terminal, the run is inferred. Elsewhere pass `--cha
 | `dag retry <task>` / `dag skip <task>` | retry or skip a failed or stalled task |
 | `dag escalate <task> --model <id> [--runtime <rt>]` | re-queue on another model, once per task |
 | `dag merge <task> [--continue]` | squash-merge a lane end, or finish a resolved conflict / re-run a failed Verify |
+| `dag retry-cleanup <task>` | retry removing a task's worktree after its automatic attempts gave up (close whatever held it first) |
 | `dag cancel <task>` | cancel the whole DAG (the task argument is required and ignored) |
 | `wsh jarvis complete [--commit <sha>]` | finish the run or task; `--commit` scopes its evidence |
 

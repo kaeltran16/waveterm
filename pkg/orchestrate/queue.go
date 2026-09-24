@@ -43,6 +43,18 @@ func taskHungWake(taskID string, silentMin int64) string {
 	return fmt.Sprintf("wake: task %s hung: silent %dm, process alive, no ask pending. wsh jarvis dag status", taskID, silentMin)
 }
 
+// taskTurnEndedWake is for a worker idle at its prompt with its run still open: its complete may not have
+// landed (an EC-TIME), or it stopped on a question asked in prose. Only its last message says which.
+func taskTurnEndedWake(taskID string) string {
+	return fmt.Sprintf("wake: task %s's worker ended its turn without completing and is idle; its complete may not have landed or it stopped on a question. wsh jarvis dag status", taskID)
+}
+
+// taskWorkerGoneWake is for a worker whose process is gone while its task still runs: the exit hook that would
+// have failed or retried it never fired (a reboot, a lost exit event).
+func taskWorkerGoneWake(taskID string) string {
+	return fmt.Sprintf("wake: task %s's worker exited without reporting complete. wsh jarvis dag status", taskID)
+}
+
 // taskNeverStartedWake names the retry, because nothing is lost: a worker with no process has written nothing.
 func taskNeverStartedWake(taskID string, silentMin int64) string {
 	return fmt.Sprintf("wake: task %s never started: no worker process %dm after spawn. wsh jarvis dag retry %s", taskID, silentMin, taskID)

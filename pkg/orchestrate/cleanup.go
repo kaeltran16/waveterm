@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -89,8 +90,9 @@ func CleanupTaskWorktree(ctx context.Context, g *waveobj.TaskGroup, taskID strin
 		task.CleanupAttempts++
 		return err
 	}
-	reapLaneWorkers(ctx, g, taskID)
-	err = RemoveTaskWorktree(ctx, projectPath, LaneWorktreeKey(g, taskID))
+	key := LaneWorktreeKey(g, taskID)
+	reapLaneWorkers(ctx, g, taskID, worktreeDir(projectPath, key))
+	err = RemoveTaskWorktree(ctx, projectPath, key)
 	task.CleanupPending = false
 	if err != nil {
 		task.CleanupError = boundedCleanupError(err)
@@ -102,12 +104,22 @@ func CleanupTaskWorktree(ctx context.Context, g *waveobj.TaskGroup, taskID strin
 	return nil
 }
 
-// reapLaneWorkers stops the workers that ran in the tree about to be removed. A worker harness sits at
-// its prompt after reporting done instead of exiting, and on Windows a live process holding the tree as
-// its cwd is what makes git's removal leave the directory behind. Every task in the lane ran in the one
-// shared tree, so the whole lane is reaped, not just the tip that was merged. Best effort: the removal
-// below is what decides whether cleanup succeeded.
-func reapLaneWorkers(ctx context.Context, g *waveobj.TaskGroup, taskID string) {
+// reapLaneWorkers stops every run still holding the tree about to be removed. A harness sits at its prompt after
+// reporting done instead of exiting, and on Windows a live process holding the tree as its cwd is what makes
+// git's removal leave the directory behind. The lane's own tasks are reaped by id; everything else this dag ran
+// in the tree - reviewers, whose ReviewRunID is cleared once their verdict applies, and replacements - is found
+// by path. Best effort: the removal below is what decides whether cleanup succeeded.
+func reapLaneWorkers(ctx context.Context, g *waveobj.TaskGroup, taskID, tree string) {
+	reaped := map[string]bool{}
+	stop := func(run *waveobj.Run) {
+		if run == nil || reaped[run.ID] {
+			return
+		}
+		reaped[run.ID] = true
+		if err := stopRunWorkers(ctx, run); err != nil {
+			log.Printf("dag %s run %s: stopping worker in %s: %v", g.OID, run.ID, tree, err)
+		}
+	}
 	for _, id := range laneOf(g, taskID) {
 		task := taskByID(g, id)
 		if task == nil || task.RunID == "" {
@@ -118,8 +130,16 @@ func reapLaneWorkers(ctx context.Context, g *waveobj.TaskGroup, taskID string) {
 			log.Printf("dag %s task %s: loading child run to stop its worker: %v", g.OID, id, err)
 			continue
 		}
-		if err := stopRunWorkers(ctx, child); err != nil {
-			log.Printf("dag %s task %s: stopping worker: %v", g.OID, id, err)
+		stop(child)
+	}
+	runs, err := wstore.GetChannelRuns(ctx, g.ChannelId)
+	if err != nil {
+		log.Printf("dag %s: listing runs to reap %s: %v", g.OID, tree, err)
+		return
+	}
+	for _, run := range runs {
+		if run.DagORef == g.OID && run.ProjectPath != "" && filepath.Clean(run.ProjectPath) == filepath.Clean(tree) {
+			stop(run)
 		}
 	}
 }
@@ -192,6 +212,37 @@ func PersistCleanupState(ctx context.Context, g *waveobj.TaskGroup) error {
 	*g = *fresh
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, g.OID))
 	return nil
+}
+
+// RetryCleanup is the human's retry-cleanup: it gives a task's stuck worktree a fresh set of attempts and tries
+// once now, reaping whatever still holds the tree first. The watchdog's own retries stop at MaxCleanupAttempts,
+// so without this a tree freed later (an editor closed, a shell exited) stays debt until the dag is cancelled.
+// A cancelled dag is allowed: cancelling is what queued its trees.
+func RetryCleanup(ctx context.Context, dagID, taskID string) error {
+	return withDagMutation(dagID, func() error {
+		g, err := wstore.GetDag(ctx, dagID)
+		if err != nil {
+			return fmt.Errorf("loading dag: %w", err)
+		}
+		task := taskByID(g, taskID)
+		if task == nil {
+			return fmt.Errorf("no task %q", taskID)
+		}
+		if !task.CleanupPending && task.CleanupError == "" {
+			return fmt.Errorf("task %s has no worktree left to clean up", taskID)
+		}
+		task.CleanupAttempts = 0
+		cleanupErr := CleanupTaskWorktree(ctx, g, taskID)
+		if err := PersistCleanupState(ctx, g); err != nil {
+			return err
+		}
+		if cleanupErr != nil {
+			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskCleanupFailed, nil, map[string]any{"taskid": taskID, "error": cleanupErr.Error()})
+			return fmt.Errorf("task %s's worktree still could not be removed: %w", taskID, cleanupErr)
+		}
+		appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskCleanupCompleted, nil, map[string]any{"taskid": taskID})
+		return nil
+	})
 }
 
 func boundedCleanupError(err error) string {

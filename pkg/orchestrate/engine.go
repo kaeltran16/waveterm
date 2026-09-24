@@ -348,7 +348,11 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		if activity == 0 {
 			t.LastActivity = 0
 		}
-		if t.State == TaskState_Running && t.LastActivity > 0 && now-t.LastActivity > StallThreshold.Milliseconds() &&
+		// a worker whose turn ended with its run still open has nothing left to write, so its transcript can sit
+		// fresh for all of StallThreshold while nobody hears of it (run 28caa81f's t-4). Its CPU still decides,
+		// because a turn can end on a background test run.
+		quiet := t.LastActivity > 0 && now-t.LastActivity > StallThreshold.Milliseconds()
+		if t.State == TaskState_Running && (quiet || turnEndedPast(ctx, runs[t.RunID], now)) &&
 			!childStillWorking(ctx, t, runs[t.RunID], now) {
 			t.State = TaskState_Stalled
 		}
@@ -393,7 +397,9 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 				since = spawnTs(runs[t.RunID])
 			}
 			hung := hungWake(ctx, taskID, runs[t.RunID], now-since)
-			retried := autoRetryStalled(ctx, g, taskID)
+			// a worker that ended its turn may have finished (its complete lost to an EC-TIME): a retry would throw
+			// its work away, so the lead judges it
+			retried := workerTurnEndedAt(ctx, runs[t.RunID]) == 0 && autoRetryStalled(ctx, g, taskID)
 			afterCommit = append(afterCommit, func() {
 				publishDagEvent(DagEventTaskStalled, g, taskID)
 				appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskStalled, nil, map[string]any{"taskid": taskID})

@@ -304,6 +304,10 @@ func dagIds(cmd *cobra.Command) (string, string, error) {
 }
 
 func dagAction(action string) *cobra.Command {
+	return dagActionWithin(action, 10_000)
+}
+
+func dagActionWithin(action string, timeoutMs int64) *cobra.Command {
 	return &cobra.Command{
 		Use:     fmt.Sprintf("%s <task-id>", action),
 		Short:   fmt.Sprintf("dag action: %s", action),
@@ -316,7 +320,7 @@ func dagAction(action string) *cobra.Command {
 			}
 			return wshclient.DagActionCommand(RpcClient, wshrpc.CommandDagActionData{
 				ChannelId: channelId, RunId: runId, TaskId: args[0], Action: action,
-			}, &wshrpc.RpcOpts{Timeout: 10_000})
+			}, &wshrpc.RpcOpts{Timeout: timeoutMs})
 		},
 	}
 }
@@ -658,7 +662,7 @@ func dagRulesText(ctx *wshrpc.CommandJarvisCtxRtnData, st *wshrpc.CommandDagStat
 
 func init() {
 	jarvisDagCmd.AddCommand(dagSubmitCmd, dagStatusCmd, dagMergeCmd, dagAsksCmd, dagAnswerCmd, dagForwardCmd, dagRulesCmd, dagReviewCmd, dagAmendCmd, dagTellCmd)
-	jarvisDagCmd.AddCommand(dagAction("approve"), dagSendbackCmd, dagAction("retry"), dagAction("skip"), dagEscalateCmd, dagAction("cancel"))
+	jarvisDagCmd.AddCommand(dagAction("approve"), dagSendbackCmd, dagAction("retry"), dagAction("skip"), dagEscalateCmd, dagAction("cancel"), dagActionWithin("retry-cleanup", 60_000))
 	for _, c := range jarvisDagCmd.Commands() {
 		c.Flags().String("runid", "", "run id")
 		c.Flags().String("channel", "", "channel id")

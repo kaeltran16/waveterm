@@ -11,6 +11,7 @@
 // digest's figures are dated rather than presented as current.
 
 import {
+    cleanupOnly,
     firstLine,
     formatElapsed,
     lastUpdatedText,
@@ -357,6 +358,19 @@ function daggedStatus(read: SheetRead, dag: SheetDagRead): SheetStatus {
             meter,
             meta,
             next: "nothing to dispatch — the lead is finishing the run",
+            retry: false,
+        };
+    }
+    if (cleanupOnly(digest)) {
+        const left = (digest.tasks ?? []).filter((td) => td.humanactions?.[0] === "retry-cleanup").length;
+        return {
+            verb: "Cleanup failed",
+            sub: `${plural(left, "worktree")} could not be removed`,
+            tone: "warning",
+            pulse: false,
+            meter,
+            meta,
+            next,
             retry: false,
         };
     }

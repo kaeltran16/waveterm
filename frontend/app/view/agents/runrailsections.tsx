@@ -9,7 +9,14 @@ import { paneReveal } from "@/app/element/motiontokens";
 import { globalStore } from "@/app/store/jotaiStore";
 import * as WOS from "@/app/store/wos";
 import { openTarget } from "@/app/view/jarvis/openref";
-import { digestStale, formatElapsed, healthView, nextStepView, taskBriefs } from "@/app/view/orchestrate/dagdigest";
+import {
+    cleanupOnly,
+    digestStale,
+    formatElapsed,
+    healthView,
+    nextStepView,
+    taskBriefs,
+} from "@/app/view/orchestrate/dagdigest";
 import { openDagLive, openDagTask } from "@/app/view/orchestrate/dagmodalstate";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
@@ -426,7 +433,11 @@ function RunStatus({ run, waitingOnYou }: { run: RunInfo; waitingOnYou: boolean 
     const digest = run.digest;
     const state = { digest, loading: digest == null, stale: digestStale(digest, run.dag?.version) };
     const known = digest != null && !state.stale ? RUN_STATUS[digest.health] : undefined;
-    const status = waitingOnYou ? RUN_STATUS["needs-you"] : (known ?? healthView(state));
+    const status = waitingOnYou
+        ? RUN_STATUS["needs-you"]
+        : !state.stale && cleanupOnly(digest)
+          ? { text: "Cleanup failed", tone: "text-warning" }
+          : (known ?? healthView(state));
     const finished = !state.stale && digest?.health === "done";
     // waiting on you, the engine's next step only repeats that; what the run moves on to afterwards is news
     const then = waitingOnYou ? thenTask(run.dag) : undefined;

@@ -11,6 +11,7 @@ import (
 	"github.com/shirou/gopsutil/v4/process"
 	"github.com/wavetermdev/waveterm/pkg/agentask"
 	"github.com/wavetermdev/waveterm/pkg/agentsessions"
+	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
@@ -20,6 +21,16 @@ import (
 // it stalled. A headless worker writes its session on every token, so silence this long means the
 // child is not progressing (provider hang, dead process) — and nothing else ever notices.
 const StallThreshold = 15 * time.Minute
+
+// TurnEndedGrace is how long a worker may sit idle after its turn ends, with its run still open, before the
+// engine stops counting it as working. Its `wsh jarvis complete` lands before the Stop hook fires, so this only
+// covers an auto-compaction's brief idle inside a turn and hook delivery lag.
+const TurnEndedGrace = 3 * time.Minute
+
+// IdleCPUShare is the share of one core a worker's process tree must use between two samples to count as
+// working. An idle claude at its prompt still ticks (about 0.5% of a core, measured 2026-09-24), so counting
+// any change kept a finished worker "working" forever; a build or a test run is far above this.
+const IdleCPUShare = 0.05
 
 // FirstTokenDeadline is how long a running child may go having written NOTHING before the engine
 // treats it as dead. It is separate from StallThreshold because the two measure different things:
@@ -194,9 +205,10 @@ func processTree(root *process.Process) []*process.Process {
 // its worker is running and its process tree used CPU since the last sample. A worker sitting in a
 // foreground test run writes no transcript for as long as the run lasts, so the mtime cannot see it.
 // The first reading has nothing to compare with, so it is recorded and the verdict is deferred a tick
-// rather than guessed: a wrong stall costs a retry that kills live work, a late one costs a tick. A
-// changed total counts as activity in either direction, because a child that finished and exited
-// lowers the tree's sum. No reading at all returns false and leaves the mtime rule alone.
+// rather than guessed: a wrong stall costs a retry that kills live work, a late one costs a tick. A total
+// that fell counts as activity, because a child that finished and exited lowers the tree's sum; a rise
+// counts only above IdleCPUShare, because an idle harness at its prompt still ticks. No reading at all
+// returns false and leaves the mtime rule alone.
 func childStillWorking(ctx context.Context, t *waveobj.TaskNode, run *waveobj.Run, now int64) bool {
 	blockId, alive := workerBlockFn(ctx, run)
 	if !alive {
@@ -206,12 +218,14 @@ func childStillWorking(ctx context.Context, t *waveobj.TaskNode, run *waveobj.Ru
 	if !ok {
 		return false
 	}
-	prev, hadBaseline := t.CPUSample, t.CPUSampleTs > 0
+	prev, prevTs := t.CPUSample, t.CPUSampleTs
 	t.CPUSample, t.CPUSampleTs = cpu, now
-	if !hadBaseline {
+	if prevTs == 0 {
 		return true
 	}
-	if cpu != prev {
+	// a lower total means a child in the tree exited, which is activity; a rise counts only above an idle
+	// harness's own ticking
+	if delta := cpu - prev; delta < 0 || (delta > 0 && float64(delta) >= IdleCPUShare*float64(now-prevTs)) {
 		t.LastActivity = now
 		return true
 	}
@@ -236,6 +250,27 @@ var workerControllerGone = func(ctx context.Context, run *waveobj.Run) bool {
 	return blockcontroller.GetBlockControllerRuntimeStatus(tab.BlockIds[0]) == nil
 }
 
+// workerTurnEndedAt is when a worker last reported its turn over (the Stop hook's idle), 0 while its latest
+// report is anything else, it has none, or its process is gone: the exit path publishes idle too, and a dead
+// worker is not sitting at a prompt with finished work. A var so tests can script it.
+var workerTurnEndedAt = func(ctx context.Context, run *waveobj.Run) int64 {
+	blockId, alive := workerBlockFn(ctx, run)
+	if blockId == "" || !alive {
+		return 0
+	}
+	st := latestAgentStatus(blockId, runTabID(run))
+	if st.State != baseds.AgentState_Idle {
+		return 0
+	}
+	return st.Ts
+}
+
+// turnEndedPast reports a worker idle at its prompt for longer than TurnEndedGrace.
+func turnEndedPast(ctx context.Context, run *waveobj.Run, now int64) bool {
+	ended := workerTurnEndedAt(ctx, run)
+	return ended > 0 && now-ended > TurnEndedGrace.Milliseconds()
+}
+
 // workerStuckStarting reports whether a child's worker block has a controller whose shell never came up.
 // Nothing else catches it for claude: no process means no exit hook, no transcript means no stall clock,
 // and the first-token deadline is off for claude. Run 700db496's t-5 sat like this for 45 minutes. A
@@ -250,20 +285,23 @@ func shellStuckStarting(blockId string) bool {
 	return blockId != "" && blockShellStatus(blockId) == blockcontroller.Status_Init
 }
 
-// hungWake is the judgment line for a task that just stalled, or "" when its worker is not hung. A worker
-// whose process exited fails through the exit path, and one waiting on an answer belongs to the question
-// queue, so neither is the lead's to judge here. A worker whose process never started is the lead's, since
-// no exit will ever report it.
+// hungWake is the judgment line for a task that just stalled, or "" when its worker is waiting on an answer,
+// which belongs to the question queue. Every other stalled worker is the lead's: one whose process never
+// started, one whose process is gone while its task still runs (the exit path missed it), one idle at its
+// prompt with its run still open, and one alive and silent.
 func hungWake(ctx context.Context, taskID string, run *waveobj.Run, silentMs int64) string {
 	blockId, alive := workerBlockFn(ctx, run)
 	if !alive {
 		if shellStuckStarting(blockId) {
 			return taskNeverStartedWake(taskID, silentMs/time.Minute.Milliseconds())
 		}
-		return ""
+		return taskWorkerGoneWake(taskID)
 	}
 	if _, asking := agentask.GlobalRegistry.Get(waveobj.MakeORef(waveobj.OType_Block, blockId).String()); asking {
 		return ""
+	}
+	if workerTurnEndedAt(ctx, run) > 0 {
+		return taskTurnEndedWake(taskID)
 	}
 	return taskHungWake(taskID, silentMs/time.Minute.Milliseconds())
 }

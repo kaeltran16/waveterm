@@ -368,3 +368,120 @@ func TestCleanupTaskWorktreeReapsTheLanesWorkersFirst(t *testing.T) {
 		t.Fatalf("cleanup of lane tip t-2 did %v, want %v", order, want)
 	}
 }
+
+// A reviewer runs in the lane tree and stays at its prompt after its verdict, holding the tree as its cwd; the
+// run's ReviewRunID is cleared by then, so only the tree path finds it (run 28caa81f lost five trees this way).
+func TestCleanupTaskWorktreeReapsEveryRunInTheTree(t *testing.T) {
+	ctx := context.Background()
+	projectDir := newGitRepo(t)
+	ch, err := wstore.CreateChannel(ctx, "cleanup-reap-tree", projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, err := NewTaskGroup("run-1", ch.OID, "reap tree group", 2, false, []waveobj.TaskNode{
+		{ID: "t-1", Label: "one"},
+		{ID: "t-2", Label: "two"},
+	}, time.Now().UnixMilli(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.Tasks[0].RunID, g.Tasks[0].State, g.Tasks[0].Merged = "worker-t-1", TaskState_Done, true
+	g.Tasks[0].CleanupPending = true
+	tree := worktreeDir(projectDir, LaneWorktreeKey(&g, "t-1"))
+	otherTree := worktreeDir(projectDir, LaneWorktreeKey(&g, "t-2"))
+	for _, r := range []waveobj.Run{
+		{ID: "worker-t-1", DagORef: g.OID, ProjectPath: tree},
+		{ID: "reviewer-t-1", DagORef: g.OID, ProjectPath: tree},
+		{ID: "reviewer-t-2", DagORef: g.OID, ProjectPath: otherTree},
+		{ID: "other-dag", DagORef: "some-other-dag", ProjectPath: tree},
+	} {
+		r.Phases = []waveobj.RunPhase{{WorkerOrefs: []string{"tab:" + r.ID}}}
+		if err := wstore.AppendRun(ctx, ch.OID, r); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var stopped []string
+	oldStop := stopRunWorkers
+	stopRunWorkers = func(_ context.Context, run *waveobj.Run) error {
+		stopped = append(stopped, run.ID)
+		return nil
+	}
+	t.Cleanup(func() { stopRunWorkers = oldStop })
+	stubCleanupRemover(t, func(context.Context, string, string) error { return nil })
+
+	if err := CleanupTaskWorktree(ctx, &g, "t-1"); err != nil {
+		t.Fatalf("cleanup: %v", err)
+	}
+	slices.Sort(stopped)
+	if want := []string{"reviewer-t-1", "worker-t-1"}; !slices.Equal(stopped, want) {
+		t.Fatalf("cleanup of t-1 stopped %v, want %v (never another tree's reviewer or another dag's run)", stopped, want)
+	}
+}
+
+// seedCleanupDebt is a one-task dag whose merged task's tree failed removal until its attempts ran out.
+func seedCleanupDebt(t *testing.T) (context.Context, *waveobj.TaskGroup) {
+	t.Helper()
+	ctx, dag := seedPendingDag(t)
+	if err := wstore.UpdateDag(ctx, dag.OID, func(g *waveobj.TaskGroup) error {
+		g.Tasks[0].State, g.Tasks[0].Merged = TaskState_Done, true
+		g.Tasks[0].CleanupError = "removing worktree dir: unlinkat: The process cannot access the file"
+		g.Tasks[0].CleanupAttempts = MaxCleanupAttempts
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stubStopRunWorkers(t)
+	return ctx, dag
+}
+
+func TestRetryCleanupClearsDebtOnceTheTreeGoes(t *testing.T) {
+	ctx, dag := seedCleanupDebt(t)
+	stubCleanupRemover(t, func(context.Context, string, string) error { return nil })
+	if err := RetryCleanup(ctx, dag.OID, "t-0"); err != nil {
+		t.Fatalf("retry-cleanup: %v", err)
+	}
+	task := firstTask(t, ctx, dag.OID)
+	if task.CleanupError != "" || task.CleanupAttempts != 0 || task.CleanupPending {
+		t.Fatalf("a removed tree clears the debt, got error %q attempts %d pending %v", task.CleanupError, task.CleanupAttempts, task.CleanupPending)
+	}
+}
+
+// the attempts reset, so a tree still held counts one fresh failure and the watchdog keeps retrying it
+func TestRetryCleanupThatFailsAgainRestartsTheAttempts(t *testing.T) {
+	ctx, dag := seedCleanupDebt(t)
+	stubCleanupRemover(t, func(context.Context, string, string) error { return errors.New("still locked") })
+	err := RetryCleanup(ctx, dag.OID, "t-0")
+	if err == nil || !strings.Contains(err.Error(), "still locked") {
+		t.Fatalf("want the removal's error, got %v", err)
+	}
+	if task := firstTask(t, ctx, dag.OID); task.CleanupAttempts != 1 || task.CleanupError == "" {
+		t.Fatalf("want one fresh attempt recorded, got attempts %d error %q", task.CleanupAttempts, task.CleanupError)
+	}
+}
+
+func TestRetryCleanupRefusesATaskWithNoDebt(t *testing.T) {
+	ctx, dag := seedPendingDag(t)
+	if err := RetryCleanup(ctx, dag.OID, "t-0"); err == nil {
+		t.Fatal("a task with no tree left must be refused")
+	}
+	if err := RetryCleanup(ctx, dag.OID, "t-404"); err == nil {
+		t.Fatal("an unknown task must be refused")
+	}
+}
+
+// cancelling queues every tree for cleanup, so a cancelled dag's debt must stay retryable
+func TestRetryCleanupWorksOnACancelledDag(t *testing.T) {
+	ctx, dag := seedCleanupDebt(t)
+	if err := wstore.UpdateDag(ctx, dag.OID, func(g *waveobj.TaskGroup) error {
+		g.Status = DagStatus_Cancelled
+		g.Tasks[0].Merged = false
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stubCleanupRemover(t, func(context.Context, string, string) error { return nil })
+	if err := RetryCleanup(ctx, dag.OID, "t-0"); err != nil {
+		t.Fatalf("retry-cleanup on a cancelled dag: %v", err)
+	}
+}
