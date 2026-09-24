@@ -251,7 +251,12 @@ export function buildLeadCard(input: LeadCardInput): LeadCardVM {
         progress: runProgress(dag),
         activity: leadActivity(run, lead, input.leadDown),
         cost: runCost(run.digest?.report?.workerms, input.tokens),
-        settings: `${leadModel} · workers ${workerModel} · ×${dag?.parallelism ?? "?"}`,
+        settings: [
+            `${leadModel} · workers ${workerModel} · ×${dag?.parallelism ?? "?"}`,
+            run.landPath ? `lands on wave/${run.runId.slice(0, 8)}` : "",
+        ]
+            .filter(Boolean)
+            .join(" · "),
     };
 }
 

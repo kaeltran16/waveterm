@@ -24,6 +24,11 @@ export function runDiffScope(runId: string, cwd: string, baseCommit?: string): D
     return { repo: { origin, label: `run ${runId.slice(0, 8)}` }, range: defaultRangeFor(origin) };
 }
 
+// a run's changes live where its lanes landed: its own branch tree when it has one, else the checkout
+export function diffScopeOfRun(run: Pick<Run, "id" | "projectpath" | "landpath" | "basecommit">): DiffScope {
+    return runDiffScope(run.id, run.landpath || run.projectpath, run.basecommit);
+}
+
 export function projectDiffScope(name: string, path: string): DiffScope {
     const origin: DiffOrigin = { kind: "project", name, path };
     return { repo: { origin, label: name }, range: defaultRangeFor(origin) };

@@ -187,6 +187,11 @@ describe("buildLeadCard", () => {
             "no lead · workers sonnet · ×3"
         );
     });
+
+    it("names the branch a run lands on when it has its own", () => {
+        const run = { ...runInfo([]), runId: "0123456789abcdef", landPath: "/p/.waveterm/worktrees/0123456789abcdef" };
+        expect(buildLeadCard(input(run)).settings).toBe("lead opus · workers sonnet · ×3 · lands on wave/01234567");
+    });
 });
 
 describe("isLeadDown", () => {

@@ -65,7 +65,7 @@ func mergeConflictWake(taskID string) string {
 }
 
 // mergeFailedWake carries git's own refusal, because the fix is almost never in the lane: the squash was
-// refused by the state of the project checkout (an untracked file in the way, a lock, a dirty index), and
+// refused by the state of the tree it lands in (an untracked file in the way, a lock, a dirty index), and
 // the error text is the only thing that says which.
 func mergeFailedWake(taskID, errText string) string {
 	// not merge.go's firstLine: that one substitutes "merge" for empty input, which would read here as

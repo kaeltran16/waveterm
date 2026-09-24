@@ -267,6 +267,7 @@ type Run struct {
 	Mode        string          `json:"mode,omitempty"`       // pipeline | orchestrator (empty = pipeline, legacy-safe)
 	WorkspaceId string          `json:"workspaceid"`          // where phase-worker tabs are created (frontend supplies at CreateRun)
 	ProjectPath string          `json:"projectpath"`          // worker cwd (copied from the channel)
+	LandPath    string          `json:"landpath,omitempty"`   // tree the engine lands lanes in (a wave/<runId> worktree); empty = ProjectPath
 	BaseCommit  string          `json:"basecommit,omitempty"` // HEAD of ProjectPath at run creation; anchors the evidence diff
 	EndCommit   string          `json:"endcommit,omitempty"`  // commit the worker reported as its finished work; scopes the evidence diff to BaseCommit..EndCommit (else falls back to the working-tree diff)
 	Report      string          `json:"report,omitempty"`     // lead's final report, sent with `wsh jarvis complete --report <file>`; the only way it survives the engine closing the lead's tab mid-turn on complete
@@ -594,6 +595,8 @@ type JarvisProfile struct {
 	Parallelism int `json:"parallelism,omitempty"`
 	// WorkerRoute is the default route for engine children of a new run (nil = inherit the lead).
 	WorkerRoute *RoutePin `json:"workerroute,omitempty"`
+	// Landing is where an engine run's lanes land: checkout | branch (empty = checkout).
+	Landing string `json:"landing,omitempty"`
 }
 
 // ProfileOverride is a channel's per-project override, stored as JSON on channel meta. Pointer fields:
@@ -604,6 +607,7 @@ type ProfileOverride struct {
 	DefaultMode *string         `json:"defaultmode,omitempty"`
 	Parallelism *int            `json:"parallelism,omitempty"`
 	WorkerRoute *RoutePin       `json:"workerroute,omitempty"`
+	Landing     *string         `json:"landing,omitempty"`
 }
 
 type Channel struct {

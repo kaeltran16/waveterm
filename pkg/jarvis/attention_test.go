@@ -6,6 +6,7 @@ package jarvis
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -365,6 +366,30 @@ func TestTriageWhySplitsNewFromRecurring(t *testing.T) {
 	}
 	if items[0].Why != "1 new and 2 recurring, none of them ruled on yet." {
 		t.Fatalf("triage why-line: %q", items[0].Why)
+	}
+}
+
+func TestMergeConflictNamesWhereToResolveIt(t *testing.T) {
+	conflict := func(run *waveobj.Run) string {
+		t.Helper()
+		items := BuildAttention(AttentionInput{
+			Channels: []AttentionChannel{{OID: "c1", Runs: []*waveobj.Run{run}}},
+			Dags: []*waveobj.TaskGroup{{
+				ID: "d1", RunID: run.ID, ChannelId: "c1", Status: "blocked", UpdatedTs: 5,
+				Tasks: []waveobj.TaskNode{{ID: "t-2", State: "blocked-merge"}},
+			}},
+		})
+		if len(items) != 1 {
+			t.Fatalf("items = %+v, want the one blocked dag", items)
+		}
+		return items[0].Why
+	}
+	tree := "/p/.waveterm/worktrees/r1"
+	if why := conflict(&waveobj.Run{ID: "r1", ProjectPath: "/p", LandPath: tree}); !strings.Contains(why, "Resolve the conflict in "+tree+",") {
+		t.Fatalf("why = %q, want it to name the landing tree", why)
+	}
+	if why := conflict(&waveobj.Run{ID: "r2", ProjectPath: "/p"}); !strings.Contains(why, "Resolve the conflict in the project checkout,") {
+		t.Fatalf("why = %q, want the project checkout", why)
 	}
 }
 

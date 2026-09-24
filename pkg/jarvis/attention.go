@@ -254,10 +254,19 @@ func blockedTask(g *waveobj.TaskGroup) (string, bool) {
 	return "", false
 }
 
+// conflictTree names where a blocked merge is resolved: the owner's landing tree, which is not where a human
+// looks by default, or else the checkout.
+func conflictTree(owner *waveobj.Run) string {
+	if owner != nil && owner.LandPath != "" {
+		return owner.LandPath
+	}
+	return "the project checkout"
+}
+
 // dagBlockedReason says what holds a blocked dag, in the order the engine's digest ranks the human's
 // actions: a merge, then a failed Verify, then failed tasks. A blocked merge is not a failure, and reading
 // it as one printed "0 consecutive failures".
-func dagBlockedReason(g *waveobj.TaskGroup) (text, why string) {
+func dagBlockedReason(g *waveobj.TaskGroup, owner *waveobj.Run) (text, why string) {
 	done := fmt.Sprintf("%d of %d tasks done.", doneTasks(g), len(g.Tasks))
 	name := func(t waveobj.TaskNode) string {
 		if t.Label != "" {
@@ -274,7 +283,7 @@ func dagBlockedReason(g *waveobj.TaskGroup) (text, why string) {
 				fmt.Sprintf("%s Clear what git refused over, then retry with `wsh jarvis dag merge %s --continue`.", done, t.ID)
 		}
 		return fmt.Sprintf("Merge of %s is blocked by a conflict and needs resolving.", name(t)),
-			fmt.Sprintf("%s Resolve the conflict in the project checkout, commit, then run `wsh jarvis dag merge %s --continue`.", done, t.ID)
+			fmt.Sprintf("%s Resolve the conflict in %s, commit, then run `wsh jarvis dag merge %s --continue`.", done, conflictTree(owner), t.ID)
 	}
 	for _, t := range g.Tasks {
 		if t.State == "verify-failed" {
@@ -359,8 +368,9 @@ func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
 		case "awaiting-review":
 			gates = append(gates, dagGateItems(in, g)...)
 		case "blocked":
-			blockedEffort, blockedChunk := attribution(findRun(in.Channels, g.RunID))
-			text, why := dagBlockedReason(g)
+			owner := findRun(in.Channels, g.RunID)
+			blockedEffort, blockedChunk := attribution(owner)
+			text, why := dagBlockedReason(g, owner)
 			taskID, retry := blockedTask(g)
 			gates = append(gates, wshrpc.AttentionItem{
 				Kind:         AttentionDagBlocked,

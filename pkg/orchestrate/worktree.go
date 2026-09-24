@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
 
 var ErrNotGitRepo = errors.New("not a git repo")
@@ -174,6 +176,24 @@ func EnsureRunWorktree(ctx context.Context, projectPath, runID, baseCommit strin
 		return "", "", false, fmt.Errorf("checking out worktree from wave/%s: %w", runID, err)
 	}
 	return wt, head, true, nil
+}
+
+// checkLandingTree refuses a run whose landing tree is no longer its wave/<runId> checkout. git run in a
+// leftover directory acts on the project checkout above it, which would land the run on the human's branch.
+func checkLandingTree(ctx context.Context, owner *waveobj.Run) error {
+	if owner.LandPath == "" || worktreeOnBranch(ctx, owner.LandPath, owner.ID) {
+		return nil
+	}
+	return fmt.Errorf("landing tree %s is not a checkout of wave/%s: restore it with `git worktree prune && git worktree add %s wave/%s` from the project", owner.LandPath, owner.ID, owner.LandPath, owner.ID)
+}
+
+// landingHead is the commit a run's next lane is cut from. A run landing on its own branch reads the branch,
+// which outlives its tree; one landing in the checkout reads the checkout's head.
+func landingHead(ctx context.Context, owner *waveobj.Run) (string, error) {
+	if owner.LandPath != "" {
+		return WorktreeHeadCommit(ctx, owner.ProjectPath, owner.ID)
+	}
+	return ProjectHeadCommit(ctx, owner.ProjectPath)
 }
 
 // worktreeOnBranch reports whether wt is a checked-out tree of wave/<runID>. A directory whose registration

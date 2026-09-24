@@ -163,7 +163,7 @@ func spawnRunWorkers(ctx context.Context, channelId, runId, projectName string) 
 }
 
 // LaunchPlanLead is the engine's lead spawner for a run submitted with no lead: the run's own lead route,
-// its project checkout, and prompt in place of the goal-run launch prompt. It fails when no lead was
+// the tree its lanes land in, and prompt in place of the goal-run launch prompt. It fails when no lead was
 // attached, so the wake adapter hands the judgment to the human rather than waiting on nobody.
 func LaunchPlanLead(ctx context.Context, channelId, runId, prompt string) error {
 	ch, err := wstore.DBMustGet[*waveobj.Channel](ctx, channelId)
@@ -273,6 +273,20 @@ func childRunPlan(resolved waveobj.JarvisProfile, reqMode string) (string, []wav
 	return resolveRunPlan(reqMode)
 }
 
+// landRunOnBranch gives an engine run a tree of its own, wave/<runId> at the run's base, and stamps it as
+// the run's LandPath. The human merges that branch; the engine never lands in the project checkout.
+func landRunOnBranch(ctx context.Context, channelId string, run *waveobj.Run) error {
+	wt, err := orchestrate.CreateRunWorktree(ctx, run.ProjectPath, run.ID, run.BaseCommit)
+	if err != nil {
+		return err
+	}
+	run.LandPath = wt
+	return wstore.UpdateRun(ctx, channelId, run.ID, func(r *waveobj.Run) error {
+		r.LandPath = wt
+		return nil
+	})
+}
+
 // readCreatedRun reads a just-created run back for the reply. A var so a test can fail the read.
 var readCreatedRun = wstore.GetRun
 
@@ -374,6 +388,16 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 	run.ChannelOID = data.ChannelId
 	// lifecycle log seeded before worker spawn, so a spawn failure still shows the run was created.
 	appendRunEvent(ctx, data.ChannelId, run.ID, waveobj.RunEventKindCreated, nil, map[string]any{"runtime": run.Runtime, "mode": run.Mode})
+	// an unborn repo has no base to branch from, and a non-git project has no lanes to land
+	if engineLaunch && resolved.Landing == jarvis.Landing_Branch && run.BaseCommit != "" {
+		if err := landRunOnBranch(ctx, data.ChannelId, &run); err != nil {
+			// a run that asked for its own branch must not fall back to landing in the checkout
+			if cerr := ws.CancelRunCommand(ctx, wshrpc.CommandCancelRunData{ChannelId: data.ChannelId, RunId: run.ID}); cerr != nil {
+				log.Printf("CreateRun: cancelling run %s after its landing tree failed: %v", run.ID, cerr)
+			}
+			return nil, fmt.Errorf("creating landing tree: %w", err)
+		}
+	}
 	if effortRef != nil {
 		// non-fatal: the run is already persisted; a failed attach only loses the live marker, the
 		// ref stays on the run itself.
@@ -548,11 +572,11 @@ func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandA
 		return attachLateReport(ctx, data)
 	}
 	// a lead ends its plan run with a bare `wsh jarvis complete`. Every task landed through the engine's
-	// merges, so the project head is the run's work, as it is for a run the engine closes with no lead
+	// merges, so the head of the tree they land in is the run's work, as it is for a run the engine closes with no lead
 	// (orchestrate.MaybeCompleteLeadFreeRun). Without it the seal diffs the working tree, where the
 	// engine's own .waveterm files sit untracked.
 	if data.Action == jarvis.RunAction_Complete && data.Commit == "" && preRun != nil && ownsDag(ctx, preRun) {
-		if head, herr := gitinfo.HeadCommit(ctx, preRun.ProjectPath); herr == nil {
+		if head, herr := gitinfo.HeadCommit(ctx, jarvis.LandPath(preRun)); herr == nil {
 			data.Commit = head
 		}
 	}

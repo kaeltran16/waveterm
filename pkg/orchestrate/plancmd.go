@@ -110,6 +110,11 @@ type planProgress func(tail string) bool
 // anything; a stub calls progress itself to script mid-run output.
 var runPlanCommand = execPlanCommand
 
+// RunSetup runs a plan's Setup command in dir under SetupTimeout and returns its output tail.
+func RunSetup(ctx context.Context, dir, command string) (string, error) {
+	return runPlanCommand(ctx, dir, command, SetupTimeout, nil)
+}
+
 func execPlanCommand(ctx context.Context, dir, command string, timeout time.Duration, progress planProgress) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()

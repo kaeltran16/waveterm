@@ -200,6 +200,16 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 	proposed.Verify, proposed.Setup, proposed.Check, proposed.Preamble = plan.Verify, plan.Setup, plan.Check, plan.Preamble
 	proposed.EffortOID = plan.EffortOID
 	proposed.PlanPath, proposed.SpecPath = data.PlanPath, data.SpecPath
+	// the landing tree is where Verify runs, and the plan's Setup line is first known here. A run that
+	// already has a dag is a resubmit, whose merges may be running in that tree. Setup is bounded by its own
+	// timeout, not the caller's RPC deadline, and once it has run the submit finishes even if the caller
+	// stopped waiting, so the prepared tree gets its dag.
+	if run.LandPath != "" && run.DagORef == "" && plan.Setup != "" {
+		ctx = context.WithoutCancel(ctx)
+		if tail, err := orchestrate.RunSetup(ctx, run.LandPath, plan.Setup); err != nil {
+			return nil, fmt.Errorf("running setup in the landing tree %s: %w\n%s", run.LandPath, err, tail)
+		}
+	}
 	stored, created, err := wstore.CreateDagForRun(ctx, data.ChannelId, data.RunId, &proposed, func(run *waveobj.Run) error {
 		if run.Mode != jarvis.RunMode_Orchestrator {
 			return fmt.Errorf("dag requires an orchestrator-mode run")

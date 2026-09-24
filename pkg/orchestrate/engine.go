@@ -447,7 +447,7 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 	var spawned []spawnedWorkerInfo
 	spawnBase := owner.BaseCommit
 	if g.MergeRequired {
-		spawnBase, err = ProjectHeadCommit(spawnCtx, owner.ProjectPath)
+		spawnBase, err = landingHead(spawnCtx, owner)
 		if err != nil {
 			return fmt.Errorf("resolving project head for dag %s: %w", g.ID, err)
 		}

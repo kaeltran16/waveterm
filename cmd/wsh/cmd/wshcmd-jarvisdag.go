@@ -51,6 +51,9 @@ func dagSpecPath(planPath, spec string) (string, error) {
 	return filepath.Abs(spec)
 }
 
+// a submit for a run landing on its own branch runs the plan's Setup in that tree before it answers
+var dagSubmitTimeoutMs = int64((orchestrate.SetupTimeout + 20*time.Second) / time.Millisecond)
+
 var dagSubmitCmd = &cobra.Command{
 	Use:     "submit --plan <plan.md>",
 	Short:   "validate and submit a plan file as this run's DAG",
@@ -79,7 +82,7 @@ var dagSubmitCmd = &cobra.Command{
 		data := wshrpc.CommandDagSubmitData{
 			ChannelId: channelId, RunId: runId, PlanPath: planPath, SpecPath: specPath,
 		}
-		g, err := wshclient.DagSubmitCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: 20_000})
+		g, err := wshclient.DagSubmitCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: dagSubmitTimeoutMs})
 		if err != nil {
 			return err
 		}
