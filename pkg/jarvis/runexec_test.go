@@ -165,6 +165,46 @@ func TestEnsureWorkersPassesKeepOnExitOnlyForOrchestrator(t *testing.T) {
 	}
 }
 
+// the lead of a run that lands on its own branch works in that branch's tree, where its spec, plan and
+// conflict resolutions land
+func TestEnsureWorkersStartsTheLeadWhereLanesLand(t *testing.T) {
+	old := SpawnRunWorker
+	defer func() { SpawnRunWorker = old }()
+
+	var cwds []string
+	SpawnRunWorker = func(_ context.Context, _ runroute.Capability, _, _, cwd, _ string, _ RunWorkerOptions) (string, error) {
+		cwds = append(cwds, cwd)
+		return "tab:worker", nil
+	}
+	cap, err := runroute.Resolve(waveobj.RoutePin{Runtime: "pi"})
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+
+	landed := NewRun("orchestrate", "ws", "/p", nil, RunMode_Orchestrator, DefaultOrchestratorPlaybook(), 1)
+	landed.LandPath = "/p/.waveterm/worktrees/" + landed.ID
+	if _, err := EnsureWorkers(context.Background(), &landed, cap, "project", ""); err != nil {
+		t.Fatal(err)
+	}
+	checkout := NewRun("orchestrate", "ws", "/p", nil, RunMode_Orchestrator, DefaultOrchestratorPlaybook(), 1)
+	if _, err := EnsureWorkers(context.Background(), &checkout, cap, "project", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(cwds) != 2 || cwds[0] != landed.LandPath || cwds[1] != "/p" {
+		t.Fatalf("lead cwds = %q, want the landing tree then the project", cwds)
+	}
+}
+
+func TestLandPathFallsBackToTheProject(t *testing.T) {
+	if got := LandPath(&waveobj.Run{ProjectPath: "/repo"}); got != "/repo" {
+		t.Fatalf("LandPath = %q, want the project", got)
+	}
+	if got := LandPath(&waveobj.Run{ProjectPath: "/repo", LandPath: "/repo/.waveterm/worktrees/r"}); got != "/repo/.waveterm/worktrees/r" {
+		t.Fatalf("LandPath = %q, want the landing tree", got)
+	}
+}
+
 func TestEnsureWorkersUsesAGivenPrompt(t *testing.T) {
 	old := SpawnRunWorker
 	defer func() { SpawnRunWorker = old }()

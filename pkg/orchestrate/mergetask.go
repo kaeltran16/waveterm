@@ -103,14 +103,17 @@ func continueBlockedMerge(ctx context.Context, channelID string, owner *waveobj.
 	if task.RunID == "" {
 		return fmt.Errorf("task %s has no child run", task.ID)
 	}
-	l, err := claimProject(owner.ProjectPath, owner.DagORef, task.ID)
+	if err := checkLandingTree(ctx, owner); err != nil {
+		return err
+	}
+	l, err := claimProject(jarvis.LandPath(owner), owner.DagORef, task.ID)
 	if err != nil {
 		return err
 	}
 	appendRunEvent(ctx, channelID, owner.ID, waveobj.RunEventKindTaskMergeContinued, nil, map[string]any{"taskid": task.ID})
-	sha, err := continueMerge(ctx, owner.ProjectPath, LaneWorktreeKey(g, task.ID), laneMergeMessage(g, laneOf(g, task.ID)), laneFold(g))
+	sha, err := continueMerge(ctx, jarvis.LandPath(owner), LaneWorktreeKey(g, task.ID), laneMergeMessage(g, laneOf(g, task.ID)), laneFold(g))
 	if err != nil {
-		releaseProject(owner.ProjectPath, l)
+		releaseProject(jarvis.LandPath(owner), l)
 		return err
 	}
 	var verify string
@@ -135,7 +138,7 @@ func mergeTaskEntry(ctx context.Context, channelID, ownerRunID, taskID string, r
 	if owner.DagORef == "" {
 		return fmt.Errorf("run has no dag")
 	}
-	l, err := claimProject(owner.ProjectPath, owner.DagORef, taskID)
+	l, err := claimProject(jarvis.LandPath(owner), owner.DagORef, taskID)
 	if err != nil {
 		return err
 	}
@@ -152,10 +155,10 @@ func mergeTaskEntry(ctx context.Context, channelID, ownerRunID, taskID string, r
 // landAfterMerge hands the project claim to the Verify a landed merge waits on, or releases it.
 func landAfterMerge(channelID string, owner *waveobj.Run, taskID, verify string, l *landing) {
 	if verify == "" {
-		releaseProject(owner.ProjectPath, l)
+		releaseProject(jarvis.LandPath(owner), l)
 		return
 	}
-	startVerify(channelID, owner.DagORef, owner.ID, taskID, owner.ProjectPath, verify, l)
+	startVerify(channelID, owner.DagORef, owner.ID, taskID, jarvis.LandPath(owner), verify, l)
 }
 
 // errIndexNotClean is the automatic path's refusal: the squash commit commits whatever the index
@@ -197,6 +200,13 @@ func mergeTaskLocked(ctx context.Context, channelID string, owner *waveobj.Run, 
 	if held := conflictAwaitingContinue(g, task.ID); held != "" {
 		return "", fmt.Errorf("%w: task %s's merge conflict is waiting for `wsh jarvis dag merge %s --continue`", errProjectBusy, held, held)
 	}
+	// recorded like git's own refusals: a scheduler-driven merge has no other place to say it
+	if err := checkLandingTree(ctx, owner); err != nil {
+		if rerr := recordMergeFailureLocked(ctx, owner.DagORef, task.ID, err.Error(), mergeFailureLimit); rerr != nil {
+			return "", errors.Join(err, rerr)
+		}
+		return "", err
+	}
 	if requireCleanIndex {
 		// AutoMergeReady checks this from a read taken before the claim, which misses a Verify that failed
 		// and released in between
@@ -205,7 +215,7 @@ func mergeTaskLocked(ctx context.Context, channelID string, owner *waveobj.Run, 
 				return "", fmt.Errorf("%w: task %s is %s", errProjectBusy, held[0], state)
 			}
 		}
-		clean, cerr := IndexClean(ctx, owner.ProjectPath)
+		clean, cerr := IndexClean(ctx, jarvis.LandPath(owner))
 		if cerr != nil {
 			return "", cerr
 		}
@@ -218,7 +228,7 @@ func mergeTaskLocked(ctx context.Context, channelID string, owner *waveobj.Run, 
 	// finished task spent waiting to be landed. Emitted only once the attempt is going ahead, so a
 	// refused automatic attempt never opens a window it did not start.
 	appendRunEvent(ctx, channelID, owner.ID, waveobj.RunEventKindTaskMergeStarted, nil, map[string]any{"taskid": task.ID})
-	sha, err := mergeWorktree(ctx, owner.ProjectPath, LaneWorktreeKey(g, task.ID), laneMergeMessage(g, lane), laneFold(g))
+	sha, err := mergeWorktree(ctx, jarvis.LandPath(owner), LaneWorktreeKey(g, task.ID), laneMergeMessage(g, lane), laneFold(g))
 	if err != nil {
 		if errors.Is(err, ErrMergeConflict) {
 			appendRunEvent(ctx, channelID, owner.ID, waveobj.RunEventKindTaskMergeBlocked, nil, map[string]any{"taskid": task.ID})

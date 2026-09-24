@@ -26,7 +26,7 @@ import { clearDiffPair, loadDiffPair } from "./diffcontentstore";
 import { defaultFocusId, focusFollowAgent, sourceFor, type FilesSource } from "./diffsource";
 import { filesErrorAtom, filesStateAtom, loadFilesForScope, startChangesPoll, type FilesProject } from "./filesstore";
 import { availableRanges, historyOptsFor, originKey, rangeKey, scopeKey, summaryLine } from "./diffscope";
-import { agentDiffScope, openDiff, projectDiffScope, runDiffScope } from "./agentdiffnav";
+import { agentDiffScope, diffScopeOfRun, openDiff, projectDiffScope } from "./agentdiffnav";
 import { DivergenceBanner } from "./focusbanner";
 import { activeFocusAtom } from "./focusstore";
 import { subjectDecision, type SubjectDecision } from "./focussubject";
@@ -203,7 +203,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
         fireAndForget(async () => {
             const run = await WOS.loadAndPinWaveObject<Run>(WOS.makeORef("run", diffFocus.ref.id));
             if (run != null) {
-                openDiff(model, runDiffScope(run.id, run.projectpath, run.basecommit));
+                openDiff(model, diffScopeOfRun(run));
             }
         });
     }, [model, diffFocus?.ref.kind, diffFocus?.ref.id, diffFocus?.label]);

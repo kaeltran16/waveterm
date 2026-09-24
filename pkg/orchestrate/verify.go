@@ -229,26 +229,26 @@ func resumeVerify(ctx context.Context, g *waveobj.TaskGroup, taskID string) {
 	if err != nil {
 		return
 	}
-	l, err := claimProject(owner.ProjectPath, g.OID, taskID)
+	l, err := claimProject(jarvis.LandPath(owner), g.OID, taskID)
 	if err != nil {
 		return
 	}
 	// g predates the claim: a Verify that recorded its result and released in between must not run again
 	fresh, err := wstore.GetDag(ctx, g.OID)
 	if err != nil || fresh.Status == DagStatus_Cancelled {
-		releaseProject(owner.ProjectPath, l)
+		releaseProject(jarvis.LandPath(owner), l)
 		return
 	}
 	if task := taskByID(fresh, taskID); task == nil || task.State != TaskState_Verifying {
-		releaseProject(owner.ProjectPath, l)
+		releaseProject(jarvis.LandPath(owner), l)
 		return
 	}
-	startVerify(g.ChannelId, g.OID, g.RunID, taskID, owner.ProjectPath, fresh.Verify, l)
+	startVerify(g.ChannelId, g.OID, g.RunID, taskID, jarvis.LandPath(owner), fresh.Verify, l)
 }
 
 // rerunVerify re-runs Verify for a task whose Verify failed, after the caller committed a fix.
 func rerunVerify(ctx context.Context, channelID string, owner *waveobj.Run, taskID string) error {
-	l, err := claimProject(owner.ProjectPath, owner.DagORef, taskID)
+	l, err := claimProject(jarvis.LandPath(owner), owner.DagORef, taskID)
 	if err != nil {
 		return err
 	}
@@ -277,9 +277,9 @@ func rerunVerify(ctx context.Context, channelID string, owner *waveobj.Run, task
 		return nil
 	})
 	if err != nil {
-		releaseProject(owner.ProjectPath, l)
+		releaseProject(jarvis.LandPath(owner), l)
 		return err
 	}
-	startVerify(channelID, owner.DagORef, owner.ID, taskID, owner.ProjectPath, verify, l)
+	startVerify(channelID, owner.DagORef, owner.ID, taskID, jarvis.LandPath(owner), verify, l)
 	return nil
 }

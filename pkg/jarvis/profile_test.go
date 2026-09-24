@@ -303,3 +303,45 @@ func TestProfileOverrideIsEmptyUnderstandsEngineDefaults(t *testing.T) {
 		}
 	}
 }
+
+// Landing resolves like defaultmode: the global value stands until an override replaces it.
+func TestResolveProfileLanding(t *testing.T) {
+	global := waveobj.JarvisProfile{Landing: Landing_Branch}
+	if got := ResolveProfile(global, nil); got.Landing != Landing_Branch {
+		t.Errorf("landing = %q, want the global %q", got.Landing, Landing_Branch)
+	}
+	if got := ResolveProfile(global, &waveobj.ProfileOverride{Landing: strPtr(Landing_Checkout)}); got.Landing != Landing_Checkout {
+		t.Errorf("landing = %q, want the override's %q", got.Landing, Landing_Checkout)
+	}
+	if ProfileOverrideIsEmpty(&waveobj.ProfileOverride{Landing: strPtr(Landing_Branch)}) {
+		t.Error("an override carrying only landing is not empty")
+	}
+}
+
+func TestValidateLanding(t *testing.T) {
+	for _, ok := range []string{"", Landing_Checkout, Landing_Branch} {
+		if err := ValidateLanding(ok); err != nil {
+			t.Errorf("ValidateLanding(%q) = %v, want nil", ok, err)
+		}
+	}
+	if err := ValidateLanding("worktree"); err == nil {
+		t.Error("an unknown landing must be refused")
+	}
+}
+
+func TestSaveGlobalProfileRejectsUnknownLanding(t *testing.T) {
+	dir := t.TempDir()
+	withConfigHome(t, dir)
+	profile := BuiltinProfile()
+	profile.Landing = "elsewhere"
+	if err := SaveGlobalProfile(profile); err == nil {
+		t.Fatal("expected an unknown landing to be refused")
+	}
+	profile.Landing = Landing_Branch
+	if err := SaveGlobalProfile(profile); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if got := LoadGlobalProfile(); got.Landing != Landing_Branch {
+		t.Fatalf("landing not persisted: %q", got.Landing)
+	}
+}

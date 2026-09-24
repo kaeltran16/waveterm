@@ -291,7 +291,7 @@ func EnsureWorkers(ctx context.Context, run *waveobj.Run, cap runroute.Capabilit
 			// and for a prompt too long for a command line is the pointer to the file holding it
 			opts.Label = strings.TrimSpace(strings.SplitN(run.Goal, "\n", 2)[0])
 		}
-		oref, err := SpawnRunWorker(ctx, cap, run.WorkspaceId, projectName, run.ProjectPath, workerPrompt, opts)
+		oref, err := SpawnRunWorker(ctx, cap, run.WorkspaceId, projectName, LandPath(run), workerPrompt, opts)
 		if err != nil {
 			return spawned, fmt.Errorf("spawning worker for phase %d: %w", i, err)
 		}

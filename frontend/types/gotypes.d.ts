@@ -2273,6 +2273,7 @@ declare global {
         defaultmode?: string;
         parallelism?: number;
         workerroute?: RoutePin;
+        landing?: string;
     };
 
     // waveobj.Job
@@ -2571,6 +2572,7 @@ declare global {
         defaultmode?: string;
         parallelism?: number;
         workerroute?: RoutePin;
+        landing?: string;
     };
 
     // wconfig.ProjectKeywords
@@ -2778,6 +2780,7 @@ declare global {
         mode?: string;
         workspaceid: string;
         projectpath: string;
+        landpath?: string;
         basecommit?: string;
         endcommit?: string;
         report?: string;

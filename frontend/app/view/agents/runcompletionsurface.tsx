@@ -14,7 +14,7 @@ import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { MotionConfig, motion } from "motion/react";
 import { type ReactNode } from "react";
-import { openDiff, runDiffScope } from "./agentdiffnav";
+import { diffScopeOfRun, openDiff } from "./agentdiffnav";
 import type { AgentsViewModel } from "./agents";
 import { channelProjectLabel } from "./projectlabel";
 import { projectsAtom } from "./projectsstore";
@@ -31,6 +31,7 @@ import {
     verifCounts,
     verifTone,
 } from "./runcompletion";
+import { runTree } from "./runmodel";
 import { RunTimeline } from "./runtimelineview";
 
 function openPath(projectPath: string, rel: string) {
@@ -209,13 +210,7 @@ export function RunCompletion({ channel, run, model }: { channel: Channel; run: 
                                     {(ev.files ?? []).map((f) => (
                                         <button
                                             key={f.path}
-                                            onClick={() =>
-                                                openDiff(
-                                                    model,
-                                                    runDiffScope(run.id, run.projectpath, run.basecommit),
-                                                    f.path
-                                                )
-                                            }
+                                            onClick={() => openDiff(model, diffScopeOfRun(run), f.path)}
                                             title={`Open ${f.path} in the run diff`}
                                             className="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left hover:bg-surface-hover"
                                         >
@@ -316,7 +311,7 @@ export function RunCompletion({ channel, run, model }: { channel: Channel; run: 
                                     {(ev.artifacts ?? []).map((a) => (
                                         <button
                                             key={a.path}
-                                            onClick={() => openPath(run.projectpath, a.path)}
+                                            onClick={() => openPath(runTree(run), a.path)}
                                             className="flex items-center gap-2 rounded-[9px] border border-edge-mid bg-background px-3 py-2 hover:border-edge-strong"
                                         >
                                             <span
@@ -345,9 +340,7 @@ export function RunCompletion({ channel, run, model }: { channel: Channel; run: 
                             {/* diff action */}
                             <div className="flex items-center gap-3 px-[18px] py-3.5">
                                 <button
-                                    onClick={() =>
-                                        openDiff(model, runDiffScope(run.id, run.projectpath, run.basecommit))
-                                    }
+                                    onClick={() => openDiff(model, diffScopeOfRun(run))}
                                     className="flex items-center gap-2.5 rounded-[9px] bg-accent px-4 py-2.5 text-[12.5px] font-bold text-background hover:bg-accent/90"
                                 >
                                     <span className="text-[12px]">⑂</span>Open repository diff
@@ -407,7 +400,7 @@ export function RunCompletion({ channel, run, model }: { channel: Channel; run: 
                                         {n.artifacts.map((art) => (
                                             <button
                                                 key={art}
-                                                onClick={() => openPath(run.projectpath, art)}
+                                                onClick={() => openPath(runTree(run), art)}
                                                 className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-edge-mid bg-background px-2.5 py-1.5 hover:border-edge-strong"
                                             >
                                                 <span className="rounded bg-success/15 px-1.5 py-px font-mono text-xxxs font-bold text-success">

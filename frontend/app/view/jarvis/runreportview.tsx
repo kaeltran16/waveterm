@@ -4,7 +4,7 @@
 // A finished run's report, structured (design L508-537): the lead line, then each section with its count,
 // a commit hash that opens its diff, and the task tag. "raw markdown" shows the file as filed.
 
-import { openDiff, runDiffScope } from "@/app/view/agents/agentdiffnav";
+import { diffScopeOfRun, openDiff } from "@/app/view/agents/agentdiffnav";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { cn } from "@/util/util";
 import { useState } from "react";
@@ -77,9 +77,7 @@ export function RunReportView({ model, run, compact }: { model: AgentsViewModel;
                                         <button
                                             type="button"
                                             title="Open this commit's diff"
-                                            onClick={() =>
-                                                openDiff(model, runDiffScope(run.id, run.projectpath, run.basecommit))
-                                            }
+                                            onClick={() => openDiff(model, diffScopeOfRun(run))}
                                             className="w-16 flex-none cursor-pointer text-left font-mono text-[11px] text-accent-soft hover:underline"
                                         >
                                             {it.hash}
@@ -104,7 +102,7 @@ export function RunReportView({ model, run, compact }: { model: AgentsViewModel;
                     ))}
                     <button
                         type="button"
-                        onClick={() => openDiff(model, runDiffScope(run.id, run.projectpath, run.basecommit))}
+                        onClick={() => openDiff(model, diffScopeOfRun(run))}
                         className={cn(LINK, "self-start")}
                     >
                         open the repository diff ↗

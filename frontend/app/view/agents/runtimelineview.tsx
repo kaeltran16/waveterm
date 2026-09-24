@@ -8,6 +8,7 @@ import { useState } from "react";
 import { setActiveRunId } from "../jarvis/jarvissubjectstore";
 import { openDagLive } from "../orchestrate/dagmodalstate";
 import { useRunEvents } from "./runeventstore";
+import { runTree } from "./runmodel";
 import {
     artifactsOf,
     buildRunTimeline,
@@ -94,7 +95,7 @@ function EventRow({
                     className="ml-auto shrink-0 cursor-pointer border-b border-dotted border-edge-strong text-[10px] text-accent-soft hover:text-accent"
                     onClick={(e) => {
                         e.stopPropagation(); // the row's own click target must not steal the artifact link
-                        openArtifact(run.projectpath, artifacts[0]);
+                        openArtifact(runTree(run), artifacts[0]);
                     }}
                     title={`open ${artifacts[0]} in editor`}
                 >

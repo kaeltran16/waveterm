@@ -472,7 +472,7 @@ func SealEvidence(ctx context.Context, run *waveobj.Run) error {
 			}
 			seen[a] = true
 			art := waveobj.EvidenceArtifact{Path: a, Kind: artifactKind(a)}
-			if info, err := os.Stat(resolveUnder(run.ProjectPath, a)); err == nil {
+			if info, err := os.Stat(resolveUnder(LandPath(run), a)); err == nil {
 				art.Size = info.Size()
 			}
 			artifacts = append(artifacts, art)

@@ -435,7 +435,12 @@ export function LeadCard(p: LeadCardProps) {
                 onClick={(e) => e.stopPropagation()}
                 className="flex shrink-0 flex-wrap items-center gap-1.5 border-t border-edge-mid py-[7px] pl-3.5 pr-3"
             >
-                <span className="min-w-[120px] flex-1 truncate font-mono text-[10.5px] text-muted">{vm.settings}</span>
+                <span
+                    title={vm.settingsTitle}
+                    className="min-w-[120px] flex-1 truncate font-mono text-[10.5px] text-muted"
+                >
+                    {vm.settings}
+                </span>
                 {lead ? (
                     <button
                         type="button"

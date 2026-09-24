@@ -307,6 +307,12 @@ export function steerTarget(run: Run, agents: AgentVM[]): AgentVM | undefined {
     return leadWorker(run, agents);
 }
 
+// the tree a run works in: its own wave/<runId> tree when its lanes land there, else the project checkout.
+// Mirrors jarvis.LandPath.
+export function runTree(run: Pick<Run, "projectpath" | "landpath">): string {
+    return run.landpath || run.projectpath;
+}
+
 // Resolve a phase artifact (normally a project-relative path, occasionally absolute) to a full path
 // for FileReadCommand. Absolute paths pass through (POSIX /…, Windows X:\… / X:/…); a relative path
 // joins under projectPath with a single separator. A Windows projectPath joined to a POSIX-relative

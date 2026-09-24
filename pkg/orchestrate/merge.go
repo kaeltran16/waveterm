@@ -1,10 +1,13 @@
 package orchestrate
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 )
@@ -69,7 +72,11 @@ func MergeContinue(ctx context.Context, projectPath, runID, goal string, fold []
 // resolver may already have committed the result under a message of their own.
 func finishMerge(ctx context.Context, projectPath, runID, goal string, fold []string, resolved bool) (string, error) {
 	for _, path := range fold {
-		if _, err := git(ctx, projectPath, "add", "--", path); err != nil {
+		staged, err := foldIntoTree(ctx, projectPath, path)
+		if err == nil {
+			_, err = git(ctx, projectPath, "add", "--", staged)
+		}
+		if err != nil {
 			log.Printf("merge %s: not committing %s with the squash: %v", runID, path, err)
 		}
 	}
@@ -85,6 +92,53 @@ func finishMerge(ctx context.Context, projectPath, runID, goal string, fold []st
 		return "", fmt.Errorf("merge commit: %w", err)
 	}
 	return git(ctx, projectPath, "rev-parse", "HEAD")
+}
+
+// foldIntoTree returns the path to stage for a fold doc. A run landing on its own branch merges in a tree
+// other than the checkout its plan was written in, so a doc from another tree of the same repository is
+// copied to its repo-relative path in tree first. That holds for a checkout run whose plan was written in
+// another worktree too: the doc lands with the run's first merge. A file already at that path is never
+// replaced.
+func foldIntoTree(ctx context.Context, tree, path string) (string, error) {
+	if rel, err := filepath.Rel(tree, path); err == nil && filepath.IsLocal(rel) {
+		return path, nil
+	}
+	dir := filepath.Dir(path)
+	top, err := git(ctx, dir, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return "", err
+	}
+	src, err := git(ctx, dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	if err != nil {
+		return "", err
+	}
+	dst, err := git(ctx, tree, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	if err != nil {
+		return "", err
+	}
+	if filepath.Clean(src) != filepath.Clean(dst) {
+		return "", fmt.Errorf("%s is not in the repository %s belongs to", path, tree)
+	}
+	rel, err := filepath.Rel(filepath.FromSlash(top), path)
+	if err != nil || !filepath.IsLocal(rel) {
+		return "", fmt.Errorf("%s is outside its repository root %s", path, top)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	target := filepath.Join(tree, rel)
+	// the squash has already put the lane's version there, and that is the run's work
+	if existing, err := os.ReadFile(target); err == nil {
+		if !bytes.Equal(existing, data) {
+			return "", fmt.Errorf("%s already exists in %s with different content", rel, tree)
+		}
+		return target, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return "", err
+	}
+	return target, os.WriteFile(target, data, 0o644)
 }
 
 // mergeMessage is the branch's commit messages, oldest first, each once and without agent attribution,

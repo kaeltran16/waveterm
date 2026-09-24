@@ -154,6 +154,7 @@ describe("profileOverrideIsEmpty", () => {
         ["worker route", { workerroute: { runtime: "pi" } }, false],
         ["lead route", { route: { runtime: "pi" } }, false],
         ["default mode", { defaultmode: "orchestrator" }, false],
+        ["landing", { landing: "branch" }, false],
         ["patch with a disable", { principles: { disabled: ["a"] } }, false],
     ];
     for (const [name, override, want] of cases) {
@@ -233,6 +234,9 @@ describe("overrideSummary", () => {
         expect(overrideSummary({})).toBe("All from global");
         expect(overrideSummary({ parallelism: 3, route: { runtime: "claude" } })).toBe("2 set for this project");
     });
+    it("counts where runs land", () => {
+        expect(overrideSummary({ landing: "checkout" })).toBe("1 set for this project");
+    });
     it("does not count principles, which have their own section", () => {
         expect(overrideSummary({ principles: { disabled: ["a"] } })).toBe("All from global");
     });
@@ -273,6 +277,12 @@ describe("defaultReach", () => {
     it("counts several projects that set their own, and none reached", () => {
         const all = [P("a", { workerroute: { runtime: "pi" } }), P("b", { workerroute: { runtime: "claude" } })];
         expect(defaultReach(all, "workerroute")).toEqual({ main: "No projects", sub: "2 set their own" });
+    });
+    it("counts a project's own landing against the global one", () => {
+        expect(defaultReach([P("opal"), P("wave", { landing: "checkout" })], "landing")).toEqual({
+            main: "1 of 2 projects",
+            sub: "wave sets its own",
+        });
     });
 });
 

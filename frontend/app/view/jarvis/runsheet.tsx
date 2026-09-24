@@ -12,7 +12,7 @@
 import * as WOS from "@/app/store/wos";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { openDiff, runDiffScope } from "@/app/view/agents/agentdiffnav";
+import { diffScopeOfRun, openDiff } from "@/app/view/agents/agentdiffnav";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { jumpToAgent } from "@/app/view/agents/channelsprimitives";
@@ -646,9 +646,7 @@ function Evidence({ ctx, dag }: { ctx: SheetCtx; dag: SheetDagRead | null }) {
                           <button
                               key={f.path}
                               type="button"
-                              onClick={() =>
-                                  openDiff(model, runDiffScope(run.id, run.projectpath, run.basecommit), f.path)
-                              }
+                              onClick={() => openDiff(model, diffScopeOfRun(run), f.path)}
                               className="grid cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-baseline gap-3 border-b border-edge-faint py-[9px] text-left hover:bg-surface-hover"
                           >
                               <span className="truncate font-mono text-[11.5px] text-ink-hi">{f.path}</span>
@@ -676,7 +674,7 @@ function Evidence({ ctx, dag }: { ctx: SheetCtx; dag: SheetDagRead | null }) {
                 ) : null}
                 <button
                     type="button"
-                    onClick={() => openDiff(model, runDiffScope(run.id, run.projectpath, run.basecommit))}
+                    onClick={() => openDiff(model, diffScopeOfRun(run))}
                     className={cn(LINK, "self-start")}
                 >
                     open the repository diff ↗

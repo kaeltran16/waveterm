@@ -14,7 +14,7 @@ import { AttentionBanner, AttentionCard } from "./attentioncard";
 import { AskRow, jumpToAgent } from "./channelsprimitives";
 import { PlanPreview } from "./planpreview";
 import { cancellingRunIdsAtom, confirmCancelRun, stopRunWorker, stoppingWorkerIdsAtom } from "./runactions";
-import { cancelSurvivors, resolveArtifactPath, runLiveWorkers } from "./runmodel";
+import { cancelSurvivors, resolveArtifactPath, runLiveWorkers, runTree } from "./runmodel";
 
 // A run stored before slice 5c deleted the plan gate can still carry status awaiting-review. Nothing can
 // approve it any more — the actions are gone — so this card explains the stall and shows the plan the run
@@ -29,7 +29,7 @@ export function ReviewGateCard({ run, gateIdx }: { run: Run; gateIdx: number }) 
                 This run stopped at a plan gate that no longer exists. Nothing will release it; cancel it, or start a
                 new run from its plan.
             </div>
-            {artifact ? <PlanPreview path={resolveArtifactPath(run.projectpath, artifact)} /> : null}
+            {artifact ? <PlanPreview path={resolveArtifactPath(runTree(run), artifact)} /> : null}
         </AttentionCard>
     );
 }

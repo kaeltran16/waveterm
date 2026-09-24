@@ -20,6 +20,13 @@ const MetaKey_JarvisProfile = "jarvis:profile"
 
 const globalProfileFileName = "jarvis-profile.json"
 
+// Landing values: an engine run lands its lanes in the project checkout, or on a wave/<runId> branch
+// in a worktree of its own that the human merges.
+const (
+	Landing_Checkout = "checkout"
+	Landing_Branch   = "branch"
+)
+
 const (
 	DiagnosticMissingReplacement = "missing-replacement"
 	DiagnosticMissingDisabled    = "missing-disabled"
@@ -63,6 +70,9 @@ func SaveGlobalProfile(profile waveobj.JarvisProfile) error {
 	if err := ValidateGlobalPrinciples(profile.Principles); err != nil {
 		return fmt.Errorf("invalid principles: %w", err)
 	}
+	if err := ValidateLanding(profile.Landing); err != nil {
+		return err
+	}
 	data, err := json.MarshalIndent(profile, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshaling profile: %w", err)
@@ -80,6 +90,24 @@ func SaveGlobalProfile(profile waveobj.JarvisProfile) error {
 		return fmt.Errorf("finalizing profile: %w", err)
 	}
 	return nil
+}
+
+// ValidateLanding accepts the landing values and empty, which means checkout.
+func ValidateLanding(landing string) error {
+	switch landing {
+	case "", Landing_Checkout, Landing_Branch:
+		return nil
+	}
+	return fmt.Errorf("unknown landing %q: want %q or %q", landing, Landing_Checkout, Landing_Branch)
+}
+
+// LandPath is the tree a run's lanes land in and its lead works in: its own wave/<runId> tree when it has
+// one, else the project checkout. Lane trees are still made and removed under ProjectPath.
+func LandPath(run *waveobj.Run) string {
+	if run.LandPath != "" {
+		return run.LandPath
+	}
+	return run.ProjectPath
 }
 
 func ValidateGlobalPrinciples(items waveobj.PrincipleList) error {
@@ -225,6 +253,9 @@ func ResolveProfileWithDiagnostics(global waveobj.JarvisProfile, override *waveo
 		if override.WorkerRoute != nil {
 			out.WorkerRoute = override.WorkerRoute
 		}
+		if override.Landing != nil {
+			out.Landing = *override.Landing
+		}
 	}
 	principles, diagnostics := ResolvePrinciples(global.Principles, patch)
 	out.Principles = principles
@@ -248,7 +279,7 @@ func ProfileOverrideIsEmpty(o *waveobj.ProfileOverride) bool {
 		patch = nil
 	}
 	return patch == nil && o.Route == nil && o.DefaultMode == nil &&
-		o.Parallelism == nil && o.WorkerRoute == nil
+		o.Parallelism == nil && o.WorkerRoute == nil && o.Landing == nil
 }
 
 func RenderPrinciples(items waveobj.PrincipleList) string {

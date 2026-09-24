@@ -37,19 +37,30 @@ project switcher in the app bar → **+ New project**, give it a name and the re
 
 ### 2. Give the run a branch it can own
 
-Merges land on whatever branch the project checkout has checked out, and the merge path refuses a dirty
-index. If you are working in that checkout yourself, give the run its own worktree and register *that* path:
+By default merges land on whatever branch the project checkout has checked out, and the merge path refuses a
+dirty index. If you are working in that checkout yourself, set **Runs land on → Own branch** in the profile
+(global, or per project). An orchestrator run then creates `wave/<runId>` at launch, in a tree at
+`.waveterm/worktrees/<runId>`: its lead works there, its lanes squash-merge there, Verify runs there, and the
+plan's Setup runs there once when the plan is submitted (for this repo, `task worktree:prepare`, which junctions
+`node_modules`, `src-tauri/target` and `dist/bin` from the main checkout so tests run). The checkout does not
+move, and a dirty index there no longer holds the run's merges.
+
+Nothing lands on `main` until you merge the branch yourself. The engine leaves the branch and its tree when the
+run ends or is cancelled. In this repo, remove them with `task worktree:cleanup -- .waveterm/worktrees/<runId>`:
+Setup junctioned `node_modules`, `src-tauri/target` and `dist/bin` into the tree, and a plain
+`git worktree remove` can follow those junctions and delete the main checkout's copies. It deletes the branch
+only once merged; `git branch -D wave/<runId>` drops an unmerged one. In a repo whose Setup makes no junctions,
+`git worktree remove .waveterm/worktrees/<runId>` and `git branch -D wave/<runId>` do the same.
+
+For this repo there is a second reason: the dev app serves the frontend from the main checkout, so a merge
+landing there triggers HMR reloads mid-run.
+
+To land on a branch you name, give the run its own worktree by hand and register *that* path as the project:
 
 ```bash
 git worktree add -b backlog-cleanup .worktrees/backlog-cleanup main
 cd .worktrees/backlog-cleanup && task worktree:prepare
 ```
-
-`task worktree:prepare` junctions `node_modules`, `src-tauri/target` and `dist/bin` from the main checkout,
-so tests run in the new tree. Nothing lands on `main` until you merge the branch yourself.
-
-For this repo there is a second reason: the dev app serves the frontend from the main checkout, so a merge
-landing there triggers HMR reloads mid-run.
 
 ### 3. Know which app you are driving
 
@@ -201,9 +212,10 @@ that every task must edit is what sets a plan's width, so keep that edit out of 
 **Depends on:** Task 1, Task 2
 ```
 
-- **Setup** runs in every new lane worktree before its first worker (2-minute limit). **Verify** runs in the
-  project checkout after every lane merge (20-minute limit). Both are optional, both run in a POSIX shell
-  (Git Bash on Windows).
+- **Setup** runs in every new lane worktree before its first worker (2-minute limit), and once in a run's own
+  branch tree when the plan is submitted. **Verify** runs where lanes land (the project checkout, or the run's
+  own branch tree) after every lane merge (20-minute limit). Both are optional, both run in a POSIX shell (Git
+  Bash on Windows).
 - Headings are `### Task N` or `## Task N`, numbered 1, 2, 3… in order.
 - `**Depends on:**` must be the first line after the heading. Left out, the task depends on the task before it,
   so a plan with no Depends lines is **serial**. `none` means independent. References must point backwards.
@@ -383,7 +395,8 @@ had landed in the meantime with `status.txt` set to `broken`, so both merges' Ve
 woke the lead with both lines in one message, it restored `status.txt`, committed, and continued both. The
 timeline above records the whole sequence, conflict to **Verify passed**, in about two minutes.
 
-To do it yourself: fix the tree in the project checkout, commit, then `resolve` on the DAG node (or
+To do it yourself: fix the tree where lanes land (the project checkout, or the run's own branch tree, which the
+card names), commit, then `resolve` on the DAG node (or
 `wsh jarvis dag merge <task> --continue`).
 
 ### A worker asks a question

@@ -6,6 +6,7 @@ package jarvis
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -365,6 +366,39 @@ func TestTriageWhySplitsNewFromRecurring(t *testing.T) {
 	}
 	if items[0].Why != "1 new and 2 recurring, none of them ruled on yet." {
 		t.Fatalf("triage why-line: %q", items[0].Why)
+	}
+}
+
+func TestBlockedMergeNamesWhereToFixIt(t *testing.T) {
+	blocked := func(run *waveobj.Run, state string) string {
+		t.Helper()
+		items := BuildAttention(AttentionInput{
+			Channels: []AttentionChannel{{OID: "c1", Runs: []*waveobj.Run{run}}},
+			Dags: []*waveobj.TaskGroup{{
+				ID: "d1", RunID: run.ID, ChannelId: "c1", Status: "blocked", UpdatedTs: 5,
+				Tasks: []waveobj.TaskNode{{ID: "t-2", State: state}},
+			}},
+		})
+		if len(items) != 1 {
+			t.Fatalf("items = %+v, want the one blocked dag", items)
+		}
+		return items[0].Why
+	}
+	tree := "/p/.waveterm/worktrees/r1"
+	landed := &waveobj.Run{ID: "r1", ProjectPath: "/p", LandPath: tree}
+	checkout := &waveobj.Run{ID: "r2", ProjectPath: "/p"}
+	if why := blocked(landed, "blocked-merge"); !strings.Contains(why, "Resolve the conflict in "+tree+",") {
+		t.Fatalf("why = %q, want it to name the landing tree", why)
+	}
+	if why := blocked(checkout, "blocked-merge"); !strings.Contains(why, "Resolve the conflict in the project checkout,") {
+		t.Fatalf("why = %q, want the project checkout", why)
+	}
+	// a fix committed on the human's branch would leave the run's Verify failing
+	if why := blocked(landed, "verify-failed"); !strings.Contains(why, "Commit a fix in "+tree+",") {
+		t.Fatalf("why = %q, want it to name the landing tree", why)
+	}
+	if why := blocked(checkout, "verify-failed"); !strings.Contains(why, "Commit a fix in the project checkout,") {
+		t.Fatalf("why = %q, want the project checkout", why)
 	}
 }
 

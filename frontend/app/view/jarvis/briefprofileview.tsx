@@ -62,6 +62,11 @@ const SHAPES = [
     ["quick", "Quick"],
     ["orchestrator", "Orchestrator"],
 ] as const;
+// values mirror jarvis.Landing_Checkout / Landing_Branch
+const LANDINGS = [
+    ["checkout", "Project checkout"],
+    ["branch", "Own branch"],
+] as const;
 
 type Scope = "project" | "global";
 type Loaded = { global: JarvisProfile; override: ProfileOverride; diagnostics: PrincipleDiagnostic[] };
@@ -188,6 +193,8 @@ function DefaultsFields({
 }) {
     const shape = draft.defaultmode ?? base.defaultmode ?? "quick";
     const width = draft.parallelism ?? base.parallelism ?? null;
+    // "" is a stored global meaning checkout; an empty project override is refused on save
+    const landing = draft.landing || base.landing || "checkout";
     // a project that inherits the worker route inherits whatever global says, which is the lead unless set
     const workerInherits = inheritable && base.workerroute != null ? "Same as global" : "Same as lead";
     return (
@@ -255,6 +262,30 @@ function DefaultsFields({
                     disabled={saving}
                     onChange={(route) => (route == null ? drop("workerroute") : set({ workerroute: route }))}
                 />
+            </DefaultRow>
+            <DefaultRow
+                label="Runs land on"
+                hint="Where orchestrator runs commit"
+                aside={aside("landing", "Runs land on")}
+            >
+                <div role="group" aria-label="Runs land on" className={cn(SEGMENTS, "bg-surface-raised")}>
+                    {LANDINGS.map(([name, label]) => (
+                        <button
+                            key={name}
+                            type="button"
+                            aria-pressed={landing === name}
+                            disabled={saving}
+                            onClick={() => set({ landing: name })}
+                            className={cn(
+                                SEGMENT,
+                                "h-6 px-[11px] text-[12.5px] font-medium",
+                                segmentTone(landing === name)
+                            )}
+                        >
+                            {label}
+                        </button>
+                    ))}
+                </div>
             </DefaultRow>
             {autonomyRow}
         </div>

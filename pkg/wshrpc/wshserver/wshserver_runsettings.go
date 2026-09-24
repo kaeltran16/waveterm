@@ -61,6 +61,15 @@ func validateEngineDefaults(o *waveobj.ProfileOverride) error {
 	if o == nil {
 		return nil
 	}
+	if o.Landing != nil {
+		// an override names a place; leaving it out is how a project inherits
+		if *o.Landing == "" {
+			return fmt.Errorf("landing override is empty: want %q or %q, or omit it to inherit", jarvis.Landing_Checkout, jarvis.Landing_Branch)
+		}
+		if err := jarvis.ValidateLanding(*o.Landing); err != nil {
+			return err
+		}
+	}
 	if o.Parallelism != nil {
 		// a stored default is a width, not an absence: omission is how a profile says "let the lead choose"
 		if err := validateParallelism(*o.Parallelism, false); err != nil {

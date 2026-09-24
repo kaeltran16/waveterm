@@ -71,6 +71,8 @@ export interface LeadCardVM {
     activity: string;
     cost: string;
     settings: string;
+    // the landing branch's full name, which the settings line shortens
+    settingsTitle?: string;
 }
 
 export interface LeadCardInput {
@@ -251,7 +253,13 @@ export function buildLeadCard(input: LeadCardInput): LeadCardVM {
         progress: runProgress(dag),
         activity: leadActivity(run, lead, input.leadDown),
         cost: runCost(run.digest?.report?.workerms, input.tokens),
-        settings: `${leadModel} · workers ${workerModel} · ×${dag?.parallelism ?? "?"}`,
+        settings: [
+            `${leadModel} · workers ${workerModel} · ×${dag?.parallelism ?? "?"}`,
+            run.landPath ? `lands on wave/${run.runId.slice(0, 8)}` : "",
+        ]
+            .filter(Boolean)
+            .join(" · "),
+        settingsTitle: run.landPath ? `lands on wave/${run.runId}` : undefined,
     };
 }
 
