@@ -25,6 +25,7 @@ export const emptyHarnessPreference: HarnessPreferenceState = {
 
 export const harnessPreferenceAtom = atom<HarnessPreferenceState>(emptyHarnessPreference);
 export const harnessesAtom = atom<HarnessInfo[]>([]);
+export const harnessesLoadingAtom = atom(false);
 
 export function resolveDefaultRuntime(pref: string, harnesses: HarnessInfo[]): string {
     if (pref && harnesses.some((h) => h.runtime === pref && h.installed && h.runworkercapable)) {
@@ -102,6 +103,15 @@ export function initHarnessPreference(persistedRuntime: string, persistedModel =
 const CATALOG_RPC_TIMEOUT_MS = 30_000;
 
 export async function loadHarnesses(forceRefresh = false): Promise<void> {
+    globalStore.set(harnessesLoadingAtom, true);
+    try {
+        await fetchHarnesses(forceRefresh);
+    } finally {
+        globalStore.set(harnessesLoadingAtom, false);
+    }
+}
+
+async function fetchHarnesses(forceRefresh: boolean): Promise<void> {
     if (forceRefresh) {
         // the catalog is cached server-side; only a forced refresh re-enumerates installed CLIs
         try {

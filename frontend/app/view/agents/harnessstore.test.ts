@@ -16,7 +16,7 @@ vi.mock("@/app/store/wshclientapi", () => ({
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 
 import { globalStore } from "@/app/store/global";
-import { harnessPreferenceAtom, harnessesAtom, initHarnessPreference, loadHarnesses, setPreferredHarness, setPreferredRoute } from "./harnessstore";
+import { harnessPreferenceAtom, harnessesAtom, harnessesLoadingAtom, initHarnessPreference, loadHarnesses, setPreferredHarness, setPreferredRoute } from "./harnessstore";
 
 describe("harnessstore model catalog freshness", () => {
     beforeEach(() => {
@@ -120,5 +120,15 @@ describe("harnessstore catalog load resilience", () => {
         listHarnesses.mockRejectedValue(new Error("EC-TIME: timeout"));
         await loadHarnesses(true);
         expect(globalStore.get(harnessesAtom)).toEqual(loaded);
+    });
+
+    it("reports loading while the catalog is in flight and clears it when the load fails", async () => {
+        let reject!: (e: Error) => void;
+        listHarnesses.mockReturnValue(new Promise((_resolve, r) => (reject = r)));
+        const pending = loadHarnesses();
+        expect(globalStore.get(harnessesLoadingAtom)).toBe(true);
+        reject(new Error("EC-TIME: timeout"));
+        await pending;
+        expect(globalStore.get(harnessesLoadingAtom)).toBe(false);
     });
 });

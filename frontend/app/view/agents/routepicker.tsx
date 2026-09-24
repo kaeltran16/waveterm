@@ -20,7 +20,7 @@ import { useAtomValue } from "jotai";
 import { useEffect, useMemo, useRef, useState, type JSX, type KeyboardEvent } from "react";
 import { buildPickerSections, filterPickerSections, modelFace, pickerTitleFor, scopePickerSections } from "./route";
 import type { PickerSection } from "./route";
-import { harnessesAtom, refreshHarnessCatalog } from "./harnessstore";
+import { harnessesAtom, harnessesLoadingAtom, loadHarnesses, refreshHarnessCatalog } from "./harnessstore";
 
 // The panel is portalled to the body so this is measured against the viewport. Rendered in place it was
 // clipped to the gap between the trigger and the bottom of whatever scroll container held it — inside the
@@ -49,6 +49,7 @@ export function RoutePicker({
     disabled?: boolean;
 }): JSX.Element {
     const harnesses = useAtomValue(harnessesAtom);
+    const loading = useAtomValue(harnessesLoadingAtom);
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState("");
     const [scope, setScope] = useState<string | null>(null);
@@ -65,7 +66,8 @@ export function RoutePicker({
     // claims "unavailable" — resolution happens server-side at dispatch.
     const harness = value == null ? undefined : harnesses.find((h) => h.runtime === value.runtime);
     const face = value == null ? inheritedLabel : `${harness?.label ?? value.runtime} · ${modelFace(value)}`;
-    const matched = useMemo(() => filterPickerSections(buildPickerSections(harnesses), query), [harnesses, query]);
+    const catalog = useMemo(() => buildPickerSections(harnesses), [harnesses]);
+    const matched = useMemo(() => filterPickerSections(catalog, query), [catalog, query]);
     const sections = useMemo(() => scopePickerSections(matched, scope), [matched, scope]);
     const rowKeys = useMemo(
         () => sections.flatMap((section) => section.rows.map((row) => `${row.runtime}:${row.model}`)),
@@ -81,6 +83,13 @@ export function RoutePicker({
         const frame = requestAnimationFrame(() => searchRef.current?.focus());
         return () => cancelAnimationFrame(frame);
     }, [open, value?.runtime]);
+    // the catalog is loaded once at boot and a failed load is not cached server-side, so an empty
+    // picker retries instead of saying "no routes" for the rest of the session
+    useEffect(() => {
+        if (open && catalog.length === 0 && !loading) {
+            void loadHarnesses();
+        }
+    }, [open]);
     const { refs, floatingStyles, context } = useFloating({
         open,
         onOpenChange(next, _event, reason) {
@@ -277,7 +286,9 @@ export function RoutePicker({
                                 )}
                             </div>
                         ))}
-                        {sections.length === 0 && !query ? <div className="px-[9px] py-2 text-[11px] text-muted">No run routes available.</div> : null}
+                        {sections.length === 0 && !query ? (
+                            <div className="px-[9px] py-2 text-[11px] text-muted">{loading ? "Loading models…" : "No run routes available."}</div>
+                        ) : null}
                         </div>
                     </div>
                 </PopoverReveal>
