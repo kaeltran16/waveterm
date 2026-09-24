@@ -52,9 +52,39 @@ func AgentSyncFoldCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentSyncFoldDat
 	return resp, err
 }
 
+// command "agentsyncharnessdropmemory", wshserver.AgentSyncHarnessDropMemoryCommand
+func AgentSyncHarnessDropMemoryCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentSyncHarnessDropMemoryData, opts *wshrpc.RpcOpts) (*wshrpc.CommandAgentSyncHarnessDropMemoryRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAgentSyncHarnessDropMemoryRtnData](w, "agentsyncharnessdropmemory", data, opts)
+	return resp, err
+}
+
+// command "agentsyncharnessread", wshserver.AgentSyncHarnessReadCommand
+func AgentSyncHarnessReadCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentSyncHarnessReadData, opts *wshrpc.RpcOpts) (*wshrpc.CommandAgentSyncHarnessReadRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAgentSyncHarnessReadRtnData](w, "agentsyncharnessread", data, opts)
+	return resp, err
+}
+
+// command "agentsyncharnesswrite", wshserver.AgentSyncHarnessWriteCommand
+func AgentSyncHarnessWriteCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentSyncHarnessWriteData, opts *wshrpc.RpcOpts) (*wshrpc.CommandAgentSyncHarnessWriteRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAgentSyncHarnessWriteRtnData](w, "agentsyncharnesswrite", data, opts)
+	return resp, err
+}
+
 // command "agentsyncstatus", wshserver.AgentSyncStatusCommand
 func AgentSyncStatusCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandAgentSyncStatusRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAgentSyncStatusRtnData](w, "agentsyncstatus", nil, opts)
+	return resp, err
+}
+
+// command "agentsyncsteeringread", wshserver.AgentSyncSteeringReadCommand
+func AgentSyncSteeringReadCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandAgentSyncSteeringReadRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAgentSyncSteeringReadRtnData](w, "agentsyncsteeringread", nil, opts)
+	return resp, err
+}
+
+// command "agentsyncsteeringwrite", wshserver.AgentSyncSteeringWriteCommand
+func AgentSyncSteeringWriteCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentSyncSteeringWriteData, opts *wshrpc.RpcOpts) (*wshrpc.CommandAgentSyncSteeringWriteRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAgentSyncSteeringWriteRtnData](w, "agentsyncsteeringwrite", data, opts)
 	return resp, err
 }
 

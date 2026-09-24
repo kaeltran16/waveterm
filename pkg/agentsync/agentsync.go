@@ -194,6 +194,47 @@ func WriteHarnessOwn(p Paths, runtime, own string, baseMtime int64) (WriteResult
 	return WriteResult{Mtime: st.ModTime().UnixMilli()}, nil
 }
 
+// DropMemory removes the legacy ARC-MEMORY region from a harness steering file, leaving the own block
+// and the ARC-STEERING region byte-identical. Same guards as WriteHarnessOwn; a file with no memory
+// region is left unwritten.
+func DropMemory(p Paths, runtime string, baseMtime int64) (WriteResult, error) {
+	spec, ok := harness.Lookup(runtime)
+	if !ok {
+		return WriteResult{}, fmt.Errorf("unknown harness runtime %q", runtime)
+	}
+	if !configRootExists(spec, p.Home) {
+		return WriteResult{}, fmt.Errorf("%s has no config directory; Arc never creates one", spec.Label)
+	}
+	target := spec.SteeringPath(p.Home)
+	existing, err := os.ReadFile(target)
+	if err != nil && !os.IsNotExist(err) {
+		return WriteResult{}, fmt.Errorf("reading %s: %w", target, err)
+	}
+	var mtime int64
+	if st, statErr := os.Stat(target); statErr == nil {
+		mtime = st.ModTime().UnixMilli()
+	}
+	if baseMtime != 0 && mtime != 0 && mtime != baseMtime {
+		return WriteResult{Mtime: mtime, Conflict: true}, nil
+	}
+	region := memoryRegion(string(existing))
+	if region == "" {
+		return WriteResult{Mtime: mtime}, nil
+	}
+	kept := strings.TrimRight(strings.TrimSuffix(string(existing), region), " \t\r\n")
+	if kept != "" {
+		kept += "\n"
+	}
+	if err := os.WriteFile(target, []byte(kept), 0o644); err != nil {
+		return WriteResult{}, fmt.Errorf("writing %s: %w", target, err)
+	}
+	st, err := os.Stat(target)
+	if err != nil {
+		return WriteResult{}, err
+	}
+	return WriteResult{Mtime: st.ModTime().UnixMilli()}, nil
+}
+
 // FoldResult is what one fold moved into the shared doc.
 type FoldResult struct {
 	Runtime string   `json:"runtime"`

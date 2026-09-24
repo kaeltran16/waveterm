@@ -6,6 +6,7 @@ package wshserver
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/wavetermdev/waveterm/pkg/agentsync"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -53,6 +54,54 @@ func (ws *WshServer) AgentSyncAdoptCommand(ctx context.Context, data wshrpc.Comm
 		return rtn, fmt.Errorf("adopting harness skills: %w", err)
 	}
 	return rtn, nil
+}
+
+func (ws *WshServer) AgentSyncSteeringReadCommand(ctx context.Context) (*wshrpc.CommandAgentSyncSteeringReadRtnData, error) {
+	path := agentsync.DefaultPaths().SteeringDoc
+	content, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("reading the shared steering doc: %w", err)
+	}
+	var mtime int64
+	if st, statErr := os.Stat(path); statErr == nil {
+		mtime = st.ModTime().UnixMilli()
+	}
+	return &wshrpc.CommandAgentSyncSteeringReadRtnData{Path: path, Content: string(content), Mtime: mtime}, nil
+}
+
+func (ws *WshServer) AgentSyncSteeringWriteCommand(ctx context.Context, data wshrpc.CommandAgentSyncSteeringWriteData) (*wshrpc.CommandAgentSyncSteeringWriteRtnData, error) {
+	res, err := agentsync.WriteSteering(agentsync.DefaultPaths(), data.Content, data.BaseMtime)
+	if err != nil {
+		return nil, fmt.Errorf("writing the shared steering doc: %w", err)
+	}
+	return &wshrpc.CommandAgentSyncSteeringWriteRtnData{Mtime: res.Mtime, Conflict: res.Conflict}, nil
+}
+
+func (ws *WshServer) AgentSyncHarnessReadCommand(ctx context.Context, data wshrpc.CommandAgentSyncHarnessReadData) (*wshrpc.CommandAgentSyncHarnessReadRtnData, error) {
+	doc, err := agentsync.ReadHarness(agentsync.DefaultPaths(), data.Runtime)
+	if err != nil {
+		return nil, fmt.Errorf("reading the %s steering file: %w", data.Runtime, err)
+	}
+	return &wshrpc.CommandAgentSyncHarnessReadRtnData{
+		Runtime: doc.Runtime, Path: doc.Path, Present: doc.Present, Own: doc.Own, Shared: doc.Shared,
+		Memory: doc.Memory, State: doc.State, Mtime: doc.Mtime, Carried: doc.Carried,
+	}, nil
+}
+
+func (ws *WshServer) AgentSyncHarnessWriteCommand(ctx context.Context, data wshrpc.CommandAgentSyncHarnessWriteData) (*wshrpc.CommandAgentSyncHarnessWriteRtnData, error) {
+	res, err := agentsync.WriteHarnessOwn(agentsync.DefaultPaths(), data.Runtime, data.Own, data.BaseMtime)
+	if err != nil {
+		return nil, fmt.Errorf("writing the %s steering file: %w", data.Runtime, err)
+	}
+	return &wshrpc.CommandAgentSyncHarnessWriteRtnData{Mtime: res.Mtime, Conflict: res.Conflict}, nil
+}
+
+func (ws *WshServer) AgentSyncHarnessDropMemoryCommand(ctx context.Context, data wshrpc.CommandAgentSyncHarnessDropMemoryData) (*wshrpc.CommandAgentSyncHarnessDropMemoryRtnData, error) {
+	res, err := agentsync.DropMemory(agentsync.DefaultPaths(), data.Runtime, data.BaseMtime)
+	if err != nil {
+		return nil, fmt.Errorf("dropping the %s memory region: %w", data.Runtime, err)
+	}
+	return &wshrpc.CommandAgentSyncHarnessDropMemoryRtnData{Mtime: res.Mtime, Conflict: res.Conflict}, nil
 }
 
 func (ws *WshServer) AgentSyncFoldCommand(ctx context.Context, data wshrpc.CommandAgentSyncFoldData) (*wshrpc.CommandAgentSyncFoldRtnData, error) {

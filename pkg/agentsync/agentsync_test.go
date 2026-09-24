@@ -117,3 +117,81 @@ func TestProjectSteeringIsIdempotentAndDryRunWritesNothing(t *testing.T) {
 		t.Fatal("dry run must not write")
 	}
 }
+
+func TestDropMemoryRemovesTheRegionAndKeepsTheRest(t *testing.T) {
+	p := testPaths(t, "shared rules\n", ".codex")
+	target := filepath.Join(p.Home, ".codex", "AGENTS.md")
+	writeFile(t, target, "# Mine\n- codex only\n\n<!-- ARC-MEMORY:BEGIN project=x -->\nfacts\n<!-- ARC-MEMORY:END -->\n")
+	if _, err := Apply(p, false); err != nil {
+		t.Fatal(err)
+	}
+	before := readFile(t, target)
+	own := blockBefore(before)
+	steering := before[strings.Index(before, steeringBegin) : strings.Index(before, steeringEnd)+len(steeringEnd)]
+
+	doc, err := ReadHarness(p, "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := DropMemory(p, "codex", doc.Mtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Conflict || res.Mtime == 0 {
+		t.Fatalf("res = %+v, want a clean write with an mtime", res)
+	}
+	after := readFile(t, target)
+	if strings.Contains(after, memoryBeginMarker) || strings.Contains(after, "facts") {
+		t.Fatalf("memory region survived: %q", after)
+	}
+	if !strings.HasPrefix(after, own) {
+		t.Fatalf("own block changed:\n got %q\nwant prefix %q", after, own)
+	}
+	if want := own + steering + "\n"; after != want {
+		t.Fatalf("after = %q, want %q", after, want)
+	}
+}
+
+func TestDropMemoryRefusesAStaleBase(t *testing.T) {
+	p := testPaths(t, "shared\n", ".codex")
+	target := filepath.Join(p.Home, ".codex", "AGENTS.md")
+	body := "# Mine\n\n<!-- ARC-MEMORY:BEGIN project=x -->\nfacts\n<!-- ARC-MEMORY:END -->\n"
+	writeFile(t, target, body)
+	res, err := DropMemory(p, "codex", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Conflict {
+		t.Fatalf("res = %+v, want a conflict", res)
+	}
+	if got := readFile(t, target); got != body {
+		t.Fatalf("a conflict must leave the file untouched: %q", got)
+	}
+}
+
+func TestDropMemoryWithoutARegionIsANoOp(t *testing.T) {
+	p := testPaths(t, "shared\n", ".codex")
+	target := filepath.Join(p.Home, ".codex", "AGENTS.md")
+	writeFile(t, target, "# Mine\n\n\n")
+	doc, err := ReadHarness(p, "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := DropMemory(p, "codex", doc.Mtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Conflict || res.Mtime != doc.Mtime {
+		t.Fatalf("res = %+v, want the current mtime %d", res, doc.Mtime)
+	}
+	if got := readFile(t, target); got != "# Mine\n\n\n" {
+		t.Fatalf("a file without a region must not be rewritten: %q", got)
+	}
+}
+
+func TestDropMemoryRejectsAnUnknownRuntime(t *testing.T) {
+	p := testPaths(t, "shared\n", ".codex")
+	if _, err := DropMemory(p, "nope", 0); err == nil {
+		t.Fatal("an unknown runtime must be an error")
+	}
+}

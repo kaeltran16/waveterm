@@ -7,6 +7,11 @@ import "context"
 
 type AgentSyncCommands interface {
 	AgentSyncStatusCommand(ctx context.Context) (*CommandAgentSyncStatusRtnData, error)
+	AgentSyncSteeringReadCommand(ctx context.Context) (*CommandAgentSyncSteeringReadRtnData, error)
+	AgentSyncSteeringWriteCommand(ctx context.Context, data CommandAgentSyncSteeringWriteData) (*CommandAgentSyncSteeringWriteRtnData, error)
+	AgentSyncHarnessReadCommand(ctx context.Context, data CommandAgentSyncHarnessReadData) (*CommandAgentSyncHarnessReadRtnData, error)
+	AgentSyncHarnessWriteCommand(ctx context.Context, data CommandAgentSyncHarnessWriteData) (*CommandAgentSyncHarnessWriteRtnData, error)
+	AgentSyncHarnessDropMemoryCommand(ctx context.Context, data CommandAgentSyncHarnessDropMemoryData) (*CommandAgentSyncHarnessDropMemoryRtnData, error)
 	AgentSyncApplyCommand(ctx context.Context, data CommandAgentSyncApplyData) (*CommandAgentSyncApplyRtnData, error)
 	AgentSyncAdoptCommand(ctx context.Context, data CommandAgentSyncAdoptData) (*CommandAgentSyncAdoptRtnData, error)
 	AgentSyncFoldCommand(ctx context.Context, data CommandAgentSyncFoldData) (*CommandAgentSyncFoldRtnData, error)
@@ -64,6 +69,61 @@ type AgentSyncSkillMove struct {
 type CommandAgentSyncAdoptRtnData struct {
 	Moves      []AgentSyncSkillMove `json:"moves,omitempty"`
 	Unresolved []string             `json:"unresolved,omitempty"`
+}
+
+type CommandAgentSyncSteeringReadRtnData struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+	Mtime   int64  `json:"mtime"`
+}
+
+type CommandAgentSyncSteeringWriteData struct {
+	Content   string `json:"content"`
+	BaseMtime int64  `json:"basemtime"`
+}
+
+type CommandAgentSyncSteeringWriteRtnData struct {
+	Mtime    int64 `json:"mtime"`
+	Conflict bool  `json:"conflict"`
+}
+
+type CommandAgentSyncHarnessReadData struct {
+	Runtime string `json:"runtime"`
+}
+
+// CommandAgentSyncHarnessReadRtnData is one harness's steering file in the three zones the Steering
+// tab shows: the rules it holds of its own, the shared block Arc projects, and the memory projection.
+type CommandAgentSyncHarnessReadRtnData struct {
+	Runtime string `json:"runtime"`
+	Path    string `json:"path"`
+	Present bool   `json:"present"`
+	Own     string `json:"own"`
+	Shared  string `json:"shared"`
+	Memory  string `json:"memory"`
+	State   string `json:"state"`
+	Mtime   int64  `json:"mtime"`
+	Carried int    `json:"carried"`
+}
+
+type CommandAgentSyncHarnessWriteData struct {
+	Runtime   string `json:"runtime"`
+	Own       string `json:"own"`
+	BaseMtime int64  `json:"basemtime"`
+}
+
+type CommandAgentSyncHarnessWriteRtnData struct {
+	Mtime    int64 `json:"mtime"`
+	Conflict bool  `json:"conflict"`
+}
+
+type CommandAgentSyncHarnessDropMemoryData struct {
+	Runtime   string `json:"runtime"`
+	BaseMtime int64  `json:"basemtime"`
+}
+
+type CommandAgentSyncHarnessDropMemoryRtnData struct {
+	Mtime    int64 `json:"mtime"`
+	Conflict bool  `json:"conflict"`
 }
 
 type CommandAgentSyncFoldData struct {

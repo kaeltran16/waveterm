@@ -54,10 +54,40 @@ export class RpcApiType {
         return client.wshRpcCall("agentsyncfold", data, opts);
     }
 
+    // command "agentsyncharnessdropmemory" [call]
+    AgentSyncHarnessDropMemoryCommand(client: WshClient, data: CommandAgentSyncHarnessDropMemoryData, opts?: RpcOpts): Promise<CommandAgentSyncHarnessDropMemoryRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "agentsyncharnessdropmemory", data, opts);
+        return client.wshRpcCall("agentsyncharnessdropmemory", data, opts);
+    }
+
+    // command "agentsyncharnessread" [call]
+    AgentSyncHarnessReadCommand(client: WshClient, data: CommandAgentSyncHarnessReadData, opts?: RpcOpts): Promise<CommandAgentSyncHarnessReadRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "agentsyncharnessread", data, opts);
+        return client.wshRpcCall("agentsyncharnessread", data, opts);
+    }
+
+    // command "agentsyncharnesswrite" [call]
+    AgentSyncHarnessWriteCommand(client: WshClient, data: CommandAgentSyncHarnessWriteData, opts?: RpcOpts): Promise<CommandAgentSyncHarnessWriteRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "agentsyncharnesswrite", data, opts);
+        return client.wshRpcCall("agentsyncharnesswrite", data, opts);
+    }
+
     // command "agentsyncstatus" [call]
     AgentSyncStatusCommand(client: WshClient, opts?: RpcOpts): Promise<CommandAgentSyncStatusRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "agentsyncstatus", null, opts);
         return client.wshRpcCall("agentsyncstatus", null, opts);
+    }
+
+    // command "agentsyncsteeringread" [call]
+    AgentSyncSteeringReadCommand(client: WshClient, opts?: RpcOpts): Promise<CommandAgentSyncSteeringReadRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "agentsyncsteeringread", null, opts);
+        return client.wshRpcCall("agentsyncsteeringread", null, opts);
+    }
+
+    // command "agentsyncsteeringwrite" [call]
+    AgentSyncSteeringWriteCommand(client: WshClient, data: CommandAgentSyncSteeringWriteData, opts?: RpcOpts): Promise<CommandAgentSyncSteeringWriteRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "agentsyncsteeringwrite", data, opts);
+        return client.wshRpcCall("agentsyncsteeringwrite", data, opts);
     }
 
     // command "answeragent" [call]

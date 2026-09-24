@@ -410,11 +410,73 @@ declare global {
         seeded: boolean;
     };
 
+    // wshrpc.CommandAgentSyncHarnessDropMemoryData
+    type CommandAgentSyncHarnessDropMemoryData = {
+        runtime: string;
+        basemtime: number;
+    };
+
+    // wshrpc.CommandAgentSyncHarnessDropMemoryRtnData
+    type CommandAgentSyncHarnessDropMemoryRtnData = {
+        mtime: number;
+        conflict: boolean;
+    };
+
+    // wshrpc.CommandAgentSyncHarnessReadData
+    type CommandAgentSyncHarnessReadData = {
+        runtime: string;
+    };
+
+    // wshrpc.CommandAgentSyncHarnessReadRtnData
+    type CommandAgentSyncHarnessReadRtnData = {
+        runtime: string;
+        path: string;
+        present: boolean;
+        own: string;
+        shared: string;
+        memory: string;
+        state: string;
+        mtime: number;
+        carried: number;
+    };
+
+    // wshrpc.CommandAgentSyncHarnessWriteData
+    type CommandAgentSyncHarnessWriteData = {
+        runtime: string;
+        own: string;
+        basemtime: number;
+    };
+
+    // wshrpc.CommandAgentSyncHarnessWriteRtnData
+    type CommandAgentSyncHarnessWriteRtnData = {
+        mtime: number;
+        conflict: boolean;
+    };
+
     // wshrpc.CommandAgentSyncStatusRtnData
     type CommandAgentSyncStatusRtnData = {
         harnesses: AgentSyncHarness[];
         steeringdoc: string;
         skillsroot: string;
+    };
+
+    // wshrpc.CommandAgentSyncSteeringReadRtnData
+    type CommandAgentSyncSteeringReadRtnData = {
+        path: string;
+        content: string;
+        mtime: number;
+    };
+
+    // wshrpc.CommandAgentSyncSteeringWriteData
+    type CommandAgentSyncSteeringWriteData = {
+        content: string;
+        basemtime: number;
+    };
+
+    // wshrpc.CommandAgentSyncSteeringWriteRtnData
+    type CommandAgentSyncSteeringWriteRtnData = {
+        mtime: number;
+        conflict: boolean;
     };
 
     // wshrpc.CommandAnswerAgentData
