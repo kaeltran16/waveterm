@@ -69,7 +69,7 @@ const STATUS_ORDER = ["active", "paused", "completed", "archived"];
 
 // You cannot message a record. Stated once, here, rather than leaving the reader hunting for a composer
 // that was never going to appear.
-export const PEEK_ABSENCE_CHIP = "Record · you cannot message one. Ask in the composer and Jarvis reads it.";
+export const PEEK_ABSENCE_CHIP = "Record · you cannot message one.";
 
 export const PEEK_FOOTER =
     "What runs against it and what you set it to are brief business, so they are here. Its full history, " +
