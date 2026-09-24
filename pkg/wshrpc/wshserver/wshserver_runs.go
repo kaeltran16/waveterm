@@ -618,9 +618,14 @@ func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandA
 		}
 		// engine-owned DAGs: a terminal child wakes its group's scheduler (derive + next spawns).
 		if grp, gerr := orchestrate.GroupForRun(ctx, run.ChannelOID, run.ID); gerr == nil {
-			if serr := orchestrate.Schedule(ctx, grp.OID); serr != nil {
-				log.Printf("dag schedule error: %v", serr)
-			}
+			// the transition is durable; the tick it pokes can merge, run Setup and spawn, which outlasts the
+			// child's RPC budget and reads to the child as a failed complete (run 28caa81f's t-4)
+			dagID := grp.OID
+			go func() {
+				if serr := orchestrate.Schedule(context.Background(), dagID); serr != nil {
+					log.Printf("dag schedule error: %v", serr)
+				}
+			}()
 		}
 	}
 	// continuity (sub-project E): on entering a rest state (awaiting-review | blocked | done), write the

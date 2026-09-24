@@ -126,5 +126,7 @@ func reportRunPhase(data wshrpc.CommandReportRunPhaseData) error {
 		return fmt.Errorf("no WAVETERM_TABID env var set")
 	}
 	data.ORef = waveobj.MakeORef(waveobj.OType_Tab, tabId).String()
-	return wshclient.ReportRunPhaseCommand(RpcClient, data, nil)
+	// the server's write is cancelled with the client's budget, and the store can be busy behind an engine tick
+	// for longer than the 5s default; a lost complete leaves the task running with nobody told
+	return wshclient.ReportRunPhaseCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: 30_000})
 }
