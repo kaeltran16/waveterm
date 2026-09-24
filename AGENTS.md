@@ -48,6 +48,11 @@ Other useful commands:
 - **Never hand-edit generated files, including merge conflicts.** Go is the source of truth for the wire protocol and object types; `task generate` writes `frontend/app/store/wshclientapi.ts`, `frontend/app/store/services.ts`, `frontend/types/gotypes.d.ts`, `frontend/types/waveevent.d.ts`, `pkg/wshrpc/wshclient/wshclient.go`, and `pkg/{waveobj,wconfig}/metaconsts.go`. Edit the Go definitions, then regenerate.
 - **`pi/` is the source for the pi artifacts `wsh` embeds.** `task sync:piartifacts` (run by every dev and backend build) copies `pi/extensions/*` and `pi/themes/arc.json` over `cmd/wsh/cmd/pi-*-extension.ts` and `cmd/wsh/cmd/arc-theme.json` — edit `pi/`, never the copies. The same task overwrites `~/.claude/skills/effort-tracking/SKILL.md` from `pi/skills/`.
 - **A new registered `waveobj` type needs a SQL migration** in `db/migrations-wstore/NNNNNN.{up,down}.sql`, or it fails at runtime with "no such table".
+- **Stop the dev app by PID, never by image name.** The dev app and the user's packaged Arc share the
+  image names `wave-tauri.exe` and `wavesrv.x64.exe`, so `taskkill /IM wave-tauri.exe` also kills the
+  running Arc — and every agent inside it (run 700db496 lost a worker's uncommitted edits this way).
+  List `Get-Process wave-tauri,wavesrv.x64 | Select Id,Path`, and stop only the PID whose path is in a
+  repo checkout (`src-tauri\target`, `dist\bin`), never one under `AppData\Local\Arc`.
 - CGO backend builds use the **zig** compiler for cross/static linking (required dependency, see `Taskfile.yml` `build:server:*`).
 - **Worktrees (Windows):** `task worktree:prepare` (run inside the worktree) junctions `node_modules`,
   `src-tauri/target`, `dist/bin` from the main checkout so `task dev` there is fast instead of a cold

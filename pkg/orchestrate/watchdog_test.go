@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -406,6 +407,78 @@ func TestScheduleOnceFirstTokenDeadlineIsPerRuntime(t *testing.T) {
 			}
 			if g.Tasks[0].LastActivity != 0 {
 				t.Fatalf("a child that wrote nothing must read freshness unknown, got %d", g.Tasks[0].LastActivity)
+			}
+		})
+	}
+}
+
+// The first-token deadline is off for claude, but a claude worker whose shell never came up is not the
+// silent-but-working case that keeps it off: there is no process to be working. Run 700db496's t-5 sat
+// running like this for 45 minutes.
+func TestScheduleOnceStallsClaudeChildWhoseWorkerNeverStarted(t *testing.T) {
+	allowWorkerHarnessForTest(t)
+	newFakeLead(t).state.Alive = true // a lead-free stall would be auto-retried, which this test is not about
+	ctx := context.Background()
+	oldRoot := sessionsRootFor
+	sessionsRootFor = func(string) string { return t.TempDir() }
+	defer func() { sessionsRootFor = oldRoot }()
+	prevBlock, prevStatus := workerBlockFn, blockShellStatus
+	t.Cleanup(func() { workerBlockFn, blockShellStatus = prevBlock, prevStatus })
+
+	cases := []struct {
+		name   string
+		status string
+		age    time.Duration
+		want   string
+	}{
+		{name: "shell never came up", status: blockcontroller.Status_Init, age: FirstTokenDeadline + time.Minute, want: TaskState_Stalled},
+		{name: "shell still coming up inside the deadline", status: blockcontroller.Status_Init, age: time.Minute, want: TaskState_Running},
+		{name: "shell running", status: blockcontroller.Status_Running, age: FirstTokenDeadline + time.Minute, want: TaskState_Running},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			workerBlockFn = func(context.Context, *waveobj.Run) (string, bool) {
+				return "worker-block", tc.status == blockcontroller.Status_Running
+			}
+			blockShellStatus = func(string) string { return tc.status }
+			ch, err := wstore.CreateChannel(ctx, "never-started-"+tc.name, t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
+			if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
+				t.Fatal(err)
+			}
+			g, err := NewTaskGroup(owner.ID, ch.OID, "g", 1, false, []waveobj.TaskNode{{ID: "t-0", Label: "a"}}, 1, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := wstore.AppendDag(ctx, &g); err != nil {
+				t.Fatal(err)
+			}
+			spawnedTs := time.Now().Add(-tc.age).UnixMilli()
+			child := jarvis.NewRun("child", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), spawnedTs)
+			child.Runtime = "claude"
+			child.DagORef = g.OID
+			child.SessionId = liveSession
+			if err := wstore.AppendRun(ctx, ch.OID, child); err != nil {
+				t.Fatal(err)
+			}
+			g.Tasks[0].RunID = child.ID
+			g.Tasks[0].State = TaskState_Running
+			g.Tasks[0].LastActivity = spawnedTs
+			if err := wstore.UpdateDag(ctx, g.OID, func(cur *waveobj.TaskGroup) error {
+				*cur = g
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := ScheduleOnce(ctx, &g); err != nil {
+				t.Fatal(err)
+			}
+			if g.Tasks[0].State != tc.want {
+				t.Fatalf("claude child spawned %s ago, shell %s: want %s, got %s", tc.age, tc.status, tc.want, g.Tasks[0].State)
 			}
 		})
 	}

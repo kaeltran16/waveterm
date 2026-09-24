@@ -354,9 +354,11 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		}
 		// first-token deadline: a child that has written nothing has no mtime to age, so without this
 		// it can never stall. The exit hook catches a child that DIED before its first token; this
-		// catches one that hangs, which leaves no signal anywhere else.
-		if spawned := spawnTs(runs[t.RunID]); firstTokenArmed(runs[t.RunID]) && t.State == TaskState_Running &&
-			t.LastActivity == 0 && spawned > 0 && now-spawned > FirstTokenDeadline.Milliseconds() {
+		// catches one that hangs, which leaves no signal anywhere else. A runtime the deadline is off for still
+		// stalls when its worker's process never started.
+		if spawned := spawnTs(runs[t.RunID]); t.State == TaskState_Running && t.LastActivity == 0 && spawned > 0 &&
+			now-spawned > FirstTokenDeadline.Milliseconds() &&
+			(firstTokenArmed(runs[t.RunID]) || workerStuckStarting(ctx, runs[t.RunID])) {
 			t.State = TaskState_Stalled
 		}
 	}

@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/agentask"
 	"github.com/wavetermdev/waveterm/pkg/agentobserve"
+	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -177,11 +178,14 @@ func TestStalledTaskWakesLeadOnlyWhenWorkerIsHung(t *testing.T) {
 		name   string
 		alive  bool
 		asking bool
+		status string
 		want   []string
 	}{
-		{"hung-alive", true, false, []string{"wake: task t-0 hung: silent 6m, process alive, no ask pending. wsh jarvis dag status"}},
-		{"hung-asking", true, true, nil},
-		{"hung-exited", false, false, nil},
+		{"hung-alive", true, false, blockcontroller.Status_Running, []string{"wake: task t-0 hung: silent 6m, process alive, no ask pending. wsh jarvis dag status"}},
+		{"hung-asking", true, true, blockcontroller.Status_Running, nil},
+		{"hung-exited", false, false, blockcontroller.Status_Done, nil},
+		// no process ever means no exit hook either, so the lead is the only one who will hear of it
+		{"never-started", false, false, blockcontroller.Status_Init, []string{"wake: task t-0 never started: no worker process 6m after spawn. wsh jarvis dag retry t-0"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -189,7 +193,9 @@ func TestStalledTaskWakesLeadOnlyWhenWorkerIsHung(t *testing.T) {
 			ctx, g := seedSilentChild(t, tc.name)
 			prev := workerBlockFn
 			workerBlockFn = func(context.Context, *waveobj.Run) (string, bool) { return workerBlock, tc.alive }
-			t.Cleanup(func() { workerBlockFn = prev })
+			prevStatus := blockShellStatus
+			blockShellStatus = func(string) string { return tc.status }
+			t.Cleanup(func() { workerBlockFn, blockShellStatus = prev, prevStatus })
 			if tc.asking {
 				oref := waveobj.MakeORef(waveobj.OType_Block, workerBlock).String()
 				agentask.GlobalRegistry.Set(oref, agentask.PendingAsk{AskId: "a1", BlockId: workerBlock})

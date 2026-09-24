@@ -341,6 +341,7 @@ you.
 | **A worker's question** | answers from the spec, plan and code, or forwards a product call with a note | forwarded questions and any it does not answer within **10 minutes** |
 | **Task failed** with its retry spent | `dag retry`, `dag escalate --model`, `dag skip`, or forwards | forwarded failures |
 | **Worker hung** (15 min silent, process alive, no ask pending) | same as a failure | same |
+| **Worker never started** (5 min after spawn, its terminal's shell never came up) | `dag retry` | same |
 | **Run finished** | fixes what the landed tasks left behind, writes the report, adds open issues to the initiative, asks you about them; `wsh jarvis complete` only when you say so | the report and its questions, then the Done face |
 
 ### A task's review

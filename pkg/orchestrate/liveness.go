@@ -236,12 +236,30 @@ var workerControllerGone = func(ctx context.Context, run *waveobj.Run) bool {
 	return blockcontroller.GetBlockControllerRuntimeStatus(tab.BlockIds[0]) == nil
 }
 
+// workerStuckStarting reports whether a child's worker block has a controller whose shell never came up.
+// Nothing else catches it for claude: no process means no exit hook, no transcript means no stall clock,
+// and the first-token deadline is off for claude. Run 700db496's t-5 sat like this for 45 minutes. A
+// child doing real work has a process, so this cannot fire on the silent-but-working case that keeps the
+// deadline off.
+func workerStuckStarting(ctx context.Context, run *waveobj.Run) bool {
+	blockId, _ := workerBlockFn(ctx, run)
+	return shellStuckStarting(blockId)
+}
+
+func shellStuckStarting(blockId string) bool {
+	return blockId != "" && blockShellStatus(blockId) == blockcontroller.Status_Init
+}
+
 // hungWake is the judgment line for a task that just stalled, or "" when its worker is not hung. A worker
 // whose process exited fails through the exit path, and one waiting on an answer belongs to the question
-// queue, so neither is the lead's to judge here.
+// queue, so neither is the lead's to judge here. A worker whose process never started is the lead's, since
+// no exit will ever report it.
 func hungWake(ctx context.Context, taskID string, run *waveobj.Run, silentMs int64) string {
 	blockId, alive := workerBlockFn(ctx, run)
 	if !alive {
+		if shellStuckStarting(blockId) {
+			return taskNeverStartedWake(taskID, silentMs/time.Minute.Milliseconds())
+		}
 		return ""
 	}
 	if _, asking := agentask.GlobalRegistry.Get(waveobj.MakeORef(waveobj.OType_Block, blockId).String()); asking {

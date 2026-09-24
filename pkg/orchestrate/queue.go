@@ -43,6 +43,11 @@ func taskHungWake(taskID string, silentMin int64) string {
 	return fmt.Sprintf("wake: task %s hung: silent %dm, process alive, no ask pending. wsh jarvis dag status", taskID, silentMin)
 }
 
+// taskNeverStartedWake names the retry, because nothing is lost: a worker with no process has written nothing.
+func taskNeverStartedWake(taskID string, silentMin int64) string {
+	return fmt.Sprintf("wake: task %s never started: no worker process %dm after spawn. wsh jarvis dag retry %s", taskID, silentMin, taskID)
+}
+
 func mergeConflictWake(taskID string) string {
 	return fmt.Sprintf("wake: merge conflict landing lane ending at task %s. git status", taskID)
 }
