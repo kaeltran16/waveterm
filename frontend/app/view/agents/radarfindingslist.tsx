@@ -7,36 +7,44 @@ import { cn } from "@/util/util";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useMemo, useState } from "react";
+import { ambientRefForFinding } from "./ambient";
+import { AmbientTags } from "./ambientviews";
 import {
     DEFAULT_OPEN_GROUPS,
-    findingDelta,
     findingMode,
-    findingSignalCount,
+    GROUP_ORDER,
     groupFindings,
     groupMeta,
-    GROUP_ORDER,
-    investigationBadge,
+    investigationView,
     isMutedGroup,
     missedLatestScan,
     MODE_META,
     strengthPips,
     type RadarGroup,
 } from "./radarmodel";
-import { modeBadge, severityPill, TONE_DOT, TONE_TEXT } from "./radarstyles";
-import { ambientRefForFinding } from "./ambient";
-import { AmbientTags } from "./ambientviews";
+import { INVESTIGATION_TEXT, modeBadge, severityPill, TONE_DOT, TONE_TEXT } from "./radarstyles";
 
-function StrengthPips({ strength }: { strength: string }) {
+export function StrengthPips({ strength, tall }: { strength: string; tall?: boolean }) {
     const filled = strengthPips(strength);
     return (
-        <span className="flex items-center gap-1">
-            <span className="flex gap-0.5">
-                {[0, 1, 2].map((i) => (
-                    <span key={i} className={cn("h-2.5 w-1 rounded-[1px]", i < filled ? "bg-accent-soft" : "bg-border")} />
-                ))}
-            </span>
-            <span className="text-[9px] uppercase tracking-wide text-muted">{strength}</span>
+        <span title={`${strength} evidence`} className="flex flex-none gap-0.5">
+            {[0, 1, 2].map((i) => (
+                <span
+                    key={i}
+                    className={cn(
+                        "w-[3px] rounded-[1px]",
+                        tall ? "h-[11px]" : "h-2.5",
+                        i < filled ? "bg-accent-soft" : "bg-edge-strong"
+                    )}
+                />
+            ))}
         </span>
+    );
+}
+
+function Kbd({ children }: { children: React.ReactNode }) {
+    return (
+        <kbd className="rounded border border-edge-strong px-[5px] font-mono text-[10px] text-ink-mid">{children}</kbd>
     );
 }
 
@@ -45,11 +53,13 @@ export function RadarFindingsList({
     selectedId,
     onSelect,
     onActivate,
+    activateLabel,
 }: {
     findings: RadarFinding[];
     selectedId: string | undefined;
     onSelect: (id: string) => void;
-    onActivate?: () => void; // list-nav Enter: start the selected finding's investigation
+    onActivate?: () => void; // list-nav Enter: the selected finding's primary action
+    activateLabel?: string;
 }) {
     const grouped = useMemo(() => groupFindings(findings), [findings]);
     const [open, setOpen] = useState<Set<RadarGroup>>(() => new Set(DEFAULT_OPEN_GROUPS));
@@ -66,132 +76,163 @@ export function RadarFindingsList({
         [grouped, open]
     );
     const listNav = useMemo<ListNavController>(
-        () => ({ surface: "radar", navigableIds: navIds, cursorId: selectedId, setCursor: onSelect, activate: onActivate }),
+        () => ({
+            surface: "radar",
+            navigableIds: navIds,
+            cursorId: selectedId,
+            setCursor: onSelect,
+            activate: onActivate,
+        }),
         [navIds, selectedId, onSelect, onActivate]
     );
     useSurfaceListNav(listNav);
+    // a lens tag only tells rows apart when the list mixes lenses
+    const mixedModes = new Set(findings.map(findingMode)).size > 1;
 
     return (
-        <div className="flex w-[360px] shrink-0 flex-col overflow-y-auto border-r border-border py-2">
-            {GROUP_ORDER.map((g) => {
-                const items = grouped[g];
-                if (items.length === 0) {
-                    return null;
-                }
-                const meta = groupMeta(g);
-                const isOpen = open.has(g);
-                return (
-                    <div key={g} className="mb-2">
-                        <button
-                            type="button"
-                            onClick={() => toggle(g)}
-                            className="flex w-full items-center gap-2 px-3 py-2 text-left"
-                        >
-                            {isOpen ? (
-                                <ChevronDown className="h-3 w-3 text-muted" />
-                            ) : (
-                                <ChevronRight className="h-3 w-3 text-muted" />
-                            )}
-                            <span className={cn("h-1.5 w-1.5 rounded-full", TONE_DOT[meta.tone])} />
-                            <span className={cn("text-[10px] font-semibold uppercase tracking-wider", TONE_TEXT[meta.tone])}>
-                                {meta.label}
-                            </span>
-                            <span className="rounded-full bg-surface px-1.5 text-[10px] font-semibold text-muted-foreground">
-                                {items.length}
-                            </span>
-                            <span className="flex-1" />
-                            <span className="text-[10px] text-muted">{meta.hint}</span>
-                        </button>
-                        <AnimatePresence initial={false}>
-                            {isOpen ? (
-                                <motion.div
-                                    key="items"
-                                    variants={composerReveal}
-                                    initial="initial"
-                                    animate="animate"
-                                    exit="exit"
-                                    className="overflow-hidden"
+        <div className="flex w-[384px] flex-none flex-col border-r border-edge-faint">
+            <div className="min-h-0 flex-1 overflow-y-auto pb-2.5 pt-1">
+                {GROUP_ORDER.map((g) => {
+                    const items = grouped[g];
+                    if (items.length === 0) {
+                        return null;
+                    }
+                    const meta = groupMeta(g);
+                    const isOpen = open.has(g);
+                    return (
+                        <div key={g} className="flex flex-col">
+                            <button
+                                type="button"
+                                aria-expanded={isOpen}
+                                onClick={() => toggle(g)}
+                                className="flex items-center gap-2 px-4 pb-1.5 pt-3 text-left"
+                            >
+                                {isOpen ? (
+                                    <ChevronDown className="h-3 w-3 text-ink-faint" />
+                                ) : (
+                                    <ChevronRight className="h-3 w-3 text-ink-faint" />
+                                )}
+                                <span className={cn("h-1.5 w-1.5 rounded-full", TONE_DOT[meta.tone])} />
+                                <span
+                                    className={cn(
+                                        "text-[10.5px] font-bold uppercase tracking-[0.08em]",
+                                        TONE_TEXT[meta.tone]
+                                    )}
                                 >
-                                    {items.map((f) => {
-                                  const active = selectedId === f.id;
-                                  const muted = isMutedGroup(f.group);
-                                  const fmeta = groupMeta(f.group);
-                                  const badge = investigationBadge(f);
-                                  return (
-                                      <button
-                                          key={f.id}
-                                          type="button"
-                                          onClick={() => onSelect(f.id)}
-                                          className={cn(
-                                              "relative flex w-full flex-col gap-2 border-l-2 px-3.5 py-2.5 text-left transition-colors duration-150",
-                                              active
-                                                  ? "border-accent bg-accent/10"
-                                                  : "border-transparent hover:bg-surface-hover",
-                                              muted && !active && "opacity-70"
-                                          )}
-                                      >
-                                          <div className="flex items-center gap-2">
-                                              <span
-                                                  className={cn(
-                                                      "rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide",
-                                                      severityPill(f.severity)
-                                                  )}
-                                              >
-                                                  {f.severity}
-                                              </span>
-                                              <span className="truncate font-mono text-[10px] text-muted">{f.subsystem}</span>
-                                              {findingMode(f) !== "correctness" ? (
-                                                  <span
-                                                      className={cn(
-                                                          "shrink-0 rounded border px-1 py-px text-xxxs font-bold uppercase tracking-wide",
-                                                          modeBadge(findingMode(f))
-                                                      )}
-                                                  >
-                                                      {MODE_META[findingMode(f)].short}
-                                                  </span>
-                                              ) : null}
-                                              <span className="flex-1" />
-                                              {!muted ? <StrengthPips strength={f.strength} /> : null}
-                                          </div>
-                                          <span className="line-clamp-2 text-sm font-medium text-primary">{f.risk}</span>
-                                          <div className="flex items-center gap-2 font-mono text-[10px] text-muted">
-                                              <span>
-                                                  {f.files.length} {f.files.length === 1 ? "file" : "files"}
-                                              </span>
-                                              <span className="text-border">·</span>
-                                              <span>{findingSignalCount(f)} signals</span>
-                                              <AmbientTags {...ambientRefForFinding(f)} />
-                                              {badge ? (
-                                                  <span
-                                                      className={cn(
-                                                          badge === "still-detected"
-                                                              ? TONE_TEXT.recurring
-                                                              : badge === "investigating"
-                                                                ? "text-accent-soft"
-                                                                : TONE_TEXT.nolonger
-                                                      )}
-                                                  >
-                                                      {badge === "still-detected"
-                                                          ? "still detected"
-                                                          : badge === "investigating"
-                                                            ? "investigating"
-                                                            : "investigated"}
-                                                  </span>
-                                              ) : null}
-                                              <span className="flex-1" />
-                                              <span className={missedLatestScan(f) ? "text-muted" : TONE_TEXT[fmeta.tone]}>
-                                                  {findingDelta(f)}
-                                              </span>
-                                          </div>
-                                      </button>
-                                  );
-                                    })}
-                                </motion.div>
-                            ) : null}
-                        </AnimatePresence>
-                    </div>
-                );
-            })}
+                                    {meta.label}
+                                </span>
+                                <span className="font-mono text-[10.5px] text-ink-faint">{items.length}</span>
+                                <span className="flex-1" />
+                                <span className="text-[11px] text-ink-faint">{meta.hint}</span>
+                            </button>
+                            <AnimatePresence initial={false}>
+                                {isOpen ? (
+                                    <motion.div
+                                        key="items"
+                                        variants={composerReveal}
+                                        initial="initial"
+                                        animate="animate"
+                                        exit="exit"
+                                        className="flex flex-col gap-px overflow-hidden px-2"
+                                    >
+                                        {items.map((f) => (
+                                            <FindingRow
+                                                key={f.id}
+                                                finding={f}
+                                                active={selectedId === f.id}
+                                                showMode={mixedModes && findingMode(f) !== "correctness"}
+                                                onSelect={onSelect}
+                                            />
+                                        ))}
+                                    </motion.div>
+                                ) : null}
+                            </AnimatePresence>
+                        </div>
+                    );
+                })}
+            </div>
+            <div className="flex flex-none items-center gap-4 border-t border-edge-faint px-4 py-[9px] text-[11px] text-muted">
+                <span className="flex items-center gap-1.5">
+                    <span className="flex gap-[3px]">
+                        <Kbd>j</Kbd>
+                        <Kbd>k</Kbd>
+                    </span>
+                    move
+                </span>
+                {activateLabel ? (
+                    <span className="flex items-center gap-1.5">
+                        <Kbd>↵</Kbd>
+                        {activateLabel}
+                    </span>
+                ) : null}
+            </div>
         </div>
+    );
+}
+
+function FindingRow({
+    finding: f,
+    active,
+    showMode,
+    onSelect,
+}: {
+    finding: RadarFinding;
+    active: boolean;
+    showMode: boolean;
+    onSelect: (id: string) => void;
+}) {
+    const iv = investigationView(f);
+    const mode = findingMode(f);
+    return (
+        <button
+            type="button"
+            aria-current={active}
+            onClick={() => onSelect(f.id)}
+            className={cn(
+                "flex flex-col gap-[7px] rounded-lg px-2.5 pb-2.5 pt-[9px] text-left transition-colors duration-150",
+                active ? "bg-surface-selected ring-1 ring-inset ring-accent/45" : "hover:bg-surface-hover",
+                isMutedGroup(f.group) && !active && "opacity-[0.62]"
+            )}
+        >
+            <span
+                className={cn(
+                    "line-clamp-2 text-[13px] font-medium leading-[1.42] text-pretty",
+                    active ? "text-primary" : "text-ink-hi"
+                )}
+            >
+                {f.risk}
+            </span>
+            <span className="flex min-w-0 items-center gap-2">
+                <span
+                    className={cn(
+                        "flex-none rounded px-1.5 py-px text-[9.5px] font-bold uppercase tracking-[0.06em]",
+                        severityPill(f.severity)
+                    )}
+                >
+                    {f.severity}
+                </span>
+                {showMode ? (
+                    <span
+                        className={cn(
+                            "flex-none rounded border px-[5px] text-[9.5px] font-bold uppercase tracking-[0.06em]",
+                            modeBadge(mode)
+                        )}
+                    >
+                        {MODE_META[mode].short}
+                    </span>
+                ) : null}
+                <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted">{f.subsystem}</span>
+                <AmbientTags {...ambientRefForFinding(f)} />
+                {missedLatestScan(f) ? (
+                    <span className="flex-none text-[11px] text-muted">not detected this scan</span>
+                ) : null}
+                {iv ? (
+                    <span className={cn("flex-none text-[11px] font-semibold", INVESTIGATION_TEXT[iv.tone])}>
+                        {iv.rowLabel}
+                    </span>
+                ) : null}
+                <StrengthPips strength={f.strength} />
+            </span>
+        </button>
     );
 }

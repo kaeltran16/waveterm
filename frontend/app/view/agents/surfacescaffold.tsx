@@ -45,17 +45,24 @@ export function SurfaceHeader({
 // className exists for one reason: the Jarvis Stage stacks this directly above and below bands that all
 // share one gutter (jarvis/stagemeasure.ts), and px-[30px] put it 6px right of every one of them. A
 // surface that owns its own horizontal measure passes it in; everyone else keeps the default.
+// children sit between the body and the buttons, for a state that has to show what it is working on
+// (Radar's collector list). secondaryAction sits beside the primary, or alone when a state has no
+// accent action to offer.
 export function SurfaceEmptyState({
     glyph,
     title,
     body,
     action,
+    secondaryAction,
+    children,
     className,
 }: {
     glyph?: ReactNode;
     title: string;
     body?: ReactNode;
-    action?: { label: ReactNode; onClick: () => void; hint?: ReactNode };
+    action?: { label: ReactNode; onClick: () => void; hint?: ReactNode; disabled?: boolean };
+    secondaryAction?: { label: ReactNode; onClick: () => void };
+    children?: ReactNode;
     className?: string;
 }) {
     return (
@@ -76,26 +83,37 @@ export function SurfaceEmptyState({
                 {body != null ? (
                     <div className="mb-[30px] max-w-[400px] text-[14px] leading-[1.6] text-muted">{body}</div>
                 ) : null}
-                {action != null ? (
-                    <>
-                        <motion.button
-                            type="button"
-                            onClick={action.onClick}
-                            whileHover={{ y: -1 }}
-                            whileTap={{ y: 0 }}
-                            style={{
-                                boxShadow:
-                                    "0 14px 34px color-mix(in srgb, var(--color-accent) 34%, transparent), var(--shadow-inset-highlight)",
-                            }}
-                            className="flex cursor-pointer items-center gap-[11px] rounded-lg bg-accent px-[26px] py-3.5 text-[15px] font-bold text-background hover:bg-accenthover"
-                        >
-                            {action.label}
-                        </motion.button>
-                        {action.hint != null ? (
-                            <div className="mt-[18px] text-[12.5px] text-muted">{action.hint}</div>
+                {children != null ? <div className="mb-[26px] w-full">{children}</div> : null}
+                {action != null || secondaryAction != null ? (
+                    <div className="flex items-center gap-2.5">
+                        {action != null ? (
+                            <motion.button
+                                type="button"
+                                onClick={action.onClick}
+                                disabled={action.disabled}
+                                whileHover={{ y: -1 }}
+                                whileTap={{ y: 0 }}
+                                style={{
+                                    boxShadow:
+                                        "0 14px 34px color-mix(in srgb, var(--color-accent) 34%, transparent), var(--shadow-inset-highlight)",
+                                }}
+                                className="flex cursor-pointer items-center gap-[11px] rounded-lg bg-accent px-[26px] py-3.5 text-[15px] font-bold text-background hover:bg-accenthover disabled:cursor-default disabled:opacity-50"
+                            >
+                                {action.label}
+                            </motion.button>
                         ) : null}
-                    </>
+                        {secondaryAction != null ? (
+                            <button
+                                type="button"
+                                onClick={secondaryAction.onClick}
+                                className="cursor-pointer rounded-lg border border-edge-mid bg-surface-raised px-4 py-2.5 text-[13px] font-semibold text-secondary hover:border-edge-strong"
+                            >
+                                {secondaryAction.label}
+                            </button>
+                        ) : null}
+                    </div>
                 ) : null}
+                {action?.hint != null ? <div className="mt-[18px] text-[12.5px] text-muted">{action.hint}</div> : null}
             </div>
         </motion.div>
     );

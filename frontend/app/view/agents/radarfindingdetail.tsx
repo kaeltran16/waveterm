@@ -1,59 +1,142 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { PopoverReveal } from "@/app/element/popoverreveal";
 import { globalStore } from "@/app/store/jotaiStore";
 import { openInCode } from "@/app/view/code/codestore";
 import { openTarget } from "@/app/view/jarvis/openref";
 import { cn, fireAndForget } from "@/util/util";
-import { ArrowRight, Target } from "lucide-react";
+import { ArrowRight, ChevronDown, Target } from "lucide-react";
+import { useState } from "react";
 import type { AgentsViewModel } from "./agents";
+import { formatAgo } from "./agentsviewmodel";
 import { ambientRefForFinding } from "./ambient";
 import { AmbientTags, RelevantDecisions } from "./ambientviews";
+import { parseUnifiedDiff, type DiffLineKind } from "./gitdiff";
+import { StrengthPips } from "./radarfindingslist";
 import {
+    dismissReasons,
+    evidenceRows,
     findingMode,
     findingSignalCount,
     findingSourceCount,
     groupMeta,
-    investigationEndLabel,
-    isDetectedNow,
+    investigationView,
     missedLatestScan,
     MODE_META,
-    referencedSignals,
-    strengthPips,
-    timelineEntries,
+    primaryAction,
     toPendingRunDraft,
 } from "./radarmodel";
 import { setDisposition } from "./radarstore";
-import { collectorText, modeBadge, severityPill, TONE_DOT, TONE_TEXT } from "./radarstyles";
+import { INVESTIGATION_DOT, INVESTIGATION_TEXT, modeBadge, severityPill, TONE_DOT, TONE_TEXT } from "./radarstyles";
 import { pendingRunDraftAtom } from "./runactions";
 
-// Diff-renderer decision (plan D3 Step 1): RadarSignal.snippet is a plain unified-diff string, and the
-// repo's diff components both require structured input, not a raw patch. Per the plan we render the
-// verbatim specimen in a <pre> with shared surface styling rather than introducing a second diff parser.
+// The finding's one accent action, shared with list-nav Enter: open the live run, or hand the finding to
+// the Run composer.
+export function runPrimaryAction(model: AgentsViewModel, report: RadarReport, finding: RadarFinding): void {
+    const inv = finding.investigation;
+    if (primaryAction(finding).kind === "open-run" && inv) {
+        fireAndForget(() => openTarget(model, { kind: "run", runId: inv.runid }));
+        return;
+    }
+    globalStore.set(pendingRunDraftAtom, toPendingRunDraft(report, finding));
+    globalStore.set(model.surfaceAtom, "jarvis");
+}
 
-const DISMISS_REASONS = ["False positive", "Low priority", "Resolved elsewhere"];
+const DIFF_TONE: Record<DiffLineKind, string> = {
+    hunk: "text-accent-soft",
+    add: "bg-success/10 text-success",
+    del: "bg-error/10 text-error",
+    ctx: "text-ink-mid",
+};
 
-// Source facts (chips, files, timeline, diff) render in neutral surface styling; Radar's own
-// interpretation renders in a labelled accent block so the two are never confused.
-function Section({ title, meta, children }: { title: string; meta?: string; children: React.ReactNode }) {
+const LABEL = "text-[10.5px] font-bold uppercase tracking-[0.08em] text-muted";
+
+function plural(n: number, word: string): string {
+    return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+
+function formatDate(ts: number): string {
+    return ts ? new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
+}
+
+function investigationDetail(inv: RadarInvestigation, now: number): string {
+    switch (inv.status) {
+        case "executing":
+            return `${inv.runid} · started ${formatAgo(now - inv.startedts)}`;
+        case "done": {
+            const fail = inv.verifsfail ? ` · ${inv.verifsfail} fail` : "";
+            return `${plural(inv.filestouched ?? 0, "file")}  +${inv.addtotal ?? 0} −${inv.deltotal ?? 0}  ${inv.verifspass ?? 0} pass${fail}`;
+        }
+        case "orphaned":
+            return inv.runid;
+        default:
+            return inv.completedts ? `${inv.runid} · ended ${formatAgo(now - inv.completedts)}` : inv.runid;
+    }
+}
+
+function dispositionText(d: RadarDisposition): string {
+    return d.action === "suppress" ? "Pattern suppressed" : `Dismissed: ${(d.reason ?? "no reason").toLowerCase()}`;
+}
+
+function Snippet({ snippet }: { snippet: string }) {
+    const lines = parseUnifiedDiff(snippet).lines;
     return (
-        <div className="flex flex-col gap-2">
-            <div className="flex items-center gap-2">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">{title}</h3>
-                {meta ? (
-                    <span className="rounded-full bg-surface px-2 text-[10px] text-muted-foreground">{meta}</span>
-                ) : null}
+        <div className="overflow-x-auto rounded-lg border border-edge-mid bg-surface-code py-2">
+            <div className="flex min-w-max flex-col">
+                {lines.map((ln, i) => (
+                    <span
+                        key={i}
+                        className={cn("whitespace-pre px-3 font-mono text-[11.5px] leading-[1.6]", DIFF_TONE[ln.kind])}
+                    >
+                        {ln.kind === "hunk" ? ln.text : `${ln.sign || " "} ${ln.text}`}
+                    </span>
+                ))}
             </div>
-            {children}
         </div>
     );
 }
 
-function formatDate(ts: number): string {
-    if (!ts) {
-        return "";
-    }
-    return new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+function DismissMenu({ finding, onPick }: { finding: RadarFinding; onPick: (reason: string, note?: string) => void }) {
+    const [open, setOpen] = useState(false);
+    return (
+        <div className="relative">
+            <button
+                type="button"
+                aria-expanded={open}
+                onClick={() => setOpen((v) => !v)}
+                className="flex items-center gap-1.5 rounded-lg border border-edge-mid bg-surface-raised px-3 py-[7px] text-[13px] font-semibold text-secondary hover:border-edge-strong"
+            >
+                Dismiss
+                <ChevronDown className="h-3 w-3 text-ink-faint" />
+            </button>
+            {open ? <div className="fixed inset-0 z-50" onClick={() => setOpen(false)} /> : null}
+            <PopoverReveal
+                open={open}
+                origin="top left"
+                className="absolute left-0 top-[calc(100%+6px)] z-[60] flex w-[280px] flex-col gap-px rounded-xl border border-edge-strong bg-surface-raised p-1.5 shadow-popover"
+            >
+                <div className={cn(LABEL, "px-2 py-1.5")}>Dismiss because</div>
+                {dismissReasons(finding).map((r) => (
+                    <button
+                        key={r.reason}
+                        type="button"
+                        onClick={() => {
+                            setOpen(false);
+                            onPick(r.reason, r.note);
+                        }}
+                        className="rounded-[7px] px-2 py-[7px] text-left text-[12.5px] text-ink-hi hover:bg-surface-hover"
+                    >
+                        {r.label}
+                        {r.run ? <span className="ml-1 font-mono text-[11.5px] text-ink-mid">{r.run}</span> : null}
+                    </button>
+                ))}
+                <div className="mt-1 border-t border-edge-mid px-2 pb-1 pt-[7px] text-[11.5px] leading-[1.45] text-muted">
+                    Closes this finding only. It comes back if new evidence arrives.
+                </div>
+            </PopoverReveal>
+        </div>
+    );
 }
 
 export function RadarFindingDetail({
@@ -65,335 +148,236 @@ export function RadarFindingDetail({
     report: RadarReport;
     finding: RadarFinding;
 }) {
-    const referenced = referencedSignals(finding, report);
-    const timeline = timelineEntries(finding, report);
+    const evidence = evidenceRows(finding, report);
     const meta = groupMeta(finding.group);
-    const dismissed = finding.disposition?.action === "dismiss";
-    const suppressed = finding.disposition?.action === "suppress";
-    const pips = strengthPips(finding.strength);
+    const mode = findingMode(finding);
+    const inv = finding.investigation;
+    const iv = investigationView(finding);
+    const disposition = finding.disposition;
+    const now = Date.now();
 
     const dispose = (action: string, reason?: string, note?: string) =>
         fireAndForget(() => setDisposition(report.oid, finding.id, action, reason, note));
-
-    const startInvestigation = () => {
-        globalStore.set(pendingRunDraftAtom, toPendingRunDraft(report, finding));
-        globalStore.set(model.surfaceAtom, "jarvis");
-    };
-
-    const inv = finding.investigation;
-    const openRun = () => {
-        if (!inv) {
-            return;
-        }
-        fireAndForget(() => openTarget(model, { kind: "run", runId: inv.runid }));
-    };
-    const stillDetected = isDetectedNow(finding);
+    const openRun = () => inv && fireAndForget(() => openTarget(model, { kind: "run", runId: inv.runid }));
 
     return (
         <div
             data-radar-finding-detail={finding.id}
             data-radar-report={report.oid}
-            className="flex min-w-0 flex-1 flex-col gap-6 overflow-y-auto p-6"
+            className="min-w-0 flex-1 overflow-y-auto"
         >
-            {/* status row */}
-            <div className="flex flex-col gap-3">
-                <div className="flex flex-wrap items-center gap-2 text-xs">
-                    <span
-                        className={cn(
-                            "flex items-center gap-1.5 rounded px-2 py-0.5 font-semibold uppercase tracking-wide",
-                            TONE_TEXT[meta.tone]
-                        )}
-                    >
-                        <span className={cn("h-1.5 w-1.5 rounded-full", TONE_DOT[meta.tone])} />
-                        {meta.label}
-                    </span>
-                    {missedLatestScan(finding) ? (
-                        <span className="text-[11px] text-muted">not detected in the latest scan</span>
-                    ) : null}
-                    <span
-                        className={cn(
-                            "rounded px-2 py-0.5 font-semibold uppercase tracking-wide",
-                            severityPill(finding.severity)
-                        )}
-                    >
-                        {finding.severity} severity
-                    </span>
-                    {findingMode(finding) !== "correctness" ? (
+            <div className="flex max-w-[880px] flex-col gap-6 px-[34px] pb-10 pt-[22px]">
+                <div className="flex flex-col gap-3.5">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2.5">
                         <span
                             className={cn(
-                                "rounded border px-2 py-0.5 font-semibold uppercase tracking-wide",
-                                modeBadge(findingMode(finding))
+                                "flex items-center gap-1.5 text-[10.5px] font-bold uppercase tracking-[0.08em]",
+                                TONE_TEXT[meta.tone]
                             )}
                         >
-                            {MODE_META[findingMode(finding)].label}
+                            <span className={cn("h-1.5 w-1.5 rounded-full", TONE_DOT[meta.tone])} />
+                            {meta.label}
                         </span>
-                    ) : null}
-                    <span className="flex items-center gap-1.5 rounded bg-surface px-2 py-0.5 text-muted-foreground">
-                        evidence
-                        <span className="flex gap-0.5">
-                            {[0, 1, 2].map((i) => (
-                                <span
-                                    key={i}
-                                    className={cn("h-2.5 w-1 rounded-[1px]", i < pips ? "bg-accent-soft" : "bg-border")}
-                                />
-                            ))}
+                        {missedLatestScan(finding) ? (
+                            <span className="text-[11px] text-muted">not detected in the latest scan</span>
+                        ) : null}
+                        <span
+                            className={cn(
+                                "rounded px-[7px] py-px text-[10px] font-bold uppercase tracking-[0.06em]",
+                                severityPill(finding.severity)
+                            )}
+                        >
+                            {finding.severity} severity
                         </span>
-                        <span className="uppercase tracking-wide">{finding.strength}</span>
-                    </span>
-                    <AmbientTags {...ambientRefForFinding(finding)} />
-                    <span className="flex-1" />
-                    <span className="font-mono text-[11px] text-muted">{finding.subsystem}</span>
-                </div>
-                <h2 className="text-xl font-bold tracking-tight text-primary">{finding.risk}</h2>
-            </div>
-
-            <Section title="Why it matters">
-                <p className="text-sm leading-relaxed text-muted-foreground">{finding.why}</p>
-            </Section>
-
-            <RelevantDecisions {...ambientRefForFinding(finding)} />
-
-            <Section
-                title="Supporting evidence"
-                meta={`${findingSignalCount(finding)} signals · ${findingSourceCount(finding, report)} sources`}
-            >
-                {referenced.length > 0 ? (
-                    <div className="flex flex-wrap gap-2">
-                        {referenced.map((s) => (
-                            <div
-                                key={s.id}
-                                className="flex items-center gap-2 rounded-md border border-border bg-surface px-2.5 py-1.5"
+                        {mode !== "correctness" ? (
+                            <span
+                                className={cn(
+                                    "rounded border px-[7px] text-[10px] font-bold uppercase tracking-[0.06em]",
+                                    modeBadge(mode)
+                                )}
                             >
-                                <span
-                                    className={cn(
-                                        "text-[9px] font-bold uppercase tracking-wide",
-                                        collectorText(s.collector)
-                                    )}
-                                >
-                                    {s.collector}
-                                </span>
-                                <div className="min-w-0">
-                                    <div className="truncate text-xs text-primary">{s.summary}</div>
-                                    <div className="font-mono text-[10px] text-muted">{s.sourceref}</div>
-                                </div>
-                            </div>
-                        ))}
+                                {MODE_META[mode].label}
+                            </span>
+                        ) : null}
+                        <span className="font-mono text-[11.5px] text-ink-mid">{finding.subsystem}</span>
+                        <AmbientTags {...ambientRefForFinding(finding)} />
+                        <span className="flex-1" />
+                        <span className="flex items-center gap-[7px] text-[11.5px] text-muted">
+                            <StrengthPips strength={finding.strength} tall />
+                            {finding.strength} evidence
+                        </span>
                     </div>
-                ) : (
-                    <p className="text-xs text-muted">No linked signals.</p>
-                )}
-            </Section>
+                    <h2 className="text-[21px] font-bold leading-[1.32] tracking-[-0.01em] text-pretty text-primary">
+                        {finding.risk}
+                    </h2>
+                </div>
 
-            {/* affected files — paths only; the backend does not carry per-file change counts */}
-            {finding.files.length > 0 ? (
-                <div className="overflow-hidden rounded-md border border-border">
-                    <div className="flex items-center gap-2 border-b border-border bg-surface px-3 py-2">
-                        <span className="text-[10px] font-bold uppercase tracking-wide text-muted">Affected files</span>
-                        <span className="font-mono text-[10px] text-muted">{finding.files.length}</span>
-                    </div>
-                    <ul>
-                        {finding.files.map((f) => (
-                            <li key={f} className="border-b border-border last:border-b-0">
-                                {/* findings carry no line numbers, so this lands at the top of the file */}
+                {inv && iv ? (
+                    <div className="flex flex-col gap-2 rounded-[10px] border border-edge-mid bg-surface-raised px-3.5 py-2.5">
+                        <div className="flex items-center gap-3">
+                            <span
+                                className={cn(
+                                    "h-[7px] w-[7px] flex-none rounded-full",
+                                    INVESTIGATION_DOT[iv.tone],
+                                    iv.live && "animate-pulse motion-reduce:animate-none"
+                                )}
+                            />
+                            <span className={cn("text-[12.5px] font-semibold", INVESTIGATION_TEXT[iv.tone])}>
+                                {iv.label}
+                            </span>
+                            <span className="min-w-0 truncate whitespace-pre font-mono text-[11.5px] text-ink-mid">
+                                {investigationDetail(inv, now)}
+                            </span>
+                            <span className="flex-1" />
+                            {iv.openable ? (
                                 <button
                                     type="button"
+                                    onClick={openRun}
+                                    className="flex flex-none items-center gap-1.5 rounded-md border border-edge-mid px-2.5 py-1 text-[11.5px] font-semibold text-secondary hover:border-edge-strong"
+                                >
+                                    Open run <span className="font-mono font-medium text-muted">{inv.runid}</span>
+                                </button>
+                            ) : null}
+                        </div>
+                        {inv.summary ? (
+                            <p className="text-xs leading-relaxed text-muted-foreground">{inv.summary}</p>
+                        ) : null}
+                    </div>
+                ) : null}
+
+                {/* actions sit under the title, not after the evidence */}
+                <div className="flex items-center gap-2">
+                    <button
+                        type="button"
+                        onClick={() => runPrimaryAction(model, report, finding)}
+                        className="flex items-center gap-[7px] rounded-lg bg-accent px-3.5 py-[7px] text-[13px] font-bold text-background hover:bg-accenthover"
+                    >
+                        {primaryAction(finding).label}
+                        <ArrowRight className="h-3.5 w-3.5" strokeWidth={2.2} />
+                    </button>
+                    {disposition ? (
+                        <>
+                            <span title={disposition.note} className="px-1 text-[12.5px] text-muted">
+                                {dispositionText(disposition)}
+                            </span>
+                            <button
+                                type="button"
+                                onClick={() => dispose(disposition.action === "suppress" ? "unsuppress" : "reopen")}
+                                className="rounded-lg border border-edge-mid bg-surface-raised px-3 py-[7px] text-[13px] font-semibold text-secondary hover:border-edge-strong"
+                            >
+                                {disposition.action === "suppress" ? "Unsuppress pattern" : "Reopen finding"}
+                            </button>
+                        </>
+                    ) : (
+                        <>
+                            <DismissMenu
+                                finding={finding}
+                                onPick={(reason, note) => dispose("dismiss", reason, note)}
+                            />
+                            <button
+                                type="button"
+                                title="Hide future findings with this fingerprint until materially different evidence appears"
+                                onClick={() => dispose("suppress")}
+                                className="rounded-lg px-3 py-[7px] text-[13px] font-semibold text-ink-mid hover:text-secondary"
+                            >
+                                Suppress pattern
+                            </button>
+                        </>
+                    )}
+                    <span className="flex-1" />
+                    <span className="font-mono text-[11px] text-ink-faint">{finding.fingerprint}</span>
+                </div>
+
+                <div className="flex flex-col gap-2">
+                    <h3 className={LABEL}>Why it matters</h3>
+                    <p className="max-w-[72ch] text-[13.5px] leading-[1.65] text-pretty text-muted-foreground">
+                        {finding.why}
+                    </p>
+                </div>
+
+                <RelevantDecisions {...ambientRefForFinding(finding)} />
+
+                {/* radar's own reading, kept apart from the evidence below */}
+                <div className="flex flex-col gap-2 rounded-[10px] border border-dashed border-accent/40 bg-surface px-4 pb-3.5 pt-[13px]">
+                    <div className="flex items-center gap-2">
+                        <Target className="h-[13px] w-[13px] text-accent-soft" />
+                        <span className="text-[10.5px] font-bold uppercase tracking-[0.08em] text-accent-soft">
+                            Suggested investigation
+                        </span>
+                        <span className="flex-1" />
+                        <span className="text-[11px] text-muted">Radar's interpretation, not evidence</span>
+                    </div>
+                    <p className="max-w-[72ch] text-[13.5px] leading-[1.6] text-pretty text-foreground">
+                        {finding.mission}
+                    </p>
+                </div>
+
+                {/* one evidence list: timeline order, collector, source ref, and the diff where there is one */}
+                <div className="flex flex-col gap-2">
+                    <div className="flex items-baseline gap-2.5">
+                        <h3 className={LABEL}>Evidence</h3>
+                        <span className="font-mono text-[11px] text-ink-faint">
+                            {plural(findingSignalCount(finding), "signal")} from{" "}
+                            {plural(findingSourceCount(finding, report), "collector")}
+                        </span>
+                    </div>
+                    {evidence.length > 0 ? (
+                        <div className="flex flex-col gap-px overflow-hidden rounded-[10px] border border-edge-mid bg-edge-faint">
+                            {evidence.map((s) => (
+                                <div key={s.id} className="flex flex-col gap-[9px] bg-background px-3.5 py-2.5">
+                                    <div className="grid grid-cols-[52px_92px_minmax(0,1fr)_auto] items-baseline gap-3">
+                                        <span className="font-mono text-[11px] text-ink-faint">
+                                            {formatDate(s.observedts)}
+                                        </span>
+                                        <span className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.04em] text-ink-mid">
+                                            {s.collector}
+                                        </span>
+                                        <span className="text-[13px] leading-[1.45] text-secondary">{s.summary}</span>
+                                        <span className="font-mono text-[11px] text-muted">{s.sourceref}</span>
+                                    </div>
+                                    {s.snippet ? <Snippet snippet={s.snippet} /> : null}
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <p className="text-xs text-muted">No linked signals.</p>
+                    )}
+                </div>
+
+                {finding.files.length > 0 ? (
+                    <div className="flex flex-col gap-2">
+                        <div className="flex items-baseline gap-2.5">
+                            <h3 className={LABEL}>Affected files</h3>
+                            <span className="font-mono text-[11px] text-ink-faint">{finding.files.length}</span>
+                        </div>
+                        <div className="flex flex-col gap-px overflow-hidden rounded-[10px] border border-edge-mid bg-edge-faint">
+                            {finding.files.map((f) => (
+                                // findings carry no line numbers, so this lands at the top of the file
+                                <button
+                                    key={f}
+                                    type="button"
+                                    aria-label={`Open ${f} in Code`}
                                     onClick={() =>
                                         fireAndForget(() =>
                                             openInCode(model, { projectPath: report.projectpath, rel: f })
                                         )
                                     }
-                                    className="w-full cursor-pointer truncate px-3 py-1.5 text-left font-mono text-xs text-muted-foreground hover:bg-accent/10 hover:text-primary"
+                                    className="group flex items-center gap-2.5 bg-background px-3.5 py-[7px] text-left hover:bg-surface-hover"
                                 >
-                                    {f}
+                                    <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink-hi">{f}</span>
+                                    <span className="text-[11px] text-ink-faint group-hover:text-muted">
+                                        open in Code
+                                    </span>
+                                    <ArrowRight className="h-3 w-3 text-ink-faint" />
                                 </button>
-                            </li>
-                        ))}
-                    </ul>
-                </div>
-            ) : null}
-
-            {/* signals timeline */}
-            {timeline.length > 0 ? (
-                <Section title="Signals timeline">
-                    <div className="flex flex-col">
-                        {timeline.map((t, i) => (
-                            <div key={i} className="flex gap-3">
-                                <div className="flex flex-col items-center">
-                                    <span className={cn("mt-1 h-2 w-2 shrink-0 rounded-full", TONE_DOT.new)} />
-                                    {i < timeline.length - 1 ? <span className="w-px flex-1 bg-border" /> : null}
-                                </div>
-                                <div className="min-w-0 pb-3">
-                                    <div className={cn("font-mono text-[10px]", collectorText(t.collector))}>
-                                        {formatDate(t.ts)} · {t.collector}
-                                    </div>
-                                    <div className="text-xs leading-relaxed text-muted-foreground">{t.summary}</div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </Section>
-            ) : null}
-
-            {/* verbatim diff specimens (rendered as <pre>, per plan D3) */}
-            {referenced
-                .filter((s) => s.snippet)
-                .map((s) => (
-                    <div key={s.id} className="overflow-hidden rounded-md border border-border">
-                        <div className="flex items-center gap-2 border-b border-border bg-surface px-3 py-1.5">
-                            <span className="text-[9px] font-bold uppercase tracking-wide text-muted">
-                                Verbatim diff
-                            </span>
-                            <span className="font-mono text-[10px] text-muted">{s.sourceref}</span>
-                        </div>
-                        <pre className="overflow-x-auto p-3 font-mono text-xs text-muted-foreground">{s.snippet}</pre>
-                    </div>
-                ))}
-
-            {/* Radar interpretation — labelled + visually distinct from the source facts above */}
-            <div className="rounded-md border border-dashed border-accent/40 bg-accent/5 p-4">
-                <div className="mb-2 flex items-center gap-2">
-                    <Target className="h-3.5 w-3.5 text-accent-soft" />
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-accent-soft">
-                        Suggested investigation
-                    </span>
-                </div>
-                <p className="text-sm leading-relaxed text-foreground">{finding.mission}</p>
-                <p className="mt-2 text-[10px] text-muted">
-                    Interpretation generated by Radar — not part of the evidence above.
-                </p>
-            </div>
-
-            {inv ? (
-                <div className="rounded-md border border-border p-4">
-                    <div className="mb-2 flex items-center gap-2">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-muted">Investigation</span>
-                        {inv.status === "executing" ? (
-                            <span className="flex items-center gap-1.5 text-[11px] font-semibold text-accent-soft">
-                                <span className="h-1.5 w-1.5 animate-pulse motion-reduce:animate-none rounded-full bg-accent-soft" />
-                                Investigating…
-                            </span>
-                        ) : inv.status === "done" ? (
-                            <span
-                                className={cn(
-                                    "text-[11px] font-semibold",
-                                    stillDetected ? TONE_TEXT.recurring : TONE_TEXT.nolonger
-                                )}
-                            >
-                                {stillDetected ? "Investigated — still detected" : "Investigated"}
-                            </span>
-                        ) : (
-                            <span className="text-[11px] font-semibold text-muted">
-                                {investigationEndLabel(inv.status)}
-                            </span>
-                        )}
-                        <span className="flex-1" />
-                        {inv.status !== "orphaned" ? (
-                            <button
-                                type="button"
-                                onClick={openRun}
-                                className="rounded border border-border px-2 py-1 text-[11px] text-muted-foreground hover:border-edge-strong hover:text-primary"
-                            >
-                                Open run
-                            </button>
-                        ) : null}
-                    </div>
-                    {inv.status === "done" ? (
-                        <div className="flex flex-wrap items-center gap-3 font-mono text-[11px] text-muted-foreground">
-                            <span>
-                                {inv.filestouched ?? 0} {(inv.filestouched ?? 0) === 1 ? "file" : "files"}
-                            </span>
-                            <span className="text-accent-soft">+{inv.addtotal ?? 0}</span>
-                            <span className="text-muted">−{inv.deltotal ?? 0}</span>
-                            <span>{inv.verifspass ?? 0} pass</span>
-                            {(inv.verifsfail ?? 0) > 0 ? (
-                                <span className={TONE_TEXT.recurring}>{inv.verifsfail} fail</span>
-                            ) : null}
-                        </div>
-                    ) : null}
-                    {inv.summary ? (
-                        <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{inv.summary}</p>
-                    ) : null}
-                </div>
-            ) : null}
-
-            {/* actions */}
-            <div className="flex flex-col gap-3">
-                <div className="flex items-center gap-2">
-                    <button
-                        type="button"
-                        onClick={startInvestigation}
-                        className="flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-semibold text-background hover:bg-accent/90"
-                    >
-                        {inv ? "Investigate again" : "Start investigation"}
-                        <ArrowRight className="h-3.5 w-3.5" />
-                    </button>
-                    {dismissed || suppressed ? (
-                        <button
-                            type="button"
-                            onClick={() => dispose(dismissed ? "reopen" : "unsuppress")}
-                            className="rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground hover:bg-surface-hover"
-                        >
-                            {dismissed ? "Reopen finding" : "Unsuppress pattern"}
-                        </button>
-                    ) : null}
-                </div>
-
-                {!dismissed && !suppressed ? (
-                    <div className="flex flex-col gap-3 sm:flex-row">
-                        <div className="flex-1 rounded-md border border-border p-3">
-                            <div className="mb-1 flex items-center gap-2">
-                                <span className="text-xs font-semibold text-primary">Dismiss</span>
-                                <span className="font-mono text-[10px] text-muted">this finding</span>
-                            </div>
-                            <p className="mb-2 text-[11px] leading-relaxed text-muted">
-                                Closes this one finding with a reason. Re-appears if new evidence arrives.
-                            </p>
-                            <div className="flex flex-wrap gap-1.5">
-                                {DISMISS_REASONS.map((r) => (
-                                    <button
-                                        key={r}
-                                        type="button"
-                                        onClick={() => dispose("dismiss", r)}
-                                        className="rounded border border-border px-2 py-1 font-mono text-[10px] text-muted-foreground hover:border-edge-strong hover:text-primary"
-                                    >
-                                        {r}
-                                    </button>
-                                ))}
-                            </div>
-                            {inv?.status === "done" ? (
-                                <button
-                                    type="button"
-                                    onClick={() =>
-                                        dispose("dismiss", "Resolved by investigation", `addressed by run ${inv.runid}`)
-                                    }
-                                    className="mt-2 rounded border border-border px-2 py-1 font-mono text-[10px] text-muted-foreground hover:border-edge-strong hover:text-primary"
-                                >
-                                    Addressed by run
-                                </button>
-                            ) : null}
-                        </div>
-                        <div className="flex-1 rounded-md border border-border p-3">
-                            <div className="mb-1 flex items-center gap-2">
-                                <span className="text-xs font-semibold text-primary">Suppress pattern</span>
-                                <span className="font-mono text-[10px] text-muted">{finding.fingerprint}</span>
-                            </div>
-                            <p className="mb-2 text-[11px] leading-relaxed text-muted">
-                                Hides future findings with this fingerprint until materially different evidence appears.
-                            </p>
-                            <button
-                                type="button"
-                                onClick={() => dispose("suppress")}
-                                className="rounded border border-border px-2.5 py-1 text-[11px] font-semibold text-muted-foreground hover:border-edge-strong hover:text-primary"
-                            >
-                                Suppress this pattern
-                            </button>
+                            ))}
                         </div>
                     </div>
                 ) : null}
 
-                <p className="text-[11px] leading-relaxed text-muted">
-                    Radar does not edit files, run tests, or launch agents on its own — starting an investigation is the
-                    only action that spins up a Run.
+                <p className="text-[11.5px] leading-normal text-muted">
+                    Radar never edits files, runs tests or launches agents on its own. Starting an investigation is the
+                    only action that opens a Run.
                 </p>
             </div>
         </div>

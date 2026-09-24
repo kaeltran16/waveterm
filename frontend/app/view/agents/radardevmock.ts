@@ -63,6 +63,17 @@ const finding = (id: string, group: string, extra: Partial<RadarFinding> = {}): 
     ...extra,
 });
 
+// every collector finished; a scenario overrides the one it wants to show failing
+const ALL_OK = { structure: "ok", git: "ok", runs: "ok", transcript: "ok", config: "ok", dependency: "ok" };
+
+const inv = (status: string, extra: Partial<RadarInvestigation> = {}): RadarInvestigation => ({
+    runid: `run-${status.slice(0, 4)}`,
+    channelid: "dev-channel",
+    status,
+    startedts: 1_720_000_000_000 + 9 * DAY,
+    ...extra,
+});
+
 const base = (extra: Partial<RadarReport>): RadarReport =>
     ({
         oid: "dev-report",
@@ -87,14 +98,21 @@ export function buildScenario(name: string): RadarReport {
         case "partial":
             return base({
                 status: "partial",
-                coverage: { git: "ok", runs: "ok", transcript: "failed", memory: "ok" },
+                coverage: { ...ALL_OK, transcript: "failed" },
                 partialsources: ["transcript"],
-                findings: [finding("a", "new"), finding("b", "recurring", { severity: "medium", strength: "moderate" })],
+                // the tree moved mid-scan too, so the health strip shows a line with no fix
+                windowendts: 1_720_000_000_000 + 10 * DAY,
+                starthead: "a3f9c1",
+                endhead: "e71b04",
+                findings: [
+                    finding("a", "new"),
+                    finding("b", "recurring", { severity: "medium", strength: "moderate", investigation: inv("orphaned") }),
+                ],
             });
         case "no-findings":
-            return base({ status: "completed", coverage: { git: "ok", runs: "ok", memory: "ok" }, findings: [] });
+            return base({ status: "completed", coverage: ALL_OK, findings: [] });
         case "model-failed":
-            return base({ status: "failed", clustererror: "model returned invalid output", candidates: SIGNALS });
+            return base({ status: "failed", coverage: ALL_OK, payloadtokens: 12_400, clustererror: "model returned invalid output", candidates: SIGNALS });
         case "cancelled":
             return base({ status: "cancelled" });
         case "security":
@@ -140,11 +158,22 @@ export function buildScenario(name: string): RadarReport {
         default:
             return base({
                 status: "completed",
-                coverage: { git: "ok", runs: "ok", transcript: "ok", memory: "ok" },
+                coverage: ALL_OK,
+                payloadtokens: 12_400,
                 findings: [
                     finding("a", "new"),
-                    finding("b", "recurring", { severity: "medium", strength: "moderate", subsystem: "session · cache" }),
-                    finding("c", "nolonger", { severity: "high", strength: "limited", subsystem: "checkout · limiter" }),
+                    finding("b", "recurring", {
+                        severity: "medium",
+                        strength: "moderate",
+                        subsystem: "session · cache",
+                        investigation: inv("executing"),
+                    }),
+                    finding("c", "nolonger", {
+                        severity: "high",
+                        strength: "limited",
+                        subsystem: "checkout · limiter",
+                        investigation: inv("done", { filestouched: 2, addtotal: 48, deltotal: 6, verifspass: 5 }),
+                    }),
                     finding("d", "dismissed", {
                         severity: "low",
                         strength: "limited",

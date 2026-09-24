@@ -6,35 +6,33 @@ import { PopoverReveal } from "@/app/element/popoverreveal";
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
-import { AlertTriangle, ChevronDown } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, RefreshCw, X } from "lucide-react";
 import { AnimatePresence, motion, MotionConfig } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { DivergenceBanner } from "./focusbanner";
 import { subjectDecision } from "./focussubject";
 import { projectsAtom } from "./projectsstore";
-import { RadarFindingDetail } from "./radarfindingdetail";
+import { RadarFindingDetail, runPrimaryAction } from "./radarfindingdetail";
 import { RadarFindingsList } from "./radarfindingslist";
 import {
-    classifyCoverage,
     classifyScanState,
-    coverageEntries,
-    failedLenses,
+    coverageRows,
     filterByMode,
-    findingMode,
-    groupSummary,
     isResultsState,
+    lensHealthText,
+    lensTabs,
     MODE_META,
-    modeFilterOptions,
-    partialCollectors,
+    primaryAction,
     projectsWithPath,
-    repositoryChangedDuringScan,
     rescanLabel,
+    resolveLens,
     resolveSelection,
-    scanScopeLabel,
-    toPendingRunDraft,
+    scanHealth,
+    scanMetaLine,
     type CoverageCell,
-    type RadarMode,
+    type HealthLine,
+    type LensKey,
 } from "./radarmodel";
 import { RadarScanStatePanel } from "./radarscanstatepanel";
 import {
@@ -50,45 +48,41 @@ import {
     startScan,
     type RadarScope,
 } from "./radarstore";
-import { modeBadge, TONE_DOT } from "./radarstyles";
-import { pendingRunDraftAtom } from "./runactions";
-import { SurfaceHeader } from "./surfacescaffold";
 
-// Header coverage row treats an in-progress ("running") or not-yet-reached ("queued") collector as muted
-// rather than an error, since coverage now streams in during a scan (see classifyCoverage).
-const HEADER_CELL_TONE: Record<CoverageCell, string> = {
-    done: "text-success",
-    running: "text-muted",
-    failed: "text-error",
-    queued: "text-muted",
+const COVERAGE_STATUS: Record<CoverageCell, string> = {
+    done: "done",
+    failed: "incomplete",
+    running: "running",
+    queued: "not run",
 };
 
+const POPOVER =
+    "absolute top-[calc(100%+6px)] z-[60] box-border flex flex-col rounded-xl border border-edge-strong bg-surface-raised p-1.5 shadow-popover";
+
 // Scan-scope selector: the Radar surface owns its scanned repo, initialized from the cockpit's global
-// project but explicitly selectable here (the handoff's "# repo ▾" control) so the surface is
-// self-contained. Reuses the project registry — no second path validator.
+// project but explicitly selectable here so the surface is self-contained. Reuses the project registry —
+// no second path validator.
 function ScopeSelector({ scope, onSelect }: { scope: RadarScope | null; onSelect: (s: RadarScope) => void }) {
     const projects = useAtomValue(projectsAtom);
     const [open, setOpen] = useState(false);
     const entries = projectsWithPath(projects);
 
     return (
-        <div className="relative flex flex-col gap-1">
-            <span className="pl-0.5 font-mono text-xxxs uppercase tracking-widest text-muted">Scan scope</span>
+        <div className="relative">
             <button
                 type="button"
+                aria-label={scope ? `Scanned project: ${scope.name}` : "Select a project to scan"}
                 onClick={() => setOpen((v) => !v)}
-                className="flex items-center gap-2 rounded-lg border border-edge-mid bg-surface-raised px-2.5 py-1.5 text-xs font-medium text-secondary hover:border-edge-strong"
+                className="flex w-[210px] items-center gap-2 rounded-[9px] border border-edge-mid bg-surface px-[11px] py-1.5 text-left hover:border-edge-strong"
             >
-                <span className="font-mono text-muted">#</span>
-                {scope?.name ?? "Select project"}
-                <ChevronDown className="h-3 w-3 text-muted" />
+                <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-ink-hi">
+                    {scope?.name ?? "Select project"}
+                </span>
+                <span className="font-mono text-[10px] text-ink-faint">project</span>
+                <ChevronDown className="h-3 w-3 text-ink-faint" />
             </button>
             {open ? <div className="fixed inset-0 z-50" onClick={() => setOpen(false)} /> : null}
-            <PopoverReveal
-                open={open}
-                origin="top left"
-                className="absolute left-0 top-[calc(100%+6px)] z-[60] w-[240px] overflow-hidden rounded-xl border border-edge-strong bg-surface-raised p-1.5 shadow-popover"
-            >
+            <PopoverReveal open={open} origin="top left" className={cn(POPOVER, "left-0 w-[240px]")}>
                 {entries.length === 0 ? (
                     <div className="px-2 py-3 text-center text-xs text-muted">No registered projects.</div>
                 ) : (
@@ -102,7 +96,7 @@ function ScopeSelector({ scope, onSelect }: { scope: RadarScope | null; onSelect
                             }}
                             className={cn(
                                 "flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-[13px] hover:bg-surface-hover",
-                                scope?.name === name && "bg-accent/10"
+                                scope?.name === name && "bg-surface-selected"
                             )}
                         >
                             <span className="truncate text-secondary">{name}</span>
@@ -110,6 +104,172 @@ function ScopeSelector({ scope, onSelect }: { scope: RadarScope | null; onSelect
                     ))
                 )}
             </PopoverReveal>
+        </div>
+    );
+}
+
+function LensTabs({ report, lens, onPick }: { report: RadarReport; lens: LensKey; onPick: (l: LensKey) => void }) {
+    const tabs = lensTabs(report);
+    if (tabs.length === 0) {
+        return null;
+    }
+    return (
+        <div
+            role="group"
+            aria-label="Lens"
+            className="flex items-center gap-0.5 rounded-[9px] border border-edge-mid bg-surface p-0.5"
+        >
+            {tabs.map((t) => {
+                const on = lens === t.key;
+                return (
+                    <button
+                        key={t.key}
+                        type="button"
+                        aria-pressed={on}
+                        disabled={t.disabled}
+                        onClick={() => onPick(t.key)}
+                        className={cn(
+                            "flex items-center gap-[7px] rounded-[7px] px-2.5 py-1 text-[11.5px] font-semibold transition-colors duration-150 disabled:cursor-default",
+                            on
+                                ? "bg-surface-selected text-ink-hi"
+                                : t.disabled
+                                  ? "text-ink-faint"
+                                  : "text-muted hover:text-secondary"
+                        )}
+                    >
+                        {t.label}
+                        <span
+                            className={cn(
+                                "font-mono text-[10.5px] font-medium",
+                                t.failed ? "text-warning" : on ? "text-accent-soft" : "text-ink-faint"
+                            )}
+                        >
+                            {t.failed && t.count === 0 ? "failed" : t.count}
+                        </span>
+                    </button>
+                );
+            })}
+        </div>
+    );
+}
+
+// Collector coverage, collapsed to a count until asked: the full table is detail, the count is the signal.
+function CoveragePopover({ report }: { report: RadarReport }) {
+    const [open, setOpen] = useState(false);
+    const rows = coverageRows(report);
+    // a collector absent from coverage never ran (a report older than the collector), which is not a failure
+    const ran = rows.filter((r) => r.cell !== "queued");
+    const done = ran.filter((r) => r.cell === "done").length;
+    return (
+        <div className="relative">
+            <button
+                type="button"
+                aria-expanded={open}
+                onClick={() => setOpen((v) => !v)}
+                className="flex items-center gap-[7px] rounded-[7px] border border-edge-mid bg-surface px-2.5 py-[5px] text-[11.5px] font-semibold text-ink-mid hover:border-edge-strong"
+            >
+                <span className={cn("h-1.5 w-1.5 rounded-full", done === ran.length ? "bg-success" : "bg-warning")} />
+                <span className="font-mono font-medium">
+                    {done}/{ran.length}
+                </span>
+                collectors
+                <ChevronDown className="h-[11px] w-[11px] text-ink-faint" />
+            </button>
+            {open ? <div className="fixed inset-0 z-50" onClick={() => setOpen(false)} /> : null}
+            <PopoverReveal open={open} origin="top right" className={cn(POPOVER, "right-0 w-[400px]")}>
+                <div className="px-2 pb-2 pt-1.5 text-[10.5px] font-bold uppercase tracking-[0.08em] text-muted">
+                    Last scan coverage
+                </div>
+                {rows.map((r) => (
+                    <div
+                        key={r.name}
+                        className="grid grid-cols-[16px_88px_minmax(0,1fr)_auto] items-center gap-2 rounded-[7px] px-2 py-[7px]"
+                    >
+                        {r.cell === "done" ? (
+                            <Check className="h-[13px] w-[13px] text-success" strokeWidth={2.4} />
+                        ) : r.cell === "queued" ? (
+                            <span />
+                        ) : (
+                            <X className="h-[13px] w-[13px] text-error" strokeWidth={2.4} />
+                        )}
+                        <span className="font-mono text-[11.5px] text-ink-hi">{r.name}</span>
+                        <span className="truncate text-xs text-muted">{r.examines}</span>
+                        <span
+                            className={cn(
+                                "font-mono text-[10px] uppercase tracking-[0.06em]",
+                                r.cell === "failed" ? "text-error" : "text-ink-faint"
+                            )}
+                        >
+                            {COVERAGE_STATUS[r.cell]}
+                        </span>
+                    </div>
+                ))}
+            </PopoverReveal>
+        </div>
+    );
+}
+
+function HealthLineText({ line }: { line: HealthLine }) {
+    switch (line.kind) {
+        case "collectors":
+            return (
+                <span>
+                    The{" "}
+                    {line.collectors.map((c, i) => (
+                        <span key={c}>
+                            {i > 0 ? (i === line.collectors.length - 1 ? " and " : ", ") : null}
+                            <span className="font-mono text-[11.5px] text-ink-hi">{c}</span>
+                        </span>
+                    ))}{" "}
+                    {line.collectors.length === 1 ? "collector" : "collectors"} did not finish. Findings that rely on
+                    that evidence may be missing.
+                </span>
+            );
+        case "lens":
+            return <span>{lensHealthText(line.modes, line.carried)}</span>;
+        default:
+            return (
+                <span>
+                    The repository changed while this scan ran. Evidence may mix the tree before and after the change.
+                </span>
+            );
+    }
+}
+
+// One strip for every way a scan can be incomplete, each line with its own fix. No heading: a repository
+// change mid-scan is not an incomplete scan, so a shared title would be false for it.
+function ScanHealthStrip({ report }: { report: RadarReport }) {
+    const lines = scanHealth(report);
+    if (lines.length === 0) {
+        return null;
+    }
+    return (
+        <div className="flex flex-none items-start gap-[11px] border-t border-edge-faint bg-warning/5 px-[18px] pb-[11px] pt-2.5">
+            <AlertTriangle className="mt-px h-[15px] w-[15px] flex-none text-warning" />
+            <div className="flex min-w-0 flex-1 flex-col gap-[5px]">
+                {lines.map((line) => (
+                    <div
+                        key={line.kind}
+                        className={cn(
+                            "flex min-h-[22px] items-center gap-3 text-[12.5px]",
+                            line.kind === "repository-changed" ? "text-muted" : "text-secondary"
+                        )}
+                    >
+                        <span className="min-w-0 flex-1">
+                            <HealthLineText line={line} />
+                        </span>
+                        {line.kind === "lens" ? (
+                            <button
+                                type="button"
+                                onClick={() => fireAndForget(() => retryClustering(report.oid))}
+                                className="flex-none rounded-md border border-warning/40 px-2.5 py-1 text-[11.5px] font-semibold text-warning-soft hover:bg-warning/10"
+                            >
+                                {line.modes.length === 1 ? `Retry ${MODE_META[line.modes[0]].label}` : "Retry lenses"}
+                            </button>
+                        ) : null}
+                    </div>
+                ))}
+            </div>
         </div>
     );
 }
@@ -180,79 +340,54 @@ export function RadarSurface({ model }: { model: AgentsViewModel }) {
 
     const state = classifyScanState(report);
     const isResults = isResultsState(state);
-    const [modeFilter, setModeFilter] = useState<RadarMode | "all">("all");
-    const allFindings = report?.findings ?? [];
-    const modeOptions = modeFilterOptions(allFindings);
-    // if the active filter's mode vanished after a re-scan, fall back to "all" so the list is never stuck empty.
-    const activeMode = modeFilter !== "all" && !modeOptions.includes(modeFilter) ? "all" : modeFilter;
-    const findings = filterByMode(allFindings, activeMode);
+    const [lensPick, setLensPick] = useState<LensKey>("all");
+    // a lens that vanished or failed empty after a re-scan falls back to All, so the list is never stuck empty
+    const lens = resolveLens(lensTabs(report), lensPick);
+    const findings = filterByMode(report?.findings ?? [], lens);
     const effectiveSelected = resolveSelection(findings, selectedId);
     const selectedFinding = findings.find((f) => f.id === effectiveSelected);
-    const coverage = report ? coverageEntries(report) : [];
 
-    // list-nav Enter fires the selected finding's primary CTA — start (or re-run) its investigation,
-    // the same gesture as the detail's "Start investigation" button (radarfindingdetail.tsx).
-    const startInvestigation = useCallback(() => {
-        if (!report || !selectedFinding) {
-            return;
+    // list-nav Enter fires the selected finding's primary action, the same as its accent button
+    const activate = useCallback(() => {
+        if (report && selectedFinding) {
+            runPrimaryAction(model, report, selectedFinding);
         }
-        globalStore.set(pendingRunDraftAtom, toPendingRunDraft(report, selectedFinding));
-        globalStore.set(model.surfaceAtom, "jarvis");
     }, [report, selectedFinding, model]);
 
     return (
         <MotionConfig reducedMotion="user">
             <div className="flex h-full w-full flex-col bg-background">
-                <SurfaceHeader
-                    title="Repo Radar"
-                    badge={
-                        <span className="rounded border border-accent/25 bg-accent/10 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-accent-soft">
-                            Correctness risk
-                        </span>
-                    }
-                    subtitle={
-                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                            <span className="text-muted">{scanScopeLabel(scope)}</span>
-                            {coverage.length > 0 ? (
-                                <div className="flex items-center gap-2">
-                                    <span className="font-mono text-[9px] uppercase tracking-widest text-muted">
-                                        Coverage
-                                    </span>
-                                    {coverage.map((c) => {
-                                        const cell = classifyCoverage(c.status);
-                                        const glyph = cell === "done" ? "✓" : cell === "failed" ? "✗" : "…";
-                                        return (
-                                            <span
-                                                key={c.collector}
-                                                className={cn("font-mono text-[10px]", HEADER_CELL_TONE[cell])}
-                                            >
-                                                {glyph} {c.collector}
-                                            </span>
-                                        );
-                                    })}
-                                </div>
-                            ) : null}
-                        </div>
-                    }
-                    actions={
-                        <>
-                            <ScopeSelector scope={scope} onSelect={selectScope} />
-                            {isResults && scope ? (
-                                <button
-                                    type="button"
-                                    onClick={() => fireAndForget(() => startScan(scope.path))}
-                                    className="self-end rounded-md bg-accent px-3 py-1.5 text-sm font-semibold text-background"
-                                >
-                                    {rescanLabel(state)}
-                                </button>
-                            ) : null}
-                        </>
-                    }
-                />
-
-                {/* Above the state switch, not inside the results branch: a divergence is worth saying
-                    whether or not this project has ever been scanned. */}
+                {/* Above the subject bar, as on Diff: a divergence is worth saying whether or not this
+                    project has ever been scanned. */}
                 <DivergenceBanner decision={decision} onRejoin={rejoin} />
+                {/* subject bar: which repository, which lens, and how complete its last scan was */}
+                <div className="flex-none px-[18px] pt-3.5">
+                    <div className="flex flex-wrap items-center gap-x-3.5 gap-y-2 pb-1.5">
+                        <h1 className="flex-none text-[16px] font-bold text-primary">Radar</h1>
+                        <ScopeSelector scope={scope} onSelect={selectScope} />
+                        {isResults && report ? <LensTabs report={report} lens={lens} onPick={setLensPick} /> : null}
+                        <span className="flex-1" />
+                        {isResults && report ? <CoveragePopover report={report} /> : null}
+                        {isResults && scope ? (
+                            <button
+                                type="button"
+                                onClick={() => fireAndForget(() => startScan(scope.path))}
+                                className="flex items-center gap-[7px] rounded-[7px] border border-edge-mid bg-surface-raised px-[11px] py-[5px] text-[11.5px] font-semibold text-secondary hover:border-edge-strong"
+                            >
+                                <RefreshCw className="h-3 w-3" />
+                                {rescanLabel(state)}
+                            </button>
+                        ) : null}
+                    </div>
+                    {isResults && report ? (
+                        <div className="pb-[11px] font-mono text-[11.5px] text-ink-faint">
+                            {scanMetaLine(report, Date.now())}
+                        </div>
+                    ) : (
+                        <div className="pb-2" />
+                    )}
+                </div>
+
                 <div className="min-h-0 flex-1">
                     <AnimatePresence mode="wait" initial={false}>
                         {isResults && report ? (
@@ -264,102 +399,18 @@ export function RadarSurface({ model }: { model: AgentsViewModel }) {
                                 transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
                                 className="flex h-full flex-col"
                             >
-                                {/* summary chips + hypotheses disclaimer */}
-                                <div className="flex flex-wrap items-center gap-3 border-b border-border px-6 py-3">
-                                    {modeOptions.length > 1 ? (
-                                        <div className="flex items-center gap-1.5">
-                                            {(["all", ...modeOptions] as (RadarMode | "all")[]).map((m) => {
-                                                const on = activeMode === m;
-                                                return (
-                                                    <button
-                                                        key={m}
-                                                        type="button"
-                                                        onClick={() => setModeFilter(m)}
-                                                        className={cn(
-                                                            "rounded-full border px-2.5 py-0.5 text-[11px] font-semibold transition-colors duration-150",
-                                                            m === "all"
-                                                                ? on
-                                                                    ? "border-accent/40 bg-accent/15 text-accent-soft"
-                                                                    : "border-border text-muted hover:text-secondary"
-                                                                : on
-                                                                  ? modeBadge(m)
-                                                                  : "border-border text-muted hover:text-secondary"
-                                                        )}
-                                                    >
-                                                        {m === "all" ? "All" : MODE_META[m].label}
-                                                    </button>
-                                                );
-                                            })}
-                                            <span className="mx-1 h-4 w-px bg-border" />
-                                        </div>
-                                    ) : null}
-                                    {groupSummary(findings)
-                                        .filter((s) => s.count > 0)
-                                        .map((s) => (
-                                            <div
-                                                key={s.group}
-                                                className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1"
-                                            >
-                                                <span className={cn("h-1.5 w-1.5 rounded-full", TONE_DOT.new)} />
-                                                <span className="font-mono text-sm font-semibold text-primary">
-                                                    {s.count}
-                                                </span>
-                                                <span className="text-xs text-muted-foreground">{s.label}</span>
-                                            </div>
-                                        ))}
-                                    <span className="flex-1" />
-                                    <span className="text-[11px] text-muted">
-                                        Findings are evidence-backed hypotheses — investigation is a separate, explicit
-                                        step.
-                                    </span>
-                                </div>
-
-                                {partialCollectors(report).length > 0 ? (
-                                    <div className="flex items-center gap-2.5 border-b border-border bg-warning/10 px-6 py-2 text-xs text-warning">
-                                        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                                        <span>
-                                            <b>Partial scan.</b> {partialCollectors(report).join(", ")} did not complete
-                                            — findings that rely on that evidence may be absent.
-                                        </span>
-                                    </div>
-                                ) : null}
-
-                                {repositoryChangedDuringScan(report) ? (
-                                    <div className="border-b border-border px-6 py-2 text-xs text-muted">
-                                        The repository changed while this scan ran — evidence may mix the tree before
-                                        and after the change.
-                                    </div>
-                                ) : null}
-
-                                {failedLenses(report).length > 0 ? (
-                                    <div className="flex items-center gap-2.5 border-b border-border bg-error/10 px-6 py-2 text-xs text-error">
-                                        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                                        <span className="min-w-0 flex-1">
-                                            <b>Lens failed.</b>{" "}
-                                            {failedLenses(report)
-                                                .map(
-                                                    (r) =>
-                                                        MODE_META[findingMode({ mode: r.mode } as RadarFinding)].label
-                                                )
-                                                .join(", ")}{" "}
-                                            did not cluster — the other lenses' findings are shown.
-                                        </span>
-                                        <button
-                                            type="button"
-                                            onClick={() => fireAndForget(() => retryClustering(report.oid))}
-                                            className="shrink-0 rounded border border-error/40 px-2 py-0.5 font-semibold text-error hover:bg-error/15"
-                                        >
-                                            Retry
-                                        </button>
-                                    </div>
-                                ) : null}
-
-                                <div className="flex min-h-0 flex-1">
+                                <ScanHealthStrip report={report} />
+                                <div className="flex min-h-0 flex-1 border-t border-edge-faint">
                                     <RadarFindingsList
                                         findings={findings}
                                         selectedId={effectiveSelected}
                                         onSelect={setSelectedId}
-                                        onActivate={selectedFinding ? startInvestigation : undefined}
+                                        onActivate={selectedFinding ? activate : undefined}
+                                        activateLabel={
+                                            selectedFinding
+                                                ? primaryAction(selectedFinding).label.toLowerCase()
+                                                : undefined
+                                        }
                                     />
                                     {selectedFinding ? (
                                         <RadarFindingDetail model={model} report={report} finding={selectedFinding} />
@@ -377,9 +428,14 @@ export function RadarSurface({ model }: { model: AgentsViewModel }) {
                                 animate={{ opacity: 1 }}
                                 exit={{ opacity: 0 }}
                                 transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
-                                className="h-full"
+                                className="h-full border-t border-edge-faint"
                             >
-                                <RadarScanStatePanel state={state} report={report} scopePath={scope?.path} />
+                                <RadarScanStatePanel
+                                    state={state}
+                                    report={report}
+                                    scopeName={scope?.name}
+                                    scopePath={scope?.path}
+                                />
                             </motion.div>
                         )}
                     </AnimatePresence>

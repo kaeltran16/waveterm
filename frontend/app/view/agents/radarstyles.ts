@@ -4,7 +4,7 @@
 // Presentational token maps for the Radar surface, shared by the master list and detail pane so the
 // two never disagree on a color. Pure class-string lookups — no logic lives here (see radarmodel.ts).
 
-import type { RadarMode, RadarTone } from "./radarmodel";
+import type { InvestigationTone, RadarMode, RadarTone } from "./radarmodel";
 
 // Severity → pill classes + dot color. Unknown severities fall back to the low/accent styling.
 export const SEVERITY_PILL: Record<string, string> = {
@@ -32,19 +32,20 @@ export const TONE_DOT: Record<RadarTone, string> = {
     muted: "bg-muted",
 };
 
-// Collector → accent color, mirroring the handoff's evidence-chip palette.
-const COLLECTOR_TEXT: Record<string, string> = {
-    git: "text-accent",
-    runs: "text-success",
-    transcript: "text-warning",
-    memory: "text-secondary",
-    config: "text-working",
-    structure: "text-muted",
+// Investigation tone → text and dot color, keyed by InvestigationView.tone.
+export const INVESTIGATION_TEXT: Record<InvestigationTone, string> = {
+    live: "text-accent-soft",
+    success: "text-success",
+    warning: "text-warning",
+    muted: "text-muted",
 };
 
-export function collectorText(collector: string): string {
-    return COLLECTOR_TEXT[collector] ?? "text-muted";
-}
+export const INVESTIGATION_DOT: Record<InvestigationTone, string> = {
+    live: "bg-accent-soft",
+    success: "bg-success",
+    warning: "bg-warning",
+    muted: "bg-muted",
+};
 
 // Mode → badge classes (border + faint fill + text), all @theme tokens. Correctness reuses the
 // surface's existing accent-soft treatment; security/debt reuse error/warning tones.

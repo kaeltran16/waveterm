@@ -924,7 +924,7 @@ live. Grep-verify before removing any config key or telemetry field.
 ## Repo Radar — "Start investigation" handoff composer (2026-07-11)
 
 > **Resolved / stale — verified shipped 2026-07-14.** The full handoff is wired end-to-end:
-> `radarfindingdetail.tsx` `startInvestigation()` sets `pendingRunDraftAtom` (`runactions.ts`) →
+> `radarfindingdetail.tsx` `runPrimaryAction()` sets `pendingRunDraftAtom` (`runactions.ts`) →
 > the Channels surface (`channelssurface.tsx`) lands it as a reviewable Run draft (editable goal,
 > file chips, evidence count, "From Radar finding" badge) and `send()` calls `createRun` only on
 > explicit Start. Spec/plan `docs/superpowers/{specs,plans}/2026-07-11-radar-start-investigation-composer*.md`.

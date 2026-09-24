@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Radar — scan states</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width: 1520px; height: 720px; box-sizing: border-box; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); overflow: hidden; --color-background: #0c0e11; --color-surface: #0e1116; --color-surface-raised: #13171d; --color-surface-code: #0b0d10; --color-primary: #e6e9ed; --color-secondary: #cfd5db; --color-ink-hi: #dfe4ea; --color-ink-mid: #9aa3ad; --color-muted: #7f858b; --color-ink-faint: #646a72; --color-edge-faint: #161a20; --color-edge-mid: #20262e; --color-edge-strong: #2a313a; --color-accent: #5e9cff; --color-accent-soft: #aebfff; --color-error: #e0726c; --color-error-soft: #f0a9a4; --color-success: #54c79a; --shadow-inset-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.28); --font-sans: 'Hanken Grotesk', system-ui, sans-serif; --font-mono: 'JetBrains Mono', monospace; background: var(--color-background); color: var(--color-primary); font-family: var(--font-sans); -webkit-font-smoothing: antialiased">
+
+  <!-- never scanned -->
+  <div style="display: flex; align-items: center; justify-content: center; padding: 40px 36px; border-right: 1px solid var(--color-edge-faint)">
+    <div style="width: 100%; max-width: 420px; display: flex; flex-direction: column; align-items: center; text-align: center">
+      <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom: 18px; color: var(--color-accent-soft)"><path d="M19.07 4.93A10 10 0 0 0 6.99 3.34"></path><path d="M4 6h.01"></path><path d="M2.29 9.62A10 10 0 1 0 21.31 8.35"></path><path d="M16.24 7.76A6 6 0 1 0 8.23 16.67"></path><path d="M12 18h.01"></path><path d="M17.99 11.66A6 6 0 0 1 15.77 16.67"></path><circle cx="12" cy="12" r="2"></circle><path d="m13.41 10.59 5.66-5.66"></path></svg>
+      <h2 style="margin: 0 0 10px; font-size: 25px; line-height: 1.2; font-weight: 700; letter-spacing: -0.02em; color: var(--color-primary)">payments-api hasn't been scanned</h2>
+      <p style="margin: 0 0 22px; max-width: 400px; font-size: 14px; line-height: 1.6; color: var(--color-muted); text-wrap: pretty">Radar reads the current tree and recent engineering activity, turns it into compact signals, and groups them into evidence-backed findings. Nothing runs until you scan.</p>
+      <div style="width: 100%; display: flex; flex-direction: column; gap: 1px; margin-bottom: 26px; border-radius: 10px; border: 1px solid var(--color-edge-mid); background: var(--color-edge-faint); overflow: hidden; text-align: left">
+        <sc-for list="{{ collectors }}" as="c" hint-placeholder-count="6">
+          <div style="display: grid; grid-template-columns: 84px minmax(0, 1fr); align-items: baseline; gap: 12px; padding: 8px 14px; background: var(--color-background)">
+            <span style="font-family: var(--font-mono); font-size: 11.5px; color: var(--color-ink-hi)">{{ c.name }}</span>
+            <span style="font-size: 12.5px; color: var(--color-muted)">{{ c.examines }}</span>
+          </div>
+        </sc-for>
+      </div>
+      <button type="button" style="display: flex; align-items: center; gap: 11px; padding: 14px 26px; border: 0; border-radius: 12px; background: var(--color-accent); box-shadow: 0 14px 34px color-mix(in srgb, var(--color-accent) 34%, transparent), var(--shadow-inset-highlight); font: inherit; font-size: 15px; font-weight: 700; color: var(--color-background); cursor: pointer">Scan repository</button>
+      <div style="margin-top: 16px; font-size: 12.5px; color: var(--color-muted)">Local collectors first, then one bounded model call.</div>
+    </div>
+  </div>
+
+  <!-- collecting -->
+  <div style="display: flex; align-items: center; justify-content: center; padding: 40px 36px; border-right: 1px solid var(--color-edge-faint)">
+    <div style="width: 100%; max-width: 420px; display: flex; flex-direction: column; align-items: center; text-align: center">
+      <h2 style="margin: 0 0 10px; font-size: 25px; line-height: 1.2; font-weight: 700; letter-spacing: -0.02em; color: var(--color-primary)">Collecting signals</h2>
+      <p style="margin: 0 0 22px; max-width: 400px; font-size: 14px; line-height: 1.6; color: var(--color-muted); text-wrap: pretty">Local collectors are reading the tree and recent activity. No model budget is spent yet.</p>
+      <div style="width: 100%; display: flex; flex-direction: column; gap: 1px; margin-bottom: 26px; border-radius: 10px; border: 1px solid var(--color-edge-mid); background: var(--color-edge-faint); overflow: hidden; text-align: left">
+        <div style="display: flex; align-items: center; gap: 10px; padding: 8px 14px; background: var(--color-surface)">
+          <span style="flex: 1; font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--color-muted)">Collectors</span>
+          <span style="font-family: var(--font-mono); font-size: 11px; color: var(--color-ink-mid)">2 of 6 done</span>
+        </div>
+        <sc-for list="{{ progress }}" as="c" hint-placeholder-count="6">
+          <div style="display: grid; grid-template-columns: 14px 84px minmax(0, 1fr) 56px; align-items: center; gap: 12px; padding: 8px 14px; background: var(--color-background)">
+            <sc-if value="{{ c.done }}" hint-placeholder-val="{{ false }}">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="color: var(--color-success)"><path d="M20 6 9 17l-5-5"></path></svg>
+            </sc-if>
+            <sc-if value="{{ c.running }}" hint-placeholder-val="{{ false }}">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="color: var(--color-accent-soft)"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg>
+            </sc-if>
+            <sc-if value="{{ c.queued }}" hint-placeholder-val="{{ true }}">
+              <span style="width: 7px; height: 7px; margin-left: 3px; border-radius: 50%; border: 1.5px solid var(--color-edge-strong)"></span>
+            </sc-if>
+            <span style="font-family: var(--font-mono); font-size: 11.5px; color: {{ c.nameColor }}">{{ c.name }}</span>
+            <span style="font-size: 12.5px; color: var(--color-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ c.examines }}</span>
+            <span style="font-family: var(--font-mono); font-size: 10px; text-align: right; text-transform: uppercase; letter-spacing: .06em; color: {{ c.statusColor }}">{{ c.status }}</span>
+          </div>
+        </sc-for>
+      </div>
+      <button type="button" style="padding: 8px 16px; border-radius: 8px; border: 1px solid var(--color-edge-mid); background: var(--color-surface-raised); font: inherit; font-size: 13px; font-weight: 600; color: var(--color-secondary); cursor: pointer">Cancel scan</button>
+    </div>
+  </div>
+
+  <!-- clustering failed -->
+  <div style="display: flex; align-items: center; justify-content: center; padding: 40px 36px">
+    <div style="width: 100%; max-width: 420px; display: flex; flex-direction: column; align-items: center; text-align: center">
+      <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom: 18px; color: var(--color-error)"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg>
+      <h2 style="margin: 0 0 10px; font-size: 25px; line-height: 1.2; font-weight: 700; letter-spacing: -0.02em; color: var(--color-primary)">Clustering failed. Your signals were kept.</h2>
+      <p style="margin: 0 0 20px; max-width: 400px; font-size: 14px; line-height: 1.6; color: var(--color-muted); text-wrap: pretty">Retrying reuses this scan's signals and only spends budget on clustering, so nothing is collected again.</p>
+      <div style="width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 6px; margin-bottom: 26px; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--color-edge-mid); background: var(--color-surface-code); text-align: left">
+        <div style="display: flex; align-items: baseline; gap: 10px">
+          <span style="width: 64px; flex: none; font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--color-muted)">Error</span>
+          <span style="font-family: var(--font-mono); font-size: 12px; color: var(--color-error-soft)">model returned invalid output</span>
+        </div>
+        <div style="display: flex; align-items: baseline; gap: 10px">
+          <span style="width: 64px; flex: none; font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--color-muted)">Kept</span>
+          <span style="font-family: var(--font-mono); font-size: 12px; color: var(--color-ink-mid)">6 of 6 collectors · 12.4k-token payload</span>
+        </div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 10px">
+        <button type="button" style="display: flex; align-items: center; gap: 11px; padding: 14px 26px; border: 0; border-radius: 12px; background: var(--color-accent); box-shadow: 0 14px 34px color-mix(in srgb, var(--color-accent) 34%, transparent), var(--shadow-inset-highlight); font: inherit; font-size: 15px; font-weight: 700; color: var(--color-background); cursor: pointer">Retry clustering</button>
+        <button type="button" style="padding: 13px 18px; border-radius: 12px; border: 1px solid var(--color-edge-mid); background: var(--color-surface-raised); font: inherit; font-size: 14px; font-weight: 600; color: var(--color-secondary); cursor: pointer">Discard and re-scan</button>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1520,"height":720}}'>
+const COLLECTORS = [
+  { name: 'structure', examines: 'Source and test layout' },
+  { name: 'git', examines: 'Recent commits and changed files' },
+  { name: 'runs', examines: 'Recent Runs and how they ended' },
+  { name: 'transcript', examines: 'Agent failures, retries and corrections' },
+  { name: 'config', examines: 'Config and migration boundaries' },
+  { name: 'dependency', examines: 'Dependency manifest pins' },
+];
+const STATUS = { structure: 'done', git: 'done', runs: 'running' };
+
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      collectors: COLLECTORS,
+      progress: COLLECTORS.map((c) => {
+        const s = STATUS[c.name] || 'queued';
+        return {
+          name: c.name, examines: c.examines, status: s,
+          done: s === 'done', running: s === 'running', queued: s === 'queued',
+          nameColor: s === 'queued' ? 'var(--color-muted)' : 'var(--color-ink-hi)',
+          statusColor: s === 'running' ? 'var(--color-accent-soft)' : 'var(--color-ink-faint)',
+        };
+      }),
+    };
+  }
+}
+</script>
+</body>
+</html>

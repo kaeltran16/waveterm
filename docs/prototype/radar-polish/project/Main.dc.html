@@ -1,0 +1,542 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Radar — findings</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width: 1520px; height: 904px; box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden; position: relative; --color-background: #0c0e11; --color-surface: #0e1116; --color-surface-raised: #13171d; --color-surface-hover: #171c22; --color-surface-code: #0b0d10; --color-surface-selected: #1a222c; --color-foreground: #e6e9ed; --color-primary: #e6e9ed; --color-secondary: #cfd5db; --color-muted-foreground: #c3cad1; --color-ink-hi: #dfe4ea; --color-ink-mid: #9aa3ad; --color-muted: #7f858b; --color-ink-faint: #646a72; --color-border: #1c2128; --color-edge-faint: #161a20; --color-edge-mid: #20262e; --color-edge-strong: #2a313a; --color-accent: #5e9cff; --color-accent-soft: #aebfff; --color-error: #e0726c; --color-warning: #e6b450; --color-warning-soft: #f0d79f; --color-success: #54c79a; --shadow-popover: 0 20px 56px rgba(0, 0, 0, 0.55); --font-sans: 'Hanken Grotesk', system-ui, sans-serif; --font-mono: 'JetBrains Mono', monospace; background: var(--color-background); color: var(--color-foreground); font-family: var(--font-sans); -webkit-font-smoothing: antialiased">
+
+  <!-- subject bar -->
+  <div style="flex: none; padding: 14px 18px 0">
+    <div style="display: flex; align-items: center; gap: 14px; padding-bottom: 6px">
+      <h1 style="margin: 0; font-size: 16px; font-weight: 700; color: var(--color-primary)">Radar</h1>
+      <button type="button" aria-label="Scanned project: payments-api" style="width: 210px; display: flex; align-items: center; gap: 8px; padding: 6px 11px; border-radius: 9px; border: 1px solid var(--color-edge-mid); background: var(--color-surface); font: inherit; cursor: pointer; text-align: left">
+        <span style="flex: 1; font-size: 12.5px; font-weight: 600; color: var(--color-ink-hi)">payments-api</span>
+        <span style="font-family: var(--font-mono); font-size: 10px; color: var(--color-ink-faint)">project</span>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--color-ink-faint)"><path d="m6 9 6 6 6-6"></path></svg>
+      </button>
+      <div role="group" aria-label="Lens" style="display: flex; align-items: center; gap: 2px; padding: 2px; border-radius: 9px; border: 1px solid var(--color-edge-mid); background: var(--color-surface)">
+        <sc-for list="{{ lenses }}" as="l" hint-placeholder-count="3">
+          <button type="button" aria-pressed="{{ l.pressed }}" disabled="{{ l.disabled }}" onClick="{{ l.pick }}" style="display: flex; align-items: center; gap: 7px; padding: 4px 10px; border: 0; border-radius: 7px; background: {{ l.bg }}; font: inherit; font-size: 11.5px; font-weight: 600; color: {{ l.fg }}; cursor: pointer">
+            <span>{{ l.label }}</span>
+            <span style="font-family: var(--font-mono); font-size: 10.5px; font-weight: 500; color: {{ l.countColor }}">{{ l.count }}</span>
+          </button>
+        </sc-for>
+      </div>
+      <div style="flex: 1"></div>
+      <div style="position: relative">
+        <button type="button" aria-expanded="{{ covOpen }}" onClick="{{ toggleCoverage }}" style="display: flex; align-items: center; gap: 7px; padding: 5px 10px; border-radius: 7px; border: 1px solid var(--color-edge-mid); background: var(--color-surface); font: inherit; font-size: 11.5px; font-weight: 600; color: var(--color-ink-mid); cursor: pointer">
+          <span style="width: 6px; height: 6px; border-radius: 50%; background: {{ covDot }}"></span>
+          <span style="font-family: var(--font-mono); font-weight: 500">{{ covLabel }}</span>
+          <span>collectors</span>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--color-ink-faint)"><path d="m6 9 6 6 6-6"></path></svg>
+        </button>
+        <sc-if value="{{ covOpen }}" hint-placeholder-val="{{ false }}">
+          <div style="position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; width: 380px; box-sizing: border-box; padding: 6px; border-radius: 12px; border: 1px solid var(--color-edge-strong); background: var(--color-surface-raised); box-shadow: var(--shadow-popover); display: flex; flex-direction: column">
+            <div style="padding: 6px 8px 8px; font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--color-muted)">Last scan coverage</div>
+            <sc-for list="{{ coverage }}" as="c" hint-placeholder-count="6">
+              <div style="display: grid; grid-template-columns: 16px 88px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 7px">
+                <sc-if value="{{ c.ok }}" hint-placeholder-val="{{ true }}">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="color: var(--color-success)"><path d="M20 6 9 17l-5-5"></path></svg>
+                </sc-if>
+                <sc-if value="{{ c.failed }}" hint-placeholder-val="{{ false }}">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="color: var(--color-error)"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+                </sc-if>
+                <span style="font-family: var(--font-mono); font-size: 11.5px; color: var(--color-ink-hi)">{{ c.name }}</span>
+                <span style="font-size: 12px; color: var(--color-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ c.examines }}</span>
+                <span style="font-family: var(--font-mono); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: {{ c.statusColor }}">{{ c.status }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+      </div>
+      <button type="button" style="display: flex; align-items: center; gap: 7px; padding: 5px 11px; border-radius: 7px; border: 1px solid var(--color-edge-mid); background: var(--color-surface-raised); font: inherit; font-size: 11.5px; font-weight: 600; color: var(--color-secondary); cursor: pointer">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path><path d="M8 16H3v5"></path></svg>
+        <span>{{ rescanLabel }}</span>
+      </button>
+    </div>
+    <div style="padding-bottom: 11px; font-family: var(--font-mono); font-size: 11.5px; color: var(--color-ink-faint)">{{ metaLine }}</div>
+  </div>
+
+  <!-- scan health: one strip for every way a scan can be incomplete -->
+  <sc-if value="{{ degraded }}" hint-placeholder-val="{{ false }}">
+    <div style="flex: none; display: flex; align-items: flex-start; gap: 11px; padding: 10px 18px 11px; border-top: 1px solid var(--color-edge-faint); background: color-mix(in oklab, var(--color-warning) 7%, var(--color-background))">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex: none; margin-top: 1px; color: var(--color-warning)"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg>
+      <!-- no heading: a repository change mid-scan is not an incomplete scan, and each line says what it is -->
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px">
+        <sc-for list="{{ health }}" as="h" hint-placeholder-count="3">
+          <div style="display: flex; align-items: center; gap: 12px; min-height: 22px; font-size: 12.5px; color: {{ h.color }}">
+            <span style="flex: 1; min-width: 0">{{ h.pre }}<span style="font-family: var(--font-mono); font-size: 11.5px; color: var(--color-ink-hi)">{{ h.code }}</span>{{ h.post }}</span>
+            <sc-if value="{{ h.hasAction }}" hint-placeholder-val="{{ false }}">
+              <button type="button" style="flex: none; padding: 4px 10px; border-radius: 6px; border: 1px solid color-mix(in oklab, var(--color-warning) 40%, transparent); background: transparent; font: inherit; font-size: 11.5px; font-weight: 600; color: var(--color-warning-soft); cursor: pointer">{{ h.action }}</button>
+            </sc-if>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </sc-if>
+
+  <div style="flex: 1; min-height: 0; display: flex; border-top: 1px solid var(--color-edge-faint)">
+
+    <!-- findings list -->
+    <div style="width: 384px; flex: none; display: flex; flex-direction: column; border-right: 1px solid var(--color-edge-faint)">
+      <div style="flex: 1; min-height: 0; overflow-y: auto; padding: 4px 0 10px">
+        <sc-for list="{{ groups }}" as="g" hint-placeholder-count="3">
+          <div style="display: flex; flex-direction: column">
+            <button type="button" aria-expanded="{{ g.open }}" onClick="{{ g.toggle }}" style="display: flex; align-items: center; gap: 8px; padding: 12px 16px 6px; border: 0; background: transparent; font: inherit; cursor: pointer; text-align: left">
+              <sc-if value="{{ g.open }}" hint-placeholder-val="{{ true }}">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--color-ink-faint)"><path d="m6 9 6 6 6-6"></path></svg>
+              </sc-if>
+              <sc-if value="{{ g.closed }}" hint-placeholder-val="{{ false }}">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--color-ink-faint)"><path d="m9 18 6-6-6-6"></path></svg>
+              </sc-if>
+              <span style="width: 6px; height: 6px; border-radius: 50%; background: {{ g.tone }}"></span>
+              <span style="font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: {{ g.tone }}">{{ g.label }}</span>
+              <span style="font-family: var(--font-mono); font-size: 10.5px; color: var(--color-ink-faint)">{{ g.count }}</span>
+              <span style="flex: 1"></span>
+              <span style="font-size: 11px; color: var(--color-ink-faint)">{{ g.hint }}</span>
+            </button>
+            <sc-if value="{{ g.open }}" hint-placeholder-val="{{ true }}">
+              <div style="display: flex; flex-direction: column; gap: 1px; padding: 0 8px">
+                <sc-for list="{{ g.rows }}" as="r" hint-placeholder-count="2">
+                  <button type="button" aria-current="{{ r.current }}" onClick="{{ r.pick }}" style="display: flex; flex-direction: column; gap: 7px; padding: 9px 10px 10px; border: 0; border-radius: 8px; background: {{ r.bg }}; box-shadow: {{ r.ring }}; opacity: {{ r.opacity }}; font: inherit; cursor: pointer; text-align: left">
+                    <span style="font-size: 13px; line-height: 1.42; font-weight: 500; color: {{ r.titleColor }}; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-wrap: pretty">{{ r.risk }}</span>
+                    <span style="display: flex; align-items: center; gap: 8px; min-width: 0">
+                      <span style="flex: none; padding: 1px 6px; border-radius: 4px; background: {{ r.sevBg }}; font-size: 9.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: {{ r.sevFg }}">{{ r.severity }}</span>
+                      <sc-if value="{{ r.showMode }}" hint-placeholder-val="{{ false }}">
+                        <span style="flex: none; padding: 0 5px; border-radius: 4px; border: 1px solid {{ r.modeBorder }}; font-size: 9.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: {{ r.modeFg }}">{{ r.modeShort }}</span>
+                      </sc-if>
+                      <span style="flex: 1; min-width: 0; font-family: var(--font-mono); font-size: 11px; color: var(--color-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ r.subsystem }}</span>
+                      <sc-if value="{{ r.hasState }}" hint-placeholder-val="{{ false }}">
+                        <span style="flex: none; font-size: 11px; font-weight: 600; color: {{ r.stateColor }}">{{ r.stateLabel }}</span>
+                      </sc-if>
+                      <span title="{{ r.pipTitle }}" style="flex: none; display: flex; gap: 2px">
+                        <span style="width: 3px; height: 10px; border-radius: 1px; background: {{ r.p0 }}"></span>
+                        <span style="width: 3px; height: 10px; border-radius: 1px; background: {{ r.p1 }}"></span>
+                        <span style="width: 3px; height: 10px; border-radius: 1px; background: {{ r.p2 }}"></span>
+                      </span>
+                    </span>
+                  </button>
+                </sc-for>
+              </div>
+            </sc-if>
+          </div>
+        </sc-for>
+      </div>
+      <div style="flex: none; display: flex; align-items: center; gap: 16px; padding: 9px 16px; border-top: 1px solid var(--color-edge-faint); font-size: 11px; color: var(--color-muted)">
+        <span style="display: flex; align-items: center; gap: 6px"><span style="display: flex; gap: 3px"><kbd style="padding: 0 5px; border-radius: 4px; border: 1px solid var(--color-edge-strong); font-family: var(--font-mono); font-size: 10px; color: var(--color-ink-mid)">j</kbd><kbd style="padding: 0 5px; border-radius: 4px; border: 1px solid var(--color-edge-strong); font-family: var(--font-mono); font-size: 10px; color: var(--color-ink-mid)">k</kbd></span>move</span>
+        <span style="display: flex; align-items: center; gap: 6px"><kbd style="padding: 0 5px; border-radius: 4px; border: 1px solid var(--color-edge-strong); font-family: var(--font-mono); font-size: 10px; color: var(--color-ink-mid)">↵</kbd>start investigation</span>
+      </div>
+    </div>
+
+    <!-- detail -->
+    <div style="flex: 1; min-width: 0; overflow-y: auto">
+      <div style="max-width: 880px; box-sizing: border-box; padding: 22px 34px 40px; display: flex; flex-direction: column; gap: 24px">
+
+        <div style="display: flex; flex-direction: column; gap: 14px">
+          <div style="display: flex; align-items: center; gap: 10px; min-width: 0">
+            <span style="display: flex; align-items: center; gap: 6px; font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: {{ sel.tone }}">
+              <span style="width: 6px; height: 6px; border-radius: 50%; background: {{ sel.tone }}"></span>{{ sel.groupLabel }}
+            </span>
+            <span style="padding: 1px 7px; border-radius: 4px; background: {{ sel.sevBg }}; font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: {{ sel.sevFg }}">{{ sel.severity }} severity</span>
+            <sc-if value="{{ sel.showMode }}" hint-placeholder-val="{{ false }}">
+              <span style="padding: 0 7px; border-radius: 4px; border: 1px solid {{ sel.modeBorder }}; font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: {{ sel.modeFg }}">{{ sel.modeLabel }}</span>
+            </sc-if>
+            <span style="font-family: var(--font-mono); font-size: 11.5px; color: var(--color-ink-mid)">{{ sel.subsystem }}</span>
+            <span style="flex: 1"></span>
+            <span style="display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--color-muted)">
+              <span style="display: flex; gap: 2px">
+                <span style="width: 3px; height: 11px; border-radius: 1px; background: {{ sel.p0 }}"></span>
+                <span style="width: 3px; height: 11px; border-radius: 1px; background: {{ sel.p1 }}"></span>
+                <span style="width: 3px; height: 11px; border-radius: 1px; background: {{ sel.p2 }}"></span>
+              </span>
+              <span>{{ sel.strength }} evidence</span>
+            </span>
+          </div>
+          <h2 style="margin: 0; font-size: 21px; line-height: 1.32; font-weight: 700; letter-spacing: -0.01em; color: var(--color-primary); text-wrap: pretty">{{ sel.risk }}</h2>
+        </div>
+
+        <sc-if value="{{ sel.hasInv }}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--color-edge-mid); background: var(--color-surface-raised)">
+            <span style="width: 7px; height: 7px; border-radius: 50%; background: {{ sel.invColor }}"></span>
+            <span style="font-size: 12.5px; font-weight: 600; color: {{ sel.invColor }}">{{ sel.invLabel }}</span>
+            <span style="font-family: var(--font-mono); font-size: 11.5px; color: var(--color-ink-mid)">{{ sel.invDetail }}</span>
+            <span style="flex: 1"></span>
+            <sc-if value="{{ sel.invOpenable }}" hint-placeholder-val="{{ false }}">
+              <button type="button" style="display: flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--color-edge-mid); background: transparent; font: inherit; font-size: 11.5px; font-weight: 600; color: var(--color-secondary); cursor: pointer">Open run <span style="font-family: var(--font-mono); font-weight: 500; color: var(--color-muted)">{{ sel.invRun }}</span></button>
+            </sc-if>
+          </div>
+        </sc-if>
+
+        <!-- actions sit under the title, not after the evidence -->
+        <div style="display: flex; align-items: center; gap: 8px">
+          <button type="button" style="display: flex; align-items: center; gap: 7px; padding: 7px 14px; border-radius: 8px; border: 0; background: var(--color-accent); font: inherit; font-size: 13px; font-weight: 700; color: var(--color-background); cursor: pointer">
+            <span>{{ sel.ctaLabel }}</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg>
+          </button>
+          <sc-if value="{{ sel.open }}" hint-placeholder-val="{{ true }}">
+            <div style="position: relative">
+              <button type="button" aria-expanded="{{ dismissOpen }}" onClick="{{ toggleDismiss }}" style="display: flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 8px; border: 1px solid var(--color-edge-mid); background: var(--color-surface-raised); font: inherit; font-size: 13px; font-weight: 600; color: var(--color-secondary); cursor: pointer">
+                <span>Dismiss</span>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--color-ink-faint)"><path d="m6 9 6 6 6-6"></path></svg>
+              </button>
+              <sc-if value="{{ dismissOpen }}" hint-placeholder-val="{{ false }}">
+                <div style="position: absolute; left: 0; top: calc(100% + 6px); z-index: 20; width: 280px; box-sizing: border-box; padding: 6px; border-radius: 12px; border: 1px solid var(--color-edge-strong); background: var(--color-surface-raised); box-shadow: var(--shadow-popover); display: flex; flex-direction: column; gap: 1px">
+                  <div style="padding: 6px 8px 6px; font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--color-muted)">Dismiss because</div>
+                  <sc-for list="{{ reasons }}" as="reason" hint-placeholder-count="4">
+                    <button type="button" onClick="{{ reason.pick }}" style="display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 7px; border: 0; background: transparent; font: inherit; font-size: 12.5px; color: var(--color-ink-hi); cursor: pointer; text-align: left">
+                      <span style="flex: 1">{{ reason.label }}<sc-if value="{{ reason.hasRun }}" hint-placeholder-val="{{ false }}"> <span style="font-family: var(--font-mono); font-size: 11.5px; color: var(--color-ink-mid)">{{ reason.run }}</span></sc-if></span>
+                    </button>
+                  </sc-for>
+                  <div style="padding: 7px 8px 4px; border-top: 1px solid var(--color-edge-mid); margin-top: 4px; font-size: 11.5px; line-height: 1.45; color: var(--color-muted)">Closes this finding only. It comes back if new evidence arrives.</div>
+                </div>
+              </sc-if>
+            </div>
+            <button type="button" title="Hide future findings with this fingerprint until materially different evidence appears" style="padding: 7px 12px; border-radius: 8px; border: 0; background: transparent; font: inherit; font-size: 13px; font-weight: 600; color: var(--color-ink-mid); cursor: pointer">Suppress pattern</button>
+          </sc-if>
+          <sc-if value="{{ sel.disposed }}" hint-placeholder-val="{{ false }}">
+            <span style="font-size: 12.5px; color: var(--color-muted)">{{ sel.dispositionText }}</span>
+            <button type="button" style="padding: 7px 12px; border-radius: 8px; border: 1px solid var(--color-edge-mid); background: var(--color-surface-raised); font: inherit; font-size: 13px; font-weight: 600; color: var(--color-secondary); cursor: pointer">{{ sel.reopenLabel }}</button>
+          </sc-if>
+          <span style="flex: 1"></span>
+          <span style="font-family: var(--font-mono); font-size: 11px; color: var(--color-ink-faint)">{{ sel.fp }}</span>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <h3 style="margin: 0; font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--color-muted)">Why it matters</h3>
+          <p style="margin: 0; max-width: 72ch; font-size: 13.5px; line-height: 1.65; color: var(--color-muted-foreground); text-wrap: pretty">{{ sel.why }}</p>
+        </div>
+
+        <!-- radar's own reading, kept apart from the evidence below -->
+        <div style="display: flex; flex-direction: column; gap: 8px; padding: 13px 16px 14px; border-radius: 10px; border: 1px dashed color-mix(in oklab, var(--color-accent) 38%, transparent); background: var(--color-surface)">
+          <div style="display: flex; align-items: center; gap: 8px">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--color-accent-soft)"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"></circle><circle cx="12" cy="12" r="2"></circle></svg>
+            <span style="font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--color-accent-soft)">Suggested investigation</span>
+            <span style="flex: 1"></span>
+            <span style="font-size: 11px; color: var(--color-muted)">Radar's interpretation, not evidence</span>
+          </div>
+          <p style="margin: 0; max-width: 72ch; font-size: 13.5px; line-height: 1.6; color: var(--color-foreground); text-wrap: pretty">{{ sel.mission }}</p>
+        </div>
+
+        <!-- one evidence list: timeline order, collector, source ref, and the diff where there is one -->
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <div style="display: flex; align-items: baseline; gap: 10px">
+            <h3 style="margin: 0; font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--color-muted)">Evidence</h3>
+            <span style="font-family: var(--font-mono); font-size: 11px; color: var(--color-ink-faint)">{{ sel.evidenceMeta }}</span>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 1px; border-radius: 10px; border: 1px solid var(--color-edge-mid); background: var(--color-edge-faint); overflow: hidden">
+            <sc-for list="{{ sel.signals }}" as="s" hint-placeholder-count="3">
+              <div style="display: flex; flex-direction: column; gap: 9px; padding: 10px 14px; background: var(--color-background)">
+                <div style="display: grid; grid-template-columns: 52px 92px minmax(0, 1fr) auto; align-items: baseline; gap: 12px">
+                  <span style="font-family: var(--font-mono); font-size: 11px; color: var(--color-ink-faint)">{{ s.date }}</span>
+                  <span style="font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--color-ink-mid)">{{ s.collector }}</span>
+                  <span style="font-size: 13px; line-height: 1.45; color: var(--color-secondary)">{{ s.summary }}</span>
+                  <span style="font-family: var(--font-mono); font-size: 11px; color: var(--color-muted)">{{ s.ref }}</span>
+                </div>
+                <sc-if value="{{ s.hasSnippet }}" hint-placeholder-val="{{ false }}">
+                  <div style="padding: 8px 0; border-radius: 8px; border: 1px solid var(--color-edge-mid); background: var(--color-surface-code); overflow-x: auto">
+                    <div style="display: flex; flex-direction: column; min-width: max-content">
+                      <sc-for list="{{ s.lines }}" as="ln" hint-placeholder-count="4">
+                        <span style="padding: 0 12px; background: {{ ln.bg }}; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.6; white-space: pre; color: {{ ln.fg }}">{{ ln.text }}</span>
+                      </sc-for>
+                    </div>
+                  </div>
+                </sc-if>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <div style="display: flex; align-items: baseline; gap: 10px">
+            <h3 style="margin: 0; font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--color-muted)">Affected files</h3>
+            <span style="font-family: var(--font-mono); font-size: 11px; color: var(--color-ink-faint)">{{ sel.fileCount }}</span>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 1px; border-radius: 10px; border: 1px solid var(--color-edge-mid); background: var(--color-edge-faint); overflow: hidden">
+            <sc-for list="{{ sel.files }}" as="file" hint-placeholder-count="3">
+              <button type="button" aria-label="Open {{ file.path }} in Code" style="display: flex; align-items: center; gap: 10px; padding: 7px 14px; border: 0; background: var(--color-background); font: inherit; cursor: pointer; text-align: left">
+                <span style="flex: 1; min-width: 0; font-family: var(--font-mono); font-size: 12px; color: var(--color-ink-hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ file.path }}</span>
+                <span style="font-size: 11px; color: var(--color-ink-faint)">open in Code</span>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--color-ink-faint)"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg>
+              </button>
+            </sc-for>
+          </div>
+        </div>
+
+        <p style="margin: 0; font-size: 11.5px; line-height: 1.5; color: var(--color-muted)">Radar never edits files, runs tests or launches agents on its own. Starting an investigation is the only action that opens a Run.</p>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"scenario":{"editor":"enum","options":["clean","degraded"],"default":"clean"},"$preview":{"width":1520,"height":904}}'>
+const C = {
+  accent: 'var(--color-accent)',
+  accentSoft: 'var(--color-accent-soft)',
+  warning: 'var(--color-warning)',
+  success: 'var(--color-success)',
+  error: 'var(--color-error)',
+  muted: 'var(--color-muted)',
+  faint: 'var(--color-ink-faint)',
+  mid: 'var(--color-ink-mid)',
+  hi: 'var(--color-ink-hi)',
+  primary: 'var(--color-primary)',
+  secondary: 'var(--color-secondary)',
+  edgeStrong: 'var(--color-edge-strong)',
+  selected: 'var(--color-surface-selected)',
+};
+function tint(c, p) { return 'color-mix(in oklab, ' + c + ' ' + p + '%, transparent)'; }
+
+const GROUPS = [
+  { key: 'new', label: 'New', hint: 'since last scan', tone: C.accent },
+  { key: 'recurring', label: 'Recurring', hint: 'seen in an earlier scan too', tone: C.warning },
+  { key: 'nolonger', label: 'No longer detected', hint: 'evidence disappeared', tone: C.success },
+  { key: 'dismissed', label: 'Dismissed', hint: 'closed with a reason', tone: C.muted },
+  { key: 'suppressed', label: 'Suppressed', hint: 'marked intentional', tone: C.muted },
+];
+const SEV = { high: C.error, medium: C.warning, low: C.accent };
+const MODES = {
+  correctness: { label: 'Correctness', short: 'Corr', color: C.accentSoft },
+  security: { label: 'Security', short: 'Sec', color: C.error },
+};
+const PIPS = { strong: 3, moderate: 2, limited: 1 };
+const COLLECTORS = [
+  { name: 'structure', examines: 'Source and test layout' },
+  { name: 'git', examines: 'Recent commits and changed files' },
+  { name: 'runs', examines: 'Recent Runs and how they ended' },
+  { name: 'transcript', examines: 'Agent failures, retries and corrections' },
+  { name: 'config', examines: 'Config and migration boundaries' },
+  { name: 'dependency', examines: 'Dependency manifest pins' },
+];
+const REASONS = ['False positive', 'Low priority', 'Resolved elsewhere'];
+
+const SIGNALS = {
+  s1: { date: 'Jul 3', collector: 'git', ref: 'a3f9c1', summary: 'validate.ts rewritten with no matching test diff', snippet: '@@ -12,3 +12,6 @@\n-  return code.length > 0;\n+  const c = normalize(code);\n+  if (isExpired(c)) return false;\n+  if (!withinUsageLimit(c)) return false;' },
+  s2: { date: 'Jul 7', collector: 'runs', ref: 'run-2f9c', summary: 'Run "Harden coupon validation" needed 2 corrections' },
+  s3: { date: 'Jul 11', collector: 'transcript', ref: 'agent-77', summary: '3 agents were corrected around the expiry boundary' },
+  s4: { date: 'Jul 12', collector: 'config', ref: 'cfg-12', summary: 'Retry budget raised in config, never lowered back' },
+  s5: { date: 'Jul 9', collector: 'git', ref: 'e71b04', summary: 'session.ts changed 4 times with no test change', snippet: '@@ -40,4 +40,5 @@\n   const tok = await refresh(sess);\n-  sess.expires = tok.exp;\n+  if (tok) sess.expires = tok.exp;\n+  cache.set(sess.id, sess);' },
+  s6: { date: 'Jul 10', collector: 'transcript', ref: 'agent-81', summary: '2 agents corrected on token-refresh ordering' },
+  s7: { date: 'Jul 12', collector: 'dependency', ref: 'package.json', summary: 'jsonwebtoken ^9.0.0 is a floating range' },
+  s8: { date: 'Jul 12', collector: 'structure', ref: 'tree', summary: 'src/session/cache.ts has no sibling test file' },
+  s9: { date: 'Jul 5', collector: 'runs', ref: 'run-1a07', summary: 'Run "Fix cart limiter" was reverted within a day' },
+};
+
+const FINDINGS = [
+  { id: 'a', group: 'new', mode: 'correctness', severity: 'high', strength: 'strong', fp: 'RAD-7c1e', subsystem: 'checkout · coupons',
+    risk: 'Coupon validation gained expiry and usage-limit branches with no covering tests',
+    why: 'validate.ts sits on the checkout write path and changed 7 times in two weeks. The new expiry and usage-limit branches shipped with no test deltas, and three agents needed correction around this exact boundary.',
+    mission: 'Add expiry and usage-limit coverage to tests/coupons.test.ts, then verify cart.ts integrates against the real validateCoupon rather than the current mock.',
+    signals: ['s1', 's2', 's3', 's4'], files: ['src/coupons/validate.ts', 'src/checkout/cart.ts', 'tests/coupons.test.ts'] },
+  { id: 'b', group: 'new', mode: 'security', severity: 'high', strength: 'moderate', fp: 'RAD-19a4', subsystem: 'src/auth',
+    risk: 'Auth session boundary churns without test adjacency',
+    why: 'session.ts changed 4 times in the window with no covering test change, and two agents needed correction on token-refresh ordering here.',
+    mission: 'Write a characterization test for session.ts refresh ordering before the next change lands, then check refresh.ts against it.',
+    signals: ['s5', 's6'], files: ['src/auth/session.ts', 'src/auth/refresh.ts'],
+    inv: { status: 'failed', run: 'run-3b90', ended: 'ended 1h ago' } },
+  { id: 'c', group: 'recurring', mode: 'correctness', severity: 'medium', strength: 'moderate', fp: 'RAD-4be0', subsystem: 'session · cache',
+    risk: 'Session cache invalidation leans on a retry budget that was raised and never lowered',
+    why: 'The retry budget in config was raised during an incident and left there. cache.ts has no test of its own, so the higher budget is now the only thing masking stale reads.',
+    mission: 'Add a test for cache.ts invalidation under the original retry budget, then decide whether the raised value in config/retry.yaml should stay.',
+    signals: ['s4', 's8'], files: ['src/session/cache.ts', 'config/retry.yaml'],
+    inv: { status: 'orphaned', run: 'run-0c12' } },
+  { id: 'd', group: 'recurring', mode: 'security', severity: 'medium', strength: 'limited', fp: 'RAD-d302', subsystem: 'package.json',
+    risk: 'jsonwebtoken pinned to a floating ^ range',
+    why: 'A floating range on an auth-critical dependency can pull an unreviewed version on install.',
+    mission: 'Pin jsonwebtoken to the exact version in package-lock.json and note the pin in the dependency policy.',
+    signals: ['s7'], files: ['package.json', 'package-lock.json'],
+    inv: { status: 'executing', run: 'run-5d21', started: 'started 12 min ago' } },
+  { id: 'e', group: 'nolonger', mode: 'correctness', severity: 'high', strength: 'limited', fp: 'RAD-0f77', subsystem: 'checkout · limiter',
+    risk: 'Cart limiter can be bypassed by re-submitting mid-checkout',
+    why: 'A limiter fix was reverted within a day, leaving the re-submit path without the guard it was meant to add.',
+    mission: 'Reproduce a mid-checkout re-submit against limiter.ts and add the missing guard with a regression test.',
+    signals: ['s9'], files: ['src/checkout/limiter.ts'],
+    inv: { status: 'done', still: false, run: 'run-a6c3', files: 2, add: 48, del: 6, pass: 5, fail: 0 } },
+  { id: 'f', group: 'dismissed', mode: 'correctness', severity: 'low', strength: 'limited', fp: 'RAD-2e19', subsystem: 'checkout · coupons',
+    risk: 'Legacy coupon codes accept lowercase input',
+    why: 'normalize() lowercases codes, but two legacy codes were issued in upper case only.',
+    mission: 'Confirm whether legacy codes are still redeemable and, if so, add them to the coupon fixture.',
+    signals: ['s1'], files: ['src/coupons/validate.ts'], disposition: 'Dismissed as a false positive' },
+  { id: 'g', group: 'suppressed', mode: 'correctness', severity: 'low', strength: 'limited', fp: 'RAD-88b1', subsystem: 'legacy · v1 api',
+    risk: 'v1 API handlers skip request validation',
+    why: 'The v1 handlers predate the validation middleware and were never migrated.',
+    mission: 'Decide whether v1 stays; if it does, route its handlers through the validation middleware.',
+    signals: ['s8'], files: ['src/api/v1/handlers.ts'], disposition: 'Pattern suppressed' },
+];
+
+function pipColors(strength) {
+  const n = PIPS[strength] || 1;
+  return [0, 1, 2].map((i) => (i < n ? C.accentSoft : C.edgeStrong));
+}
+
+// live: the run is still going, so the primary button opens it. openable: a run exists to look at.
+function invView(inv) {
+  if (!inv) return null;
+  if (inv.status === 'executing') {
+    return { label: 'Investigating', color: C.accentSoft, detail: inv.run + ' · ' + inv.started, row: 'investigating', live: true, openable: false, done: false };
+  }
+  if (inv.status === 'cancelled' || inv.status === 'failed') {
+    return { label: 'Investigation ' + inv.status, color: C.muted, detail: inv.run + ' · ' + inv.ended, row: inv.status, live: false, openable: true, done: false };
+  }
+  if (inv.status === 'orphaned') {
+    return { label: 'Run no longer exists', color: C.muted, detail: inv.run, row: 'run gone', live: false, openable: false, done: false };
+  }
+  const stats = inv.files + ' files  +' + inv.add + ' −' + inv.del + '  ' + inv.pass + ' pass' + (inv.fail ? ' · ' + inv.fail + ' fail' : '');
+  return inv.still
+    ? { label: 'Investigated — still detected', color: C.warning, detail: stats, row: 'still detected', live: false, openable: true, done: true }
+    : { label: 'Investigated', color: C.success, detail: stats, row: 'investigated', live: false, openable: true, done: true };
+}
+
+function diffLines(snippet) {
+  return snippet.split('\n').map((text) => {
+    if (text.startsWith('@@')) return { text, fg: C.accentSoft, bg: 'transparent' };
+    if (text.startsWith('+')) return { text, fg: C.success, bg: tint(C.success, 9) };
+    if (text.startsWith('-')) return { text, fg: C.error, bg: tint(C.error, 9) };
+    return { text, fg: C.mid, bg: 'transparent' };
+  });
+}
+
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { lens: 'all', sel: null, closed: { nolonger: true, dismissed: true, suppressed: true }, covOpen: false, dismissOpen: false };
+  }
+
+  renderVals() {
+    const degraded = (this.props.scenario ?? 'clean') === 'degraded';
+    const st = this.state || {};
+    const lens = st.lens || 'all';
+    const closed = st.closed || {};
+
+    // degraded: the security lens failed, and the recurring cache finding has a finished investigation
+    const all = FINDINGS
+      .filter((f) => !(degraded && f.mode === 'security'))
+      .map((f) => (degraded && f.id === 'c'
+        ? Object.assign({}, f, { inv: { status: 'done', still: true, run: 'run-8e40', files: 2, add: 31, del: 9, pass: 4, fail: 1 } })
+        : f));
+    const visible = all.filter((f) => lens === 'all' || f.mode === lens);
+    const mixedModes = new Set(visible.map((f) => f.mode)).size > 1;
+
+    const fallback = degraded ? 'c' : 'a';
+    let selId = st.sel || fallback;
+    if (!visible.some((f) => f.id === selId)) selId = visible.length ? visible[0].id : null;
+    const pick = (id) => () => this.setState({ sel: id, dismissOpen: false });
+
+    const lensDefs = [
+      { key: 'all', label: 'All', count: String(all.length) },
+      { key: 'correctness', label: 'Correctness', count: String(all.filter((f) => f.mode === 'correctness').length) },
+      { key: 'security', label: 'Security', count: degraded ? 'failed' : String(all.filter((f) => f.mode === 'security').length) },
+    ];
+    const lenses = lensDefs.map((l) => {
+      const on = lens === l.key;
+      const failed = l.count === 'failed';
+      return {
+        label: l.label, count: l.count, pressed: on, disabled: failed,
+        bg: on ? C.selected : 'transparent',
+        fg: on ? C.hi : failed ? C.faint : C.muted,
+        countColor: failed ? C.warning : on ? C.accentSoft : C.faint,
+        pick: () => this.setState({ lens: l.key }),
+      };
+    });
+
+    const row = (f) => {
+      const on = f.id === selId;
+      const muted = f.group === 'dismissed' || f.group === 'suppressed';
+      const iv = invView(f.inv);
+      const p = pipColors(f.strength);
+      return {
+        risk: f.risk, severity: f.severity, subsystem: f.subsystem,
+        sevFg: SEV[f.severity], sevBg: tint(SEV[f.severity], 14),
+        showMode: mixedModes && f.mode !== 'correctness',
+        modeShort: MODES[f.mode].short, modeFg: MODES[f.mode].color, modeBorder: tint(MODES[f.mode].color, 35),
+        hasState: !!iv, stateLabel: iv ? iv.row : '', stateColor: iv ? iv.color : C.muted,
+        p0: p[0], p1: p[1], p2: p[2], pipTitle: f.strength + ' evidence',
+        current: on ? 'true' : 'false',
+        bg: on ? C.selected : 'transparent',
+        ring: on ? 'inset 0 0 0 1px ' + tint(C.accent, 45) : 'none',
+        titleColor: on ? C.primary : C.hi,
+        opacity: muted && !on ? '0.62' : '1',
+        pick: pick(f.id),
+      };
+    };
+
+    const groups = GROUPS.map((g) => {
+      const items = visible.filter((f) => f.group === g.key);
+      const open = !closed[g.key];
+      return {
+        label: g.label, hint: g.hint, tone: g.tone, count: items.length, open, closed: !open, rows: items.map(row),
+        toggle: () => this.setState({ closed: Object.assign({}, closed, { [g.key]: open }) }),
+      };
+    }).filter((g) => g.count > 0);
+
+    const f = all.find((x) => x.id === selId) || all[0];
+    const gm = GROUPS.find((g) => g.key === f.group);
+    const iv = invView(f.inv);
+    const p = pipColors(f.strength);
+    const sigs = f.signals.map((id) => SIGNALS[id]);
+    const collectorCount = new Set(sigs.map((s) => s.collector)).size;
+    const disposed = !!f.disposition;
+    const sel = {
+      groupLabel: gm.label, tone: gm.tone,
+      severity: f.severity, sevFg: SEV[f.severity], sevBg: tint(SEV[f.severity], 14),
+      showMode: f.mode !== 'correctness', modeLabel: MODES[f.mode].label, modeFg: MODES[f.mode].color, modeBorder: tint(MODES[f.mode].color, 35),
+      subsystem: f.subsystem, strength: f.strength, p0: p[0], p1: p[1], p2: p[2],
+      risk: f.risk, why: f.why, mission: f.mission, fp: f.fp,
+      hasInv: !!iv, invLabel: iv ? iv.label : '', invColor: iv ? iv.color : C.muted, invDetail: iv ? iv.detail : '',
+      invOpenable: !!iv && iv.openable, invRun: f.inv ? f.inv.run : '',
+      // while a run is live, the one useful next step is to watch it
+      ctaLabel: iv && iv.live ? 'Open run ' + f.inv.run : iv ? 'Investigate again' : 'Start investigation',
+      open: !disposed, disposed, dispositionText: f.disposition || '',
+      reopenLabel: f.group === 'suppressed' ? 'Unsuppress pattern' : 'Reopen finding',
+      evidenceMeta: sigs.length + (sigs.length === 1 ? ' signal' : ' signals') + ' from ' + collectorCount + (collectorCount === 1 ? ' collector' : ' collectors'),
+      signals: sigs.map((s) => ({ date: s.date, collector: s.collector, summary: s.summary, ref: s.ref, hasSnippet: !!s.snippet, lines: s.snippet ? diffLines(s.snippet) : [] })),
+      fileCount: f.files.length,
+      files: f.files.map((path) => ({ path })),
+    };
+
+    const coverage = COLLECTORS.map((c) => {
+      const failed = degraded && c.name === 'transcript';
+      return { name: c.name, examines: c.examines, ok: !failed, failed, status: failed ? 'incomplete' : 'done', statusColor: failed ? C.error : C.faint };
+    });
+    const done = coverage.filter((c) => c.ok).length;
+
+    return {
+      degraded, lenses, groups, sel, coverage,
+      covOpen: !!st.covOpen,
+      covLabel: done + '/' + coverage.length,
+      covDot: done === coverage.length ? C.success : C.warning,
+      toggleCoverage: () => this.setState({ covOpen: !st.covOpen }),
+      dismissOpen: !!st.dismissOpen,
+      toggleDismiss: () => this.setState({ dismissOpen: !st.dismissOpen }),
+      // a finished investigation is the likeliest reason to close a finding, so it leads the list
+      reasons: (iv && iv.done ? [{ label: 'Addressed by', run: f.inv.run }] : [])
+        .concat(REASONS.map((label) => ({ label, run: '' })))
+        .map((r) => ({ label: r.label, run: r.run, hasRun: !!r.run, pick: () => this.setState({ dismissOpen: false }) })),
+      health: degraded
+        ? [
+            { pre: 'The ', code: 'transcript', post: ' collector did not finish. Findings that rely on agent transcripts may be missing.', color: C.secondary, hasAction: false, action: '' },
+            { pre: 'The Security lens did not cluster. Correctness findings are shown.', code: '', post: '', color: C.secondary, hasAction: true, action: 'Retry Security' },
+            { pre: 'The repository changed while this scan ran. Evidence may mix the tree before and after the change.', code: '', post: '', color: C.muted, hasAction: false, action: '' },
+          ]
+        : [],
+      rescanLabel: degraded ? 'Re-run full scan' : 'Re-scan',
+      metaLine: degraded
+        ? 'last scan 2h ago · ' + all.length + ' findings · 1 collector and 1 lens incomplete'
+        : 'last scan 2h ago · ' + all.length + ' findings across 2 lenses · 12.4k-token payload',
+    };
+  }
+}
+</script>
+</body>
+</html>

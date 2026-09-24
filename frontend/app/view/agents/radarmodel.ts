@@ -4,6 +4,8 @@
 // Pure model for the Repo Radar surface: finding grouping, canonical counts, scan-state
 // classification, selection fallback, and Run-draft construction. No jotai / RPC / React here.
 
+import { formatAgo, formatTokens } from "./agentsviewmodel";
+
 export type RadarGroup = "new" | "recurring" | "nolonger" | "dismissed" | "suppressed";
 
 export const GROUP_ORDER: RadarGroup[] = ["new", "recurring", "nolonger", "dismissed", "suppressed"];
@@ -77,18 +79,10 @@ export function findingSourceCount(finding: RadarFinding, report: RadarReport): 
     return new Set(referencedSignals(finding, report).map((s) => s.collector)).size;
 }
 
-// timelineEntries derives the signals timeline from referenced signals, oldest first.
-export interface TimelineEntry {
-    ts: number;
-    collector: string;
-    summary: string;
-    sourceref: string;
-}
-
-export function timelineEntries(finding: RadarFinding, report: RadarReport): TimelineEntry[] {
-    return referencedSignals(finding, report)
-        .map((s) => ({ ts: s.observedts, collector: s.collector, summary: s.summary, sourceref: s.sourceref }))
-        .sort((a, b) => a.ts - b.ts);
+// evidenceRows is the detail pane's one evidence list: referenced signals oldest-first, each keeping its
+// snippet so the diff renders inline under the signal it belongs to.
+export function evidenceRows(finding: RadarFinding, report: RadarReport): RadarSignal[] {
+    return referencedSignals(finding, report).sort((a, b) => a.observedts - b.observedts);
 }
 
 // STRENGTH_PIPS maps the qualitative strength to filled pip count (of 3).
@@ -145,13 +139,6 @@ export function findingDelta(f: RadarFinding): string {
     return missedLatestScan(f) ? "not detected this scan" : groupMeta(f.group).delta;
 }
 
-// groupSummary returns per-group counts in canonical order (all groups, including empty ones) for the
-// results-header summary chips.
-export function groupSummary(findings: RadarFinding[]): { group: RadarGroup; label: string; count: number }[] {
-    const grouped = groupFindings(findings);
-    return GROUP_ORDER.map((g) => ({ group: g, label: GROUP_META[g].label, count: grouped[g].length }));
-}
-
 export type RadarScanState =
     | "never-scanned"
     | "collecting"
@@ -199,9 +186,21 @@ export function rescanLabel(state: RadarScanState): string {
     return state === "partial" ? "Re-run full scan" : "Re-scan";
 }
 
-export function scanScopeLabel(scope: { name: string } | null): string {
-    return scope ? `Scanning ${scope.name}` : "Select a registered project to scan";
+// The collectors a scan runs (pkg/reporadar/types.go) and what each examines. The one list behind the
+// empty state, the live scan progress and the coverage popover, so they cannot disagree.
+export interface CollectorInfo {
+    name: string;
+    examines: string;
 }
+
+export const COLLECTORS: CollectorInfo[] = [
+    { name: "structure", examines: "Source and test layout" },
+    { name: "git", examines: "Recent commits and changed files" },
+    { name: "runs", examines: "Recent Runs and how they ended" },
+    { name: "transcript", examines: "Agent failures, retries and corrections" },
+    { name: "config", examines: "Config and migration boundaries" },
+    { name: "dependency", examines: "Dependency manifest pins" },
+];
 
 export function coverageEntries(report: RadarReport): { collector: string; status: string }[] {
     return Object.entries(report.coverage ?? {}).map(([collector, status]) => ({ collector, status }));
@@ -222,6 +221,21 @@ export function classifyCoverage(status: string | undefined): CoverageCell {
         return "failed";
     }
     return "queued";
+}
+
+export interface CoverageRow extends CollectorInfo {
+    cell: CoverageCell;
+}
+
+// coverageRows joins every known collector with its streamed status. A collector the table does not
+// know yet is appended rather than dropped, so a new backend collector still shows up.
+export function coverageRows(report: RadarReport | null): CoverageRow[] {
+    const coverage = report?.coverage ?? {};
+    const known = new Set(COLLECTORS.map((c) => c.name));
+    const extra = Object.keys(coverage)
+        .filter((name) => !known.has(name))
+        .map((name) => ({ name, examines: "" }));
+    return [...COLLECTORS, ...extra].map((c) => ({ ...c, cell: classifyCoverage(coverage[c.name]) }));
 }
 
 export function hasCoverageFailure(report: RadarReport): boolean {
@@ -324,35 +338,88 @@ export function toPendingRunDraft(report: RadarReport, finding: RadarFinding): P
     };
 }
 
-export type InvestigationBadge = "investigating" | "investigated" | "still-detected" | null;
+export type InvestigationTone = "live" | "success" | "warning" | "muted";
 
-// The loop badge for a finding: an active investigation, a completed one, or a completed one contradicted by
-// the latest scan still detecting the finding ("the fix did not take"). cancelled/failed/orphaned carry no
-// list badge (surfaced only in the detail pane). Pure — no jotai/RPC.
-export function investigationBadge(f: RadarFinding): InvestigationBadge {
+// InvestigationView is how a finding's latest investigation reads in the list and the detail. live: the
+// run is still going, so the primary button opens it. openable: a run exists to look at separately.
+export interface InvestigationView {
+    label: string;
+    rowLabel: string;
+    tone: InvestigationTone;
+    live: boolean;
+    openable: boolean;
+    done: boolean;
+}
+
+function invView(
+    label: string,
+    rowLabel: string,
+    tone: InvestigationTone,
+    flags: { live?: boolean; openable?: boolean; done?: boolean }
+): InvestigationView {
+    return { label, rowLabel, tone, live: !!flags.live, openable: !!flags.openable, done: !!flags.done };
+}
+
+export function investigationView(f: RadarFinding): InvestigationView | null {
     const inv = f.investigation;
     if (!inv) {
         return null;
     }
-    if (inv.status === "executing") {
-        return "investigating";
+    switch (inv.status) {
+        case "executing":
+            return invView("Investigating", "investigating", "live", { live: true });
+        case "done":
+            // a missed finding is not "still detected": the latest scan did not see it
+            return isDetectedNow(f)
+                ? invView("Investigated — still detected", "still detected", "warning", { openable: true, done: true })
+                : invView("Investigated", "investigated", "success", { openable: true, done: true });
+        case "orphaned":
+            return invView("Run no longer exists", "run gone", "muted", {});
+        case "cancelled":
+            return invView("Investigation cancelled", "cancelled", "muted", { openable: true });
+        default:
+            return invView("Investigation failed", "failed", "muted", { openable: true });
     }
-    if (inv.status === "done") {
-        return isDetectedNow(f) ? "still-detected" : "investigated";
-    }
-    return null;
 }
 
-// investigationEndLabel labels an investigation that ended without completing.
-export function investigationEndLabel(status: string): string {
-    switch (status) {
-        case "cancelled":
-            return "Investigation cancelled";
-        case "orphaned":
-            return "Investigation run no longer exists";
-        default:
-            return "Investigation failed";
+// primaryAction is the finding's one accent button, and what list-nav Enter fires. While a run is live
+// the useful next step is to watch it, not to start a second one.
+export interface PrimaryAction {
+    kind: "start" | "open-run";
+    label: string;
+}
+
+export function primaryAction(f: RadarFinding): PrimaryAction {
+    const inv = f.investigation;
+    if (inv?.status === "executing") {
+        return { kind: "open-run", label: `Open run ${inv.runid}` };
     }
+    return { kind: "start", label: inv ? "Investigate again" : "Start investigation" };
+}
+
+export const DISMISS_REASONS = ["False positive", "Low priority", "Resolved elsewhere"];
+
+export interface DismissReason {
+    label: string;
+    run?: string;
+    reason: string;
+    note?: string;
+}
+
+// A finished investigation is the likeliest reason to close a finding, so it leads the list.
+export function dismissReasons(f: RadarFinding): DismissReason[] {
+    const generic = DISMISS_REASONS.map((reason) => ({ label: reason, reason }));
+    const inv = f.investigation;
+    if (inv?.status !== "done") {
+        return generic;
+    }
+    const byRun = {
+        label: "Addressed by",
+        run: inv.runid,
+        reason: "Resolved by investigation",
+        note: `addressed by run ${inv.runid}`,
+    };
+    return [byRun, ...generic];
 }
 
 export type RadarMode = "correctness" | "security" | "debt";
@@ -379,13 +446,6 @@ export function findingMode(f: RadarFinding): RadarMode {
     return (m && KNOWN_MODES.has(m) ? m : "correctness") as RadarMode;
 }
 
-// modeFilterOptions returns the distinct modes present among findings, in canonical order — the set
-// the surface's filter chips render.
-export function modeFilterOptions(findings: RadarFinding[]): RadarMode[] {
-    const present = new Set((findings ?? []).map(findingMode));
-    return MODE_ORDER.filter((m) => present.has(m));
-}
-
 export function filterByMode(findings: RadarFinding[], mode: RadarMode | "all"): RadarFinding[] {
     return mode === "all" ? (findings ?? []) : (findings ?? []).filter((f) => findingMode(f) === mode);
 }
@@ -393,4 +453,100 @@ export function filterByMode(findings: RadarFinding[], mode: RadarMode | "all"):
 // failedLenses returns the mode runs that failed to cluster — the per-lens error banner's source.
 export function failedLenses(report: RadarReport | null): RadarModeRun[] {
     return (report?.moderuns ?? []).filter((r) => r.status === "clustering-failed");
+}
+
+export type LensKey = RadarMode | "all";
+
+export interface LensTab {
+    key: LensKey;
+    label: string;
+    count: number;
+    failed: boolean;
+    disabled: boolean;
+}
+
+// lensTabs lists All plus every lens the scan ran or has findings for. A lens that failed to cluster still
+// carries its findings from the previous scan (pkg/reporadar/lifecycle.go), so it is disabled only when it
+// has none. A single-lens scan gets no tabs: All and that lens would show the same list.
+export function lensTabs(report: RadarReport | null): LensTab[] {
+    const findings = report?.findings ?? [];
+    const failed = new Set(failedLenses(report).map((r) => r.mode));
+    const ran = new Set((report?.moderuns ?? []).filter((r) => r.status !== "skipped").map((r) => r.mode));
+    const present = new Set(findings.map(findingMode));
+    const modes = MODE_ORDER.filter((m) => ran.has(m) || present.has(m));
+    if (modes.length < 2) {
+        return [];
+    }
+    const lenses = modes.map((m) => {
+        const count = findings.filter((f) => findingMode(f) === m).length;
+        const isFailed = failed.has(m);
+        return { key: m, label: MODE_META[m].label, count, failed: isFailed, disabled: isFailed && count === 0 };
+    });
+    return [{ key: "all", label: "All", count: findings.length, failed: false, disabled: false }, ...lenses];
+}
+
+export function resolveLens(tabs: LensTab[], lens: LensKey): LensKey {
+    const tab = tabs.find((t) => t.key === lens);
+    return tab && !tab.disabled ? lens : "all";
+}
+
+export type HealthLine =
+    | { kind: "collectors"; collectors: string[] }
+    | { kind: "lens"; modes: RadarMode[]; carried: number }
+    | { kind: "repository-changed" };
+
+// scanHealth lists every way the scan is incomplete or inconsistent, one line each; empty when clean.
+export function scanHealth(report: RadarReport): HealthLine[] {
+    const lines: HealthLine[] = [];
+    const collectors = partialCollectors(report);
+    if (collectors.length > 0) {
+        lines.push({ kind: "collectors", collectors });
+    }
+    const modes = failedLenses(report).map((r) => findingMode({ mode: r.mode } as RadarFinding));
+    if (modes.length > 0) {
+        const carried = (report.findings ?? []).filter((f) => modes.includes(findingMode(f))).length;
+        lines.push({ kind: "lens", modes, carried });
+    }
+    if (repositoryChangedDuringScan(report)) {
+        lines.push({ kind: "repository-changed" });
+    }
+    return lines;
+}
+
+function joinAnd(items: string[]): string {
+    return items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
+export function lensHealthText(modes: RadarMode[], carried: number): string {
+    const names = joinAnd(modes.map((m) => MODE_META[m].label));
+    const subject = modes.length === 1 ? `The ${names} lens did` : `The ${names} lenses did`;
+    const rest =
+        carried > 0 ? "Its findings are carried over from the previous scan." : "The other lenses' findings are shown.";
+    return `${subject} not cluster. ${rest}`;
+}
+
+function plural(n: number, word: string, many = `${word}s`): string {
+    return `${n} ${n === 1 ? word : many}`;
+}
+
+// scanMetaLine is the line under the subject bar. A degraded scan names what is incomplete in place of the
+// payload size, which matters less than knowing the result has gaps.
+export function scanMetaLine(report: RadarReport, now: number): string {
+    const findings = report.findings ?? [];
+    const parts = [`last scan ${formatAgo(now - (report.completedts || report.startedts))}`];
+    const collectors = partialCollectors(report).length;
+    const lenses = failedLenses(report).length;
+    if (collectors + lenses > 0) {
+        const gaps = [
+            collectors > 0 ? plural(collectors, "collector") : "",
+            lenses > 0 ? plural(lenses, "lens", "lenses") : "",
+        ].filter(Boolean);
+        return [...parts, plural(findings.length, "finding"), `${gaps.join(" and ")} incomplete`].join(" · ");
+    }
+    const lensCount = lensTabs(report).length - 1;
+    parts.push(plural(findings.length, "finding") + (lensCount > 1 ? ` across ${lensCount} lenses` : ""));
+    if (report.payloadtokens) {
+        parts.push(`${formatTokens(report.payloadtokens)}-token payload`);
+    }
+    return parts.join(" · ");
 }

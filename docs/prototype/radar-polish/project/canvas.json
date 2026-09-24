@@ -1,0 +1,19 @@
+{
+  "v": 3,
+  "createdOnFiles": { "v": 1, "at": "2026-09-24T08:28:13Z" },
+  "title": "Radar — polish",
+  "launch": { "view": "canvas" },
+  "pages": [],
+  "boards": {
+    "Main.dc.html": { "x": 0, "y": 0, "w": 1520, "h": 904, "title": "Findings — select, filter by lens, dismiss", "is_interactive": true },
+    "Degraded.dc.html": { "x": 1600, "y": 0, "w": 1520, "h": 904, "title": "Incomplete scan — collector and lens failed", "is_interactive": true },
+    "ScanStates.dc.html": { "x": 0, "y": 1024, "w": 1520, "h": 720, "title": "Scan states — not scanned, collecting, clustering failed" }
+  },
+  "order": ["Main.dc.html", "Degraded.dc.html", "ScanStates.dc.html"],
+  "notes": {
+    "healthRule": { "x": 1600, "y": 1024, "w": 400, "text": "One scan-health strip replaces the three stacked banners (partial scan, repository changed mid-scan, lens failed). Each problem is one line with its own fix; the strip is absent on a clean scan. No heading: a repository change mid-scan is not an incomplete scan, so a shared 'incomplete' title would be false.", "color": "blue" },
+    "ctaRule": { "x": 2080, "y": 1024, "w": 400, "text": "The accent is spent once per screen: Start investigation. Re-scan drops to a secondary button. While an investigation runs, the primary button opens that run instead of starting another. A cancelled or failed run keeps Open run; an orphaned one (run deleted) drops it. A finished run adds 'Addressed by <run>' as the first dismiss reason.", "color": "blue" },
+    "collectorRule": { "x": 1600, "y": 1400, "w": 400, "text": "One collector list serves the empty state, the live progress and the coverage popover, so the six collectors and what each examines are stated in one place.", "color": "blue" }
+  },
+  "designSystems": []
+}

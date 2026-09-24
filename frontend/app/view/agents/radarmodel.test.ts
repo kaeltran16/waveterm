@@ -6,38 +6,43 @@ import {
     buildRunDraft,
     classifyCoverage,
     classifyScanState,
+    COLLECTORS,
     composeRunGoal,
     coverageEntries,
+    coverageRows,
     DEFAULT_OPEN_GROUPS,
+    dismissReasons,
+    evidenceRows,
     failedLenses,
     filterByMode,
     findingDelta,
     findingMode,
     findingSignalCount,
     findingSourceCount,
-    groupMeta,
-    modeFilterOptions,
-    groupSummary,
     GROUP_ORDER,
     groupFindings,
+    groupMeta,
     hasCoverageFailure,
-    investigationBadge,
-    investigationEndLabel,
+    investigationView,
     isDetectedNow,
     isMutedGroup,
     isResultsState,
+    lensHealthText,
+    lensTabs,
     missedLatestScan,
     partialCollectors,
+    primaryAction,
     projectsWithPath,
     referencedSignals,
     reportSignalCount,
     reportSourceCount,
     repositoryChangedDuringScan,
     rescanLabel,
+    resolveLens,
     resolveSelection,
-    scanScopeLabel,
+    scanHealth,
+    scanMetaLine,
     strengthPips,
-    timelineEntries,
     toPendingRunDraft,
 } from "./radarmodel";
 
@@ -135,16 +140,16 @@ describe("evidence resolution", () => {
         expect(findingSourceCount(finding("a", "new", { signalids: ["s1", "s2", "s3"] }), r)).toBe(2);
     });
 
-    it("builds a timeline sorted oldest-first from referenced signals", () => {
+    it("lists evidence oldest-first, keeping each signal's snippet", () => {
         const r = report({
             signals: [
-                { ...signal("s1", "git"), observedts: 300 },
+                { ...signal("s1", "git"), observedts: 300, snippet: "@@ -1 +1 @@" },
                 { ...signal("s2", "runs"), observedts: 100 },
             ],
         });
-        const tl = timelineEntries(finding("a", "new", { signalids: ["s1", "s2"] }), r);
-        expect(tl.map((t) => t.ts)).toEqual([100, 300]);
-        expect(tl.map((t) => t.collector)).toEqual(["runs", "git"]);
+        const rows = evidenceRows(finding("a", "new", { signalids: ["s1", "s2", "missing"] }), r);
+        expect(rows.map((s) => s.id)).toEqual(["s2", "s1"]);
+        expect(rows[1].snippet).toBe("@@ -1 +1 @@");
     });
 });
 
@@ -168,14 +173,6 @@ describe("presentation helpers", () => {
         expect(isMutedGroup("nolonger")).toBe(true);
         expect(isMutedGroup("dismissed")).toBe(true);
         expect(isMutedGroup("suppressed")).toBe(true);
-    });
-
-    it("summarizes counts for every group in canonical order", () => {
-        const s = groupSummary([finding("a", "new"), finding("b", "new"), finding("c", "recurring")]);
-        expect(s.map((x) => x.group)).toEqual(GROUP_ORDER);
-        expect(s.find((x) => x.group === "new")?.count).toBe(2);
-        expect(s.find((x) => x.group === "recurring")?.count).toBe(1);
-        expect(s.find((x) => x.group === "suppressed")?.count).toBe(0);
     });
 });
 
@@ -280,27 +277,104 @@ describe("toPendingRunDraft", () => {
     });
 });
 
-describe("investigationBadge", () => {
-    const f = (group: string, status?: string): RadarFinding =>
-        ({ id: "f", group, investigation: status ? { runid: "r", channelid: "c", status, startedts: 0 } : undefined }) as unknown as RadarFinding;
+const withInv = (group: string, status?: string, extra: Partial<RadarFinding> = {}): RadarFinding =>
+    finding("f", group, {
+        investigation: status ? { runid: "run-1", channelid: "c", status, startedts: 0 } : undefined,
+        ...extra,
+    });
 
+describe("investigationView", () => {
     it("is null with no investigation", () => {
-        expect(investigationBadge(f("new"))).toBeNull();
+        expect(investigationView(withInv("new"))).toBeNull();
     });
-    it("is investigating while executing", () => {
-        expect(investigationBadge(f("new", "executing"))).toBe("investigating");
+    it("is live while executing, and offers no separate Open run (the primary button opens it)", () => {
+        expect(investigationView(withInv("new", "executing"))).toMatchObject({
+            label: "Investigating",
+            rowLabel: "investigating",
+            tone: "live",
+            live: true,
+            openable: false,
+            done: false,
+        });
     });
-    it("is still-detected when done but the finding still recurs", () => {
-        expect(investigationBadge(f("recurring", "done"))).toBe("still-detected");
-        expect(investigationBadge(f("new", "done"))).toBe("still-detected");
+    it("says still detected when done but the finding still recurs", () => {
+        const v = investigationView(withInv("recurring", "done"));
+        expect(v).toMatchObject({
+            label: "Investigated — still detected",
+            rowLabel: "still detected",
+            tone: "warning",
+        });
+        expect(v).toMatchObject({ done: true, openable: true, live: false });
     });
-    it("is investigated when done and the finding is no longer open", () => {
-        expect(investigationBadge(f("nolonger", "done"))).toBe("investigated");
-        expect(investigationBadge(f("dismissed", "done"))).toBe("investigated");
+    it("says investigated when done and the finding is no longer open", () => {
+        expect(investigationView(withInv("nolonger", "done"))).toMatchObject({
+            label: "Investigated",
+            tone: "success",
+        });
+        expect(investigationView(withInv("dismissed", "done"))).toMatchObject({ rowLabel: "investigated" });
     });
-    it("shows no list badge for a cancelled/failed investigation", () => {
-        expect(investigationBadge(f("new", "cancelled"))).toBeNull();
-        expect(investigationBadge(f("new", "failed"))).toBeNull();
+    it("does not call a missed finding still detected after its investigation", () => {
+        expect(investigationView(withInv("recurring", "done", { misscount: 1 }))).toMatchObject({
+            label: "Investigated",
+        });
+    });
+    it("keeps Open run for a cancelled or failed run, which still exists", () => {
+        expect(investigationView(withInv("new", "cancelled"))).toMatchObject({
+            label: "Investigation cancelled",
+            rowLabel: "cancelled",
+            tone: "muted",
+            openable: true,
+            done: false,
+        });
+        expect(investigationView(withInv("new", "failed"))).toMatchObject({
+            label: "Investigation failed",
+            openable: true,
+        });
+    });
+    it("drops Open run for an orphaned investigation, whose run is gone", () => {
+        expect(investigationView(withInv("new", "orphaned"))).toMatchObject({
+            label: "Run no longer exists",
+            rowLabel: "run gone",
+            openable: false,
+        });
+    });
+    it("reads an unknown status as failed rather than hiding it", () => {
+        expect(investigationView(withInv("new", "bogus"))).toMatchObject({ label: "Investigation failed" });
+    });
+});
+
+describe("primaryAction", () => {
+    it("starts an investigation when there is none", () => {
+        expect(primaryAction(withInv("new"))).toEqual({ kind: "start", label: "Start investigation" });
+    });
+    it("opens the live run instead of starting a second one", () => {
+        expect(primaryAction(withInv("new", "executing"))).toEqual({ kind: "open-run", label: "Open run run-1" });
+    });
+    it("investigates again after any ended investigation", () => {
+        for (const status of ["done", "cancelled", "failed", "orphaned"]) {
+            expect(primaryAction(withInv("new", status))).toEqual({ kind: "start", label: "Investigate again" });
+        }
+    });
+});
+
+describe("dismissReasons", () => {
+    it("offers the generic reasons when no investigation finished", () => {
+        expect(dismissReasons(withInv("new")).map((r) => r.reason)).toEqual([
+            "False positive",
+            "Low priority",
+            "Resolved elsewhere",
+        ]);
+        expect(dismissReasons(withInv("new", "failed"))).toHaveLength(3);
+    });
+    it("leads with the finished run as the reason", () => {
+        const [first, ...rest] = dismissReasons(withInv("recurring", "done"));
+        expect(first).toEqual({
+            label: "Addressed by",
+            run: "run-1",
+            reason: "Resolved by investigation",
+            note: "addressed by run run-1",
+        });
+        expect(rest).toHaveLength(3);
     });
 });
 
@@ -327,10 +401,6 @@ describe("radar surface glue", () => {
         expect(rescanLabel("partial")).toBe("Re-run full scan");
         expect(rescanLabel("results")).toBe("Re-scan");
     });
-    it("scanScopeLabel names the scoped project or prompts to select one", () => {
-        expect(scanScopeLabel({ name: "payments-api" })).toBe("Scanning payments-api");
-        expect(scanScopeLabel(null)).toBe("Select a registered project to scan");
-    });
     it("classifyCoverage maps streamed per-collector status to a checklist cell", () => {
         expect(classifyCoverage("ok")).toBe("done");
         expect(classifyCoverage("running")).toBe("running");
@@ -353,11 +423,6 @@ describe("radar modes", () => {
         const fs = [{ mode: "correctness" }, { mode: "security" }] as RadarFinding[];
         expect(filterByMode(fs, "all")).toHaveLength(2);
         expect(filterByMode(fs, "security")).toHaveLength(1);
-    });
-
-    test("modeFilterOptions returns present modes in canonical order", () => {
-        const fs = [{ mode: "debt" }, { mode: "correctness" }] as RadarFinding[];
-        expect(modeFilterOptions(fs)).toEqual(["correctness", "debt"]);
     });
 
     test("failedLenses returns only clustering-failed mode runs", () => {
@@ -389,10 +454,6 @@ describe("scan-miss hysteresis", () => {
         expect(findingDelta(finding("a", "recurring", { misscount: 1 }))).toBe("not detected this scan");
         expect(findingDelta(finding("a", "recurring"))).toBe("recurring");
     });
-    it("does not call a missed finding still detected after its investigation", () => {
-        const investigation = { runid: "r", channelid: "c", status: "done", startedts: 0 };
-        expect(investigationBadge(finding("a", "recurring", { misscount: 1, investigation }))).toBe("investigated");
-    });
 });
 
 describe("partial scan reasons", () => {
@@ -414,10 +475,159 @@ describe("partial scan reasons", () => {
     });
 });
 
-describe("investigationEndLabel", () => {
-    it("labels each way an investigation can end without completing", () => {
-        expect(investigationEndLabel("cancelled")).toBe("Investigation cancelled");
-        expect(investigationEndLabel("orphaned")).toBe("Investigation run no longer exists");
-        expect(investigationEndLabel("failed")).toBe("Investigation failed");
+const modeRun = (mode: string, status: string): RadarModeRun => ({ mode, status });
+
+describe("COLLECTORS and coverageRows", () => {
+    it("names the six collectors the backend runs, each with what it examines", () => {
+        expect(COLLECTORS.map((c) => c.name)).toEqual([
+            "structure",
+            "git",
+            "runs",
+            "transcript",
+            "config",
+            "dependency",
+        ]);
+        expect(COLLECTORS.every((c) => c.examines.length > 0)).toBe(true);
+    });
+    it("joins every collector with its streamed coverage cell, queued when absent", () => {
+        const rows = coverageRows(report({ coverage: { structure: "ok", git: "running", transcript: "failed" } }));
+        expect(rows.map((r) => [r.name, r.cell])).toEqual([
+            ["structure", "done"],
+            ["git", "running"],
+            ["runs", "queued"],
+            ["transcript", "failed"],
+            ["config", "queued"],
+            ["dependency", "queued"],
+        ]);
+    });
+    it("keeps a collector the table does not know, so coverage never hides one", () => {
+        const rows = coverageRows(report({ coverage: { novel: "ok" } }));
+        expect(rows[rows.length - 1]).toEqual({ name: "novel", examines: "", cell: "done" });
+    });
+    it("lists the table alone before any scan", () => {
+        expect(coverageRows(null).map((r) => r.cell)).toEqual(COLLECTORS.map(() => "queued"));
+    });
+});
+
+describe("lensTabs", () => {
+    const sec = finding("s", "new", { mode: "security" });
+    const corr = finding("c", "new", { mode: "correctness" });
+
+    it("renders no tabs when the scan has a single lens", () => {
+        expect(lensTabs(report({ findings: [corr] }))).toEqual([]);
+    });
+    it("counts All plus each lens in canonical order", () => {
+        const tabs = lensTabs(report({ findings: [sec, corr, corr] }));
+        expect(tabs.map((t) => [t.key, t.count])).toEqual([
+            ["all", 3],
+            ["correctness", 2],
+            ["security", 1],
+        ]);
+        expect(tabs.every((t) => !t.failed && !t.disabled)).toBe(true);
+    });
+    it("shows a failed lens with no findings, disabled", () => {
+        const r = report({
+            findings: [corr],
+            moderuns: [modeRun("correctness", "completed"), modeRun("security", "clustering-failed")],
+        });
+        expect(lensTabs(r).find((t) => t.key === "security")).toMatchObject({ count: 0, failed: true, disabled: true });
+    });
+    it("keeps a failed lens selectable when findings were carried from the previous scan", () => {
+        const r = report({
+            findings: [corr, sec],
+            moderuns: [modeRun("correctness", "completed"), modeRun("security", "clustering-failed")],
+        });
+        expect(lensTabs(r).find((t) => t.key === "security")).toMatchObject({
+            count: 1,
+            failed: true,
+            disabled: false,
+        });
+    });
+    it("ignores a skipped lens", () => {
+        const r = report({
+            findings: [corr],
+            moderuns: [modeRun("correctness", "completed"), modeRun("debt", "skipped")],
+        });
+        expect(lensTabs(r)).toEqual([]);
+    });
+});
+
+describe("resolveLens", () => {
+    const tabs = lensTabs(
+        report({
+            findings: [finding("c", "new")],
+            moderuns: [modeRun("correctness", "completed"), modeRun("security", "clustering-failed")],
+        })
+    );
+    it("keeps a selectable lens", () => {
+        expect(resolveLens(tabs, "correctness")).toBe("correctness");
+    });
+    it("falls back to all for a disabled, vanished, or tab-less lens", () => {
+        expect(resolveLens(tabs, "security")).toBe("all");
+        expect(resolveLens(tabs, "debt")).toBe("all");
+        expect(resolveLens([], "correctness")).toBe("all");
+    });
+});
+
+describe("scanHealth", () => {
+    it("is empty for a clean scan", () => {
+        expect(scanHealth(report())).toEqual([]);
+    });
+    it("lists failed collectors, failed lenses, then a repository change", () => {
+        const r = report({
+            partialsources: ["transcript", "repository-changed"],
+            moderuns: [modeRun("correctness", "completed"), modeRun("security", "clustering-failed")],
+            findings: [finding("s", "new", { mode: "security" })],
+        });
+        expect(scanHealth(r)).toEqual([
+            { kind: "collectors", collectors: ["transcript"] },
+            { kind: "lens", modes: ["security"], carried: 1 },
+            { kind: "repository-changed" },
+        ]);
+    });
+});
+
+describe("lensHealthText", () => {
+    it("says the other lenses are shown when the failed lens has nothing carried", () => {
+        expect(lensHealthText(["security"], 0)).toBe(
+            "The Security lens did not cluster. The other lenses' findings are shown."
+        );
+    });
+    it("says carried findings come from the previous scan", () => {
+        expect(lensHealthText(["security"], 2)).toBe(
+            "The Security lens did not cluster. Its findings are carried over from the previous scan."
+        );
+    });
+    it("joins several lenses", () => {
+        expect(lensHealthText(["security", "debt"], 0)).toBe(
+            "The Security and Tech-debt lenses did not cluster. The other lenses' findings are shown."
+        );
+    });
+});
+
+describe("scanMetaLine", () => {
+    const now = 10 * 3_600_000;
+    const done = { status: "completed", completedts: now - 2 * 3_600_000 };
+
+    it("states age, findings, lenses and payload for a clean scan", () => {
+        const r = report({
+            ...done,
+            payloadtokens: 12_400,
+            findings: [finding("a", "new"), finding("b", "new", { mode: "security" })],
+        });
+        expect(scanMetaLine(r, now)).toBe("last scan 2h ago · 2 findings across 2 lenses · 12k-token payload");
+    });
+    it("names what is incomplete instead of the payload for a degraded scan", () => {
+        const r = report({
+            ...done,
+            status: "partial",
+            partialsources: ["transcript"],
+            moderuns: [modeRun("correctness", "completed"), modeRun("security", "clustering-failed")],
+            findings: [finding("a", "new")],
+        });
+        expect(scanMetaLine(r, now)).toBe("last scan 2h ago · 1 finding · 1 collector and 1 lens incomplete");
+    });
+    it("falls back to the start time before completion is recorded", () => {
+        expect(scanMetaLine(report({ startedts: now - 3 * 3_600_000 }), now)).toBe("last scan 3h ago · 0 findings");
     });
 });
