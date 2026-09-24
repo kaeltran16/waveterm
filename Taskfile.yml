@@ -81,10 +81,6 @@ tasks:
         desc: Run the CDP verification harness against the running dev app (scripts/cdp/). Pass scenario names after --, e.g. `task verify:ui -- surface-smoke`. CDP_PORT env overrides the attach port (default 9222) for a worktree dev app on another port.
         cmd: node scripts/cdp/verify.mjs {{.CLI_ARGS}}
 
-    mockup:kit:
-        desc: Regenerate the @theme token block inside docs/prototype/mockup-template.html from frontend/tailwindsetup.css, so mockup colors cannot drift from the app.
-        cmd: node scripts/gen-mockup-tokens.mjs
-
     worktree:prepare:
         desc: Junction node_modules, src-tauri/target, and dist/bin from the main checkout into the current worktree (Windows). Run inside the worktree before `task dev`.
         cmd: node scripts/worktree-junctions.mjs prepare
@@ -285,8 +281,6 @@ tasks:
             # the skills install to the user's Claude Code skills dir, not into the repo
             - cmd: mkdir -p "$HOME/.claude/skills/cockpit-runs" && cp pi/skills/cockpit-runs/SKILL.md "$HOME/.claude/skills/cockpit-runs/SKILL.md"
             - cmd: mkdir -p "$HOME/.claude/skills/effort-tracking" && cp pi/skills/effort-tracking/SKILL.md "$HOME/.claude/skills/effort-tracking/SKILL.md"
-            # repo-specific, so project scope (.claude/ is gitignored) rather than the user dir
-            - cmd: mkdir -p .claude/skills/ui-mockup && cp pi/skills/ui-mockup/SKILL.md .claude/skills/ui-mockup/SKILL.md
         sources:
             - pi/extensions/waveterm-status.ts
             - pi/themes/arc.json
@@ -299,7 +293,6 @@ tasks:
             - pi/extensions/waveterm-simplify-gate-core.ts
             - pi/skills/cockpit-runs/SKILL.md
             - pi/skills/effort-tracking/SKILL.md
-            - pi/skills/ui-mockup/SKILL.md
         generates:
             - cmd/wsh/cmd/pi-status-extension.ts
             - cmd/wsh/cmd/arc-theme.json
@@ -310,7 +303,6 @@ tasks:
             - cmd/wsh/cmd/pi-prose-core-extension.ts
             - cmd/wsh/cmd/pi-simplify-gate-extension.ts
             - cmd/wsh/cmd/pi-simplify-gate-core-extension.ts
-            - .claude/skills/ui-mockup/SKILL.md
 
     build:server:internal:
         deps:

@@ -423,23 +423,27 @@ runtime logos stay image assets.
 - Don't hand-edit generated files (`store/wshclientapi.ts`,
   `types/gotypes.d.ts`, …) — edit Go, run `task generate`.
 
+## Copy
+
+- A button says exactly what happens ("Save changes", not "Submit"), and an action keeps
+  its verb through the flow: "Publish" produces a "Published" toast.
+- Name things by what the user manages, not how the system is built.
+- Errors say what happened and how to fix it; they don't apologize and are never vague.
+- Sentence case, plain verbs, no filler; each piece of text does one job.
+
 ## Mockups (prototypes)
 
 UI changes get a validated high-fidelity HTML mockup before implementation — prototype
 first, always. The mockup is the design proposal; it must be seen and approved before
 code is written.
 
-- Start from `docs/prototype/mockup-template.html`: it carries the `@theme` tokens as CSS
-  vars, the shared recipes (card/panel, row, chips, badges, sec-head, buttons, progress,
-  skeleton), and the audit checklist. The token block is a mirror, not a source —
-  `frontend/tailwindsetup.css` stays authoritative, so check the block against it rather
-  than trusting it after an `@theme` change.
-- Run the checklist (top of the template) before presenting: tokens only, contrast floor,
-  status never color alone, focus-visible, reduced motion, correct card recipe, single
-  accent CTA, micro-scale motion only.
-- Mockups live in `docs/prototype/`; serve with `python -m http.server 8766` from that
-  directory and open the file in a browser. The workflow is also encoded as the
-  `ui-mockup` pi skill (`pi/skills/ui-mockup`).
+- Build it with the `design-local` Claude Code skill: a `.dc.html` canvas under
+  `docs/prototype/<topic>/`. This file is its design system — every rule above applies to
+  the mockup as it will to the code.
+- Token values come from `frontend/tailwindsetup.css` `@theme`, never from memory or an
+  older canvas.
+- Serve with `python -m http.server 8766` from `docs/prototype/` and open
+  `http://localhost:8766/<topic>/project/Main.dc.html`.
 
 ## Architecture & Patterns
 
