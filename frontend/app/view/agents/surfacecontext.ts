@@ -22,6 +22,7 @@ export const SURFACE_CONTEXT = {
     files: { project: "subject", space: "subject" },
     usage: { project: "unsupported", space: "unsupported" },
     code: { project: "subject", space: "subject" },
+    setup: { project: "unsupported", space: "unsupported" },
     settings: { project: "unsupported", space: "unsupported" },
 } satisfies Record<SurfaceKey, SurfaceContextSupport>;
 

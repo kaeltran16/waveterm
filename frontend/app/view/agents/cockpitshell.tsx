@@ -21,6 +21,7 @@ import { NavRail } from "./navrail";
 import { RadarSurface } from "./radarsurface";
 import { SessionsSurface } from "./sessionssurface";
 import { SettingsSurface } from "./settingssurface";
+import { SetupSurface } from "./setupsurface";
 import { UsageSurface } from "./usagesurface";
 
 // One always-mounted synchronization hook: seed the shared preferred-harness state from the persisted
@@ -133,6 +134,8 @@ export function CockpitShell({ model, tabId }: { model: AgentsViewModel; tabId: 
                             <UsageSurface model={model} />
                         ) : surface === "code" ? (
                             <CodeSurface model={model} />
+                        ) : surface === "setup" ? (
+                            <SetupSurface model={model} />
                         ) : surface === "settings" ? (
                             <SettingsSurface model={model} />
                         ) : null}

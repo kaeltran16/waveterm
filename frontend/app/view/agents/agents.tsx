@@ -40,6 +40,7 @@ export type SurfaceKey =
     | "files"
     | "usage"
     | "code"
+    | "setup"
     | "settings";
 
 // Ordered to match the NavRail (navrail.tsx ITEMS) so Ctrl+1..8 line up with what the user sees. All 8

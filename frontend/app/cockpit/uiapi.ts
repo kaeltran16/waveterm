@@ -23,8 +23,8 @@ export const AWAITING_CONFIRMATION = "waiting on the user's confirmation";
 const UNKNOWN_CALLER = "An agent";
 const SURFACE_PREFIX = "surface:";
 
-// settings sits outside the rail order but is still somewhere a worker can send the user
-const SURFACES: readonly SurfaceKey[] = [...SURFACE_ORDER, "settings"];
+// setup and settings sit outside the rail order but are still somewhere a worker can send the user
+const SURFACES: readonly SurfaceKey[] = [...SURFACE_ORDER, "setup", "settings"];
 
 export interface SelectionSnapshot {
     focusId: string | undefined;

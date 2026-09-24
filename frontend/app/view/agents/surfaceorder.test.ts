@@ -14,6 +14,11 @@ describe("SURFACE_ORDER", () => {
         expect(SURFACE_ORDER).not.toContain("vault");
     });
 
+    it("keeps setup and settings off the chords, like the rail's bottom group", () => {
+        expect(SURFACE_ORDER).not.toContain("setup");
+        expect(SURFACE_ORDER).not.toContain("settings");
+    });
+
     it("matches the nav rail's order exactly, so the chord numbers line up with what the user sees", () => {
         expect(ITEMS.map((i) => i.key)).toEqual([...SURFACE_ORDER]);
     });

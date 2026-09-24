@@ -7,6 +7,7 @@ import {
     Bot,
     Brain,
     FileCode2,
+    FileCog,
     Gauge,
     GitCompare,
     LayoutDashboard,
@@ -31,6 +32,7 @@ export const ICON: Record<SurfaceKey, ReactNode> = {
     files: <GitCompare {...iconProps} />,
     usage: <Gauge {...iconProps} />,
     code: <FileCode2 {...iconProps} />,
+    setup: <FileCog {...iconProps} />,
     settings: <Settings {...iconProps} />,
 };
 
@@ -106,6 +108,7 @@ export function NavRail({ model }: { model: AgentsViewModel }) {
         >
             {ITEMS.map(({ key, label }) => renderItem(key, label, badges[key] ?? 0))}
             <div className="flex-1" />
+            {renderItem("setup", "Setup")}
             {renderItem("settings", "Settings")}
         </nav>
     );

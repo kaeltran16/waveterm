@@ -103,8 +103,9 @@ describe("parseSurfaceAddress", () => {
         expect(parseSurfaceAddress("run:r1")).toBeNull();
     });
 
-    it("accepts rail surfaces and settings", () => {
+    it("accepts rail surfaces, setup and settings", () => {
         expect(parseSurfaceAddress("surface:usage")).toEqual({ surface: "usage" });
+        expect(parseSurfaceAddress("surface:setup")).toEqual({ surface: "setup" });
         expect(parseSurfaceAddress("surface:settings")).toEqual({ surface: "settings" });
     });
 

@@ -97,6 +97,7 @@ const GO_TARGETS: { letter: string; surface: SurfaceKey; label: string }[] = [
     { letter: "f", surface: "files", label: "Diff" },
     { letter: "u", surface: "usage", label: "Usage" },
     { letter: "b", surface: "code", label: "Code (browse source)" },
+    { letter: ".", surface: "setup", label: "Setup (instructions and skills)" },
     { letter: ",", surface: "settings", label: "Settings" },
 ];
 
