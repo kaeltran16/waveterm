@@ -18,17 +18,49 @@ export type AgentTreeRow =
     | { kind: "lead"; agent: AgentVM; project: string; run: RunInfo; open: boolean; live: number }
     // a run whose workers are in the roster but whose lead is not: a plan-path run before its first lead
     | { kind: "run"; project: string; run: RunInfo; open: boolean; live: number }
-    // a task's worker; a done task whose session is gone has no agent
-    | { kind: "worker"; agent?: AgentVM; project: string; run: RunInfo; task: TaskNode }
-    | { kind: "done"; project: string; run: RunInfo; count: number; open: boolean };
+    // a task's worker; a done task whose session is gone has no agent. `extras` counts the task's other tabs (its
+    // reviewer, an earlier attempt), listed as `nested` rows beneath it while `extrasOpen`
+    | {
+          kind: "worker";
+          agent?: AgentVM;
+          project: string;
+          run: RunInfo;
+          task: TaskNode;
+          nested?: boolean;
+          extras?: number;
+          extrasOpen?: boolean;
+      }
+    | { kind: "done"; project: string; run: RunInfo; count: number; open: boolean }
+    | { kind: "queued"; project: string; run: RunInfo; count: number; open: boolean };
 
-// TreeFolds is what the human folded: runs whose workers are hidden, and runs whose done workers are listed.
+// TreeFolds is what the human folded: runs whose workers are hidden, runs whose done or queued tasks are listed,
+// and tasks (by taskFoldKey) whose other tabs are listed.
 export interface TreeFolds {
     collapsed: ReadonlySet<string>;
     doneOpen: ReadonlySet<string>;
+    queuedOpen: ReadonlySet<string>;
+    extrasOpen: ReadonlySet<string>;
 }
 
-const NO_FOLDS: TreeFolds = { collapsed: new Set(), doneOpen: new Set() };
+const NO_FOLDS: TreeFolds = { collapsed: new Set(), doneOpen: new Set(), queuedOpen: new Set(), extrasOpen: new Set() };
+
+export function taskFoldKey(runId: string, taskId: string): string {
+    return `${runId}:${taskId}`;
+}
+
+// splitTaskTabs picks the tab a task's row stands for, its worker, and leaves the rest to nest beneath it. With no
+// worker tab left, a done task's row is its ended worker's transcript, so every tab nests; otherwise the first stands in.
+function splitTaskTabs(task: TaskNode, agents: AgentVM[]): { primary?: AgentVM; extras: AgentVM[] } {
+    const i = agents.findIndex((a) => a.runId != null && a.runId === task.runid);
+    if (i >= 0) {
+        return { primary: agents[i], extras: agents.filter((_, j) => j !== i) };
+    }
+    if (task.state === "done") {
+        return { primary: undefined, extras: agents };
+    }
+    const [primary, ...extras] = agents;
+    return { primary, extras };
+}
 
 type TopItem =
     | { kind: "parent"; agent: AgentVM; project: string }
@@ -55,7 +87,7 @@ function runRows(
     const tasks = run.dag?.tasks ?? [];
     const live = tasks.filter((t) => t.state !== "done" && workers.has(t.id));
     const done = tasks.filter((t) => t.state === "done");
-    // tasks not dispatched yet have no session; they list after the live ones so the run's whole plan reads
+    // tasks not dispatched yet have no session to open, so they fold away until asked for
     const queued = tasks.filter((t) => QUEUED.has(t.state) && !workers.has(t.id));
     const open = !folds.collapsed.has(run.runId);
     const head: AgentTreeRow =
@@ -63,11 +95,18 @@ function runRows(
             ? { kind: "lead", agent: item.agent, project, run, open, live: live.length }
             : { kind: "run", project, run, open, live: live.length };
     const rows: AgentTreeRow[] = [head];
-    // a task's row is its current agent's; any other tab still open on the task follows it rather than leave the run
+    // a task's row is its worker's; its reviewer and any tab an earlier attempt left fold beneath it, opening on
+    // their own when one of them asks
     const pushTask = (task: TaskNode) => {
-        const agents = workers.get(task.id) ?? [undefined];
-        for (const agent of agents) {
-            rows.push({ kind: "worker", agent, project, run, task });
+        const { primary, extras } = splitTaskTabs(task, workers.get(task.id) ?? []);
+        const extrasOpen =
+            extras.length > 0 &&
+            (folds.extrasOpen.has(taskFoldKey(run.runId, task.id)) || extras.some((a) => a.state === "asking"));
+        rows.push({ kind: "worker", agent: primary, project, run, task, extras: extras.length, extrasOpen });
+        if (extrasOpen) {
+            for (const agent of extras) {
+                rows.push({ kind: "worker", agent, project, run, task, nested: true });
+            }
         }
     };
     if (open) {
@@ -79,7 +118,14 @@ function runRows(
                 done.forEach(pushTask);
             }
         }
-        [...live, ...queued].forEach(pushTask);
+        live.forEach(pushTask);
+        if (queued.length > 0) {
+            const queuedOpen = folds.queuedOpen.has(run.runId);
+            rows.push({ kind: "queued", project, run, count: queued.length, open: queuedOpen });
+            if (queuedOpen) {
+                queued.forEach(pushTask);
+            }
+        }
     }
     const attn = live.filter((t) => workerNeedsYou(run, t.id, workers.get(t.id)![0])).length;
     return { rows, members: live.length, attn };

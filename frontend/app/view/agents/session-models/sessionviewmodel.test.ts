@@ -16,6 +16,7 @@ import {
     reorderWithinGroup,
     waitingTarget,
     rollUpStatus,
+    sessionRunORef,
     subagentExpanded,
     visibleSubagents,
     toggleCollapsed,
@@ -255,6 +256,21 @@ describe("buildSessionViewModel — title (task summary)", () => {
             input({ tabId: "t1", agent: "claude", title: "Refactor auth", cwd: "/src/CorrelationEngine", pinned: true }),
         ]);
         expect(vm.pinned[0].label).toBe("Refactor auth · CorrelationEngine");
+    });
+});
+
+describe("sessionRunORef", () => {
+    it("prefers the tab's run stamp", () => {
+        expect(sessionRunORef({ "jarvis:runoref": "run:a" }, { "agent:runid": "b" })).toBe("run:a");
+    });
+
+    it("falls back to the terminal block's run id before the tab stamp reaches the app", () => {
+        expect(sessionRunORef({}, { "agent:runid": "b" })).toBe("run:b");
+    });
+
+    it("is undefined for a session no run spawned", () => {
+        expect(sessionRunORef({}, { "cmd:cwd": "/x" })).toBeUndefined();
+        expect(sessionRunORef({}, undefined)).toBeUndefined();
     });
 });
 

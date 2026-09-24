@@ -14,7 +14,7 @@ import { fireAndForget } from "@/util/util";
 import { atom, type Atom, type PrimitiveAtom } from "jotai";
 import { useEffect } from "react";
 import { type AgentVM } from "./agentsviewmodel";
-import type { TreeFolds } from "./agenttreemodel";
+import { taskFoldKey, type TreeFolds } from "./agenttreemodel";
 import {
     endedRoles,
     endedWorkerVM,
@@ -33,6 +33,8 @@ export const runDigestsAtom = atom<Record<string, DagStatusDigest>>({}) as Primi
 export const treeFoldsAtom = atom<TreeFolds>({
     collapsed: new Set<string>(),
     doneOpen: new Set<string>(),
+    queuedOpen: new Set<string>(),
+    extrasOpen: new Set<string>(),
 }) as PrimitiveAtom<TreeFolds>;
 
 function toggled(set: ReadonlySet<string>, id: string): Set<string> {
@@ -49,6 +51,14 @@ export function toggleRunCollapsed(runId: string): void {
 
 export function toggleRunDoneOpen(runId: string): void {
     globalStore.set(treeFoldsAtom, (f) => ({ ...f, doneOpen: toggled(f.doneOpen, runId) }));
+}
+
+export function toggleRunQueuedOpen(runId: string): void {
+    globalStore.set(treeFoldsAtom, (f) => ({ ...f, queuedOpen: toggled(f.queuedOpen, runId) }));
+}
+
+export function toggleTaskExtrasOpen(runId: string, taskId: string): void {
+    globalStore.set(treeFoldsAtom, (f) => ({ ...f, extrasOpen: toggled(f.extrasOpen, taskFoldKey(runId, taskId)) }));
 }
 
 function lastPathSegment(path: string | undefined): string {

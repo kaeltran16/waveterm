@@ -18,7 +18,14 @@ import { renamingRowAtom } from "./rowrenameatom";
 import { duplicateSession, renameSession, sessionCustomLabel } from "./session-models/sessionsidebarmodel";
 import { displayAgeMs, formatAgeShort, type AgentVM } from "./agentsviewmodel";
 import { endedWorkerId, laneLabel, leadStandingBy, runProgress, unmetDeps, workerAsk, workerSubtext, type RunInfo } from "./runlineage";
-import { toggleRunCollapsed, toggleRunDoneOpen, treeFoldsAtom, useRunDigests } from "./runlineagestore";
+import {
+    toggleRunCollapsed,
+    toggleRunDoneOpen,
+    toggleRunQueuedOpen,
+    toggleTaskExtrasOpen,
+    treeFoldsAtom,
+    useRunDigests,
+} from "./runlineagestore";
 import { runStatusView } from "./runmodel";
 import {
     getSubagentExpandAtom,
@@ -106,10 +113,15 @@ function RunGlyph() {
     return <span className="mr-[5px] text-[10px] text-accent-soft">◆</span>;
 }
 
-// The elbow marks a row nested under a run.
-function Elbow() {
+// The elbow marks a row nested under a run, or one level deeper under a task's worker.
+function Elbow({ deep }: { deep?: boolean }) {
     return (
-        <span className="absolute left-[12px] top-1/2 -translate-y-1/2 font-mono text-[11px] font-semibold text-ink-faint">
+        <span
+            className={cn(
+                "absolute top-1/2 -translate-y-1/2 font-mono text-[11px] font-semibold text-ink-faint",
+                deep ? "left-[28px]" : "left-[12px]"
+            )}
+        >
             ↳
         </span>
     );
@@ -321,26 +333,32 @@ function RunRow({ run, open, live }: { run: RunInfo; open: boolean; live: number
 }
 
 // A task's worker under its run. A done task's worker opens as its read-only transcript, whether or not its tab
-// is still in the roster, so the run's history stays readable after its sessions close.
+// is still in the roster, so the run's history stays readable after its sessions close. The task's other tabs (its
+// reviewer, an earlier attempt) are nested rows under it, named by their own session and opening their own tab.
 function WorkerRow({
     model,
     run,
     task,
     agent,
+    nested,
+    extras,
 }: {
     model: AgentsViewModel;
     run: RunInfo;
     task: TaskNode;
     agent?: AgentVM;
+    nested?: boolean;
+    extras?: { count: number; open: boolean };
 }) {
     const focusId = useAtomValue(model.focusIdAtom);
     const now = useAtomValue(model.nowAtom);
-    const done = task.state === "done";
+    // the task's state and question belong to its worker's row, not to the tabs nested under it
+    const done = !nested && task.state === "done";
     const lane = laneLabel(run.digest, task.id);
-    const ask = done ? undefined : workerAsk(run.digest, task.id);
+    const ask = done || nested ? undefined : workerAsk(run.digest, task.id);
     const focusKey = done ? endedWorkerId(run.runId, task.id) : agent?.id;
     const selected = focusKey != null && focusId === focusKey;
-    const waits = done ? undefined : unmetDeps(run.dag, task);
+    const waits = done || nested ? undefined : unmetDeps(run.dag, task);
     const asksYou = !done && ask?.owner !== "lead" && (ask?.owner === "you" || agent?.state === "asking");
     const sub = workerSubtext({
         taskId: task.id,
@@ -350,6 +368,7 @@ function WorkerRow({
         outcome: done ? (task.merged ? "landed" : "done") : undefined,
         waits,
     });
+    const title = nested ? agent?.name || task.id : task.label || task.id;
 
     const select = () => {
         if (focusKey == null) {
@@ -373,7 +392,8 @@ function WorkerRow({
             onClick={select}
             onContextMenu={onContextMenu}
             className={cn(
-                "relative flex items-center gap-[9px] rounded-[9px] py-[8px] pl-[28px] pr-[11px] transition-colors duration-[140ms]",
+                "relative flex items-center gap-[9px] rounded-[9px] py-[8px] pr-[11px] transition-colors duration-[140ms]",
+                nested ? "pl-[44px]" : "pl-[28px]",
                 focusKey != null && "cursor-pointer",
                 selected
                     ? "bg-accentbg"
@@ -382,7 +402,7 @@ function WorkerRow({
                       : focusKey != null && "hover:bg-surface-hover"
             )}
         >
-            <Elbow />
+            <Elbow deep={nested} />
             {done ? (
                 <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-success" />
             ) : waits ? (
@@ -393,9 +413,23 @@ function WorkerRow({
                 <StatusDot state={agent.state} pulse={agent.state !== "idle"} className="!h-[7px] !w-[7px]" />
             )}
             <div className="min-w-0 flex-1">
-                <div className="truncate font-mono text-[11.5px] font-semibold text-ink-hi">{task.label || task.id}</div>
+                <div className="truncate font-mono text-[11.5px] font-semibold text-ink-hi">{title}</div>
                 <div className={cn("truncate text-[10.5px]", asksYou ? "text-warning/85" : "text-muted")}>{sub}</div>
             </div>
+            {extras != null && extras.count > 0 ? (
+                <button
+                    type="button"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        toggleTaskExtrasOpen(run.runId, task.id);
+                    }}
+                    title={extras.open ? "Hide reviewer and earlier sessions" : "Show reviewer and earlier sessions"}
+                    className="flex flex-none items-center gap-[3px] rounded-sm border border-edge-mid bg-surface-hover px-[5px] font-mono text-[9.5px] font-semibold text-muted hover:border-accent hover:text-accent-soft"
+                >
+                    <span className="text-xxxs leading-none">{extras.open ? "▾" : "▸"}</span>
+                    {extras.count}
+                </button>
+            ) : null}
             {ask?.owner === "lead" ? (
                 <span className="whitespace-nowrap font-mono text-[10px] font-medium text-muted">→ lead</span>
             ) : asksYou ? (
@@ -405,16 +439,26 @@ function WorkerRow({
     );
 }
 
-// The fold holding a run's done workers.
-function DoneRow({ run, count, open }: { run: RunInfo; count: number; open: boolean }) {
+// The fold holding a run's done workers or its not-yet-started tasks.
+function FoldRow({
+    glyph,
+    label,
+    open,
+    onToggle,
+}: {
+    glyph: React.ReactNode;
+    label: string;
+    open: boolean;
+    onToggle: () => void;
+}) {
     return (
         <div
-            onClick={() => toggleRunDoneOpen(run.runId)}
+            onClick={onToggle}
             className="relative flex cursor-pointer items-center gap-[8px] rounded-[9px] py-[6px] pl-[28px] pr-[11px] font-mono text-[10.5px] text-muted hover:bg-surface-hover hover:text-secondary"
         >
             <Elbow />
-            <span className="text-success">✓</span>
-            {count} done
+            {glyph}
+            {label}
             <span className="ml-auto">{open ? "▾" : "▸"}</span>
         </div>
     );
@@ -575,11 +619,42 @@ export function AgentTree({ model }: { model: AgentsViewModel }) {
                                 break;
                             case "worker":
                                 key = r.agent?.id ?? `task-${r.run.runId}-${r.task.id}`;
-                                body = <WorkerRow model={model} run={r.run} task={r.task} agent={r.agent} />;
+                                body = (
+                                    <WorkerRow
+                                        model={model}
+                                        run={r.run}
+                                        task={r.task}
+                                        agent={r.agent}
+                                        nested={r.nested}
+                                        extras={
+                                            r.nested ? undefined : { count: r.extras ?? 0, open: r.extrasOpen ?? false }
+                                        }
+                                    />
+                                );
                                 break;
                             case "done":
                                 key = `done-${r.run.runId}`;
-                                body = <DoneRow run={r.run} count={r.count} open={r.open} />;
+                                body = (
+                                    <FoldRow
+                                        glyph={<span className="text-success">✓</span>}
+                                        label={`${r.count} done`}
+                                        open={r.open}
+                                        onToggle={() => toggleRunDoneOpen(r.run.runId)}
+                                    />
+                                );
+                                break;
+                            case "queued":
+                                key = `queued-${r.run.runId}`;
+                                body = (
+                                    <FoldRow
+                                        glyph={
+                                            <span className="h-[7px] w-[7px] shrink-0 rounded-full border border-muted" />
+                                        }
+                                        label={`${r.count} queued`}
+                                        open={r.open}
+                                        onToggle={() => toggleRunQueuedOpen(r.run.runId)}
+                                    />
+                                );
                                 break;
                         }
                         // layout="position" so a subagent expand doesn't scale-distort the row — only its

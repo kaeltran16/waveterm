@@ -127,6 +127,17 @@ export function findSessionTermBlock(blocks: ResolvedSessionBlock[]): SessionTer
     return undefined;
 }
 
+/** Pure: the run a session works for. The engine stamps jarvis:runoref on the tab only after the tab has reached
+ *  the app, and that write is not broadcast, so a freshly spawned worker or reviewer would read as a plain agent
+ *  until a reload. Its terminal block's agent:runid is set before the tab is sent, so it stands in. */
+export function sessionRunORef(
+    tabMeta: Record<string, any>,
+    termMeta: Record<string, any> | undefined
+): string | undefined {
+    const runId = termMeta?.["agent:runid"];
+    return tabMeta["jarvis:runoref"] || (typeof runId === "string" && runId ? `run:${runId}` : undefined);
+}
+
 /** Pure: is this submitted rename worth a write? Both sides trim, so retyping the same name is a
  *  no-op. An empty draft is NOT automatically a no-op: against an existing custom label it is the
  *  clear gesture (renameSession writes null and rowLabel falls back to the auto label), and only
