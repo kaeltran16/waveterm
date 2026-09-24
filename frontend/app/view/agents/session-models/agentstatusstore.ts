@@ -69,6 +69,10 @@ export function seedAgentStatus(
 // creating an atom stays pure there.
 let seedStatus: ((oref: string, statusAtom: PrimitiveAtom<AgentStatusData>) => void) | null = null;
 
+// Orefs whose retained-status read has finished — found a status, found none, or failed. The roster's
+// first-load gate (liveagents.ts) waits on these, so a failed read has to settle too.
+export const seededOrefsAtom = atom<ReadonlySet<string>>(new Set<string>()) as PrimitiveAtom<ReadonlySet<string>>;
+
 function readRetainedStatus(oref: string, statusAtom: PrimitiveAtom<AgentStatusData>) {
     fireAndForget(async () => {
         try {
@@ -81,6 +85,8 @@ function readRetainedStatus(oref: string, statusAtom: PrimitiveAtom<AgentStatusD
             globalStore.set(statusAtom, (prev) => seedAgentStatus(prev, retained));
         } catch (err) {
             console.warn(`reading the retained agent:status of ${oref} failed`, err);
+        } finally {
+            globalStore.set(seededOrefsAtom, (prev) => new Set(prev).add(oref));
         }
     });
 }

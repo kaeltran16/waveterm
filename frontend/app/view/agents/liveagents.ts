@@ -7,7 +7,11 @@
 // asking agents only (spec §10.3). ask routing via getAgentAskAtom + withAsk (Plan 3c).
 
 import { globalStore } from "@/app/store/jotaiStore";
-import { getAgentStatusAtom, getAgentUsageAtom } from "@/app/view/agents/session-models/agentstatusstore";
+import {
+    getAgentStatusAtom,
+    getAgentUsageAtom,
+    seededOrefsAtom,
+} from "@/app/view/agents/session-models/agentstatusstore";
 import { sessionSidebarViewModelAtom } from "@/app/view/agents/session-models/sessionsidebarmodel";
 import { flattenVisualOrder } from "@/app/view/agents/session-models/sessionviewmodel";
 import { atom, type Atom, type PrimitiveAtom } from "jotai";
@@ -16,6 +20,7 @@ import { getAgentAskAtom } from "./agentaskstore";
 import { fetchPreviousInfo } from "./previousinfo";
 import { registeredProjectFor } from "./projectlabel";
 import { projectsAtom } from "./projectsstore";
+import { isRosterSeeded, latchWhenTrue } from "./rosterseed";
 
 interface PreviousInfoEntry {
     entries: AgentEntry[];
@@ -78,6 +83,24 @@ export const liveTerminalsAtom: Atom<AgentVM[]> = atom((get) => {
     const vm = get(sessionSidebarViewModelAtom);
     return deriveTerminalVMs(flattenVisualOrder(vm), (oref) => !!get(getAgentStatusAtom(oref))?.state);
 });
+
+// Every terminal in the sidebar has either a status or a settled retained read.
+const rosterSeedCheckAtom: Atom<boolean> = atom((get) => {
+    const orefs = flattenVisualOrder(get(sessionSidebarViewModelAtom))
+        .map((row) => row.termBlockOref)
+        .filter((oref): oref is string => !!oref);
+    const settled = get(seededOrefsAtom);
+    return isRosterSeeded(orefs, (oref) => get(getAgentStatusAtom(oref)) != null, settled);
+});
+
+// First load only: a terminal opened later must not put the Cockpit back behind a skeleton.
+export const rosterSeededAtom = atom(false) as PrimitiveAtom<boolean>;
+
+// Installed from CockpitShell, not from boot: the status subscription starts before the workspace loads,
+// when the sidebar has no terminals yet and the check would pass vacuously.
+export function setupRosterSeededLatch(): () => void {
+    return latchWhenTrue(globalStore, rosterSeedCheckAtom, rosterSeededAtom);
+}
 
 // The rendered roster: base agents with fetched previous-info + task merged onto asking agents.
 export const liveAgentsAtom: Atom<AgentVM[]> = atom((get) => {
