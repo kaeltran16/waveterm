@@ -33,6 +33,7 @@ import {
     partialCollectors,
     primaryAction,
     projectsWithPath,
+    radarLoadPhase,
     referencedSignals,
     reportSignalCount,
     reportSourceCount,
@@ -629,5 +630,36 @@ describe("scanMetaLine", () => {
     });
     it("falls back to the start time before completion is recorded", () => {
         expect(scanMetaLine(report({ startedts: now - 3 * 3_600_000 }), now)).toBe("last scan 3h ago · 0 findings");
+    });
+});
+
+describe("radarLoadPhase", () => {
+    const REPORT = report();
+    const base = { reports: [], currentReportId: undefined, report: null, loadError: null, scopeBlocked: false };
+    it("is loading while the report list has not been fetched, not never-scanned", () => {
+        expect(radarLoadPhase({ ...base, reports: null })).toBe("loading");
+    });
+    it("is loading while the selected report's object has not arrived", () => {
+        expect(radarLoadPhase({ ...base, reports: [REPORT], currentReportId: REPORT.oid, report: null })).toBe(
+            "loading"
+        );
+    });
+    it("is an error only when a failed load left nothing to show", () => {
+        expect(radarLoadPhase({ ...base, reports: null, loadError: "boom" })).toBe("error");
+        expect(
+            radarLoadPhase({
+                ...base,
+                reports: [REPORT],
+                currentReportId: REPORT.oid,
+                report: REPORT,
+                loadError: "boom",
+            })
+        ).toBe("ready");
+    });
+    it("never waits forever on a project the registry no longer has", () => {
+        expect(radarLoadPhase({ ...base, reports: null, scopeBlocked: true })).toBe("ready");
+    });
+    it("is ready on a loaded empty list, which is what never-scanned means", () => {
+        expect(radarLoadPhase(base)).toBe("ready");
     });
 });

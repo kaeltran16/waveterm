@@ -5,6 +5,7 @@
 // classification, selection fallback, and Run-draft construction. No jotai / RPC / React here.
 
 import { formatAgo, formatTokens } from "./agentsviewmodel";
+import type { LoadPhase } from "./loadphase";
 
 export type RadarGroup = "new" | "recurring" | "nolonger" | "dismissed" | "suppressed";
 
@@ -169,6 +170,29 @@ export function classifyScanState(report: RadarReport | null): RadarScanState {
         default:
             return "never-scanned";
     }
+}
+
+// Whether the scan-state machine above may speak yet. classifyScanState(null) is "never-scanned", which is
+// only true once the list has actually been read; before that it is loading. "ready" hands over to
+// classifyScanState — Radar's empty is its never-scanned panel, so there is no "empty" here.
+export function radarLoadPhase(p: {
+    reports: RadarReport[] | null;
+    currentReportId: string | undefined;
+    report: RadarReport | null;
+    loadError: string | null;
+    scopeBlocked: boolean;
+}): LoadPhase {
+    if (p.loadError != null && p.reports == null) {
+        return "error";
+    }
+    // a persisted project the registry no longer has never resolves; waiting on it would be a skeleton forever
+    if (p.scopeBlocked) {
+        return "ready";
+    }
+    if (p.reports == null || (p.currentReportId != null && p.report == null)) {
+        return "loading";
+    }
+    return "ready";
 }
 
 // scan-scope selector entries: registered projects that actually have a path (radar surface).

@@ -65,23 +65,20 @@ export function scopeOfReport(report: RadarReport): RadarScope {
 // findNewestScannedProject asks the backend for every radar report (newest-first) and returns a scope for
 // the most-recently-scanned project, so a fresh Radar tab lands on real results instead of an empty picker.
 // Built straight from the report's stored name+path — no registry dependency, so it works before the
-// project registry has loaded. Returns null when nothing has ever been scanned (or the query fails).
+// project registry has loaded. Returns null when nothing has ever been scanned; a failed query rejects.
 export async function findNewestScannedProject(): Promise<RadarScope | null> {
-    try {
-        const rtn = await RpcApi.ListRadarReportsCommand(TabRpcClient, { projectpath: "" });
-        const newest = (rtn.reports ?? []).slice().sort((a, b) => b.startedts - a.startedts)[0];
-        if (!newest?.projectpath) {
-            return null;
-        }
-        return scopeOfReport(newest);
-    } catch (err) {
-        console.error("finding newest scanned project failed", err);
+    const rtn = await RpcApi.ListRadarReportsCommand(TabRpcClient, { projectpath: "" });
+    const newest = (rtn.reports ?? []).slice().sort((a, b) => b.startedts - a.startedts)[0];
+    if (!newest?.projectpath) {
         return null;
     }
+    return scopeOfReport(newest);
 }
 
 export const radarScopeAtom = atom<RadarScope | null>(null) as PrimitiveAtom<RadarScope | null>;
 export const radarReportsAtom = atom<RadarReport[] | null>(null) as PrimitiveAtom<RadarReport[] | null>;
+// A failed report read. Kept apart from radarReportsAtom so a failure never reads as "never scanned".
+export const radarLoadErrorAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 export const currentReportIdAtom = atom<string | undefined>(undefined) as PrimitiveAtom<string | undefined>;
 
 // Selected finding id. An atom (not surface-local useState) so the selection survives RadarSurface
@@ -121,6 +118,7 @@ export async function loadReports(path: string): Promise<void> {
         if (globalStore.get(radarScopeAtom)?.path !== path) {
             return;
         }
+        globalStore.set(radarLoadErrorAtom, null);
         const list = (rtn.reports ?? []).slice().sort((a, b) => b.startedts - a.startedts);
         globalStore.set(radarReportsAtom, list);
         if (list.length > 0) {
@@ -131,7 +129,7 @@ export async function loadReports(path: string): Promise<void> {
     } catch (err) {
         console.error("loading radar reports failed", err);
         if (globalStore.get(radarScopeAtom)?.path === path) {
-            globalStore.set(radarReportsAtom, []);
+            globalStore.set(radarLoadErrorAtom, `Couldn't read Radar reports: ${String(err)}`);
         }
     } finally {
         loadingPaths.delete(path);
@@ -144,17 +142,42 @@ export async function selectReport(reportId: string): Promise<void> {
     globalStore.set(currentReportIdAtom, reportId);
 }
 
-// initRadarScope sets the owned scope and loads its reports. Clearing scope (null) empties the list.
+// initRadarScope sets the owned scope and loads its reports. Clearing scope (null) leaves a loaded, empty list.
 // The scoped project name is persisted (across reloads) so a return to Radar restores the same scan.
 export async function initRadarScope(scope: RadarScope | null): Promise<void> {
     globalStore.set(radarScopeAtom, scope);
     globalStore.set(lastRadarProjectAtom, scope?.name ?? null);
     if (!scope) {
-        globalStore.set(radarReportsAtom, null);
+        globalStore.set(radarReportsAtom, []);
         globalStore.set(currentReportIdAtom, undefined);
         return;
     }
     await loadReports(scope.path);
+}
+
+// First landing with no persisted scope: the newest-scanned project, or none. A failed lookup is a load
+// error, not a never-scanned landing.
+export async function initRadarScopeFromNewest(): Promise<void> {
+    let scope: RadarScope | null;
+    try {
+        scope = await findNewestScannedProject();
+    } catch (err) {
+        console.error("finding newest scanned project failed", err);
+        globalStore.set(radarLoadErrorAtom, `Couldn't read Radar reports: ${String(err)}`);
+        return;
+    }
+    await initRadarScope(scope);
+}
+
+// The load-error banner's retry: re-reads whichever load failed.
+export async function retryRadarLoad(): Promise<void> {
+    globalStore.set(radarLoadErrorAtom, null);
+    const scope = globalStore.get(radarScopeAtom);
+    if (scope != null) {
+        await loadReports(scope.path);
+        return;
+    }
+    await initRadarScopeFromNewest();
 }
 
 // startScan kicks a scan for path; the returned report is pinned + selected so its live scan streams in.

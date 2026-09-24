@@ -3,6 +3,7 @@
 
 import { MOTION } from "@/app/element/motiontokens";
 import { PopoverReveal } from "@/app/element/popoverreveal";
+import { Skeleton, SkeletonLine } from "@/app/element/skeleton";
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
@@ -25,6 +26,7 @@ import {
     MODE_META,
     primaryAction,
     projectsWithPath,
+    radarLoadPhase,
     rescanLabel,
     resolveLens,
     resolveSelection,
@@ -37,17 +39,22 @@ import {
 import { RadarScanStatePanel } from "./radarscanstatepanel";
 import {
     currentReportAtom,
-    findNewestScannedProject,
+    currentReportIdAtom,
     initRadarScope,
+    initRadarScopeFromNewest,
     lastRadarProjectAtom,
     pickInitialScope,
+    radarLoadErrorAtom,
+    radarReportsAtom,
     radarScopeAtom,
     radarSelectedIdAtom,
     resolveScope,
     retryClustering,
+    retryRadarLoad,
     startScan,
     type RadarScope,
 } from "./radarstore";
+import { SurfaceError } from "./surfacescaffold";
 
 const COVERAGE_STATUS: Record<CoverageCell, string> = {
     done: "done",
@@ -280,6 +287,12 @@ export function RadarSurface({ model }: { model: AgentsViewModel }) {
     const scope = useAtomValue(radarScopeAtom);
     const report = useAtomValue(currentReportAtom);
     const [selectedId, setSelectedId] = useAtom(radarSelectedIdAtom);
+    const reports = useAtomValue(radarReportsAtom);
+    const currentReportId = useAtomValue(currentReportIdAtom);
+    const loadError = useAtomValue(radarLoadErrorAtom);
+    const persisted = useAtomValue(lastRadarProjectAtom);
+    const scopeBlocked = pickInitialScope(scope, persisted, filter, projects).action === "wait";
+    const phase = radarLoadPhase({ reports, currentReportId, report, loadError, scopeBlocked });
 
     // Initialize the owned scope from the persisted pick (falling back to the cockpit's global project
     // selection); after that the header selector owns it. An already-owned scope is kept as-is so a
@@ -308,7 +321,7 @@ export function RadarSurface({ model }: { model: AgentsViewModel }) {
         }
         // No persisted/filter project to scope to: prefer landing on the most-recently-scanned project so
         // the surface opens on real findings, falling back to the empty picker only when nothing was scanned.
-        fireAndForget(async () => initRadarScope(await findNewestScannedProject()));
+        fireAndForget(initRadarScopeFromNewest);
     }, [filter, projects]);
 
     const selectScope = (s: RadarScope) => {
@@ -360,6 +373,9 @@ export function RadarSurface({ model }: { model: AgentsViewModel }) {
                 {/* Above the subject bar, as on Diff: a divergence is worth saying whether or not this
                     project has ever been scanned. */}
                 <DivergenceBanner decision={decision} onRejoin={rejoin} />
+                {loadError != null ? (
+                    <SurfaceError message={loadError} onRetry={() => fireAndForget(retryRadarLoad)} />
+                ) : null}
                 {/* subject bar: which repository, which lens, and how complete its last scan was */}
                 <div className="flex-none px-[18px] pt-3.5">
                     <div className="flex flex-wrap items-center gap-x-3.5 gap-y-2 pb-1.5">
@@ -390,7 +406,18 @@ export function RadarSurface({ model }: { model: AgentsViewModel }) {
 
                 <div className="min-h-0 flex-1">
                     <AnimatePresence mode="wait" initial={false}>
-                        {isResults && report ? (
+                        {phase === "loading" ? (
+                            <motion.div
+                                key="loading"
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
+                                className="h-full"
+                            >
+                                <RadarBodySkeleton />
+                            </motion.div>
+                        ) : phase === "error" ? null : isResults && report ? (
                             <motion.div
                                 key="results"
                                 initial={{ opacity: 0 }}
@@ -442,5 +469,24 @@ export function RadarSurface({ model }: { model: AgentsViewModel }) {
                 </div>
             </div>
         </MotionConfig>
+    );
+}
+
+// the findings list beside the detail pane, so results land where the skeleton was
+function RadarBodySkeleton() {
+    return (
+        <div aria-hidden="true" className="flex h-full border-t border-edge-faint">
+            <div className="flex w-[360px] shrink-0 flex-col gap-2.5 border-r border-edge-faint p-3.5">
+                {[0, 1, 2, 3, 4, 5].map((i) => (
+                    <SkeletonLine key={i} className="h-[46px] w-full rounded-[9px]" />
+                ))}
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col gap-3 p-6">
+                <SkeletonLine className="h-[20px] w-[55%]" />
+                <SkeletonLine className="h-[11px] w-[80%]" />
+                <SkeletonLine className="h-[11px] w-[70%]" />
+                <Skeleton className="mt-2 h-[120px] w-full rounded-[10px]" />
+            </div>
+        </div>
     );
 }
