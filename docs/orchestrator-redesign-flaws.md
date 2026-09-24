@@ -65,7 +65,7 @@ The redesign must provide (one per flaw cluster):
 > Second live capture, evidence in `docs/jarvis-orchestrator-plan-e2e.md`: lead run
 > `e4a54512`, DAG `f2347178`, `mode=orchestrator runtime=pi model=openai-codex/gpt-5.6-sol`,
 > project `.claude/worktrees/git-compare-viewer-parity`, engine parallelism 2. Plan under execution:
-> `docs/superpowers/plans/2026-09-04-git-compare-viewer-parity.md` (13 numbered tasks).
+> `git show edf0132b:docs/superpowers/plans/2026-09-04-git-compare-viewer-parity.md` (13 numbered tasks).
 
 The engine itself worked: it validated the DAG, spawned children into managed worktrees, drained them
 against the parallelism cap, derived state from child runs, and stopped correctly at the merge gate.

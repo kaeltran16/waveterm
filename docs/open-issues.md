@@ -44,7 +44,7 @@ whitespace-only *files* out of the change list — tracked separately in the `do
 before any code; `gitinfo.RevertFile`/`RevertHunk` already exist and are still orphaned (verified
 2026-09-17, zero real callers outside generated API + tests). Status: Blocked on a brainstorm
 (Spec B). Specs: `docs/superpowers/specs/2026-09-04-git-compare-viewer-parity-design.md`, plan
-`docs/superpowers/plans/2026-09-04-git-compare-viewer-parity.md`, rationale in the `docs/deferred.md`
+`git show edf0132b:docs/superpowers/plans/2026-09-04-git-compare-viewer-parity.md`, rationale in the `docs/deferred.md`
 2026-09-04 entry. **Owner call 2026-09-17:** the orphaned revert three are kept as Spec B's starting
 point, not deleted as part of this orchestrator-run's cleanup — only Spec B decides their fate.
 

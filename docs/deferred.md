@@ -138,7 +138,7 @@ this entry is open. Only the Sessions half of its project and Space scope moved 
 
 ## Lanes: a skipped task's commits land with its lane, and a retry's evidence starts at the branch head (2026-09-15)
 
-Slice 4d of the orchestrator redesign (`docs/superpowers/plans/2026-09-15-orchestrator-redesign-s4d-lanes.md`)
+Slice 4d of the orchestrator redesign (`git show edf0132b:docs/superpowers/plans/2026-09-15-orchestrator-redesign-s4d-lanes.md`)
 runs a chain of tasks as one lane: one worktree and branch, and one squash merge once the last task is done.
 
 - **What was deferred:**
@@ -158,7 +158,7 @@ runs a chain of tasks as one lane: one worktree and branch, and one squash merge
 
 ## Merge-point Verify: a timeout kills the shell only, and a failed Verify holds only its own run's merges (2026-09-15)
 
-Slice 4c of the orchestrator redesign (`docs/superpowers/plans/2026-09-15-orchestrator-redesign-s4c-setup-merge-verify.md`)
+Slice 4c of the orchestrator redesign (`git show edf0132b:docs/superpowers/plans/2026-09-15-orchestrator-redesign-s4c-setup-merge-verify.md`)
 runs a plan's Setup and Verify commands through the platform shell and serializes merges per project checkout.
 
 - **What was deferred:**
@@ -256,7 +256,7 @@ the human answers routinely; the fix shape above stays valid.
 ## Diff surface — hiding whitespace-only files from the change list (2026-09-11)
 
 Deferred by finding F4 of the git-compare-viewer parity initiative
-(`docs/superpowers/plans/2026-09-04-git-compare-viewer-parity.md`).
+(`git show edf0132b:docs/superpowers/plans/2026-09-04-git-compare-viewer-parity.md`).
 
 - **What the finding asked for, and why it was not built:** F4 prescribed threading `-w` through the
   `CommitDiff` / `CompareDiff` RPCs. That prescription went stale during the initiative — after Task 8 the
@@ -439,7 +439,7 @@ channel is no longer created and abandoned by a human, so there is materially le
 Deferred by the two-spec split agreed during brainstorming on 2026-09-04. The Diff surface's
 JetBrains-parity work was scoped as six gaps; five are specced and planned
 (`docs/superpowers/specs/2026-09-04-git-compare-viewer-parity-design.md`,
-`docs/superpowers/plans/2026-09-04-git-compare-viewer-parity.md`). The sixth — **repository
+`git show edf0132b:docs/superpowers/plans/2026-09-04-git-compare-viewer-parity.md`). The sixth — **repository
 actions** — is this entry.
 
 - **What was deferred:** checkout, cherry-pick, revert (file and hunk), and any other operation that
@@ -1101,7 +1101,7 @@ fan-out (`f43768d9`), the memory force-graph (`bb4da8a1`), the Agents cursor-row
 Usage token-type (cache-read) split (`usagesurface.tsx`).
 
 **Obsolete (not deferred — un-executable as written):** the Agents-tab motion Phase 2 plan
-(`docs/superpowers/plans/2026-06-19-agents-tab-motion.md`) targets `askcard.tsx`/`outputpanel.tsx`/
+(`git show edf0132b:docs/superpowers/plans/2026-06-19-agents-tab-motion.md`) targets `askcard.tsx`/`outputpanel.tsx`/
 `sessionsidebar.tsx`/`sessionrow.tsx`/`frontend/app/tab/vtab.tsx`, all removed in the cockpit rebuild
 + Phase-5b teardown. The `motion` dep and animations landed via later work (`agentrow.tsx` uses
 Reorder/AnimatePresence/layout springs); this specific plan cannot be applied.

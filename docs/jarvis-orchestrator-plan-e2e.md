@@ -4,7 +4,7 @@
 screenshot is a real app frame and every number below comes from a real `wshrpc` call or a real
 transcript — nothing here is mocked or reconstructed.
 
-- **Plan under execution:** `docs/superpowers/plans/2026-09-04-git-compare-viewer-parity.md` (13 numbered tasks)
+- **Plan under execution:** `git show edf0132b:docs/superpowers/plans/2026-09-04-git-compare-viewer-parity.md` (13 numbered tasks)
 - **Channel:** `#git-compare-parity-81920`
 - **Project:** `.claude/worktrees/git-compare-viewer-parity` — the pre-existing feature worktree, so the
   main checkout is never touched

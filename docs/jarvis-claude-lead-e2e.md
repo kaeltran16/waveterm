@@ -4,7 +4,7 @@
 value below comes from a real `wshrpc` call, a real block-meta read, the lead's real terminal
 scrollback, or the scratch repo's real git history — nothing is mocked or reconstructed.
 
-This is the proof for `docs/superpowers/plans/2026-09-04-claude-lead-dag-engine.md`. Before that
+This is the proof for `git show edf0132b:docs/superpowers/plans/2026-09-04-claude-lead-dag-engine.md`. Before that
 change the DAG engine could only be driven by a **pi** lead, because `BuildOrchestratePrompt` forked
 on runtime alone. The question here is whether a **Claude Code** lead, told to use the engine,
 actually publishes a `TaskGroup`, parks on the wake loop, and drives children to merge.
