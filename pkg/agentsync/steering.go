@@ -106,6 +106,20 @@ func regionBody(existing string) string {
 	return strings.Trim(rest[:end], "\n")
 }
 
+// foldBlock is what a fold moves into the shared doc: the harness's own rules and, while there is no
+// shared doc, the body of a region an earlier sync left. That region is then the harness's only copy of
+// those rules, and the first save of a new shared doc would overwrite it.
+func foldBlock(own, region, shared string) string {
+	region = strings.Trim(region, "\r\n")
+	if strings.TrimSpace(shared) != "" || region == "" {
+		return own
+	}
+	if strings.TrimSpace(own) == "" {
+		return region
+	}
+	return strings.TrimRight(own, "\n") + "\n\n" + region
+}
+
 // carriedLines returns block's lines that are absent from shared, compared as a trimmed set so
 // reordering and whitespace never register as a difference. It is what a fold moves and what the
 // harness rows count as "rules of its own".

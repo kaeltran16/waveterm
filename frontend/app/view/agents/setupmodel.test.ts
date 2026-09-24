@@ -128,6 +128,13 @@ describe("first run", () => {
         expect(firstRunOffer(rows)).toMatchObject({ runtime: "codex", lines: 70 });
     });
 
+    it("previews the region an earlier sync left, after any own rules", () => {
+        const region = row("claude", {}, { carried: 2, shared: "\r\n# Prefs\r\n- arc rule\r" });
+        expect(firstRunOffer([region])?.rules).toBe("# Prefs\r\n- arc rule");
+        const both = row("claude", {}, { carried: 3, own: "- mine\n", shared: "- arc rule" });
+        expect(firstRunOffer([both])?.rules).toBe("- mine\n\n- arc rule");
+    });
+
     it("breaks a tie by row order", () => {
         const rows = [row("claude", {}, { carried: 5 }), row("codex", {}, { carried: 5 })];
         expect(firstRunOffer(rows)?.runtime).toBe("claude");

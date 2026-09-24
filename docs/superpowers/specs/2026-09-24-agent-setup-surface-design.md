@@ -72,10 +72,13 @@ The left list has these rows:
 
 **First run** (FirstRun.dc.html) applies when the shared doc is missing or empty:
 - The main pane explains that the rules reach only the harnesses that already hold them.
-- If one or more harnesses hold own rules, it offers the one with the most lines ("Start from
-  Claude Code's rules", N lines).
+- If one or more harnesses hold rules, it offers the one with the most lines ("Start from
+  Claude Code's rules", N lines). While the shared doc is missing, a harness's rules are its own
+  block plus the body of any ARC-STEERING region an earlier sync left in its file. That region is
+  then its only copy of those rules, and the first save of a new doc would overwrite it, so
+  `ReadHarness` counts it in `Carried` and a fold seeds from it (`foldBlock`).
   - **Share with all N harnesses** runs Fold on that harness. A fold into an empty doc seeds it
-    verbatim, then projects the doc.
+    verbatim (own rules, then the leftover region), then projects the doc.
   - **Edit first** runs the same fold, then opens the shared editor.
 - A text link, "start with an empty page", opens the shared editor on an empty draft.
 - A notice lists the harnesses whose file carries a memory block, with its size, and links to
@@ -88,7 +91,9 @@ a matrix with one row per skill and one column per `SkillColumns` harness. A col
 present shows "not set up" in its header.
 
 A skill is managed when it lives in `vault/skills`, and unmanaged when it lives only in a harness's
-own skills directory. The matrix shows both kinds:
+own skills directory. A harness entry counts as a skill only if it holds a `SKILL.md` and its name
+does not start with a dot, so Codex's bundled `.system` set and other tools' stores are never listed
+or adopted (`isSkillDir`). The matrix shows both kinds:
 - Managed rows come from `SkillRows`, with per-cell states synced, differs, unmanaged, or absent.
 - Unmanaged rows come from `PlanAdopt`. Each move is a harness copy, and the cell shows either
   "same" or what that copy overrides (keys and files), or "differs in body text" when BodyDiff is

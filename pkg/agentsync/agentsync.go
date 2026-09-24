@@ -160,7 +160,7 @@ func ReadHarness(p Paths, runtime string) (HarnessDoc, error) {
 	doc.Shared = regionBody(string(existing))
 	doc.Memory = memoryRegion(string(existing))
 	doc.State = steeringState(string(existing), string(shared))
-	doc.Carried = len(carriedLines(doc.Own, string(shared)))
+	doc.Carried = len(carriedLines(foldBlock(doc.Own, doc.Shared, string(shared)), string(shared)))
 	return doc, nil
 }
 
@@ -263,14 +263,15 @@ func FoldIntoShared(p Paths, runtime string) (FoldResult, error) {
 		return res, fmt.Errorf("reading the shared steering doc: %w", err)
 	}
 	shared := string(sharedBytes)
-	if strings.TrimSpace(doc.Own) != "" {
+	block := foldBlock(doc.Own, doc.Shared, shared)
+	if strings.TrimSpace(block) != "" {
 		spec, _ := harness.Lookup(runtime)
-		res.Lines = carriedLines(doc.Own, shared)
+		res.Lines = carriedLines(block, shared)
 		switch {
 		case strings.TrimSpace(shared) == "":
 			// verbatim, not line-by-line: an empty doc should inherit the block's headings and
 			// spacing rather than a flattened list of its non-blank lines
-			shared = strings.TrimRight(doc.Own, "\n") + "\n"
+			shared = strings.TrimRight(block, "\n") + "\n"
 			res.Seeded = true
 		case len(res.Lines) > 0:
 			shared = strings.TrimRight(shared, "\n") + "\n\n## From " + spec.Label + "\n\n" +

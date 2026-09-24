@@ -125,17 +125,25 @@ export interface FirstRunOffer {
     label: string;
     path: string;
     lines: number;
-    own: string;
+    rules: string;
 }
 
-// The harness whose own rules the shared doc should start from: the one with the most, the earlier row
-// on a tie, or null when no present harness holds any.
+// What a first-run fold seeds the shared doc with, mirroring agentsync's foldBlock: the own rules, then
+// the region an earlier sync left, which is the harness's only copy of those rules while nothing is shared.
+function firstRunRules(doc: HarnessDoc): string {
+    return [doc.own.replace(/\n+$/, ""), doc.shared.replace(/^[\r\n]+|[\r\n]+$/g, "")]
+        .filter((t) => t.trim() !== "")
+        .join("\n\n");
+}
+
+// The harness whose rules the shared doc should start from: the one with the most, the earlier row on a
+// tie, or null when no present harness holds any.
 export function firstRunOffer(rows: HarnessRow[]): FirstRunOffer | null {
     let best: FirstRunOffer | null = null;
     for (const r of rows) {
         const lines = r.present ? (r.doc?.carried ?? 0) : 0;
         if (lines > 0 && (best == null || lines > best.lines)) {
-            best = { runtime: r.runtime, label: r.label, path: r.path, lines, own: r.doc!.own };
+            best = { runtime: r.runtime, label: r.label, path: r.path, lines, rules: firstRunRules(r.doc!) };
         }
     }
     return best;

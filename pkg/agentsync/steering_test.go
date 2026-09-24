@@ -268,3 +268,63 @@ func TestFoldIntoSharedIsANoOpTheSecondTime(t *testing.T) {
 		t.Fatalf("shared doc changed on a no-op fold:\n got %q\nwant %q", got, before)
 	}
 }
+
+// A region an earlier sync left is the harness's only copy of those rules while there is no shared doc:
+// the first save of an empty doc would overwrite it, so a fold must seed from it.
+func TestFoldIntoSharedSeedsFromALeftoverRegion(t *testing.T) {
+	p := testPaths(t, "", ".claude")
+	path := filepath.Join(p.Home, ".claude", "CLAUDE.md")
+	writeFile(t, path, renderRegion("# Prefs\r\n- arc rule\r\n"))
+
+	doc, err := ReadHarness(p, "claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.Carried != 2 {
+		t.Fatalf("carried = %d, want the region's two lines while there is no shared doc", doc.Carried)
+	}
+	res, err := FoldIntoShared(p, "claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Seeded {
+		t.Fatalf("fold = %+v, want a seed", res)
+	}
+	// the old sync wrote CRLF; the rules matter here, not which ending the seed's last line gets
+	if got := strings.ReplaceAll(readFile(t, p.SteeringDoc), "\r\n", "\n"); got != "# Prefs\n- arc rule\n" {
+		t.Fatalf("shared doc = %q, want the region body", got)
+	}
+	if got := readFile(t, path); strings.Count(got, "- arc rule") != 1 {
+		t.Fatalf("claude = %q, want the rule exactly once", got)
+	}
+}
+
+func TestFoldIntoSharedSeedsOwnRulesThenTheLeftoverRegion(t *testing.T) {
+	p := testPaths(t, "", ".claude")
+	path := filepath.Join(p.Home, ".claude", "CLAUDE.md")
+	writeFile(t, path, "- mine\n\n"+renderRegion("- arc rule\n"))
+
+	if _, err := FoldIntoShared(p, "claude"); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, p.SteeringDoc); got != "- mine\n\n- arc rule\n" {
+		t.Fatalf("shared doc = %q, want own rules then the region", got)
+	}
+	got := readFile(t, path)
+	if strings.TrimSpace(blockBefore(got)) != "" || !strings.Contains(regionBody(got), "- mine") ||
+		!strings.Contains(regionBody(got), "- arc rule") {
+		t.Fatalf("claude = %q, want both rules in the region and the own zone cleared", got)
+	}
+}
+
+func TestReadHarnessDoesNotCarryARegionOnceASharedDocExists(t *testing.T) {
+	p := testPaths(t, "- shared rule\n", ".claude")
+	writeFile(t, filepath.Join(p.Home, ".claude", "CLAUDE.md"), renderRegion("- old rule\n"))
+	doc, err := ReadHarness(p, "claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.Carried != 0 {
+		t.Fatalf("carried = %d, want 0: the region is the shared doc's to rewrite", doc.Carried)
+	}
+}

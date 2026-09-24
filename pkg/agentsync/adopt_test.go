@@ -226,3 +226,35 @@ func TestAdoptRefusesAKeepWithNoCopy(t *testing.T) {
 		t.Errorf("codex copy was touched: %q", got)
 	}
 }
+
+// A harness keeps more than skills in its skills directory: Codex's bundled .system set, another tool's
+// store with no SKILL.md. Adopt must neither list nor move them.
+func TestAdoptIgnoresDirectoriesThatAreNotSkills(t *testing.T) {
+	p := testPaths(t, "", ".codex")
+	skills := filepath.Join(p.Home, ".codex", "skills")
+	writeFile(t, filepath.Join(skills, ".system", "imagegen", skillFile), "bundled\n")
+	writeFile(t, filepath.Join(skills, "synced", "bucket", "blob"), "data\n")
+	writeFile(t, filepath.Join(skills, "graphify", skillFile), "---\nname: graphify\n---\nbody\n")
+
+	plan, err := Adopt(p, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Moves) != 1 || plan.Moves[0].Name != "graphify" {
+		t.Fatalf("plan = %+v, want only the real skill", plan)
+	}
+	for _, left := range []string{filepath.Join(".system", "imagegen", skillFile), filepath.Join("synced", "bucket", "blob")} {
+		if _, err := os.Stat(filepath.Join(skills, left)); err != nil {
+			t.Errorf("%s moved: %v", left, err)
+		}
+	}
+	st, err := Status(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range st {
+		if s.Runtime == "codex" && s.SkillsUnmanaged != 0 {
+			t.Fatalf("codex = %+v, want no unmanaged skills once graphify is adopted", s)
+		}
+	}
+}

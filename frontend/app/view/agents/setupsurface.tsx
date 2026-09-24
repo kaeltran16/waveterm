@@ -553,7 +553,7 @@ function FirstRun({ rows }: { rows: HarnessRow[] }) {
                                 {offer.lines} {offer.lines === 1 ? "line" : "lines"}
                             </span>
                         </div>
-                        <Preview text={offer.own} className="text-ink-mid" />
+                        <Preview text={offer.rules} className="text-ink-mid" />
                         <div className="flex flex-col gap-1.5 text-[12.5px] text-secondary">
                             <span className={SECTION_HEAD}>This will</span>
                             <span className="flex gap-2">

@@ -49,7 +49,7 @@ func Status(p Paths) ([]HarnessStatus, error) {
 			for _, e := range observed {
 				if e.Managed {
 					st.SkillsManaged++
-				} else {
+				} else if isSkillDir(dir, e.Name) {
 					st.SkillsUnmanaged++
 				}
 			}
