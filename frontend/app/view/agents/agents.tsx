@@ -48,11 +48,11 @@ export const SURFACE_ORDER: SurfaceKey[] = [
     "cockpit",
     "jarvis",
     "agent",
-    "radar",
-    "sessions",
-    "files",
-    "usage",
     "code",
+    "files",
+    "sessions",
+    "radar",
+    "usage",
 ];
 
 export type ChipFilter = "all" | "asking" | "working" | "idle";

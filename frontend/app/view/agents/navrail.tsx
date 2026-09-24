@@ -38,11 +38,11 @@ export const ITEMS: { key: SurfaceKey; label: string }[] = [
     { key: "cockpit", label: "Cockpit" },
     { key: "jarvis", label: "Jarvis" },
     { key: "agent", label: "Agent" },
-    { key: "radar", label: "Radar" },
-    { key: "sessions", label: "Sessions" },
-    { key: "files", label: "Diff" },
-    { key: "usage", label: "Usage" },
     { key: "code", label: "Code" },
+    { key: "files", label: "Diff" },
+    { key: "sessions", label: "Sessions" },
+    { key: "radar", label: "Radar" },
+    { key: "usage", label: "Usage" },
 ];
 
 export function NavRail({ model }: { model: AgentsViewModel }) {

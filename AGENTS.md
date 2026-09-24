@@ -89,7 +89,7 @@ before working in an area you don't already know.
   `~/.arc/bin/` — not PATH. The managed hook list is `cmd/wsh/cmd/wshcmd-installhooks.go`.
 - **Frontend — React 19 + Vite + Tailwind 4 + jotai (`frontend/`)** — `frontend/tauri/main.tsx` is the
   sole shipping entry. The cockpit is **one window with N surfaces, not tabs**. Surface keys are not
-  their labels: `files` renders as "Diff", `code` is the eighth; the order is
+  their labels: `files` renders as "Diff"; the order is
   `SURFACE_ORDER` in `frontend/app/view/agents/agents.tsx`.
 
 Load-bearing rules:

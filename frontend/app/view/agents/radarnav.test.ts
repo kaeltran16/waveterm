@@ -13,8 +13,9 @@ describe("radar navigation", () => {
         expect(SURFACE_ORDER).toContain("radar");
     });
 
-    it("places radar immediately after the merged Jarvis surface", () => {
-        expect(SURFACE_ORDER.indexOf("radar")).toBe(SURFACE_ORDER.indexOf("agent") + 1);
+    it("places radar between sessions and usage", () => {
+        expect(SURFACE_ORDER.indexOf("radar")).toBe(SURFACE_ORDER.indexOf("sessions") + 1);
+        expect(SURFACE_ORDER.indexOf("usage")).toBe(SURFACE_ORDER.indexOf("radar") + 1);
     });
 
     it("exposes a radar nav item with a label", () => {

@@ -24,7 +24,7 @@ Design spec: [`docs/superpowers/specs/2026-07-03-keyboard-operability-design.md`
 
 | Keys | Action |
 |---|---|
-| `Ctrl`+`1`…`8` | Jump to surface by position — in order: Cockpit, Jarvis, Agent, Radar, Sessions, Diff, Usage, Code |
+| `Ctrl`+`1`…`8` | Jump to surface by position — in order: Cockpit, Jarvis, Agent, Code, Diff, Sessions, Radar, Usage |
 | `Ctrl`+`P` | Command palette |
 | `Ctrl`+`N` | New agent |
 | `Ctrl`+`Tab` / `Ctrl`+`Shift`+`Tab` | Next / previous agent |
