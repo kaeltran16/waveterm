@@ -1,7 +1,7 @@
 # Surface Loading States — Design
 
 **Date:** 2026-09-24
-**Status:** Draft, awaiting spec review
+**Status:** Shipped (run 28caa81f, 2026-09-24)
 **Builds on:** `2026-07-14-cross-surface-consistency-scaffold-design.md` (decision 5: loading is the
 existing `Skeleton`/`SkeletonLine` behind a load gate, no new loading component)
 
@@ -68,7 +68,9 @@ Two separate defects, both reported:
 - A new pure `rosterseed.ts` holds `isRosterSeeded(orefs, hasStatus, settled)`, which is true when every
   terminal oref either has a status or has settled, and a generic `latchWhenTrue(store, check, latch)`.
   `liveagents.ts` wires them up. It already imports both the sidebar model and the status store, so this
-  creates no import cycle. `rosterSeededAtom` is a primitive boolean latch. A store subscription flips it to
+  creates no import cycle. The check also requires the layout to have loaded (`isLayoutLoaded`: the
+  workspace, its tabs and their blocks, by their WOS loading atoms; a failed load counts as loaded), because
+  `CockpitShell` mounts before those objects arrive. `rosterSeededAtom` is a primitive boolean latch. A store subscription flips it to
   `true` the first time the derived check passes, and it never goes back to `false`, so a terminal opened
   later in the session never reopens the skeleton. The latch is installed from a `CockpitShell` effect, not
   from boot: `setupAgentStatusSubscription` runs before the workspace is loaded, and at that point the
@@ -90,7 +92,8 @@ Two separate defects, both reported:
   ever been scanned) sets `radarReportsAtom` to `[]`, so `null` always means "not fetched yet".
 - `radarmodel.ts`: `radarLoadPhase({ reports, currentReportId, report, loadError, scopeBlocked }): LoadPhase`
   returns:
-  - `"error"` when `loadError` is set.
+  - `"error"` when `loadError` is set and nothing is on screen yet. A failure after reports are showing keeps
+    them and adds the error banner above them.
   - `"ready"` when `scopeBlocked` is true, meaning `pickInitialScope` says `"wait"` because a persisted or
     filtered project is no longer in the registry. That case keeps today's scan-state panel, because an
     endless skeleton is as false as a false empty.
