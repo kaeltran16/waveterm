@@ -164,9 +164,11 @@ export function RadarFindingDetail({
         <div
             data-radar-finding-detail={finding.id}
             data-radar-report={report.oid}
-            className="min-w-0 flex-1 overflow-y-auto"
+            className="@container min-w-0 flex-1 overflow-y-auto"
         >
-            <div className="flex max-w-[880px] flex-col gap-6 px-[34px] pb-10 pt-[22px]">
+            {/* @container, not a media query: the list column eats window width, so only the pane's own
+                width says whether a side column fits */}
+            <div className="flex max-w-[880px] flex-col gap-6 px-[34px] pb-10 pt-[22px] @min-[1300px]:max-w-[1440px]">
                 <div className="flex flex-col gap-3.5">
                     <div className="flex min-w-0 flex-wrap items-center gap-2.5">
                         <span
@@ -288,97 +290,110 @@ export function RadarFindingDetail({
                     <span className="font-mono text-[11px] text-ink-faint">{finding.fingerprint}</span>
                 </div>
 
-                <div className="flex flex-col gap-2">
-                    <h3 className={LABEL}>Why it matters</h3>
-                    <p className="max-w-[72ch] text-[13.5px] leading-[1.65] text-pretty text-muted-foreground">
-                        {finding.why}
-                    </p>
-                </div>
+                <div className="flex flex-col gap-6 @min-[1300px]:flex-row @min-[1300px]:items-start @min-[1300px]:gap-8">
+                    <div className="flex min-w-0 flex-1 flex-col gap-6">
+                        <div className="flex flex-col gap-2">
+                            <h3 className={LABEL}>Why it matters</h3>
+                            <p className="max-w-[72ch] text-[13.5px] leading-[1.65] text-pretty text-muted-foreground">
+                                {finding.why}
+                            </p>
+                        </div>
 
-                <RelevantDecisions {...ambientRefForFinding(finding)} />
+                        <RelevantDecisions {...ambientRefForFinding(finding)} />
 
-                {/* radar's own reading, kept apart from the evidence below */}
-                <div className="flex flex-col gap-2 rounded-[10px] border border-dashed border-accent/40 bg-surface px-4 pb-3.5 pt-[13px]">
-                    <div className="flex items-center gap-2">
-                        <Target className="h-[13px] w-[13px] text-accent-soft" />
-                        <span className="text-[10.5px] font-bold uppercase tracking-[0.08em] text-accent-soft">
-                            Suggested investigation
-                        </span>
-                        <span className="flex-1" />
-                        <span className="text-[11px] text-muted">Radar's interpretation, not evidence</span>
-                    </div>
-                    <p className="max-w-[72ch] text-[13.5px] leading-[1.6] text-pretty text-foreground">
-                        {finding.mission}
-                    </p>
-                </div>
+                        {/* radar's own reading, kept apart from the evidence below */}
+                        <div className="flex flex-col gap-2 rounded-[10px] border border-dashed border-accent/40 bg-surface px-4 pb-3.5 pt-[13px]">
+                            <div className="flex items-center gap-2">
+                                <Target className="h-[13px] w-[13px] text-accent-soft" />
+                                <span className="text-[10.5px] font-bold uppercase tracking-[0.08em] text-accent-soft">
+                                    Suggested investigation
+                                </span>
+                                <span className="flex-1" />
+                                <span className="text-[11px] text-muted">Radar's interpretation, not evidence</span>
+                            </div>
+                            <p className="max-w-[72ch] text-[13.5px] leading-[1.6] text-pretty text-foreground">
+                                {finding.mission}
+                            </p>
+                        </div>
 
-                {/* one evidence list: timeline order, collector, source ref, and the diff where there is one */}
-                <div className="flex flex-col gap-2">
-                    <div className="flex items-baseline gap-2.5">
-                        <h3 className={LABEL}>Evidence</h3>
-                        <span className="font-mono text-[11px] text-ink-faint">
-                            {plural(findingSignalCount(finding), "signal")} from{" "}
-                            {plural(findingSourceCount(finding, report), "collector")}
-                        </span>
-                    </div>
-                    {evidence.length > 0 ? (
-                        <div className="flex flex-col gap-px overflow-hidden rounded-[10px] border border-edge-mid bg-edge-faint">
-                            {evidence.map((s) => (
-                                <div key={s.id} className="flex flex-col gap-[9px] bg-background px-3.5 py-2.5">
-                                    <div className="grid grid-cols-[52px_92px_minmax(0,1fr)_auto] items-baseline gap-3">
-                                        <span className="font-mono text-[11px] text-ink-faint">
-                                            {formatDate(s.observedts)}
-                                        </span>
-                                        <span className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.04em] text-ink-mid">
-                                            {s.collector}
-                                        </span>
-                                        <span className="text-[13px] leading-[1.45] text-secondary">{s.summary}</span>
-                                        <span className="font-mono text-[11px] text-muted">{s.sourceref}</span>
-                                    </div>
-                                    {s.snippet ? <Snippet snippet={s.snippet} /> : null}
+                        {/* one evidence list: timeline order, collector, source ref, and the diff where there is one */}
+                        <div className="flex flex-col gap-2">
+                            <div className="flex items-baseline gap-2.5">
+                                <h3 className={LABEL}>Evidence</h3>
+                                <span className="font-mono text-[11px] text-ink-faint">
+                                    {plural(findingSignalCount(finding), "signal")} from{" "}
+                                    {plural(findingSourceCount(finding, report), "collector")}
+                                </span>
+                            </div>
+                            {evidence.length > 0 ? (
+                                <div className="flex flex-col gap-px overflow-hidden rounded-[10px] border border-edge-mid bg-edge-faint">
+                                    {evidence.map((s) => (
+                                        <div key={s.id} className="flex flex-col gap-[9px] bg-background px-3.5 py-2.5">
+                                            <div className="grid grid-cols-[52px_92px_minmax(0,1fr)_auto] items-baseline gap-3">
+                                                <span className="font-mono text-[11px] text-ink-faint">
+                                                    {formatDate(s.observedts)}
+                                                </span>
+                                                <span className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.04em] text-ink-mid">
+                                                    {s.collector}
+                                                </span>
+                                                <span className="text-[13px] leading-[1.45] text-secondary">
+                                                    {s.summary}
+                                                </span>
+                                                <span className="font-mono text-[11px] text-muted">{s.sourceref}</span>
+                                            </div>
+                                            {s.snippet ? <Snippet snippet={s.snippet} /> : null}
+                                        </div>
+                                    ))}
                                 </div>
-                            ))}
-                        </div>
-                    ) : (
-                        <p className="text-xs text-muted">No linked signals.</p>
-                    )}
-                </div>
-
-                {finding.files.length > 0 ? (
-                    <div className="flex flex-col gap-2">
-                        <div className="flex items-baseline gap-2.5">
-                            <h3 className={LABEL}>Affected files</h3>
-                            <span className="font-mono text-[11px] text-ink-faint">{finding.files.length}</span>
-                        </div>
-                        <div className="flex flex-col gap-px overflow-hidden rounded-[10px] border border-edge-mid bg-edge-faint">
-                            {finding.files.map((f) => (
-                                // findings carry no line numbers, so this lands at the top of the file
-                                <button
-                                    key={f}
-                                    type="button"
-                                    aria-label={`Open ${f} in Code`}
-                                    onClick={() =>
-                                        fireAndForget(() =>
-                                            openInCode(model, { projectPath: report.projectpath, rel: f })
-                                        )
-                                    }
-                                    className="group flex items-center gap-2.5 bg-background px-3.5 py-[7px] text-left hover:bg-surface-hover"
-                                >
-                                    <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink-hi">{f}</span>
-                                    <span className="text-[11px] text-ink-faint group-hover:text-muted">
-                                        open in Code
-                                    </span>
-                                    <ArrowRight className="h-3 w-3 text-ink-faint" />
-                                </button>
-                            ))}
+                            ) : (
+                                <p className="text-xs text-muted">No linked signals.</p>
+                            )}
                         </div>
                     </div>
-                ) : null}
 
-                <p className="text-[11.5px] leading-normal text-muted">
-                    Radar never edits files, runs tests or launches agents on its own. Starting an investigation is the
-                    only action that opens a Run.
-                </p>
+                    <aside className="flex flex-col gap-6 @min-[1300px]:sticky @min-[1300px]:top-6 @min-[1300px]:w-[340px] @min-[1300px]:flex-none">
+                        {finding.files.length > 0 ? (
+                            <div className="flex flex-col gap-2">
+                                <div className="flex items-baseline gap-2.5">
+                                    <h3 className={LABEL}>Affected files</h3>
+                                    <span className="font-mono text-[11px] text-ink-faint">{finding.files.length}</span>
+                                </div>
+                                <div className="flex flex-col gap-px overflow-hidden rounded-[10px] border border-edge-mid bg-edge-faint">
+                                    {finding.files.map((f) => (
+                                        // findings carry no line numbers, so this lands at the top of the file
+                                        <button
+                                            key={f}
+                                            type="button"
+                                            aria-label={`Open ${f} in Code`}
+                                            onClick={() =>
+                                                fireAndForget(() =>
+                                                    openInCode(model, { projectPath: report.projectpath, rel: f })
+                                                )
+                                            }
+                                            className="group flex items-center gap-2.5 bg-background px-3.5 py-[7px] text-left hover:bg-surface-hover"
+                                        >
+                                            <span
+                                                title={f}
+                                                className="min-w-0 flex-1 truncate font-mono text-xs text-ink-hi"
+                                            >
+                                                {f}
+                                            </span>
+                                            <span className="text-[11px] text-ink-faint group-hover:text-muted @min-[1300px]:hidden">
+                                                open in Code
+                                            </span>
+                                            <ArrowRight className="h-3 w-3 text-ink-faint" />
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        ) : null}
+
+                        <p className="text-[11.5px] leading-normal text-muted">
+                            Radar never edits files, runs tests or launches agents on its own. Starting an investigation
+                            is the only action that opens a Run.
+                        </p>
+                    </aside>
+                </div>
             </div>
         </div>
     );
