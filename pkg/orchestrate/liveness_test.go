@@ -169,10 +169,10 @@ func seedSilentChild(t *testing.T, name string) (context.Context, *waveobj.TaskG
 	return ctx, g
 }
 
-// A stalled task is the lead's judgment only when its worker is hung: the process still runs and it is
-// not waiting on an answer. A worker whose process exited fails through the exit path, and one waiting on
-// an answer belongs to the question queue.
-func TestStalledTaskWakesLeadOnlyWhenWorkerIsHung(t *testing.T) {
+// A stalled task is the lead's judgment unless its worker is waiting on an answer, which belongs to the
+// question queue. A worker whose process is gone while its task still runs was missed by the exit path, so
+// the lead hears of it.
+func TestStalledTaskWakesLeadUnlessWorkerIsAsking(t *testing.T) {
 	const workerBlock = "3c9d2e1f-8a7b-4c6d-9e5f-0a1b2c3d4e5f"
 	cases := []struct {
 		name   string
@@ -183,7 +183,7 @@ func TestStalledTaskWakesLeadOnlyWhenWorkerIsHung(t *testing.T) {
 	}{
 		{"hung-alive", true, false, blockcontroller.Status_Running, []string{"wake: task t-0 hung: silent 6m, process alive, no ask pending. wsh jarvis dag status"}},
 		{"hung-asking", true, true, blockcontroller.Status_Running, nil},
-		{"hung-exited", false, false, blockcontroller.Status_Done, nil},
+		{"hung-exited", false, false, blockcontroller.Status_Done, []string{"wake: task t-0's worker exited without reporting complete. wsh jarvis dag status"}},
 		// no process ever means no exit hook either, so the lead is the only one who will hear of it
 		{"never-started", false, false, blockcontroller.Status_Init, []string{"wake: task t-0 never started: no worker process 6m after spawn. wsh jarvis dag retry t-0"}},
 	}
@@ -217,16 +217,22 @@ func TestStalledTaskWakesLeadOnlyWhenWorkerIsHung(t *testing.T) {
 // seedQuietChild records a running pi child whose transcript last moved past StallThreshold ago, under a
 // live lead so a stall stays a stall. It returns the dag and the transcript's mtime.
 func seedQuietChild(t *testing.T, name string) (context.Context, *waveobj.TaskGroup, int64) {
+	ctx, g, _ := seedChildWrittenAt(t, name, time.Now().Add(-StallThreshold-time.Minute))
+	return ctx, g, g.Tasks[0].LastActivity
+}
+
+// seedChildWrittenAt records a running pi child whose transcript last moved at lastWrite, under a live lead,
+// and returns the fake lead so a test can read the wakes it was sent.
+func seedChildWrittenAt(t *testing.T, name string, lastWrite time.Time) (context.Context, *waveobj.TaskGroup, *fakeLead) {
 	t.Helper()
 	allowWorkerHarnessForTest(t)
 	f := newFakeLead(t)
 	f.state.Alive = true
 	root := t.TempDir()
 	stubSessionsRoot(t, root)
-	quiet := time.Now().Add(-StallThreshold - time.Minute)
-	writePiSession(t, root, liveSession, quiet)
+	writePiSession(t, root, liveSession, lastWrite)
 	ctx, g, channelID, _ := seedDispatchDag(t, name)
-	child := jarvis.NewRun("child", "ws-1", t.TempDir(), nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), quiet.UnixMilli())
+	child := jarvis.NewRun("child", "ws-1", t.TempDir(), nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), lastWrite.UnixMilli())
 	child.Runtime = "pi"
 	child.DagORef = g.OID
 	child.SessionId = liveSession
@@ -236,15 +242,23 @@ func seedQuietChild(t *testing.T, name string) (context.Context, *waveobj.TaskGr
 	if err := wstore.UpdateDag(ctx, g.OID, func(cur *waveobj.TaskGroup) error {
 		cur.Tasks[0].RunID = child.ID
 		cur.Tasks[0].State = TaskState_Running
-		cur.Tasks[0].LastActivity = quiet.UnixMilli()
+		cur.Tasks[0].LastActivity = lastWrite.UnixMilli()
 		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
+	g.Tasks[0].LastActivity = lastWrite.UnixMilli()
 	prevBlock := workerBlockFn
 	workerBlockFn = func(context.Context, *waveobj.Run) (string, bool) { return "worker-block", true }
 	t.Cleanup(func() { workerBlockFn = prevBlock })
-	return ctx, g, quiet.UnixMilli()
+	return ctx, g, f
+}
+
+func stubTurnEnded(t *testing.T, at int64) {
+	t.Helper()
+	prev := workerTurnEndedAt
+	workerTurnEndedAt = func(context.Context, *waveobj.Run) int64 { return at }
+	t.Cleanup(func() { workerTurnEndedAt = prev })
 }
 
 func stubChildCPU(t *testing.T, sample func(call int) (int64, bool)) {
@@ -301,5 +315,73 @@ func TestNoCPUReadingLeavesTheMtimeRule(t *testing.T) {
 
 	if task := tick(t, ctx, g); task.State != TaskState_Stalled {
 		t.Fatalf("with no CPU reading the transcript age decides, got %s", task.State)
+	}
+}
+
+// An idle harness at its prompt still ticks: about 110ms in 20s on an idle claude (measured 2026-09-24). Only
+// CPU above IdleCPUShare of a core is work; a lower total means a child in the tree exited, which is activity.
+func TestIdleHarnessCPUTrickleIsNotWork(t *testing.T) {
+	prev := workerBlockFn
+	workerBlockFn = func(context.Context, *waveobj.Run) (string, bool) { return "worker-block", true }
+	t.Cleanup(func() { workerBlockFn = prev })
+	now := time.Now().UnixMilli()
+	cases := []struct {
+		name    string
+		next    int64
+		elapsed int64
+		want    bool
+	}{
+		{"idle claude's trickle", 5_110, 20_000, false},
+		{"a test run", 15_000, 20_000, true},
+		{"a child in the tree exited", 4_000, 20_000, true},
+		{"flat CPU in the same millisecond", 5_000, 0, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stubChildCPU(t, func(int) (int64, bool) { return tc.next, true })
+			task := waveobj.TaskNode{CPUSample: 5_000, CPUSampleTs: now - tc.elapsed}
+			if got := childStillWorking(context.Background(), &task, &waveobj.Run{}, now); got != tc.want {
+				t.Fatalf("childStillWorking = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// Run 28caa81f's t-4: its complete timed out, it ended its turn, and the lead heard nothing for 25 minutes,
+// because its transcript was fresh and an idle claude's CPU read as work.
+func TestWorkerThatEndedItsTurnWakesTheLead(t *testing.T) {
+	ctx, g, f := seedChildWrittenAt(t, "turn-ended", time.Now().Add(-4*time.Minute))
+	stubTurnEnded(t, time.Now().Add(-4*time.Minute).UnixMilli())
+	stubChildCPU(t, func(int) (int64, bool) { return 5_000, true })
+
+	if task := tick(t, ctx, g); task.State != TaskState_Running {
+		t.Fatalf("the first CPU reading is only a baseline, got %s", task.State)
+	}
+	if task := tick(t, ctx, g); task.State != TaskState_Stalled {
+		t.Fatalf("a worker idle past TurnEndedGrace with flat CPU stalls, got %s", task.State)
+	}
+	if want := []string{taskTurnEndedWake("t-0")}; !reflect.DeepEqual(f.sends, want) {
+		t.Fatalf("want wakes %q, got %q", want, f.sends)
+	}
+}
+
+func TestWorkerJustAfterItsTurnIsLeftAlone(t *testing.T) {
+	ctx, g, f := seedChildWrittenAt(t, "turn-just-ended", time.Now().Add(-30*time.Second))
+	stubTurnEnded(t, time.Now().Add(-30*time.Second).UnixMilli())
+	stubChildCPU(t, func(int) (int64, bool) { return 5_000, true })
+	tick(t, ctx, g)
+	if task := tick(t, ctx, g); task.State != TaskState_Running || len(f.sends) != 0 {
+		t.Fatalf("inside TurnEndedGrace the worker is left alone, got %s and wakes %q", task.State, f.sends)
+	}
+}
+
+// a turn can end on a background test run: Claude is idle, its process tree is not
+func TestTurnEndedOnABackgroundTestIsNotStalled(t *testing.T) {
+	ctx, g, f := seedChildWrittenAt(t, "turn-ended-busy", time.Now().Add(-4*time.Minute))
+	stubTurnEnded(t, time.Now().Add(-4*time.Minute).UnixMilli())
+	stubChildCPU(t, func(call int) (int64, bool) { return int64(call) * 60_000, true })
+	tick(t, ctx, g)
+	if task := tick(t, ctx, g); task.State != TaskState_Running || len(f.sends) != 0 {
+		t.Fatalf("a busy process tree keeps the task running, got %s and wakes %q", task.State, f.sends)
 	}
 }

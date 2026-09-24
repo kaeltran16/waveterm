@@ -554,6 +554,11 @@ func readLeadState(ctx context.Context, channelId, runId string) leadState {
 // latestAgentState is the newest state reported for the lead. Hooks report on the block, but a reporter
 // may use the tab, so both scopes are read and the later report wins.
 func latestAgentState(blockId, tabId string) string {
+	return latestAgentStatus(blockId, tabId).State
+}
+
+// latestAgentStatus is the newest status reported for a block or its tab, zero when there is none.
+func latestAgentStatus(blockId, tabId string) baseds.AgentStatusData {
 	var best baseds.AgentStatusData
 	scopes := []string{waveobj.MakeORef(waveobj.OType_Block, blockId).String(), waveobj.MakeORef(waveobj.OType_Tab, tabId).String()}
 	for _, scope := range scopes {
@@ -564,7 +569,7 @@ func latestAgentState(blockId, tabId string) string {
 			}
 		}
 	}
-	return best.State
+	return best
 }
 
 // typeWake pastes the wake and then presses Enter. Bracketed paste keeps a multi-line wake one message
