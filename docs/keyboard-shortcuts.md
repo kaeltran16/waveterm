@@ -32,8 +32,8 @@ Design spec: [`docs/superpowers/specs/2026-07-03-keyboard-operability-design.md`
 | `.` | Focus the selected row (the cockpit narrows to that agent) |
 | `Shift`+`.` | Clear focus — back to Global |
 
-Settings has no `Ctrl`+number slot — the nine positions are bound to `SURFACE_ORDER`
-(`frontend/app/view/agents/agents.tsx`), which excludes it. Reach Settings with `g` `,`.
+Setup and Settings have no `Ctrl`+number slot — the nine positions are bound to `SURFACE_ORDER`
+(`frontend/app/view/agents/agents.tsx`), which excludes them. Reach Setup with `g` `.` and Settings with `g` `,`.
 
 ## Go-to surface — leader `g` (Navigate posture)
 
@@ -47,6 +47,7 @@ Settings has no `Ctrl`+number slot — the nine positions are bound to `SURFACE_
 | `g` `f` | Files |
 | `g` `u` | Usage |
 | `g` `b` | Code — browse source |
+| `g` `.` | Setup — instructions and skills |
 | `g` `,` | Settings |
 | `g` `p` | Search |
 
