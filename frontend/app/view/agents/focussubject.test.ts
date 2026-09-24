@@ -26,5 +26,5 @@ test("an empty-string local target counts as no target, not as a divergence", ()
 });
 
 test("divergenceText names both sides", () => {
-    expect(divergenceText("jarvis-recall", "wavesrv")).toBe("Focus: jarvis-recall · this surface is on wavesrv");
+    expect(divergenceText("jarvis-recall", "wavesrv")).toBe("Showing wavesrv · focus is on jarvis-recall");
 });

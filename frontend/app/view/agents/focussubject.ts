@@ -22,5 +22,5 @@ export function subjectDecision(local: string | null, focus: string | null): Sub
 }
 
 export function divergenceText(focusLabel: string, localLabel: string): string {
-    return `Focus: ${focusLabel} · this surface is on ${localLabel}`;
+    return `Showing ${localLabel} · focus is on ${focusLabel}`;
 }

@@ -3,7 +3,7 @@
 
 import { expect, test } from "vitest";
 import type { AgentVM } from "./agentsviewmodel";
-import { filterByFocus, filterChannelsByFocus, filterSessionsByFocus, focusBannerText } from "./focusscope";
+import { filterByFocus, filterChannelsByFocus, filterSessionsByFocus, focusBannerCopy } from "./focusscope";
 
 const agent = (id: string): AgentVM => ({ id, name: id, task: "", state: "idle" });
 const scope = (over: Partial<SpaceScope>): SpaceScope => ({ runorefs: [], channeloids: [], tabids: [], ...over });
@@ -39,8 +39,36 @@ test("filterSessionsByFocus: includes only sessions with a scoped live tab id", 
     expect(filterSessionsByFocus(sessions, scope({ tabids: ["t1"] }), true)).toBe(sessions);
 });
 
-test("focusBannerText: focused with hidden, focused zero, revealed", () => {
-    expect(focusBannerText("alpha", 3, false)).toBe("Focused: alpha · 3 hidden");
-    expect(focusBannerText("alpha", 0, false)).toBe("Focused: alpha");
-    expect(focusBannerText("alpha", 3, true)).toBe("Showing all · Focused: alpha");
+test("focusBannerCopy: filtering names the counts and offers Show all", () => {
+    expect(focusBannerCopy("alpha", 2, 5, false, "agents")).toEqual({
+        lead: "Focused on ",
+        label: "alpha",
+        trail: " · showing 2 of 5 agents",
+        toggle: "Show all 5",
+    });
+});
+
+test("focusBannerCopy: a focus that hides nothing offers no toggle", () => {
+    expect(focusBannerCopy("alpha", 3, 3, false, "agents")).toEqual({
+        lead: "Focused on ",
+        label: "alpha",
+        trail: "",
+        toggle: null,
+    });
+});
+
+test("focusBannerCopy: an empty focus says so, with Show all only when there is something to show", () => {
+    expect(focusBannerCopy("alpha", 0, 4, false, "sessions").trail).toBe(" · none of its sessions are live");
+    expect(focusBannerCopy("alpha", 0, 4, false, "sessions").toggle).toBe("Show all 4");
+    expect(focusBannerCopy("alpha", 0, 0, false, "sessions").toggle).toBeNull();
+});
+
+test("focusBannerCopy: revealed counts what is in the focus and offers to hide the rest", () => {
+    expect(focusBannerCopy("alpha", 2, 5, true, "agents")).toEqual({
+        lead: "Showing all 5 · 2 in ",
+        label: "alpha",
+        trail: "",
+        toggle: "Hide the other 3",
+    });
+    expect(focusBannerCopy("alpha", 5, 5, true, "agents").toggle).toBeNull();
 });

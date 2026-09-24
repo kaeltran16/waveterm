@@ -17,7 +17,7 @@ test("one row per task; ticket becomes the subtitle (blank => undefined)", () =>
     expect(items[1].subtitle).toBeUndefined();
 });
 
-test("prepends an Exit focus row when a Space is active", () => {
+test("prepends a Clear focus row when a Space is active", () => {
     const items = buildFocusItems(spaces, "t1", noop);
     expect(items[0].key).toBe("focus-exit");
     expect(items).toHaveLength(3);

@@ -20,8 +20,8 @@ import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
 import { formatAge, formatAgeShort, formatTokens } from "./agentsviewmodel";
 import { FocusBanner } from "./focusbanner";
-import { filterSessionsByFocus, focusBannerText } from "./focusscope";
-import { activeFocusAtom, focusRevealAtom, focusScopeAtom } from "./focusstore";
+import { filterSessionsByFocus, focusBannerCopy } from "./focusscope";
+import { activeFocusAtom, exitFocus, focusRevealAtom, focusScopeAtom, revealSurface } from "./focusstore";
 import type { RunInfo } from "./runlineage";
 import { runDigestsAtom, useRunDigests } from "./runlineagestore";
 import { runtimeMeta } from "./runtimemeta";
@@ -210,7 +210,12 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
     const scopedSessions = scoped.flatMap((r) => (r.run ? r.run.group.sessions : [r.session!]));
     const liveCount = scopedSessions.filter((s) => s.live).length;
     const needsCount = scoped.filter(needsRow).length;
-    const spaceHidden = projectScoped.length - scoped.length;
+    // without the reveal, so the banner still counts the focus's own rows after Show all
+    const spaceInScope = projectScoped.filter(
+        (r) => filterSessionsByFocus(r.run ? r.run.group.sessions : [r.session!], spaceScope, false).length > 0
+    ).length;
+    // the empty list is the focus's doing, not an empty archive, so the empty state must say so
+    const focusHidesAll = activeSpace != null && !spaceRevealed && spaceInScope === 0 && projectScoped.length > 0;
 
     // detail resolves against every row so project, Space, and status filters never blank an explicit selection
     const selSession = selRunId ? undefined : resolveSelectedSession(live, sel);
@@ -315,7 +320,13 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
                 {activeSpace != null ? (
                     <FocusBanner
                         surface="sessions"
-                        text={focusBannerText(activeSpace.label, spaceHidden, spaceRevealed)}
+                        copy={focusBannerCopy(
+                            activeSpace.label,
+                            spaceInScope,
+                            projectScoped.length,
+                            spaceRevealed,
+                            "sessions"
+                        )}
                         revealed={spaceRevealed}
                     />
                 ) : null}
@@ -364,6 +375,18 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
                                 {Array.from({ length: 6 }).map((_, i) => (
                                     <SkeletonLine key={i} className="h-[58px] rounded-[10px]" />
                                 ))}
+                            </div>
+                        ) : groups.length === 0 && focusHidesAll ? (
+                            <div className="mt-6">
+                                <SurfaceEmptyState
+                                    title="Nothing in this focus"
+                                    body={`No live session belongs to ${activeSpace.label}. The focus hides all ${projectScoped.length}.`}
+                                    action={{
+                                        label: `Show all ${projectScoped.length}`,
+                                        onClick: () => revealSurface("sessions"),
+                                    }}
+                                    secondaryAction={{ label: "Clear focus", onClick: exitFocus }}
+                                />
                             </div>
                         ) : groups.length === 0 ? (
                             <div className="mt-6">

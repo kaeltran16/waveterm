@@ -45,14 +45,48 @@ export function filterSessionsByFocus<T extends { liveId?: string }>(
     return sessions.filter((session) => session.liveId != null && ids.has(session.liveId));
 }
 
-// Escape-hatch banner copy for a scoped surface. Revealed => an un-focus hint; otherwise the focus line
-// with the hidden count (or the empty-focus / nothing-hidden case).
-export function focusBannerText(objective: string, hidden: number, revealed: boolean): string {
+// The banner line splits around the focus label so the label can render emphasized. toggle is the
+// Show all / Hide button's text, null when the focus hides nothing and the button would be a no-op.
+export interface FocusBannerCopy {
+    lead: string;
+    label: string;
+    trail: string;
+    toggle: string | null;
+}
+
+// inScope and total are counts with the focus applied and without it, both before any reveal; noun
+// is the plural the surface lists ("agents", "sessions").
+export function focusBannerCopy(
+    label: string,
+    inScope: number,
+    total: number,
+    revealed: boolean,
+    noun: string
+): FocusBannerCopy {
+    const hidden = total - inScope;
     if (revealed) {
-        return `Showing all · Focused: ${objective}`;
+        return {
+            lead: `Showing all ${total} · ${inScope} in `,
+            label,
+            trail: "",
+            toggle: hidden > 0 ? `Hide the other ${hidden}` : null,
+        };
+    }
+    if (inScope === 0) {
+        return {
+            lead: "Focused on ",
+            label,
+            trail: ` · none of its ${noun} are live`,
+            toggle: total > 0 ? `Show all ${total}` : null,
+        };
     }
     if (hidden <= 0) {
-        return `Focused: ${objective}`;
+        return { lead: "Focused on ", label, trail: "", toggle: null };
     }
-    return `Focused: ${objective} · ${hidden} hidden`;
+    return {
+        lead: "Focused on ",
+        label,
+        trail: ` · showing ${inScope} of ${total} ${noun}`,
+        toggle: `Show all ${total}`,
+    };
 }

@@ -5554,7 +5554,7 @@ const focusDivergenceRejoin = {
         const after = await codeProjectName(h);
         const gone = await h.ev(`document.querySelector('[data-divergence-banner]') == null`);
         rec(
-            "4. Follow focus returns Code to A and the banner goes silent",
+            "4. Show the focus returns Code to A and the banner goes silent",
             rejoined === true && after === ctx.names.a && gone === true,
             `after=${after} bannerGone=${gone}`
         );

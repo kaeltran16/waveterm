@@ -3,7 +3,7 @@
 //
 // Pure builder for the command palette's "Focus on task" group (mirrors palette-launch/palette-ask). One
 // row per active|paused task (from ListDossiersCommand); run() focuses that task. When a Space is already
-// active it prepends an "Exit focus" row. Empty list + no active Space => no rows.
+// active it prepends a "Clear focus" row. Empty list + no active Space => no rows.
 
 export interface FocusItem {
     key: string;
@@ -20,7 +20,7 @@ export interface FocusDeps {
 export function buildFocusItems(spaces: SpaceSummary[], activeSpaceId: string | null, deps: FocusDeps): FocusItem[] {
     const items: FocusItem[] = [];
     if (activeSpaceId != null) {
-        items.push({ key: "focus-exit", title: "Exit focus", subtitle: "Return to Global", run: deps.exit });
+        items.push({ key: "focus-exit", title: "Clear focus", subtitle: "Show everything again", run: deps.exit });
     }
     for (const s of spaces) {
         items.push({

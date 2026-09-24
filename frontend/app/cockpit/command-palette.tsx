@@ -228,8 +228,8 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                 verb: "Focus",
                 echo:
                     fi.key === "focus-exit"
-                        ? "Returns every surface to Global"
-                        : `Narrows every surface to “${fi.title}”`,
+                        ? "Shows everything again"
+                        : `Narrows Cockpit and Sessions to “${fi.title}”`,
                 run: fi.run,
             })),
         [spaces, activeSpace, model]

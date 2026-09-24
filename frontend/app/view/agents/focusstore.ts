@@ -43,6 +43,9 @@ export const persistedFocusAtom = atomWithStorage<ActiveFocus | null>("cockpit.f
 export const focusScopeAtom = atom<SpaceScope | null>(null) as PrimitiveAtom<SpaceScope | null>;
 // which scoped surfaces the user clicked "Show all" on; reset on every switch.
 export const focusRevealAtom = atom<Set<SurfaceKey>>(new Set<SurfaceKey>());
+// true while the focus on screen is the one restored at launch, so the banner can say why a filter
+// is on that the user did not set this session. Any explicit enter or exit clears it.
+export const focusRestoredAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
 // the switcher/palette task list (active+paused), newest-updated first.
 export const focusesAtom = atom<SpaceSummary[]>([]);
 
@@ -62,6 +65,7 @@ function sameRef(a: FocusRef | undefined, b: FocusRef | undefined): boolean {
 // id, because two kinds can carry the same id string.
 export function enterFocus(focus: ActiveFocus): void {
     globalStore.set(activeFocusAtom, focus);
+    globalStore.set(focusRestoredAtom, false);
     globalStore.set(focusRevealAtom, new Set<SurfaceKey>());
     globalStore.set(focusScopeAtom, null);
     fireAndForget(async () => {
@@ -76,6 +80,7 @@ export function enterFocus(focus: ActiveFocus): void {
 
 export function exitFocus(): void {
     globalStore.set(activeFocusAtom, null);
+    globalStore.set(focusRestoredAtom, false);
     globalStore.set(focusScopeAtom, null);
     globalStore.set(focusRevealAtom, new Set<SurfaceKey>());
     globalStore.set(persistedFocusAtom, null);

@@ -43,7 +43,7 @@ import { dismissKey, rosterLoadPhase, splitRecentlyIdle, toggleInSet } from "./c
 import { BackgroundAgentsStrip } from "./backgroundagentsstrip";
 import { BackgroundedSection } from "./backgroundedsection";
 import { channelsAtom } from "./channelsstore";
-import { filterByFocus, focusBannerText } from "./focusscope";
+import { filterByFocus, focusBannerCopy } from "./focusscope";
 import { activeFocusAtom, focusRevealAtom, focusScopeAtom } from "./focusstore";
 import { FocusBanner } from "./focusbanner";
 import { answeredAskORefsAcross, needsHuman } from "./jarvisderive";
@@ -212,10 +212,11 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     const activeSpace = useAtomValue(activeFocusAtom);
     const agentRevealed = useAtomValue(focusRevealAtom).has("agent");
     // project + live-only first (global/needs-you counts read the unfiltered set — see needsYou above),
-    // then the Space lens. hidden = rows the Space filter removed (drives the banner's count).
+    // then the Space lens. The banner's in-focus count ignores the reveal, so it still says how many
+    // rows are the focus's own after Show all.
     const projectScoped = filterAgents(orderedAgents, projectFilter, liveOnly);
     const visibleOrdered = filterByFocus(projectScoped, spaceScope, agentRevealed);
-    const spaceHidden = projectScoped.length - visibleOrdered.length;
+    const spaceInScope = filterByFocus(projectScoped, spaceScope, false).length;
     // run events feed lead-down, review findings and the Events rail; digests feed lanes and question owners
     const lineage = useAtomValue(model.lineageAtom);
     const runsInView = Object.values(lineage.runs);
@@ -509,7 +510,13 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                     {activeSpace != null ? (
                         <FocusBanner
                             surface="agent"
-                            text={focusBannerText(activeSpace.label, spaceHidden, agentRevealed)}
+                            copy={focusBannerCopy(
+                                activeSpace.label,
+                                spaceInScope,
+                                projectScoped.length,
+                                agentRevealed,
+                                "agents"
+                            )}
                             revealed={agentRevealed}
                         />
                     ) : null}
