@@ -5,10 +5,11 @@
 // in timelinefilter.ts; the event projection (title, tone, detail parsing) is reused from the run
 // body's runtimeline.ts, so the two timelines cannot describe the same row differently.
 
+import { SkeletonLine } from "@/app/element/skeleton";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { fireAndForget } from "@/util/util";
+import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useState } from "react";
 import { retryRunEvents, useRunEventsState } from "../agents/runeventstore";
@@ -199,10 +200,17 @@ function EmptyRows({
     status: "loading" | "live" | "error";
     hasTask: boolean;
 }) {
-    let text = "No lifecycle events yet";
     if (status === "loading") {
-        text = "Loading history…";
-    } else if (status === "error") {
+        return (
+            <div aria-hidden="true" className="flex flex-col gap-2 px-1 py-3">
+                {["w-[75%]", "w-[55%]", "w-[65%]"].map((w, i) => (
+                    <SkeletonLine key={i} className={cn("h-[10px]", w)} />
+                ))}
+            </div>
+        );
+    }
+    let text = "No lifecycle events yet";
+    if (status === "error") {
         text = "History unavailable";
     } else if (filter === "task") {
         text = hasTask ? "No events for this task" : "Select a task to filter";

@@ -4,6 +4,8 @@
 // Pick a record to attribute a run to. Mirrors the composer's channel picker: a filtered list rendered in
 // place rather than a modal, because the choice only means anything beside the row that raised it.
 
+import { SkeletonLine } from "@/app/element/skeleton";
+import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect, useMemo, useState } from "react";
 import { loadTaskList, taskListAtom } from "./tasksstore";
@@ -33,7 +35,11 @@ export function RecordPicker({ onPick, onCancel }: { onPick: (dossierId: string)
                 className="rounded-[7px] border border-edge-mid bg-background px-2.5 py-1 text-[12px] text-primary placeholder:text-muted focus:border-accent focus:outline-none"
             />
             {records == null ? (
-                <span className="font-mono text-[11px] text-muted">Loading records…</span>
+                <div aria-hidden="true" className="flex flex-col gap-1.5">
+                    {["w-[70%]", "w-[55%]", "w-[65%]"].map((w, i) => (
+                        <SkeletonLine key={i} className={cn("h-[20px] rounded-[6px]", w)} />
+                    ))}
+                </div>
             ) : matches.length === 0 ? (
                 <span className="font-mono text-[11px] text-muted">No record matches</span>
             ) : (

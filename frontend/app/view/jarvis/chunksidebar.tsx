@@ -6,6 +6,7 @@
 // Past the container breakpoint it floats over the index instead of compressing it (a container query:
 // the Brief is the whole surface, the window is not).
 
+import { SkeletonLine } from "@/app/element/skeleton";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { runAtom } from "@/app/view/agents/channelsstore";
 import { cn } from "@/util/util";
@@ -27,7 +28,12 @@ const NO_RUN = atom<Run | undefined>(undefined);
 function NoteRun({ model, runOid }: { model: AgentsViewModel; runOid: string }) {
     const run = useAtomValue((runOid ? runAtom(runOid) : NO_RUN) as Atom<Run | undefined>);
     if (run == null) {
-        return <span className="text-[11.5px] text-muted">Loading the run…</span>;
+        return (
+            <div aria-hidden="true" className="flex flex-col gap-2">
+                <SkeletonLine className="h-[10px] w-[85%]" />
+                <SkeletonLine className="h-[10px] w-[60%]" />
+            </div>
+        );
     }
     if ((run.report ?? "").trim() !== "") {
         return <RunReportView model={model} run={run} compact />;

@@ -11,6 +11,7 @@
 // Everything shown is derived in briefpeek.ts. This file mounts it, loads the two caches it reads, and
 // owns the one write on it.
 
+import { SkeletonLine } from "@/app/element/skeleton";
 import { ConfirmDialog } from "@/app/modals/confirmdialog";
 import { ModalShell } from "@/app/modals/modalshell";
 import { globalStore } from "@/app/store/jotaiStore";
@@ -187,7 +188,7 @@ export function BriefPeek({ model }: { model: AgentsViewModel }) {
                     <div className="flex min-w-0 flex-none items-center gap-2.5 border-b border-border px-[17px] py-3">
                         <span className={MONO_LABEL}>record</span>
                         <span className="min-w-0 flex-1 truncate text-[13.5px] font-semibold text-ink-hi">
-                            {peek?.title ?? "Loading…"}
+                            {peek != null ? peek.title : <SkeletonLine className="h-[12px] w-[180px]" />}
                         </span>
                         {peek != null ? (
                             <>

@@ -4,6 +4,7 @@
 import { CollapsibleRail, type RailSection } from "@/app/element/collapsiblerail";
 import { Meter } from "@/app/element/meter";
 import { easeFluidCss, MOTION, popoverReveal } from "@/app/element/motiontokens";
+import { SkeletonLine } from "@/app/element/skeleton";
 import { globalStore } from "@/app/store/jotaiStore";
 import { formatChordString } from "@/util/keysym";
 import { cn, fireAndForget } from "@/util/util";
@@ -548,7 +549,11 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                               {ended ? (
                                   <SealedFiles files={ended.files} />
                               ) : railState == null ? (
-                                  <div className="text-[11.5px] text-muted">Loading…</div>
+                                  <div aria-hidden="true" className="flex flex-col gap-2">
+                                      {["w-[80%]", "w-[60%]", "w-[70%]"].map((w, i) => (
+                                          <SkeletonLine key={i} className={cn("h-[10px]", w)} />
+                                      ))}
+                                  </div>
                               ) : !railState.isRepo ? (
                                   <div className="text-[11.5px] text-muted">Not a git repository</div>
                               ) : shownFiles.length === 0 ? (

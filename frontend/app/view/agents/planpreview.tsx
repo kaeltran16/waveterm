@@ -5,9 +5,10 @@
 // editable) so a plan can be reviewed without leaving Runs. Extracted from runbody.tsx — it is a
 // self-contained load/edit/save component used only by the review-gate card.
 
+import { SkeletonLine } from "@/app/element/skeleton";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { base64ToString, fireAndForget, stringToBase64 } from "@/util/util";
+import { base64ToString, cn, fireAndForget, stringToBase64 } from "@/util/util";
 import { useEffect, useState } from "react";
 import { MarkdownMessage } from "./markdownmessage";
 import { planDirty } from "./runmodel";
@@ -125,7 +126,11 @@ export function PlanPreview({ path, onEditorReady }: { path: string; onEditorRea
                             className="h-[300px] w-full resize-none rounded border border-edge-mid bg-background px-3 py-2 font-mono text-[12px] leading-[1.5] text-secondary focus:outline-none"
                         />
                     ) : load.status === "loading" ? (
-                        <span className="text-[12px] text-muted">Loading plan…</span>
+                        <div aria-hidden="true" className="flex flex-col gap-2 pt-1">
+                            {["w-[45%]", "w-[85%]", "w-[75%]", "w-[60%]"].map((w, i) => (
+                                <SkeletonLine key={i} className={cn("h-[11px]", w)} />
+                            ))}
+                        </div>
                     ) : load.status === "error" ? (
                         <span className="text-[12px] text-muted">Couldn't read plan · {filename}</span>
                     ) : (
