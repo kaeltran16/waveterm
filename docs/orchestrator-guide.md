@@ -337,7 +337,7 @@ you.
 | **Merge conflict** at a lane merge | fixes it in the project checkout, commits, `wsh jarvis dag merge <task> --continue` | nothing, unless the lead forwards it or is dead |
 | **Verify failed** after a merge | fixes it, commits, `dag merge <task> --continue` (re-runs Verify at HEAD) | same |
 | **Review failed** twice, or the reviewer couldn't do its job | reads the findings in `dag status`; `dag sendback <task> "<guidance>"`, `dag approve <task>`, retry, escalate, skip or forward | forwarded review failures |
-| **A passed task with a note for later tasks** | amends the pending tasks the note affects (`dag amend`), or tells a running one (`dag tell`) | nothing |
+| **A passed task with a note for later tasks** that the engine could not deliver (no `--for`, or a named task already finished or without a live terminal) | amends the pending tasks the note affects (`dag amend`), or tells a running one (`dag tell`) | nothing |
 | **A worker's question** | answers from the spec, plan and code, or forwards a product call with a note | forwarded questions and any it does not answer within **10 minutes** |
 | **Task failed** with its retry spent | `dag retry`, `dag escalate --model`, `dag skip`, or forwards | forwarded failures |
 | **Worker hung** (15 min silent, process alive, no ask pending) | same as a failure | same |
@@ -351,15 +351,18 @@ starts a reviewer in the task's lane worktree, on the **lead's** model. The revi
 `git diff` of the task's commits, checks the change against what the task asked for (missing requirements,
 contradictions of the spec, cut corners, changes outside the task), and ends with one command:
 
-- `wsh jarvis dag review pass "<summary>"`: the task lands as before. Adding `--downstream "<note>"` wakes the lead
-  with what later tasks must know.
+- `wsh jarvis dag review pass "<summary>"`: the task lands as before. Adding `--downstream "<note>" --for t-3,t-5`
+  hands what later tasks must know to the tasks named (the reviewer's brief lists the unfinished ones): the engine
+  adds it to the prompt of a task that hasn't started and types it into a working one's terminal, and the lead reads
+  where it went on its next wake. A note it can't deliver, or one with no `--for`, wakes the lead to route it.
 - `wsh jarvis dag review fail "<findings>"`: the first time, the task goes back to a worker in the same worktree,
   starting from the rejected commit with the findings in its prompt. The second time, it goes to
   **review-failed** and the lead wakes.
 
 A reviewer that ends without a verdict or runs past 20 minutes is replaced once; a reviewer that commits has its
-verdict thrown out. Either way the task goes to review-failed after that. A worker that commits nothing is not
-reviewed.
+verdict thrown out. Either way the task goes to review-failed after that. A worker that reports no commit is not
+reviewed: the task is done, and the lead's next wake says `t-N finished without reporting a commit` with the
+worker's closing note.
 
 On a review-failed task the lead (or you, from the DAG) can `approve` it (overrule the reviewer; it lands as it
 is), `sendback` it with guidance for one more round, or `retry`, `escalate`, `skip` or `forward` it.
@@ -545,7 +548,7 @@ Inside a lead's or worker's terminal, the run is inferred. Elsewhere pass `--cha
 | `dag tell <task> "<text>"` | type into a running worker's or reviewer's terminal |
 | `dag sendback <task> ["<guidance>"]` | one more round for a review-failed task, with your guidance beside the findings |
 | `dag approve <task>` | overrule a failed review; the task lands as it is |
-| `dag review <pass\|fail> "<note>" [--downstream "<note>"]` | a reviewer's verdict; ends the reviewer's session |
+| `dag review <pass\|fail> "<note>" [--downstream "<note>" [--for <task ids>]]` | a reviewer's verdict; ends the reviewer's session |
 | `dag retry <task>` / `dag skip <task>` | retry or skip a failed or stalled task |
 | `dag escalate <task> --model <id> [--runtime <rt>]` | re-queue on another model, once per task |
 | `dag merge <task> [--continue]` | squash-merge a lane end, or finish a resolved conflict / re-run a failed Verify |

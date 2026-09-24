@@ -266,3 +266,18 @@ func TestDeliverAnswer_ProseForADagTaskIsTakenOnce(t *testing.T) {
 		t.Fatal("an answer that was never submitted must not hide a prompt")
 	}
 }
+
+// free text to a preview question lands as a prompt, so for a dag task it is the engine's to skip like a prose answer
+func TestDeliverAnswer_FreeTextToPreviewQuestionIsTakenAsTyped(t *testing.T) {
+	GlobalRegistry = MakeRegistry()
+	stubKeys(t)
+	qs := oneQuestion()
+	qs[0].Options[0].Preview = "shown beside the list"
+	GlobalRegistry.Set("block:b1", PendingAsk{AskId: "a1", BlockId: "b1", Questions: qs, DagOID: "g1", TaskId: "t-0"})
+	if ok, err := DeliverAnswer("block:b1", "", []baseds.AgentAnswerItem{{Text: "use B"}}); !ok || err != nil {
+		t.Fatalf("want (true,nil), got (%v,%v)", ok, err)
+	}
+	if !GlobalRegistry.TakeTypedAnswer("g1", "t-0", "use B", time.Now().UnixMilli()) {
+		t.Fatal("want the typed answer taken")
+	}
+}

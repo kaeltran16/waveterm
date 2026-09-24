@@ -76,7 +76,29 @@ func reviewFailedWake(taskID string) string {
 // downstreamWake carries what a passed task's reviewer said later tasks must know. A wake is typed as one
 // line, so the note is flattened.
 func downstreamWake(taskID, note string) string {
-	return fmt.Sprintf("wake: task %s passed review with a note for later tasks: %s. wsh jarvis dag status", taskID, strings.Join(strings.Fields(note), " "))
+	return fmt.Sprintf("wake: task %s passed review with a note for later tasks: %s. wsh jarvis dag status", taskID, flatLine(note))
+}
+
+// downstreamMissedWake hands the lead a note the engine could not deliver to the tasks its reviewer named, with why.
+func downstreamMissedWake(taskID, note string, missed []string) string {
+	return fmt.Sprintf("wake: task %s passed review with a note for later tasks (not delivered to %s): %s. wsh jarvis dag status", taskID, strings.Join(missed, "; "), flatLine(note))
+}
+
+// flatLine joins a note onto one line, since a wake or quiet line is typed as one.
+func flatLine(s string) string {
+	return strings.Join(strings.Fields(s), " ")
+}
+
+// noCommitLine tells the lead a worker finished with nothing for review to judge: it did nothing, or it committed and
+// never passed the commit to `wsh jarvis complete`. Either way the task reads as done.
+func noCommitLine(taskID string, run *waveobj.Run) string {
+	line := taskID + " finished without reporting a commit"
+	if run != nil && run.Evidence != nil {
+		if note := truncateNote(run.Evidence.Summary, handoffMaxSummaryLen); note != "" {
+			line += ": " + note
+		}
+	}
+	return line
 }
 
 // RaiseChildAsk puts a dag child's question in its lead's queue and wakes the lead. question is the
@@ -210,7 +232,7 @@ func taskPendingAsk(ctx context.Context, g *waveobj.TaskGroup, task *waveobj.Tas
 	if err != nil {
 		return "", agentask.PendingAsk{}, false
 	}
-	for _, oref := range RunBlockORefs(ctx, child) {
+	for _, oref := range runBlockORefs(ctx, child) {
 		if p, ok := agentask.GlobalRegistry.Get(oref); ok {
 			return oref, p, true
 		}

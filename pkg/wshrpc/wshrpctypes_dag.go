@@ -74,6 +74,8 @@ type CommandDagActionData struct {
 	Runtime    string `json:"runtime,omitempty"`    // escalate target runtime; empty = task's current runtime
 	Notes      string `json:"notes,omitempty"`      // forward: what the lead checked; review: summary or findings; amend: the note; tell: the text; sendback: guidance
 	Downstream string `json:"downstream,omitempty"` // review-pass: what later tasks must know
+	// DownstreamFor names the tasks a review-pass's Downstream is for; the engine delivers it to them
+	DownstreamFor []string `json:"downstreamfor,omitempty"`
 }
 
 type CommandDagMergeData struct {

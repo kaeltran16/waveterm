@@ -372,9 +372,17 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		if t.State == TaskState_Done && t.RunID != "" && taskInFlight(prevStates[t.ID]) {
 			taskID := t.ID
 			childRunID := t.RunID
+			// a worker goes straight to done only when it reported no commit to review (DeriveTaskStates)
+			unreviewed := ""
+			if taskActive(prevStates[t.ID]) {
+				unreviewed = noCommitLine(taskID, runs[t.RunID])
+			}
 			afterCommit = append(afterCommit, func() {
 				publishDagEvent(DagEventChildDone, g, taskID)
 				appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskDone, nil, map[string]any{"taskid": taskID, "runid": childRunID})
+				if unreviewed != "" {
+					PostQuiet(ctx, g.ChannelId, g.RunID, unreviewed)
+				}
 			})
 		}
 		if t.State == TaskState_Stalled && prevStates[t.ID] == TaskState_Running {

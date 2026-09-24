@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"slices"
 	"strings"
 	"time"
 
@@ -219,7 +220,7 @@ func applyReviewVerdict(ctx context.Context, g *waveobj.TaskGroup, t *waveobj.Ta
 			reason += "; resetting it failed: " + rerr.Error()
 		}
 		// the discarded verdict must not read as the review's outcome
-		t.ReviewVerdict, t.ReviewDownstream = "", ""
+		t.ReviewVerdict, t.ReviewDownstream, t.ReviewDownstreamFor = "", "", nil
 		failReview(ctx, g, t, reason, afterCommit)
 		return
 	}
@@ -230,10 +231,10 @@ func applyReviewVerdict(ctx context.Context, g *waveobj.TaskGroup, t *waveobj.Ta
 		*afterCommit = append(*afterCommit, func() {
 			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskReviewPassed, nil, map[string]any{"taskid": taskID, "note": note, "downstream": downstream})
 			PostQuiet(ctx, g.ChannelId, g.RunID, fmt.Sprintf("%s passed review: %s", taskID, truncateNote(note, handoffMaxSummaryLen)))
-			if downstream != "" {
-				PostWake(ctx, g.ChannelId, g.RunID, downstreamWake(taskID, downstream))
-			}
 		})
+		if downstream != "" {
+			routeDownstream(ctx, g, taskID, downstream, t.ReviewDownstreamFor, afterCommit)
+		}
 		return
 	}
 	t.ReviewRound++
@@ -247,6 +248,63 @@ func applyReviewVerdict(ctx context.Context, g *waveobj.TaskGroup, t *waveobj.Ta
 	t.RunID = ""
 	*afterCommit = append(*afterCommit, func() {
 		appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskReviewFailed, nil, map[string]any{"taskid": taskID, "note": note, "round": round, "final": false})
+	})
+}
+
+// routeDownstream delivers a passed review's note for later tasks to the tasks its reviewer named: into the prompt of one
+// not started, typed to the worker or reviewer of one at work. The lead hears where it went on its next wake; what
+// could not be delivered, and a note that named no task, wakes it to route by hand. The lead was the only relay once,
+// and a note it did not act on never reached the task that needed it (run ad78cbcb).
+func routeDownstream(ctx context.Context, g *waveobj.TaskGroup, from, note string, targets []string, afterCommit *[]func()) {
+	if len(targets) == 0 {
+		*afterCommit = append(*afterCommit, func() { PostWake(ctx, g.ChannelId, g.RunID, downstreamWake(from, note)) })
+		return
+	}
+	var reached, missed []string
+	for _, id := range targets {
+		target := taskByID(g, id)
+		if target == nil {
+			missed = append(missed, id+", which is not in the dag")
+			continue
+		}
+		if amendable(target.State) {
+			text := toldText(from + "'s reviewer: " + note)
+			target.LeadNotes = append(target.LeadNotes, text)
+			reached = append(reached, id+" (added to its prompt)")
+			*afterCommit = append(*afterCommit, func() {
+				appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskAmended, nil, map[string]any{"taskid": id, "text": text, "from": from})
+			})
+			continue
+		}
+		if tellRunID(target) == "" {
+			missed = append(missed, fmt.Sprintf("%s, which is %s", id, target.State))
+			continue
+		}
+		// typed text and its enter would land in the question's picker and choose for the worker
+		if _, _, asking := taskPendingAsk(ctx, g, target); asking && target.State != TaskState_Reviewing {
+			missed = append(missed, id+", which is waiting on a question")
+			continue
+		}
+		blockId, err := taskTerminal(ctx, g, target)
+		if err != nil {
+			missed = append(missed, id+", which has no live terminal")
+			continue
+		}
+		text := fmt.Sprintf("%s passed review with a note for your task: %s", from, note)
+		target.LeadTold = append(target.LeadTold, text)
+		reached = append(reached, id+" (typed to its worker)")
+		*afterCommit = append(*afterCommit, func() {
+			sendWakeFn(blockId, text)
+			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskLeadTold, nil, map[string]any{"taskid": id, "text": toldText(text), "from": from})
+		})
+	}
+	*afterCommit = append(*afterCommit, func() {
+		if len(reached) > 0 {
+			PostQuiet(ctx, g.ChannelId, g.RunID, fmt.Sprintf("%s's review note reached %s: %s", from, strings.Join(reached, ", "), flatLine(note)))
+		}
+		if len(missed) > 0 {
+			PostWake(ctx, g.ChannelId, g.RunID, downstreamMissedWake(from, note, missed))
+		}
 	})
 }
 
@@ -264,7 +322,7 @@ func failReview(ctx context.Context, g *waveobj.TaskGroup, t *waveobj.TaskNode, 
 
 // RecordReviewVerdict records a reviewer's verdict on the task it reviews. It does not schedule: the caller
 // does, off the reviewer's RPC, because the tick that applies a fail can spawn the next worker.
-func RecordReviewVerdict(ctx context.Context, dagID, reviewerRunID, verdict, note, downstream string) error {
+func RecordReviewVerdict(ctx context.Context, dagID, reviewerRunID, verdict, note, downstream string, downstreamFor []string) error {
 	note, downstream = strings.TrimSpace(note), strings.TrimSpace(downstream)
 	switch {
 	case verdict != ReviewVerdict_Pass && verdict != ReviewVerdict_Fail:
@@ -273,6 +331,8 @@ func RecordReviewVerdict(ctx context.Context, dagID, reviewerRunID, verdict, not
 		return fmt.Errorf("a %s verdict needs its note: the summary for a pass, the findings for a fail", verdict)
 	case verdict == ReviewVerdict_Fail && downstream != "":
 		return fmt.Errorf("--downstream goes with a pass; put what later tasks need in the findings")
+	case len(downstreamFor) > 0 && downstream == "":
+		return fmt.Errorf("--for names the tasks a --downstream note is for; give the note")
 	}
 	return withDagMutation(dagID, func() error {
 		g, err := wstore.GetDag(ctx, dagID)
@@ -286,6 +346,11 @@ func RecordReviewVerdict(ctx context.Context, dagID, reviewerRunID, verdict, not
 		if t.ReviewVerdict != "" {
 			return fmt.Errorf("task %s already has a %s verdict", t.ID, t.ReviewVerdict)
 		}
+		targets, err := downstreamTargets(g, t.ID, downstreamFor)
+		if err != nil {
+			return err
+		}
+		t.ReviewDownstreamFor = targets
 		t.ReviewVerdict = verdict
 		t.ReviewNote = clipRunes(note, MaxReviewNoteLen)
 		t.ReviewDownstream = clipRunes(downstream, MaxReviewNoteLen)
@@ -299,6 +364,31 @@ func RecordReviewVerdict(ctx context.Context, dagID, reviewerRunID, verdict, not
 		wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, g.OID))
 		return nil
 	})
+}
+
+// downstreamTargets resolves the tasks a reviewer named for its note ("t-3" or "3"), refusing one the dag does not have
+// and the reviewed task itself, so a typo comes back to the reviewer instead of reaching the wrong task.
+func downstreamTargets(g *waveobj.TaskGroup, reviewed string, names []string) ([]string, error) {
+	var out []string
+	for _, name := range names {
+		id := strings.TrimSpace(name)
+		if id == "" {
+			continue
+		}
+		if !strings.HasPrefix(id, "t-") {
+			id = "t-" + id
+		}
+		if taskByID(g, id) == nil {
+			return nil, fmt.Errorf("--for %s: the dag has no task %s", name, id)
+		}
+		if id == reviewed {
+			return nil, fmt.Errorf("--for %s: that is the task under review; name the later tasks the note is for", name)
+		}
+		if !slices.Contains(out, id) {
+			out = append(out, id)
+		}
+	}
+	return out, nil
 }
 
 // reviewPrompt is a reviewer's whole brief: what the task asked for, where the spec and plan are, what the
@@ -317,8 +407,12 @@ func reviewPrompt(g *waveobj.TaskGroup, task *waveobj.TaskNode, worker *waveobj.
 	b.WriteString("Check it against the task below and the spec: every requirement met, nothing that contradicts the spec, no corners cut (stubs, skipped cases, weakened or deleted tests, TODOs), nothing outside the task's scope. The plan's Verify runs the tests after the merge, so don't run the full suite; run a focused test only to settle a doubt.\n")
 	b.WriteString("Only read: never edit, stage or commit, and ask no questions, since nobody answers a reviewer.\n")
 	b.WriteString("Finish with exactly one command, which ends your session:\n")
-	b.WriteString("- `wsh jarvis dag review pass \"<one paragraph: what landed>\"`, adding `--downstream \"<what a later task must know>\"` when the change affects later tasks (a renamed API, a plan assumption that turned out wrong);\n")
-	b.WriteString("- `wsh jarvis dag review fail \"<findings: each problem, where it is, and the fix>\"`.\n\n")
+	b.WriteString("- `wsh jarvis dag review pass \"<one paragraph: what landed>\"`, adding `--downstream \"<what a later task must know>\" --for <task ids>` when the change affects later tasks (a renamed API, a plan assumption that turned out wrong). The engine hands the note to the tasks you name; without --for it waits for the lead;\n")
+	b.WriteString("- `wsh jarvis dag review fail \"<findings: each problem, where it is, and the fix>\"`.\n")
+	if ahead := tasksAhead(g, task.ID); ahead != "" {
+		fmt.Fprintf(&b, "Tasks not finished yet, which --for can name: %s.\n", ahead)
+	}
+	b.WriteString("\n")
 	if g.Preamble != "" {
 		b.WriteString("The plan's header applies to every task:\n")
 		b.WriteString(g.Preamble)
@@ -340,6 +434,19 @@ func reviewPrompt(g *waveobj.TaskGroup, task *waveobj.TaskNode, worker *waveobj.
 		}
 	}
 	return b.String()
+}
+
+// tasksAhead lists the tasks a downstream note can still reach, each with its title, for the reviewer to name.
+func tasksAhead(g *waveobj.TaskGroup, reviewed string) string {
+	var out []string
+	for i := range g.Tasks {
+		t := &g.Tasks[i]
+		if t.ID == reviewed || (!amendable(t.State) && tellRunID(t) == "") {
+			continue
+		}
+		out = append(out, fmt.Sprintf("%s (%s)", t.ID, t.Label))
+	}
+	return strings.Join(out, ", ")
 }
 
 // reviewFeedback is what a re-dispatched task is told about the attempt a reviewer rejected: the findings, and

@@ -6,6 +6,7 @@ package orchestrate
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/agentask"
@@ -243,7 +244,8 @@ func TestRunFinishedWakesLeadOnce(t *testing.T) {
 		f.settle(h.ctx)
 	}
 
-	if len(f.sends) != 1 || f.sends[0] != runFinishedWake {
+	// the worker reported no commit, so the wake carries that quiet line ahead of its own
+	if len(f.sends) != 1 || !strings.HasSuffix(f.sends[0], runFinishedWake) {
 		t.Fatalf("the finished run wakes the lead once, got %q", f.sends)
 	}
 }

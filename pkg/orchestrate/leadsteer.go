@@ -51,7 +51,7 @@ func AmendTask(ctx context.Context, dagID, taskID, note string) error {
 		if task == nil {
 			return fmt.Errorf("no task %q", taskID)
 		}
-		if task.State != TaskState_Pending && task.State != TaskState_Ready {
+		if !amendable(task.State) {
 			return fmt.Errorf("task %s is %s: amend reaches only a task that has not started; use dag tell for a running one", taskID, task.State)
 		}
 		task.LeadNotes = append(task.LeadNotes, toldText(note))
@@ -82,29 +82,12 @@ func TellTask(ctx context.Context, dagID, taskID, text string) error {
 		if task == nil {
 			return fmt.Errorf("no task %q", taskID)
 		}
-		runID := ""
-		switch task.State {
-		case TaskState_Running, TaskState_Stalled:
-			runID = task.RunID
-		case TaskState_Reviewing:
-			runID = task.ReviewRunID
-		}
-		if runID == "" {
+		if tellRunID(task) == "" {
 			return fmt.Errorf("task %s is %s: tell reaches only a running worker or reviewer; use dag amend for a task that has not started", taskID, task.State)
 		}
-		run, err := wstore.GetRun(ctx, g.ChannelId, runID)
-		if err != nil {
-			return fmt.Errorf("loading run %s: %w", runID, err)
+		if blockId, err = taskTerminal(ctx, g, task); err != nil {
+			return err
 		}
-		blocks := runBlockORefs(ctx, run)
-		if len(blocks) == 0 {
-			return fmt.Errorf("task %s has no live terminal to type into", taskID)
-		}
-		ref, err := waveobj.ParseORef(blocks[0])
-		if err != nil {
-			return fmt.Errorf("task %s terminal %q: %w", taskID, blocks[0], err)
-		}
-		blockId = ref.OID
 		task.LeadTold = append(task.LeadTold, text)
 		return persistDag(ctx, g)
 	})
@@ -114,6 +97,40 @@ func TellTask(ctx context.Context, dagID, taskID, text string) error {
 	sendWakeFn(blockId, text)
 	appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskLeadTold, nil, map[string]any{"taskid": taskID, "text": toldText(text)})
 	return nil
+}
+
+// amendable reports a task whose worker has not started, so a note can still join its prompt.
+func amendable(state string) bool {
+	return state == TaskState_Pending || state == TaskState_Ready
+}
+
+// tellRunID is the run a told message reaches: a working task's worker, or its reviewer. Empty for any other state.
+func tellRunID(task *waveobj.TaskNode) string {
+	switch task.State {
+	case TaskState_Running, TaskState_Stalled:
+		return task.RunID
+	case TaskState_Reviewing:
+		return task.ReviewRunID
+	}
+	return ""
+}
+
+// taskTerminal is the block a message to a working task is typed into.
+func taskTerminal(ctx context.Context, g *waveobj.TaskGroup, task *waveobj.TaskNode) (string, error) {
+	runID := tellRunID(task)
+	run, err := wstore.GetRun(ctx, g.ChannelId, runID)
+	if err != nil {
+		return "", fmt.Errorf("loading run %s: %w", runID, err)
+	}
+	blocks := runBlockORefs(ctx, run)
+	if len(blocks) == 0 {
+		return "", fmt.Errorf("task %s has no live terminal to type into", task.ID)
+	}
+	ref, err := waveobj.ParseORef(blocks[0])
+	if err != nil {
+		return "", fmt.Errorf("task %s terminal %q: %w", task.ID, blocks[0], err)
+	}
+	return ref.OID, nil
 }
 
 // takeLeadTold consumes a message the lead typed with TellTask, so the told scan does not record the lead's own

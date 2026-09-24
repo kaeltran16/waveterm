@@ -531,7 +531,8 @@ func dagReviewData(cmd *cobra.Command, args []string) (wshrpc.CommandDagActionDa
 		return wshrpc.CommandDagActionData{}, err
 	}
 	downstream, _ := cmd.Flags().GetString("downstream")
-	return wshrpc.CommandDagActionData{ChannelId: channelId, RunId: runId, Action: "review-" + verdict, Notes: args[1], Downstream: downstream}, nil
+	downstreamFor, _ := cmd.Flags().GetStringSlice("for")
+	return wshrpc.CommandDagActionData{ChannelId: channelId, RunId: runId, Action: "review-" + verdict, Notes: args[1], Downstream: downstream, DownstreamFor: downstreamFor}, nil
 }
 
 var dagReviewCmd = &cobra.Command{
@@ -666,7 +667,8 @@ func init() {
 	dagSubmitCmd.Flags().String("spec", "", "the spec the plan implements; committed with the plan in the run's first merge")
 	dagEscalateCmd.Flags().String("model", "", "exact model id to retry on (e.g. sonnet, or opencode/deepseek-v4-pro for pi)")
 	dagEscalateCmd.Flags().String("runtime", "", "runtime to retry on; empty keeps the task's current runtime")
-	dagReviewCmd.Flags().String("downstream", "", "with pass: what a later task must know (a renamed API, a plan assumption that turned out wrong); wakes the lead")
+	dagReviewCmd.Flags().String("downstream", "", "with pass: what a later task must know (a renamed API, a plan assumption that turned out wrong)")
+	dagReviewCmd.Flags().StringSlice("for", nil, "with --downstream: the tasks it is for (t-3,t-5); the engine adds it to a task not started and types it to a running one. Without it the lead routes the note")
 	dagMergeCmd.Flags().Bool("continue", false, "finish a resolved squash merge, or re-run a failed Verify after committing the fix")
 	dagRulesCmd.Flags().BoolVar(&dagRulesInject, "inject", false, "emit the rules as a Claude Code SessionStart hook's added context")
 	jarvisCmd.AddCommand(jarvisDagCmd)

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/wavetermdev/waveterm/pkg/agentask"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -187,7 +188,7 @@ func TestReviewPassLandsTheTaskAndTellsTheLeadQuietly(t *testing.T) {
 	f := newFakeLead(t)
 	schedule(t, ctx, dag.OID)
 	reviewer := firstTask(t, ctx, dag.OID).ReviewRunID
-	if err := RecordReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Pass, "adds fmtDate with tests", ""); err != nil {
+	if err := RecordReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Pass, "adds fmtDate with tests", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	schedule(t, ctx, dag.OID)
@@ -210,7 +211,7 @@ func TestReviewPassWithDownstreamWakesTheLead(t *testing.T) {
 	f := newFakeLead(t)
 	schedule(t, ctx, dag.OID)
 	reviewer := firstTask(t, ctx, dag.OID).ReviewRunID
-	if err := RecordReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Pass, "adds fmtDate", "fmtDate lives in\nutil/date.go"); err != nil {
+	if err := RecordReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Pass, "adds fmtDate", "fmtDate lives in\nutil/date.go", nil); err != nil {
 		t.Fatal(err)
 	}
 	schedule(t, ctx, dag.OID)
@@ -226,7 +227,7 @@ func TestFirstFailedReviewSendsTheTaskBackWithFindings(t *testing.T) {
 	calls := captureSpawns(t)
 	schedule(t, ctx, dag.OID)
 	reviewer := firstTask(t, ctx, dag.OID).ReviewRunID
-	if err := RecordReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Fail, "misses the empty-input case", ""); err != nil {
+	if err := RecordReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Fail, "misses the empty-input case", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	schedule(t, ctx, dag.OID)
@@ -252,7 +253,7 @@ func TestSecondFailedReviewGoesToTheLead(t *testing.T) {
 	f := newFakeLead(t)
 	schedule(t, ctx, dag.OID)
 	reviewer := firstTask(t, ctx, dag.OID).ReviewRunID
-	if err := RecordReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Fail, "still misses it", ""); err != nil {
+	if err := RecordReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Fail, "still misses it", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	schedule(t, ctx, dag.OID)
@@ -271,21 +272,28 @@ func TestVerdictsAreRefusedWhenTheyCannotApply(t *testing.T) {
 	captureSpawns(t)
 	schedule(t, ctx, dag.OID)
 	reviewer := firstTask(t, ctx, dag.OID).ReviewRunID
-	cases := []struct{ name, run, verdict, note, downstream string }{
-		{"not the reviewer", worker.ID, ReviewVerdict_Pass, "ok", ""},
-		{"unknown verdict", reviewer, "maybe", "ok", ""},
-		{"no note", reviewer, ReviewVerdict_Fail, "  ", ""},
-		{"downstream on a fail", reviewer, ReviewVerdict_Fail, "bad", "later"},
+	addTask(t, ctx, dag, waveobj.TaskNode{ID: "t-1", Label: "b", State: TaskState_Pending, Deps: []string{"t-0"}})
+	cases := []struct {
+		name, run, verdict, note, downstream string
+		downstreamFor                        []string
+	}{
+		{"not the reviewer", worker.ID, ReviewVerdict_Pass, "ok", "", nil},
+		{"unknown verdict", reviewer, "maybe", "ok", "", nil},
+		{"no note", reviewer, ReviewVerdict_Fail, "  ", "", nil},
+		{"downstream on a fail", reviewer, ReviewVerdict_Fail, "bad", "later", nil},
+		{"targets without a note", reviewer, ReviewVerdict_Pass, "ok", "", []string{"t-1"}},
+		{"an unknown target", reviewer, ReviewVerdict_Pass, "ok", "later", []string{"t-9"}},
+		{"the reviewed task as its own target", reviewer, ReviewVerdict_Pass, "ok", "later", []string{"t-0"}},
 	}
 	for _, c := range cases {
-		if err := RecordReviewVerdict(ctx, dag.OID, c.run, c.verdict, c.note, c.downstream); err == nil {
+		if err := RecordReviewVerdict(ctx, dag.OID, c.run, c.verdict, c.note, c.downstream, c.downstreamFor); err == nil {
 			t.Fatalf("%s: want an error", c.name)
 		}
 	}
-	if err := RecordReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Pass, "ok", ""); err != nil {
+	if err := RecordReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Pass, "ok", "", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := RecordReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Fail, "changed my mind", ""); err == nil {
+	if err := RecordReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Fail, "changed my mind", "", nil); err == nil {
 		t.Fatal("a second verdict must be refused")
 	}
 }
@@ -316,7 +324,7 @@ func TestReviewerThatCommittedIsOverruled(t *testing.T) {
 	captureSpawns(t)
 	schedule(t, ctx, dag.OID)
 	reviewer := firstTask(t, ctx, dag.OID).ReviewRunID
-	if err := RecordReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Pass, "looks fine", ""); err != nil {
+	if err := RecordReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Pass, "looks fine", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	schedule(t, ctx, dag.OID)
@@ -348,5 +356,175 @@ func TestChildRunIDsIncludeReviewers(t *testing.T) {
 	got := strings.Join(childRunIDs(g), ",")
 	if got != "worker,reviewer" {
 		t.Fatalf("cancel must reach a live reviewer, got %q", got)
+	}
+}
+
+// a worker that reports no commit skips review and lands as done, so the lead hears it on its next wake: a task that did
+// nothing and one that committed but never said so both read as done otherwise
+func TestWorkerWithoutACommitTellsTheLeadQuietly(t *testing.T) {
+	ctx, dag, worker := seedReviewDag(t)
+	if err := wstore.UpdateRun(ctx, dag.ChannelId, worker.ID, func(r *waveobj.Run) error {
+		r.EndCommit = ""
+		r.Evidence = &waveobj.RunEvidence{Summary: "Nothing to change: fmtDate already exists."}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	calls := captureSpawns(t)
+	f := newFakeLead(t)
+	schedule(t, ctx, dag.OID)
+	if got := firstTask(t, ctx, dag.OID); got.State != TaskState_Done || len(*calls) != 0 {
+		t.Fatalf("no commit skips review, got state %s and %d spawns", got.State, len(*calls))
+	}
+	want := "Since your last wake:\nt-0 finished without reporting a commit: Nothing to change: fmtDate already exists."
+	if !strings.Contains(strings.Join(f.sends, "\n"), want) {
+		t.Fatalf("want the quiet line %q, got %q", want, f.sends)
+	}
+}
+
+// addTask puts another task in a seeded dag.
+func addTask(t *testing.T, ctx context.Context, dag *waveobj.TaskGroup, task waveobj.TaskNode) {
+	t.Helper()
+	if err := wstore.UpdateDag(ctx, dag.OID, func(g *waveobj.TaskGroup) error {
+		g.Tasks = append(g.Tasks, task)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// passWithDownstream reviews t-0 and passes it with a note for the named tasks.
+func passWithDownstream(t *testing.T, ctx context.Context, dag *waveobj.TaskGroup, downstreamFor ...string) {
+	t.Helper()
+	schedule(t, ctx, dag.OID)
+	reviewer := firstTask(t, ctx, dag.OID).ReviewRunID
+	if err := RecordReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Pass, "adds fmtDate", "fmtDate lives in util/date.go", downstreamFor); err != nil {
+		t.Fatal(err)
+	}
+	schedule(t, ctx, dag.OID)
+}
+
+func taskNamed(t *testing.T, ctx context.Context, dagID, id string) waveobj.TaskNode {
+	t.Helper()
+	g, err := wstore.GetDag(ctx, dagID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return *taskByID(g, id)
+}
+
+// a note for a task that has not started goes into its prompt without the lead: in run ad78cbcb the lead knew what
+// t-3 needed 14 minutes before t-3 started, and t-3 never heard it
+func TestReviewDownstreamForAPendingTaskAmendsItWithoutWakingTheLead(t *testing.T) {
+	ctx, dag, worker := seedReviewDag(t)
+	addTask(t, ctx, dag, waveobj.TaskNode{ID: "t-1", Label: "b", State: TaskState_Pending, Deps: []string{"t-0"}})
+	stubReviewTree(t, worker.EndCommit)
+	captureSpawns(t)
+	f := newFakeLead(t)
+	passWithDownstream(t, ctx, dag, "t-1")
+	if got := taskNamed(t, ctx, dag.OID, "t-1").LeadNotes; len(got) != 1 || got[0] != "t-0's reviewer: fmtDate lives in util/date.go" {
+		t.Fatalf("want the note in t-1's prompt, got %q", got)
+	}
+	if strings.Contains(strings.Join(f.sends, "\n"), "note for later tasks") {
+		t.Fatalf("a routed note must not wake the lead, got %q", f.sends)
+	}
+	if f.countKind(waveobj.RunEventKindTaskAmended) != 1 {
+		t.Fatal("want one task-amended row")
+	}
+	PostWake(ctx, dag.ChannelId, dag.RunID, "wake: next")
+	if want := "t-0's review note reached t-1 (added to its prompt): fmtDate lives in util/date.go"; !strings.Contains(strings.Join(f.sends, "\n"), want) {
+		t.Fatalf("the lead's next wake must carry %q, got %q", want, f.sends)
+	}
+}
+
+func TestReviewDownstreamForARunningTaskTypesItToTheWorker(t *testing.T) {
+	ctx, dag, worker := seedReviewDag(t)
+	other := jarvis.NewRun("other goal", "ws-1", t.TempDir(), nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), 1)
+	other.DagORef = dag.OID
+	if err := wstore.AppendRun(ctx, dag.ChannelId, other); err != nil {
+		t.Fatal(err)
+	}
+	addTask(t, ctx, dag, waveobj.TaskNode{ID: "t-1", Label: "b", State: TaskState_Running, RunID: other.ID})
+	old := runBlockORefs
+	runBlockORefs = func(_ context.Context, r *waveobj.Run) []string {
+		if r.ID != other.ID {
+			return nil
+		}
+		return []string{waveobj.MakeORef(waveobj.OType_Block, "11111111-1111-1111-1111-111111111111").String()}
+	}
+	t.Cleanup(func() { runBlockORefs = old })
+	stubReviewTree(t, worker.EndCommit)
+	captureSpawns(t)
+	f := newFakeLead(t)
+	passWithDownstream(t, ctx, dag, "t-1")
+	want := "t-0 passed review with a note for your task: fmtDate lives in util/date.go"
+	if !strings.Contains(strings.Join(f.sends, "\n"), want) {
+		t.Fatalf("want %q typed to t-1's worker, got %q", want, f.sends)
+	}
+	if got := taskNamed(t, ctx, dag.OID, "t-1").LeadTold; len(got) != 1 || got[0] != want {
+		t.Fatalf("the typed note must not read as the human's, got %q", got)
+	}
+}
+
+// a note the engine cannot deliver stays the lead's, as before
+func TestReviewDownstreamForAFinishedTaskWakesTheLead(t *testing.T) {
+	ctx, dag, worker := seedReviewDag(t)
+	addTask(t, ctx, dag, waveobj.TaskNode{ID: "t-1", Label: "b", State: TaskState_Done})
+	stubReviewTree(t, worker.EndCommit)
+	captureSpawns(t)
+	f := newFakeLead(t)
+	passWithDownstream(t, ctx, dag, "t-1")
+	want := "wake: task t-0 passed review with a note for later tasks (not delivered to t-1, which is done): fmtDate lives in util/date.go. wsh jarvis dag status"
+	if !strings.Contains(strings.Join(f.sends, "\n"), want) {
+		t.Fatalf("want %q, got %q", want, f.sends)
+	}
+}
+
+// the reviewer can only name a task it knows exists, so its brief lists the ones a note can still reach
+func TestReviewerIsToldWhichTasksANoteCanReach(t *testing.T) {
+	ctx, dag, worker := seedReviewDag(t)
+	addTask(t, ctx, dag, waveobj.TaskNode{ID: "t-1", Label: "b", State: TaskState_Pending, Deps: []string{"t-0"}})
+	addTask(t, ctx, dag, waveobj.TaskNode{ID: "t-2", Label: "c", State: TaskState_Done})
+	stubReviewTree(t, worker.EndCommit)
+	calls := captureSpawns(t)
+	schedule(t, ctx, dag.OID)
+	if len(*calls) != 1 {
+		t.Fatalf("want the reviewer spawned, got %d spawns", len(*calls))
+	}
+	p := (*calls)[0].prompt
+	if !strings.Contains(p, "Tasks not finished yet, which --for can name: t-1 (b).") {
+		t.Fatalf("the brief must list t-1 alone, got %q", p)
+	}
+}
+
+// a worker waiting on its question has a picker open, which a typed note and its enter would answer
+func TestReviewDownstreamSkipsAWorkerWaitingOnAQuestion(t *testing.T) {
+	ctx, dag, worker := seedReviewDag(t)
+	other := jarvis.NewRun("other goal", "ws-1", t.TempDir(), nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), 1)
+	other.DagORef = dag.OID
+	if err := wstore.AppendRun(ctx, dag.ChannelId, other); err != nil {
+		t.Fatal(err)
+	}
+	addTask(t, ctx, dag, waveobj.TaskNode{ID: "t-1", Label: "b", State: TaskState_Running, RunID: other.ID})
+	block := waveobj.MakeORef(waveobj.OType_Block, "11111111-1111-1111-1111-111111111111").String()
+	old := runBlockORefs
+	runBlockORefs = func(_ context.Context, r *waveobj.Run) []string {
+		if r.ID != other.ID {
+			return nil
+		}
+		return []string{block}
+	}
+	t.Cleanup(func() { runBlockORefs = old })
+	stubReviewTree(t, worker.EndCommit)
+	captureSpawns(t)
+	f := newFakeLead(t)
+	agentask.GlobalRegistry.Set(block, agentask.PendingAsk{AskId: "a1", BlockId: "11111111-1111-1111-1111-111111111111"})
+	passWithDownstream(t, ctx, dag, "t-1")
+	joined := strings.Join(f.sends, "\n")
+	if strings.Contains(joined, "a note for your task") {
+		t.Fatalf("nothing may be typed into a worker's open question, got %q", f.sends)
+	}
+	if !strings.Contains(joined, "(not delivered to t-1, which is waiting on a question)") {
+		t.Fatalf("the lead must be woken to route it, got %q", f.sends)
 	}
 }

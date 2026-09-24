@@ -62,6 +62,9 @@ func encodeSingleQuestion(q baseds.AgentAskQuestion, a baseds.AgentAnswerItem) (
 		if err := validateFreeText(a.Text); err != nil {
 			return nil, err
 		}
+		if previewLayout(q) {
+			return chatThenPromptKeys(len(q.Options), a.Text), nil
+		}
 		return freeTextKeys(len(q.Options), a.Text), nil
 	}
 	sel := a.SelectedIndexes
@@ -126,6 +129,42 @@ func proseTextKeys(text string) [][]byte {
 	keys := make([][]byte, 0, len([]rune(text))+1)
 	keys = append(keys, typeBytes(text)...)
 	return append(keys, []byte{enter})
+}
+
+// previewLayout reports whether CC draws q as its side-by-side preview picker, whose rows are the options alone: no
+// "Type something" row, and a down from the last option focuses "Chat about this". CC's own test is a single-select
+// with any option carrying a preview.
+func previewLayout(q baseds.AgentAskQuestion) bool {
+	if q.MultiSelect {
+		return false
+	}
+	for _, o := range q.Options {
+		if o.Preview != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// chatThenPromptKeys answers a preview picker in free text: down off the last option onto "Chat about this", enter to
+// close the picker, then the text typed as the next prompt, which CC queues while the agent answers the refusal.
+// Verified live against CC with a node-pty harness (2026-09-24): the text arrives verbatim as the next user message.
+func chatThenPromptKeys(nOpts int, text string) [][]byte {
+	keys := make([][]byte, 0, nOpts+len([]rune(text))+2)
+	for i := 0; i < nOpts; i++ {
+		keys = append(keys, downArrow)
+	}
+	keys = append(keys, []byte{enter})
+	return append(keys, proseTextKeys(text)...)
+}
+
+// promptTypedText is the text an answer types as a prompt rather than into a picker: all of a prose answer, and free
+// text for a preview question. The transcript shows it as a human prompt, so a dag task's must be noted as typed.
+func promptTypedText(questions []baseds.AgentAskQuestion, answers []baseds.AgentAnswerItem) string {
+	if len(questions) == 1 && len(answers) == 1 && answers[0].Text != "" && previewLayout(questions[0]) {
+		return answers[0].Text
+	}
+	return ""
 }
 
 // singleSelectKeys moves the highlight from option 0 down to idx and presses enter.
@@ -211,6 +250,9 @@ func encodeMultiQuestion(questions []baseds.AgentAskQuestion, answers []baseds.A
 			}
 			if err := validateFreeText(a.Text); err != nil {
 				return nil, fmt.Errorf("question %d: %w", i, err)
+			}
+			if previewLayout(q) {
+				return nil, fmt.Errorf("question %d shows previews, so its picker has no free-text row: pick an option", i)
 			}
 			for d := 0; d < len(q.Options); d++ {
 				keys = append(keys, downArrow) // -> "Type something" (index len(options))

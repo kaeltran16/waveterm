@@ -338,3 +338,52 @@ func TestProseTextKeysTypesVerbatimNoArrows(t *testing.T) {
 		t.Fatalf("want [B enter], got %q", keys)
 	}
 }
+
+func withPreview(qs []baseds.AgentAskQuestion) []baseds.AgentAskQuestion {
+	qs[0].Options[0].Preview = "shown beside the list"
+	return qs
+}
+
+// a question whose options carry a preview renders CC's side-by-side picker, which has no "Type something" row: the
+// downs step off the last option onto "Chat about this". Free text takes that exit and follows as the next prompt,
+// since typing into the picker is ignored and its enter would read as the worker's question being refused (run
+// ad78cbcb, t-7 and t-8). Verified live against CC v2.1.278 and later with a PTY harness.
+func TestEncodeFreeTextToPreviewQuestionChatsThenTypesAPrompt(t *testing.T) {
+	got, err := EncodeAnswer(withPreview(singleSelect(2)), freeAns("hi"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	down := []byte{0x1b, '[', 'B'}
+	want := [][]byte{
+		down, down, // off the last option onto "Chat about this"
+		{'\r'},       // close the picker
+		{'h'}, {'i'}, // the answer, as a prompt
+		{'\r'},
+	}
+	if !keysEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+// a multi-select question never takes the preview layout, so its free text keeps the "Type something" row
+func TestEncodeFreeTextToMultiSelectWithPreviewKeepsTheTextRow(t *testing.T) {
+	qs := withPreview(singleSelect(2))
+	qs[0].MultiSelect = true
+	got, err := EncodeAnswer(qs, freeAns("hi"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !keysEqual(got, freeTextKeys(2, "hi")) {
+		t.Fatalf("got %v, want the Type-something keys", got)
+	}
+}
+
+// in a batch the chat exit would abandon the other questions, so free text for a preview question is refused before a
+// key is sent
+func TestEncodeMultiQuestionRefusesFreeTextToPreviewQuestion(t *testing.T) {
+	qs := []baseds.AgentAskQuestion{qn(2, false), qn(2, false)}
+	qs[1].Options[0].Preview = "shown beside the list"
+	if _, err := EncodeAnswer(qs, []baseds.AgentAnswerItem{item(0), {Text: "hi"}}); err == nil {
+		t.Fatal("want an error for free text to a preview question in a batch")
+	}
+}

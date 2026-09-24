@@ -343,14 +343,18 @@ func TestDagStatusShowsARunningVerifysAgeAndLatestLine(t *testing.T) {
 func TestDagReviewData(t *testing.T) {
 	cmd := newDagEscalateTestCmd(t, map[string]string{"channel": "ch", "runid": "reviewer-run"})
 	cmd.Flags().String("downstream", "", "")
+	cmd.Flags().StringSlice("for", nil, "")
 	if err := cmd.Flags().Set("downstream", "fmtDate moved"); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Flags().Set("for", "t-1,3"); err != nil {
 		t.Fatal(err)
 	}
 	got, err := dagReviewData(cmd, []string{"pass", "adds fmtDate"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := wshrpc.CommandDagActionData{ChannelId: "ch", RunId: "reviewer-run", Action: "review-pass", Notes: "adds fmtDate", Downstream: "fmtDate moved"}
+	want := wshrpc.CommandDagActionData{ChannelId: "ch", RunId: "reviewer-run", Action: "review-pass", Notes: "adds fmtDate", Downstream: "fmtDate moved", DownstreamFor: []string{"t-1", "3"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("review data = %+v, want %+v", got, want)
 	}

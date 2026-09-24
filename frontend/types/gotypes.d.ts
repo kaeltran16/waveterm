@@ -613,6 +613,7 @@ declare global {
         runtime?: string;
         notes?: string;
         downstream?: string;
+        downstreamfor?: string[];
     };
 
     // wshrpc.CommandDagAnswerData
@@ -3333,6 +3334,7 @@ declare global {
         reviewverdict?: string;
         reviewnote?: string;
         reviewdownstream?: string;
+        reviewdownstreamfor?: string[];
         reviewbase?: string;
         reviewcommit?: string;
         leadguidance?: string;

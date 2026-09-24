@@ -338,7 +338,7 @@ func (ws *WshServer) DagActionCommand(ctx context.Context, data wshrpc.CommandDa
 	case "review-pass", "review-fail":
 		// RunId is the reviewer's own run: `dag review` resolves it from the reviewer's terminal
 		verdict := strings.TrimPrefix(data.Action, "review-")
-		if err := orchestrate.RecordReviewVerdict(ctx, run.DagORef, data.RunId, verdict, data.Notes, data.Downstream); err != nil {
+		if err := orchestrate.RecordReviewVerdict(ctx, run.DagORef, data.RunId, verdict, data.Notes, data.Downstream, data.DownstreamFor); err != nil {
 			return err
 		}
 		// the verdict is durable; the tick that applies it can spawn a worker, which outlasts the reviewer's RPC budget

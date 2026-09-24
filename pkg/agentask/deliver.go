@@ -69,23 +69,24 @@ func injectAnswer(oref string, pending PendingAsk, answers []baseds.AgentAnswerI
 	}
 	var keys [][]byte
 	var err error
-	var proseText string
+	var typedText string
 	if pending.Prose {
-		proseText, err = proseAnswerText(pending, answers)
-		keys = proseTextKeys(proseText)
+		typedText, err = proseAnswerText(pending, answers)
+		keys = proseTextKeys(typedText)
 	} else {
 		keys, err = EncodeAnswer(pending.Questions, answers)
+		typedText = promptTypedText(pending.Questions, answers)
 	}
 	if err != nil {
 		GlobalRegistry.Set(oref, pending) // nothing sent yet — safe to restore for retry
 		return false, err
 	}
-	// a dag child's transcript shows a typed prose answer as a prompt, so the engine is told before the first key
-	// and can never read the prompt without knowing whose it is
+	// a dag child's transcript shows an answer typed as a prompt as the human's, so the engine is told before the first
+	// key and can never read the prompt without knowing whose it is
 	sentAt := time.Now().UnixMilli()
-	typedForTask := pending.Prose && pending.DagOID != "" && pending.TaskId != ""
+	typedForTask := typedText != "" && pending.DagOID != "" && pending.TaskId != ""
 	if typedForTask {
-		GlobalRegistry.noteTyped(pending, proseText, sentAt)
+		GlobalRegistry.noteTyped(pending, typedText, sentAt)
 	}
 	for i, k := range keys {
 		if i > 0 {
