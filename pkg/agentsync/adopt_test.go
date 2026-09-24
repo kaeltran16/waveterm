@@ -15,7 +15,7 @@ func TestAdoptSeedsTheFirstCopyIntoTheVault(t *testing.T) {
 	writeFile(t, filepath.Join(p.Home, ".claude", "CLAUDE.md"), "# Prefs\n")
 	writeFile(t, filepath.Join(p.Home, ".claude", "skills", "graphify", skillFile), "---\nname: graphify\n---\nbody\n")
 
-	plan, err := Adopt(p, true)
+	plan, err := Adopt(p, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestAdoptTurnsAFrontmatterVariantIntoADelta(t *testing.T) {
 	writeFile(t, filepath.Join(p.Home, ".config", "opencode", "skills", "orch", skillFile),
 		"---\nname: orch\ntool: opencode\n---\nsame body\n")
 
-	plan, err := Adopt(p, true)
+	plan, err := Adopt(p, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestAdoptTurnsASidecarIntoADelta(t *testing.T) {
 	writeFile(t, filepath.Join(p.Home, ".codex", "skills", "simplify", skillFile), "---\nname: simplify\n---\nbody\n")
 	writeFile(t, filepath.Join(p.Home, ".codex", "skills", "simplify", "agents", "openai.yaml"), "display_name: Simplify\n")
 
-	if _, err := Adopt(p, true); err != nil {
+	if _, err := Adopt(p, true, nil); err != nil {
 		t.Fatal(err)
 	}
 	if got := readFile(t, filepath.Join(p.SkillsRoot, "simplify", deltaDirName, "codex", "agents", "openai.yaml")); got != "display_name: Simplify\n" {
@@ -91,7 +91,7 @@ func TestAdoptLeavesABodyConflictExactlyWhereItIs(t *testing.T) {
 	writeFile(t, filepath.Join(p.Home, ".claude", "skills", "review", skillFile), "---\nname: review\n---\nclaude body\n")
 	writeFile(t, filepath.Join(p.Home, ".codex", "skills", "review", skillFile), "---\nname: review\n---\ncodex body\n")
 
-	plan, err := Adopt(p, true)
+	plan, err := Adopt(p, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestPlanAdoptWritesNothing(t *testing.T) {
 	writeFile(t, filepath.Join(p.Home, ".claude", "CLAUDE.md"), "# Prefs\n")
 	writeFile(t, filepath.Join(p.Home, ".claude", "skills", "graphify", skillFile), "---\nname: graphify\n---\nbody\n")
 
-	plan, err := Adopt(p, false)
+	plan, err := Adopt(p, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,11 +136,93 @@ func TestAdoptSkipsWhatArcAlreadyOwns(t *testing.T) {
 	if _, err := Apply(p, false); err != nil {
 		t.Fatal(err)
 	}
-	plan, err := Adopt(p, true)
+	plan, err := Adopt(p, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(plan.Moves) != 0 {
 		t.Fatalf("plan = %+v, want nothing to adopt", plan)
+	}
+}
+
+// bodyConflict gives claude and codex differing copies of the review skill; claude is first in
+// catalog order, so a keep for codex proves the choice overrides the order.
+func bodyConflict(t *testing.T) Paths {
+	t.Helper()
+	p := testPaths(t, "", ".claude", ".codex")
+	writeFile(t, filepath.Join(p.Home, ".claude", "CLAUDE.md"), "# Prefs\n")
+	writeFile(t, filepath.Join(p.Home, ".claude", "skills", "review", skillFile), "---\nname: review\n---\nclaude body\n")
+	writeFile(t, filepath.Join(p.Home, ".claude", "skills", "review", "notes.md"), "claude notes\n")
+	writeFile(t, filepath.Join(p.Home, ".codex", "skills", "review", skillFile), "---\nname: review\n---\ncodex body\n")
+	return p
+}
+
+func TestAdoptKeepSeedsTheChosenCopy(t *testing.T) {
+	p := bodyConflict(t)
+
+	plan, err := Adopt(p, true, map[string]string{"review": "codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Unresolved) != 0 {
+		t.Fatalf("a kept name must not be unresolved: %#v", plan.Unresolved)
+	}
+	for _, m := range plan.Moves {
+		if m.Seed != (m.Runtime == "codex") {
+			t.Fatalf("move %+v: only the kept codex copy may seed", m)
+		}
+	}
+	if got := readFile(t, filepath.Join(p.SkillsRoot, "review", skillFile)); got != "---\nname: review\n---\ncodex body\n" {
+		t.Fatalf("canonical skill = %q, want the kept codex copy", got)
+	}
+	// the reconcile renders the kept copy into claude too
+	if got := readFile(t, filepath.Join(p.Home, ".claude", "skills", "review", skillFile)); got != "---\nname: review\n---\ncodex body\n" {
+		t.Fatalf("claude copy = %q, want the kept body", got)
+	}
+	if _, err := os.Stat(filepath.Join(p.SkillsRoot, "review", deltaDirName)); !os.IsNotExist(err) {
+		t.Error("a replaced copy must not become a delta")
+	}
+}
+
+func TestAdoptKeepSetsTheOtherCopyAsideIntact(t *testing.T) {
+	p := bodyConflict(t)
+	replaced := filepath.Join(filepath.Dir(p.SkillsRoot), "skills-replaced", "claude", "review")
+	// an earlier replacement already holds the plain name
+	writeFile(t, filepath.Join(replaced, skillFile), "earlier\n")
+
+	if _, err := Adopt(p, true, map[string]string{"review": "codex"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, filepath.Join(replaced, skillFile)); got != "earlier\n" {
+		t.Errorf("the earlier replacement was overwritten: %q", got)
+	}
+	aside := replaced + "-2"
+	if got := readFile(t, filepath.Join(aside, skillFile)); got != "---\nname: review\n---\nclaude body\n" {
+		t.Errorf("set-aside SKILL.md = %q", got)
+	}
+	if got := readFile(t, filepath.Join(aside, "notes.md")); got != "claude notes\n" {
+		t.Errorf("set-aside sidecar = %q", got)
+	}
+}
+
+func TestAdoptRefusesAKeepWithNoCopy(t *testing.T) {
+	p := bodyConflict(t)
+
+	for _, keep := range []map[string]string{{"review": "opencode"}, {"missing": "claude"}} {
+		if _, err := Adopt(p, true, keep); err == nil {
+			t.Fatalf("keep %v: want an error", keep)
+		}
+	}
+	if _, err := os.Stat(p.SkillsRoot); !os.IsNotExist(err) {
+		t.Error("a bad keep must not create the vault skills root")
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(p.SkillsRoot), "skills-replaced")); !os.IsNotExist(err) {
+		t.Error("a bad keep must not set anything aside")
+	}
+	if got := readFile(t, filepath.Join(p.Home, ".claude", "skills", "review", skillFile)); got != "---\nname: review\n---\nclaude body\n" {
+		t.Errorf("claude copy was touched: %q", got)
+	}
+	if got := readFile(t, filepath.Join(p.Home, ".codex", "skills", "review", skillFile)); got != "---\nname: review\n---\ncodex body\n" {
+		t.Errorf("codex copy was touched: %q", got)
 	}
 }

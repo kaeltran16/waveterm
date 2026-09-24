@@ -70,6 +70,12 @@ func AgentSyncHarnessWriteCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentSyn
 	return resp, err
 }
 
+// command "agentsyncskills", wshserver.AgentSyncSkillsCommand
+func AgentSyncSkillsCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandAgentSyncSkillsRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAgentSyncSkillsRtnData](w, "agentsyncskills", nil, opts)
+	return resp, err
+}
+
 // command "agentsyncstatus", wshserver.AgentSyncStatusCommand
 func AgentSyncStatusCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandAgentSyncStatusRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAgentSyncStatusRtnData](w, "agentsyncstatus", nil, opts)

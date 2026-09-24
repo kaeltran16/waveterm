@@ -34,6 +34,9 @@ type SkillMove struct {
 	BodyDiff bool `json:"bodydiff"`
 }
 
+// replacedDirName sits beside the vault's skills root and holds the copies a keep choice discarded.
+const replacedDirName = "skills-replaced"
+
 type AdoptPlan struct {
 	Moves []SkillMove `json:"moves,omitempty"`
 	// Unresolved names skills whose copies differ in body text, left in place for a human.
@@ -101,10 +104,39 @@ func skipDelta(rel string) bool {
 	return rel == deltaDirName || strings.HasPrefix(rel, deltaDirName+string(filepath.Separator))
 }
 
+// skillCopy is one unmanaged harness-local skill directory.
+type skillCopy struct {
+	runtime, name, from string
+}
+
+// unmanagedCopies lists every harness-local skill Arc does not own: harnesses in catalog order,
+// skills sorted within each.
+func unmanagedCopies(p Paths) ([]skillCopy, error) {
+	var out []skillCopy
+	for _, spec := range harness.List() {
+		dir := spec.SkillsPath(p.Home)
+		if dir == "" || !configRootExists(spec, p.Home) {
+			continue
+		}
+		observed, err := observeSkills(dir)
+		if err != nil {
+			return nil, err
+		}
+		sort.Slice(observed, func(i, j int) bool { return observed[i].Name < observed[j].Name })
+		for _, e := range observed {
+			if !e.Managed {
+				out = append(out, skillCopy{runtime: spec.Runtime, name: e.Name, from: filepath.Join(dir, e.Name)})
+			}
+		}
+	}
+	return out, nil
+}
+
 // PlanAdopt reports which harness-local skill directories would move into the vault and what each
 // contributes. Deterministic: harnesses in catalog order, skills sorted, so the first copy of a name
-// seeds the shared tree and later ones become deltas against it.
-func PlanAdopt(p Paths) (AdoptPlan, error) {
+// seeds the shared tree and later ones become deltas against it. keep maps a skill name to the
+// runtime whose copy seeds it instead; that name is never unresolved, since the choice settles it.
+func PlanAdopt(p Paths, keep map[string]string) (AdoptPlan, error) {
 	plan := AdoptPlan{}
 	canonical, err := canonicalSkills(p.SkillsRoot)
 	if err != nil {
@@ -115,38 +147,32 @@ func PlanAdopt(p Paths) (AdoptPlan, error) {
 	for _, name := range canonical {
 		sharedDir[name] = filepath.Join(p.SkillsRoot, name)
 	}
+	copies, err := unmanagedCopies(p)
+	if err != nil {
+		return plan, err
+	}
+	if err := claimKept(keep, copies, sharedDir); err != nil {
+		return plan, err
+	}
 	unresolved := map[string]bool{}
-	for _, spec := range harness.List() {
-		dir := spec.SkillsPath(p.Home)
-		if dir == "" || !configRootExists(spec, p.Home) {
+	for _, c := range copies {
+		move := SkillMove{Runtime: c.runtime, Name: c.name, From: c.from}
+		kept, isKept := keep[c.name]
+		_, claimed := sharedDir[c.name]
+		if (isKept && kept == c.runtime) || (!isKept && !claimed) {
+			move.Seed = true
+			sharedDir[c.name] = c.from
+			plan.Moves = append(plan.Moves, move)
 			continue
 		}
-		observed, err := observeSkills(dir)
+		move.Keys, move.Files, move.BodyDiff, err = deltaAgainst(sharedDir[c.name], c.from)
 		if err != nil {
 			return plan, err
 		}
-		sort.Slice(observed, func(i, j int) bool { return observed[i].Name < observed[j].Name })
-		for _, e := range observed {
-			if e.Managed {
-				continue // already Arc's
-			}
-			from := filepath.Join(dir, e.Name)
-			move := SkillMove{Runtime: spec.Runtime, Name: e.Name, From: from}
-			if _, claimed := sharedDir[e.Name]; !claimed {
-				move.Seed = true
-				sharedDir[e.Name] = from
-				plan.Moves = append(plan.Moves, move)
-				continue
-			}
-			move.Keys, move.Files, move.BodyDiff, err = deltaAgainst(sharedDir[e.Name], from)
-			if err != nil {
-				return plan, err
-			}
-			if move.BodyDiff {
-				unresolved[e.Name] = true
-			}
-			plan.Moves = append(plan.Moves, move)
+		if move.BodyDiff && !isKept {
+			unresolved[c.name] = true
 		}
+		plan.Moves = append(plan.Moves, move)
 	}
 	for name := range unresolved {
 		plan.Unresolved = append(plan.Unresolved, name)
@@ -155,11 +181,35 @@ func PlanAdopt(p Paths) (AdoptPlan, error) {
 	return plan, nil
 }
 
+// claimKept points each kept name's shared tree at the kept copy, so every other copy is compared
+// against it. A keep that names no copy, or a skill the vault already owns, is refused outright.
+func claimKept(keep map[string]string, copies []skillCopy, sharedDir map[string]string) error {
+	for name, runtime := range keep {
+		if _, canonical := sharedDir[name]; canonical {
+			return fmt.Errorf("cannot keep %s's copy of %q: the skill is already managed by Arc", runtime, name)
+		}
+		found := false
+		for _, c := range copies {
+			if c.name == name && c.runtime == runtime {
+				sharedDir[name] = c.from
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("cannot keep %s's copy of %q: %s holds no unmanaged copy of it", runtime, name, runtime)
+		}
+	}
+	return nil
+}
+
 // Adopt applies the plan: each seed tree is moved into the vault, each later copy is reduced to a
 // delta beside it and removed, and the reconcile then renders every harness from the vault. A skill
-// whose copies differ in body text is skipped entirely — nothing is moved and nothing is deleted.
-func Adopt(p Paths, apply bool) (AdoptPlan, error) {
-	plan, err := PlanAdopt(p)
+// whose copies differ in body text is skipped entirely — nothing is moved and nothing is deleted —
+// unless keep picks a copy for it; then every other copy is set aside under skills-replaced, whole,
+// so what the choice discarded can still be recovered by hand.
+func Adopt(p Paths, apply bool, keep map[string]string) (AdoptPlan, error) {
+	plan, err := PlanAdopt(p, keep)
 	if err != nil || !apply {
 		return plan, err
 	}
@@ -189,6 +239,12 @@ func Adopt(p Paths, apply bool) (AdoptPlan, error) {
 		if m.Seed || blocked[m.Name] {
 			continue
 		}
+		if _, kept := keep[m.Name]; kept {
+			if err := setAside(p, m); err != nil {
+				return plan, err
+			}
+			continue
+		}
 		if err := writeDelta(p, m); err != nil {
 			return plan, err
 		}
@@ -200,6 +256,28 @@ func Adopt(p Paths, apply bool) (AdoptPlan, error) {
 		return plan, err
 	}
 	return plan, nil
+}
+
+// setAside moves a copy that lost a keep choice to skills-replaced/<runtime>/<name>, numbering the
+// directory when an earlier replacement already holds that name.
+func setAside(p Paths, m SkillMove) error {
+	base := filepath.Join(filepath.Dir(p.SkillsRoot), replacedDirName, m.Runtime, m.Name)
+	dest := base
+	for n := 2; ; n++ {
+		if _, err := os.Lstat(dest); os.IsNotExist(err) {
+			break
+		} else if err != nil {
+			return err
+		}
+		dest = fmt.Sprintf("%s-%d", base, n)
+	}
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return err
+	}
+	if err := os.Rename(m.From, dest); err != nil {
+		return fmt.Errorf("setting aside the replaced copy %s: %w", m.From, err)
+	}
+	return nil
 }
 
 // writeDelta records one harness's overrides beside the shared skill: differing frontmatter keys as

@@ -41,14 +41,8 @@ func (ws *WshServer) AgentSyncApplyCommand(ctx context.Context, data wshrpc.Comm
 }
 
 func (ws *WshServer) AgentSyncAdoptCommand(ctx context.Context, data wshrpc.CommandAgentSyncAdoptData) (*wshrpc.CommandAgentSyncAdoptRtnData, error) {
-	plan, err := agentsync.Adopt(agentsync.DefaultPaths(), data.Apply)
-	rtn := &wshrpc.CommandAgentSyncAdoptRtnData{Unresolved: plan.Unresolved}
-	for _, m := range plan.Moves {
-		rtn.Moves = append(rtn.Moves, wshrpc.AgentSyncSkillMove{
-			Runtime: m.Runtime, Name: m.Name, From: m.From, Seed: m.Seed,
-			Keys: m.Keys, Files: m.Files, BodyDiff: m.BodyDiff,
-		})
-	}
+	plan, err := agentsync.Adopt(agentsync.DefaultPaths(), data.Apply, data.Keep)
+	rtn := &wshrpc.CommandAgentSyncAdoptRtnData{Moves: skillMoves(plan.Moves), Unresolved: plan.Unresolved}
 	if err != nil {
 		// a partial plan is data the caller must see, not just an error string
 		return rtn, fmt.Errorf("adopting harness skills: %w", err)
@@ -110,4 +104,43 @@ func (ws *WshServer) AgentSyncFoldCommand(ctx context.Context, data wshrpc.Comma
 		return nil, fmt.Errorf("folding %s into the shared doc: %w", data.Runtime, err)
 	}
 	return &wshrpc.CommandAgentSyncFoldRtnData{Runtime: res.Runtime, Lines: res.Lines, Seeded: res.Seeded}, nil
+}
+
+func skillMoves(moves []agentsync.SkillMove) []wshrpc.AgentSyncSkillMove {
+	out := make([]wshrpc.AgentSyncSkillMove, 0, len(moves))
+	for _, m := range moves {
+		out = append(out, wshrpc.AgentSyncSkillMove{
+			Runtime: m.Runtime, Name: m.Name, From: m.From, Seed: m.Seed,
+			Keys: m.Keys, Files: m.Files, BodyDiff: m.BodyDiff,
+		})
+	}
+	return out
+}
+
+func (ws *WshServer) AgentSyncSkillsCommand(ctx context.Context) (*wshrpc.CommandAgentSyncSkillsRtnData, error) {
+	p := agentsync.DefaultPaths()
+	rows, err := agentsync.SkillRows(p)
+	if err != nil {
+		return nil, fmt.Errorf("reading canonical skills: %w", err)
+	}
+	out := make([]wshrpc.AgentSyncSkill, len(rows))
+	for i, r := range rows {
+		out[i] = wshrpc.AgentSyncSkill{Name: r.Name, Description: r.Description, States: r.States, Deltas: r.Deltas}
+	}
+	cols := make([]wshrpc.AgentSyncSkillColumn, 0)
+	for _, c := range agentsync.SkillColumns(p) {
+		cols = append(cols, wshrpc.AgentSyncSkillColumn{Runtime: c.Runtime, Label: c.Label, Present: c.Present})
+	}
+	plan, err := agentsync.PlanAdopt(p, nil)
+	if err != nil {
+		return nil, fmt.Errorf("planning skill adoption: %w", err)
+	}
+	unresolved := plan.Unresolved
+	if unresolved == nil {
+		unresolved = []string{}
+	}
+	return &wshrpc.CommandAgentSyncSkillsRtnData{
+		Skills: out, Columns: cols, SkillsRoot: p.SkillsRoot,
+		Unmanaged: skillMoves(plan.Moves), Unresolved: unresolved,
+	}, nil
 }

@@ -15,6 +15,7 @@ type AgentSyncCommands interface {
 	AgentSyncApplyCommand(ctx context.Context, data CommandAgentSyncApplyData) (*CommandAgentSyncApplyRtnData, error)
 	AgentSyncAdoptCommand(ctx context.Context, data CommandAgentSyncAdoptData) (*CommandAgentSyncAdoptRtnData, error)
 	AgentSyncFoldCommand(ctx context.Context, data CommandAgentSyncFoldData) (*CommandAgentSyncFoldRtnData, error)
+	AgentSyncSkillsCommand(ctx context.Context) (*CommandAgentSyncSkillsRtnData, error)
 }
 
 type AgentSyncHarness struct {
@@ -52,6 +53,8 @@ type CommandAgentSyncApplyRtnData struct {
 
 type CommandAgentSyncAdoptData struct {
 	Apply bool `json:"apply,omitempty"`
+	// Keep maps a skill name to the runtime whose copy seeds it; every other copy is set aside.
+	Keep map[string]string `json:"keep,omitempty"`
 }
 
 // AgentSyncSkillMove is one harness-local skill tree folded into the vault. Seed marks the copy that
@@ -134,4 +137,30 @@ type CommandAgentSyncFoldRtnData struct {
 	Runtime string   `json:"runtime"`
 	Lines   []string `json:"lines,omitempty"`
 	Seeded  bool     `json:"seeded"`
+}
+
+// AgentSyncSkill is one canonical skill and its state in each harness that scans a skills directory.
+type AgentSyncSkill struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	// States maps runtime -> synced | differs | unmanaged | absent.
+	States map[string]string `json:"states"`
+	// Deltas maps runtime -> the frontmatter keys and sidecar files it overrides.
+	Deltas map[string][]string `json:"deltas,omitempty"`
+}
+
+// AgentSyncSkillColumn is one column of the skills matrix: a harness with a fixed skills directory.
+type AgentSyncSkillColumn struct {
+	Runtime string `json:"runtime"`
+	Label   string `json:"label"`
+	Present bool   `json:"present"`
+}
+
+type CommandAgentSyncSkillsRtnData struct {
+	Skills     []AgentSyncSkill       `json:"skills"`
+	Columns    []AgentSyncSkillColumn `json:"columns"`
+	SkillsRoot string                 `json:"skillsroot"`
+	// Unmanaged and Unresolved are what an adopt would do, ungrouped: the frontend groups them.
+	Unmanaged  []AgentSyncSkillMove `json:"unmanaged"`
+	Unresolved []string             `json:"unresolved"`
 }
