@@ -257,6 +257,8 @@ export async function loadSkills(): Promise<void> {
             setupSkillsAtom,
             await RpcApi.AgentSyncSkillsCommand(TabRpcClient, { timeout: READ_TIMEOUT_MS })
         );
+        // a read that failed on an earlier visit must not leave its banner over fresh data
+        globalStore.set(setupErrorAtom, null);
     } catch (e) {
         globalStore.set(setupErrorAtom, errText(e));
     }
