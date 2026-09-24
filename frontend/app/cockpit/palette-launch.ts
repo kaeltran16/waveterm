@@ -1,26 +1,30 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// Pure builder for the command palette's "Launch" lead group (Ctrl+P fast-dispatch).
-// The typed query is the *goal*, not a filter — these rows are always shown (never ranked)
-// when there is a goal and an active channel. The component injects the impure deps
-// (dispatch/run/consult) and renders LaunchItem's presentational fields.
+// Pure builder for the palette's "Start in #project" block: the ways to act on typed text that names
+// nothing. The typed query is the *goal*, not a filter — these rows are never ranked. The component
+// injects the impure deps and renders LaunchItem's presentational fields.
+
+export type LaunchIcon = "quick" | "orchestrate" | "ask";
 
 export interface LaunchItem {
-    key: string; // launch:quick | launch:run | launch:consult:claude | launch:consult:codex
-    glyph: string; // monospace badge glyph
-    mode: string; // "Quick · claude", "Run", "Ask · claude", "Ask · codex"
-    suffix: string; // Run strategy suffix, e.g. " · pipeline" (else "")
+    key: string; // launch:quick | launch:orchestrate | launch:consult:<runtime>
+    icon: LaunchIcon;
+    title: string;
     desc: string; // mono subtitle describing the mode
-    footer: string; // one-line echo of what firing this row does to the goal
+    verb: "Start" | "Ask";
+    echo: string; // one-line echo of what firing this row does to the goal
     run: () => void;
 }
 
 export interface LaunchDeps {
-    quick: (goal: string) => void; // Quick: a single-phase run, one worker
-    run: (goal: string) => void; // top-level run, Quick by default
-    consult: (runtime: string, goal: string) => void; // Ask: one-shot, no worker
+    quick: (goal: string) => void; // one worker, no plan
+    orchestrate: (goal: string) => void; // a lead plans tasks, workers run them
+    consult: (runtime: string, goal: string) => void; // one-shot answer, no worker
 }
+
+// claude and pi are the runtimes this cockpit actually runs; the second row is the second opinion
+export const CONSULT_RUNTIMES = ["claude", "pi"] as const;
 
 // Empty goal or no project -> []. Otherwise the 4 launch rows, Quick first (preselected by the caller).
 export function buildLaunchItems(query: string, projectName: string | undefined, deps: LaunchDeps): LaunchItem[] {
@@ -28,42 +32,43 @@ export function buildLaunchItems(query: string, projectName: string | undefined,
     if (!goal || !projectName) {
         return [];
     }
+    const [primary, second] = CONSULT_RUNTIMES;
     return [
         {
             key: "launch:quick",
-            glyph: "↯",
-            mode: "Quick · claude",
-            suffix: "",
-            desc: "one worker · no phases",
-            footer: `Spawns a Quick worker on “${goal}” in #${projectName}`,
+            icon: "quick",
+            title: "Quick",
+            desc: "one worker, no plan",
+            verb: "Start",
+            echo: `Starts a Quick worker on “${goal}” in #${projectName}`,
             run: () => deps.quick(goal),
         },
         {
-            key: "launch:run",
-            glyph: "▸▸",
-            mode: "Run",
-            suffix: " · quick",
-            desc: "one worker · no plan gate",
-            footer: `Starts a quick run on “${goal}” in #${projectName}`,
-            run: () => deps.run(goal),
+            key: "launch:orchestrate",
+            icon: "orchestrate",
+            title: "Orchestrate",
+            desc: "a lead plans tasks, workers run them",
+            verb: "Start",
+            echo: `Starts an orchestrator run on “${goal}” in #${projectName}`,
+            run: () => deps.orchestrate(goal),
         },
         {
-            key: "launch:consult:claude",
-            glyph: "?",
-            mode: "Ask · claude",
-            suffix: "",
-            desc: "one-shot consult · no worker",
-            footer: `Asks claude about “${goal}” — no worker spawned`,
-            run: () => deps.consult("claude", goal),
+            key: `launch:consult:${primary}`,
+            icon: "ask",
+            title: `Ask · ${primary}`,
+            desc: "one-shot answer, no worker",
+            verb: "Ask",
+            echo: `Asks ${primary} about “${goal}”, nothing is spawned`,
+            run: () => deps.consult(primary, goal),
         },
         {
-            key: "launch:consult:codex",
-            glyph: "?",
-            mode: "Ask · codex",
-            suffix: "",
-            desc: "one-shot consult · different model",
-            footer: `Asks codex about “${goal}” — no worker spawned`,
-            run: () => deps.consult("codex", goal),
+            key: `launch:consult:${second}`,
+            icon: "ask",
+            title: `Ask · ${second}`,
+            desc: `a second opinion from ${second}`,
+            verb: "Ask",
+            echo: `Asks ${second} about “${goal}”, nothing is spawned`,
+            run: () => deps.consult(second, goal),
         },
     ];
 }

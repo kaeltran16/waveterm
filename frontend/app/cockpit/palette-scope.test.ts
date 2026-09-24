@@ -2,40 +2,82 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { parseScope, resolveChannelToken } from "./palette-scope";
+import {
+    backspaceEmpty,
+    cycleScope,
+    initialNav,
+    openDrill,
+    parseProjectLaunch,
+    resolveChannelToken,
+    SCOPES,
+    typeQuery,
+    type NavState,
+} from "./palette-scope";
 
-describe("parseScope", () => {
-    it("treats plain text as the default scope", () => {
-        expect(parseScope("fix the auth bug")).toEqual({ scope: "default", sub: "", channelLaunch: null });
+const nav = (over: Partial<NavState> = {}): NavState => ({ ...initialNav("cockpit"), ...over });
+
+describe("initialNav", () => {
+    it("opens on All everywhere but Code, where the file finder folds in as Files", () => {
+        expect(initialNav("cockpit").scope).toBe("all");
+        expect(initialNav("files").scope).toBe("all");
+        expect(initialNav("code").scope).toBe("files");
     });
-    it("only triggers a scope when the sigil is the first char", () => {
-        expect(parseScope("fix #123 bug").scope).toBe("default");
-        expect(parseScope("see @claude later").scope).toBe("default");
+});
+
+describe("typeQuery", () => {
+    it("turns a sigil typed into an empty All query into its chip", () => {
+        expect(typeQuery(nav(), "@")).toMatchObject({ scope: "agents", query: "" });
+        expect(typeQuery(nav(), "/")).toMatchObject({ scope: "sessions", query: "" });
+        expect(typeQuery(nav(), "#")).toMatchObject({ scope: "projects", query: "" });
+        expect(typeQuery(nav(), ">")).toMatchObject({ scope: "commands", query: "" });
     });
-    it("maps each sigil to its scope with the remainder as sub", () => {
-        expect(parseScope(">files")).toMatchObject({ scope: "command", sub: "files" });
-        expect(parseScope("@auth")).toMatchObject({ scope: "agent", sub: "auth" });
-        expect(parseScope("/main")).toMatchObject({ scope: "session", sub: "main" });
+    it("keeps the rest of a pasted sigil query as the filter", () => {
+        expect(typeQuery(nav(), "@juno")).toMatchObject({ scope: "agents", query: "juno" });
     });
-    it("returns a bare scope (empty sub) for a lone sigil", () => {
-        expect(parseScope(">")).toMatchObject({ scope: "command", sub: "" });
-        expect(parseScope("@")).toMatchObject({ scope: "agent", sub: "" });
-        expect(parseScope("#")).toMatchObject({ scope: "channel", sub: "", channelLaunch: null });
+    it("leaves a sigil mid-query as text, so a goal like 'fix #123' stays a goal", () => {
+        expect(typeQuery(nav({ query: "fix " }), "fix #")).toMatchObject({ scope: "all", query: "fix #" });
     });
-    it("# with no goal is picker mode (channelLaunch null)", () => {
-        expect(parseScope("#back")).toMatchObject({ scope: "channel", sub: "back", channelLaunch: null });
+    it("leaves a sigil as text inside a narrowed scope", () => {
+        expect(typeQuery(nav({ scope: "files" }), "#")).toMatchObject({ scope: "files", query: "#" });
     });
-    it("# with a trailing space but no goal stays picker mode", () => {
-        expect(parseScope("#backend ")).toMatchObject({ scope: "channel", channelLaunch: null });
+    it("drops a chosen 'as a goal' once the text changes", () => {
+        expect(typeQuery(nav({ query: "rad", asGoal: true }), "rada").asGoal).toBe(false);
     });
-    it("# with token + goal is launch mode", () => {
-        expect(parseScope("#backend fix the auth bug")).toMatchObject({
-            scope: "channel",
-            channelLaunch: { token: "backend", goal: "fix the auth bug" },
-        });
+});
+
+describe("cycleScope", () => {
+    it("walks the chips in order and wraps both ways", () => {
+        expect(cycleScope(nav(), 1).scope).toBe(SCOPES[1].id);
+        expect(cycleScope(nav(), -1).scope).toBe(SCOPES[SCOPES.length - 1].id);
     });
-    it("trims the launch goal", () => {
-        expect(parseScope("#backend   fix auth  ").channelLaunch).toEqual({ token: "backend", goal: "fix auth" });
+    it("keeps the query and leaves any drill", () => {
+        const s = cycleScope(nav({ scope: "commands", drill: "theme", query: "mono" }), 1);
+        expect(s).toMatchObject({ query: "mono", drill: null });
+    });
+});
+
+describe("backspaceEmpty", () => {
+    it("does nothing while there is text to delete", () => {
+        expect(backspaceEmpty(nav({ scope: "runs", query: "x" }))).toBeNull();
+    });
+    it("leaves a drill before it leaves the scope", () => {
+        const inDrill = openDrill(nav(), "theme");
+        const out = backspaceEmpty(inDrill)!;
+        expect(out).toMatchObject({ scope: "commands", drill: null });
+        expect(backspaceEmpty(out)).toMatchObject({ scope: "all" });
+    });
+    it("has nothing to leave on an empty All", () => {
+        expect(backspaceEmpty(nav())).toBeNull();
+    });
+});
+
+describe("parseProjectLaunch", () => {
+    it("is picker mode for a lone token", () => {
+        expect(parseProjectLaunch("back")).toBeNull();
+        expect(parseProjectLaunch("backend ")).toBeNull();
+    });
+    it("splits a token and a trimmed goal", () => {
+        expect(parseProjectLaunch("backend   fix auth  ")).toEqual({ token: "backend", goal: "fix auth" });
     });
 });
 

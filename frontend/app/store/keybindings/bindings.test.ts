@@ -16,7 +16,7 @@ import { graphPeekOpenAtom, briefPeekRecordAtom } from "@/app/view/jarvis/jarvis
 import { activeRunIdAtom, activeSubjectAtom } from "@/app/view/jarvis/jarvissubjectstore";
 import { petPeekOpenAtom } from "@/app/view/jarvis/petstore";
 import { dagModalStateAtom } from "@/app/view/orchestrate/dagmodalstate";
-import { codeFinderOpenAtom, codeTreeFocusedAtom } from "@/app/view/code/codestore";
+import { codeTreeFocusedAtom } from "@/app/view/code/codestore";
 import { codeSearchModeAtom } from "@/app/view/code/codesearchstore";
 import {
     buildAgentBindings,
@@ -422,12 +422,9 @@ describe("command palette chord", () => {
         const model = {
             surfaceAtom: atom<SurfaceKey>("cockpit"),
             paletteOpenAtom: atom(false),
-            paletteSeedAtom: atom(""),
         } as any;
         return { model, b: buildGlobalBindings(model).find((x) => x.id === "palette")! };
     };
-
-    beforeEach(() => globalStore.set(codeFinderOpenAtom, false));
 
     it("is Ctrl+P with no `when`, so nothing else can claim the chord", () => {
         const { b } = build();
@@ -437,36 +434,20 @@ describe("command palette chord", () => {
         expect(b.when).toBeUndefined();
     });
 
-    it("opens the command palette on a non-Code surface", () => {
-        const { model, b } = build();
-        b.run(ctx("cockpit"));
-        expect(globalStore.get(model.paletteOpenAtom)).toBe(true);
-        expect(globalStore.get(codeFinderOpenAtom)).toBe(false);
+    // one overlay on every surface; on Code it opens on the Files scope (palette-scope initialNav)
+    it("opens the same search on Code as everywhere else", () => {
+        for (const surface of ["cockpit", "code"] as const) {
+            const { model, b } = build();
+            b.run(ctx(surface));
+            expect(globalStore.get(model.paletteOpenAtom)).toBe(true);
+        }
     });
 
-    it("opens the file finder instead when the Code surface is active", () => {
+    it("toggles shut on a second press", () => {
         const { model, b } = build();
         b.run(ctx("code"));
-        expect(globalStore.get(codeFinderOpenAtom)).toBe(true);
-        expect(globalStore.get(model.paletteOpenAtom)).toBe(false);
-    });
-
-    it("closes the command palette on Code rather than stacking the finder under it", () => {
-        const { model, b } = build();
-        globalStore.set(model.paletteOpenAtom, true); // reached via '>' inside the finder
         b.run(ctx("code"));
         expect(globalStore.get(model.paletteOpenAtom)).toBe(false);
-        expect(globalStore.get(codeFinderOpenAtom)).toBe(false);
-    });
-
-    it("toggles each palette shut on a second press", () => {
-        const { model, b } = build();
-        b.run(ctx("cockpit"));
-        b.run(ctx("cockpit"));
-        expect(globalStore.get(model.paletteOpenAtom)).toBe(false);
-        b.run(ctx("code"));
-        b.run(ctx("code"));
-        expect(globalStore.get(codeFinderOpenAtom)).toBe(false);
     });
 });
 
@@ -481,15 +462,14 @@ describe("code surface bindings", () => {
     const code = ctx("code");
 
     beforeEach(() => {
-        globalStore.set(codeFinderOpenAtom, false);
         globalStore.set(codeSearchModeAtom, "files");
     });
     afterEach(() => vi.unstubAllGlobals());
 
-    // The file finder used to own Ctrl+P here. It has no chord of its own now — the single global
-    // "palette" binding routes Ctrl+P to it whenever this surface is active (see "command palette
-    // chord" above), so a chord here would be a second, conflicting claim on the same key.
-    it("owns no chord for the file finder — the global Ctrl+P binding routes to it", () => {
+    // Files have no chord of their own — the single global "palette" binding opens the search on its
+    // Files scope here (see "command palette chord" above), so a chord here would be a second,
+    // conflicting claim on the same key.
+    it("owns no Ctrl+P of its own — the global search binding covers files", () => {
         expect(buildCodeBindings().find((b) => b.keys === "Ctrl:p")).toBeUndefined();
     });
 

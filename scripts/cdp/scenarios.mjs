@@ -670,14 +670,16 @@ const briefPeek = {
             detail: "",
         });
 
-        // Ctrl+P, not Ctrl+SHIFT+P: `bindings.ts` puts ONE chord on the palette and dispatches on surface
-        // (Code leads with its file finder, every other surface opens the command palette). Scenarios that
-        // dispatched Ctrl+SHIFT+P matched no binding, so these steps had never once exercised the palette.
+        // Ctrl+P, not Ctrl+SHIFT+P: `bindings.ts` puts ONE chord on the search. Scenarios that dispatched
+        // Ctrl+SHIFT+P matched no binding, so these steps had never once exercised the palette. All shows
+        // only Recent and Go to until something is typed, so the Records scope chip is what lists records.
         // The entity sources load lazily on open, hence the settle before the group is looked for.
         await h.ev(
             `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', code: 'KeyP', ctrlKey: true, bubbles: true }))`
         );
-        await h.ev("new Promise((r) => setTimeout(r, 1200))");
+        await h.ev("new Promise((r) => setTimeout(r, 300))");
+        await h.ev(`document.querySelector('[data-palette-scope="records"]')?.click()`);
+        await h.ev("new Promise((r) => setTimeout(r, 900))");
         const picked = await h.ev(`(() => {
             // scoped to the Records group's own container rather than a document-wide button query: the
             // palette renders several groups and the first button on the page is the app bar's search.
@@ -748,7 +750,9 @@ const briefPeek = {
             await h.ev(
                 `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', code: 'KeyP', ctrlKey: true, bubbles: true }))`
             );
-            await settle(800);
+            await settle(300);
+            await h.ev(`document.querySelector('[data-palette-scope="records"]')?.click()`);
+            await settle(500);
             const next = await h.ev(`(() => {
                 const headers = [...document.querySelectorAll("div")].filter(
                     (d) => (d.textContent || "").trim().toLowerCase() === "records"
@@ -2459,7 +2463,7 @@ const setSearchQuery = (h, text) =>
 
 const setFinderQuery = (h, text) =>
     h.ev(`(() => {
-        const input = document.querySelector('input[placeholder="Find a file by name — add :123 for a line"]');
+        const input = document.querySelector('input[data-palette-input]');
         if (!input) return false;
         const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
         setter.call(input, ${JSON.stringify(text)});
@@ -3551,8 +3555,7 @@ const codeMarkdown = {
             await sleep(1200); // the index is one git ls-files call
         }
 
-        // Ctrl+P opens the file finder (the command palette moved to Ctrl+Shift+P); Enter opens the
-        // top-ranked match
+        // Ctrl+P on Code opens the search on its Files scope; Enter opens the top-ranked match
         await h.ev(
             `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', code: 'KeyP', ctrlKey: true, bubbles: true }))`
         );
@@ -4112,7 +4115,9 @@ const briefContextualMap = {
         await h.ev(
             `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', code: 'KeyP', ctrlKey: true, bubbles: true }))`
         );
-        await settle(1200);
+        await settle(300);
+        await h.ev(`document.querySelector('[data-palette-scope="records"]')?.click()`);
+        await settle(900);
         await h.ev(`(() => {
             const headers = [...document.querySelectorAll('div')].filter(
                 (d) => (d.textContent || '').trim().toLowerCase() === 'records'

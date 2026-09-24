@@ -13,7 +13,7 @@ import { historyFiltersAtom } from "@/app/view/agents/githistorystore";
 import { NO_FILTERS } from "@/app/view/agents/historyquery";
 import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
-import { codeFinderOpenAtom, codeTreeFocusedAtom } from "@/app/view/code/codestore";
+import { codeTreeFocusedAtom } from "@/app/view/code/codestore";
 import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
 import { graphPeekOpenAtom } from "@/app/view/jarvis/jarvisstore";
 import { petPeekOpenAtom } from "@/app/view/jarvis/petstore";
@@ -27,7 +27,6 @@ afterEach(() => {
     globalStore.set(graphPeekOpenAtom, false);
     globalStore.set(autonomyPanelOpenAtom, false);
     globalStore.set(petPeekOpenAtom, false);
-    globalStore.set(codeFinderOpenAtom, false);
     globalStore.set(codeTreeFocusedAtom, false);
     globalStore.set(listNavAtom, null);
     globalStore.set(renamingRowAtom, null);
@@ -73,8 +72,8 @@ describe("whenVersionAtom", () => {
     });
 
     // One case per atom PREDICATE_ATOMS added beyond the Diff surface's two — surface:back-home's
-    // guard (bindings.ts) reads graphPeekOpenAtom, autonomyPanelOpenAtom, petPeekOpenAtom and
-    // codeFinderOpenAtom directly; buildCodeBindings' inTree reads codeTreeFocusedAtom;
+    // guard (bindings.ts) reads graphPeekOpenAtom, autonomyPanelOpenAtom and petPeekOpenAtom
+    // directly; buildCodeBindings' inTree reads codeTreeFocusedAtom;
     // buildListNavBindings' active reads listNavAtom; buildAgentBindings' subagent:back/agent:back
     // read renamingRowAtom and focusSubagentAtom.
     it("bumps when the Jarvis graph peek opens", () => {
@@ -92,12 +91,6 @@ describe("whenVersionAtom", () => {
     it("bumps when the pet peek opens", () => {
         const before = globalStore.get(whenVersionAtom);
         globalStore.set(petPeekOpenAtom, true);
-        expect(globalStore.get(whenVersionAtom)).toBeGreaterThan(before);
-    });
-
-    it("bumps when the Code file finder opens", () => {
-        const before = globalStore.get(whenVersionAtom);
-        globalStore.set(codeFinderOpenAtom, true);
         expect(globalStore.get(whenVersionAtom)).toBeGreaterThan(before);
     });
 

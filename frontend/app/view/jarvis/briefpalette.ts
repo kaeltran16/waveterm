@@ -13,7 +13,7 @@
 //
 // No rpc, no atoms: the .tsx fetches and memoizes buildBriefIndex, then calls rankBriefRows per keystroke.
 
-import { isConfidentMatch } from "@/app/cockpit/palette-groups";
+import { meetsNameFloor } from "@/app/cockpit/palette-groups";
 import { fuzzyMatch, highlightRuns, rankPaletteItems } from "@/app/cockpit/palette-match";
 
 // The mockup caps the list at 8 (docs/prototype/jarvis-brief-launch.dc.html).
@@ -124,15 +124,12 @@ function withTitleRuns(rows: BriefRow[], query: string): BriefRow[] {
 // extended, so it must not be measurably looser — and this module widens `search` to cover the kind and the
 // meta line, which makes a permissive subsequence matcher looser still. As in palette-groups.ts the floor
 // decides precedence and emphasis, never suppression: a weak match is still a match and is still shown.
-// isConfidentMatch reads the best-scoring row's `search` and nothing else, so the head is projected rather
-// than widening BriefKind into GroupKind (the kind it also declares is unread; "focus-task" is the group the
-// cockpit palette files records under).
+// Only the best-scoring row's `search` is read.
 function namesSomething(query: string, ranked: BriefRow[]): boolean {
-    if (ranked.length === 0) {
+    if (ranked.length === 0 || query.trim() === "") {
         return false;
     }
-    const head = ranked[0];
-    return isConfidentMatch(query, [{ key: head.key, kind: "focus-task", search: head.search }]);
+    return meetsNameFloor(query, ranked[0].search);
 }
 
 export interface BriefRanking {

@@ -130,9 +130,6 @@ export class AgentsViewModel implements ViewModel {
     newProjectOpenAtom = atom(false);
     newAgentOpenAtom = atom(false);
     paletteOpenAtom = atom(false);
-    // Query the palette opens with, consumed (and cleared) on open. Non-empty only when something
-    // handed off to it — today that is the Code surface's file finder seeing a leading '>'.
-    paletteSeedAtom = atom("");
 
     // handoff-parity filters + per-card layout (spec §State). Project scope is a single source bound to
     // both the app-bar switcher and the header button.

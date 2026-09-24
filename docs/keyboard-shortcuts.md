@@ -18,14 +18,14 @@ Design spec: [`docs/superpowers/specs/2026-07-03-keyboard-operability-design.md`
 - **Which-key bar.** The transient bottom bar shown after pressing a leader — it only lists keys
   that will work in your current context.
 - **Cheat sheet.** Press `?` (while not typing) to open a searchable modal of every shortcut.
-  When you are typing (e.g. in the terminal), open it via the command palette → "Keyboard shortcuts".
+  When you are typing (e.g. in the terminal), open it via Search (`Ctrl`+`P`) → Commands → "Keyboard shortcuts".
 
 ## Global (work anywhere, including inside the terminal)
 
 | Keys | Action |
 |---|---|
 | `Ctrl`+`1`…`8` | Jump to surface by position — in order: Cockpit, Jarvis, Agent, Code, Diff, Sessions, Radar, Usage |
-| `Ctrl`+`P` | Command palette |
+| `Ctrl`+`P` | Search — opens on the Files scope on Code (see below) |
 | `Ctrl`+`N` | New agent |
 | `Ctrl`+`Tab` / `Ctrl`+`Shift`+`Tab` | Next / previous agent |
 | `Ctrl`+`C` `Ctrl`+`C` (double, within 500ms) | Close the focused agent |
@@ -48,7 +48,22 @@ Settings has no `Ctrl`+number slot — the nine positions are bound to `SURFACE_
 | `g` `u` | Usage |
 | `g` `b` | Code — browse source |
 | `g` `,` | Settings |
-| `g` `p` | Command palette |
+| `g` `p` | Search |
+
+## Search (`Ctrl`+`P`)
+
+One overlay with scopes: All, Go to, Agents, Runs, Sessions, Records, Projects, Files, Commands.
+
+| Keys | Action |
+|---|---|
+| `Tab` / `Shift`+`Tab` | Next / previous scope |
+| `@` `/` `#` `>` typed first in All | Jump to Agents, Sessions, Projects, Commands |
+| `Backspace` on an empty query | Leave a picker, then drop back to All |
+| `path:123` in Files | Open the file at that line; a bare `:123` on Code moves the open file |
+
+In All, text that names nothing is a goal: the Start rows run it as a Quick worker, an orchestrator
+run, or a one-shot ask. When the text names something, Enter opens that, and one "Start as a goal"
+row below expands into the same choices.
 
 ## Navigation within a surface (Navigate posture)
 
@@ -130,7 +145,7 @@ its latest activity, and why it failed.
 | Keys | Action |
 |---|---|
 | `?` (`Shift`+`/`) | Open the shortcut cheat sheet (Navigate posture) |
-| Command palette → "Keyboard shortcuts" | Open the cheat sheet while typing |
+| Search → Commands → "Keyboard shortcuts" | Open the cheat sheet while typing |
 
 ---
 

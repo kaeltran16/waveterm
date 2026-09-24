@@ -4,7 +4,6 @@
 import { globalStore } from "@/app/store/jotaiStore";
 import { modalsModel } from "@/app/store/modalmodel";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
-import { codeFinderOpenAtom } from "@/app/view/code/codestore";
 import { dagModalStateAtom } from "@/app/view/orchestrate/dagmodalstate";
 import * as keyutil from "@/util/keyutil";
 import { CHORD_TIMEOUT } from "@/util/sharedconst";
@@ -65,10 +64,6 @@ export function deriveKeyContext(): KeyContext {
         globalStore.get(model.paletteOpenAtom) ||
         globalStore.get(model.newAgentOpenAtom) ||
         globalStore.get(model.newProjectOpenAtom) ||
-        // the Code file finder is a modal too, and leaving it out was not cosmetic: every Code and
-        // global binding stayed live behind it, so Ctrl+N stacked New Agent on top of it and stole
-        // focus, and any key the finder's input did not swallow drove the surface underneath.
-        globalStore.get(codeFinderOpenAtom) ||
         // the DAG modal too: left out, the Brief's bindings underneath took the graph's own keys first
         // (Enter submitted an ask, Escape closed the Chunk sidebar). Only the Brief mounts it, and its state
         // outlives a switch away, since opening a worker from the graph lands on the Agent surface.

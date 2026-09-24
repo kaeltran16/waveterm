@@ -1,12 +1,12 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// Command palette overlay — Ctrl+P everywhere except the Code surface, which leads with its file
-// finder and hands off here on a leading '>'. Fuzzy-searches live agents, resumable sessions,
-// cockpit commands, and the jarvis entities (records and initiatives — archived included, see
-// palette-entities.ts), and dispatches the selected item's action. This is the ONE palette: a new
-// findable kind is a new entry source here, never a second overlay or a second shortcut. Hand-rolled to
-// match the NewAgentModal overlay pattern (jotai visibility atom + fixed overlay from cockpit-root).
+// The universal search — Ctrl+P on every surface. One overlay with visible scopes (All, Go to, Agents,
+// Runs, Sessions, Records, Projects, Files, Commands): Tab walks them, and the old sigils still work
+// by becoming the chip. In All, text that names something opens it and text that names nothing is a
+// goal the launch rows start. Code's own file finder folded in as the Files scope, preselected there.
+// This is the ONE palette: a new findable kind is a new entry source here, never a second overlay or a
+// second shortcut. The rules live in the pure palette-*.ts modules; this file wires sources to them.
 
 import { launchAgent } from "@/app/cockpit/cockpit-actions";
 import { ModalShell } from "@/app/modals/modalshell";
@@ -15,96 +15,102 @@ import { bindingsAtom } from "@/app/store/keybindings/store";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { formatAge } from "@/app/view/agents/agentsviewmodel";
 import { sendChannelMessage } from "@/app/view/agents/channelactions";
-import { activeChannelAtom, channelsAtom } from "@/app/view/agents/channelsstore";
+import { activeChannelAtom, activeChannelRunsAtom, channelsAtom } from "@/app/view/agents/channelsstore";
+import { activeFocusAtom, enterFocusFor, exitFocus, focusesAtom, loadFocuses } from "@/app/view/agents/focusstore";
 import type { Runtime } from "@/app/view/agents/launch";
 import { channelProjectLabel, dedupeByProject } from "@/app/view/agents/projectlabel";
 import { projectsAtom } from "@/app/view/agents/projectsstore";
 import { createRun, resolveChannelLaunchRoute } from "@/app/view/agents/runactions";
+import { runStatusView, type RunStatusTone } from "@/app/view/agents/runmodel";
 import { loadSessionsArchive, sessionsArchiveAtom } from "@/app/view/agents/sessionsarchivestore";
-import { activeFocusAtom, enterFocusFor, exitFocus, loadFocuses, focusesAtom } from "@/app/view/agents/focusstore";
 import { themeOverridesAtom, themePresetAtom } from "@/app/view/agents/themestore";
+import { recentPaths } from "@/app/view/code/codehistory";
+import {
+    codeHistoryAtom,
+    codeIndexAtom,
+    codePendingLineAtom,
+    codeProjectAtom,
+    loadFileIndex,
+    openInCode,
+    type CodeIndex,
+} from "@/app/view/code/codestore";
 import { buildBriefIndex, rankBriefRows, type BriefRow } from "@/app/view/jarvis/briefpalette";
 import { openAddress, openTarget } from "@/app/view/jarvis/openref";
 import { taskListAtom } from "@/app/view/jarvis/tasksstore";
-import { formatChord } from "@/util/keysym";
+import { sameRepoPath } from "@/util/paths";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
+import { Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { runPaletteAction } from "./palette-action";
-import { buildCommandItems, buildExtraItems, postCloseContext } from "./palette-commands";
+import {
+    buildCommandItems,
+    buildExtraItems,
+    buildThemeItems,
+    commandGroups,
+    GOTO_GROUP,
+    postCloseContext,
+} from "./palette-commands";
 import { loadPaletteEntities, mergeRanked, paletteEffortsAtom } from "./palette-entities";
+import { assembleFileGroups, fileEcho } from "./palette-files";
 import { buildFocusItems } from "./palette-focus";
 import {
-    assembleDefaultGroups,
+    ALL_KIND_ORDER,
+    assembleAllGroups,
+    assembleScopeGroups,
     capGroups,
-    isRichGroup,
+    MAX_IN_ALL,
+    MAX_IN_SCOPE,
     type GroupKind,
     type PaletteGroup,
-    type RichGroupKind,
 } from "./palette-groups";
 import { buildLaunchItems, type LaunchDeps } from "./palette-launch";
-import { fuzzyMatch, highlightRuns, rankPaletteItems } from "./palette-match";
+import { rankPaletteItems } from "./palette-match";
 import { MAX_RECENT, nextMru, paletteMruAtom, recentItems, sortByMru } from "./palette-mru";
-import { parseScope, resolveChannelToken } from "./palette-scope";
+import { PaletteGroupView, type PaletteItem, type StatusTone } from "./palette-rows";
+import {
+    backspaceEmpty,
+    cycleScope,
+    DRILL_LABELS,
+    DRILL_PLACEHOLDERS,
+    initialNav,
+    openDrill,
+    parseProjectLaunch,
+    pickScope,
+    resolveChannelToken,
+    scopeDef,
+    SCOPES,
+    typeQuery,
+    type DrillId,
+    type NavState,
+    type ScopeId,
+} from "./palette-scope";
 
-interface PaletteItem {
-    key: string;
-    kind: GroupKind;
-    search: string; // matched text (title + keywords) — "" for launch rows (never ranked)
-    title: string;
-    subtitle?: string;
-    hint?: string; // right-aligned (session age)
-    chord?: string; // keybinding chord for derived command rows
-    archived?: boolean; // renders the archived pill and greys the title (record/effort rows)
-    run: () => void;
-    // launch group only (rich fast-dispatch row):
-    glyph?: string; // monospace badge glyph
-    mode?: string; // "Quick · claude", "Run", …
-    suffix?: string; // Run strategy suffix, e.g. " · pipeline"
-    desc?: string; // mono subtitle
-    footer?: string; // one-line echo shown in the palette footer when selected
-}
+type CommandRow = PaletteItem & { group: string };
 
-// The launch group renders its own dynamic label ("Launch in #<project>"), so it is excluded here.
-const GROUP_LABELS: Record<Exclude<GroupKind, RichGroupKind>, string> = {
-    recent: "Recent",
-    "focus-task": "Focus on task",
-    command: "Commands",
-    agent: "Agents",
-    session: "Sessions",
-    channel: "Projects",
-    record: "Records",
-    effort: "Initiatives", // the user-facing word for an effort (briefpalette's BRIEF_KIND_LABELS)
+// the kinds each narrowed scope lists, in the order its groups show
+const SCOPE_KINDS: Partial<Record<ScopeId, GroupKind[]>> = {
+    goto: ["surface"],
+    agents: ["agent"],
+    runs: ["run"],
+    sessions: ["session"],
+    records: ["record", "effort"],
+    projects: ["channel"],
 };
 
-// Positions index the string that was matched, and item.search is not what a row displays — for an
-// agent it is name + task + project while the title is "name — task". So the row re-matches against
-// its own title; a query that hit only keywords renders unhighlighted, which beats bolding the wrong
-// characters.
-function Highlighted({ text, query }: { text: string; query: string }) {
-    const runs = useMemo(() => {
-        if (query.trim() === "") {
-            return null;
-        }
-        const m = fuzzyMatch(query, text);
-        return m == null || m.positions.length === 0 ? null : highlightRuns(text, m.positions);
-    }, [text, query]);
-    if (runs == null) {
-        return <>{text}</>;
+function runTone(tone: RunStatusTone): StatusTone {
+    if (tone === "running") {
+        return "working";
     }
-    return (
-        <>
-            {runs.map((r, i) =>
-                r.hit ? (
-                    <span key={i} className="font-semibold text-primary">
-                        {r.text}
-                    </span>
-                ) : (
-                    <span key={i}>{r.text}</span>
-                )
-            )}
-        </>
-    );
+    return tone === "review" || tone === "blocked" ? "asking" : "muted";
+}
+
+// A run's status is its lifecycle word unless it is executing, where the phase count says more.
+function runStatusLabel(r: Run, label: string): string {
+    if (r.status !== "executing" || !r.phases?.length) {
+        return label;
+    }
+    return `${r.phases.filter((p) => p.state === "done").length}/${r.phases.length}`;
 }
 
 export function CommandPalette({ model }: { model: AgentsViewModel }) {
@@ -113,6 +119,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     const sessions = useAtomValue(sessionsArchiveAtom);
     const channel = useAtomValue(activeChannelAtom);
     const channels = useAtomValue(channelsAtom);
+    const runs = useAtomValue(activeChannelRunsAtom);
     const projects = useAtomValue(projectsAtom);
     const spaces = useAtomValue(focusesAtom);
     const activeSpace = useAtomValue(activeFocusAtom);
@@ -121,26 +128,26 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     const surface = useAtomValue(model.surfaceAtom);
     const bindings = useAtomValue(bindingsAtom);
     const mru = useAtomValue(paletteMruAtom);
-    const [query, setQuery] = useState("");
+    const themePreset = useAtomValue(themePresetAtom);
+    const codeProject = useAtomValue(codeProjectAtom);
+    const codeIndex = useAtomValue(codeIndexAtom);
+    const codeHistory = useAtomValue(codeHistoryAtom);
+    const [nav, setNavState] = useState<NavState>(() => initialNav(surface));
     const [sel, setSel] = useState(0);
     const [launchError, setLaunchError] = useState<string | undefined>(undefined);
+    // Files off Code: the active project's index, loaded on first use of the scope
+    const [loadedFiles, setLoadedFiles] = useState<{ path: string; index?: CodeIndex; error?: string } | null>(null);
     const inputRef = useRef<HTMLInputElement>(null);
     const listRef = useRef<HTMLDivElement>(null);
     const loadedRef = useRef(false);
 
     const close = () => globalStore.set(model.paletteOpenAtom, false);
-
-    // Sigil scope + launch target. In '#<token> <goal>' mode the launch group targets the
-    // picked channel; otherwise it targets the active channel (today's behavior). Scopes
-    // other than default/channel-launch never show the launch group.
-    const parsed = useMemo(() => parseScope(query), [query]);
-    // under '@'/'#'/'>' the sigil is not part of what was matched, so rows highlight the scope's own filter text
-    const highlightQuery = parsed.scope === "default" ? query : parsed.sub;
-    const channelLaunch = parsed.scope === "channel" ? parsed.channelLaunch : null;
-    const pickedChannel = channelLaunch ? (resolveChannelToken(channelLaunch.token, channels ?? []) ?? null) : null;
-    const targetChannel = channelLaunch ? pickedChannel : channel;
-    const launchGoal = channelLaunch ? channelLaunch.goal : query;
-    const showLaunch = parsed.scope === "default" || (parsed.scope === "channel" && channelLaunch != null);
+    const setNav = (next: NavState | ((s: NavState) => NavState)) => {
+        setNavState(next);
+        setSel(0);
+        setLaunchError(undefined);
+    };
+    const q = nav.query.trim();
 
     // Lazy-load the sessions archive on first open (as SessionsSurface does).
     useEffect(() => {
@@ -156,159 +163,50 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         }
     }, [open]);
 
-    // Each open: reset selection, focus the input after paint, and start from whatever handed off to
-    // us (the Code file finder passes a leading '>' so the user's keystroke is not swallowed).
+    // Each open starts fresh on the surface's own scope, and focuses the input after paint.
     useEffect(() => {
         if (!open) {
             return;
         }
-        setQuery(globalStore.get(model.paletteSeedAtom));
-        globalStore.set(model.paletteSeedAtom, "");
-        setLaunchError(undefined);
-        setSel(0);
+        setNav(initialNav(globalStore.get(model.surfaceAtom)));
+        setLoadedFiles((cur) => (cur?.error != null ? null : cur)); // a failed listing gets another try
         const raf = requestAnimationFrame(() => inputRef.current?.focus());
         return () => cancelAnimationFrame(raf);
     }, [open]);
 
-    const items = useMemo<PaletteItem[]>(() => {
-        const now = Date.now();
-        const ctx = postCloseContext(surface);
-        const extras = buildExtraItems({
-            openNewProject: () => globalStore.set(model.newProjectOpenAtom, true),
-            // matches selectPreset in settingssurface.tsx: picking a preset drops per-role overrides.
-            setTheme: (presetId) => {
-                globalStore.set(themePresetAtom, presetId);
-                globalStore.set(themeOverridesAtom, {});
-            },
-        });
-        const commands: PaletteItem[] = [...buildCommandItems(bindings, ctx), ...extras].map((c) => ({
-            key: c.key,
-            kind: "command" as const,
-            search: `${c.title} ${c.group}`,
-            title: c.title,
-            chord: c.keys,
-            run: () => {
-                c.run();
-                close();
-            },
-        }));
-        const agentItems: PaletteItem[] = agents.map((a) => ({
-            key: `agent:${a.id}`,
-            kind: "agent" as const,
-            search: `${a.name} ${a.task ?? ""} ${a.project ?? ""}`,
-            title: a.task ? `${a.name} — ${a.task}` : a.name,
-            subtitle: [a.project, a.state].filter(Boolean).join(" · ") || undefined,
-            run: () => {
-                model.openTerminal(a.id);
-                close();
-            },
-        }));
-        const sessionItems: PaletteItem[] = (sessions ?? [])
-            .filter((s) => s.resumecommand)
-            .map((s) => ({
-                key: `session:${s.runtime}:${s.id}`,
-                kind: "session" as const,
-                search: `${s.task} ${s.projectname} ${s.branch}`,
-                title: s.task || "(untitled session)",
-                subtitle: [s.projectname, s.branch || "—", s.model || "—"].join(" · "),
-                hint: formatAge(now - s.lastactivets),
-                run: () => {
-                    const piResume =
-                        s.runtime === "pi" && s.resumeargs?.length
-                            ? { startupArgs: s.resumeargs, resumePath: s.transcriptpath }
-                            : {};
-                    fireAndForget(() =>
-                        launchAgent(model, {
-                            runtime: s.runtime as Runtime,
-                            startupCommand: s.resumecommand!,
-                            task: "",
-                            projectPath: s.projectpath,
-                            projectName: s.projectname || "agent",
-                            ...piResume,
-                        })
-                    );
-                    close();
-                },
-            }));
-        return [...commands, ...agentItems, ...sessionItems];
-    }, [agents, sessions, model, bindings, surface]);
-
-    // Fast-dispatch rows: the typed query is the *goal*, not a filter. Built only when a goal is
-    // typed AND a channel is active (buildLaunchItems returns [] otherwise). The user never types
-    // "@"/"ask @" — we synthesize that transport string for sendChannelMessage internally.
-    const launchItems = useMemo<PaletteItem[]>(() => {
-        if (!showLaunch || !targetChannel) {
-            return [];
+    // --- Files ------------------------------------------------------------------------------------
+    // On Code, the project Code has open; elsewhere, the active project — not whatever Code last had.
+    const fileTarget = useMemo(() => {
+        if (surface === "code" && codeProject != null) {
+            return codeProject;
         }
-        const ch = targetChannel;
-        const fireLaunch = (action: () => Promise<unknown>) => {
-            setLaunchError(undefined);
-            void runPaletteAction(action).then((result) => {
-                if ("error" in result) {
-                    setLaunchError(result.error.replace(/^Error:\s*/, ""));
-                    return;
-                }
-                globalStore.set(model.surfaceAtom, "jarvis"); // surface the result, then close
-                close();
-            });
-        };
-        const sendText = (text: string) =>
-            sendChannelMessage({
-                model,
-                channelId: ch.oid,
-                projectPath: ch.projectpath ?? "",
-                projectName: channelProjectLabel(ch, projects) || "agent",
-                roster: agents.map((a) => ({ id: a.id, name: a.name, blockId: a.blockId })),
-                text,
-            });
-        // Quick and Run both go through createRun: that is the only path that captures a dossier, so a
-        // goal dispatched from here lands in the record system like one dispatched from the composer.
-        // run sends no mode and uses the server's Quick default; saved strategies do not select heavier modes.
-        // A missing preferred runtime blocks before any RPC: the goal stays in the palette, nothing dispatches.
-        const guarded = (goal: string, action: (route: RoutePin) => Promise<unknown>) => {
-            fireLaunch(async () => action(await resolveChannelLaunchRoute(ch.oid)));
-        };
-        const deps: LaunchDeps = {
-            quick: (goal) => guarded(goal, (route) => createRun(ch.oid, goal, route, { mode: "quick" })),
-            run: (goal) => guarded(goal, (route) => createRun(ch.oid, goal, route)),
-            consult: (runtime, goal) => fireLaunch(() => sendText(`ask @${runtime} ${goal}`)),
-        };
-        return buildLaunchItems(launchGoal, channelProjectLabel(ch, projects), deps).map((li) => ({
-            key: li.key,
-            kind: "launch" as const,
-            search: "",
-            title: li.mode,
-            run: li.run,
-            glyph: li.glyph,
-            mode: li.mode,
-            suffix: li.suffix,
-            desc: li.desc,
-            footer: li.footer,
-        }));
-    }, [showLaunch, targetChannel, launchGoal, agents, model, projects]);
+        if (channel?.projectpath) {
+            return { name: channelProjectLabel(channel, projects), path: channel.projectpath };
+        }
+        return null;
+    }, [surface, codeProject, channel, projects]);
+    const codeOwnsTarget = codeProject != null && fileTarget != null && sameRepoPath(codeProject.path, fileTarget.path);
+    const needFileLoad = open && nav.scope === "files" && fileTarget != null && !(codeOwnsTarget && codeIndex != null);
+    useEffect(() => {
+        if (!needFileLoad || loadedFiles?.path === fileTarget.path) {
+            return;
+        }
+        const path = fileTarget.path;
+        setLoadedFiles({ path });
+        loadFileIndex(path).then(
+            (index) => setLoadedFiles((cur) => (cur?.path === path ? { path, index } : cur)),
+            (e) => setLoadedFiles((cur) => (cur?.path === path ? { path, error: String(e) } : cur))
+        );
+    }, [needFileLoad, fileTarget?.path]);
+    const fileIndex: CodeIndex | undefined =
+        codeOwnsTarget && codeIndex != null
+            ? codeIndex
+            : loadedFiles != null && loadedFiles.path === fileTarget?.path
+              ? loadedFiles.index
+              : undefined;
+    const fileError = loadedFiles?.path === fileTarget?.path ? loadedFiles?.error : undefined;
 
-    // Project picker rows (# scope, no goal). Enter switches the active project and opens the surface.
-    const channelItems = useMemo<PaletteItem[]>(
-        () =>
-            dedupeByProject(channels ?? []).map((c) => {
-                const name = channelProjectLabel(c, projects);
-                return {
-                    key: `channel:${c.oid}`,
-                    kind: "channel" as const,
-                    search: `#${name} ${c.projectpath ?? ""}`,
-                    title: `#${name}`,
-                    subtitle: c.projectpath ? c.projectpath.split(/[\\/]/).pop() : undefined,
-                    run: () => {
-                        fireAndForget(() => openTarget(model, { kind: "channel", channelId: c.oid }));
-                        close();
-                    },
-                };
-            }),
-        [channels, model, projects]
-    );
-
-    // "Focus on task" group: rows for each active|paused task (+ Exit focus when focused). Selecting a
-    // row enters that Space (re-lensing the scoped surfaces) and closes the palette.
+    // --- Sources ----------------------------------------------------------------------------------
     const focusItems = useMemo<PaletteItem[]>(
         () =>
             buildFocusItems(spaces, activeSpace?.ref.id ?? null, {
@@ -326,355 +224,649 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                 kind: "focus-task" as const,
                 search: fi.subtitle ? `${fi.title} ${fi.subtitle}` : fi.title,
                 title: fi.title,
-                subtitle: fi.subtitle,
+                meta: fi.subtitle,
+                verb: "Focus",
+                echo:
+                    fi.key === "focus-exit"
+                        ? "Returns every surface to Global"
+                        : `Narrows every surface to “${fi.title}”`,
                 run: fi.run,
             })),
         [spaces, activeSpace, model]
     );
 
-    // Selection navigates through the seams that already exist: a record and an initiative are addresses,
-    // so openAddress lands them (and flips the surface itself). Sessions are not sourced here (see
-    // BRIEF_GROUP_KINDS).
-    const openBriefRow = (row: BriefRow) => {
-        // an effort row's id is already an address
-        const address = row.kind === "record" ? `task:${row.id}` : row.id;
-        fireAndForget(() => openAddress(model, address));
-    };
+    const themeItems = useMemo<PaletteItem[]>(
+        () =>
+            buildThemeItems(themePreset).map((t) => ({
+                key: t.key,
+                kind: "theme" as const,
+                search: t.title,
+                title: t.title,
+                meta: t.current ? "current" : undefined,
+                swatch: t.swatch,
+                verb: "Apply",
+                echo: t.current ? "Already the theme" : `Switches the theme to ${t.title}, dropping per-role overrides`,
+                run: () => {
+                    // matches selectPreset in settingssurface.tsx: picking a preset drops per-role overrides
+                    globalStore.set(themePresetAtom, t.id);
+                    globalStore.set(themeOverridesAtom, {});
+                    close();
+                },
+            })),
+        [themePreset]
+    );
 
-    // Records and initiatives — the entity kinds the palette could not reach at all, archived
-    // ones included. briefpalette owns the index and the ranking (it flags archived rows and sinks them
-    // below every live one), so this only maps its rows onto palette rows. Its order is used as given:
-    // re-ranking here would undo the archived-last guarantee.
+    // Registry-derived: the "Go to" bindings are the surfaces, everything else is a command.
+    const { gotoItems, commandItems } = useMemo(() => {
+        const drillMeta: Record<DrillId, string> = {
+            theme: `${themeItems.length} themes ›`,
+            focus: `${focusItems.length} tasks ›`,
+        };
+        const all = [
+            ...buildCommandItems(bindings, postCloseContext(surface)),
+            ...buildExtraItems({ openNewProject: () => globalStore.set(model.newProjectOpenAtom, true) }),
+        ];
+        const goto: PaletteItem[] = all
+            .filter((c) => c.group === GOTO_GROUP)
+            .map((c) => ({
+                key: c.key,
+                kind: "surface" as const,
+                search: c.title,
+                title: c.title,
+                chord: c.keys,
+                verb: "Go to",
+                echo: `Goes to ${c.title}`,
+                run: () => {
+                    c.run();
+                    close();
+                },
+            }));
+        const commands: CommandRow[] = all
+            .filter((c) => c.group !== GOTO_GROUP)
+            .map((c) => {
+                const drill = c.drill;
+                return {
+                    key: c.key,
+                    kind: "command" as const,
+                    group: c.group,
+                    search: `${c.title} ${c.group}`,
+                    title: c.title,
+                    chord: c.keys,
+                    meta: drill != null ? drillMeta[drill] : undefined,
+                    verb: drill != null ? "Pick" : "Run",
+                    echo: drill != null ? `Opens the ${DRILL_LABELS[drill].toLowerCase()} picker` : `Runs “${c.title}”`,
+                    run:
+                        drill != null
+                            ? () => setNav((s) => openDrill(s, drill))
+                            : () => {
+                                  c.run();
+                                  close();
+                              },
+                };
+            });
+        return { gotoItems: goto, commandItems: commands };
+    }, [bindings, surface, model, themeItems.length, focusItems.length]);
+
+    const agentItems = useMemo<PaletteItem[]>(
+        () =>
+            agents.map((a) => {
+                const asking = a.state === "asking";
+                return {
+                    key: `agent:${a.id}`,
+                    kind: "agent" as const,
+                    search: `${a.name} ${a.task ?? ""} ${a.project ?? ""}`,
+                    title: a.task ? `${a.name} — ${a.task}` : a.name,
+                    // the one thing the dropped preview pane earned: what an asking agent wants to know
+                    sub: asking ? a.ask?.questions?.[0]?.question : undefined,
+                    status: { label: a.state, tone: asking ? "asking" : a.state === "working" ? "working" : "muted" },
+                    verb: asking ? "Answer" : "Open",
+                    echo: asking ? `Opens ${a.name}’s terminal at its question` : `Opens ${a.name}’s terminal`,
+                    run: () => {
+                        model.openTerminal(a.id);
+                        close();
+                    },
+                };
+            }),
+        [agents, model]
+    );
+
+    const runItems = useMemo<PaletteItem[]>(
+        () =>
+            runs.map((r) => {
+                const view = runStatusView(r.status);
+                const title = r.goal || "(untitled run)";
+                return {
+                    key: `run:${r.id}`,
+                    kind: "run" as const,
+                    search: title,
+                    title,
+                    status: { label: runStatusLabel(r, view.label), tone: runTone(view.tone) },
+                    verb: "Open",
+                    echo: "Opens the run in Jarvis",
+                    run: () => {
+                        fireAndForget(() => openTarget(model, { kind: "run", runId: r.id }));
+                        close();
+                    },
+                };
+            }),
+        [runs, model]
+    );
+
+    const sessionItems = useMemo<PaletteItem[]>(() => {
+        const now = Date.now();
+        return (sessions ?? [])
+            .filter((s) => s.resumecommand)
+            .map((s) => {
+                const title = s.task || "(untitled session)";
+                return {
+                    key: `session:${s.runtime}:${s.id}`,
+                    kind: "session" as const,
+                    search: `${s.task} ${s.projectname} ${s.branch}`,
+                    title,
+                    meta: `${s.runtime} · ${formatAge(now - s.lastactivets)}`,
+                    verb: "Resume",
+                    echo: `Resumes “${title}” in a new ${s.runtime} tab`,
+                    run: () => {
+                        const piResume =
+                            s.runtime === "pi" && s.resumeargs?.length
+                                ? { startupArgs: s.resumeargs, resumePath: s.transcriptpath }
+                                : {};
+                        fireAndForget(() =>
+                            launchAgent(model, {
+                                runtime: s.runtime as Runtime,
+                                startupCommand: s.resumecommand!,
+                                task: "",
+                                projectPath: s.projectpath,
+                                projectName: s.projectname || "agent",
+                                ...piResume,
+                            })
+                        );
+                        close();
+                    },
+                };
+            });
+    }, [sessions, model]);
+
+    // Enter switches the active project and opens it.
+    const channelItems = useMemo<PaletteItem[]>(
+        () =>
+            dedupeByProject(channels ?? []).map((c) => {
+                const name = channelProjectLabel(c, projects);
+                const current = c.oid === channel?.oid;
+                return {
+                    key: `channel:${c.oid}`,
+                    kind: "channel" as const,
+                    search: `#${name} ${c.projectpath ?? ""}`,
+                    title: `#${name}`,
+                    meta: current ? "current" : c.projectpath?.split(/[\\/]/).pop(),
+                    verb: "Switch",
+                    echo: current ? "Already the active project" : `Switches to #${name}`,
+                    run: () => {
+                        fireAndForget(() => openTarget(model, { kind: "channel", channelId: c.oid }));
+                        close();
+                    },
+                };
+            }),
+        [channels, channel, model, projects]
+    );
+
+    // Records and initiatives, archived ones included. briefpalette owns the index and the ranking (it
+    // sinks archived rows below every live one), so this only maps its rows onto palette rows, in its
+    // order: re-ranking here would undo the archived-last guarantee. Uncapped here — capGroups caps per
+    // group, the only place a cap cannot starve one kind to feed another.
     const briefIndex = useMemo(
         () => buildBriefIndex({ records: records ?? [], efforts: efforts ?? [] }),
         [records, efforts]
     );
     const briefItems = useMemo<PaletteItem[]>(() => {
         const now = Date.now();
-        // Deliberately uncapped here. rankBriefRows sorts archived rows last across the WHOLE index, so any
-        // cap applied before the rows are split into their groups eats the archived tail first — the
-        // exact rows this feature exists to surface. capGroups caps per group and reports the overflow,
-        // which is the only place a cap can be applied without starving one kind to feed another.
-        return rankBriefRows(briefIndex, query, briefIndex.length).rows.map((r) => ({
+        const open = (row: BriefRow) => {
+            // an effort row's id is already an address
+            fireAndForget(() => openAddress(model, row.kind === "record" ? `task:${row.id}` : row.id));
+        };
+        return rankBriefRows(briefIndex, nav.query, briefIndex.length).rows.map((r) => ({
             key: r.key,
             kind: r.kind, // BriefKind is a subset of GroupKind
             search: r.search,
             title: r.title,
-            subtitle: r.meta || undefined,
-            hint: r.ts > 0 ? formatAge(now - r.ts) : undefined,
+            meta: [r.meta, r.ts > 0 ? formatAge(now - r.ts) : ""].filter(Boolean).join(" · ") || undefined,
             archived: r.archived,
+            verb: "Open",
+            echo: r.kind === "record" ? "Opens the record" : "Opens the initiative",
             run: () => {
-                openBriefRow(r);
+                open(r);
                 close();
             },
         }));
-    }, [briefIndex, query, model]);
+    }, [briefIndex, nav.query, model]);
 
-    // A sigil scope narrows to one group; default keeps today's launch-lead + ranked kinds.
-    let groups: PaletteGroup<PaletteItem>[];
-    if (parsed.scope === "channel") {
-        if (channelLaunch) {
-            groups = launchItems.length > 0 ? [{ kind: "launch", items: launchItems }] : [];
-        } else {
-            const ranked = rankPaletteItems(channelItems, parsed.sub);
-            groups = ranked.length > 0 ? [{ kind: "channel", items: ranked }] : [];
+    // --- Launch -----------------------------------------------------------------------------------
+    // Projects scope with "<project> <goal>" targets that project; everywhere else, the active one.
+    const projectLaunch = nav.scope === "projects" && nav.drill == null ? parseProjectLaunch(nav.query) : null;
+    const pickedChannel = projectLaunch
+        ? (resolveChannelToken(
+              projectLaunch.token,
+              (channels ?? []).map((c) => ({ c, name: channelProjectLabel(c, projects) }))
+          )?.c ?? null)
+        : null;
+    const targetChannel = projectLaunch ? pickedChannel : channel;
+    const launchGoal = projectLaunch ? projectLaunch.goal : nav.scope === "all" ? nav.query : "";
+    const targetLabel = targetChannel ? channelProjectLabel(targetChannel, projects) : "";
+
+    const launchItems = useMemo<PaletteItem[]>(() => {
+        if (!targetChannel || launchGoal.trim() === "") {
+            return [];
         }
-    } else if (parsed.scope === "default") {
-        const pool = sortByMru([...focusItems, ...items], mru);
-        // mergeRanked interleaves by score without re-ranking either side, so the brief rows keep
-        // briefpalette's order (archived last) while the merged head is still the best match overall —
-        // which is what decides the leading group and the relevance floor below.
-        const ranked = mergeRanked(query, rankPaletteItems(pool, query), briefItems);
-        groups = assembleDefaultGroups({
-            query,
-            ranked,
-            launchItems,
-            recent: recentItems([...pool, ...briefItems], mru, MAX_RECENT),
-        });
-    } else {
-        const kind = parsed.scope; // "command" | "agent" | "session"
-        const ranked = rankPaletteItems(
-            items.filter((it) => it.kind === kind),
-            parsed.sub
-        );
-        groups = ranked.length > 0 ? [{ kind, items: ranked }] : [];
-    }
-    const capped = capGroups(groups);
-    const flat = capped.flatMap((g) => g.items);
+        const ch = targetChannel;
+        // a failure keeps the goal in the palette and says why; success surfaces the result, then closes
+        const fireLaunch = (action: () => Promise<unknown>) => {
+            setLaunchError(undefined);
+            void runPaletteAction(action).then((result) => {
+                if ("error" in result) {
+                    setLaunchError(result.error.replace(/^Error:\s*/, ""));
+                    return;
+                }
+                globalStore.set(model.surfaceAtom, "jarvis");
+                close();
+            });
+        };
+        const sendText = (text: string) =>
+            sendChannelMessage({
+                model,
+                channelId: ch.oid,
+                projectPath: ch.projectpath ?? "",
+                projectName: channelProjectLabel(ch, projects) || "agent",
+                roster: agents.map((a) => ({ id: a.id, name: a.name, blockId: a.blockId })),
+                text,
+            });
+        // Both starts go through createRun: that is the only path that captures a dossier, so a goal
+        // started here lands in the record system like one started from the composer. A missing preferred
+        // runtime blocks before any RPC: the goal stays in the palette, nothing dispatches.
+        const guarded = (action: (route: RoutePin) => Promise<unknown>) => {
+            fireLaunch(async () => action(await resolveChannelLaunchRoute(ch.oid)));
+        };
+        const deps: LaunchDeps = {
+            quick: (goal) => guarded((route) => createRun(ch.oid, goal, route, { mode: "quick" })),
+            orchestrate: (goal) => guarded((route) => createRun(ch.oid, goal, route, { mode: "orchestrator" })),
+            // the user never types "ask @"; the transport string is synthesized for sendChannelMessage
+            consult: (runtime, goal) => fireLaunch(() => sendText(`ask @${runtime} ${goal}`)),
+        };
+        return buildLaunchItems(launchGoal, channelProjectLabel(ch, projects), deps).map((li) => ({
+            key: li.key,
+            kind: "launch" as const,
+            search: "",
+            title: li.title,
+            desc: li.desc,
+            launchIcon: li.icon,
+            verb: li.verb,
+            echo: li.echo,
+            run: li.run,
+        }));
+    }, [targetChannel, launchGoal, agents, model, projects]);
 
-    // Scope-aware empty text: a '#<token>' that resolves to nothing vs. an empty project list.
-    const emptyMessage =
-        parsed.scope === "channel" && channelLaunch
-            ? `No project matches “${channelLaunch.token}”`
-            : parsed.scope === "channel"
-              ? "No projects."
-              : "No results.";
+    // --- Groups -----------------------------------------------------------------------------------
+    const widenItem: PaletteItem | null =
+        q === ""
+            ? null
+            : {
+                  key: "widen",
+                  kind: "widen",
+                  search: "",
+                  title: `Search everything for “${q}”`,
+                  verb: "Search",
+                  echo: `Widens to All, keeping “${q}”`,
+                  run: () => setNav((s) => pickScope(s, "all")),
+              };
+    const narrowed = (rows: PaletteItem[], order: GroupKind[], withWiden = true, query = nav.query) => {
+        const def = scopeDef(nav.scope);
+        return assembleScopeGroups({
+            rows,
+            order,
+            label: def.label,
+            noun: def.noun,
+            query,
+            widenItem: withWiden ? widenItem : null,
+        });
+    };
+
+    let groups: PaletteGroup<PaletteItem>[];
+    let cap = MAX_IN_SCOPE;
+    let fileHighlight: string | undefined;
+    if (nav.drill != null) {
+        const rows = nav.drill === "theme" ? themeItems : focusItems;
+        const hits = rankPaletteItems(rows, nav.query);
+        groups = [
+            {
+                key: nav.drill,
+                label: DRILL_LABELS[nav.drill],
+                items: hits,
+                ...(hits.length === 0 ? { emptyText: q === "" ? "Nothing to pick." : `Nothing matches “${q}”.` } : {}),
+            },
+        ];
+    } else if (nav.scope === "all") {
+        cap = MAX_IN_ALL;
+        const pool = sortByMru(
+            [...gotoItems, ...agentItems, ...runItems, ...sessionItems, ...channelItems, ...commandItems],
+            mru
+        );
+        // mergeRanked interleaves by score without re-ranking either side, so the brief rows keep
+        // briefpalette's order (archived last) while the merged head is still the best match overall
+        const ranked = mergeRanked(nav.query, rankPaletteItems(pool, nav.query), briefItems);
+        const asGoalItem: PaletteItem | null =
+            launchItems.length > 0
+                ? {
+                      key: "as-goal",
+                      kind: "as-goal",
+                      search: "",
+                      title: `Start “${q}” as a goal`,
+                      meta: `#${targetLabel}`,
+                      verb: "Choose",
+                      echo: `Shows the ways to start “${q}”`,
+                      run: () => setNav((s) => ({ ...s, asGoal: true })),
+                  }
+                : null;
+        groups = assembleAllGroups({
+            query: nav.query,
+            ranked,
+            recent: recentItems([...pool, ...briefItems], mru, MAX_RECENT),
+            goto: gotoItems,
+            launch: launchItems,
+            asGoalItem,
+            asGoal: nav.asGoal,
+            projectLabel: `#${targetLabel}`,
+        });
+    } else if (nav.scope === "commands") {
+        if (q === "") {
+            groups = commandGroups(commandItems, surface);
+        } else {
+            const hits = rankPaletteItems(commandItems, nav.query);
+            groups = hits.length > 0 ? [{ key: "command", label: "Commands", items: hits }] : narrowed([], ["command"]);
+        }
+    } else if (nav.scope === "projects" && projectLaunch != null) {
+        groups =
+            launchItems.length > 0
+                ? [{ key: "launch", label: `Start in #${targetLabel}`, rich: true, items: launchItems }]
+                : [
+                      {
+                          key: "empty",
+                          label: "Projects",
+                          items: [],
+                          emptyText: `No project matches “${projectLaunch.token}”.`,
+                      },
+                  ];
+    } else if (nav.scope === "files") {
+        ({ groups, fileHighlight } = fileScopeGroups());
+    } else if (nav.scope === "records") {
+        groups = narrowed(briefItems, SCOPE_KINDS.records);
+    } else {
+        const pools: Partial<Record<ScopeId, PaletteItem[]>> = {
+            goto: gotoItems,
+            agents: agentItems,
+            runs: runItems,
+            sessions: sessionItems,
+            projects: channelItems,
+        };
+        groups = narrowed(rankPaletteItems(pools[nav.scope] ?? [], nav.query), SCOPE_KINDS[nav.scope] ?? []);
+    }
+
+    function fileScopeGroups(): { groups: PaletteGroup<PaletteItem>[]; fileHighlight?: string } {
+        const empty = (emptyText: string) => [{ key: "empty", label: "Files", items: [], emptyText }];
+        if (fileTarget == null) {
+            return { groups: empty("No project to search. Pick one on Code or in the cockpit.") };
+        }
+        const label = `#${fileTarget.name}`;
+        if (fileError != null) {
+            return { groups: empty(`Couldn’t list files in ${label}: ${fileError}`) };
+        }
+        if (fileIndex == null) {
+            return { groups: empty(`Loading files in ${label}…`) };
+        }
+        if (!fileIndex.isRepo) {
+            return { groups: empty(`${label} isn’t a git repository, so there is no file list.`) };
+        }
+        const recent = codeOwnsTarget ? recentPaths(codeHistory) : [];
+        const fg = assembleFileGroups(nav.query, fileIndex.paths, recent, label, MAX_IN_SCOPE);
+        const rows: PaletteGroup<PaletteItem>[] = fg.groups.map((g) => ({
+            key: g.key,
+            label: g.label,
+            items: g.items.map((f) => ({
+                key: `file:${f.path}`,
+                kind: "file" as const,
+                search: "",
+                title: f.base,
+                meta: [f.dir, fg.line != null ? `:${fg.line}` : ""].filter(Boolean).join("  ") || undefined,
+                verb: "Open",
+                echo: fileEcho(f, fg.line),
+                run: () => {
+                    close();
+                    fireAndForget(() =>
+                        openInCode(model, { projectPath: fileTarget.path, rel: f.path, line: fg.line })
+                    );
+                },
+            })),
+        }));
+        // a bare ":152" on Code names no file, so it means "that line of the file already open"
+        if (surface === "code" && fg.text === "" && fg.line != null) {
+            const line = fg.line;
+            rows.unshift({
+                key: "line",
+                label: "Open file",
+                items: [
+                    {
+                        key: "line",
+                        kind: "line",
+                        search: "",
+                        title: `Line ${line} of the open file`,
+                        verb: "Go to",
+                        echo: `Moves the open file to line ${line}`,
+                        run: () => {
+                            close();
+                            globalStore.set(codePendingLineAtom, line);
+                        },
+                    },
+                ],
+            });
+        }
+        if (rows.length === 0) {
+            // quote the path part: "readme:3" found no file named readme, not no file named "readme:3"
+            return { groups: narrowed([], ["file"], false, fg.text) };
+        }
+        return { groups: rows, fileHighlight: fg.text };
+    }
+
+    const capped = capGroups(groups, cap);
+    const flat = capped.flatMap((g) => g.items);
     const selClamped = flat.length === 0 ? 0 : Math.min(sel, flat.length - 1);
-    const flatIndex = new Map(flat.map((it, i) => [it.key, i]));
+    const indexOf = new Map(flat.map((it, i) => [it.key, i]));
     const selected = flat[selClamped];
-    const selFooter = selected?.kind === "launch" ? selected.footer : undefined;
 
     // Arrow-keying past the visible rows used to move the selection out of view — the scroll container
     // was never told to follow it.
+    // The first row goes to the very top, or a group header above it stays scrolled out of view (the
+    // launch block's "Start in" line, after "as a goal" expands from the bottom of the list).
     useEffect(() => {
+        if (selClamped === 0) {
+            listRef.current?.scrollTo({ top: 0 });
+            return;
+        }
         listRef.current?.querySelector(`[data-idx="${selClamped}"]`)?.scrollIntoView({ block: "nearest" });
-    }, [selClamped]);
+    }, [selClamped, capped.length, nav.asGoal, nav.scope, nav.drill]);
 
-    // Launch rows are not recorded: their keys are generic ("launch:quick"), they never enter the
-    // ranked pool, and floating them would mean nothing.
+    // Only rows All can list are recorded: the launch, goal, widen and file rows are not things to
+    // float back up under Recent (files have Code's own history).
     const fire = (it: PaletteItem | undefined) => {
         if (it == null) {
             return;
         }
-        if (!isRichGroup(it.kind)) {
+        if (ALL_KIND_ORDER.includes(it.kind)) {
             globalStore.set(paletteMruAtom, (prev) => nextMru(prev, it.key));
         }
         it.run();
+        // a row that keeps the palette open (as a goal, widen, a drill) hands the keyboard back to the
+        // field; one that closed it must not pull focus into the exiting modal
+        if (globalStore.get(model.paletteOpenAtom)) {
+            inputRef.current?.focus();
+        }
     };
 
     const onKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === "ArrowDown") {
             e.preventDefault();
-            setSel((s) => (flat.length ? (s + 1) % flat.length : 0));
+            setSel((s) => (flat.length ? (Math.min(s, flat.length - 1) + 1) % flat.length : 0));
         } else if (e.key === "ArrowUp") {
             e.preventDefault();
-            setSel((s) => (flat.length ? (s - 1 + flat.length) % flat.length : 0));
+            setSel((s) => (flat.length ? (Math.min(s, flat.length - 1) - 1 + flat.length) % flat.length : 0));
         } else if (e.key === "Enter") {
             e.preventDefault();
-            fire(flat[selClamped]);
+            fire(selected);
+        } else if (e.key === "Tab") {
+            e.preventDefault();
+            setNav(cycleScope(nav, e.shiftKey ? -1 : 1));
+        } else if (e.key === "Backspace") {
+            const next = backspaceEmpty(nav);
+            if (next != null) {
+                e.preventDefault();
+                setNav(next);
+            }
         }
     };
 
+    const placeholder =
+        nav.drill != null
+            ? DRILL_PLACEHOLDERS[nav.drill]
+            : nav.scope === "files" && fileTarget != null
+              ? `Open a file in #${fileTarget.name}, path:line jumps…`
+              : scopeDef(nav.scope).placeholder;
+
     return (
-        <ModalShell open={open} onClose={close} className="flex flex-col w-[min(640px,93vw)] max-h-[70vh]">
+        <ModalShell open={open} onClose={close} className="flex h-[min(580px,80vh)] w-[min(640px,93vw)] flex-col">
             {open ? (
                 <>
-                    <div className="flex shrink-0 items-center gap-[11px] border-b border-border px-4 py-[13px]">
-                        <svg
-                            width="15"
-                            height="15"
-                            viewBox="0 0 13 13"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="1.5"
-                            className="shrink-0 text-muted"
-                        >
-                            <circle cx="5.5" cy="5.5" r="4" />
-                            <path d="M9 9l3 3" strokeLinecap="round" />
-                        </svg>
+                    <div className="flex shrink-0 items-center gap-[11px] px-4 py-[13px]">
+                        <Search size={15} strokeWidth={2} className="shrink-0 text-muted" />
+                        {nav.drill != null ? (
+                            <button
+                                type="button"
+                                aria-label="Back to all commands"
+                                onClick={() => {
+                                    setNav((s) => ({ ...s, drill: null, query: "" }));
+                                    inputRef.current?.focus();
+                                }}
+                                className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-edge-mid bg-surface-raised px-2 py-0.5 text-[12px] text-secondary"
+                            >
+                                <span className="text-muted">Commands</span>
+                                <span className="text-ink-faint">›</span>
+                                <span>{DRILL_LABELS[nav.drill]}</span>
+                            </button>
+                        ) : null}
                         <input
                             ref={inputRef}
-                            value={query}
-                            onChange={(e) => {
-                                setQuery(e.target.value);
-                                setLaunchError(undefined);
-                                setSel(0);
-                            }}
+                            data-palette-input
+                            aria-label="Search"
+                            value={nav.query}
+                            onChange={(e) => setNav(typeQuery(nav, e.target.value))}
                             onKeyDown={onKeyDown}
-                            placeholder="Search, or type &gt; @ # / to scope…"
-                            className="flex-1 bg-transparent text-[14px] text-primary outline-none placeholder:text-muted"
+                            placeholder={placeholder}
+                            autoComplete="off"
+                            spellCheck={false}
+                            className="min-w-0 flex-1 bg-transparent text-[14px] text-primary outline-none placeholder:text-muted"
                         />
                         <span className="shrink-0 rounded-[5px] border border-edge-mid px-[7px] py-0.5 font-mono text-[10.5px] text-muted">
                             esc
                         </span>
                     </div>
+                    <div
+                        role="group"
+                        aria-label="Scope"
+                        className="flex shrink-0 items-center gap-0.5 border-b border-border px-2.5 pb-2"
+                    >
+                        {SCOPES.map((s) => {
+                            const on = s.id === nav.scope;
+                            return (
+                                <button
+                                    key={s.id}
+                                    type="button"
+                                    aria-pressed={on}
+                                    data-palette-scope={s.id}
+                                    tabIndex={-1}
+                                    onClick={() => {
+                                        setNav(pickScope(nav, s.id));
+                                        inputRef.current?.focus();
+                                    }}
+                                    className={cn(
+                                        "flex cursor-pointer items-center gap-[5px] rounded-[7px] px-2 py-1 text-[12px] font-medium",
+                                        on ? "bg-accentbg text-accent-soft" : "text-muted hover:text-secondary"
+                                    )}
+                                >
+                                    <span>{s.label}</span>
+                                    {s.sigil ? (
+                                        <span
+                                            className={cn(
+                                                "font-mono text-[10.5px]",
+                                                on ? "text-accent-soft" : "text-ink-faint"
+                                            )}
+                                        >
+                                            {s.sigil}
+                                        </span>
+                                    ) : null}
+                                </button>
+                            );
+                        })}
+                        <div className="flex-1" />
+                        <span className="rounded-[5px] border border-edge-mid px-1.5 py-px font-mono text-[10px] text-muted">
+                            Tab
+                        </span>
+                    </div>
                     {launchError ? (
                         <div
                             role="alert"
-                            className="border-b border-error/30 bg-error/10 px-4 py-2 font-mono text-[11px] text-error-soft"
+                            className="shrink-0 border-b border-error/30 bg-error/10 px-4 py-2 text-[12px] text-error-soft"
                         >
                             Launch failed: {launchError}
                         </div>
                     ) : null}
-                    <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto py-2">
-                        {flat.length === 0 ? (
-                            <div className="px-4 py-8 text-center text-[13px] text-muted">{emptyMessage}</div>
+                    <div
+                        ref={listRef}
+                        role="listbox"
+                        aria-label="Results"
+                        className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2 pt-1"
+                    >
+                        {capped.length === 0 ? (
+                            <div className="px-4 py-8 text-center text-[13px] text-muted">
+                                {q === ""
+                                    ? "Nothing here yet."
+                                    : `Nothing matches “${q}”, and no project to start it in.`}
+                            </div>
                         ) : (
-                            capped.map((g) =>
-                                isRichGroup(g.kind) ? (
-                                    <div
-                                        key={g.kind}
-                                        className="relative mx-0.5 mb-2 mt-1 rounded-[10px] bg-accent/5 px-1 pb-1"
-                                    >
-                                        {/* accent rail marks the one group that acts on your typed goal — the
-                                        trailing act-on block stays quiet so it does not compete with the
-                                        row Enter will actually run */}
-                                        {g.kind === "act-on" ? null : (
-                                            <div className="absolute bottom-2 left-0 top-2 w-0.5 rounded-full bg-accent/80" />
-                                        )}
-                                        <div className="px-3 pb-1 pt-2 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-accent-soft">
-                                            {g.kind === "launch" ? (
-                                                <>
-                                                    Launch in{" "}
-                                                    <span className="text-accent-100">
-                                                        #{channelProjectLabel(targetChannel, projects)}
-                                                    </span>
-                                                </>
-                                            ) : (
-                                                <>
-                                                    Act on <span className="text-accent-100">“{query.trim()}”</span>
-                                                </>
-                                            )}
-                                        </div>
-                                        {g.items.map((it) => {
-                                            const myIdx = flatIndex.get(it.key)!;
-                                            const active = myIdx === selClamped;
-                                            return (
-                                                <button
-                                                    key={it.key}
-                                                    type="button"
-                                                    data-idx={myIdx}
-                                                    onMouseMove={() => setSel(myIdx)}
-                                                    onClick={() => fire(it)}
-                                                    className={cn(
-                                                        "flex w-full cursor-pointer items-center gap-[11px] rounded-[9px] px-3 py-[7px] text-left transition-colors duration-[140ms]",
-                                                        active ? "bg-accentbg" : "hover:bg-surface-hover"
-                                                    )}
-                                                >
-                                                    <span
-                                                        className={cn(
-                                                            "flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-md border font-mono text-[13px]",
-                                                            active
-                                                                ? "border-accent-700 bg-accentbg text-accent-soft"
-                                                                : "border-edge-mid text-muted"
-                                                        )}
-                                                    >
-                                                        {it.glyph}
-                                                    </span>
-                                                    <span className="min-w-0 flex-1">
-                                                        <span className="block text-[13px] leading-tight">
-                                                            <span
-                                                                className={cn(
-                                                                    "font-medium",
-                                                                    active ? "text-primary" : "text-secondary"
-                                                                )}
-                                                            >
-                                                                {it.mode}
-                                                            </span>
-                                                            {it.suffix ? (
-                                                                <span
-                                                                    className={
-                                                                        active ? "text-accent-soft" : "text-muted"
-                                                                    }
-                                                                >
-                                                                    {it.suffix}
-                                                                </span>
-                                                            ) : null}
-                                                        </span>
-                                                        <span className="mt-0.5 block truncate font-mono text-[10.5px] text-muted">
-                                                            {it.desc}
-                                                        </span>
-                                                    </span>
-                                                    {active ? (
-                                                        <span className="shrink-0 font-mono text-[11px] text-accent-soft">
-                                                            ⏎
-                                                        </span>
-                                                    ) : null}
-                                                </button>
-                                            );
-                                        })}
-                                    </div>
-                                ) : (
-                                    <div key={g.kind}>
-                                        <div className="px-4 pb-1 pt-2 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">
-                                            {GROUP_LABELS[g.kind]}
-                                        </div>
-                                        {g.items.map((it) => {
-                                            const myIdx = flatIndex.get(it.key)!;
-                                            const active = myIdx === selClamped;
-                                            return (
-                                                <button
-                                                    key={it.key}
-                                                    type="button"
-                                                    data-idx={myIdx}
-                                                    onMouseMove={() => setSel(myIdx)}
-                                                    onClick={() => fire(it)}
-                                                    className={cn(
-                                                        "flex w-full cursor-pointer items-center gap-3 px-4 py-[7px] text-left transition-colors duration-[140ms]",
-                                                        active ? "bg-accentbg" : "hover:bg-surface-hover"
-                                                    )}
-                                                >
-                                                    <span className="min-w-0 flex-1">
-                                                        <span
-                                                            className={cn(
-                                                                "block truncate text-[13px]",
-                                                                active
-                                                                    ? "text-primary"
-                                                                    : it.archived
-                                                                      ? "text-muted"
-                                                                      : "text-secondary"
-                                                            )}
-                                                        >
-                                                            <Highlighted text={it.title} query={highlightQuery} />
-                                                        </span>
-                                                        {it.subtitle ? (
-                                                            <span className="block truncate font-mono text-[10.5px] text-muted">
-                                                                {it.subtitle}
-                                                            </span>
-                                                        ) : null}
-                                                    </span>
-                                                    {/* archiving takes something out of what surfaces at you, not
-                                                    out of what you can find — so the row is shown, marked, and
-                                                    already ranked below every live one */}
-                                                    {it.archived ? (
-                                                        <span className="shrink-0 rounded-[5px] border border-edge-mid px-[6px] py-0.5 font-mono text-[10px] uppercase tracking-[0.08em] text-muted">
-                                                            archived
-                                                        </span>
-                                                    ) : null}
-                                                    {it.chord ? (
-                                                        <span className="flex shrink-0 items-center gap-1">
-                                                            {formatChord(it.chord).map((k, i) => (
-                                                                <span
-                                                                    key={i}
-                                                                    className="rounded-[5px] border border-edge-mid px-[6px] py-0.5 font-mono text-[10.5px] text-muted"
-                                                                >
-                                                                    {k}
-                                                                </span>
-                                                            ))}
-                                                        </span>
-                                                    ) : null}
-                                                    {it.hint ? (
-                                                        <span className="shrink-0 font-mono text-[10.5px] text-muted">
-                                                            {it.hint}
-                                                        </span>
-                                                    ) : null}
-                                                    {active ? (
-                                                        <span className="shrink-0 font-mono text-[11px] text-accent-soft">
-                                                            ⏎
-                                                        </span>
-                                                    ) : null}
-                                                </button>
-                                            );
-                                        })}
-                                        {g.overflow > 0 ? (
-                                            <div className="px-4 pb-1 pt-0.5 font-mono text-[10.5px] text-muted">
-                                                +{g.overflow} more — keep typing
-                                            </div>
-                                        ) : null}
-                                    </div>
-                                )
-                            )
+                            capped.map((g) => (
+                                <PaletteGroupView
+                                    key={g.key}
+                                    group={g}
+                                    indexOf={indexOf}
+                                    selected={selClamped}
+                                    query={fileHighlight ?? nav.query}
+                                    onHover={setSel}
+                                    onFire={fire}
+                                />
+                            ))
                         )}
+                        {nav.scope === "files" && fileIndex?.truncated ? (
+                            <div className="px-2.5 pt-2 font-mono text-[10.5px] text-muted">
+                                Index truncated: searching the first 20,000 files only.
+                            </div>
+                        ) : null}
                     </div>
-                    {flat.length > 0 ? (
-                        <div className="flex shrink-0 items-center gap-3 border-t border-border px-4 py-[9px]">
-                            {selFooter ? (
-                                <>
-                                    <span className="shrink-0 font-mono text-[11px] text-accent-soft">⏎</span>
-                                    <span className="min-w-0 flex-1 truncate text-[12px] text-secondary">
-                                        {selFooter}
-                                    </span>
-                                </>
-                            ) : (
-                                <span className="font-mono text-[10.5px] text-muted">
-                                    <span className="text-secondary">{">"}</span> commands{"  "}
-                                    <span className="text-secondary">@</span> agents{"  "}
-                                    <span className="text-secondary">#</span> projects{"  "}
-                                    <span className="text-secondary">/</span> sessions
-                                </span>
-                            )}
-                        </div>
-                    ) : null}
+                    <div className="flex shrink-0 items-center gap-3 border-t border-border px-4 py-[9px]">
+                        <span className="shrink-0 font-mono text-[11px] text-accent-soft">⏎</span>
+                        <span className="min-w-0 flex-1 truncate text-[12px] text-secondary">
+                            {selected?.echo ?? "Nothing to run"}
+                        </span>
+                        <span className="flex shrink-0 items-center gap-3 font-mono text-[10.5px] text-muted">
+                            <span>↑↓ move</span>
+                            <span>Tab scope</span>
+                            <span>esc close</span>
+                        </span>
+                    </div>
                 </>
             ) : null}
         </ModalShell>

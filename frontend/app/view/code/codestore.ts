@@ -93,7 +93,6 @@ export const codeIndexErrorAtom = atom<string | null>(null) as PrimitiveAtom<str
 export const codeExpandedAtom = atom<Set<string>>(new Set<string>()) as PrimitiveAtom<Set<string>>;
 export const codeFileAtom = atom<CodeFile>({ kind: "none" }) as PrimitiveAtom<CodeFile>;
 export const codeHistoryAtom = atom<History>(EMPTY_HISTORY) as PrimitiveAtom<History>;
-export const codeFinderOpenAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
 // every checkout of the selected project's repository, main first; empty until loaded
 export const codeWorktreesAtom = atom<GitWorktree[]>([]) as PrimitiveAtom<GitWorktree[]>;
 // persisted, so a worktree or a directory reached by path stays one click away after a restart
@@ -301,6 +300,19 @@ export function registeredProjects(registry: Record<string, ProjectKeywords> | u
         .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+// Any project's file list, through the same cache Code browses with: the universal search's Files scope
+// lists the active project's files off Code, and a later visit to Code then starts warm.
+export async function loadFileIndex(path: string): Promise<CodeIndex> {
+    const cached = indexCache.get(path);
+    if (cached != null) {
+        return cached;
+    }
+    const res = await RpcApi.GitListFilesCommand(TabRpcClient, { cwd: path });
+    const idx: CodeIndex = { paths: res.files ?? [], isRepo: res.isrepo, truncated: res.truncated ?? false };
+    indexCache.set(path, idx);
+    return idx;
+}
+
 async function loadIndex(p: CodeProject): Promise<void> {
     const token = `index:${p.path}`;
     current.indexToken = token;
@@ -312,16 +324,10 @@ async function loadIndex(p: CodeProject): Promise<void> {
         return;
     }
     try {
-        const res = await RpcApi.GitListFilesCommand(TabRpcClient, { cwd: p.path });
+        const idx = await loadFileIndex(p.path);
         if (current.indexToken !== token) {
             return;
         }
-        const idx: CodeIndex = {
-            paths: res.files ?? [],
-            isRepo: res.isrepo,
-            truncated: res.truncated ?? false,
-        };
-        indexCache.set(p.path, idx);
         globalStore.set(codeIndexAtom, idx);
     } catch (e) {
         if (current.indexToken !== token) {

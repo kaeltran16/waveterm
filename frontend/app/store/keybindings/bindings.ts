@@ -30,7 +30,6 @@ import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
 import { codeSearchModeAtom } from "@/app/view/code/codesearchstore";
 import {
     codeCursorAtom,
-    codeFinderOpenAtom,
     codeRowsAtom,
     codeTreeFocusedAtom,
     codeViewModeAtom,
@@ -210,24 +209,16 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
             run: () => cycleSurface(-1),
         },
         {
-            // One chord for both palettes, dispatched on surface: Code leads with its file finder
-            // (VS Code's Ctrl+P), every other surface opens the command palette. Typing '>' in the
-            // finder hands off to the command palette, so commands stay one keystroke away on Code
-            // without a second chord to remember. Deliberately unguarded — the palette has to be
-            // reachable from inside a text field, and a binding that always matches is also what
-            // keeps WebView2's print dialog off this key. `g p` still opens the palette directly.
+            // The one search overlay. On Code it opens on the Files scope (VS Code's Ctrl+P), which is
+            // where Code's own file finder folded in. Deliberately unguarded — search has to be
+            // reachable from inside a text field, and a binding that always matches is also what keeps
+            // WebView2's print dialog off this key. `g p` opens it too.
             id: "palette",
             keys: "Ctrl:p",
             group: "Global",
-            label: "Command palette (file finder on Code)",
+            label: "Search (files on Code)",
             paletteHidden: true, // a palette row that opens the palette
-            run: (ctx) => {
-                if (ctx.surface === "code" && !globalStore.get(model.paletteOpenAtom)) {
-                    globalStore.set(codeFinderOpenAtom, (v) => !v);
-                    return;
-                }
-                globalStore.set(model.paletteOpenAtom, (v) => !v);
-            },
+            run: () => globalStore.set(model.paletteOpenAtom, (v) => !v),
         },
         {
             // Documentation only: matcher.ts LEADER_ALIASES performs the leader entry, because the
@@ -253,7 +244,7 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
             id: "go:palette",
             keys: "g p",
             group: "Go to",
-            label: "Command palette",
+            label: "Search",
             paletteHidden: true, // a palette row that opens the palette
             when: navigate,
             run: () => globalStore.set(model.paletteOpenAtom, true),
@@ -264,7 +255,7 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
             group: "Global",
             label: "New agent",
             // yields to an open modal: unguarded it stacked New Agent on top of whatever was already
-            // open (the Code file finder, the palette) and pulled focus out of it
+            // open (the search palette) and pulled focus out of it
             when: (ctx) => !ctx.modalOpen,
             run: () => globalStore.set(model.newAgentOpenAtom, true),
         },
@@ -350,9 +341,6 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
                 !globalStore.get(compareOnAtom) &&
                 // and with filters active, Escape clears them — the filter row says so ("Clear all · esc")
                 !(ctx.surface === "files" && anyFilterActive(globalStore.get(historyFiltersAtom))) &&
-                // the Code surface's file finder owns it for the same reason as compare — closing the
-                // overlay is what Escape means while it is open, and going home too would do both at once
-                !globalStore.get(codeFinderOpenAtom) &&
                 // the Brief's record peek is a ModalShell and the Brief is where every record destination
                 // now lands: without this, one press closed the peek AND left the surface — and the peek's
                 // own state was never cleared, so coming back showed it open again
@@ -1061,8 +1049,8 @@ export function buildCodeBindings(): Binding[] {
         }
     };
     return [
-        // The file finder has no chord of its own: the global "palette" binding owns Ctrl+P and
-        // routes it here whenever this surface is active.
+        // Files have no chord of their own: the global "palette" binding owns Ctrl+P and opens the
+        // search on its Files scope whenever this surface is active.
         {
             id: "code:back",
             keys: "Alt:ArrowLeft",
@@ -1225,7 +1213,7 @@ export function buildCodeBindings(): Binding[] {
             keys: "Ctrl:Shift:f",
             group: "Code",
             label: "Search file contents",
-            // like the file finder's Ctrl+P and save's Ctrl+S, deliberately NOT gated on !editable:
+            // like Ctrl+P and save's Ctrl+S, deliberately NOT gated on !editable:
             // the caret is in Monaco when you want this, so a bare letter would be unreachable
             when: (ctx) => ctx.surface === "code" && !ctx.modalOpen,
             run: () => {
