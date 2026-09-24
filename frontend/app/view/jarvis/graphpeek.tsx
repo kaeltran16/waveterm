@@ -12,6 +12,7 @@ import { useAtomValue } from "jotai";
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import type { PeekFocus } from "./graphfocus";
+import { GraphSkeleton } from "./graphskeleton";
 import { JarvisGraph } from "./jarvisgraph";
 import { attributionStyle, mergeGraph } from "./jarvisgraphderive";
 import {
@@ -164,9 +165,7 @@ export function GraphPeek({
             <div className="flex min-h-0 flex-1">
                 <div className="relative min-w-0 flex-1">
                     {!loaded ? (
-                        <div className="flex h-full items-center justify-center text-[13px] text-muted">
-                            Loading graph…
-                        </div>
+                        <GraphSkeleton />
                     ) : error ? (
                         <div className="flex h-full items-center justify-center text-[13px] text-muted">
                             Couldn’t read the vault.

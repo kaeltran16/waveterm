@@ -25,6 +25,7 @@ import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { Maximize, Minus, Plus } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { GraphSkeleton } from "./graphskeleton";
 import { attributionStyle, mergeGraph, type GKind, type GLink, type GNode } from "./jarvisgraphderive";
 import { focusDossier, graphBaseAtom, graphBloomAtom, graphSelectedIdAtom, selectNode } from "./jarvisgraphstore";
 
@@ -462,7 +463,7 @@ export function JarvisGraph() {
                 settling && "animate-[settle_0.5s_ease-out] motion-reduce:animate-none"
             )}
         >
-            <Suspense fallback={<div className="p-[28px] text-[13px] text-ink-mid">Loading graph…</div>}>
+            <Suspense fallback={<GraphSkeleton />}>
                 {size.w > 0 && (
                     <ForceGraph2D
                         // typed as MutableRefObject only, but react-kapsule forwards callback refs fine

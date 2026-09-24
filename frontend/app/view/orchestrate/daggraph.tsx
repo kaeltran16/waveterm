@@ -4,6 +4,7 @@ import { isEditableTarget } from "@/app/store/keybindings/dispatcher";
 import * as WOS from "@/app/store/wos";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
+import { GraphSkeleton } from "@/app/view/jarvis/graphskeleton";
 import { fireAndForget } from "@/util/util";
 import {
     Background,
@@ -369,7 +370,7 @@ function DagGraphInner({ oref, owner, harnesses }: { oref: string; owner: Run; h
     const selectedNode = group && selectedId ? group.tasks.find((t) => t.id === selectedId) : undefined;
 
     if (loading || !group) {
-        return <div className="flex h-full items-center justify-center text-sm text-muted">loading dag…</div>;
+        return <GraphSkeleton />;
     }
 
     return (

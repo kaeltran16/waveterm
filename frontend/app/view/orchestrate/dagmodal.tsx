@@ -4,6 +4,7 @@
 import { modalBackdrop, modalPanel } from "@/app/element/motiontokens";
 import { focusTrapTarget, takeModalFocus } from "@/app/modals/modalfocus";
 import { useWaveObjectValue } from "@/app/store/wos";
+import { GraphSkeleton } from "@/app/view/jarvis/graphskeleton";
 import { harnessesAtom } from "../agents/harnessstore";
 import { channelProjectLabel } from "../agents/projectlabel";
 import { projectsAtom } from "../agents/projectsstore";
@@ -134,7 +135,7 @@ function LiveDagModal({ state }: { state: Extract<DagModalState, { kind: "live" 
     const [owner, loading] = useWaveObjectValue<Run>(`run:${state.runId}`);
     const harnesses = useAtomValue(harnessesAtom);
     if (loading || owner == null) {
-        return <div className="flex h-full w-full items-center justify-center text-sm text-muted">loading run route…</div>;
+        return <GraphSkeleton />;
     }
     return <DagGraphView oref={state.dagOref} owner={owner} harnesses={harnesses} />;
 }
