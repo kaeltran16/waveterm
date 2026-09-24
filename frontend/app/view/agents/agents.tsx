@@ -110,10 +110,15 @@ export class AgentsViewModel implements ViewModel {
     focusReplyAtom = atom(false);
     railOpenAtom = atom(true);
     chipFilterAtom = atom<ChipFilter>("all");
-    // Sessions surface: status filter chip (All / Live / Done / Needs attention). Default "all".
+    // Sessions surface: status filter chip (All / Live / Needs you / Done). Default "all".
     sessionsStatusFilterAtom = atom<SessionStatusFilter>("all");
-    // Sessions surface: selected left-list entry. "all" = merged feed; else "${runtime}:${id}".
+    // Sessions surface: selected left-list entry. "all" = merged feed; "run:<id>" = an orchestrator run;
+    // else "${runtime}:${id}".
     sessionsSelAtom = atom<string>("all");
+    // Sessions surface: the member of the selected run in view, "lead" or a task id.
+    sessionsMemberAtom = atom<string>("lead");
+    // Sessions surface: a session reads as its transcript or its short list of lifecycle events.
+    sessionsViewAtom = atom<"transcript" | "activity">("transcript");
     // Usage surface: harness filter chip (All / Claude Code / Codex / OpenCode). Lives here rather
     // than surface-local state so it survives the surface unmounting on nav-rail switch.
     usageHarnessFilterAtom = atom<HarnessFilter>("all");

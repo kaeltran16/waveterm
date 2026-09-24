@@ -371,6 +371,12 @@ type SessionActivity struct {
 	StartedTs      int64          `json:"startedts"`
 	DurationMs     int64          `json:"durationms"`
 	Events         []SessionEvent `json:"events"`
+	// set for a session an orchestrator run launched: the lead's run and channel, and for a child the task
+	// it works. Role is lead | worker | review.
+	RunId     string `json:"runid,omitempty"`
+	ChannelId string `json:"channelid,omitempty"`
+	TaskId    string `json:"taskid,omitempty"`
+	Role      string `json:"role,omitempty"`
 }
 
 type PathCommandData struct {

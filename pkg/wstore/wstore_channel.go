@@ -304,6 +304,34 @@ func GetChannelRuns(ctx context.Context, channelId string) ([]*waveobj.Run, erro
 	})
 }
 
+// GetRunsBySessionIds returns the runs launched under any of sessionIds (Run.SessionId), across channels.
+// Pure read (read pool).
+func GetRunsBySessionIds(ctx context.Context, sessionIds []string) ([]*waveobj.Run, error) {
+	if len(sessionIds) == 0 {
+		return nil, nil
+	}
+	return WithReadTxRtn(ctx, func(tx *TxWrap) ([]*waveobj.Run, error) {
+		marks := strings.TrimSuffix(strings.Repeat("?,", len(sessionIds)), ",")
+		query := `SELECT oid, version, data FROM db_run WHERE json_extract(data, '$.sessionid') IN (` + marks + `)`
+		args := make([]any, len(sessionIds))
+		for i, id := range sessionIds {
+			args[i] = id
+		}
+		var rows []idDataType
+		tx.Select(&rows, query, args...)
+		rtn := make([]*waveobj.Run, 0, len(rows))
+		for _, row := range rows {
+			obj, err := waveobj.FromJson(row.Data)
+			if err != nil {
+				return nil, err
+			}
+			waveobj.SetVersion(obj, row.Version)
+			rtn = append(rtn, obj.(*waveobj.Run))
+		}
+		return rtn, nil
+	})
+}
+
 // DefaultChannelMessageLimit bounds a message-window fetch. Generous default per the design (true
 // lazy "load older" UI is a follow-on); callers pass an explicit limit to paginate.
 const DefaultChannelMessageLimit = 500

@@ -92,17 +92,19 @@ export function resolveSelectedSession(list: LiveSession[], selection: string): 
     return selection === "all" ? undefined : list.find((session) => `${session.runtime}:${session.id}` === selection);
 }
 
-export interface RecencyGroup {
+export interface RecencyGroup<T = LiveSession> {
     key: "live" | "today" | "earlier";
     label: string;
-    items: LiveSession[];
+    items: T[];
 }
 
-export function groupByRecency(list: LiveSession[], now: number): RecencyGroup[] {
+type Recent = { live: boolean; lastactivets: number };
+
+export function groupByRecency<T extends Recent>(list: T[], now: number): RecencyGroup<T>[] {
     const startOfToday = new Date(now).setHours(0, 0, 0, 0);
-    const live: LiveSession[] = [];
-    const today: LiveSession[] = [];
-    const earlier: LiveSession[] = [];
+    const live: T[] = [];
+    const today: T[] = [];
+    const earlier: T[] = [];
     for (const s of list) {
         if (s.live) {
             live.push(s);
@@ -112,7 +114,7 @@ export function groupByRecency(list: LiveSession[], now: number): RecencyGroup[]
             earlier.push(s);
         }
     }
-    const desc = (a: LiveSession, b: LiveSession) => b.lastactivets - a.lastactivets;
+    const desc = (a: T, b: T) => b.lastactivets - a.lastactivets;
     live.sort(desc);
     today.sort(desc);
     earlier.sort(desc);
@@ -121,7 +123,7 @@ export function groupByRecency(list: LiveSession[], now: number): RecencyGroup[]
             { key: "live", label: "Live now", items: live },
             { key: "today", label: "Today", items: today },
             { key: "earlier", label: "Earlier", items: earlier },
-        ] as RecencyGroup[]
+        ] as RecencyGroup<T>[]
     ).filter((g) => g.items.length > 0);
 }
 
@@ -136,7 +138,10 @@ export interface MergedItem {
     runtime: string;
 }
 
-export function mergedFeed(list: LiveSession[]): MergedItem[] {
+export function mergedFeed(
+    list: LiveSession[],
+    label: (s: LiveSession) => string = (s) => s.task || "(untitled session)"
+): MergedItem[] {
     const items: MergedItem[] = [];
     for (const s of list) {
         const sessionKey = `${s.runtime}:${s.id}`;
@@ -148,7 +153,7 @@ export function mergedFeed(list: LiveSession[]): MergedItem[] {
                 ts: e.ts,
                 text: e.text,
                 sessionKey,
-                sessionTitle: s.task || "(untitled session)",
+                sessionTitle: label(s),
                 project: s.projectname,
                 runtime: s.runtime,
             });

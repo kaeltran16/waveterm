@@ -2792,6 +2792,8 @@ declare global {
         effortref?: RunEffortRef;
         dagoref?: string;
         sessionid?: string;
+        taskid?: string;
+        review?: boolean;
         branch?: string;
         workerroute?: RoutePin;
         orchestration?: string;
@@ -2894,6 +2896,10 @@ declare global {
         startedts: number;
         durationms: number;
         events: SessionEvent[];
+        runid?: string;
+        channelid?: string;
+        taskid?: string;
+        role?: string;
     };
 
     // wshrpc.SessionEvent

@@ -124,6 +124,7 @@ func spawnReviewer(ctx, spawnCtx context.Context, g *waveobj.TaskGroup, t *waveo
 	child := childRunFromSpec(g, t, owner, pin, worker.ProjectPath, worker.EndCommit, prompt)
 	child.ID = runID
 	child.SessionId = sessionId
+	child.Review = true
 	for i := range child.Phases {
 		if child.Phases[i].State == jarvis.PhaseState_Running {
 			child.Phases[i].WorkerOrefs = []string{oref}

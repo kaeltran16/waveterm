@@ -6,6 +6,7 @@ package wshserver
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/agentsessions"
@@ -99,6 +100,10 @@ func (ws *WshServer) GetSessionsActivityCommand(ctx context.Context, data wshrpc
 			TranscriptPath: s.TranscriptPath,
 			Status:         s.Status, StartedTs: s.StartedTs, DurationMs: s.DurationMs, Events: evs,
 		}
+	}
+	// unlinked sessions still list, just not under their run
+	if err := linkSessionsToRuns(ctx, out); err != nil {
+		log.Printf("sessions activity: %v", err)
 	}
 	return &wshrpc.CommandGetSessionsActivityRtnData{Sessions: out}, nil
 }

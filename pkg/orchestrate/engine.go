@@ -817,6 +817,7 @@ func childRunFromSpec(g *waveobj.TaskGroup, task *waveobj.TaskNode, owner *waveo
 	run.Runtime = route.Runtime
 	run.Model = route.Model
 	run.DagORef = g.OID
+	run.TaskId = task.ID
 	run.BaseCommit = baseCommit
 	return run
 }

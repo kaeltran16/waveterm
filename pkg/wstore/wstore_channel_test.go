@@ -7,6 +7,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
 
@@ -150,5 +151,32 @@ func TestChannelAtPathMatchesSeparatorStyles(t *testing.T) {
 	}
 	if got == nil || got.OID != ch.OID {
 		t.Fatalf("ChannelAtPath forward-slash = %v, want %s", got, ch.OID)
+	}
+}
+
+func TestGetRunsBySessionIds(t *testing.T) {
+	ctx := context.Background()
+	ch, err := CreateChannel(ctx, "runs-by-session", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range []waveobj.Run{
+		{ID: uuid.NewString(), Goal: "a", SessionId: "s-a"},
+		{ID: uuid.NewString(), Goal: "b", SessionId: "s-b"},
+		{ID: uuid.NewString(), Goal: "none"},
+	} {
+		if err := AppendRun(ctx, ch.OID, r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := GetRunsBySessionIds(ctx, []string{"s-a", "s-missing"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Goal != "a" {
+		t.Fatalf("want only the run launched under s-a, got %+v", got)
+	}
+	if none, err := GetRunsBySessionIds(ctx, nil); err != nil || len(none) != 0 {
+		t.Fatalf("no ids: want nothing, got %v %v", none, err)
 	}
 }
