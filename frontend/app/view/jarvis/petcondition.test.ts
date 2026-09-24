@@ -30,8 +30,7 @@ describe("expressionFor — strict precedence", () => {
         expect(isWindowConstrained(undefined)).toBe(false);
     });
 
-    it("ranks the three expressions in the design's order", () => {
-        expect(EXPRESSION_RANK["cannot-see"]).toBeLessThan(EXPRESSION_RANK.tired);
+    it("ranks the expressions in the design's order", () => {
         expect(EXPRESSION_RANK.tired).toBeLessThan(EXPRESSION_RANK["at-rest"]);
     });
 });
@@ -81,26 +80,6 @@ describe("postureFor", () => {
 
 describe("wording", () => {
     const now = 1_800_000_000 * 1000; // the reset moment itself
-
-    it("names the cause of a cannot-see rather than only the symptom", () => {
-        expect(conditionLine({ kind: "cannot-see", reason: "off" }, now)).toContain("embeddings are off");
-        expect(conditionLine({ kind: "cannot-see", reason: "stale" }, now)).toContain("behind");
-    });
-
-    it("only claims recall is keyword-only when it actually is, and no longer promises a remedy in prose", () => {
-        // A behind index still did semantic recall: the recall engine queried the index, and the index
-        // reconciled itself inside that query. Saying "keyword-only" there described a
-        // degradation that was not happening. Embeddings being OFF is the case that genuinely is keyword-only.
-        //
-        // Neither line names an action any more. The stale line used to read "ask me anything and I will
-        // catch it up" while the panel offered nowhere to do it — prose that names an action was the
-        // original defect. petacts.ts supplies the verb now (design §4.1).
-        const behind = conditionLine({ kind: "cannot-see", reason: "stale" }, now);
-        expect(behind).not.toContain("keyword-only");
-        expect(behind.toLowerCase()).not.toContain("ask");
-        expect(behind).toBe("My index is behind on some notes.");
-        expect(conditionLine({ kind: "cannot-see", reason: "off" }, now)).toContain("keyword-only");
-    });
 
     it("carries the reading, and the reset only when there is one", () => {
         expect(conditionLine({ kind: "tired", provider: "claude", pct: 94, resetAt: 1_800_003_600 }, now)).toBe(

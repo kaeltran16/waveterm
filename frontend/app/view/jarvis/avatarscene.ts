@@ -94,8 +94,6 @@ export interface AvatarMood {
     jitter: number;
     /** tumble rate, 0..1, spent only on what alignment has already loosened */
     spin: number;
-    /** fraction of the six struts cut, 0..1 */
-    sever: number;
 }
 
 export interface SceneInput {
@@ -141,19 +139,13 @@ export interface SceneInput {
     still: boolean;
 }
 
-// Severity reads in the tone before the shape has been parsed: error for the worst thing that can be true,
-// warning for the body clock, muted for slow drift, accent at rest.
+// Severity reads in the tone before the shape has been parsed: warning for the body clock, accent at rest.
 const MOODS: Record<PetExpression["kind"], AvatarMood> = {
-    // Nothing in the register table asks cannot-see to dim: its tells are severed struts, planes out of the
-    // stack and the form stuttering out, all structural. Being dim as well would be a fourth tell nobody
-    // asked for, and combined with sever cutting most of the struts it made the most severe register the
-    // faintest thing the avatar could show. An alarm is bright.
-    "cannot-see": { toneVar: "--color-error", energy: 0.95, align: 0.14, jitter: 0.75, spin: 0.85, sever: 0.72 },
-    tired: { toneVar: "--color-warning", energy: 0.44, align: 0.8, jitter: 0.03, spin: 0.34, sever: 0 },
+    tired: { toneVar: "--color-warning", energy: 0.44, align: 0.8, jitter: 0.03, spin: 0.34 },
     // --color-accent rather than the 500 step: at-rest is the tone shown almost all the time, and the 500
     // step (#667ad1 in the default theme) is the closest of the five to the panel it sits on, so the state
     // with the most screen time was also the hardest to see. The error/warning tones already read.
-    "at-rest": { toneVar: "--color-accent", energy: 1, align: 1, jitter: 0, spin: 1, sever: 0 },
+    "at-rest": { toneVar: "--color-accent", energy: 1, align: 1, jitter: 0, spin: 1 },
 };
 
 export function moodFor(expression: PetExpression): AvatarMood {
@@ -163,7 +155,7 @@ export function moodFor(expression: PetExpression): AvatarMood {
 /**
  * A mood mid-transition: the numeric fields eased, plus which tone is being crossfaded away from.
  *
- * Registers used to change in a single frame — tone, brightness, plane splay and sever all snapped at once
+ * Registers used to change in a single frame — tone, brightness and plane splay all snapped at once
  * — which read as a glitch rather than as a condition changing. The form is continuous, so the change
  * should be too.
  */
@@ -223,7 +215,6 @@ export function approachMood(current: RenderMood, expression: PetExpression, dtM
         align: to(current.align, target.align),
         jitter: to(current.jitter, target.jitter),
         spin: to(current.spin, target.spin),
-        sever: to(current.sever, target.sever),
     };
 }
 
@@ -278,12 +269,10 @@ type PartKey = (typeof PART_KEYS)[number];
 const PART_RADIUS: Record<PartKey, number> = { core: 0.36, front: 0.87, mid: 1.06, struts: 1.25, outer: 1.4 };
 
 const STRUT_COUNT = 6;
-// Which struts go first, so severing scatters the gaps instead of opening one hole.
-const SEVER_ORDER = [1, 4, 0, 3, 5, 2];
 
 // Which layers can drop out, and how hard. The core is in the list but last, so the form loses its
 // periphery before it loses its centre — a centre that blinks reads as the whole avatar failing rather
-// than as the avatar reporting that it cannot see.
+// than as a signal being lost.
 const STUTTER_PARTS: readonly PartKey[] = ["outer", "mid", "struts", "front", "core"];
 // How often a layer is gated out at full jitter, and how far it drops when it is.
 const STUTTER_RATE = 0.55;
@@ -589,14 +578,9 @@ export function buildAvatarScene(input: SceneInput): AvatarScene {
     }
     arc(planeFront, 0.91, 0, TAU, "body", STROKE.fine, bodyAlpha(0.5, "front"));
 
-    // the struts, spanning back plane to middle. Severed deterministically by rank, so the same ones stay
-    // cut frame to frame rather than flickering — a link that came and went would be jitter, not damage.
-    const cut = Math.round(STRUT_COUNT * clamp01(mood.sever));
-    SEVER_ORDER.forEach((index, rank) => {
-        if (rank < cut) {
-            return;
-        }
-        const a = (index * TAU) / 6 + 0.45;
+    // the struts, spanning back plane to middle
+    for (let index = 0; index < STRUT_COUNT; index++) {
+        const a = (index * TAU) / STRUT_COUNT + 0.45;
         line(
             [Math.cos(a) * 1.4, Math.sin(a) * 1.4, -0.38],
             [Math.cos(a) * 1.11, Math.sin(a) * 1.11, 0],
@@ -605,7 +589,7 @@ export function buildAvatarScene(input: SceneInput): AvatarScene {
             STROKE.fine,
             bodyAlpha(0.45, "struts")
         );
-    });
+    }
 
     // the core, recessed behind the middle plane: a lit ring, three brackets, and a hex at the centre
     arc(coreAt, 0.31, 0, TAU, "hot", STROKE.base, bodyAlpha(0.95, "core"));

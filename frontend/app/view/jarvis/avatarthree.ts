@@ -355,7 +355,7 @@ export class AvatarThree {
             }
             const packed = packLines(slice, size, colours);
             // a fresh geometry per frame rather than a resized attribute: LineSegmentsGeometry builds
-            // instanced interleaved buffers, and the segment count changes with sever and stutter
+            // instanced interleaved buffers, and the segment count changes with stutter
             const next = new LineSegmentsGeometry();
             next.setPositions(packed.positions);
             next.setColors(packed.colors);

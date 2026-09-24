@@ -56,7 +56,6 @@ const ORIGIN: Record<PetCorner, string> = {
 // A standing condition's dot. Tone is never the only carrier — the line states the fact in words, and an
 // unremedied condition ends in "no action" rather than in nothing.
 const CONDITION_DOT: Record<PetExpression["kind"], string> = {
-    "cannot-see": "bg-error",
     tired: "bg-warning",
     "at-rest": "bg-success",
 };

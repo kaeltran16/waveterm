@@ -6,9 +6,7 @@
 // renderer rather than the thing that decides (design §5).
 //
 // The precedence is strict and lives here and nowhere else (design §3):
-//   1 cannot-see — semantic recall degraded to keyword matching. No signal feeds it since the embedding
-//                  index was retired; the register is kept so the avatar's rendering of it survives.
-//   2 tired      — the rate-limit window depleting. Cyclical, legible within a day, and not your fault.
+//   1 tired — the rate-limit window depleting. Cyclical, legible within a day, and not your fault.
 // Nothing present => at-rest.
 //
 // Every input field is optional, and an absent field is "no signal" — never "signal absent". That
@@ -19,7 +17,7 @@ import { formatReset, usageLevel } from "@/app/view/agents/agentsviewmodel";
 import { providerLabel } from "@/app/view/agents/cockpitrailmodel";
 
 export interface PetSignals {
-    // rank 2: highest 5-hour utilisation across providers (0..100). `resetAt` is epoch SECONDS, matching
+    // rank 1: highest 5-hour utilisation across providers (0..100). `resetAt` is epoch SECONDS, matching
     // AgentUsage.fivehourreset and formatReset — the whole cockpit carries this window in seconds.
     // `provider` is required because the reading is per-provider and the highest wins: unnamed, a codex
     // window reads as a claude one, and the countdown belongs to whichever provider won.
@@ -28,19 +26,15 @@ export interface PetSignals {
     attention?: { reviewGates: number; escalations: number; blockedWorkers: number };
 }
 
-export type PetExpression =
-    | { kind: "cannot-see"; reason: "off" | "stale" }
-    | { kind: "tired"; provider: string; pct: number; resetAt?: number }
-    | { kind: "at-rest" };
+export type PetExpression = { kind: "tired"; provider: string; pct: number; resetAt?: number } | { kind: "at-rest" };
 
 export type PetPosture = "review-gate" | "escalation" | "blocked-worker" | "none";
 
 // The rank of each expression, exported so the precedence is assertable rather than inferred from the
 // order of ifs below.
 export const EXPRESSION_RANK: Record<PetExpression["kind"], number> = {
-    "cannot-see": 1,
-    tired: 2,
-    "at-rest": 3,
+    tired: 1,
+    "at-rest": 2,
 };
 
 // tiredness starts where the cockpit's own usage bands stop being "ok" (>60%), so every consumer reports
@@ -91,17 +85,6 @@ export function postureFor(signals: PetSignals): PetPosture {
 // Here rather than in the renderer so the bubble and the peek cannot word the same condition differently.
 export function conditionLine(expr: PetExpression, nowMs: number): string {
     switch (expr.kind) {
-        case "cannot-see":
-            // Only the "off" case is really keyword-only. A behind index still answers semantically — the
-            // index reconciles itself inside the next query — so that line reports the fact rather than a
-            // degradation that is not happening.
-            //
-            // Prose that names an action was the original defect: the panel said "ask me anything and I
-            // will catch it up" and offered nowhere to do it. Both lines now state the fact; petacts.ts
-            // supplies the verb (design §4.1).
-            return expr.reason === "off"
-                ? "I cannot see as well right now — embeddings are off, so recall is keyword-only."
-                : "My index is behind on some notes.";
         case "tired": {
             const pct = Math.round(expr.pct);
             const who = providerLabel(expr.provider);

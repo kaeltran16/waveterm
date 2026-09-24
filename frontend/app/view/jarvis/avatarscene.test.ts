@@ -14,7 +14,6 @@ import {
 import type { PetExpression } from "./petcondition";
 
 const AT_REST: PetExpression = { kind: "at-rest" };
-const BLIND: PetExpression = { kind: "cannot-see", reason: "off" };
 const TIRED: PetExpression = { kind: "tired", provider: "claude", pct: 92 };
 
 const POSTURES = ["none", "review-gate", "escalation", "blocked-worker"] as const;
@@ -48,14 +47,9 @@ function light(scene: AvatarScene): number {
 
 describe("moodFor", () => {
     it("gives every expression a themeable tone token, never a literal colour", () => {
-        for (const e of [AT_REST, BLIND, TIRED]) {
+        for (const e of [AT_REST, TIRED]) {
             expect(moodFor(e).toneVar).toMatch(/^--color-/);
         }
-    });
-
-    it("severs nothing at rest and severs most when it cannot see", () => {
-        expect(moodFor(AT_REST).sever).toBe(0);
-        expect(moodFor(BLIND).sever).toBeGreaterThan(0.5);
     });
 
     it("slows the form most when tired, because a depleted window is a machine running slow", () => {
@@ -63,22 +57,9 @@ describe("moodFor", () => {
         expect(moodFor(TIRED).energy).toBeLessThan(moodFor(AT_REST).energy);
     });
 
-    it("loses alignment when it cannot see, which is loss of structure rather than loss of power", () => {
-        expect(moodFor(BLIND).align).toBeLessThan(moodFor(TIRED).align);
-    });
-
-    it("dims for tired and for nothing else, because only one register is about power", () => {
-        // The register table (design doc §3) makes this load-bearing: a depleted rate-limit window is the
-        // one condition defined as dimming. cannot-see was authored below it once, so blindness borrowed
-        // the exhaustion tell — and cannot-see, the most severe register there is, ended up the faintest.
-        for (const e of [AT_REST, BLIND]) {
-            expect(moodFor(e).energy).toBeGreaterThan(moodFor(TIRED).energy);
-        }
-    });
-
     it("stutters only when something is actually wrong", () => {
         expect(moodFor(AT_REST).jitter).toBe(0);
-        expect(moodFor(BLIND).jitter).toBeGreaterThan(moodFor(TIRED).jitter);
+        expect(moodFor(TIRED).jitter).toBeGreaterThan(0);
     });
 });
 
@@ -118,7 +99,7 @@ describe("buildAvatarScene — the form", () => {
     });
 
     it("keeps every primitive alpha within 0..1", () => {
-        for (const expression of [AT_REST, BLIND, TIRED]) {
+        for (const expression of [AT_REST, TIRED]) {
             const scene = buildAvatarScene(input({ expression, utterance: 1, ripple: 0.4, now: 3_100 }));
             for (const s of scene.segments) {
                 expect(s.alpha).toBeGreaterThanOrEqual(0);
@@ -132,7 +113,7 @@ describe("buildAvatarScene — the form", () => {
     });
 
     it("produces no NaN coordinates for any expression or posture", () => {
-        for (const expression of [AT_REST, BLIND, TIRED]) {
+        for (const expression of [AT_REST, TIRED]) {
             for (const posture of POSTURES) {
                 const scene = buildAvatarScene(input({ expression, posture, yaw: 0.4, pitch: -0.2 }));
                 for (const s of scene.segments) {
@@ -169,14 +150,6 @@ describe("buildAvatarScene — the form", () => {
 });
 
 describe("buildAvatarScene — the register axes", () => {
-    it("cuts struts as severance rises, deterministically", () => {
-        const rest = buildAvatarScene(input({ expression: AT_REST }));
-        const blind = buildAvatarScene(input({ expression: BLIND }));
-        expect(blind.segments.length).toBeLessThan(rest.segments.length);
-        // the same ones stay cut frame to frame: a link that came and went would be jitter, not damage
-        expect(buildAvatarScene(input({ expression: BLIND, now: 5_000 })).segments.length).toBe(blind.segments.length);
-    });
-
     it("spreads the three planes apart as alignment falls", () => {
         // coplanarity IS the structural tell, so it is asserted on the geometry, not on pixels
         const spread = (expression: PetExpression) => {
@@ -184,7 +157,6 @@ describe("buildAvatarScene — the register axes", () => {
             return Math.max(...depths) - Math.min(...depths);
         };
         expect(spread(TIRED)).toBeGreaterThan(spread(AT_REST));
-        expect(spread(BLIND)).toBeGreaterThan(spread(TIRED));
     });
 
     it("holds still at rest rather than idling like a spinner", () => {
@@ -195,8 +167,8 @@ describe("buildAvatarScene — the register axes", () => {
     });
 
     it("tumbles once alignment is lost", () => {
-        const a = buildAvatarScene(input({ expression: BLIND, now: 0 }));
-        const b = buildAvatarScene(input({ expression: BLIND, now: 6_000 }));
+        const a = buildAvatarScene(input({ expression: TIRED, now: 0 }));
+        const b = buildAvatarScene(input({ expression: TIRED, now: 6_000 }));
         expect(a.segments.map((s) => s.ax)).not.toEqual(b.segments.map((s) => s.ax));
     });
 
@@ -205,7 +177,7 @@ describe("buildAvatarScene — the register axes", () => {
         // spoke in the same channel as a jolt — "an arrival landed on me" and "I am losing my own signal"
         // became the same motion — and at 132px a sub-2px tremble read as a rendering fault anyway.
         const at = (jitter: number) =>
-            buildAvatarScene(input({ expression: BLIND, now: 2_350, mood: { ...settledMood(BLIND), jitter } }));
+            buildAvatarScene(input({ expression: TIRED, now: 2_350, mood: { ...settledMood(TIRED), jitter } }));
         const steady = at(0);
         const stuttering = at(0.75);
         expect(stuttering.segments.map((s) => [s.ax, s.ay, s.bx, s.by])).toEqual(
@@ -221,7 +193,9 @@ describe("buildAvatarScene — the register axes", () => {
         // signal being lost
         let sawPartial = false;
         for (let step = 0; step < 40; step++) {
-            const scene = buildAvatarScene(input({ expression: BLIND, now: step * 137 }));
+            const scene = buildAvatarScene(
+                input({ expression: TIRED, now: step * 137, mood: { ...settledMood(TIRED), jitter: 0.75 } })
+            );
             const alphas = new Set(scene.segments.filter((s) => s.width === STROKE.fine).map((s) => s.alpha));
             if (alphas.size > 1) {
                 sawPartial = true;
@@ -248,9 +222,7 @@ describe("buildAvatarScene — the register axes", () => {
             return total / 64;
         };
         const rest = mean(AT_REST);
-        for (const expression of [TIRED, BLIND]) {
-            expect(mean(expression)).toBeGreaterThan(0.5 * rest);
-        }
+        expect(mean(TIRED)).toBeGreaterThan(0.5 * rest);
     });
 });
 
@@ -276,7 +248,7 @@ describe("buildAvatarScene — presence", () => {
         // The bloom needs somewhere to fall off: a primitive at the border makes the blur clamp against the
         // framebuffer and the avatar wears a visible lighter square. This is the constraint that keeps
         // SPHERE_FRACTION where it is, so it is asserted rather than left as a comment.
-        for (const expression of [AT_REST, BLIND, TIRED]) {
+        for (const expression of [AT_REST, TIRED]) {
             for (const posture of POSTURES) {
                 for (const yaw of [0, 1.6, 3.1, 4.7]) {
                     const scene = buildAvatarScene(
@@ -359,7 +331,7 @@ describe("buildAvatarScene — posture", () => {
         // The de-duplication contract with the nav rail badge is structural, not a runtime check: the only
         // primitive types are strokes and fills, so a number is unrepresentable. This test guards the type
         // from growing a text primitive later.
-        const scene = buildAvatarScene(input({ posture: "escalation", expression: BLIND }));
+        const scene = buildAvatarScene(input({ posture: "escalation", expression: TIRED }));
         expect(new Set(Object.keys(scene))).toEqual(
             new Set([
                 "segments",
@@ -391,18 +363,17 @@ describe("approachMood", () => {
         const target = moodFor(TIRED);
         expect(m.energy).toBeCloseTo(target.energy, 3);
         expect(m.align).toBeCloseTo(target.align, 3);
-        expect(m.sever).toBeCloseTo(target.sever, 3);
         expect(m.toneVar).toBe(target.toneVar);
         expect(m.toneFromVar).toBeNull();
     });
 
     it("passes through the space between the two moods instead of snapping", () => {
         // the whole point: a register change used to land in one frame, tone and geometry at once
-        const one = approachMood(settledMood(AT_REST), BLIND, 16);
-        expect(one.sever).toBeGreaterThan(0);
-        expect(one.sever).toBeLessThan(moodFor(BLIND).sever);
+        const one = approachMood(settledMood(AT_REST), TIRED, 16);
+        expect(one.energy).toBeLessThan(moodFor(AT_REST).energy);
+        expect(one.energy).toBeGreaterThan(moodFor(TIRED).energy);
         expect(one.align).toBeLessThan(moodFor(AT_REST).align);
-        expect(one.align).toBeGreaterThan(moodFor(BLIND).align);
+        expect(one.align).toBeGreaterThan(moodFor(TIRED).align);
     });
 
     it("takes the same wall-clock time whatever the framerate", () => {
@@ -434,12 +405,12 @@ describe("approachMood", () => {
     it("reverses out of a half-finished crossfade from the blend, not from the tone it was heading for", () => {
         // a condition that appears and clears inside one poll cycle must not produce a colour pop
         // the frame that notices the change only arms the crossfade at 0; the next one advances it
-        let m = approachMood(approachMood(settledMood(AT_REST), BLIND, MOOD_TAU_MS), BLIND, MOOD_TAU_MS);
+        let m = approachMood(approachMood(settledMood(AT_REST), TIRED, MOOD_TAU_MS), TIRED, MOOD_TAU_MS);
         expect(m.toneMix).toBeGreaterThan(0);
         expect(m.toneMix).toBeLessThan(1);
         m = approachMood(m, AT_REST, 16);
         expect(m.toneVar).toBe(moodFor(AT_REST).toneVar);
-        expect(m.toneFromVar).toBe(moodFor(BLIND).toneVar);
+        expect(m.toneFromVar).toBe(moodFor(TIRED).toneVar);
     });
 
     it("does not move on a zero, negative or non-finite frame time", () => {
@@ -451,9 +422,9 @@ describe("approachMood", () => {
 
     it("clamps an absurd frame gap instead of overshooting", () => {
         // a backgrounded window can hand back a multi-second dt on its first frame
-        const m = approachMood(settledMood(AT_REST), BLIND, 600_000);
-        expect(m.sever).toBeLessThanOrEqual(moodFor(BLIND).sever);
-        expect(m.energy).toBeGreaterThanOrEqual(Math.min(moodFor(AT_REST).energy, moodFor(BLIND).energy));
+        const m = approachMood(settledMood(AT_REST), TIRED, 600_000);
+        expect(m.align).toBeGreaterThanOrEqual(moodFor(TIRED).align);
+        expect(m.energy).toBeGreaterThanOrEqual(Math.min(moodFor(AT_REST).energy, moodFor(TIRED).energy));
     });
 });
 
