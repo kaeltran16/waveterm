@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { AgentVM } from "./agentsviewmodel";
-import { agentTransitions, mergeRailEvents, runRailEvents, splitUnread } from "./cockpitevents";
+import { agentTransitions, groupRailEvents, mergeRailEvents, runRailEvents, splitUnread } from "./cockpitevents";
 import type { RunInfo } from "./runlineage";
 
 const a = (over: Partial<AgentVM>) =>
@@ -61,7 +61,7 @@ describe("runRailEvents", () => {
             "lead"
         );
         expect(out.map((e) => e.kind)).toEqual(["asked", "landed", "failed", "quiet"]);
-        expect(out[0]).toMatchObject({ key: "R:child-ask1", focusId: "lead", who: "Session auth" });
+        expect(out[0]).toMatchObject({ key: "R:child-ask1", focusId: "lead", who: "Session auth", group: "R" });
     });
 });
 
@@ -82,5 +82,32 @@ describe("mergeRailEvents / splitUnread", () => {
         const { fresh, old } = splitUnread([e("b", 3), e("a", 1)], 2);
         expect(fresh.map((x) => x.key)).toEqual(["b"]);
         expect(old.map((x) => x.key)).toEqual(["a"]);
+    });
+});
+
+describe("groupRailEvents", () => {
+    const e = (key: string, group?: string) => ({
+        key,
+        who: group ? "auth-lead" : "w",
+        kind: "asked" as const,
+        text: "",
+        ts: 0,
+        group,
+    });
+    const list = [e("a", "R"), e("p"), e("b", "R"), e("c", "R")];
+    it("shows a run's newest event with a count of the rest, and plain agents' events as they are", () => {
+        const rows = groupRailEvents(list, {});
+        expect(rows.map((r) => r.key)).toEqual(["a", "p"]);
+        expect(rows[0].more).toBe("+2 more from auth-lead");
+        expect(rows[1].more).toBeUndefined();
+    });
+    it("lists every event of an opened run, the first offering to fold them again", () => {
+        const rows = groupRailEvents(list, { R: true });
+        expect(rows.map((r) => r.key)).toEqual(["a", "p", "b", "c"]);
+        expect(rows[0].more).toBe("show less from auth-lead");
+        expect(rows[2].more).toBeUndefined();
+    });
+    it("offers nothing for a run with a single event", () => {
+        expect(groupRailEvents([e("a", "R")], {})[0].more).toBeUndefined();
     });
 });

@@ -1,139 +1,32 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The cockpit's right rail: the usage windows (per-provider 5-hour/weekly bars) and the Events
-// rail. Extracted from cockpitsurface.tsx; presentational + the UsageBar it renders.
+// The cockpit's right rail: the Events rail. Plan usage sits in the header (UsageMeters).
 
-import { CollapsibleRail, type RailSection } from "@/app/element/collapsiblerail";
-import { Meter } from "@/app/element/meter";
-import { globalStore } from "@/app/store/jotaiStore";
-import { cn } from "@/util/util";
-import { useAtomValue } from "jotai";
+import { CollapsibleRail } from "@/app/element/collapsiblerail";
 import type { AgentsViewModel } from "./agents";
-import { formatReset, formatTokens, usageLevel } from "./agentsviewmodel";
 import { CockpitEventsRail } from "./cockpiteventsrail";
-import { providerDot, providerLabel, usageBarShowsMeta, usageBarVisible, windowUsedTokens } from "./cockpitrailmodel";
 import { ICON } from "./navrail";
-import { mergeRateLimitWindows } from "./ratelimitstore";
-import { RollingCount } from "./rollingcount";
 import type { Lineage } from "./runlineage";
-import { type WindowTokens } from "./windowtokenstore";
-
-const PLAN_BAR: Record<"ok" | "warn" | "hot", string> = { ok: "bg-accent", warn: "bg-warning", hot: "bg-error" };
-const PLAN_TXT: Record<"ok" | "warn" | "hot", string> = { ok: "text-accent", warn: "text-warning", hot: "text-error" };
-
-// One plan window as a full-width handoff bar: label + pct + bar + (real used tokens) + reset
-// countdown. A null pct (API-key auth, or a window not yet reported) renders nothing. `used` is
-// the real Claude-only token sum for the window (windowtokenstore); absent -> no token line.
-export function UsageBar({
-    label,
-    pct,
-    reset,
-    used,
-    now,
-}: {
-    label: string;
-    pct?: number;
-    reset?: number;
-    used?: number;
-    now: number;
-}) {
-    if (!usageBarVisible(pct)) {
-        return null;
-    }
-    const lvl = usageLevel(pct);
-    return (
-        <div>
-            <div className="mb-[7px] flex items-baseline justify-between">
-                <span className="text-[12.5px] font-medium text-secondary">{label}</span>
-                <span className={cn("font-mono text-[12px] font-semibold", PLAN_TXT[lvl])}>{Math.round(pct)}%</span>
-            </div>
-            <Meter pct={pct} fill={PLAN_BAR[lvl]} height={7} radius={4} track="bg-surface-raised" />
-            {usageBarShowsMeta(used, reset) ? (
-                <div className="mt-[6px] flex justify-between font-mono text-[10.5px] text-muted">
-                    <span>{used != null ? `${formatTokens(used)} tok` : ""}</span>
-                    {reset ? <span>resets {formatReset(reset, now)}</span> : null}
-                </div>
-            ) : null}
-        </div>
-    );
-}
 
 export function CockpitRail({
     model,
-    usageDonuts,
-    windowTokens,
     lineage,
     runEvents,
+    tags,
     onSelectAgent,
 }: {
     model: AgentsViewModel;
-    usageDonuts: ReturnType<typeof mergeRateLimitWindows>;
-    windowTokens: WindowTokens | null;
     lineage: Lineage;
     runEvents: Record<string, RunEvent[]>;
+    tags: Record<string, string>;
     onSelectAgent: (id: string) => void;
 }) {
-    // Self-source the 1s tick here (was prop-drilled from CockpitSurface) so the usage reset
-    // countdown stays live without the surface re-rendering the agent grid every second.
-    const now = useAtomValue(model.nowAtom);
     return (
         <CollapsibleRail
             openAtom={model.railOpenAtom}
-            ariaLabel="Usage and events"
+            ariaLabel="Events"
             sections={[
-                {
-                    id: "usage",
-                    label: "Usage",
-                    icon: ICON.usage,
-                    content: (
-                        <div>
-                            <div className="mb-3.5 flex items-center justify-between">
-                                <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">
-                                    Usage
-                                </h3>
-                                <button
-                                    type="button"
-                                    onClick={() => globalStore.set(model.surfaceAtom, "usage")}
-                                    className="cursor-pointer border-0 bg-transparent text-[11.5px] text-accent"
-                                >
-                                    Details →
-                                </button>
-                            </div>
-                            <div className="flex flex-col gap-4">
-                                {usageDonuts.map((d) => (
-                                    <div key={d.provider} className="flex flex-col gap-4">
-                                        {usageDonuts.length > 1 ? (
-                                            <div className="flex items-center gap-1.5 font-mono text-[11px] font-semibold text-primary">
-                                                <span
-                                                    className={cn(
-                                                        "h-[7px] w-[7px] rounded-full",
-                                                        providerDot(d.provider)
-                                                    )}
-                                                />
-                                                {providerLabel(d.provider)}
-                                            </div>
-                                        ) : null}
-                                        <UsageBar
-                                            label="5-hour window"
-                                            pct={d.fivehour.pct}
-                                            reset={d.fivehour.reset}
-                                            used={windowUsedTokens(d.provider, windowTokens, "fivehour")}
-                                            now={now}
-                                        />
-                                        <UsageBar
-                                            label="Weekly"
-                                            pct={d.week.pct}
-                                            reset={d.week.reset}
-                                            used={windowUsedTokens(d.provider, windowTokens, "week")}
-                                            now={now}
-                                        />
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    ),
-                },
                 {
                     id: "events",
                     label: "Events",
@@ -143,10 +36,11 @@ export function CockpitRail({
                             model={model}
                             lineage={lineage}
                             runEvents={runEvents}
+                            tags={tags}
                             onSelect={onSelectAgent}
                         />
                     ),
-                } as RailSection,
+                },
             ]}
         />
     );

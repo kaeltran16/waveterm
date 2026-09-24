@@ -249,12 +249,13 @@ export function LeadCard(p: LeadCardProps) {
                     ))}
                 </div>
                 <div className="flex items-center gap-2 font-mono text-[10.5px] text-muted">
-                    <span className="min-w-0 flex-1 truncate text-accent-soft">{run.title}</span>
+                    <span className="min-w-0 flex-1 truncate text-accent-soft">{vm.activity}</span>
                     {vm.progress.total > 0 ? (
-                        <span>
+                        <span className="shrink-0">
                             {vm.progress.done}/{vm.progress.total} tasks
                         </span>
                     ) : null}
+                    {vm.cost ? <span className="shrink-0">{vm.cost}</span> : null}
                 </div>
             </div>
 

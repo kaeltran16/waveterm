@@ -14,6 +14,7 @@ import {
     isBackgroundedRun,
     resolveCursor,
     splitGridColumns,
+    toggleChip,
     withActiveRunLeads,
 } from "./cardgridlayout";
 import type { Lineage, RunInfo } from "./runlineage";
@@ -127,6 +128,18 @@ describe("cardMatchesChip", () => {
         expect(cardMatchesChip({ kind: "agent", id: "a", agent: vm("a", "idle") }, "idle", false)).toBe(true);
         expect(cardMatchesChip({ kind: "agent", id: "a", agent: vm("a", "idle") }, "all", false)).toBe(true);
     });
+    it("puts a run up for review once it has finished, not while its lead stands by", () => {
+        const run = (status: string) =>
+            ({
+                kind: "run",
+                id: "L",
+                run: { ...R, dag: { status } as RunInfo["dag"] },
+                lead: vm("L", "idle"),
+            }) as const;
+        expect(cardMatchesChip(run("running"), "idle", false)).toBe(false);
+        expect(cardMatchesChip(run("done"), "idle", false)).toBe(true);
+        expect(cardMatchesChip(run("cancelled"), "idle", false)).toBe(true);
+    });
 });
 
 describe("columnNavIds", () => {
@@ -167,5 +180,14 @@ describe("resolveCursor", () => {
         expect(resolveCursor("w1", ["L", "row:L:t1"], { w1: "row:L:t1" })).toBe("row:L:t1");
         expect(resolveCursor("gone", ["a"], {})).toBe("a");
         expect(resolveCursor("a", [], {})).toBeUndefined();
+    });
+});
+
+describe("toggleChip", () => {
+    it("selects a tab, and a second press on it returns to everything", () => {
+        expect(toggleChip("all", "asking")).toBe("asking");
+        expect(toggleChip("asking", "asking")).toBe("all");
+        expect(toggleChip("asking", "working")).toBe("working");
+        expect(toggleChip("all", "all")).toBe("all");
     });
 });

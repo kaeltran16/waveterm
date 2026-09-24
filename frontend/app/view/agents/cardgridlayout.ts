@@ -7,7 +7,7 @@
 
 import type { ChipFilter } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
-import { leadAgentOf, type Lineage, type RunInfo } from "./runlineage";
+import { leadAgentOf, runFinished, type Lineage, type RunInfo } from "./runlineage";
 
 // a card that needs you is readable at a glance; below these the content clips
 export const CARD_MIN_PX = { agent: 200, agentAsk: 320, run: 280, runAsk: 400 } as const;
@@ -89,6 +89,11 @@ export function isBackgroundedRun(card: GridCard, backgroundedIds: Set<string>, 
 }
 
 /** Pure: does the status chip show this card. A run card shows under Asking when anything in it needs you. */
+/** Pure: a status tab's press. Pressing the selected tab again returns to everything. */
+export function toggleChip(current: ChipFilter, pressed: ChipFilter): ChipFilter {
+    return current === pressed ? "all" : pressed;
+}
+
 export function cardMatchesChip(card: GridCard, chip: ChipFilter, needsYou: boolean): boolean {
     if (chip === "all") {
         return true;
@@ -102,7 +107,8 @@ export function cardMatchesChip(card: GridCard, chip: ChipFilter, needsYou: bool
     if (chip === "working") {
         return card.lead?.state === "working" || card.run.dag?.status === "running";
     }
-    return card.lead?.state === "idle";
+    // a run is up for review once it ends; a lead idling between wakes is still running it
+    return runFinished(card.run);
 }
 
 // what the keyboard does on a focused task row: open, answer the worker's question, or run the row's actions

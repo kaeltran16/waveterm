@@ -1,9 +1,10 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// Pure glue for the cockpit right rail (CockpitRail / UsageBar). Extracted so the rail's
-// provider gating + usage-bar visibility are unit-testable without rendering.
+// Pure glue for the cockpit's plan-usage meters (UsageMeters). Extracted so the provider gating and
+// meter visibility are unit-testable without rendering.
 
+import { formatReset, formatTokens } from "./agentsviewmodel";
 import type { WindowTokens } from "./windowtokenstore";
 
 // provider identity for the plan strip. not theme tokens — brand colors, single source.
@@ -42,6 +43,19 @@ export function usageBarVisible(pct: number | undefined): boolean {
     return pct != null;
 }
 
-export function usageBarShowsMeta(used: number | undefined, reset: number | undefined): boolean {
-    return used != null || !!reset;
+/** Pure: a meter's hover text, the detail the compact meter leaves out. */
+export function meterTitle(
+    label: string,
+    pct: number,
+    used: number | undefined,
+    reset: number | undefined,
+    now: number
+): string {
+    return [
+        `${label} · ${Math.round(pct)}%`,
+        used != null ? `${formatTokens(used)} tok` : "",
+        reset ? `resets ${formatReset(reset, now)}` : "",
+    ]
+        .filter(Boolean)
+        .join(" · ");
 }

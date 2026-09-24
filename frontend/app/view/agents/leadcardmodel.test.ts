@@ -7,11 +7,13 @@ import {
     buildLeadCard,
     foldOpen,
     isLeadDown,
+    leadActivity,
     REVIEW_ACTIONS,
     reviewFindings,
     rowCardId,
     rowKey,
     rowKeyActions,
+    runCost,
     stopSelector,
     waitLabel,
 } from "./leadcardmodel";
@@ -285,5 +287,41 @@ describe("stopSelector", () => {
     it("finds a task row by its row key and a card by its agent id", () => {
         expect(stopSelector("row:L:t1")).toBe('[data-row-key="row:L:t1"]');
         expect(stopSelector("a1")).toBe('[data-agent-id="a1"]');
+    });
+});
+
+describe("leadActivity", () => {
+    const run = (status = "running", digest?: Partial<DagStatusDigest>) => {
+        const r = runInfo([task("t1", "running"), task("t2", "running"), task("t3", "pending")], digest);
+        r.dag!.status = status;
+        return r;
+    };
+    it("says a lead at its prompt stands by while the engine runs its tasks", () => {
+        const idle = { ...lead, state: "idle", atPrompt: true } as AgentVM;
+        expect(leadActivity(run(), idle, false)).toBe("standing by · engine running 2 lanes");
+        expect(leadActivity(run("running", { counts: { running: 1 } as DagStatusCounts }), idle, false)).toBe(
+            "standing by · engine running 1 lane"
+        );
+    });
+    it("shows what a busy lead is doing", () => {
+        expect(leadActivity(run(), { ...lead, activity: "judging t-2" } as AgentVM, false)).toBe("judging t-2");
+    });
+    it("says who holds the run's judgment when there is no lead or it is down", () => {
+        expect(leadActivity(run(), undefined, false)).toBe(
+            "engine running · a lead starts at the first judgment event"
+        );
+        expect(leadActivity(run(), lead, true)).toBe("lead down · its events come to you");
+    });
+    it("names a finished run's end", () => {
+        expect(leadActivity(run("done"), { ...lead, atPrompt: true } as AgentVM, false)).toBe("run done");
+    });
+});
+
+describe("runCost", () => {
+    it("joins the workers' time and tokens, leaving out what is unknown", () => {
+        expect(runCost(6_120_000, 2_100_000)).toBe("1h42m worker · 2.1M tokens");
+        expect(runCost(1_440_000, undefined)).toBe("24m worker");
+        expect(runCost(undefined, 410_000)).toBe("410k tokens");
+        expect(runCost(0, 0)).toBe("");
     });
 });

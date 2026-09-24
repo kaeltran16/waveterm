@@ -18,7 +18,11 @@ export interface RailEvent {
     kind: RailKind;
     text: string;
     ts: number;
+    // the run an engine event belongs to; a run's events fold under its newest one
+    group?: string;
 }
+
+export type RailRow = RailEvent & { more?: string };
 
 export interface AgentSnap {
     state: AgentState;
@@ -78,7 +82,15 @@ export function runRailEvents(run: RunInfo, events: RunEvent[], leadId?: string)
         if (kind == null) {
             continue;
         }
-        out.push({ key: `${run.runId}:${e.id}`, focusId: leadId, who: run.title, kind, text: eventText(e), ts: e.ts });
+        out.push({
+            key: `${run.runId}:${e.id}`,
+            focusId: leadId,
+            who: run.title,
+            kind,
+            text: eventText(e),
+            ts: e.ts,
+            group: run.runId,
+        });
     }
     return out;
 }
@@ -96,4 +108,29 @@ export function mergeRailEvents(lists: RailEvent[][], max = RAIL_MAX): RailEvent
 /** Pure: events after the last "mark all read" are new. */
 export function splitUnread(events: RailEvent[], seenTs: number): { fresh: RailEvent[]; old: RailEvent[] } {
     return { fresh: events.filter((e) => e.ts > seenTs), old: events.filter((e) => e.ts <= seenTs) };
+}
+
+/** Pure: the rows a list shows. A run with several events shows its newest, which counts the rest, until it is
+ *  opened; plain agents' events always show. */
+export function groupRailEvents(events: RailEvent[], open: Record<string, boolean>): RailRow[] {
+    const count: Record<string, number> = {};
+    for (const e of events) {
+        if (e.group != null) {
+            count[e.group] = (count[e.group] ?? 0) + 1;
+        }
+    }
+    const seen = new Set<string>();
+    const out: RailRow[] = [];
+    for (const e of events) {
+        const g = e.group;
+        if (g == null || count[g] < 2) {
+            out.push(e);
+        } else if (!seen.has(g)) {
+            seen.add(g);
+            out.push({ ...e, more: open[g] ? `show less from ${e.who}` : `+${count[g] - 1} more from ${e.who}` });
+        } else if (open[g]) {
+            out.push(e);
+        }
+    }
+    return out;
 }

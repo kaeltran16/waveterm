@@ -5,13 +5,16 @@
 // from the row. A worker's question and a failed review are answered inside the row, so a run needs one card,
 // not one per worker. Pure: no React, no Wave runtime.
 
+import { formatElapsed } from "../orchestrate/dagdigest";
 import { relaunchLeadAction } from "../orchestrate/relaunchlead";
-import type { AgentVM } from "./agentsviewmodel";
+import { formatTokens, type AgentVM } from "./agentsviewmodel";
 import { workerNeedsYou } from "./agenttreemodel";
 import {
     endedWorkerId,
     formatLeft,
     laneLabel,
+    leadStandingBy,
+    runFinished,
     runProgress,
     taskAgentOf,
     unmetDeps,
@@ -64,6 +67,9 @@ export interface LeadCardVM {
     planning: boolean;
     finished: boolean;
     progress: { done: number; total: number };
+    // what the lead is doing, and what the run has cost so far
+    activity: string;
+    cost: string;
     settings: string;
 }
 
@@ -76,6 +82,8 @@ export interface LeadCardInput {
     // the lead cannot take wakes (isLeadDown); its judgment falls to you
     leadDown: boolean;
     now: number;
+    // the workers' transcripts summed (runtokenstore); absent until loaded
+    tokens?: number;
 }
 
 const ROW_KEY_PREFIX = "row:";
@@ -102,8 +110,6 @@ export function stopSelector(id: string): string {
 export function foldOpen(open: boolean, rows: Pick<TaskRowVM, "key">[], cursorKey: string | undefined): boolean {
     return open || (cursorKey != null && rows.some((r) => r.key === cursorKey));
 }
-
-const FINISHED_DAG = new Set(["done", "cancelled"]);
 
 function taskRow(input: LeadCardInput, task: TaskNode): TaskRowVM {
     const { run, lineage, roster, now } = input;
@@ -241,10 +247,39 @@ export function buildLeadCard(input: LeadCardInput): LeadCardVM {
         askCount,
         needsYou: askCount > 0 || lead?.state === "asking",
         planning: dag == null,
-        finished: dag != null && FINISHED_DAG.has(dag.status),
+        finished: dag != null && runFinished(run),
         progress: runProgress(dag),
+        activity: leadActivity(run, lead, input.leadDown),
+        cost: runCost(run.digest?.report?.workerms, input.tokens),
         settings: `${leadModel} · workers ${workerModel} · ×${dag?.parallelism ?? "?"}`,
     };
+}
+
+/** Pure: the lead's line on its card. A lead at its prompt while the engine runs stands by; its own activity
+ *  would read as the last thing it did. */
+export function leadActivity(run: RunInfo, lead: AgentVM | undefined, leadDown: boolean): string {
+    if (runFinished(run)) {
+        return `run ${run.dag?.status ?? run.status}`;
+    }
+    if (leadDown) {
+        return "lead down · its events come to you";
+    }
+    if (lead == null) {
+        return "engine running · a lead starts at the first judgment event";
+    }
+    if (leadStandingBy(lead, run)) {
+        const running =
+            run.digest?.counts?.running ?? (run.dag?.tasks ?? []).filter((t) => t.state === "running").length;
+        return running > 0 ? `standing by · engine running ${running} lane${running === 1 ? "" : "s"}` : "standing by";
+    }
+    return lead.activity || lead.state;
+}
+
+/** Pure: what a run has cost so far, leaving out what is not known. */
+export function runCost(workerMs: number | undefined, tokens: number | undefined): string {
+    return [workerMs ? `${formatElapsed(workerMs)} worker` : "", tokens ? `${formatTokens(tokens)} tokens` : ""]
+        .filter(Boolean)
+        .join(" · ");
 }
 
 /** Pure: the lead cannot take wakes. The newest wake failure stands until a lead is launched after it. */

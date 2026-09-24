@@ -4,8 +4,7 @@
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtomValue, useSetAtom, type PrimitiveAtom } from "jotai";
-import { AnimatePresence, MotionConfig, motion } from "motion/react";
-import { cardVariants } from "@/app/element/motiontokens";
+import { AnimatePresence, MotionConfig } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { buildCockpitBindings } from "@/app/store/keybindings/bindings";
 import { useKeybindings } from "@/app/store/keybindings/store";
@@ -33,6 +32,7 @@ import {
     isBackgroundedRun,
     resolveCursor,
     splitGridColumns,
+    toggleChip,
     withActiveRunLeads,
     type CardShare,
     type GridCard,
@@ -57,30 +57,23 @@ import { useRailTracking } from "./cockpiteventsrail";
 import { HintsBar } from "./cockpithelp";
 import { RollingCount } from "./rollingcount";
 import { ensureRunEvents, runEventsAtom } from "./runeventstore";
+import { loadRunTokens, runTokensAtom } from "./runtokenstore";
 import { useRunDigests } from "./runlineagestore";
 import { useCockpitKeyboard } from "./usecockpitkeyboard";
 import { useCardStreams } from "./usecardstreams";
 import { ProjectSwitcher } from "./projectswitcher";
 import { mergeRateLimitWindows, savedRateLimitsAtom } from "./ratelimitstore";
-import { SectionHeader } from "./sectionheader";
 import { loadWindowTokens, windowTokensAtom } from "./windowtokenstore";
 import { useSubagentTracking } from "./subagenttracking";
 import { SurfaceHeader } from "./surfacescaffold";
+import { UsageMeters } from "./usagemeters";
 
-// Filter-chip palette (handoff mkChip, dc.html:1945-1981): an active chip takes its status color for the
-// border + a soft tint, and the count renders in that color; the label brightens to primary. Inactive
-// chips keep an edge border + muted label, but the count stays brighter (secondary) so it reads at a glance.
-const CHIP_ACTIVE: Record<ChipFilter, string> = {
-    all: "border-accent bg-accent/[0.12]",
-    asking: "border-warning bg-warning/[0.12]",
-    working: "border-success bg-success/[0.12]",
-    idle: "border-edge-strong bg-surface-raised",
-};
-const CHIP_NUM: Record<ChipFilter, string> = {
-    all: "text-accent-soft",
-    asking: "text-warning",
-    working: "text-success",
-    idle: "text-secondary",
+// Status tabs (mockup A3): a tab's count takes its status color while it has any, the selected tab underlines
+const TAB_TONE: Record<ChipFilter, { text: string; line: string }> = {
+    asking: { text: "text-warning", line: "border-warning" },
+    working: { text: "text-accent", line: "border-accent" },
+    idle: { text: "text-accent-soft", line: "border-accent-soft" },
+    all: { text: "text-primary", line: "border-primary" },
 };
 
 // Bridges a model PrimitiveAtom to a useState-shaped [value, setter] pair so the lifted orchestration
@@ -99,7 +92,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
 
     // channel-aware "needs you": excludes asks Jarvis already auto-answered, so it matches the Channels
     // rail dot and nav badge (raw asking historically over-counted). one answered set feeds both the
-    // header counter and the sticky-bar counter (liveAsking) below.
+    // header counter and the need-you tab (liveAsking) below.
     const channels = useAtomValue(channelsAtom);
     const answeredAsks = answeredAskORefsAcross(channels ?? []);
     const needsYou = agents.filter((a) => needsHuman(a, answeredAsks)).length;
@@ -235,6 +228,10 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     );
     const runEvents = useAtomValue(runEventsAtomForView) as Record<string, RunEvent[]>;
     useRailTracking(agents, lineage);
+    const runTokens = useAtomValue(runTokensAtom);
+    useEffect(() => {
+        runsInView.forEach((r) => fireAndForget(() => loadRunTokens(r, Date.now())));
+    }, [runKey, structuralNow]);
 
     // one card per plain agent or run; a run's workers are rows of its card. A running run keeps its card while
     // its lead idles between wakes, so its lead is looked up in scope before parking and Live only.
@@ -253,6 +250,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                     lineage,
                     leadDown: down,
                     now: structuralNow,
+                    tokens: runTokens[c.run.runId],
                 }),
                 down,
             });
@@ -260,9 +258,10 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     }
     const cardNeedsYou = (c: GridCard) =>
         c.kind === "agent" ? needsHuman(c.agent, answeredAsks) : leadVMs.get(c.id)!.needsYou;
-    const cards = allCards.filter(
-        (c) => !isBackgroundedRun(c, backgroundedIds, cardNeedsYou(c)) && cardMatchesChip(c, chip, cardNeedsYou(c))
-    );
+    const shownCards = allCards.filter((c) => !isBackgroundedRun(c, backgroundedIds, cardNeedsYou(c)));
+    const cards = shownCards.filter((c) => cardMatchesChip(c, chip, cardNeedsYou(c)));
+    // counted by card, as the tab filters: a run's idle workers and a lead between wakes are not up for review
+    const readyCount = shownCards.filter((c) => cardMatchesChip(c, "idle", cardNeedsYou(c))).length;
     const columns = splitGridColumns(cards, (c) => c.kind === "run");
     // cursor stops: cards, and each lead card's shown task rows; a worker's id aliases to its row
     const rowsOf = (c: GridCard) => {
@@ -300,6 +299,11 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     // idle/backgrounded sections share the project scope; live-only hides the parked-idle section
     const shownParkedIdle = liveOnly ? [] : parkedIdle.filter((a) => matchesProjectFilter(a, projectFilter));
     const shownBackgrounded = backgrounded.filter((a) => matchesProjectFilter(a, projectFilter));
+    // an Events row names where a plain agent now sits when it is off the grid
+    const railTags: Record<string, string> = {
+        ...Object.fromEntries(parkedIdle.map((a) => [a.id, "idle"])),
+        ...Object.fromEntries(backgrounded.map((a) => [a.id, "background"])),
+    };
 
     // keep the cursor on a visible stop as the set changes; a worker's id follows its row, else the first stop
     useEffect(() => {
@@ -476,6 +480,12 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                             }
                             actions={
                                 <>
+                                    <UsageMeters
+                                        donuts={usageDonuts}
+                                        windowTokens={windowTokens}
+                                        now={structuralNow}
+                                        onOpen={() => globalStore.set(model.surfaceAtom, "usage")}
+                                    />
                                     <ProjectSwitcher model={model} variant="header" />
                                     <button
                                         type="button"
@@ -494,37 +504,6 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                             }
                         />
                     </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                        {(
-                            [
-                                ["all", "All", agents.length],
-                                ["asking", "Asking", asking.length],
-                                ["working", "Working", working.length],
-                                ["idle", "Idle", idle.length],
-                            ] as [ChipFilter, string, number][]
-                        ).map(([key, label, count]) => (
-                            <button
-                                key={key}
-                                type="button"
-                                onClick={() => setChip(key)}
-                                className={cn(
-                                    "grid cursor-pointer grid-cols-[minmax(0,auto)_1.25rem] items-center rounded border px-3 py-1.5 text-[12.5px]",
-                                    chip === key
-                                        ? cn(CHIP_ACTIVE[key], "text-primary")
-                                        : "border-border text-muted hover:border-edge-mid"
-                                )}
-                            >
-                                <span className="leading-none">{label}</span>
-                                <RollingCount
-                                    value={count}
-                                    className={cn(
-                                        "justify-self-end text-center font-mono text-[11px] font-semibold leading-none",
-                                        chip === key ? CHIP_NUM[key] : "text-secondary"
-                                    )}
-                                />
-                            </button>
-                        ))}
-                    </div>
                     {activeSpace != null ? (
                         <FocusBanner
                             surface="agent"
@@ -532,6 +511,42 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                             revealed={agentRevealed}
                         />
                     ) : null}
+                    <div className="-mb-3 -ml-1 mt-1 flex flex-wrap gap-0.5">
+                        {(
+                            [
+                                ["asking", "need you", liveAsking],
+                                ["working", "working", liveWorking],
+                                ["idle", "ready for review", readyCount],
+                                ["all", "live", liveCount],
+                            ] as [ChipFilter, string, number][]
+                        ).map(([key, label, count]) => (
+                            <button
+                                key={key}
+                                type="button"
+                                onClick={() => setChip(toggleChip(chip, key))}
+                                className={cn(
+                                    "flex cursor-pointer items-baseline gap-[7px] border-0 border-b-2 bg-transparent px-2.5 pb-[9px] pt-1.5 hover:bg-surface-hover",
+                                    chip === key ? TAB_TONE[key].line : "border-transparent"
+                                )}
+                            >
+                                <RollingCount
+                                    value={count}
+                                    className={cn(
+                                        "font-mono text-[17px] font-semibold",
+                                        count > 0 || chip === key ? TAB_TONE[key].text : "text-muted"
+                                    )}
+                                />
+                                <span
+                                    className={cn(
+                                        "text-[12.5px] font-medium",
+                                        chip === key ? "text-primary" : "text-ink-mid"
+                                    )}
+                                >
+                                    {label}
+                                </span>
+                            </button>
+                        ))}
+                    </div>
                 </div>
 
                 <div className="relative flex min-h-0 flex-1 flex-col">
@@ -541,37 +556,6 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                                 key="empty"
                                 onNewAgent={() => globalStore.set(model.newAgentOpenAtom, true)}
                             />
-                        ) : null}
-                    </AnimatePresence>
-
-                    <AnimatePresence initial={false}>
-                        {liveCount > 0 ? (
-                            <motion.div
-                                key="live-header"
-                                variants={cardVariants}
-                                initial="initial"
-                                animate="animate"
-                                exit="exit"
-                                className="shrink-0 px-5 pt-4"
-                            >
-                                <SectionHeader
-                                    label="Live agents"
-                                    labelClassName="text-accent-soft"
-                                    count={liveCount}
-                                    dotClassName="bg-accent-soft"
-                                    countPillClassName="bg-accent/10 text-accent-soft"
-                                    dividerClassName="bg-gradient-to-r from-accent/20 to-transparent"
-                                    right={
-                                        <span className="text-[11.5px] text-muted">
-                                            <span className="font-semibold text-warning">
-                                                <RollingCount value={liveAsking} /> need you
-                                            </span>{" "}
-                                            ·{" "}
-                                            {liveWorking} working
-                                        </span>
-                                    }
-                                />
-                            </motion.div>
                         ) : null}
                     </AnimatePresence>
 
@@ -601,10 +585,9 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
 
             <CockpitRail
                 model={model}
-                usageDonuts={usageDonuts}
-                windowTokens={windowTokens}
                 lineage={lineage}
                 runEvents={runEvents}
+                tags={railTags}
                 onSelectAgent={(id) => {
                     setCursorId(id);
                     scrollToPulse(id);
