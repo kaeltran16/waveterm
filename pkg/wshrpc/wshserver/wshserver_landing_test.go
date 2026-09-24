@@ -180,6 +180,40 @@ func createLandingRun(t *testing.T, ctx context.Context, projectDir, mode string
 	return ch, rtn.Run, nil
 }
 
+// a plan the engine refused leaves a cancelled run with no dag and no work; its landing tree and branch
+// would otherwise pile up with every retry
+func TestCreateRunRemovesTheLandingTreeOfARefusedPlan(t *testing.T) {
+	ctx := context.Background()
+	projectDir, execGit := newLandingRepo(t)
+	stubRunServer(t, "pi", nil)
+	ch, err := wstore.CreateChannel(ctx, "landing", projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedProfileMeta(t, ctx, ch.OID, &waveobj.ProfileOverride{Landing: strPtr(jarvis.Landing_Branch)})
+	plan := filepath.Join(t.TempDir(), "plan.md")
+	if err := os.WriteFile(plan, []byte("**Setup:** `exit 3`\n\n### Task 1: input\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = (&WshServer{}).CreateRunCommand(ctx, wshrpc.CommandCreateRunData{
+		ChannelId: ch.OID, WorkspaceId: "ws", Goal: "g", Runtime: "pi", Mode: jarvis.RunMode_Orchestrator, PlanPath: plan,
+	})
+	if err == nil {
+		t.Fatal("a plan whose Setup fails must be refused")
+	}
+	runs, err := wstore.GetChannelRuns(ctx, ch.OID)
+	if err != nil || len(runs) != 1 {
+		t.Fatalf("runs = %+v, %v; want the one cancelled run", runs, err)
+	}
+	if _, err := os.Stat(filepath.Join(projectDir, ".waveterm", "worktrees", runs[0].ID)); !os.IsNotExist(err) {
+		t.Fatalf("the landing tree is still there: %v", err)
+	}
+	if branches := execGit("branch", "--list", "wave/*"); branches != "" {
+		t.Fatalf("branches left behind: %q", branches)
+	}
+}
+
 func TestCreateRunLandsOnItsOwnBranch(t *testing.T) {
 	ctx := context.Background()
 	projectDir, execGit := newLandingRepo(t)
@@ -266,12 +300,15 @@ func TestSetChannelProfileRejectsUnknownLanding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateChannel: %v", err)
 	}
-	if err := (&WshServer{}).SetChannelProfileCommand(ctx, wshrpc.CommandSetChannelProfileData{
-		ChannelId: ch.OID, Override: &waveobj.ProfileOverride{Landing: strPtr("elsewhere")},
-	}); err == nil {
-		t.Fatal("expected an unknown landing to be rejected")
-	}
-	if channelHasProfileMeta(t, ctx, ch.OID) {
-		t.Fatal("a rejected landing must not write channel meta")
+	// an empty override would read as inheriting in the modal and as checkout on the server
+	for _, landing := range []string{"elsewhere", ""} {
+		if err := (&WshServer{}).SetChannelProfileCommand(ctx, wshrpc.CommandSetChannelProfileData{
+			ChannelId: ch.OID, Override: &waveobj.ProfileOverride{Landing: strPtr(landing)},
+		}); err == nil {
+			t.Fatalf("expected landing %q to be rejected", landing)
+		}
+		if channelHasProfileMeta(t, ctx, ch.OID) {
+			t.Fatalf("a rejected landing %q must not write channel meta", landing)
+		}
 	}
 }

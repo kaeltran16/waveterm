@@ -71,6 +71,8 @@ export interface LeadCardVM {
     activity: string;
     cost: string;
     settings: string;
+    // the landing branch's full name, which the settings line shortens
+    settingsTitle?: string;
 }
 
 export interface LeadCardInput {
@@ -257,6 +259,7 @@ export function buildLeadCard(input: LeadCardInput): LeadCardVM {
         ]
             .filter(Boolean)
             .join(" · "),
+        settingsTitle: run.landPath ? `lands on wave/${run.runId}` : undefined,
     };
 }
 

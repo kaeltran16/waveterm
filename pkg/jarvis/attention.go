@@ -254,9 +254,9 @@ func blockedTask(g *waveobj.TaskGroup) (string, bool) {
 	return "", false
 }
 
-// conflictTree names where a blocked merge is resolved: the owner's landing tree, which is not where a human
+// fixTree names where a blocked merge is fixed: the owner's landing tree, which is not where a human
 // looks by default, or else the checkout.
-func conflictTree(owner *waveobj.Run) string {
+func fixTree(owner *waveobj.Run) string {
 	if owner != nil && owner.LandPath != "" {
 		return owner.LandPath
 	}
@@ -283,12 +283,12 @@ func dagBlockedReason(g *waveobj.TaskGroup, owner *waveobj.Run) (text, why strin
 				fmt.Sprintf("%s Clear what git refused over, then retry with `wsh jarvis dag merge %s --continue`.", done, t.ID)
 		}
 		return fmt.Sprintf("Merge of %s is blocked by a conflict and needs resolving.", name(t)),
-			fmt.Sprintf("%s Resolve the conflict in %s, commit, then run `wsh jarvis dag merge %s --continue`.", done, conflictTree(owner), t.ID)
+			fmt.Sprintf("%s Resolve the conflict in %s, commit, then run `wsh jarvis dag merge %s --continue`.", done, fixTree(owner), t.ID)
 	}
 	for _, t := range g.Tasks {
 		if t.State == "verify-failed" {
 			return fmt.Sprintf("Verify failed after %s merged.", name(t)),
-				fmt.Sprintf("%s Commit a fix, then re-run Verify with `wsh jarvis dag merge %s --continue`.", done, t.ID)
+				fmt.Sprintf("%s Commit a fix in %s, then re-run Verify with `wsh jarvis dag merge %s --continue`.", done, fixTree(owner), t.ID)
 		}
 	}
 	return fmt.Sprintf("%d consecutive failures — decide retry/skip.", g.Failures),

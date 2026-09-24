@@ -31,6 +31,7 @@ import {
     verifCounts,
     verifTone,
 } from "./runcompletion";
+import { runTree } from "./runmodel";
 import { RunTimeline } from "./runtimelineview";
 
 function openPath(projectPath: string, rel: string) {
@@ -310,7 +311,7 @@ export function RunCompletion({ channel, run, model }: { channel: Channel; run: 
                                     {(ev.artifacts ?? []).map((a) => (
                                         <button
                                             key={a.path}
-                                            onClick={() => openPath(run.projectpath, a.path)}
+                                            onClick={() => openPath(runTree(run), a.path)}
                                             className="flex items-center gap-2 rounded-[9px] border border-edge-mid bg-background px-3 py-2 hover:border-edge-strong"
                                         >
                                             <span
@@ -399,7 +400,7 @@ export function RunCompletion({ channel, run, model }: { channel: Channel; run: 
                                         {n.artifacts.map((art) => (
                                             <button
                                                 key={art}
-                                                onClick={() => openPath(run.projectpath, art)}
+                                                onClick={() => openPath(runTree(run), art)}
                                                 className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-edge-mid bg-background px-2.5 py-1.5 hover:border-edge-strong"
                                             >
                                                 <span className="rounded bg-success/15 px-1.5 py-px font-mono text-xxxs font-bold text-success">

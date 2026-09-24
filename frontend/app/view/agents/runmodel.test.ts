@@ -23,6 +23,7 @@ import {
     runLiveWorkers,
     runRuntimeView,
     runStatusView,
+    runTree,
     steerTarget,
 } from "./runmodel";
 
@@ -282,6 +283,16 @@ describe("planDirty", () => {
     });
     it("is true when edited differs from saved", () => {
         expect(planDirty("abc x", "abc")).toBe(true);
+    });
+});
+
+// a run landing on its own branch works in that tree: its lead writes artifacts there, and its changes are there
+describe("runTree", () => {
+    it("is the landing tree when the run has one, else the project", () => {
+        expect(runTree({ projectpath: "/p" } as Run)).toBe("/p");
+        expect(runTree({ projectpath: "/p", landpath: "/p/.waveterm/worktrees/r" } as Run)).toBe(
+            "/p/.waveterm/worktrees/r"
+        );
     });
 });
 

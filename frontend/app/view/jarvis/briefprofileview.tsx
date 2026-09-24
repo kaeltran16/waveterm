@@ -193,6 +193,7 @@ function DefaultsFields({
 }) {
     const shape = draft.defaultmode ?? base.defaultmode ?? "quick";
     const width = draft.parallelism ?? base.parallelism ?? null;
+    // "" is a stored global meaning checkout; an empty project override is refused on save
     const landing = draft.landing || base.landing || "checkout";
     // a project that inherits the worker route inherits whatever global says, which is the lead unless set
     const workerInherits = inheritable && base.workerroute != null ? "Same as global" : "Same as lead";

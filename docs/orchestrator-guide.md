@@ -212,9 +212,10 @@ that every task must edit is what sets a plan's width, so keep that edit out of 
 **Depends on:** Task 1, Task 2
 ```
 
-- **Setup** runs in every new lane worktree before its first worker (2-minute limit). **Verify** runs where
-  lanes land (the project checkout, or the run's own branch tree) after every lane merge (20-minute limit). Both are optional, both run in a POSIX shell
-  (Git Bash on Windows).
+- **Setup** runs in every new lane worktree before its first worker (2-minute limit), and once in a run's own
+  branch tree when the plan is submitted. **Verify** runs where lanes land (the project checkout, or the run's
+  own branch tree) after every lane merge (20-minute limit). Both are optional, both run in a POSIX shell (Git
+  Bash on Windows).
 - Headings are `### Task N` or `## Task N`, numbered 1, 2, 3… in order.
 - `**Depends on:**` must be the first line after the heading. Left out, the task depends on the task before it,
   so a plan with no Depends lines is **serial**. `none` means independent. References must point backwards.

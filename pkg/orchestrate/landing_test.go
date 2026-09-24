@@ -187,19 +187,79 @@ func TestLaneSpawnsFromTheLandingBranchWithoutItsTree(t *testing.T) {
 	}
 }
 
+// a cancelled lane's patch is its own work: not the lanes that landed before it was cut, and not the reverse
+// of what the human committed on the checkout since
+func TestRecoveryPatchHoldsOnlyTheLanesOwnWork(t *testing.T) {
+	dir := newGitRepo(t)
+	ctx := context.Background()
+	base := gitCmd(t, dir, "rev-parse", "HEAD")
+	tree, err := CreateRunWorktree(ctx, dir, "run-1", base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(tree, "earlier-lane.txt"), "landed\n")
+	gitCmd(t, tree, "add", ".")
+	gitCmd(t, tree, "commit", "-m", "earlier lane")
+	lane, err := CreateRunWorktree(ctx, dir, "run-1-t-2", "wave/run-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(lane, "mine.txt"), "lane work\n")
+	gitCmd(t, lane, "add", ".")
+	gitCmd(t, lane, "commit", "-m", "lane work")
+	writeFile(t, filepath.Join(dir, "human.txt"), "human\n")
+	gitCmd(t, dir, "add", "human.txt")
+	gitCmd(t, dir, "commit", "-m", "human work")
+
+	if err := DumpRecoveryPatch(ctx, dir, "run-1-t-2", gitCmd(t, dir, "rev-parse", "wave/run-1")); err != nil {
+		t.Fatal(err)
+	}
+	patch, err := os.ReadFile(filepath.Join(dir, ".waveterm", "recovery", "run-1-t-2.patch"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(patch), "mine.txt") || strings.Contains(string(patch), "earlier-lane.txt") || strings.Contains(string(patch), "human.txt") {
+		t.Fatalf("patch should hold only mine.txt:\n%s", patch)
+	}
+}
+
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// foldFixture is a repo with a landing tree and one lane committing files, each cut from the same base.
+func foldFixture(t *testing.T, laneFiles map[string]string) (dir, base, tree string) {
+	t.Helper()
+	dir = newGitRepo(t)
+	base = gitCmd(t, dir, "rev-parse", "HEAD")
+	tree, err := CreateRunWorktree(context.Background(), dir, "run-1", base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lane, err := CreateRunWorktree(context.Background(), dir, "run-1-t-1", base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rel, content := range laneFiles {
+		writeFile(t, filepath.Join(lane, rel), content)
+	}
+	gitCmd(t, lane, "add", ".")
+	gitCmd(t, lane, "commit", "-m", "feature")
+	return dir, base, tree
+}
+
 // a plan-path run's plan sits untracked in the checkout, outside the landing tree; it lands at the same
 // repo-relative path in the tree
 func TestFoldCopiesACheckoutDocIntoTheLandingTree(t *testing.T) {
-	dir := newGitRepo(t)
-	base := gitCmd(t, dir, "rev-parse", "HEAD")
-	tree, _ := CreateRunWorktree(context.Background(), dir, "run-1", base)
-	lane, _ := CreateRunWorktree(context.Background(), dir, "run-1-t-1", base)
-	os.WriteFile(filepath.Join(lane, "feature.txt"), []byte("feat\n"), 0o644)
-	gitCmd(t, lane, "add", ".")
-	gitCmd(t, lane, "commit", "-m", "feature")
+	dir, base, tree := foldFixture(t, map[string]string{"feature.txt": "feat\n"})
 	plan := filepath.Join(dir, "docs", "plan.md")
-	os.MkdirAll(filepath.Dir(plan), 0o755)
-	os.WriteFile(plan, []byte("# plan\n"), 0o644)
+	writeFile(t, plan, "# plan\n")
 
 	if _, err := MergeRunWorktree(context.Background(), tree, "run-1-t-1", "lane", []string{plan}); err != nil {
 		t.Fatal(err)
@@ -209,5 +269,19 @@ func TestFoldCopiesACheckoutDocIntoTheLandingTree(t *testing.T) {
 	}
 	if got := gitCmd(t, dir, "rev-parse", "HEAD"); got != base {
 		t.Fatalf("the checkout moved to %s", got)
+	}
+}
+
+// the lane's own edit of the same path is the run's work; the checkout's copy must not replace it
+func TestFoldNeverOverwritesADifferentFileInTheTree(t *testing.T) {
+	dir, _, tree := foldFixture(t, map[string]string{"docs/plan.md": "# plan, as the lane amended it\n"})
+	plan := filepath.Join(dir, "docs", "plan.md")
+	writeFile(t, plan, "# plan\n")
+
+	if _, err := MergeRunWorktree(context.Background(), tree, "run-1-t-1", "lane", []string{plan}); err != nil {
+		t.Fatal(err)
+	}
+	if got := gitCmd(t, tree, "show", "HEAD:docs/plan.md"); got != "# plan, as the lane amended it" {
+		t.Fatalf("landed docs/plan.md = %q, want the lane's version", got)
 	}
 }

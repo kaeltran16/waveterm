@@ -62,7 +62,7 @@ func TestRecoveryPatch(t *testing.T) {
 	os.WriteFile(filepath.Join(wt, "new.txt"), []byte("work\n"), 0o644)
 	gitCmd(t, wt, "add", ".")
 	gitCmd(t, wt, "commit", "-m", "wip")
-	if err := DumpRecoveryPatch(context.Background(), dir, "run-1"); err != nil {
+	if err := DumpRecoveryPatch(context.Background(), dir, "run-1", ""); err != nil {
 		t.Fatal(err)
 	}
 	patch := filepath.Join(dir, ".waveterm", "recovery", "run-1.patch")

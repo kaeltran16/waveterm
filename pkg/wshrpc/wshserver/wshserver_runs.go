@@ -430,6 +430,12 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 			if cerr := ws.CancelRunCommand(ctx, wshrpc.CommandCancelRunData{ChannelId: data.ChannelId, RunId: run.ID}); cerr != nil {
 				log.Printf("CreateRun: cancelling run %s after its plan was refused: %v", run.ID, cerr)
 			}
+			// no dag means no lane ever landed there, so the tree holds nothing but Setup's output
+			if run.LandPath != "" {
+				if rerr := orchestrate.RemoveRunWorktree(ctx, run.ProjectPath, run.ID); rerr != nil {
+					log.Printf("CreateRun: removing run %s's landing tree after its plan was refused: %v", run.ID, rerr)
+				}
+			}
 			return nil, fmt.Errorf("submitting plan: %w", err)
 		}
 	case !data.DeferStart:

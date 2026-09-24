@@ -142,7 +142,7 @@ func EnsureRunWorktree(ctx context.Context, projectPath, runID, baseCommit strin
 	head, headErr := WorktreeHeadCommit(ctx, projectPath, runID)
 	if headErr != nil {
 		if statErr == nil {
-			DumpRecoveryPatch(ctx, projectPath, runID) // best effort; rebuild proceeds either way
+			DumpRecoveryPatch(ctx, projectPath, runID, baseCommit) // best effort; rebuild proceeds either way
 			if err := RemoveRunWorktree(ctx, projectPath, runID); err != nil {
 				return "", "", false, fmt.Errorf("recreating stale worktree: %w", err)
 			}
@@ -162,7 +162,7 @@ func EnsureRunWorktree(ctx context.Context, projectPath, runID, baseCommit strin
 			if err == nil && strings.TrimSpace(status) == "" {
 				return wt, head, false, nil
 			}
-			DumpRecoveryPatch(ctx, projectPath, runID) // best effort; rebuild proceeds either way
+			DumpRecoveryPatch(ctx, projectPath, runID, baseCommit) // best effort; rebuild proceeds either way
 		}
 		if err := removeWorktreeDir(ctx, projectPath, wt); err != nil {
 			return "", "", false, fmt.Errorf("recreating worktree: %w", err)
@@ -203,12 +203,15 @@ func worktreeOnBranch(ctx context.Context, wt, runID string) bool {
 	return err == nil && branch == "wave/"+runID
 }
 
-// DumpRecoveryPatch writes the worktree's diff vs the project head to a patch file so a cancelled
-// or recreated run's work is not silently lost. Captures both committed divergence (branch tip vs
-// project HEAD) and uncommitted changes inside the linked tree.
-func DumpRecoveryPatch(ctx context.Context, projectPath, runID string) error {
-	base := "wave/" + runID
-	patch, err := git(ctx, projectPath, "diff", "HEAD", base)
+// DumpRecoveryPatch writes the worktree's own work to a patch file so a cancelled or recreated run's work
+// is not silently lost: its branch's commits since it forked from landHead, the head lanes land on (empty
+// = the project head), and uncommitted changes inside the linked tree. Diffing from the fork point keeps
+// out the lanes that landed before it was cut and anything committed on landHead since.
+func DumpRecoveryPatch(ctx context.Context, projectPath, runID, landHead string) error {
+	if landHead == "" {
+		landHead = "HEAD"
+	}
+	patch, err := git(ctx, projectPath, "diff", landHead+"...wave/"+runID)
 	if err != nil {
 		return err
 	}

@@ -62,6 +62,10 @@ func validateEngineDefaults(o *waveobj.ProfileOverride) error {
 		return nil
 	}
 	if o.Landing != nil {
+		// an override names a place; leaving it out is how a project inherits
+		if *o.Landing == "" {
+			return fmt.Errorf("landing override is empty: want %q or %q, or omit it to inherit", jarvis.Landing_Checkout, jarvis.Landing_Branch)
+		}
 		if err := jarvis.ValidateLanding(*o.Landing); err != nil {
 			return err
 		}

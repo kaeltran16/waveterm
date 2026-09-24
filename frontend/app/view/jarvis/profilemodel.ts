@@ -211,8 +211,8 @@ export function globalProfileIsDirty(a: JarvisProfile, b: JarvisProfile): boolea
 }
 
 // the run defaults a project can set for itself, in the order the modal lists them
-const OVERRIDE_FIELDS = ["defaultmode", "landing", "parallelism", "route", "workerroute"] as const;
-export type GlobalDefaultKey = "defaultmode" | "landing" | "parallelism" | "workerroute";
+const OVERRIDE_FIELDS = ["defaultmode", "parallelism", "route", "workerroute", "landing"] as const;
+export type GlobalDefaultKey = "defaultmode" | "parallelism" | "workerroute" | "landing";
 
 // the project-scope Run defaults meta: how many rows this project sets instead of inheriting
 export function overrideSummary(o: ProfileOverride): string {

@@ -355,6 +355,7 @@ func cancelLocked(ctx context.Context, dagID string) error {
 	var gCopy *waveobj.TaskGroup
 	var runIDs []string
 	var projectPath string
+	var landOwner *waveobj.Run
 	if err := withMutationTx(ctx, func(tx *wstore.TxWrap) error {
 		txCtx := tx.Context()
 		g, err := wstore.GetDag(txCtx, dagID)
@@ -365,7 +366,7 @@ func cancelLocked(ctx context.Context, dagID string) error {
 		if err != nil {
 			return err
 		}
-		projectPath = owner.ProjectPath
+		projectPath, landOwner = owner.ProjectPath, owner
 		CancelGroup(g)
 		if IsGitRepo(projectPath) {
 			for i := range g.Tasks {
@@ -424,11 +425,13 @@ func cancelLocked(ctx context.Context, dagID string) error {
 	// cancelled work is abandoned, so every task's tree goes through the same durable cleanup path.
 	// dump dirty state first; each cleanup outcome persists and publishes before the next task.
 	if IsGitRepo(projectPath) {
+		// unreadable leaves it empty, and the patch falls back to the checkout's head
+		landHead, _ := landingHead(cleanupCtx, landOwner)
 		for i := range gCopy.Tasks {
 			taskID := gCopy.Tasks[i].ID
 			// a lane's tasks share one key: the first removes the tree, the rest find nothing left to do
 			key := LaneWorktreeKey(gCopy, taskID)
-			DumpRecoveryPatch(cleanupCtx, projectPath, key) // best effort
+			DumpRecoveryPatch(cleanupCtx, projectPath, key, landHead) // best effort
 			cleanupErr := CleanupTaskWorktree(cleanupCtx, gCopy, taskID)
 			if err := PersistCleanupState(cleanupCtx, gCopy); err != nil {
 				errs = append(errs, fmt.Errorf("persisting worktree %s cleanup: %w", key, err))

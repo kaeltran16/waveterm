@@ -332,6 +332,24 @@ func TestSealEvidenceAggregatesVerifsAcrossWorkers(t *testing.T) {
 	}
 }
 
+// a branch run's lead writes its relative artifacts in the landing tree, not the checkout
+func TestSealEvidenceSizesArtifactsInTheLandingTree(t *testing.T) {
+	tree := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tree, "report.md"), []byte("landed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run := &waveobj.Run{
+		ID: "r1", Status: RunStatus_Done, ProjectPath: t.TempDir(), LandPath: tree, CreatedTs: 1000,
+		Phases: []waveobj.RunPhase{{Kind: PhaseKind_Execute, State: PhaseState_Done, DoneTs: 3000, Artifacts: []string{"report.md"}}},
+	}
+	if err := SealEvidence(context.Background(), run); err != nil {
+		t.Fatal(err)
+	}
+	if arts := run.Evidence.Artifacts; len(arts) != 1 || arts[0].Size != int64(len("landed\n")) {
+		t.Fatalf("artifacts = %+v, want report.md sized from the landing tree", arts)
+	}
+}
+
 // TestSealEvidenceVerifDedupeAcrossWorkers guards the cross-transcript dedupe: the same command run
 // by two workers collapses to one entry, keeping its first-appearance position, and the last result
 // wins (the per-transcript semantic extended across transcripts).

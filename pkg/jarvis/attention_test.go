@@ -369,14 +369,14 @@ func TestTriageWhySplitsNewFromRecurring(t *testing.T) {
 	}
 }
 
-func TestMergeConflictNamesWhereToResolveIt(t *testing.T) {
-	conflict := func(run *waveobj.Run) string {
+func TestBlockedMergeNamesWhereToFixIt(t *testing.T) {
+	blocked := func(run *waveobj.Run, state string) string {
 		t.Helper()
 		items := BuildAttention(AttentionInput{
 			Channels: []AttentionChannel{{OID: "c1", Runs: []*waveobj.Run{run}}},
 			Dags: []*waveobj.TaskGroup{{
 				ID: "d1", RunID: run.ID, ChannelId: "c1", Status: "blocked", UpdatedTs: 5,
-				Tasks: []waveobj.TaskNode{{ID: "t-2", State: "blocked-merge"}},
+				Tasks: []waveobj.TaskNode{{ID: "t-2", State: state}},
 			}},
 		})
 		if len(items) != 1 {
@@ -385,10 +385,19 @@ func TestMergeConflictNamesWhereToResolveIt(t *testing.T) {
 		return items[0].Why
 	}
 	tree := "/p/.waveterm/worktrees/r1"
-	if why := conflict(&waveobj.Run{ID: "r1", ProjectPath: "/p", LandPath: tree}); !strings.Contains(why, "Resolve the conflict in "+tree+",") {
+	landed := &waveobj.Run{ID: "r1", ProjectPath: "/p", LandPath: tree}
+	checkout := &waveobj.Run{ID: "r2", ProjectPath: "/p"}
+	if why := blocked(landed, "blocked-merge"); !strings.Contains(why, "Resolve the conflict in "+tree+",") {
 		t.Fatalf("why = %q, want it to name the landing tree", why)
 	}
-	if why := conflict(&waveobj.Run{ID: "r2", ProjectPath: "/p"}); !strings.Contains(why, "Resolve the conflict in the project checkout,") {
+	if why := blocked(checkout, "blocked-merge"); !strings.Contains(why, "Resolve the conflict in the project checkout,") {
+		t.Fatalf("why = %q, want the project checkout", why)
+	}
+	// a fix committed on the human's branch would leave the run's Verify failing
+	if why := blocked(landed, "verify-failed"); !strings.Contains(why, "Commit a fix in "+tree+",") {
+		t.Fatalf("why = %q, want it to name the landing tree", why)
+	}
+	if why := blocked(checkout, "verify-failed"); !strings.Contains(why, "Commit a fix in the project checkout,") {
 		t.Fatalf("why = %q, want the project checkout", why)
 	}
 }

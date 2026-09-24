@@ -10,6 +10,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "./agents";
 import { defaultRangeFor, scopeKey, type DiffOrigin, type DiffScope } from "./diffscope";
 import { requestFileLink } from "./filesstore";
+import { runTree } from "./runmodel";
 
 export function agentDiffScope(agentId: string, label: string): DiffScope {
     const origin: DiffOrigin = { kind: "agent", id: agentId };
@@ -26,7 +27,7 @@ export function runDiffScope(runId: string, cwd: string, baseCommit?: string): D
 
 // a run's changes live where its lanes landed: its own branch tree when it has one, else the checkout
 export function diffScopeOfRun(run: Pick<Run, "id" | "projectpath" | "landpath" | "basecommit">): DiffScope {
-    return runDiffScope(run.id, run.landpath || run.projectpath, run.basecommit);
+    return runDiffScope(run.id, runTree(run), run.basecommit);
 }
 
 export function projectDiffScope(name: string, path: string): DiffScope {
