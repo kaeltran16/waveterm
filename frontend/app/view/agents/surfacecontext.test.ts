@@ -15,6 +15,7 @@ const ALL_SURFACES: SurfaceKey[] = [
     "usage",
     "code",
     "settings",
+    "setup",
 ];
 
 describe("surface context capabilities", () => {
@@ -33,6 +34,7 @@ describe("surface context capabilities", () => {
             usage: { project: "unsupported", space: "unsupported" },
             code: { project: "subject", space: "subject" },
             settings: { project: "unsupported", space: "unsupported" },
+            setup: { project: "unsupported", space: "unsupported" },
         });
     });
 
