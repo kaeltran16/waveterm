@@ -8,16 +8,20 @@
 import { type KeyboardEvent, type MutableRefObject } from "react";
 import type { AgentsViewModel } from "./agents";
 import { answerDigitTarget, canSubmitAsk, hasAnswerableAsk, moveCursor, nextAskId, type AgentVM } from "./agentsviewmodel";
+import { askerAt, columnJump, type RowTarget } from "./cardgridlayout";
+import { isRowKey, rowCardId } from "./leadcardmodel";
 
 export type CockpitKeyDeps = {
     model: AgentsViewModel;
-    orderedAgents: AgentVM[];
     navigableIds: string[];
     cursorId: string | undefined;
     setCursorId: (v: (string | undefined) | ((p: string | undefined) => string | undefined)) => void;
     answerTab: Record<string, number>;
     answerSel: Record<string, Record<number, Set<number>>>;
-    asking: AgentVM[];
+    navCols: string[][];
+    rowTargets: Record<string, RowTarget>;
+    askTargets: string[];
+    roster: AgentVM[];
     lastJumpRef: MutableRefObject<string | undefined>;
     setOpenComposerId: (v: string | undefined) => void;
     selectQuestion: (id: string, qi: number) => void;
@@ -32,13 +36,15 @@ export type CockpitKeyDeps = {
 export function useCockpitKeyboard(deps: CockpitKeyDeps): (e: KeyboardEvent) => void {
     const {
         model,
-        orderedAgents,
         navigableIds,
         cursorId,
         setCursorId,
         answerTab,
         answerSel,
-        asking,
+        navCols,
+        rowTargets,
+        askTargets,
+        roster,
         lastJumpRef,
         setOpenComposerId,
         selectQuestion,
@@ -57,7 +63,32 @@ export function useCockpitKeyboard(deps: CockpitKeyDeps): (e: KeyboardEvent) => 
         }
         // surface switch (`[`/`]`) now lives in the global keybinding registry (bindings.ts), so it
         // fires from every surface, not just the cockpit — see docs Pass A (F1/F2).
-        const cur = orderedAgents.find((a) => a.id === cursorId);
+        // a run card can hold a lead the live list parked, so look the card up in the whole roster
+        const cur = roster.find((a) => a.id === cursorId);
+        const row = cursorId != null && isRowKey(cursorId) ? rowTargets[cursorId] : undefined;
+        if (row && (/^[1-9]$/.test(e.key) || e.key === "Enter" || e.key === "t")) {
+            e.preventDefault();
+            // a worker is not a grid card, so look it up in the whole roster
+            const asker = askerAt(cursorId, roster, rowTargets);
+            if (/^[1-9]$/.test(e.key)) {
+                const d = parseInt(e.key, 10);
+                const target = asker ? answerDigitTarget(asker, answerTab[asker.id] ?? 0, d) : null;
+                if (asker && target) {
+                    toggleAnswer(asker.id, target.qi, target.oi);
+                } else {
+                    row.actions[d - 1]?.();
+                }
+            } else if (e.key === "Enter") {
+                if (asker && canSubmitAsk(asker.ask?.questions ?? [], answerSel[asker.id] ?? {})) {
+                    submitAnswer(asker.id);
+                } else if (row.openId) {
+                    openFocus(row.openId, false);
+                }
+            } else if (row.openId) {
+                model.openTerminal(row.openId);
+            }
+            return;
+        }
         if (e.key === "ArrowDown" || e.key === "j") {
             e.preventDefault();
             setCursorId((c) => moveCursor(navigableIds, c, 1));
@@ -65,20 +96,24 @@ export function useCockpitKeyboard(deps: CockpitKeyDeps): (e: KeyboardEvent) => 
             e.preventDefault();
             setCursorId((c) => moveCursor(navigableIds, c, -1));
         } else if (e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "h" || e.key === "l") {
-            const n = cur?.ask?.questions?.length ?? 0;
-            if (cur?.state !== "asking" || n <= 1) {
+            const back = e.key === "ArrowLeft" || e.key === "h";
+            // a question with several parts keeps h/l for its tabs, on its own card or on its worker's task row
+            const asker = askerAt(cursorId, roster, rowTargets);
+            const n = asker?.ask?.questions?.length ?? 0;
+            if (asker?.state === "asking" && n > 1) {
+                e.preventDefault();
+                const curTab = Math.min(answerTab[asker.id] ?? 0, n - 1);
+                selectQuestion(asker.id, Math.max(0, Math.min(n - 1, curTab + (back ? -1 : 1))));
                 return;
             }
-            e.preventDefault();
-            const delta = e.key === "ArrowLeft" || e.key === "h" ? -1 : 1;
-            const curTab = Math.min(answerTab[cur.id] ?? 0, n - 1);
-            selectQuestion(cur.id, Math.max(0, Math.min(n - 1, curTab + delta)));
+            const target = columnJump(navCols, rowCardId, cursorId, back ? -1 : 1);
+            if (target) {
+                e.preventDefault();
+                setCursorId(target);
+            }
         } else if (e.key === "n") {
             e.preventDefault();
-            const target = nextAskId(
-                asking.map((a) => a.id),
-                lastJumpRef.current
-            );
+            const target = nextAskId(askTargets, lastJumpRef.current);
             if (target) {
                 lastJumpRef.current = target;
                 setCursorId(target);

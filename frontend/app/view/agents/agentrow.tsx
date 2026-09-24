@@ -2,17 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Meter } from "@/app/element/meter";
-import { cardVariants, composerReveal, resizeSpring } from "@/app/element/motiontokens";
+import { cardVariants, composerReveal } from "@/app/element/motiontokens";
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import { ContextMenuModel } from "@/app/store/contextmenu";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue, type Atom } from "jotai";
-import { Copy, GitCompare, Minimize2, PanelRight, Scaling, SquareTerminal, X } from "lucide-react";
-import { motion, useReducedMotion, useSpring, type MotionValue } from "motion/react";
-import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { confirmCloseSession } from "./agentactions";
+import { Copy, GitCompare, Minimize2, PanelRight, SquareTerminal, X } from "lucide-react";
+import { motion } from "motion/react";
+import { memo, useEffect, useRef, useState } from "react";
+import { confirmCloseSession, driveAgent, NUDGE_INPUT } from "./agentactions";
 import { AgentComposer, type AgentComposerHandle } from "./agentcomposer";
 import {
     agentRowMenuItems,
@@ -25,16 +25,16 @@ import {
 import {
     displayAgeMs,
     formatAge,
+    formatAgo,
     hasAnswerableAsk,
-    nextFullWidth,
     taskProgress,
     type AgentVM,
-    type CardRect,
     type CardTask,
 } from "./agentsviewmodel";
 import { AnswerBar } from "./answerbar";
 import { AttentionBanner, BannerChip } from "./attentioncard";
 import { diffStatsByIdAtom } from "./cardgitstore";
+import type { CardShare } from "./cardgridlayout";
 import { entriesAtomFor, tasksAtomFor } from "./livetranscriptatoms";
 import { NarrationTimeline } from "./narrationtimeline";
 import type { SubagentState, SubagentVM } from "./session-models/sessionviewmodel";
@@ -52,6 +52,12 @@ const SUB_COLOR: Record<SubagentState, string> = {
     failure: "var(--color-error)",
     done: "var(--color-muted)",
 };
+
+// reads the 1s clock itself so the card does not re-render every second
+function FinishedAge({ agent, nowAtom }: { agent: AgentVM; nowAtom: Atom<number> }) {
+    const now = useAtomValue(nowAtom);
+    return <>{formatAgo(displayAgeMs(agent, now))}</>;
+}
 
 function TaskChip({ done, total, onClick }: { done: number; total: number; onClick: () => void }) {
     return (
@@ -195,17 +201,7 @@ export const AgentRow = memo(function AgentRow({
     onBackground,
     onDismiss,
     pulse,
-    rect,
-    xMV,
-    yMV,
-    wMV,
-    hMV,
-    fullWidth,
-    elevated,
-    onResizeStart,
-    onResizeMove,
-    onResizeEnd,
-    onToggleFullWidth,
+    share,
 }: {
     agent: AgentVM;
     nowAtom: Atom<number>;
@@ -228,43 +224,10 @@ export const AgentRow = memo(function AgentRow({
     onBackground?: () => void;
     onDismiss?: () => void;
     pulse?: boolean;
-    rect: CardRect; // current target geometry — seeds the springs and is the pre-measure fallback
-    xMV: MotionValue<number>; // parent-held; springs below ease toward these on layout change
-    yMV: MotionValue<number>;
-    wMV: MotionValue<number>;
-    hMV: MotionValue<number>; // the corner drag writes this directly (DOM-only, no re-render)
-    fullWidth?: boolean; // current full-width state — seeds the corner-drag hysteresis
-    elevated?: boolean; // render above siblings (mid-drag the card grows in place over its neighbours)
-    onResizeStart?: () => void; // corner pointer-down: snapshot the column's heights
-    onResizeMove?: (dxPx: number, dyPx: number, pendingFull: boolean) => void; // corner drag: dx/dy + pending full-width
-    onResizeEnd?: (full: boolean) => void; // corner pointer-up: commit height + the pending full-width state
-    onToggleFullWidth?: () => void; // flips this card's full-width pref
+    share: CardShare; // flex share of its column and its floor (cardgridlayout.ts)
 }) {
     const composerRef = useRef<AgentComposerHandle>(null);
     const cardRef = useRef<HTMLDivElement>(null);
-    // Geometry eases toward parent-driven target motion values (the corner drag writes hMV directly).
-    // Springs run off React (no per-frame re-render). Under reduced motion the raw MV drives style so
-    // nothing animates. jump() past the 0->first-measure ease so cards don't fly in from the origin on
-    // load; structural re-layouts after that ease naturally.
-    const reduce = useReducedMotion();
-    const springX = useSpring(xMV, resizeSpring);
-    const springY = useSpring(yMV, resizeSpring);
-    const springW = useSpring(wMV, resizeSpring);
-    const springH = useSpring(hMV, resizeSpring);
-    const x = reduce ? xMV : springX;
-    const y = reduce ? yMV : springY;
-    const w = reduce ? wMV : springW;
-    const h = reduce ? hMV : springH;
-    const springSeeded = useRef(false);
-    useLayoutEffect(() => {
-        if (!springSeeded.current && rect.w > 0) {
-            springX.jump(xMV.get());
-            springY.jump(yMV.get());
-            springW.jump(wMV.get());
-            springH.jump(hMV.get());
-            springSeeded.current = true;
-        }
-    });
     const [tasksOpen, setTasksOpen] = useState(false);
 
     const liveEntries = useAtomValue(entriesAtomFor(agent.id));
@@ -288,7 +251,6 @@ export const AgentRow = memo(function AgentRow({
             open: <PanelRight size={15} />,
             terminal: <SquareTerminal size={15} />,
             diff: <GitCompare size={15} />,
-            fullwidth: <Scaling size={15} />,
             mute: <Minimize2 size={15} />,
             copy: <Copy size={15} />,
             close: <X size={15} />,
@@ -297,20 +259,15 @@ export const AgentRow = memo(function AgentRow({
             open: onOpen,
             terminal: onOpenTerminal,
             diff: onOpenDiff,
-            fullwidth: () => onToggleFullWidth?.(),
             mute: () => muteAction?.(),
             copy: () => void navigator.clipboard.writeText(agent.name),
             close: () => confirmCloseSession(agent),
         };
-        const items: ContextMenuItem[] = agentRowMenuItems({
-            hasDiff: !!diff,
-            canToggleFullWidth: !!onToggleFullWidth,
-            fullWidth: !!fullWidth,
-            hasMute: !!muteAction,
-        }).map((it: AgentRowMenuItem) =>
-            "separator" in it
-                ? { type: "separator" }
-                : { label: it.label, icon: icons[it.key], click: clicks[it.key], danger: it.danger }
+        const items: ContextMenuItem[] = agentRowMenuItems({ hasDiff: !!diff, hasMute: !!muteAction }).map(
+            (it: AgentRowMenuItem) =>
+                "separator" in it
+                    ? { type: "separator" }
+                    : { label: it.label, icon: icons[it.key], click: clicks[it.key], danger: it.danger }
         );
         ContextMenuModel.getInstance().showContextMenu(items, e);
     };
@@ -330,33 +287,19 @@ export const AgentRow = memo(function AgentRow({
 
     return (
         <motion.div
-            // All cards are absolute siblings in one container; x/y/w/h are spring-driven motion values
-            // (real dimensions, never transform:scale), so width/height/position change without any
-            // content distortion and a move never remounts (no crossfade). variants animate opacity+scale
-            // for genuine mount/unmount only.
+            // a flex item in its column: `share` sets its part of the column's height and its floor.
+            // variants animate opacity+scale for genuine mount/unmount only
             variants={cardVariants}
             initial="initial"
             animate="animate"
             exit="exit"
             ref={cardRef}
-            style={{
-                position: "absolute",
-                left: 0,
-                top: 0,
-                x,
-                y,
-                width: w,
-                height: h,
-                minHeight: 0,
-                // full-width cards sit above the columns; a card mid-resize grows in place over its
-                // neighbours and must stay on top through the drag and the settle that follows
-                zIndex: fullWidth || elevated ? 30 : undefined,
-            }}
+            style={{ flex: `${share.grow} 0 0px`, minHeight: share.minPx }}
             data-agent-id={agent.id}
             onClick={onCursor}
             onContextMenu={onContextMenu}
             className={cn(
-                // card fills its spring-driven height (h); overflow clipped
+                // card fills its flex share; overflow clipped
                 "group relative flex cursor-pointer flex-col overflow-hidden rounded-[13px] border",
                 asking
                     ? "border-warning/40 bg-lane animate-[breatheGlow_2.4s_ease-in-out_infinite] motion-reduce:animate-none"
@@ -469,6 +412,42 @@ export const AgentRow = memo(function AgentRow({
                 </>
             ) : null}
 
+            {/* finished: the card keeps its place and says so, with the two things you do next */}
+            {idle ? (
+                <div
+                    onClick={(e) => e.stopPropagation()}
+                    className="flex shrink-0 items-center gap-2 border-b border-edge-mid bg-accent/[0.06] py-[5px] pl-3.5 pr-2"
+                >
+                    <span className="text-[11px] leading-none text-accent-soft">✓</span>
+                    <span className="font-mono text-[9px] font-bold uppercase tracking-[0.09em] text-accent-soft">
+                        Finished
+                    </span>
+                    <span className="min-w-0 flex-1 font-mono text-[9.5px] font-semibold text-muted">
+                        <FinishedAge agent={agent} nowAtom={nowAtom} />
+                    </span>
+                    {diff ? (
+                        <button
+                            type="button"
+                            onClick={onOpenDiff}
+                            className="flex h-[23px] shrink-0 cursor-pointer items-center gap-1.5 rounded-[6px] border border-accent/45 bg-transparent px-[9px] text-[11.5px] font-semibold text-accent-soft hover:bg-accent/10"
+                        >
+                            Review changes
+                            <span className="font-mono text-[10px]">
+                                <span className="text-success">+{diff.adds}</span>{" "}
+                                <span className="text-error">−{diff.dels}</span>
+                            </span>
+                        </button>
+                    ) : null}
+                    <button
+                        type="button"
+                        onClick={onOpen}
+                        className="h-[23px] shrink-0 cursor-pointer rounded-[6px] border border-edge-mid bg-transparent px-[9px] text-[11.5px] text-secondary hover:border-edge-strong"
+                    >
+                        Open ↗
+                    </button>
+                </div>
+            ) : null}
+
             {/* task popover */}
             <PopoverReveal
                 open={tasksOpen && !!tasks && !!prog}
@@ -504,6 +483,7 @@ export const AgentRow = memo(function AgentRow({
                                 agent={agent}
                                 nowAtom={nowAtom}
                                 className="mb-1.5 border-b border-edge-mid pb-1.5"
+                                onNudge={() => driveAgent(agent.blockId, NUDGE_INPUT)}
                                 right={
                                     prog ? (
                                         <TaskChip
@@ -587,44 +567,6 @@ export const AgentRow = memo(function AgentRow({
                 </div>
                 {!atBottom ? <JumpToLatestPill onClick={jumpToBottom} /> : null}
             </div>
-
-            {/* bottom-right corner grip: drag down = taller, drag out (±48px) = full-width span */}
-            {onResizeMove ? (
-                <div
-                    onPointerDown={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        const startX = e.clientX;
-                        const startY = e.clientY;
-                        // pending full-width via hysteresis; committed on release, not mid-drag — the card
-                        // grows in place during the drag and snaps to its slot only on pointer-up
-                        let pendingFull = !!fullWidth;
-                        onResizeStart?.();
-                        const move = (ev: PointerEvent) => {
-                            const dx = ev.clientX - startX;
-                            pendingFull = nextFullWidth(pendingFull, dx);
-                            onResizeMove?.(dx, ev.clientY - startY, pendingFull);
-                        };
-                        const up = () => {
-                            window.removeEventListener("pointermove", move);
-                            window.removeEventListener("pointerup", up);
-                            window.removeEventListener("pointercancel", up);
-                            onResizeEnd?.(pendingFull);
-                        };
-                        window.addEventListener("pointermove", move);
-                        window.addEventListener("pointerup", up);
-                        // pointercancel (alt-tab mid-drag, pen leaving range) must run the same
-                        // cleanup, otherwise the listeners leak for the session and resize stays active
-                        window.addEventListener("pointercancel", up);
-                    }}
-                    onClick={(e) => e.stopPropagation()}
-                    title={fullWidth ? "Drag in to un-span · down to resize" : "Drag out to span · down to resize"}
-                    className="group/grip absolute bottom-[2px] right-[2px] z-20 flex h-[20px] w-[20px] cursor-nwse-resize items-center justify-center rounded-[5px] text-muted opacity-60 transition-opacity group-hover:opacity-100 hover:bg-surface-raised group-hover/grip:text-accent"
-                >
-                    {/* lucide scaling glyph: reads as "resize / drag out to span" more clearly than bare corner lines */}
-                    <Scaling size={14} strokeWidth={1.8} />
-                </div>
-            ) : null}
         </motion.div>
     );
 });

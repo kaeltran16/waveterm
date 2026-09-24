@@ -2,13 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import {
-    providerDot,
-    providerLabel,
-    usageBarShowsMeta,
-    usageBarVisible,
-    windowUsedTokens,
-} from "./cockpitrailmodel";
+import { meterTitle, providerDot, providerLabel, usageBarVisible, windowUsedTokens } from "./cockpitrailmodel";
 import type { WindowTokens } from "./windowtokenstore";
 
 describe("providerLabel", () => {
@@ -60,14 +54,14 @@ describe("usageBarVisible", () => {
     });
 });
 
-describe("usageBarShowsMeta", () => {
-    it("shows the meta line when there are used tokens or a reset", () => {
-        expect(usageBarShowsMeta(1200, undefined)).toBe(true);
-        expect(usageBarShowsMeta(undefined, 1699999999)).toBe(true);
-        expect(usageBarShowsMeta(0, undefined)).toBe(true);
+describe("meterTitle", () => {
+    const NOW = 1_700_000_000_000;
+    it("spells out the window, its use, its tokens and its reset", () => {
+        expect(meterTitle("5-hour window", 74.4, 175_700_000, NOW / 1000 + 540, NOW)).toBe(
+            "5-hour window · 74% · 175.7M tok · resets 9m"
+        );
     });
-    it("hides the meta line when there are neither", () => {
-        expect(usageBarShowsMeta(undefined, undefined)).toBe(false);
-        expect(usageBarShowsMeta(undefined, 0)).toBe(false);
+    it("leaves out tokens and reset when unknown", () => {
+        expect(meterTitle("Weekly", 38, undefined, undefined, NOW)).toBe("Weekly · 38%");
     });
 });

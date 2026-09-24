@@ -3,15 +3,14 @@
 
 import { CollapsibleRail, type RailSection } from "@/app/element/collapsiblerail";
 import { Meter } from "@/app/element/meter";
-import { MOTION, easeFluidCss, popoverReveal } from "@/app/element/motiontokens";
+import { easeFluidCss, MOTION, popoverReveal } from "@/app/element/motiontokens";
 import { globalStore } from "@/app/store/jotaiStore";
-import { RpcApi } from "@/app/store/wshclientapi";
-import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { formatChordString } from "@/util/keysym";
-import { cn, fireAndForget, stringToBase64 } from "@/util/util";
+import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect } from "react";
+import { driveAgent, NUDGE_INPUT } from "./agentactions";
 import { agentDiffScope, openDiff } from "./agentdiffnav";
 import {
     cacheRewriteTitle,
@@ -298,17 +297,7 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
         globalStore.set(model.focusIdAtom, agent.id);
         openDiff(model, agentDiffScope(agent.id, agent.name), railState?.cwd && path ? path : undefined);
     };
-    const drive = (data: string) => {
-        if (!agent.blockId) {
-            return;
-        }
-        fireAndForget(() =>
-            RpcApi.ControllerInputCommand(TabRpcClient, {
-                blockid: agent.blockId!,
-                inputdata64: stringToBase64(data),
-            })
-        );
-    };
+    const drive = (data: string) => driveAgent(agent.blockId, data);
 
     const age = formatAgeShort(displayAgeMs(agent, now));
     const isClaude = (agent.agent || "claude") === "claude";
@@ -626,7 +615,7 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                         {action.kind === "resume" ? (
                             <button
                                 type="button"
-                                onClick={() => drive("continue\r")}
+                                onClick={() => drive(NUDGE_INPUT)}
                                 title="nudge the agent to continue from idle"
                                 className="flex-none cursor-pointer rounded-[6px] border border-accent/45 bg-accent/10 px-[16px] py-[7px] text-[12px] font-medium text-accent-soft hover:bg-accent/[0.18]"
                             >

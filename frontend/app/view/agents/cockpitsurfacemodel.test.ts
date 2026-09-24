@@ -6,7 +6,6 @@ import type { AgentVM } from "./agentsviewmodel";
 import {
     dismissKey,
     isCockpitEmpty,
-    shownForChip,
     splitRecentlyIdle,
     toggleInSet,
 } from "./cockpitsurfacemodel";
@@ -30,21 +29,6 @@ describe("isCockpitEmpty", () => {
         expect(isCockpitEmpty([agent({})], [], [])).toBe(false);
         expect(isCockpitEmpty([], [agent({})], [])).toBe(false);
         expect(isCockpitEmpty([], [], [agent({})])).toBe(false);
-    });
-});
-
-describe("shownForChip", () => {
-    const all = [
-        agent({ id: "a", state: "asking" }),
-        agent({ id: "w", state: "working" }),
-        agent({ id: "i", state: "idle" }),
-    ];
-    it("returns everything for the all chip", () => {
-        expect(shownForChip(all, "all").map((a) => a.id)).toEqual(["a", "w", "i"]);
-    });
-    it("filters to the matching state for a status chip", () => {
-        expect(shownForChip(all, "working").map((a) => a.id)).toEqual(["w"]);
-        expect(shownForChip(all, "asking").map((a) => a.id)).toEqual(["a"]);
     });
 });
 

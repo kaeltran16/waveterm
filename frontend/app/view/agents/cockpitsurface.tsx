@@ -3,9 +3,8 @@
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn, fireAndForget } from "@/util/util";
-import { useAtomValue, useSetAtom, type PrimitiveAtom } from "jotai";
-import { AnimatePresence, MotionConfig, motion } from "motion/react";
-import { cardVariants } from "@/app/element/motiontokens";
+import { atom, useAtomValue, useSetAtom, type PrimitiveAtom } from "jotai";
+import { AnimatePresence, MotionConfig } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { buildCockpitBindings } from "@/app/store/keybindings/bindings";
 import { useKeybindings } from "@/app/store/keybindings/store";
@@ -17,9 +16,6 @@ import {
     filterAgents,
     groupAgents,
     applyAgentOrder,
-    computeGridLayout,
-    GRID_PAGE_ROWS,
-    FULLWIDTH_MAX_VIEWPORT_FRAC,
     streamableTranscriptAgents,
     matchesProjectFilter,
     mergeOrder,
@@ -27,10 +23,22 @@ import {
     projectsFromAgents,
     providerPlanUsage,
     type AgentVM,
-    type CardRect,
-    type GridLayout,
 } from "./agentsviewmodel";
-import { dismissKey, isCockpitEmpty, shownForChip, splitRecentlyIdle, toggleInSet } from "./cockpitsurfacemodel";
+import {
+    buildGridCards,
+    cardMatchesChip,
+    cardShare,
+    columnNavIds,
+    isBackgroundedRun,
+    resolveCursor,
+    splitGridColumns,
+    toggleChip,
+    withActiveRunLeads,
+    type CardShare,
+    type GridCard,
+    type RowTarget,
+} from "./cardgridlayout";
+import { dismissKey, isCockpitEmpty, splitRecentlyIdle, toggleInSet } from "./cockpitsurfacemodel";
 import { BackgroundAgentsStrip } from "./backgroundagentsstrip";
 import { BackgroundedSection } from "./backgroundedsection";
 import { channelsAtom } from "./channelsstore";
@@ -39,35 +47,33 @@ import { activeFocusAtom, focusRevealAtom, focusScopeAtom } from "./focusstore";
 import { FocusBanner } from "./focusbanner";
 import { answeredAskORefsAcross, needsHuman } from "./jarvisderive";
 import { IdleSection } from "./idlesection";
+import { LeadCard } from "./leadcard";
+import { rowAction } from "./leadcardactions";
+import { buildLeadCard, isLeadDown, rowKeyActions, stopSelector, type LeadCardVM } from "./leadcardmodel";
 import { ensurePreviousInfo } from "./liveagents";
 import { CockpitEmptyState } from "./cockpitemptystate";
 import { CockpitRail } from "./cockpitrail";
+import { useRailTracking } from "./cockpiteventsrail";
 import { HintsBar } from "./cockpithelp";
 import { RollingCount } from "./rollingcount";
-import { useCardResize } from "./usecardresize";
+import { ensureRunEvents, runEventsAtom } from "./runeventstore";
+import { loadRunTokens, runTokensAtom } from "./runtokenstore";
+import { useRunDigests } from "./runlineagestore";
 import { useCockpitKeyboard } from "./usecockpitkeyboard";
 import { useCardStreams } from "./usecardstreams";
 import { ProjectSwitcher } from "./projectswitcher";
 import { mergeRateLimitWindows, savedRateLimitsAtom } from "./ratelimitstore";
-import { SectionHeader } from "./sectionheader";
 import { loadWindowTokens, windowTokensAtom } from "./windowtokenstore";
 import { useSubagentTracking } from "./subagenttracking";
 import { SurfaceHeader } from "./surfacescaffold";
+import { UsageMeters } from "./usagemeters";
 
-// Filter-chip palette (handoff mkChip, dc.html:1945-1981): an active chip takes its status color for the
-// border + a soft tint, and the count renders in that color; the label brightens to primary. Inactive
-// chips keep an edge border + muted label, but the count stays brighter (secondary) so it reads at a glance.
-const CHIP_ACTIVE: Record<ChipFilter, string> = {
-    all: "border-accent bg-accent/[0.12]",
-    asking: "border-warning bg-warning/[0.12]",
-    working: "border-success bg-success/[0.12]",
-    idle: "border-edge-strong bg-surface-raised",
-};
-const CHIP_NUM: Record<ChipFilter, string> = {
-    all: "text-accent-soft",
-    asking: "text-warning",
-    working: "text-success",
-    idle: "text-secondary",
+// Status tabs (mockup A3): a tab's count takes its status color while it has any, the selected tab underlines
+const TAB_TONE: Record<ChipFilter, { text: string; line: string }> = {
+    asking: { text: "text-warning", line: "border-warning" },
+    working: { text: "text-accent", line: "border-accent" },
+    idle: { text: "text-accent-soft", line: "border-accent-soft" },
+    all: { text: "text-primary", line: "border-primary" },
 };
 
 // Bridges a model PrimitiveAtom to a useState-shaped [value, setter] pair so the lifted orchestration
@@ -86,7 +92,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
 
     // channel-aware "needs you": excludes asks Jarvis already auto-answered, so it matches the Channels
     // rail dot and nav badge (raw asking historically over-counted). one answered set feeds both the
-    // header counter and the sticky-bar counter (liveAsking) below.
+    // header counter and the need-you tab (liveAsking) below.
     const channels = useAtomValue(channelsAtom);
     const answeredAsks = answeredAskORefsAcross(channels ?? []);
     const needsYou = agents.filter((a) => needsHuman(a, answeredAsks)).length;
@@ -95,7 +101,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     // and which transcripts stay streamed). Subscribe to the coarse (~15s) structural clock REACTIVELY —
     // coarse enough to avoid the per-second grid reconcile, but reactive so these decisions still roll
     // over on their own in a quiescent fleet (no chunk/status churn to piggyback on). The live "age/quiet"
-    // cues that need per-second precision live in self-subscribing leaves (QuietDot, RecentActivityRail,
+    // cues that need per-second precision live in self-subscribing leaves (QuietDot, CockpitEventsRail,
     // CockpitRail), which read the 1s `nowAtom` directly.
     const structuralNow = useAtomValue(model.structuralNowAtom);
     // Rate-limit windows are account-scoped, not per-agent: collapse every agent's live reading to one
@@ -110,7 +116,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     const windowTokens = useAtomValue(windowTokensAtom);
     const claudeDonut = usageDonuts.find((d) => d.provider === "claude");
     // The 1s now-clock is driven by a single always-mounted NowTicker (cockpit root); the leaf
-    // indicators (QuietDot, RecentActivityRail, CockpitRail) self-subscribe to `nowAtom` directly.
+    // indicators (QuietDot, CockpitEventsRail, CockpitRail) self-subscribe to `nowAtom` directly.
     // 15s writer: coarse enough that re-rendering CockpitSurface on it is cheap, frequent enough that
     // idle-grace collapse / stream teardown / usage rollover can't lag a quiescent fleet indefinitely.
     useEffect(() => {
@@ -163,16 +169,12 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
         setOrder((prev) => mergeOrder(prev, ids));
     }, [activeAgents.map((a) => a.id).join(",")]);
     const orderedAgents = applyAgentOrder(order, activeAgents);
-    const orderedIds = orderedAgents.map((a) => a.id);
-    // cursor traverses the single unified list
-    const navigableIds = orderedIds;
 
     // cursor + answer selection (lifted onto the model); help/pulse stay ephemeral surface-local
     const [cursorId, setCursorId] = useModelAtom(model.cursorIdAtom);
     const [answerSel] = useModelAtom(model.answerSelAtom);
     const answerText = useAtomValue(model.answerTextAtom);
     const [answerTab, setAnswerTab] = useModelAtom(model.answerTabAtom);
-    const [cardPrefs, setCardPrefs] = useModelAtom(model.cardPrefsAtom);
     const openComposerId = useAtomValue(model.openComposerIdAtom);
     const setOpenComposerId = useSetAtom(model.openComposerIdAtom);
     const sentIds = useAtomValue(model.sentIdsAtom);
@@ -184,18 +186,16 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     const containerRef = useRef<HTMLDivElement>(null);
     const gridScrollRef = useRef<HTMLDivElement>(null);
     const [gridViewportPx, setGridViewportPx] = useState(0);
-    const [gridViewportW, setGridViewportW] = useState(0);
     useEffect(() => {
         const el = gridScrollRef.current;
         if (!el) {
             return;
         }
-        // fill against the content box (clientHeight/Width include padding — sizing to the full client
+        // fill against the content box (clientHeight includes padding — sizing to the full client
         // box overflows by exactly that padding and shows a spurious scrollbar)
         const measure = () => {
             const cs = getComputedStyle(el);
             setGridViewportPx(el.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom));
-            setGridViewportW(el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight));
         };
         const ro = new ResizeObserver(measure);
         ro.observe(el);
@@ -214,16 +214,84 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     const projectScoped = filterAgents(orderedAgents, projectFilter, liveOnly);
     const visibleOrdered = filterByFocus(projectScoped, spaceScope, agentRevealed);
     const spaceHidden = projectScoped.length - visibleOrdered.length;
-    const shownAgents = shownForChip(visibleOrdered, chip);
-    // full-width cards float to a top stack; the rest fill two independent columns below. One pure pass
-    // computes every card's absolute rect (px) + the column partition the resize handlers read.
-    const layout: GridLayout = computeGridLayout(shownAgents, cardPrefs, gridViewportW, gridViewportPx);
-    const { rects, totalHeight, columnsAvail, colA, colB } = layout;
-    const pageRowPx = gridViewportPx / GRID_PAGE_ROWS;
-    const fwMaxPx = FULLWIDTH_MAX_VIEWPORT_FRAC * gridViewportPx;
+    // run events feed lead-down, review findings and the Events rail; digests feed lanes and question owners
+    const lineage = useAtomValue(model.lineageAtom);
+    const runsInView = Object.values(lineage.runs);
+    useRunDigests(runsInView);
+    const runKey = runsInView.map((r) => `${r.runId}:${r.channelId}`).join(",");
+    useEffect(() => {
+        runsInView.filter((r) => r.channelId).forEach((r) => ensureRunEvents(r.runId, r.channelId));
+    }, [runKey]);
+    const runEventsAtomForView = useMemo(
+        () => atom((get) => Object.fromEntries(runsInView.map((r) => [r.runId, get(runEventsAtom(r.runId))]))),
+        [runKey]
+    );
+    const runEvents = useAtomValue(runEventsAtomForView) as Record<string, RunEvent[]>;
+    useRailTracking(agents, lineage);
+    const runTokens = useAtomValue(runTokensAtom);
+    useEffect(() => {
+        runsInView.forEach((r) => fireAndForget(() => loadRunTokens(r, Date.now())));
+    }, [runKey, structuralNow]);
 
-    const { isResizing, activeResizeId, getGeom, beginCardResize, dragResizeMove, endCardResize } =
-        useCardResize({ rects, cardPrefs, setCardPrefs, colA, colB, columnsAvail, pageRowPx, fwMaxPx, gridViewportW });
+    // one card per plain agent or run; a run's workers are rows of its card. A running run keeps its card while
+    // its lead idles between wakes, so its lead is looked up in scope before parking and Live only.
+    const runScope = filterByFocus(filterAgents(agents, projectFilter, false), spaceScope, agentRevealed);
+    const allCards = buildGridCards(withActiveRunLeads(visibleOrdered, runScope, lineage), lineage, agents);
+    const leadVMs = new Map<string, LeadCardVM & { down: boolean }>();
+    for (const c of allCards) {
+        if (c.kind === "run") {
+            const down = isLeadDown(runEvents[c.run.runId] ?? []);
+            leadVMs.set(c.id, {
+                ...buildLeadCard({
+                    cardId: c.id,
+                    run: c.run,
+                    lead: c.lead,
+                    roster: agents,
+                    lineage,
+                    leadDown: down,
+                    now: structuralNow,
+                    tokens: runTokens[c.run.runId],
+                }),
+                down,
+            });
+        }
+    }
+    const cardNeedsYou = (c: GridCard) =>
+        c.kind === "agent" ? needsHuman(c.agent, answeredAsks) : leadVMs.get(c.id)!.needsYou;
+    const shownCards = allCards.filter((c) => !isBackgroundedRun(c, backgroundedIds, cardNeedsYou(c)));
+    const cards = shownCards.filter((c) => cardMatchesChip(c, chip, cardNeedsYou(c)));
+    // counted by card, as the tab filters: a run's idle workers and a lead between wakes are not up for review
+    const readyCount = shownCards.filter((c) => cardMatchesChip(c, "idle", cardNeedsYou(c))).length;
+    const columns = splitGridColumns(cards, (c) => c.kind === "run");
+    // cursor stops: cards, and each lead card's shown task rows; a worker's id aliases to its row
+    const rowsOf = (c: GridCard) => {
+        const vm = c.kind === "run" ? leadVMs.get(c.id) : undefined;
+        return vm ? [...vm.rows, ...vm.waiting, ...vm.done] : [];
+    };
+    const navCols = columnNavIds(columns, (c) => rowsOf(c).map((r) => r.key));
+    const navigableIds = navCols.flat();
+    const rowTargets: Record<string, RowTarget> = {};
+    const cursorAlias: Record<string, string> = {};
+    const askTargets: string[] = [];
+    for (const c of columns.flat()) {
+        if (c.kind === "agent" ? c.agent.state === "asking" : c.lead?.state === "asking") {
+            askTargets.push(c.id);
+        }
+        for (const r of rowsOf(c)) {
+            const run = c.kind === "run" ? c.run : undefined;
+            rowTargets[r.key] = {
+                openId: r.openId,
+                askAgentId: r.inline === "ask" ? r.worker?.id : undefined,
+                actions: rowKeyActions(r).map((a) => () => run && fireAndForget(() => rowAction(run, r, a))),
+            };
+            if (r.worker) {
+                cursorAlias[r.worker.id] = r.key;
+            }
+            if (r.needsYou) {
+                askTargets.push(r.key);
+            }
+        }
+    }
     const liveCount = visibleOrdered.length;
     const liveAsking = visibleOrdered.filter((a) => needsHuman(a, answeredAsks)).length;
     const liveWorking = visibleOrdered.filter((a) => a.state === "working").length;
@@ -231,17 +299,19 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     // idle/backgrounded sections share the project scope; live-only hides the parked-idle section
     const shownParkedIdle = liveOnly ? [] : parkedIdle.filter((a) => matchesProjectFilter(a, projectFilter));
     const shownBackgrounded = backgrounded.filter((a) => matchesProjectFilter(a, projectFilter));
+    // an Events row names where a plain agent now sits when it is off the grid
+    const railTags: Record<string, string> = {
+        ...Object.fromEntries(parkedIdle.map((a) => [a.id, "idle"])),
+        ...Object.fromEntries(backgrounded.map((a) => [a.id, "background"])),
+    };
 
-    // keep the cursor valid as the set changes; seed it to the first row
+    // keep the cursor on a visible stop as the set changes; a worker's id follows its row, else the first stop
     useEffect(() => {
-        if (navigableIds.length === 0) {
-            if (cursorId != null) setCursorId(undefined);
-            return;
+        const next = resolveCursor(cursorId, navigableIds, cursorAlias);
+        if (next !== cursorId) {
+            setCursorId(next);
         }
-        if (cursorId == null || !navigableIds.includes(cursorId)) {
-            setCursorId(navigableIds[0]);
-        }
-    }, [navigableIds.join(",")]);
+    }, [navigableIds.join(","), cursorId]);
 
     // asking overrides backgrounded: a muted agent that starts asking re-surfaces (it's in `asking`,
     // not `working`), so drop it from the set to avoid re-muting when it returns to working.
@@ -260,8 +330,23 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
         });
     }, [asking.map((a) => a.id).join(",")]);
 
+    // a moved cursor scrolls its stop into view, a task row inside its card too; a jump (n, the rail) centers
+    // its own target, so the follow-up here leaves that one alone
+    const jumpedRef = useRef<string>(undefined);
+    useEffect(() => {
+        if (jumpedRef.current === cursorId) {
+            jumpedRef.current = undefined;
+            return;
+        }
+        if (cursorId == null) {
+            return;
+        }
+        document.querySelector(stopSelector(cursorId))?.scrollIntoView({ block: "nearest" });
+    }, [cursorId]);
+
     const scrollToPulse = (id: string) => {
-        document.querySelector(`[data-agent-id="${id}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+        jumpedRef.current = id;
+        document.querySelector(stopSelector(id))?.scrollIntoView({ behavior: "smooth", block: "center" });
         setPulseId(id);
         setTimeout(() => setPulseId((p) => (p === id ? undefined : p)), 1200);
     };
@@ -294,8 +379,8 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     };
 
     const onKeyDown = useCockpitKeyboard({
-        model, orderedAgents, navigableIds, cursorId, setCursorId, answerTab, answerSel, asking,
-        lastJumpRef, setOpenComposerId,
+        model, navigableIds, cursorId, setCursorId, answerTab, answerSel,
+        navCols, rowTargets, askTargets, roster: agents, lastJumpRef, setOpenComposerId,
         selectQuestion, toggleAnswer, submitAnswer, toggleBackground, openFocus, scrollToPulse, focusRowComposer,
     });
 
@@ -304,57 +389,67 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     const cockpitBindings = useMemo(() => buildCockpitBindings(), []);
     useKeybindings(cockpitBindings);
 
-    // one AgentRow with every callback wired — shared by all cards in the single absolute tree
-    const renderCard = (a: AgentVM, rect: CardRect) => {
-        const g = getGeom(a.id, rect);
-        // keep the bound values tracking the computed layout when not dragging; during a drag the
-        // resize handlers own h/y for the affected column, so leave them alone
-        if (!isResizing) {
-            g.x.set(rect.x);
-            g.y.set(rect.y);
-            g.w.set(rect.w);
-            g.h.set(rect.h);
+    // one AgentRow with every callback wired
+    const renderAgent = (a: AgentVM, share: CardShare) => (
+        <AgentRow
+            key={a.id}
+            agent={a}
+            nowAtom={model.nowAtom}
+            share={share}
+            isCursor={cursorId === a.id}
+            pulse={pulseId === a.id}
+            selections={answerSel[a.id] ?? {}}
+            texts={answerText[a.id] ?? {}}
+            sent={sentIds.has(askSentKey(a) ?? "")}
+            activeQuestion={answerTab[a.id] ?? 0}
+            composerOpen={openComposerId === a.id}
+            onCursor={() => setCursorId(a.id)}
+            onOpen={() => openFocus(a.id, false)}
+            onOpenTerminal={() => model.openTerminal(a.id)}
+            onOpenDiff={() => openDiff(a.id)}
+            onOpenComposer={() => setOpenComposerId(a.id)}
+            onToggleAnswer={(qi, oi) => toggleAnswer(a.id, qi, oi)}
+            onAnswerText={(qi, value) => model.setAnswerText(a.id, qi, value)}
+            onSubmitAnswer={() => submitAnswer(a.id)}
+            onSelectQuestion={(qi) => selectQuestion(a.id, qi)}
+            onComposerEscape={() => {
+                setOpenComposerId(undefined);
+                containerRef.current?.focus();
+            }}
+            onBackground={a.state === "working" || a.state === "asking" ? () => toggleBackground(a.id) : undefined}
+            onDismiss={a.state === "idle" ? () => setDismissed((prev) => new Set(prev).add(dismissKey(a))) : undefined}
+        />
+    );
+
+    const renderCard = (c: GridCard) => {
+        const share = cardShare(c.kind === "run", cardNeedsYou(c));
+        if (c.kind === "agent") {
+            return renderAgent(c.agent, share);
         }
+        const vm = leadVMs.get(c.id)!;
         return (
-            <AgentRow
-                key={a.id}
-                agent={a}
-                nowAtom={model.nowAtom}
-                rect={rect}
-                xMV={g.x}
-                yMV={g.y}
-                wMV={g.w}
-                hMV={g.h}
-                fullWidth={!!cardPrefs[a.id]?.fullWidth}
-                elevated={activeResizeId === a.id}
-                isCursor={cursorId === a.id}
-                pulse={pulseId === a.id}
-                selections={answerSel[a.id] ?? {}}
-                texts={answerText[a.id] ?? {}}
-                sent={sentIds.has(askSentKey(a) ?? "")}
-                activeQuestion={answerTab[a.id] ?? 0}
-                composerOpen={openComposerId === a.id}
-                onCursor={() => setCursorId(a.id)}
-                onOpen={() => openFocus(a.id, false)}
-                onOpenTerminal={() => model.openTerminal(a.id)}
-                onOpenDiff={() => openDiff(a.id)}
-                onOpenComposer={() => setOpenComposerId(a.id)}
-                onToggleAnswer={(qi, oi) => toggleAnswer(a.id, qi, oi)}
-                onAnswerText={(qi, value) => model.setAnswerText(a.id, qi, value)}
-                onSubmitAnswer={() => submitAnswer(a.id)}
-                onSelectQuestion={(qi) => selectQuestion(a.id, qi)}
+            <LeadCard
+                key={c.id}
+                model={model}
+                cardId={c.id}
+                run={c.run}
+                lead={c.lead}
+                vm={vm}
+                events={runEvents[c.run.runId] ?? []}
+                leadDown={vm.down}
+                share={share}
+                isCursor={cursorId === c.id}
+                cursorKey={cursorId}
+                pulse={pulseId === c.id}
+                composerOpen={c.lead != null && openComposerId === c.lead.id}
                 onComposerEscape={() => {
                     setOpenComposerId(undefined);
                     containerRef.current?.focus();
                 }}
-                onBackground={a.state === "working" || a.state === "asking" ? () => toggleBackground(a.id) : undefined}
-                onDismiss={a.state === "idle" ? () => setDismissed((prev) => new Set(prev).add(dismissKey(a))) : undefined}
-                onResizeStart={() => beginCardResize(a.id)}
-                onResizeMove={(dx, dy) => dragResizeMove(a.id, dx, dy)}
-                onResizeEnd={(full) => endCardResize(a.id, full)}
-                onToggleFullWidth={() =>
-                    setCardPrefs((p) => ({ ...p, [a.id]: { ...p[a.id], fullWidth: !p[a.id]?.fullWidth } }))
-                }
+                onCursor={(key) => setCursorId(key)}
+                onOpen={(id) => openFocus(id, false)}
+                onOpenDiff={openDiff}
+                onBackground={c.lead && c.lead.state !== "asking" ? () => toggleBackground(c.lead!.id) : undefined}
             />
         );
     };
@@ -385,6 +480,12 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                             }
                             actions={
                                 <>
+                                    <UsageMeters
+                                        donuts={usageDonuts}
+                                        windowTokens={windowTokens}
+                                        now={structuralNow}
+                                        onOpen={() => globalStore.set(model.surfaceAtom, "usage")}
+                                    />
                                     <ProjectSwitcher model={model} variant="header" />
                                     <button
                                         type="button"
@@ -399,49 +500,9 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                                         <span className="h-1.5 w-1.5 rounded-full bg-success" />
                                         Live only
                                     </button>
-                                    {Object.values(cardPrefs).some((p) => p.fullWidth || p.heightWeight != null) ? (
-                                        <button
-                                            type="button"
-                                            onClick={() => setCardPrefs({})}
-                                            className="cursor-pointer rounded border border-edge-mid px-2.5 py-1.5 text-[12px] text-muted hover:border-edge-strong"
-                                        >
-                                            Reset layout
-                                        </button>
-                                    ) : null}
                                 </>
                             }
                         />
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                        {(
-                            [
-                                ["all", "All", agents.length],
-                                ["asking", "Asking", asking.length],
-                                ["working", "Working", working.length],
-                                ["idle", "Idle", idle.length],
-                            ] as [ChipFilter, string, number][]
-                        ).map(([key, label, count]) => (
-                            <button
-                                key={key}
-                                type="button"
-                                onClick={() => setChip(key)}
-                                className={cn(
-                                    "grid cursor-pointer grid-cols-[minmax(0,auto)_1.25rem] items-center rounded border px-3 py-1.5 text-[12.5px]",
-                                    chip === key
-                                        ? cn(CHIP_ACTIVE[key], "text-primary")
-                                        : "border-border text-muted hover:border-edge-mid"
-                                )}
-                            >
-                                <span className="leading-none">{label}</span>
-                                <RollingCount
-                                    value={count}
-                                    className={cn(
-                                        "justify-self-end text-center font-mono text-[11px] font-semibold leading-none",
-                                        chip === key ? CHIP_NUM[key] : "text-secondary"
-                                    )}
-                                />
-                            </button>
-                        ))}
                     </div>
                     {activeSpace != null ? (
                         <FocusBanner
@@ -450,6 +511,42 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                             revealed={agentRevealed}
                         />
                     ) : null}
+                    <div className="-mb-3 -ml-1 mt-1 flex flex-wrap gap-0.5">
+                        {(
+                            [
+                                ["asking", "need you", liveAsking],
+                                ["working", "working", liveWorking],
+                                ["idle", "ready for review", readyCount],
+                                ["all", "live", liveCount],
+                            ] as [ChipFilter, string, number][]
+                        ).map(([key, label, count]) => (
+                            <button
+                                key={key}
+                                type="button"
+                                onClick={() => setChip(toggleChip(chip, key))}
+                                className={cn(
+                                    "flex cursor-pointer items-baseline gap-[7px] border-0 border-b-2 bg-transparent px-2.5 pb-[9px] pt-1.5 hover:bg-surface-hover",
+                                    chip === key ? TAB_TONE[key].line : "border-transparent"
+                                )}
+                            >
+                                <RollingCount
+                                    value={count}
+                                    className={cn(
+                                        "font-mono text-[17px] font-semibold",
+                                        count > 0 || chip === key ? TAB_TONE[key].text : "text-muted"
+                                    )}
+                                />
+                                <span
+                                    className={cn(
+                                        "text-[12.5px] font-medium",
+                                        chip === key ? "text-primary" : "text-ink-mid"
+                                    )}
+                                >
+                                    {label}
+                                </span>
+                            </button>
+                        ))}
+                    </div>
                 </div>
 
                 <div className="relative flex min-h-0 flex-1 flex-col">
@@ -462,48 +559,17 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                         ) : null}
                     </AnimatePresence>
 
-                    <AnimatePresence initial={false}>
-                        {liveCount > 0 ? (
-                            <motion.div
-                                key="live-header"
-                                variants={cardVariants}
-                                initial="initial"
-                                animate="animate"
-                                exit="exit"
-                                className="shrink-0 px-5 pt-4"
-                            >
-                                <SectionHeader
-                                    label="Live agents"
-                                    labelClassName="text-accent-soft"
-                                    count={liveCount}
-                                    dotClassName="bg-accent-soft"
-                                    countPillClassName="bg-accent/10 text-accent-soft"
-                                    dividerClassName="bg-gradient-to-r from-accent/20 to-transparent"
-                                    right={
-                                        <span className="text-[11.5px] text-muted">
-                                            <span className="font-semibold text-warning">
-                                                <RollingCount value={liveAsking} /> need you
-                                            </span>{" "}
-                                            ·{" "}
-                                            {liveWorking} working
-                                        </span>
-                                    }
-                                />
-                            </motion.div>
-                        ) : null}
-                    </AnimatePresence>
-
                     <div ref={gridScrollRef} className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 pt-2.5">
-                        {/* one absolute canvas; every card is a sibling in one AnimatePresence, positioned
-                            by its spring-driven rect. A move retargets springs (no remount, no crossfade);
-                            only genuine add/remove runs the opacity+scale variants. */}
-                        <div style={{ position: "relative", height: totalHeight }}>
-                            <AnimatePresence initial={false}>
-                                {shownAgents.map((a) => {
-                                    const rect = rects.get(a.id);
-                                    return rect ? renderCard(a, rect) : null;
-                                })}
-                            </AnimatePresence>
+                        <div className="flex items-start gap-3.5">
+                            {columns.map((col, ci) => (
+                                <div
+                                    key={ci}
+                                    className="flex min-w-0 flex-1 flex-col gap-3.5"
+                                    style={{ minHeight: gridViewportPx }}
+                                >
+                                    <AnimatePresence initial={false}>{col.map(renderCard)}</AnimatePresence>
+                                </div>
+                            ))}
                         </div>
                     </div>
 
@@ -519,9 +585,9 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
 
             <CockpitRail
                 model={model}
-                usageDonuts={usageDonuts}
-                windowTokens={windowTokens}
-                agents={agents}
+                lineage={lineage}
+                runEvents={runEvents}
+                tags={railTags}
                 onSelectAgent={(id) => {
                     setCursorId(id);
                     scrollToPulse(id);

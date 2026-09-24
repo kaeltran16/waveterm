@@ -1,162 +1,175 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The cockpit grid's pure layout geometry: ordered visible cards + per-card prefs + container size ->
-// absolute pixel rects, plus the row-height / resize / full-width math the corner-drag engine
-// (usecardresize.ts) and the surface (cockpitsurface.tsx) render from. Extracted from
-// agentsviewmodel.ts; re-exported there so existing call sites are unchanged. Pure functions only —
-// no React, no atoms.
+// The cockpit grid's pure layout: which column a card sits in and how much of the column's height it takes.
+// The columns are flex columns at least one viewport tall, so these numbers are flex shares and floors,
+// not pixel rects. No React, no atoms.
 
-import type { AgentVM, CardPref } from "./agentsviewmodel";
+import type { ChipFilter } from "./agents";
+import type { AgentVM } from "./agentsviewmodel";
+import { leadAgentOf, runFinished, type Lineage, type RunInfo } from "./runlineage";
 
-export const GRID_PAGE_ROWS = 3; // 2 columns × 3 rows = 6 rich cards fill one screen
-export const GRID_MIN_ROW_PX = 96; // a row cannot be dragged smaller than this
-export const GRID_ROW_GAP_PX = 14; // matches the grid's Tailwind gap-3.5
-export const FULLWIDTH_DRAG_THRESHOLD_PX = 48; // corner drag past this (±) toggles full-width
-export const FULLWIDTH_MAX_VIEWPORT_FRAC = 0.6; // a full-width card can't exceed this fraction of the viewport
+// a card that needs you is readable at a glance; below these the content clips
+export const CARD_MIN_PX = { agent: 200, agentAsk: 320, run: 280, runAsk: 400 } as const;
 
-/** Pure: split an ordered list round-robin into two columns (even index -> A, odd -> B). */
-export function distributeColumns<T>(ordered: T[]): { colA: T[]; colB: T[] } {
-    const colA: T[] = [];
-    const colB: T[] = [];
-    ordered.forEach((item, i) => (i % 2 === 0 ? colA : colB).push(item));
-    return { colA, colB };
+export interface CardShare {
+    grow: 1 | 2;
+    minPx: number;
 }
 
-export interface CardRect {
-    x: number;
-    y: number;
-    w: number;
-    h: number;
-}
-
-export interface GridLayout {
-    rects: Map<string, CardRect>;
-    totalHeight: number;
-    columnsAvail: number;
-    colA: AgentVM[];
-    colB: AgentVM[];
-    fullWidth: AgentVM[];
-}
-
-/** Pure: ordered visible cards + prefs + container size -> absolute pixel rect per card id, plus the
- *  column partition (for the resize handlers) and the total content height (for the scroll canvas).
- *  Full-width cards float to a top stack spanning the width; the rest fill two independent columns
- *  below. Mirrors the render math this replaced in cockpitsurface.tsx. */
-export function computeGridLayout(
-    cards: AgentVM[],
-    cardPrefs: Record<string, CardPref>,
-    containerW: number,
-    containerH: number
-): GridLayout {
-    const gap = GRID_ROW_GAP_PX;
-    const rects = new Map<string, CardRect>();
-    const weightOf = (id: string) => cardPrefs[id]?.heightWeight ?? 1;
-
-    const fullWidth = cards.filter((c) => cardPrefs[c.id]?.fullWidth);
-    const columnCards = cards.filter((c) => !cardPrefs[c.id]?.fullWidth);
-
-    // full-width stack
-    const pageRowPx = containerH / GRID_PAGE_ROWS;
-    const fwMaxPx = FULLWIDTH_MAX_VIEWPORT_FRAC * containerH;
-    let fwY = 0;
-    for (const c of fullWidth) {
-        const h = Math.min(fwMaxPx, Math.max(GRID_MIN_ROW_PX, pageRowPx * weightOf(c.id)));
-        rects.set(c.id, { x: 0, y: fwY, w: containerW, h });
-        fwY += h + gap;
+/** Pure: leads in column 1 and agents in column 2 when both are present, so a lead never trades places
+ *  with an agent as states change. One kind alone alternates across two columns; a lone card spans. */
+export function splitGridColumns<T>(items: T[], isRun: (t: T) => boolean): T[][] {
+    const runs = items.filter(isRun);
+    const plain = items.filter((t) => !isRun(t));
+    if (runs.length > 0 && plain.length > 0) {
+        return [runs, plain];
     }
-    const fwStackPx = fullWidth.length > 0 ? fwY - gap : 0; // drop trailing gap
-
-    // two columns below the stack
-    const colStartY = fwStackPx + (fullWidth.length > 0 ? gap : 0);
-    const columnsAvail = Math.max(0, containerH - fwStackPx - (fullWidth.length > 0 ? gap : 0));
-    const { colA, colB } = distributeColumns(columnCards);
-    // a lone card would otherwise sit at half width with colB empty; let it span the full width
-    const colW = columnCards.length === 1 ? containerW : (containerW - gap) / 2;
-
-    const layoutColumn = (col: AgentVM[], x: number): number => {
-        const avail = Math.max(0, columnsAvail - gap * Math.max(0, col.length - 1));
-        const heights = rowHeightsPx(
-            col.map((c) => weightOf(c.id)),
-            avail
-        );
-        let y = colStartY;
-        col.forEach((c, i) => {
-            rects.set(c.id, { x, y, w: colW, h: heights[i] });
-            y += heights[i] + gap;
-        });
-        return col.length > 0 ? y - gap : colStartY; // column bottom, no trailing gap
-    };
-    const bottomA = layoutColumn(colA, 0);
-    const bottomB = layoutColumn(colB, colW + gap);
-
-    const totalHeight = Math.max(containerH, bottomA, bottomB);
-    return { rects, totalHeight, columnsAvail, colA, colB, fullWidth };
+    if (items.length <= 1) {
+        return items.length === 1 ? [items] : [];
+    }
+    return [items.filter((_, i) => i % 2 === 0), items.filter((_, i) => i % 2 === 1)];
 }
 
-/** Pure: pixel height per row. When rows fit the page they divide `viewportPx` by weight (fills
- *  exactly). Beyond the page, each row keeps the page row-height (`viewportPx / pageRows`) scaled by
- *  its weight, so the total overflows and the container scrolls. `viewportPx` should already exclude
- *  inter-row gaps. */
-export function rowHeightsPx(weights: number[], viewportPx: number, pageRows = GRID_PAGE_ROWS): number[] {
-    if (weights.length === 0) {
-        return [];
+/** Pure: a card's flex share of its column and its floor. */
+export function cardShare(isRun: boolean, needsYou: boolean): CardShare {
+    if (isRun) {
+        return { grow: needsYou ? 2 : 1, minPx: needsYou ? CARD_MIN_PX.runAsk : CARD_MIN_PX.run };
     }
-    if (weights.length <= pageRows) {
-        const total = weights.reduce((s, w) => s + w, 0);
-        return weights.map((w) => (viewportPx * w) / total);
-    }
-    const base = viewportPx / pageRows;
-    return weights.map((w) => base * w);
+    return { grow: needsYou ? 2 : 1, minPx: needsYou ? CARD_MIN_PX.agentAsk : CARD_MIN_PX.agent };
 }
 
-/** Pure: drag the boundary between row `i` and row `i+1` by `deltaPx`. Recomputes every row's height
- *  in pixels (so the returned weights share one scale) and shifts height across the dragged boundary
- *  only, clamping each neighbour to `minPx`. The result is a new pixel-scale weight array; the render
- *  path re-normalises it through `rowHeightsPx`, so absolute scale never matters. */
-export function resizeRowWeights(
-    weights: number[],
-    i: number,
-    deltaPx: number,
-    viewportPx: number,
-    minPx = GRID_MIN_ROW_PX,
-    pageRows = GRID_PAGE_ROWS
-): number[] {
-    const px = rowHeightsPx(weights, viewportPx, pageRows);
-    if (i < 0 || i + 1 >= px.length) {
-        return weights;
+// a card is a plain agent or an orchestrator run; a run's card carries its lead whenever the lead is in the roster
+export type GridCard =
+    | { kind: "agent"; id: string; agent: AgentVM }
+    | { kind: "run"; id: string; run: RunInfo; lead?: AgentVM };
+
+const LEADLESS_PREFIX = "run:";
+
+/** Pure: the grid's cards in the order of `shown`. A run's workers are rows of its card, never cards of their
+ *  own. A run gets one card at the place of whichever of its lead or workers is shown first, and the card
+ *  carries the lead from the roster even when the lead itself is parked or filtered out. */
+export function buildGridCards(shown: AgentVM[], lineage: Lineage, roster: AgentVM[]): GridCard[] {
+    const cards: GridCard[] = [];
+    const placed = new Set<string>();
+    for (const a of shown) {
+        const role = lineage.roles[a.id];
+        const runId = role?.kind === "lead" ? role.runId : role?.kind === "worker" ? role.leadRunId : undefined;
+        if (runId == null || !lineage.runs[runId]) {
+            cards.push({ kind: "agent", id: a.id, agent: a });
+            continue;
+        }
+        if (placed.has(runId)) {
+            continue;
+        }
+        placed.add(runId);
+        const lead = role?.kind === "lead" ? a : leadAgentOf(lineage, roster, runId);
+        cards.push({ kind: "run", id: lead?.id ?? `${LEADLESS_PREFIX}${runId}`, run: lineage.runs[runId], lead });
     }
-    const pair = px[i] + px[i + 1];
-    const above = Math.max(minPx, Math.min(pair - minPx, px[i] + deltaPx));
-    const next = px.slice();
-    next[i] = above;
-    next[i + 1] = pair - above;
-    return next;
+    return cards;
 }
 
-/** Pure: corner-drag hysteresis for the full-width toggle. Past +threshold -> true, past -threshold ->
- *  false; within the dead-zone the current state holds (so a vertical resize drag never flips it). */
-export function nextFullWidth(current: boolean, dragDeltaPx: number, threshold = FULLWIDTH_DRAG_THRESHOLD_PX): boolean {
-    if (dragDeltaPx > threshold) {
+const FINISHED_RUN = new Set(["done", "cancelled"]);
+
+/** Pure: `shown` plus each lead in `scoped` whose run is still going. A lead idles between wakes, so parking it
+ *  (or Live only) must not take its running run off the grid. */
+export function withActiveRunLeads(shown: AgentVM[], scoped: AgentVM[], lineage: Lineage): AgentVM[] {
+    const ids = new Set(shown.map((a) => a.id));
+    const extra = scoped.filter((a) => {
+        const role = lineage.roles[a.id];
+        const dag = role?.kind === "lead" ? lineage.runs[role.runId]?.dag : undefined;
+        return !ids.has(a.id) && dag != null && !FINISHED_RUN.has(dag.status);
+    });
+    return extra.length > 0 ? [...shown, ...extra] : shown;
+}
+
+/** Pure: backgrounding a lead backgrounds its run's card, until something in the run needs you. */
+export function isBackgroundedRun(card: GridCard, backgroundedIds: Set<string>, needsYou: boolean): boolean {
+    return card.kind === "run" && card.lead != null && backgroundedIds.has(card.lead.id) && !needsYou;
+}
+
+/** Pure: does the status chip show this card. A run card shows under Asking when anything in it needs you. */
+/** Pure: a status tab's press. Pressing the selected tab again returns to everything. */
+export function toggleChip(current: ChipFilter, pressed: ChipFilter): ChipFilter {
+    return current === pressed ? "all" : pressed;
+}
+
+export function cardMatchesChip(card: GridCard, chip: ChipFilter, needsYou: boolean): boolean {
+    if (chip === "all") {
         return true;
     }
-    if (dragDeltaPx < -threshold) {
-        return false;
+    if (card.kind === "agent") {
+        return card.agent.state === chip;
     }
-    return current;
+    if (chip === "asking") {
+        return needsYou;
+    }
+    if (chip === "working") {
+        return card.lead?.state === "working" || card.run.dag?.status === "running";
+    }
+    // a run is up for review once it ends; a lead idling between wakes is still running it
+    return runFinished(card.run);
 }
 
-/** Pure: rescale weights to mean 1 so stored card weights stay ratio-scale. `resizeRowWeights`
- *  returns pixel-scale values; `rowHeightsPx` only re-normalises them in its fit branch (<= pageRows),
- *  so persisting pixel-scale weights would explode in the overflow branch (`base * w`). Callers must
- *  normalise before writing a resized weight back. Empty -> empty; a zero/negative mean -> all 1. */
-export function normalizeWeights(weights: number[]): number[] {
-    if (weights.length === 0) {
-        return [];
+// what the keyboard does on a focused task row: open, answer the worker's question, or run the row's actions
+export interface RowTarget {
+    openId?: string;
+    askAgentId?: string;
+    actions: (() => void)[];
+}
+
+/** Pure: whose question the cursor is on: a card's own agent, or the asking worker of a task row. */
+export function askerAt(
+    cursorId: string | undefined,
+    roster: AgentVM[],
+    rowTargets: Record<string, RowTarget>
+): AgentVM | undefined {
+    if (cursorId == null) {
+        return undefined;
     }
-    const mean = weights.reduce((s, w) => s + w, 0) / weights.length;
-    if (!(mean > 0)) {
-        return weights.map(() => 1);
+    const id = cursorId in rowTargets ? rowTargets[cursorId].askAgentId : cursorId;
+    return id != null ? roster.find((a) => a.id === id) : undefined;
+}
+
+/** Pure: each column's cursor stops: a card, then its task rows. */
+export function columnNavIds(columns: GridCard[][], rowKeysOf: (card: GridCard) => string[]): string[][] {
+    return columns.map((col) => col.flatMap((c) => [c.id, ...rowKeysOf(c)]));
+}
+
+/** Pure: h/l. From a card or one of its rows, go to the card at the same card index in the other column. */
+export function columnJump(
+    cols: string[][],
+    cardOf: (id: string) => string,
+    cur: string | undefined,
+    dir: -1 | 1
+): string | undefined {
+    if (cols.length !== 2 || cur == null) {
+        return undefined;
     }
-    return weights.map((w) => w / mean);
+    const card = cardOf(cur);
+    const cardsIn = (col: string[]) => col.filter((id) => cardOf(id) === id);
+    const from = cols.findIndex((col) => col.includes(cur));
+    const to = from + dir;
+    if (from < 0 || to < 0 || to > 1) {
+        return undefined;
+    }
+    const target = cardsIn(cols[to]);
+    return target[Math.min(cardsIn(cols[from]).indexOf(card), target.length - 1)];
+}
+
+/** Pure: keep the cursor on something visible. An id with no stop of its own (a worker, whose ask lives in its
+ *  lead's row) goes to its alias. */
+export function resolveCursor(
+    cur: string | undefined,
+    nav: string[],
+    alias: Record<string, string>
+): string | undefined {
+    if (nav.length === 0) {
+        return undefined;
+    }
+    if (cur != null && nav.includes(cur)) {
+        return cur;
+    }
+    const aliased = cur != null ? alias[cur] : undefined;
+    return aliased != null && nav.includes(aliased) ? aliased : nav[0];
 }

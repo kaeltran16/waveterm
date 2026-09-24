@@ -99,12 +99,6 @@ export interface AgentVM {
     atPrompt?: boolean; // the raw status was waiting or idle, whatever state it folds to: a lead between wakes
 }
 
-// Per-card ephemeral layout prefs (full-width span + dragged height). Not persisted this pass.
-export interface CardPref {
-    fullWidth?: boolean; // card spans both columns (floats to the top full-width stack)
-    heightWeight?: number; // relative height within its column; default 1 (even fill). Set by dragging the corner.
-}
-
 const STATE_RANK: Record<AgentState, number> = { asking: 0, working: 1, idle: 2 };
 
 /** Pure: asking -> working -> idle; within asking, longest-blocked first;
@@ -372,6 +366,11 @@ export function formatAge(ms?: number): string {
 }
 
 /** Pure: formatAge for a line that must fit a narrow column, where "just now" crowds out what follows. */
+// an age as a time in the past: formatAge says "just now" under a minute, which takes no "ago"
+export function formatAgo(ms: number | undefined): string {
+    return ms == null || ms < 60_000 ? "just now" : `${formatAge(ms)} ago`;
+}
+
 export function formatAgeShort(ms?: number): string {
     return ms == null || ms < 60_000 ? "<1m" : formatAge(ms);
 }
@@ -937,23 +936,6 @@ export function topFiveHourPct(agents: AgentVM[]): number | undefined {
     }
     return top;
 }
-
-// Grid layout geometry lives in cardgridlayout.ts (extracted). Re-exported here so existing call sites
-// (agentrow, cockpitsurface, usecardresize) keep importing from ./agentsviewmodel unchanged.
-export {
-    computeGridLayout,
-    distributeColumns,
-    FULLWIDTH_DRAG_THRESHOLD_PX,
-    FULLWIDTH_MAX_VIEWPORT_FRAC,
-    GRID_MIN_ROW_PX,
-    GRID_PAGE_ROWS,
-    GRID_ROW_GAP_PX,
-    nextFullWidth,
-    normalizeWeights,
-    resizeRowWeights,
-    rowHeightsPx,
-} from "./cardgridlayout";
-export type { CardRect, GridLayout } from "./cardgridlayout";
 
 // --- card data types --------------------------------------------------------
 // Real sources: diff stats from cardgitstore.ts (GitChangesCommand per card); task list from the

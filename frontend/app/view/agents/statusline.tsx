@@ -62,11 +62,13 @@ export function ActivityLine({
     nowAtom,
     right,
     className,
+    onNudge,
 }: {
     agent: AgentVM;
     nowAtom: Atom<number>;
     right?: ReactNode;
     className?: string;
+    onNudge?: () => void;
 }) {
     const now = useAtomValue(nowAtom);
     const lastOutputTs = useAtomValue(getLastOutputAtom(agent.blockId ?? ""));
@@ -79,8 +81,21 @@ export function ActivityLine({
             <div className={cn("flex items-center gap-2", className)}>
                 <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warning" />
                 <span className="min-w-0 flex-1 truncate font-mono text-[12px] leading-[1.4] text-warning">
-                    hung · no output {Math.floor(silentMs / 60_000)}m
+                    quiet · no output {Math.floor(silentMs / 60_000)}m
                 </span>
+                {onNudge ? (
+                    <button
+                        type="button"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onNudge();
+                        }}
+                        title="Type continue into its terminal"
+                        className="h-[23px] shrink-0 cursor-pointer rounded-[6px] border border-warning/45 bg-transparent px-[9px] text-[11.5px] font-semibold text-warning hover:bg-warning/10"
+                    >
+                        Nudge
+                    </button>
+                ) : null}
                 {right}
             </div>
         );

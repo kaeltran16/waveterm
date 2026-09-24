@@ -22,7 +22,7 @@ import {
 import { normalizeRepoPath, sameRepoPath } from "@/util/paths";
 import { routeOpenFile } from "./openfileroute";
 
-async function handleOpenFile(model: AgentsViewModel, path: string, edit: boolean): Promise<void> {
+export async function openFileInCode(model: AgentsViewModel, path: string, edit = false): Promise<void> {
     const info = await RpcApi.FileInfoCommand(TabRpcClient, { info: { path } });
     // FileInfo marks directories by returning Dir equal to Path (separator-normalized)
     const isDir =
@@ -49,7 +49,7 @@ export function setupOpenFileSubscription(model: AgentsViewModel): void {
         handler: (event) => {
             const data = event.data as { path?: string; edit?: boolean };
             if (!data?.path) return;
-            handleOpenFile(model, data.path, data.edit === true).catch((e) =>
+            openFileInCode(model, data.path, data.edit === true).catch((e) =>
                 console.error("openfile handler failed", e)
             );
         },

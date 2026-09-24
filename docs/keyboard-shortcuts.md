@@ -65,9 +65,11 @@ Settings has no `Ctrl`+number slot — the nine positions are bound to `SURFACE_
 
 | Keys | Action |
 |---|---|
-| `j` / `k` | Next / previous agent |
+| `j` / `k` | Next / previous card or task row |
 | `n` | Jump to the next ask |
-| `h` / `l` (or `←` / `→`) | Switch question on a multi-question ask |
+| `h` / `l` (or `←` / `→`) | Move to the other column; on an ask with several questions, switch question |
+| `1`…`9` on a task row | Answer the worker's question, else run the row's action |
+| `Enter` on a task row | Send the worker's answer, else open the worker |
 | `1`…`9` | Select an answer option |
 | `Enter` | Confirm the answer, else open focus |
 | `r` | Reply inline to the agent |
