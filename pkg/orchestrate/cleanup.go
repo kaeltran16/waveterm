@@ -214,6 +214,37 @@ func PersistCleanupState(ctx context.Context, g *waveobj.TaskGroup) error {
 	return nil
 }
 
+// RetryCleanup is the human's retry-cleanup: it gives a task's stuck worktree a fresh set of attempts and tries
+// once now, reaping whatever still holds the tree first. The watchdog's own retries stop at MaxCleanupAttempts,
+// so without this a tree freed later (an editor closed, a shell exited) stays debt until the dag is cancelled.
+// A cancelled dag is allowed: cancelling is what queued its trees.
+func RetryCleanup(ctx context.Context, dagID, taskID string) error {
+	return withDagMutation(dagID, func() error {
+		g, err := wstore.GetDag(ctx, dagID)
+		if err != nil {
+			return fmt.Errorf("loading dag: %w", err)
+		}
+		task := taskByID(g, taskID)
+		if task == nil {
+			return fmt.Errorf("no task %q", taskID)
+		}
+		if !task.CleanupPending && task.CleanupError == "" {
+			return fmt.Errorf("task %s has no worktree left to clean up", taskID)
+		}
+		task.CleanupAttempts = 0
+		cleanupErr := CleanupTaskWorktree(ctx, g, taskID)
+		if err := PersistCleanupState(ctx, g); err != nil {
+			return err
+		}
+		if cleanupErr != nil {
+			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskCleanupFailed, nil, map[string]any{"taskid": taskID, "error": cleanupErr.Error()})
+			return fmt.Errorf("task %s's worktree still could not be removed: %w", taskID, cleanupErr)
+		}
+		appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskCleanupCompleted, nil, map[string]any{"taskid": taskID})
+		return nil
+	})
+}
+
 func boundedCleanupError(err error) string {
 	if err == nil {
 		return ""

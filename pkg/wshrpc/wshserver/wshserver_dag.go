@@ -329,6 +329,8 @@ func (ws *WshServer) DagActionCommand(ctx context.Context, data wshrpc.CommandDa
 	switch data.Action {
 	case "cancel":
 		return orchestrate.Cancel(ctx, run.DagORef)
+	case "retry-cleanup":
+		return orchestrate.RetryCleanup(ctx, run.DagORef, data.TaskId)
 	case "forward":
 		return orchestrate.ForwardTask(ctx, run.DagORef, data.TaskId, data.Notes)
 	case "takeover":
