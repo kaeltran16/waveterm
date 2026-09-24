@@ -29,7 +29,7 @@ import { compareOnAtom } from "@/app/view/agents/comparestore";
 import { historyFiltersAtom } from "@/app/view/agents/githistorystore";
 import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
-import { codeFinderOpenAtom, codeTreeFocusedAtom } from "@/app/view/code/codestore";
+import { codeTreeFocusedAtom } from "@/app/view/code/codestore";
 import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
 import {
     briefPeekRecordAtom,
@@ -60,7 +60,6 @@ export const PREDICATE_ATOMS: Atom<unknown>[] = [
     petPeekOpenAtom, // surface:back-home
     briefPeekRecordAtom, // surface:back-home
     dagModalStateAtom, // surface:back-home
-    codeFinderOpenAtom, // surface:back-home
     codeTreeFocusedAtom, // buildCodeBindings: inTree
     listNavAtom, // buildListNavBindings: active
     renamingRowAtom, // buildAgentBindings: subagent:back

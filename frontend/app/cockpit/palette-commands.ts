@@ -8,6 +8,7 @@
 
 import type { Binding, KeyContext, SurfaceKey } from "@/app/store/keybindings/types";
 import { THEMES } from "@/app/view/agents/themes";
+import type { DrillId } from "./palette-scope";
 
 export interface CommandItem {
     key: string; // binding id, or "cmd:<slug>" for a chordless extra
@@ -15,6 +16,7 @@ export interface CommandItem {
     keys?: string; // chord descriptor for formatChord; absent for chordless extras
     group: string;
     destructive?: boolean; // see Binding.destructive
+    drill?: DrillId; // opens a picker instead of running
     run: () => void | boolean; // false = the binding did not act (its target is absent)
 }
 
@@ -63,20 +65,67 @@ export function buildCommandItems(bindings: Binding[], ctx: KeyContext): Command
     }));
 }
 
+// The registry's "Go to" bindings are the surfaces; they are their own scope, not commands.
+export const GOTO_GROUP = "Go to";
+
 export interface ExtraDeps {
     openNewProject: () => void;
-    setTheme: (presetId: string) => void;
 }
 
-// The cockpit actions that have no chord to derive from.
+// The cockpit actions that have no chord to derive from. The two drills open a picker rather than
+// acting, so there is one "Switch theme…" row instead of one row per theme.
 export function buildExtraItems(deps: ExtraDeps): CommandItem[] {
     return [
         { key: "cmd:new-project", title: "New project", group: "Global", run: deps.openNewProject },
-        ...THEMES.map((t) => ({
-            key: `cmd:theme:${t.id}`,
-            title: `Switch theme → ${t.name}`,
-            group: "Appearance",
-            run: () => deps.setTheme(t.id),
-        })),
+        { key: "cmd:focus", title: "Focus on task…", group: "Global", drill: "focus", run: () => {} },
+        { key: "cmd:theme", title: "Switch theme…", group: "Appearance", drill: "theme", run: () => {} },
     ];
+}
+
+// the registry group holding a surface's own bindings
+const SURFACE_GROUP: Partial<Record<SurfaceKey, string>> = {
+    cockpit: "Cockpit",
+    jarvis: "Jarvis",
+    agent: "Agent",
+    code: "Code",
+    files: "Diff",
+};
+
+const GROUP_ORDER = ["Global", "Navigation", "Appearance", "Help"];
+
+// Commands with nothing typed: the current surface's own group first, labelled as such, then the
+// fixed groups, then anything else the registry grows, alphabetically, so a new group is never lost.
+export function commandGroups<T extends { group: string }>(
+    items: T[],
+    surface: SurfaceKey
+): { key: string; label: string; items: T[] }[] {
+    const own = SURFACE_GROUP[surface];
+    const present = [...new Set(items.map((it) => it.group))];
+    const fixed = [...(own != null ? [own] : []), ...GROUP_ORDER.filter((g) => g !== own)];
+    const rest = present.filter((g) => !fixed.includes(g)).sort();
+    return [...fixed, ...rest]
+        .map((g) => ({
+            key: `cmd-group:${g}`,
+            label: g === own ? `${g} · this surface` : g,
+            items: items.filter((it) => it.group === g),
+        }))
+        .filter((g) => g.items.length > 0);
+}
+
+export interface ThemeItem {
+    key: string;
+    id: string;
+    title: string;
+    swatch: string[]; // the theme's own colors, so a row previews what it applies
+    current: boolean;
+}
+
+export function buildThemeItems(activeId: string): ThemeItem[] {
+    return THEMES.map((t) => ({
+        key: `theme:${t.id}`,
+        id: t.id,
+        title: t.name,
+        swatch: [t.palette.bg, t.palette.surfaceRaised, t.palette.accent, t.palette.success],
+        current: t.id === activeId,
+    }));
 }

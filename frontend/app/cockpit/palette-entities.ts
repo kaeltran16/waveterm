@@ -58,7 +58,7 @@ export function loadPaletteEntities(): void {
  * fuzzyScore, so each input keeps its internal order exactly. That is the point — rankBriefRows has
  * already sunk archived rows below every live one, and a global re-sort would float a well-matching
  * archived row back above them. The head is still the better-scoring of the two heads, which is what
- * assembleDefaultGroups reads to pick the leading group and to judge the relevance floor.
+ * assembleAllGroups reads to pick the leading group.
  *
  * Ties go to `primary`; an empty query has no scores to compare, so `extra` simply follows.
  */

@@ -23,7 +23,6 @@ import { useAtom, useAtomValue } from "jotai";
 import { ArrowRight, ChevronDown, FilePlus, FolderGit2, FolderPlus, RotateCw, Save, Undo2 } from "lucide-react";
 import { useEffect, useInsertionEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { CodeChangedPane } from "./codechangedpane";
-import { CodeFinderPalette } from "./codefinderpalette";
 import { canBack, canForward } from "./codehistory";
 import { CodePathBar } from "./codepathbar";
 import { pickerRecents } from "./coderecents";
@@ -330,7 +329,6 @@ export function CodeSurface({ model }: { model: AgentsViewModel }) {
             <div className="min-h-0 flex-1">
                 <CodeBody model={model} onPickProject={() => togglePicker(true)} />
             </div>
-            <CodeFinderPalette model={model} />
         </div>
     );
 }

@@ -3,7 +3,8 @@
 
 import type { Binding, KeyContext } from "@/app/store/keybindings/types";
 import { describe, expect, it, vi } from "vitest";
-import { buildCommandItems, buildExtraItems, postCloseContext } from "./palette-commands";
+import { THEMES } from "@/app/view/agents/themes";
+import { buildCommandItems, buildExtraItems, buildThemeItems, commandGroups, postCloseContext } from "./palette-commands";
 
 const bind = (over: Partial<Binding> & Pick<Binding, "id" | "keys" | "label">): Binding => ({
     group: "Global",
@@ -104,19 +105,44 @@ describe("buildCommandItems", () => {
 });
 
 describe("buildExtraItems", () => {
-    const deps = () => ({ openNewProject: vi.fn(), setTheme: vi.fn() });
+    const deps = () => ({ openNewProject: vi.fn() });
 
-    it("offers the chordless modal and one row per picker theme", () => {
+    it("offers the chordless modal and one drill row each for themes and focus", () => {
         const items = buildExtraItems(deps());
-        expect(items[0].key).toBe("cmd:new-project");
-        expect(items.filter((i) => i.key.startsWith("cmd:theme:"))).toHaveLength(6);
+        expect(items.map((i) => [i.key, i.drill])).toEqual([
+            ["cmd:new-project", undefined],
+            ["cmd:focus", "focus"],
+            ["cmd:theme", "theme"],
+        ]);
     });
     it("carries no chord", () => {
         expect(buildExtraItems(deps()).every((i) => i.keys == null)).toBe(true);
     });
-    it("switches to the chosen preset id", () => {
+    it("opens New project", () => {
         const d = deps();
-        buildExtraItems(d).find((i) => i.key === "cmd:theme:carbon")!.run();
-        expect(d.setTheme).toHaveBeenCalledWith("carbon");
+        buildExtraItems(d)[0].run();
+        expect(d.openNewProject).toHaveBeenCalled();
+    });
+});
+
+describe("commandGroups", () => {
+    const row = (group: string) => ({ group });
+
+    it("puts the current surface's own group first, labelled as this surface", () => {
+        const groups = commandGroups([row("Global"), row("Diff"), row("Help"), row("Navigation")], "files");
+        expect(groups.map((g) => g.label)).toEqual(["Diff · this surface", "Global", "Navigation", "Help"]);
+    });
+    it("keeps a group outside the fixed order rather than dropping it", () => {
+        const groups = commandGroups([row("Global"), row("Radar")], "usage");
+        expect(groups.map((g) => g.label)).toEqual(["Global", "Radar"]);
+    });
+});
+
+describe("buildThemeItems", () => {
+    it("lists every theme with four swatches and marks the current one", () => {
+        const items = buildThemeItems("carbon");
+        expect(items).toHaveLength(THEMES.length);
+        expect(items.every((t) => t.swatch.length === 4)).toBe(true);
+        expect(items.filter((t) => t.current).map((t) => t.id)).toEqual(["carbon"]);
     });
 });

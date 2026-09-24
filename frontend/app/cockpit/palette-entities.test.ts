@@ -4,7 +4,7 @@
 import { buildBriefIndex, rankBriefRows } from "@/app/view/jarvis/briefpalette";
 import { describe, expect, it } from "vitest";
 import { mergeRanked } from "./palette-entities";
-import { assembleDefaultGroups, capGroups } from "./palette-groups";
+import { assembleScopeGroups, capGroups, MAX_IN_SCOPE } from "./palette-groups";
 
 interface Row {
     key: string;
@@ -97,20 +97,29 @@ describe("the palette's brief pipeline", () => {
             kind: r.kind,
             search: r.search,
         }));
-        return capGroups(assembleDefaultGroups({ query, ranked, launchItems: [], recent: [] }));
+        // the Records scope: records and initiatives, capped per group
+        const groups = assembleScopeGroups({
+            rows: ranked,
+            order: ["record", "effort"],
+            label: "Records",
+            noun: "records",
+            query,
+            widenItem: null,
+        });
+        return capGroups(groups, MAX_IN_SCOPE);
     }
 
     it("lets an archived row reach its group even when live rows outnumber the old cap", () => {
-        const efforts = groupsFor("").find((g) => g.kind === "effort");
+        const efforts = groupsFor("").find((g) => g.key === "effort");
         expect(efforts?.items.map((i) => i.key)).toContain("effort:effort:old");
     });
 
     it("caps per group and reports the overflow rather than truncating the whole ranking", () => {
         const groups = groupsFor("");
-        const records = groups.find((g) => g.kind === "record");
-        expect(records?.items).toHaveLength(20);
-        expect(records?.overflow).toBe(35);
+        const records = groups.find((g) => g.key === "record");
+        expect(records?.items).toHaveLength(MAX_IN_SCOPE);
+        expect(records?.overflow).toBe(55 - MAX_IN_SCOPE);
         // the effort group is untouched by the record group's overflow
-        expect(groups.find((g) => g.kind === "effort")?.items).toHaveLength(7);
+        expect(groups.find((g) => g.key === "effort")?.items).toHaveLength(7);
     });
 });
