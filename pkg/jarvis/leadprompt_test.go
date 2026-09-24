@@ -203,3 +203,10 @@ func TestOrchestrationRulesCoverReviewAndDownstream(t *testing.T) {
 		}
 	}
 }
+
+func TestRunFinishedReportNamesLeftoverWorktrees(t *testing.T) {
+	rules := OrchestrationRules("run-1", "", "")
+	if !strings.Contains(rules, "worktrees left behind (tasks whose status shows retry-cleanup)") {
+		t.Fatalf("the run-finished report must list leftover worktrees:\n%s", rules)
+	}
+}
