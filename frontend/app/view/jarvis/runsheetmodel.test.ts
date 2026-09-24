@@ -249,6 +249,29 @@ describe("sheetStatus", () => {
         expect(s.sub).toBe("1 task needs you; nothing else is running");
     });
 
+    it("says cleanup failed, not waiting on you, when only worktrees are left", () => {
+        const s = sheetStatus(
+            read({
+                dag: {
+                    digest: fresh(
+                        digest(
+                            {
+                                health: "needs-you",
+                                next: { kind: "human-action", taskids: ["t-2"], actions: ["retry-cleanup"] },
+                                tasks: [{ taskid: "t-2", humanactions: ["retry-cleanup"] } as DagTaskDigest],
+                            },
+                            { attention: 1, running: 0 }
+                        )
+                    ),
+                    group: group(["done", "done", "done", "done"]),
+                    groupRead: "ready",
+                },
+            })
+        );
+        expect(s.verb).toBe("Cleanup failed");
+        expect(s.sub).toBe("1 worktree could not be removed");
+    });
+
     it("says the read failed, dates the held figures, and offers the retry", () => {
         const s = sheetStatus(
             read({

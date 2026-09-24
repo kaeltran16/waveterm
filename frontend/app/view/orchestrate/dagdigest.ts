@@ -107,6 +107,9 @@ export function nextStepText(next: DagNextStep, briefs?: Map<string, TaskBrief>)
     const named = nameList(next.taskids, briefs);
     switch (next.kind) {
         case "human-action": {
+            if (next.actions?.length === 1 && next.actions[0] === "retry-cleanup") {
+                return `worktrees not removed${named ? `: ${named}` : ""} — wsh jarvis dag retry-cleanup`;
+            }
             const actions = next.actions?.join(" / ") ?? "action";
             return `waiting on you — ${actions}` + (named ? `: ${named}` : "");
         }
@@ -137,6 +140,19 @@ export function nextStepText(next: DagNextStep, briefs?: Map<string, TaskBrief>)
         default:
             return "refreshing status";
     }
+}
+
+// cleanupOnly is a needs-you digest whose only ask of the human is removing worktrees the engine could not.
+// Nothing is asking, so "Waiting on you" sends the human looking for a question that is not there.
+export function cleanupOnly(digest: DagStatusDigest | undefined): boolean {
+    if (digest?.health !== "needs-you") {
+        return false;
+    }
+    const acting = (digest.tasks ?? []).filter((td) => (td.humanactions?.length ?? 0) > 0);
+    return (
+        acting.length > 0 &&
+        acting.every((td) => td.humanactions.length === 1 && td.humanactions[0] === "retry-cleanup")
+    );
 }
 
 // formatElapsed is the overview's short clock ("45s", "12m", "1h5m").
