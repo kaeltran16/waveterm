@@ -31,12 +31,11 @@ export function UsageMeters({
     now: number;
     onOpen: () => void;
 }) {
-    const multi = new Set(donuts.map((d) => d.provider)).size > 1;
     const items = donuts.flatMap((d) =>
-        WINDOWS.filter(([w]) => usageBarVisible(d[w].pct)).map(([w, short, label]) => ({
+        WINDOWS.filter(([w]) => usageBarVisible(d[w].pct, d.stale != null)).map(([w, short, label], i) => ({
             key: `${d.provider}:${w}`,
             provider: d.provider,
-            first: w === "fivehour",
+            first: i === 0,
             short,
             pct: d[w].pct!,
             title: meterTitle(label, d[w].pct!, windowUsedTokens(d.provider, windowTokens, w), d[w].reset, now),
@@ -45,6 +44,7 @@ export function UsageMeters({
     if (items.length === 0) {
         return null;
     }
+    const multi = new Set(items.map((m) => m.provider)).size > 1;
     return (
         <button
             type="button"

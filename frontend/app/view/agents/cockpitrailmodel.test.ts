@@ -45,12 +45,16 @@ describe("windowUsedTokens", () => {
 
 describe("usageBarVisible", () => {
     it("is false when pct is null/undefined (api-key auth or unreported)", () => {
-        expect(usageBarVisible(undefined)).toBe(false);
-        expect(usageBarVisible(null as unknown as undefined)).toBe(false);
+        expect(usageBarVisible(undefined, false)).toBe(false);
+        expect(usageBarVisible(null as unknown as undefined, false)).toBe(false);
     });
-    it("is true for any numeric pct including 0", () => {
-        expect(usageBarVisible(0)).toBe(true);
-        expect(usageBarVisible(73)).toBe(true);
+    it("is true for any live numeric pct including 0", () => {
+        expect(usageBarVisible(0, false)).toBe(true);
+        expect(usageBarVisible(73, false)).toBe(true);
+    });
+    it("hides a saved 0% (rolled over with nothing running) but keeps a saved nonzero reading", () => {
+        expect(usageBarVisible(0, true)).toBe(false);
+        expect(usageBarVisible(42, true)).toBe(true);
     });
 });
 

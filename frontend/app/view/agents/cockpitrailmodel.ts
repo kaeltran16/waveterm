@@ -38,9 +38,10 @@ export function windowUsedTokens(
     return provider === "claude" ? windowTokens?.[window] : undefined;
 }
 
-// a null pct (api-key auth or a window not yet reported) renders no bar.
-export function usageBarVisible(pct: number | undefined): boolean {
-    return pct != null;
+// a null pct (api-key auth or a window not yet reported) renders no bar. a saved snapshot at 0% is
+// almost always a window that rolled over while nothing ran that provider — no data, not a reading.
+export function usageBarVisible(pct: number | undefined, stale: boolean): boolean {
+    return pct != null && !(stale && pct === 0);
 }
 
 /** Pure: a meter's hover text, the detail the compact meter leaves out. */
