@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { canRestoreProject, registeredProjects } from "./codestore";
+import { canRestoreProject, codeBodyPhase, registeredProjects } from "./codestore";
 
 const registry = {
     alpha: { path: "C:\\repos\\alpha" },
@@ -44,5 +44,28 @@ describe("registeredProjects", () => {
 
     it("is empty while the registry has not loaded yet", () => {
         expect(registeredProjects(undefined)).toEqual([]);
+    });
+});
+
+describe("codeBodyPhase", () => {
+    const alpha = { name: "alpha", path: "C:\\repos\\alpha" };
+    const idx = (isRepo: boolean) => ({ paths: [], isRepo, truncated: false });
+    const base = { registry, project: alpha, stored: null, index: idx(true), indexError: null };
+
+    it("is loading while a stored project is about to be restored, not no-project", () => {
+        expect(codeBodyPhase({ ...base, project: null, stored: alpha })).toBe("loading");
+    });
+    it("is no-project when nothing restorable was stored", () => {
+        expect(codeBodyPhase({ ...base, project: null })).toBe("no-project");
+        expect(codeBodyPhase({ ...base, project: null, stored: { name: "gone", path: "/gone" } })).toBe("no-project");
+    });
+    it("is loading while the file list has not arrived", () => {
+        expect(codeBodyPhase({ ...base, index: null })).toBe("loading");
+    });
+    it("keeps the existing branches", () => {
+        expect(codeBodyPhase({ ...base, registry: {} })).toBe("no-projects");
+        expect(codeBodyPhase({ ...base, index: null, indexError: "boom" })).toBe("error");
+        expect(codeBodyPhase({ ...base, index: idx(false) })).toBe("not-repo");
+        expect(codeBodyPhase(base)).toBe("ready");
     });
 });

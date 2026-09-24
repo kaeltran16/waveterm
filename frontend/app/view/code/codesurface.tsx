@@ -6,6 +6,7 @@
 // to agents and runs — this answers "what does this code look like", not "what changed".
 
 import { PopoverReveal } from "@/app/element/popoverreveal";
+import { SkeletonLine } from "@/app/element/skeleton";
 import { useSyncMonacoTheme } from "@/app/monaco/monacotheme";
 import { atoms } from "@/app/store/global-atoms";
 import { globalStore } from "@/app/store/jotaiStore";
@@ -30,6 +31,7 @@ import { CodeSearchPane } from "./codesearchpane";
 import { codeSearchModeAtom } from "./codesearchstore";
 import {
     CODE_SIDEBAR_COMPACT_WIDTH,
+    CODE_SIDEBAR_DEFAULT_WIDTHS,
     CODE_SIDEBAR_MIN_WIDTH,
     codeSidebarDragEndWidth,
     codeSidebarDragWidthForWorkspace,
@@ -47,6 +49,7 @@ import { CodeStaleBar } from "./codestalebar";
 import {
     canRestoreProject,
     checkStale,
+    codeBodyPhase,
     codeDraftsAtom,
     codeFileAtom,
     codeHistoryAtom,
@@ -458,34 +461,54 @@ function CodeBody({ model, onPickProject }: { model: AgentsViewModel; onPickProj
     const project = useAtomValue(codeProjectAtom);
     const index = useAtomValue(codeIndexAtom);
     const indexError = useAtomValue(codeIndexErrorAtom);
+    const stored = useAtomValue(lastCodeProjectAtom);
 
-    if (Object.keys(registry ?? {}).length === 0) {
-        return (
-            <SurfaceEmptyState
-                title="No registered projects"
-                body="Register a project in Settings to browse its source here."
-            />
-        );
+    switch (codeBodyPhase({ registry, project, stored, index, indexError })) {
+        case "no-projects":
+            return (
+                <SurfaceEmptyState
+                    title="No registered projects"
+                    body="Register a project in Settings to browse its source here."
+                />
+            );
+        case "no-project":
+            return (
+                <SurfaceEmptyState
+                    title="No project selected"
+                    body="Pick a project to browse its files."
+                    action={{ label: "Pick a project", onClick: onPickProject }}
+                />
+            );
+        case "error":
+            return null; // the banner above already says it, and a second message would double up
+        case "loading":
+            return <CodePanesSkeleton />;
+        case "not-repo":
+            return <SurfaceEmptyState title="Not a git repository" body={project.path} />;
+        case "ready":
+            return <CodePanes model={model} />;
     }
-    if (project == null) {
-        return (
-            <SurfaceEmptyState
-                title="No project selected"
-                body="Pick a project to browse its files."
-                action={{ label: "Pick a project", onClick: onPickProject }}
-            />
-        );
-    }
-    if (indexError != null) {
-        return null; // the banner above already says it, and a second message would double up
-    }
-    if (index == null) {
-        return <SurfaceEmptyState title="Listing files…" />;
-    }
-    if (!index.isRepo) {
-        return <SurfaceEmptyState title="Not a git repository" body={project.path} />;
-    }
-    return <CodePanes model={model} />;
+}
+
+// the file tree at its default width beside the editor, so the listing lands where the skeleton was
+function CodePanesSkeleton() {
+    return (
+        <div aria-hidden="true" className="flex h-full">
+            <div
+                className="flex shrink-0 flex-col gap-2 border-r border-border px-3 pt-3"
+                style={{ width: CODE_SIDEBAR_DEFAULT_WIDTHS.files }}
+            >
+                {["w-[70%]", "w-[55%]", "w-[80%]", "w-[45%]", "w-[65%]", "w-[50%]"].map((w, i) => (
+                    <SkeletonLine key={i} className={cn("h-[11px]", w)} />
+                ))}
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col gap-2.5 p-5">
+                {["w-[60%]", "w-[85%]", "w-[75%]", "w-[40%]", "w-[90%]", "w-[70%]"].map((w, i) => (
+                    <SkeletonLine key={i} className={cn("h-[11px]", w)} />
+                ))}
+            </div>
+        </div>
+    );
 }
 
 const CODE_SIDEBAR_PREFS_KEY = "code.sidebar.prefs";

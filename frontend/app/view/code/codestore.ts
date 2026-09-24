@@ -267,6 +267,33 @@ export function canRestoreProject(stored: CodeProject | null, registry: Record<s
     return false;
 }
 
+export type CodeBodyPhase = "no-projects" | "no-project" | "error" | "loading" | "not-repo" | "ready";
+
+// What CodeBody shows. A stored project the restore effect is about to reopen is "loading": that effect
+// runs after the first paint, and "No project selected" there is a false claim. More states than LoadPhase
+// has, so this is Code's own union.
+export function codeBodyPhase(p: {
+    registry: Record<string, ProjectKeywords> | undefined;
+    project: CodeProject | null;
+    stored: CodeProject | null;
+    index: CodeIndex | null;
+    indexError: string | null;
+}): CodeBodyPhase {
+    if (Object.keys(p.registry ?? {}).length === 0) {
+        return "no-projects";
+    }
+    if (p.project == null) {
+        return canRestoreProject(p.stored, p.registry ?? {}) ? "loading" : "no-project";
+    }
+    if (p.indexError != null) {
+        return "error";
+    }
+    if (p.index == null) {
+        return "loading";
+    }
+    return p.index.isRepo ? "ready" : "not-repo";
+}
+
 export function registeredProjects(registry: Record<string, ProjectKeywords> | undefined): CodeProject[] {
     return Object.entries(registry ?? {})
         .filter(([, v]) => v?.path)
