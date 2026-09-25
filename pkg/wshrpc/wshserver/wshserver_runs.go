@@ -906,9 +906,6 @@ func (ws *WshServer) RunTranscriptPathCommand(ctx context.Context, data wshrpc.C
 	return jarvis.SessionTranscriptPath(run), nil
 }
 
-// SealRunEvidenceCommand derives and persists a done run's evidence snapshot if it has none yet — the
-// lazy backfill for runs completed before the feature existed (new runs seal at completion in
-// AdvanceRun). Idempotent: a run already sealed is a no-op. Only seals runs in the done state.
 // LandRunCommand merges a done branch-landed run's branch back into its base, the retry for a held land. It
 // runs detached from the caller's budget: a land can re-run Check and Verify, and a merge cut off halfway
 // would leave the human's checkout mid-merge.
@@ -943,6 +940,9 @@ func (ws *WshServer) AckRunCommand(ctx context.Context, data wshrpc.CommandAckRu
 	return nil
 }
 
+// SealRunEvidenceCommand derives and persists a done run's evidence snapshot if it has none yet — the
+// lazy backfill for runs completed before the feature existed (new runs seal at completion in
+// AdvanceRun). Idempotent: a run already sealed is a no-op. Only seals runs in the done state.
 func (ws *WshServer) SealRunEvidenceCommand(ctx context.Context, data wshrpc.CommandSealRunEvidenceData) error {
 	if data.ChannelId == "" || data.RunId == "" {
 		return fmt.Errorf("channelid and runid are required")
