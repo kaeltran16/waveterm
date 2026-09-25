@@ -15,31 +15,22 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/wavetermdev/waveterm/pkg/agentask"
-	"github.com/wavetermdev/waveterm/pkg/aiusechat"
 	"github.com/wavetermdev/waveterm/pkg/authkey"
 	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
 	"github.com/wavetermdev/waveterm/pkg/blocklogger"
-	"github.com/wavetermdev/waveterm/pkg/filebackup"
 	"github.com/wavetermdev/waveterm/pkg/filestore"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/jarvisvolunteer"
-	"github.com/wavetermdev/waveterm/pkg/jobcontroller"
 	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
-	"github.com/wavetermdev/waveterm/pkg/remote/conncontroller"
 	"github.com/wavetermdev/waveterm/pkg/remote/fileshare/wshfs"
 	"github.com/wavetermdev/waveterm/pkg/reporadar"
-	"github.com/wavetermdev/waveterm/pkg/secretstore"
 	"github.com/wavetermdev/waveterm/pkg/service"
-	"github.com/wavetermdev/waveterm/pkg/telemetry"
-	"github.com/wavetermdev/waveterm/pkg/telemetry/telemetrydata"
 	"github.com/wavetermdev/waveterm/pkg/util/envutil"
 	"github.com/wavetermdev/waveterm/pkg/util/shellutil"
 	"github.com/wavetermdev/waveterm/pkg/util/sigutil"
-	"github.com/wavetermdev/waveterm/pkg/util/utilfn"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
-	"github.com/wavetermdev/waveterm/pkg/wcloud"
 	"github.com/wavetermdev/waveterm/pkg/wconfig"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
 	"github.com/wavetermdev/waveterm/pkg/web"
@@ -49,7 +40,6 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wshrpc/wshremote"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc/wshserver"
 	"github.com/wavetermdev/waveterm/pkg/wshutil"
-	"github.com/wavetermdev/waveterm/pkg/wslconn"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 
 	"net/http"
@@ -60,16 +50,7 @@ import (
 var WaveVersion = "0.0.0"
 var BuildTime = "0"
 
-const InitialTelemetryWait = 10 * time.Second
-const TelemetryTick = 2 * time.Minute
-const TelemetryInterval = 4 * time.Hour
-const TelemetryInitialCountsWait = 5 * time.Second
-const TelemetryCountsInterval = 1 * time.Hour
-const BackupCleanupTick = 2 * time.Minute
-const BackupCleanupInterval = 4 * time.Hour
 const TempAttachmentSweepInterval = 4 * time.Hour
-const InitialDiagnosticWait = 5 * time.Minute
-const DiagnosticTick = 10 * time.Minute
 
 var shutdownOnce sync.Once
 var initConfigWatcher = wconfig.InitWatcher
@@ -88,8 +69,6 @@ func doShutdown(reason string) {
 		ctx, cancelFn := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancelFn()
 		go blockcontroller.StopAllBlockControllersForShutdown()
-		shutdownActivityUpdate()
-		sendTelemetryWrapper()
 		// TODO deal with flush in progress
 		clearTempFiles()
 		filestore.WFS.FlushCache(ctx)
@@ -127,86 +106,6 @@ func startConfigWatcher() error {
 	return nil
 }
 
-func telemetryLoop() {
-	defer func() {
-		panichandler.PanicHandler("telemetryLoop", recover())
-	}()
-	var nextSend int64
-	time.Sleep(InitialTelemetryWait)
-	for {
-		if time.Now().Unix() > nextSend {
-			nextSend = time.Now().Add(TelemetryInterval).Unix()
-			sendTelemetryWrapper()
-		}
-		time.Sleep(TelemetryTick)
-	}
-}
-
-func diagnosticLoop() {
-	defer func() {
-		panichandler.PanicHandler("diagnosticLoop", recover())
-	}()
-	if os.Getenv("WAVETERM_NOPING") != "" {
-		log.Printf("WAVETERM_NOPING set, disabling diagnostic ping\n")
-		return
-	}
-	var lastSentDate string
-	time.Sleep(InitialDiagnosticWait)
-	for {
-		currentDate := time.Now().Format("2006-01-02")
-		if lastSentDate == "" || lastSentDate != currentDate {
-			if sendDiagnosticPing() {
-				lastSentDate = currentDate
-			}
-		}
-		time.Sleep(DiagnosticTick)
-	}
-}
-
-func sendDiagnosticPing() bool {
-	ctx, cancelFn := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancelFn()
-
-	clientId := wstore.GetClientId()
-	usageTelemetry := telemetry.IsTelemetryEnabled()
-	wcloud.SendDiagnosticPing(ctx, clientId, usageTelemetry)
-	return true
-}
-
-func setupTelemetryConfigHandler() {
-	watcher := wconfig.GetWatcher()
-	if watcher == nil {
-		return
-	}
-	currentConfig := watcher.GetFullConfig()
-	currentTelemetryEnabled := currentConfig.Settings.TelemetryEnabled
-
-	watcher.RegisterUpdateHandler(func(newConfig wconfig.FullConfigType) {
-		newTelemetryEnabled := newConfig.Settings.TelemetryEnabled
-		if newTelemetryEnabled != currentTelemetryEnabled {
-			currentTelemetryEnabled = newTelemetryEnabled
-			wcore.GoSendNoTelemetryUpdate(newTelemetryEnabled)
-		}
-	})
-}
-
-func backupCleanupLoop() {
-	defer func() {
-		panichandler.PanicHandler("backupCleanupLoop", recover())
-	}()
-	var nextCleanup int64
-	for {
-		if time.Now().Unix() > nextCleanup {
-			nextCleanup = time.Now().Add(BackupCleanupInterval).Unix()
-			err := filebackup.CleanupOldBackups()
-			if err != nil {
-				log.Printf("error cleaning up old backups: %v\n", err)
-			}
-		}
-		time.Sleep(BackupCleanupTick)
-	}
-}
-
 // sweeps stale channel-composer attachment temp dirs. First iteration runs immediately (startup sweep
 // of dirs left by prior sessions), then periodically for very long-running sessions.
 func tempAttachmentCleanupLoop() {
@@ -216,185 +115,6 @@ func tempAttachmentCleanupLoop() {
 	for {
 		wshserver.SweepTempAttachments()
 		time.Sleep(TempAttachmentSweepInterval)
-	}
-}
-
-func panicTelemetryHandler(panicName string) {
-	activity := wshrpc.ActivityUpdate{NumPanics: 1}
-	err := telemetry.UpdateActivity(context.Background(), activity)
-	if err != nil {
-		log.Printf("error updating activity (panicTelemetryHandler): %v\n", err)
-	}
-	telemetry.RecordTEvent(context.Background(), telemetrydata.MakeTEvent("debug:panic", telemetrydata.TEventProps{
-		PanicType: panicName,
-	}))
-}
-
-func sendTelemetryWrapper() {
-	defer func() {
-		panichandler.PanicHandler("sendTelemetryWrapper", recover())
-	}()
-	ctx, cancelFn := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancelFn()
-	beforeSendActivityUpdate(ctx)
-	clientId := wstore.GetClientId()
-	err := wcloud.SendAllTelemetry(clientId)
-	if err != nil {
-		log.Printf("[error] sending telemetry: %v\n", err)
-	}
-}
-
-func updateTelemetryCounts(lastCounts telemetrydata.TEventProps) telemetrydata.TEventProps {
-	ctx, cancelFn := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancelFn()
-	var props telemetrydata.TEventProps
-	props.CountBlocks, _ = wstore.DBGetCount[*waveobj.Block](ctx)
-	props.CountTabs, _ = wstore.DBGetCount[*waveobj.Tab](ctx)
-	props.CountWindows, _ = wstore.DBGetCount[*waveobj.Window](ctx)
-	props.CountWorkspaces, _, _ = wstore.DBGetWSCounts(ctx)
-	props.CountSSHConn = conncontroller.GetNumSSHHasConnected()
-	props.CountWSLConn = wslconn.GetNumWSLHasConnected()
-	props.CountJobs = jobcontroller.GetNumJobsRunning()
-	props.CountJobsConnected = jobcontroller.GetNumJobsConnected()
-	props.CountViews, _ = wstore.DBGetBlockViewCounts(ctx)
-
-	fullConfig := wconfig.GetWatcher().GetFullConfig()
-	customWidgets := fullConfig.CountCustomWidgets()
-	customAIPresets := fullConfig.CountCustomAIPresets()
-	customSettings := wconfig.CountCustomSettings()
-	customAIModes := fullConfig.CountCustomAIModes()
-
-	props.UserSet = &telemetrydata.TEventUserProps{
-		SettingsCustomWidgets:   customWidgets,
-		SettingsCustomAIPresets: customAIPresets,
-		SettingsCustomSettings:  customSettings,
-		SettingsCustomAIModes:   customAIModes,
-	}
-
-	secretsCount, err := secretstore.CountSecrets()
-	if err == nil {
-		props.UserSet.SettingsSecretsCount = secretsCount
-	}
-
-	if utilfn.CompareAsMarshaledJson(props, lastCounts) {
-		return lastCounts
-	}
-	tevent := telemetrydata.MakeTEvent("app:counts", props)
-	err = telemetry.RecordTEvent(ctx, tevent)
-	if err != nil {
-		log.Printf("error recording counts tevent: %v\n", err)
-	}
-	return props
-}
-
-func updateTelemetryCountsLoop() {
-	defer func() {
-		panichandler.PanicHandler("updateTelemetryCountsLoop", recover())
-	}()
-	var nextSend int64
-	var lastCounts telemetrydata.TEventProps
-	time.Sleep(TelemetryInitialCountsWait)
-	for {
-		if time.Now().Unix() > nextSend {
-			nextSend = time.Now().Add(TelemetryCountsInterval).Unix()
-			lastCounts = updateTelemetryCounts(lastCounts)
-		}
-		time.Sleep(TelemetryTick)
-	}
-}
-
-func beforeSendActivityUpdate(ctx context.Context) {
-	activity := wshrpc.ActivityUpdate{}
-	activity.NumTabs, _ = wstore.DBGetCount[*waveobj.Tab](ctx)
-	activity.NumBlocks, _ = wstore.DBGetCount[*waveobj.Block](ctx)
-	activity.Blocks, _ = wstore.DBGetBlockViewCounts(ctx)
-	activity.NumWindows, _ = wstore.DBGetCount[*waveobj.Window](ctx)
-	activity.NumSSHConn = conncontroller.GetNumSSHHasConnected()
-	activity.NumWSLConn = wslconn.GetNumWSLHasConnected()
-	activity.NumWSNamed, activity.NumWS, _ = wstore.DBGetWSCounts(ctx)
-	err := telemetry.UpdateActivity(ctx, activity)
-	if err != nil {
-		log.Printf("error updating before activity: %v\n", err)
-	}
-}
-
-func startupActivityUpdate(firstLaunch bool) {
-	defer func() {
-		panichandler.PanicHandler("startupActivityUpdate", recover())
-	}()
-	ctx, cancelFn := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancelFn()
-	activity := wshrpc.ActivityUpdate{Startup: 1}
-	err := telemetry.UpdateActivity(ctx, activity) // set at least one record into activity (don't use go routine wrap here)
-	if err != nil {
-		log.Printf("error updating startup activity: %v\n", err)
-	}
-	autoUpdateChannel := telemetry.AutoUpdateChannel()
-	autoUpdateEnabled := telemetry.IsAutoUpdateEnabled()
-	shellType, shellVersion, shellErr := shellutil.DetectShellTypeAndVersion()
-	if shellErr != nil {
-		shellType = "error"
-		shellVersion = ""
-	}
-	userSetOnce := &telemetrydata.TEventUserProps{
-		ClientInitialVersion: "v" + WaveVersion,
-	}
-	tosTs := telemetry.GetTosAgreedTs()
-	var cohortTime time.Time
-	if tosTs > 0 {
-		cohortTime = time.UnixMilli(tosTs)
-	} else {
-		cohortTime = time.Now()
-	}
-	cohortMonth := cohortTime.Format("2006-01")
-	year, week := cohortTime.ISOWeek()
-	cohortISOWeek := fmt.Sprintf("%04d-W%02d", year, week)
-	userSetOnce.CohortMonth = cohortMonth
-	userSetOnce.CohortISOWeek = cohortISOWeek
-	fullConfig := wconfig.GetWatcher().GetFullConfig()
-	props := telemetrydata.TEventProps{
-		UserSet: &telemetrydata.TEventUserProps{
-			ClientVersion:       "v" + wavebase.WaveVersion,
-			ClientBuildTime:     wavebase.BuildTime,
-			ClientArch:          wavebase.ClientArch(),
-			ClientOSRelease:     wavebase.UnameKernelRelease(),
-			ClientIsDev:         wavebase.IsDevMode(),
-			ClientPackageType:   wavebase.ClientPackageType(),
-			ClientMacOSVersion:  wavebase.ClientMacOSVersion(),
-			AutoUpdateChannel:   autoUpdateChannel,
-			AutoUpdateEnabled:   autoUpdateEnabled,
-			LocalShellType:      shellType,
-			LocalShellVersion:   shellVersion,
-			SettingsTransparent: fullConfig.Settings.WindowTransparent,
-		},
-		UserSetOnce: userSetOnce,
-	}
-	if firstLaunch {
-		props.AppFirstLaunch = true
-	}
-	tevent := telemetrydata.MakeTEvent("app:startup", props)
-	err = telemetry.RecordTEvent(ctx, tevent)
-	if err != nil {
-		log.Printf("error recording startup event: %v\n", err)
-	}
-}
-
-func shutdownActivityUpdate() {
-	ctx, cancelFn := context.WithTimeout(context.Background(), 1*time.Second)
-	defer cancelFn()
-	activity := wshrpc.ActivityUpdate{Shutdown: 1}
-	err := telemetry.UpdateActivity(ctx, activity) // do NOT use the go routine wrap here (this needs to be synchronous)
-	if err != nil {
-		log.Printf("error updating shutdown activity: %v\n", err)
-	}
-	err = telemetry.TruncateActivityTEventForShutdown(ctx)
-	if err != nil {
-		log.Printf("error truncating activity t-event for shutdown: %v\n", err)
-	}
-	tevent := telemetrydata.MakeTEvent("app:shutdown", telemetrydata.TEventProps{})
-	err = telemetry.RecordTEvent(ctx, tevent)
-	if err != nil {
-		log.Printf("error recording shutdown event: %v\n", err)
 	}
 }
 
@@ -429,7 +149,6 @@ func createMainWshClient() {
 	sockName := wavebase.GetDomainSocketName()
 	remoteImpl := wshremote.MakeRemoteRpcServerImpl(nil, wshutil.DefaultRouter, wshclient.GetBareRpcClient(), true, localInitialEnv, sockName)
 	localConnWsh := wshutil.MakeWshRpc(wshrpc.RpcContext{Conn: wshrpc.LocalConnName}, remoteImpl, "conn:local")
-	go wshremote.RunSysInfoLoop(localConnWsh, wshrpc.LocalConnName)
 	wshutil.DefaultRouter.RegisterTrustedLeaf(localConnWsh, wshutil.MakeConnectionRouteId(wshrpc.LocalConnName))
 	wshfs.RpcClient = localConnWsh
 	wshfs.RpcClientRouteId = wshutil.MakeConnectionRouteId(wshrpc.LocalConnName)
@@ -441,10 +160,6 @@ func grabAndRemoveEnvVars() error {
 		return fmt.Errorf("setting auth key: %v", err)
 	}
 	err = wavebase.CacheAndRemoveEnvVars()
-	if err != nil {
-		return err
-	}
-	err = wcloud.CacheAndRemoveEnvVars()
 	if err != nil {
 		return err
 	}
@@ -529,12 +244,6 @@ func main() {
 		return
 	}
 
-	// TODO: rather than ensure this dir exists, we should let the editor recursively create parent dirs on save
-	err = wavebase.EnsureWavePresetsDir()
-	if err != nil {
-		log.Printf("error ensuring wave presets dir: %v\n", err)
-		return
-	}
 	err = wavebase.EnsureWaveCachesDir()
 	if err != nil {
 		log.Printf("error ensuring wave caches dir: %v\n", err)
@@ -564,7 +273,6 @@ func main() {
 		log.Printf("error initializing wstore: %v\n", err)
 		return
 	}
-	panichandler.PanicTelemetryHandler = panicTelemetryHandler
 	go func() {
 		defer func() {
 			panichandler.PanicHandler("InitCustomShellStartupFiles", recover())
@@ -602,7 +310,6 @@ func main() {
 	retryCleanupDebtAtStartup()
 	sigutil.InstallShutdownSignalHandlers(doShutdown)
 	sigutil.InstallSIGUSR1Handler()
-	wconfig.MigratePresetsBackgrounds()
 	if err := jarvis.MigrateTierPins(context.Background()); err != nil {
 		log.Printf("error migrating route tier pins: %v\n", err)
 	}
@@ -611,26 +318,14 @@ func main() {
 		log.Printf("error starting config watcher: %v\n", err)
 		return
 	}
-	aiusechat.InitAIModeConfigWatcher()
 	maybeStartPprofServer()
 	go stdinReadWatch()
-	go telemetryLoop()
-	go diagnosticLoop()
-	setupTelemetryConfigHandler()
-	go updateTelemetryCountsLoop()
-	go backupCleanupLoop()
 	go tempAttachmentCleanupLoop()
-	go startupActivityUpdate(firstLaunch)                                // must be after startConfigWatcher()
 	orchestrate.SealRunEvidenceHook = wshserver.SealDoneRunEvidenceAsync // a run the engine closed itself gets the same evidence snapshot `wsh jarvis complete` produces; before StartWatchdog, whose first tick is immediate and can be the tick that closes one
 	orchestrate.LaunchLeadHook = wshserver.LaunchPlanLead                // a run submitted with no lead gets one at its first judgment event; before StartWatchdog, whose first tick can deliver one
 	orchestrate.StartWatchdog(context.Background())                      // dag advance + stall detection tick
 	agentask.AnswerHook = wshserver.RecordAskAnswered                    // one ask lifecycle row per delivered answer, whichever surface delivered it
-	if err := agentask.InitDurablePendingAsks(context.Background()); err != nil {
-		// a queue that lost its restored asks is still a working queue, so this does not stop startup
-		log.Printf("error restoring pending asks: %v\n", err)
-	}
 	blocklogger.InitBlockLogger()
-	jobcontroller.InitJobController()
 	blockcontroller.InitBlockController()
 	jarvisvolunteer.StartLooseEndSweep(context.Background())
 	err = wcore.InitBadgeStore()

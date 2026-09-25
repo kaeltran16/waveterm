@@ -8,12 +8,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
 	"github.com/wavetermdev/waveterm/pkg/filestore"
 	"github.com/wavetermdev/waveterm/pkg/tsgen/tsgenmeta"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
-	"github.com/wavetermdev/waveterm/pkg/wcore"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
@@ -65,24 +63,4 @@ func (bs *BlockService) SaveTerminalState(ctx context.Context, blockId string, s
 		return fmt.Errorf("cannot save terminal state meta: %w", err)
 	}
 	return nil
-}
-
-func (*BlockService) CleanupOrphanedBlocks_Meta() tsgenmeta.MethodMeta {
-	return tsgenmeta.MethodMeta{
-		Desc:     "queue a layout action to cleanup orphaned blocks in the tab",
-		ArgNames: []string{"ctx", "tabId"},
-	}
-}
-
-func (bs *BlockService) CleanupOrphanedBlocks(ctx context.Context, tabId string) (waveobj.UpdatesRtnType, error) {
-	ctx = waveobj.ContextWithUpdates(ctx)
-	layoutAction := waveobj.LayoutActionData{
-		ActionType: wcore.LayoutActionDataType_CleanupOrphaned,
-		ActionId:   uuid.NewString(),
-	}
-	err := wcore.QueueLayoutActionForTab(ctx, tabId, layoutAction)
-	if err != nil {
-		return nil, fmt.Errorf("error queuing cleanup layout action: %w", err)
-	}
-	return waveobj.ContextGetUpdatesRtn(ctx), nil
 }

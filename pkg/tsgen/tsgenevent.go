@@ -9,10 +9,8 @@ import (
 	"reflect"
 	"strconv"
 
-	"github.com/wavetermdev/waveterm/pkg/aiusechat/uctypes"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
-	"github.com/wavetermdev/waveterm/pkg/userinput"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wconfig"
 	"github.com/wavetermdev/waveterm/pkg/wps"
@@ -23,19 +21,10 @@ var waveEventRType = reflect.TypeOf(wps.WaveEvent{})
 
 var WaveEventDataTypes = map[string]reflect.Type{
 	wps.Event_BlockClose:       reflect.TypeOf(""),
-	wps.Event_ConnChange:       reflect.TypeOf(wshrpc.ConnStatus{}),
-	wps.Event_SysInfo:          reflect.TypeOf(wshrpc.TimeSeriesData{}),
 	wps.Event_ControllerStatus: reflect.TypeOf((*blockcontroller.BlockControllerRuntimeStatus)(nil)),
 	wps.Event_WaveObjUpdate:    reflect.TypeOf(waveobj.WaveObjUpdate{}),
 	wps.Event_BlockFile:        reflect.TypeOf((*wps.WSFileEventData)(nil)),
 	wps.Event_Config:           reflect.TypeOf(wconfig.WatcherUpdate{}),
-	wps.Event_UserInput:        reflect.TypeOf((*userinput.UserInputRequest)(nil)),
-	wps.Event_RouteDown:        nil,
-	wps.Event_RouteUp:          nil,
-	wps.Event_WorkspaceUpdate:  nil,
-	wps.Event_WaveAIRateLimit:  reflect.TypeOf((*uctypes.RateLimitInfo)(nil)),
-	wps.Event_AIModeConfig:     reflect.TypeOf(wconfig.AIModeConfigUpdate{}),
-	wps.Event_BlockJobStatus:   reflect.TypeOf(wshrpc.BlockJobStatusData{}),
 	wps.Event_Badge:            reflect.TypeOf(baseds.BadgeEvent{}),
 	wps.Event_AgentStatus:      reflect.TypeOf(baseds.AgentStatusData{}),
 	wps.Event_Notify:           reflect.TypeOf(wshrpc.NotifyCommandData{}),

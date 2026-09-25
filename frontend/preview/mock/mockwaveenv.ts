@@ -1,14 +1,12 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { makeDefaultConnStatus } from "@/app/store/global";
 import { globalStore } from "@/app/store/jotaiStore";
 import { AllServiceTypes } from "@/app/store/services";
 import { handleWaveEvent } from "@/app/store/wps";
 import { RpcApiType } from "@/app/store/wshclientapi";
 import { WaveEnv } from "@/app/waveenv/waveenv";
-import { PlatformLinux, PlatformMacOS, PlatformWindows } from "@/util/platformutil";
-import { NullAtom } from "@/util/util";
+import { PlatformMacOS } from "@/util/platformutil";
 import { Atom, atom, PrimitiveAtom, useAtomValue } from "jotai";
 import { showPreviewContextMenu } from "../preview-contextmenu";
 import { DefaultFullConfig } from "./defaultconfig";
@@ -27,9 +25,6 @@ export const WebBlockId = crypto.randomUUID();
 //   - rpc.EventPublishCommand           -- dispatches to handleWaveEvent(); works when the subscriber
 //                                          is purely FE-based (registered via WPS on the frontend)
 //   - rpc.GetMetaCommand                -- reads .meta from the mock WOS atom for the given oref
-//   - rpc.GetSecretsCommand             -- reads secrets from an in-memory mock secret store
-//   - rpc.GetSecretsLinuxStorageBackendCommand
-//                                        returns "libsecret" on Linux previews and "" elsewhere
 //   - rpc.GetSecretsNamesCommand        -- lists secret names from the in-memory mock secret store
 //   - rpc.SetMetaCommand                -- writes .meta to the mock WOS atom (null values delete keys)
 //   - rpc.SetConfigCommand              -- merges settings into fullConfigAtom (null values delete keys)
@@ -73,7 +68,6 @@ export type MockEnv = {
     atoms?: Partial<GlobalAtomsType>;
     electron?: Partial<ElectronApi>;
     showContextMenu?: WaveEnv["showContextMenu"];
-    connStatus?: Record<string, ConnStatus>;
     mockWaveObjs?: Record<string, WaveObj>;
 };
 
@@ -115,21 +109,7 @@ export function mergeMockEnv(base: MockEnv, overrides: MockEnv): MockEnv {
                 ? { ...(base.electron ?? {}), ...(overrides.electron ?? {}) }
                 : undefined,
         showContextMenu: overrides.showContextMenu ?? base.showContextMenu,
-        connStatus: mergeRecords(base.connStatus, overrides.connStatus),
         mockWaveObjs: mergeRecords(base.mockWaveObjs, overrides.mockWaveObjs),
-    };
-}
-
-function makeMockSettingsKeyAtom(settingsAtom: Atom<SettingsType>): WaveEnv["getSettingsKeyAtom"] {
-    const keyAtomCache = new Map<keyof SettingsType, Atom<any>>();
-    return <T extends keyof SettingsType>(key: T) => {
-        if (!keyAtomCache.has(key)) {
-            keyAtomCache.set(
-                key,
-                atom((get) => get(settingsAtom)?.[key])
-            );
-        }
-        return keyAtomCache.get(key) as Atom<SettingsType[T]>;
     };
 }
 
@@ -161,9 +141,7 @@ function makeMockGlobalAtoms(
         workspaceId: workspaceIdAtom,
         workspace: workspaceAtom,
         fullConfigAtom,
-        waveaiModeConfigAtom: atom({}) as any,
         settingsAtom,
-        hasCustomAIPresetsAtom: atom(false),
         hasConfigErrors: atom((get) => {
             const c = get(fullConfigAtom);
             return c?.configerrors != null && c.configerrors.length > 0;
@@ -174,11 +152,8 @@ function makeMockGlobalAtoms(
         controlShiftDelayAtom: atom(false) as any,
         prefersReducedMotionAtom: atom(false),
         documentHasFocus: atom(true) as any,
-        updaterStatusAtom: atom("up-to-date" as UpdaterStatus) as any,
         modalOpen: atom(false) as any,
-        allConnStatus: atom([] as ConnStatus[]),
         reinitVersion: atom(0) as any,
-        waveAIRateLimitInfoAtom: atom(null) as any,
     };
     if (!atomOverrides) {
         return defaults;
@@ -253,24 +228,8 @@ export function makeMockRpc(
         globalStore.set(wos.fullConfigAtom, { ...current, settings: updatedSettings as SettingsType });
         return null;
     });
-    setCallHandler("getsecretslinuxstoragebackend", async () => {
-        if (wos.platform !== PlatformLinux) {
-            return "";
-        }
-        return "libsecret";
-    });
     setCallHandler("getsecretsnames", async () => {
         return Array.from(secrets.keys()).sort();
-    });
-    setCallHandler("getsecrets", async (_client, data: string[]) => {
-        const foundSecrets: Record<string, string> = {};
-        for (const name of data ?? []) {
-            const value = secrets.get(name);
-            if (value != null) {
-                foundSecrets[name] = value;
-            }
-        }
-        return foundSecrets;
     });
     setCallHandler("setsecrets", async (_client, data: Record<string, string>) => {
         for (const [name, value] of Object.entries(data ?? {})) {
@@ -293,11 +252,7 @@ export function makeMockRpc(
     });
     setCallHandler("fileinfo", async (_client, data: FileData) => DefaultMockFilesystem.fileInfo(data));
     setCallHandler("fileread", async (_client, data: FileData) => DefaultMockFilesystem.fileRead(data));
-    setCallHandler("filelist", async (_client, data: FileListData) => DefaultMockFilesystem.fileList(data));
     setCallHandler("filejoin", async (_client, data: string[]) => DefaultMockFilesystem.fileJoin(data));
-    setStreamHandler("fileliststream", async function* (_client, data: FileListData) {
-        yield* DefaultMockFilesystem.fileListStream(data);
-    });
     if (overrides) {
         for (const key of Object.keys(overrides) as (keyof RpcOverrides)[]) {
             const cmdName = key.slice(0, -"Command".length).toLowerCase();
@@ -396,12 +351,8 @@ export function makeMockWaveEnv(mockEnv?: MockEnv): MockWaveEnv {
         atoms: { ...defaultAtoms, ...(overrides.atoms ?? {}) },
     };
     const platform = mergedOverrides.platform ?? PlatformMacOS;
-    const connStatusAtomCache = new Map<string, PrimitiveAtom<ConnStatus>>();
     const waveObjectValueAtomCache = new Map<string, PrimitiveAtom<any>>();
     const waveObjectDerivedAtomCache = new Map<string, Atom<any>>();
-    const orefMetaKeyAtomCache = new Map<string, Atom<any>>();
-    const connConfigKeyAtomCache = new Map<string, Atom<any>>();
-    const configBackgroundAtomCache = new Map<string, Atom<BackgroundConfigType>>();
     const getWaveObjectAtom = <T extends WaveObj>(oref: string): PrimitiveAtom<T> => {
         if (!waveObjectValueAtomCache.has(oref)) {
             const obj = (mergedOverrides.mockWaveObjs?.[oref] ?? null) as T;
@@ -415,13 +366,6 @@ export function makeMockWaveEnv(mockEnv?: MockEnv): MockWaveEnv {
         mergedOverrides.tabId,
         getWaveObjectAtom
     );
-    const localHostDisplayNameAtom = atom<string>((get) => {
-        const configValue = get(atoms.settingsAtom)?.["conn:localhostdisplayname"];
-        if (configValue != null) {
-            return configValue;
-        }
-        return "user@localhost";
-    });
     const mockWosFns: MockWosFns = {
         getWaveObjectAtom,
         fullConfigAtom: atoms.fullConfigAtom,
@@ -451,22 +395,9 @@ export function makeMockWaveEnv(mockEnv?: MockEnv): MockWaveEnv {
         },
         rpc,
         atoms,
-        getSettingsKeyAtom: makeMockSettingsKeyAtom(atoms.settingsAtom),
         platform,
         isDev: () => mergedOverrides.isDev ?? true,
-        isWindows: () => platform === PlatformWindows,
-        isMacOS: () => platform === PlatformMacOS,
         showContextMenu: mergedOverrides.showContextMenu ?? showPreviewContextMenu,
-        getLocalHostDisplayNameAtom: () => {
-            return localHostDisplayNameAtom;
-        },
-        getConnStatusAtom: (conn: string) => {
-            if (!connStatusAtomCache.has(conn)) {
-                const connStatus = mergedOverrides.connStatus?.[conn] ?? makeDefaultConnStatus(conn);
-                connStatusAtomCache.set(conn, atom(connStatus));
-            }
-            return connStatusAtomCache.get(conn);
-        },
         wos: {
             getWaveObjectAtom: mockWosFns.getWaveObjectAtom,
             getWaveObjectLoadingAtom: (oref: string) => {
@@ -490,62 +421,6 @@ export function makeMockWaveEnv(mockEnv?: MockEnv): MockWaveEnv {
                 const objAtom = env.wos.getWaveObjectAtom<T>(oref);
                 return [useAtomValue(objAtom), false];
             },
-        },
-        getBlockMetaKeyAtom: <T extends keyof MetaType>(blockId: string, key: T) => {
-            if (blockId == null) {
-                return NullAtom as Atom<MetaType[T]>;
-            }
-            const oref = "block:" + blockId;
-            const cacheKey = oref + "#meta-" + key;
-            if (!orefMetaKeyAtomCache.has(cacheKey)) {
-                const metaAtom = atom<MetaType[T]>((get) => {
-                    const blockAtom = env.wos.getWaveObjectAtom<Block>(oref);
-                    const blockData = get(blockAtom);
-                    return blockData?.meta?.[key] as MetaType[T];
-                });
-                orefMetaKeyAtomCache.set(cacheKey, metaAtom);
-            }
-            return orefMetaKeyAtomCache.get(cacheKey) as Atom<MetaType[T]>;
-        },
-        getTabMetaKeyAtom: <T extends keyof MetaType>(tabId: string, key: T) => {
-            if (tabId == null) {
-                return NullAtom as Atom<MetaType[T]>;
-            }
-            const oref = "tab:" + tabId;
-            const cacheKey = oref + "#meta-" + key;
-            if (!orefMetaKeyAtomCache.has(cacheKey)) {
-                const metaAtom = atom<MetaType[T]>((get) => {
-                    const tabAtom = env.wos.getWaveObjectAtom<Tab>(oref);
-                    const tabData = get(tabAtom);
-                    return tabData?.meta?.[key] as MetaType[T];
-                });
-                orefMetaKeyAtomCache.set(cacheKey, metaAtom);
-            }
-            return orefMetaKeyAtomCache.get(cacheKey) as Atom<MetaType[T]>;
-        },
-        getConnConfigKeyAtom: <T extends keyof ConnKeywords>(connName: string, key: T) => {
-            const cacheKey = connName + "#conn-" + key;
-            if (!connConfigKeyAtomCache.has(cacheKey)) {
-                const keyAtom = atom<ConnKeywords[T]>((get) => {
-                    const fullConfig = get(atoms.fullConfigAtom);
-                    return fullConfig.connections?.[connName]?.[key];
-                });
-                connConfigKeyAtomCache.set(cacheKey, keyAtom);
-            }
-            return connConfigKeyAtomCache.get(cacheKey) as Atom<ConnKeywords[T]>;
-        },
-        getConfigBackgroundAtom: (bgKey: string | null) => {
-            if (bgKey == null) return NullAtom as Atom<BackgroundConfigType>;
-            if (!configBackgroundAtomCache.has(bgKey)) {
-                configBackgroundAtomCache.set(
-                    bgKey,
-                    atom((get) => {
-                        const fullConfig = get(atoms.fullConfigAtom);
-                        return fullConfig.backgrounds?.[bgKey];
-                    })
-                );
-            }
-            return configBackgroundAtomCache.get(bgKey);
         },
         services: null as any,
         callBackendService: (service: string, method: string, args: any[], noUIContext?: boolean) => {

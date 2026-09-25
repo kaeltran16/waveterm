@@ -4,7 +4,6 @@
 package filestore
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io/fs"
@@ -38,17 +37,6 @@ type CacheEntry struct {
 	File        *WaveFile
 	DataEntries map[int]*DataCacheEntry
 	FlushErrors int
-}
-
-//lint:ignore U1000 used for testing
-func (e *CacheEntry) dump() string {
-	var buf bytes.Buffer
-	fmt.Fprintf(&buf, "CacheEntry [ZoneId: %q, Name: %q] PinCount: %d\n", e.ZoneId, e.Name, e.PinCount)
-	fmt.Fprintf(&buf, "  FileEntry: %v\n", e.File)
-	for idx, dce := range e.DataEntries {
-		fmt.Fprintf(&buf, "  DataEntry[%d]: %q\n", idx, string(dce.Data))
-	}
-	return buf.String()
 }
 
 func makeDataCacheEntry(partIdx int) *DataCacheEntry {

@@ -94,24 +94,6 @@ func preRunSetupRpcClient(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func getIsTty() bool {
-	if fileInfo, _ := os.Stdout.Stat(); (fileInfo.Mode() & os.ModeCharDevice) != 0 {
-		return true
-	}
-	return false
-}
-
-type RunEFnType = func(*cobra.Command, []string) error
-
-func activityWrap(activityStr string, origRunE RunEFnType) RunEFnType {
-	return func(cmd *cobra.Command, args []string) (rtnErr error) {
-		defer func() {
-			sendActivity(activityStr, rtnErr == nil)
-		}()
-		return origRunE(cmd, args)
-	}
-}
-
 func resolveBlockArg() (*waveobj.ORef, error) {
 	oref := blockArg
 	if oref == "" {
@@ -211,23 +193,6 @@ func resolveSimpleId(id string) (*waveobj.ORef, error) {
 
 func getTabIdFromEnv() string {
 	return os.Getenv("WAVETERM_TABID")
-}
-
-// this will send wsh activity to the client running on *your* local machine (it does not contact any wave cloud infrastructure)
-// if you've turned off telemetry in your local client, this data never gets sent to us
-// no parameters or timestamps are sent, as you can see below, it just sends the name of the command (and if there was an error)
-// (e.g. "wsh ai ..." would send "ai")
-// this helps us understand which commands are actually being used so we know where to concentrate our effort
-func sendActivity(wshCmdName string, success bool) {
-	if RpcClient == nil || wshCmdName == "" {
-		return
-	}
-	dataMap := make(map[string]int)
-	dataMap[wshCmdName] = 1
-	if !success {
-		dataMap[wshCmdName+"#"+"error"] = 1
-	}
-	wshclient.WshActivityCommand(RpcClient, dataMap, nil)
 }
 
 // Execute executes the root command.

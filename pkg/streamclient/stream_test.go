@@ -33,7 +33,7 @@ func (ft *fakeTransport) SendAck(ackPk wshrpc.CommandStreamAckData) {
 func TestBasicReadWrite(t *testing.T) {
 	transport := newFakeTransport()
 
-	reader := NewReader("1", 1024, transport)
+	reader := NewReaderWithSeq("1", 1024, 0, transport)
 	writer := NewWriter("1", 1024, transport)
 
 	go func() {
@@ -73,7 +73,7 @@ func TestBasicReadWrite(t *testing.T) {
 func TestEOF(t *testing.T) {
 	transport := newFakeTransport()
 
-	reader := NewReader("1", 1024, transport)
+	reader := NewReaderWithSeq("1", 1024, 0, transport)
 	writer := NewWriter("1", 1024, transport)
 
 	go func() {
@@ -111,7 +111,7 @@ func TestFlowControl(t *testing.T) {
 	smallWindow := int64(10)
 	transport := newFakeTransport()
 
-	reader := NewReader("1", smallWindow, transport)
+	reader := NewReaderWithSeq("1", smallWindow, 0, transport)
 	writer := NewWriter("1", smallWindow, transport)
 
 	go func() {
@@ -164,7 +164,7 @@ func TestFlowControl(t *testing.T) {
 func TestError(t *testing.T) {
 	transport := newFakeTransport()
 
-	reader := NewReader("1", 1024, transport)
+	reader := NewReaderWithSeq("1", 1024, 0, transport)
 	writer := NewWriter("1", 1024, transport)
 
 	go func() {
@@ -195,7 +195,7 @@ func TestError(t *testing.T) {
 func TestCancel(t *testing.T) {
 	transport := newFakeTransport()
 
-	reader := NewReader("1", 1024, transport)
+	reader := NewReaderWithSeq("1", 1024, 0, transport)
 	writer := NewWriter("1", 1024, transport)
 
 	go func() {
@@ -228,7 +228,7 @@ func TestCancel(t *testing.T) {
 func TestMultipleWrites(t *testing.T) {
 	transport := newFakeTransport()
 
-	reader := NewReader("1", 1024, transport)
+	reader := NewReaderWithSeq("1", 1024, 0, transport)
 	writer := NewWriter("1", 1024, transport)
 
 	go func() {
@@ -269,7 +269,7 @@ func TestMultipleWrites(t *testing.T) {
 
 func TestOutOfOrderPackets(t *testing.T) {
 	transport := newFakeTransport()
-	reader := NewReader("test-ooo", 1024, transport)
+	reader := NewReaderWithSeq("test-ooo", 1024, 0, transport)
 
 	packet0 := wshrpc.CommandStreamData{
 		Id:     "test-ooo",
@@ -330,7 +330,7 @@ func TestOutOfOrderPackets(t *testing.T) {
 
 func TestOutOfOrderWithDuplicates(t *testing.T) {
 	transport := newFakeTransport()
-	reader := NewReader("test-dup", 1024, transport)
+	reader := NewReaderWithSeq("test-dup", 1024, 0, transport)
 
 	packet0 := wshrpc.CommandStreamData{
 		Id:     "test-dup",
@@ -365,12 +365,12 @@ func TestOutOfOrderWithDuplicates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Read failed: %v", err)
 	}
-	
+
 	// Should get all 15 bytes (3 packets * 5 bytes)
 	if n != 15 {
 		t.Fatalf("Expected to read 15 bytes, got %d", n)
 	}
-	
+
 	// Should be "aaaaaxxxxxccccc" (first packet received for each seq wins)
 	expected := "aaaaaxxxxxccccc"
 	if string(buf[:n]) != expected {
@@ -380,7 +380,7 @@ func TestOutOfOrderWithDuplicates(t *testing.T) {
 
 func TestOutOfOrderWithGaps(t *testing.T) {
 	transport := newFakeTransport()
-	reader := NewReader("test-gaps", 1024, transport)
+	reader := NewReaderWithSeq("test-gaps", 1024, 0, transport)
 
 	packet0 := wshrpc.CommandStreamData{
 		Id:     "test-gaps",
@@ -406,7 +406,7 @@ func TestOutOfOrderWithGaps(t *testing.T) {
 	reader.RecvData(packet0)
 	reader.RecvData(packet40) // Way ahead - should be buffered
 	reader.RecvData(packet20) // Still ahead - should be buffered
-	
+
 	// Read first packet
 	buf := make([]byte, 10)
 	n, err := reader.Read(buf)
@@ -480,7 +480,7 @@ func TestOutOfOrderWithGaps(t *testing.T) {
 
 func TestOutOfOrderWithEOF(t *testing.T) {
 	transport := newFakeTransport()
-	reader := NewReader("test-eof", 1024, transport)
+	reader := NewReaderWithSeq("test-eof", 1024, 0, transport)
 
 	packet0 := wshrpc.CommandStreamData{
 		Id:     "test-eof",
@@ -509,7 +509,7 @@ func TestOutOfOrderWithEOF(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Read failed: %v", err)
 	}
-	
+
 	expected := "firstsecondthird"
 	if string(buf[:n]) != expected {
 		t.Fatalf("Expected %q, got %q", expected, string(buf[:n]))

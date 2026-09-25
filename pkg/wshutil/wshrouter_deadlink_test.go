@@ -4,23 +4,48 @@
 package wshutil
 
 import (
-	"sync/atomic"
+	"bytes"
+	"log"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/baseds"
-	"github.com/wavetermdev/waveterm/pkg/panichandler"
 )
+
+// panicLog counts the "[panic] in" lines panichandler.PanicHandler writes to the standard logger.
+type panicLog struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (p *panicLog) Write(b []byte) (int, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.buf.Write(b)
+}
+
+func (p *panicLog) Load() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return strings.Count(p.buf.String(), "[panic] in ")
+}
+
+func capturePanicLogs(t *testing.T) *panicLog {
+	p := &panicLog{}
+	prev := log.Writer()
+	log.SetOutput(p)
+	t.Cleanup(func() { log.SetOutput(prev) })
+	return p
+}
 
 // A connection that dies without anyone calling UnregisterLink (handleDomainSocketClient's teardown
 // could miss its link id) left a registered link whose ToRemoteCh was closed. One reply routed to it
 // panicked, went to the backlog, and processBacklog retried it every 50ms for the server's lifetime:
 // ~20 panics/s, each a stack dump plus a telemetry row (seen in prod as 1M+ debug:panic a day).
 func TestDeadLinkIsNotRetriedForever(t *testing.T) {
-	var panics atomic.Int64
-	prev := panichandler.PanicTelemetryHandler
-	panichandler.PanicTelemetryHandler = func(string) { panics.Add(1) }
-	defer func() { panichandler.PanicTelemetryHandler = prev }()
+	panics := capturePanicLogs(t)
 
 	router := NewWshRouter()
 	proxy := MakeRpcProxy("test")

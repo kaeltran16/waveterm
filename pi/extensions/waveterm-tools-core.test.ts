@@ -36,7 +36,7 @@ describe("waveterm-tools-core", () => {
     });
 
     it("builds open-file and query-sessions argv", () => {
-        expect(openFileArgs("C:\\a.txt")).toEqual(["editor", "C:\\a.txt"]);
+        expect(openFileArgs("C:\\a.txt")).toEqual(["view", "C:\\a.txt"]);
         expect(querySessionsArgs()).toEqual(["blocks", "list", "--json"]);
     });
 

@@ -60,14 +60,14 @@ func TestSetConfigPreferredRouteGuardsAtomicPairs(t *testing.T) {
 		})
 	}
 
-	if err := ws.SetConfigCommand(ctx, wshrpc.MetaSettingsType{MetaMapType: waveobj.MetaMapType{"app:defaultnewblock": "route-test"}}); err != nil {
+	if err := ws.SetConfigCommand(ctx, wshrpc.MetaSettingsType{MetaMapType: waveobj.MetaMapType{"term:fontfamily": "route-test"}}); err != nil {
 		t.Fatalf("unrelated config patch: %v", err)
 	}
 	settings, errs := wconfig.ReadWaveHomeConfigFile(wconfig.SettingsFile)
 	if len(errs) > 0 {
 		t.Fatalf("reading settings after unrelated patch: %v", errs)
 	}
-	if got, _ := settings["app:defaultnewblock"].(string); got != "route-test" {
+	if got, _ := settings["term:fontfamily"].(string); got != "route-test" {
 		t.Fatalf("unrelated patch not persisted: %q", got)
 	}
 }

@@ -27,7 +27,6 @@ var runCmd = &cobra.Command{
 
 func init() {
 	flags := runCmd.Flags()
-	flags.BoolP("magnified", "m", false, "open view in magnified mode")
 	flags.StringP("command", "c", "", "run command string in shell")
 	flags.BoolP("exit", "x", false, "close block if command exits successfully (will stay open if there was an error)")
 	flags.BoolP("forceexit", "X", false, "close block when command exits, regardless of exit status")
@@ -39,12 +38,7 @@ func init() {
 }
 
 func runRun(cmd *cobra.Command, args []string) (rtnErr error) {
-	defer func() {
-		sendActivity("run", rtnErr == nil)
-	}()
-
 	flags := cmd.Flags()
-	magnified, _ := flags.GetBool("magnified")
 	commandArg, _ := flags.GetString("command")
 	exit, _ := flags.GetBool("exit")
 	forceExit, _ := flags.GetBool("forceexit")
@@ -148,8 +142,6 @@ func runRun(cmd *cobra.Command, args []string) (rtnErr error) {
 				},
 			},
 		},
-		Magnified: magnified,
-		Focused:   true,
 	}
 
 	oref, err := wshclient.CreateBlockCommand(RpcClient, createBlockData, nil)

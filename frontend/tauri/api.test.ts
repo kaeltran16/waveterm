@@ -95,50 +95,20 @@ describe("onWaveInit", () => {
     });
 });
 
-describe("stubs fill the rest of ElectronApi with benign defaults", () => {
-    it("void/event stubs are no-ops that do not throw", () => {
+describe("unported methods degrade to benign defaults", () => {
+    it("stubs do not throw and resolve to benign values", async () => {
         installTauriApi(INIT);
         const api = (window as any).api;
-        expect(api.createTab()).toBeUndefined();
-        expect(api.onContextMenuClick(() => {})).toBeUndefined();
-    });
-    it("typed sync getters return benign defaults", () => {
-        installTauriApi(INIT);
-        const api = (window as any).api;
-        expect(api.getCursorPoint()).toEqual({ x: 0, y: 0 });
-    });
-    it("invoke-returning stubs resolve to benign values", async () => {
-        installTauriApi(INIT);
-        const api = (window as any).api;
-        await expect(api.closeTab("w", "t", false)).resolves.toBe(false);
+        expect(api.nativePaste()).toBeUndefined();
+        expect(api.getPathForFile({} as File)).toBe("");
         await expect(api.saveTextFile("a", "b")).resolves.toBe(false);
-        await expect(api.clearWebviewStorage(1)).resolves.toBeUndefined();
-    });
-    // Contract: the Electron-era tab methods stay inert. Real tab ops go through the Go backend
-    // (WorkspaceService.CreateTab/CloseTab) and the cockpit focus pane (focusIdAtom) — never this
-    // bridge. If someone re-wires a getApi().createTab/setActiveTab/closeTab caller expecting it to
-    // work, these assertions catch that the bridge does nothing.
-    it("tab methods are inert stubs (no live callers; ops live in WorkspaceService/focusIdAtom)", async () => {
-        installTauriApi(INIT);
-        const api = (window as any).api;
-        expect(api.createTab()).toBeUndefined();
-        expect(api.setActiveTab("t1")).toBeUndefined();
-        await expect(api.closeTab("w", "t", false)).resolves.toBe(false);
     });
 });
 
 describe("phase-2 chrome methods", () => {
-    it("getAboutModalDetails returns version+buildTime from the boot cache", () => {
-        installTauriApi(INIT);
-        expect((window as any).api.getAboutModalDetails()).toEqual({ version: "0.1.0", buildTime: 1 });
-    });
     it("getZoomFactor delegates to the chrome controller (starts at 1)", () => {
         installTauriApi(INIT);
         expect((window as any).api.getZoomFactor()).toBe(1);
-    });
-    it("setKeyboardChordMode is a no-op that does not warn or throw", () => {
-        installTauriApi(INIT);
-        expect((window as any).api.setKeyboardChordMode()).toBeUndefined();
     });
     it("onFullScreenChange / onZoomFactorChange / onControlShiftStateUpdate register without throwing", () => {
         installTauriApi(INIT);
@@ -146,11 +116,5 @@ describe("phase-2 chrome methods", () => {
         expect(api.onFullScreenChange(() => {})).toBeUndefined();
         expect(api.onZoomFactorChange(() => {})).toBeUndefined();
         expect(api.onControlShiftStateUpdate(() => {})).toBeUndefined();
-    });
-    it("showContextMenu / onContextMenuClick remain benign stubs (cut, not ported)", () => {
-        installTauriApi(INIT);
-        const api = (window as any).api;
-        expect(api.showContextMenu("ws", [])).toBeUndefined();
-        expect(api.onContextMenuClick(() => {})).toBeUndefined();
     });
 });

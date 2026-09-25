@@ -40,20 +40,6 @@ func GetClientId() string {
 	return cachedClientId
 }
 
-func UpdateTabName(ctx context.Context, tabId, name string) error {
-	return WithTx(ctx, func(tx *TxWrap) error {
-		tab, _ := DBGet[*waveobj.Tab](tx.Context(), tabId)
-		if tab == nil {
-			return fmt.Errorf("tab not found: %q", tabId)
-		}
-		if tabId != "" {
-			tab.Name = name
-			DBUpdate(tx.Context(), tab)
-		}
-		return nil
-	})
-}
-
 func UpdateObjectMeta(ctx context.Context, oref waveobj.ORef, meta waveobj.MetaMapType, mergeSpecial bool) error {
 	return WithTx(ctx, func(tx *TxWrap) error {
 		if oref.IsEmpty() {

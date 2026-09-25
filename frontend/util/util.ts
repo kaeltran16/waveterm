@@ -12,21 +12,6 @@ function isBlank(str: string): boolean {
     return str == null || str == "";
 }
 
-function isLocalConnName(connName: string): boolean {
-    if (isBlank(connName)) {
-        return true;
-    }
-    return connName === "local" || connName.startsWith("local:");
-}
-
-function isWslConnName(connName: string): boolean {
-    return connName != null && connName.startsWith("wsl://");
-}
-
-function isSshConnName(connName: string): boolean {
-    return !isLocalConnName(connName) && !isWslConnName(connName);
-}
-
 function base64ToString(b64: string): string {
     if (b64 == null) {
         return null;
@@ -532,9 +517,6 @@ export {
     getPromiseState,
     getPromiseValue,
     isBlank,
-    isLocalConnName,
-    isSshConnName,
-    isWslConnName,
     jotaiLoadableValue,
     jsonDeepEqual,
     lazy,

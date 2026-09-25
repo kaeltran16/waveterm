@@ -8,39 +8,10 @@ package unixutil
 import (
 	"fmt"
 	"os"
-	"strconv"
-	"strings"
 	"syscall"
 
 	"golang.org/x/sys/unix"
 )
-
-func GetProcessGroupId(pid int) (int, error) {
-	pgid, err := syscall.Getpgid(pid)
-	if err != nil {
-		return 0, err
-	}
-	return pgid, nil
-}
-
-func ParseSignal(sigName string) os.Signal {
-	sigName = strings.TrimSpace(sigName)
-	sigName = strings.ToUpper(sigName)
-	if n, err := strconv.Atoi(sigName); err == nil {
-		if n <= 0 {
-			return nil
-		}
-		return syscall.Signal(n)
-	}
-	if !strings.HasPrefix(sigName, "SIG") {
-		sigName = "SIG" + sigName
-	}
-	sig := unix.SignalNum(sigName)
-	if sig == 0 {
-		return nil
-	}
-	return sig
-}
 
 func GetSignalName(sig os.Signal) string {
 	if sig == nil {
@@ -57,38 +28,10 @@ func GetSignalName(sig os.Signal) string {
 	return name
 }
 
-func SetCloseOnExec(fd int) {
-	unix.CloseOnExec(fd)
-}
-
 func SignalTerm(pid int) error {
 	return syscall.Kill(pid, syscall.SIGTERM)
 }
 
 func SignalHup(pid int) error {
 	return syscall.Kill(pid, syscall.SIGHUP)
-}
-
-func IsPidRunning(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-	err := syscall.Kill(pid, 0)
-	// EPERM means no permission, but it exists (ESRCH is not found)
-	if err == nil || err == syscall.EPERM {
-		return true
-	}
-	return false
-}
-
-func SendSignalByName(pid int, sigName string) error {
-	sig := ParseSignal(sigName)
-	if sig == nil {
-		return fmt.Errorf("unsupported or invalid signal %q", sigName)
-	}
-	p, err := os.FindProcess(pid)
-	if err != nil {
-		return fmt.Errorf("process %d not found: %w", pid, err)
-	}
-	return p.Signal(sig)
 }

@@ -14,7 +14,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
 	"github.com/wavetermdev/waveterm/pkg/wps"
@@ -38,7 +37,6 @@ const (
 	RoutePrefix_Tab        = "tab:"
 	RoutePrefix_FeBlock    = "feblock:"
 	RoutePrefix_Link       = "link:"
-	RoutePrefix_Job        = "job:"
 	RoutePrefix_Bare       = "bare:"
 )
 
@@ -114,32 +112,8 @@ func MakeConnectionRouteId(connId string) string {
 	return "conn:" + connId
 }
 
-func MakeControllerRouteId(blockId string) string {
-	return "controller:" + blockId
-}
-
-func MakeProcRouteId(procId string) string {
-	return "proc:" + procId
-}
-
-func MakeRandomProcRouteId() string {
-	return MakeProcRouteId(uuid.New().String())
-}
-
-func MakeTabRouteId(tabId string) string {
-	return "tab:" + tabId
-}
-
 func MakeFeBlockRouteId(blockId string) string {
 	return "feblock:" + blockId
-}
-
-func MakeJobRouteId(jobId string) string {
-	return "job:" + jobId
-}
-
-func MakeLinkRouteId(linkId baseds.LinkId) string {
-	return fmt.Sprintf("%s%d", RoutePrefix_Link, linkId)
 }
 
 var DefaultRouter *WshRouter
@@ -812,9 +786,6 @@ func (router *WshRouter) bindRoute(linkId baseds.LinkId, routeId string, isSourc
 	if !strings.HasPrefix(routeId, ControlPrefix) {
 		router.announceUpstream(routeId)
 	}
-	if router.IsRootRouter() {
-		router.publishRouteToBroker(routeId)
-	}
 	return nil
 }
 
@@ -831,19 +802,11 @@ func (router *WshRouter) getUpstreamClient() (baseds.LinkId, AbstractRpcClient) 
 	return router.upstreamLinkId, lm.client
 }
 
-func (router *WshRouter) publishRouteToBroker(routeId string) {
-	defer func() {
-		panichandler.PanicHandler("WshRouter:publishRouteToBroker", recover())
-	}()
-	wps.Broker.Publish(wps.WaveEvent{Event: wps.Event_RouteUp, Scopes: []string{routeId}})
-}
-
 func (router *WshRouter) unsubscribeFromBroker(routeId string) {
 	defer func() {
 		panichandler.PanicHandler("WshRouter:unregisterRoute:routedown", recover())
 	}()
 	wps.Broker.UnsubscribeAll(routeId)
-	wps.Broker.Publish(wps.WaveEvent{Event: wps.Event_RouteDown, Scopes: []string{routeId}})
 }
 
 func sendControlUnauthenticatedErrorResponse(cmdMsg RpcMessage, linkMeta linkMeta, router *WshRouter) {

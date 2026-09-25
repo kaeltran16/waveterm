@@ -1,25 +1,17 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import ClaudeColorSvg from "@/app/asset/claude-color.svg";
-import { SubBlock } from "@/app/block/subblock";
-import type { BlockNodeModel } from "@/app/block/blocktypes";
 import { NullErrorBoundary } from "@/app/element/errorboundary";
 import { Search, useSearch } from "@/app/element/search";
 import { ContextMenuModel } from "@/app/store/contextmenu";
 import { globalStore } from "@/app/store/jotaiStore";
 import { useTabModel } from "@/app/store/tab-model";
-import { waveEventSubscribeSingle } from "@/app/store/wps";
-import { RpcApi } from "@/app/store/wshclientapi";
-import { TabRpcClient } from "@/app/store/wshrpcutil";
 import type { TermViewModel } from "@/app/view/term/term-model";
 import { activePalette, deriveTermTheme } from "@/app/view/agents/themes";
 import { themeOverridesAtom, themePresetAtom } from "@/app/view/agents/themestore";
 import { atoms, getOverrideConfigAtom, getSettingsPrefixAtom, WOS } from "@/store/global";
 import { fireAndForget, useAtomValueSafe } from "@/util/util";
-import { computeBgStyleFromMeta } from "@/util/waveutil";
 import { ISearchOptions } from "@xterm/addon-search";
-import clsx from "clsx";
 import debug from "debug";
 import * as jotai from "jotai";
 import * as React from "react";
@@ -32,154 +24,6 @@ import "./xterm.css";
 
 const dlog = debug("wave:term");
 
-interface TerminalViewProps {
-    blockId: string;
-    model: TermViewModel;
-}
-
-const TermClaudeIcon = React.memo(() => {
-    return (
-        <div className="[&_svg]:w-[15px] [&_svg]:h-[15px]" aria-hidden="true">
-            <ClaudeColorSvg />
-        </div>
-    );
-});
-
-TermClaudeIcon.displayName = "TermClaudeIcon";
-
-const TermResyncHandler = React.memo(({ blockId, model }: TerminalViewProps) => {
-    const connStatus = jotai.useAtomValue(model.connStatus);
-    const [lastConnStatus, setLastConnStatus] = React.useState<ConnStatus>(connStatus);
-
-    React.useEffect(() => {
-        if (!model.termRef.current?.hasResized) {
-            return;
-        }
-        const isConnected = connStatus?.status == "connected";
-        const wasConnected = lastConnStatus?.status == "connected";
-        const curConnName = connStatus?.connection;
-        const lastConnName = lastConnStatus?.connection;
-        if (isConnected == wasConnected && curConnName == lastConnName) {
-            return;
-        }
-        model.termRef.current?.resyncController("resync handler");
-        setLastConnStatus(connStatus);
-    }, [connStatus]);
-
-    return null;
-});
-
-const TermVDomToolbarNode = ({ vdomBlockId, blockId, model }: TerminalViewProps & { vdomBlockId: string }) => {
-    React.useEffect(() => {
-        const unsub = waveEventSubscribeSingle({
-            eventType: "blockclose",
-            scope: WOS.makeORef("block", vdomBlockId),
-            handler: (_event) => {
-                RpcApi.SetMetaCommand(TabRpcClient, {
-                    oref: WOS.makeORef("block", blockId),
-                    meta: {
-                        "term:mode": null,
-                        "term:vdomtoolbarblockid": null,
-                    },
-                });
-            },
-        });
-        return () => {
-            unsub();
-        };
-    }, []);
-    const vdomNodeModel: BlockNodeModel = React.useMemo(
-        () => ({
-            blockId: vdomBlockId,
-            isFocused: jotai.atom(false),
-            isMagnified: jotai.atom(false),
-            focusNode: () => {},
-            toggleMagnify: () => {},
-            onClose: () => {
-                if (vdomBlockId != null) {
-                    RpcApi.DeleteSubBlockCommand(TabRpcClient, { blockid: vdomBlockId });
-                }
-            },
-        }),
-        [vdomBlockId]
-    );
-    const toolbarTarget = jotai.useAtomValue(model.vdomToolbarTarget);
-    const heightStr = toolbarTarget?.height ?? "1.5em";
-    return (
-        <div key="vdomToolbar" className="term-toolbar" style={{ height: heightStr }}>
-            <SubBlock key="vdom" nodeModel={vdomNodeModel} />
-        </div>
-    );
-};
-
-const TermVDomNodeSingleId = ({ vdomBlockId, blockId, model }: TerminalViewProps & { vdomBlockId: string }) => {
-    React.useEffect(() => {
-        const unsub = waveEventSubscribeSingle({
-            eventType: "blockclose",
-            scope: WOS.makeORef("block", vdomBlockId),
-            handler: (_event) => {
-                RpcApi.SetMetaCommand(TabRpcClient, {
-                    oref: WOS.makeORef("block", blockId),
-                    meta: {
-                        "term:mode": null,
-                        "term:vdomblockid": null,
-                    },
-                });
-            },
-        });
-        return () => {
-            unsub();
-        };
-    }, []);
-    const vdomNodeModel: BlockNodeModel = React.useMemo(() => {
-        const isFocusedAtom = jotai.atom((get) => {
-            return get(model.nodeModel.isFocused) && get(model.termMode) == "vdom";
-        });
-        return {
-            blockId: vdomBlockId,
-            isFocused: isFocusedAtom,
-            isMagnified: jotai.atom(false),
-            focusNode: () => {
-                model.nodeModel.focusNode();
-            },
-            toggleMagnify: () => {},
-            onClose: () => {
-                if (vdomBlockId != null) {
-                    RpcApi.DeleteSubBlockCommand(TabRpcClient, { blockid: vdomBlockId });
-                }
-            },
-        };
-    }, [vdomBlockId, model]);
-    return (
-        <div key="htmlElem" className="term-htmlelem">
-            <SubBlock key="vdom" nodeModel={vdomNodeModel} />
-        </div>
-    );
-};
-
-const TermVDomNode = ({ blockId, model }: TerminalViewProps) => {
-    const vdomBlockId = jotai.useAtomValue(model.vdomBlockId);
-    if (vdomBlockId == null) {
-        return null;
-    }
-    return <TermVDomNodeSingleId key={vdomBlockId} vdomBlockId={vdomBlockId} blockId={blockId} model={model} />;
-};
-
-const TermToolbarVDomNode = ({ blockId, model }: TerminalViewProps) => {
-    const vdomToolbarBlockId = jotai.useAtomValue(model.vdomToolbarBlockId);
-    if (vdomToolbarBlockId == null) {
-        return null;
-    }
-    return (
-        <TermVDomToolbarNode
-            key={vdomToolbarBlockId}
-            vdomBlockId={vdomToolbarBlockId}
-            blockId={blockId}
-            model={model}
-        />
-    );
-};
-
 const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => {
     const viewRef = React.useRef<HTMLDivElement>(null);
     const connectElemRef = React.useRef<HTMLDivElement>(null);
@@ -187,19 +31,11 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
     const [blockData] = WOS.useWaveObjectValue<Block>(WOS.makeORef("block", blockId));
     const termSettingsAtom = getSettingsPrefixAtom("term");
     const termSettings = jotai.useAtomValue(termSettingsAtom);
-    let termMode = blockData?.meta?.["term:mode"] ?? "term";
-    if (termMode != "term" && termMode != "vdom") {
-        termMode = "term";
-    }
-    const termModeRef = React.useRef(termMode);
 
     const tabModel = useTabModel();
     const termFontSize = jotai.useAtomValue(model.fontSizeAtom);
     const fullConfig = globalStore.get(atoms.fullConfigAtom);
     const connFontFamily = fullConfig.connections?.[blockData?.meta?.connection]?.["term:fontfamily"];
-    const isFocused = jotai.useAtomValue(model.nodeModel.isFocused);
-    const isMI = jotai.useAtomValue(tabModel.isTermMultiInput);
-    const isBasicTerm = termMode != "vdom" && blockData?.meta?.controller != "cmd"; // needs to match isBasicTerm
 
     // search
     const searchProps = useSearch({
@@ -345,26 +181,6 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
         };
     }, [blockId, termSettings, termFontSize, connFontFamily]);
 
-    React.useEffect(() => {
-        if (termModeRef.current == "vdom" && termMode == "term") {
-            // focus the terminal
-            model.giveFocus();
-        }
-        termModeRef.current = termMode;
-    }, [termMode]);
-
-    React.useEffect(() => {
-        if (isMI && isBasicTerm && isFocused && model.termRef.current != null) {
-            model.termRef.current.multiInputCallback = (data: string) => {
-                model.multiInputHandler(data);
-            };
-        } else {
-            if (model.termRef.current != null) {
-                model.termRef.current.multiInputCallback = null;
-            }
-        }
-    }, [isMI, isBasicTerm, isFocused]);
-
     const stickerConfig = {
         charWidth: 8,
         charHeight: 16,
@@ -372,8 +188,6 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
         cols: model.termRef.current?.terminal.cols ?? 80,
         blockId: blockId,
     };
-
-    const termBg = computeBgStyleFromMeta(blockData?.meta);
 
     const handleContextMenu = React.useCallback(
         (e: React.MouseEvent<HTMLDivElement>) => {
@@ -386,13 +200,9 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
     );
 
     return (
-        <div className={clsx("view-term", "term-mode-" + termMode)} ref={viewRef} onContextMenu={handleContextMenu}>
-            {termBg && <div key="term-bg" className="absolute inset-0 z-0 pointer-events-none" style={termBg} />}
-            <TermResyncHandler blockId={blockId} model={model} />
+        <div className="view-term" ref={viewRef} onContextMenu={handleContextMenu}>
             <TermThemeUpdater termRef={model.termRef} />
             <TermStickers config={stickerConfig} />
-            <TermToolbarVDomNode key="vdom-toolbar" blockId={blockId} model={model} />
-            <TermVDomNode key="vdom" blockId={blockId} model={model} />
             <div key="connect-elem" className="term-connectelem" ref={connectElemRef} />
             <NullErrorBoundary debugName="TermLinkTooltip">
                 <TermLinkTooltip termWrap={termWrapInst} />
@@ -402,4 +212,4 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
     );
 };
 
-export { TermClaudeIcon, TerminalView };
+export { TerminalView };

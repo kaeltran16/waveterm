@@ -20,12 +20,9 @@ import {
     globalStore,
     initGlobal,
     initGlobalWaveEventSubs,
-    loadConnStatus,
-    subscribeToConnEvents,
 } from "@/store/global";
 import { activeTabIdAtom } from "@/store/tab-model";
 import * as WOS from "@/store/wos";
-import { isMacOS, setMacOSVersion } from "@/util/platformutil";
 
 export async function bootWaveCore(initOpts: WaveInitOpts): Promise<void> {
     const platform = getApi().getPlatform();
@@ -36,7 +33,6 @@ export async function bootWaveCore(initOpts: WaveInitOpts): Promise<void> {
         windowId: initOpts.windowId,
         platform,
         environment: "renderer",
-        primaryTabStartup: initOpts.primaryTabStartup,
     };
     globalStore.set(activeTabIdAtom, initOpts.tabId);
     await GlobalModel.getInstance().initialize(globalInitOpts);
@@ -49,9 +45,8 @@ export async function bootWaveCore(initOpts: WaveInitOpts): Promise<void> {
     (window as any).TabRpcClient = TabRpcClient;
 
     try {
-        await loadConnStatus();
         await loadBadges();
-        initGlobalWaveEventSubs(initOpts);
+        initGlobalWaveEventSubs();
         // agent cockpit event ingestion: subscribe to agent:status (state/usage/subagents) and
         // agent:ask. the only caller used to be sessionsidebar.tsx, removed in the phase 5b cockpit
         // teardown — without these the cockpit never receives agent status, so the roster shows only
@@ -60,23 +55,15 @@ export async function bootWaveCore(initOpts: WaveInitOpts): Promise<void> {
         setupAgentAskSubscription();
         setupControllerStatusSubscription();
         setupChildAskSubscription();
-        subscribeToConnEvents();
-        if (isMacOS()) {
-            const macOSVersion = await RpcApi.MacOSVersionCommand(TabRpcClient);
-            setMacOSVersion(macOSVersion);
-        }
         const [_client, waveWindow, initialTab] = await Promise.all([
             WOS.loadAndPinWaveObject<Client>(WOS.makeORef("client", initOpts.clientId)),
             WOS.loadAndPinWaveObject<WaveWindow>(WOS.makeORef("window", initOpts.windowId)),
             WOS.loadAndPinWaveObject<Tab>(WOS.makeORef("tab", initOpts.tabId)),
         ]);
-        const [ws, _layoutState] = await Promise.all([
-            WOS.loadAndPinWaveObject<Workspace>(WOS.makeORef("workspace", waveWindow.workspaceid)),
-            WOS.reloadWaveObject<LayoutState>(WOS.makeORef("layout", initialTab.layoutstate)),
-        ]);
+        const ws = await WOS.loadAndPinWaveObject<Workspace>(WOS.makeORef("workspace", waveWindow.workspaceid));
         ws?.tabids?.forEach((tabid) => WOS.getObjectValue<Tab>(WOS.makeORef("tab", tabid)));
         WOS.wpsSubscribeToObject(WOS.makeORef("workspace", waveWindow.workspaceid));
-        document.title = `Wave Terminal - ${initialTab.name}`;
+        document.title = `Arc - ${initialTab.name}`;
     } catch (e) {
         console.error("Failed initialization error", e);
         getApi().sendLog("Error in bootWaveCore (loading required objects) " + e.message + "\n" + e.stack);
@@ -84,6 +71,4 @@ export async function bootWaveCore(initOpts: WaveInitOpts): Promise<void> {
     registerControlShiftStateUpdateHandler();
     const fullConfig = await RpcApi.GetFullConfigCommand(TabRpcClient);
     globalStore.set(atoms.fullConfigAtom, fullConfig);
-    const waveaiModeConfig = await RpcApi.GetWaveAIModeConfigCommand(TabRpcClient);
-    globalStore.set(atoms.waveaiModeConfigAtom, waveaiModeConfig.configs);
 }

@@ -22,7 +22,6 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/util/utilfn"
 	"github.com/wavetermdev/waveterm/pkg/utilds"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
-	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wconfig"
 )
 
@@ -209,10 +208,6 @@ func findInstalledGitBash() (string, error) {
 	}
 
 	return "", nil
-}
-
-func DefaultTermSize() waveobj.TermSize {
-	return waveobj.TermSize{Rows: DefaultTermRows, Cols: DefaultTermCols}
 }
 
 func WaveshellLocalEnvVars(termType string) map[string]string {
@@ -485,68 +480,6 @@ var (
 	fishVersionRegexp = regexp.MustCompile(`\bversion\s+(\d+\.\d+)`)
 	pwshVersionRegexp = regexp.MustCompile(`(?:PowerShell\s+)?(\d+\.\d+)`)
 )
-
-func DetectShellTypeAndVersion() (string, string, error) {
-	shellPath := DetectLocalShellPath()
-	return DetectShellTypeAndVersionFromPath(shellPath)
-}
-
-func DetectShellTypeAndVersionFromPath(shellPath string) (string, string, error) {
-	shellType := GetShellTypeFromShellPath(shellPath)
-	if shellType == ShellType_unknown {
-		return shellType, "", fmt.Errorf("unknown shell type: %s", shellPath)
-	}
-
-	shellBase := filepath.Base(shellPath)
-	if shellType == ShellType_pwsh && strings.Contains(shellBase, "powershell") && !strings.Contains(shellBase, "pwsh") {
-		return "powershell", "", nil
-	}
-
-	version, err := getShellVersion(shellPath, shellType)
-	if err != nil {
-		return shellType, "", err
-	}
-
-	return shellType, version, nil
-}
-
-func getShellVersion(shellPath string, shellType string) (string, error) {
-	ctx, cancelFn := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancelFn()
-
-	var cmd *exec.Cmd
-	var versionRegex *regexp.Regexp
-
-	switch shellType {
-	case ShellType_bash:
-		cmd = exec.CommandContext(ctx, shellPath, "--version")
-		versionRegex = bashVersionRegexp
-	case ShellType_zsh:
-		cmd = exec.CommandContext(ctx, shellPath, "--version")
-		versionRegex = zshVersionRegexp
-	case ShellType_fish:
-		cmd = exec.CommandContext(ctx, shellPath, "--version")
-		versionRegex = fishVersionRegexp
-	case ShellType_pwsh:
-		cmd = exec.CommandContext(ctx, shellPath, "--version")
-		versionRegex = pwshVersionRegexp
-	default:
-		return "", fmt.Errorf("unsupported shell type: %s", shellType)
-	}
-
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("failed to get version for %s: %w", shellType, err)
-	}
-
-	outputStr := strings.TrimSpace(string(output))
-	matches := versionRegex.FindStringSubmatch(outputStr)
-	if len(matches) < 2 {
-		return "", fmt.Errorf("failed to parse version from output: %q", outputStr)
-	}
-
-	return matches[1], nil
-}
 
 func FixupWaveZshHistory() error {
 	if runtime.GOOS != "darwin" {

@@ -257,7 +257,7 @@ func TestSetRunSettingsPublishesOnlyAfterSuccess(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("SetRunSettingsCommand: %v", err)
 	}
-	if !cc.sawScope("run:"+run.ID) {
+	if !cc.sawScope("run:" + run.ID) {
 		t.Fatal("successful write published no run: update")
 	}
 }

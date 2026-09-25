@@ -7,8 +7,6 @@ import { setWaveWindowType } from "./windowtype";
 import * as WOS from "./wos";
 
 let atoms!: GlobalAtomsType;
-const blockComponentModelMap = new Map<string, BlockComponentModel>();
-const ConnStatusMapAtom = atom(new Map<string, PrimitiveAtom<ConnStatus>>());
 const orefAtomCache = new Map<string, Map<string, Atom<any>>>();
 
 function initGlobalAtoms(initOpts: GlobalInitOptions) {
@@ -53,22 +51,9 @@ function initGlobalAtoms(initOpts: GlobalInitOptions) {
         return WOS.getObjectValue(WOS.makeORef("workspace", workspaceId), get);
     });
     const fullConfigAtom = atom(null) as PrimitiveAtom<FullConfigType>;
-    const waveaiModeConfigAtom = atom(null) as PrimitiveAtom<Record<string, AIModeConfigType>>;
     const settingsAtom = atom((get) => {
         return get(fullConfigAtom)?.settings ?? {};
     }) as Atom<SettingsType>;
-    const hasCustomAIPresetsAtom = atom((get) => {
-        const fullConfig = get(fullConfigAtom);
-        if (!fullConfig?.presets) {
-            return false;
-        }
-        for (const presetId in fullConfig.presets) {
-            if (presetId.startsWith("ai@") && presetId !== "ai@global" && presetId !== "ai@wave") {
-                return true;
-            }
-        }
-        return false;
-    }) as Atom<boolean>;
     const hasConfigErrors = atom((get) => {
         const fullConfig = get(fullConfigAtom);
         return fullConfig?.configerrors != null && fullConfig.configerrors.length > 0;
@@ -76,15 +61,6 @@ function initGlobalAtoms(initOpts: GlobalInitOptions) {
     // this is *the* tab that this tabview represents.  it should never change.
     const staticTabIdAtom: Atom<string> = atom(initOpts.tabId);
     const controlShiftDelayAtom = atom(false);
-    const updaterStatusAtom = atom<UpdaterStatus>("up-to-date") as PrimitiveAtom<UpdaterStatus>;
-    try {
-        globalStore.set(updaterStatusAtom, getApi().getUpdaterStatus());
-        getApi().onUpdaterStatusChange((status) => {
-            globalStore.set(updaterStatusAtom, status);
-        });
-    } catch (e) {
-        console.log("failed to initialize updaterStatusAtom", e);
-    }
 
     const reducedMotionSettingAtom = atom((get) => get(settingsAtom)?.["window:reducedmotion"]);
     const reducedMotionSystemPreferenceAtom = atom(false);
@@ -117,34 +93,23 @@ function initGlobalAtoms(initOpts: GlobalInitOptions) {
     }
 
     const modalOpen = atom(false);
-    const allConnStatusAtom = atom<ConnStatus[]>((get) => {
-        const connStatusMap = get(ConnStatusMapAtom);
-        const connStatuses = Array.from(connStatusMap.values()).map((atom) => get(atom));
-        return connStatuses;
-    });
     const reinitVersion = atom(0);
-    const rateLimitInfoAtom = atom(null) as PrimitiveAtom<RateLimitInfo>;
     atoms = {
         // initialized in wave.ts (will not be null inside of application)
         uiContext: uiContextAtom,
         workspaceId: workspaceIdAtom,
         workspace: workspaceAtom,
         fullConfigAtom,
-        waveaiModeConfigAtom,
         settingsAtom,
-        hasCustomAIPresetsAtom,
         hasConfigErrors,
         staticTabId: staticTabIdAtom,
         isFullScreen: isFullScreenAtom,
         zoomFactorAtom,
         controlShiftDelayAtom,
-        updaterStatusAtom,
         prefersReducedMotionAtom,
         documentHasFocus: documentHasFocusAtom,
         modalOpen,
-        allConnStatus: allConnStatusAtom,
         reinitVersion,
-        waveAIRateLimitInfoAtom: rateLimitInfoAtom,
     } as GlobalAtomsType;
 }
 
@@ -159,4 +124,4 @@ function getApi(): ElectronApi {
     return (window as any).api;
 }
 
-export { atoms, blockComponentModelMap, ConnStatusMapAtom, getAtoms, initGlobalAtoms, orefAtomCache };
+export { atoms, getAtoms, initGlobalAtoms, orefAtomCache };

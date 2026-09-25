@@ -13,7 +13,6 @@ import (
 
 	"github.com/wavetermdev/waveterm/pkg/filestore"
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
-	"github.com/wavetermdev/waveterm/pkg/util/dbutil"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
 
@@ -27,59 +26,12 @@ func tableNameFromOType(otype string) string {
 	return "db_" + otype
 }
 
-func tableNameGen[T waveobj.WaveObj]() string {
-	var zeroObj T
-	return tableNameFromOType(zeroObj.GetOType())
-}
-
 func getOTypeGen[T waveobj.WaveObj]() string {
 	var zeroObj T
 	return zeroObj.GetOType()
 }
 
-func DBGetCount[T waveobj.WaveObj](ctx context.Context) (int, error) {
-	return WithReadTxRtn(ctx, func(tx *TxWrap) (int, error) {
-		table := tableNameGen[T]()
-		query := fmt.Sprintf("SELECT count(*) FROM %s", table)
-		return tx.GetInt(query), nil
-	})
-}
-
-// returns (num named workespaces, num total workspaces, error)
-func DBGetWSCounts(ctx context.Context) (int, int, error) {
-	var named, total int
-	err := WithReadTx(ctx, func(tx *TxWrap) error {
-		query := `SELECT count(*) FROM db_workspace WHERE COALESCE(json_extract(data, '$.name'), '') <> ''`
-		named = tx.GetInt(query)
-		query = `SELECT count(*) FROM db_workspace`
-		total = tx.GetInt(query)
-		return nil
-	})
-	if err != nil {
-		return 0, 0, err
-	}
-	return named, total, nil
-}
-
 var viewRe = regexp.MustCompile(`^[a-z0-9]{1,20}$`)
-
-func DBGetBlockViewCounts(ctx context.Context) (map[string]int, error) {
-	return WithReadTxRtn(ctx, func(tx *TxWrap) (map[string]int, error) {
-		query := `SELECT COALESCE(json_extract(data, '$.meta.view'), '') AS view FROM db_block`
-		views := tx.SelectStrings(query)
-		rtn := make(map[string]int)
-		for _, view := range views {
-			if view == "" {
-				continue
-			}
-			if !viewRe.MatchString(view) {
-				continue
-			}
-			rtn[view]++
-		}
-		return rtn, nil
-	})
-}
 
 type idDataType struct {
 	OId     string
@@ -166,57 +118,6 @@ func DBGetORef(ctx context.Context, oref waveobj.ORef) (waveobj.WaveObj, error) 
 	})
 }
 
-func dbSelectOIDs(ctx context.Context, otype string, oids []string) ([]waveobj.WaveObj, error) {
-	return WithReadTxRtn(ctx, func(tx *TxWrap) ([]waveobj.WaveObj, error) {
-		table := tableNameFromOType(otype)
-		query := fmt.Sprintf("SELECT oid, version, data FROM %s WHERE oid IN (SELECT value FROM json_each(?))", table)
-		var rows []idDataType
-		tx.Select(&rows, query, dbutil.QuickJson(oids))
-		rtn := make([]waveobj.WaveObj, 0, len(rows))
-		for _, row := range rows {
-			waveObj, err := waveobj.FromJson(row.Data)
-			if err != nil {
-				return nil, err
-			}
-			waveobj.SetVersion(waveObj, row.Version)
-			rtn = append(rtn, waveObj)
-		}
-		return rtn, nil
-	})
-}
-
-func DBSelectORefs(ctx context.Context, orefs []waveobj.ORef) ([]waveobj.WaveObj, error) {
-	oidsByType := make(map[string][]string)
-	for _, oref := range orefs {
-		oidsByType[oref.OType] = append(oidsByType[oref.OType], oref.OID)
-	}
-	return WithReadTxRtn(ctx, func(tx *TxWrap) ([]waveobj.WaveObj, error) {
-		rtn := make([]waveobj.WaveObj, 0, len(orefs))
-		for otype, oids := range oidsByType {
-			rtnArr, err := dbSelectOIDs(tx.Context(), otype, oids)
-			if err != nil {
-				return nil, err
-			}
-			rtn = append(rtn, rtnArr...)
-		}
-		return rtn, nil
-	})
-}
-
-func DBGetAllOIDsByType(ctx context.Context, otype string) ([]string, error) {
-	return WithReadTxRtn(ctx, func(tx *TxWrap) ([]string, error) {
-		rtn := make([]string, 0)
-		table := tableNameFromOType(otype)
-		query := fmt.Sprintf("SELECT oid FROM %s", table)
-		var rows []idDataType
-		tx.Select(&rows, query)
-		for _, row := range rows {
-			rtn = append(rtn, row.OId)
-		}
-		return rtn, nil
-	})
-}
-
 func DBGetAllObjsByType[T waveobj.WaveObj](ctx context.Context, otype string) ([]T, error) {
 	return WithReadTxRtn(ctx, func(tx *TxWrap) ([]T, error) {
 		rtn := make([]T, 0)
@@ -257,18 +158,6 @@ func DBResolveEasyOID(ctx context.Context, oid string) (*waveobj.ORef, error) {
 		}
 		return nil, ErrNotFound
 	})
-}
-
-func DBSelectMap[T waveobj.WaveObj](ctx context.Context, ids []string) (map[string]T, error) {
-	rtnArr, err := dbSelectOIDs(ctx, getOTypeGen[T](), ids)
-	if err != nil {
-		return nil, err
-	}
-	rtnMap := make(map[string]T)
-	for _, obj := range rtnArr {
-		rtnMap[waveobj.GetOID(obj)] = obj.(T)
-	}
-	return rtnMap, nil
 }
 
 func DBDelete(ctx context.Context, otype string, id string) error {

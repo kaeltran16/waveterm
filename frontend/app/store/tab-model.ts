@@ -19,7 +19,6 @@ export class TabModel {
     waveEnv: TabModelEnv;
     tabAtom: Atom<Tab>;
     tabNumBlocksAtom: Atom<number>;
-    isTermMultiInput = atom(false) as PrimitiveAtom<boolean>;
     metaCache: Map<string, Atom<any>> = new Map();
     startRenameCallback: (() => void) | null = null;
 
@@ -69,14 +68,6 @@ export function getTabModelByTabId(tabId: string, waveEnv?: TabModelEnv): TabMod
     return model;
 }
 
-export function getActiveTabModel(waveEnv?: TabModelEnv): TabModel | null {
-    const activeTabId = globalStore.get(activeTabIdAtom);
-    if (activeTabId == null) {
-        return null;
-    }
-    return getTabModelByTabId(activeTabId, waveEnv);
-}
-
 export const TabModelContext = createContext<TabModel | undefined>(undefined);
 
 export function useTabModel(): TabModel {
@@ -85,8 +76,4 @@ export function useTabModel(): TabModel {
         throw new Error("useTabModel must be used within a TabModelProvider");
     }
     return ctxModel;
-}
-
-export function useTabModelMaybe(): TabModel {
-    return useContext(TabModelContext);
 }

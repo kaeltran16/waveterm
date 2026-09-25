@@ -7,8 +7,6 @@ package wshclient
 
 import (
 	"github.com/wavetermdev/waveterm/pkg/baseds"
-	"github.com/wavetermdev/waveterm/pkg/telemetry/telemetrydata"
-	"github.com/wavetermdev/waveterm/pkg/vdom"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wconfig"
 	"github.com/wavetermdev/waveterm/pkg/wps"
@@ -100,24 +98,6 @@ func AuthenticateCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) (
 	return resp, err
 }
 
-// command "authenticatejobmanager", wshserver.AuthenticateJobManagerCommand
-func AuthenticateJobManagerCommand(w *wshutil.WshRpc, data wshrpc.CommandAuthenticateJobManagerData, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "authenticatejobmanager", data, opts)
-	return err
-}
-
-// command "authenticatejobmanagerverify", wshserver.AuthenticateJobManagerVerifyCommand
-func AuthenticateJobManagerVerifyCommand(w *wshutil.WshRpc, data wshrpc.CommandAuthenticateJobManagerData, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "authenticatejobmanagerverify", data, opts)
-	return err
-}
-
-// command "authenticatetojobmanager", wshserver.AuthenticateToJobManagerCommand
-func AuthenticateToJobManagerCommand(w *wshutil.WshRpc, data wshrpc.CommandAuthenticateToJobData, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "authenticatetojobmanager", data, opts)
-	return err
-}
-
 // command "authenticatetoken", wshserver.AuthenticateTokenCommand
 func AuthenticateTokenCommand(w *wshutil.WshRpc, data wshrpc.CommandAuthenticateTokenData, opts *wshrpc.RpcOpts) (wshrpc.CommandAuthenticateRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[wshrpc.CommandAuthenticateRtnData](w, "authenticatetoken", data, opts)
@@ -127,24 +107,6 @@ func AuthenticateTokenCommand(w *wshutil.WshRpc, data wshrpc.CommandAuthenticate
 // command "authenticatetokenverify", wshserver.AuthenticateTokenVerifyCommand
 func AuthenticateTokenVerifyCommand(w *wshutil.WshRpc, data wshrpc.CommandAuthenticateTokenData, opts *wshrpc.RpcOpts) (wshrpc.CommandAuthenticateRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[wshrpc.CommandAuthenticateRtnData](w, "authenticatetokenverify", data, opts)
-	return resp, err
-}
-
-// command "badgewatchpid", wshserver.BadgeWatchPidCommand
-func BadgeWatchPidCommand(w *wshutil.WshRpc, data wshrpc.CommandBadgeWatchPidData, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "badgewatchpid", data, opts)
-	return err
-}
-
-// command "blockinfo", wshserver.BlockInfoCommand
-func BlockInfoCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) (*wshrpc.BlockInfoData, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.BlockInfoData](w, "blockinfo", data, opts)
-	return resp, err
-}
-
-// command "blockjobstatus", wshserver.BlockJobStatusCommand
-func BlockJobStatusCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) (*wshrpc.BlockJobStatusData, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.BlockJobStatusData](w, "blockjobstatus", data, opts)
 	return resp, err
 }
 
@@ -166,69 +128,9 @@ func CancelRunCommand(w *wshutil.WshRpc, data wshrpc.CommandCancelRunData, opts 
 	return err
 }
 
-// command "captureblockscreenshot", wshserver.CaptureBlockScreenshotCommand
-func CaptureBlockScreenshotCommand(w *wshutil.WshRpc, data wshrpc.CommandCaptureBlockScreenshotData, opts *wshrpc.RpcOpts) (string, error) {
-	resp, err := sendRpcRequestCallHelper[string](w, "captureblockscreenshot", data, opts)
-	return resp, err
-}
-
-// command "connconnect", wshserver.ConnConnectCommand
-func ConnConnectCommand(w *wshutil.WshRpc, data wshrpc.ConnRequest, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "connconnect", data, opts)
-	return err
-}
-
-// command "conndisconnect", wshserver.ConnDisconnectCommand
-func ConnDisconnectCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "conndisconnect", data, opts)
-	return err
-}
-
-// command "connensure", wshserver.ConnEnsureCommand
-func ConnEnsureCommand(w *wshutil.WshRpc, data wshrpc.ConnExtData, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "connensure", data, opts)
-	return err
-}
-
-// command "connlist", wshserver.ConnListCommand
-func ConnListCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) ([]string, error) {
-	resp, err := sendRpcRequestCallHelper[[]string](w, "connlist", nil, opts)
-	return resp, err
-}
-
-// command "connreinstallwsh", wshserver.ConnReinstallWshCommand
-func ConnReinstallWshCommand(w *wshutil.WshRpc, data wshrpc.ConnExtData, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "connreinstallwsh", data, opts)
-	return err
-}
-
-// command "connserverinit", wshserver.ConnServerInitCommand
-func ConnServerInitCommand(w *wshutil.WshRpc, data wshrpc.CommandConnServerInitData, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "connserverinit", data, opts)
-	return err
-}
-
-// command "connstatus", wshserver.ConnStatusCommand
-func ConnStatusCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) ([]wshrpc.ConnStatus, error) {
-	resp, err := sendRpcRequestCallHelper[[]wshrpc.ConnStatus](w, "connstatus", nil, opts)
-	return resp, err
-}
-
-// command "connupdatewsh", wshserver.ConnUpdateWshCommand
-func ConnUpdateWshCommand(w *wshutil.WshRpc, data wshrpc.RemoteInfo, opts *wshrpc.RpcOpts) (bool, error) {
-	resp, err := sendRpcRequestCallHelper[bool](w, "connupdatewsh", data, opts)
-	return resp, err
-}
-
 // command "consult", wshserver.ConsultCommand
 func ConsultCommand(w *wshutil.WshRpc, data wshrpc.CommandConsultData, opts *wshrpc.RpcOpts) chan wshrpc.RespOrErrorUnion[wshrpc.ConsultChunk] {
 	return sendRpcRequestResponseStreamHelper[wshrpc.ConsultChunk](w, "consult", data, opts)
-}
-
-// command "controlgetrouteid", wshserver.ControlGetRouteIdCommand
-func ControlGetRouteIdCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (string, error) {
-	resp, err := sendRpcRequestCallHelper[string](w, "controlgetrouteid", nil, opts)
-	return resp, err
 }
 
 // command "controllerappendoutput", wshserver.ControllerAppendOutputCommand
@@ -282,12 +184,6 @@ func CreateProjectCommand(w *wshutil.WshRpc, data wshrpc.CommandCreateProjectDat
 // command "createrun", wshserver.CreateRunCommand
 func CreateRunCommand(w *wshutil.WshRpc, data wshrpc.CommandCreateRunData, opts *wshrpc.RpcOpts) (*wshrpc.CommandCreateRunRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandCreateRunRtnData](w, "createrun", data, opts)
-	return resp, err
-}
-
-// command "createsubblock", wshserver.CreateSubBlockCommand
-func CreateSubBlockCommand(w *wshutil.WshRpc, data wshrpc.CommandCreateSubBlockData, opts *wshrpc.RpcOpts) (waveobj.ORef, error) {
-	resp, err := sendRpcRequestCallHelper[waveobj.ORef](w, "createsubblock", data, opts)
 	return resp, err
 }
 
@@ -345,12 +241,6 @@ func DagSubmitCommand(w *wshutil.WshRpc, data wshrpc.CommandDagSubmitData, opts 
 	return resp, err
 }
 
-// command "debugterm", wshserver.DebugTermCommand
-func DebugTermCommand(w *wshutil.WshRpc, data wshrpc.CommandDebugTermData, opts *wshrpc.RpcOpts) (*wshrpc.CommandDebugTermRtnData, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandDebugTermRtnData](w, "debugterm", data, opts)
-	return resp, err
-}
-
 // command "deleteblock", wshserver.DeleteBlockCommand
 func DeleteBlockCommand(w *wshutil.WshRpc, data wshrpc.CommandDeleteBlockData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "deleteblock", data, opts)
@@ -369,21 +259,9 @@ func DeleteProjectCommand(w *wshutil.WshRpc, data wshrpc.CommandDeleteProjectDat
 	return err
 }
 
-// command "deletesubblock", wshserver.DeleteSubBlockCommand
-func DeleteSubBlockCommand(w *wshutil.WshRpc, data wshrpc.CommandDeleteBlockData, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "deletesubblock", data, opts)
-	return err
-}
-
 // command "detachdossieredge", wshserver.DetachDossierEdgeCommand
 func DetachDossierEdgeCommand(w *wshutil.WshRpc, data wshrpc.CommandDossierEdgeData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "detachdossieredge", data, opts)
-	return err
-}
-
-// command "disposesuggestions", wshserver.DisposeSuggestionsCommand
-func DisposeSuggestionsCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "disposesuggestions", data, opts)
 	return err
 }
 
@@ -417,18 +295,6 @@ func EffortMutateCommand(w *wshutil.WshRpc, data wshrpc.CommandEffortMutateData,
 	return resp, err
 }
 
-// command "electrondecrypt", wshserver.ElectronDecryptCommand
-func ElectronDecryptCommand(w *wshutil.WshRpc, data wshrpc.CommandElectronDecryptData, opts *wshrpc.RpcOpts) (*wshrpc.CommandElectronDecryptRtnData, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandElectronDecryptRtnData](w, "electrondecrypt", data, opts)
-	return resp, err
-}
-
-// command "electronencrypt", wshserver.ElectronEncryptCommand
-func ElectronEncryptCommand(w *wshutil.WshRpc, data wshrpc.CommandElectronEncryptData, opts *wshrpc.RpcOpts) (*wshrpc.CommandElectronEncryptRtnData, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandElectronEncryptRtnData](w, "electronencrypt", data, opts)
-	return resp, err
-}
-
 // command "eventpublish", wshserver.EventPublishCommand
 func EventPublishCommand(w *wshutil.WshRpc, data wps.WaveEvent, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "eventpublish", data, opts)
@@ -459,24 +325,6 @@ func EventUnsubCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) err
 	return err
 }
 
-// command "fetchsuggestions", wshserver.FetchSuggestionsCommand
-func FetchSuggestionsCommand(w *wshutil.WshRpc, data wshrpc.FetchSuggestionsData, opts *wshrpc.RpcOpts) (*wshrpc.FetchSuggestionsResponse, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.FetchSuggestionsResponse](w, "fetchsuggestions", data, opts)
-	return resp, err
-}
-
-// command "fileappend", wshserver.FileAppendCommand
-func FileAppendCommand(w *wshutil.WshRpc, data wshrpc.FileData, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "fileappend", data, opts)
-	return err
-}
-
-// command "filecopy", wshserver.FileCopyCommand
-func FileCopyCommand(w *wshutil.WshRpc, data wshrpc.CommandFileCopyData, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "filecopy", data, opts)
-	return err
-}
-
 // command "filecreate", wshserver.FileCreateCommand
 func FileCreateCommand(w *wshutil.WshRpc, data wshrpc.FileData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "filecreate", data, opts)
@@ -501,17 +349,6 @@ func FileJoinCommand(w *wshutil.WshRpc, data []string, opts *wshrpc.RpcOpts) (*w
 	return resp, err
 }
 
-// command "filelist", wshserver.FileListCommand
-func FileListCommand(w *wshutil.WshRpc, data wshrpc.FileListData, opts *wshrpc.RpcOpts) ([]*wshrpc.FileInfo, error) {
-	resp, err := sendRpcRequestCallHelper[[]*wshrpc.FileInfo](w, "filelist", data, opts)
-	return resp, err
-}
-
-// command "fileliststream", wshserver.FileListStreamCommand
-func FileListStreamCommand(w *wshutil.WshRpc, data wshrpc.FileListData, opts *wshrpc.RpcOpts) chan wshrpc.RespOrErrorUnion[wshrpc.CommandRemoteListEntriesRtnData] {
-	return sendRpcRequestResponseStreamHelper[wshrpc.CommandRemoteListEntriesRtnData](w, "fileliststream", data, opts)
-}
-
 // command "filemkdir", wshserver.FileMkdirCommand
 func FileMkdirCommand(w *wshutil.WshRpc, data wshrpc.FileData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "filemkdir", data, opts)
@@ -530,22 +367,10 @@ func FileReadCommand(w *wshutil.WshRpc, data wshrpc.FileData, opts *wshrpc.RpcOp
 	return resp, err
 }
 
-// command "filestream", wshserver.FileStreamCommand
-func FileStreamCommand(w *wshutil.WshRpc, data wshrpc.CommandFileStreamData, opts *wshrpc.RpcOpts) (*wshrpc.FileInfo, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.FileInfo](w, "filestream", data, opts)
-	return resp, err
-}
-
 // command "filewrite", wshserver.FileWriteCommand
 func FileWriteCommand(w *wshutil.WshRpc, data wshrpc.FileData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "filewrite", data, opts)
 	return err
-}
-
-// command "findgitbash", wshserver.FindGitBashCommand
-func FindGitBashCommand(w *wshutil.WshRpc, data bool, opts *wshrpc.RpcOpts) (string, error) {
-	resp, err := sendRpcRequestCallHelper[string](w, "findgitbash", data, opts)
-	return resp, err
 }
 
 // command "getagenttranscript", wshserver.GetAgentTranscriptCommand
@@ -557,12 +382,6 @@ func GetAgentTranscriptCommand(w *wshutil.WshRpc, data wshrpc.CommandGetAgentTra
 // command "getallbadges", wshserver.GetAllBadgesCommand
 func GetAllBadgesCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) ([]baseds.BadgeEvent, error) {
 	resp, err := sendRpcRequestCallHelper[[]baseds.BadgeEvent](w, "getallbadges", nil, opts)
-	return resp, err
-}
-
-// command "getallvars", wshserver.GetAllVarsCommand
-func GetAllVarsCommand(w *wshutil.WshRpc, data wshrpc.CommandVarData, opts *wshrpc.RpcOpts) ([]wshrpc.CommandVarResponseData, error) {
-	resp, err := sendRpcRequestCallHelper[[]wshrpc.CommandVarResponseData](w, "getallvars", data, opts)
 	return resp, err
 }
 
@@ -626,12 +445,6 @@ func GetJarvisProfileCommand(w *wshutil.WshRpc, data wshrpc.CommandGetJarvisProf
 	return resp, err
 }
 
-// command "getjwtpublickey", wshserver.GetJwtPublicKeyCommand
-func GetJwtPublicKeyCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (string, error) {
-	resp, err := sendRpcRequestCallHelper[string](w, "getjwtpublickey", nil, opts)
-	return resp, err
-}
-
 // command "getlatestresume", wshserver.GetLatestResumeCommand
 func GetLatestResumeCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandGetLatestResumeRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGetLatestResumeRtnData](w, "getlatestresume", nil, opts)
@@ -653,18 +466,6 @@ func GetRecentSessionsCommand(w *wshutil.WshRpc, data wshrpc.CommandGetRecentSes
 // command "getrtinfo", wshserver.GetRTInfoCommand
 func GetRTInfoCommand(w *wshutil.WshRpc, data wshrpc.CommandGetRTInfoData, opts *wshrpc.RpcOpts) (*waveobj.ObjRTInfo, error) {
 	resp, err := sendRpcRequestCallHelper[*waveobj.ObjRTInfo](w, "getrtinfo", data, opts)
-	return resp, err
-}
-
-// command "getsecrets", wshserver.GetSecretsCommand
-func GetSecretsCommand(w *wshutil.WshRpc, data []string, opts *wshrpc.RpcOpts) (map[string]string, error) {
-	resp, err := sendRpcRequestCallHelper[map[string]string](w, "getsecrets", data, opts)
-	return resp, err
-}
-
-// command "getsecretslinuxstoragebackend", wshserver.GetSecretsLinuxStorageBackendCommand
-func GetSecretsLinuxStorageBackendCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (string, error) {
-	resp, err := sendRpcRequestCallHelper[string](w, "getsecretslinuxstoragebackend", nil, opts)
 	return resp, err
 }
 
@@ -713,18 +514,6 @@ func GetTranscriptUsageCommand(w *wshutil.WshRpc, data wshrpc.CommandGetTranscri
 // command "getusagestats", wshserver.GetUsageStatsCommand
 func GetUsageStatsCommand(w *wshutil.WshRpc, data wshrpc.CommandGetUsageStatsData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGetUsageStatsRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGetUsageStatsRtnData](w, "getusagestats", data, opts)
-	return resp, err
-}
-
-// command "getvar", wshserver.GetVarCommand
-func GetVarCommand(w *wshutil.WshRpc, data wshrpc.CommandVarData, opts *wshrpc.RpcOpts) (*wshrpc.CommandVarResponseData, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandVarResponseData](w, "getvar", data, opts)
-	return resp, err
-}
-
-// command "getwaveaimodeconfig", wshserver.GetWaveAIModeConfigCommand
-func GetWaveAIModeConfigCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (wconfig.AIModeConfigUpdate, error) {
-	resp, err := sendRpcRequestCallHelper[wconfig.AIModeConfigUpdate](w, "getwaveaimodeconfig", nil, opts)
 	return resp, err
 }
 
@@ -853,96 +642,6 @@ func JarvisStatusCommand(w *wshutil.WshRpc, data wshrpc.CommandJarvisStatusData,
 	return resp, err
 }
 
-// command "jobcmdexited", wshserver.JobCmdExitedCommand
-func JobCmdExitedCommand(w *wshutil.WshRpc, data wshrpc.CommandJobCmdExitedData, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "jobcmdexited", data, opts)
-	return err
-}
-
-// command "jobcontrollerattachjob", wshserver.JobControllerAttachJobCommand
-func JobControllerAttachJobCommand(w *wshutil.WshRpc, data wshrpc.CommandJobControllerAttachJobData, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "jobcontrollerattachjob", data, opts)
-	return err
-}
-
-// command "jobcontrollerconnectedjobs", wshserver.JobControllerConnectedJobsCommand
-func JobControllerConnectedJobsCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) ([]string, error) {
-	resp, err := sendRpcRequestCallHelper[[]string](w, "jobcontrollerconnectedjobs", nil, opts)
-	return resp, err
-}
-
-// command "jobcontrollerdeletejob", wshserver.JobControllerDeleteJobCommand
-func JobControllerDeleteJobCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "jobcontrollerdeletejob", data, opts)
-	return err
-}
-
-// command "jobcontrollerdetachjob", wshserver.JobControllerDetachJobCommand
-func JobControllerDetachJobCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "jobcontrollerdetachjob", data, opts)
-	return err
-}
-
-// command "jobcontrollerdisconnectjob", wshserver.JobControllerDisconnectJobCommand
-func JobControllerDisconnectJobCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "jobcontrollerdisconnectjob", data, opts)
-	return err
-}
-
-// command "jobcontrollerexitjob", wshserver.JobControllerExitJobCommand
-func JobControllerExitJobCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "jobcontrollerexitjob", data, opts)
-	return err
-}
-
-// command "jobcontrollergetalljobmanagerstatus", wshserver.JobControllerGetAllJobManagerStatusCommand
-func JobControllerGetAllJobManagerStatusCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) ([]*wshrpc.JobManagerStatusUpdate, error) {
-	resp, err := sendRpcRequestCallHelper[[]*wshrpc.JobManagerStatusUpdate](w, "jobcontrollergetalljobmanagerstatus", nil, opts)
-	return resp, err
-}
-
-// command "jobcontrollerlist", wshserver.JobControllerListCommand
-func JobControllerListCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) ([]*waveobj.Job, error) {
-	resp, err := sendRpcRequestCallHelper[[]*waveobj.Job](w, "jobcontrollerlist", nil, opts)
-	return resp, err
-}
-
-// command "jobcontrollerreconnectjob", wshserver.JobControllerReconnectJobCommand
-func JobControllerReconnectJobCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "jobcontrollerreconnectjob", data, opts)
-	return err
-}
-
-// command "jobcontrollerreconnectjobsforconn", wshserver.JobControllerReconnectJobsForConnCommand
-func JobControllerReconnectJobsForConnCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "jobcontrollerreconnectjobsforconn", data, opts)
-	return err
-}
-
-// command "jobcontrollerstartjob", wshserver.JobControllerStartJobCommand
-func JobControllerStartJobCommand(w *wshutil.WshRpc, data wshrpc.CommandJobControllerStartJobData, opts *wshrpc.RpcOpts) (string, error) {
-	resp, err := sendRpcRequestCallHelper[string](w, "jobcontrollerstartjob", data, opts)
-	return resp, err
-}
-
-// command "jobinput", wshserver.JobInputCommand
-func JobInputCommand(w *wshutil.WshRpc, data wshrpc.CommandJobInputData, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "jobinput", data, opts)
-	return err
-}
-
-// command "jobprepareconnect", wshserver.JobPrepareConnectCommand
-func JobPrepareConnectCommand(w *wshutil.WshRpc, data wshrpc.CommandJobPrepareConnectData, opts *wshrpc.RpcOpts) (*wshrpc.CommandJobConnectRtnData, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandJobConnectRtnData](w, "jobprepareconnect", data, opts)
-	return resp, err
-}
-
-// command "jobstartstream", wshserver.JobStartStreamCommand
-func JobStartStreamCommand(w *wshutil.WshRpc, data wshrpc.CommandJobStartStreamData, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "jobstartstream", data, opts)
-	return err
-}
-
 // command "landrun", wshserver.LandRunCommand
 func LandRunCommand(w *wshutil.WshRpc, data wshrpc.CommandLandRunData, opts *wshrpc.RpcOpts) (*waveobj.RunLand, error) {
 	resp, err := sendRpcRequestCallHelper[*waveobj.RunLand](w, "landrun", data, opts)
@@ -985,12 +684,6 @@ func ListTaskDossiersCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.C
 	return resp, err
 }
 
-// command "macosversion", wshserver.MacOSVersionCommand
-func MacOSVersionCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (string, error) {
-	resp, err := sendRpcRequestCallHelper[string](w, "macosversion", nil, opts)
-	return resp, err
-}
-
 // command "message", wshserver.MessageCommand
 func MessageCommand(w *wshutil.WshRpc, data wshrpc.CommandMessageData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "message", data, opts)
@@ -1015,21 +708,9 @@ func PostChannelMessageCommand(w *wshutil.WshRpc, data wshrpc.CommandPostChannel
 	return resp, err
 }
 
-// command "recordtevent", wshserver.RecordTEventCommand
-func RecordTEventCommand(w *wshutil.WshRpc, data telemetrydata.TEvent, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "recordtevent", data, opts)
-	return err
-}
-
 // command "refreshroutecatalog", wshserver.RefreshRouteCatalogCommand
 func RefreshRouteCatalogCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "refreshroutecatalog", nil, opts)
-	return err
-}
-
-// command "remotedisconnectfromjobmanager", wshserver.RemoteDisconnectFromJobManagerCommand
-func RemoteDisconnectFromJobManagerCommand(w *wshutil.WshRpc, data wshrpc.CommandRemoteDisconnectFromJobManagerData, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "remotedisconnectfromjobmanager", data, opts)
 	return err
 }
 
@@ -1063,34 +744,10 @@ func RemoteFileMoveCommand(w *wshutil.WshRpc, data wshrpc.CommandFileCopyData, o
 	return err
 }
 
-// command "remotefilemultiinfo", wshserver.RemoteFileMultiInfoCommand
-func RemoteFileMultiInfoCommand(w *wshutil.WshRpc, data wshrpc.CommandRemoteFileMultiInfoData, opts *wshrpc.RpcOpts) (map[string]wshrpc.FileInfo, error) {
-	resp, err := sendRpcRequestCallHelper[map[string]wshrpc.FileInfo](w, "remotefilemultiinfo", data, opts)
-	return resp, err
-}
-
 // command "remotefilestream", wshserver.RemoteFileStreamCommand
 func RemoteFileStreamCommand(w *wshutil.WshRpc, data wshrpc.CommandRemoteFileStreamData, opts *wshrpc.RpcOpts) (*wshrpc.FileInfo, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.FileInfo](w, "remotefilestream", data, opts)
 	return resp, err
-}
-
-// command "remotefiletouch", wshserver.RemoteFileTouchCommand
-func RemoteFileTouchCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "remotefiletouch", data, opts)
-	return err
-}
-
-// command "remotegetinfo", wshserver.RemoteGetInfoCommand
-func RemoteGetInfoCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (wshrpc.RemoteInfo, error) {
-	resp, err := sendRpcRequestCallHelper[wshrpc.RemoteInfo](w, "remotegetinfo", nil, opts)
-	return resp, err
-}
-
-// command "remoteinstallrcfiles", wshserver.RemoteInstallRcFilesCommand
-func RemoteInstallRcFilesCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "remoteinstallrcfiles", nil, opts)
-	return err
 }
 
 // command "remotelistentries", wshserver.RemoteListEntriesCommand
@@ -1101,24 +758,6 @@ func RemoteListEntriesCommand(w *wshutil.WshRpc, data wshrpc.CommandRemoteListEn
 // command "remotemkdir", wshserver.RemoteMkdirCommand
 func RemoteMkdirCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "remotemkdir", data, opts)
-	return err
-}
-
-// command "remotereconnecttojobmanager", wshserver.RemoteReconnectToJobManagerCommand
-func RemoteReconnectToJobManagerCommand(w *wshutil.WshRpc, data wshrpc.CommandRemoteReconnectToJobManagerData, opts *wshrpc.RpcOpts) (*wshrpc.CommandRemoteReconnectToJobManagerRtnData, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandRemoteReconnectToJobManagerRtnData](w, "remotereconnecttojobmanager", data, opts)
-	return resp, err
-}
-
-// command "remotestartjob", wshserver.RemoteStartJobCommand
-func RemoteStartJobCommand(w *wshutil.WshRpc, data wshrpc.CommandRemoteStartJobData, opts *wshrpc.RpcOpts) (*wshrpc.CommandStartJobRtnData, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandStartJobRtnData](w, "remotestartjob", data, opts)
-	return resp, err
-}
-
-// command "remoteterminatejobmanager", wshserver.RemoteTerminateJobManagerCommand
-func RemoteTerminateJobManagerCommand(w *wshutil.WshRpc, data wshrpc.CommandRemoteTerminateJobManagerData, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "remoteterminatejobmanager", data, opts)
 	return err
 }
 
@@ -1194,18 +833,6 @@ func SealRunEvidenceCommand(w *wshutil.WshRpc, data wshrpc.CommandSealRunEvidenc
 	return err
 }
 
-// command "sendtelemetry", wshserver.SendTelemetryCommand
-func SendTelemetryCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "sendtelemetry", nil, opts)
-	return err
-}
-
-// command "setblockfocus", wshserver.SetBlockFocusCommand
-func SetBlockFocusCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "setblockfocus", data, opts)
-	return err
-}
-
 // command "setchannelmessagepick", wshserver.SetChannelMessagePickCommand
 func SetChannelMessagePickCommand(w *wshutil.WshRpc, data wshrpc.CommandSetChannelMessagePickData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "setchannelmessagepick", data, opts)
@@ -1233,12 +860,6 @@ func SetChannelTierCommand(w *wshutil.WshRpc, data wshrpc.CommandSetChannelTierD
 // command "setconfig", wshserver.SetConfigCommand
 func SetConfigCommand(w *wshutil.WshRpc, data wshrpc.MetaSettingsType, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "setconfig", data, opts)
-	return err
-}
-
-// command "setconnectionsconfig", wshserver.SetConnectionsConfigCommand
-func SetConnectionsConfigCommand(w *wshutil.WshRpc, data wshrpc.ConnConfigRequest, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "setconnectionsconfig", data, opts)
 	return err
 }
 
@@ -1290,18 +911,6 @@ func SetSecretsCommand(w *wshutil.WshRpc, data map[string]*string, opts *wshrpc.
 	return err
 }
 
-// command "setvar", wshserver.SetVarCommand
-func SetVarCommand(w *wshutil.WshRpc, data wshrpc.CommandVarData, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "setvar", data, opts)
-	return err
-}
-
-// command "startjob", wshserver.StartJobCommand
-func StartJobCommand(w *wshutil.WshRpc, data wshrpc.CommandStartJobData, opts *wshrpc.RpcOpts) (*wshrpc.CommandStartJobRtnData, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandStartJobRtnData](w, "startjob", data, opts)
-	return resp, err
-}
-
 // command "startradarscan", wshserver.StartRadarScanCommand
 func StartRadarScanCommand(w *wshutil.WshRpc, data wshrpc.CommandStartRadarScanData, opts *wshrpc.RpcOpts) (*wshrpc.CommandStartRadarScanRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandStartRadarScanRtnData](w, "startradarscan", data, opts)
@@ -1331,26 +940,9 @@ func StreamDataAckCommand(w *wshutil.WshRpc, data wshrpc.CommandStreamAckData, o
 	return err
 }
 
-// command "streamtest", wshserver.StreamTestCommand
-func StreamTestCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) chan wshrpc.RespOrErrorUnion[int] {
-	return sendRpcRequestResponseStreamHelper[int](w, "streamtest", nil, opts)
-}
-
 // command "termgetscrollbacklines", wshserver.TermGetScrollbackLinesCommand
 func TermGetScrollbackLinesCommand(w *wshutil.WshRpc, data wshrpc.CommandTermGetScrollbackLinesData, opts *wshrpc.RpcOpts) (*wshrpc.CommandTermGetScrollbackLinesRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandTermGetScrollbackLinesRtnData](w, "termgetscrollbacklines", data, opts)
-	return resp, err
-}
-
-// command "test", wshserver.TestCommand
-func TestCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "test", data, opts)
-	return err
-}
-
-// command "testmultiarg", wshserver.TestMultiArgCommand
-func TestMultiArgCommand(w *wshutil.WshRpc, arg1 string, arg2 int, arg3 bool, opts *wshrpc.RpcOpts) (string, error) {
-	resp, err := sendRpcRequestCallHelper[string](w, "testmultiarg", wshrpc.MultiArg{Args: []any{arg1, arg2, arg3}}, opts)
 	return resp, err
 }
 
@@ -1384,52 +976,6 @@ func VaultGraphCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.Command
 	return resp, err
 }
 
-// command "vdomasyncinitiation", wshserver.VDomAsyncInitiationCommand
-func VDomAsyncInitiationCommand(w *wshutil.WshRpc, data vdom.VDomAsyncInitiationRequest, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "vdomasyncinitiation", data, opts)
-	return err
-}
-
-// command "vdomcreatecontext", wshserver.VDomCreateContextCommand
-func VDomCreateContextCommand(w *wshutil.WshRpc, data vdom.VDomCreateContext, opts *wshrpc.RpcOpts) (*waveobj.ORef, error) {
-	resp, err := sendRpcRequestCallHelper[*waveobj.ORef](w, "vdomcreatecontext", data, opts)
-	return resp, err
-}
-
-// command "vdomrender", wshserver.VDomRenderCommand
-func VDomRenderCommand(w *wshutil.WshRpc, data vdom.VDomFrontendUpdate, opts *wshrpc.RpcOpts) chan wshrpc.RespOrErrorUnion[*vdom.VDomBackendUpdate] {
-	return sendRpcRequestResponseStreamHelper[*vdom.VDomBackendUpdate](w, "vdomrender", data, opts)
-}
-
-// command "vdomurlrequest", wshserver.VDomUrlRequestCommand
-func VDomUrlRequestCommand(w *wshutil.WshRpc, data wshrpc.VDomUrlRequestData, opts *wshrpc.RpcOpts) chan wshrpc.RespOrErrorUnion[wshrpc.VDomUrlRequestResponse] {
-	return sendRpcRequestResponseStreamHelper[wshrpc.VDomUrlRequestResponse](w, "vdomurlrequest", data, opts)
-}
-
-// command "waitforroute", wshserver.WaitForRouteCommand
-func WaitForRouteCommand(w *wshutil.WshRpc, data wshrpc.CommandWaitForRouteData, opts *wshrpc.RpcOpts) (bool, error) {
-	resp, err := sendRpcRequestCallHelper[bool](w, "waitforroute", data, opts)
-	return resp, err
-}
-
-// command "waveaiaddcontext", wshserver.WaveAIAddContextCommand
-func WaveAIAddContextCommand(w *wshutil.WshRpc, data wshrpc.CommandWaveAIAddContextData, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "waveaiaddcontext", data, opts)
-	return err
-}
-
-// command "waveaigettooldiff", wshserver.WaveAIGetToolDiffCommand
-func WaveAIGetToolDiffCommand(w *wshutil.WshRpc, data wshrpc.CommandWaveAIGetToolDiffData, opts *wshrpc.RpcOpts) (*wshrpc.CommandWaveAIGetToolDiffRtnData, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandWaveAIGetToolDiffRtnData](w, "waveaigettooldiff", data, opts)
-	return resp, err
-}
-
-// command "wavefilereadstream", wshserver.WaveFileReadStreamCommand
-func WaveFileReadStreamCommand(w *wshutil.WshRpc, data wshrpc.CommandWaveFileReadStreamData, opts *wshrpc.RpcOpts) (*wshrpc.WaveFileInfo, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.WaveFileInfo](w, "wavefilereadstream", data, opts)
-	return resp, err
-}
-
 // command "waveinfo", wshserver.WaveInfoCommand
 func WaveInfoCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.WaveInfoData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.WaveInfoData](w, "waveinfo", nil, opts)
@@ -1445,30 +991,6 @@ func WorkspaceListCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) ([]wshrpc.Wor
 // command "writetempfile", wshserver.WriteTempFileCommand
 func WriteTempFileCommand(w *wshutil.WshRpc, data wshrpc.CommandWriteTempFileData, opts *wshrpc.RpcOpts) (string, error) {
 	resp, err := sendRpcRequestCallHelper[string](w, "writetempfile", data, opts)
-	return resp, err
-}
-
-// command "wshactivity", wshserver.WshActivityCommand
-func WshActivityCommand(w *wshutil.WshRpc, data map[string]int, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "wshactivity", data, opts)
-	return err
-}
-
-// command "wsldefaultdistro", wshserver.WslDefaultDistroCommand
-func WslDefaultDistroCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (string, error) {
-	resp, err := sendRpcRequestCallHelper[string](w, "wsldefaultdistro", nil, opts)
-	return resp, err
-}
-
-// command "wsllist", wshserver.WslListCommand
-func WslListCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) ([]string, error) {
-	resp, err := sendRpcRequestCallHelper[[]string](w, "wsllist", nil, opts)
-	return resp, err
-}
-
-// command "wslstatus", wshserver.WslStatusCommand
-func WslStatusCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) ([]wshrpc.ConnStatus, error) {
-	resp, err := sendRpcRequestCallHelper[[]wshrpc.ConnStatus](w, "wslstatus", nil, opts)
 	return resp, err
 }
 

@@ -7,7 +7,6 @@ const MockHomePath = "/Users/mike";
 const MockDirMimeType = "directory";
 const MockDirMode = 0o040755;
 const MockFileMode = 0o100644;
-const MockDirectoryChunkSize = 128;
 const MockBaseModTime = Date.parse("2026-03-10T09:00:00.000Z");
 const TinyPngBytes = Uint8Array.from([
     0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00,
@@ -56,9 +55,7 @@ export type MockFilesystem = {
     entryCount: number;
     fileInfo: (data: FileData) => Promise<FileInfo>;
     fileRead: (data: FileData) => Promise<FileData>;
-    fileList: (data: FileListData) => Promise<FileInfo[]>;
     fileJoin: (paths: string[]) => Promise<FileInfo>;
-    fileListStream: (data: FileListData) => AsyncGenerator<CommandRemoteListEntriesRtnData, void, boolean>;
 };
 
 function normalizeMockPath(path: string, basePath = MockHomePath): string {
@@ -394,16 +391,6 @@ function makeNotFoundInfo(path: string): FileInfo {
     };
 }
 
-function sliceEntries(entries: FileInfo[], opts?: FileListOpts): FileInfo[] {
-    let filteredEntries = entries;
-    if (!opts?.all) {
-        filteredEntries = filteredEntries.filter((entry) => entry.name != null && !entry.name.startsWith("."));
-    }
-    const offset = Math.max(opts?.offset ?? 0, 0);
-    const end = opts?.limit != null && opts.limit >= 0 ? offset + opts.limit : undefined;
-    return filteredEntries.slice(offset, end);
-}
-
 function joinPaths(paths: string[]): string {
     if (paths.length === 0) {
         return MockHomePath;
@@ -471,15 +458,6 @@ export function makeMockFilesystem(): MockFilesystem {
             at: { offset, size: end - offset },
         };
     };
-    const fileList = async (data: FileListData): Promise<FileInfo[]> => {
-        const dirPath = normalizeMockPath(data?.path ?? MockHomePath);
-        const entry = getEntry(dirPath);
-        if (entry == null || !entry.isdir) {
-            return [];
-        }
-        const dirEntries = (childrenByDir.get(dirPath) ?? []).map((child) => toFileInfo(child));
-        return sliceEntries(dirEntries, data?.opts);
-    };
     const fileJoin = async (paths: string[]): Promise<FileInfo> => {
         const path = paths.length === 1 ? normalizeMockPath(paths[0]) : joinPaths(paths);
         const entry = getEntry(path);
@@ -487,14 +465,6 @@ export function makeMockFilesystem(): MockFilesystem {
             return makeNotFoundInfo(path);
         }
         return toFileInfo(entry);
-    };
-    const fileListStream = async function* (
-        data: FileListData
-    ): AsyncGenerator<CommandRemoteListEntriesRtnData, void, boolean> {
-        const fileInfos = await fileList(data);
-        for (let idx = 0; idx < fileInfos.length; idx += MockDirectoryChunkSize) {
-            yield { fileinfo: fileInfos.slice(idx, idx + MockDirectoryChunkSize) };
-        }
     };
     const fileCount = Array.from(entries.values()).filter((entry) => !entry.isdir).length;
     const directoryCount = Array.from(entries.values()).filter((entry) => entry.isdir).length;
@@ -505,9 +475,7 @@ export function makeMockFilesystem(): MockFilesystem {
         entryCount: entries.size,
         fileInfo,
         fileRead,
-        fileList,
         fileJoin,
-        fileListStream,
     };
 }
 

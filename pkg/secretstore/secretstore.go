@@ -204,24 +204,6 @@ func GetSecretNames() ([]string, error) {
 	return names, nil
 }
 
-func CountSecrets() (int, error) {
-	lock.Lock()
-	defer lock.Unlock()
-	
-	if !initialized {
-		return 0, fmt.Errorf("secret store not initialized")
-	}
-
-	count := 0
-	for name := range secrets {
-		if name == WriteTsKey {
-			continue
-		}
-		count++
-	}
-	return count, nil
-}
-
 // GetLinuxStorageBackend reported which OS keyring the Electron shell's safeStorage had selected
 // (gnome-libsecret, kwallet, basic_text). Under Tauri there is no shell-side keyring to ask — at-rest
 // encryption is now in-process, per platform — so there is no backend to name and this reports empty.

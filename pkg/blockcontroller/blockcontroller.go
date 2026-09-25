@@ -18,9 +18,6 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/blocklogger"
 	"github.com/wavetermdev/waveterm/pkg/filestore"
-	"github.com/wavetermdev/waveterm/pkg/jobcontroller"
-	"github.com/wavetermdev/waveterm/pkg/remote"
-	"github.com/wavetermdev/waveterm/pkg/remote/conncontroller"
 	"github.com/wavetermdev/waveterm/pkg/shellexec"
 	"github.com/wavetermdev/waveterm/pkg/util/ds"
 	"github.com/wavetermdev/waveterm/pkg/util/shellutil"
@@ -28,7 +25,6 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wps"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc/wshclient"
-	"github.com/wavetermdev/waveterm/pkg/wslconn"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
@@ -251,25 +247,10 @@ func ResyncController(ctx context.Context, tabId string, blockId string, rtOpts 
 		return nil
 	}
 
-	// Determine if we should use DurableShellController vs ShellController
-	shouldUseDurableShellController := controllerName == BlockController_Shell && jobcontroller.IsBlockIdTermDurable(blockId)
-
 	// Check if we need to morph controller type
 	if existing != nil {
-		needsReplace := false
-
-		switch existing.(type) {
-		case *ShellController:
-			if controllerName != BlockController_Shell && controllerName != BlockController_Cmd {
-				needsReplace = true
-			} else if shouldUseDurableShellController {
-				needsReplace = true
-			}
-		case *DurableShellController:
-			if !shouldUseDurableShellController {
-				needsReplace = true
-			}
-		}
+		_, isShell := existing.(*ShellController)
+		needsReplace := !isShell || (controllerName != BlockController_Shell && controllerName != BlockController_Cmd)
 
 		if needsReplace {
 			log.Printf("stopping blockcontroller %s due to controller type change\n", blockId)
@@ -305,11 +286,7 @@ func ResyncController(ctx context.Context, tabId string, blockId string, rtOpts 
 		// Create new controller based on type
 		switch controllerName {
 		case BlockController_Shell, BlockController_Cmd:
-			if shouldUseDurableShellController {
-				controller = MakeDurableShellController(tabId, blockId, controllerName, connName)
-			} else {
-				controller = MakeShellController(tabId, blockId, controllerName, connName)
-			}
+			controller = MakeShellController(tabId, blockId, controllerName, connName)
 			registerController(blockId, controller)
 
 		default:
@@ -320,14 +297,8 @@ func ResyncController(ctx context.Context, tabId string, blockId string, rtOpts 
 	// Check if we need to start/restart
 	status := controller.GetRuntimeStatus()
 	if status.ShellProcStatus == Status_Init {
-		// For shell/cmd, check connection status first (for non-local connections)
-		if controllerName == BlockController_Shell || controllerName == BlockController_Cmd {
-			if !conncontroller.IsLocalConnName(connName) {
-				err = CheckConnStatus(blockId)
-				if err != nil {
-					return fmt.Errorf("cannot start shellproc: %w", err)
-				}
-			}
+		if (controllerName == BlockController_Shell || controllerName == BlockController_Cmd) && !isLocalConnName(connName) {
+			return fmt.Errorf("cannot start shellproc: remote connections are not supported (%q)", connName)
 		}
 
 		// Start controller
@@ -379,23 +350,9 @@ func DestroyBlockController(blockId string) {
 	blockLastPublishAt.Delete(blockId)
 }
 
-func sendConnMonitorInputNotification(controller Controller) {
-	connName := controller.GetConnName()
-	if connName == "" || conncontroller.IsLocalConnName(connName) || conncontroller.IsWslConnName(connName) {
-		return
-	}
-
-	connOpts, parseErr := remote.ParseOpts(connName)
-	if parseErr != nil {
-		return
-	}
-	sshConn := conncontroller.MaybeGetConn(connOpts)
-	if sshConn != nil {
-		monitor := sshConn.GetMonitor()
-		if monitor != nil {
-			monitor.NotifyInput()
-		}
-	}
+// "local:<shell>" names pick a local shell variant; every other connection name is a remote host.
+func isLocalConnName(connName string) bool {
+	return strings.HasPrefix(connName, "local:") || connName == "local" || connName == ""
 }
 
 func SendInput(blockId string, inputUnion *BlockInputUnion) error {
@@ -403,7 +360,6 @@ func SendInput(blockId string, inputUnion *BlockInputUnion) error {
 	if controller == nil {
 		return fmt.Errorf("no controller found for block %s", blockId)
 	}
-	sendConnMonitorInputNotification(controller)
 	return controller.SendInput(inputUnion)
 }
 
@@ -514,42 +470,6 @@ func HandleTruncateBlockFile(blockId string) error {
 func debugLog(ctx context.Context, fmtStr string, args ...interface{}) {
 	blocklogger.Infof(ctx, "[conndebug] "+fmtStr, args...)
 	log.Printf(fmtStr, args...)
-}
-
-func CheckConnStatus(blockId string) error {
-	bdata, err := wstore.DBMustGet[*waveobj.Block](context.Background(), blockId)
-	if err != nil {
-		return fmt.Errorf("error getting block: %w", err)
-	}
-	connName := bdata.Meta.GetString(waveobj.MetaKey_Connection, "")
-	if conncontroller.IsLocalConnName(connName) {
-		return nil
-	}
-	if strings.HasPrefix(connName, "wsl://") {
-		distroName := strings.TrimPrefix(connName, "wsl://")
-		conn := wslconn.GetWslConn(distroName)
-		if conn == nil {
-			return fmt.Errorf("wsl connection not found: %s", connName)
-		}
-		connStatus := conn.DeriveConnStatus()
-		if connStatus.Status != conncontroller.Status_Connected {
-			return fmt.Errorf("not connected: %s", connStatus.Status)
-		}
-		return nil
-	}
-	opts, err := remote.ParseOpts(connName)
-	if err != nil {
-		return fmt.Errorf("error parsing connection name: %w", err)
-	}
-	conn := conncontroller.MaybeGetConn(opts)
-	if conn == nil {
-		return fmt.Errorf("no connection found")
-	}
-	connStatus := conn.DeriveConnStatus()
-	if connStatus.Status != conncontroller.Status_Connected {
-		return fmt.Errorf("not connected: %s", connStatus.Status)
-	}
-	return nil
 }
 
 func makeSwapToken(ctx context.Context, logCtx context.Context, blockId string, blockMeta waveobj.MetaMapType, remoteName string, shellType string) *shellutil.TokenSwapEntry {

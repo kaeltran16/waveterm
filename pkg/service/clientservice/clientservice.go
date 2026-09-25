@@ -8,11 +8,8 @@ import (
 	"log"
 	"time"
 
-	"github.com/wavetermdev/waveterm/pkg/remote/conncontroller"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
-	"github.com/wavetermdev/waveterm/pkg/wshrpc"
-	"github.com/wavetermdev/waveterm/pkg/wslconn"
 )
 
 type ClientService struct{}
@@ -24,10 +21,4 @@ func (cs *ClientService) GetClientData() (*waveobj.Client, error) {
 	ctx, cancelFn := context.WithTimeout(context.Background(), DefaultTimeout)
 	defer cancelFn()
 	return wcore.GetClientData(ctx)
-}
-
-func (cs *ClientService) GetAllConnStatus(ctx context.Context) ([]wshrpc.ConnStatus, error) {
-	sshStatuses := conncontroller.GetAllConnStatus()
-	wslStatuses := wslconn.GetAllConnStatus()
-	return append(sshStatuses, wslStatuses...), nil
 }

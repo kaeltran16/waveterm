@@ -12,9 +12,7 @@ declare global {
         workspaceId: jotai.Atom<string>; // derived from window WOS object
         workspace: jotai.Atom<Workspace>; // driven from workspaceId via WOS
         fullConfigAtom: jotai.PrimitiveAtom<FullConfigType>; // driven from WOS, settings -- updated via WebSocket
-        waveaiModeConfigAtom: jotai.PrimitiveAtom<Record<string, AIModeConfigType>>; // resolved AI mode configs -- updated via WebSocket
         settingsAtom: jotai.Atom<SettingsType>; // derrived from fullConfig
-        hasCustomAIPresetsAtom: jotai.Atom<boolean>; // derived from fullConfig
         hasConfigErrors: jotai.Atom<boolean>; // derived from fullConfig
         staticTabId: jotai.Atom<string>;
         isFullScreen: jotai.PrimitiveAtom<boolean>;
@@ -22,11 +20,8 @@ declare global {
         controlShiftDelayAtom: jotai.PrimitiveAtom<boolean>;
         prefersReducedMotionAtom: jotai.Atom<boolean>;
         documentHasFocus: jotai.PrimitiveAtom<boolean>;
-        updaterStatusAtom: jotai.PrimitiveAtom<UpdaterStatus>;
         modalOpen: jotai.PrimitiveAtom<boolean>;
-        allConnStatus: jotai.Atom<ConnStatus[]>;
         reinitVersion: jotai.PrimitiveAtom<number>;
-        waveAIRateLimitInfoAtom: jotai.PrimitiveAtom<RateLimitInfo>;
     };
 
     type ThrottledValueAtom<T> = jotai.WritableAtom<T, [update: jotai.SetStateAction<T>], void>;
@@ -43,11 +38,18 @@ declare global {
         debouncedValueAtom: DebouncedValueAtom<T>;
     };
 
-    type SplitAtom<Item> = Atom<Atom<Item>[]>;
-    type WritableSplitAtom<Item> = WritableAtom<PrimitiveAtom<Item>[], [SplitAtomAction<Item>], void>;
-
-    type TabLayoutData = {
-        blockId: string;
+    type WaveKeyboardEvent = {
+        type: "keydown" | "keyup" | "keypress" | "unknown";
+        key: string;
+        code: string;
+        repeat?: boolean;
+        location?: number;
+        shift?: boolean;
+        control?: boolean;
+        alt?: boolean;
+        meta?: boolean;
+        cmd?: boolean;
+        option?: boolean;
     };
 
     type GlobalInitOptions = {
@@ -56,7 +58,6 @@ declare global {
         windowId: string;
         clientId: string;
         environment: "electron" | "renderer";
-        primaryTabStartup?: boolean;
         isPreview?: boolean;
     };
 
@@ -65,74 +66,27 @@ declare global {
         clientId: string;
         windowId: string;
         activate: boolean;
-        primaryTabStartup?: boolean;
     };
 
     type ElectronApi = {
         getAuthKey(): string; // get-auth-key
         getIsDev(): boolean; // get-is-dev
-        getCursorPoint: () => { x: number; y: number }; // get-cursor-point
         getPlatform: () => NodeJS.Platform; // get-platform
         getEnv: (varName: string) => string; // get-env
         getUserName: () => string; // get-user-name
         getHostName: () => string; // get-host-name
-        getDataDir: () => string; // get-data-dir
-        getConfigDir: () => string; // get-config-dir
-        getHomeDir: () => string; // get-home-dir
-        getWebviewPreload: () => string; // get-webview-preload
-        getAboutModalDetails: () => AboutModalDetails; // get-about-modal-details
         getZoomFactor: () => number; // get-zoom-factor
-        showWorkspaceAppMenu: (workspaceId: string) => void; // workspace-appmenu-show
-        showContextMenu: (workspaceId: string, menu: ElectronContextMenuItem[]) => void; // contextmenu-show
-        onContextMenuClick: (callback: (id: string | null) => void) => void; // contextmenu-click
-        onNavigate: (callback: (url: string) => void) => void;
-        onIframeNavigate: (callback: (url: string) => void) => void;
-        downloadFile: (path: string) => void; // download
         openExternal: (url: string) => void; // open-external
         onFullScreenChange: (callback: (isFullScreen: boolean) => void) => void; // fullscreen-change
         onZoomFactorChange: (callback: (zoomFactor: number) => void) => void; // zoom-factor-change
-        onUpdaterStatusChange: (callback: (status: UpdaterStatus) => void) => void; // app-update-status
-        getUpdaterStatus: () => UpdaterStatus; // get-app-update-status
-        getUpdaterChannel: () => string; // get-updater-channel
-        installAppUpdate: () => void; // install-app-update
-        onMenuItemAbout: (callback: () => void) => void; // menu-item-about
-        updateWindowControlsOverlay: (rect: Dimensions) => void; // update-window-controls-overlay
-        onReinjectKey: (callback: (waveEvent: WaveKeyboardEvent) => void) => void; // reinject-key
-        setWebviewFocus: (focusedId: number) => void; // webview-focus, focusedId is the getWebContentsId of the webview
-        registerGlobalWebviewKeys: (keys: string[]) => void; // register-global-webview-keys
         onControlShiftStateUpdate: (callback: (state: boolean) => void) => void; // control-shift-state-update
-        createWorkspace: () => void; // create-workspace
-        switchWorkspace: (workspaceId: string) => void; // switch-workspace
-        deleteWorkspace: (workspaceId: string) => void; // delete-workspace
-        setActiveTab: (tabId: string) => void; // set-active-tab
-        createTab: () => void; // create-tab
-        closeTab: (workspaceId: string, tabId: string, confirmClose: boolean) => Promise<boolean>; // close-tab
         setWindowInitStatus: (status: "ready" | "wave-ready") => void; // set-window-init-status
         onWaveInit: (callback: (initOpts: WaveInitOpts) => void) => void; // wave-init
         sendLog: (log: string) => void; // fe-log
-        onQuicklook: (filePath: string) => void; // quicklook
-        openNativePath(filePath: string): void; // open-native-path
-        captureScreenshot(rect: { x: number; y: number; width: number; height: number }): Promise<string>; // capture-screenshot
-        setKeyboardChordMode: () => void; // set-keyboard-chord-mode
-        clearWebviewStorage: (webContentsId: number) => Promise<void>; // clear-webview-storage
-        setWaveAIOpen: (isOpen: boolean) => void; // set-waveai-open
         nativePaste: () => void; // native-paste
-        doRefresh: () => void; // do-refresh
         getPathForFile: (file: File) => string; // webUtils.getPathForFile
         saveTextFile: (fileName: string, content: string) => Promise<boolean>; // save-text-file
         setIsActive: () => Promise<void>; // set-is-active
-    };
-
-    type ElectronContextMenuItem = {
-        id: string; // unique id, used for communication
-        label: string;
-        role?: string; // electron role (optional)
-        type?: "separator" | "normal" | "submenu" | "checkbox" | "radio" | "header";
-        submenu?: ElectronContextMenuItem[];
-        checked?: boolean;
-        visible?: boolean;
-        enabled?: boolean;
-        sublabel?: string;
     };
 
     type ContextMenuItem = {
@@ -308,8 +262,6 @@ declare global {
         // Optional header text or elements for the view.
         viewText?: jotai.Atom<string | HeaderElem[]>;
 
-        termDurableStatus?: jotai.Atom<BlockJobStatusData | null>;
-        termConfigedDurable?: jotai.Atom<null | boolean>;
 
         // Icon button displayed before the title in the header.
         preIconButton?: jotai.Atom<IconButtonDecl>;
@@ -335,7 +287,6 @@ declare global {
         viewComponent: ViewComponent<ViewModel>;
 
         // Function to determine if this is a basic terminal block.
-        isBasicTerm?: (getFn: jotai.Getter) => boolean;
 
         // Returns menu items for the settings dropdown.
         getSettingsMenuItems?: () => ContextMenuItem[];
@@ -350,51 +301,8 @@ declare global {
         dispose?: () => void;
     }
 
-    type UpdaterStatus = "up-to-date" | "checking" | "downloading" | "ready" | "error" | "installing";
-
     // jotai doesn't export this type :/
     type Loadable<T> = { state: "loading" } | { state: "hasData"; data: T } | { state: "hasError"; error: unknown };
-
-    interface Dimensions {
-        width: number;
-        height: number;
-        left: number;
-        top: number;
-    }
-
-    type TypeAheadModalType = { [key: string]: boolean };
-
-    interface AboutModalDetails {
-        version: string;
-        buildTime: number;
-    }
-
-    type BlockComponentModel = {
-        openSwitchConnection?: () => void;
-        viewModel: ViewModel;
-    };
-
-    type ConnStatusType = "connected" | "connecting" | "disconnected" | "error" | "init";
-
-    interface SuggestionBaseItem {
-        label: string;
-        value: string;
-        icon?: string | React.ReactNode;
-    }
-
-    interface SuggestionConnectionItem extends SuggestionBaseItem {
-        status: ConnStatusType;
-        iconColor: string;
-        onSelect?: (_: string) => void;
-        current?: boolean;
-    }
-
-    interface SuggestionConnectionScope {
-        headerText?: string;
-        items: SuggestionConnectionItem[];
-    }
-
-    type SuggestionsType = SuggestionConnectionItem | SuggestionConnectionScope;
 
     type MarkdownResolveOpts = {
         connName: string;
@@ -412,65 +320,6 @@ declare global {
         msgFn: (msg: RpcMessage) => void;
     };
 
-    type TimeSeriesMeta = {
-        name?: string;
-        color?: string;
-        label?: string;
-        maxy?: string | number;
-        miny?: string | number;
-        decimalPlaces?: number;
-    };
-
-    interface SuggestionRequestContext {
-        widgetid: string;
-        reqnum: number;
-        dispose?: boolean;
-    }
-
-    type SuggestionsFnType = (query: string, reqContext: SuggestionRequestContext) => Promise<FetchSuggestionsResponse>;
-
-    type DraggedFile = {
-        uri: string;
-        absParent: string;
-        relName: string;
-        isDir: boolean;
-    };
-
-    type ErrorButtonDef = {
-        text: string;
-        onClick: () => void;
-    };
-
-    type ErrorMsg = {
-        status: string;
-        text: string;
-        level?: "error" | "warning";
-        buttons?: Array<ErrorButtonDef>;
-        closeAction?: () => void;
-        showDismiss?: boolean;
-    };
-
-    type AIMessage = {
-        messageid: string;
-        parts: AIMessagePart[];
-    };
-
-    type AIMessagePart =
-        | {
-              type: "text";
-              text: string;
-          }
-        | {
-              type: "file";
-              mimetype: string; // required
-              filename?: string;
-              data?: string; // base64 encoded data
-              url?: string;
-              size?: number;
-              previewurl?: string;
-          };
-
-    type AIModeConfigWithMode = { mode: string } & AIModeConfigType;
 }
 
 export {};

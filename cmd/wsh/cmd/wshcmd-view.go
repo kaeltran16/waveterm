@@ -40,9 +40,6 @@ func init() {
 // block-layout renderer in this build, so creating preview blocks would be a silent no-op.
 func viewRun(cmd *cobra.Command, args []string) (rtnErr error) {
 	cmdName := cmd.Name()
-	defer func() {
-		sendActivity(cmdName, rtnErr == nil)
-	}()
 	if len(args) == 0 {
 		OutputHelpMessage(cmd)
 		return fmt.Errorf("no arguments.  wsh %s requires a file or directory as an argument", cmdName)

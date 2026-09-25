@@ -21,11 +21,6 @@ export class BlockServiceType {
         this.waveEnv = waveEnv;
     }
 
-    // queue a layout action to cleanup orphaned blocks in the tab
-    // @returns object updates
-    CleanupOrphanedBlocks(tabId: string): Promise<void> {
-        return callBackendService(this?.waveEnv, "block", "CleanupOrphanedBlocks", Array.from(arguments))
-    }
     GetControllerStatus(arg2: string): Promise<BlockControllerRuntimeStatus> {
         return callBackendService(this?.waveEnv, "block", "GetControllerStatus", Array.from(arguments))
     }
@@ -46,9 +41,6 @@ export class ClientServiceType {
         this.waveEnv = waveEnv;
     }
 
-    GetAllConnStatus(): Promise<ConnStatus[]> {
-        return callBackendService(this?.waveEnv, "client", "GetAllConnStatus", Array.from(arguments))
-    }
     GetClientData(): Promise<Client> {
         return callBackendService(this?.waveEnv, "client", "GetClientData", Array.from(arguments))
     }
@@ -73,29 +65,9 @@ export class ObjectServiceType {
     UpdateObject(waveObj: WaveObj, returnUpdates: boolean): Promise<void> {
         return callBackendService(this?.waveEnv, "object", "UpdateObject", Array.from(arguments))
     }
-
-    // @returns object updates
-    UpdateObjectMeta(oref: string, meta: MetaType): Promise<void> {
-        return callBackendService(this?.waveEnv, "object", "UpdateObjectMeta", Array.from(arguments))
-    }
 }
 
 export const ObjectService = new ObjectServiceType();
-
-// userinputservice.UserInputService (userinput)
-export class UserInputServiceType {
-    waveEnv: WaveEnv;
-
-    constructor(waveEnv?: WaveEnv) {
-        this.waveEnv = waveEnv;
-    }
-
-    SendUserInputResponse(arg1: UserInputResponse): Promise<void> {
-        return callBackendService(this?.waveEnv, "userinput", "SendUserInputResponse", Array.from(arguments))
-    }
-}
-
-export const UserInputService = new UserInputServiceType();
 
 // windowservice.WindowService (window)
 export class WindowServiceType {
@@ -145,7 +117,6 @@ export const AllServiceTypes = {
     "block": BlockServiceType,
     "client": ClientServiceType,
     "object": ObjectServiceType,
-    "userinput": UserInputServiceType,
     "window": WindowServiceType,
     "workspace": WorkspaceServiceType,
 };
@@ -154,7 +125,6 @@ export const AllServiceImpls = {
     "block": BlockService,
     "client": ClientService,
     "object": ObjectService,
-    "userinput": UserInputService,
     "window": WindowService,
     "workspace": WorkspaceService,
 };

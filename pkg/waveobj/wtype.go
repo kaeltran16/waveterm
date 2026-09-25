@@ -27,10 +27,8 @@ const (
 	OType_Workspace      = "workspace"
 	OType_Tab            = "tab"
 	OType_Channel        = "channel"
-	OType_LayoutState    = "layout"
 	OType_Block          = "block"
 	OType_MainServer     = "mainserver"
-	OType_Job            = "job"
 	OType_Temp           = "temp"
 	OType_RadarReport    = "radarreport"
 	OType_Run            = "run"
@@ -45,10 +43,8 @@ var ValidOTypes = map[string]bool{
 	OType_Workspace:      true,
 	OType_Tab:            true,
 	OType_Channel:        true,
-	OType_LayoutState:    true,
 	OType_Block:          true,
 	OType_MainServer:     true,
-	OType_Job:            true,
 	OType_Temp:           true,
 	OType_RadarReport:    true,
 	OType_Run:            true,
@@ -77,23 +73,6 @@ func (update WaveObjUpdate) MarshalJSON() ([]byte, error) {
 		}
 	}
 	return json.Marshal(rtn)
-}
-
-func MakeUpdate(obj WaveObj) WaveObjUpdate {
-	return WaveObjUpdate{
-		UpdateType: UpdateType_Update,
-		OType:      obj.GetOType(),
-		OID:        GetOID(obj),
-		Obj:        obj,
-	}
-}
-
-func MakeUpdates(objs []WaveObj) []WaveObjUpdate {
-	rtn := make([]WaveObjUpdate, 0, len(objs))
-	for _, obj := range objs {
-		rtn = append(rtn, MakeUpdate(obj))
-	}
-	return rtn
 }
 
 func (update *WaveObjUpdate) UnmarshalJSON(data []byte) error {
@@ -143,7 +122,6 @@ type Client struct {
 	Version       int         `json:"version"`
 	WindowIds     []string    `json:"windowids"`
 	Meta          MetaMapType `json:"meta"`
-	TosAgreed     int64       `json:"tosagreed,omitempty"` // unix milli
 	HasOldHistory bool        `json:"hasoldhistory,omitempty"`
 	TempOID       string      `json:"tempoid,omitempty"`
 	InstallId     string      `json:"installid,omitempty"`
@@ -176,11 +154,6 @@ type WorkspaceListEntry struct {
 
 type WorkspaceList []*WorkspaceListEntry
 
-type ActiveTabUpdate struct {
-	WorkspaceId    string `json:"workspaceid"`
-	NewActiveTabId string `json:"newactivetabid"`
-}
-
 type Workspace struct {
 	OID         string      `json:"oid"`
 	Version     int         `json:"version"`
@@ -197,12 +170,11 @@ func (*Workspace) GetOType() string {
 }
 
 type Tab struct {
-	OID         string      `json:"oid"`
-	Version     int         `json:"version"`
-	Name        string      `json:"name"`
-	LayoutState string      `json:"layoutstate"`
-	BlockIds    []string    `json:"blockids"`
-	Meta        MetaMapType `json:"meta"`
+	OID      string      `json:"oid"`
+	Version  int         `json:"version"`
+	Name     string      `json:"name"`
+	BlockIds []string    `json:"blockids"`
+	Meta     MetaMapType `json:"meta"`
 }
 
 func (*Tab) GetOType() string {
@@ -836,39 +808,6 @@ func (t *Tab) GetBlockORefs() []ORef {
 	return rtn
 }
 
-type LayoutActionData struct {
-	ActionType    string `json:"actiontype"`
-	ActionId      string `json:"actionid"`
-	BlockId       string `json:"blockid"`
-	NodeSize      *uint  `json:"nodesize,omitempty"`
-	IndexArr      *[]int `json:"indexarr,omitempty"`
-	Focused       bool   `json:"focused"`
-	Magnified     bool   `json:"magnified"`
-	Ephemeral     bool   `json:"ephemeral"`
-	TargetBlockId string `json:"targetblockid,omitempty"`
-	Position      string `json:"position,omitempty"`
-}
-
-type LeafOrderEntry struct {
-	NodeId  string `json:"nodeid"`
-	BlockId string `json:"blockid"`
-}
-
-type LayoutState struct {
-	OID                   string              `json:"oid"`
-	Version               int                 `json:"version"`
-	RootNode              any                 `json:"rootnode,omitempty"`
-	MagnifiedNodeId       string              `json:"magnifiednodeid,omitempty"`
-	FocusedNodeId         string              `json:"focusednodeid,omitempty"`
-	LeafOrder             *[]LeafOrderEntry   `json:"leaforder,omitempty"`
-	PendingBackendActions *[]LayoutActionData `json:"pendingbackendactions,omitempty"`
-	Meta                  MetaMapType         `json:"meta,omitempty"`
-}
-
-func (*LayoutState) GetOType() string {
-	return OType_LayoutState
-}
-
 type FileDef struct {
 	Content string         `json:"content,omitempty"`
 	Meta    map[string]any `json:"meta,omitempty"`
@@ -920,7 +859,6 @@ type Block struct {
 	Stickers    []*StickerType `json:"stickers,omitempty"`
 	Meta        MetaMapType    `json:"meta"`
 	SubBlockIds []string       `json:"subblockids,omitempty"`
-	JobId       string         `json:"jobid,omitempty"` // if set, the block will render this jobid's pty output
 }
 
 func (*Block) GetOType() string {
@@ -939,50 +877,6 @@ func (*MainServer) GetOType() string {
 	return OType_MainServer
 }
 
-type Job struct {
-	OID     string `json:"oid"`
-	Version int    `json:"version"`
-
-	// job metadata
-	Connection      string            `json:"connection"`
-	JobKind         string            `json:"jobkind"` // shell, task
-	Cmd             string            `json:"cmd"`
-	CmdArgs         []string          `json:"cmdargs,omitempty"`
-	CmdEnv          map[string]string `json:"cmdenv,omitempty"`
-	JobAuthToken    string            `json:"jobauthtoken"` // job manger -> wave
-	AttachedBlockId string            `json:"attachedblockid,omitempty"`
-	WaveVersion     string            `json:"waveversion,omitempty"`
-
-	// reconnect option (e.g. orphaned, so we need to kill on connect)
-	TerminateOnReconnect bool `json:"terminateonreconnect,omitempty"`
-
-	// job manager state
-	JobManagerStatus       string `json:"jobmanagerstatus"`               // init, running, done
-	JobManagerDoneReason   string `json:"jobmanagerdonereason,omitempty"` // startuperror, gone, terminated
-	JobManagerStartupError string `json:"jobmanagerstartuperror,omitempty"`
-	JobManagerPid          int    `json:"jobmanagerpid,omitempty"`
-	JobManagerStartTs      int64  `json:"jobmanagerstartts,omitempty"` // exact process start time (milliseconds)
-
-	// cmd/process runtime info
-	CmdPid        int      `json:"cmdpid,omitempty"`     // command process id
-	CmdStartTs    int64    `json:"cmdstartts,omitempty"` // exact command process start time (milliseconds from epoch)
-	CmdTermSize   TermSize `json:"cmdtermsize"`
-	CmdExitTs     int64    `json:"cmdexitts,omitempty"`     // timestamp (milliseconds) -- use CmdExitTs > 0 to check if command has exited
-	CmdExitCode   *int     `json:"cmdexitcode,omitempty"`   // nil when CmdExitSignal is set.  success exit is when CmdExitCode is 0
-	CmdExitSignal string   `json:"cmdexitsignal,omitempty"` // empty string if CmdExitCode is set
-	CmdExitError  string   `json:"cmdexiterror,omitempty"`
-
-	// output info
-	StreamDone  bool   `json:"streamdone,omitempty"`
-	StreamError string `json:"streamerror,omitempty"`
-
-	Meta MetaMapType `json:"meta"`
-}
-
-func (*Job) GetOType() string {
-	return OType_Job
-}
-
 func AllWaveObjTypes() []reflect.Type {
 	return []reflect.Type{
 		reflect.TypeOf(&Client{}),
@@ -992,9 +886,7 @@ func AllWaveObjTypes() []reflect.Type {
 		reflect.TypeOf(&Channel{}),
 		reflect.TypeOf(&RadarReport{}),
 		reflect.TypeOf(&Block{}),
-		reflect.TypeOf(&LayoutState{}),
 		reflect.TypeOf(&MainServer{}),
-		reflect.TypeOf(&Job{}),
 		reflect.TypeOf(&Run{}),
 		reflect.TypeOf(&ChannelMessage{}),
 		reflect.TypeOf(&Effort{}),

@@ -23,105 +23,15 @@ var watcherOnce = sync.OnceValues(func() (*Watcher, error) {
 	return newWatcher(fsnotify.NewWatcher)
 })
 
-type ConfigUpdateHandler func(FullConfigType)
-
 type Watcher struct {
 	initialized bool
 	watcher     *fsnotify.Watcher
 	mutex       sync.Mutex
 	fullConfig  FullConfigType
-	handlers    []ConfigUpdateHandler
-	dispatcher  *configDispatcher
 }
 
 type WatcherUpdate struct {
 	FullConfig FullConfigType `json:"fullconfig"`
-}
-
-type configDispatch struct {
-	config   FullConfigType
-	handlers []ConfigUpdateHandler
-}
-
-type configDispatcher struct {
-	mutex   sync.Mutex
-	cond    *sync.Cond
-	queue   []configDispatch
-	started bool
-	closed  bool
-	done    chan struct{}
-}
-
-func newConfigDispatcher() *configDispatcher {
-	dispatcher := &configDispatcher{done: make(chan struct{})}
-	dispatcher.cond = sync.NewCond(&dispatcher.mutex)
-	return dispatcher
-}
-
-func (d *configDispatcher) start() {
-	d.mutex.Lock()
-	if d.started || d.closed {
-		d.mutex.Unlock()
-		return
-	}
-	d.started = true
-	d.mutex.Unlock()
-	go d.run()
-}
-
-func (d *configDispatcher) enqueue(update configDispatch) bool {
-	d.mutex.Lock()
-	defer d.mutex.Unlock()
-	if d.closed {
-		return false
-	}
-	d.queue = append(d.queue, update)
-	d.cond.Signal()
-	return true
-}
-
-func (d *configDispatcher) close() {
-	d.mutex.Lock()
-	if d.closed {
-		d.mutex.Unlock()
-		return
-	}
-	d.closed = true
-	d.queue = nil
-	d.cond.Broadcast()
-	if !d.started {
-		close(d.done)
-	}
-	d.mutex.Unlock()
-}
-
-func (d *configDispatcher) run() {
-	defer close(d.done)
-	for {
-		d.mutex.Lock()
-		for len(d.queue) == 0 && !d.closed {
-			d.cond.Wait()
-		}
-		if d.closed {
-			d.mutex.Unlock()
-			return
-		}
-		update := d.queue[0]
-		d.queue[0] = configDispatch{}
-		d.queue = d.queue[1:]
-		d.mutex.Unlock()
-
-		for _, handler := range update.handlers {
-			invokeConfigHandler(handler, update.config)
-		}
-	}
-}
-
-func invokeConfigHandler(handler ConfigUpdateHandler, config FullConfigType) {
-	defer func() {
-		panichandler.PanicHandler("filewatcher:notifyHandlers", recover())
-	}()
-	handler(config)
 }
 
 func newWatcher(factory fsnotifyFactory) (*Watcher, error) {
@@ -130,8 +40,7 @@ func newWatcher(factory fsnotifyFactory) (*Watcher, error) {
 		return nil, err
 	}
 	watcher := &Watcher{
-		watcher:    fileWatcher,
-		dispatcher: newConfigDispatcher(),
+		watcher: fileWatcher,
 	}
 	configDirAbsPath := wavebase.GetWaveConfigDir()
 	log.Printf("create config watcher, configdir=%q", configDirAbsPath)
@@ -171,7 +80,6 @@ func (w *Watcher) Start() {
 	w.mutex.Unlock()
 
 	log.Printf("starting file watcher\n")
-	w.dispatcher.start()
 	w.sendInitialValues()
 
 	go func() {
@@ -206,7 +114,6 @@ func (w *Watcher) sendInitialValues() error {
 }
 
 func (w *Watcher) Close() {
-	w.dispatcher.close()
 	w.mutex.Lock()
 	fileWatcher := w.watcher
 	w.watcher = nil
@@ -222,20 +129,6 @@ func (w *Watcher) broadcast(message WatcherUpdate) {
 		Event: wps.Event_Config,
 		Data:  message,
 	})
-	w.notifyHandlers(message.FullConfig)
-}
-
-func (w *Watcher) RegisterUpdateHandler(handler ConfigUpdateHandler) {
-	w.mutex.Lock()
-	defer w.mutex.Unlock()
-	w.handlers = append(w.handlers, handler)
-}
-
-func (w *Watcher) notifyHandlers(config FullConfigType) {
-	w.mutex.Lock()
-	handlers := append([]ConfigUpdateHandler(nil), w.handlers...)
-	w.mutex.Unlock()
-	w.dispatcher.enqueue(configDispatch{config: config, handlers: handlers})
 }
 
 func (w *Watcher) GetFullConfig() FullConfigType {

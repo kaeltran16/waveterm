@@ -9,16 +9,10 @@ import (
 	"log"
 	"regexp"
 	"strconv"
-	"time"
 
 	"github.com/google/uuid"
-	"github.com/wavetermdev/waveterm/pkg/telemetry"
-	"github.com/wavetermdev/waveterm/pkg/telemetry/telemetrydata"
 	"github.com/wavetermdev/waveterm/pkg/util/utilfn"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
-	"github.com/wavetermdev/waveterm/pkg/wconfig"
-	"github.com/wavetermdev/waveterm/pkg/wps"
-	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
@@ -65,10 +59,6 @@ func CreateWorkspace(ctx context.Context, name string, icon string, color string
 	if err != nil {
 		return nil, fmt.Errorf("error creating tab: %w", err)
 	}
-
-	wps.Broker.Publish(wps.WaveEvent{
-		Event: wps.Event_WorkspaceUpdate,
-	})
 
 	ws, _, err = UpdateWorkspace(ctx, ws.OID, name, icon, color, applyDefaults)
 	return ws, err
@@ -146,10 +136,6 @@ func DeleteWorkspace(ctx context.Context, workspaceId string, force bool) (bool,
 		return false, "", fmt.Errorf("error deleting workspace: %w", err)
 	}
 	log.Printf("deleted workspace %s\n", workspaceId)
-	wps.Broker.Publish(wps.WaveEvent{
-		Event: wps.Event_WorkspaceUpdate,
-	})
-
 	if windowId != "" {
 
 		UnclaimedWorkspace, findAfter := "", false
@@ -184,14 +170,6 @@ func DeleteWorkspace(ctx context.Context, workspaceId string, force bool) (bool,
 
 func GetWorkspace(ctx context.Context, wsID string) (*waveobj.Workspace, error) {
 	return wstore.DBMustGet[*waveobj.Workspace](ctx, wsID)
-}
-
-func getTabBackground() string {
-	config := wconfig.GetWatcher().GetFullConfig()
-	if config.Settings.TabBackground != "" {
-		return config.Settings.TabBackground
-	}
-	return config.Settings.TabPreset
 }
 
 var tabNameRe = regexp.MustCompile(`^T(\d+)$`)
@@ -247,22 +225,16 @@ func CreateTab(ctx context.Context, workspaceId string, tabName string, activate
 		}
 	}
 
-	// No need to apply an initial layout for the initial launch, since the starter layout will get applied after onboarding modal dismissal
 	if !isInitialLaunch {
-		err = ApplyPortableLayout(ctx, tab.OID, GetNewTabLayout(), true)
+		shellDef := &waveobj.BlockDef{Meta: waveobj.MetaMapType{
+			waveobj.MetaKey_View:       "term",
+			waveobj.MetaKey_Controller: "shell",
+		}}
+		_, err = CreateBlock(ctx, tab.OID, shellDef, &waveobj.RuntimeOpts{})
 		if err != nil {
-			return tab.OID, fmt.Errorf("error applying new tab layout: %w", err)
-		}
-		tabBg := getTabBackground()
-		if tabBg != "" {
-			tabORef := waveobj.ORefFromWaveObj(tab)
-			wstore.UpdateObjectMeta(ctx, *tabORef, waveobj.MetaMapType{waveobj.MetaKey_TabBackground: tabBg}, false)
+			return tab.OID, fmt.Errorf("error creating new tab block: %w", err)
 		}
 	}
-	telemetry.GoUpdateActivityWrap(wshrpc.ActivityUpdate{NewTab: 1}, "createtab")
-	telemetry.GoRecordTEventWrap(&telemetrydata.TEvent{
-		Event: "action:createtab",
-	})
 	return tab.OID, nil
 }
 
@@ -271,26 +243,19 @@ func createTabObj(ctx context.Context, workspaceId string, name string, meta wav
 	if err != nil {
 		return nil, fmt.Errorf("workspace %s not found: %w", workspaceId, err)
 	}
-	layoutStateId := uuid.NewString()
 	tab := &waveobj.Tab{
-		OID:         uuid.NewString(),
-		Name:        name,
-		BlockIds:    []string{},
-		LayoutState: layoutStateId,
-		Meta:        meta,
-	}
-	layoutState := &waveobj.LayoutState{
-		OID: layoutStateId,
+		OID:      uuid.NewString(),
+		Name:     name,
+		BlockIds: []string{},
+		Meta:     meta,
 	}
 	ws.TabIds = append(ws.TabIds, tab.OID)
 	wstore.DBInsert(ctx, tab)
-	wstore.DBInsert(ctx, layoutState)
 	wstore.DBUpdate(ctx, ws)
 	return tab, nil
 }
 
 // Must delete all blocks individually first.
-// Also deletes LayoutState.
 // recursive: if true, will recursively close parent window, workspace, if they are empty.
 // Returns new active tab id, error.
 func DeleteTab(ctx context.Context, workspaceId string, tabId string, recursive bool) (string, error) {
@@ -330,9 +295,6 @@ func DeleteTab(ctx context.Context, workspaceId string, tabId string, recursive 
 
 	wstore.DBUpdate(ctx, ws)
 	wstore.DBDelete(ctx, waveobj.OType_Tab, tabId)
-	if tab != nil {
-		wstore.DBDelete(ctx, waveobj.OType_LayoutState, tab.LayoutState)
-	}
 
 	// if no tabs remaining, close window
 	if recursive && newActiveTabId == "" {
@@ -404,49 +366,4 @@ func ListWorkspaces(ctx context.Context) (waveobj.WorkspaceList, error) {
 		})
 	}
 	return wl, nil
-}
-
-func SetIcon(workspaceId string, icon string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	ws, e := wstore.DBGet[*waveobj.Workspace](ctx, workspaceId)
-	if e != nil {
-		return e
-	}
-	if ws == nil {
-		return fmt.Errorf("workspace not found: %q", workspaceId)
-	}
-	ws.Icon = icon
-	wstore.DBUpdate(ctx, ws)
-	return nil
-}
-
-func SetColor(workspaceId string, color string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	ws, e := wstore.DBGet[*waveobj.Workspace](ctx, workspaceId)
-	if e != nil {
-		return e
-	}
-	if ws == nil {
-		return fmt.Errorf("workspace not found: %q", workspaceId)
-	}
-	ws.Color = color
-	wstore.DBUpdate(ctx, ws)
-	return nil
-}
-
-func SetName(workspaceId string, name string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	ws, e := wstore.DBGet[*waveobj.Workspace](ctx, workspaceId)
-	if e != nil {
-		return e
-	}
-	if ws == nil {
-		return fmt.Errorf("workspace not found: %q", workspaceId)
-	}
-	ws.Name = name
-	wstore.DBUpdate(ctx, ws)
-	return nil
 }

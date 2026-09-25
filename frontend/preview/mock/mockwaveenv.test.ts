@@ -43,18 +43,6 @@ describe("makeMockWaveEnv", () => {
         });
         expect(base64ToString(bashrcData.data64)).toContain('alias gs="git status -sb"');
 
-        const visibleHomeEntries = await env.rpc.FileListCommand(null as any, {
-            path: "/Users/mike",
-        });
-        expect(visibleHomeEntries.some((entry) => entry.name === ".bashrc")).toBe(false);
-        expect(visibleHomeEntries.some((entry) => entry.name === "waveterm")).toBe(true);
-
-        const allHomeEntries = await env.rpc.FileListCommand(null as any, {
-            path: "/Users/mike",
-            opts: { all: true },
-        });
-        expect(allHomeEntries.some((entry) => entry.name === ".bashrc")).toBe(true);
-
         const dirRead = await env.rpc.FileReadCommand(null as any, {
             info: { path: "/Users/mike/waveterm" },
         });
@@ -69,21 +57,6 @@ describe("makeMockWaveEnv", () => {
         expect(joined.mimetype).toBe("text/markdown");
     });
 
-    it("implements file list and read stream commands", async () => {
-        const { makeMockWaveEnv } = await import("./mockwaveenv");
-        const env = makeMockWaveEnv();
-
-        const listPackets: CommandRemoteListEntriesRtnData[] = [];
-        for await (const packet of env.rpc.FileListStreamCommand(null as any, {
-            path: "/Users/mike",
-            opts: { all: true, limit: 4 },
-        })) {
-            listPackets.push(packet);
-        }
-        expect(listPackets).toHaveLength(1);
-        expect(listPackets[0].fileinfo).toHaveLength(4);
-    });
-
     it("implements secrets commands with in-memory storage", async () => {
         const { makeMockWaveEnv } = await import("./mockwaveenv");
         const env = makeMockWaveEnv({ platform: "linux" });
@@ -96,17 +69,10 @@ describe("makeMockWaveEnv", () => {
             } as any
         );
 
-        expect(await env.rpc.GetSecretsLinuxStorageBackendCommand(null as any)).toBe("libsecret");
         expect(await env.rpc.GetSecretsNamesCommand(null as any)).toEqual(["ANTHROPIC_API_KEY", "OPENAI_API_KEY"]);
-        expect(await env.rpc.GetSecretsCommand(null as any, ["OPENAI_API_KEY", "MISSING_SECRET"])).toEqual({
-            OPENAI_API_KEY: "sk-test",
-        });
 
         await env.rpc.SetSecretsCommand(null as any, { OPENAI_API_KEY: null } as any);
 
         expect(await env.rpc.GetSecretsNamesCommand(null as any)).toEqual(["ANTHROPIC_API_KEY"]);
-        expect(await env.rpc.GetSecretsCommand(null as any, ["OPENAI_API_KEY", "ANTHROPIC_API_KEY"])).toEqual({
-            ANTHROPIC_API_KEY: "anthropic-test",
-        });
     });
 });

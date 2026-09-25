@@ -42,19 +42,3 @@ func AdaptOutputChToStream(outputCh chan []byte, output io.Writer) error {
 	}
 	return nil
 }
-
-func AdaptMsgChToPty(outputCh chan []byte, oscEsc string, output io.Writer) error {
-	if len(oscEsc) != 5 {
-		panic("oscEsc must be 5 characters")
-	}
-	for msg := range outputCh {
-		barr, err := EncodeWaveOSCBytes(oscEsc, msg)
-		if err != nil {
-			return fmt.Errorf("error encoding osc message (AdaptMsgChToPty): %w", err)
-		}
-		if _, err := output.Write(barr); err != nil {
-			return fmt.Errorf("error writing osc message (AdaptMsgChToPty): %w", err)
-		}
-	}
-	return nil
-}

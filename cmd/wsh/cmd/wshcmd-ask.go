@@ -46,10 +46,6 @@ func init() {
 // any error returned here exits non-zero; the hooks treat non-zero / failure as
 // "the native terminal prompt handles it" (graceful degradation).
 func askRun(cmd *cobra.Command, args []string) (rtnErr error) {
-	defer func() {
-		sendActivity("ask", rtnErr == nil)
-	}()
-
 	oref, err := resolveBlockArg()
 	if err != nil {
 		return fmt.Errorf("resolving block: %w", err)

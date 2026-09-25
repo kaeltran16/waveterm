@@ -15,8 +15,4 @@ type ObjRTInfo struct {
 	ShellInputEmpty      bool   `json:"shell:inputempty,omitempty"`
 	ShellLastCmd         string `json:"shell:lastcmd,omitempty"`
 	ShellLastCmdExitCode int    `json:"shell:lastcmdexitcode,omitempty"`
-
-	WaveAIChatId          string `json:"waveai:chatid,omitempty"`
-	WaveAIMode            string `json:"waveai:mode,omitempty"`
-	WaveAIMaxOutputTokens int    `json:"waveai:maxoutputtokens,omitempty"`
 }
