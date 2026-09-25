@@ -35,8 +35,8 @@ const SELECTION_ALPHA = 0.5;
 const LINE_HIGHLIGHT_ALPHA = 0.35;
 // the diff editor paints the whole changed line, then the changed words again on top, so the line
 // wash has to stay faint enough that the two stack without drowning the code
-const DIFF_LINE_ALPHA = 0.14;
-const DIFF_TEXT_ALPHA = 0.3;
+const DIFF_LINE_ALPHA = 0.08;
+const DIFF_TEXT_ALPHA = 0.18;
 
 // token family -> cockpit role. "storage"/"control" read as keyword-family declarations
 // (let/const/type), "delimiter" joins "punctuation" (braces, brackets, separators).
