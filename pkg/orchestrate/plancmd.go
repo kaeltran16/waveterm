@@ -4,6 +4,7 @@
 package orchestrate
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -26,6 +27,12 @@ const (
 	// MaxPlanOutputLen is how much of a plan command's output is kept: the tail. It is sized so a failing
 	// early stage of a chained Verify is still in it after the later stages have run.
 	MaxPlanOutputLen = 8000
+	// MaxFailureBlocksLen bounds the failure blocks a failed plan command keeps from its whole output. The
+	// tail alone loses them: a failing Go package prints its whole log, and a chatty one pushes the failing
+	// test out of the last MaxPlanOutputLen bytes.
+	MaxFailureBlocksLen = 4000
+	// panicBlockLines is how much of a panic's goroutine trace its block keeps.
+	panicBlockLines = 20
 	// a killed shell's children can hold its output pipe open; this bounds the wait for them.
 	planCommandWaitDelay = 5 * time.Second
 )
@@ -52,17 +59,28 @@ func (e *planCommandError) Error() string {
 	return e.reason() + ": " + e.output
 }
 
+// preferredFailureMarkers open a line that names the failure itself. They win over failureMarkers
+// anywhere in the output: a bare FAIL is only the package summary printed under the failing test.
+var preferredFailureMarkers = []string{"--- FAIL", "panic:"}
+
 // failureMarkers start a line of a failing stage's output. Heuristic and additive: a marker that does not
 // match costs the old tail behavior, nothing worse.
-var failureMarkers = []string{"FAIL", "--- FAIL", "error:", "panic:", "assert"}
+var failureMarkers = []string{"FAIL", "error:", "assert"}
 
 // firstFailureExcerpt is a window of output, within MaxFailureDetailLen, that starts at the first line a
-// failure marker opens. It reports "" when no line does.
+// preferred failure marker opens, else the first line any other marker opens. It reports "" when no line does.
 func firstFailureExcerpt(output string) string {
+	if excerpt := excerptAtMarker(output, preferredFailureMarkers); excerpt != "" {
+		return excerpt
+	}
+	return excerptAtMarker(output, failureMarkers)
+}
+
+func excerptAtMarker(output string, markers []string) string {
 	for rest := output; rest != ""; {
 		line, next, _ := strings.Cut(rest, "\n")
 		trimmed := strings.TrimSpace(line)
-		for _, marker := range failureMarkers {
+		for _, marker := range markers {
 			if len(trimmed) >= len(marker) && strings.EqualFold(trimmed[:len(marker)], marker) {
 				start := len(output) - len(rest) + strings.Index(line, trimmed)
 				return strings.ToValidUTF8(truncateText(output[start:], MaxFailureDetailLen), "")
@@ -142,7 +160,7 @@ func execPlanCommandEnv(ctx context.Context, dir, command string, env []string, 
 	if err == nil {
 		return out.String(), nil
 	}
-	pe := &planCommandError{exitCode: -1, output: out.String()}
+	pe := &planCommandError{exitCode: -1, output: out.failureOutput()}
 	var exitErr *exec.ExitError
 	switch {
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
@@ -171,7 +189,8 @@ func lastOutputLine(output string) string {
 // once per publishEvery. Publishing from the write path rather than a ticker goroutine keeps every
 // publish inside the command's own lifetime — exec finishes copying output before Wait returns — so no
 // publish can outlive the run and overwrite the result it records. Needs no lock: os/exec copies a
-// command's output on one goroutine when Stdout and Stderr are the same writer.
+// command's output on one goroutine when Stdout and Stderr are the same writer. It also keeps the failure
+// blocks it saw in the whole stream, for failureOutput.
 type tailBuffer struct {
 	max          int
 	buf          []byte
@@ -179,15 +198,94 @@ type tailBuffer struct {
 	publishEvery time.Duration
 	lastPublish  time.Time
 	lastSent     string
+	total        int             // bytes written, to tell whether the tail dropped any
+	partial      []byte          // the line being written, until its newline arrives; bounded by MaxFailureBlocksLen
+	blocks       strings.Builder // failure blocks, earliest first, within MaxFailureBlocksLen
+	blocksFull   bool            // a block line did not fit: later ones are dropped, not interleaved
+	inFailTest   bool            // a --- FAIL block is open: indented lines continue it
+	panicLeft    int             // trace lines a panic block still takes
 }
 
 func (b *tailBuffer) Write(p []byte) (int, error) {
+	b.total += len(p)
+	b.scanLines(p)
 	b.buf = append(b.buf, p...)
 	if over := len(b.buf) - b.max; over > 0 {
 		b.buf = append(b.buf[:0], b.buf[over:]...)
 	}
 	b.maybePublish(time.Now())
 	return len(p), nil
+}
+
+func (b *tailBuffer) scanLines(p []byte) {
+	for len(p) > 0 {
+		i := bytes.IndexByte(p, '\n')
+		if i < 0 {
+			b.appendPartial(p)
+			return
+		}
+		b.appendPartial(p[:i])
+		b.scanLine(strings.TrimRight(string(b.partial), "\r"))
+		b.partial = b.partial[:0]
+		p = p[i+1:]
+	}
+}
+
+// appendPartial keeps at most MaxFailureBlocksLen of a line: a marker opens a line, so a longer one's
+// rest is never needed.
+func (b *tailBuffer) appendPartial(p []byte) {
+	if room := MaxFailureBlocksLen - len(b.partial); room > 0 {
+		b.partial = append(b.partial, p[:min(len(p), room)]...)
+	}
+}
+
+func (b *tailBuffer) scanLine(line string) {
+	trimmed := strings.TrimSpace(line)
+	switch {
+	case b.panicLeft > 0:
+		b.panicLeft--
+		b.keep(line)
+	case strings.HasPrefix(trimmed, "--- FAIL:"):
+		b.inFailTest = true
+		b.keep(line)
+	case strings.HasPrefix(trimmed, "panic:"):
+		b.inFailTest, b.panicLeft = false, panicBlockLines
+		b.keep(line)
+	case strings.HasPrefix(line, "FAIL\t") || (strings.HasPrefix(line, "FAIL ") && trimmed != "FAIL"):
+		b.inFailTest = false
+		b.keep(line) // go test's per-package summary: which package failed
+	case b.inFailTest && (strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t")):
+		b.keep(line)
+	default:
+		b.inFailTest = false
+	}
+}
+
+func (b *tailBuffer) keep(line string) {
+	if b.blocksFull || b.blocks.Len()+len(line)+1 > MaxFailureBlocksLen {
+		b.blocksFull = true
+		return
+	}
+	b.blocks.WriteString(line)
+	b.blocks.WriteByte('\n')
+}
+
+// failureOutput is what a failed command records. When the tail dropped part of the output, the failure
+// blocks found in the whole of it come first, so the failing test outlives a noisy package's log.
+func (b *tailBuffer) failureOutput() string {
+	if len(b.partial) > 0 {
+		b.scanLine(strings.TrimRight(string(b.partial), "\r"))
+		b.partial = b.partial[:0]
+	}
+	tail := b.String()
+	if b.total <= b.max || b.blocks.Len() == 0 {
+		return tail
+	}
+	head := strings.TrimSpace(b.blocks.String()) + "\n…\n"
+	if room := b.max - len(head); len(tail) > room {
+		tail = strings.TrimSpace(strings.ToValidUTF8(tail[len(tail)-room:], ""))
+	}
+	return head + tail
 }
 
 // maybePublish hands the tail over no more than once per publishEvery, and only when it has CHANGED: a

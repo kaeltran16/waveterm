@@ -6,6 +6,7 @@ package orchestrate
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -195,5 +196,102 @@ func TestTailBufferRepublishesATailTheSinkDeclined(t *testing.T) {
 	b.maybePublish(base)
 	if len(published) != 2 {
 		t.Fatalf("an accepted tail must not be republished, got %q", published)
+	}
+}
+
+// noisyLog is what a failing, chatty Go package prints around its failing test: unindented log lines.
+func noisyLog(n int) string {
+	return strings.Repeat("2026/09/25 11:40:01 CreateRun: capturing dossier failed: no such file\n", n)
+}
+
+func writeAll(b *tailBuffer, parts ...string) {
+	for _, p := range parts {
+		b.Write([]byte(p))
+	}
+}
+
+func TestFailureOutputKeepsTheFailingTestPastTheTail(t *testing.T) {
+	b := &tailBuffer{max: MaxPlanOutputLen}
+	writeAll(b, noisyLog(20), "--- FAIL: TestLeadComplete (0.03s)\n", "    leadcomplete_test.go:41: want done, got running\n",
+		noisyLog(300), "FAIL\n", "FAIL\tgithub.com/wavetermdev/waveterm/pkg/wshrpc/wshserver\t26.299s\n")
+	out := b.failureOutput()
+	for _, want := range []string{"--- FAIL: TestLeadComplete", "want done, got running", "FAIL\tgithub.com/wavetermdev/waveterm/pkg/wshrpc/wshserver"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("output lost %q", want)
+		}
+	}
+	if len(out) > MaxPlanOutputLen {
+		t.Fatalf("output is %d bytes, over %d", len(out), MaxPlanOutputLen)
+	}
+	got := failureDetail(&planCommandError{exitCode: 1, output: out})
+	if !strings.HasPrefix(got, "exit 1: --- FAIL: TestLeadComplete") {
+		t.Fatalf("detail = %q", got)
+	}
+}
+
+func TestFailureOutputJoinsALineSplitAcrossWrites(t *testing.T) {
+	b := &tailBuffer{max: MaxPlanOutputLen}
+	writeAll(b, "--- FA", "IL: TestSplit (0.00s)\r\n    split_test.go:9: bro", "ken\r\n", noisyLog(300))
+	out := b.failureOutput()
+	if !strings.Contains(out, "--- FAIL: TestSplit") || !strings.Contains(out, "split_test.go:9: broken") || strings.Contains(out, "\r") {
+		t.Fatalf("split or CRLF block not kept whole: %q", out[:200])
+	}
+}
+
+func TestFailureOutputKeepsAPanicTrace(t *testing.T) {
+	b := &tailBuffer{max: MaxPlanOutputLen}
+	writeAll(b, "panic: runtime error: index out of range [3] with length 3\n\ngoroutine 7 [running]:\n",
+		"github.com/wavetermdev/waveterm/pkg/orchestrate.pick(...)\n\t/src/pkg/orchestrate/pick.go:12 +0x1d\n", noisyLog(300))
+	out := b.failureOutput()
+	if !strings.Contains(out, "panic: runtime error") || !strings.Contains(out, "pick.go:12") {
+		t.Fatalf("panic trace not kept: %q", out[:300])
+	}
+}
+
+func TestFailureOutputCapsTheBlocks(t *testing.T) {
+	b := &tailBuffer{max: MaxPlanOutputLen}
+	for i := 0; i < 400; i++ {
+		writeAll(b, fmt.Sprintf("--- FAIL: TestMany%d (0.00s)\n    many_test.go:1: nope\n", i))
+	}
+	writeAll(b, noisyLog(300))
+	out := b.failureOutput()
+	head, _, _ := strings.Cut(out, "\n…\n")
+	if len(head) > MaxFailureBlocksLen || !strings.HasPrefix(head, "--- FAIL: TestMany0 ") {
+		t.Fatalf("blocks = %d bytes, starting %q", len(head), head[:40])
+	}
+}
+
+func TestFailureOutputBoundsAHugeUnterminatedLine(t *testing.T) {
+	b := &tailBuffer{max: MaxPlanOutputLen}
+	writeAll(b, strings.Repeat("x", 1<<20))
+	if len(b.partial) > MaxFailureBlocksLen {
+		t.Fatalf("partial line grew to %d bytes", len(b.partial))
+	}
+	if out := b.failureOutput(); len(out) > MaxPlanOutputLen {
+		t.Fatalf("output %d bytes", len(out))
+	}
+}
+
+func TestFailureOutputIsTheTailWhenNothingWasDropped(t *testing.T) {
+	b := &tailBuffer{max: MaxPlanOutputLen}
+	writeAll(b, "--- FAIL: TestSmall (0.00s)\n    small_test.go:3: nope\nFAIL\n")
+	if out := b.failureOutput(); out != b.String() || strings.Count(out, "TestSmall") != 1 {
+		t.Fatalf("short output must not be duplicated: %q", out)
+	}
+}
+
+func TestFirstFailureExcerptPrefersTheFailingTest(t *testing.T) {
+	output := "FAIL\tpkg/a\t0.1s\n" + noisyLog(2) + "--- FAIL: TestLater (0.00s)\n"
+	if got := firstFailureExcerpt(output); !strings.HasPrefix(got, "--- FAIL: TestLater") {
+		t.Fatalf("excerpt = %q", got)
+	}
+}
+
+func TestPlanCommandFailureKeepsTheFailingTest(t *testing.T) {
+	script := `printf -- '--- FAIL: TestReal (0.00s)\n    real_test.go:5: bad\n'; i=0; while [ $i -lt 300 ]; do echo "noise line $i of the package log"; i=$((i+1)); done; exit 1`
+	_, err := execPlanCommand(context.Background(), t.TempDir(), script, time.Minute, nil)
+	var pe *planCommandError
+	if !errors.As(err, &pe) || !strings.Contains(pe.output, "--- FAIL: TestReal") || !strings.HasPrefix(failureDetail(err), "exit 1: --- FAIL: TestReal") {
+		t.Fatalf("err = %v", err)
 	}
 }
