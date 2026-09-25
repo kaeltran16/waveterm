@@ -1,0 +1,5 @@
+DROP TABLE IF EXISTS db_activity;
+DROP TABLE IF EXISTS db_tevent;
+DROP TABLE IF EXISTS db_job;
+DROP TABLE IF EXISTS db_pendingask;
+DROP TABLE IF EXISTS db_layout;

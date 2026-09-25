@@ -34,7 +34,6 @@ import {
     handleOsc16162Command,
     handleOsc52Command,
     handleOsc7Command,
-    isClaudeCodeCommand,
     type ShellIntegrationStatus,
 } from "./osc-handlers";
 import {
@@ -90,7 +89,6 @@ export class TermWrap {
     heldData: Uint8Array[];
     handleResize_debounced: () => void;
     hasResized: boolean;
-    multiInputCallback: (data: string) => void;
     sendDataHandler: (data: string) => void;
     onSearchResultsDidChange?: (result: { resultIndex: number; resultCount: number }) => void;
     toDispose: TermTypes.IDisposable[] = [];
@@ -101,8 +99,6 @@ export class TermWrap {
     lastUpdated: number;
     promptMarkers: TermTypes.IMarker[] = [];
     shellIntegrationStatusAtom: jotai.PrimitiveAtom<ShellIntegrationStatus | null>;
-    lastCommandAtom: jotai.PrimitiveAtom<string | null>;
-    claudeCodeActiveAtom: jotai.PrimitiveAtom<boolean>;
     nodeModel: BlockNodeModel; // this can be null
     hoveredLinkUri: string | null = null;
     onLinkHover?: (uri: string | null, mouseX: number, mouseY: number) => void;
@@ -141,8 +137,6 @@ export class TermWrap {
         this.lastUpdated = Date.now();
         this.promptMarkers = [];
         this.shellIntegrationStatusAtom = jotai.atom(null) as jotai.PrimitiveAtom<ShellIntegrationStatus | null>;
-        this.lastCommandAtom = jotai.atom(null) as jotai.PrimitiveAtom<string | null>;
-        this.claudeCodeActiveAtom = jotai.atom(false);
         this.webglEnabledAtom = jotai.atom(false) as jotai.PrimitiveAtom<boolean>;
         this.terminal = new Terminal(options);
         this.fitAddon = new FitAddon();
@@ -420,11 +414,6 @@ export class TermWrap {
             } else {
                 globalStore.set(this.shellIntegrationStatusAtom, null);
             }
-
-            const lastCmd = rtInfo ? rtInfo["shell:lastcmd"] : null;
-            const isCC = shellState === "running-command" && isClaudeCodeCommand(lastCmd);
-            globalStore.set(this.lastCommandAtom, lastCmd || null);
-            globalStore.set(this.claudeCodeActiveAtom, isCC);
         } catch (e) {
             console.log("Error loading runtime info:", e);
         }
@@ -465,7 +454,6 @@ export class TermWrap {
         }
 
         this.sendDataHandler?.(data);
-        this.multiInputCallback?.(data);
     }
 
     addFocusListener(focusFn: () => void) {

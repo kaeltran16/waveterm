@@ -37,7 +37,7 @@ func TestChannelRowSchemaExists(t *testing.T) {
 
 // Run and ChannelMessage must be registered WaveObj types whose table names resolve and whose JSON
 // round-trips through the waveobj machinery (this is what Task 3's dual-write and Task 4's backfill rely
-// on). getOTypeGen/tableNameGen are the same helpers DBInsert/DBGetAllObjsByType use.
+// on). getOTypeGen/waveObjTableName are the same helpers DBInsert/DBGetAllObjsByType use.
 func TestRunAndChannelMessageRegistered(t *testing.T) {
 	if got := getOTypeGen[*waveobj.Run](); got != waveobj.OType_Run {
 		t.Fatalf("Run otype = %q, want %q", got, waveobj.OType_Run)
@@ -45,10 +45,10 @@ func TestRunAndChannelMessageRegistered(t *testing.T) {
 	if got := getOTypeGen[*waveobj.ChannelMessage](); got != waveobj.OType_ChannelMessage {
 		t.Fatalf("ChannelMessage otype = %q, want %q", got, waveobj.OType_ChannelMessage)
 	}
-	if got := tableNameGen[*waveobj.Run](); got != "db_run" {
+	if got := waveObjTableName(&waveobj.Run{}); got != "db_run" {
 		t.Fatalf("Run table = %q, want db_run", got)
 	}
-	if got := tableNameGen[*waveobj.ChannelMessage](); got != "db_channelmessage" {
+	if got := waveObjTableName(&waveobj.ChannelMessage{}); got != "db_channelmessage" {
 		t.Fatalf("ChannelMessage table = %q, want db_channelmessage", got)
 	}
 

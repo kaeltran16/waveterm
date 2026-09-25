@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/wavetermdev/waveterm/pkg/ijson"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
 
@@ -62,20 +61,6 @@ func (s *FileStore) clearCache() {
 	s.Cache = make(map[cacheKey]*CacheEntry)
 }
 
-//lint:ignore U1000 used for testing
-func (s *FileStore) dump() string {
-	s.Lock.Lock()
-	defer s.Lock.Unlock()
-	var buf bytes.Buffer
-	buf.WriteString(fmt.Sprintf("FileStore %d entries\n", len(s.Cache)))
-	for _, v := range s.Cache {
-		entryStr := v.dump()
-		buf.WriteString(entryStr)
-		buf.WriteString("\n")
-	}
-	return buf.String()
-}
-
 func TestCreate(t *testing.T) {
 	initDb(t)
 	defer cleanupDb(t)
@@ -115,39 +100,16 @@ func TestCreate(t *testing.T) {
 	if len(file.Meta) != 0 {
 		t.Fatalf("meta should have no values")
 	}
-	if file.Opts.Circular || file.Opts.IJson || file.Opts.MaxSize != 0 {
+	if file.Opts.Circular || file.Opts.MaxSize != 0 {
 		t.Fatalf("opts not empty")
-	}
-	zoneIds, err := WFS.GetAllZoneIds(ctx)
-	if err != nil {
-		t.Fatalf("error getting zone ids: %v", err)
-	}
-	if len(zoneIds) != 1 {
-		t.Fatalf("zone id count mismatch")
-	}
-	if zoneIds[0] != zoneId {
-		t.Fatalf("zone id mismatch")
 	}
 	err = WFS.DeleteFile(ctx, zoneId, "testfile")
 	if err != nil {
 		t.Fatalf("error deleting file: %v", err)
 	}
-	zoneIds, err = WFS.GetAllZoneIds(ctx)
-	if err != nil {
-		t.Fatalf("error getting zone ids: %v", err)
+	if _, err := WFS.Stat(ctx, zoneId, "testfile"); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("expected testfile gone after delete, got %v", err)
 	}
-	if len(zoneIds) != 0 {
-		t.Fatalf("zone id count mismatch")
-	}
-}
-
-func containsFile(arr []*WaveFile, name string) bool {
-	for _, f := range arr {
-		if f.Name == name {
-			return true
-		}
-	}
-	return false
 }
 
 func TestDelete(t *testing.T) {
@@ -179,26 +141,19 @@ func TestDelete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error creating file: %v", err)
 	}
-	files, err := WFS.ListFiles(ctx, zoneId)
-	if err != nil {
-		t.Fatalf("error listing files: %v", err)
-	}
-	if len(files) != 2 {
-		t.Fatalf("file count mismatch")
-	}
-	if !containsFile(files, "testfile1") || !containsFile(files, "testfile2") {
-		t.Fatalf("file names mismatch")
+	for _, name := range []string{"testfile1", "testfile2"} {
+		if _, err := WFS.Stat(ctx, zoneId, name); err != nil {
+			t.Fatalf("error statting %s before zone delete: %v", name, err)
+		}
 	}
 	err = WFS.DeleteZone(ctx, zoneId)
 	if err != nil {
 		t.Fatalf("error deleting zone: %v", err)
 	}
-	files, err = WFS.ListFiles(ctx, zoneId)
-	if err != nil {
-		t.Fatalf("error listing files: %v", err)
-	}
-	if len(files) != 0 {
-		t.Fatalf("file count mismatch")
+	for _, name := range []string{"testfile1", "testfile2"} {
+		if _, err := WFS.Stat(ctx, zoneId, name); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("expected %s gone after zone delete, got %v", name, err)
+		}
 	}
 }
 
@@ -357,14 +312,12 @@ func TestAppend(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error appending data: %v", err)
 	}
-	// fmt.Print(GBS.dump())
 	checkFileSize(t, ctx, zoneId, fileName, 5)
 	checkFileData(t, ctx, zoneId, fileName, "hello")
 	err = WFS.AppendData(ctx, zoneId, fileName, []byte(" world"))
 	if err != nil {
 		t.Fatalf("error appending data: %v", err)
 	}
-	// fmt.Print(GBS.dump())
 	checkFileSize(t, ctx, zoneId, fileName, 11)
 	checkFileData(t, ctx, zoneId, fileName, "hello world")
 }
@@ -694,83 +647,5 @@ func jsonDeepEqual(d1 any, d2 any) bool {
 		return true
 	default:
 		return false
-	}
-}
-
-func TestIJson(t *testing.T) {
-	initDb(t)
-	defer cleanupDb(t)
-	ctx, cancelFn := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancelFn()
-	zoneId := uuid.NewString()
-	fileName := "ij1"
-	err := WFS.MakeFile(ctx, zoneId, fileName, nil, wshrpc.FileOpts{IJson: true})
-	if err != nil {
-		t.Fatalf("error creating file: %v", err)
-	}
-	rootSet := ijson.MakeSetCommand(nil, map[string]any{"tag": "div", "class": "root"})
-	err = WFS.AppendIJson(ctx, zoneId, fileName, rootSet)
-	if err != nil {
-		t.Fatalf("error appending ijson: %v", err)
-	}
-	_, fullData, err := WFS.ReadFile(ctx, zoneId, fileName)
-	if err != nil {
-		t.Fatalf("error reading file: %v", err)
-	}
-	cmds, err := ijson.ParseIJson(fullData)
-	if err != nil {
-		t.Fatalf("error parsing ijson: %v", err)
-	}
-	outData, err := ijson.ApplyCommands(nil, cmds, 0)
-	if err != nil {
-		t.Fatalf("error applying ijson: %v", err)
-	}
-	if !jsonDeepEqual(rootSet["data"], outData) {
-		t.Errorf("data mismatch: expected %v, got %v", rootSet["data"], outData)
-	}
-	childrenAppend := ijson.MakeAppendCommand(ijson.Path{"children"}, map[string]any{"tag": "div", "class": "child"})
-	err = WFS.AppendIJson(ctx, zoneId, fileName, childrenAppend)
-	if err != nil {
-		t.Fatalf("error appending ijson: %v", err)
-	}
-	_, fullData, err = WFS.ReadFile(ctx, zoneId, fileName)
-	if err != nil {
-		t.Fatalf("error reading file: %v", err)
-	}
-	cmds, err = ijson.ParseIJson(fullData)
-	if err != nil {
-		t.Fatalf("error parsing ijson: %v", err)
-	}
-	if len(cmds) != 2 {
-		t.Fatalf("command count mismatch: expected 2, got %d", len(cmds))
-	}
-	outData, err = ijson.ApplyCommands(nil, cmds, 0)
-	if err != nil {
-		t.Fatalf("error applying ijson: %v", err)
-	}
-	if !jsonDeepEqual(ijson.M{"tag": "div", "class": "root", "children": ijson.A{ijson.M{"tag": "div", "class": "child"}}}, outData) {
-		t.Errorf("data mismatch: expected %v, got %v", rootSet["data"], outData)
-	}
-	err = WFS.CompactIJson(ctx, zoneId, fileName)
-	if err != nil {
-		t.Fatalf("error compacting ijson: %v", err)
-	}
-	_, fullData, err = WFS.ReadFile(ctx, zoneId, fileName)
-	if err != nil {
-		t.Fatalf("error reading file: %v", err)
-	}
-	cmds, err = ijson.ParseIJson(fullData)
-	if err != nil {
-		t.Fatalf("error parsing ijson: %v", err)
-	}
-	if len(cmds) != 1 {
-		t.Fatalf("command count mismatch: expected 1, got %d", len(cmds))
-	}
-	outData, err = ijson.ApplyCommands(nil, cmds, 0)
-	if err != nil {
-		t.Fatalf("error applying ijson: %v", err)
-	}
-	if !jsonDeepEqual(ijson.M{"tag": "div", "class": "root", "children": ijson.A{ijson.M{"tag": "div", "class": "child"}}}, outData) {
-		t.Errorf("data mismatch: expected %v, got %v", rootSet["data"], outData)
 	}
 }

@@ -8,85 +8,11 @@
         "app:*": {
           "type": "boolean"
         },
-        "app:dismissarchitecturewarning": {
-          "type": "boolean"
-        },
-        "app:defaultnewblock": {
-          "type": "string"
-        },
-        "app:showoverlayblocknums": {
-          "type": "boolean"
-        },
         "app:ctrlvpaste": {
-          "type": "boolean"
-        },
-        "app:hideaibutton": {
-          "type": "boolean"
-        },
-        "app:disablectrlshiftarrows": {
           "type": "boolean"
         },
         "app:disablectrlshiftdisplay": {
           "type": "boolean"
-        },
-        "app:focusfollowscursor": {
-          "type": "string",
-          "enum": [
-            "off",
-            "on",
-            "term"
-          ]
-        },
-        "app:loombin": {
-          "type": "string"
-        },
-        "ai:*": {
-          "type": "boolean"
-        },
-        "ai:preset": {
-          "type": "string"
-        },
-        "ai:apitype": {
-          "type": "string"
-        },
-        "ai:baseurl": {
-          "type": "string"
-        },
-        "ai:apitoken": {
-          "type": "string"
-        },
-        "ai:name": {
-          "type": "string"
-        },
-        "ai:model": {
-          "type": "string"
-        },
-        "ai:orgid": {
-          "type": "string"
-        },
-        "ai:apiversion": {
-          "type": "string"
-        },
-        "ai:maxtokens": {
-          "type": "number"
-        },
-        "ai:timeoutms": {
-          "type": "number"
-        },
-        "ai:proxyurl": {
-          "type": "string"
-        },
-        "ai:fontsize": {
-          "type": "number"
-        },
-        "ai:fixedfontsize": {
-          "type": "number"
-        },
-        "waveai:showcloudmodes": {
-          "type": "boolean"
-        },
-        "waveai:defaultmode": {
-          "type": "string"
         },
         "term:*": {
           "type": "boolean"
@@ -95,9 +21,6 @@
           "type": "number"
         },
         "term:fontfamily": {
-          "type": "string"
-        },
-        "term:theme": {
           "type": "string"
         },
         "term:disablewebgl": {
@@ -121,9 +44,6 @@
         "term:copyonselect": {
           "type": "boolean"
         },
-        "term:transparency": {
-          "type": "number"
-        },
         "term:allowbracketedpaste": {
           "type": "boolean"
         },
@@ -139,9 +59,6 @@
         "term:cursorblink": {
           "type": "boolean"
         },
-        "term:bellsound": {
-          "type": "boolean"
-        },
         "term:bellindicator": {
           "type": "boolean"
         },
@@ -152,23 +69,11 @@
             "always"
           ]
         },
-        "term:durable": {
-          "type": "boolean"
-        },
-        "term:showsplitbuttons": {
-          "type": "boolean"
-        },
         "term:trimtrailingwhitespace": {
           "type": "boolean"
         },
         "memory:vaultpath": {
           "type": "string"
-        },
-        "memory:gardenerstaledays": {
-          "type": "integer"
-        },
-        "memory:gardenercooldownmins": {
-          "type": "integer"
         },
         "headless:runtime": {
           "type": "string"
@@ -200,78 +105,11 @@
         "editor:inlinediff": {
           "type": "boolean"
         },
-        "web:*": {
-          "type": "boolean"
-        },
-        "web:openlinksinternally": {
-          "type": "boolean"
-        },
-        "web:defaulturl": {
-          "type": "string"
-        },
-        "web:defaultsearch": {
-          "type": "string"
-        },
-        "autoupdate:*": {
-          "type": "boolean"
-        },
-        "autoupdate:enabled": {
-          "type": "boolean"
-        },
-        "autoupdate:intervalms": {
-          "type": "number"
-        },
-        "autoupdate:installonquit": {
-          "type": "boolean"
-        },
-        "autoupdate:channel": {
-          "type": "string"
-        },
-        "markdown:fontsize": {
-          "type": "number"
-        },
-        "markdown:fixedfontsize": {
-          "type": "number"
-        },
-        "preview:showhiddenfiles": {
-          "type": "boolean"
-        },
-        "preview:defaultsort": {
-          "type": "string",
-          "enum": [
-            "name",
-            "modtime"
-          ]
-        },
-        "tab:preset": {
-          "type": "string"
-        },
-        "tab:confirmclose": {
-          "type": "boolean"
-        },
-        "tab:background": {
-          "type": "string"
-        },
-        "widget:*": {
-          "type": "boolean"
-        },
-        "widget:showhelp": {
-          "type": "boolean"
-        },
         "window:*": {
           "type": "boolean"
         },
-        "window:transparent": {
-          "type": "boolean"
-        },
-        "window:bgcolor": {
-          "type": "string"
-        },
         "window:reducedmotion": {
           "type": "boolean"
-        },
-        "window:tilegapsize": {
-          "type": "integer"
         },
         "window:magnifiedblockopacity": {
           "type": "number"
@@ -279,28 +117,10 @@
         "window:magnifiedblocksize": {
           "type": "number"
         },
-        "window:magnifiedblockblurprimarypx": {
-          "type": "integer"
-        },
         "window:magnifiedblockblursecondarypx": {
           "type": "integer"
         },
-        "window:confirmclose": {
-          "type": "boolean"
-        },
-        "telemetry:*": {
-          "type": "boolean"
-        },
-        "telemetry:enabled": {
-          "type": "boolean"
-        },
         "conn:*": {
-          "type": "boolean"
-        },
-        "conn:askbeforewshinstall": {
-          "type": "boolean"
-        },
-        "conn:wshenabled": {
           "type": "boolean"
         },
         "conn:localhostdisplayname": {

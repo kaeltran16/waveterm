@@ -21,7 +21,6 @@ export default defineConfig({
             "@/element": resolve(fe, "app/element"),
             "@/shadcn": resolve(fe, "app/shadcn"),
             "@/util": resolve(fe, "util"),
-            "@/layout": resolve(fe, "layout"),
             "@/preview": resolve(fe, "preview"),
         },
     },

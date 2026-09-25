@@ -11,7 +11,6 @@ import (
 
 	"github.com/wavetermdev/waveterm/pkg/tsgen/tsgenmeta"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
-	"github.com/wavetermdev/waveterm/pkg/wps"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
@@ -49,27 +48,6 @@ func (svc *ObjectService) GetObject(orefStr string) (waveobj.WaveObj, error) {
 	return obj, nil
 }
 
-func (svc *ObjectService) UpdateObjectMeta_Meta() tsgenmeta.MethodMeta {
-	return tsgenmeta.MethodMeta{
-		ArgNames: []string{"uiContext", "oref", "meta"},
-	}
-}
-
-func (svc *ObjectService) UpdateObjectMeta(uiContext waveobj.UIContext, orefStr string, meta waveobj.MetaMapType) (waveobj.UpdatesRtnType, error) {
-	ctx, cancelFn := context.WithTimeout(context.Background(), DefaultTimeout)
-	defer cancelFn()
-	ctx = waveobj.ContextWithUpdates(ctx)
-	oref, err := parseORef(orefStr)
-	if err != nil {
-		return nil, fmt.Errorf("error parsing object reference: %w", err)
-	}
-	err = wstore.UpdateObjectMeta(ctx, *oref, meta, false)
-	if err != nil {
-		return nil, fmt.Errorf("error updating %q meta: %w", orefStr, err)
-	}
-	return waveobj.ContextGetUpdatesRtn(ctx), nil
-}
-
 func (svc *ObjectService) UpdateObject_Meta() tsgenmeta.MethodMeta {
 	return tsgenmeta.MethodMeta{
 		ArgNames: []string{"uiContext", "waveObj", "returnUpdates"},
@@ -94,10 +72,6 @@ func (svc *ObjectService) UpdateObject(uiContext waveobj.UIContext, waveObj wave
 	err = wstore.DBUpdate(ctx, waveObj)
 	if err != nil {
 		return nil, fmt.Errorf("error updating object: %w", err)
-	}
-	if (waveObj.GetOType() == waveobj.OType_Workspace) && (waveObj.(*waveobj.Workspace).Name != "") {
-		wps.Broker.Publish(wps.WaveEvent{
-			Event: wps.Event_WorkspaceUpdate})
 	}
 	if returnUpdates {
 		return waveobj.ContextGetUpdatesRtn(ctx), nil

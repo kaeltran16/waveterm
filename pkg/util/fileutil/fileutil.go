@@ -4,7 +4,6 @@
 package fileutil
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -15,8 +14,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-
-	"github.com/wavetermdev/waveterm/pkg/wavebase"
 )
 
 type ByteRangeType struct {
@@ -49,23 +46,6 @@ func ParseByteRange(rangeStr string) (ByteRangeType, error) {
 	}
 	// End is inclusive (HTTP byte range semantics: bytes=0-999 means 1000 bytes)
 	return ByteRangeType{Start: start, End: end}, nil
-}
-
-func FixPath(path string) (string, error) {
-	origPath := path
-	var err error
-	if strings.HasPrefix(path, "~") {
-		path = filepath.Join(wavebase.GetHomeDir(), path[1:])
-	} else if !filepath.IsAbs(path) {
-		path, err = filepath.Abs(path)
-		if err != nil {
-			return "", err
-		}
-	}
-	if strings.HasSuffix(origPath, "/") && !strings.HasSuffix(path, "/") {
-		path += "/"
-	}
-	return path, nil
 }
 
 const (
@@ -152,30 +132,6 @@ func DetectMimeType(path string, fileInfo fs.FileInfo, extended bool) string {
 	return rtn
 }
 
-func DetectMimeTypeWithDirEnt(path string, dirEnt fs.DirEntry) string {
-	if dirEnt != nil {
-		if dirEnt.IsDir() {
-			return "directory"
-		}
-		mode := dirEnt.Type()
-		if mode&os.ModeNamedPipe == os.ModeNamedPipe {
-			return "pipe"
-		}
-		charDevice := os.ModeDevice | os.ModeCharDevice
-		if mode&charDevice == charDevice {
-			return "character-special"
-		}
-		if mode&os.ModeDevice == os.ModeDevice {
-			return "block-special"
-		}
-	}
-	ext := strings.ToLower(filepath.Ext(path))
-	if mimeType, ok := StaticMimeTypeMap[ext]; ok {
-		return mimeType
-	}
-	return ""
-}
-
 func AtomicWriteFile(fileName string, data []byte, perm os.FileMode) error {
 	tmpFileName := fileName + TempFileSuffix
 	if err := os.WriteFile(tmpFileName, data, perm); err != nil {
@@ -246,152 +202,3 @@ const (
 	TempFileSuffix  = ".tmp"
 	MaxEditFileSize = 5 * 1024 * 1024 // 5MB
 )
-
-type EditSpec struct {
-	OldStr string `json:"old_str"`
-	NewStr string `json:"new_str"`
-	Desc   string `json:"desc,omitempty"`
-}
-
-type EditResult struct {
-	Applied bool   `json:"applied"`
-	Desc    string `json:"desc"`
-	Error   string `json:"error,omitempty"`
-}
-
-// applyEdit applies a single edit to the content and returns the modified content and result.
-func applyEdit(content []byte, edit EditSpec, index int) ([]byte, EditResult) {
-	result := EditResult{
-		Desc: edit.Desc,
-	}
-	if result.Desc == "" {
-		result.Desc = fmt.Sprintf("Edit %d", index+1)
-	}
-
-	if edit.OldStr == "" {
-		result.Applied = false
-		result.Error = "old_str cannot be empty"
-		return content, result
-	}
-
-	oldBytes := []byte(edit.OldStr)
-	count := bytes.Count(content, oldBytes)
-	if count == 0 {
-		result.Applied = false
-		result.Error = "old_str not found in file"
-		return content, result
-	}
-	if count > 1 {
-		result.Applied = false
-		result.Error = fmt.Sprintf("old_str appears %d times, must appear exactly once", count)
-		return content, result
-	}
-
-	modifiedContent := bytes.Replace(content, oldBytes, []byte(edit.NewStr), 1)
-	result.Applied = true
-	return modifiedContent, result
-}
-
-// ApplyEdits applies a series of edits to the given content and returns the modified content.
-// This is atomic - all edits succeed or all fail.
-func ApplyEdits(originalContent []byte, edits []EditSpec) ([]byte, error) {
-	modifiedContents := originalContent
-
-	for i, edit := range edits {
-		var result EditResult
-		modifiedContents, result = applyEdit(modifiedContents, edit, i)
-		if !result.Applied {
-			return nil, fmt.Errorf("edit %d (%s): %s", i, result.Desc, result.Error)
-		}
-	}
-
-	return modifiedContents, nil
-}
-
-// ApplyEditsPartial applies edits incrementally, continuing until the first failure.
-// Returns the modified content (potentially partially applied) and results for each edit.
-func ApplyEditsPartial(originalContent []byte, edits []EditSpec) ([]byte, []EditResult) {
-	modifiedContents := originalContent
-	results := make([]EditResult, len(edits))
-	failed := false
-
-	for i, edit := range edits {
-		if failed {
-			results[i].Desc = edit.Desc
-			if results[i].Desc == "" {
-				results[i].Desc = fmt.Sprintf("Edit %d", i+1)
-			}
-			results[i].Applied = false
-			results[i].Error = "previous edit failed"
-			continue
-		}
-
-		modifiedContents, results[i] = applyEdit(modifiedContents, edit, i)
-		if !results[i].Applied {
-			failed = true
-		}
-	}
-
-	return modifiedContents, results
-}
-
-func ReplaceInFile(filePath string, edits []EditSpec) error {
-	fileInfo, err := os.Stat(filePath)
-	if err != nil {
-		return fmt.Errorf("failed to stat file: %w", err)
-	}
-
-	if !fileInfo.Mode().IsRegular() {
-		return fmt.Errorf("not a regular file: %s", filePath)
-	}
-
-	if fileInfo.Size() > MaxEditFileSize {
-		return fmt.Errorf("file too large for editing: %d bytes (max: %d)", fileInfo.Size(), MaxEditFileSize)
-	}
-
-	contents, err := os.ReadFile(filePath)
-	if err != nil {
-		return fmt.Errorf("failed to read file: %w", err)
-	}
-
-	modifiedContents, err := ApplyEdits(contents, edits)
-	if err != nil {
-		return err
-	}
-
-	if err := os.WriteFile(filePath, modifiedContents, fileInfo.Mode()); err != nil {
-		return fmt.Errorf("failed to write file: %w", err)
-	}
-
-	return nil
-}
-
-// ReplaceInFilePartial applies edits incrementally up to the first failure.
-// Returns the results for each edit and writes the partially modified content.
-func ReplaceInFilePartial(filePath string, edits []EditSpec) ([]EditResult, error) {
-	fileInfo, err := os.Stat(filePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to stat file: %w", err)
-	}
-
-	if !fileInfo.Mode().IsRegular() {
-		return nil, fmt.Errorf("not a regular file: %s", filePath)
-	}
-
-	if fileInfo.Size() > MaxEditFileSize {
-		return nil, fmt.Errorf("file too large for editing: %d bytes (max: %d)", fileInfo.Size(), MaxEditFileSize)
-	}
-
-	contents, err := os.ReadFile(filePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read file: %w", err)
-	}
-
-	modifiedContents, results := ApplyEditsPartial(contents, edits)
-
-	if err := os.WriteFile(filePath, modifiedContents, fileInfo.Mode()); err != nil {
-		return nil, fmt.Errorf("failed to write file: %w", err)
-	}
-
-	return results, nil
-}

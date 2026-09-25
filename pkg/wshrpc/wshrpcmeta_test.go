@@ -36,16 +36,16 @@ func TestGenerateWshCommandDecl_MultiArgs(t *testing.T) {
 	}
 }
 
-func TestGenerateWshCommandDeclMap_TestMultiArgCommand(t *testing.T) {
-	decl := GenerateWshCommandDeclMap()["testmultiarg"]
+func TestGenerateWshCommandDeclMap_MultiArgCommand(t *testing.T) {
+	decl := GenerateWshCommandDeclMap()["updateworkspacetabids"]
 	if decl == nil {
-		t.Fatalf("expected testmultiarg command declaration")
+		t.Fatalf("expected updateworkspacetabids command declaration")
 	}
-	if decl.MethodName != "TestMultiArgCommand" {
-		t.Fatalf("expected TestMultiArgCommand method name, got %q", decl.MethodName)
+	if decl.MethodName != "UpdateWorkspaceTabIdsCommand" {
+		t.Fatalf("expected UpdateWorkspaceTabIdsCommand method name, got %q", decl.MethodName)
 	}
-	if len(decl.GetCommandDataTypes()) != 3 {
-		t.Fatalf("expected 3 command args, got %d", len(decl.GetCommandDataTypes()))
+	if len(decl.GetCommandDataTypes()) != 2 {
+		t.Fatalf("expected 2 command args, got %d", len(decl.GetCommandDataTypes()))
 	}
 }
 

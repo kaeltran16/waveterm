@@ -6,26 +6,14 @@
 package unixutil
 
 import (
-	"fmt"
 	"os"
 )
-
-func GetProcessGroupId(pid int) (int, error) {
-	return 0, fmt.Errorf("process group id not supported on windows")
-}
-
-func ParseSignal(sigName string) os.Signal {
-	return nil
-}
 
 func GetSignalName(sig os.Signal) string {
 	if sig == nil {
 		return ""
 	}
 	return sig.String()
-}
-
-func SetCloseOnExec(fd int) {
 }
 
 func SignalTerm(pid int) error {
@@ -39,12 +27,4 @@ func SignalTerm(pid int) error {
 // this is a no-op on windows
 func SignalHup(pid int) error {
 	return nil
-}
-
-func IsPidRunning(pid int) bool {
-	return false
-}
-
-func SendSignalByName(pid int, sigName string) error {
-	return fmt.Errorf("sending signals is not supported on Windows")
 }

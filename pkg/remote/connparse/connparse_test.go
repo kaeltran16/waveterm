@@ -32,9 +32,6 @@ func TestParseURI_WSHWithScheme(t *testing.T) {
 	if c.Scheme != expected {
 		t.Fatalf("expected scheme to be \"%q\", got \"%q\"", expected, c.Scheme)
 	}
-	if len(c.GetSchemeParts()) != 1 {
-		t.Fatalf("expected scheme parts to be 1, got %d", len(c.GetSchemeParts()))
-	}
 
 	// Test with an IP address
 	cstr = "wsh://user@192.168.0.1:22/path/to/file"
@@ -56,11 +53,8 @@ func TestParseURI_WSHWithScheme(t *testing.T) {
 		t.Fatalf("expected path with host to be \"%q\", got \"%q\"", expected, pathWithHost)
 	}
 	expected = "wsh"
-	if c.GetType() != expected {
+	if c.Scheme != expected {
 		t.Fatalf("expected conn type to be \"%q\", got \"%q\"", expected, c.Scheme)
-	}
-	if len(c.GetSchemeParts()) != 1 {
-		t.Fatalf("expected scheme parts to be 1, got %d", len(c.GetSchemeParts()))
 	}
 	got := c.GetFullURI()
 	if got != cstr {
@@ -436,13 +430,6 @@ func TestParseURI_BasicS3(t *testing.T) {
 	if pathWithHost != expected {
 		t.Fatalf("expected path with host to be \"%q\", got \"%q\"", expected, pathWithHost)
 	}
-	expected = "s3"
-	if c.GetType() != expected {
-		t.Fatalf("expected conn type to be \"%q\", got \"%q\"", expected, c.GetType())
-	}
-	if len(c.GetSchemeParts()) != 2 {
-		t.Fatalf("expected scheme parts to be 2, got %d", len(c.GetSchemeParts()))
-	}
 }
 
 func TestParseURI_S3BucketOnly(t *testing.T) {
@@ -463,13 +450,6 @@ func TestParseURI_S3BucketOnly(t *testing.T) {
 		pathWithHost := c.GetPathWithHost()
 		if pathWithHost != pathWithHostExpected {
 			t.Fatalf("expected path with host to be \"%q\", got \"%q\"", expected, pathWithHost)
-		}
-		expected = "s3"
-		if c.GetType() != expected {
-			t.Fatalf("expected conn type to be \"%q\", got \"%q\"", expected, c.GetType())
-		}
-		if len(c.GetSchemeParts()) != 2 {
-			t.Fatalf("expected scheme parts to be 2, got %d", len(c.GetSchemeParts()))
 		}
 		fullUri := c.GetFullURI()
 		if fullUri != cstr {

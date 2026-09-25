@@ -7,13 +7,9 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/filestore"
-	"github.com/wavetermdev/waveterm/pkg/panichandler"
-	"github.com/wavetermdev/waveterm/pkg/telemetry"
-	"github.com/wavetermdev/waveterm/pkg/telemetry/telemetrydata"
 	"github.com/wavetermdev/waveterm/pkg/util/utilfn"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wps"
@@ -21,48 +17,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
-func CreateSubBlock(ctx context.Context, blockId string, blockDef *waveobj.BlockDef) (*waveobj.Block, error) {
-	if blockDef == nil {
-		return nil, fmt.Errorf("blockDef is nil")
-	}
-	if blockDef.Meta == nil || blockDef.Meta.GetString(waveobj.MetaKey_View, "") == "" {
-		return nil, fmt.Errorf("no view provided for new block")
-	}
-	blockData, err := createSubBlockObj(ctx, blockId, blockDef)
-	if err != nil {
-		return nil, fmt.Errorf("error creating sub block: %w", err)
-	}
-	blockView := blockDef.Meta.GetString(waveobj.MetaKey_View, "")
-	blockController := blockDef.Meta.GetString(waveobj.MetaKey_Controller, "")
-	go recordBlockCreationTelemetry(blockView, blockController, true)
-	return blockData, nil
-}
-
-func createSubBlockObj(ctx context.Context, parentBlockId string, blockDef *waveobj.BlockDef) (*waveobj.Block, error) {
-	return wstore.WithTxRtn(ctx, func(tx *wstore.TxWrap) (*waveobj.Block, error) {
-		parentBlock, _ := wstore.DBGet[*waveobj.Block](tx.Context(), parentBlockId)
-		if parentBlock == nil {
-			return nil, fmt.Errorf("parent block not found: %q", parentBlockId)
-		}
-		blockId := uuid.NewString()
-		blockData := &waveobj.Block{
-			OID:         blockId,
-			ParentORef:  waveobj.MakeORef(waveobj.OType_Block, parentBlockId).String(),
-			RuntimeOpts: nil,
-			Meta:        blockDef.Meta,
-		}
-		wstore.DBInsert(tx.Context(), blockData)
-		parentBlock.SubBlockIds = append(parentBlock.SubBlockIds, blockId)
-		wstore.DBUpdate(tx.Context(), parentBlock)
-		return blockData, nil
-	})
-}
-
 func CreateBlock(ctx context.Context, tabId string, blockDef *waveobj.BlockDef, rtOpts *waveobj.RuntimeOpts) (rtnBlock *waveobj.Block, rtnErr error) {
-	return CreateBlockWithTelemetry(ctx, tabId, blockDef, rtOpts, true)
-}
-
-func CreateBlockWithTelemetry(ctx context.Context, tabId string, blockDef *waveobj.BlockDef, rtOpts *waveobj.RuntimeOpts, recordTelemetry bool) (rtnBlock *waveobj.Block, rtnErr error) {
 	var blockCreated bool
 	var newBlockOID string
 	defer func() {
@@ -100,34 +55,7 @@ func CreateBlockWithTelemetry(ctx context.Context, tabId string, blockDef *waveo
 			}
 		}
 	}
-	if recordTelemetry {
-		blockView := blockDef.Meta.GetString(waveobj.MetaKey_View, "")
-		blockController := blockDef.Meta.GetString(waveobj.MetaKey_Controller, "")
-		go recordBlockCreationTelemetry(blockView, blockController, false)
-	}
 	return blockData, nil
-}
-
-func recordBlockCreationTelemetry(blockView string, blockController string, subBlock bool) {
-	defer func() {
-		panichandler.PanicHandler("CreateBlock:telemetry", recover())
-	}()
-	if blockView == "" {
-		return
-	}
-	tctx, cancelFn := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancelFn()
-	telemetry.UpdateActivity(tctx, wshrpc.ActivityUpdate{
-		Renderers: map[string]int{blockView: 1},
-	})
-	telemetry.RecordTEvent(tctx, &telemetrydata.TEvent{
-		Event: "action:createblock",
-		Props: telemetrydata.TEventProps{
-			BlockView:       blockView,
-			BlockController: blockController,
-			BlockSubBlock:   subBlock,
-		},
-	})
 }
 
 func createBlockObj(ctx context.Context, tabId string, blockDef *waveobj.BlockDef, rtOpts *waveobj.RuntimeOpts) (*waveobj.Block, error) {
@@ -151,7 +79,6 @@ func createBlockObj(ctx context.Context, tabId string, blockDef *waveobj.BlockDe
 }
 
 // Must delete all blocks individually first.
-// Also deletes LayoutState.
 // recursive: if true, will recursively close parent tab, window, workspace, if they are empty.
 // Returns new active tab id, error.
 func DeleteBlock(ctx context.Context, blockId string, recursive bool) error {

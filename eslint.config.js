@@ -28,7 +28,7 @@ export default [
     },
 
     {
-        files: ["frontend/**/*.{ts,tsx}", "emain/**/*.{ts,tsx}"],
+        files: ["frontend/**/*.{ts,tsx}"],
         languageOptions: {
             parserOptions: {
                 tsconfigRootDir,

@@ -8,19 +8,10 @@ declare global {
     // wps.WaveEvent
     type WaveEventName =
         | "blockclose"
-        | "connchange"
-        | "sysinfo"
         | "controllerstatus"
         | "waveobj:update"
         | "blockfile"
         | "config"
-        | "userinput"
-        | "route:down"
-        | "route:up"
-        | "workspace:update"
-        | "waveai:ratelimit"
-        | "waveai:modeconfig"
-        | "block:jobstatus"
         | "badge"
         | "agent:status"
         | "notify"
@@ -46,19 +37,10 @@ declare global {
         data?: unknown;
     } & (
         { event: "blockclose"; data?: string; } | 
-        { event: "connchange"; data?: ConnStatus; } | 
-        { event: "sysinfo"; data?: TimeSeriesData; } | 
         { event: "controllerstatus"; data?: BlockControllerRuntimeStatus; } | 
         { event: "waveobj:update"; data?: WaveObjUpdate; } | 
         { event: "blockfile"; data?: WSFileEventData; } | 
         { event: "config"; data?: WatcherUpdate; } | 
-        { event: "userinput"; data?: UserInputRequest; } | 
-        { event: "route:down"; data?: null; } | 
-        { event: "route:up"; data?: null; } | 
-        { event: "workspace:update"; data?: null; } | 
-        { event: "waveai:ratelimit"; data?: RateLimitInfo; } | 
-        { event: "waveai:modeconfig"; data?: AIModeConfigUpdate; } | 
-        { event: "block:jobstatus"; data?: BlockJobStatusData; } | 
         { event: "badge"; data?: BadgeEvent; } | 
         { event: "agent:status"; data?: AgentStatusData; } | 
         { event: "notify"; data?: NotifyCommandData; } | 

@@ -26,14 +26,14 @@ var WaveVersion = "0.0.0"
 var BuildTime = "0"
 
 const (
-	WaveConfigHomeEnvVar           = "WAVETERM_CONFIG_HOME"
-	WaveDataHomeEnvVar             = "WAVETERM_DATA_HOME"
-	WaveAppPathVarName             = "WAVETERM_APP_PATH"
-	WaveAppResourcesPathVarName    = "WAVETERM_RESOURCES_PATH"
-	WaveDevVarName                 = "WAVETERM_DEV"
-	WaveDevViteVarName             = "WAVETERM_DEV_VITE"
-	WaveWshForceUpdateVarName      = "WAVETERM_WSHFORCEUPDATE"
-	WaveNoConfirmQuitVarName       = "WAVETERM_NOCONFIRMQUIT"
+	WaveConfigHomeEnvVar        = "WAVETERM_CONFIG_HOME"
+	WaveDataHomeEnvVar          = "WAVETERM_DATA_HOME"
+	WaveAppPathVarName          = "WAVETERM_APP_PATH"
+	WaveAppResourcesPathVarName = "WAVETERM_RESOURCES_PATH"
+	WaveDevVarName              = "WAVETERM_DEV"
+	WaveDevViteVarName          = "WAVETERM_DEV_VITE"
+	WaveWshForceUpdateVarName   = "WAVETERM_WSHFORCEUPDATE"
+	WaveNoConfirmQuitVarName    = "WAVETERM_NOCONFIRMQUIT"
 
 	WaveJwtTokenVarName  = "WAVETERM_JWT"
 	WaveSwapTokenVarName = "WAVETERM_SWAPTOKEN"
@@ -42,17 +42,16 @@ const (
 const (
 	BlockFile_Term  = "term"            // used for main pty output
 	BlockFile_Cache = "cache:term:full" // for cached block
-	BlockFile_VDom  = "vdom"            // used for alt html layout
 	BlockFile_Env   = "env"
 )
 
 const NeedJwtConst = "NEED-JWT"
 
-var ConfigHome_VarCache string          // caches WAVETERM_CONFIG_HOME
-var DataHome_VarCache string            // caches WAVETERM_DATA_HOME
-var AppPath_VarCache string             // caches WAVETERM_APP_PATH
-var AppResourcesPath_VarCache string    // caches WAVETERM_RESOURCES_PATH
-var Dev_VarCache string                 // caches WAVETERM_DEV
+var ConfigHome_VarCache string       // caches WAVETERM_CONFIG_HOME
+var DataHome_VarCache string         // caches WAVETERM_DATA_HOME
+var AppPath_VarCache string          // caches WAVETERM_APP_PATH
+var AppResourcesPath_VarCache string // caches WAVETERM_RESOURCES_PATH
+var Dev_VarCache string              // caches WAVETERM_DEV
 
 const WaveLockFile = "wave.lock"
 const DomainSocketBaseName = "wave.sock"
@@ -115,10 +114,6 @@ func GetWaveAppPath() string {
 	return AppPath_VarCache
 }
 
-func GetWaveAppResourcesPath() string {
-	return AppResourcesPath_VarCache
-}
-
 func GetWaveDataDir() string {
 	return DataHome_VarCache
 }
@@ -175,12 +170,6 @@ func GetDomainSocketName() string {
 	return filepath.Join(GetWaveDataDir(), DomainSocketBaseName)
 }
 
-// returns a Unix-style path for the remote socket (using fmt.Sprintf instead of filepath.Join
-// because this path is for a remote Unix system, not the local OS which might be Windows)
-func GetPersistentRemoteSockName(clientId string) string {
-	return fmt.Sprintf("~/.waveterm/client/%s/waveterm.sock", clientId)
-}
-
 func EnsureWaveDataDir() error {
 	return CacheEnsureDir(GetWaveDataDir(), "wavehome", 0700, "wave home directory")
 }
@@ -191,10 +180,6 @@ func EnsureWaveDBDir() error {
 
 func EnsureWaveConfigDir() error {
 	return CacheEnsureDir(GetWaveConfigDir(), "waveconfig", 0700, "wave config directory")
-}
-
-func EnsureWavePresetsDir() error {
-	return CacheEnsureDir(filepath.Join(GetWaveConfigDir(), "presets"), "wavepresets", 0700, "wave presets directory")
 }
 
 func resolveWaveCachesDir() string {
@@ -350,88 +335,9 @@ func DetermineLang() string {
 	return osLang
 }
 
-func DetermineLocale() string {
-	truncated := strings.Split(DetermineLang(), ".")[0]
-	if truncated == "" {
-		return "C"
-	}
-	return strings.Replace(truncated, "_", "-", -1)
-}
-
-func ClientArch() string {
-	return fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH)
-}
-
-func ClientPackageType() string {
-	if os.Getenv("SNAP") != "" {
-		return "snap"
-	}
-	if os.Getenv("APPIMAGE") != "" {
-		return "appimage"
-	}
-	return ""
-}
-
-var macOSVersionOnce = &sync.Once{}
-var cachedMacOSVersion string
-
-var macOSVersionRegex = regexp.MustCompile(`^(\d+\.\d+(?:\.\d+)?)`)
-
-func internalMacOSVersion() string {
-	ctx, cancelFn := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancelFn()
-	out, err := exec.CommandContext(ctx, "sw_vers", "-productVersion").Output()
-	if err != nil {
-		return ""
-	}
-	versionStr := strings.TrimSpace(string(out))
-	m := macOSVersionRegex.FindStringSubmatch(versionStr)
-	if len(m) < 2 {
-		return ""
-	}
-	return m[1]
-}
-
-func ClientMacOSVersion() string {
-	if runtime.GOOS != "darwin" {
-		return ""
-	}
-	macOSVersionOnce.Do(func() {
-		cachedMacOSVersion = internalMacOSVersion()
-	})
-	return cachedMacOSVersion
-}
-
 var releaseRegex = regexp.MustCompile(`^(\d+\.\d+\.\d+)`)
 var osReleaseOnce = &sync.Once{}
 var osRelease string
-
-func unameKernelRelease() string {
-	if runtime.GOOS == "windows" {
-		return "-"
-	}
-	ctx, cancelFn := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancelFn()
-	out, err := exec.CommandContext(ctx, "uname", "-r").CombinedOutput()
-	if err != nil {
-		log.Printf("error executing uname -r: %v\n", err)
-		return "-"
-	}
-	releaseStr := strings.TrimSpace(string(out))
-	m := releaseRegex.FindStringSubmatch(releaseStr)
-	if len(m) < 2 {
-		log.Printf("invalid uname -r output: [%s]\n", releaseStr)
-		return "-"
-	}
-	return m[1]
-}
-
-func UnameKernelRelease() string {
-	osReleaseOnce.Do(func() {
-		osRelease = unameKernelRelease()
-	})
-	return osRelease
-}
 
 var systemSummaryOnce = &sync.Once{}
 var systemSummary string
@@ -443,13 +349,6 @@ func GetSystemSummary() string {
 		systemSummary = getSystemSummary(ctx)
 	})
 	return systemSummary
-}
-
-func ValidateWshSupportedArch(os string, arch string) error {
-	if SupportedWshBinaries[fmt.Sprintf("%s-%s", os, arch)] {
-		return nil
-	}
-	return fmt.Errorf("unsupported wsh platform: %s-%s", os, arch)
 }
 
 func getSystemSummary(ctx context.Context) string {
@@ -490,23 +389,4 @@ func getSystemSummary(ctx context.Context) string {
 	default:
 		return fmt.Sprintf("%s (%s)", runtime.GOOS, runtime.GOARCH)
 	}
-}
-
-// job socket path on remote machine
-func GetRemoteJobSocketPath(jobId string) string {
-	socketDir := filepath.Join("/tmp", fmt.Sprintf("waveterm-%d", os.Getuid()))
-	return filepath.Join(socketDir, fmt.Sprintf("%s.sock", jobId))
-}
-
-// job file path on remote machine
-func GetRemoteJobFilePath(jobId string, extension string) string {
-	jobDir := GetRemoteJobLogDir()
-	return filepath.Join(jobDir, fmt.Sprintf("%s.%s", jobId, extension))
-}
-
-// job file dir on remote machines
-func GetRemoteJobLogDir() string {
-	homeDir := GetHomeDir()
-	jobDir := filepath.Join(homeDir, ".waveterm", "jobs")
-	return jobDir
 }

@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/launchdarkly/eventsource"
-	"github.com/wavetermdev/waveterm/pkg/aiusechat/openaichat"
 	"github.com/wavetermdev/waveterm/pkg/secretstore"
 	"github.com/wavetermdev/waveterm/pkg/wconfig"
 )
@@ -102,8 +101,15 @@ func decodeOpenrouterStream(r io.Reader, emit func(string)) (string, Usage, erro
 			continue
 		}
 		var chunk struct {
-			openaichat.StreamChunk
-			Usage *openaichat.ChatUsage `json:"usage"`
+			Model   string `json:"model"`
+			Choices []struct {
+				Delta struct {
+					Content string `json:"content"`
+				} `json:"delta"`
+			} `json:"choices"`
+			Usage *struct {
+				TotalTokens int `json:"total_tokens"`
+			} `json:"usage"`
 		}
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			continue

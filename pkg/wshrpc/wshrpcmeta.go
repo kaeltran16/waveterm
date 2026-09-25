@@ -6,7 +6,6 @@ package wshrpc
 import (
 	"context"
 	"fmt"
-	"log"
 	"reflect"
 	"strings"
 )
@@ -86,26 +85,6 @@ func generateWshCommandDecl(method reflect.Method) *WshRpcMethodDecl {
 	decl.CommandDataTypes = cdataTypes
 	decl.DefaultResponseDataType = getWshMethodResponseType(decl.CommandType, method)
 	return decl
-}
-
-func MakeMethodMapForImpl(impl any, declMap map[string]*WshRpcMethodDecl) map[string]reflect.Method {
-	rtype := reflect.TypeOf(impl)
-	rtnMap := make(map[string]reflect.Method)
-	for midx := 0; midx < rtype.NumMethod(); midx++ {
-		method := rtype.Method(midx)
-		if !strings.HasSuffix(method.Name, "Command") {
-			continue
-		}
-		commandName := strings.ToLower(method.Name[:len(method.Name)-len("Command")])
-		decl := declMap[commandName]
-		if decl == nil {
-			log.Printf("WARNING: method %q does not match a command method", method.Name)
-			continue
-		}
-		rtnMap[commandName] = method
-	}
-	return rtnMap
-
 }
 
 func GenerateWshCommandDeclMap() map[string]*WshRpcMethodDecl {

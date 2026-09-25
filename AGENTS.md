@@ -37,9 +37,9 @@ Other useful commands:
 
 - **Single frontend test:** `npx vitest run frontend/app/view/agents/projectname.test.ts`, or filter by name: `npx vitest run -t "handles backslash paths"`.
 - **Rust tests:** `cargo test --manifest-path src-tauri/Cargo.toml`.
-- **Lint / format:** flat ESLint config (`eslint.config.js`) + Prettier (`prettier.config.cjs`), but **no Task/npm wrapper** — run `npx eslint` and `npx prettier --check` directly, **on paths**: `npx eslint .` also walks the worktree copies under `.worktrees/` and `.claude/worktrees/`. The config still references removed `emain/` (Electron) — dead; ignore.
+- **Lint / format:** flat ESLint config (`eslint.config.js`) + Prettier (`prettier.config.cjs`), but **no Task/npm wrapper** — run `npx eslint` and `npx prettier --check` directly, **on paths**: `npx eslint .` also walks the worktree copies under `.worktrees/` and `.claude/worktrees/`.
 - **HEAD is not formatter-clean** (`gofmt -l pkg cmd` lists ~50 files; prettier fails in places too). Check only the files you touched; never `--write` the tree. Never run prettier on `scripts/*.mjs` — `.editorconfig` omits `.mjs`, so prettier reindents those hand-formatted 4-space files to 2.
-- **Clear dev data:** the dev app keeps its store, config, and WebView2 profile in `%LOCALAPPDATA%\dev.arc.app-dev\{data,config,EBWebView}` (isolated from a packaged install, which uses `dev.arc.app`). `task dev:cleardata` / `dev:clearconfig` still target the old Electron `waveterm-dev` paths and do **not** clear it — delete the dir by hand with the dev app stopped.
+- **Clear dev data:** the dev app keeps its store, config, and WebView2 profile in `%LOCALAPPDATA%\dev.arc.app-dev\{data,config,EBWebView}` (isolated from a packaged install, which uses `dev.arc.app`). `task dev:cleardata` / `dev:clearconfig` clear `data` / `config`; stop the dev app first. Delete `EBWebView` by hand.
 - **Logs:** the Tauri host writes wavesrv's stderr (including panic stacks), frontend `fe-log` lines, and its own `[tauri]` lines, timestamped, to `waveapp.log` in the data dir: `%LOCALAPPDATA%\dev.arc.app\data\` packaged, `dev.arc.app-dev\data\` dev. Past 10 MB it rolls to `waveapp.1.log` (one backup). `[tauri] wavesrv stderr closed` marks a backend exit.
 
 ### Gotchas

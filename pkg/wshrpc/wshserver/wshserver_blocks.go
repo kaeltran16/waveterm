@@ -7,13 +7,10 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"io/fs"
 	"log"
 
 	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
 	"github.com/wavetermdev/waveterm/pkg/blocklogger"
-	"github.com/wavetermdev/waveterm/pkg/filestore"
-	"github.com/wavetermdev/waveterm/pkg/genconn"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
@@ -29,81 +26,9 @@ func (ws *WshServer) CreateBlockCommand(ctx context.Context, data wshrpc.Command
 	if err != nil {
 		return nil, fmt.Errorf("error creating block: %w", err)
 	}
-	var layoutAction *waveobj.LayoutActionData
-	if data.TargetBlockId != "" {
-		switch data.TargetAction {
-		case "replace":
-			layoutAction = &waveobj.LayoutActionData{
-				ActionType:    wcore.LayoutActionDataType_Replace,
-				TargetBlockId: data.TargetBlockId,
-				BlockId:       blockData.OID,
-				Focused:       data.Focused,
-			}
-			err = wcore.DeleteBlock(ctx, data.TargetBlockId, false)
-			if err != nil {
-				return nil, fmt.Errorf("error deleting block (trying to do block replace): %w", err)
-			}
-		case "splitright":
-			layoutAction = &waveobj.LayoutActionData{
-				ActionType:    wcore.LayoutActionDataType_SplitHorizontal,
-				BlockId:       blockData.OID,
-				TargetBlockId: data.TargetBlockId,
-				Position:      "after",
-				Focused:       data.Focused,
-			}
-		case "splitleft":
-			layoutAction = &waveobj.LayoutActionData{
-				ActionType:    wcore.LayoutActionDataType_SplitHorizontal,
-				BlockId:       blockData.OID,
-				TargetBlockId: data.TargetBlockId,
-				Position:      "before",
-				Focused:       data.Focused,
-			}
-		case "splitup":
-			layoutAction = &waveobj.LayoutActionData{
-				ActionType:    wcore.LayoutActionDataType_SplitVertical,
-				BlockId:       blockData.OID,
-				TargetBlockId: data.TargetBlockId,
-				Position:      "before",
-				Focused:       data.Focused,
-			}
-		case "splitdown":
-			layoutAction = &waveobj.LayoutActionData{
-				ActionType:    wcore.LayoutActionDataType_SplitVertical,
-				BlockId:       blockData.OID,
-				TargetBlockId: data.TargetBlockId,
-				Position:      "after",
-				Focused:       data.Focused,
-			}
-		default:
-			return nil, fmt.Errorf("invalid target action: %s", data.TargetAction)
-		}
-	} else {
-		layoutAction = &waveobj.LayoutActionData{
-			ActionType: wcore.LayoutActionDataType_Insert,
-			BlockId:    blockData.OID,
-			Magnified:  data.Magnified,
-			Ephemeral:  data.Ephemeral,
-			Focused:    data.Focused,
-		}
-	}
-	err = wcore.QueueLayoutActionForTab(ctx, tabId, *layoutAction)
-	if err != nil {
-		return nil, fmt.Errorf("error queuing layout action: %w", err)
-	}
 	updates := waveobj.ContextGetUpdatesRtn(ctx)
 	wps.Broker.SendUpdateEvents(updates)
 	return &waveobj.ORef{OType: waveobj.OType_Block, OID: blockData.OID}, nil
-}
-
-func (ws *WshServer) CreateSubBlockCommand(ctx context.Context, data wshrpc.CommandCreateSubBlockData) (*waveobj.ORef, error) {
-	parentBlockId := data.ParentBlockId
-	blockData, err := wcore.CreateSubBlock(ctx, parentBlockId, data.BlockDef)
-	if err != nil {
-		return nil, fmt.Errorf("error creating block: %w", err)
-	}
-	blockRef := &waveobj.ORef{OType: waveobj.OType_Block, OID: blockData.OID}
-	return blockRef, nil
 }
 
 func (ws *WshServer) ControllerDestroyCommand(ctx context.Context, blockId string) error {
@@ -112,7 +37,6 @@ func (ws *WshServer) ControllerDestroyCommand(ctx context.Context, blockId strin
 }
 
 func (ws *WshServer) ControllerResyncCommand(ctx context.Context, data wshrpc.CommandControllerResyncData) error {
-	ctx = genconn.ContextWithConnData(ctx, data.BlockId)
 	ctx = termCtxWithLogBlockId(ctx, data.BlockId)
 	return blockcontroller.ResyncController(ctx, data.TabId, data.BlockId, data.RtOpts, data.ForceRestart)
 }
@@ -146,17 +70,6 @@ func (ws *WshServer) ControllerAppendOutputCommand(ctx context.Context, data wsh
 	return nil
 }
 
-func (ws *WshServer) DeleteSubBlockCommand(ctx context.Context, data wshrpc.CommandDeleteBlockData) error {
-	if data.BlockId == "" {
-		return fmt.Errorf("blockid is required")
-	}
-	err := wcore.DeleteBlock(ctx, data.BlockId, false)
-	if err != nil {
-		return fmt.Errorf("error deleting block: %w", err)
-	}
-	return nil
-}
-
 func (ws *WshServer) DeleteBlockCommand(ctx context.Context, data wshrpc.CommandDeleteBlockData) error {
 	if data.BlockId == "" {
 		return fmt.Errorf("blockid is required")
@@ -172,19 +85,6 @@ func (ws *WshServer) DeleteBlockCommand(ctx context.Context, data wshrpc.Command
 	err = wcore.DeleteBlock(ctx, data.BlockId, true)
 	if err != nil {
 		return fmt.Errorf("error deleting block: %w", err)
-	}
-	// deleting the last block cascade-deletes its tab; only edit the layout tree if the tab survived
-	tab, err := wstore.DBGet[*waveobj.Tab](ctx, tabId)
-	if err != nil {
-		return fmt.Errorf("error checking tab after block delete: %w", err)
-	}
-	if tab != nil {
-		if err := wcore.QueueLayoutActionForTab(ctx, tabId, waveobj.LayoutActionData{
-			ActionType: wcore.LayoutActionDataType_Remove,
-			BlockId:    data.BlockId,
-		}); err != nil {
-			return fmt.Errorf("error queueing layout action: %w", err)
-		}
 	}
 	updates := waveobj.ContextGetUpdatesRtn(ctx)
 	wps.Broker.SendUpdateEvents(updates)
@@ -204,66 +104,6 @@ func termCtxWithLogBlockId(ctx context.Context, logBlockId string) context.Conte
 		return ctx
 	}
 	return blocklogger.ContextWithLogBlockId(ctx, logBlockId, connDebug == "debug")
-}
-
-func (ws *WshServer) BlockInfoCommand(ctx context.Context, blockId string) (*wshrpc.BlockInfoData, error) {
-	blockData, err := wstore.DBMustGet[*waveobj.Block](ctx, blockId)
-	if err != nil {
-		return nil, fmt.Errorf("error getting block: %w", err)
-	}
-	tabId, err := wstore.DBFindTabForBlockId(ctx, blockId)
-	if err != nil {
-		return nil, fmt.Errorf("error finding tab for block: %w", err)
-	}
-	workspaceId, err := wstore.DBFindWorkspaceForTabId(ctx, tabId)
-	if err != nil {
-		return nil, fmt.Errorf("error finding window for tab: %w", err)
-	}
-	fileList, err := filestore.WFS.ListFiles(ctx, blockId)
-	if err != nil {
-		return nil, fmt.Errorf("error listing blockfiles: %w", err)
-	}
-	var fileInfoList []*wshrpc.WaveFileInfo
-	for _, wf := range fileList {
-		fileInfoList = append(fileInfoList, waveFileToWaveFileInfo(wf))
-	}
-	return &wshrpc.BlockInfoData{
-		BlockId:     blockId,
-		TabId:       tabId,
-		WorkspaceId: workspaceId,
-		Block:       blockData,
-		Files:       fileInfoList,
-	}, nil
-}
-
-func (ws *WshServer) DebugTermCommand(ctx context.Context, data wshrpc.CommandDebugTermData) (*wshrpc.CommandDebugTermRtnData, error) {
-	if data.BlockId == "" {
-		return nil, fmt.Errorf("blockid is required")
-	}
-	if data.Size <= 0 {
-		return nil, fmt.Errorf("size must be greater than 0")
-	}
-	waveFile, err := filestore.WFS.Stat(ctx, data.BlockId, wavebase.BlockFile_Term)
-	if err == fs.ErrNotExist {
-		return &wshrpc.CommandDebugTermRtnData{}, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("error statting term file: %w", err)
-	}
-	readSize := data.Size
-	dataLength := waveFile.DataLength()
-	if readSize > dataLength {
-		readSize = dataLength
-	}
-	readOffset := waveFile.Size - readSize
-	readOffset, readData, err := filestore.WFS.ReadAt(ctx, data.BlockId, wavebase.BlockFile_Term, readOffset, readSize)
-	if err != nil {
-		return nil, fmt.Errorf("error reading term file: %w", err)
-	}
-	return &wshrpc.CommandDebugTermRtnData{
-		Offset: readOffset,
-		Data64: base64.StdEncoding.EncodeToString(readData),
-	}, nil
 }
 
 // BlocksListCommand returns every block visible in the requested

@@ -25,13 +25,9 @@ func answerFirst() []baseds.AgentAnswerItem {
 	return []baseds.AgentAnswerItem{{SelectedIndexes: []int{0}}}
 }
 
-func TestUpdateEditsInMemoryWithoutPersisting(t *testing.T) {
+func TestUpdateEditsInMemory(t *testing.T) {
 	GlobalRegistry = MakeRegistry()
 	GlobalRegistry.Set("block:b1", dagPending("a1"))
-	var persisted int
-	origHook := DurableHook
-	DurableHook = func(string, *PendingAsk) { persisted++ }
-	defer func() { DurableHook = origHook }()
 
 	if !GlobalRegistry.Update("block:b1", "a1", func(p *PendingAsk) { p.Owner = AskOwner_User; p.Note = "yours" }) {
 		t.Fatal("update of a pending ask must succeed")
@@ -39,9 +35,6 @@ func TestUpdateEditsInMemoryWithoutPersisting(t *testing.T) {
 	got, _ := GlobalRegistry.Get("block:b1")
 	if got.Owner != AskOwner_User || got.Note != "yours" {
 		t.Fatalf("update not applied: %+v", got)
-	}
-	if persisted != 0 {
-		t.Fatalf("queue fields are in memory only, DurableHook ran %d times", persisted)
 	}
 	if GlobalRegistry.Update("block:b1", "stale", func(p *PendingAsk) { p.Owner = AskOwner_Lead }) {
 		t.Fatal("a stale ask id must not update")

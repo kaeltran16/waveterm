@@ -10,14 +10,11 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/wavetermdev/waveterm/pkg/aiusechat/uctypes"
 	"github.com/wavetermdev/waveterm/pkg/eventbus"
 	"github.com/wavetermdev/waveterm/pkg/filestore"
 	"github.com/wavetermdev/waveterm/pkg/service"
 	"github.com/wavetermdev/waveterm/pkg/tsgen/tsgenmeta"
-	"github.com/wavetermdev/waveterm/pkg/userinput"
 	"github.com/wavetermdev/waveterm/pkg/util/utilfn"
-	"github.com/wavetermdev/waveterm/pkg/vdom"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wconfig"
 	"github.com/wavetermdev/waveterm/pkg/web/webcmd"
@@ -36,25 +33,13 @@ var ExtraTypes = []any{
 	waveobj.UIContext{},
 	eventbus.WSEventType{},
 	wps.WSFileEventData{},
-	waveobj.LayoutActionData{},
 	filestore.WaveFile{},
 	wconfig.FullConfigType{},
 	wconfig.WatcherUpdate{},
 	wshutil.RpcMessage{},
 	wshrpc.WshServerCommandMeta{},
-	userinput.UserInputRequest{},
-	vdom.VDomCreateContext{},
-	vdom.VDomElem{},
-	vdom.VDomFunc{},
-	vdom.VDomRef{},
-	vdom.VDomBinding{},
-	vdom.VDomFrontendUpdate{},
-	vdom.VDomBackendUpdate{},
 	waveobj.MetaTSType{},
 	waveobj.ObjRTInfo{},
-	uctypes.RateLimitInfo{},
-	wconfig.AIModeConfigUpdate{},
-	wshrpc.BlockJobStatusData{},
 }
 
 // add extra type unions to generate here
@@ -176,7 +161,6 @@ func TypeToTSType(t reflect.Type, tsTypesMap map[reflect.Type]string) (string, [
 
 var tsRenameMap = map[string]string{
 	"Window":           "WaveWindow",
-	"Elem":             "VDomElem",
 	"MetaTSType":       "MetaType",
 	"MetaSettingsType": "SettingsType",
 }

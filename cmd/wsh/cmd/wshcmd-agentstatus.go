@@ -112,10 +112,6 @@ func publishAgentStatusData(oref *waveobj.ORef, data baseds.AgentStatusData, per
 }
 
 func agentStatusRun(cmd *cobra.Command, args []string) (rtnErr error) {
-	defer func() {
-		sendActivity("agentstatus", rtnErr == nil)
-	}()
-
 	oref, err := resolveBlockArg()
 	if err != nil {
 		return fmt.Errorf("resolving block: %v", err)

@@ -32,9 +32,9 @@ func TestParseSimpleId(t *testing.T) {
 		{"oref@block:" + u, "oref", "block:" + u, false}, // explicit @ discriminator, first field wins
 		{"block:" + u, "oref", "block:" + u, false},      // implicit oref (valid type + uuid)
 		{"tab:2", "tabnum", "tab:2", false},              // not an oref: "2" is not a uuid
-		{"ai", "view", "ai", false},
-		{"ai:2", "view", "ai:2", false},
-		{"7", "blocknum", "7", false},
+		{"deadbeef", "uuid8", "deadbeef", false},         // all-letter short uuid, once shadowed by the view form
+		{"ai", "", "", true},
+		{"7", "", "", true},
 		{u, "uuid", u, false},
 		{"abcd1234", "uuid8", "abcd1234", false},
 		{"", "", "", true},
@@ -82,11 +82,9 @@ func TestResolveSimpleIdRouting(t *testing.T) {
 		// DB-free error paths
 		{name: "explicit oref with bad body errors", id: "oref@notanoref", blockId: "blk-1", wantErr: true, errSubstr: "error parsing oref"},
 		{name: "this without blockid errors", id: "this", blockId: "", wantErr: true, errSubstr: "no blockid in request"},
-		{name: "view instance zero errors", id: "ai:0", blockId: "blk-1", wantErr: true, errSubstr: "invalid view instance number"},
 		{name: "unknown discriminator errors", id: "x@y", blockId: "blk-1", wantErr: true, errSubstr: "unknown discriminator"},
 		// routing to DB-backed resolvers: empty store yields resolver-specific wrapper
 		{name: "tabnum routes to resolveTabNum", id: "tab:2", blockId: "nope", wantErr: true, errSubstr: "error finding tab for block"},
-		{name: "blocknum routes to resolveBlock", id: "7", blockId: "nope", wantErr: true, errSubstr: "error finding tab for blockid"},
 		{name: "temp routes to resolveThis temp", id: "temp", blockId: "nope", wantErr: true, errSubstr: "error getting client"},
 		{name: "uuid routes to resolveUUID", id: u, blockId: "nope", wantErr: true},
 	}

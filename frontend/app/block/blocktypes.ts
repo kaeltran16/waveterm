@@ -11,19 +11,3 @@ export interface BlockNodeModel {
     focusNode: () => void;
     toggleMagnify: () => void;
 }
-
-export type FullSubBlockProps = {
-    nodeModel: BlockNodeModel;
-    viewModel: ViewModel;
-};
-
-export interface SubBlockProps {
-    nodeModel: BlockNodeModel;
-}
-
-export interface BlockComponentModel2 {
-    onClick?: () => void;
-    onPointerEnter?: React.PointerEventHandler<HTMLDivElement>;
-    onFocusCapture?: React.FocusEventHandler<HTMLDivElement>;
-    blockRef?: React.RefObject<HTMLDivElement>;
-}

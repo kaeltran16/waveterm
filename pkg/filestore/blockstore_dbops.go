@@ -53,15 +53,6 @@ func dbGetZoneFile(ctx context.Context, zoneId string, name string) (*WaveFile, 
 	})
 }
 
-func dbGetAllZoneIds(ctx context.Context) ([]string, error) {
-	return WithTxRtn(ctx, func(tx *TxWrap) ([]string, error) {
-		var ids []string
-		query := "SELECT DISTINCT zoneid FROM db_wave_file"
-		tx.Select(&ids, query)
-		return ids, nil
-	})
-}
-
 func dbGetFileParts(ctx context.Context, zoneId string, name string, parts []int) (map[int]*DataCacheEntry, error) {
 	if len(parts) == 0 {
 		return nil, nil
@@ -80,14 +71,6 @@ func dbGetFileParts(ctx context.Context, zoneId string, name string, parts []int
 			rtn[d.PartIdx] = d
 		}
 		return rtn, nil
-	})
-}
-
-func dbGetZoneFiles(ctx context.Context, zoneId string) ([]*WaveFile, error) {
-	return WithTxRtn(ctx, func(tx *TxWrap) ([]*WaveFile, error) {
-		query := "SELECT * FROM db_wave_file WHERE zoneid = ?"
-		files := dbutil.SelectMappable[*WaveFile](tx, query, zoneId)
-		return files, nil
 	})
 }
 

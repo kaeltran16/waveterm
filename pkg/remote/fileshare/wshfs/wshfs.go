@@ -182,28 +182,6 @@ func PutFile(ctx context.Context, data wshrpc.FileData) error {
 	return wshclient.RemoteWriteFileCommand(RpcClient, data, &wshrpc.RpcOpts{Route: wshutil.MakeConnectionRouteId(conn.Host)})
 }
 
-func Append(ctx context.Context, data wshrpc.FileData) error {
-	log.Printf("Append: %v", data.Info.Path)
-	conn, err := parseConnection(ctx, data.Info.Path)
-	if err != nil {
-		return err
-	}
-	dataSize := base64.StdEncoding.DecodedLen(len(data.Data64))
-	if dataSize > RemoteFileTransferSizeLimit {
-		return fmt.Errorf("file data size %d exceeds transfer limit of %d bytes", dataSize, RemoteFileTransferSizeLimit)
-	}
-	info := data.Info
-	if info == nil {
-		info = &wshrpc.FileInfo{Path: conn.Path, Opts: &wshrpc.FileOpts{}}
-	} else if info.Opts == nil {
-		info.Opts = &wshrpc.FileOpts{}
-	}
-	info.Path = conn.Path
-	info.Opts.Append = true
-	data.Info = info
-	return wshclient.RemoteWriteFileCommand(RpcClient, data, &wshrpc.RpcOpts{Route: wshutil.MakeConnectionRouteId(conn.Host)})
-}
-
 func Mkdir(ctx context.Context, path string) error {
 	log.Printf("Mkdir: %v", path)
 	conn, err := parseConnection(ctx, path)

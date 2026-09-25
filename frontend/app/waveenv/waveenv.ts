@@ -3,22 +3,8 @@
 
 import type { AllServiceImpls } from "@/app/store/services";
 import { RpcApiType } from "@/app/store/wshclientapi";
-import { Atom, PrimitiveAtom } from "jotai";
+import { Atom } from "jotai";
 import React from "react";
-
-export type MetaKeyAtomFnType<Keys extends keyof MetaType = keyof MetaType> = <T extends Keys>(
-    id: string,
-    key: T
-) => Atom<MetaType[T]>;
-
-export type ConnConfigKeyAtomFnType<Keys extends keyof ConnKeywords = keyof ConnKeywords> = <T extends Keys>(
-    connName: string,
-    key: T
-) => Atom<ConnKeywords[T]>;
-
-export type SettingsKeyAtomFnType<Keys extends keyof SettingsType = keyof SettingsType> = <T extends Keys>(
-    key: T
-) => Atom<SettingsType[T]>;
 
 type OmitNever<T> = {
     [K in keyof T as [T[K]] extends [never] ? never : K]: T[K];
@@ -58,25 +44,16 @@ export type WaveEnv = {
     rpc: RpcApiType;
     platform: NodeJS.Platform;
     isDev: () => boolean;
-    isWindows: () => boolean;
-    isMacOS: () => boolean;
     atoms: GlobalAtomsType;
     services: typeof AllServiceImpls;
     callBackendService: (service: string, method: string, args: any[], noUIContext?: boolean) => Promise<any>;
     showContextMenu: (menu: ContextMenuItem[], e: React.MouseEvent) => void;
-    getConnStatusAtom: (conn: string) => PrimitiveAtom<ConnStatus>;
-    getLocalHostDisplayNameAtom: () => Atom<string>;
     wos: {
         getWaveObjectAtom: <T extends WaveObj>(oref: string) => Atom<T>;
         getWaveObjectLoadingAtom: (oref: string) => Atom<boolean>;
         isWaveObjectNullAtom: (oref: string) => Atom<boolean>;
         useWaveObjectValue: <T extends WaveObj>(oref: string) => [T, boolean];
     };
-    getSettingsKeyAtom: SettingsKeyAtomFnType;
-    getBlockMetaKeyAtom: MetaKeyAtomFnType;
-    getTabMetaKeyAtom: MetaKeyAtomFnType;
-    getConnConfigKeyAtom: ConnConfigKeyAtomFnType;
-    getConfigBackgroundAtom: (bgKey: string | null) => Atom<BackgroundConfigType>;
 
     // the mock fields are only usable in the preview server (may be be null or throw errors in production)
     mockSetWaveObj: <T extends WaveObj>(oref: string, obj: T) => void;

@@ -72,50 +72,16 @@ export function installTauriApi(init: InitData) {
         onZoomFactorChange: (cb: (zoomFactor: number) => void) => chrome.onZoomFactorChange(cb),
         onFullScreenChange: (cb: (isFullScreen: boolean) => void) => chrome.onFullScreenChange(cb),
         onControlShiftStateUpdate: (cb: (state: boolean) => void) => chrome.onControlShiftStateUpdate(cb),
-        // real no-op: Tauri has no main-process key interception to coordinate; keymodel.ts's
-        // JS chord timer is the mechanism (spec P2-4).
-        setKeyboardChordMode: () => {},
-        getAboutModalDetails: () => ({ version: init.version, buildTime: init.buildTime }),
     };
 
     installStubs(api);
     (window as any).api = api;
 }
 
-// Everything outside the implemented set: typed benign-default stubs (not throws), so the bridge
-// implements the full ElectronApi type and an incidental call cannot crash. showContextMenu/
-// onContextMenuClick are CUT (context menus are themed React now - app/store/contextmenu.ts); updateWindowControls
-// Overlay/onMenuItemAbout are obsolete under the custom titlebar. All deleted with their callers in
-// Phase 5.
+// methods the frontend still calls but Tauri has no native port for yet: benign-default stubs (not
+// throws), so a call degrades instead of crashing.
 function installStubs(api: Partial<ElectronApi>) {
-    const voidStubs = [
-        "showWorkspaceAppMenu", "showContextMenu", "onContextMenuClick",
-        "downloadFile", "onUpdaterStatusChange",
-        "installAppUpdate", "onMenuItemAbout", "updateWindowControlsOverlay", "onReinjectKey",
-        "setWebviewFocus", "registerGlobalWebviewKeys",
-        "createWorkspace", "switchWorkspace", "deleteWorkspace", "setActiveTab", "createTab",
-        "onQuicklook", "openNativePath",
-        "setWaveAIOpen", "nativePaste",
-        "doRefresh", "onNavigate", "onIframeNavigate",
-    ];
-    for (const name of voidStubs) {
-        if ((api as any)[name]) continue;
-        (api as any)[name] = (..._a: any[]) => stubWarn(name);
-    }
-
-    // typed sync getters → benign defaults
-    api.getCursorPoint = () => { stubWarn("getCursorPoint"); return { x: 0, y: 0 } as any; };
-    api.getDataDir = () => { stubWarn("getDataDir"); return ""; };
-    api.getConfigDir = () => { stubWarn("getConfigDir"); return ""; };
-    api.getHomeDir = () => { stubWarn("getHomeDir"); return ""; };
-    api.getWebviewPreload = () => { stubWarn("getWebviewPreload"); return ""; };
-    api.getUpdaterStatus = () => { stubWarn("getUpdaterStatus"); return "unavailable" as any; };
-    api.getUpdaterChannel = () => { stubWarn("getUpdaterChannel"); return ""; };
-
-    // invoke/Promise methods → resolved benign defaults
-    api.closeTab = (..._a: any[]) => { stubWarn("closeTab"); return Promise.resolve(false); };
-    api.captureScreenshot = (..._a: any[]) => { stubWarn("captureScreenshot"); return Promise.resolve(""); };
-    api.clearWebviewStorage = (..._a: any[]) => { stubWarn("clearWebviewStorage"); return Promise.resolve(); };
+    api.nativePaste = () => stubWarn("nativePaste");
     api.saveTextFile = (..._a: any[]) => { stubWarn("saveTextFile"); return Promise.resolve(false); };
     api.getPathForFile = (..._a: any[]) => { stubWarn("getPathForFile"); return ""; };
 }

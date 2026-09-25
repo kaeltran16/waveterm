@@ -3,8 +3,6 @@
 
 @import "tailwindcss";
 
-@source "../node_modules/streamdown/dist/index.js";
-
 @theme {
     /* Surfaces (handoff bg ramp) */
     --color-background: #0c0e11;
@@ -268,7 +266,7 @@ svg [aria-label="tip"] g path {
     width: 10px;
 }
 
-/* Handoff design-system globals: scrollbar (see wave-handoff cockpit prototype) */
+/* Handoff design-system globals: scrollbar */
 ::-webkit-scrollbar {
     width: 10px;
     height: 10px;

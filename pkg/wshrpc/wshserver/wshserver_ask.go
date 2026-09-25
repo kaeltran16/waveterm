@@ -50,7 +50,6 @@ func (ws *WshServer) AskCommand(ctx context.Context, data wshrpc.CommandAskData)
 		Questions: data.Questions,
 		Ts:        ts,
 		Prose:     data.Prose,
-		Wait:      data.Wait,
 	})
 	publishAgentAsk(baseds.AgentAskData{
 		ORef:      data.ORef,

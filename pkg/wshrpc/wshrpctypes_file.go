@@ -7,24 +7,17 @@ package wshrpc
 import (
 	"context"
 	"os"
-
-	"github.com/wavetermdev/waveterm/pkg/ijson"
 )
 
 type WshRpcFileInterface interface {
 	FileMkdirCommand(ctx context.Context, data FileData) error
 	FileCreateCommand(ctx context.Context, data FileData) error
 	FileDeleteCommand(ctx context.Context, data CommandDeleteFileData) error
-	FileAppendCommand(ctx context.Context, data FileData) error
 	FileWriteCommand(ctx context.Context, data FileData) error
 	FileReadCommand(ctx context.Context, data FileData) (*FileData, error)
 	FileMoveCommand(ctx context.Context, data CommandFileCopyData) error
-	FileCopyCommand(ctx context.Context, data CommandFileCopyData) error
 	FileInfoCommand(ctx context.Context, data FileData) (*FileInfo, error)
-	FileListCommand(ctx context.Context, data FileListData) ([]*FileInfo, error)
 	FileJoinCommand(ctx context.Context, paths []string) (*FileInfo, error)
-	FileListStreamCommand(ctx context.Context, data FileListData) <-chan RespOrErrorUnion[CommandRemoteListEntriesRtnData]
-	FileStreamCommand(ctx context.Context, data CommandFileStreamData) (*FileInfo, error)
 }
 
 type WshRpcRemoteFileInterface interface {
@@ -32,8 +25,6 @@ type WshRpcRemoteFileInterface interface {
 	RemoteFileCopyCommand(ctx context.Context, data CommandFileCopyData) (bool, error)
 	RemoteListEntriesCommand(ctx context.Context, data CommandRemoteListEntriesData) chan RespOrErrorUnion[CommandRemoteListEntriesRtnData]
 	RemoteFileInfoCommand(ctx context.Context, path string) (*FileInfo, error)
-	RemoteFileMultiInfoCommand(ctx context.Context, data CommandRemoteFileMultiInfoData) (map[string]FileInfo, error)
-	RemoteFileTouchCommand(ctx context.Context, path string) error
 	RemoteFileMoveCommand(ctx context.Context, data CommandFileCopyData) error
 	RemoteFileDeleteCommand(ctx context.Context, data CommandDeleteFileData) error
 	RemoteWriteFileCommand(ctx context.Context, data FileData) error
@@ -72,17 +63,13 @@ type FileInfo struct {
 }
 
 type FileOpts struct {
-	MaxSize     int64 `json:"maxsize,omitempty"`
-	Circular    bool  `json:"circular,omitempty"`
-	IJson       bool  `json:"ijson,omitempty"`
-	IJsonBudget int   `json:"ijsonbudget,omitempty"`
-	Truncate    bool  `json:"truncate,omitempty"`
-	Append      bool  `json:"append,omitempty"`
+	MaxSize  int64 `json:"maxsize,omitempty"`
+	Circular bool  `json:"circular,omitempty"`
+	Truncate bool  `json:"truncate,omitempty"`
+	Append   bool  `json:"append,omitempty"`
 }
 
 type FileMeta = map[string]any
-
-type FileListStreamResponse <-chan RespOrErrorUnion[CommandRemoteListEntriesRtnData]
 
 type FileListData struct {
 	Path string        `json:"path"`
@@ -93,18 +80,6 @@ type FileListOpts struct {
 	All    bool `json:"all,omitempty"`
 	Offset int  `json:"offset,omitempty"`
 	Limit  int  `json:"limit,omitempty"`
-}
-
-type FileCreateData struct {
-	Path string         `json:"path"`
-	Meta map[string]any `json:"meta,omitempty"`
-	Opts *FileOpts      `json:"opts,omitempty"`
-}
-
-type CommandAppendIJsonData struct {
-	ZoneId   string        `json:"zoneid"`
-	FileName string        `json:"filename"`
-	Data     ijson.Command `json:"data"`
 }
 
 type CommandDeleteFileData struct {
@@ -125,11 +100,6 @@ type FileCopyOpts struct {
 	Timeout   int64 `json:"timeout,omitempty"`
 }
 
-type CommandRemoteStreamFileData struct {
-	Path      string `json:"path"`
-	ByteRange string `json:"byterange,omitempty"`
-}
-
 type CommandRemoteFileStreamData struct {
 	Path       string     `json:"path"`
 	ByteRange  string     `json:"byterange,omitempty"`
@@ -145,11 +115,6 @@ type CommandFileStreamData struct {
 type CommandRemoteListEntriesData struct {
 	Path string        `json:"path"`
 	Opts *FileListOpts `json:"opts,omitempty"`
-}
-
-type CommandRemoteFileMultiInfoData struct {
-	Cwd   string   `json:"cwd"`
-	Paths []string `json:"paths"`
 }
 
 type CommandRemoteListEntriesRtnData struct {

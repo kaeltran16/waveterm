@@ -15,7 +15,7 @@ export function captureTailArgs(blockId: string): string[] {
 }
 
 export function openFileArgs(absPath: string): string[] {
-    return ["editor", absPath];
+    return ["view", absPath];
 }
 
 export function querySessionsArgs(): string[] {

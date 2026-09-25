@@ -32,11 +32,6 @@ const CtxDoneChSize = 10
 
 var blockingExpMap = ds.MakeExpMap[bool]()
 
-type ResponseFnType = func(any) error
-
-// returns true if handler is complete, false for an async handler
-type CommandHandlerFnType = func(*RpcResponseHandler) bool
-
 type ServerImpl interface {
 	WshServerImpl()
 }
@@ -88,14 +83,6 @@ func GetRpcSourceFromContext(ctx context.Context) string {
 		return ""
 	}
 	return rtn.(*RpcResponseHandler).GetSource()
-}
-
-func GetIsCanceledFromContext(ctx context.Context) bool {
-	rtn := ctx.Value(wshRpcRespHandlerContextKey{})
-	if rtn == nil {
-		return false
-	}
-	return rtn.(*RpcResponseHandler).IsCanceled()
 }
 
 func GetRpcResponseHandlerFromContext(ctx context.Context) *RpcResponseHandler {

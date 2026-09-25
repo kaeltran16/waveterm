@@ -29,18 +29,6 @@ type Connection struct {
 	Path   string
 }
 
-func (c *Connection) GetSchemeParts() []string {
-	return strings.Split(c.Scheme, ":")
-}
-
-func (c *Connection) GetType() string {
-	lastInd := strings.LastIndex(c.Scheme, ":")
-	if lastInd == -1 {
-		return c.Scheme
-	}
-	return c.Scheme[lastInd+1:]
-}
-
 func (c *Connection) GetPathWithHost() string {
 	if c.Host == "" {
 		return ""
@@ -56,10 +44,6 @@ func (c *Connection) GetPathWithHost() string {
 
 func (c *Connection) GetFullURI() string {
 	return c.Scheme + "://" + c.GetPathWithHost()
-}
-
-func (c *Connection) GetSchemeAndHost() string {
-	return c.Scheme + "://" + c.Host
 }
 
 func ParseURIAndReplaceCurrentHost(ctx context.Context, uri string) (*Connection, error) {

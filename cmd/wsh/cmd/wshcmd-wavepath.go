@@ -22,17 +22,12 @@ var wavepathCmd = &cobra.Command{
 }
 
 func init() {
-	wavepathCmd.Flags().BoolP("open", "o", false, "Open the path in a new block")
 	wavepathCmd.Flags().BoolP("open-external", "O", false, "Open the path in the default external application")
 	wavepathCmd.Flags().BoolP("tail", "t", false, "Tail the last 100 lines of the log")
 	rootCmd.AddCommand(wavepathCmd)
 }
 
 func wavepathRun(cmd *cobra.Command, args []string) (rtnErr error) {
-	defer func() {
-		sendActivity("wavepath", rtnErr == nil)
-	}()
-
 	if len(args) == 0 {
 		OutputHelpMessage(cmd)
 		return fmt.Errorf("no arguments. wsh wavepath requires a type argument (config, data, or log)")
@@ -53,19 +48,11 @@ func wavepathRun(cmd *cobra.Command, args []string) (rtnErr error) {
 		return fmt.Errorf("--tail can only be used with the log path type")
 	}
 
-	open, _ := cmd.Flags().GetBool("open")
 	openExternal, _ := cmd.Flags().GetBool("open-external")
-
-	tabId := getTabIdFromEnv()
-	if tabId == "" {
-		return fmt.Errorf("no WAVETERM_TABID env var set")
-	}
 
 	path, err := wshclient.PathCommand(RpcClient, wshrpc.PathCommandData{
 		PathType:     pathType,
-		Open:         open,
 		OpenExternal: openExternal,
-		TabId:        tabId,
 	}, nil)
 	if err != nil {
 		return fmt.Errorf("getting path: %w", err)

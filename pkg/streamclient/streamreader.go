@@ -29,10 +29,6 @@ type Reader struct {
 	oooPackets   []wshrpc.CommandStreamData // out-of-order packets awaiting delivery
 }
 
-func NewReader(id string, readWindow int64, ackSender AckSender) *Reader {
-	return NewReaderWithSeq(id, readWindow, 0, ackSender)
-}
-
 func NewReaderWithSeq(id string, readWindow int64, startSeq int64, ackSender AckSender) *Reader {
 	r := &Reader{
 		id:           id,
