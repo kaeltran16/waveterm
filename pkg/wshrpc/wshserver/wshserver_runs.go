@@ -86,6 +86,10 @@ func phaseIdxOf(idx int) *int { return &idx }
 // the dispatch without running it.
 var captureAsync = func(fn func()) { go fn() }
 
+// scheduleAsync pokes a terminal child's dag scheduler off the RPC handler's goroutine. A seam so tests
+// whose fixture repo is torn down on return don't race the engine's git work in it.
+var scheduleAsync = func(fn func()) { go fn() }
+
 // continuityCaptureTimeout bounds the detached boundary-summary model call (PLACEHOLDER; see docs/deferred.md).
 const continuityCaptureTimeout = 90 * time.Second
 
@@ -671,11 +675,11 @@ func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandA
 			// the transition is durable; the tick it pokes can merge, run Setup and spawn, which outlasts the
 			// child's RPC budget and reads to the child as a failed complete (run 28caa81f's t-4)
 			dagID := grp.OID
-			go func() {
+			scheduleAsync(func() {
 				if serr := orchestrate.Schedule(context.Background(), dagID); serr != nil {
 					log.Printf("dag schedule error: %v", serr)
 				}
-			}()
+			})
 		}
 	}
 	// continuity (sub-project E): on entering a rest state (awaiting-review | blocked | done), write the
