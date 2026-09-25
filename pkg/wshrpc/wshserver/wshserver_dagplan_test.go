@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
+	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
@@ -189,6 +190,82 @@ func TestDagSubmitFromPlanPath(t *testing.T) {
 			t.Fatalf("want a refusal naming the missing effort, got %v", err)
 		}
 	})
+}
+
+func TestDagSubmitRoundExtendsTheDag(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	write := func(name, src string) string {
+		t.Helper()
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	ch, err := wstore.CreateChannel(ctx, "dag-round-test", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := jarvis.NewRun("ship coupons", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
+	run.Status = jarvis.RunStatus_Planning
+	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
+		t.Fatal(err)
+	}
+	submit := func(data wshrpc.CommandDagSubmitData) (*waveobj.TaskGroup, error) {
+		data.ChannelId, data.RunId = ch.OID, run.ID
+		return (&WshServer{}).DagSubmitCommand(ctx, data)
+	}
+	fixPlan := write("fix.md", "**Verify:** `echo fix-verify`\n**Setup:** `echo fix-setup`\n**Check:** `echo fix-check`\n**Final:** `echo fix-final`\n\n"+
+		"### Task 1: widen\nwiden the column\n\n### Task 2: cover\n**Depends on:** Task 1\n")
+
+	if _, err := submit(wshrpc.CommandDagSubmitData{PlanPath: fixPlan, Round: true}); err == nil || !strings.Contains(err.Error(), "no dag") {
+		t.Fatalf("a round on a run with no dag: want a refusal, got %v", err)
+	}
+	planPath, specPath := write("plan.md", "**Verify:** `echo verify`\n**Check:** `echo check`\n**Final:** `echo final`\n\n### Task 1: a\n\n### Task 2: b\n\n### Task 3: c\n"), write("spec.md", "# spec\n")
+	g, err := submit(wshrpc.CommandDagSubmitData{PlanPath: planPath, SpecPath: specPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := submit(wshrpc.CommandDagSubmitData{PlanPath: fixPlan, Round: true}); err == nil || !strings.Contains(err.Error(), "the final stage has not failed") {
+		t.Fatalf("a round before the final stage failed: want a refusal, got %v", err)
+	}
+	if err := wstore.UpdateDag(ctx, g.OID, func(cur *waveobj.TaskGroup) error {
+		for i := range cur.Tasks {
+			cur.Tasks[i].State = orchestrate.TaskState_Done
+		}
+		cur.PlanReview = &waveobj.PlanReviewStage{State: orchestrate.PlanReviewState_Passed, Round: 1}
+		cur.Final = &waveobj.FinalStage{State: orchestrate.FinalState_Failed, Round: 1, Detail: "FAIL"}
+		orchestrate.RecomputeDagStatus(cur)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// a spec passed with the round is ignored: the round implements the run's spec
+	got, err := submit(wshrpc.CommandDagSubmitData{PlanPath: fixPlan, SpecPath: write("other-spec.md", "# other\n"), Round: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var shape []string
+	for _, task := range got.Tasks[3:] {
+		shape = append(shape, task.ID+" <- "+strings.Join(task.Deps, ","))
+	}
+	if len(got.Tasks) != 5 || !reflect.DeepEqual(shape, []string{"t-4 <- ", "t-5 <- t-4"}) {
+		t.Fatalf("the fix tasks are t-4 and t-5, t-5 after t-4, got %d tasks %v", len(got.Tasks), shape)
+	}
+	if got.Verify != "echo verify" || got.Setup != "" || got.Check != "echo check" || got.FinalCmd != "echo final" {
+		t.Fatalf("the fix plan's commands are ignored for the dag's, got verify %q setup %q check %q final %q", got.Verify, got.Setup, got.Check, got.FinalCmd)
+	}
+	if got.PlanPath != planPath || got.SpecPath != specPath || got.PlanReview.State != orchestrate.PlanReviewState_Passed {
+		t.Fatalf("the dag keeps its plan, spec and passed plan review, got %q %q %+v", got.PlanPath, got.SpecPath, got.PlanReview)
+	}
+	if got.Final == nil || got.Final.Round != 2 || got.Final.State != "" {
+		t.Fatalf("round 2 is set up, not started, got %+v", got.Final)
+	}
+	if !strings.HasPrefix(got.Tasks[3].Description, "Fix round 2: this is task 1 of the fix plan at "+fixPlan+";") {
+		t.Fatalf("a checkout-landed round names its fix plan by its absolute path, got %q", got.Tasks[3].Description)
+	}
 }
 
 func TestDagPlanPreview(t *testing.T) {

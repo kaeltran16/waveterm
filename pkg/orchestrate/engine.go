@@ -806,7 +806,7 @@ func taskPrompt(g *waveobj.TaskGroup, task *waveobj.TaskNode, owner *waveobj.Run
 	}
 	if task.Description != "" {
 		b.WriteString("\n\n")
-		b.WriteString(task.Description)
+		b.WriteString(roundDescription(g, task.Description, tree))
 	}
 	if len(task.LeadNotes) > 0 {
 		b.WriteString("\n\nThe lead added after earlier tasks landed:")

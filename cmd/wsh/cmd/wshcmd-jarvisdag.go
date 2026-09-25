@@ -40,7 +40,8 @@ const dagOneDagPerRunNote = `
 
 A run holds exactly one dag for its whole lifetime: the first submission wins and a later,
 differing one is rejected as a dag conflict. There is no multi-phase import, so a plan that
-does not fit in one dag must be split across two runs.`
+does not fit in one dag must be split across two runs. A fix round after a failed final stage
+extends the same dag instead: --round appends the fix plan's tasks.`
 
 // dagSpecPath resolves --spec to an absolute path. A spec is committed with the plan it produced, so it is
 // only accepted beside --plan.
@@ -54,6 +55,32 @@ func dagSpecPath(planPath, spec string) (string, error) {
 	return filepath.Abs(spec)
 }
 
+// dagSubmitData is what `dag submit` sends for its flags.
+func dagSubmitData(cmd *cobra.Command) (wshrpc.CommandDagSubmitData, error) {
+	plan, _ := cmd.Flags().GetString("plan")
+	if plan == "" {
+		return wshrpc.CommandDagSubmitData{}, fmt.Errorf("--plan <plan.md> is required")
+	}
+	// wavesrv parses the file and does not share this process's cwd
+	planPath, err := filepath.Abs(plan)
+	if err != nil {
+		return wshrpc.CommandDagSubmitData{}, err
+	}
+	spec, _ := cmd.Flags().GetString("spec")
+	specPath, err := dagSpecPath(planPath, spec)
+	if err != nil {
+		return wshrpc.CommandDagSubmitData{}, err
+	}
+	round, _ := cmd.Flags().GetBool("round")
+	channelId, runId, err := dagIds(cmd)
+	if err != nil {
+		return wshrpc.CommandDagSubmitData{}, err
+	}
+	return wshrpc.CommandDagSubmitData{
+		ChannelId: channelId, RunId: runId, PlanPath: planPath, SpecPath: specPath, Round: round,
+	}, nil
+}
+
 // a submit for a run landing on its own branch runs the plan's Setup in that tree before it answers
 var dagSubmitTimeoutMs = int64((orchestrate.SetupTimeout + 20*time.Second) / time.Millisecond)
 
@@ -64,26 +91,9 @@ var dagSubmitCmd = &cobra.Command{
 	Args:    cobra.NoArgs,
 	PreRunE: preRunSetupRpcClient,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		plan, _ := cmd.Flags().GetString("plan")
-		if plan == "" {
-			return fmt.Errorf("--plan <plan.md> is required")
-		}
-		// wavesrv parses the file and does not share this process's cwd
-		planPath, err := filepath.Abs(plan)
+		data, err := dagSubmitData(cmd)
 		if err != nil {
 			return err
-		}
-		spec, _ := cmd.Flags().GetString("spec")
-		specPath, err := dagSpecPath(planPath, spec)
-		if err != nil {
-			return err
-		}
-		channelId, runId, err := dagIds(cmd)
-		if err != nil {
-			return err
-		}
-		data := wshrpc.CommandDagSubmitData{
-			ChannelId: channelId, RunId: runId, PlanPath: planPath, SpecPath: specPath,
 		}
 		g, err := wshclient.DagSubmitCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: dagSubmitTimeoutMs})
 		if err != nil {
@@ -824,6 +834,7 @@ func init() {
 	}
 	dagSubmitCmd.Flags().String("plan", "", "the plan file to submit, in the plan format below; its tasks become the dag")
 	dagSubmitCmd.Flags().String("spec", "", "the spec the plan implements; committed with the plan in the run's first merge")
+	dagSubmitCmd.Flags().Bool("round", false, "after the final stage failed: append the fix plan's tasks to this run's dag as a fix round; the dag keeps its Verify, Setup, Check and Final")
 	dagEscalateCmd.Flags().String("model", "", "exact model id to retry on (e.g. sonnet, or opencode/deepseek-v4-pro for pi)")
 	dagEscalateCmd.Flags().String("runtime", "", "runtime to retry on; empty keeps the task's current runtime")
 	dagReviewCmd.Flags().String("downstream", "", "with pass: what a later task must know (a renamed API, a plan assumption that turned out wrong)")

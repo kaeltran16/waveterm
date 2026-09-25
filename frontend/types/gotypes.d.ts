@@ -708,6 +708,7 @@ declare global {
         workerroute?: RoutePin;
         planpath?: string;
         specpath?: string;
+        round?: boolean;
     };
 
     // wshrpc.CommandDebugTermData

@@ -209,6 +209,35 @@ func TestDagSubmitExposesPlanFlag(t *testing.T) {
 	}
 }
 
+func TestDagSubmitRoundSendsRound(t *testing.T) {
+	flags := dagSubmitCmd.Flags()
+	t.Cleanup(func() {
+		for _, name := range []string{"plan", "round", "channel", "runid"} {
+			f := flags.Lookup(name)
+			f.Value.Set(f.DefValue)
+			f.Changed = false
+		}
+	})
+	for name, value := range map[string]string{"plan": "f.md", "round": "true", "channel": "ch-1", "runid": "run-1"} {
+		if err := flags.Set(name, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	data, err := dagSubmitData(dagSubmitCmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !data.Round || !filepath.IsAbs(data.PlanPath) || !strings.HasSuffix(data.PlanPath, "f.md") || data.ChannelId != "ch-1" || data.RunId != "run-1" {
+		t.Fatalf("`dag submit --round --plan f.md` sends %+v", data)
+	}
+	if err := flags.Set("round", "false"); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := dagSubmitData(dagSubmitCmd); err != nil || data.Round {
+		t.Fatalf("without --round the submit is no round, got %+v, %v", data, err)
+	}
+}
+
 func TestDagSpecPath(t *testing.T) {
 	if dagSubmitCmd.Flags().Lookup("spec") == nil {
 		t.Fatal("dag submit must expose --spec")

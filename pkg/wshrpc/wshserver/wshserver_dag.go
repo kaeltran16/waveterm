@@ -141,6 +141,10 @@ var postHandoff = orchestrate.PostHandoff
 
 func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDagSubmitData) (*waveobj.TaskGroup, error) {
 	var plan jarvis.Plan
+	if data.Round {
+		// a fix round implements the run's spec; its plan brings no spec of its own
+		data.SpecPath = ""
+	}
 	if data.SpecPath != "" && data.PlanPath == "" {
 		return nil, fmt.Errorf("specpath needs planpath: the spec is committed with the plan it produced")
 	}
@@ -160,6 +164,9 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 	}
 	if run.Mode != jarvis.RunMode_Orchestrator {
 		return nil, fmt.Errorf("dag requires an orchestrator-mode run")
+	}
+	if data.Round {
+		return submitFixRound(ctx, run, data)
 	}
 	if err := checkDagEffort(ctx, plan.EffortOID, data.Tasks); err != nil {
 		return nil, err
@@ -279,6 +286,49 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 	// the submitting tick: it derives the group's status, publishes it and dispatches the first layer.
 	if serr := orchestrate.Schedule(ctx, stored.OID); serr != nil {
 		log.Printf("dag submit schedule error: %v", serr)
+	}
+	if fresh, err := wstore.GetDag(ctx, stored.OID); err == nil {
+		return fresh, nil
+	}
+	return stored, nil
+}
+
+// submitFixRound appends a fix plan's tasks to the run's dag after its final stage failed. Only the tasks are
+// taken: the dag keeps its Verify, Setup, Check, Final and effort, and the round is not plan-reviewed.
+func submitFixRound(ctx context.Context, run *waveobj.Run, data wshrpc.CommandDagSubmitData) (*waveobj.TaskGroup, error) {
+	if data.PlanPath == "" {
+		return nil, fmt.Errorf("a fix round is submitted as a plan file: pass planpath")
+	}
+	if run.DagORef == "" {
+		return nil, fmt.Errorf("run %s has no dag for a fix round to extend", run.ID)
+	}
+	g, err := wstore.GetDag(ctx, run.DagORef)
+	if err != nil {
+		return nil, err
+	}
+	// checked before the snapshot too: a refused round must not commit its plan into a landing tree the final
+	// stage may be running in
+	if err := orchestrate.CheckFixRound(g); err != nil {
+		return nil, err
+	}
+	if err := checkDagEffort(ctx, g.EffortOID, data.Tasks); err != nil {
+		return nil, err
+	}
+	planPath := data.PlanPath
+	// committed like the run's plan, so each fix task reads the version it was submitted with
+	if run.LandPath != "" {
+		rels, err := orchestrate.SnapshotDocs(ctx, run.LandPath, run.ID, data.Title, data.PlanPath)
+		if err != nil {
+			return nil, fmt.Errorf("committing the fix plan to wave/%s: %w", run.ID, err)
+		}
+		planPath = rels[0]
+	}
+	stored, err := orchestrate.AppendRound(ctx, g.OID, planPath, data.Tasks)
+	if err != nil {
+		return nil, err
+	}
+	if serr := orchestrate.Schedule(ctx, stored.OID); serr != nil {
+		log.Printf("dag fix round schedule error: %v", serr)
 	}
 	if fresh, err := wstore.GetDag(ctx, stored.OID); err == nil {
 		return fresh, nil

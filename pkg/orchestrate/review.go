@@ -447,7 +447,7 @@ func reviewPrompt(g *waveobj.TaskGroup, task *waveobj.TaskNode, worker *waveobj.
 	b.WriteString(goal)
 	if task.Description != "" {
 		b.WriteString("\n\n")
-		b.WriteString(task.Description)
+		b.WriteString(roundDescription(g, task.Description, worker.ProjectPath))
 	}
 	// whole, unlike a dependent's handoff: the report is the reviewer's one account of what was and was not checked
 	if worker.Evidence != nil {

@@ -223,6 +223,72 @@ func TestDagSubmitCommitsTheSpecAndPlanOnTheRunsBranch(t *testing.T) {
 	}
 }
 
+// a fix round's plan is committed on the run's branch like the run's own, but only once the round is accepted:
+// the landing tree may be running the final stage
+func TestDagSubmitRoundCommitsTheFixPlanOnTheRunsBranch(t *testing.T) {
+	ctx := context.Background()
+	projectDir, execGit := newLandingRepo(t)
+	ch, err := wstore.CreateChannel(ctx, "landing-round", projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := jarvis.NewRun("g", "ws", projectDir, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
+	run.Status = jarvis.RunStatus_Planning
+	tree, err := orchestrate.CreateRunWorktree(ctx, projectDir, run.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	run.LandPath = tree
+	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
+		t.Fatal(err)
+	}
+	plan, fix := filepath.Join(tree, "docs", "plans", "board.md"), filepath.Join(tree, "docs", "plans", "board-fix.md")
+	for path, text := range map[string]string{plan: "# Board\n\n### Task 1: layout\n", fix: "# Board fix\n\n### Task 1: widen\n"} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	submit := func(data wshrpc.CommandDagSubmitData) (*waveobj.TaskGroup, error) {
+		data.ChannelId, data.RunId = ch.OID, run.ID
+		return (&WshServer{}).DagSubmitCommand(ctx, data)
+	}
+	g, err := submit(wshrpc.CommandDagSubmitData{PlanPath: plan})
+	if err != nil {
+		t.Fatal(err)
+	}
+	branch := "wave/" + run.ID
+	tip := execGit("rev-parse", branch)
+	if _, err := submit(wshrpc.CommandDagSubmitData{PlanPath: fix, Round: true}); err == nil || !strings.Contains(err.Error(), "the final stage has not failed") {
+		t.Fatalf("want the round refused, got %v", err)
+	}
+	if got := execGit("rev-parse", branch); got != tip {
+		t.Fatalf("a refused round moved the branch from %s to %s", tip, got)
+	}
+	if err := wstore.UpdateDag(ctx, g.OID, func(cur *waveobj.TaskGroup) error {
+		cur.Tasks[0].State, cur.Tasks[0].Merged = orchestrate.TaskState_Done, true
+		cur.PlanReview = &waveobj.PlanReviewStage{State: orchestrate.PlanReviewState_Passed, Round: 1}
+		cur.Final = &waveobj.FinalStage{State: orchestrate.FinalState_Failed, Round: 1, Detail: "FAIL"}
+		orchestrate.RecomputeDagStatus(cur)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := submit(wshrpc.CommandDagSubmitData{PlanPath: fix, Round: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msg := execGit("log", "-1", "--format=%B", branch); !strings.HasPrefix(msg, "docs: spec and plan for Board fix") || !strings.HasSuffix(msg, "Arc-Run: "+run.ID) {
+		t.Fatalf("branch tip message = %q", msg)
+	}
+	if !strings.HasPrefix(got.Tasks[1].Description, "Fix round 2: this is task 1 of the fix plan at docs/plans/board-fix.md;") || got.PlanPath != "docs/plans/board.md" {
+		t.Fatalf("the fix task names the repo-relative fix plan and the dag keeps its plan, got %q / %q", got.Tasks[1].Description, got.PlanPath)
+	}
+}
+
 func createLandingRun(t *testing.T, ctx context.Context, projectDir, mode string, landing *string) (*waveobj.Channel, *waveobj.Run, error) {
 	t.Helper()
 	stubRunServer(t, "pi", nil)

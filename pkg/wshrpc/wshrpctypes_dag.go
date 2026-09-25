@@ -36,6 +36,7 @@ type CommandDagSubmitData struct {
 	WorkerRoute *waveobj.RoutePin  `json:"workerroute,omitempty"` // nil = inherit lead; B1b workers default
 	PlanPath    string             `json:"planpath,omitempty"`    // absolute path to a plan in jarvis.PlanFormat; replaces tasks
 	SpecPath    string             `json:"specpath,omitempty"`    // absolute path to the spec the plan implements; only with planpath
+	Round       bool               `json:"round,omitempty"`       // append the plan's tasks to the run's dag as a fix round after its final stage failed
 }
 
 type CommandDagPlanPreviewData struct {
