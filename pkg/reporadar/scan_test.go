@@ -33,5 +33,14 @@ func TestRunScanEmptyCollectsAndFailsClustering(t *testing.T) {
 	if got.Status != StatusCompleted && got.Status != StatusFailed {
 		t.Fatalf("want completed or failed, got %q (%s)", got.Status, got.FatalError)
 	}
+	// every lens the scan ran must end in a terminal state, or the clustering screen would show it spinning
+	if got.ClusterStartedTs == 0 {
+		t.Fatalf("clusterstartedts not set")
+	}
+	for _, mode := range V1Modes {
+		if s := got.LensProgress[mode]; s != "ok" && s != "failed" {
+			t.Fatalf("lens %s ended %q, want ok or failed (all: %v)", mode, s, got.LensProgress)
+		}
+	}
 	_ = waveobj.OType_RadarReport
 }

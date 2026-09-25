@@ -262,6 +262,26 @@ export function coverageRows(report: RadarReport | null): CoverageRow[] {
     return [...COLLECTORS, ...extra].map((c) => ({ ...c, cell: classifyCoverage(coverage[c.name]) }));
 }
 
+// The lenses clustering runs, one model call each (V1Modes in pkg/reporadar/types.go).
+export const LENSES: CollectorInfo[] = [
+    { name: "correctness", examines: "Test gaps, contract drift and repeated failures" },
+    { name: "security", examines: "Auth, secret and input boundaries" },
+];
+
+// lensRows lists the lenses this clustering pass runs, each with its streamed status. Only the lenses in
+// lensprogress are listed, since a retry reruns just the ones that failed.
+export function lensRows(report: RadarReport | null): CoverageRow[] {
+    const progress = report?.lensprogress ?? {};
+    const known = new Set(LENSES.map((l) => l.name));
+    const extra = Object.keys(progress)
+        .filter((name) => !known.has(name))
+        .map((name) => ({ name, examines: "" }));
+    return [...LENSES.filter((l) => l.name in progress), ...extra].map((l) => ({
+        ...l,
+        cell: classifyCoverage(progress[l.name]),
+    }));
+}
+
 export function hasCoverageFailure(report: RadarReport): boolean {
     return coverageEntries(report).some((e) => e.status !== "ok");
 }

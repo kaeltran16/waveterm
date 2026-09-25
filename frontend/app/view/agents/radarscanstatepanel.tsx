@@ -3,8 +3,17 @@
 
 import { cn, fireAndForget } from "@/util/util";
 import { AlertTriangle, Check, CheckCircle2, Loader2, Radar, X, XCircle } from "lucide-react";
+import { useEffect, useState } from "react";
 import { formatTokens } from "./agentsviewmodel";
-import { COLLECTORS, coverageRows, failedLenses, type CoverageCell, type RadarScanState } from "./radarmodel";
+import {
+    COLLECTORS,
+    coverageRows,
+    failedLenses,
+    lensRows,
+    type CoverageCell,
+    type CoverageRow,
+    type RadarScanState,
+} from "./radarmodel";
 import { cancelScan, retryClustering, startScan } from "./radarstore";
 import { SurfaceEmptyState } from "./surfacescaffold";
 
@@ -67,18 +76,28 @@ function CollectorList() {
     );
 }
 
-// During a scan: the same collectors, each with its streamed status.
-function CollectorProgress({ report }: { report: RadarReport | null }) {
-    const rows = coverageRows(report);
+// ticks once a second, with seconds past the first minute, so a multi-minute model call visibly moves
+function Elapsed({ since }: { since: number }) {
+    const [now, setNow] = useState(() => Date.now());
+    useEffect(() => {
+        const t = setInterval(() => setNow(Date.now()), 1000);
+        return () => clearInterval(t);
+    }, []);
+    const secs = Math.max(0, Math.floor((now - since) / 1000));
+    const text = secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m ${secs % 60}s`;
+    return <> · {text} elapsed</>;
+}
+
+// During a scan: each collector (or clustering lens) with its streamed status.
+function ScanProgress({ title, rows, since }: { title: string; rows: CoverageRow[]; since?: number }) {
     const done = rows.filter((r) => r.cell === "done").length;
     return (
         <CollectorTable>
             <div className="flex items-center gap-2.5 bg-surface px-3.5 py-2">
-                <span className="flex-1 text-[10.5px] font-bold uppercase tracking-[0.08em] text-muted">
-                    Collectors
-                </span>
+                <span className="flex-1 text-[10.5px] font-bold uppercase tracking-[0.08em] text-muted">{title}</span>
                 <span className="font-mono text-[11px] text-ink-mid">
                     {done} of {rows.length} done
+                    {since ? <Elapsed since={since} /> : null}
                 </span>
             </div>
             {rows.map((r) => (
@@ -166,19 +185,26 @@ export function RadarScanStatePanel({
                     body="Local collectors are reading the tree and recent activity. No model budget is spent yet."
                     secondaryAction={{ label: "Cancel scan", onClick: cancel }}
                 >
-                    <CollectorProgress report={report} />
+                    <ScanProgress title="Collectors" rows={coverageRows(report)} />
                 </SurfaceEmptyState>
             );
-        case "clustering":
+        case "clustering": {
+            // a scan started by an older backend streams no lens progress; show its collectors instead
+            const lenses = lensRows(report);
             return (
                 <SurfaceEmptyState
                     title="Clustering findings"
-                    body={`One bounded model call is grouping ${report?.payloadtokens ? `a ${formatTokens(report.payloadtokens)}-token payload of ` : ""}signals into findings, compared with the previous scan.`}
+                    body={`Each lens is one bounded model call grouping ${report?.payloadtokens ? `a ${formatTokens(report.payloadtokens)}-token payload of ` : ""}signals into findings, compared with the previous scan. This usually takes a few minutes.`}
                     secondaryAction={{ label: "Cancel scan", onClick: cancel }}
                 >
-                    <CollectorProgress report={report} />
+                    {lenses.length ? (
+                        <ScanProgress title="Lenses" rows={lenses} since={report?.clusterstartedts} />
+                    ) : (
+                        <ScanProgress title="Collectors" rows={coverageRows(report)} />
+                    )}
                 </SurfaceEmptyState>
             );
+        }
         case "model-failed":
             // without retained candidates there is nothing to recluster, so only a fresh scan helps
             if (!report?.candidates?.length) {

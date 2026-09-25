@@ -28,6 +28,7 @@ import {
     isMutedGroup,
     isResultsState,
     lensHealthText,
+    lensRows,
     lensTabs,
     missedLatestScan,
     partialCollectors,
@@ -507,6 +508,25 @@ describe("COLLECTORS and coverageRows", () => {
     });
     it("lists the table alone before any scan", () => {
         expect(coverageRows(null).map((r) => r.cell)).toEqual(COLLECTORS.map(() => "queued"));
+    });
+});
+
+describe("lensRows", () => {
+    it("streams each lens in scan order, whatever order the map holds", () => {
+        const rows = lensRows(report({ lensprogress: { security: "queued", correctness: "running" } }));
+        expect(rows.map((r) => [r.name, r.cell])).toEqual([
+            ["correctness", "running"],
+            ["security", "queued"],
+        ]);
+    });
+    it("lists only the lenses a retry reruns", () => {
+        expect(lensRows(report({ lensprogress: { security: "failed" } })).map((r) => [r.name, r.cell])).toEqual([
+            ["security", "failed"],
+        ]);
+    });
+    it("is empty for a scan that streams no lens progress", () => {
+        expect(lensRows(report())).toEqual([]);
+        expect(lensRows(null)).toEqual([]);
     });
 });
 

@@ -2197,6 +2197,8 @@ declare global {
         signals?: RadarSignal[];
         findings?: RadarFinding[];
         moderuns?: RadarModeRun[];
+        lensprogress?: {[key: string]: string};
+        clusterstartedts?: number;
     };
 
     // waveobj.RadarSignal

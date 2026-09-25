@@ -52,6 +52,39 @@ func setStatus(ctx context.Context, reportId, status, phase string) {
 	publish(reportId)
 }
 
+// startClustering enters the clustering phase with every lens about to run queued, so the frontend can
+// show which model call is in flight and for how long rather than a static screen for minutes.
+func startClustering(ctx context.Context, reportId string, modes []string) {
+	lenses := map[string]string{}
+	for _, m := range modes {
+		lenses[m] = CoverageQueued
+	}
+	if err := wstore.UpdateRadarReport(ctx, reportId, func(r *waveobj.RadarReport) {
+		r.Status = StatusClustering
+		r.Phase = "clustering"
+		r.ClusterStartedTs = nowMilli()
+		r.LensProgress = lenses
+	}); err != nil {
+		log.Printf("reporadar: startClustering %s: %v", reportId, err)
+	}
+	publish(reportId)
+}
+
+// lensReporter streams each lens's clustering status (running, then ok/failed) to the frontend.
+func lensReporter(ctx context.Context, reportId string) func(mode, status string) {
+	return func(mode, status string) {
+		if err := wstore.UpdateRadarReport(ctx, reportId, func(r *waveobj.RadarReport) {
+			if r.LensProgress == nil {
+				r.LensProgress = map[string]string{}
+			}
+			r.LensProgress[mode] = status
+		}); err != nil {
+			return
+		}
+		publish(reportId)
+	}
+}
+
 // collectResult aggregates one scan's collection pass.
 type collectResult struct {
 	signals        []waveobj.RadarSignal
@@ -143,13 +176,13 @@ func runScan(ctx context.Context, reportId string) {
 	})
 	publish(reportId)
 
-	setStatus(ctx, reportId, StatusClustering, "clustering")
+	startClustering(ctx, reportId, V1Modes)
 	if ctx.Err() != nil {
 		finishCancelled(ctx, reportId)
 		return
 	}
 
-	findings, modeRuns := clusterModes(ctx, rpt.ProjectName, rpt.ProjectPath, cr.signals, V1Modes)
+	findings, modeRuns := clusterModes(ctx, rpt.ProjectName, rpt.ProjectPath, cr.signals, V1Modes, lensReporter(ctx, reportId))
 	if ctx.Err() != nil {
 		finishCancelled(ctx, reportId)
 		return
@@ -171,9 +204,9 @@ func runClusterOnly(ctx context.Context, reportId string) {
 		finishClusterFailed(reportId, "no retained candidates")
 		return
 	}
-	setStatus(ctx, reportId, StatusClustering, "clustering")
 	modes := retryModes(rpt)
-	findings, modeRuns := clusterModes(ctx, rpt.ProjectName, rpt.ProjectPath, rpt.Candidates, modes)
+	startClustering(ctx, reportId, modes)
+	findings, modeRuns := clusterModes(ctx, rpt.ProjectName, rpt.ProjectPath, rpt.Candidates, modes, lensReporter(ctx, reportId))
 	if ctx.Err() != nil {
 		// a cancelled retry leaves the report as it was, so a partial report stays the reconcile baseline
 		setStatus(context.Background(), reportId, rpt.Status, "")
@@ -278,8 +311,9 @@ func finishCancelled(ctx context.Context, reportId string) {
 // clusterModes runs each scan mode over the shared signal pool: it selects that mode's candidates,
 // prepares + synthesizes + validates them, and returns the merged validated findings plus one
 // RadarModeRun per mode. A mode whose synthesis fails is recorded clustering-failed and skipped; the
-// loop continues so other lenses still deliver.
-func clusterModes(ctx context.Context, projectName, projectPath string, signals []waveobj.RadarSignal, modes []string) ([]waveobj.RadarFinding, []waveobj.RadarModeRun) {
+// loop continues so other lenses still deliver. onLens is told as each lens starts ("running") and
+// finishes ("ok"/"failed").
+func clusterModes(ctx context.Context, projectName, projectPath string, signals []waveobj.RadarSignal, modes []string, onLens func(mode, status string)) ([]waveobj.RadarFinding, []waveobj.RadarModeRun) {
 	var merged []waveobj.RadarFinding
 	var runs []waveobj.RadarModeRun
 	for _, mode := range modes {
@@ -289,6 +323,7 @@ func clusterModes(ctx context.Context, projectName, projectPath string, signals 
 		cand := candidatesForMode(mode, signals)
 		groups, payloadTokens := prepareCandidates(cand, DefaultRadarPayloadBudget)
 		run := waveobj.RadarModeRun{Mode: mode, PayloadTokens: payloadTokens}
+		onLens(mode, CoverageRunning)
 		resp, meta, serr := synthesize(ctx, projectName, mode, groups)
 		if serr != nil && ctx.Err() != nil {
 			return merged, runs
@@ -298,6 +333,7 @@ func clusterModes(ctx context.Context, projectName, projectPath string, signals 
 			run.Status = ModeRunClusterFailed
 			run.ClusterError = serr.Error()
 			runs = append(runs, run)
+			onLens(mode, CoverageFailed)
 			continue
 		}
 		byID := map[string]waveobj.RadarSignal{}
@@ -309,6 +345,7 @@ func clusterModes(ctx context.Context, projectName, projectPath string, signals 
 		run.FindingCount = len(validated)
 		runs = append(runs, run)
 		merged = append(merged, validated...)
+		onLens(mode, CoverageOK)
 	}
 	return merged, runs
 }

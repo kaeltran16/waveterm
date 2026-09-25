@@ -94,7 +94,14 @@ export function buildScenario(name: string): RadarReport {
             // mid-collection: earlier collectors done, one running, the rest still queued (absent).
             return base({ status: "collecting", phase: "collecting", signals: [], coverage: { structure: "ok", git: "ok", runs: "running" } });
         case "clustering":
-            return base({ status: "clustering", phase: "clustering", payloadtokens: 12_400, coverage: { git: "ok", runs: "ok" } });
+            return base({
+                status: "clustering",
+                phase: "clustering",
+                payloadtokens: 12_400,
+                coverage: { git: "ok", runs: "ok" },
+                clusterstartedts: Date.now() - 95_000,
+                lensprogress: { correctness: "ok", security: "running" },
+            });
         case "partial":
             return base({
                 status: "partial",

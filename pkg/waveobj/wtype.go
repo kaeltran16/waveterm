@@ -793,6 +793,8 @@ type RadarReport struct {
 	Signals              []RadarSignal     `json:"signals,omitempty"`    // referenced-by-findings after prune
 	Findings             []RadarFinding    `json:"findings,omitempty"`
 	ModeRuns             []RadarModeRun    `json:"moderuns,omitempty"`
+	LensProgress         map[string]string `json:"lensprogress,omitempty"` // lens -> queued|running|ok|failed, streamed while clustering
+	ClusterStartedTs     int64             `json:"clusterstartedts,omitempty"`
 	Meta                 MetaMapType       `json:"meta"`
 }
 

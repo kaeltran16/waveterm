@@ -40,9 +40,11 @@ const (
 	CollectorDependency = "dependency"
 )
 
-// per-collector coverage status (RadarReport.Coverage values). Streamed as each collector runs so the
-// scan checklist ticks queued -> running -> done; "running" is transient and replaced by ok/failed.
+// per-collector coverage status (RadarReport.Coverage values), also used per lens in LensProgress.
+// Streamed as each collector or lens runs so the scan checklist ticks queued -> running -> done;
+// "running" is transient and replaced by ok/failed.
 const (
+	CoverageQueued  = "queued"
 	CoverageRunning = "running"
 	CoverageOK      = "ok"
 	CoverageFailed  = "failed"
