@@ -49,10 +49,3 @@ export function showsDispatchMode(tier: JarvisTier): boolean {
 // One source for the bar heights, because two draw them: the header chip's glyph and the popover's rows.
 // A rung that is taller in one place than the other stops reading as the same ladder.
 export const RUNG_BAR_PX: readonly number[] = [3, 5, 7];
-
-// The chip's face. The mode is a free string off channel meta and only means anything at delegator, so
-// below that tier — or when it is unset — the chip is the tier alone, with no dangling separator.
-export function chipParts(tier: JarvisTier, mode: string | undefined): { label: string; mode: string | null } {
-    const label = LADDER.find((r) => r.tier === tier)?.label ?? tier;
-    return { label, mode: showsDispatchMode(tier) && mode ? mode : null };
-}

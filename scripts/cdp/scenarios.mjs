@@ -4721,7 +4721,7 @@ const briefDesignParity = {
         const seq = order ? [order.fleet, order.filter, order.tier, order.profile, order.initiative, order.run] : [];
         await h.shot("cdp-shots/brief-design-parity-b-header.png");
         steps.push({
-            step: "b. the header runs fleet line, filter, tier, Profile, + Initiative, + Run",
+            step: "b. the header runs fleet line, filter, autonomy, Profile, New initiative, New run",
             ok: seq.length === 6 && seq.every((i, n) => i >= 0 && (n === 0 || i > seq[n - 1])),
             detail: JSON.stringify(order),
         });

@@ -1,25 +1,25 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The autonomy control: how much Jarvis decides without you. The Brief's header carries TierButton, a
-// one-click cycle across every project; AutonomyLadder — the three nested rungs, their blurbs and the
-// Delegator-only dispatch mode, one project at a time — is the per-project editor.
+// The autonomy control: how much Jarvis decides without you. AutonomyLadder is the Brief header's chip,
+// stating the summary across projects, over a popover of the three nested rungs, their blurbs and the
+// Delegator-only dispatch mode. Autonomy is one policy for all work: a pick writes every project.
 //
 // Why a chip. The rungs used to sit in the header with the dispatch strip beside them, rendered only at
 // Delegator — so selecting that tier grew the group ~140px and slid all three rungs left, out from under
 // the cursor that had just clicked one (this is JC12's cause, measured at a 0px title). Everything that
 // changes size now lives inside a popover anchored to the chip's right edge, so nothing moves under the
-// pointer. It also brings the control to the header's own scale: 27px tall, like the buttons beside it,
+// pointer. It also brings the control to the header's own scale: 28px tall, like the buttons beside it,
 // where the group was 41px in a 43px band.
 //
 // It lost its mount when B5 retired the three-pane composition and has been unreachable since — the tier
 // is the remote-approval policy, so there was no way to see or change what Jarvis answers on your behalf.
 // This is the re-home, and it is where a one-per-channel setting meets an all-work surface: the chip
-// states briefautonomy's summary across projects, and the popover edits one project at a time.
+// states briefautonomy's summary across projects, and the popover writes all of them.
 
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import type { JarvisTier } from "@/app/view/agents/channelmessages";
-import { setChannelTier } from "@/app/view/agents/channelsstore";
+import { setChannelTiers } from "@/app/view/agents/channelsstore";
 import { projectsAtom } from "@/app/view/agents/projectsstore";
 import { cn, fireAndForget } from "@/util/util";
 import {
@@ -33,17 +33,17 @@ import {
     useInteractions,
 } from "@floating-ui/react";
 import { useAtom, useAtomValue } from "jotai";
-import { useEffect, useMemo, useState } from "react";
+import { ChevronDown } from "lucide-react";
+import { useEffect, useMemo } from "react";
 import {
     autonomyPanelOpenAtom,
-    chipParts,
     DISPATCH_MODES,
     LADDER,
     RUNG_BAR_PX,
     rungState,
     showsDispatchMode,
 } from "./autonomyladder";
-import { autonomySummary, channelAutonomy } from "./briefautonomy";
+import { autonomySummary, channelAutonomy, sharedMode } from "./briefautonomy";
 import { briefUndo } from "./briefundo";
 
 // The ladder itself, at whatever width its host wants: 3px in the chip's glyph, 4px in a panel row. Bars
@@ -71,22 +71,25 @@ export function AutonomyLadder({ channels }: { channels: Channel[] | null }) {
     useEffect(() => () => setOpen(false), [setOpen]);
     const projects = useAtomValue(projectsAtom);
     const rows = useMemo(() => channelAutonomy(channels, projects), [channels, projects]);
-    // the project the panel is editing. Not an atom: the panel closes with the surface, and a remembered
-    // project that had been archived meanwhile would edit nothing — falling back to the first row is the
-    // same rule the profile modal follows.
-    const [pickedId, setPickedId] = useState("");
     const summary = autonomySummary(rows);
-    const current = rows.find((r) => r.channelId === pickedId) ?? rows[0];
-    const tier = current?.tier ?? "concierge";
-    const mode = current?.mode ?? "";
-    const channelId = current?.channelId ?? "";
-    const setTier = (next: JarvisTier) => fireAndForget(() => setChannelTier(channelId, next, mode));
-    const setMode = (next: string) => fireAndForget(() => setChannelTier(channelId, tier, next));
-    const face = chipParts(tier, mode);
+    const mode = sharedMode(rows);
+    // every pick writes every project, so a mixed set collapses to one value; the toast's undo puts each
+    // project's own tier and mode back
+    const apply = (next: { tier?: JarvisTier; mode?: string }, toast: string) => {
+        const prev = rows.map((r) => ({ channelId: r.channelId, tier: r.tier, mode: r.mode }));
+        const changes = prev.map((p) => ({ ...p, tier: next.tier ?? p.tier, mode: next.mode ?? p.mode }));
+        fireAndForget(async () => {
+            try {
+                await setChannelTiers(changes);
+                briefUndo.notify(toast, () => fireAndForget(() => setChannelTiers(prev)));
+            } catch (e) {
+                briefUndo.error(e instanceof Error ? e.message : String(e));
+            }
+        });
+    };
     // bottom-end + useDismiss is the cockpit's popover pattern (settingssurface TermThemeDropdown): both
     // Escape and an outside click close it, where a hand-rolled backdrop only ever closed on click.
-    // fixed, like RoutePicker beside it: the Profile modal's scroll body is an overflow container that
-    // clipped an absolute panel to the row it opened from.
+    // fixed, not absolute: an overflow container around the chip would clip an absolute panel.
     const { refs, floatingStyles, context } = useFloating({
         open,
         onOpenChange: setOpen,
@@ -108,16 +111,24 @@ export function AutonomyLadder({ channels }: { channels: Channel[] | null }) {
                 {...getReferenceProps()}
                 type="button"
                 data-jarvis-autonomy="chip"
+                aria-haspopup="dialog"
                 aria-expanded={open}
-                title="Autonomy — how much Jarvis decides without you, per project"
+                title="Autonomy — how much Jarvis decides without you"
                 className={cn(
-                    "flex flex-none cursor-pointer items-center gap-2 rounded-[7px] border bg-surface px-2.5 py-1 text-[11px] font-semibold",
-                    open ? "border-accent-700 text-primary" : "border-border text-secondary hover:text-primary"
+                    "flex h-[28px] flex-none cursor-pointer items-center gap-2 rounded-[8px] border bg-surface-raised pl-2.5 pr-[9px] text-[12px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                    open
+                        ? "border-accent-700 text-primary"
+                        : "border-edge-mid text-secondary hover:border-edge-strong hover:text-primary"
                 )}
             >
                 <RungBars tier={summary.tier} width={3} />
                 <span className="flex-1 whitespace-nowrap text-left">{summary.label}</span>
-                <span className={cn("flex-none font-mono text-[10px] text-muted", open && "rotate-180")}>▾</span>
+                <ChevronDown
+                    aria-hidden
+                    size={12}
+                    strokeWidth={2}
+                    className={cn("flex-none text-muted transition-transform", open && "rotate-180")}
+                />
             </button>
             {/* rendered unconditionally and driven by `open` — a `{open ? … : null}` caller defeats
                 PopoverReveal's AnimatePresence and the exit animation never plays. */}
@@ -132,39 +143,22 @@ export function AutonomyLadder({ channels }: { channels: Channel[] | null }) {
                             <span className="flex-none font-mono text-[9px] font-semibold uppercase tracking-[.09em] text-muted">
                                 Autonomy
                             </span>
-                            {/* the backend tier is per-channel, so the panel has to say which project it is
-                                changing — the chip above it is a summary and cannot. */}
+                            {/* the backend tier is per-channel, so the panel says how far a pick reaches */}
                             <span className="min-w-0 flex-1 truncate text-right font-mono text-[10px] text-muted">
-                                {face.label}
-                                {face.mode != null ? ` · ${face.mode}` : ""}
+                                {rows.length === 1 ? "the one project" : `all ${rows.length} projects`}
                             </span>
                         </div>
-                        {rows.length > 1 ? (
-                            <label className="flex items-center gap-2 px-[9px] pb-2">
-                                <span className="flex-none font-mono text-[9px] font-semibold uppercase tracking-[.09em] text-muted">
-                                    project
-                                </span>
-                                <select
-                                    value={channelId}
-                                    onChange={(e) => setPickedId(e.target.value)}
-                                    className="min-w-0 flex-1 rounded-[5px] border border-edge-mid bg-background px-1.5 py-1 text-[11.5px] text-primary outline-none focus:border-accent/60"
-                                >
-                                    {rows.map((r) => (
-                                        <option key={r.channelId} value={r.channelId}>
-                                            {r.name}
-                                        </option>
-                                    ))}
-                                </select>
-                            </label>
-                        ) : null}
                         {LADDER.map((rung) => {
-                            const active = rung.tier === tier;
+                            // no rung is checked over a mixed set: none of them is the policy everywhere
+                            const active = !summary.mixed && rung.tier === summary.tier;
                             return (
                                 <button
                                     key={rung.tier}
                                     type="button"
                                     aria-pressed={active}
-                                    onClick={() => setTier(rung.tier)}
+                                    onClick={() =>
+                                        apply({ tier: rung.tier }, `Autonomy set to ${rung.label} for every project`)
+                                    }
                                     className={cn(
                                         "flex w-full cursor-pointer items-start gap-2.5 rounded px-[9px] py-2 text-left hover:bg-surface-hover",
                                         active ? "bg-surface-raised" : "bg-transparent"
@@ -197,7 +191,7 @@ export function AutonomyLadder({ channels }: { channels: Channel[] | null }) {
                         {/* Delegator-only, and absent rather than greyed out: a control the tier cannot act
                             on is not drawn. The panel grows downward from a top-anchored header, so nothing
                             under the pointer moves when this appears. */}
-                        {showsDispatchMode(tier) ? (
+                        {showsDispatchMode(summary.tier) ? (
                             <div className="mt-1 border-t border-border px-[9px] pb-1 pt-2">
                                 <div className="pb-1.5 font-mono text-[9px] font-semibold uppercase tracking-[.09em] text-muted">
                                     Dispatch mode
@@ -208,7 +202,9 @@ export function AutonomyLadder({ channels }: { channels: Channel[] | null }) {
                                             key={m}
                                             type="button"
                                             aria-pressed={mode === m}
-                                            onClick={() => setMode(m)}
+                                            onClick={() =>
+                                                apply({ mode: m }, `Dispatch mode set to ${m} for every project`)
+                                            }
                                             className={cn(
                                                 "cursor-pointer rounded-[5px] px-2 py-1 font-mono text-[10.5px]",
                                                 mode === m
@@ -226,53 +222,5 @@ export function AutonomyLadder({ channels }: { channels: Channel[] | null }) {
                 </PopoverReveal>
             </div>
         </div>
-    );
-}
-
-// the design's three tier words (design L979), mapped onto the backend's nested tiers
-export const TIER_LABEL: Record<JarvisTier, string> = {
-    concierge: "L1 · ask first",
-    gatekeeper: "L2 · gated",
-    delegator: "L3 · autonomous",
-};
-
-// The header's tier control (design L41, L1779): one click moves every project one rung up the ladder,
-// wrapping, and the toast offers the way back. Per-project tiers and the dispatch mode are edited in the
-// Profile, where the other per-project policy lives.
-export function TierButton({ channels }: { channels: Channel[] | null }) {
-    const projects = useAtomValue(projectsAtom);
-    const rows = useMemo(() => channelAutonomy(channels, projects), [channels, projects]);
-    const summary = autonomySummary(rows);
-    if (summary == null) {
-        return null;
-    }
-    const label = summary.mixed ? `Mixed · ${TIER_LABEL[summary.tier]}` : TIER_LABEL[summary.tier];
-    const cycle = () => {
-        const order = LADDER.map((r) => r.tier);
-        const next = order[(order.indexOf(summary.tier) + 1) % order.length];
-        const prev = rows.map((r) => ({ id: r.channelId, tier: r.tier, mode: r.mode }));
-        fireAndForget(async () => {
-            try {
-                await Promise.all(rows.map((r) => setChannelTier(r.channelId, next, r.mode)));
-                briefUndo.notify(`Autonomy set to ${TIER_LABEL[next]} for every project`, () =>
-                    fireAndForget(async () => {
-                        await Promise.all(prev.map((p) => setChannelTier(p.id, p.tier, p.mode)));
-                    })
-                );
-            } catch (e) {
-                briefUndo.error(e instanceof Error ? e.message : String(e));
-            }
-        });
-    };
-    return (
-        <button
-            type="button"
-            data-jarvis-autonomy="chip"
-            onClick={cycle}
-            title="Remote-approval policy · click to change"
-            className="flex-none cursor-pointer whitespace-nowrap rounded-[6px] border border-border px-2.5 py-[3px] font-mono text-[10.5px] font-bold uppercase tracking-[.06em] text-ink-mid hover:border-edge-strong hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-        >
-            {label}
-        </button>
     );
 }

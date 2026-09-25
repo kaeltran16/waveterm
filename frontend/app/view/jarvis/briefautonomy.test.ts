@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { autonomySummary, channelAutonomy } from "./briefautonomy";
+import { autonomySummary, channelAutonomy, sharedMode } from "./briefautonomy";
 
 function channel(over: Partial<Channel> & { meta?: Record<string, unknown> }): Channel {
     return {
@@ -100,5 +100,22 @@ describe("autonomySummary", () => {
     // a snapshot that has not landed
     it("says nothing at all when there are no projects", () => {
         expect(autonomySummary([])).toBeNull();
+    });
+});
+
+describe("sharedMode", () => {
+    const row = (mode: string) => ({ channelId: mode, name: mode, tier: "delegator", mode }) as never;
+
+    it("is the mode every project agrees on", () => {
+        expect(sharedMode([row("fanout"), row("fanout")])).toBe("fanout");
+    });
+
+    // one pill lit over projects that disagree would claim a policy only some of them follow
+    it("is empty when the projects disagree", () => {
+        expect(sharedMode([row("fanout"), row("report")])).toBe("");
+    });
+
+    it("is empty with no projects", () => {
+        expect(sharedMode([])).toBe("");
     });
 });

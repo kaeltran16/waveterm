@@ -100,11 +100,16 @@ export async function createChannel(name: string, projectPath: string): Promise<
     return ch.oid;
 }
 
-// Persist a channel's autonomy tier, then refresh the snapshot-fed rail so its badge updates
-// immediately. The rail reads the channelsAtom snapshot (not live WOS), so a tier change is
-// invisible until loadChannels() re-fetches — mirrors how create/delete already refresh.
-export async function setChannelTier(channelId: string, tier: string, mode: string): Promise<void> {
-    await RpcApi.SetChannelTierCommand(TabRpcClient, { channelid: channelId, tier, mode });
+// Persist autonomy tiers, then refresh the snapshot-fed rail so its badge updates immediately. The rail
+// reads the channelsAtom snapshot (not live WOS), so a tier change is invisible until loadChannels()
+// re-fetches — mirrors how create/delete already refresh. One refresh for the batch, not one per channel:
+// the autonomy control writes every project at once.
+export async function setChannelTiers(changes: { channelId: string; tier: string; mode: string }[]): Promise<void> {
+    await Promise.all(
+        changes.map((c) =>
+            RpcApi.SetChannelTierCommand(TabRpcClient, { channelid: c.channelId, tier: c.tier, mode: c.mode })
+        )
+    );
     await loadChannels();
 }
 

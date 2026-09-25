@@ -41,10 +41,10 @@ import { DagModal } from "@/app/view/orchestrate/dagmodal";
 import { setDagModalAgentsContext } from "@/app/view/orchestrate/dagmodalstate";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtom, useAtomValue, useSetAtom, type Atom, type PrimitiveAtom } from "jotai";
-import { Copy } from "lucide-react";
+import { Copy, Search, SlidersHorizontal, X } from "lucide-react";
 import { AnimatePresence, motion, MotionConfig, type Variants } from "motion/react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { TierButton } from "./autonomyladderview";
+import { AutonomyLadder } from "./autonomyladderview";
 import { briefFleet } from "./brieffleet";
 import { BRIEFING_FIXTURES } from "./briefingfixtures";
 import {
@@ -1226,14 +1226,22 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                     {fleet.line}
                 </span>
                 <span className="flex-1" />
-                <label className="flex h-[27px] w-[190px] flex-none items-center gap-2 rounded-[8px] border border-border px-2.5 focus-within:border-accent/60">
-                    <span aria-hidden className="font-mono text-[10.5px] font-medium text-muted">
-                        /
-                    </span>
+                <label
+                    className={cn(
+                        "flex h-[28px] w-[220px] flex-none items-center gap-2 rounded-[8px] border bg-surface-raised pl-2.5 focus-within:border-accent/60",
+                        filtering ? "border-accent/60 pr-1" : "border-edge-mid pr-1.5"
+                    )}
+                >
+                    <Search
+                        aria-hidden
+                        size={13}
+                        strokeWidth={2}
+                        className={cn("flex-none", filtering ? "text-accent-soft" : "text-muted")}
+                    />
                     <input
                         data-jarvis-brief-filter
                         aria-label="Filter the Brief"
-                        placeholder="filter"
+                        placeholder="Filter"
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
                         onKeyDown={(e) => {
@@ -1245,23 +1253,41 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                         className="min-w-0 flex-1 bg-transparent text-[12.5px] text-ink-hi outline-none placeholder:text-muted"
                     />
                     {filtering ? (
-                        <span className="flex-none font-mono text-[10.5px] text-muted">
-                            {view.visible.length} {view.visible.length === 1 ? "hit" : "hits"}
-                        </span>
-                    ) : null}
+                        <>
+                            <span className="flex-none whitespace-nowrap font-mono text-[10.5px] text-muted">
+                                {view.visible.length} {view.visible.length === 1 ? "hit" : "hits"}
+                            </span>
+                            <button
+                                type="button"
+                                aria-label="Clear filter"
+                                onClick={() => setQuery("")}
+                                className="flex h-5 w-5 flex-none cursor-pointer items-center justify-center rounded-[5px] text-ink-mid hover:bg-surface-hover hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                            >
+                                <X aria-hidden size={11} strokeWidth={2.2} />
+                            </button>
+                        </>
+                    ) : (
+                        <kbd className="flex-none rounded-[4px] border border-edge-strong px-[5px] font-mono text-[10px] leading-4 text-ink-mid">
+                            /
+                        </kbd>
+                    )}
                 </label>
-                <TierButton channels={channels} />
+                <AutonomyLadder channels={channels} />
                 {/* A real control with the control recipe's border: invariant 4 forbids camouflaging it among
                     the status chips above, which are borderless labels. */}
                 <button
                     type="button"
                     data-jarvis-brief-profile
+                    aria-haspopup="dialog"
                     aria-expanded={profileOpen}
+                    aria-label="Profile — run defaults"
+                    title="Profile — run defaults"
                     onClick={() => setProfileOpen(true)}
-                    className="flex-none cursor-pointer rounded-[6px] border border-border px-2.5 py-[3px] font-mono text-[10.5px] font-bold uppercase tracking-[.06em] text-secondary hover:border-edge-strong hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    className="flex h-[28px] w-[28px] flex-none cursor-pointer items-center justify-center rounded-[8px] border border-edge-mid bg-surface-raised text-ink-mid hover:border-edge-strong hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 >
-                    Profile
+                    <SlidersHorizontal aria-hidden size={14} strokeWidth={1.8} />
                 </button>
+                <span aria-hidden className="mx-0.5 h-[18px] w-px flex-none bg-border" />
                 <NewInitiativeControl />
                 <NewRunControl model={model} />
             </header>

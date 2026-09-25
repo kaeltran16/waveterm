@@ -20,7 +20,7 @@
 import { ModalShell } from "@/app/modals/modalshell";
 import { globalStore } from "@/app/store/jotaiStore";
 import { harnessPreferenceAtom } from "@/app/view/agents/harnessstore";
-import { cn, fireAndForget } from "@/util/util";
+import { fireAndForget } from "@/util/util";
 import { atom, useAtomValue, type PrimitiveAtom } from "jotai";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { AgentsViewModel } from "../agents/agents";
@@ -287,12 +287,10 @@ export function NewRunControl({ model }: { model: AgentsViewModel }) {
                 aria-haspopup="dialog"
                 aria-expanded={open}
                 onClick={() => setOpen(true)}
-                className={cn(
-                    "cursor-pointer rounded-[6px] border px-2.5 py-[3px] font-mono text-[10.5px] font-bold uppercase tracking-[.06em] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
-                    "border-accent/30 bg-accentbg text-accent-soft hover:bg-accent/20"
-                )}
+                className="flex h-[28px] cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-[8px] bg-accent px-[11px] text-[12px] font-semibold text-background shadow-inset-highlight hover:bg-accenthover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-soft focus-visible:ring-offset-1 focus-visible:ring-offset-surface"
             >
-                + Run
+                New run
+                <kbd className="font-mono text-[10px] font-normal opacity-55">R</kbd>
             </button>
             {open ? <NewRunModal model={model} onClose={() => setOpen(false)} /> : null}
         </div>

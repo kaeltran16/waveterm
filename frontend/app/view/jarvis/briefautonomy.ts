@@ -35,7 +35,7 @@ function tierLabel(tier: JarvisTier): string {
 }
 
 /** Pure: the per-project autonomy rows behind the chip. Archived channels are not work you have a
- *  policy over, so they are excluded; name order keeps the picker stable across refreshes. */
+ *  policy over, so they are excluded; name order keeps the rows stable across refreshes. */
 export function channelAutonomy(
     channels: Channel[] | null | undefined,
     projects: Record<string, ProjectKeywords>
@@ -73,4 +73,10 @@ export function autonomySummary(rows: ChannelAutonomy[]): AutonomySummary | null
         return { label: `${tierLabel(top)} · ${CONSEQUENCE[top]}`, tier: top, mixed: false };
     }
     return { label: `Mixed · ${atTop} of ${rows.length} ${tierLabel(top).toLowerCase()}`, tier: top, mixed: true };
+}
+
+/** Pure: the dispatch mode the panel shows as picked — the one every project shares, or none. */
+export function sharedMode(rows: ChannelAutonomy[]): string {
+    const mode = rows[0]?.mode ?? "";
+    return rows.every((r) => r.mode === mode) ? mode : "";
 }

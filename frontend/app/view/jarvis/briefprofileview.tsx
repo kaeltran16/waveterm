@@ -14,7 +14,7 @@
 // the re-home meta-spec 4a item 10 asked for.
 //
 // Nothing is written until Save, and a refused save leaves the draft standing with the server's message.
-// The one exception is the autonomy chip, which keeps its own write-on-pick behaviour from the header.
+// Autonomy is not here: it is one policy for all work, set from the Brief header.
 
 import { ModalShell } from "@/app/modals/modalshell";
 import { channelsAtom, loadChannels } from "@/app/view/agents/channelsstore";
@@ -34,7 +34,6 @@ import { WorkerStepper } from "@/app/view/agents/runlauncher";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect, useState, type ReactNode } from "react";
-import { AutonomyLadder } from "./autonomyladderview";
 import { briefUndo } from "./briefundo";
 import { GlobalPrinciplesEditor } from "./globalprincipleseditor";
 import { PrinciplesEditor, PROFILE_PANEL } from "./principleseditor";
@@ -180,7 +179,6 @@ function DefaultsFields({
     drop,
     aside,
     routeRow,
-    autonomyRow,
 }: {
     inheritable: boolean;
     draft: Defaults;
@@ -190,7 +188,6 @@ function DefaultsFields({
     drop: (key: GlobalDefaultKey) => void;
     aside: (key: GlobalDefaultKey, label: string) => ReactNode;
     routeRow?: ReactNode;
-    autonomyRow?: ReactNode;
 }) {
     const shape = draft.defaultmode ?? base.defaultmode ?? "quick";
     const width = draft.parallelism ?? base.parallelism ?? null;
@@ -288,7 +285,6 @@ function DefaultsFields({
                     ))}
                 </div>
             </DefaultRow>
-            {autonomyRow}
         </div>
     );
 }
@@ -503,17 +499,6 @@ export function BriefProfileModal({ open, onClose }: { open: boolean; onClose: (
                 />
             </DefaultRow>
         ) : null;
-    // the autonomy chip writes the tier the moment it is picked, like it did in the header; it is not part of
-    // the draft Save writes, and its right-hand cell says so
-    const autonomyRow = (
-        <DefaultRow
-            label="Autonomy"
-            hint="How much Jarvis decides without you"
-            aside={<span className="text-right text-[11.5px] text-muted">Saves on pick</span>}
-        >
-            <AutonomyLadder channels={channels} />
-        </DefaultRow>
-    );
 
     const channelOptions = channelOptionsOf(channels, projects);
     const pickedLabel = [...channelOptions].find(([, oid]) => oid === channelId)?.[0] ?? null;
@@ -612,7 +597,7 @@ export function BriefProfileModal({ open, onClose }: { open: boolean; onClose: (
                                     aside={globalReach}
                                 />
                                 <p className="m-0 text-[11.5px] leading-[1.45] text-muted">
-                                    Lead route and autonomy are set per project.
+                                    Lead route is set per project; autonomy lives in the Brief header.
                                 </p>
                             </section>
                             <section className="flex flex-col gap-2">
@@ -639,7 +624,6 @@ export function BriefProfileModal({ open, onClose }: { open: boolean; onClose: (
                                     drop={drop}
                                     aside={sourceCell}
                                     routeRow={leadRouteRow}
-                                    autonomyRow={autonomyRow}
                                 />
                             </section>
                             <section className="flex flex-col gap-2">
