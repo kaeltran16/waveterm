@@ -5,13 +5,13 @@
 //
 //   ARC_FINAL_OUT=<dir> node scripts/cdp/final-verify.mjs [scenario...]
 //
-// ARC_FINAL_DEV_CMD (default `task dev`) and ARC_FINAL_BOOT_MS (default 10 min, a cold cargo build) exist so the
-// test can drive the boot path without starting a real app.
+// ARC_FINAL_DEV_CMD (default `task dev`), ARC_FINAL_BOOT_MS (default 10 min, a cold cargo build) and
+// ARC_FINAL_VITE_PORT (default VITE_PORT) exist so the test can drive the boot path without starting a real app.
 //
 // The user's packaged Arc shares the dev app's image names, so only the PID this script spawned is ever killed.
 import { execFileSync, spawn } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, openSync } from "node:fs";
-import { createServer } from "node:net";
+import { connect, createServer } from "node:net";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -22,6 +22,8 @@ const PORT_SCAN = 100;
 const DEFAULT_BOOT_MS = 600_000;
 const POLL_MS = 1_000;
 const PROBE_TIMEOUT_MS = 2_000;
+// frontend/tauri/vite.config.ts pins the dev server here with strictPort
+export const VITE_PORT = 5174;
 
 export function unverified(reason) {
     console.log(reason);
@@ -41,6 +43,25 @@ export async function pickPort(start = DEFAULT_PORT) {
         if (await isFree(port)) return port;
     }
     throw new Error(`no free port in ${start}-${start + PORT_SCAN - 1}`);
+}
+
+function accepts(host, port) {
+    return new Promise((resolve) => {
+        const sock = connect({ host, port, timeout: PROBE_TIMEOUT_MS });
+        const done = (ok) => {
+            sock.destroy();
+            resolve(ok);
+        };
+        sock.once("connect", () => done(true));
+        sock.once("error", () => done(false));
+        sock.once("timeout", () => done(false));
+    });
+}
+
+// vite listens on ::1 only on windows, so a bind probe on 127.0.0.1 would call the port free
+export async function inUse(port) {
+    const hits = await Promise.all(["127.0.0.1", "::1"].map((host) => accepts(host, port)));
+    return hits.some(Boolean);
 }
 
 function killTree(pid) {
@@ -92,6 +113,13 @@ async function main() {
     const scenarios = process.argv.slice(2);
     const bootMs = Number(process.env.ARC_FINAL_BOOT_MS) || DEFAULT_BOOT_MS;
     const devCmd = process.env.ARC_FINAL_DEV_CMD || "task dev";
+    const vitePort = Number(process.env.ARC_FINAL_VITE_PORT) || VITE_PORT;
+
+    // another dev app holds the pinned vite port, so this one's vite would fail only after its build had
+    // written through the tree's dist/bin and src-tauri/target junctions into the main checkout
+    if (await inUse(vitePort)) {
+        unverified(`another dev app is running (vite port :${vitePort} is taken); stop it and rerun the final stage`);
+    }
 
     const port = await pickPort();
     const profile = join(out, "webview2-profile");

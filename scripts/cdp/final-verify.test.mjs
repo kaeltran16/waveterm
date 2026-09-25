@@ -5,16 +5,23 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { EXIT_UNVERIFIED, pickPort } from "./final-verify.mjs";
+import { EXIT_UNVERIFIED, inUse, pickPort } from "./final-verify.mjs";
 
 const SCRIPT = fileURLToPath(new URL("./final-verify.mjs", import.meta.url));
 
-function listen(port) {
+function listen(port, host = "127.0.0.1") {
     return new Promise((resolve, reject) => {
         const srv = createServer();
         srv.once("error", reject);
-        srv.listen(port, "127.0.0.1", () => resolve(srv));
+        srv.listen(port, host, () => resolve(srv));
     });
+}
+
+async function freePort() {
+    const probe = await listen(0);
+    const port = probe.address().port;
+    await close(probe);
+    return port;
 }
 
 const close = (srv) => new Promise((r) => srv.close(r));
@@ -57,6 +64,22 @@ describe("pickPort", () => {
     });
 });
 
+describe("inUse", () => {
+    // vite on windows listens on ::1 alone
+    it.each(["127.0.0.1", "::1"])("sees a listener on %s", async (host) => {
+        const held = await listen(0, host);
+        try {
+            expect(await inUse(held.address().port)).toBe(true);
+        } finally {
+            await close(held);
+        }
+    });
+
+    it("is false for a port nobody listens on", async () => {
+        expect(await inUse(await freePort())).toBe(false);
+    });
+});
+
 describe("final-verify.mjs", () => {
     let dir;
     afterEach(() => {
@@ -83,6 +106,7 @@ describe("final-verify.mjs", () => {
             ARC_FINAL_OUT: join(dir, "out"),
             ARC_FINAL_BOOT_MS: "3000",
             ARC_FINAL_DEV_CMD: `node "${fakeDev}"`,
+            ARC_FINAL_VITE_PORT: String(await freePort()),
         });
 
         expect(r.killed).toBe(false);
@@ -90,5 +114,24 @@ describe("final-verify.mjs", () => {
         expect(r.last).toMatch(/^dev app did not answer on :\d+$/);
         expect(existsSync(pidFile)).toBe(true);
         expect(alive(Number(readFileSync(pidFile, "utf8")))).toBe(false);
+    });
+
+    it("is unverified without building when another dev app holds the vite port", async () => {
+        dir = mkdtempSync(join(tmpdir(), "final-verify-"));
+        const marker = join(dir, "started");
+        const held = await listen(0, "::1");
+        try {
+            const r = await run({
+                ...process.env,
+                ARC_FINAL_OUT: join(dir, "out"),
+                ARC_FINAL_DEV_CMD: `node -e "require('fs').writeFileSync(process.argv[1], '')" "${marker}"`,
+                ARC_FINAL_VITE_PORT: String(held.address().port),
+            });
+            expect(r.code).toBe(EXIT_UNVERIFIED);
+            expect(r.last).toMatch(/^another dev app is running/);
+            expect(existsSync(marker)).toBe(false);
+        } finally {
+            await close(held);
+        }
     });
 });

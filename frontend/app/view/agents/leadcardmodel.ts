@@ -17,11 +17,13 @@ import {
     runFinished,
     runProgress,
     taskAgentOf,
+    taskStateLabel,
     unmetDeps,
     workerAsk,
     type Lineage,
     type RunInfo,
 } from "./runlineage";
+import { finishedRunLabel } from "./runmodel";
 import { detailOf } from "./runtimeline";
 import { modelLabel } from "./session-models/sessionviewmodel";
 
@@ -199,7 +201,7 @@ function taskRow(input: LeadCardInput, task: TaskNode): TaskRowVM {
                 actions: judge ? [] : ["resolve"],
             };
         case "verifying":
-            return { ...base, sub: join(task.id, laneText, "verifying") };
+            return { ...base, sub: join(task.id, laneText, taskStateLabel(task, now)) };
         case "pending":
         case "ready": {
             // not running, even when a tab from an earlier attempt (a send-back) is still open on it
@@ -280,7 +282,7 @@ export function buildLeadCard(input: LeadCardInput): LeadCardVM {
  *  would read as the last thing it did. */
 export function leadActivity(run: RunInfo, lead: AgentVM | undefined, leadDown: boolean): string {
     if (runFinished(run)) {
-        return `run ${run.dag?.status ?? run.status}`;
+        return finishedRunLabel(run);
     }
     if (leadDown) {
         return "lead down · its events come to you";

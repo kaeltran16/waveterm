@@ -40,6 +40,14 @@ have said so dropped it. The lead caught it by its own diligence, and a human ha
 | 25 | A failed Verify keeps an 8000-byte tail of log noise; neither it nor the 200-character detail names the failing test | medium | keep the `--- FAIL`/`panic` blocks; prefer `--- FAIL` over a bare `FAIL` |
 | 24 | A worker can sit outside its run in the Agent tree until reload (cause inferred: tab reaches the app before its run is saved; a stale null fetch can overwrite the update) | low | save the run before the tab; a WOS update beats an older fetch |
 | 2, 9 | Other sessions share the checkout: `main` moved, dirty tree at merge (not exercised) | watch | branch landing |
+| 29 | The handoff `/compact` fires at `dag submit`, before the plan review; a failed review is revised from a compacted lead | medium | post the handoff on review passed/accepted |
+| 30 | Plan-reviewer and final-verifier sessions sit outside the run in the Agent tree | low | a `stage` lineage role nested under the run |
+| 31 | A freshly spawned worker tab shows outside its run for a few seconds (finding 24's transient form) | low | save and publish the child run before its tab |
+| 32 | An answered escalation stays in `wsh runs attention` for about 2 min | low | clear the row when the answer lands |
+| 33 | A base broken by another session fails every worker's Check, and will fail the Final stage's Check | medium | fix the base; Check failures on the base are not the task's |
+| 34 | A task in `verifying` vanishes from the Agent tree: its tab is reaped at merge, and the tree shows only tasks with a tab, done or queued | low | show in-flight tasks without a tab as agentless rows |
+| 35 | The Final stage's dev app can't start beside another dev app (Vite 5174), and its build overwrites the main checkout's `wavesrv` through the `dist/bin` junction | high | own Vite port, own target and bin dirs for the final tree |
+| 36 | A run shows "done" while its land-back is still pending; the frontend never reads `run.land` | low | show landing / landed / held on the run row and card |
 
 **Run under observation:** `b2d7fab1-00de-4fbb-b04d-9754d6248b45`, an orchestrator run with a goal, not a
 plan file. Lead and workers are `claude` / `claude-opus-5-5`, base `6dd1600`, started 09:33 in prod Arc
@@ -809,6 +817,145 @@ Nm" (busy) or "idle Nm" (quiet and no CPU), and add the latest tool call (comman
 has room for it, and the lead and the cockpit row would then answer "crashed?" without anyone reading a
 transcript.
 
+### 29. The handoff compaction fires at submit, before the plan review has passed (observed in run b01cfdd6, medium)
+
+At 15:04:14 the lead submitted its plan, and the plan reviewer (`d492b44b`) started. Ten seconds later, at
+15:04:24, the engine typed `HandoffCompact` into the lead. The review passed at 15:07:04. Had it failed,
+the lead would have revised the plan from its compacted context: the code it read and its drafts are what
+the compaction drops, and that is what a plan revision needs.
+
+Read: `DagSubmitCommand` calls `postHandoff` on every accepted submit (`wshserver_dag.go:280`). The call
+predates the plan review (`ea4eebbc`), which made submit the start of a gate, not the handoff.
+
+Direction: post the handoff when the review ends in `passed` (`RecordPlanReviewVerdict`,
+`planreview.go:114`) or `accepted` (`AcceptPlanReview`), not at submit. A plan resubmitted after a failed
+review is compacted once, when it finally passes.
+
+### 30. Plan-reviewer and final-verifier sessions sit outside their run in the Agent tree (observed in run b01cfdd6, low)
+
+The human saw the plan reviewer's tab as a plain agent, not under the orchestrator. The store is right:
+`spawnStageSession` (`stagesession.go:40`) gives the child run `DagORef` and `StageRole`
+(`plan-reviewer`, `verifier`) and no task. The frontend is what drops it: `runRoleOf`
+(`runlineage.ts:40`) nests a run holding a dag only when a task's `runid` or `reviewrunid` names it, or a
+stamped task id matches. A stage session has neither, so it falls through to `null`. The final verifier
+will show the same way.
+
+Direction: a third lineage role, `{ kind: "stage", leadRunId, stageRole }`, for a run with `dagoref` and
+`stagerole`. `buildAgentTree` places it as a row under the run's head, labelled by role ("plan review",
+"final verifier") instead of a task id. Pure logic in `runlineage.ts`/`agenttreemodel.ts` with tests,
+plus one live screenshot.
+
+### 31. A freshly spawned worker tab shows outside its run for a few seconds (observed in run b01cfdd6, low)
+
+The human saw each new worker tab appear outside the orchestrator tree and move under it a few seconds
+later. This is finding 24's transient form, with the same cause:
+
+- `spawnWorker` (`engine.go:525`) flushes the new tab to the app when it returns. The block already
+  carries `agent:runid` and `agent:taskid`.
+- The app fetches the run for the tab and gets `null`: `appendChildRun` (`:552`) saves it only after
+  the spawn returns, and its WOS update goes out at tick end (`publishSpawnedRunUpdates`, `:621`), after
+  every task in the batch has been spawned and the dag committed.
+- With a four-task batch at 2.1–4.2 s per task (worktree, Setup, spawn), the gap matches the few seconds
+  seen. That is finding 20's serial batch again.
+
+The permanent case (finding 24) is a `null` fetch resolving after the update. This run's t-3 fixes that
+in `wos.ts`, so the tab always recovers once it lands. The flicker needs the engine side, which this
+run's spec left out of scope.
+
+Direction: save the child run before spawning its tab (delete it if the spawn fails), and publish its
+update at once rather than at tick end. The stamped `agent:taskid` then places the tab even before the
+dag's update arrives.
+
+### 32. An answered escalation stays in the attention list for about 2 minutes (observed in run b01cfdd6, low)
+
+The lead's first question (`esc:be74ac85`) was answered at 14:57:26 (the lead's transcript has the
+tool result). `wsh runs attention --json` still listed it next to the spec-review ask at about 14:59:25,
+and it was gone by 15:00. A row that asks the human to decide something already decided invites a
+second answer. Cause not traced.
+
+### 33. A base broken by another session fails every worker's Check (observed in run b01cfdd6, medium)
+
+`20b7bc1d` ("chore: remove Wave Terminal residue", another session, merged as `aaa5e300`) removed `three`
+and `@types/three` from `package.json`, but `frontend/app/view/jarvis/avatarthree.ts` still imports them.
+So `tsc` on `main` reports 8 TS2307 errors, and the plan's Check fails in every worker's tree through no
+fault of the task. AGENTS.md's "the baseline is clean (exit 0)" no longer holds.
+
+Handled well: t-4 (15:10:41), t-1 (15:10:44) and t-3 (15:11:03) each stopped and asked instead of fixing
+it or ignoring it. The lead answered t-4 and t-1 within 17 s ("known base breakage … out of scope; don't
+fix it"), and told t-2 and t-3 the same at 15:11:04 before t-2 asked. One answer went to every running worker.
+
+Still open:
+- The Final stage runs Check on the merged tree (`final.go:209`). Unless something fixes the base, the
+  Final stage fails on a defect no task introduced, and the lead faces a fix round for someone else's
+  commit.
+- Nothing checks the base before workers start. A Check run once on the base at submit (the plan reviewer
+  already reads the plan's commands) would name the breakage once, before five workers each find it.
+
+Outcome: another session fixed `main` at 15:14:40 (`6bcbf60b`, restoring the dependency, in a commit
+that also retunes the diff colors). `petview` still loads `avatarthree.ts` through a dynamic import,
+which the residue commit's reachability check missed, so the dev app's Vite was broken too, not only
+tsc. The lead told t-2 at 15:15:43 that tsc now passes. It does, but not because the run has the fix:
+the run's branch is still cut from `7712a94` with no `three` in its `package.json`. The worktrees'
+`node_modules` is a junction to the main checkout's, and the reinstall there put `three` back. So each
+worker's Check, and the Final stage's, now passes on state outside the tree being checked. It only
+comes out right because the land-back merges into a `main` that has the fix.
+
+Direction: fix the base (drop `avatarthree.ts` if nothing reaches it, or restore the dependency). In
+the engine: run Check on the base at submit, and give a failure the worker and the Final stage
+can compare against, so "fails on the base too" is a fact the engine records, not something each worker
+works out.
+
+### 34. A task whose merged result is being verified vanishes from the Agent tree (observed in run b01cfdd6, low)
+
+At about 15:18 the human could not find t-1 under the orchestrator. `dag status` had it in `verifying`:
+merged at 15:16:44 (`12505e0`), cleaned up at 15:16:45, Verify running. Nothing was wrong with the task.
+The tree doesn't show that state:
+
+- Cleanup stops every run still holding the task's tree before removing it (`reapLaneWorkers`,
+  `cleanup.go`), so after the merge t-1 has no worker tab.
+- `runRows` (`agenttreemodel.ts:81`) sorts tasks into three sets: `live` (not done **and** has a
+  tab), `done`, and `queued` (`pending`/`ready` with no tab). A `verifying` task with no tab is in none of
+  them, so it has no row until its Verify passes and it moves to "done". With a 4-minute Verify
+  (finding 23), a landed task disappears for 4 minutes, and so does a Verify failure's context.
+
+Direction: every task that is neither done nor queued gets a row, with its agent when it has a tab and
+without one when it doesn't (a queued task's row already renders with no tab). The row shows the state
+("verifying 1m58s", as `dag status` does). Mind `runRows`' `attn` count, which reads
+`workers.get(t.id)![0]` and assumes every live task has a tab.
+
+### 35. The Final stage's dev app collides with a running dev app, and overwrites its backend (observed in run b01cfdd6, high)
+
+Predicted in the 18d08579 re-validation ("Proposal corrected" and "Plan" rows), now seen live. When the
+run started nothing listened on 5174. At 15:05 another session started a dev app from the main checkout
+(Vite PID 20792, `wave-tauri.exe` 22792 from `src-tauri\target\debug`, `wavesrv` 21412 from `dist\bin`).
+At 15:26:56 the Final stage ran `final-verify.mjs` in the run's tree
+(`.waveterm/worktrees/b01cfdd6-…`, `src-tauri/target` and `dist/bin` junctioned to the main checkout).
+Its log (`%TEMP%/arc-final/f42236e6-…/1/dev-app.log`):
+
+- `task dev` ran a real `npm install` (831 packages, 20 s). It replaced the tree's `node_modules`
+  junction with a real directory, as AGENTS.md warns. The main checkout's `node_modules` is intact.
+- `build:server:internal` wrote `dist/bin/wavesrv.x64.exe` **through the junction into the main
+  checkout** at 15:27:25. Go moved the running binary aside as `wavesrv.x64.exe~` (15:03). The other
+  session's dev app keeps running its old image, but its next start runs a `wavesrv` built from this
+  run's branch, not from `main`. Nothing tells it so.
+- `cargo tauri dev` compiled into the main checkout's `src-tauri/target` (432 of 435 crates). Vite then
+  failed: `Port 5174 is already in use`, `beforeDevCommand` exited non-zero, and the script reported
+  `final unverified: dev app exited with code 201 before answering on :9230`.
+
+So the Final stage is unverified whenever a dev app is running, which is most of the time in this
+repo. And its build silently swaps binaries under another session. The second part is the worse
+defect: the first fails visibly, the second doesn't.
+
+Direction, for `final-verify.mjs` and the final tree's Setup:
+- A free Vite port: pick one, and pass it through `cargo tauri dev --config` (`build.devUrl` and a
+  `beforeDevCommand` with `--port N --strictPort`).
+- No junctions for build outputs in the final tree: its own `CARGO_TARGET_DIR` (a cold build, minutes,
+  inside the 10-minute boot budget) and its own `dist/bin`. Find out how the dev host locates
+  `wavesrv` (`src-tauri\..\dist\bin`) and point it at the tree's own copy.
+- Or, cheaper, until the above exists: refuse to build when a dev app from the main checkout is
+  running (a listener on 5174, or a `wave-tauri.exe` under `src-tauri\target`), and report that as the
+  unverified reason, before any build touches shared outputs.
+
 ## Proposal: a final verification stage, with prototype parity
 
 This follows from findings 11, 14, 15 and 16. Per-task review judges one diff at a time, so nothing owns
@@ -1020,3 +1167,58 @@ finding is re-checked against what this run does. Status: **confirmed** (recurre
 | 23 | shape | The plan's second half is a chain: t-9 (deps t-4, t-7) → t-10 (t-2, t-9) → t-11, t-12, t-13 (t-10) → t-15 (docs, deps all). From 11:49 one worker runs at a time until t-10 lands, whatever the parallelism of 5. Each link pays work, then review, then merge, then a 3–4 min Verify before the next can start. So a per-merge Verify of about a minute would save several minutes per link. The plan's Depends lines set the width, as `AGENTS.md` says, and nothing flags a plan whose critical path is most of its tasks. |
 | 24 | new | t-7's worker (spawned 11:23:00) shows outside the run in the Agent tree; t-8 (11:27:23) nests. The store data is identical for both. See finding 24. |
 | 19 | changed | Since `c1892249` (another session, 10:29) the run card's status line shows worker time and a token count (`runCost`, `leadcardmodel.ts:306`), still no dollars. The count undercounts: `runtokenstore.ts` sums one transcript per task run (`SessionTranscriptPath`, the worker's), so reviewers and the lead are left out. On run b2d7fab1 that is 15.3M of 29.3M tokens, about half. The report and `wsh runs show` still have none. |
+
+## Re-validation: run b01cfdd6
+
+A third run, `b01cfdd6-49c8-4fb1-b330-d9d2e36ba561`, started 14:52:07 from a goal (four small open findings:
+3, 25, 24's WOS part, 21; 10 turned out already shipped). It is the first run on an Arc rebuilt with run
+18d08579's fixes (installed 14:37, base `7712a94`). Lead and workers `claude` / `claude-opus-5-5`,
+`--landing branch`, no dev app running. Lead session `2f88ce63-785c-4e3f-92d6-d8a2a2bbc7fa`.
+
+| # | Status | Evidence in this run |
+|---|---|---|
+| 12 | worked as designed | The lead runs in `.waveterm/worktrees/b01cfdd6-…`, the run's own tree, not the main checkout. |
+| 3 | confirmed (being fixed here) | 14:55:23, the lead's first ask: the attention row's source and `why` both carry the whole goal. |
+| 4 | not recurred | The first ask was three real decisions in one batch, each with a recommendation. No process-path question. |
+| 7 | worked as designed | Plan review ran 15:04:14 to 15:07:04 (2 min 50 s) and passed with four concrete, non-blocking notes checked against the code, e.g. a test at `evidence_test.go:633` the plan's list missed. Workers spawned 15:07:18, 14 s after the verdict. |
+| 29 | new | 15:04:24, `HandoffCompact` typed into the lead 10 s after submit, while the plan review was still running. |
+| 30 | new | The plan reviewer's tab sits outside the run in the Agent tree. |
+| 31 | new | Each worker tab shows outside the run for a few seconds after spawn, then nests. |
+| 32 | new | The answered escalation `esc:be74ac85` was still listed about 2 min after its answer. |
+| 33 | new | tsc fails on the base (`20b7bc1d` dropped `three`); t-4, t-1, t-3 asked, the lead answered within 17 s and told the other running workers without being asked. |
+| 14 | fixed | t-1 and t-3 completed with `--report`; `wsh runs show` prints each report file whole ("# Task 1 report: …"). |
+| 10 | fixed | Up to their first commit, the four workers made 28 Edit/Write calls and 3 heredocs (largest 4.5 KB), with no "unexpected EOF". |
+| 21 | confirmed (being fixed here) | t-3's sealed `verify pass` lines are pipelines ending in `grep`/`tail`, and t-4's include a Python edit script. The installed engine predates t-4's fix. |
+| 20 | confirmed | t-1 to t-4 all stamped `task-spawned` 15:07:18; worktree+Setup+spawn 2.1, 2.1, 2.7 and 4.2 s one after another. |
+| 34 | new | ~15:18, t-1 (`verifying`, tab reaped at merge) is missing from the Agent tree. |
+| 23 | confirmed | t-3's per-merge Verify took 256 s (4 min 16 s); t-1, t-2 and t-4 were all reviewed by 15:16:20 and wait behind it one Verify at a time. |
+| new | observed, low | `dag status` prints `resolve-merge` beside t-2 and t-4, which are simply waiting their turn to merge. `taskActions` (`digest.go:598-600`) and the `merge-ready` step (`:373`) reuse `digestActionResolveMerge`, the label of a conflicted merge, so a queued task reads like a blocked one. |
+| 30 | confirmed (verifier) | 15:27:51, the final verifier (`f5743b74`) also sits outside the run in the Agent tree, as finding 30 predicted from the same `runRoleOf` path. |
+| 35 | new | 15:27, the Final stage's dev app failed on Vite 5174 (another session's dev app, started 15:05), after its build had replaced the main checkout's `dist/bin/wavesrv.x64.exe` through the junction. |
+| 11, 15 | worked as designed | 15:35:42, the final verifier (7 min 51 s) passed the merged result with its own checks: `go build`, `go vet`, five Go packages, two vitest files, tsc exit 0. It named the one real test gap. The wake carried the unverified reason whole, from the script and from the verifier ("Vite port 5174 was already taken … a verifier must not stop the other instance"). "Not verified" reached the lead as a first-class fact, not a truncated sentence. |
+| 19 | fixed | `dag status` prints usage per role and per task: lead 5.6M, plan reviewer 1.9M, verifier 662k, workers 4.1M, reviewers 1.3M (13.6M in all). Still tokens only, no dollars, by design. |
+| 26 | partly | The `run finished` wake (2,657 chars) still opens with review recaps. The action line and the unverified block come last. |
+| 23 | measured | Per-merge Verify: t-3 256 s, t-1 200 s, t-2 199 s, t-4 210 s, 14 min 25 s serialized. All four tasks were reviewed by 15:16:20; the last Verify passed 15:26:56. Worker time was 20 min 48 s in all. |
+| 17 | fixed | 15:36:52, the lead completed with `--report` 70 s after the `run finished` wake, without asking. The unverified check became an `Acknowledge` attention row ("Finished, but 2 things were not verified"), not a question. |
+| 18 | fixed | Sealed evidence is `7712a94..f7f8197`, 16 files, +623/−103: the run's own branch. `main` moved twice meanwhile (`6bcbf60b`, `107fd765`), and neither is counted. |
+| 3 | still old (installed) | The `run-unverified` row's source is the whole goal again. t-1's fix is on the run's branch, not in the installed Arc. |
+| new | observed, low | The lead's wrap-up commit (`f7f81973`, deleting the shipped plan) moved the branch past the Final stage's commit (`2a26819`). So `reverifyHold` (`land.go:206`) re-runs the full Check and Verify (about 2 + 3.5 min) before landing, for a docs-only commit. And it re-runs them on the branch's own tree (`run.LandPath`), not on the result of merging into a `main` that moved twice. The combination with `main`'s new commits is never checked before it lands. |
+| 36 | new | From 15:36:52 the run is `done` in every surface, while `wsh runs show` says `land pending` and `main` has none of its commits. No frontend file reads `run.land` (grep: no `RunLand`/`land.state` under `frontend/app`), so "landing" is visible only in the CLI. Only a held land surfaces, as an attention row. The human asked "I thought the run is completed". Direction: the run row and card show "landing…" while pending, then the land commit or the held reason. |
+| 12 | worked as designed | 15:43:07, land-back merged `wave/b01cfdd6-…` into `main` as `2980c484` (`--no-ff`, `Arc-Run:` trailer) after the re-check, 6 min 15 s after the lead completed. The branch and the landing tree were removed. The uncommitted findings doc in the main checkout did not get in the way. The land carries the note "merged onto 2 commits that landed on main during the run; the combination was not verified", and the `run-unverified` row went from 2 items to 3. The gap is named, not hidden. |
+| new | observed, low | The land's merge subject is the dag title, the plan's H1: "Orchestrator small findings Implementation Plan" (`landTitle`, `land.go:303`). In `git log --oneline` that reads as a plan, not a change. The fallback is the goal's first line, which for a one-line goal like this run's is about 1,200 characters. Direction: strip a trailing "Implementation Plan", and cap the fallback like `goalHeadline`. |
+
+
+## Fixes after run b01cfdd6
+
+| # | Fix | Test |
+|---|---|---|
+| 29 | Submit hands the lead its compaction only for a JSON dag, which has no review. For a plan file, `planreview-pass` and `planreview-accept` post it to the dag's lead (`handOffAfterPlanReview`, `wshserver_dag.go`); a failed review posts nothing. `orchestrator-guide.md` says so. | `TestPlanReviewHandsOffOnlyOnceThePlanClears` |
+| 31 | `ScheduleOnce` publishes each child run as soon as it is saved and stamped, not at tick end. The tab's stamped `agent:taskid` then nests it before the dag commit names the run. The run is still saved after the spawn, since it records the tab's oref; the reorder the direction proposed was not needed. | `TestScheduleOncePublishesEachChildRunBeforeTheNextSpawn` |
+| 30 | `RunRole` gains `stage`, read from `run.stagerole`. The tree lists a stage session as a row under its run, titled "Plan review" or "Final verification", between the live tasks and the queued fold. The header, the rail (Run section), the grid's run card and "Close run" include it. | `agenttreemodel.test.ts`, `runlineage.test.ts` |
+| 34 | A task that is not done, queued, skipped or cancelled keeps its row after its tab is reaped. The row names the state ("verifying 2m", "verify failed", "reviewing"), a verifying row gets a working dot, and a merged task's row opens its worker's transcript. The lead card's verifying row shows the elapsed time too. | same |
+| 36 | A done dag reads "lead wrapping up" until the lead completes the run, then "landing", "land held" or "landed" (`finishedRunLabel`), on the tree row and the lead card. The Runs view's status pill reads the land the same way (`runStatusView(status, land)`). The land starts only once the run itself is done (`LandRun`), so the gap the human saw was mostly the lead's wrap-up, not the land. | `runmodel.test.ts` |
+| 35 | Stopgap only: `final-verify.mjs` reports unverified, before any build, when the Vite port (5174) is taken. It probes 127.0.0.1 and ::1, since Vite listens on ::1 alone. Its own Vite port and its own target and bin dirs are still open. | `final-verify.test.mjs` |
+
+Not verified live: there is no screenshot of the new tree rows. The cockpit fixtures carry no runs or dags,
+and the only dev app running belongs to another session. The next orchestrator run after the rebuild shows
+the plan-review row within its first minutes, and a verifying row after its first merge.

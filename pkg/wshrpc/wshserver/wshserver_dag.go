@@ -139,6 +139,29 @@ func checkDagEffort(ctx context.Context, effortOID string, tasks []waveobj.TaskN
 // postHandoff is a var so tests can see which submits hand a lead its compaction.
 var postHandoff = orchestrate.PostHandoff
 
+// postLeadHandoff hands owner's lead its compaction. A run with no lead worker, a human-planned one, has
+// nobody to compact, and a handoff queued for it would launch a lead.
+func postLeadHandoff(ctx context.Context, channelId string, owner *waveobj.Run) {
+	if leadORef(owner) != "" {
+		postHandoff(ctx, channelId, owner.ID)
+	}
+}
+
+// handOffAfterPlanReview hands the dag's lead its compaction once the plan review cleared the plan.
+func handOffAfterPlanReview(ctx context.Context, dagID string) {
+	g, err := wstore.GetDag(ctx, dagID)
+	if err != nil {
+		log.Printf("handoff after plan review: loading dag %s: %v", dagID, err)
+		return
+	}
+	owner, err := wstore.GetRun(ctx, g.ChannelId, g.RunID)
+	if err != nil {
+		log.Printf("handoff after plan review: loading run %s: %v", g.RunID, err)
+		return
+	}
+	postLeadHandoff(ctx, g.ChannelId, owner)
+}
+
 func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDagSubmitData) (*waveobj.TaskGroup, error) {
 	var plan jarvis.Plan
 	if data.Round {
@@ -274,10 +297,11 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 	default:
 		zero := 0
 		appendRunEvent(ctx, data.ChannelId, data.RunId, waveobj.RunEventKindPhaseStarted, &zero, map[string]any{})
-		// a lead that just handed its plan over compacts at that boundary (spec §7); a run with no lead
-		// worker, a human-planned one, has nobody to compact
-		if leadORef(run) != "" {
-			postHandoff(ctx, data.ChannelId, data.RunId)
+		// a lead that just handed its plan over compacts at that boundary (spec §7). A reviewed plan is
+		// handed over only once its review clears: a failed one comes back to the lead to revise, which needs
+		// the context the compaction drops.
+		if stored.PlanReview == nil {
+			postLeadHandoff(ctx, data.ChannelId, run)
 		}
 	}
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, stored.OID))
@@ -456,8 +480,11 @@ func (ws *WshServer) DagActionCommand(ctx context.Context, data wshrpc.CommandDa
 		if err != nil {
 			return err
 		}
-		// the verdict is durable; the tick it clears dispatches the first layer, which outlasts the caller's RPC budget
 		dagID := run.DagORef
+		if data.Action != "planreview-fail" {
+			handOffAfterPlanReview(ctx, dagID)
+		}
+		// the verdict is durable; the tick it clears dispatches the first layer, which outlasts the caller's RPC budget
 		go func() {
 			if err := orchestrate.Schedule(context.Background(), dagID); err != nil {
 				log.Printf("dag schedule after plan review: %v", err)

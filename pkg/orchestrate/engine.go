@@ -558,6 +558,10 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		if err := stampSpawnedWorker(spawnCtx, oref, runORef, channelORef); err != nil {
 			log.Printf("schedule dag %s task %s: stamp worker %s: %v", g.OID, taskID, oref, err)
 		}
+		// now, not at tick end: the app already shows the tab, and until its run arrives the tab sits outside
+		// the run's tree for as long as the rest of the batch takes to spawn. The tab's stamped task id nests it
+		// before the dag commit names the run.
+		wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Run, childRun.ID))
 		if err := MarkRunning(g, taskID, childRun.ID); err != nil {
 			return cleanupScheduleFailure(ctx, spawnCtx, g, spawned, err)
 		}

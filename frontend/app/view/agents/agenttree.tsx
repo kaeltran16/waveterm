@@ -18,7 +18,20 @@ import { buildAgentTree, treeAgentCount } from "./agenttreemodel";
 import { renamingRowAtom } from "./rowrenameatom";
 import { duplicateSession, renameSession, sessionCustomLabel } from "./session-models/sessionsidebarmodel";
 import { displayAgeMs, formatAgeShort, type AgentVM } from "./agentsviewmodel";
-import { endedWorkerId, laneLabel, leadStandingBy, runAgentsOf, runProgress, unmetDeps, workerAsk, workerSubtext, type RunInfo } from "./runlineage";
+import {
+    endedWorkerId,
+    laneLabel,
+    leadStandingBy,
+    runAgentsOf,
+    runProgress,
+    stageLabel,
+    taskStateLabel,
+    unmetDeps,
+    workerAsk,
+    workerEnded,
+    workerSubtext,
+    type RunInfo,
+} from "./runlineage";
 import {
     toggleRunCollapsed,
     toggleRunDoneOpen,
@@ -27,7 +40,7 @@ import {
     treeFoldsAtom,
     useRunDigests,
 } from "./runlineagestore";
-import { runStatusView } from "./runmodel";
+import { finishedRunLabel, runStatusView } from "./runmodel";
 import {
     getSubagentExpandAtom,
     toggleSubagentExpand,
@@ -141,7 +154,7 @@ function RunSubline({ run, open, live, leadless }: { run: RunInfo; open: boolean
     const chip = live > 0 || done === 0 ? `${live} ${live === 1 ? "worker" : "workers"}` : `${done} done`;
     let progress = `${done}/${total} done`;
     if (run.dag.status === "done") {
-        progress = "run complete";
+        progress = finishedRunLabel(run);
     } else if (leadless) {
         // a plan-path run gets its lead only at its first judgment event, so no lead yet is the normal case
         progress = `${done}/${total} · ${run.leadStarted ? "lead closed" : "lead starts if needed"}`;
@@ -378,7 +391,9 @@ function WorkerRow({
     const done = !nested && task.state === "done";
     const lane = laneLabel(run.digest, task.id);
     const ask = done || nested ? undefined : workerAsk(run.digest, task.id);
-    const focusKey = done ? endedWorkerId(run.runId, task.id) : agent?.id;
+    // with its tab reaped, a task past its worker still opens that worker's transcript
+    const ended = !nested && (done || (agent == null && workerEnded(task)));
+    const focusKey = ended ? endedWorkerId(run.runId, task.id) : agent?.id;
     const selected = focusKey != null && focusId === focusKey;
     const waits = done || nested ? undefined : unmetDeps(run.dag, task);
     const asksYou = !done && ask?.owner !== "lead" && (ask?.owner === "you" || agent?.state === "asking");
@@ -389,6 +404,7 @@ function WorkerRow({
         ask,
         outcome: done ? (task.merged ? "landed" : "done") : undefined,
         waits,
+        state: nested ? undefined : taskStateLabel(task, now),
     });
     const title = nested ? agent?.name || task.id : task.label || task.id;
 
@@ -429,6 +445,8 @@ function WorkerRow({
                 <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-success" />
             ) : waits ? (
                 <span className="h-[7px] w-[7px] shrink-0 rounded-full border border-muted" />
+            ) : task.state === "verifying" && !nested ? (
+                <StatusDot state="working" pulse className="!h-[7px] !w-[7px]" />
             ) : agent == null ? (
                 <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-muted" />
             ) : (
@@ -457,6 +475,42 @@ function WorkerRow({
             ) : asksYou ? (
                 <span className="whitespace-nowrap font-mono text-[10px] font-medium text-warning">asking</span>
             ) : null}
+        </div>
+    );
+}
+
+// A session the engine started to judge the whole run, under the run like a task's worker and named by its stage.
+function StageRow({ model, agent, stageRole }: { model: AgentsViewModel; agent: AgentVM; stageRole: string }) {
+    const focusId = useAtomValue(model.focusIdAtom);
+    const now = useAtomValue(model.nowAtom);
+    const selected = focusId === agent.id;
+    const select = () => {
+        globalStore.set(model.focusIdAtom, agent.id);
+        globalStore.set(model.focusReplyAtom, false);
+    };
+    const onContextMenu = (e: React.MouseEvent) => {
+        const items: ContextMenuItem[] = [
+            { label: "Close agent", icon: <X size={15} />, danger: true, click: () => confirmCloseSession(agent) },
+        ];
+        ContextMenuModel.getInstance().showContextMenu(items, e);
+    };
+    return (
+        <div
+            onClick={select}
+            onContextMenu={onContextMenu}
+            className={cn(
+                "relative flex cursor-pointer items-center gap-[9px] rounded-[9px] py-[8px] pl-[28px] pr-[11px] transition-colors duration-[140ms]",
+                selected ? "bg-accentbg" : "hover:bg-surface-hover"
+            )}
+        >
+            <Elbow />
+            <StatusDot state={agent.state} pulse={agent.state !== "idle"} className="!h-[7px] !w-[7px]" />
+            <div className="min-w-0 flex-1">
+                <div className="truncate font-mono text-[11.5px] font-semibold text-ink-hi">{stageLabel(stageRole)}</div>
+                <div className="truncate text-[10.5px] text-muted">
+                    {[stageRole, formatAgeShort(displayAgeMs(agent, now))].join(" · ")}
+                </div>
+            </div>
         </div>
     );
 }
@@ -653,6 +707,10 @@ export function AgentTree({ model }: { model: AgentsViewModel }) {
                                         }
                                     />
                                 );
+                                break;
+                            case "stage":
+                                key = r.agent.id;
+                                body = <StageRow model={model} agent={r.agent} stageRole={r.stageRole} />;
                                 break;
                             case "done":
                                 key = `done-${r.run.runId}`;

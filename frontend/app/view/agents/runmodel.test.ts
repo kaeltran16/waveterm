@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { AgentVM } from "./agentsviewmodel";
-import type { Lineage } from "./runlineage";
+import type { Lineage, RunInfo } from "./runlineage";
 import {
     cancelSurvivors,
     currentPhaseIndex,
     defaultRunId,
     defaultView,
+    finishedRunLabel,
     isOrchestrator,
     isTerminal,
     leadAsker,
@@ -62,6 +63,39 @@ describe("runStatusView", () => {
     });
     it("falls back to the raw status with a planning tone", () => {
         expect(runStatusView("weird")).toEqual({ label: "weird", tone: "planning" });
+    });
+    it("says where a done run's branch stands on its way back into its base", () => {
+        expect(runStatusView("done", { state: "pending" })).toEqual({ label: "landing", tone: "running" });
+        expect(runStatusView("done", { state: "held", reason: "dirty checkout" })).toEqual({
+            label: "land held",
+            tone: "blocked",
+        });
+        expect(runStatusView("done", { state: "landed" })).toEqual({ label: "landed", tone: "done" });
+        expect(runStatusView("done")).toEqual({ label: "done", tone: "done" });
+    });
+});
+
+describe("finishedRunLabel", () => {
+    const info = (status?: string, land?: RunLand, dagStatus = "done"): RunInfo => ({
+        runId: "r",
+        channelId: "ch",
+        title: "t",
+        project: "p",
+        status,
+        land,
+        dag: { status: dagStatus } as TaskGroup,
+    });
+    it("says the lead is wrapping up until it completes the run", () => {
+        expect(finishedRunLabel(info("executing"))).toBe("lead wrapping up");
+    });
+    it("follows the land once the run is done", () => {
+        expect(finishedRunLabel(info("done"))).toBe("run complete");
+        expect(finishedRunLabel(info("done", { state: "pending" }))).toBe("landing");
+        expect(finishedRunLabel(info("done", { state: "held" }))).toBe("land held");
+        expect(finishedRunLabel(info("done", { state: "landed" }))).toBe("landed");
+    });
+    it("says a cancelled run is cancelled", () => {
+        expect(finishedRunLabel(info("executing", undefined, "cancelled"))).toBe("run cancelled");
     });
 });
 

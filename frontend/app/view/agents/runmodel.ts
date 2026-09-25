@@ -6,11 +6,40 @@
 // view + run selection. No React, no jotai — unit-tested in runmodel.test.ts.
 
 import type { AgentVM } from "./agentsviewmodel";
-import type { Lineage } from "./runlineage";
+import type { Lineage, RunInfo } from "./runlineage";
 
 export type RunStatusTone = "planning" | "review" | "running" | "blocked" | "done" | "failed" | "cancelled";
 
-export function runStatusView(status: string): { label: string; tone: RunStatusTone } {
+// a done run on its own branch is not in its base until the branch lands
+function landView(land: RunLand): { label: string; tone: RunStatusTone } | undefined {
+    switch (land.state) {
+        case "pending":
+            return { label: "landing", tone: "running" };
+        case "held":
+            return { label: "land held", tone: "blocked" };
+        case "landed":
+            return { label: "landed", tone: "done" };
+    }
+    return undefined;
+}
+
+/** Pure: what a run whose plan finished is still doing. The dag finishing is not the run finishing: its lead
+ *  wraps up and completes it, and only then does a run on its own branch land. */
+export function finishedRunLabel(run: RunInfo): string {
+    if (run.dag?.status === "cancelled" || run.status === "cancelled") {
+        return "run cancelled";
+    }
+    if (run.status != null && run.status !== "done") {
+        return "lead wrapping up";
+    }
+    return (run.land && landView(run.land)?.label) || "run complete";
+}
+
+export function runStatusView(status: string, land?: RunLand): { label: string; tone: RunStatusTone } {
+    const landed = status === "done" && land != null ? landView(land) : undefined;
+    if (landed) {
+        return landed;
+    }
     switch (status) {
         case "planning":
             return { label: "planning", tone: "planning" };

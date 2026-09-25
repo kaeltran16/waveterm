@@ -355,7 +355,7 @@ describe("leadActivity", () => {
         expect(leadActivity(run(), lead, true)).toBe("lead down · its events come to you");
     });
     it("names a finished run's end", () => {
-        expect(leadActivity(run("done"), { ...lead, atPrompt: true } as AgentVM, false)).toBe("run done");
+        expect(leadActivity(run("done"), { ...lead, atPrompt: true } as AgentVM, false)).toBe("run complete");
     });
 });
 

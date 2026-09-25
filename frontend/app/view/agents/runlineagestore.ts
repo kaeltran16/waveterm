@@ -101,6 +101,7 @@ export function lineageAtomFor(agentsAtom: Atom<AgentVM[]>): Atom<Lineage> {
                 leadStarted: (leadRun?.phases ?? []).some((p) => (p.workerorefs ?? []).length > 0),
                 status: leadRun?.status,
                 landPath: leadRun?.landpath,
+                land: leadRun?.land,
                 dag,
                 digest: digests[leadRunId],
             };

@@ -7,7 +7,7 @@
 
 import type { ChipFilter } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
-import { leadAgentOf, runFinished, type Lineage, type RunInfo } from "./runlineage";
+import { leadAgentOf, roleRunId, runFinished, type Lineage, type RunInfo } from "./runlineage";
 
 // a card that needs you is readable at a glance; below these the content clips
 export const CARD_MIN_PX = { agent: 200, agentAsk: 320, run: 280, runAsk: 400 } as const;
@@ -54,7 +54,7 @@ export function buildGridCards(shown: AgentVM[], lineage: Lineage, roster: Agent
     const placed = new Set<string>();
     for (const a of shown) {
         const role = lineage.roles[a.id];
-        const runId = role?.kind === "lead" ? role.runId : role?.kind === "worker" ? role.leadRunId : undefined;
+        const runId = role ? roleRunId(role) : undefined;
         if (runId == null || !lineage.runs[runId]) {
             cards.push({ kind: "agent", id: a.id, agent: a });
             continue;

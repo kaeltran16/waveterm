@@ -84,10 +84,65 @@ describe("buildAgentTree with run lineage", () => {
                     return `${r.kind}:${r.count}:${r.open}`;
                 case "parent":
                     return `parent:${r.agent.id}`;
+                case "stage":
+                    return `stage:${r.stageRole}:${r.agent.id}`;
                 default:
                     return `${r.kind}:${r.run.runId}:${r.live}`;
             }
         });
+
+    it("keeps a row for a task whose worker's tab was reaped while its merge verifies", () => {
+        const r = run("run-1", [
+            task("t-1", "verifying"),
+            task("t-2", "running"),
+            task("t-3", "skipped"),
+            task("t-4", "pending"),
+        ]);
+        const rows = buildAgentTree(
+            [agent("lead", "working"), agent("w2", "working", "")],
+            ["lead", "w2"],
+            lineage([r], {
+                lead: { kind: "lead", runId: "run-1" },
+                w2: { kind: "worker", leadRunId: "run-1", taskId: "t-2" },
+            })
+        );
+        // the verifying task is under way but has no session, so it is not counted as an agent
+        expect(shape(rows)).toEqual([
+            "group:waveterm:2:0",
+            "lead:run-1:2",
+            "worker:t-1:-",
+            "worker:t-2:w2",
+            "queued:1:false",
+        ]);
+    });
+
+    it("nests the engine's stage sessions under their run, between its tasks and its queued fold", () => {
+        const r = run("run-1", [task("t-1", "pending")]);
+        const rows = buildAgentTree(
+            [agent("lead", "idle"), agent("rev", "working", "")],
+            ["rev", "lead"],
+            lineage([r], {
+                lead: { kind: "lead", runId: "run-1" },
+                rev: { kind: "stage", leadRunId: "run-1", stageRole: "plan-reviewer" },
+            })
+        );
+        expect(shape(rows)).toEqual([
+            "group:waveterm:2:0",
+            "lead:run-1:1",
+            "stage:plan-reviewer:rev",
+            "queued:1:false",
+        ]);
+    });
+
+    it("places a stage session's run in its place when the lead is not in the roster", () => {
+        const r = run("run-1", [task("t-1", "done")]);
+        const rows = buildAgentTree(
+            [agent("ver", "working", "")],
+            ["ver"],
+            lineage([r], { ver: { kind: "stage", leadRunId: "run-1", stageRole: "verifier" } })
+        );
+        expect(shape(rows)).toEqual(["group:waveterm:1:0", "run:run-1:1", "done:1:false", "stage:verifier:ver"]);
+    });
 
     it("nests the done fold, then live workers in plan order, then a closed queued fold under their lead", () => {
         const r = run("run-1", [

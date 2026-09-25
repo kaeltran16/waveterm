@@ -189,8 +189,9 @@ path only when it is genuinely unclear, and finishes accordingly:
 The Spec review is the one approval: the lead does not ask section by section, and after `dag submit` it does not
 ask you to review the plan or pick an execution mode, since the engine reviews the plan.
 
-After `dag submit` the engine waits for the lead to go idle and types a `/compact` that keeps what you said and
-drops code it read. Every compaction of a lead re-injects its orchestration rules (`wsh jarvis dag rules`), so
+Once the plan review passes, or you accept a plan it failed, the engine waits for the lead to go idle and types a
+`/compact` that keeps what you said and drops code it read. A plan submitted as JSON, with no review, is handed
+over at `dag submit`. A failed review sends the plan back to a lead that still has its context to revise it. Every compaction of a lead re-injects its orchestration rules (`wsh jarvis dag rules`), so
 it knows it is the lead of a run when it next wakes.
 
 On a run landing on its own branch, `dag submit` commits the spec and plan to `wave/<runId>` before any lane is

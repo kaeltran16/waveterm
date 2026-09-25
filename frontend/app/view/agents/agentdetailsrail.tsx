@@ -31,7 +31,7 @@ import { entriesAtomFor, liveEntriesByIdAtom } from "./livetranscriptatoms";
 import { prettyModel } from "./modellabel";
 import { RAIL_ICON } from "./railicons";
 import { loadRailForAgent, railStateAtom, railVisibleAtom } from "./railstore";
-import { agentProject } from "./runlineage";
+import { agentProject, roleRunId } from "./runlineage";
 import { NeedsYouSection, RunSection, TaskSection, useRunAsks } from "./runrailsections";
 import type { SubagentState } from "./session-models/sessionviewmodel";
 import { focusSubagentAtom, subagentsByIdAtom } from "./subagentsstore";
@@ -255,7 +255,7 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
     const cacheStatus = useAtomValue(agentCacheStatusAtom);
     const now = useAtomValue(model.nowAtom);
     const role = lineage.roles[agent.id];
-    const roleRun = role ? lineage.runs[role.kind === "lead" ? role.runId : role.leadRunId] : undefined;
+    const roleRun = role ? lineage.runs[roleRunId(role)] : undefined;
     const asks = useRunAsks(roleRun);
     const yours = asks.filter(
         (a) =>
@@ -427,12 +427,10 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
             ? [
                   {
                       id: "run",
-                      label: role.kind === "lead" ? "Run" : "Task",
+                      label: role.kind === "worker" ? "Task" : "Run",
                       icon: RAIL_ICON.autonomy,
                       content:
-                          role.kind === "lead" ? (
-                              <RunSection key={agent.id} model={model} run={roleRun} asks={asks} />
-                          ) : (
+                          role.kind === "worker" ? (
                               <TaskSection
                                   key={agent.id}
                                   model={model}
@@ -440,6 +438,8 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                                   taskId={role.taskId}
                                   asks={asks}
                               />
+                          ) : (
+                              <RunSection key={agent.id} model={model} run={roleRun} asks={asks} />
                           ),
                   },
               ]

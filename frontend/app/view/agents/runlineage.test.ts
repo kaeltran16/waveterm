@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
+import type { AgentVM } from "./agentsviewmodel";
 import {
     agentProject,
     endedRoles,
@@ -17,10 +18,13 @@ import {
     runProgress,
     runRoleOf,
     runTitle,
+    stageLabel,
     taskAgentOf,
+    taskStateLabel,
     unmetDeps,
     workerAsk,
     workerSubtext,
+    type Lineage,
 } from "./runlineage";
 
 const dag = {
@@ -260,5 +264,60 @@ describe("leadStandingBy", () => {
             false
         );
         expect(leadStandingBy({ atPrompt: true }, { ...run, dag: undefined })).toBe(false);
+    });
+});
+
+describe("stage sessions", () => {
+    it("reads a run the engine started for a stage as that stage of the lead run", () => {
+        const run = { oid: "reviewer-run", dagoref: "dag-1", mode: "quick", stagerole: "plan-reviewer" } as Run;
+        expect(runRoleOf(run, dag)).toEqual({ kind: "stage", leadRunId: "lead-run", stageRole: "plan-reviewer" });
+    });
+
+    it("counts a stage session among its run's tabs, under the run's project", () => {
+        const lineage = {
+            roles: {
+                lead: { kind: "lead", runId: "lead-run" },
+                rev: { kind: "stage", leadRunId: "lead-run", stageRole: "verifier" },
+                other: { kind: "lead", runId: "other-run" },
+            },
+            runs: { "lead-run": { runId: "lead-run", channelId: "ch", title: "t", project: "waveterm" } },
+        } as Lineage;
+        const tabs = [{ id: "lead" }, { id: "rev" }, { id: "other" }];
+        expect(runAgentsOf(lineage, tabs, "lead-run").map((a) => a.id)).toEqual(["lead", "rev"]);
+        const rev = { id: "rev", name: "rev", task: "", state: "working", project: "b01cfdd6-wt" } as AgentVM;
+        expect(agentProject(lineage, [], rev)).toBe("waveterm");
+    });
+
+    it("titles a stage row by its stage", () => {
+        expect(stageLabel("plan-reviewer")).toBe("Plan review");
+        expect(stageLabel("verifier")).toBe("Final verification");
+    });
+});
+
+describe("a task past its worker", () => {
+    it("names verifying with how long its Verify has run, and leaves the states a row already shows unsaid", () => {
+        const now = 1_000_000;
+        expect(taskStateLabel({ id: "t", state: "verifying", verifystartedts: now - 125_000 } as TaskNode, now)).toBe(
+            "verifying 2m"
+        );
+        expect(taskStateLabel({ id: "t", state: "verify-failed" } as TaskNode, now)).toBe("verify failed");
+        for (const state of ["pending", "ready", "running", "done"]) {
+            expect(taskStateLabel({ id: "t", state } as TaskNode, now)).toBeUndefined();
+        }
+    });
+
+    it("shows the state on the worker row in place of its age", () => {
+        expect(workerSubtext({ taskId: "t-1", lane: "A", age: "3m", state: "verifying 2m" })).toBe(
+            "t-1 · lane A · verifying 2m"
+        );
+    });
+
+    it("gives a merged task still verifying an ended worker, so its transcript opens", () => {
+        const tasks = [
+            { id: "t-1", state: "verifying", merged: true },
+            { id: "t-2", state: "running" },
+        ] as TaskNode[];
+        const runs = { r: { runId: "r", channelId: "ch", title: "t", project: "p", dag: { tasks } as TaskGroup } };
+        expect(Object.keys(endedRoles(runs))).toEqual([endedWorkerId("r", "t-1")]);
     });
 });

@@ -357,6 +357,57 @@ func TestScheduleOnceLabelsAWorkerWithItsTask(t *testing.T) {
 	}
 }
 
+// A worker's tab reaches the app when its spawn returns, and it sits outside its run's tree until its run
+// arrives. Publishing the run only at tick end left each tab outside for as long as the rest of the batch took.
+func TestScheduleOncePublishesEachChildRunBeforeTheNextSpawn(t *testing.T) {
+	allowWorkerHarnessForTest(t)
+	ctx := context.Background()
+	cc := &captureClient{}
+	prevClient := wps.Broker.GetClient()
+	wps.Broker.SetClient(cc)
+	t.Cleanup(func() { wps.Broker.SetClient(prevClient) })
+	const subscriber = "schedule-run-update-order"
+	wps.Broker.Subscribe(subscriber, wps.SubscriptionRequest{Event: wps.Event_WaveObjUpdate, AllScopes: true})
+	t.Cleanup(func() { wps.Broker.Unsubscribe(subscriber, wps.Event_WaveObjUpdate) })
+
+	ch, err := wstore.CreateChannel(ctx, "engine-publish-order", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := jarvis.NewRun("owner goal", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
+	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
+		t.Fatal(err)
+	}
+	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 2, false, []waveobj.TaskNode{{ID: "t-0", Label: "a"}, {ID: "t-1", Label: "b"}}, 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := wstore.AppendDag(ctx, &g); err != nil {
+		t.Fatal(err)
+	}
+	var runIDs []string
+	firstPublished := false
+	old := spawnWorker
+	spawnWorker = func(_ context.Context, _ runroute.Capability, _, _, _, _ string, opts jarvis.RunWorkerOptions) (string, error) {
+		if len(runIDs) == 1 {
+			firstPublished = cc.saw(wps.Event_WaveObjUpdate, waveobj.MakeORef(waveobj.OType_Run, runIDs[0]).String())
+		}
+		runIDs = append(runIDs, opts.RunId)
+		return "tab:worker-" + opts.TaskId, nil
+	}
+	t.Cleanup(func() { spawnWorker = old })
+
+	if err := ScheduleOnce(ctx, &g); err != nil {
+		t.Fatal(err)
+	}
+	if len(runIDs) != 2 {
+		t.Fatalf("want both tasks spawned in one tick, got %v", runIDs)
+	}
+	if !firstPublished {
+		t.Fatal("the first child run was not published before the second task spawned")
+	}
+}
+
 func TestScheduleOnceSpawnsUpToCap(t *testing.T) {
 	allowWorkerHarnessForTest(t)
 	ctx := context.Background()

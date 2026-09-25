@@ -44,8 +44,8 @@ const CTX_TEXT: Record<"ok" | "warn" | "hot", string> = {
 const ICON_BTN =
     "cursor-pointer rounded-[7px] border border-edge-mid bg-surface-raised px-[9px] py-[6px] text-secondary";
 
-// useRunLineage reads what the header says about an agent a run spawned: a lead's run, or a worker's task
-// and lead.
+// useRunLineage reads what the header says about an agent a run spawned: a lead's run, a worker's task and
+// lead, or a stage session's run and lead.
 function useRunLineage(model: AgentsViewModel, agent: AgentVM) {
     const lineage = useAtomValue(model.lineageAtom);
     const agents = useAtomValue(model.agentsAtom);
@@ -57,12 +57,16 @@ function useRunLineage(model: AgentsViewModel, agent: AgentVM) {
         return { kind: "lead" as const, runId: role.runId };
     }
     const run = lineage.runs[role.leadRunId];
+    const lead = leadAgentOf(lineage, agents, role.leadRunId);
+    if (role.kind === "stage") {
+        return { kind: "stage" as const, run, lead };
+    }
     const task = run?.dag?.tasks?.find((t) => t.id === role.taskId);
     return {
         kind: "worker" as const,
         run,
         task,
-        lead: leadAgentOf(lineage, agents, role.leadRunId),
+        lead,
     };
 }
 
@@ -184,7 +188,7 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                 <div className="mt-[2px] whitespace-nowrap font-mono text-[11px] font-medium text-muted">
                     {project || "—"}
                     {lineage?.kind === "lead" ? <> · orchestrator run {lineage.runId.slice(0, 8)}</> : null}
-                    {lineage?.kind === "worker" ? (
+                    {lineage?.kind === "worker" || lineage?.kind === "stage" ? (
                         <>
                             {" · "}
                             {lineage.lead ? (

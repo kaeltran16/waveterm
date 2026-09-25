@@ -6,9 +6,13 @@
 // engine's digest for what only it knows: lanes and who holds a question. No React, no Wave runtime.
 
 import { modelLabel } from "@/app/view/agents/session-models/sessionviewmodel";
-import { projectOf, type AgentVM } from "./agentsviewmodel";
+import { formatAgeShort, projectOf, type AgentVM } from "./agentsviewmodel";
 
-export type RunRole = { kind: "lead"; runId: string } | { kind: "worker"; leadRunId: string; taskId: string };
+// a stage session judges the whole run rather than one task: its plan reviewer, its final verifier
+export type RunRole =
+    | { kind: "lead"; runId: string }
+    | { kind: "worker"; leadRunId: string; taskId: string }
+    | { kind: "stage"; leadRunId: string; stageRole: string };
 
 // RunInfo is one orchestrator run as the tree and header show it, keyed by the lead's run id.
 export interface RunInfo {
@@ -23,6 +27,8 @@ export interface RunInfo {
     status?: string;
     // the run's own wave/<runId> tree, when its lanes land there instead of the checkout
     landPath?: string;
+    // where the run's branch stands on its way back into its base, once the run is done
+    land?: RunLand;
     dag?: TaskGroup;
     digest?: DagStatusDigest;
 }
@@ -34,8 +40,9 @@ export interface Lineage {
 
 export const NO_LINEAGE: Lineage = { roles: {}, runs: {} };
 
-// runRoleOf is an agent's part in a run. A dag's owning run is its lead's, and any other run holding the
-// dag is a task's child run. An orchestrator run with no dag yet, or whose dag has not loaded, is a lead.
+// runRoleOf is an agent's part in a run. A dag's owning run is its lead's, a run the engine started for a stage
+// is that stage's, and any other run holding the dag is a task's child run. An orchestrator run with no dag yet,
+// or whose dag has not loaded, is a lead.
 // Anything else is a plain agent: a Quick run, or a child the engine no longer links that carries no task id.
 export function runRoleOf(run: Run | undefined, dag: TaskGroup | undefined, stampedTaskId?: string): RunRole | null {
     if (run == null) {
@@ -44,6 +51,9 @@ export function runRoleOf(run: Run | undefined, dag: TaskGroup | undefined, stam
     if (run.dagoref && dag != null) {
         if (dag.runid === run.oid) {
             return { kind: "lead", runId: run.oid };
+        }
+        if (run.stagerole) {
+            return { kind: "stage", leadRunId: dag.runid, stageRole: run.stagerole };
         }
         const tasks = dag.tasks ?? [];
         // a task's reviewer works that task too, so it nests under the lead beside the worker it follows. the
@@ -72,11 +82,11 @@ export function leadAgentOf<T extends { id: string }>(lineage: Lineage, agents: 
     });
 }
 
-// agentProject is the project an agent is shown under. A worker's own is the engine's worktree, so it reads
-// its lead's, else its run's checkout.
+// agentProject is the project an agent is shown under. A worker's or stage session's own is an engine tree, so
+// it reads its lead's, else its run's checkout.
 export function agentProject(lineage: Lineage, agents: AgentVM[], agent: AgentVM): string {
     const role = lineage.roles[agent.id];
-    if (role?.kind !== "worker") {
+    if (role == null || role.kind === "lead") {
         return projectOf(agent);
     }
     const lead = leadAgentOf(lineage, agents, role.leadRunId);
@@ -99,11 +109,16 @@ export function taskAgentOf<T extends { id: string; runId?: string }>(
     return (run && onTask.find((a) => holdsTask(run, taskId, a))) ?? onTask[0];
 }
 
-// runAgentsOf is every roster tab a run still holds: its lead and each of its tasks' tabs.
+// roleRunId is the run an agent's role belongs to, keyed by its lead's run id.
+export function roleRunId(role: RunRole): string {
+    return role.kind === "lead" ? role.runId : role.leadRunId;
+}
+
+// runAgentsOf is every roster tab a run still holds: its lead, its tasks' tabs and its stage sessions.
 export function runAgentsOf<T extends { id: string }>(lineage: Lineage, agents: T[], runId: string): T[] {
     return agents.filter((a) => {
         const role = lineage.roles[a.id];
-        return (role?.kind === "lead" && role.runId === runId) || (role?.kind === "worker" && role.leadRunId === runId);
+        return role != null && roleRunId(role) === runId;
     });
 }
 
@@ -119,13 +134,19 @@ export function isEndedWorkerId(id: string): boolean {
     return id.startsWith(ENDED_WORKER_PREFIX);
 }
 
-// endedRoles gives each done task of the runs in view a worker role under its ended id, so the header and the
-// rail place a done worker as they place a live one.
+// workerEnded reports a task whose worker has finished for good: the task is done, or its work merged and is
+// being verified, which reaps the worker's tab with its tree.
+export function workerEnded(task: TaskNode): boolean {
+    return task.state === "done" || task.merged === true;
+}
+
+// endedRoles gives each task of the runs in view whose worker ended a worker role under its ended id, so the
+// header and the rail place an ended worker as they place a live one.
 export function endedRoles(runs: Record<string, RunInfo>): Record<string, RunRole> {
     const roles: Record<string, RunRole> = {};
     for (const run of Object.values(runs)) {
         for (const task of run.dag?.tasks ?? []) {
-            if (task.state === "done") {
+            if (workerEnded(task)) {
                 roles[endedWorkerId(run.runId, task.id)] = { kind: "worker", leadRunId: run.runId, taskId: task.id };
             }
         }
@@ -194,6 +215,8 @@ export interface WorkerLine {
     outcome?: string;
     // a task that has not started: the dependencies it still waits on (empty = just queued)
     waits?: string[];
+    // a task past or beside its worker's turn: verifying, reviewing, failed
+    state?: string;
 }
 
 // workerSubtext is a worker row's second line, led by its task id since the row's title is the task's label:
@@ -209,10 +232,33 @@ export function workerSubtext(w: WorkerLine): string {
         tail = ["asked the lead", w.age];
     } else if (w.ask?.owner === "you") {
         tail = ["asks you", w.age];
+    } else if (w.state) {
+        tail = [lane, w.state];
     } else {
         tail = [lane, w.age];
     }
     return [w.taskId, ...tail].filter(Boolean).join(" · ");
+}
+
+// states a worker row already says on its own: queued, running and done
+const PLAIN_STATES = new Set(["pending", "ready", "running", "done"]);
+
+// taskStateLabel names a task's state when its worker row would not show it, with how long a Verify has run.
+export function taskStateLabel(task: TaskNode, now: number): string | undefined {
+    if (PLAIN_STATES.has(task.state)) {
+        return undefined;
+    }
+    const label = task.state.replace(/-/g, " ");
+    return task.state === "verifying" && task.verifystartedts
+        ? `${label} ${formatAgeShort(now - task.verifystartedts)}`
+        : label;
+}
+
+const STAGE_LABELS: Record<string, string> = { "plan-reviewer": "Plan review", verifier: "Final verification" };
+
+// stageLabel is what a stage session's row is titled.
+export function stageLabel(stageRole: string): string {
+    return STAGE_LABELS[stageRole] ?? stageRole;
 }
 
 const NOT_STARTED = new Set(["pending", "ready"]);

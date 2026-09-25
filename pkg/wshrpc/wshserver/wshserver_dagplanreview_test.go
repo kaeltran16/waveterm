@@ -7,8 +7,10 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
@@ -129,6 +131,88 @@ func TestDagSubmitReviewsThePlanBeforeAnyWorkerStarts(t *testing.T) {
 		}
 		if _, err := submit(channelId, runId, writePlan(t, revised)); err == nil || !strings.Contains(err.Error(), "dag conflict") {
 			t.Fatalf("want dag conflict, got %v", err)
+		}
+	})
+}
+
+// A lead compacts when its plan is handed over for good: once the review passes or the human accepts it,
+// never at submit, when a failed review would send the plan back to a lead that had dropped its context.
+func TestPlanReviewHandsOffOnlyOnceThePlanClears(t *testing.T) {
+	ctx := context.Background()
+	const plan = "# Coupons\n\n### Task 1: input\nadd the field\n"
+	var handed []string
+	old := postHandoff
+	postHandoff = func(_ context.Context, channelId, runId string) { handed = append(handed, channelId+"/"+runId) }
+	t.Cleanup(func() { postHandoff = old })
+	ws := &WshServer{}
+
+	submit := func(t *testing.T) (string, string, *waveobj.TaskGroup) {
+		t.Helper()
+		ch, err := wstore.CreateChannel(ctx, "dag-planreview-handoff", t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		lead := jarvis.NewRun("ship coupons", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
+		lead.Status = jarvis.RunStatus_Planning
+		lead.Phases[0].WorkerOrefs = []string{"tab:lead-tab"}
+		if err := wstore.AppendRun(ctx, ch.OID, lead); err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(t.TempDir(), "plan.md")
+		if err := os.WriteFile(path, []byte(plan), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		g, err := ws.DagSubmitCommand(ctx, wshrpc.CommandDagSubmitData{ChannelId: ch.OID, RunId: lead.ID, PlanPath: path})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ch.OID, lead.ID, g
+	}
+	act := func(t *testing.T, channelId, runId, action string) {
+		t.Helper()
+		if err := ws.DagActionCommand(ctx, wshrpc.CommandDagActionData{ChannelId: channelId, RunId: runId, Action: action, Notes: "because"}); err != nil {
+			t.Fatalf("%s: %v", action, err)
+		}
+	}
+	// the action schedules in the background; wait for its tick so it does not outlive the test's temp dirs
+	awaitDispatch := func(t *testing.T, dagID string) {
+		t.Helper()
+		deadline := time.Now().Add(10 * time.Second)
+		for time.Now().Before(deadline) {
+			if g, err := wstore.GetDag(ctx, dagID); err == nil && g.Tasks[0].RunID != "" {
+				return
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		t.Fatal("the first task was never dispatched")
+	}
+
+	t.Run("a pass hands off; the submit and a failed round do not", func(t *testing.T) {
+		stubDagSpawns(t)
+		handed = nil
+		channelId, leadId, g := submit(t)
+		if len(handed) != 0 {
+			t.Fatalf("a plan under review must not be handed off at submit, got %v", handed)
+		}
+		act(t, channelId, g.PlanReview.RunID, "planreview-pass")
+		awaitDispatch(t, g.OID)
+		if want := []string{channelId + "/" + leadId}; !reflect.DeepEqual(handed, want) {
+			t.Fatalf("handoffs = %v, want %v", handed, want)
+		}
+	})
+
+	t.Run("a fail does not hand off; the human's accept does", func(t *testing.T) {
+		stubDagSpawns(t)
+		handed = nil
+		channelId, leadId, g := submit(t)
+		act(t, channelId, g.PlanReview.RunID, "planreview-fail")
+		if len(handed) != 0 {
+			t.Fatalf("a failed review goes back to the lead to revise, got handoffs %v", handed)
+		}
+		act(t, channelId, leadId, "planreview-accept")
+		awaitDispatch(t, g.OID)
+		if want := []string{channelId + "/" + leadId}; !reflect.DeepEqual(handed, want) {
+			t.Fatalf("handoffs = %v, want %v", handed, want)
 		}
 	})
 }

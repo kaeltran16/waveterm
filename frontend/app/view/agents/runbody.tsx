@@ -90,8 +90,8 @@ export const PHASE_TONE_CLASS: Record<string, string> = {
     skipped: "text-muted",
 };
 
-function StatusPill({ status, survivorCount = 0 }: { status: string; survivorCount?: number }) {
-    const base = runStatusView(status);
+function StatusPill({ status, land, survivorCount = 0 }: { status: string; land?: RunLand; survivorCount?: number }) {
+    const base = runStatusView(status, land);
     const label = survivorCount > 0 ? `${base.label} · ${survivorCount} still running` : base.label;
     const toneClass = survivorCount > 0 ? TONE_CLASS.blocked : (TONE_CLASS[base.tone] ?? "text-muted");
     return (
@@ -173,7 +173,11 @@ export function RunHeader({
             <div className="mb-4 flex items-start gap-3">
                 <div className="min-w-0 flex-1">
                     <div className="mb-1.5 flex items-center gap-2">
-                        <StatusPill status={run.status} survivorCount={cancelSurvivors(run, agents).length} />
+                        <StatusPill
+                            status={run.status}
+                            land={run.land}
+                            survivorCount={cancelSurvivors(run, agents).length}
+                        />
                         <span
                             data-testid="run-runtime"
                             data-run-legacy={runtimeView.legacy ? "true" : "false"}

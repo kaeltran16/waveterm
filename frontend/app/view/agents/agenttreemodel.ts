@@ -30,6 +30,8 @@ export type AgentTreeRow =
           extras?: number;
           extrasOpen?: boolean;
       }
+    // a session the engine started to judge the whole run: its plan reviewer, its final verifier
+    | { kind: "stage"; agent: AgentVM; project: string; run: RunInfo; stageRole: string }
     | { kind: "done"; project: string; run: RunInfo; count: number; open: boolean }
     | { kind: "queued"; project: string; run: RunInfo; count: number; open: boolean };
 
@@ -69,31 +71,41 @@ type TopItem =
 
 // A worker waits on the human only when the human holds its question; one asking its lead does not. With
 // no digest yet, asking is the only signal there is.
-export function workerNeedsYou(run: RunInfo, taskId: string, agent: AgentVM): boolean {
+export function workerNeedsYou(run: RunInfo, taskId: string, agent: AgentVM | undefined): boolean {
     if (run.digest == null) {
-        return agent.state === "asking";
+        return agent?.state === "asking";
     }
     return workerAsk(run.digest, taskId)?.owner === "you";
 }
 
 const QUEUED = new Set(["pending", "ready"]);
+// settled without landing: nothing more happens to it, so with no tab left it has no row
+const DROPPED = new Set(["skipped", "cancelled"]);
+
+type StageAgent = { agent: AgentVM; stageRole: string };
 
 function runRows(
     item: Extract<TopItem, { kind: "lead" | "run" }>,
     workers: Map<string, AgentVM[]>,
+    stages: StageAgent[],
     folds: TreeFolds
 ): { rows: AgentTreeRow[]; members: number; attn: number } {
     const { run, project } = item;
     const tasks = run.dag?.tasks ?? [];
-    const live = tasks.filter((t) => t.state !== "done" && workers.has(t.id));
+    // a task past its worker is still under way: verifying its merge, or failed and waiting on a judgment. Cleanup
+    // reaps its worker's tab with the tree, so it keeps its row with no agent
+    const live = tasks.filter(
+        (t) => t.state !== "done" && (workers.has(t.id) || !(QUEUED.has(t.state) || DROPPED.has(t.state)))
+    );
     const done = tasks.filter((t) => t.state === "done");
     // tasks not dispatched yet have no session to open, so they fold away until asked for
     const queued = tasks.filter((t) => QUEUED.has(t.state) && !workers.has(t.id));
     const open = !folds.collapsed.has(run.runId);
+    const busy = live.length + stages.length;
     const head: AgentTreeRow =
         item.kind === "lead"
-            ? { kind: "lead", agent: item.agent, project, run, open, live: live.length }
-            : { kind: "run", project, run, open, live: live.length };
+            ? { kind: "lead", agent: item.agent, project, run, open, live: busy }
+            : { kind: "run", project, run, open, live: busy };
     const rows: AgentTreeRow[] = [head];
     // a task's row is its worker's; its reviewer and any tab an earlier attempt left fold beneath it, opening on
     // their own when one of them asks
@@ -119,6 +131,11 @@ function runRows(
             }
         }
         live.forEach(pushTask);
+        // a plan review runs before any task, a final verification after every one: either way it is what the run
+        // is doing now, so it sits between what landed and what is to come
+        for (const { agent, stageRole } of stages) {
+            rows.push({ kind: "stage", agent, project, run, stageRole });
+        }
         if (queued.length > 0) {
             const queuedOpen = folds.queuedOpen.has(run.runId);
             rows.push({ kind: "queued", project, run, count: queued.length, open: queuedOpen });
@@ -127,8 +144,9 @@ function runRows(
             }
         }
     }
-    const attn = live.filter((t) => workerNeedsYou(run, t.id, workers.get(t.id)![0])).length;
-    return { rows, members: live.length, attn };
+    const attn = live.filter((t) => workerNeedsYou(run, t.id, workers.get(t.id)?.[0])).length;
+    const agents = live.filter((t) => workers.has(t.id)).length + stages.length;
+    return { rows, members: agents, attn };
 }
 
 /** Pure: roster + anchored order -> [group, ...rows] per project. Projects appear in the first-seen order
@@ -147,10 +165,16 @@ export function buildAgentTree(
     );
     const leads = new Map<string, AgentVM>();
     const workers = new Map<string, Map<string, AgentVM[]>>();
+    const stages = new Map<string, StageAgent[]>();
     for (const a of sorted) {
         const role = lineage.roles[a.id];
         if (role?.kind === "lead" && lineage.runs[role.runId] && !leads.has(role.runId)) {
             leads.set(role.runId, a);
+        } else if (role?.kind === "stage" && lineage.runs[role.leadRunId]) {
+            stages.set(role.leadRunId, [
+                ...(stages.get(role.leadRunId) ?? []),
+                { agent: a, stageRole: role.stageRole },
+            ]);
         } else if (role?.kind === "worker" && lineage.runs[role.leadRunId]) {
             let byTask = workers.get(role.leadRunId);
             if (!byTask) {
@@ -185,7 +209,7 @@ export function buildAgentTree(
         if (role?.kind === "lead" && leads.get(role.runId) === a) {
             placedRuns.add(role.runId);
             push({ kind: "lead", agent: a, project: projectOf(a) || UNGROUPED_PROJECT, run: lineage.runs[role.runId] });
-        } else if (role?.kind === "worker" && lineage.runs[role.leadRunId]) {
+        } else if ((role?.kind === "worker" || role?.kind === "stage") && lineage.runs[role.leadRunId]) {
             if (leads.has(role.leadRunId) || placedRuns.has(role.leadRunId)) {
                 continue;
             }
@@ -209,7 +233,7 @@ export function buildAgentTree(
                 attn += item.agent.state === "asking" ? 1 : 0;
                 continue;
             }
-            const r = runRows(item, workers.get(item.run.runId) ?? new Map(), folds);
+            const r = runRows(item, workers.get(item.run.runId) ?? new Map(), stages.get(item.run.runId) ?? [], folds);
             body.push(...r.rows);
             count += r.members + (item.kind === "lead" ? 1 : 0);
             attn += r.attn + (item.kind === "lead" && item.agent.state === "asking" ? 1 : 0);
