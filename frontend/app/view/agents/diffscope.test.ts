@@ -9,13 +9,11 @@ import {
     historyOptsFor,
     originCwd,
     rangeKey,
-    rangeSummary,
     scopeKey,
     summaryLine,
     type DiffRange,
     type DiffScope,
 } from "./diffscope";
-import type { GitChanges } from "./gitstatus";
 import { NO_FILTERS } from "./historyquery";
 
 const agentScope: DiffScope = {
@@ -184,86 +182,56 @@ describe("defaultRangeFor", () => {
     });
 });
 
-describe("rangeSummary", () => {
-    it("says what is being compared against what, in words", () => {
-        expect(
-            rangeSummary(
-                { kind: "session", agentId: "a1" },
-                { branch: "main", ref: "a3f9c21", files: 12, adds: 340, dels: 82 }
-            )
-        ).toBe("worktree against a3f9c21 · 12 files · +340 −82");
-    });
+const ch = (n: number, adds = 10, dels = 2) =>
+    ({
+        files: Array.from({ length: n }, (_, i) => ({ path: `f${i}`, status: "M", adds: 1, dels: 0 })),
+        adds,
+        dels,
+    }) as any;
+const base = { branch: "main", ref: "", mergeBase: "", commit: null as string | null };
 
-    it("names the branch when there is no anchor", () => {
-        expect(rangeSummary({ kind: "working" }, { branch: "main", ref: "", files: 3, adds: 9, dels: 1 })).toBe(
-            "uncommitted work against HEAD on main · 3 files · +9 −1"
+describe("summaryLine follows what the panes show", () => {
+    it("counts uncommitted files on the branch, against HEAD", () => {
+        expect(summaryLine({ ...base, range: { kind: "working" }, changes: ch(15, 661, 403) })).toBe(
+            "15 uncommitted files on main · +661 −403"
         );
     });
-
-    it("names both refs while comparing", () => {
-        expect(
-            rangeSummary(
-                { kind: "compare", base: "main", head: "feat", form: "mergebase", from: { kind: "working" } },
-                { branch: "feat", ref: "", files: 4, adds: 51, dels: 9 }
-            )
-        ).toBe("main … feat · since merge base · 4 files · +51 −9");
+    it("says against HEAD when detached", () => {
+        expect(summaryLine({ ...base, branch: "", range: { kind: "working" }, changes: ch(1) })).toBe(
+            "1 uncommitted file against HEAD · +10 −2"
+        );
+        expect(summaryLine({ ...base, branch: "HEAD", range: { kind: "working" }, changes: ch(1) })).toBe(
+            "1 uncommitted file against HEAD · +10 −2"
+        );
     });
-});
-
-describe("summaryLine", () => {
-    // The dirty working tree the shipped git-history fixture does not have: with a clean tree both
-    // stores read zero and the wrong one is indistinguishable from the right one.
-    const working: GitChanges = {
-        files: Array(8).fill({ path: "f", status: "M", adds: 0, dels: 0 }),
-        adds: 689,
-        dels: 0,
-    };
-    const compared: GitChanges = {
-        files: Array(1827).fill({ path: "f", status: "M", adds: 0, dels: 0 }),
-        adds: 288262,
-        dels: 177129,
-    };
-
-    it("reports the compared refs' counts while comparing, not the working tree's", () => {
-        expect(
-            summaryLine({
-                range: {
-                    kind: "compare",
-                    base: "main",
-                    head: "feat/memory-redesign",
-                    form: "mergebase",
-                    from: { kind: "working" },
-                },
-                branch: "main",
-                ref: "",
-                changes: working,
-                compareChanges: compared,
-            })
-        ).toBe("main … feat/memory-redesign · since merge base · 1827 files · +288262 −177129");
+    it("describes a selected commit, not the range", () => {
+        expect(summaryLine({ ...base, commit: "3eaffac99", range: { kind: "working" }, changes: ch(1, 2, 2) })).toBe(
+            "3eaffac · 1 file · +2 −2"
+        );
     });
-
-    it("reports the working tree's counts outside compare", () => {
-        expect(
-            summaryLine({
-                range: { kind: "working" },
-                branch: "main",
-                ref: "",
-                changes: working,
-                compareChanges: compared,
-            })
-        ).toBe("uncommitted work against HEAD on main · 8 files · +689 −0");
+    it("reads the merge-base comparison from the head's side", () => {
+        const range = {
+            kind: "compare",
+            base: "main",
+            head: "exp-native",
+            form: "mergebase",
+            from: { kind: "working" },
+        } as const;
+        expect(summaryLine({ ...base, mergeBase: "7a4155cff", range, changes: ch(31, 764, 88) })).toBe(
+            "exp-native since 7a4155c · 31 files · +764 −88"
+        );
     });
-
-    it("reads zero while the compare load is still in flight", () => {
+    it("reads tip to tip as both refs", () => {
+        const range = { kind: "compare", base: "main", head: "x", form: "tips", from: { kind: "working" } } as const;
+        expect(summaryLine({ ...base, range, changes: ch(2) })).toBe("main .. x tip to tip · 2 files · +10 −2");
+    });
+    it("keeps the run and session phrasing for their top rows", () => {
         expect(
-            summaryLine({
-                range: { kind: "compare", base: "main", head: "feat", form: "mergebase", from: { kind: "working" } },
-                branch: "main",
-                ref: "",
-                changes: working,
-                compareChanges: null,
-            })
-        ).toBe("main … feat · since merge base · 0 files · +0 −0");
+            summaryLine({ ...base, range: { kind: "run", runId: "r", baseCommit: "b41d000aa" }, changes: ch(3) })
+        ).toBe("b41d000 … HEAD · 3 files · +10 −2");
+        expect(
+            summaryLine({ ...base, ref: "9f2c1de00", range: { kind: "session", agentId: "a" }, changes: ch(3) })
+        ).toBe("worktree against 9f2c1de · 3 files · +10 −2");
     });
 });
 
@@ -282,8 +250,14 @@ describe("compare range form", () => {
     });
 
     it("names the active form in the summary line", () => {
-        const facts = { branch: "feature", ref: "", files: 3, adds: 10, dels: 2 };
-        expect(rangeSummary(mergebase, facts)).toContain("since merge base");
-        expect(rangeSummary({ ...mergebase, form: "tips" }, facts)).toContain("tip to tip");
+        const input = { branch: "feature", ref: "", mergeBase: "7a4155cff", commit: null, changes: null };
+        expect(summaryLine({ ...input, range: mergebase })).toContain("since 7a4155c");
+        expect(summaryLine({ ...input, range: { ...mergebase, form: "tips" } })).toContain("tip to tip");
+    });
+
+    // unrelated histories have no merge base: no "since" with an empty hash
+    it("names both refs when there is no merge base", () => {
+        const input = { branch: "feature", ref: "", mergeBase: "", commit: null, changes: null };
+        expect(summaryLine({ ...input, range: mergebase })).toBe("main … feature · 0 files · +0 −0");
     });
 });

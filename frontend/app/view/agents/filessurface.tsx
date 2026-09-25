@@ -12,6 +12,7 @@ import * as WOS from "@/app/store/wos";
 import { joinRepoPath } from "@/util/paths";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
+import { RefreshCw, RotateCcw } from "lucide-react";
 import { MotionConfig } from "motion/react";
 import { buildFilesBindings } from "@/app/store/keybindings/bindings";
 import { useSurfaceListNav, type ListNavController } from "@/app/store/keybindings/listnav";
@@ -85,12 +86,12 @@ import {
     selectedCommitAtom,
     selectedFileAtom,
     setHistoryOpts,
+    startFromTop,
 } from "./githistorystore";
-import { GitFailureNotice, GitFailurePanel, NotARepoPanel } from "./gitstatepanels";
-import { HistoryFilterRow } from "./historyfilterrow";
+import { GitFailureNotice, GitFailurePanel, NotARepoPanel, SurfaceBanner } from "./gitstatepanels";
 import { HistoryPane } from "./historypane";
 import { RESTORE_DISMISS_MS, countLabel } from "./historyquery";
-import { WORKING_TREE } from "./historyrows";
+import { WORKING_TREE, worktreeCaption } from "./historyrows";
 import { SourcePicker } from "./sourcepicker";
 import { SurfaceEmptyState, SurfaceError } from "./surfacescaffold";
 
@@ -413,6 +414,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
         );
     }
     const selectedRow = (historyRows ?? []).find((r) => r.hash === selectedCommit) ?? null;
+    const collapseHistory = () => globalStore.set(historyCollapsedAtom, true);
 
     // Compared by entity key — originKey's own vocabulary, which is the identity — then relabelled for
     // display, because "agent:9f2c1de…" is not something to show a user.
@@ -436,9 +438,9 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                         pays for that by squeezing the source picker from its 210px to 155px and pushing
                         Fetch off the window edge. Wrapping costs a second line only at the width that
                         cannot hold one. */}
-                    <div className="flex flex-wrap items-center gap-x-[14px] gap-y-[8px] pb-[6px]">
+                    <div className="flex flex-wrap items-center gap-x-[14px] gap-y-[8px] pb-[12px]">
                         <h1 className="flex-none text-[16px] font-bold">Diff</h1>
-                        <div className="w-[210px] rounded-[9px] border border-edge-mid bg-surface">
+                        <div className="w-[210px] rounded-[9px] bg-surface">
                             <SourcePicker
                                 agents={agents}
                                 projects={projects}
@@ -488,13 +490,14 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                     disabled={fetchState.running}
                                     title="Update remote-tracking refs"
                                     className={cn(
-                                        "flex-none rounded border border-border px-[9px] py-[5px] font-mono text-[11px]",
+                                        "flex flex-none items-center gap-[6px] rounded-[7px] border border-edge-mid px-[9px] py-[5px] text-[11.5px] font-semibold",
                                         fetchState.running
                                             ? "text-ink-faint opacity-50"
-                                            : "text-ink-mid hover:text-foreground"
+                                            : "text-ink-mid hover:border-edge-strong hover:text-foreground"
                                     )}
                                 >
-                                    {fetchState.running ? "↻ Fetching…" : "↻ Fetch"}
+                                    <RefreshCw size={13} className={cn(fetchState.running && "animate-spin")} />
+                                    {fetchState.running ? "Fetching…" : "Fetch"}
                                 </button>
                                 {/* A remote-tracking ref is only as fresh as the last fetch, so the
                                     clock is part of reading the comparison. Absent until one has
@@ -506,44 +509,50 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                 ) : null}
                             </div>
                         ) : null}
+                        <div className="flex-1" />
+                        {scope ? (
+                            <span
+                                data-files-range-summary
+                                className="min-w-0 truncate font-mono text-[11.5px] text-ink-faint"
+                            >
+                                {summaryLine({
+                                    range: scope.range,
+                                    branch: state?.branch ?? "",
+                                    ref: state?.ref ?? "",
+                                    mergeBase: compareSides?.mergeBase ?? "",
+                                    commit: compareOn
+                                        ? compareSelection === AGGREGATE
+                                            ? null
+                                            : compareSelection
+                                        : selectedCommit === WORKING_TREE
+                                          ? null
+                                          : selectedCommit,
+                                    changes: shownChanges,
+                                })}
+                            </span>
+                        ) : null}
                     </div>
-                    {scope ? (
-                        <div data-files-range-summary className="pb-[11px] font-mono text-[11.5px] text-ink-faint">
-                            {summaryLine({
-                                range: scope.range,
-                                branch: state?.branch ?? "",
-                                ref: state?.ref ?? "",
-                                changes: activeChanges,
-                                compareChanges,
-                            })}
-                        </div>
-                    ) : null}
                 </div>
 
                 {restoreMsg ? (
-                    <div
+                    <SurfaceBanner
                         data-restore-notice
-                        className="mx-[18px] mb-[10px] flex flex-none items-center gap-[9px] rounded-[8px] border border-success/25 bg-success/12 px-[11px] py-[7px]"
+                        tone="neutral"
+                        icon={<RotateCcw size={14} />}
+                        action={{ label: "Start from the top", onClick: startFromTop }}
+                        onDismiss={dismissRestoreNotice}
                     >
-                        <span className="font-mono text-xxxs font-bold uppercase tracking-[0.1em] text-graphlane-2">
-                            Restored
-                        </span>
-                        <span className="min-w-0 flex-1 truncate text-[12px] text-ink-mid">{restoreMsg}</span>
-                        <button
-                            onClick={() => dismissRestoreNotice()}
-                            className="flex-none text-[11px] text-ink-faint hover:text-foreground"
-                        >
-                            ✕
-                        </button>
-                    </div>
+                        <span className="min-w-0 flex-1 truncate text-ink-hi">{restoreMsg}</span>
+                    </SurfaceBanner>
                 ) : null}
 
                 {fetchState.failure ? (
-                    <GitFailureNotice failure={fetchState.failure} onDismiss={() => dismissFetchFailure()} />
+                    <GitFailureNotice
+                        failure={fetchState.failure}
+                        onRetry={() => state?.cwd && fireAndForget(() => runFetch(state.cwd!))}
+                        onDismiss={() => dismissFetchFailure()}
+                    />
                 ) : null}
-
-                {/* nothing to filter in the two failure states, and compare has its own column */}
-                {!compareOn && historyFailure == null && state?.isRepo !== false ? <HistoryFilterRow /> : null}
 
                 {/* the detailed panel below says the same thing with git's own words behind it */}
                 {loadError && historyFailure == null ? <SurfaceError message="Couldn’t read this repository." /> : null}
@@ -553,7 +562,13 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                 {historyFailure ? (
                     <GitFailurePanel failure={historyFailure} onRetry={() => retryHistory()} />
                 ) : state?.isRepo === false && state?.cwd ? (
-                    <NotARepoPanel />
+                    <NotARepoPanel
+                        path={state.cwd}
+                        // the same click-through the bindings use to open the picker
+                        onChooseSource={() =>
+                            document.querySelector<HTMLElement>("[data-files-source-picker]")?.click()
+                        }
+                    />
                 ) : (
                     <div className="flex min-h-0 flex-1 border-t border-edge-faint">
                         <div
@@ -583,19 +598,13 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                 />
                             ) : (
                                 <>
-                                    {/* mirrors the rail's expand affordance, so toggling shifts no rows */}
-                                    <button
-                                        onClick={() => globalStore.set(historyCollapsedAtom, true)}
-                                        title="Collapse history"
-                                        className="flex-none border-b border-edge-faint py-[6px] text-[11px] text-ink-faint hover:text-foreground"
-                                    >
-                                        ‹
-                                    </button>
                                     {compareOn ? (
                                         <CompareColumn
                                             rows={compareRows}
                                             selected={compareSelection}
                                             mergeBase={compareSides?.mergeBase ?? ""}
+                                            mergeBaseTs={compareSides?.mergeBaseTs ?? 0}
+                                            onCollapse={collapseHistory}
                                             error={compareError}
                                             loading={compareSides == null && compareError == null}
                                             onSelect={(id) =>
@@ -625,6 +634,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                             }
                                             onScroll={(top) => globalStore.set(historyScrollAtom, top)}
                                             onLoadMore={() => fireAndForget(() => loadMoreHistory())}
+                                            onCollapse={collapseHistory}
                                         />
                                     )}
                                 </>
@@ -637,6 +647,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                         base={compareRefs?.base ?? ""}
                                         head={compareRefs?.head ?? ""}
                                         form={compareForm}
+                                        mergeBase={compareSides?.mergeBase ?? ""}
                                         changes={compareChanges}
                                         selectedFile={compareFile}
                                         onSelectFile={(path) => selectCompareFile(path)}
@@ -660,6 +671,11 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                             ) : (
                                 <CommitPane
                                     row={selectedRow}
+                                    caption={
+                                        scope && state
+                                            ? worktreeCaption(scope.range, state.branch, state.head, state.ref)
+                                            : undefined
+                                    }
                                     changes={activeChanges}
                                     selectedFile={selectedFile}
                                     onSelectFile={(path) =>
@@ -678,6 +694,14 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                 // "Open in Code" wants only the repository: the Code surface always shows the
                                 // working-tree file, and says so itself when the path is gone
                                 repoCwd={state?.cwd ?? null}
+                                nothingToCompare={
+                                    compareOn &&
+                                    compareSelection === AGGREGATE &&
+                                    compareChanges != null &&
+                                    compareChanges.files.length === 0
+                                        ? { base: compareRefs?.base ?? "", head: compareRefs?.head ?? "" }
+                                        : null
+                                }
                                 model={model}
                             />
                         </div>

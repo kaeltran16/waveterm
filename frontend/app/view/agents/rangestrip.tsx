@@ -49,6 +49,9 @@ export function RangeStrip({
                                 {o.detail}
                             </span>
                         ) : null}
+                        {o.range.kind === "compare" ? (
+                            <kbd className="font-mono text-[9.5px] text-ink-faint">c</kbd>
+                        ) : null}
                     </button>
                 );
             })}

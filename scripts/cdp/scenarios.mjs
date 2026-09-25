@@ -1606,13 +1606,13 @@ const gitHistory = {
         const countChip = await text("[data-filter-count]");
         const gutterStillThere = await present("[data-graph-gutter]");
         rec(
-            "3. filter narrows the list, states the count, and hides the graph",
-            filtered > 0 && filtered < first && countChip.includes("1 filter") && !gutterStillThere,
+            "3. filter narrows the list, states the matching count, and hides the graph",
+            filtered > 0 && filtered < first && countChip.includes("matching") && !gutterStillThere,
             `rows=${filtered} chip="${countChip}" gutterStillThere=${gutterStillThere}`
         );
         await h.shot("cdp-shots/git-history-filtered.png");
 
-        // Escape clears the filters (the row says "Clear all · esc"), not navigate home
+        // Escape clears the filters (the header says "Clear filters" with an esc hint), not navigate home
         await h.ev(`document.querySelector('[data-history-filter]').blur()`);
         await h.cdp("Input.dispatchKeyEvent", {
             type: "keyDown",

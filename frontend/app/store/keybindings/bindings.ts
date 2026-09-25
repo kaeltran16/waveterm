@@ -340,7 +340,7 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
                 // the Diff surface's compare state owns Escape while it is on: leaving compare is what
                 // Escape means there, and going home instead would strand a two-ref read behind the Cockpit
                 !globalStore.get(compareOnAtom) &&
-                // and with filters active, Escape clears them — the filter row says so ("Clear all · esc")
+                // and with filters active, Escape clears them — the history header says so ("Clear filters", esc)
                 !(ctx.surface === "files" && anyFilterActive(globalStore.get(historyFiltersAtom))) &&
                 // the Brief's record peek is a ModalShell and the Brief is where every record destination
                 // now lands: without this, one press closed the peek AND left the surface — and the peek's

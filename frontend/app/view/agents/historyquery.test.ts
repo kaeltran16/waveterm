@@ -10,7 +10,6 @@ import {
     activeFilterCount,
     anyFilterActive,
     countLabel,
-    filterSummary,
     hasMorePages,
     noMatchSentence,
     restoreNotice,
@@ -44,17 +43,6 @@ describe("toHistoryQuery", () => {
             path: "src/**",
             grep: "refund",
         });
-    });
-});
-
-describe("filterSummary", () => {
-    it("counts filters and matches, singular and plural", () => {
-        expect(filterSummary({ author: "dana", path: "src/**", text: "" }, 4)).toBe("2 filters · 4 matching commits");
-        expect(filterSummary({ author: "dana", path: "", text: "" }, 1)).toBe("1 filter · 1 matching commit");
-    });
-
-    it("is null when nothing is filtered, so the row shows no count chip", () => {
-        expect(filterSummary(NO_FILTERS, 12)).toBeNull();
     });
 });
 

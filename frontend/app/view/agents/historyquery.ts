@@ -60,15 +60,6 @@ export function toHistoryQuery(f: HistoryFilters): { author?: string; grep?: str
 
 const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
 
-// The chip beside "Clear all". Null when nothing is filtered, so the row stays quiet.
-export function filterSummary(f: HistoryFilters, shown: number): string | null {
-    const n = activeFilterCount(f);
-    if (n === 0) {
-        return null;
-    }
-    return `${plural(n, "filter", "filters")} · ${plural(shown, "matching commit", "matching commits")}`;
-}
-
 // Deliberately relative, never absolute: a paginated read knows what it loaded and nothing about the
 // repository's total, and quoting a total would mean a second git call to decorate a label.
 export function countLabel(f: HistoryFilters, shown: number, loading: boolean): string {

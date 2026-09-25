@@ -178,52 +178,46 @@ export function historyOptsFor(range: DiffRange, resolvedRef: string): LoadHisto
     }
 }
 
-export interface SummaryFacts {
-    branch: string;
-    ref: string;
-    files: number;
-    adds: number;
-    dels: number;
-}
-
-// The quiet line under the subject bar. A string, rendered in a span — deliberately not a control,
-// because the button that used to hold this text was the only way into comparison and read as a
-// status line.
-export function rangeSummary(range: DiffRange, f: SummaryFacts): string {
-    const counts = `${f.files} ${f.files === 1 ? "file" : "files"} · +${f.adds} −${f.dels}`;
-    switch (range.kind) {
-        case "compare":
-            return `${range.base} … ${range.head} · ${range.form === "tips" ? "tip to tip" : "since merge base"} · ${counts}`;
-        case "run":
-            return `${shortSha(range.baseCommit)} … HEAD · ${counts}`;
-        case "session":
-            return `worktree against ${shortSha(f.ref)} · ${counts}`;
-        case "working":
-            return `uncommitted work against HEAD on ${f.branch || "—"} · ${counts}`;
-    }
-}
-
-// What the surface has on hand when it draws the summary. Two change lists, because comparison has
-// its own store: the surface reads compare's, so the line has to read compare's too.
+// What the surface has on hand when it captions the panes. `changes` is the list pane 2 is showing
+// (history's or compare's), and `commit` is the selected commit's hash — null when the scope's own
+// row (the working tree, or compare's All changes) is selected.
 export interface SummaryInput {
     range: DiffRange;
     branch: string;
     ref: string;
+    mergeBase: string;
+    commit: string | null;
     changes: GitChanges | null;
-    compareChanges: GitChanges | null;
 }
 
-// Picks the change list the panes are showing and phrases it. Fed from the history store in every
-// mode, the line printed the working tree's totals under the compare's ref names.
-export function summaryLine(input: SummaryInput): string {
-    const src = input.range.kind === "compare" ? input.compareChanges : input.changes;
-    return rangeSummary(input.range, {
-        branch: input.branch,
-        ref: input.ref,
-        files: src?.files.length ?? 0,
-        adds: src?.adds ?? 0,
-        dels: src?.dels ?? 0,
-    });
+// The subject row's right-hand caption. It follows the selection: a caption that kept describing the
+// range while a commit's panes showed one file is the contradiction this replaced.
+export function summaryLine(i: SummaryInput): string {
+    const n = i.changes?.files.length ?? 0;
+    const files = `${n} ${n === 1 ? "file" : "files"}`;
+    const delta = `+${i.changes?.adds ?? 0} −${i.changes?.dels ?? 0}`;
+    const counts = `${files} · ${delta}`;
+    if (i.commit != null) {
+        return `${shortSha(i.commit)} · ${counts}`;
+    }
+    switch (i.range.kind) {
+        case "compare":
+            if (i.range.form === "tips") {
+                return `${i.range.base} .. ${i.range.head} tip to tip · ${counts}`;
+            }
+            return i.mergeBase
+                ? `${i.range.head} since ${shortSha(i.mergeBase)} · ${counts}`
+                : `${i.range.base} … ${i.range.head} · ${counts}`;
+        case "run":
+            return `${shortSha(i.range.baseCommit)} … HEAD · ${counts}`;
+        case "session":
+            return `worktree against ${shortSha(i.ref)} · ${counts}`;
+        case "working": {
+            // measured against HEAD, whatever branch that is — never "against main"
+            const where = i.branch && i.branch !== "HEAD" ? `on ${i.branch}` : "against HEAD";
+            return `${n} uncommitted ${n === 1 ? "file" : "files"} ${where} · ${delta}`;
+        }
+    }
 }
 
 function shortSha(sha: string): string {
