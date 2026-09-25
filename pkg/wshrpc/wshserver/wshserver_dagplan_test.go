@@ -127,6 +127,18 @@ func TestDagSubmitFromPlanPath(t *testing.T) {
 		}
 	})
 
+	t.Run("the plan's Final command and Prototype are stored on the dag", func(t *testing.T) {
+		channelId, runId := newRun(t)
+		src := "**Final:** `node scripts/cdp/final-verify.mjs board`\n**Prototype:** .superpowers/design/board/board.dc.html\n\n### Task 1: input\n"
+		g, err := (&WshServer{}).DagSubmitCommand(ctx, wshrpc.CommandDagSubmitData{ChannelId: channelId, RunId: runId, PlanPath: writePlan(t, "plan.md", src)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if g.FinalCmd != "node scripts/cdp/final-verify.mjs board" || g.Prototype != ".superpowers/design/board/board.dc.html" {
+			t.Fatalf("final %q, prototype %q", g.FinalCmd, g.Prototype)
+		}
+	})
+
 	t.Run("the plan and spec paths are stored on the dag", func(t *testing.T) {
 		channelId, runId := newRun(t)
 		planPath, specPath := writePlan(t, "plan.md", plan), writePlan(t, "spec.md", "# spec\n")

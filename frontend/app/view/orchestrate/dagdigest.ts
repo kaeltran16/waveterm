@@ -129,6 +129,8 @@ export function nextStepText(next: DagNextStep, briefs?: Map<string, TaskBrief>)
         }
         case "verify-wait":
             return "running Verify" + (named ? ` after ${named}` : "");
+        case "final-wait":
+            return "verifying the merged result";
         case "dependency-wait": {
             const blockers = nameList(next.blockingtaskids, briefs, blockerName);
             return named && blockers ? `${named} waiting on ${blockers}` : "waiting on dependencies";

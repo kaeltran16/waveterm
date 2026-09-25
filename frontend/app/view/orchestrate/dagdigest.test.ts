@@ -248,6 +248,12 @@ describe("nextStepText verify-wait", () => {
     });
 });
 
+describe("nextStepText final-wait", () => {
+    it("says the merged result is being verified", () => {
+        expect(nextStepText({ kind: "final-wait" })).toBe("verifying the merged result");
+    });
+});
+
 describe("planShapeText", () => {
     it("reads tasks, lanes and the longest chain", () => {
         expect(planShapeText({ tasks: 5, lanes: 2, longestchain: 3 })).toBe("5 tasks · 2 lanes · longest chain 3");

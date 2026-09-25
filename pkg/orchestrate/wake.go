@@ -334,10 +334,11 @@ func (w *waker) launchLocked(ctx context.Context, runId string, rw *runWake, ask
 	launchLeadFn(ctx, rw.channelId, runId, text)
 }
 
-// onlyRunFinished reports held lines that say nothing but that the run finished.
+// onlyRunFinished reports held lines that say nothing but that the run finished, whatever outcome follows on
+// the finished line's later lines. A failed final stage is its own wake, so it still launches a lead.
 func onlyRunFinished(lines []string) bool {
 	for _, l := range lines {
-		if l != runFinishedWake {
+		if first, _, _ := strings.Cut(l, "\n"); first != runFinishedWake {
 			return false
 		}
 	}

@@ -465,6 +465,11 @@ type TaskGroup struct {
 	Setup  string `json:"setup,omitempty"`
 	Check  string `json:"check,omitempty"`
 
+	// FinalCmd is the plan's Final command, run once on the merged result by the final stage; Prototype is the
+	// design canvas path the final verifier compares against. Both empty when the plan names none.
+	FinalCmd  string `json:"finalcmd,omitempty"`
+	Prototype string `json:"prototype,omitempty"`
+
 	// Preamble is the plan's header prose (jarvis.Plan.Preamble): everything before the first task other
 	// than the title and the Verify/Setup/Check lines. Every worker's prompt carries it, so a rule stated
 	// once in the header reaches every task instead of only whichever task happens to read the plan file.
@@ -485,6 +490,11 @@ type TaskGroup struct {
 	// PlanReview is the engine's review of the spec and plan at submit. Nothing dispatches until it has
 	// passed or the lead accepted it on the human's word. Nil for a dag submitted as JSON.
 	PlanReview *PlanReviewStage `json:"planreview,omitempty"`
+
+	// Final is the stage that judges the merged result once every task landed: the plan's Check, its Final
+	// command, then a verifier session. The dag is done only once it passed or came out unverified. Nil
+	// until the stage first starts.
+	Final *FinalStage `json:"final,omitempty"`
 }
 
 // PlanReviewStage is one dag's plan review: its round, the reviewer session judging it, and the verdict's text.
@@ -495,6 +505,20 @@ type PlanReviewStage struct {
 	Findings  string `json:"findings,omitempty"` // fail findings or pass summary, whole
 	Respawns  int    `json:"respawns,omitempty"`
 	StartedTs int64  `json:"startedts,omitempty"`
+}
+
+// FinalStage is one dag's final stage: the round it is in, where it runs, and what it found.
+type FinalStage struct {
+	State         string   `json:"state"`                   // checking | final | verifying | passed | unverified | failed; empty is a round not started yet
+	Round         int      `json:"round"`                   // 1-based; a fix round increments it
+	Tree          string   `json:"tree,omitempty"`          // where it runs
+	Commit        string   `json:"commit,omitempty"`        // the tree HEAD it verified
+	OutDir        string   `json:"outdir,omitempty"`        // ARC_FINAL_OUT
+	Detail        string   `json:"detail,omitempty"`        // the failure's output tail or defects, whole
+	Unverified    []string `json:"unverified,omitempty"`    // what could not be verified, and why
+	VerifierRunID string   `json:"verifierrunid,omitempty"` // the verifier session's child run
+	Respawns      int      `json:"respawns,omitempty"`
+	StartedTs     int64    `json:"startedts,omitempty"`
 }
 
 func (*TaskGroup) GetOType() string {
@@ -517,6 +541,15 @@ type RunEvidence struct {
 	Harness    string             `json:"harness,omitempty"` // the runtime that ran the work
 	Model      string             `json:"model,omitempty"`   // the model the transcript reports, else the route's pin; empty when neither is known
 	Usage      []UsageRow         `json:"usage,omitempty"`   // a dag owner's tokens per session and model, the lead's wrap-up included
+
+	// Verification is a dag owner's final-stage outcome, sealed from TaskGroup.Final.
+	Verification *RunVerification `json:"verification,omitempty"`
+}
+
+// RunVerification is how the final stage judged a run's merged result.
+type RunVerification struct {
+	State   string   `json:"state"` // passed | unverified | failed
+	Reasons []string `json:"reasons,omitempty"`
 }
 
 // UsageRow is one session's tokens on one model, for a run's per-role totals. Tokens only: prices stay in

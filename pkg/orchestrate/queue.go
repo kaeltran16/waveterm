@@ -26,7 +26,34 @@ const TakenOverNote = "taken over from the lead"
 // the lead or the engine handed on.
 const ForwardedByHuman = "human"
 
+// runFinishedWake is the first line of every run-finished wake. A run with no lead is not given one for it
+// (onlyRunFinished), so the outcome goes on the lines after it and this line stays fixed.
 const runFinishedWake = "wake: run finished. wsh jarvis dag status"
+
+// RunFinishedWake states the final stage's outcome, and every reason it could not verify something in full:
+// the lead's report has to carry them.
+func RunFinishedWake(f *waveobj.FinalStage) string {
+	if f == nil {
+		return runFinishedWake
+	}
+	if f.State != FinalState_Unverified {
+		return runFinishedWake + "\nThe final stage " + f.State + " on the merged result."
+	}
+	lines := []string{runFinishedWake, "The final stage finished unverified. What it could not verify:"}
+	for _, r := range f.Unverified {
+		lines = append(lines, "- "+r)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// finalFailedWake carries the final stage's failure whole: the lead writes its fix plan from it. After the
+// last round the call is the human's.
+func finalFailedWake(round int, detail string, last bool) string {
+	if last {
+		return fmt.Sprintf("wake: the final stage failed on the merged result in round %d, the last. Put it to the human:\n%s", round, detail)
+	}
+	return fmt.Sprintf("wake: the final stage failed on the merged result in round %d. Write a fix plan and run `wsh jarvis dag submit --round --plan <fix plan>`, or put it to the human if the fix is a product call:\n%s", round, detail)
+}
 
 // taskFailedWake names the failure kind so the lead can pick retry, escalate, skip or forward before
 // reading the digest. A child run that reported itself blocked carries no kind.

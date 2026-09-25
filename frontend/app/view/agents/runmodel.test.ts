@@ -54,6 +54,9 @@ describe("runStatusView", () => {
     it("maps a dag's plan-review to a review tone", () => {
         expect(runStatusView("plan-review")).toEqual({ label: "reviewing plan", tone: "review" });
     });
+    it("maps a dag's finalizing to verifying with a running tone", () => {
+        expect(runStatusView("finalizing")).toEqual({ label: "verifying", tone: "running" });
+    });
     it("maps executing to a running tone", () => {
         expect(runStatusView("executing").tone).toBe("running");
     });

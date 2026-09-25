@@ -19,6 +19,10 @@ const PlanFormat = "Plan format. Verify, Setup and Check are optional, go before
 	"All three commands run in a POSIX shell (sh, or Git Bash on Windows). Verify runs the plan's full test suite after a " +
 	"task merges; Check is a fast whole-project static check (for example typecheck plus go vet) that each worker runs " +
 	"itself, instead of Verify, before it completes. " +
+	"An optional Final line, also one command in backticks, runs once on the merged result after every task landed and Check " +
+	"passed, with ARC_FINAL_OUT set to a directory for its screenshots and reports: exit 0 passes, exit 3 means it could not " +
+	"verify and its last output line says why, and any other exit fails the run. An optional Prototype line names the design " +
+	"canvas the result should match (a path, not in backticks; at most one), for the engine's final verifier. " +
 	"An optional Effort line, also before the first task, names the effort tracker (`effort:<oid>` or a bare oid, not in backticks; " +
 	"at most one). A task may then list `**Chunk:** <exact chunk label>` lines, one per chunk, directly after its Depends on line " +
 	"(or first under the heading when it has none): the engine marks those chunks done when the task's merge passes Verify. " +
@@ -32,7 +36,9 @@ const PlanFormat = "Plan format. Verify, Setup and Check are optional, go before
 	"**Effort:** effort:<oid>\n" +
 	"**Verify:** `<command that runs the tests>`\n" +
 	"**Setup:** `<command that prepares a fresh worktree>`\n" +
-	"**Check:** `<fast static check each worker runs>`\n\n" +
+	"**Check:** `<fast static check each worker runs>`\n" +
+	"**Final:** `<command that checks the merged result end to end>`\n" +
+	"**Prototype:** <path to the design canvas>\n\n" +
 	"### Task 1: <title>\n" +
 	"**Depends on:** none\n" +
 	"**Chunk:** <exact chunk label>\n" +
@@ -49,10 +55,14 @@ type Plan struct {
 	Verify string
 	Setup  string
 	Check  string
+	// Final is the command the engine's final stage runs on the merged result; Prototype is the design canvas
+	// path the final verifier compares against. Both are empty when the plan names none.
+	Final     string
+	Prototype string
 	// EffortOID is the effort tracker whose chunks tasks close through **Chunk:** lines; empty when the
 	// plan names none.
 	EffortOID string
-	// Preamble is every header line other than the title and the Effort/Verify/Setup/Check lines, verbatim and
+	// Preamble is every header line other than the title and the plan-level lines above, verbatim and
 	// in order, blank lines at each end trimmed. A worker's task prompt carries it so header prose — a
 	// scope rule, a shared constraint — reaches every task, not just whichever worker opened the plan.
 	Preamble string
@@ -62,9 +72,10 @@ type Plan struct {
 var (
 	planTaskHeadingRe = regexp.MustCompile(`^#{2,3} Task (\d+)(?::\s*(.*?))?\s*$`)
 	planTitleRe       = regexp.MustCompile(`^# (.+?)\s*$`)
-	planCommandRe     = regexp.MustCompile(`^\*\*(Verify|Setup|Check):\*\*\s*(.*?)\s*$`)
+	planCommandRe     = regexp.MustCompile(`^\*\*(Verify|Setup|Check|Final):\*\*\s*(.*?)\s*$`)
 	planBacktickRe    = regexp.MustCompile("^`([^`]+)`$")
 	planEffortRe      = regexp.MustCompile(`^\*\*Effort:\*\*\s*(.*?)\s*$`)
+	planPrototypeRe   = regexp.MustCompile(`^\*\*Prototype:\*\*\s*(.*?)\s*$`)
 	planDependsRe     = regexp.MustCompile(`^\*\*Depends on:\*\*\s*(.*?)\s*$`)
 	planChunkRe       = regexp.MustCompile(`^\*\*Chunk:\*\*\s*(.*?)\s*$`)
 	planTaskRefRe     = regexp.MustCompile(`^Task (\d+)$`)
@@ -202,8 +213,8 @@ func trimBlankLines(lines []string) []string {
 	return lines[start:end]
 }
 
-// readPlanPreamble reads the title and the Effort/Verify/Setup/Check lines into p, reporting whether line was
-// one of those (and so must not also be kept in Plan.Preamble).
+// readPlanPreamble reads the title and the Effort/Verify/Setup/Check/Final/Prototype lines into p, reporting
+// whether line was one of those (and so must not also be kept in Plan.Preamble).
 func readPlanPreamble(p *Plan, line string) (bool, error) {
 	if m := planTitleRe.FindStringSubmatch(line); m != nil && p.Title == "" {
 		p.Title = m[1]
@@ -220,6 +231,16 @@ func readPlanPreamble(p *Plan, line string) (bool, error) {
 		p.EffortOID = oid
 		return true, nil
 	}
+	if m := planPrototypeRe.FindStringSubmatch(line); m != nil {
+		if m[1] == "" || strings.Contains(m[1], "`") {
+			return false, fmt.Errorf("plan **Prototype:** line must be a path, not in backticks, got %q", m[1])
+		}
+		if p.Prototype != "" {
+			return false, fmt.Errorf("plan has more than one **Prototype:** line")
+		}
+		p.Prototype = m[1]
+		return true, nil
+	}
 	m := planCommandRe.FindStringSubmatch(line)
 	if m == nil {
 		return false, nil
@@ -234,6 +255,8 @@ func readPlanPreamble(p *Plan, line string) (bool, error) {
 		field = &p.Setup
 	case "Check":
 		field = &p.Check
+	case "Final":
+		field = &p.Final
 	}
 	if *field != "" {
 		return false, fmt.Errorf("plan has more than one **%s:** line", m[1])

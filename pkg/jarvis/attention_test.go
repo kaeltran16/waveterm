@@ -425,3 +425,20 @@ func TestDagItemsNameTheirTask(t *testing.T) {
 		t.Fatalf("merge block = %+v, want TaskId t-2 and no Retry", merge[0])
 	}
 }
+
+func TestBlockedFinalStageSaysWhatFailed(t *testing.T) {
+	items := BuildAttention(AttentionInput{Dags: []*waveobj.TaskGroup{{
+		ID: "d1", RunID: "r1", ChannelId: "c1", Status: "blocked", UpdatedTs: 5,
+		Tasks: []waveobj.TaskNode{{ID: "t-1", State: "done"}},
+		Final: &waveobj.FinalStage{State: "failed", Round: 1, Detail: "Check `go vet ./...` failed (exit 1):\nvet: x.go:3: unreachable code"},
+	}}})
+	if len(items) != 1 {
+		t.Fatalf("items = %+v, want the one blocked dag", items)
+	}
+	if want := "The final stage failed on the merged result: Check `go vet ./...` failed (exit 1)"; items[0].Text != want {
+		t.Fatalf("text = %q, want %q", items[0].Text, want)
+	}
+	if !strings.Contains(items[0].Why, "wsh jarvis dag submit --round") {
+		t.Fatalf("why = %q, want the fix round named", items[0].Why)
+	}
+}

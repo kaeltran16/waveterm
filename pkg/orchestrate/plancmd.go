@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -116,6 +117,11 @@ func RunSetup(ctx context.Context, dir, command string) (string, error) {
 }
 
 func execPlanCommand(ctx context.Context, dir, command string, timeout time.Duration, progress planProgress) (string, error) {
+	return execPlanCommandEnv(ctx, dir, command, nil, timeout, progress)
+}
+
+// execPlanCommandEnv is execPlanCommand with env added to the command's environment.
+func execPlanCommandEnv(ctx context.Context, dir, command string, env []string, timeout time.Duration, progress planProgress) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	c, err := shellCommand(ctx, command)
@@ -123,6 +129,12 @@ func execPlanCommand(ctx context.Context, dir, command string, timeout time.Dura
 		return "", err
 	}
 	c.Dir = dir
+	if len(env) > 0 {
+		if c.Env == nil {
+			c.Env = os.Environ()
+		}
+		c.Env = append(c.Env, env...)
+	}
 	c.WaitDelay = planCommandWaitDelay
 	out := &tailBuffer{max: MaxPlanOutputLen, publish: progress, publishEvery: VerifyProgressInterval}
 	c.Stdout, c.Stderr = out, out

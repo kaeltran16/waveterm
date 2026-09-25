@@ -134,6 +134,8 @@ type DagStatusDigest struct {
 	// omitempty makes the generated TS field optional, so the typed digest fixtures in the frontend tests
 	// keep compiling; Go still sends it
 	Shape DagPlanShape `json:"shape,omitempty"`
+	// Final is the dag's final stage once every task landed: its state, and what it found, whole
+	Final *waveobj.FinalStage `json:"final,omitempty"`
 	// Lanes are the plan's lanes in plan order, each its task ids in run order: the same derivation the
 	// engine dispatches and merges by.
 	Lanes [][]string `json:"lanes,omitempty"`
@@ -185,10 +187,10 @@ type DagStatusCounts struct {
 }
 
 type DagNextStep struct {
-	Kind            string   `json:"kind"` // human-action | lead-action | merge-ready | dispatch | parallelism-wait | verify-wait | dependency-wait | cleanup-wait | terminal
+	Kind            string   `json:"kind"` // human-action | lead-action | merge-ready | dispatch | parallelism-wait | verify-wait | dependency-wait | final-wait | cleanup-wait | terminal
 	TaskIds         []string `json:"taskids,omitempty"`
 	BlockingTaskIds []string `json:"blockingtaskids,omitempty"`
-	Actions         []string `json:"actions,omitempty"` // answer | approve | sendback | resolve-merge | retry | skip | escalate | retry-cleanup
+	Actions         []string `json:"actions,omitempty"` // answer | approve | sendback | resolve-merge | retry | skip | escalate | retry-cleanup | fix-round
 	TerminalStatus  string   `json:"terminalstatus,omitempty"`
 }
 

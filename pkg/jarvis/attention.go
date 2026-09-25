@@ -291,6 +291,11 @@ func dagBlockedReason(g *waveobj.TaskGroup, owner *waveobj.Run) (text, why strin
 				fmt.Sprintf("%s Commit a fix in %s, then re-run Verify with `wsh jarvis dag merge %s --continue`.", done, fixTree(owner), t.ID)
 		}
 	}
+	// mirrors orchestrate.FinalState_Failed; the lead gets the whole detail in its wake
+	if g.Final != nil && g.Final.State == "failed" {
+		return "The final stage failed on the merged result: " + strings.TrimSuffix(firstLine(g.Final.Detail), ":"),
+			done + " The lead fixes it in a fix round (`wsh jarvis dag submit --round`); after the last round the call is yours."
+	}
 	return fmt.Sprintf("%d consecutive failures — decide retry/skip.", g.Failures),
 		done + " The group stays stopped until you retry or skip."
 }

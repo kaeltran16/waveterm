@@ -168,8 +168,8 @@ func TestPlanFormatParses(t *testing.T) {
 	if want := []string{"t-1:", "t-2:t-1", "t-3:t-1"}; !reflect.DeepEqual(depLists(p.Tasks), want) {
 		t.Fatalf("the format's own example must parse as documented, got %v", depLists(p.Tasks))
 	}
-	if p.Verify == "" || p.Setup == "" || p.Check == "" {
-		t.Fatalf("the example shows Verify, Setup and Check, got %q / %q / %q", p.Verify, p.Setup, p.Check)
+	if p.Verify == "" || p.Setup == "" || p.Check == "" || p.Final == "" || p.Prototype == "" {
+		t.Fatalf("the example shows Verify, Setup, Check, Final and Prototype, got %q / %q / %q / %q / %q", p.Verify, p.Setup, p.Check, p.Final, p.Prototype)
 	}
 	if p.EffortOID != "<oid>" || !reflect.DeepEqual(p.Tasks[0].Chunks, []string{"<exact chunk label>"}) {
 		t.Fatalf("the example shows an Effort line and a Chunk line, got %q / %v", p.EffortOID, p.Tasks[0].Chunks)
@@ -274,5 +274,40 @@ func TestParsePlanChunkLineLaterIsTaskText(t *testing.T) {
 	}
 	if len(p.Tasks[1].Deps) != 1 {
 		t.Fatalf("task 2 keeps its default dependency, got %v", p.Tasks[1].Deps)
+	}
+}
+
+func TestParsePlanFinalAndPrototype(t *testing.T) {
+	src := "# Board\n\n**Verify:** `task test`\n**Final:** `node scripts/cdp/final-verify.mjs board`\n**Prototype:** .superpowers/design/board/board.dc.html\n\n### Task 1: a\ndo a\n"
+	p := mustParsePlan(t, src)
+	if p.Final != "node scripts/cdp/final-verify.mjs board" || p.Prototype != ".superpowers/design/board/board.dc.html" {
+		t.Fatalf("got final %q, prototype %q", p.Final, p.Prototype)
+	}
+	if strings.Contains(p.Preamble, "Final") || strings.Contains(p.Preamble, "Prototype") {
+		t.Fatalf("the Final and Prototype lines are not preamble text, got %q", p.Preamble)
+	}
+}
+
+func TestParsePlanFinalRejects(t *testing.T) {
+	for name, src := range map[string]string{
+		"a second Final line":     "**Final:** `a`\n**Final:** `b`\n\n### Task 1: a\n",
+		"Final without backticks": "**Final:** node x.mjs\n\n### Task 1: a\n",
+		"a second Prototype line": "**Prototype:** a.html\n**Prototype:** b.html\n\n### Task 1: a\n",
+		"Prototype in backticks":  "**Prototype:** `a.html`\n\n### Task 1: a\n",
+		"an empty Prototype line": "**Prototype:**\n\n### Task 1: a\n",
+	} {
+		if _, err := ParsePlan(src); err == nil {
+			t.Fatalf("%s: want an error", name)
+		}
+	}
+}
+
+func TestParsePlanFinalAfterTheFirstTaskIsTaskText(t *testing.T) {
+	p := mustParsePlan(t, "### Task 1: a\n**Final:** `not plan level`\n**Prototype:** x.html\ndo a\n")
+	if p.Final != "" || p.Prototype != "" {
+		t.Fatalf("Final and Prototype after the first task are task text, got %q / %q", p.Final, p.Prototype)
+	}
+	if !strings.Contains(p.Tasks[0].Description, "**Final:** `not plan level`") {
+		t.Fatalf("task text lost the line, got %q", p.Tasks[0].Description)
 	}
 }

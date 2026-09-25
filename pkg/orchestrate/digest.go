@@ -56,6 +56,7 @@ func BuildDigest(sn DagDigestSnapshot) wshrpc.DagStatusDigest {
 	}
 	d.Report = buildReport(sn, d.Durations)
 	d.Shape = PlanShapeOf(g.Tasks)
+	d.Final = g.Final
 	d.Lanes = jarvis.Lanes(g.Tasks)
 	d.Told = toldMessages(sn.Retained)
 	runByID := map[string]*waveobj.Run{}
@@ -350,6 +351,13 @@ func buildNext(g *waveobj.TaskGroup, askByTask map[string]wshrpc.DagAskItem) wsh
 	// 5. dependency wait on pending tasks with unsatisfied deps
 	if depWait, blocking := dependencyWait(g); len(depWait) > 0 {
 		return wshrpc.DagNextStep{Kind: "dependency-wait", TaskIds: depWait, BlockingTaskIds: blocking}
+	}
+	// 5b. the final stage: failed and waiting on the lead's fix round, or still judging the merged result
+	if g.Final != nil && g.Final.State == FinalState_Failed {
+		return wshrpc.DagNextStep{Kind: "lead-action", Actions: []string{"fix-round"}}
+	}
+	if g.Status == DagStatus_Finalizing {
+		return wshrpc.DagNextStep{Kind: "final-wait"}
 	}
 	// 6. terminal
 	if g.Status == DagStatus_Done || g.Status == DagStatus_Cancelled {

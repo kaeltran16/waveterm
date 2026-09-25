@@ -137,6 +137,7 @@ func dagStatusLines(rtn *wshrpc.CommandDagStatusRtnData, now int64) []string {
 	for _, n := range d.Report.UnverifiedNotes {
 		lines = append(lines, fmt.Sprintf("unverified  %s: %s", n.TaskId, flatText(n.Text)))
 	}
+	lines = append(lines, finalLines(d.Final)...)
 	if len(g.Tasks) == 0 {
 		return lines
 	}
@@ -186,6 +187,33 @@ func dagStatusLines(rtn *wshrpc.CommandDagStatusRtnData, now int64) []string {
 	// nothing wakes the lead for what the human typed to a worker, so this is where it learns of it
 	for _, told := range d.Told {
 		lines = append(lines, fmt.Sprintf("%s the human told this worker %s ago: %s", told.TaskId, durOrZero(now-told.Ts), strings.Join(strings.Fields(told.Text), " ")))
+	}
+	return lines
+}
+
+// finalLines is the final stage: its state and round, where its output went, and what it found. The lead's fix
+// plan and its report are written from these, so each reason and a failure's output are printed whole.
+func finalLines(f *waveobj.FinalStage) []string {
+	if f == nil {
+		return nil
+	}
+	state := f.State
+	if state == "" {
+		state = "pending"
+	}
+	head := fmt.Sprintf("final   %s  round=%d", state, f.Round)
+	if f.Commit != "" {
+		head += "  commit=" + f.Commit[:min(7, len(f.Commit))]
+	}
+	if f.OutDir != "" {
+		head += "  out=" + f.OutDir
+	}
+	lines := []string{head}
+	for _, r := range f.Unverified {
+		lines = append(lines, "final unverified: "+r)
+	}
+	if f.Detail != "" {
+		lines = append(lines, "final failed: "+f.Detail)
 	}
 	return lines
 }

@@ -245,8 +245,9 @@ func TestRunFinishedWakesLeadOnce(t *testing.T) {
 		f.settle(h.ctx)
 	}
 
-	// the worker reported no commit, so the wake carries that quiet line ahead of its own
-	if len(f.sends) != 1 || !strings.HasSuffix(f.sends[0], runFinishedWake) {
+	// the worker reported no commit, so the wake carries that quiet line ahead of its own, and the final
+	// stage's outcome follows it
+	if len(f.sends) != 1 || !strings.Contains(f.sends[0], "\n"+runFinishedWake+"\n") {
 		t.Fatalf("the finished run wakes the lead once, got %q", f.sends)
 	}
 }

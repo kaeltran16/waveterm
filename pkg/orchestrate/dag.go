@@ -76,6 +76,7 @@ func enterReview(t *waveobj.TaskNode, worker *waveobj.Run) {
 const (
 	DagStatus_Running        = "running"
 	DagStatus_PlanReview     = "plan-review" // the engine's plan reviewer holds dispatch (TaskGroup.PlanReview)
+	DagStatus_Finalizing     = "finalizing"  // every task landed; the final stage judges the merged result (TaskGroup.Final)
 	DagStatus_AwaitingReview = "awaiting-review"
 	DagStatus_Blocked        = "blocked"
 	DagStatus_Done           = "done"
@@ -292,7 +293,7 @@ func SameDagProposal(a, b *waveobj.TaskGroup) bool {
 		return a == b
 	}
 	if a.Title != b.Title || a.Parallelism != b.Parallelism || a.MergeRequired != b.MergeRequired ||
-		a.Verify != b.Verify || a.Setup != b.Setup || a.Check != b.Check || a.EffortOID != b.EffortOID ||
+		a.Verify != b.Verify || a.Setup != b.Setup || a.Check != b.Check || a.FinalCmd != b.FinalCmd || a.Prototype != b.Prototype || a.EffortOID != b.EffortOID ||
 		a.Preamble != b.Preamble || a.PlanPath != b.PlanPath || a.SpecPath != b.SpecPath || len(a.Tasks) != len(b.Tasks) {
 		return false
 	}
@@ -324,7 +325,7 @@ func SameDagProposal(a, b *waveobj.TaskGroup) bool {
 }
 
 // RecomputeDagStatus derives g.Status from task states. Single source of truth.
-// Order matters: cancelled (terminal override) -> plan-review -> done -> blocked -> awaiting-review -> running.
+// Order matters: cancelled (terminal override) -> plan-review -> finalizing/done -> blocked -> awaiting-review -> running.
 func RecomputeDagStatus(g *waveobj.TaskGroup) {
 	if g.Status == DagStatus_Cancelled {
 		return
@@ -365,7 +366,7 @@ func RecomputeDagStatus(g *waveobj.TaskGroup) {
 	case cancelled:
 		g.Status = DagStatus_Cancelled
 	case allTerminal:
-		g.Status = DagStatus_Done
+		g.Status = landedStatus(g)
 	case blocked || g.Failures >= MaxConsecutiveFailures:
 		g.Status = DagStatus_Blocked
 	case gateDone:
@@ -375,10 +376,34 @@ func RecomputeDagStatus(g *waveobj.TaskGroup) {
 	}
 }
 
+// landedStatus is the status of a dag whose every task landed: the final stage decides whether it is done. A
+// dag that was done before the final stage existed stays done rather than being judged again.
+func landedStatus(g *waveobj.TaskGroup) string {
+	if g.Final == nil && g.Status == DagStatus_Done {
+		return DagStatus_Done
+	}
+	if g.Final == nil {
+		return DagStatus_Finalizing
+	}
+	switch g.Final.State {
+	case FinalState_Passed, FinalState_Unverified:
+		return DagStatus_Done
+	case FinalState_Failed:
+		return DagStatus_Blocked
+	}
+	return DagStatus_Finalizing
+}
+
+// BlockingKindFinalFailed is the blocking kind of a dag whose final stage failed: the lead's fix round is next.
+const BlockingKindFinalFailed = "final-failed"
+
 // BlockingKind names what is holding a blocked dag: the failure classifier shared by its failed
 // tasks, or "mixed" when they disagree. Empty when nothing failed (the circuit-break tripped on the
 // streak alone, or the block is a merge).
 func BlockingKind(g *waveobj.TaskGroup) string {
+	if g.Final != nil && g.Final.State == FinalState_Failed {
+		return BlockingKindFinalFailed
+	}
 	out := ""
 	for i := range g.Tasks {
 		kind := g.Tasks[i].LastFailureKind

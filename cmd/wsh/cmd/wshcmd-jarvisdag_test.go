@@ -503,3 +503,24 @@ func TestDagStatusLinesPrintResultAndReview(t *testing.T) {
 		}
 	}
 }
+
+func TestDagStatusLinesPrintTheFinalStage(t *testing.T) {
+	detail := "Final `node scripts/cdp/final-verify.mjs` failed (exit 1):\nFAIL board-layout\n" + strings.Repeat("x", 1500)
+	rtn := &wshrpc.CommandDagStatusRtnData{
+		Group: &waveobj.TaskGroup{ID: "d", Status: "blocked"},
+		Digest: wshrpc.DagStatusDigest{Final: &waveobj.FinalStage{
+			State: "failed", Round: 1, Commit: "0123456789abcdef", OutDir: "/tmp/arc-final/d/1",
+			Unverified: []string{"t-2: the timeout path has no test"}, Detail: detail,
+		}},
+	}
+	out := strings.Join(dagStatusLines(rtn, 0), "\n")
+	for _, want := range []string{
+		"final   failed  round=1  commit=0123456  out=/tmp/arc-final/d/1",
+		"final unverified: t-2: the timeout path has no test",
+		"final failed: " + detail,
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("status must print %q, got:\n%s", want, out)
+		}
+	}
+}

@@ -569,6 +569,8 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		})
 	}
 	RecomputeDagStatus(g)
+	// every task landed: the final stage judges the merged result before the dag is done
+	advanceFinal(ctx, spawnCtx, g, owner, now, &afterCommit)
 	// status notifications: gate-open / blocked / complete, once per condition. The watchdog and every
 	// dag mutation re-enter Schedule, so emitting the standing status would refill the lifecycle log with
 	// identical rows and re-wake the lead about what it was already told. The gate cannot be compared
@@ -596,10 +598,11 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 	case notify && g.Status == DagStatus_Done:
 		// detached: a caller's short rpc budget must not cut the total off part-way through the transcripts
 		g.Usage = jarvis.RunUsage(spawnCtx, owner, jarvis.DagChildRuns(spawnCtx, g.ChannelId, g.OID, owner.ID))
+		finished := RunFinishedWake(g.Final)
 		afterCommit = append(afterCommit, func() {
 			publishDagEvent(DagEventComplete, g, "")
 			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindDagDone, nil, map[string]any{})
-			PostWake(ctx, g.ChannelId, g.RunID, runFinishedWake)
+			PostWake(ctx, g.ChannelId, g.RunID, finished)
 		})
 	}
 	g.UpdatedTs = time.Now().UnixMilli()

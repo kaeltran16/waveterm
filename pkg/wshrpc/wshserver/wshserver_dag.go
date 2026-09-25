@@ -209,6 +209,7 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 		return nil, err
 	}
 	proposed.Verify, proposed.Setup, proposed.Check, proposed.Preamble = plan.Verify, plan.Setup, plan.Check, plan.Preamble
+	proposed.FinalCmd, proposed.Prototype = plan.Final, plan.Prototype
 	proposed.EffortOID = plan.EffortOID
 	proposed.PlanPath, proposed.SpecPath = data.PlanPath, data.SpecPath
 	// a plan file is reviewed before any worker starts; a JSON dag has no plan to review

@@ -1943,6 +1943,7 @@ declare global {
         durations: DagDurationDigest;
         report: DagReportDigest;
         shape?: DagPlanShape;
+        final?: FinalStage;
         lanes?: string[][];
         told?: DagTold[];
     };
@@ -2224,6 +2225,20 @@ declare global {
         ijsonbudget?: number;
         truncate?: boolean;
         append?: boolean;
+    };
+
+    // waveobj.FinalStage
+    type FinalStage = {
+        state: string;
+        round: number;
+        tree?: string;
+        commit?: string;
+        outdir?: string;
+        detail?: string;
+        unverified?: string[];
+        verifierrunid?: string;
+        respawns?: number;
+        startedts?: number;
     };
 
     // wconfig.FullConfigType
@@ -2902,6 +2917,7 @@ declare global {
         harness?: string;
         model?: string;
         usage?: UsageRow[];
+        verification?: RunVerification;
     };
 
     // waveobj.RunPhase
@@ -2932,6 +2948,12 @@ declare global {
         model?: string;
         mode?: string;
         goal?: string;
+    };
+
+    // waveobj.RunVerification
+    type RunVerification = {
+        state: string;
+        reasons?: string[];
     };
 
     // waveobj.RuntimeOpts
@@ -3360,11 +3382,14 @@ declare global {
         verify?: string;
         setup?: string;
         check?: string;
+        finalcmd?: string;
+        prototype?: string;
         preamble?: string;
         effortoid?: string;
         planpath?: string;
         specpath?: string;
         planreview?: PlanReviewStage;
+        final?: FinalStage;
     };
 
     // waveobj.TaskNode

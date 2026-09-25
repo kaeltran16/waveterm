@@ -272,8 +272,8 @@ func TestPersistCleanupStateRecomputesDag(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stored.Status != DagStatus_Done {
-		t.Fatalf("cleared cleanup debt must complete the DAG, got %s", stored.Status)
+	if stored.Status != DagStatus_Finalizing {
+		t.Fatalf("cleared cleanup debt must hand the DAG to the final stage, got %s", stored.Status)
 	}
 }
 

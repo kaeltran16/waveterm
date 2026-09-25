@@ -159,8 +159,8 @@ func TestRecomputeStatusDerivation(t *testing.T) {
 	}
 	g.Tasks[2].Released = true
 	RecomputeDagStatus(g)
-	if g.Status != DagStatus_Done {
-		t.Fatalf("released gate: want done, got %s", g.Status)
+	if g.Status != DagStatus_Finalizing {
+		t.Fatalf("released gate: want finalizing, got %s", g.Status)
 	}
 	g2 := mustGroup(t, mkTasks())
 	g2.Tasks[1].State = TaskState_Failed
@@ -187,8 +187,8 @@ func TestRecomputeStatusCleanupDebt(t *testing.T) {
 	}
 	g4.Tasks[2].Released = true // released gate
 	RecomputeDagStatus(g4)
-	if g4.Status != DagStatus_Done {
-		t.Fatalf("clean merged dag: want done, got %s", g4.Status)
+	if g4.Status != DagStatus_Finalizing {
+		t.Fatalf("clean merged dag: want finalizing, got %s", g4.Status)
 	}
 	g4.Tasks[0].CleanupPending = true
 	RecomputeDagStatus(g4)
@@ -203,8 +203,8 @@ func TestRecomputeStatusCleanupDebt(t *testing.T) {
 	}
 	g4.Tasks[0].CleanupError = ""
 	RecomputeDagStatus(g4)
-	if g4.Status != DagStatus_Done {
-		t.Fatalf("cleanup cleared: want done, got %s", g4.Status)
+	if g4.Status != DagStatus_Finalizing {
+		t.Fatalf("cleanup cleared: want finalizing, got %s", g4.Status)
 	}
 }
 
@@ -236,7 +236,7 @@ func TestDoneDagStaysNonTerminalUnderTheCleanupCap(t *testing.T) {
 func TestDoneDagGoesTerminalOnceCleanupGivesUp(t *testing.T) {
 	g := cleanupDebtGroup(t, MaxCleanupAttempts, true)
 	RecomputeDagStatus(g)
-	if g.Status != DagStatus_Done {
+	if g.Status != DagStatus_Finalizing {
 		t.Fatalf("debt over the cap must not wedge the dag, got %s", g.Status)
 	}
 	if !HasCleanupDebt(g) {

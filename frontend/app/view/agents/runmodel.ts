@@ -20,6 +20,8 @@ export function runStatusView(status: string): { label: string; tone: RunStatusT
             return { label: "reviewing plan", tone: "review" };
         case "executing":
             return { label: "executing", tone: "running" };
+        case "finalizing":
+            return { label: "verifying", tone: "running" };
         case "blocked":
             return { label: "blocked", tone: "blocked" };
         case "done":

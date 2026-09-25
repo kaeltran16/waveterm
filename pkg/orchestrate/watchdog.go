@@ -26,7 +26,7 @@ const wakeTickInterval = 5 * time.Second
 // else to notice them. Ticking the parked ones cannot advance work that should not advance: every
 // dispatch guard (the gate halt, the circuit-break, parallelism) is inside NextToSpawn, so the tick
 // observes and reports without spawning.
-var watchdogStatuses = []string{DagStatus_Running, DagStatus_PlanReview, DagStatus_Blocked, DagStatus_AwaitingReview}
+var watchdogStatuses = []string{DagStatus_Running, DagStatus_PlanReview, DagStatus_Finalizing, DagStatus_Blocked, DagStatus_AwaitingReview}
 
 // watchdogOnce guards the single start; watchdogTick is the per-tick body (a var so tests can count
 // invocations without running a real ticker).
@@ -43,8 +43,9 @@ var (
 				// a parked dag is ticked only to observe its live children. With none, the tick would
 				// just rewrite the row every interval — a version bump the UI reads as a change, on
 				// exactly the dags a human is sitting and looking at.
-				// an open plan review has no task at work, but its reviewer still needs its timeout watched
-				if status != DagStatus_Running && len(busyTaskIDs(g)) == 0 && !planReviewOpen(g) {
+				// an open plan review has no task at work, but its reviewer still needs its timeout watched. A
+				// finalizing dag is ticked so a final stage the server lost starts again.
+				if status != DagStatus_Running && status != DagStatus_Finalizing && len(busyTaskIDs(g)) == 0 && !planReviewOpen(g) {
 					continue
 				}
 				if serr := Schedule(ctx, g.OID); serr != nil {

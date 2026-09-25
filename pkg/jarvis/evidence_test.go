@@ -874,3 +874,32 @@ func TestSealEvidenceGivesAChildRunNoDagVerify(t *testing.T) {
 		t.Fatalf("a child run must not carry its owner's Verify, got %+v", child.Evidence.Verifs)
 	}
 }
+
+// the final stage's outcome is the owner's, sealed whole; a child run of the same dag gets none
+func TestSealEvidenceRecordsTheFinalStageOutcome(t *testing.T) {
+	ctx := context.Background()
+	ownerID, childID, channelID := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	reasons := []string{"no dev app: cargo missing", "t-2: the timeout path has no test"}
+	g := &waveobj.TaskGroup{OID: uuid.NewString(), RunID: ownerID, ChannelId: channelID,
+		Tasks: []waveobj.TaskNode{{ID: "t-1", State: "done", RunID: childID}},
+		Final: &waveobj.FinalStage{State: "unverified", Round: 1, Unverified: reasons}}
+	g.ID = g.OID
+	if err := wstore.AppendDag(ctx, g); err != nil {
+		t.Fatal(err)
+	}
+	owner := &waveobj.Run{ID: ownerID, OID: ownerID, ChannelOID: channelID, DagORef: g.OID, Status: RunStatus_Done, ProjectPath: t.TempDir(), CreatedTs: 1000}
+	if err := SealEvidence(ctx, owner); err != nil {
+		t.Fatal(err)
+	}
+	want := &waveobj.RunVerification{State: "unverified", Reasons: reasons}
+	if !reflect.DeepEqual(owner.Evidence.Verification, want) {
+		t.Fatalf("verification = %+v, want %+v", owner.Evidence.Verification, want)
+	}
+	child := &waveobj.Run{ID: childID, OID: childID, ChannelOID: channelID, DagORef: g.OID, TaskId: "t-1", Status: RunStatus_Done, ProjectPath: t.TempDir(), CreatedTs: 1000}
+	if err := SealEvidence(ctx, child); err != nil {
+		t.Fatal(err)
+	}
+	if child.Evidence.Verification != nil {
+		t.Fatalf("a child run must not carry its owner's verification, got %+v", child.Evidence.Verification)
+	}
+}

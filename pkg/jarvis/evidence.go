@@ -394,6 +394,33 @@ func dagVerifs(ctx context.Context, run *waveobj.Run) ([]waveobj.EvidenceVerif, 
 	return out, nil
 }
 
+// dagVerification is how the final stage judged the merged result of the dag run owns, or nil while the stage
+// has not reached an outcome (or the run owns no dag). Read errors fail the seal, as dagVerifs' do.
+func dagVerification(ctx context.Context, run *waveobj.Run) (*waveobj.RunVerification, error) {
+	if run.DagORef == "" {
+		return nil, nil
+	}
+	g, err := wstore.GetDag(ctx, run.DagORef)
+	if errors.Is(err, wstore.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("evidence: loading dag %s: %w", run.DagORef, err)
+	}
+	if g.RunID != run.ID || g.Final == nil {
+		return nil, nil
+	}
+	switch g.Final.State {
+	case "passed":
+		return &waveobj.RunVerification{State: g.Final.State}, nil
+	case "unverified":
+		return &waveobj.RunVerification{State: g.Final.State, Reasons: g.Final.Unverified}, nil
+	case "failed":
+		return &waveobj.RunVerification{State: g.Final.State, Reasons: []string{g.Final.Detail}}, nil
+	}
+	return nil, nil
+}
+
 // RunTrailerKey is the commit trailer that marks a commit as a run's own: the engine writes
 // `Arc-Run: <runId>-t-N` on each lane it lands and the lead ends its own commits with `Arc-Run: <runId>`.
 const RunTrailerKey = "Arc-Run"
@@ -445,6 +472,10 @@ func SealEvidence(ctx context.Context, run *waveobj.Run) error {
 		return err
 	}
 	verifs = append(verifs, dv...)
+	verification, err := dagVerification(ctx, run)
+	if err != nil {
+		return err
+	}
 
 	// git-derived: files touched. prefer the run's own commit range (BaseCommit..EndCommit) — under
 	// delegator fan-out the shared ProjectPath tree holds every sibling merged since BaseCommit, so a
@@ -510,6 +541,7 @@ func SealEvidence(ctx context.Context, run *waveobj.Run) error {
 		RuntimeMs:  activeSpanMs(run),
 		DurationMs: completedTs - run.CreatedTs,
 	}
+	ev.Verification = verification
 	// recomputed here rather than copied from the dag, whose total froze before the lead wrote its report
 	if run.DagORef != "" && UsageRole(run) == UsageRole_Lead {
 		ev.Usage = RunUsage(ctx, run, DagChildRuns(ctx, run.ChannelOID, run.DagORef, run.ID))

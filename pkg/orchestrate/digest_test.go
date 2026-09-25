@@ -114,6 +114,7 @@ func TestHealthHealthyRunning(t *testing.T) {
 
 func TestHealthDone(t *testing.T) {
 	g := digestGroup(t, false, plainTasks())
+	g.Final = &waveobj.FinalStage{State: FinalState_Passed, Round: 1}
 	setTaskStates(g, map[string]string{"t-0": TaskState_Done, "t-1": TaskState_Done, "t-2": TaskState_Done})
 	if g.Status != DagStatus_Done {
 		t.Fatalf("fixture should be done, got %s", g.Status)
@@ -421,6 +422,7 @@ func TestNextDependencyWaitBlocking(t *testing.T) {
 
 func TestNextTerminal(t *testing.T) {
 	g := digestGroup(t, false, plainTasks())
+	g.Final = &waveobj.FinalStage{State: FinalState_Passed, Round: 1}
 	setTaskStates(g, map[string]string{"t-0": TaskState_Done, "t-1": TaskState_Done, "t-2": TaskState_Done})
 	d := BuildDigest(digestSnapshot(g, nil, nil, nil, digestNow))
 	if d.Next.Kind != "terminal" || d.Next.TerminalStatus != DagStatus_Done {
@@ -847,5 +849,30 @@ func TestDigestCountsAReviewingTaskAsBusy(t *testing.T) {
 	d := BuildDigest(digestSnapshot(g, nil, nil, nil, time.UnixMilli(10_000)))
 	if d.Counts.Running != 1 || d.Next.Kind != "parallelism-wait" || d.Tasks[0].WaitReason != "review" {
 		t.Fatalf("a review in flight is busy work, got counts %+v next %+v task %+v", d.Counts, d.Next, d.Tasks[0])
+	}
+}
+
+func TestNextWaitsOnTheFinalStage(t *testing.T) {
+	g := digestGroup(t, false, plainTasks())
+	setTaskStates(g, map[string]string{"t-0": TaskState_Done, "t-1": TaskState_Done, "t-2": TaskState_Done})
+	d := BuildDigest(digestSnapshot(g, nil, nil, nil, digestNow))
+	if g.Status != DagStatus_Finalizing || d.Next.Kind != "final-wait" || d.Health != "healthy" {
+		t.Fatalf("every task landed: want finalizing, final-wait and healthy, got %s / %+v / %s", g.Status, d.Next, d.Health)
+	}
+}
+
+func TestAFailedFinalStageWaitsOnTheLeadsFixRound(t *testing.T) {
+	g := digestGroup(t, false, plainTasks())
+	g.Final = &waveobj.FinalStage{State: FinalState_Failed, Round: 1, Detail: "Check `go vet ./...` failed (exit 1):\nx.go:3"}
+	setTaskStates(g, map[string]string{"t-0": TaskState_Done, "t-1": TaskState_Done, "t-2": TaskState_Done})
+	d := BuildDigest(digestSnapshot(g, nil, nil, nil, digestNow))
+	if g.Status != DagStatus_Blocked || BlockingKind(g) != BlockingKindFinalFailed {
+		t.Fatalf("want blocked on final-failed, got %s / %q", g.Status, BlockingKind(g))
+	}
+	if d.Health != "needs-you" || d.Next.Kind != "lead-action" || !reflect.DeepEqual(d.Next.Actions, []string{"fix-round"}) {
+		t.Fatalf("want the lead's fix round next, got %s / %+v", d.Health, d.Next)
+	}
+	if d.Final == nil || d.Final.Detail != g.Final.Detail {
+		t.Fatalf("the digest carries the final stage whole, got %+v", d.Final)
 	}
 }

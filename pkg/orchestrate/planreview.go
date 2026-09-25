@@ -176,6 +176,7 @@ func ReplacePlanReviewProposal(ctx context.Context, dagID string, proposed *wave
 		}
 		g.Title, g.Parallelism, g.WorkerRoute, g.Tasks = proposed.Title, proposed.Parallelism, proposed.WorkerRoute, proposed.Tasks
 		g.Verify, g.Setup, g.Check, g.Preamble = proposed.Verify, proposed.Setup, proposed.Check, proposed.Preamble
+		g.FinalCmd, g.Prototype = proposed.FinalCmd, proposed.Prototype
 		g.EffortOID, g.PlanPath, g.SpecPath = proposed.EffortOID, proposed.PlanPath, proposed.SpecPath
 		g.PlanReview = &waveobj.PlanReviewStage{State: PlanReviewState_Reviewing, Round: pr.Round + 1}
 		out = g
