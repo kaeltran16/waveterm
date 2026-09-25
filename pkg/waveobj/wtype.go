@@ -561,7 +561,7 @@ type EvidenceFile struct {
 
 type EvidenceVerif struct {
 	Cmd    string `json:"cmd"`
-	Result string `json:"result"` // "pass" | "fail" | "unknown"
+	Result string `json:"result"` // "pass" | "fail": the engine's Verify; "ran": a worker's transcript; "unknown": older evidence
 	Detail string `json:"detail,omitempty"`
 }
 

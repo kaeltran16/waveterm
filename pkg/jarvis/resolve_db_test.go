@@ -96,9 +96,9 @@ func TestResolveAskOwner_Concierge(t *testing.T) {
 	if _, err := wstore.PostChannelMessage(ctx, gk.OID, dm); err != nil { // also stamps channeloref (Task B3)
 		t.Fatalf("post dispatch: %v", err)
 	}
-	ch, task := ResolveAskOwner(ctx, worker)
-	if ch == nil || ch.OID != gk.OID || task != "concierge task" {
-		t.Fatalf("concierge resolve wrong: ch=%+v task=%q", ch, task)
+	ch, task, source := ResolveAskOwner(ctx, worker)
+	if ch == nil || ch.OID != gk.OID || task != "concierge task" || source != "concierge task" {
+		t.Fatalf("concierge resolve wrong: ch=%+v task=%q source=%q", ch, task, source)
 	}
 }
 
@@ -121,12 +121,15 @@ func TestResolveAskOwner_RunWorker(t *testing.T) {
 		waveobj.MakeORef(waveobj.OType_Channel, ch.OID).String()); err != nil {
 		t.Fatalf("stamp: %v", err)
 	}
-	gotCh, task := ResolveAskOwner(ctx, worker)
+	gotCh, task, source := ResolveAskOwner(ctx, worker)
 	if gotCh == nil || gotCh.OID != ch.OID {
 		t.Fatalf("run worker resolve wrong channel: %+v", gotCh)
 	}
 	if !contains(task, "ship it") {
 		t.Fatalf("run worker task should mention the run goal, got %q", task)
+	}
+	if !contains(source, "ship it") {
+		t.Fatalf("run worker source should mention the run goal, got %q", source)
 	}
 }
 
@@ -143,7 +146,7 @@ func TestResolveAskOwner_NonGatekeeper(t *testing.T) {
 	if _, err := wstore.PostChannelMessage(ctx, plain.OID, dm); err != nil {
 		t.Fatalf("post dispatch: %v", err)
 	}
-	if ch, _ := ResolveAskOwner(ctx, worker); ch != nil {
+	if ch, _, _ := ResolveAskOwner(ctx, worker); ch != nil {
 		t.Fatalf("non-gatekeeper channel must not own the ask, got %+v", ch)
 	}
 }

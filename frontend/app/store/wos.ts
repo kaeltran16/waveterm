@@ -296,6 +296,9 @@ function updateWaveObject(update: WaveObjUpdate) {
     const wov = getWaveObjectValue(oref);
     if (update.updatetype == "delete") {
         dlog("WaveObj deleted", oref);
+        // a pushed change is newer than any fetch still in flight: drop that fetch, or a late read of
+        // the object before it existed overwrites the change and nothing refetches
+        wov.pendingPromise = null;
         globalStore.set(wov.dataAtom, { value: null, loading: false, error: false });
     } else {
         if (!isValidWaveObj(update.obj)) {
@@ -307,6 +310,7 @@ function updateWaveObject(update: WaveObjUpdate) {
             return;
         }
         dlog("WaveObj updated", oref);
+        wov.pendingPromise = null;
         globalStore.set(wov.dataAtom, { value: update.obj, loading: false, error: false });
     }
     return;

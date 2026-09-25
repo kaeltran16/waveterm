@@ -377,3 +377,15 @@ func TestRunsLandAndAckSendTheirRpcs(t *testing.T) {
 		t.Fatalf("request = %s %+v, want ackrun for r-1", req.Command, ack)
 	}
 }
+
+func TestRunsAttentionLinesKeepTheQuestionWhole(t *testing.T) {
+	question := "Which of these three approaches should the lead take for the merge queue? " + strings.Repeat("detail ", 20)
+	items := []wshrpc.AttentionItem{{Kind: "escalation", Action: "Decide", Source: strings.Repeat("goal ", 40), Text: question + "\nsecond line"}}
+	line := runsAttentionLines(items, 0)[0]
+	if !strings.Contains(line, strings.Join(strings.Fields(question+" second line"), " ")) {
+		t.Fatalf("the question must print whole on one line: %q", line)
+	}
+	if strings.Count(line, "goal") > runsGoalWidth/5 {
+		t.Fatalf("the source must be clipped: %q", line)
+	}
+}

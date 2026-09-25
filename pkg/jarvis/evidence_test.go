@@ -22,47 +22,70 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
-func TestClassifyVerif(t *testing.T) {
+func TestIsVerifCommand(t *testing.T) {
 	cases := []struct {
-		cmd       string
-		isError   bool
-		wantMatch bool
-		wantRes   string
+		cmd  string
+		want bool
 	}{
-		// real invocations: runner token + action verb -> classify, pass/fail preserved
-		{"pnpm test coupons", false, true, "pass"},
-		{"pnpm typecheck", true, true, "fail"},
-		{"npm run lint", false, true, "pass"},
-		{"go test ./...", true, true, "fail"},
-		{"npm test", false, true, "pass"},
-		{"vitest run", false, true, "pass"},
-		{"pytest -q", false, true, "pass"},
-		{"npx tsc --noEmit", false, true, "pass"},
-		{"pnpm build", false, true, "pass"},
-		{"echo hi && pnpm test", false, true, "pass"}, // compound commands still classify
-		// prose that merely mentions a test/build word must NOT classify
-		{"ls -la", false, false, ""},
-		{"git commit -m \"test: add auth\"", false, false, ""},
-		{"echo build it", false, false, ""},
-		{"git diff --stat", false, false, ""},
-		{"git commit -m \"build: bump deps\"", true, false, ""},
+		// runner-led invocations classify; prose that merely mentions a test/build word does not
+		{"pnpm test coupons", true},
+		{"pnpm typecheck", true},
+		{"npm run lint", true},
+		{"go test ./...", true},
+		{"npm test", true},
+		{"vitest run", true},
+		{"pytest -q", true},
+		{"npx tsc --noEmit", true},
+		{"pnpm build", true},
+		{"echo hi && pnpm test", true},
+		{"ls -la", false},
+		{"git commit -m \"test: add auth\"", false},
+		{"echo build it", false},
+		{"git diff --stat", false},
+		{"git commit -m \"build: bump deps\"", false},
+		// finding 21's four commands
+		{`grep -rn "landing" frontend --include=*.ts | grep -iv "^.*test" | head -20; grep -rln "landing" pkg --include=*.go`, false},
+		{"go test ./pkg/jarvis/ -run EffectiveLanding 2>&1 | tail -3; go test ./pkg/orchestrate/ 2>&1 | tail -3", true},
+		{"git diff frontend/types/gotypes.d.ts && go test ./pkg/jarvis/ 2>&1 | tail -30", true},
+		{"sed -i '599s/a/b/' pkg/waveobj/wtype.go && task generate && go build ./... && go vet ./pkg/...", true},
+		// a runner behind env, a cd, a path, or .exe
+		{"CGO_ENABLED=0 GOOS=linux go test ./pkg/...", true},
+		{`cd "C:/work/tree" && npm test`, true},
+		{`C:\Go\bin\go.exe test ./...`, true},
+		{"./node_modules/.bin/vitest run", true},
+		{"node --stack-size=4000 node_modules/typescript/lib/tsc.js --noEmit", true},
+		// an edit or a search alone is not a check
+		{"sed -i 's/test/spec/' pkg/x_test.go", false},
+		{"rg -n 'go test' docs", false},
 	}
 	for _, c := range cases {
-		_, res, ok := classifyVerif(c.cmd, "x", c.isError)
-		if ok != c.wantMatch {
-			t.Errorf("classifyVerif(%q) match=%v, want %v", c.cmd, ok, c.wantMatch)
-		}
-		if ok && res != c.wantRes {
-			t.Errorf("classifyVerif(%q) result=%q, want %q", c.cmd, res, c.wantRes)
+		if got := isVerifCommand(c.cmd); got != c.want {
+			t.Errorf("isVerifCommand(%q) = %v, want %v", c.cmd, got, c.want)
 		}
 	}
 }
 
-func TestClassifyVerifUnknownOnEmptyResult(t *testing.T) {
-	// ran but produced no captured output -> unknown, not pass (existing behavior preserved)
-	_, res, ok := classifyVerif("npm test", "", false)
-	if !ok || res != "unknown" {
-		t.Errorf("empty result: ok=%v res=%q, want ok=true res=unknown", ok, res)
+func TestTranscriptVerifsReadRanWhateverTheOutcome(t *testing.T) {
+	acc := newVerifAccum()
+	acc.addTranscript([]string{
+		verifToolUseLine("b1", "go test ./pkg/x/ 2>&1 | tail -3"),
+		verifResultLine("b1", false, "FAIL\tpkg/x\t0.4s"), // the pipe hid the failure's exit code
+		verifToolUseLine("b2", "npm test"),
+		verifResultLine("b2", true, "1 failing"),
+		verifToolUseLine("b3", "pnpm typecheck"),
+		verifResultLine("b3", false, ""),
+		verifToolUseLine("b4", "go build ./..."), // no result at all
+	})
+	if len(acc.out) != 4 {
+		t.Fatalf("want 4 lines, got %+v", acc.out)
+	}
+	for _, v := range acc.out {
+		if v.Result != VerifResult_Ran {
+			t.Errorf("%q result = %q, want %q", v.Cmd, v.Result, VerifResult_Ran)
+		}
+	}
+	if acc.out[0].Detail != "FAIL\tpkg/x\t0.4s" {
+		t.Errorf("detail must keep the runner's summary, got %q", acc.out[0].Detail)
 	}
 }
 
@@ -138,7 +161,7 @@ func TestVerificationCommandsDedupesAndClassifies(t *testing.T) {
 	if len(v) != 2 {
 		t.Fatalf("got %d verifs, want 2", len(v))
 	}
-	if v[0].Result != "pass" || v[1].Result != "fail" {
+	if v[0].Result != VerifResult_Ran || v[1].Result != VerifResult_Ran {
 		t.Errorf("results = %q,%q", v[0].Result, v[1].Result)
 	}
 }
@@ -321,11 +344,11 @@ func TestSealEvidenceAggregatesVerifsAcrossWorkers(t *testing.T) {
 	if len(run.Evidence.Verifs) != 2 {
 		t.Fatalf("got %d verifs, want 2 (both non-skipped workers, skipped phase excluded): %+v", len(run.Evidence.Verifs), run.Evidence.Verifs)
 	}
-	if run.Evidence.Verifs[0].Cmd != "pnpm typecheck" || run.Evidence.Verifs[0].Result != "pass" {
-		t.Errorf("verif[0] = %+v, want pnpm typecheck/pass (first-appearance order)", run.Evidence.Verifs[0])
+	if run.Evidence.Verifs[0].Cmd != "pnpm typecheck" || run.Evidence.Verifs[0].Result != VerifResult_Ran {
+		t.Errorf("verif[0] = %+v, want pnpm typecheck/ran (first-appearance order)", run.Evidence.Verifs[0])
 	}
-	if run.Evidence.Verifs[1].Cmd != "go test ./..." || run.Evidence.Verifs[1].Result != "pass" {
-		t.Errorf("verif[1] = %+v, want go test ./.../pass", run.Evidence.Verifs[1])
+	if run.Evidence.Verifs[1].Cmd != "go test ./..." || run.Evidence.Verifs[1].Result != VerifResult_Ran {
+		t.Errorf("verif[1] = %+v, want go test ./.../ran", run.Evidence.Verifs[1])
 	}
 	if run.Evidence.Summary != "phase two summary" {
 		t.Errorf("Summary = %q, want the last worker's text only", run.Evidence.Summary)
@@ -376,8 +399,8 @@ func TestSealEvidenceVerifDedupeAcrossWorkers(t *testing.T) {
 	if len(v) != 1 {
 		t.Fatalf("got %d verifs, want 1 (deduped across workers): %+v", len(v), v)
 	}
-	if v[0].Cmd != "pnpm test" || v[0].Result != "pass" {
-		t.Errorf("verif = %+v, want pnpm test/pass (last result wins across workers)", v[0])
+	if v[0].Cmd != "pnpm test" || v[0].Result != VerifResult_Ran || v[0].Detail != "12 passed" {
+		t.Errorf("verif = %+v, want pnpm test/ran/12 passed (last result wins across workers)", v[0])
 	}
 }
 
@@ -583,7 +606,7 @@ func TestPiTranscriptProjectsToEvidence(t *testing.T) {
 		t.Errorf("finalAssistantText = %q", got)
 	}
 	v := verificationCommands(lines)
-	if len(v) != 1 || v[0].Cmd != "go test ./..." || v[0].Result != "fail" {
+	if len(v) != 1 || v[0].Cmd != "go test ./..." || v[0].Result != VerifResult_Ran {
 		t.Fatalf("verifs = %+v, want the failed go test", v)
 	}
 }
@@ -630,7 +653,7 @@ func TestSealEvidenceReadsTheSessionTranscript(t *testing.T) {
 			if run.Evidence.Summary != "all done" {
 				t.Errorf("summary = %q, want the worker's last message", run.Evidence.Summary)
 			}
-			if len(run.Evidence.Verifs) != 1 || run.Evidence.Verifs[0].Result != "fail" {
+			if len(run.Evidence.Verifs) != 1 || run.Evidence.Verifs[0].Result != VerifResult_Ran {
 				t.Errorf("verifs = %+v, want the failed go test", run.Evidence.Verifs)
 			}
 		})

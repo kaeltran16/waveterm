@@ -242,6 +242,19 @@ func firstLine(s string) string {
 	return s
 }
 
+// attentionSourceMaxLen bounds a row's source line. A run's goal can be kilobytes; the row's text is the
+// question that needs deciding, and a whole goal in front of it pushes it out of view.
+const attentionSourceMaxLen = 80
+
+// goalHeadline is the first line of a goal, cut to attentionSourceMaxLen runes, for a row that names its run.
+func goalHeadline(goal string) string {
+	line := strings.TrimSpace(firstLine(strings.TrimSpace(goal)))
+	if r := []rune(line); len(r) > attentionSourceMaxLen {
+		return string(r[:attentionSourceMaxLen-1]) + "…"
+	}
+	return line
+}
+
 // blockedTask is the task a blocked group is stopped on, and whether retrying it is the action: a merge
 // git refused or a failed Verify is resolved by hand, so only a failed task is retryable.
 func blockedTask(g *waveobj.TaskGroup) (string, bool) {
@@ -322,7 +335,7 @@ func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
 				ChannelId:    ch.OID,
 				ChannelName:  ch.Name,
 				RunId:        run.ID,
-				Source:       run.Goal,
+				Source:       goalHeadline(run.Goal),
 				Text:         "Approve before Jarvis proceeds.",
 				Action:       "Review",
 				PhaseIdx:     idx,
@@ -480,7 +493,7 @@ func landHeldItem(ch AttentionChannel, run *waveobj.Run) (wshrpc.AttentionItem, 
 		ChannelId:    ch.OID,
 		ChannelName:  ch.Name,
 		RunId:        run.ID,
-		Source:       run.Goal,
+		Source:       goalHeadline(run.Goal),
 		Text:         "The run's branch was not merged back: " + run.Land.Reason,
 		Action:       "Review",
 		WaitingSince: run.CompletedTs,
@@ -514,7 +527,7 @@ func unverifiedItem(ch AttentionChannel, run *waveobj.Run) (wshrpc.AttentionItem
 		ChannelId:    ch.OID,
 		ChannelName:  ch.Name,
 		RunId:        run.ID,
-		Source:       run.Goal,
+		Source:       goalHeadline(run.Goal),
 		Text:         fmt.Sprintf("Finished, but %d %s not verified.", len(reasons), pluralThings(len(reasons))),
 		Action:       "Acknowledge",
 		WaitingSince: run.CompletedTs,
@@ -689,12 +702,12 @@ func askText(qs []baseds.AgentAskQuestion) string {
 // dagSource is the attention source line for a dag item: its title, else the owning run's goal.
 func dagSource(channels []AttentionChannel, g *waveobj.TaskGroup) string {
 	if g.Title != "" {
-		return g.Title
+		return goalHeadline(g.Title)
 	}
 	for _, ch := range channels {
 		for _, run := range ch.Runs {
 			if run.ID == g.RunID {
-				return run.Goal
+				return goalHeadline(run.Goal)
 			}
 		}
 	}
@@ -758,12 +771,12 @@ func GatherAttentionFromLedger(ctx context.Context, chans []*waveobj.Channel, ru
 	for blockORef := range in.PendingAsks {
 		workerORef := ChannelOwnerORef(ctx, blockORef)
 		in.AskWorkerORef[blockORef] = workerORef
-		owner, task := ResolveAskOwner(ctx, workerORef)
+		owner, _, source := ResolveAskOwner(ctx, workerORef)
 		if owner != nil {
 			in.AskChannel[blockORef] = owner.OID
 		}
-		if task != "" {
-			in.AskWorker[blockORef] = task
+		if source != "" {
+			in.AskWorker[blockORef] = source
 		}
 	}
 	// engine DAGs: load the group of every run carrying a DagORef (children share the owner's oref,
