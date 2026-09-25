@@ -37,16 +37,18 @@ export const SURFACE_HINTS: Partial<Record<SurfaceKey, FooterHint[]>> = {
         { ids: ["cycle-agent-next", "cycle-agent-prev"], keys: "Ctrl:Tab", label: "cycle" },
         { ids: ["agent:return-nav"], keys: "Shift:Escape", label: "leave" }, // editable-only via its binding
     ],
+    // ↑↓, ⏎ and g g left the footer for room; they still work and are in ? help.
     files: [
-        { ids: ["list:prev-k", "list:next-j", "list:prev", "list:next"], glyph: "↑↓", label: "commit" },
-        { ids: ["list:activate"], glyph: "⏎", label: "open file" },
         { ids: ["files:filter"], glyph: "/", label: "filter" },
-        { ids: ["files:toggle-graph"], glyph: "G", label: "graph" },
-        { ids: ["files:top"], glyph: "g g", label: "top" },
-        { ids: ["files:compare"], glyph: "c", label: "compare" },
+        { ids: ["files:toggle-graph"], glyph: "⇧G", label: "graph" },
+        { ids: ["files:change-refs"], glyph: "c", label: "change refs" }, // compare-only via its binding
+        { ids: ["files:swap-refs"], glyph: "⇧S", label: "swap" }, // compare-only via its binding
+        { ids: ["files:next-change", "files:prev-change"], glyph: "⇧N ⇧P", label: "next / prev change" },
+        { ids: ["files:toggle-history"], glyph: "⇧H", label: "history" },
+        { ids: ["files:compare"], glyph: "c", label: "compare" }, // history-only via its binding
         { ids: ["files:refresh"], glyph: "r", label: "refresh" },
         { ids: ["files:switch-side"], glyph: "⇥", label: "side" }, // compare-only via its binding
         { ids: ["files:clear-filters"], glyph: "esc", label: "clear filters" }, // filtered-only via its binding
-        { ids: ["files:exit-compare"], glyph: "esc", label: "history" }, // compare-only via its binding
+        { ids: ["files:exit-compare"], glyph: "esc", label: "leave compare" }, // compare-only via its binding
     ],
 };

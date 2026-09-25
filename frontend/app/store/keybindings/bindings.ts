@@ -970,11 +970,26 @@ export function buildFilesBindings(): Binding[] {
             keys: "c",
             group: "Diff",
             label: "Compare refs",
-            when: on,
+            when: inHistory,
             run: () => {
                 const el = document.querySelector<HTMLElement>('[data-range-chip="compare"]');
                 if (el == null) {
                     return false; // no repository scoped -> nothing to compare; let the key pass
+                }
+                el.click();
+            },
+        },
+        {
+            // same key, second meaning: inside compare, c reopens the ref pair rather than re-entering
+            id: "files:change-refs",
+            keys: "c",
+            group: "Diff",
+            label: "Change compare refs",
+            when: inCompare,
+            run: () => {
+                const el = document.querySelector<HTMLElement>("[data-ref-pair]");
+                if (el == null) {
+                    return false;
                 }
                 el.click();
             },

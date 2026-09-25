@@ -120,6 +120,25 @@ row below expands into the same choices.
 | `Enter` | Submit the answer |
 | `Esc` | Leave the composer |
 
+### Diff
+
+| Keys | Action |
+|---|---|
+| `j` / `k` (or `↓` / `↑`) | Next / previous commit or file |
+| `Enter` | Open the file under the cursor |
+| `/` | Filter history (`Esc` clears) |
+| `Shift`+`G` | Toggle the history graph |
+| `g` `g` | Top of history |
+| `Shift`+`H` | Collapse / expand history |
+| `Shift`+`N` / `Shift`+`P` | Next / previous change in the open diff |
+| `Shift`+`D` | Split / unified |
+| `Shift`+`W` | Ignore whitespace |
+| `r` | Refresh changes and history |
+| `c` | In history: compare refs. In compare: change the compared refs |
+| `Shift`+`S` | Swap compare refs (in compare) |
+| `Tab` | Switch compare side (in compare) |
+| `Esc` | Clear filters, else leave compare, else back to the Cockpit |
+
 ### Files — Review mode
 
 | Keys | Action |

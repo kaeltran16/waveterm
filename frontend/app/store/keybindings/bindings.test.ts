@@ -415,6 +415,27 @@ describe("diff-surface history bindings", () => {
         });
         expect(b.when?.(ctx)).toBe(true);
     });
+
+    it("c enters compare from history and changes the refs inside compare", () => {
+        expect(find("files:compare").when?.(ctx)).toBe(true);
+        expect(find("files:change-refs").when?.(ctx)).toBe(false);
+        globalStore.set(diffScopeAtom, {
+            repo: { origin: { kind: "agent", id: "a1" }, label: "a1" },
+            range: { kind: "compare", base: "main", head: "feat", form: "mergebase", from: { kind: "working" } },
+        });
+        expect(find("files:compare").when?.(ctx)).toBe(false);
+        expect(find("files:change-refs").when?.(ctx)).toBe(true);
+        expect(find("files:change-refs").keys).toBe("c");
+    });
+
+    it("change-refs declines the key when no ref chip is on screen", () => {
+        globalStore.set(diffScopeAtom, {
+            repo: { origin: { kind: "agent", id: "a1" }, label: "a1" },
+            range: { kind: "compare", base: "main", head: "feat", form: "mergebase", from: { kind: "working" } },
+        });
+        vi.stubGlobal("document", { querySelector: () => null });
+        expect(find("files:change-refs").run(ctx)).toBe(false);
+    });
 });
 
 describe("command palette chord", () => {

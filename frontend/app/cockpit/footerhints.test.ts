@@ -1,12 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import {
-    buildAgentBindings,
-    buildFilesBindings,
-    buildGlobalBindings,
-    buildListNavBindings,
-} from "@/app/store/keybindings/bindings";
+import { buildAgentBindings, buildFilesBindings, buildGlobalBindings } from "@/app/store/keybindings/bindings";
 import { describe, expect, it } from "vitest";
 import { GLOBAL_HINTS, SURFACE_HINTS } from "./footerhints";
 
@@ -15,15 +10,8 @@ import { GLOBAL_HINTS, SURFACE_HINTS } from "./footerhints";
 describe("footer hints reference real bindings", () => {
     it("has no dangling binding id", () => {
         const model = {} as any; // build() reads no atoms
-        // buildListNavBindings joins the set because the files hints reference list:prev/next/activate,
-        // which that builder owns; without it the test would report those five as dangling.
         const ids = new Set(
-            [
-                ...buildGlobalBindings(model),
-                ...buildAgentBindings(model),
-                ...buildListNavBindings(),
-                ...buildFilesBindings(),
-            ].map((b) => b.id)
+            [...buildGlobalBindings(model), ...buildAgentBindings(model), ...buildFilesBindings()].map((b) => b.id)
         );
         const referenced = [...GLOBAL_HINTS, ...Object.values(SURFACE_HINTS).flat()].flatMap((h) => h.ids);
         const missing = referenced.filter((id) => !ids.has(id));
