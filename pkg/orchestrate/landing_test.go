@@ -261,7 +261,7 @@ func TestFoldCopiesACheckoutDocIntoTheLandingTree(t *testing.T) {
 	plan := filepath.Join(dir, "docs", "plan.md")
 	writeFile(t, plan, "# plan\n")
 
-	if _, err := MergeRunWorktree(context.Background(), tree, "run-1-t-1", "lane", []string{plan}); err != nil {
+	if _, err := MergeRunWorktree(context.Background(), tree, "run-1-t-1", MergeLane{Title: "lane"}, []string{plan}); err != nil {
 		t.Fatal(err)
 	}
 	if got, want := committedFiles(t, tree, "HEAD"), []string{"docs/plan.md", "feature.txt"}; !reflect.DeepEqual(got, want) {
@@ -278,7 +278,7 @@ func TestFoldNeverOverwritesADifferentFileInTheTree(t *testing.T) {
 	plan := filepath.Join(dir, "docs", "plan.md")
 	writeFile(t, plan, "# plan\n")
 
-	if _, err := MergeRunWorktree(context.Background(), tree, "run-1-t-1", "lane", []string{plan}); err != nil {
+	if _, err := MergeRunWorktree(context.Background(), tree, "run-1-t-1", MergeLane{Title: "lane"}, []string{plan}); err != nil {
 		t.Fatal(err)
 	}
 	if got := gitCmd(t, tree, "show", "HEAD:docs/plan.md"); got != "# plan, as the lane amended it" {

@@ -92,9 +92,9 @@ func stubMerge(t *testing.T, fn func(ctx context.Context, projectPath, runID, go
 	t.Helper()
 	calls := 0
 	old := mergeWorktree
-	mergeWorktree = func(ctx context.Context, projectPath, runID, goal string, _ []string) (string, error) {
+	mergeWorktree = func(ctx context.Context, projectPath, runID string, lane MergeLane, _ []string) (string, error) {
 		calls++
-		return fn(ctx, projectPath, runID, goal)
+		return fn(ctx, projectPath, runID, lane.Title)
 	}
 	t.Cleanup(func() { mergeWorktree = old })
 	return &calls
@@ -385,7 +385,7 @@ func TestContinueRetriesARefusedMerge(t *testing.T) {
 	})
 	continued := 0
 	oldContinue := continueMerge
-	continueMerge = func(context.Context, string, string, string, []string) (string, error) {
+	continueMerge = func(context.Context, string, string, MergeLane, []string) (string, error) {
 		continued++
 		return "sha-continue", nil
 	}
@@ -431,7 +431,7 @@ func TestConflictAwaitingContinueHoldsOtherMerges(t *testing.T) {
 		return "sha-t1", nil
 	})
 	oldContinue := continueMerge
-	continueMerge = func(context.Context, string, string, string, []string) (string, error) { return "sha-fix", nil }
+	continueMerge = func(context.Context, string, string, MergeLane, []string) (string, error) { return "sha-fix", nil }
 	t.Cleanup(func() { continueMerge = oldContinue })
 
 	if err := Schedule(f.ctx, f.dagID); err != nil {

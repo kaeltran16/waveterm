@@ -31,8 +31,8 @@ func recordMerges(t *testing.T, sha string, err error) *[]mergeCall {
 	t.Helper()
 	var calls []mergeCall
 	old := mergeWorktree
-	mergeWorktree = func(_ context.Context, _, runID, goal string, fold []string) (string, error) {
-		calls = append(calls, mergeCall{runID, goal, fold})
+	mergeWorktree = func(_ context.Context, _, runID string, lane MergeLane, fold []string) (string, error) {
+		calls = append(calls, mergeCall{runID, lane.Title, fold})
 		return sha, err
 	}
 	t.Cleanup(func() { mergeWorktree = old })
@@ -144,7 +144,7 @@ func TestLaneConflictBlocksItsLastTaskAndContinueLandsTheLane(t *testing.T) {
 
 	var continued []string
 	orig := continueMerge
-	continueMerge = func(_ context.Context, _, runID, _ string, _ []string) (string, error) {
+	continueMerge = func(_ context.Context, _, runID string, _ MergeLane, _ []string) (string, error) {
 		continued = append(continued, runID)
 		return "sha-resolved", nil
 	}
