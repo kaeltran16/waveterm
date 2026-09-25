@@ -10,6 +10,8 @@
 // from the two texts here would be a second diff algorithm beside the one that drew the screen, and
 // the two would point at different lines.
 
+import { atom, type PrimitiveAtom } from "jotai";
+
 // Narrow to what is actually called, so a test does not need a Monaco editor to exercise the routing.
 export interface DiffNavTarget {
     goToDiff(target: "next" | "previous"): void;
@@ -38,3 +40,27 @@ export function gotoChange(dir: "next" | "previous"): boolean {
     mounted.goToDiff(dir);
     return true;
 }
+
+export interface ChangeRange {
+    start: number;
+    // 0 for a pure deletion, which Monaco anchors at start on the modified side
+    end: number;
+}
+
+// Which change the cursor is on, 1-based; 0 before the first. goToDiff lands the cursor on a change's
+// first line, so after a Shift+N this is exact, and between changes it names the one just passed.
+export function changePosition(changes: ChangeRange[], cursorLine: number): { index: number; total: number } {
+    let index = 0;
+    changes.forEach((c, i) => {
+        if (c.start <= cursorLine) {
+            index = i + 1;
+        }
+    });
+    return { index, total: changes.length };
+}
+
+// null while no editor is mounted, so the header can hide the counter instead of printing 0/0
+export const diffNavPosAtom = atom<{ index: number; total: number } | null>(null) as PrimitiveAtom<{
+    index: number;
+    total: number;
+} | null>;

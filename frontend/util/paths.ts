@@ -34,3 +34,10 @@ export function repoBasename(p: string): string {
     const segs = p.split(/[\\/]+/).filter((s) => s !== "");
     return segs.length === 0 ? "" : segs[segs.length - 1];
 }
+
+// A repo-relative path as the diff header draws it: the directory keeps its trailing slash so the two
+// halves concatenate back to the path, and the file name can be styled on its own.
+export function splitRepoPath(p: string): { dir: string; file: string } {
+    const i = p.lastIndexOf("/");
+    return i < 0 ? { dir: "", file: p } : { dir: p.slice(0, i + 1), file: p.slice(i + 1) };
+}

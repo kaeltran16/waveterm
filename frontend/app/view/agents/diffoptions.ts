@@ -13,6 +13,14 @@ import type * as MonacoTypes from "monaco-editor";
 // disabled rather than producing a view nobody can read
 export const SPLIT_MIN_PX = 900;
 
+// Below this the header's labelled buttons wrap: at 1600x950 with history open the pane is ~760px.
+// Measured on the pane itself, like SPLIT_MIN_PX, because the window says nothing about the columns.
+export const LABELLED_MIN_PX = 1100;
+
+export function paneHeaderLayout(width: number): { split: boolean; labelled: boolean } {
+    return { split: width >= SPLIT_MIN_PX, labelled: width >= LABELLED_MIN_PX };
+}
+
 export const splitViewAtom = atom<boolean>(false);
 
 // Monaco ignores leading and trailing whitespace by default, so a whitespace-only change draws as no
@@ -26,6 +34,7 @@ export function paneOptions(split: boolean, ignoreWs: boolean): MonacoTypes.edit
         originalEditable: false,
         renderSideBySide: split,
         ignoreTrimWhitespace: ignoreWs,
+        hideUnchangedRegions: { enabled: true, contextLineCount: 3, minimumLineCount: 3, revealLineCount: 20 },
         scrollBeyondLastLine: false,
         minimap: { enabled: false },
         fontSize: 12.5,

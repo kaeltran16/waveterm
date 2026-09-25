@@ -12,24 +12,35 @@ import { SkeletonLine } from "@/app/element/skeleton";
 import { getApi } from "@/app/store/global";
 import { globalStore } from "@/app/store/jotaiStore";
 import { openInCode } from "@/app/view/code/codestore";
-import { joinRepoPath } from "@/util/paths";
+import { joinRepoPath, splitRepoPath } from "@/util/paths";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
+import { ChevronDown, ChevronUp, Code, ExternalLink, FileText, Pilcrow } from "lucide-react";
 import { motion } from "motion/react";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { firstDifferingLine } from "./diffcontent";
 import { diffPairAtom } from "./diffcontentstore";
-import { clearDiffNav, setDiffNav } from "./diffnav";
-import { ignoreWsAtom, paneOptions, SPLIT_MIN_PX, splitViewAtom } from "./diffoptions";
+import { emptyDiffState, type EmptyDiff } from "./diffempty";
+import { changePosition, clearDiffNav, diffNavPosAtom, gotoChange, setDiffNav } from "./diffnav";
+import { ignoreWsAtom, paneHeaderLayout, paneOptions, splitViewAtom } from "./diffoptions";
 import { fmtBytes } from "./runcompletion";
 
 const MonacoDiffViewer = lazy(() => import("@/app/monaco/monaco-react").then((m) => ({ default: m.MonacoDiffViewer })));
 
-function Centered({ msg }: { msg: string }) {
+const headerBtn =
+    "flex h-[28px] flex-none items-center gap-[6px] rounded-[8px] border border-edge-mid px-[10px] text-[11.5px] font-semibold";
+const navBtn =
+    "flex h-[26px] w-[26px] flex-none items-center justify-center rounded-[6px] text-ink-faint hover:text-ink-hi";
+
+function EmptyState({ empty }: { empty: EmptyDiff }) {
     return (
-        <div className="flex h-full items-center justify-center px-[20px] text-center text-[13px] text-muted">
-            {msg}
+        <div className="flex flex-1 flex-col items-center justify-center gap-[8px] px-[32px] text-center">
+            <span className="flex h-[28px] w-[28px] items-center justify-center rounded-[8px] border border-edge-mid bg-surface text-muted">
+                <FileText size={16} />
+            </span>
+            <div className="text-[13px] font-semibold text-ink-hi">{empty.title}</div>
+            <div className="max-w-[360px] text-[12px] leading-[1.5] text-ink-mid">{empty.body}</div>
         </div>
     );
 }
@@ -54,6 +65,7 @@ export function DiffPane({
     editorCwd,
     repoCwd,
     model,
+    nothingToCompare = null,
 }: {
     path: string | null;
     adds: number;
@@ -61,10 +73,13 @@ export function DiffPane({
     editorCwd: string | null;
     repoCwd: string | null;
     model: AgentsViewModel;
+    // compare's aggregate is selected and the two refs list no files
+    nothingToCompare?: { base: string; head: string } | null;
 }) {
     const pair = useAtomValue(diffPairAtom);
     const split = useAtomValue(splitViewAtom);
     const ignoreWs = useAtomValue(ignoreWsAtom);
+    const navPos = useAtomValue(diffNavPosAtom);
     const hostRef = useRef<HTMLDivElement>(null);
     const [width, setWidth] = useState(0);
 
@@ -79,25 +94,16 @@ export function DiffPane({
         return () => ro.disconnect();
     }, []);
 
-    const splitAvailable = width >= SPLIT_MIN_PX;
-    const options = useMemo(() => paneOptions(split && splitAvailable, ignoreWs), [split, splitAvailable, ignoreWs]);
+    const layout = paneHeaderLayout(width);
+    const options = useMemo(() => paneOptions(split && layout.split, ignoreWs), [split, layout.split, ignoreWs]);
+    const empty = emptyDiffState({ path, pair, nothingToCompare });
 
     const body = () => {
-        if (!path) {
-            return <Centered msg="Select a file to view its changes" />;
+        if (empty) {
+            return <EmptyState empty={empty} />;
         }
         if (pair == null || pair.path !== path) {
             return <PaneSkeleton />;
-        }
-        if (pair.tooLarge) {
-            return <Centered msg={`File too large to display (${fmtBytes(pair.size)}).`} />;
-        }
-        if (pair.binary) {
-            return <Centered msg="Binary file — git reports a change but has no text to show." />;
-        }
-        if (pair.original === pair.modified) {
-            // a pure rename or a mode change: git listed the file, nothing inside it moved
-            return <Centered msg="Nothing inside this file changed." />;
         }
         return (
             <Suspense fallback={<PaneSkeleton />}>
@@ -109,10 +115,138 @@ export function DiffPane({
                     // publishes the editor so Shift+N / Shift+P can walk its hunks without focusing it
                     onMount={(diff) => {
                         setDiffNav(diff);
-                        return () => clearDiffNav(diff);
+                        const update = () =>
+                            globalStore.set(
+                                diffNavPosAtom,
+                                changePosition(
+                                    (diff.getLineChanges() ?? []).map((c) => ({
+                                        start: c.modifiedStartLineNumber,
+                                        end: c.modifiedEndLineNumber,
+                                    })),
+                                    diff.getModifiedEditor().getPosition()?.lineNumber ?? 0
+                                )
+                            );
+                        const subs = [
+                            diff.onDidUpdateDiff(update),
+                            diff.getModifiedEditor().onDidChangeCursorPosition(update),
+                        ];
+                        return () => {
+                            subs.forEach((s) => s.dispose());
+                            clearDiffNav(diff);
+                            globalStore.set(diffNavPosAtom, null);
+                        };
                     }}
                 />
             </Suspense>
+        );
+    };
+
+    const header = () => {
+        const { dir, file } = splitRepoPath(path);
+        return (
+            <div className="flex h-[48px] flex-none items-center gap-[10px] border-b border-border pl-[18px] pr-[14px]">
+                <span className="flex min-w-0 items-baseline font-mono text-[12.5px]">
+                    {/* rtl truncates from the left, but alone it would move the directory's trailing "/"
+                        to its front; the bdi keeps the text itself left-to-right */}
+                    <span className="min-w-0 truncate text-ink-faint [direction:rtl]">
+                        <bdi dir="ltr">{dir}</bdi>
+                    </span>
+                    <span className="flex-none font-semibold text-ink-hi">{file}</span>
+                </span>
+                <span className="flex-none font-mono text-[11px] font-bold text-success">+{adds}</span>
+                <span className="flex-none font-mono text-[11px] font-bold text-error">−{dels}</span>
+                {empty?.kind === "toolarge" && pair != null ? (
+                    <span className="flex-none font-mono text-[11px] text-ink-faint">{fmtBytes(pair.size)}</span>
+                ) : null}
+                <div className="flex-1" />
+                {navPos != null && navPos.total > 0 ? (
+                    <div className="flex flex-none items-center gap-[2px]">
+                        <button
+                            onClick={() => gotoChange("previous")}
+                            title="Previous change (⇧P)"
+                            aria-label="Previous change (⇧P)"
+                            className={navBtn}
+                        >
+                            <ChevronUp size={14} />
+                        </button>
+                        <span className="text-center font-mono text-[11px] text-ink-faint">
+                            {layout.labelled ? "change " : ""}
+                            {navPos.index}/{navPos.total}
+                        </span>
+                        <button
+                            onClick={() => gotoChange("next")}
+                            title="Next change (⇧N)"
+                            aria-label="Next change (⇧N)"
+                            className={navBtn}
+                        >
+                            <ChevronDown size={14} />
+                        </button>
+                    </div>
+                ) : null}
+                {layout.split ? (
+                    <div
+                        role="group"
+                        title="Unified / split (⇧D)"
+                        className="flex h-[28px] flex-none overflow-hidden rounded-[8px] border border-edge-mid"
+                    >
+                        {[false, true].map((v) => (
+                            <button
+                                key={String(v)}
+                                onClick={() => globalStore.set(splitViewAtom, v)}
+                                aria-pressed={split === v}
+                                className={cn(
+                                    "px-[10px] text-[11.5px] font-semibold",
+                                    split === v ? "bg-surface-selected text-ink-hi" : "text-muted hover:text-ink-hi"
+                                )}
+                            >
+                                {v ? "Split" : "Unified"}
+                            </button>
+                        ))}
+                    </div>
+                ) : null}
+                <button
+                    onClick={() => globalStore.set(ignoreWsAtom, !ignoreWs)}
+                    title="Hide whitespace (⇧W)"
+                    aria-label="Hide whitespace (⇧W)"
+                    aria-pressed={ignoreWs}
+                    className={cn(
+                        headerBtn,
+                        ignoreWs ? "border-accent/30 bg-accentbg text-ink-hi" : "text-ink-mid hover:text-ink-hi"
+                    )}
+                >
+                    <Pilcrow size={13} />
+                    {layout.labelled ? "Hide whitespace" : null}
+                </button>
+                {repoCwd && (
+                    <button
+                        onClick={() =>
+                            fireAndForget(() =>
+                                openInCode(model, {
+                                    projectPath: repoCwd,
+                                    rel: path,
+                                    line: pair ? firstDifferingLine(pair.original, pair.modified) : undefined,
+                                })
+                            )
+                        }
+                        title="Open in Code"
+                        aria-label="Open in Code"
+                        className={cn(headerBtn, "text-ink-mid hover:text-ink-hi")}
+                    >
+                        <Code size={13} />
+                        {layout.labelled ? "Open in Code" : null}
+                    </button>
+                )}
+                {editorCwd && (
+                    <button
+                        onClick={() => getApi().openExternal(joinRepoPath(editorCwd, path))}
+                        title="Open in editor"
+                        aria-label="Open in editor"
+                        className={cn(headerBtn, "text-ink-mid hover:text-ink-hi")}
+                    >
+                        <ExternalLink size={13} />
+                    </button>
+                )}
+            </div>
         );
     };
 
@@ -125,63 +259,7 @@ export function DiffPane({
             ref={hostRef}
             data-diff-pane
         >
-            {path ? (
-                <div className="flex flex-none items-center gap-[11px] border-b border-border px-[20px] py-[13px]">
-                    <span className="min-w-0 truncate font-mono text-[13px] font-semibold">{path}</span>
-                    <span className="flex-none font-mono text-[11px] font-bold text-success">+{adds}</span>
-                    <span className="flex-none font-mono text-[11px] font-bold text-error">−{dels}</span>
-                    <div className="flex-1" />
-                    <button
-                        onClick={() => splitAvailable && globalStore.set(splitViewAtom, !split)}
-                        disabled={!splitAvailable}
-                        title={splitAvailable ? "Toggle split view" : "Not enough room for split view"}
-                        className={cn(
-                            "flex-none rounded border border-border px-[11px] py-[6px] font-mono text-[11px]",
-                            splitAvailable ? "text-ink-mid hover:text-foreground" : "text-ink-faint opacity-50"
-                        )}
-                    >
-                        {split && splitAvailable ? "split" : "unified"}
-                    </button>
-                    <button
-                        onClick={() => globalStore.set(ignoreWsAtom, !ignoreWs)}
-                        title={
-                            ignoreWs
-                                ? "Showing the change without whitespace-only lines"
-                                : "Ignore whitespace-only changes"
-                        }
-                        className={cn(
-                            "flex-none rounded border border-border px-[11px] py-[6px] font-mono text-[11px]",
-                            ignoreWs ? "text-ink-hi" : "text-ink-mid hover:text-foreground"
-                        )}
-                    >
-                        {ignoreWs ? "ws ignored" : "ws shown"}
-                    </button>
-                    {repoCwd && (
-                        <button
-                            onClick={() =>
-                                fireAndForget(() =>
-                                    openInCode(model, {
-                                        projectPath: repoCwd,
-                                        rel: path,
-                                        line: pair ? firstDifferingLine(pair.original, pair.modified) : undefined,
-                                    })
-                                )
-                            }
-                            className="flex-none rounded border border-border px-[11px] py-[6px] text-[12px] text-ink-mid hover:text-foreground"
-                        >
-                            Open in Code
-                        </button>
-                    )}
-                    {editorCwd && (
-                        <button
-                            onClick={() => getApi().openExternal(joinRepoPath(editorCwd, path))}
-                            className="flex-none rounded border border-border px-[11px] py-[6px] text-[12px] text-ink-mid hover:text-foreground"
-                        >
-                            Open in editor ↗
-                        </button>
-                    )}
-                </div>
-            ) : null}
+            {path ? header() : null}
             {body()}
         </motion.div>
     );

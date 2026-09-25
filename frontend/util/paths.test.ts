@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { joinRepoPath, repoBasename, sameRepoPath } from "./paths";
+import { joinRepoPath, repoBasename, sameRepoPath, splitRepoPath } from "./paths";
 
 describe("joinRepoPath", () => {
     it("joins a forward-slashed git path onto a backslashed Windows root", () => {
@@ -65,5 +65,17 @@ describe("repoBasename", () => {
 
     it("returns an empty string for an empty path", () => {
         expect(repoBasename("")).toBe("");
+    });
+});
+
+describe("splitRepoPath", () => {
+    it("keeps the trailing slash on the directory", () => {
+        expect(splitRepoPath("frontend/app/view/agents/agenttree.tsx")).toEqual({
+            dir: "frontend/app/view/agents/",
+            file: "agenttree.tsx",
+        });
+    });
+    it("has an empty directory at the root", () => {
+        expect(splitRepoPath("README.md")).toEqual({ dir: "", file: "README.md" });
     });
 });

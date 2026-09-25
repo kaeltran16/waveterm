@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { clearDiffNav, gotoChange, setDiffNav } from "./diffnav";
+import { changePosition, clearDiffNav, gotoChange, setDiffNav } from "./diffnav";
 
 function pane() {
     return { goToDiff: vi.fn() };
@@ -58,5 +58,29 @@ describe("diff pane navigation", () => {
         clearDiffNav(old);
         expect(gotoChange("next")).toBe(true);
         expect(live.goToDiff).toHaveBeenCalledWith("next");
+    });
+});
+
+describe("changePosition", () => {
+    const changes = [
+        { start: 10, end: 12 },
+        { start: 40, end: 0 }, // a pure deletion: Monaco reports end 0
+        { start: 90, end: 95 },
+    ];
+    it("is 0 of N before the first change", () => {
+        expect(changePosition(changes, 1)).toEqual({ index: 0, total: 3 });
+    });
+    it("counts the change the cursor is in or has passed", () => {
+        expect(changePosition(changes, 10)).toEqual({ index: 1, total: 3 });
+        expect(changePosition(changes, 30)).toEqual({ index: 1, total: 3 });
+    });
+    it("counts a pure deletion once the cursor reaches it", () => {
+        expect(changePosition(changes, 40)).toEqual({ index: 2, total: 3 });
+    });
+    it("stays on the last change past the end", () => {
+        expect(changePosition(changes, 500)).toEqual({ index: 3, total: 3 });
+    });
+    it("is 0 of 0 with nothing changed", () => {
+        expect(changePosition([], 5)).toEqual({ index: 0, total: 0 });
     });
 });
