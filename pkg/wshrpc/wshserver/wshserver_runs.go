@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
@@ -37,6 +38,10 @@ var runSpawnLocks = keyedmutex.New()
 // FE-call budget can't cut a git diff short into an empty, immutable snapshot. Worker spawn uses
 // jarvis.RunWorkerSpawnTimeout.
 const evidenceSealTimeout = 30 * time.Second
+
+// ErrWorkerReportRequired opens the refusal of a task worker's complete that carries no report: the seal
+// would otherwise take whatever line preceded `complete` as the worker's summary.
+const ErrWorkerReportRequired = "a task worker completes with --report <file>"
 
 // sealAsync dispatches the best-effort evidence seal off the RPC handler's goroutine so a slow git diff
 // can't hold the response past the caller's client timeout. A var so tests can run it inline.
@@ -595,6 +600,10 @@ func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandA
 		if head, herr := gitinfo.HeadCommit(ctx, jarvis.LandPath(preRun)); herr == nil {
 			data.Commit = head
 		}
+	}
+	if data.Action == jarvis.RunAction_Complete && preRun != nil && preRun.TaskId != "" && !preRun.Review && strings.TrimSpace(data.Report) == "" {
+		path := orchestrate.WorkerReportPath(preRun.DagORef, preRun.TaskId)
+		return fmt.Errorf("%s: write to %s what you did, what you did differently and why, what a later task must know, and what you could not verify, then run wsh jarvis complete --commit <sha> --report %s", ErrWorkerReportRequired, path, path)
 	}
 	ts := time.Now().UnixMilli()
 	err := wstore.UpdateRun(ctx, data.ChannelId, data.RunId, func(r *waveobj.Run) error {

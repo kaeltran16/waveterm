@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -501,6 +503,14 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 			taskBase = head
 			branch = "wave/" + key
 		}
+		reportPath := WorkerReportPath(g.OID, taskID)
+		if err := os.MkdirAll(filepath.Dir(reportPath), 0o755); err != nil {
+			log.Printf("schedule dag %s task %s: creating the report dir: %v", g.OID, taskID, err)
+		}
+		// a retry writes to the same path, and a stale report would pass for this attempt's
+		if err := os.Remove(reportPath); err != nil && !os.IsNotExist(err) {
+			log.Printf("schedule dag %s task %s: removing a stale report: %v", g.OID, taskID, err)
+		}
 		prompt := taskPrompt(g, task, owner, pin.Runtime, predecessorHandoff(task, g, runs))
 		// a new session per dispatch: its transcript is named by the id, so liveness and evidence never
 		// read a previous attempt's file as this one's.
@@ -652,6 +662,13 @@ func taskIdx(g *waveobj.TaskGroup, taskID string) int {
 	return -1
 }
 
+// WorkerReportPath is where a task's worker writes the report it hands to `wsh jarvis complete --report`,
+// which the seal takes as its summary. It sits outside every worktree so it can't be committed, and it
+// uses forward slashes because Git Bash eats the backslashes of an unquoted Windows path.
+func WorkerReportPath(dagOID, taskID string) string {
+	return filepath.ToSlash(filepath.Join(os.TempDir(), "arc-reports", dagOID, taskID+".md"))
+}
+
 // workerContract opens every dag worker's prompt (spec §4). The plan is approved, so the worker neither
 // re-plans nor guesses a consequential decision: it asks, and the lead or the human answers. It owns its
 // task's tests, and it names the plan so a compacted worker can re-read its task.
@@ -667,7 +684,8 @@ func workerContract(g *waveobj.TaskGroup, task *waveobj.TaskNode, runtime string
 		fmt.Fprintf(&b, "You are the worker for task %s of this run's dag.\n", task.ID)
 	}
 	fmt.Fprintf(&b, "The plan is approved: don't re-plan or pause for design approval. If a consequential decision isn't pinned, or the plan and the code disagree, ask once with %s and concrete options, then wait; the lead or the human answers.\n", jarvis.AskTool(runtime))
-	b.WriteString("A reviewer checks your commit against this task and the spec before it lands, and the lead reads your final message: end with what you did, anything you did differently from the task and why, and anything a later task must know.\n")
+	b.WriteString("A reviewer checks your commit against this task and the spec before it lands, and the lead reads your report.\n")
+	b.WriteString("Edit files with your edit tool; don't script multi-kilobyte replacements through the shell.\n")
 	b.WriteString("Run the tests your task names")
 	if g.Check != "" {
 		fmt.Fprintf(&b, ", and `%s`,", g.Check)
@@ -676,7 +694,9 @@ func workerContract(g *waveobj.TaskGroup, task *waveobj.TaskNode, runtime string
 	if g.Verify != "" {
 		fmt.Fprintf(&b, " Don't run the plan's full Verify (`%s`): the engine runs it after your task merges.", g.Verify)
 	}
-	b.WriteString(" Commit, then `wsh jarvis complete --commit $(git rev-parse HEAD)`. " + jarvis.NoAttributionRule)
+	reportPath := WorkerReportPath(g.OID, task.ID)
+	fmt.Fprintf(&b, " Commit, then write your report with your file-writing tool to `%s`: what you did, what you did differently from the task and why, what a later task must know, and what you could not verify and why. Then run `wsh jarvis complete --commit $(git rev-parse HEAD) --report %s`. ", reportPath, reportPath)
+	b.WriteString(jarvis.NoAttributionRule)
 	if g.PlanPath != "" {
 		b.WriteString("\nIf your context was compacted, re-read your task from the plan.")
 	}

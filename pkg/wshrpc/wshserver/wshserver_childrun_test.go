@@ -322,3 +322,69 @@ func TestParentlessRunDoesNotNotify(t *testing.T) {
 		t.Error("steerRunLead must not fire for a run with no ParentLeadORef")
 	}
 }
+
+// a task worker's report is its seal's summary, so the server refuses its complete without one; a
+// reviewer's verdict and a run outside the dag carry their own close
+func TestTaskWorkerCompleteRequiresReport(t *testing.T) {
+	ctx := context.Background()
+	origSpawn := jarvis.SpawnRunWorker
+	jarvis.SpawnRunWorker = func(_ context.Context, _ runroute.Capability, _, _, _, _ string, _ jarvis.RunWorkerOptions) (string, error) {
+		return waveobj.MakeORef(waveobj.OType_Tab, "x").String(), nil
+	}
+	defer func() { jarvis.SpawnRunWorker = origSpawn }()
+	origSteer := steerRunLead
+	steerRunLead = func(_ context.Context, _, _ string) {}
+	defer func() { steerRunLead = origSteer }()
+
+	cases := []struct {
+		name    string
+		taskId  string
+		review  bool
+		report  string
+		wantErr bool
+	}{
+		{"a task worker without a report is refused", "t-1", false, "", true},
+		{"a whitespace report is no report", "t-1", false, "  \n", true},
+		{"a task worker with a report completes", "t-1", false, "did the thing", false},
+		{"a reviewer completes without one", "t-1", true, "", false},
+		{"a run outside the dag completes without one", "", false, "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ch, err := wstore.CreateChannel(ctx, "report-"+tc.name, t.TempDir())
+			if err != nil {
+				t.Fatalf("CreateChannel: %v", err)
+			}
+			run := jarvis.NewRun("task", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), 1)
+			run.TaskId, run.Review = tc.taskId, tc.review
+			if tc.taskId != "" && !tc.review {
+				run.DagORef = "dag-1"
+			}
+			if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
+				t.Fatalf("AppendRun: %v", err)
+			}
+			ws := &WshServer{}
+			err = ws.AdvanceRunCommand(ctx, wshrpc.CommandAdvanceRunData{
+				ChannelId: ch.OID, RunId: run.ID, PhaseIdx: 0, Action: jarvis.RunAction_Complete, Report: tc.report,
+			})
+			if !tc.wantErr {
+				if err != nil {
+					t.Fatalf("AdvanceRunCommand: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("complete without a report must be refused")
+			}
+			path := orchestrate.WorkerReportPath("dag-1", "t-1")
+			for _, want := range []string{ErrWorkerReportRequired, "--report", path} {
+				if !strings.Contains(err.Error(), want) {
+					t.Fatalf("error %q missing %q", err, want)
+				}
+			}
+			if got, _ := wstore.GetRun(ctx, ch.OID, run.ID); got.Status == jarvis.RunStatus_Done {
+				t.Fatal("a refused complete must leave the run open")
+			}
+		})
+	}
+}

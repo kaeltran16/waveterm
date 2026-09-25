@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -171,7 +173,7 @@ func TestWorkerContractNamesPlanSpecVerifyAndTool(t *testing.T) {
 		"ask once with ask_user_question and concrete options, then wait",
 		"Run the tests your task names and get them passing before you complete; if you can't, ask.",
 		"Don't run the plan's full Verify (`go test ./...`): the engine runs it after your task merges.",
-		"Commit, then `wsh jarvis complete --commit $(git rev-parse HEAD)`.",
+		"Commit, then write your report",
 		"If your context was compacted, re-read your task from the plan.",
 	} {
 		if !strings.Contains(c, want) {
@@ -1428,10 +1430,46 @@ func TestRunningTaskWithNoControllerGoesStalled(t *testing.T) {
 
 func TestWorkerContractNamesTheReviewerAndTheLead(t *testing.T) {
 	c := workerContract(&waveobj.TaskGroup{}, &waveobj.TaskNode{ID: "t-1"}, "claude")
-	for _, want := range []string{"A reviewer checks your commit against this task and the spec", "the lead reads your final message", "anything a later task must know"} {
+	for _, want := range []string{"A reviewer checks your commit against this task and the spec", "the lead reads your report", "what a later task must know"} {
 		if !strings.Contains(c, want) {
 			t.Fatalf("contract missing %q: %q", want, c)
 		}
+	}
+}
+
+// the seal takes the run's report as its summary, so a worker that completes and only then writes its
+// final message leaves the seal with whatever line came before `complete`
+func TestWorkerContractSealsTheReportFromAFile(t *testing.T) {
+	g := &waveobj.TaskGroup{OID: "dag-1"}
+	task := &waveobj.TaskNode{ID: "t-2"}
+	c := workerContract(g, task, "claude")
+	path := WorkerReportPath(g.OID, task.ID)
+	for _, want := range []string{
+		"--report " + path,
+		"`wsh jarvis complete --commit $(git rev-parse HEAD) --report " + path + "`",
+		"what you did",
+		"what you did differently from the task and why",
+		"what a later task must know",
+		"what you could not verify and why",
+		"edit tool",
+	} {
+		if !strings.Contains(c, want) {
+			t.Fatalf("contract missing %q:\n%s", want, c)
+		}
+	}
+	if strings.Contains(c, "reads your final message") {
+		t.Fatalf("the report comes from the file, not the final message:\n%s", c)
+	}
+}
+
+func TestWorkerReportPathIsPerTaskOutsideTheTree(t *testing.T) {
+	p := WorkerReportPath("dag-1", "t-2")
+	if want := filepath.ToSlash(filepath.Join(os.TempDir(), "arc-reports", "dag-1", "t-2.md")); p != want {
+		t.Fatalf("WorkerReportPath = %q, want %q", p, want)
+	}
+	// Git Bash eats unquoted backslashes, so the path the brief puts on a command line has none
+	if strings.Contains(p, "\\") {
+		t.Fatalf("report path must use forward slashes: %q", p)
 	}
 }
 
