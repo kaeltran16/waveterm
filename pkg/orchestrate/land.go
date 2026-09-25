@@ -299,13 +299,23 @@ func mergeRefusal(ctx context.Context, project, base string, merr error) string 
 	return "git refused the merge: " + merr.Error()
 }
 
+// planTitleSuffix ends the H1 of a plan written from the writing-plans template; a merge subject names the
+// change, not the plan.
+const planTitleSuffix = " Implementation Plan"
+
+// maxLandTitleLen keeps the merge subject to one line of `git log --oneline`: a one-line goal can run to
+// a thousand characters.
+const maxLandTitleLen = 72
+
 // landTitle is the merge commit's subject: the plan's title, else the goal's first line.
 func landTitle(run *waveobj.Run, g *waveobj.TaskGroup) string {
-	if g != nil && strings.TrimSpace(g.Title) != "" {
-		return strings.TrimSpace(g.Title)
+	if g != nil {
+		if title := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(g.Title), planTitleSuffix)); title != "" {
+			return clipRunes(title, maxLandTitleLen)
+		}
 	}
 	if goal, _, _ := strings.Cut(strings.TrimSpace(run.Goal), "\n"); strings.TrimSpace(goal) != "" {
-		return strings.TrimSpace(goal)
+		return clipRunes(strings.TrimSpace(goal), maxLandTitleLen)
 	}
 	return "Land run " + run.ID
 }

@@ -28,7 +28,7 @@ func TestDigestFinishedLaneIsMergedAtItsTip(t *testing.T) {
 			t.Fatalf("task %s merge state = %q, want %q", g.Tasks[i].ID, d.Tasks[i].MergeState, want)
 		}
 	}
-	if d.Tasks[0].HumanActions != nil || !reflect.DeepEqual(d.Tasks[2].HumanActions, []string{"resolve-merge"}) {
+	if d.Tasks[0].HumanActions != nil || !reflect.DeepEqual(d.Tasks[2].HumanActions, []string{"merge"}) {
 		t.Fatalf("only the tip offers the merge, got %v / %v", d.Tasks[0].HumanActions, d.Tasks[2].HumanActions)
 	}
 }

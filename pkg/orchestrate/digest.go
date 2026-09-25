@@ -31,6 +31,7 @@ type DagDigestSnapshot struct {
 var (
 	digestActionAnswer            = []string{"answer"}
 	digestActionApproveSendback   = []string{"approve", "sendback"}
+	digestActionMerge             = []string{"merge"}
 	digestActionResolveMerge      = []string{"resolve-merge"}
 	digestActionRetryCleanup      = []string{"retry-cleanup"}
 	digestActionRetrySkipEscalate = []string{"retry", "skip", "escalate"}
@@ -370,7 +371,7 @@ func buildNext(g *waveobj.TaskGroup, askByTask map[string]wshrpc.DagAskItem) wsh
 }
 
 func mergeReadyStep(taskIDs []string) wshrpc.DagNextStep {
-	return wshrpc.DagNextStep{Kind: "merge-ready", TaskIds: taskIDs, Actions: digestActionResolveMerge}
+	return wshrpc.DagNextStep{Kind: "merge-ready", TaskIds: taskIDs, Actions: digestActionMerge}
 }
 
 func humanActionStep(_ string, taskIDs, actions []string) wshrpc.DagNextStep {
@@ -597,7 +598,7 @@ func taskHumanActions(g *waveobj.TaskGroup, t *waveobj.TaskNode) []string {
 	case t.State == TaskState_BlockedMerge || t.State == TaskState_VerifyFailed:
 		return digestActionResolveMerge
 	case mergeReadyTip(g, t):
-		return digestActionResolveMerge
+		return digestActionMerge
 	}
 	return nil
 }

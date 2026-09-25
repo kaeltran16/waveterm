@@ -141,6 +141,33 @@ func TestLandMergesTheBranchIntoACleanCheckout(t *testing.T) {
 	}
 }
 
+func TestLandTitleNamesTheChangeOnOneLine(t *testing.T) {
+	// a subject git log --oneline shows whole
+	const subjectLen = 72
+	long := strings.Repeat("fix the orchestrator findings ", 40)
+	cases := []struct {
+		name, title, goal, want string
+	}{
+		{"the plan's title", "Coupon codes", "a goal", "Coupon codes"},
+		{"the template's suffix dropped", "Orchestrator small findings Implementation Plan", "", "Orchestrator small findings"},
+		{"a title that is only the suffix", " Implementation Plan", "Add coupons\nmore", "Implementation Plan"},
+		{"the goal's first line with no title", "", "Add coupons\nand more", "Add coupons"},
+		{"a long goal clipped", "", long, string([]rune(long)[:subjectLen-1]) + "…"},
+		{"nothing to go on", "", "", "Land run r-1"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := landTitle(&waveobj.Run{ID: "r-1", Goal: c.goal}, &waveobj.TaskGroup{Title: c.title})
+			if got != c.want {
+				t.Fatalf("landTitle = %q, want %q", got, c.want)
+			}
+			if n := len([]rune(got)); n > subjectLen {
+				t.Fatalf("landTitle is %d runes, over %d", n, subjectLen)
+			}
+		})
+	}
+}
+
 func TestLandHoldsWhatItCannotMergeSafely(t *testing.T) {
 	cases := []struct {
 		name  string

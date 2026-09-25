@@ -31,7 +31,7 @@ describe("attentionQueue membership", () => {
                 row("t-run"),
                 row("t-done", { waitreason: "terminal" }),
                 row("t-fail", { waitreason: "failure", humanactions: ["retry", "skip", "escalate"] }),
-                row("t-merge", { mergestate: "ready", humanactions: ["resolve-merge"] }),
+                row("t-merge", { mergestate: "ready", humanactions: ["merge"] }),
             ]
         );
         expect(entries.map((e) => e.taskId)).toEqual(["t-fail", "t-merge"]);

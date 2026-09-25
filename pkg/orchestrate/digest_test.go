@@ -294,8 +294,8 @@ func TestNextMergeReadyFlatDag(t *testing.T) {
 	if !sameStrings(d.Next.TaskIds, []string{"t-0", "t-1", "t-2"}) {
 		t.Fatalf("merge-ready must name every unmerged task in dag order, got %+v", d.Next.TaskIds)
 	}
-	if !sameStrings(d.Next.Actions, []string{"resolve-merge"}) {
-		t.Fatalf("merge-ready must offer resolve-merge, got %+v", d.Next.Actions)
+	if !sameStrings(d.Next.Actions, []string{"merge"}) {
+		t.Fatalf("merge-ready must offer merge, got %+v", d.Next.Actions)
 	}
 }
 

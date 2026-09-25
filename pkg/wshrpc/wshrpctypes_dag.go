@@ -191,7 +191,7 @@ type DagNextStep struct {
 	Kind            string   `json:"kind"` // human-action | lead-action | merge-ready | dispatch | parallelism-wait | verify-wait | dependency-wait | final-wait | cleanup-wait | terminal
 	TaskIds         []string `json:"taskids,omitempty"`
 	BlockingTaskIds []string `json:"blockingtaskids,omitempty"`
-	Actions         []string `json:"actions,omitempty"` // answer | approve | sendback | resolve-merge | retry | skip | escalate | retry-cleanup | fix-round
+	Actions         []string `json:"actions,omitempty"` // answer | approve | sendback | merge | resolve-merge | retry | skip | escalate | retry-cleanup | fix-round
 	TerminalStatus  string   `json:"terminalstatus,omitempty"`
 }
 
@@ -199,7 +199,7 @@ type DagTaskDigest struct {
 	TaskId           string   `json:"taskid"`
 	WaitReason       string   `json:"waitreason"` // none | dependency | parallelism | gate | ask | lead-ask | failure | merge | verify | review | cleanup | terminal
 	BlockingTaskIds  []string `json:"blockingtaskids,omitempty"`
-	HumanActions     []string `json:"humanactions,omitempty"` // answer | approve | sendback | resolve-merge | retry | skip | escalate | retry-cleanup
+	HumanActions     []string `json:"humanactions,omitempty"` // answer | approve | sendback | merge | resolve-merge | retry | skip | escalate | retry-cleanup
 	AskId            string   `json:"askid,omitempty"`
 	AskSummary       string   `json:"asksummary,omitempty"`
 	AskTs            int64    `json:"askts,omitempty"`
