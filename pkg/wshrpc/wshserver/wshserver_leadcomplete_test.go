@@ -84,7 +84,7 @@ func newLeadCompleteFixture(t *testing.T) *leadCompleteFixture {
 
 	f.write(t, "t-1.txt", "hello\n")
 	f.git(t, "add", ".")
-	f.git(t, "commit", "-m", "run t-1: task 1")
+	f.git(t, "commit", "-m", "run t-1: task 1", "-m", jarvis.RunTrailerKey+": "+f.owner.ID+"-t-1")
 	f.write(t, ".waveterm/recovery/earlier-attempt-t-1.patch", "")
 
 	origSeal, origCapture := sealAsync, captureAsync
