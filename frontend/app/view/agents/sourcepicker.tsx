@@ -4,11 +4,29 @@
 
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import { cn } from "@/util/util";
+import { Check, ChevronDown, Folder, Search } from "lucide-react";
 import { useState } from "react";
 import type { AgentVM } from "./agentsviewmodel";
-import type { FilesSource } from "./diffsource";
+import { filterSources, worktreeParent, type FilesSource } from "./diffsource";
 import type { FilesProject } from "./filesstore";
 import { StatusDot } from "./statusdot";
+
+const groupLabelClass = "px-[12px] pb-[3px] font-mono text-[9px] uppercase tracking-[0.1em] text-ink-faint";
+
+function rowClass(current: boolean): string {
+    return cn(
+        "flex h-[30px] w-full items-center gap-[9px] px-[12px] text-left hover:bg-surface-hover",
+        current ? "bg-surface-selected text-ink-hi" : "text-ink-mid"
+    );
+}
+
+function CurrentMark({ current }: { current: boolean }) {
+    return (
+        <span className="flex w-[14px] flex-none justify-center text-accent">
+            {current ? <Check size={12} /> : null}
+        </span>
+    );
+}
 
 // In-tab source selector: picks whose worktree the Files surface shows. Agents (with a state dot)
 // write the shared focusIdAtom so a diff can be inspected without bouncing back to the Agent tab;
@@ -31,79 +49,110 @@ export function SourcePicker({
     onPickProject: (p: FilesProject) => void;
 }) {
     const [open, setOpen] = useState(false);
+    const [query, setQuery] = useState("");
+    const close = () => {
+        setOpen(false);
+        setQuery("");
+    };
     const currentAgent = source?.kind === "agent" ? agents.find((a) => a.id === source.id) : undefined;
     const currentProject = source?.kind === "project" ? projects.find((p) => p.name === source.name) : undefined;
     const hasAny = agents.length > 0 || projects.length > 0;
     const fallback = hasAny ? "Select a source" : "No agents or projects";
     const label = currentAgent?.name ?? currentProject?.name ?? currentLabel ?? fallback;
+    const shown = filterSources(query, agents, projects);
     return (
         <div className="relative">
             <button
                 data-files-source-picker
-                onClick={() => setOpen((v) => !v)}
+                onClick={() => (open ? close() : setOpen(true))}
                 disabled={!hasAny}
-                className="flex w-full items-center gap-[8px] rounded-[9px] border border-border px-[10px] py-[7px] hover:border-edge-strong disabled:cursor-default disabled:opacity-60"
+                aria-expanded={open}
+                className={cn(
+                    "flex w-full items-center gap-[8px] rounded-[9px] border px-[10px] py-[7px] hover:border-edge-strong disabled:cursor-default disabled:opacity-60",
+                    open ? "border-accent" : "border-border"
+                )}
             >
                 {currentAgent ? (
                     <StatusDot state={currentAgent.state} className="!h-[7px] !w-[7px]" />
                 ) : currentProject ? (
-                    <span className="flex-none text-[11px] text-ink-faint">▪</span>
+                    <Folder size={13} className="flex-none text-muted" />
                 ) : null}
                 <span className="min-w-0 flex-1 truncate text-left font-mono text-[12px] text-ink-mid">{label}</span>
-                {hasAny ? <span className="flex-none text-[10px] text-ink-faint">▾</span> : null}
+                {hasAny ? <ChevronDown size={12} className="flex-none text-muted" /> : null}
             </button>
-            {open && hasAny ? <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} /> : null}
+            {open && hasAny ? <div className="fixed inset-0 z-10" onClick={close} /> : null}
             <PopoverReveal
                 open={open && hasAny}
-                origin="top"
-                className="absolute left-0 right-0 top-full z-20 mt-1 max-h-[280px] overflow-y-auto rounded border border-border bg-modalbg py-1 shadow-popover"
+                origin="top left"
+                className="absolute left-0 top-full z-20 mt-1 w-[340px] rounded-[8px] border border-edge-mid bg-surface-raised py-[6px] shadow-popover"
             >
-                {agents.length > 0 ? (
-                    <div className="px-[10px] pb-[3px] pt-[5px] font-mono text-[9.5px] uppercase tracking-[0.08em] text-ink-faint">
-                        Agents
-                    </div>
-                ) : null}
-                {agents.map((a) => (
-                    <button
-                        key={a.id}
-                        onClick={() => {
-                            onPickAgent(a.id);
-                            setOpen(false);
+                <label className="mx-[6px] mb-[4px] flex h-[30px] items-center gap-[8px] rounded-[7px] border border-edge-mid bg-surface px-[9px]">
+                    <Search size={13} className="flex-none text-ink-faint" />
+                    <input
+                        autoFocus
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === "Escape") {
+                                e.preventDefault();
+                                close();
+                            }
                         }}
-                        className={cn(
-                            "flex w-full items-center gap-[8px] px-[10px] py-[7px] text-left hover:bg-surface-hover",
-                            source?.kind === "agent" && a.id === source.id ? "text-foreground" : "text-ink-mid"
-                        )}
-                    >
-                        <StatusDot state={a.state} className="!h-[7px] !w-[7px]" />
-                        <span className="min-w-0 flex-1 truncate font-mono text-[12px]">{a.name}</span>
-                    </button>
-                ))}
-                {projects.length > 0 ? (
-                    <div className="px-[10px] pb-[3px] pt-[7px] font-mono text-[9.5px] uppercase tracking-[0.08em] text-ink-faint">
-                        Projects
-                    </div>
-                ) : null}
-                {projects.map((p) => (
-                    <button
-                        key={p.name}
-                        // agent names and project names can collide, and this dropdown renders
-                        // both — a scenario needs to click a project by name, not by text match
-                        data-files-source-option={p.name}
-                        title={p.path}
-                        onClick={() => {
-                            onPickProject(p);
-                            setOpen(false);
-                        }}
-                        className={cn(
-                            "flex w-full items-center gap-[8px] px-[10px] py-[7px] text-left hover:bg-surface-hover",
-                            source?.kind === "project" && p.name === source.name ? "text-foreground" : "text-ink-mid"
-                        )}
-                    >
-                        <span className="flex-none text-[11px] text-ink-faint">▪</span>
-                        <span className="min-w-0 flex-1 truncate font-mono text-[12px]">{p.name}</span>
-                    </button>
-                ))}
+                        placeholder="Filter agents and projects"
+                        aria-label="Filter sources"
+                        className="min-w-0 flex-1 bg-transparent font-mono text-[11.5px] text-ink-hi outline-none placeholder:text-ink-faint"
+                    />
+                </label>
+                <div className="max-h-[280px] overflow-y-auto">
+                    {shown.agents.length > 0 ? <div className={cn(groupLabelClass, "pt-[6px]")}>Agents</div> : null}
+                    {shown.agents.map((a) => {
+                        const current = source?.kind === "agent" && a.id === source.id;
+                        return (
+                            <button
+                                key={a.id}
+                                onClick={() => {
+                                    onPickAgent(a.id);
+                                    close();
+                                }}
+                                className={rowClass(current)}
+                            >
+                                <StatusDot state={a.state} className="!h-[7px] !w-[7px]" />
+                                <span className="min-w-0 flex-1 truncate font-mono text-[12px]">{a.name}</span>
+                                <span className="flex-none text-[10.5px] text-muted">{a.state}</span>
+                                <CurrentMark current={current} />
+                            </button>
+                        );
+                    })}
+                    {shown.projects.length > 0 ? <div className={cn(groupLabelClass, "pt-[8px]")}>Projects</div> : null}
+                    {shown.projects.map((p) => {
+                        const current = source?.kind === "project" && p.name === source.name;
+                        const parent = worktreeParent(p, projects);
+                        return (
+                            <button
+                                key={p.name}
+                                // agent names and project names can collide, and this dropdown renders
+                                // both — a scenario needs to click a project by name, not by text match
+                                data-files-source-option={p.name}
+                                title={p.path}
+                                onClick={() => {
+                                    onPickProject(p);
+                                    close();
+                                }}
+                                className={rowClass(current)}
+                            >
+                                <Folder size={12} className="flex-none text-ink-faint" />
+                                <span className="min-w-0 flex-1 truncate font-mono text-[12px]">{p.name}</span>
+                                {parent != null ? (
+                                    <span className="flex-none text-[10.5px] text-muted">worktree · {parent}</span>
+                                ) : null}
+                                <CurrentMark current={current} />
+                            </button>
+                        );
+                    })}
+                    {shown.agents.length === 0 && shown.projects.length === 0 ? (
+                        <div className="px-[12px] py-[7px] text-[11.5px] text-ink-faint">No match</div>
+                    ) : null}
+                </div>
             </PopoverReveal>
         </div>
     );

@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { DiffScope } from "./diffscope";
-import { defaultFocusId, focusFollowAgent, sourceFor } from "./diffsource";
+import { defaultFocusId, filterSources, focusFollowAgent, sourceFor, worktreeParent } from "./diffsource";
 
 const agents = [
     { id: "a1", name: "jarvis-recall" },
@@ -76,5 +76,34 @@ describe("the first agent, so opening the surface is useful", () => {
         expect(defaultFocusId(projectScope, "", agents)).toBeNull();
         expect(defaultFocusId(null, "a2", agents)).toBeNull();
         expect(defaultFocusId(null, "", [])).toBeNull();
+    });
+});
+
+describe("filterSources", () => {
+    const agents = [{ name: "verify-runs" }, { name: "Radar" }];
+    const projects = [{ name: "waveterm" }, { name: "exp-native" }];
+    it("matches either list, case-insensitively", () => {
+        expect(filterSources("RA", agents, projects)).toEqual({ agents: [{ name: "Radar" }], projects: [] });
+        expect(filterSources("nat", agents, projects)).toEqual({ agents: [], projects: [{ name: "exp-native" }] });
+    });
+    it("returns everything for a blank query", () => {
+        expect(filterSources("  ", agents, projects)).toEqual({ agents, projects });
+    });
+});
+
+describe("worktreeParent", () => {
+    const projects = [
+        { name: "waveterm", path: "C:\\Users\\k\\IdeaProjects\\waveterm" },
+        { name: "exp-native", path: "c:/users/k/ideaprojects/waveterm/.worktrees/exp-native" },
+        { name: "waveterm2", path: "C:/Users/k/IdeaProjects/waveterm2" },
+    ];
+    it("finds the project whose path contains this one, across separators and case", () => {
+        expect(worktreeParent(projects[1], projects)).toBe("waveterm");
+    });
+    it("does not treat a sibling that shares a prefix as a parent", () => {
+        expect(worktreeParent(projects[2], projects)).toBeNull();
+    });
+    it("is null for a top-level project", () => {
+        expect(worktreeParent(projects[0], projects)).toBeNull();
     });
 });

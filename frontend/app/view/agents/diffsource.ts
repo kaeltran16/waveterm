@@ -7,6 +7,7 @@
 // the surface where it could only be read by tracing early returns. Stated here as three questions
 // with answers, so it can be tested without mounting anything.
 
+import { normalizeRepoPath } from "@/util/paths";
 import type { DiffScope } from "./diffscope";
 
 // The picker's two kinds of source. A run is neither, which is why it is absent here.
@@ -64,4 +65,35 @@ export function defaultFocusId(
     agents: SourceAgent[]
 ): string | null {
     return scope == null && !focusId && agents.length > 0 ? agents[0].id : null;
+}
+
+export function filterSources<A extends { name: string }, P extends { name: string }>(
+    query: string,
+    agents: A[],
+    projects: P[]
+): { agents: A[]; projects: P[] } {
+    const q = query.trim().toLowerCase();
+    if (!q) {
+        return { agents, projects };
+    }
+    const hit = (n: { name: string }) => n.name.toLowerCase().includes(q);
+    return { agents: agents.filter(hit), projects: projects.filter(hit) };
+}
+
+// A registered project inside another registered project is a worktree of it (the repo's
+// .worktrees/ convention); the picker names the parent so two "waveterm"s are told apart. The
+// longest containing path wins, and "/" is required after it so waveterm2 is not waveterm's child.
+export function worktreeParent<P extends { name: string; path: string }>(project: P, projects: P[]): string | null {
+    const own = normalizeRepoPath(project.path);
+    let best: P | null = null;
+    for (const p of projects) {
+        const other = normalizeRepoPath(p.path);
+        if (p === project || !other || !own.startsWith(other + "/")) {
+            continue;
+        }
+        if (best == null || other.length > normalizeRepoPath(best.path).length) {
+            best = p;
+        }
+    }
+    return best?.name ?? null;
 }
