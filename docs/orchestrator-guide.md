@@ -9,6 +9,12 @@ The design lives in `docs/superpowers/specs/2026-09-14-orchestrator-redesign-des
 `docs/orchestrator-howto.md` is the record of the pre-redesign engine (plan gate, adaptive runs) and is
 history, not instructions.
 
+The 2026-09-25 findings fixes changed how a run starts and ends, and the screenshots predate them. An engine
+run now lands on its own branch by default ([Where a run lands](#2-where-a-run-lands)). A reviewer checks the
+plan before any worker starts ([The plan review](#the-plan-review)). A final stage judges the combined result
+before the run is done ([The final stage](#the-final-stage)). The engine merges the branch back when the run
+completes ([Landing back](#landing-back)).
+
 ## Pick a flow
 
 | You have | Use | What runs |
@@ -19,9 +25,10 @@ history, not instructions.
 
 Everything else in this guide is how to watch those three and what to do when they need you.
 
-**The division of labor.** Code does the mechanics: scheduling, worktrees, Setup, merges, Verify, retries.
-The lead only judges: questions, failures, conflicts, a failed Verify, a failed review. You get what the lead cannot or should
-not decide.
+**The division of labor.** Code does the mechanics: scheduling, worktrees, Setup, merges, Verify, the final
+stage's commands, retries, and merging the run back. Fresh reviewer sessions judge the plan, each task and the
+combined result. The lead only judges what they turn up: questions, failures, conflicts, a failed Verify, a
+failed review, a failed final stage. You get what the lead cannot or should not decide.
 
 ---
 
@@ -35,27 +42,35 @@ project switcher in the app bar → **+ New project**, give it a name and the re
 
 ![New project modal](images/orchestrator-guide/01-new-project.png)
 
-### 2. Give the run a branch it can own
+### 2. Where a run lands
 
-By default merges land on whatever branch the project checkout has checked out, and the merge path refuses a
-dirty index. If you are working in that checkout yourself, set **Runs land on → Own branch** in the profile
-(global, or per project). An orchestrator run then creates `wave/<runId>` at launch, in a tree at
-`.waveterm/worktrees/<runId>`: its lead works there, its lanes squash-merge there, Verify runs there, and the
-plan's Setup runs there once when the plan is submitted (for this repo, `task worktree:prepare`, which junctions
-`node_modules`, `src-tauri/target` and `dist/bin` from the main checkout so tests run). The checkout does not
-move, and a dirty index there no longer holds the run's merges.
+An orchestrator run lands on its own branch by default. At launch it creates `wave/<runId>` in a tree at
+`.waveterm/worktrees/<runId>`, and records the branch the checkout is on as the run's base. Its lead works in
+that tree, its lanes squash-merge there, and Verify runs there. The plan's Setup runs there once when the plan is
+submitted. For this repo that is `task worktree:prepare`, which junctions `node_modules`, `src-tauri/target` and
+`dist/bin` from the main checkout so tests run. The checkout does not move, and a dirty index there does not
+hold the run's merges. When the run completes, the engine merges the branch back into the base itself (see
+[Landing back](#landing-back)).
 
-Nothing lands on `main` until you merge the branch yourself. The engine leaves the branch and its tree when the
-run ends or is cancelled. In this repo, remove them with `task worktree:cleanup -- .waveterm/worktrees/<runId>`:
+To land in the checkout instead, set **Runs land on → Project checkout** in the profile (global, or per project),
+or pass `wsh runs start --landing checkout`. The flag wins over the profile, and an empty profile means branch.
+The lanes then merge into whatever branch the checkout has checked out, the merge path refuses a dirty index, and
+there is nothing to merge back. A run with no base (an unborn repo, or a directory that is not a git repository)
+lands in the checkout either way. A run started on a detached HEAD gets its branch, but has no base branch to
+merge into, so its land-back is held.
+
+On a landed run the engine removes the tree and deletes `wave/<runId>` itself. A cancelled run, or one whose land
+is held, keeps both. In this repo, remove them with `task worktree:cleanup -- .waveterm/worktrees/<runId>`:
 Setup junctioned `node_modules`, `src-tauri/target` and `dist/bin` into the tree, and a plain
 `git worktree remove` can follow those junctions and delete the main checkout's copies. It deletes the branch
 only once merged; `git branch -D wave/<runId>` drops an unmerged one. In a repo whose Setup makes no junctions,
 `git worktree remove .waveterm/worktrees/<runId>` and `git branch -D wave/<runId>` do the same.
 
-For this repo there is a second reason: the dev app serves the frontend from the main checkout, so a merge
-landing there triggers HMR reloads mid-run.
+For this repo there is a second reason to keep the branch default: the dev app serves the frontend from the main
+checkout, so a merge landing there triggers HMR reloads mid-run.
 
-To land on a branch you name, give the run its own worktree by hand and register *that* path as the project:
+To have a run start from, and merge back into, a branch you name, give it its own worktree by hand and register
+*that* path as the project:
 
 ```bash
 git worktree add -b backlog-cleanup .worktrees/backlog-cleanup main
@@ -131,8 +146,8 @@ dispatched until the lead submits a plan.
 ![A goal run in Planning](images/orchestrator-guide/06-goal-planning.png)
 
 **Open lead ↗** takes you to the lead on the Agent surface. The lead runs `superpowers:brainstorming` against
-the real code in the project checkout. The details rail's **Run** section reads "planning · no plan submitted
-yet" until it submits.
+the real code in its tree (the run's branch, or the checkout). The details rail's **Run** section reads
+"planning · no plan submitted yet" until it submits.
 
 ![The lead brainstorming in its terminal](images/orchestrator-guide/07-lead-terminal.png)
 
@@ -162,18 +177,28 @@ it find that `deletechannel` is the teardown of the CDP scenarios, and it came b
 
 ### What the lead does with the goal
 
-The brainstorming skill classifies the goal, and the lead finishes accordingly:
+The brainstorming skill classifies the goal. The lead states the path it takes and proceeds, asking about the
+path only when it is genuinely unclear, and finishes accordingly:
 
 | Class | The lead | You see |
 |---|---|---|
 | **Spike** (a question to answer) | reports the answer, `wsh jarvis complete` | Done, with its answer as the summary |
-| **Bounded** (one change) | asks for your yes, implements in the project checkout, tests, commits, `wsh jarvis complete --commit` | Done, with the commit |
-| **Architectural** (needs a plan) | writes the spec, asks you to review it, writes the plan with `superpowers:writing-plans`, runs `wsh jarvis dag submit --plan <plan> --spec <spec>` and stops | the sheet moves from Planning to Executing and fills with tasks |
+| **Bounded** (one change) | asks for your yes, implements in its tree (the run's branch, or the checkout), tests, commits, `wsh jarvis complete --commit` | Done, with the commit, merged back |
+| **Architectural** (needs a plan) | asks the decisions it needs as questions with options, writes the design straight into the spec, asks one **Spec review** (the spec's path on the question's first line), writes the plan with `superpowers:writing-plans`, runs `wsh jarvis dag submit --plan <plan> --spec <spec>` and stops | the plan review, then the sheet fills with tasks |
+
+The Spec review is the one approval: the lead does not ask section by section, and after `dag submit` it does not
+ask you to review the plan or pick an execution mode, since the engine reviews the plan.
 
 After `dag submit` the engine waits for the lead to go idle and types a `/compact` that keeps what you said and
 drops code it read. Every compaction of a lead re-injects its orchestration rules (`wsh jarvis dag rules`), so
-it knows it is the lead of a run when it next wakes. The spec and plan stay uncommitted until the first lane
-merges; the engine folds both into that lane's squash commit.
+it knows it is the lead of a run when it next wakes.
+
+On a run landing on its own branch, `dag submit` commits the spec and plan to `wave/<runId>` before any lane is
+cut (subject `docs: spec and plan for <title>`, trailer `Arc-Run: <runId>`). Every lane branches from that
+commit, so each worker and reviewer reads that snapshot in its own tree, never the lead's live copy, and the docs
+land with the run. A resubmit with revised docs commits them again; identical content commits nothing. On a
+checkout-landed run the docs stay uncommitted until the first lane merges, and the engine folds both into that
+lane's squash commit.
 
 A lead that exits before submitting fails the run with a **Lead exited** row.
 
@@ -200,6 +225,9 @@ that every task must edit is what sets a plan's width, so keep that edit out of 
 ```markdown
 **Setup:** `task worktree:prepare`
 **Verify:** `npx vitest run`
+**Check:** `node --stack-size=4000 node_modules/typescript/lib/tsc.js --noEmit`
+**Final:** `node scripts/cdp/final-verify.mjs surface-smoke`
+**Prototype:** .superpowers/design/<topic>/<canvas>.dc.html
 
 ### Task 1: <title>
 **Depends on:** none
@@ -216,6 +244,10 @@ that every task must edit is what sets a plan's width, so keep that edit out of 
   branch tree when the plan is submitted. **Verify** runs where lanes land (the project checkout, or the run's
   own branch tree) after every lane merge (20-minute limit). Both are optional, both run in a POSIX shell (Git
   Bash on Windows).
+- **Check** is a fast whole-project static check. Each worker runs it itself instead of Verify, and the final
+  stage runs it once on the merged result. **Final** is one command the final stage runs on the merged result,
+  and **Prototype** names the design canvas the result should match (a path, not in backticks). All three are
+  optional; see [The final stage](#the-final-stage).
 - Headings are `### Task N` or `## Task N`, numbered 1, 2, 3… in order.
 - `**Depends on:**` must be the first line after the heading. Left out, the task depends on the task before it,
   so a plan with no Depends lines is **serial**. `none` means independent. References must point backwards.
@@ -261,20 +293,52 @@ Depends lines in the plan. Raising parallelism won't help.
 
 ![The backlog plan in the launcher](images/orchestrator-guide/24-plan-dialog-backlog.png)
 
-**Start run** submits the plan immediately. There is no approval step and no lead: the sheet goes straight to
-**Executing** with the first layer dispatched. The launcher submits no spec, so the engine folds only the plan
-file into the first squash commit. A spec sitting beside the plan stays untracked; commit it yourself.
+**Start run** submits the plan immediately. There is no approval step from you and no lead. The engine's plan
+reviewer reads the plan first ([The plan review](#the-plan-review)), and the first layer dispatches once it
+passes. The launcher submits no spec. On a branch-landed run the engine commits the plan to `wave/<runId>` at
+submit; on a checkout-landed one it folds the plan into the first squash commit. A spec sitting beside the plan
+stays untracked; commit it yourself.
 
 ![A plan run executing](images/orchestrator-guide/13-plan-run-started.png)
 
 The engine launches a lead only at the first judgment event, with the orchestration rules as its prompt and
-the event as its first line. A plan that lands and verifies with nothing to decide never gets a lead: the
-engine closes the run and seals its evidence itself.
+the event as its first line. A failed plan review is one. A plan that lands and ends its final stage passed or
+unverified, with nothing to decide, never gets a lead: the engine closes the run, seals its evidence and merges
+it back itself.
 
 The sandbox plan (`orch-guide-demo/docs/plan.md`) was written to need judgment three ways, and the rest of
 this guide uses what happened to it: task 1 sets `status.txt` to `broken` so Verify fails after it merges,
 tasks 2 and 3 both rewrite the one line of `greeting.txt` so the second merge conflicts, and task 4 asks a
 product question the plan's notes tell the lead to forward.
+
+---
+
+## The plan review
+
+Both flows submit a plan file, and the engine reviews it before any worker starts. The dag's status reads
+`plan-review`, and the scheduler dispatches nothing until the review passes or the lead accepts it. A dag
+submitted as JSON, with no plan file, and a fix round skip it.
+
+The engine starts a fresh plan-reviewer session in the tree where lanes land, on the lead's route. It reads the
+spec, the plan and the files they name, and checks that:
+
+- every requirement in the spec has a task;
+- no two tasks edit the same file without a Depends between them;
+- types, functions and flags have the same names in every task that mentions them;
+- each task names its tests;
+- the commands the plan names exist.
+
+It also reports gaps in the spec and places where the spec and plan contradict each other. It only reads, and
+ends with `wsh jarvis dag planreview pass "<summary>"` or `wsh jarvis dag planreview fail "<findings>"`. A
+reviewer that ends without a verdict, or runs past 20 minutes, is replaced once. One lost twice fails the review
+with the reason, and the same plan can be submitted again.
+
+- **Pass:** the workers start, and the lead gets a quiet `plan review passed; workers are starting: …` line.
+- **Fail:** the lead wakes with the findings. It revises the plan, puts any spec change to you, and runs
+  `wsh jarvis dag submit` again. While no task has dispatched, a resubmit replaces the failed proposal and opens
+  review round 2. A plan run started without a lead gets one launched by this wake.
+- **Round 2 fails:** the lead must put it to you. If you say to proceed anyway, it runs
+  `wsh jarvis dag planreview accept "<your reason>"`, and dispatch starts on the plan as it stands.
 
 ---
 
@@ -346,7 +410,8 @@ you.
 
 | Event | The lead | What reaches you |
 |---|---|---|
-| **Merge conflict** at a lane merge | fixes it in the project checkout, commits, `wsh jarvis dag merge <task> --continue` | nothing, unless the lead forwards it or is dead |
+| **Plan review failed** | revises the plan and runs `dag submit` again; after round 2, asks you, and on your word runs `dag planreview accept "<your reason>"` | spec changes, and a second failed review |
+| **Merge conflict** at a lane merge | fixes it where lanes land (the run's branch tree, or the checkout), commits, `wsh jarvis dag merge <task> --continue` | nothing, unless the lead forwards it or is dead |
 | **Verify failed** after a merge | fixes it, commits, `dag merge <task> --continue` (re-runs Verify at HEAD) | same |
 | **Review failed** twice, or the reviewer couldn't do its job | reads the findings in `dag status`; `dag sendback <task> "<guidance>"`, `dag approve <task>`, retry, escalate, skip or forward | forwarded review failures |
 | **A passed task with a note for later tasks** that the engine could not deliver (no `--for`, or a named task already finished or without a live terminal) | amends the pending tasks the note affects (`dag amend`), or tells a running one (`dag tell`) | nothing |
@@ -354,19 +419,30 @@ you.
 | **Task failed** with its retry spent | `dag retry`, `dag escalate --model`, `dag skip`, or forwards | forwarded failures |
 | **Worker hung** (15 min silent, process alive, no ask pending) | same as a failure | same |
 | **Worker never started** (5 min after spawn, its terminal's shell never came up) | `dag retry` | same |
-| **Run finished** | fixes what the landed tasks left behind, writes the report, adds open issues to the initiative, asks you about them; `wsh jarvis complete` only when you say so | the report and its questions, then the Done face |
+| **Final stage failed** | writes a fix plan and runs `dag submit --round --plan <fix plan>`; puts it to you when no round is left or the fix is a product call | a failed last round, or a product call |
+| **Run finished** | fixes and commits what the landed tasks left behind, writes the report to a file, adds open issues to the initiative, then completes on its own with `wsh jarvis complete --report <file>` | a question only when a decision is needed (a failed verification, a deviation, a proposed fix round), then the Done face |
 
 ### A task's review
 
-Tests are not the only check. When a worker finishes with a commit, the task goes to **reviewing** and the engine
-starts a reviewer in the task's lane worktree, on the **lead's** model. The reviewer reads the task, the spec and
-`git diff` of the task's commits, checks the change against what the task asked for (missing requirements,
+Tests are not the only check. A worker ends by committing, writing its report to a file the engine names outside
+every worktree (`<temp>/arc-reports/<dag>/<task>.md`), and running
+`wsh jarvis complete --commit $(git rev-parse HEAD) --report <that file>`. The report covers what it did, what it
+did differently from the task and why, what a later task must know, and what it could not verify and why. The
+server refuses a task worker's `complete` without `--report`; leads and reviewers are not held to it.
+
+When a worker finishes with a commit, the task goes to **reviewing** and the engine starts a reviewer in the
+task's lane worktree, on the **lead's** model. The reviewer reads the task, the spec, the worker's whole report
+and `git diff` of the task's commits. It checks the change against what the task asked for (missing requirements,
 contradictions of the spec, cut corners, changes outside the task), and ends with one command:
 
 - `wsh jarvis dag review pass "<summary>"`: the task lands as before. Adding `--downstream "<note>" --for t-3,t-5`
   hands what later tasks must know to the tasks named (the reviewer's brief lists the unfinished ones): the engine
   adds it to the prompt of a task that hasn't started and types it into a working one's terminal, and the lead reads
   where it went on its next wake. A note it can't deliver, or one with no `--for`, wakes the lead to route it.
+  Adding `--unverified "<what, and why>"` records a check the task asked for (a test, a screenshot, a live run)
+  that the diff and the report show was not done. The lead's `passed review` line prints it whole, first; `dag
+  status` prints it under the task and in the report; and it becomes one of the run's unverified reasons at the
+  final stage.
 - `wsh jarvis dag review fail "<findings>"`: the first time, the task goes back to a worker in the same worktree,
   starting from the rejected commit with the findings in its prompt. The second time, it goes to
   **review-failed** and the lead wakes.
@@ -455,10 +531,76 @@ the run; a second stall waits for you.
 
 ---
 
+## The final stage
+
+A run is not done when its last task lands. Once every task is terminal and merged, the dag's status reads
+`finalizing` and the engine runs a final stage on the merged result. The dag is `done` only when that stage ends
+passed or unverified.
+
+**Where it runs.** On a branch-landed run, in the landing tree at `wave/<runId>`. On a checkout-landed run, in a
+detached worktree at the checkout's HEAD (`.waveterm/worktrees/<runId>-final`), with the plan's Setup run in it,
+removed when the stage ends. It never runs in the shared checkout.
+
+**The steps, in order:**
+
+1. **Check**, the plan's Check line, on the merged result (20-minute limit). A non-zero exit fails the stage.
+2. **Final**, the plan's `**Final:**` command, in a POSIX shell with `ARC_FINAL_OUT` set to a fresh directory
+   for its screenshots and reports (`<temp>/arc-final/<dag>/<round>`, outside every tree). Exit 0 passes. Exit
+   3 means it could not verify, and its last output line becomes an unverified reason. Any other exit, or
+   running past 30 minutes ("timed out"), fails the stage with the output tail.
+3. **The verifier**, a fresh session in the final tree on the lead's route, unless a step above failed. Its
+   brief names the spec and plan, `git diff <base>..<head>` of the run, `ARC_FINAL_OUT`, the `**Prototype:**`
+   canvas, and every unverified note so far. It checks that the combined change does what the spec asks, and
+   looks for breaks where tasks meet: code one task changed that another uses, a name two tasks spell
+   differently, behavior two tasks both touch. It compares screenshots to the canvas's boards structurally
+   (which elements, their order, copy, controls at that width), never by pixels, and classifies each
+   difference as allowed (listed in the spec's Deviations) or a defect. It only reads, and ends with
+   `wsh jarvis dag final pass "<summary>" [--unverified "<what, and why>"]` or
+   `wsh jarvis dag final fail "<defects: each, where, the fix>"`. A verifier silent past 20 minutes, or ending
+   without a verdict, is replaced once. One lost twice adds the unverified reason
+   `the verifier did not finish: <why>`.
+
+With no Check and no Final line, the stage goes straight to the verifier.
+
+**The outcome:**
+
+| Outcome | When | Then |
+|---|---|---|
+| **passed** | nothing failed and nothing is unverified | the dag is done; the lead gets `run finished` with the outcome |
+| **unverified** | nothing failed, but there is a reason: a Final exit 3, the verifier's `--unverified`, a reviewer's `--unverified` note, or a plan with no Verify | the dag is done; the `run finished` wake lists every reason in full |
+| **failed** | Check, Final or the verifier failed | the lead wakes with the failure in full |
+
+`wsh jarvis dag status` prints the stage as `final <state> round=N commit=… out=<ARC_FINAL_OUT>`, then each
+`final unverified:` reason and a `final failed:` detail, whole.
+
+**The fix round.** On a failed stage the lead writes a fix plan in the plan format and runs
+`wsh jarvis dag submit --round --plan <fix plan>`. The fix plan's tasks are appended as `t-(n+1)…`, with its
+own numbers and Depends mapped on. Each description opens with `Fix round N: this is task K of the fix plan at
+<path>`, so its worker reads the fix plan, not the run's. The dag keeps its Verify, Setup, Check, Final and
+Prototype. On a branch-landed run the fix plan is committed to `wave/<runId>` first, and the new tasks cut from
+the landing tree's head. A fix round skips the plan review, but each of its tasks is reviewed. When its tasks
+land, the final stage runs again as round 2. The final stage runs at most twice (`MaxFinalRounds`): the first
+round and one fix round. `--round` is refused, with the reason, while the stage is still running, after it
+passed, or when no round is left. After round 2 fails, the wake tells the lead to put it to you. It does the same
+when the fix is a product call.
+
+**This repo's Final command** is `node scripts/cdp/final-verify.mjs [scenario...]`. It starts a dev app from the
+final tree on its own CDP port and WebView2 profile, runs the named `verify:ui` scenarios (all of them with none
+named) and writes into `ARC_FINAL_OUT`: `cdp-shots/` (with `index.html` as the contact sheet), `dev-app.log`
+and `webview2-profile/`. It stops only the processes it started. It exits 3 with a reason when the app does not
+come up within its boot budget (`ARC_FINAL_BOOT_MS`, default 10 minutes). Otherwise it exits with verify.mjs's
+own code: 0 pass, 1 a scenario failed, 2 an unknown scenario name. `ARC_FINAL_DEV_CMD` overrides the start
+command (default `task dev`).
+
+---
+
 ## When the run ends
 
 The sheet goes to **Done**: tasks, commits landed, wall clock, worker time, and **evidence sealed**. **What
-landed** lists each task's commit; **Sealed evidence** has the diff stat and the lead's summary.
+landed** lists each task's commit; **Sealed evidence** has the diff stat and the lead's summary. The evidence
+also seals the run's outcome from the final stage (`passed` or `unverified`, with the reasons) and the tokens
+it spent. On a checkout-landed run it counts only the run's own commits, the ones with its `Arc-Run:` trailer;
+the lead ends each commit it makes with `Arc-Run: <runId>` so its own fixes count.
 
 ![A finished plan run](images/orchestrator-guide/18-done.png)
 
@@ -468,7 +610,59 @@ and the rail names the branch it committed on:
 
 ![A finished worker's transcript](images/orchestrator-guide/20-done-worker.png)
 
-The run's commits are on the project checkout's branch. Review and merge that branch yourself.
+### Landing back
+
+A branch-landed run's work reaches its base without you. When the run completes (the lead's `complete`, or the
+engine closing a lead-free run), the engine seals the evidence, then merges `wave/<runId>` into the base branch in
+the project checkout. The merge is `git merge --no-ff` with the plan's title (else the goal's first line) as its
+subject and `Arc-Run: <runId>` as its trailer. It then removes the landing tree and deletes the branch; the
+evidence keeps the branch's tip. Landing is its own step with its own state, so completion never waits on it.
+
+Before merging, the engine takes these steps:
+
+- If the branch moved past the commit the final stage verified, which the lead's wrap-up commits do, it runs Check
+  and Verify again in the landing tree.
+- It removes an untracked file in the checkout that is identical to one the run adds, such as the spec or plan the
+  lead wrote there before submit.
+- If the base took commits while the run worked, the land records the note "merged onto N commits that landed on
+  <base> during the run; the combination was not verified".
+
+It **holds** the land, with a reason, and leaves the checkout as it was, when:
+
+- the final stage failed or has not finished;
+- the run started on a detached HEAD;
+- the checkout is on another branch;
+- the checkout is stopped mid-merge, mid-rebase or mid-cherry-pick;
+- the checkout has staged changes;
+- an untracked file in the checkout differs from one the run adds;
+- the re-run Check or Verify fails;
+- the merge conflicts (it is aborted, and the reason names the files);
+- git refuses to overwrite uncommitted edits to files the merge touches (the edits stay).
+
+Uncommitted edits to other files do not hold it, and survive the merge.
+
+A held land raises a **land held** item under Waiting on you: "The run's branch was not merged back: <reason>".
+Clear the reason, then run `wsh runs land <run-id>`, which retries and prints where the land stands.
+`wsh runs land <run-id> --force` lands a run whose final stage failed; it is your call only, and the lead is never
+told about it.
+
+A done run whose outcome is unverified, or whose land carries a note, raises an **unverified** item ("Finished,
+but N things were not verified.") naming each reason. It holds nothing, since the run is done. It stays until you
+read it and press **Acknowledge** on its row, or run `wsh runs ack <run-id>`.
+
+`wsh runs show <run-id>` prints all of it:
+
+- `usage`, the tokens per role, with the lead's wrap-up counted once sealed;
+- `outcome` with each `unverified:` reason;
+- `land <state>` with the held reason or the merge commit, and each `note:`.
+
+`wsh jarvis dag status` prints the same token totals as a `usage` line (`lead … · workers … · reviewers … ·
+plan-reviewer … · verifier …`), then one `t-N usage:` line per task for its worker and reviewer. The lead's total
+counts every lead session, a relaunched lead's included. A transcript that can't be read is not read as zero: the
+line ends `(N unreadable)`. The totals are tokens only; cost stays in the cockpit.
+
+A checkout-landed run has nothing to merge back: its commits are on the project checkout's branch. Review and
+merge that branch yourself.
 
 The backlog run finished on 2026-09-18 after 3h12m of wall clock and 5h46m of worker time. All 13 tasks landed
 as 13 squash commits on `backlog-cleanup`, and a merge Verify passed after every one of them. One earlier
@@ -483,13 +677,14 @@ t-3 → t-4 → t-6 → t-7 → t-13 chain ran one at a time behind them:
 
 ### Who wraps up
 
-Done doesn't mean finished. The work after the last merge splits three ways:
+Done doesn't mean finished. The work after the last merge splits four ways:
 
 | Work | Whose job | On the backlog run |
 |---|---|---|
-| The run's report | **The lead's.** Its rules (`OrchestrationRules`, `leadprompt.go`) have it fix and commit what the landed tasks left behind, write the report, add each open issue as a pending chunk on the initiative (creating one if the run has none), and ask you about them. It runs `wsh jarvis complete` only when you say so, because `complete` closes its tab mid-turn. | Not written. The rules then said "write the report …, then `wsh jarvis complete`". The lead ran `complete` first, and the engine closed its tab before it could recover. The sandbox lead did the same. |
+| The run's report | **The lead's.** Its rules (`OrchestrationRules`, `leadprompt.go`) have it fix and commit what the landed tasks left behind, write the report to a file, and add each open issue as a pending chunk on the initiative (creating one if the run has none). Then it completes on its own with `wsh jarvis complete --report <file>`. It asks you first only when a decision is needed: a failed verification, a deviation that needs your call, or a proposed fix round. An unverified outcome never blocks completion. | Not written. The rules then said "write the report …, then `wsh jarvis complete`". The lead ran `complete` first, and the engine closed its tab before it could recover. The sandbox lead did the same. |
 | Closing the initiative's tracker chunks | **The engine's.** A task names its chunks with `**Chunk:**` lines after its Depends line, and the engine marks each done with the landed commit once the task's merge passes Verify. | The plan gave it to workers through a header line they never saw. The tracker read 3/16 with all 13 tasks landed. |
-| Merging the branch, checking the fixes live in the app, committing anything | **Yours.** The engine lands work on the project checkout's branch and stops there. | Four fixes still need a live check once the branch is on `main` and running in the dev app. |
+| Merging the branch back | **The engine's** on a branch-landed run ([Landing back](#landing-back)); **yours** on a checkout-landed one, or when a land is held. | The run landed on the project checkout's branch, and merging it was left to the human. |
+| Checking what the final stage could not, committing anything | **Yours.** The unverified item names what nothing checked. | Four fixes still need a live check once the branch is on `main` and running in the dev app. | Four fixes still need a live check once the branch is on `main` and running in the dev app. |
 
 Both gaps the backlog run hit are closed in code: `wsh jarvis complete --report <file>` seals the report the lead
 wrote, and `**Chunk:**` lines let the engine close the tracker. If a sealed summary is still a half-sentence, the
@@ -552,8 +747,9 @@ Inside a lead's or worker's terminal, the run is inferred. Elsewhere pass `--cha
 
 | Command | Does |
 |---|---|
-| `dag submit --plan <md> [--spec <md>]` | validate the plan and start the engine on it (one DAG per run) |
-| `dag status` | per-task digest, the report numbers, landed commits, Verify and merge errors, what you told workers |
+| `dag submit --plan <md> [--spec <md>]` | validate the plan and start the engine on it (one DAG per run); after a failed plan review, submit the revised plan again |
+| `dag submit --round --plan <fix plan>` | after a failed final stage, append the fix plan's tasks as a fix round |
+| `dag status` | per-task digest, the report numbers, landed commits, Verify and merge errors, what you told workers, unverified notes, the final stage, token usage |
 | `dag asks` | questions the lead holds, oldest first, with every option |
 | `dag answer <task> <answers-json>` | answer as the lead |
 | `dag forward <task> "<note>"` | hand a question, failure, stall or conflict to the human |
@@ -561,13 +757,25 @@ Inside a lead's or worker's terminal, the run is inferred. Elsewhere pass `--cha
 | `dag tell <task> "<text>"` | type into a running worker's or reviewer's terminal |
 | `dag sendback <task> ["<guidance>"]` | one more round for a review-failed task, with your guidance beside the findings |
 | `dag approve <task>` | overrule a failed review; the task lands as it is |
-| `dag review <pass\|fail> "<note>" [--downstream "<note>" [--for <task ids>]]` | a reviewer's verdict; ends the reviewer's session |
+| `dag review <pass\|fail> "<note>" [--downstream "<note>" [--for <task ids>]] [--unverified "<what, why>"]` | a reviewer's verdict; ends the reviewer's session |
+| `dag planreview <pass\|fail> "<text>"` | the plan reviewer's verdict; ends its session |
+| `dag planreview accept "<the human's reason>"` | as the lead, proceed past a failed plan review on the human's word |
+| `dag final pass "<summary>" [--unverified "<what, why>"]` / `dag final fail "<defects>"` | the final verifier's verdict; ends its session |
 | `dag retry <task>` / `dag skip <task>` | retry or skip a failed or stalled task |
 | `dag escalate <task> --model <id> [--runtime <rt>]` | re-queue on another model, once per task |
 | `dag merge <task> [--continue]` | squash-merge a lane end, or finish a resolved conflict / re-run a failed Verify |
 | `dag retry-cleanup <task>` | retry removing a task's worktree after its automatic attempts gave up (close whatever held it first) |
 | `dag cancel <task>` | cancel the whole DAG (the task argument is required and ignored) |
-| `wsh jarvis complete [--commit <sha>]` | finish the run or task; `--commit` scopes its evidence |
+| `wsh jarvis complete [--commit <sha>] [--report <file>]` | finish the run or task; `--commit` scopes its evidence, `--report` seals the file as the summary (required of a task worker) |
+
+Run-level commands, from any terminal in the project:
+
+| Command | Does |
+|---|---|
+| `wsh runs start [goal] [--plan <md>] [--landing branch\|checkout]` | start a run; `--landing` wins over the profile, and the default is branch |
+| `wsh runs show <run-id>` | status, commits, `usage`, the task digest, `outcome` with its reasons, `land`, the report |
+| `wsh runs land <run-id> [--force]` | retry a held land-back; `--force` lands a failed final stage (the human's call only) |
+| `wsh runs ack <run-id>` | acknowledge an unverified outcome, clearing its attention item |
 
 ---
 
