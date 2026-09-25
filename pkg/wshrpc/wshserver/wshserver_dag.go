@@ -221,6 +221,15 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 			return nil, fmt.Errorf("running setup in the landing tree %s: %w\n%s", run.LandPath, err, tail)
 		}
 	}
+	// a branch-landed run commits its spec and plan before any lane is cut, so every task reads the version
+	// it was submitted with and the docs land with the run; the dag keeps their repo-relative paths
+	if run.LandPath != "" && data.PlanPath != "" {
+		rels, err := orchestrate.SnapshotDocs(ctx, run.LandPath, run.ID, data.Title, data.SpecPath, data.PlanPath)
+		if err != nil {
+			return nil, fmt.Errorf("committing the spec and plan to wave/%s: %w", run.ID, err)
+		}
+		proposed.SpecPath, proposed.PlanPath = rels[0], rels[1]
+	}
 	stored, created, err := wstore.CreateDagForRun(ctx, data.ChannelId, data.RunId, &proposed, func(run *waveobj.Run) error {
 		if run.Mode != jarvis.RunMode_Orchestrator {
 			return fmt.Errorf("dag requires an orchestrator-mode run")

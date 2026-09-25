@@ -113,38 +113,18 @@ func finishMerge(ctx context.Context, projectPath, runID string, lane MergeLane,
 // another worktree too: the doc lands with the run's first merge. A file already at that path is never
 // replaced.
 func foldIntoTree(ctx context.Context, tree, path string) (string, error) {
-	if rel, err := filepath.Rel(tree, path); err == nil && filepath.IsLocal(rel) {
-		return path, nil
-	}
-	dir := filepath.Dir(path)
-	top, err := git(ctx, dir, "rev-parse", "--show-toplevel")
-	if err != nil {
-		return "", err
-	}
-	src, err := git(ctx, dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
-	if err != nil {
-		return "", err
-	}
-	dst, err := git(ctx, tree, "rev-parse", "--path-format=absolute", "--git-common-dir")
-	if err != nil {
-		return "", err
-	}
-	if filepath.Clean(src) != filepath.Clean(dst) {
-		return "", fmt.Errorf("%s is not in the repository %s belongs to", path, tree)
-	}
-	rel, err := filepath.Rel(filepath.FromSlash(top), path)
-	if err != nil || !filepath.IsLocal(rel) {
-		return "", fmt.Errorf("%s is outside its repository root %s", path, top)
+	target, err := treeTarget(ctx, tree, path)
+	if err != nil || target == path {
+		return target, err
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", err
 	}
-	target := filepath.Join(tree, rel)
 	// the squash has already put the lane's version there, and that is the run's work
 	if existing, err := os.ReadFile(target); err == nil {
 		if !bytes.Equal(existing, data) {
-			return "", fmt.Errorf("%s already exists in %s with different content", rel, tree)
+			return "", fmt.Errorf("%s already exists with different content", target)
 		}
 		return target, nil
 	}

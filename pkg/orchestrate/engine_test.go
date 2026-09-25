@@ -96,8 +96,8 @@ func TestTaskPromptCarriesDescriptionAndContract(t *testing.T) {
 	g := &waveobj.TaskGroup{}
 	desc := "pin: date-only format (Aug 16)"
 	task := &waveobj.TaskNode{ID: "t-1", Label: "add fmtDate", Description: desc}
-	p := taskPrompt(g, task, &owner, "claude", "")
-	for _, want := range []string{"add fmtDate", desc, workerContract(g, task, "claude")} {
+	p := taskPrompt(g, task, &owner, "claude", "", "")
+	for _, want := range []string{"add fmtDate", desc, workerContract(g, task, "claude", "")} {
 		if !strings.Contains(p, want) {
 			t.Fatalf("prompt missing %q: %q", want, p)
 		}
@@ -108,8 +108,8 @@ func TestTaskPromptLabelOnlyStillHasContract(t *testing.T) {
 	owner := jarvis.NewRun("owner", "ws-1", "/p", nil, jarvis.RunMode_Orchestrator, nil, 1)
 	g := &waveobj.TaskGroup{}
 	task := &waveobj.TaskNode{ID: "t-1", Label: "plain"}
-	p := taskPrompt(g, task, &owner, "claude", "")
-	if !strings.HasPrefix(p, workerContract(g, task, "claude")) {
+	p := taskPrompt(g, task, &owner, "claude", "", "")
+	if !strings.HasPrefix(p, workerContract(g, task, "claude", "")) {
 		t.Fatalf("contract must open the prompt: %q", p)
 	}
 	if strings.Contains(p, "description") {
@@ -123,8 +123,8 @@ func TestTaskPromptOrdersContractTaskHandoff(t *testing.T) {
 	owner := jarvis.NewRun("owner", "ws-1", "/p", nil, jarvis.RunMode_Orchestrator, nil, 1)
 	g := &waveobj.TaskGroup{}
 	task := &waveobj.TaskNode{ID: "t-2", Label: "use fmtDate"}
-	p := taskPrompt(g, task, &owner, "claude", "landed as commit abc1234")
-	ci := strings.Index(p, workerContract(g, task, "claude"))
+	p := taskPrompt(g, task, &owner, "claude", "", "landed as commit abc1234")
+	ci := strings.Index(p, workerContract(g, task, "claude", ""))
 	ti := strings.Index(p, "use fmtDate")
 	hi := strings.Index(p, "landed as commit abc1234")
 	if ci != 0 || ti < 0 || hi < 0 || ti > hi {
@@ -138,8 +138,8 @@ func TestTaskPromptCarriesThePlanHeader(t *testing.T) {
 	owner := jarvis.NewRun("owner", "ws-1", "/p", nil, jarvis.RunMode_Orchestrator, nil, 1)
 	g := &waveobj.TaskGroup{Preamble: "Never edit docs/."}
 	task := &waveobj.TaskNode{ID: "t-1", Label: "add fmtDate"}
-	p := taskPrompt(g, task, &owner, "claude", "")
-	ci := strings.Index(p, workerContract(g, task, "claude"))
+	p := taskPrompt(g, task, &owner, "claude", "", "")
+	ci := strings.Index(p, workerContract(g, task, "claude", ""))
 	hi := strings.Index(p, "The plan's header applies to every task:\nNever edit docs/.")
 	ti := strings.Index(p, "add fmtDate")
 	if ci != 0 || hi < 0 || ti < 0 || hi > ti {
@@ -151,14 +151,14 @@ func TestTaskPromptWithoutPlanHeader(t *testing.T) {
 	owner := jarvis.NewRun("owner", "ws-1", "/p", nil, jarvis.RunMode_Orchestrator, nil, 1)
 	g := &waveobj.TaskGroup{}
 	task := &waveobj.TaskNode{ID: "t-1", Label: "add fmtDate"}
-	p := taskPrompt(g, task, &owner, "claude", "")
+	p := taskPrompt(g, task, &owner, "claude", "", "")
 	if strings.Contains(p, "header applies to every task") {
 		t.Fatalf("no preamble means no header line: %q", p)
 	}
 }
 
 func TestWorkerContractForbidsAttributionTrailers(t *testing.T) {
-	c := workerContract(&waveobj.TaskGroup{}, &waveobj.TaskNode{ID: "t-3"}, "claude")
+	c := workerContract(&waveobj.TaskGroup{}, &waveobj.TaskNode{ID: "t-3"}, "claude", "")
 	if !strings.Contains(c, "Co-Authored-By") {
 		t.Fatalf("contract must forbid attribution trailers:\n%s", c)
 	}
@@ -166,7 +166,7 @@ func TestWorkerContractForbidsAttributionTrailers(t *testing.T) {
 
 func TestWorkerContractNamesPlanSpecVerifyAndTool(t *testing.T) {
 	g := &waveobj.TaskGroup{PlanPath: "C:/p/plan.md", SpecPath: "C:/p/spec.md", Verify: "go test ./..."}
-	c := workerContract(g, &waveobj.TaskNode{ID: "t-3"}, "pi")
+	c := workerContract(g, &waveobj.TaskNode{ID: "t-3"}, "pi", "")
 	for _, want := range []string{
 		"You are the worker for task 3 of the plan at C:/p/plan.md (spec: C:/p/spec.md).",
 		"don't re-plan or pause for design approval",
@@ -182,9 +182,20 @@ func TestWorkerContractNamesPlanSpecVerifyAndTool(t *testing.T) {
 	}
 }
 
+// a branch-landed dag's docs are the snapshot committed at submit, which the worker reads in its own tree
+func TestWorkerContractNamesTheDocsInTheWorkersTree(t *testing.T) {
+	tree := t.TempDir()
+	g := &waveobj.TaskGroup{PlanPath: "docs/superpowers/plans/p.md", SpecPath: "docs/superpowers/specs/s.md"}
+	c := workerContract(g, &waveobj.TaskNode{ID: "t-3"}, "claude", tree)
+	want := fmt.Sprintf("of the plan at %s (spec: %s).", filepath.Join(tree, "docs/superpowers/plans/p.md"), filepath.Join(tree, "docs/superpowers/specs/s.md"))
+	if !strings.Contains(c, want) {
+		t.Fatalf("contract missing %q:\n%s", want, c)
+	}
+}
+
 // a dag built from tasks rather than a plan file has no plan path to point the worker at
 func TestWorkerContractWithoutPlanOrVerify(t *testing.T) {
-	c := workerContract(&waveobj.TaskGroup{}, &waveobj.TaskNode{ID: "t-3"}, "claude")
+	c := workerContract(&waveobj.TaskGroup{}, &waveobj.TaskNode{ID: "t-3"}, "claude", "")
 	for _, want := range []string{
 		"You are the worker for task t-3 of this run's dag.",
 		"ask once with AskUserQuestion",
@@ -205,7 +216,7 @@ func TestWorkerContractWithoutPlanOrVerify(t *testing.T) {
 // which only the engine runs after the task's merge.
 func TestWorkerContractNamesCheckAndLeavesVerifyToTheEngine(t *testing.T) {
 	g := &waveobj.TaskGroup{Verify: "go test ./...", Check: "go vet ./..."}
-	c := workerContract(g, &waveobj.TaskNode{ID: "t-3"}, "claude")
+	c := workerContract(g, &waveobj.TaskNode{ID: "t-3"}, "claude", "")
 	for _, want := range []string{
 		"Run the tests your task names, and `go vet ./...`, and get them passing before you complete; if you can't, ask.",
 		"Don't run the plan's full Verify (`go test ./...`): the engine runs it after your task merges.",
@@ -218,7 +229,7 @@ func TestWorkerContractNamesCheckAndLeavesVerifyToTheEngine(t *testing.T) {
 
 func TestWorkerContractWithCheckButNoVerify(t *testing.T) {
 	g := &waveobj.TaskGroup{Check: "go vet ./..."}
-	c := workerContract(g, &waveobj.TaskNode{ID: "t-3"}, "claude")
+	c := workerContract(g, &waveobj.TaskNode{ID: "t-3"}, "claude", "")
 	if want := "Run the tests your task names, and `go vet ./...`, and get them passing before you complete; if you can't, ask."; !strings.Contains(c, want) {
 		t.Fatalf("contract missing %q:\n%s", want, c)
 	}
@@ -291,7 +302,7 @@ func TestTruncateNoteBoundsAndCollapses(t *testing.T) {
 
 func TestTaskPromptRunSpecGoalWins(t *testing.T) {
 	owner := jarvis.NewRun("owner", "ws-1", "/p", nil, jarvis.RunMode_Orchestrator, nil, 1)
-	p := taskPrompt(&waveobj.TaskGroup{}, &waveobj.TaskNode{ID: "t-1", Label: "label", RunSpec: waveobj.RunSpec{Goal: "explicit goal"}}, &owner, "claude", "")
+	p := taskPrompt(&waveobj.TaskGroup{}, &waveobj.TaskNode{ID: "t-1", Label: "label", RunSpec: waveobj.RunSpec{Goal: "explicit goal"}}, &owner, "claude", "", "")
 	if !strings.Contains(p, "explicit goal") {
 		t.Fatalf("runspec goal missing from prompt: %q", p)
 	}
@@ -1429,7 +1440,7 @@ func TestRunningTaskWithNoControllerGoesStalled(t *testing.T) {
 }
 
 func TestWorkerContractNamesTheReviewerAndTheLead(t *testing.T) {
-	c := workerContract(&waveobj.TaskGroup{}, &waveobj.TaskNode{ID: "t-1"}, "claude")
+	c := workerContract(&waveobj.TaskGroup{}, &waveobj.TaskNode{ID: "t-1"}, "claude", "")
 	for _, want := range []string{"A reviewer checks your commit against this task and the spec", "the lead reads your report", "what a later task must know"} {
 		if !strings.Contains(c, want) {
 			t.Fatalf("contract missing %q: %q", want, c)
@@ -1442,7 +1453,7 @@ func TestWorkerContractNamesTheReviewerAndTheLead(t *testing.T) {
 func TestWorkerContractSealsTheReportFromAFile(t *testing.T) {
 	g := &waveobj.TaskGroup{OID: "dag-1"}
 	task := &waveobj.TaskNode{ID: "t-2"}
-	c := workerContract(g, task, "claude")
+	c := workerContract(g, task, "claude", "")
 	path := WorkerReportPath(g.OID, task.ID)
 	for _, want := range []string{
 		"--report " + path,
@@ -1480,7 +1491,7 @@ func TestTaskPromptCarriesReviewFindingsAndGuidance(t *testing.T) {
 		ReviewVerdict: ReviewVerdict_Fail, ReviewCommit: "work111", ReviewNote: "misses the empty-input case",
 		LeadGuidance: "reuse parseDate",
 	}
-	p := taskPrompt(&waveobj.TaskGroup{}, task, &owner, "claude", "")
+	p := taskPrompt(&waveobj.TaskGroup{}, task, &owner, "claude", "", "")
 	for _, want := range []string{
 		"A reviewer rejected the previous attempt (commit work111): misses the empty-input case",
 		"Fix these on top of that commit; don't restart.",
@@ -1491,7 +1502,7 @@ func TestTaskPromptCarriesReviewFindingsAndGuidance(t *testing.T) {
 		}
 	}
 	passed := &waveobj.TaskNode{ID: "t-2", Label: "x", ReviewVerdict: ReviewVerdict_Pass, ReviewNote: "fine", ReviewCommit: "c"}
-	if strings.Contains(taskPrompt(&waveobj.TaskGroup{}, passed, &owner, "claude", ""), "rejected") {
+	if strings.Contains(taskPrompt(&waveobj.TaskGroup{}, passed, &owner, "claude", "", ""), "rejected") {
 		t.Fatal("a passed review carries no findings")
 	}
 }

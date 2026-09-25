@@ -84,7 +84,12 @@ func TestDagSubmitRunsSetupInTheLandingTree(t *testing.T) {
 		if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
 			t.Fatal(err)
 		}
-		plan := filepath.Join(t.TempDir(), "plan.md")
+		// a branch-landed submit commits its plan in the landing tree, so the plan is written there
+		planDir := t.TempDir()
+		if landPath != "" {
+			planDir = landPath
+		}
+		plan := filepath.Join(planDir, "plan.md")
 		if err := os.WriteFile(plan, []byte("**Setup:** `"+setup+"`\n\n### Task 1: input\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -101,7 +106,7 @@ func TestDagSubmitRunsSetupInTheLandingTree(t *testing.T) {
 
 	// a lead's `dag submit` carries a short RPC deadline; a Setup such as a fresh install outlives it
 	t.Run("setup is not bound by the submit's deadline", func(t *testing.T) {
-		tree := t.TempDir()
+		tree, _ := newLandingRepo(t)
 		_, do := newRun(t, tree, "sleep 2 && echo ok > prepared.txt")
 		short, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 		defer cancel()
@@ -115,7 +120,7 @@ func TestDagSubmitRunsSetupInTheLandingTree(t *testing.T) {
 
 	// a resubmit after a client timeout finds the dag stored and merges possibly running in the tree
 	t.Run("a resubmit does not run setup again", func(t *testing.T) {
-		tree := t.TempDir()
+		tree, _ := newLandingRepo(t)
 		_, do := newRun(t, tree, "echo run >> setup.log")
 		if err := do(ctx); err != nil {
 			t.Fatal(err)
@@ -131,7 +136,7 @@ func TestDagSubmitRunsSetupInTheLandingTree(t *testing.T) {
 	})
 
 	t.Run("setup prepares the landing tree, not the checkout", func(t *testing.T) {
-		tree := t.TempDir()
+		tree, _ := newLandingRepo(t)
 		project, err := submit(t, tree, "echo ok > prepared.txt")
 		if err != nil {
 			t.Fatal(err)
@@ -159,6 +164,63 @@ func TestDagSubmitRunsSetupInTheLandingTree(t *testing.T) {
 			t.Fatal("setup ran at submit for a run with no landing tree")
 		}
 	})
+}
+
+// a branch-landed submit commits the spec and plan on the run's branch before any lane is cut, and keeps
+// their repo-relative paths; a retried submit with the same docs commits nothing and still succeeds
+func TestDagSubmitCommitsTheSpecAndPlanOnTheRunsBranch(t *testing.T) {
+	ctx := context.Background()
+	projectDir, execGit := newLandingRepo(t)
+	ch, err := wstore.CreateChannel(ctx, "landing-snapshot", projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := jarvis.NewRun("g", "ws", projectDir, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
+	run.Status = jarvis.RunStatus_Planning
+	tree, err := orchestrate.CreateRunWorktree(ctx, projectDir, run.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	run.LandPath = tree
+	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
+		t.Fatal(err)
+	}
+	// the spec in the project checkout, the plan in the landing tree where the lead wrote it
+	spec := filepath.Join(projectDir, "docs", "specs", "coupons.md")
+	plan := filepath.Join(tree, "docs", "plans", "coupons.md")
+	for path, text := range map[string]string{spec: "# spec\n", plan: "# Coupons\n\n### Task 1: input\n"} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	submit := func() (*waveobj.TaskGroup, error) {
+		return (&WshServer{}).DagSubmitCommand(ctx, wshrpc.CommandDagSubmitData{ChannelId: ch.OID, RunId: run.ID, PlanPath: plan, SpecPath: spec})
+	}
+
+	g, err := submit()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.PlanPath != "docs/plans/coupons.md" || g.SpecPath != "docs/specs/coupons.md" {
+		t.Fatalf("planpath %q, specpath %q; want repo-relative", g.PlanPath, g.SpecPath)
+	}
+	branch := "wave/" + run.ID
+	if msg := execGit("log", "-1", "--format=%B", branch); !strings.HasPrefix(msg, "docs: spec and plan for ") || !strings.HasSuffix(msg, "Arc-Run: "+run.ID) {
+		t.Fatalf("branch tip message = %q", msg)
+	}
+	if got := execGit("show", branch+":docs/specs/coupons.md"); got != "# spec" {
+		t.Fatalf("the branch holds spec %q", got)
+	}
+	tip := execGit("rev-parse", branch)
+	if _, err := submit(); err != nil {
+		t.Fatalf("a retried submit with the same docs must succeed: %v", err)
+	}
+	if got := execGit("rev-parse", branch); got != tip {
+		t.Fatalf("a retried submit moved the branch from %s to %s", tip, got)
+	}
 }
 
 func createLandingRun(t *testing.T, ctx context.Context, projectDir, mode string, landing *string) (*waveobj.Channel, *waveobj.Run, error) {

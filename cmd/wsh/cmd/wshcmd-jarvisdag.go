@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -704,7 +705,7 @@ func dagRulesRun(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return nil
 	}
-	text := dagRulesText(ctxRtn, st)
+	text := dagRulesText(ctxRtn, st, leadTree())
 	if text == "" {
 		return nil
 	}
@@ -732,12 +733,24 @@ func sessionStartPayload(text string) ([]byte, error) {
 }
 
 // dagRulesText is the rules for a caller whose run the dag names, and "" for anyone else: a dag child
-// resolves to its own run.
-func dagRulesText(ctx *wshrpc.CommandJarvisCtxRtnData, st *wshrpc.CommandDagStatusRtnData) string {
+// resolves to its own run. tree is the lead's own tree, where a branch-landed dag's repo-relative docs are
+// its live copy.
+func dagRulesText(ctx *wshrpc.CommandJarvisCtxRtnData, st *wshrpc.CommandDagStatusRtnData, tree string) string {
 	if ctx == nil || st == nil || st.Group == nil || ctx.RunId == "" || st.Group.RunID != ctx.RunId {
 		return ""
 	}
-	return jarvis.OrchestrationRules(ctx.RunId, st.Group.SpecPath, st.Group.PlanPath)
+	g := st.Group
+	return jarvis.OrchestrationRules(ctx.RunId, orchestrate.DocPath(g, tree, g.SpecPath), orchestrate.DocPath(g, tree, g.PlanPath))
+}
+
+// leadTree is the root of the repository tree the caller runs in, which for a lead is its landing tree,
+// and "" outside one.
+func leadTree() string {
+	out, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func init() {

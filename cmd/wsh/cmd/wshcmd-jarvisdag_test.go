@@ -295,16 +295,27 @@ func TestCompactTokens(t *testing.T) {
 func TestDagRulesTextOnlyForTheLead(t *testing.T) {
 	st := &wshrpc.CommandDagStatusRtnData{Group: &waveobj.TaskGroup{RunID: "lead-run", PlanPath: "C:/p/plan.md", SpecPath: "C:/p/spec.md"}}
 	lead := &wshrpc.CommandJarvisCtxRtnData{ChannelId: "ch", RunId: "lead-run", DagOID: "dag-1"}
-	if got, want := dagRulesText(lead, st), jarvis.OrchestrationRules("lead-run", "C:/p/spec.md", "C:/p/plan.md"); got != want {
+	if got, want := dagRulesText(lead, st, ""), jarvis.OrchestrationRules("lead-run", "C:/p/spec.md", "C:/p/plan.md"); got != want {
 		t.Fatalf("lead rules = %q, want %q", got, want)
 	}
 	// a dag child resolves to its own run, which the dag does not name
 	child := &wshrpc.CommandJarvisCtxRtnData{ChannelId: "ch", RunId: "child-run", DagOID: "dag-1"}
-	if got := dagRulesText(child, st); got != "" {
+	if got := dagRulesText(child, st, ""); got != "" {
 		t.Fatalf("a dag child gets no lead rules, got %q", got)
 	}
-	if got := dagRulesText(lead, &wshrpc.CommandDagStatusRtnData{}); got != "" {
+	if got := dagRulesText(lead, &wshrpc.CommandDagStatusRtnData{}, ""); got != "" {
 		t.Fatalf("no dag, no rules, got %q", got)
+	}
+}
+
+// a branch-landed dag stores its docs repo-relative; the lead reads its live copy in its own tree
+func TestDagRulesTextNamesTheLeadsOwnDocs(t *testing.T) {
+	tree := t.TempDir()
+	st := &wshrpc.CommandDagStatusRtnData{Group: &waveobj.TaskGroup{RunID: "lead-run", PlanPath: "docs/plans/p.md", SpecPath: "docs/specs/s.md"}}
+	lead := &wshrpc.CommandJarvisCtxRtnData{ChannelId: "ch", RunId: "lead-run", DagOID: "dag-1"}
+	want := jarvis.OrchestrationRules("lead-run", filepath.Join(tree, "docs/specs/s.md"), filepath.Join(tree, "docs/plans/p.md"))
+	if got := dagRulesText(lead, st, tree); got != want {
+		t.Fatalf("lead rules = %q, want %q", got, want)
 	}
 }
 

@@ -472,9 +472,11 @@ type TaskGroup struct {
 	// task's merge passes Verify the engine marks those chunks done there.
 	EffortOID string `json:"effortoid,omitempty"`
 
-	// PlanPath and SpecPath are the absolute paths of the plan a dag was submitted from and the spec it
-	// implements. They stay uncommitted in the project checkout until the dag's first squash merge, which
-	// stages both so the docs land with the work they describe. Empty for a dag submitted as JSON.
+	// PlanPath and SpecPath are the plan a dag was submitted from and the spec it implements. A branch-landed
+	// dag commits both on its branch at submit and keeps them repo-relative, so each reader resolves them in
+	// its own tree. A checkout-landed dag keeps them absolute and uncommitted in the project checkout until
+	// its first squash merge, which stages both so the docs land with the work they describe. Empty for a dag
+	// submitted as JSON.
 	PlanPath string `json:"planpath,omitempty"`
 	SpecPath string `json:"specpath,omitempty"`
 }

@@ -511,7 +511,7 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		if err := os.Remove(reportPath); err != nil && !os.IsNotExist(err) {
 			log.Printf("schedule dag %s task %s: removing a stale report: %v", g.OID, taskID, err)
 		}
-		prompt := taskPrompt(g, task, owner, pin.Runtime, predecessorHandoff(task, g, runs))
+		prompt := taskPrompt(g, task, owner, pin.Runtime, cwd, predecessorHandoff(task, g, runs))
 		// a new session per dispatch: its transcript is named by the id, so liveness and evidence never
 		// read a previous attempt's file as this one's.
 		sessionId := uuid.NewString()
@@ -673,13 +673,14 @@ func WorkerReportPath(dagOID, taskID string) string {
 
 // workerContract opens every dag worker's prompt (spec §4). The plan is approved, so the worker neither
 // re-plans nor guesses a consequential decision: it asks, and the lead or the human answers. It owns its
-// task's tests, and it names the plan so a compacted worker can re-read its task.
-func workerContract(g *waveobj.TaskGroup, task *waveobj.TaskNode, runtime string) string {
+// task's tests, and it names the plan so a compacted worker can re-read its task. tree is the worker's own
+// tree, where a branch-landed dag's docs are the snapshot committed at submit.
+func workerContract(g *waveobj.TaskGroup, task *waveobj.TaskNode, runtime, tree string) string {
 	var b strings.Builder
 	if g.PlanPath != "" {
-		fmt.Fprintf(&b, "You are the worker for task %s of the plan at %s", strings.TrimPrefix(task.ID, "t-"), g.PlanPath)
+		fmt.Fprintf(&b, "You are the worker for task %s of the plan at %s", strings.TrimPrefix(task.ID, "t-"), DocPath(g, tree, g.PlanPath))
 		if g.SpecPath != "" {
-			fmt.Fprintf(&b, " (spec: %s)", g.SpecPath)
+			fmt.Fprintf(&b, " (spec: %s)", DocPath(g, tree, g.SpecPath))
 		}
 		b.WriteString(".\n")
 	} else {
@@ -782,9 +783,9 @@ func truncateNote(s string, max int) string {
 
 // taskPrompt is the child's goal: the worker contract, then the task's text (its RunSpec goal, else its
 // label, with the plan description and its decision pins), then the handoff from landed dependencies.
-func taskPrompt(g *waveobj.TaskGroup, task *waveobj.TaskNode, owner *waveobj.Run, runtime, handoff string) string {
+func taskPrompt(g *waveobj.TaskGroup, task *waveobj.TaskNode, owner *waveobj.Run, runtime, tree, handoff string) string {
 	var b strings.Builder
-	b.WriteString(workerContract(g, task, runtime))
+	b.WriteString(workerContract(g, task, runtime, tree))
 	b.WriteString("\n\n")
 	if g.Preamble != "" {
 		b.WriteString("The plan's header applies to every task:\n")

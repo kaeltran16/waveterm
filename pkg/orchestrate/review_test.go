@@ -6,6 +6,8 @@ package orchestrate
 import (
 	"context"
 	"errors"
+	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -103,6 +105,28 @@ func endRun(t *testing.T, ctx context.Context, channelId, runID string) {
 		return nil
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// the reviewer works in the worker's tree, so a branch-landed dag's docs are the snapshot there
+func TestReviewerReadsTheDocsInTheWorkersTree(t *testing.T) {
+	ctx, dag, worker := seedReviewDag(t)
+	if err := wstore.UpdateDag(ctx, dag.OID, func(g *waveobj.TaskGroup) error {
+		g.PlanPath, g.SpecPath = "docs/superpowers/plans/p.md", "docs/superpowers/specs/s.md"
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stubReviewTree(t, worker.EndCommit)
+	calls := captureSpawns(t)
+	schedule(t, ctx, dag.OID)
+	if len(*calls) != 1 {
+		t.Fatalf("want one reviewer spawned, got %d", len(*calls))
+	}
+	c := (*calls)[0]
+	want := fmt.Sprintf("of the plan at %s (spec: %s).", filepath.Join(c.cwd, "docs/superpowers/plans/p.md"), filepath.Join(c.cwd, "docs/superpowers/specs/s.md"))
+	if c.cwd != worker.ProjectPath || !strings.Contains(c.prompt, want) {
+		t.Fatalf("reviewer in %q, want %q, with %q in its prompt: %q", c.cwd, worker.ProjectPath, want, c.prompt)
 	}
 }
 

@@ -412,14 +412,15 @@ func downstreamTargets(g *waveobj.TaskGroup, reviewed string, names []string) ([
 
 // reviewPrompt is a reviewer's whole brief: what the task asked for, where the spec and plan are, what the
 // worker said it did, and the one diff to judge. It checks intent, not tests: Verify runs those at the merge.
+// The reviewer works in the worker's tree, so that is where it reads the docs.
 func reviewPrompt(g *waveobj.TaskGroup, task *waveobj.TaskNode, worker *waveobj.Run, told []string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "You are the reviewer for task %s", task.ID)
 	if g.PlanPath != "" {
-		fmt.Fprintf(&b, " of the plan at %s", g.PlanPath)
+		fmt.Fprintf(&b, " of the plan at %s", DocPath(g, worker.ProjectPath, g.PlanPath))
 	}
 	if g.SpecPath != "" {
-		fmt.Fprintf(&b, " (spec: %s)", g.SpecPath)
+		fmt.Fprintf(&b, " (spec: %s)", DocPath(g, worker.ProjectPath, g.SpecPath))
 	}
 	b.WriteString(". A worker finished it; judge its change against what the task asked for before it lands.\n")
 	fmt.Fprintf(&b, "The change: `git diff %s..%s` in this directory.\n", task.ReviewBase, worker.EndCommit)

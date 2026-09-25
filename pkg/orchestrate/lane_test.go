@@ -4,6 +4,7 @@
 package orchestrate
 
 import (
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -162,12 +163,23 @@ func TestLaneFoldIsTheSpecAndPlanUntilSomethingMerges(t *testing.T) {
 	if got := laneFold(g); got != nil {
 		t.Fatalf("a dag submitted without docs folds nothing, got %v", got)
 	}
-	g.PlanPath, g.SpecPath = "/docs/plan.md", "/docs/spec.md"
-	if got := laneFold(g); !reflect.DeepEqual(got, []string{"/docs/spec.md", "/docs/plan.md"}) {
+	dir := t.TempDir()
+	plan, spec := filepath.Join(dir, "plan.md"), filepath.Join(dir, "spec.md")
+	g.PlanPath, g.SpecPath = plan, spec
+	if got := laneFold(g); !reflect.DeepEqual(got, []string{spec, plan}) {
 		t.Fatalf("fold = %v", got)
 	}
 	markMerged(g, "t-4")
 	if got := laneFold(g); got != nil {
 		t.Fatalf("after the first merge nothing is folded, got %v", got)
+	}
+}
+
+// a branch-landed dag committed its docs on the run's branch at submit, and says so with repo-relative paths
+func TestLaneFoldIsNothingForABranchLandedDag(t *testing.T) {
+	g := laneGroup(t, true, nil)
+	g.PlanPath, g.SpecPath = "docs/superpowers/plans/p.md", "docs/superpowers/specs/s.md"
+	if got := laneFold(g); got != nil {
+		t.Fatalf("the docs are already on the branch, got fold %v", got)
 	}
 }
