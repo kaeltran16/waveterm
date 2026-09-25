@@ -792,6 +792,9 @@ describe("design queue wording", () => {
             kind: "open",
         });
         expect(queueAction(q({ wireKind: "ask" }))).toEqual({ label: "Open", kind: "open" });
+        expect(queueAction(q({ wireKind: "run-unverified" }))).toEqual({ label: "Acknowledge", kind: "ack-run" });
+        expect(queueAction(q({ wireKind: "run-unverified", runId: null }))).toEqual({ label: "Open", kind: "open" });
+        expect(queueAction(q({ wireKind: "run-land-held" }))).toEqual({ label: "Open", kind: "open" });
     });
     it("a record blocker joins the queue as blocked and opens its record", () => {
         const rows = buildAttentionQueue({

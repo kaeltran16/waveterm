@@ -98,7 +98,20 @@ const continuityCaptureTimeout = 90 * time.Second
 // diff. Note the continuity capture AdvanceRun also runs on its done-path is deliberately not here —
 // there is no lead transcript to summarize.
 func SealDoneRunEvidenceAsync(channelId, runId string) {
-	sealAsync(func() { sealDoneRunEvidence(channelId, runId) })
+	sealAsync(func() { sealThenLand(channelId, runId) })
+}
+
+// sealThenLand seals a done run, then merges its branch back. The land comes second so the seal reads the
+// branch before the land deletes it, and it is not gated on the seal: a seal left to the backfill is no reason
+// to leave the run's work off its base.
+func sealThenLand(channelId, runId string) {
+	sealDoneRunEvidence(channelId, runId)
+	ctx, cancel := context.WithTimeout(context.Background(), orchestrate.LandTimeout)
+	defer cancel()
+	// a held land is on the run with its reason and raises an attention item; `wsh runs land` retries it
+	if _, err := orchestrate.LandRun(ctx, channelId, runId, false); err != nil {
+		log.Printf("landing run %s: %v", runId, err)
+	}
 }
 
 // sealDoneRunEvidence seals a done run's immutable evidence snapshot (a git diff + transcript reads that can
@@ -284,7 +297,8 @@ func childRunPlan(resolved waveobj.JarvisProfile, reqMode string) (string, []wav
 }
 
 // landRunOnBranch gives an engine run a tree of its own, wave/<runId> at the run's base, and stamps it as
-// the run's LandPath. The human merges that branch; the engine never lands in the project checkout.
+// the run's LandPath. The engine merges that branch back when the run completes (orchestrate.LandRun); its
+// lanes never land in the project checkout.
 func landRunOnBranch(ctx context.Context, channelId string, run *waveobj.Run) error {
 	wt, err := orchestrate.CreateRunWorktree(ctx, run.ProjectPath, run.ID, run.BaseCommit)
 	if err != nil {
@@ -650,7 +664,7 @@ func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandA
 			// persisted. It's best-effort and idempotent, with SealRunEvidenceCommand as the backfill — so
 			// dispatch it off-band and let the RPC return as soon as the transition is durable.
 			channelId, runId := data.ChannelId, data.RunId
-			sealAsync(func() { sealDoneRunEvidence(channelId, runId) })
+			sealAsync(func() { sealThenLand(channelId, runId) })
 		}
 		// parent-notify stays synchronous: it's a cheap PTY input send, and a child's parent must learn its
 		// child is done as soon as the transition lands, not whenever the background seal happens to finish.
@@ -895,6 +909,40 @@ func (ws *WshServer) RunTranscriptPathCommand(ctx context.Context, data wshrpc.C
 // SealRunEvidenceCommand derives and persists a done run's evidence snapshot if it has none yet — the
 // lazy backfill for runs completed before the feature existed (new runs seal at completion in
 // AdvanceRun). Idempotent: a run already sealed is a no-op. Only seals runs in the done state.
+// LandRunCommand merges a done branch-landed run's branch back into its base, the retry for a held land. It
+// runs detached from the caller's budget: a land can re-run Check and Verify, and a merge cut off halfway
+// would leave the human's checkout mid-merge.
+func (ws *WshServer) LandRunCommand(ctx context.Context, data wshrpc.CommandLandRunData) (*waveobj.RunLand, error) {
+	if data.ChannelId == "" || data.RunId == "" {
+		return nil, fmt.Errorf("channelid and runid are required")
+	}
+	lctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), orchestrate.LandTimeout)
+	defer cancel()
+	land, err := orchestrate.LandRun(lctx, data.ChannelId, data.RunId, data.Force)
+	if err != nil {
+		return nil, err
+	}
+	if land == nil {
+		return nil, fmt.Errorf("run %s landed in the checkout, so it has no branch to merge back", data.RunId)
+	}
+	return land, nil
+}
+
+// AckRunCommand records that the human read a done run's unverified outcome, which clears its attention item.
+func (ws *WshServer) AckRunCommand(ctx context.Context, data wshrpc.CommandAckRunData) error {
+	if data.ChannelId == "" || data.RunId == "" {
+		return fmt.Errorf("channelid and runid are required")
+	}
+	if err := wstore.UpdateRun(ctx, data.ChannelId, data.RunId, func(r *waveobj.Run) error {
+		r.VerificationAckTs = time.Now().UnixMilli()
+		return nil
+	}); err != nil {
+		return fmt.Errorf("acknowledging run: %w", err)
+	}
+	publishRunUpdate(data.ChannelId, data.RunId)
+	return nil
+}
+
 func (ws *WshServer) SealRunEvidenceCommand(ctx context.Context, data wshrpc.CommandSealRunEvidenceData) error {
 	if data.ChannelId == "" || data.RunId == "" {
 		return fmt.Errorf("channelid and runid are required")

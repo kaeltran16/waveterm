@@ -1137,6 +1137,10 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                         action: "retry",
                     })
                 );
+            case "ack-run":
+                return run(`Acknowledged · ${q.source || q.title}`, () =>
+                    RpcApi.AckRunCommand(TabRpcClient, { channelid: q.channelId, runid: q.runId! })
+                );
             default:
                 if (l.target != null) {
                     openLine(l.target);

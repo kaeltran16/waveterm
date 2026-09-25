@@ -130,9 +130,9 @@ func leadProcessAlive(tabID string) bool {
 	return status == blockcontroller.Status_Running || status == blockcontroller.Status_Init
 }
 
-// SealRunEvidenceHook seals a done run's evidence snapshot. Wired to wshserver at startup so a run the
-// engine closes itself gets the same snapshot `wsh jarvis complete` produces; no-op by default, because
-// wsh and the tests link this package without the server.
+// SealRunEvidenceHook seals a done run's evidence snapshot, then lands its branch (LandRun). Wired to wshserver
+// at startup so a run the engine closes itself gets the same snapshot and land-back `wsh jarvis complete`
+// produces; no-op by default, because wsh and the tests link this package without the server.
 var SealRunEvidenceHook = func(channelId, runId string) {}
 
 // MaybeCompleteLeadFreeRun closes an owner run whose DAG finished but which has no lead to report the

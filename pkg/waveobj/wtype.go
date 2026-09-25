@@ -279,6 +279,11 @@ type Run struct {
 	CreatedTs   int64           `json:"createdts"`
 	CompletedTs int64           `json:"completedts,omitempty"` // set at seal, when Status becomes done
 	Evidence    *RunEvidence    `json:"evidence,omitempty"`    // sealed once at completion; immutable
+	// Land is the merge of a branch-landed run's wave/<runId> back into BaseBranch, which runs after the seal.
+	// It lives beside the evidence, not in it, because a held land is retried after the seal is frozen.
+	Land *RunLand `json:"land,omitempty"`
+	// VerificationAckTs is when the human acknowledged an unverified outcome, which clears its attention item.
+	VerificationAckTs int64 `json:"verificationackts,omitempty"`
 	// ParentLeadORef is the tab oref ("tab:<id>") of the orchestrator lead that spawned this child run
 	// via `wsh jarvis run`. Empty for human-started runs. Drives the terminal-status notify-back.
 	ParentLeadORef string `json:"parentleadoref,omitempty"`
@@ -328,6 +333,14 @@ type Run struct {
 
 func (*Run) GetOType() string {
 	return OType_Run
+}
+
+// RunLand is where a run's branch stands on its way back into the branch it started from.
+type RunLand struct {
+	State  string   `json:"state"`            // pending | landed | held
+	Reason string   `json:"reason,omitempty"` // why it is held
+	Commit string   `json:"commit,omitempty"` // the merge commit
+	Notes  []string `json:"notes,omitempty"`  // what the landed result was not verified against, e.g. a moved base
 }
 
 // TaskNode is one unit of work in a TaskGroup DAG. State is derived by the engine

@@ -195,6 +195,8 @@ const QUEUE_KIND_LABEL: Record<string, string> = {
     ask: "ask",
     "dag-gate": "dag gate",
     "dag-blocked": "dag blocked",
+    "run-land-held": "land held",
+    "run-unverified": "unverified",
     "plan-gate": "plan gate",
     "radar-triage": "triage",
 };
@@ -329,8 +331,8 @@ export function queueKindLabel(row: QueueRow): "gate" | "ask" | "failed" | "bloc
 }
 
 export type QueueAct = {
-    label: "Approve" | "Retry" | "Open";
-    kind: "approve-gate" | "approve-dag" | "retry-dag" | "open";
+    label: "Approve" | "Retry" | "Acknowledge" | "Open";
+    kind: "approve-gate" | "approve-dag" | "retry-dag" | "ack-run" | "open";
 };
 
 // What the row's button does in place (design L1598-1609). Approve and Retry need the exact task or phase
@@ -344,6 +346,9 @@ export function queueAction(row: QueueRow): QueueAct {
     }
     if (row.wireKind === "dag-blocked" && row.retry && row.taskId !== "" && row.runId != null) {
         return { label: "Retry", kind: "retry-dag" };
+    }
+    if (row.wireKind === "run-unverified" && row.channelId !== "" && row.runId != null) {
+        return { label: "Acknowledge", kind: "ack-run" };
     }
     return { label: "Open", kind: "open" };
 }

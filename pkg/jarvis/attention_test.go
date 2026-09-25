@@ -14,6 +14,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wps"
+	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
 
 func gatedRun(id, goal string, doneTs int64) *waveobj.Run {
@@ -440,5 +441,64 @@ func TestBlockedFinalStageSaysWhatFailed(t *testing.T) {
 	}
 	if !strings.Contains(items[0].Why, "wsh jarvis dag submit --round") {
 		t.Fatalf("why = %q, want the fix round named", items[0].Why)
+	}
+}
+
+func finishedRun(id string, ev *waveobj.RunEvidence, land *waveobj.RunLand) *waveobj.Run {
+	return &waveobj.Run{ID: id, Goal: "coupon codes", Status: "done", CompletedTs: 40, Evidence: ev, Land: land}
+}
+
+func itemsOfKind(items []wshrpc.AttentionItem, kind string) []wshrpc.AttentionItem {
+	var out []wshrpc.AttentionItem
+	for _, it := range items {
+		if it.Kind == kind {
+			out = append(out, it)
+		}
+	}
+	return out
+}
+
+func TestUnverifiedRunNamesEachReasonUntilAcknowledged(t *testing.T) {
+	unverified := &waveobj.RunEvidence{Verification: &waveobj.RunVerification{
+		State: "unverified", Reasons: []string{"t-2: the timeout path has no test", "the plan has no Verify"},
+	}}
+	moved := &waveobj.RunLand{State: "landed", Notes: []string{"merged onto 2 commits that landed on main during the run; the combination was not verified"}}
+	passed := &waveobj.RunEvidence{Verification: &waveobj.RunVerification{State: "passed"}}
+	acked := finishedRun("r4", unverified, nil)
+	acked.VerificationAckTs = 50
+	items := BuildAttention(AttentionInput{Channels: []AttentionChannel{{OID: "c1", Name: "alpha", Runs: []*waveobj.Run{
+		finishedRun("r1", unverified, nil),
+		finishedRun("r2", passed, moved),
+		finishedRun("r3", passed, &waveobj.RunLand{State: "landed"}),
+		acked,
+	}}}})
+	got := itemsOfKind(items, AttentionRunUnverified)
+	if len(got) != 2 || got[0].RunId != "r1" || got[1].RunId != "r2" {
+		t.Fatalf("run-unverified items = %+v, want r1 and r2", got)
+	}
+	for _, want := range []string{"t-2: the timeout path has no test", "the plan has no Verify"} {
+		if !strings.Contains(got[0].Why, want) {
+			t.Fatalf("r1 why = %q, want %q named", got[0].Why, want)
+		}
+	}
+	if !strings.Contains(got[1].Why, "merged onto 2 commits") {
+		t.Fatalf("r2 why = %q, want the land note named", got[1].Why)
+	}
+	if got[0].Key != "run-unverified:r1" || got[0].ChannelId != "c1" || got[0].Action != "Acknowledge" || !strings.Contains(got[0].Why, "wsh runs ack r1") {
+		t.Fatalf("r1 item = %+v", got[0])
+	}
+}
+
+func TestHeldLandSaysWhy(t *testing.T) {
+	items := BuildAttention(AttentionInput{Channels: []AttentionChannel{{OID: "c1", Name: "alpha", Runs: []*waveobj.Run{
+		finishedRun("r1", nil, &waveobj.RunLand{State: "held", Reason: "the checkout is on x, not main"}),
+		finishedRun("r2", nil, &waveobj.RunLand{State: "pending"}),
+	}}}})
+	got := itemsOfKind(items, AttentionRunLandHeld)
+	if len(got) != 1 || got[0].RunId != "r1" || got[0].Key != "run-land-held:r1" {
+		t.Fatalf("run-land-held items = %+v, want r1", got)
+	}
+	if !strings.Contains(got[0].Text, "the checkout is on x, not main") || !strings.Contains(got[0].Why, "wsh runs land r1") {
+		t.Fatalf("item = %+v, want the reason and the retry named", got[0])
 	}
 }

@@ -24,6 +24,12 @@ export class RpcApiType {
         return client.wshRpcCall("acceptdossieredge", data, opts);
     }
 
+    // command "ackrun" [call]
+    AckRunCommand(client: WshClient, data: CommandAckRunData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "ackrun", data, opts);
+        return client.wshRpcCall("ackrun", data, opts);
+    }
+
     // command "advancerun" [call]
     AdvanceRunCommand(client: WshClient, data: CommandAdvanceRunData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "advancerun", data, opts);
@@ -940,6 +946,12 @@ export class RpcApiType {
     JobStartStreamCommand(client: WshClient, data: CommandJobStartStreamData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "jobstartstream", data, opts);
         return client.wshRpcCall("jobstartstream", data, opts);
+    }
+
+    // command "landrun" [call]
+    LandRunCommand(client: WshClient, data: CommandLandRunData, opts?: RpcOpts): Promise<RunLand> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "landrun", data, opts);
+        return client.wshRpcCall("landrun", data, opts);
     }
 
     // command "listbranches" [call]

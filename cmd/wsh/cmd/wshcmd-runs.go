@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/wavetermdev/waveterm/pkg/gitinfo"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
+	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wconfig"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -29,6 +30,7 @@ const (
 	// + Run launcher's budget (CREATE_RUN_TIMEOUT_MS), and the server derives its handler deadline from it
 	runsStartTimeoutMs  = 180_000
 	runsCancelTimeoutMs = 60_000 // cancel stops each live worker gracefully before it returns
+	runsLandTimeoutMs   = int64(orchestrate.LandTimeout/time.Millisecond) + 10_000
 	runsReadTimeoutMs   = 10_000
 	runsListDefault     = 20
 	runsGoalWidth       = 70
@@ -87,6 +89,26 @@ is passed.`,
 	RunE:    runsCancelRun,
 }
 
+var runsLandCmd = &cobra.Command{
+	Use:   "land <run-id>",
+	Short: "merge a finished run's branch back into the branch it started from, or say why it is held",
+	Long: `Merge a finished run's wave/<run-id> branch back into the branch the run started from, in the
+project checkout, then remove its landing tree and branch. The engine does this itself when the run
+completes; this retries a held land once its reason is cleared. It can take minutes when it re-runs
+Check and Verify. --force lands a run whose final stage failed.`,
+	Args:    cobra.ExactArgs(1),
+	PreRunE: preRunSetupRpcClient,
+	RunE:    runsLandRun,
+}
+
+var runsAckCmd = &cobra.Command{
+	Use:     "ack <run-id>",
+	Short:   "acknowledge a finished run's unverified outcome, which clears it from the attention list",
+	Args:    cobra.ExactArgs(1),
+	PreRunE: preRunSetupRpcClient,
+	RunE:    runsAckRun,
+}
+
 var runsAttentionCmd = &cobra.Command{
 	Use:     "attention",
 	Short:   "list everything waiting on the human across every project (review gates, escalations, asks)",
@@ -108,7 +130,7 @@ func init() {
 	f.String("effort", "", "initiative to attach the run to (id from 'wsh effort list')")
 	f.String("chunk", "", "the initiative's chunk: its label or 1-based number")
 	f.Bool("json", false, "JSON output")
-	for _, c := range []*cobra.Command{runsStartCmd, runsListCmd, runsShowCmd, runsCancelCmd} {
+	for _, c := range []*cobra.Command{runsStartCmd, runsListCmd, runsShowCmd, runsCancelCmd, runsLandCmd, runsAckCmd} {
 		c.Flags().String("project", "", "project directory (default: the current directory)")
 		c.Flags().String("channel", "", "channel id, instead of resolving the project")
 	}
@@ -118,8 +140,9 @@ func init() {
 	runsListCmd.Flags().Bool("json", false, "JSON output")
 	runsShowCmd.Flags().Bool("json", false, "JSON output")
 	runsCancelCmd.Flags().Bool("yes", false, "cancel even though workers are live")
+	runsLandCmd.Flags().Bool("force", false, "land even though the final stage failed")
 	runsAttentionCmd.Flags().Bool("json", false, "JSON output")
-	runsCmd.AddCommand(runsStartCmd, runsListCmd, runsShowCmd, runsCancelCmd, runsAttentionCmd)
+	runsCmd.AddCommand(runsStartCmd, runsListCmd, runsShowCmd, runsCancelCmd, runsLandCmd, runsAckCmd, runsAttentionCmd)
 	rootCmd.AddCommand(runsCmd)
 }
 
@@ -552,7 +575,14 @@ func runsShowLines(ch *waveobj.Channel, r *waveobj.Run, digest *wshrpc.CommandDa
 		for _, v := range ev.Verifs {
 			lines = append(lines, fmt.Sprintf("verify   %s  %s", v.Result, v.Cmd))
 		}
+		if v := ev.Verification; v != nil {
+			lines = append(lines, "outcome  "+v.State)
+			for _, reason := range v.Reasons {
+				lines = append(lines, "         unverified: "+reason)
+			}
+		}
 	}
+	lines = append(lines, runsLandLines(r.Land)...)
 	if report := runsReport(r); report != "" {
 		lines = append(lines, "", "report", report)
 	}
@@ -593,6 +623,64 @@ func runsCancelRun(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Printf("cancelled run %s\n", run.ID)
 	return nil
+}
+
+// runsLandLines are where a run's branch stands on its way back into its base
+func runsLandLines(l *waveobj.RunLand) []string {
+	if l == nil {
+		return nil
+	}
+	head := "land     " + l.State
+	switch {
+	case l.Reason != "":
+		head += ": " + l.Reason
+	case l.Commit != "":
+		head += " " + runsShort(l.Commit)
+	}
+	lines := []string{head}
+	for _, note := range l.Notes {
+		lines = append(lines, "         note: "+note)
+	}
+	return lines
+}
+
+func runsLandRun(cmd *cobra.Command, args []string) error {
+	ch, run, err := runsFind(cmd, args[0])
+	if err != nil {
+		return err
+	}
+	force, _ := cmd.Flags().GetBool("force")
+	land, err := runsLand(ch.OID, run.ID, force)
+	if err != nil {
+		return err
+	}
+	for _, line := range runsLandLines(land) {
+		fmt.Println(line)
+	}
+	if land.State != orchestrate.LandState_Landed {
+		return fmt.Errorf("run %s did not land", run.ID)
+	}
+	return nil
+}
+
+func runsLand(channelId, runId string, force bool) (*waveobj.RunLand, error) {
+	return wshclient.LandRunCommand(RpcClient, wshrpc.CommandLandRunData{ChannelId: channelId, RunId: runId, Force: force}, &wshrpc.RpcOpts{Timeout: runsLandTimeoutMs})
+}
+
+func runsAckRun(cmd *cobra.Command, args []string) error {
+	ch, run, err := runsFind(cmd, args[0])
+	if err != nil {
+		return err
+	}
+	if err := runsAck(ch.OID, run.ID); err != nil {
+		return err
+	}
+	fmt.Printf("acknowledged run %s\n", run.ID)
+	return nil
+}
+
+func runsAck(channelId, runId string) error {
+	return wshclient.AckRunCommand(RpcClient, wshrpc.CommandAckRunData{ChannelId: channelId, RunId: runId}, &wshrpc.RpcOpts{Timeout: runsReadTimeoutMs})
 }
 
 // runsLiveWorkers counts the workers a cancel would stop: the workers on a running phase plus an engine

@@ -22,6 +22,12 @@ func AcceptDossierEdgeCommand(w *wshutil.WshRpc, data wshrpc.CommandDossierEdgeD
 	return err
 }
 
+// command "ackrun", wshserver.AckRunCommand
+func AckRunCommand(w *wshutil.WshRpc, data wshrpc.CommandAckRunData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "ackrun", data, opts)
+	return err
+}
+
 // command "advancerun", wshserver.AdvanceRunCommand
 func AdvanceRunCommand(w *wshutil.WshRpc, data wshrpc.CommandAdvanceRunData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "advancerun", data, opts)
@@ -935,6 +941,12 @@ func JobPrepareConnectCommand(w *wshutil.WshRpc, data wshrpc.CommandJobPrepareCo
 func JobStartStreamCommand(w *wshutil.WshRpc, data wshrpc.CommandJobStartStreamData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "jobstartstream", data, opts)
 	return err
+}
+
+// command "landrun", wshserver.LandRunCommand
+func LandRunCommand(w *wshutil.WshRpc, data wshrpc.CommandLandRunData, opts *wshrpc.RpcOpts) (*waveobj.RunLand, error) {
+	resp, err := sendRpcRequestCallHelper[*waveobj.RunLand](w, "landrun", data, opts)
+	return resp, err
 }
 
 // command "listbranches", wshserver.ListBranchesCommand

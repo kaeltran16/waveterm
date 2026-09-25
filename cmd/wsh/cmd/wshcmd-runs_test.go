@@ -5,17 +5,21 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wconfig"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
+	"github.com/wavetermdev/waveterm/pkg/wshutil"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
@@ -290,5 +294,86 @@ func TestRunsIsTask(t *testing.T) {
 		if got := runsIsTask(&tt.run); got != tt.want {
 			t.Errorf("%s: runsIsTask = %v, want %v", tt.name, got, tt.want)
 		}
+	}
+}
+
+func TestRunsShowLinesPrintVerificationAndLand(t *testing.T) {
+	ch := &waveobj.Channel{OID: "ch-1", Name: "waveterm"}
+	run := &waveobj.Run{
+		ID: "r-1", Status: "done", Mode: "orchestrator",
+		Evidence: &waveobj.RunEvidence{Verification: &waveobj.RunVerification{State: "unverified", Reasons: []string{"the plan has no Verify"}}},
+		Land:     &waveobj.RunLand{State: "landed", Commit: "0123456789abcdef", Notes: []string{"merged onto 2 commits that landed on main during the run; the combination was not verified"}},
+	}
+	lines := runsShowLines(ch, run, nil, 2)
+	for _, want := range []string{
+		"outcome  unverified",
+		"         unverified: the plan has no Verify",
+		"land     landed 0123456",
+		"         note: merged onto 2 commits that landed on main during the run; the combination was not verified",
+	} {
+		if !slices.Contains(lines, want) {
+			t.Fatalf("show must print %q:\n%s", want, strings.Join(lines, "\n"))
+		}
+	}
+	run.Land = &waveobj.RunLand{State: "held", Reason: "the checkout is on x, not main"}
+	if lines = runsShowLines(ch, run, nil, 2); !slices.Contains(lines, "land     held: the checkout is on x, not main") {
+		t.Fatalf("show must print the held reason:\n%s", strings.Join(lines, "\n"))
+	}
+}
+
+// fakeRunsRpc points RpcClient at channels and replies to the one request the call under test sends with rtn.
+func fakeRunsRpc(t *testing.T, call func() error, rtn any) wshutil.RpcMessage {
+	t.Helper()
+	inputCh := make(chan baseds.RpcInputChType, 1)
+	outputCh := make(chan []byte, 1)
+	prev := RpcClient
+	RpcClient = wshutil.MakeWshRpcWithChannels(inputCh, outputCh, wshrpc.RpcContext{}, nil, "test")
+	t.Cleanup(func() { RpcClient = prev })
+	done := make(chan error, 1)
+	go func() { done <- call() }()
+	var req wshutil.RpcMessage
+	select {
+	case msg := <-outputCh:
+		if err := json.Unmarshal(msg, &req); err != nil {
+			t.Fatalf("request is not an rpc message: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no request was sent")
+	}
+	resp, _ := json.Marshal(wshutil.RpcMessage{ResId: req.ReqId, Data: rtn})
+	inputCh <- baseds.RpcInputChType{MsgBytes: resp}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the call did not return after the reply")
+	}
+	return req
+}
+
+func TestRunsLandAndAckSendTheirRpcs(t *testing.T) {
+	var land *waveobj.RunLand
+	req := fakeRunsRpc(t, func() (err error) {
+		land, err = runsLand("ch-1", "r-1", true)
+		return err
+	}, waveobj.RunLand{State: "landed", Commit: "abc"})
+	var data wshrpc.CommandLandRunData
+	b, _ := json.Marshal(req.Data)
+	json.Unmarshal(b, &data)
+	if req.Command != "landrun" || data != (wshrpc.CommandLandRunData{ChannelId: "ch-1", RunId: "r-1", Force: true}) {
+		t.Fatalf("request = %s %+v, want landrun for r-1 with force", req.Command, data)
+	}
+	if land == nil || land.State != "landed" || land.Commit != "abc" {
+		t.Fatalf("land = %+v, want the server's reply", land)
+	}
+
+	req = fakeRunsRpc(t, func() error { return runsAck("ch-1", "r-1") }, nil)
+	var ack wshrpc.CommandAckRunData
+	b, _ = json.Marshal(req.Data)
+	json.Unmarshal(b, &ack)
+	if req.Command != "ackrun" || ack != (wshrpc.CommandAckRunData{ChannelId: "ch-1", RunId: "r-1"}) {
+		t.Fatalf("request = %s %+v, want ackrun for r-1", req.Command, ack)
 	}
 }

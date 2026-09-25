@@ -15,6 +15,8 @@ type RunCommands interface {
 	CancelRunCommand(ctx context.Context, data CommandCancelRunData) error                                            // cancel a Run
 	StopRunWorkerCommand(ctx context.Context, data CommandStopRunWorkerData) error                                    // stop one surviving worker of a cancelled run
 	SealRunEvidenceCommand(ctx context.Context, data CommandSealRunEvidenceData) error                                // derive+seal a done run's evidence if absent (idempotent backfill)
+	LandRunCommand(ctx context.Context, data CommandLandRunData) (*waveobj.RunLand, error)                            // merge a done branch-landed run's wave/<runId> back into its base, or hold it with the reason
+	AckRunCommand(ctx context.Context, data CommandAckRunData) error                                                  // acknowledge a done run's unverified outcome, which clears its attention item
 	ReportRunPhaseCommand(ctx context.Context, data CommandReportRunPhaseData) error                                  // lead self-reports hold/complete; resolves run/phase from its own oref
 	CreateChildRunCommand(ctx context.Context, data CommandCreateChildRunData) (*CommandCreateChildRunRtnData, error) // orchestrator lead spawns a hands-off child run for one backlog unit; parent resolved from the caller's oref
 	SetRunSettingsCommand(ctx context.Context, data CommandSetRunSettingsData) error                                   // change a live engine run's scheduler settings (pending on the Run before a DAG exists, live on its TaskGroup after)
@@ -78,6 +80,17 @@ type CommandRunTranscriptPathData struct {
 }
 
 type CommandSealRunEvidenceData struct {
+	ChannelId string `json:"channelid"`
+	RunId     string `json:"runid"`
+}
+
+type CommandLandRunData struct {
+	ChannelId string `json:"channelid"`
+	RunId     string `json:"runid"`
+	Force     bool   `json:"force,omitempty"` // land even though the final stage failed; the human's call only
+}
+
+type CommandAckRunData struct {
 	ChannelId string `json:"channelid"`
 	RunId     string `json:"runid"`
 }

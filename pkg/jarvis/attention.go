@@ -35,6 +35,10 @@ const (
 	// engine's client (orchestrate imports jarvis for run status — importing it back would cycle).
 	AttentionDagGate    = "dag-gate"
 	AttentionDagBlocked = "dag-blocked"
+	// run outcome items: a finished run's branch that could not be merged back, and a finished run whose result
+	// was not fully verified, which the human acknowledges once read.
+	AttentionRunLandHeld   = "run-land-held"
+	AttentionRunUnverified = "run-unverified"
 	// radar triage is the only kind that names no channel: a scan belongs to a project, not a
 	// conversation, so its row addresses the report through ORef instead.
 	AttentionRadarTriage = "radar-triage"
@@ -301,7 +305,7 @@ func dagBlockedReason(g *waveobj.TaskGroup, owner *waveobj.Run) (text, why strin
 }
 
 func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
-	var gates, escalations, asks []wshrpc.AttentionItem
+	var gates, escalations, asks, unverified []wshrpc.AttentionItem
 	// ask orefs already represented by an escalation card — one waiting thing, one item.
 	escalated := map[string]bool{}
 
@@ -328,6 +332,14 @@ func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
 				Why:          gateWhy(run, idx),
 				Cites:        gateCites(run.Phases[idx]),
 			})
+		}
+		for _, run := range ch.Runs {
+			if it, ok := landHeldItem(ch, run); ok {
+				gates = append(gates, it)
+			}
+			if it, ok := unverifiedItem(ch, run); ok {
+				unverified = append(unverified, it)
+			}
 		}
 
 		for _, m := range ch.Messages {
@@ -432,7 +444,7 @@ func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
 	// Kind is the priority claim — a gate blocks a whole pipeline, an ask blocks one worker. Age only
 	// breaks ties inside a kind. Key is the final tiebreak so map iteration cannot reorder equal items.
 	triage := radarTriageItems(in.Radar)
-	for _, group := range [][]wshrpc.AttentionItem{gates, escalations, asks, triage} {
+	for _, group := range [][]wshrpc.AttentionItem{gates, escalations, asks, triage, unverified} {
 		g := group
 		sort.SliceStable(g, func(i, j int) bool {
 			if g[i].WaitingSince != g[j].WaitingSince {
@@ -442,14 +454,81 @@ func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
 		})
 	}
 
-	out := make([]wshrpc.AttentionItem, 0, len(gates)+len(escalations)+len(asks)+len(triage))
+	out := make([]wshrpc.AttentionItem, 0, len(gates)+len(escalations)+len(asks)+len(triage)+len(unverified))
 	out = append(out, gates...)
 	out = append(out, escalations...)
 	out = append(out, asks...)
 	// triage is last because it is the weakest claim in the list: an untriaged finding blocks nothing
 	// that is running, where every kind above it is holding a worker or a pipeline in place.
 	out = append(out, triage...)
+	// an unverified outcome holds nothing at all: the run is done
+	out = append(out, unverified...)
 	return out
+}
+
+// landHeldItem is a done run whose branch the engine did not merge back, with the reason. The run's work is
+// finished and waits only on the human clearing the reason.
+func landHeldItem(ch AttentionChannel, run *waveobj.Run) (wshrpc.AttentionItem, bool) {
+	// mirrors orchestrate.LandState_Held
+	if run.Land == nil || run.Land.State != "held" {
+		return wshrpc.AttentionItem{}, false
+	}
+	effortOID, chunkLabel := attribution(run)
+	return wshrpc.AttentionItem{
+		Kind:         AttentionRunLandHeld,
+		Key:          "run-land-held:" + run.ID,
+		ChannelId:    ch.OID,
+		ChannelName:  ch.Name,
+		RunId:        run.ID,
+		Source:       run.Goal,
+		Text:         "The run's branch was not merged back: " + run.Land.Reason,
+		Action:       "Review",
+		WaitingSince: run.CompletedTs,
+		EffortOID:    effortOID,
+		ChunkLabel:   chunkLabel,
+		Why:          fmt.Sprintf("The work is on wave/%s. Clear the reason, then run `wsh runs land %s`.", run.ID, run.ID),
+	}, true
+}
+
+// unverifiedItem is a done run whose result nothing fully checked: the final stage's unverified reasons, and
+// the land's notes (a base that moved under the run). It stays until the human acknowledges it.
+func unverifiedItem(ch AttentionChannel, run *waveobj.Run) (wshrpc.AttentionItem, bool) {
+	if run.Status != RunStatus_Done || run.VerificationAckTs != 0 {
+		return wshrpc.AttentionItem{}, false
+	}
+	var reasons []string
+	// mirrors orchestrate.FinalState_Unverified
+	if ev := run.Evidence; ev != nil && ev.Verification != nil && ev.Verification.State == "unverified" {
+		reasons = append(reasons, ev.Verification.Reasons...)
+	}
+	if run.Land != nil {
+		reasons = append(reasons, run.Land.Notes...)
+	}
+	if len(reasons) == 0 {
+		return wshrpc.AttentionItem{}, false
+	}
+	effortOID, chunkLabel := attribution(run)
+	return wshrpc.AttentionItem{
+		Kind:         AttentionRunUnverified,
+		Key:          "run-unverified:" + run.ID,
+		ChannelId:    ch.OID,
+		ChannelName:  ch.Name,
+		RunId:        run.ID,
+		Source:       run.Goal,
+		Text:         fmt.Sprintf("Finished, but %d %s not verified.", len(reasons), pluralThings(len(reasons))),
+		Action:       "Acknowledge",
+		WaitingSince: run.CompletedTs,
+		EffortOID:    effortOID,
+		ChunkLabel:   chunkLabel,
+		Why:          fmt.Sprintf("Not verified: %s. Once read, acknowledge it with `wsh runs ack %s`.", strings.TrimRight(strings.Join(reasons, "; "), "."), run.ID),
+	}, true
+}
+
+func pluralThings(n int) string {
+	if n == 1 {
+		return "thing was"
+	}
+	return "things were"
 }
 
 // dagGateItems is one row per task the engine is holding, not one per group: a dag with three gated

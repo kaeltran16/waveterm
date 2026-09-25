@@ -379,6 +379,12 @@ declare global {
         newactivetabid?: string;
     };
 
+    // wshrpc.CommandAckRunData
+    type CommandAckRunData = {
+        channelid: string;
+        runid: string;
+    };
+
     // wshrpc.CommandAdvanceRunData
     type CommandAdvanceRunData = {
         channelid: string;
@@ -1370,6 +1376,13 @@ declare global {
 
     // wshrpc.CommandJobStartStreamData
     type CommandJobStartStreamData = object;
+
+    // wshrpc.CommandLandRunData
+    type CommandLandRunData = {
+        channelid: string;
+        runid: string;
+        force?: boolean;
+    };
 
     // wshrpc.CommandListBranchesData
     type CommandListBranchesData = {
@@ -2863,6 +2876,8 @@ declare global {
         createdts: number;
         completedts?: number;
         evidence?: RunEvidence;
+        land?: RunLand;
+        verificationackts?: number;
         parentleadoref?: string;
         effortref?: RunEffortRef;
         dagoref?: string;
@@ -2919,6 +2934,14 @@ declare global {
         model?: string;
         usage?: UsageRow[];
         verification?: RunVerification;
+    };
+
+    // waveobj.RunLand
+    type RunLand = {
+        state: string;
+        reason?: string;
+        commit?: string;
+        notes?: string[];
     };
 
     // waveobj.RunPhase
