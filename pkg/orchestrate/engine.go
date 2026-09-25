@@ -592,6 +592,8 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindDagBlocked, nil, map[string]any{"failures": failures, "kind": blockingKind})
 		})
 	case notify && g.Status == DagStatus_Done:
+		// detached: a caller's short rpc budget must not cut the total off part-way through the transcripts
+		g.Usage = jarvis.RunUsage(spawnCtx, owner, jarvis.DagChildRuns(spawnCtx, g.ChannelId, g.OID, owner.ID))
 		afterCommit = append(afterCommit, func() {
 			publishDagEvent(DagEventComplete, g, "")
 			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindDagDone, nil, map[string]any{})

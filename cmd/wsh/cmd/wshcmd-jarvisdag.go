@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/orchestrate"
+	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc/wshclient"
 	"github.com/wavetermdev/waveterm/pkg/wshutil"
@@ -122,7 +124,7 @@ func dagStatusLines(rtn *wshrpc.CommandDagStatusRtnData, now int64) []string {
 	}
 	line := fmt.Sprintf("dag %s  status=%s  tasks=%d/%d  failures=%d  parallelism=%d",
 		g.ID, g.Status, d.Counts.Done, d.Counts.Total, g.Failures, g.Parallelism)
-	lines := []string{line, reportLine(d)}
+	lines := append([]string{line, reportLine(d)}, usageLines(d.Report.Usage)...)
 	if len(d.Report.Commits) > 0 {
 		landed := make([]string, len(d.Report.Commits))
 		for i, c := range d.Report.Commits {
@@ -243,6 +245,73 @@ func reportLine(d wshrpc.DagStatusDigest) string {
 		line += "  unverified"
 	}
 	return line
+}
+
+// usageLabels names a role's total where the plain role name reads wrong: there is one lead but many workers.
+var usageLabels = map[string]string{jarvis.UsageRole_Worker: "workers", jarvis.UsageRole_Reviewer: "reviewers"}
+
+// usageLines is the dag's token total per role, then each task's per role, in the order the rows came.
+func usageLines(rows []waveobj.UsageRow) []string {
+	if len(rows) == 0 {
+		return nil
+	}
+	lines := []string{"usage   " + usageTotals(rows, usageLabels)}
+	var tasks []string
+	byTask := map[string][]waveobj.UsageRow{}
+	for _, r := range rows {
+		if r.TaskId == "" {
+			continue
+		}
+		if _, ok := byTask[r.TaskId]; !ok {
+			tasks = append(tasks, r.TaskId)
+		}
+		byTask[r.TaskId] = append(byTask[r.TaskId], r)
+	}
+	for _, id := range tasks {
+		lines = append(lines, fmt.Sprintf("%s usage: %s", id, usageTotals(byTask[id], nil)))
+	}
+	return lines
+}
+
+// usageTotals is "lead 1.2M · workers 3.4M", roles in the order they first appear. An unreadable transcript
+// is counted rather than read as zero tokens spent.
+func usageTotals(rows []waveobj.UsageRow, labels map[string]string) string {
+	var roles []string
+	totals := map[string]int{}
+	missing := 0
+	for _, r := range rows {
+		if _, ok := totals[r.Role]; !ok {
+			roles = append(roles, r.Role)
+		}
+		totals[r.Role] += jarvis.UsageTokens(r)
+		if r.Missing {
+			missing++
+		}
+	}
+	parts := make([]string, len(roles))
+	for i, role := range roles {
+		label := role
+		if l, ok := labels[role]; ok {
+			label = l
+		}
+		parts[i] = label + " " + compactTokens(totals[role])
+	}
+	line := strings.Join(parts, " · ")
+	if missing > 0 {
+		line += fmt.Sprintf("  (%d unreadable)", missing)
+	}
+	return line
+}
+
+// compactTokens renders a token count the way the cockpit does (formatTokens in agentsviewmodel.ts).
+func compactTokens(n int) string {
+	switch {
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
+	case n >= 1_000:
+		return fmt.Sprintf("%dk", (n+500)/1_000)
+	}
+	return strconv.Itoa(n)
 }
 
 func durOrZero(ms int64) string {

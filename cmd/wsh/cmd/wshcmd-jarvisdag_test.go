@@ -255,6 +255,43 @@ func TestDagStatusLinesCarriesTheReportAndVerifyFailure(t *testing.T) {
 	}
 }
 
+// the lead's report names what the run cost in tokens: per role, then per task, and how many transcripts it
+// could not read
+func TestDagStatusLinesCarriesUsage(t *testing.T) {
+	rtn := &wshrpc.CommandDagStatusRtnData{
+		Group: &waveobj.TaskGroup{ID: "dag-1", Status: "done", Parallelism: 1},
+		Digest: wshrpc.DagStatusDigest{Report: wshrpc.DagReportDigest{Usage: []waveobj.UsageRow{
+			{Role: "lead", Input: 1_000_000, CacheRead: 200_000},
+			{Role: "lead", Output: 40_000},
+			{Role: "worker", TaskId: "t-1", Model: "a", Input: 3_000_000},
+			{Role: "worker", TaskId: "t-1", Model: "b", CacheWrite: 400_000, CacheWrite1h: 49_600},
+			{Role: "reviewer", TaskId: "t-1", CacheRead: 500_000},
+			{Role: "worker", TaskId: "t-2", Missing: true},
+		}}},
+	}
+	lines := dagStatusLines(rtn, 0)
+	want := []string{
+		"usage   lead 1.2M · workers 3.4M · reviewers 500k  (1 unreadable)",
+		"t-1 usage: worker 3.4M · reviewer 500k",
+		"t-2 usage: worker 0  (1 unreadable)",
+	}
+	if len(lines) < 5 || !reflect.DeepEqual(lines[2:5], want) {
+		t.Fatalf("usage lines = %q, want %q after the report line", lines, want)
+	}
+	rtn.Digest.Report.Usage = nil
+	if joined := strings.Join(dagStatusLines(rtn, 0), "\n"); strings.Contains(joined, "usage") {
+		t.Fatalf("a dag with no total yet prints none:\n%s", joined)
+	}
+}
+
+func TestCompactTokens(t *testing.T) {
+	for n, want := range map[int]string{0: "0", 999: "999", 1_000: "1k", 38_499: "38k", 142_500: "143k", 1_000_000: "1.0M", 3_449_600: "3.4M"} {
+		if got := compactTokens(n); got != want {
+			t.Errorf("compactTokens(%d) = %q, want %q", n, got, want)
+		}
+	}
+}
+
 func TestDagRulesTextOnlyForTheLead(t *testing.T) {
 	st := &wshrpc.CommandDagStatusRtnData{Group: &waveobj.TaskGroup{RunID: "lead-run", PlanPath: "C:/p/plan.md", SpecPath: "C:/p/spec.md"}}
 	lead := &wshrpc.CommandJarvisCtxRtnData{ChannelId: "ch", RunId: "lead-run", DagOID: "dag-1"}

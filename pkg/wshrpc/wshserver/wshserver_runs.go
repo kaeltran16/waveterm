@@ -223,6 +223,7 @@ func spawnRunWorkersWithPrompt(ctx context.Context, channelId, runId, projectNam
 				if idx >= 0 && idx < len(r.Phases) {
 					r.Phases[idx].WorkerOrefs = append(r.Phases[idx].WorkerOrefs, w.ORef)
 					r.SessionId = w.SessionId
+					r.LeadSessionIds = append(r.LeadSessionIds, w.SessionId)
 				}
 			}
 			return nil

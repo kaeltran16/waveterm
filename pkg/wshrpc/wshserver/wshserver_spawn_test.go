@@ -5,6 +5,7 @@ package wshserver
 
 import (
 	"context"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -101,5 +102,50 @@ func TestSpawnRunWorkers_RecordsTheWorkersSessionId(t *testing.T) {
 	}
 	if launchedWith == "" || out.SessionId != launchedWith {
 		t.Fatalf("launched with session %q, run records %q; want one id in both", launchedWith, out.SessionId)
+	}
+}
+
+// A relaunched lead replaces the run's session id, but the dead lead's session spent tokens on the run too, so
+// every session the run's lead was launched under stays recorded.
+func TestSpawnRunWorkers_RecordsEveryLeadSession(t *testing.T) {
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "spawn-relaunch", "/repo")
+	if err != nil {
+		t.Fatalf("CreateChannel: %v", err)
+	}
+	run := jarvis.NewRun("ship it", "ws-id", "/repo", nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
+	run.Runtime = "pi"
+	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
+		t.Fatalf("AppendRun: %v", err)
+	}
+	var launched []string
+	origSpawn := jarvis.SpawnRunWorker
+	jarvis.SpawnRunWorker = func(_ context.Context, _ runroute.Capability, _, _, _, _ string, opts jarvis.RunWorkerOptions) (string, error) {
+		launched = append(launched, opts.SessionId)
+		return waveobj.MakeORef(waveobj.OType_Tab, "leadtab").String(), nil
+	}
+	defer func() { jarvis.SpawnRunWorker = origSpawn }()
+
+	for i := 0; i < 2; i++ {
+		if err := spawnRunWorkers(ctx, ch.OID, run.ID, ch.Name); err != nil {
+			t.Fatalf("spawnRunWorkers: %v", err)
+		}
+		// what a relaunch does first: drop the dead lead's tab so the phase spawns again
+		if err := wstore.UpdateRun(ctx, ch.OID, run.ID, func(r *waveobj.Run) error {
+			for j := range r.Phases {
+				r.Phases[j].WorkerOrefs = nil
+			}
+			return nil
+		}); err != nil {
+			t.Fatalf("UpdateRun: %v", err)
+		}
+	}
+
+	out, err := wstore.GetRun(ctx, ch.OID, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if len(launched) != 2 || !slices.Equal(out.LeadSessionIds, launched) || out.SessionId != launched[1] {
+		t.Fatalf("launched %q; run records sessions %q and last %q", launched, out.LeadSessionIds, out.SessionId)
 	}
 }

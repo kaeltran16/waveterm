@@ -540,6 +540,9 @@ func runsShowLines(ch *waveobj.Channel, r *waveobj.Run, digest *wshrpc.CommandDa
 	case r.BaseCommit != "":
 		lines = append(lines, "base     "+runsShort(r.BaseCommit))
 	}
+	if usage := runsUsage(r, digest); len(usage) > 0 {
+		lines = append(lines, "usage    "+usageTotals(usage, usageLabels))
+	}
 	if digest != nil {
 		lines = append(lines, "")
 		lines = append(lines, dagStatusLines(digest, now)...)
@@ -554,6 +557,17 @@ func runsShowLines(ch *waveobj.Channel, r *waveobj.Run, digest *wshrpc.CommandDa
 		lines = append(lines, "", "report", report)
 	}
 	return lines
+}
+
+// runsUsage is the sealed total, which counts the lead's wrap-up, else the one the dag took when it finished
+func runsUsage(r *waveobj.Run, digest *wshrpc.CommandDagStatusRtnData) []waveobj.UsageRow {
+	if r.Evidence != nil && len(r.Evidence.Usage) > 0 {
+		return r.Evidence.Usage
+	}
+	if digest != nil {
+		return digest.Digest.Report.Usage
+	}
+	return nil
 }
 
 // runsReport is the sealed summary, else the lead's report, which is what the seal is derived from

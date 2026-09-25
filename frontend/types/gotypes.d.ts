@@ -1973,6 +1973,7 @@ declare global {
         unverifiednotes?: DagUnverifiedNote[];
         answered: number;
         forwarded: number;
+        usage?: UsageRow[];
     };
 
     // wshrpc.DagStatusCounts
@@ -2895,6 +2896,7 @@ declare global {
         effortref?: RunEffortRef;
         dagoref?: string;
         sessionid?: string;
+        leadsessionids?: string[];
         taskid?: string;
         review?: boolean;
         branch?: string;
@@ -2943,6 +2945,7 @@ declare global {
         durationms: number;
         harness?: string;
         model?: string;
+        usage?: UsageRow[];
     };
 
     // waveobj.RunPhase
@@ -3397,6 +3400,7 @@ declare global {
         plangate?: boolean;
         planapprovedts?: number;
         notifiedcondition?: string;
+        usage?: UsageRow[];
         verify?: string;
         setup?: string;
         check?: string;
@@ -3539,6 +3543,20 @@ declare global {
         cachecreate1h: number;
         reportedcostusd?: number;
         msgs: number;
+    };
+
+    // waveobj.UsageRow
+    type UsageRow = {
+        role: string;
+        taskid?: string;
+        model?: string;
+        input: number;
+        output: number;
+        cacheread: number;
+        cachewrite: number;
+        cachewrite1h: number;
+        msgs: number;
+        missing?: boolean;
     };
 
     // userinput.UserInputRequest

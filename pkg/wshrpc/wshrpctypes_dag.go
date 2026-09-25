@@ -157,6 +157,10 @@ type DagReportDigest struct {
 	UnverifiedNotes []DagUnverifiedNote `json:"unverifiednotes,omitempty"`
 	Answered        int                 `json:"answered"`  // child questions answered, by the lead or the human
 	Forwarded       int                 `json:"forwarded"` // judgments handed to the human
+
+	// Usage is the run's tokens per session and model, set once the dag is done. In its own block so its
+	// wider type does not realign the fields above it.
+	Usage []waveobj.UsageRow `json:"usage,omitempty"`
 }
 
 type DagLandedCommit struct {

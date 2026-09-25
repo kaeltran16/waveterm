@@ -488,6 +488,10 @@ func SealEvidence(ctx context.Context, run *waveobj.Run) error {
 		RuntimeMs:  activeSpanMs(run),
 		DurationMs: completedTs - run.CreatedTs,
 	}
+	// recomputed here rather than copied from the dag, whose total froze before the lead wrote its report
+	if run.DagORef != "" && UsageRole(run) == UsageRole_Lead {
+		ev.Usage = RunUsage(ctx, run, DagChildRuns(ctx, run.ChannelOID, run.DagORef, run.ID))
+	}
 	ev.Harness, ev.Model = evidenceRoute(run, observedModelFn(run))
 	ev.Hash = evidenceHash(ev)
 	run.Evidence = &ev

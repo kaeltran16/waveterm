@@ -663,7 +663,7 @@ func buildDurations(sn DagDigestSnapshot) wshrpc.DagDurationDigest {
 // Durations, so the two cannot disagree.
 func buildReport(sn DagDigestSnapshot, durations wshrpc.DagDurationDigest) wshrpc.DagReportDigest {
 	g := sn.Group
-	r := wshrpc.DagReportDigest{Unverified: !g.MergeRequired || g.Verify == ""}
+	r := wshrpc.DagReportDigest{Unverified: !g.MergeRequired || g.Verify == "", Usage: g.Usage}
 	for _, td := range durations.Tasks {
 		r.WorkerMs += td.RunMs
 	}

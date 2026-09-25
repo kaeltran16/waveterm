@@ -292,6 +292,10 @@ type Run struct {
 	// worker's transcript is named by it, so liveness and evidence open that file. Empty for runs the
 	// engine did not launch.
 	SessionId string `json:"sessionid,omitempty"`
+	// LeadSessionIds is every session a lead was launched under, oldest first. A relaunched lead replaces
+	// SessionId and its dead predecessor's tab is dropped from the phase, so this is the only record that
+	// the earlier sessions spent tokens on the run.
+	LeadSessionIds []string `json:"leadsessionids,omitempty"`
 	// TaskId is the dag task a child run works, and Review marks the child that reviews it. The task's own
 	// links (TaskNode.RunID, ReviewRunID) move on at a retry or a verdict, so an earlier attempt or a finished
 	// reviewer is placed only by these. Empty for runs the engine did not launch.
@@ -448,6 +452,9 @@ type TaskGroup struct {
 	// rewiden the alignment of every field above it.
 	NotifiedCondition string `json:"notifiedcondition,omitempty"`
 
+	// Usage is the run's tokens per session and model (jarvis.RunUsage), totalled once when the dag is done.
+	Usage []UsageRow `json:"usage,omitempty"`
+
 	// Verify, Setup and Check are the plan's commands (jarvis.PlanFormat). Setup runs in each new task
 	// worktree before its worker spawns; Verify runs in the project checkout after each squash merge; Check
 	// is a fast whole-project static check each worker runs itself instead of Verify. All three are empty
@@ -491,6 +498,22 @@ type RunEvidence struct {
 	DurationMs int64              `json:"durationms"`        // wall clock (CompletedTs - CreatedTs)
 	Harness    string             `json:"harness,omitempty"` // the runtime that ran the work
 	Model      string             `json:"model,omitempty"`   // the model the transcript reports, else the route's pin; empty when neither is known
+	Usage      []UsageRow         `json:"usage,omitempty"`   // a dag owner's tokens per session and model, the lead's wrap-up included
+}
+
+// UsageRow is one session's tokens on one model, for a run's per-role totals. Tokens only: prices stay in
+// the frontend's single price table.
+type UsageRow struct {
+	Role         string `json:"role"` // lead | worker | reviewer | plan-reviewer | verifier
+	TaskId       string `json:"taskid,omitempty"`
+	Model        string `json:"model,omitempty"`
+	Input        int    `json:"input"`
+	Output       int    `json:"output"`
+	CacheRead    int    `json:"cacheread"`
+	CacheWrite   int    `json:"cachewrite"` // 5-minute writes
+	CacheWrite1h int    `json:"cachewrite1h"`
+	Msgs         int    `json:"msgs"`
+	Missing      bool   `json:"missing,omitempty"` // the transcript could not be read
 }
 
 type EvidenceFile struct {

@@ -6,6 +6,7 @@ package orchestrate
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -247,6 +248,23 @@ func TestRunFinishedWakesLeadOnce(t *testing.T) {
 	// the worker reported no commit, so the wake carries that quiet line ahead of its own
 	if len(f.sends) != 1 || !strings.HasSuffix(f.sends[0], runFinishedWake) {
 		t.Fatalf("the finished run wakes the lead once, got %q", f.sends)
+	}
+}
+
+// The dag totals its tokens once it is done: the worker, whose transcript this harness never writes, is
+// still a row, marked missing rather than dropped.
+func TestRunFinishedTotalsUsageOnTheDag(t *testing.T) {
+	newFakeLead(t)
+	h := newNotifyHarness(t, 1, []waveobj.TaskNode{{ID: "t-0", Label: "a"}})
+	if got := h.loadDag(t).Usage; got != nil {
+		t.Fatalf("usage before the dag is done = %+v, want none", got)
+	}
+	h.finishTask(t, "t-0", jarvis.RunStatus_Done)
+	h.scheduleTimes(t, 1)
+
+	want := []waveobj.UsageRow{{Role: "worker", TaskId: "t-0", Missing: true}}
+	if got := h.loadDag(t).Usage; !reflect.DeepEqual(got, want) {
+		t.Errorf("usage = %+v, want %+v", got, want)
 	}
 }
 

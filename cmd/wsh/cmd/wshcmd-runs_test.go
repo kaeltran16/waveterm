@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -215,6 +216,36 @@ func TestRunsShowLines(t *testing.T) {
 	out = strings.Join(runsShowLines(ch, run, nil, 2), "\n")
 	if !strings.Contains(out, "sealed summary") || strings.Contains(out, "lead report") || !strings.Contains(out, "1 files  +4 -0") {
 		t.Fatalf("a sealed run must show its sealed summary:\n%s", out)
+	}
+}
+
+// show prints the sealed total when there is one, since it counts the lead's wrap-up, else the dag's
+func TestRunsShowLinesPrintsUsage(t *testing.T) {
+	ch := &waveobj.Channel{OID: "ch-1", Name: "waveterm"}
+	run := &waveobj.Run{ID: "r-1", Status: "executing", Mode: "orchestrator"}
+	digest := &wshrpc.CommandDagStatusRtnData{
+		Group: &waveobj.TaskGroup{ID: "dag-1", Status: "done"},
+		Digest: wshrpc.DagStatusDigest{Report: wshrpc.DagReportDigest{Usage: []waveobj.UsageRow{
+			{Role: "lead", Input: 1_000_000},
+			{Role: "worker", TaskId: "t-1", Output: 3_400_000},
+			{Role: "reviewer", TaskId: "t-1", CacheRead: 500_000},
+		}}},
+	}
+	lines := runsShowLines(ch, run, digest, 2)
+	if !slices.Contains(lines, "usage    lead 1.0M · workers 3.4M · reviewers 500k") {
+		t.Fatalf("show must print the dag's usage:\n%s", strings.Join(lines, "\n"))
+	}
+	run.Evidence = &waveobj.RunEvidence{Usage: []waveobj.UsageRow{
+		{Role: "lead", Input: 1_200_000},
+		{Role: "worker", TaskId: "t-1", Output: 3_400_000},
+		{Role: "reviewer", TaskId: "t-1", CacheRead: 500_000},
+	}}
+	lines = runsShowLines(ch, run, digest, 2)
+	if !slices.Contains(lines, "usage    lead 1.2M · workers 3.4M · reviewers 500k") {
+		t.Fatalf("a sealed run must print its sealed usage:\n%s", strings.Join(lines, "\n"))
+	}
+	if lines = runsShowLines(ch, &waveobj.Run{ID: "r-2"}, nil, 2); slices.ContainsFunc(lines, func(l string) bool { return strings.HasPrefix(l, "usage") }) {
+		t.Fatalf("a run with no total prints none:\n%s", strings.Join(lines, "\n"))
 	}
 }
 
