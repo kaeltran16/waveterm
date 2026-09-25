@@ -543,6 +543,10 @@ func (router *WshRouter) runLinkClientRecvLoop(linkId baseds.LinkId, client Abst
 		msgBytes, ok := client.RecvRpcMessage()
 		if !ok {
 			exitReason = "recv-eof"
+			// the client's input closed, so the connection is gone. Unregister here rather than
+			// trusting every teardown path to: a link left registered keeps receiving replies, and a
+			// failed send is backlogged and retried every 50ms for the server's lifetime.
+			router.UnregisterLink(linkId)
 			break
 		}
 		var rpcMsg RpcMessage

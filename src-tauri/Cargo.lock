@@ -4266,6 +4266,7 @@ dependencies = [
 name = "wave-tauri"
 version = "0.14.21"
 dependencies = [
+ "chrono",
  "open",
  "regex",
  "serde",

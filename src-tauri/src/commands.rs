@@ -1,3 +1,4 @@
+use crate::applog::log_line;
 use tauri::{AppHandle, Emitter};
 
 // Phase 1 minimal wave-init payload — proves the Rust→FE event round-trip.
@@ -14,7 +15,7 @@ pub struct WaveInitOpts {
 
 #[tauri::command]
 pub fn set_window_init_status(app: AppHandle, status: String) {
-    println!("[init-status] {}", status);
+    log_line(&format!("[init-status] {}", status));
     if status == "ready" {
         let opts = WaveInitOpts {
             tab_id: String::new(),
@@ -23,7 +24,7 @@ pub fn set_window_init_status(app: AppHandle, status: String) {
             activate: true,
         };
         if let Err(e) = app.emit("wave-init", opts) {
-            eprintln!("[init-status] emit wave-init failed: {}", e);
+            log_line(&format!("[init-status] emit wave-init failed: {}", e));
         }
     }
 }
@@ -46,14 +47,14 @@ fn is_allowed_external_url(url: &str) -> bool {
 #[tauri::command]
 pub fn open_external(url: String) {
     if !is_allowed_external_url(&url) {
-        eprintln!(
+        log_line(&format!(
             "[open-external] rejected URL with non-allowlisted scheme: {}",
             url
-        );
+        ));
         return;
     }
     if let Err(e) = open::that(&url) {
-        eprintln!("[open-external] failed to open {}: {}", url, e);
+        log_line(&format!("[open-external] failed to open {}: {}", url, e));
     }
 }
 

@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod applog;
 mod estart;
 mod init;
 mod commands;
@@ -84,13 +85,20 @@ fn spawn_wavesrv(
                 d.web_endpoint = info.web;
                 d.version = info.version;
                 d.build_time = info.buildtime;
-                println!("[tauri] wavesrv ready: {:?}", *d);
+                // not {:?} of InitData: it carries the auth key, and this line is persisted
+                applog::log_line(&format!(
+                    "[tauri] wavesrv ready: ws={} web={} version={} build={}",
+                    d.ws_endpoint, d.web_endpoint, d.version, d.build_time
+                ));
                 drop(d); // release before waking get_init so it doesn't re-block on the lock
                 ready.notify_all();
             } else {
-                println!("[wavesrv] {}", line);
+                // wavesrv prefixes its own lines with "[wavesrv] " (log.SetPrefix)
+                applog::log_line(&line);
             }
         }
+        // eof on stderr means wavesrv exited; without this line a backend crash leaves no trace
+        applog::log_line("[tauri] wavesrv stderr closed");
     });
 
     Ok(child)
@@ -156,7 +164,7 @@ fn find_wsh_binary(bin_dir: &std::path::Path) -> Option<PathBuf> {
 fn install_agent_hooks(app_path: &std::path::Path) {
     let bin = app_path.join("bin");
     let Some(wsh) = find_wsh_binary(&bin) else {
-        println!("[tauri] wsh not found under {:?}; skipping hook install", bin);
+        applog::log_line(&format!("[tauri] wsh not found under {:?}; skipping hook install", bin));
         return;
     };
     let mut cmd = Command::new(&wsh);
@@ -170,8 +178,8 @@ fn install_agent_hooks(app_path: &std::path::Path) {
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
     match cmd.spawn() {
-        Ok(_) => println!("[tauri] triggered agent-hooks install via {:?}", wsh),
-        Err(e) => println!("[tauri] agent-hooks install spawn failed: {}", e),
+        Ok(_) => applog::log_line(&format!("[tauri] triggered agent-hooks install via {:?}", wsh)),
+        Err(e) => applog::log_line(&format!("[tauri] agent-hooks install spawn failed: {}", e)),
     }
 }
 
@@ -225,8 +233,9 @@ fn main() {
             // resource_dir() only matters when packaged; avoid calling it in dev.
             let resource_dir = if is_dev { PathBuf::new() } else { app.path().resource_dir()? };
             let app_path = paths::resolve_app_path(is_dev, manifest_dir, &resource_dir);
-            install_agent_hooks(&app_path);
             let data_base = paths::data_base_for(&app.path().app_local_data_dir()?, is_dev);
+            applog::init(&paths::data_home_dirs(&data_base).0);
+            install_agent_hooks(&app_path);
             let child = spawn_wavesrv(
                 auth_key.clone(),
                 app_path,
@@ -234,7 +243,7 @@ fn main() {
                 app.state::<InitState>(),
             )
             .map_err(|e| {
-                eprintln!("[tauri] {}", e);
+                applog::log_line(&format!("[tauri] {}", e));
                 e
             })?;
             // Safety net for the Ctrl+C path RunEvent::Exit can't catch: bind wavesrv's lifetime to

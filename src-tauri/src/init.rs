@@ -58,7 +58,7 @@ pub fn get_init(state: tauri::State<InitState>) -> InitData {
 // the WebView2 console isn't observable from the dev loop, so logs land in the Rust console.
 #[tauri::command]
 pub fn fe_log(msg: String) {
-    println!("[fe-log] {}", msg);
+    crate::applog::log_line(&format!("[fe-log] {}", msg));
 }
 
 #[cfg(test)]

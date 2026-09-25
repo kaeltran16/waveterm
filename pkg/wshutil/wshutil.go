@@ -15,7 +15,6 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
@@ -325,8 +324,10 @@ func HandleStdIOClient(logName string, input chan utilfn.LineOutput, output io.W
 }
 
 func handleDomainSocketClient(conn net.Conn, readCallback func()) {
-	var linkIdContainer atomic.Int32
 	proxy := MakeRpcProxy("domain")
+	// register before the reader starts: a client that disconnects at once must still find its link
+	// id at teardown, or the link outlives the connection
+	linkId := DefaultRouter.RegisterUntrustedLink(proxy)
 	go func() {
 		defer func() {
 			panichandler.PanicHandler("handleDomainSocketClient:AdaptOutputChToStream", recover())
@@ -343,17 +344,13 @@ func handleDomainSocketClient(conn net.Conn, readCallback func()) {
 		}()
 		defer func() {
 			conn.Close()
+			// unregister before closing ToRemoteCh so no reply is routed into a closed channel
+			DefaultRouter.UnregisterLink(linkId)
 			close(proxy.FromRemoteCh)
 			close(proxy.ToRemoteCh)
-			linkId := linkIdContainer.Load()
-			if linkId != baseds.NoLinkId {
-				DefaultRouter.UnregisterLink(baseds.LinkId(linkId))
-			}
 		}()
 		AdaptStreamToMsgCh(conn, proxy.FromRemoteCh, readCallback)
 	}()
-	linkId := DefaultRouter.RegisterUntrustedLink(proxy)
-	linkIdContainer.Store(int32(linkId))
 }
 
 // only for use on client
