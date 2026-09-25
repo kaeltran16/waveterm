@@ -250,6 +250,21 @@ func HeadCommit(ctx context.Context, cwd string) (string, error) {
 	return strings.TrimSpace(out), nil
 }
 
+// CurrentBranch returns the branch checked out in cwd, or "" on a detached HEAD. Errors when cwd is not
+// a repo or HEAD is unborn.
+func CurrentBranch(ctx context.Context, cwd string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
+	defer cancel()
+	out, err := run(ctx, cwd, "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	if branch := strings.TrimSpace(out); branch != "HEAD" {
+		return branch, nil
+	}
+	return "", nil
+}
+
 // CommitBefore resolves the commit that was HEAD at the given time — the newest first-parent commit
 // on HEAD's history with committer-date at or before beforeUnixSec. It anchors an agent's live diff
 // to its session start, so the diff reflects only that session's work (commits since start +

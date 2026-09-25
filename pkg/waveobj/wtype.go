@@ -268,6 +268,7 @@ type Run struct {
 	WorkspaceId string          `json:"workspaceid"`          // where phase-worker tabs are created (frontend supplies at CreateRun)
 	ProjectPath string          `json:"projectpath"`          // worker cwd (copied from the channel)
 	LandPath    string          `json:"landpath,omitempty"`   // tree the engine lands lanes in (a wave/<runId> worktree); empty = ProjectPath
+	BaseBranch  string          `json:"basebranch,omitempty"` // branch ProjectPath had checked out at run creation, which the run merges back into; empty = detached HEAD
 	BaseCommit  string          `json:"basecommit,omitempty"` // HEAD of ProjectPath at run creation; anchors the evidence diff
 	EndCommit   string          `json:"endcommit,omitempty"`  // commit the worker reported as its finished work; scopes the evidence diff to BaseCommit..EndCommit (else falls back to the working-tree diff)
 	Report      string          `json:"report,omitempty"`     // lead's final report, sent with `wsh jarvis complete --report <file>`; the only way it survives the engine closing the lead's tab mid-turn on complete
@@ -595,7 +596,7 @@ type JarvisProfile struct {
 	Parallelism int `json:"parallelism,omitempty"`
 	// WorkerRoute is the default route for engine children of a new run (nil = inherit the lead).
 	WorkerRoute *RoutePin `json:"workerroute,omitempty"`
-	// Landing is where an engine run's lanes land: checkout | branch (empty = checkout).
+	// Landing is where an engine run's lanes land: checkout | branch (empty = branch).
 	Landing string `json:"landing,omitempty"`
 }
 

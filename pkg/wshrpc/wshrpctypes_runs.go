@@ -32,6 +32,7 @@ type CommandCreateRunData struct {
 	Parallelism   int                     `json:"parallelism,omitempty"`   // engine width the user picked in the Run rail; 0 = let the lead choose
 	PlaybookId    string                  `json:"playbookid,omitempty"`
 	Mode          string                  `json:"mode,omitempty"`        // quick | pipeline | orchestrator (empty = resolved profile default)
+	Landing       string                  `json:"landing,omitempty"`     // branch | checkout for an engine run; wins over the profile (empty = the profile's, else branch)
 	RadarOrigin   *waveobj.RunRadarOrigin `json:"radarorigin,omitempty"` // set when started from a Radar finding
 	EffortOID     string                  `json:"effortoid,omitempty"`   // optional effort tracker link (composer picker)
 	ChunkLabel    string                  `json:"chunklabel,omitempty"`

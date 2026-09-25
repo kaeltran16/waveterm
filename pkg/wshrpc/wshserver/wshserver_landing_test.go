@@ -237,6 +237,82 @@ func TestCreateRunLandsOnItsOwnBranch(t *testing.T) {
 	}
 }
 
+// the run's own --landing wins over the profile, a landing no one chose is a branch, and the run records
+// the branch it will merge back into
+func TestCreateRunLandingRequest(t *testing.T) {
+	ctx := context.Background()
+	create := func(t *testing.T, projectDir, requested string, profile *string) (*waveobj.Channel, *waveobj.Run, error) {
+		t.Helper()
+		stubRunServer(t, "pi", nil)
+		ch, err := wstore.CreateChannel(ctx, "landing-request", projectDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if profile != nil {
+			seedProfileMeta(t, ctx, ch.OID, &waveobj.ProfileOverride{Landing: profile})
+		}
+		rtn, err := (&WshServer{}).CreateRunCommand(ctx, wshrpc.CommandCreateRunData{
+			ChannelId: ch.OID, WorkspaceId: "ws", Goal: "g", Runtime: "pi", Mode: jarvis.RunMode_Orchestrator,
+			DeferStart: true, Landing: requested,
+		})
+		if err != nil {
+			return ch, nil, err
+		}
+		return ch, rtn.Run, nil
+	}
+
+	t.Run("an unknown landing is refused before anything persists", func(t *testing.T) {
+		projectDir, _ := newLandingRepo(t)
+		ch, _, err := create(t, projectDir, "sideways", nil)
+		if err == nil || !strings.Contains(err.Error(), "unknown landing") {
+			t.Fatalf("error %v should refuse the landing", err)
+		}
+		if runs, _ := wstore.GetChannelRuns(ctx, ch.OID); len(runs) != 0 {
+			t.Fatalf("a refused landing left runs behind: %+v", runs)
+		}
+	})
+
+	t.Run("no landing anywhere lands on a branch", func(t *testing.T) {
+		projectDir, _ := newLandingRepo(t)
+		_, run, err := create(t, projectDir, "", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if run.LandPath != filepath.Join(projectDir, ".waveterm", "worktrees", run.ID) {
+			t.Fatalf("landpath = %q, want the run's own tree", run.LandPath)
+		}
+		if run.BaseBranch != "main" {
+			t.Fatalf("basebranch = %q, want main", run.BaseBranch)
+		}
+	})
+
+	t.Run("a requested checkout wins over a branch profile", func(t *testing.T) {
+		projectDir, _ := newLandingRepo(t)
+		_, run, err := create(t, projectDir, jarvis.Landing_Checkout, strPtr(jarvis.Landing_Branch))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if run.LandPath != "" {
+			t.Fatalf("landpath = %q, want the checkout", run.LandPath)
+		}
+	})
+
+	t.Run("a detached head records no base branch", func(t *testing.T) {
+		projectDir, execGit := newLandingRepo(t)
+		execGit("checkout", "--detach")
+		_, run, err := create(t, projectDir, "", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if run.BaseBranch != "" {
+			t.Fatalf("basebranch = %q, want empty on a detached head", run.BaseBranch)
+		}
+		if run.LandPath == "" {
+			t.Fatal("a detached run still lands on its own branch")
+		}
+	})
+}
+
 func TestCreateRunLandingLeavesLandPathEmpty(t *testing.T) {
 	ctx := context.Background()
 	cases := []struct {
@@ -246,7 +322,6 @@ func TestCreateRunLandingLeavesLandPathEmpty(t *testing.T) {
 		landing *string
 	}{
 		{"checkout landing", true, jarvis.RunMode_Orchestrator, strPtr(jarvis.Landing_Checkout)},
-		{"no landing set", true, jarvis.RunMode_Orchestrator, nil},
 		{"quick run", true, jarvis.RunMode_Quick, strPtr(jarvis.Landing_Branch)},
 		{"not a git project", false, jarvis.RunMode_Orchestrator, strPtr(jarvis.Landing_Branch)},
 	}
@@ -300,7 +375,7 @@ func TestSetChannelProfileRejectsUnknownLanding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateChannel: %v", err)
 	}
-	// an empty override would read as inheriting in the modal and as checkout on the server
+	// an empty override would read as inheriting in the modal and as branch on the server
 	for _, landing := range []string{"elsewhere", ""} {
 		if err := (&WshServer{}).SetChannelProfileCommand(ctx, wshrpc.CommandSetChannelProfileData{
 			ChannelId: ch.OID, Override: &waveobj.ProfileOverride{Landing: strPtr(landing)},

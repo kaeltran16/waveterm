@@ -311,6 +311,9 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 		}
 		data.Orchestration = jarvis.Orchestration_Engine
 	}
+	if err := jarvis.ValidateLanding(data.Landing); err != nil {
+		return nil, err
+	}
 	if data.ChannelId == "" || data.WorkspaceId == "" || data.Goal == "" {
 		return nil, fmt.Errorf("channelid, workspaceid and goal are required")
 	}
@@ -381,6 +384,8 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 	// non-fatal — an unborn/absent repo just leaves BaseCommit "" and the diff falls back to HEAD.
 	if head, herr := gitinfo.HeadCommit(ctx, ch.ProjectPath); herr == nil {
 		run.BaseCommit = head
+		// the branch the run merges back into; a detached head has none, so its run is never merged back
+		run.BaseBranch, _ = gitinfo.CurrentBranch(ctx, ch.ProjectPath)
 	}
 	run.RadarOrigin = data.RadarOrigin // nil for normal runs; set only from a Radar handoff
 	run.EffortRef = effortRef
@@ -394,7 +399,7 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 	// lifecycle log seeded before worker spawn, so a spawn failure still shows the run was created.
 	appendRunEvent(ctx, data.ChannelId, run.ID, waveobj.RunEventKindCreated, nil, map[string]any{"runtime": run.Runtime, "mode": run.Mode})
 	// an unborn repo has no base to branch from, and a non-git project has no lanes to land
-	if engineLaunch && resolved.Landing == jarvis.Landing_Branch && run.BaseCommit != "" {
+	if engineLaunch && jarvis.EffectiveLanding(data.Landing, resolved.Landing) == jarvis.Landing_Branch && run.BaseCommit != "" {
 		if err := landRunOnBranch(ctx, data.ChannelId, &run); err != nil {
 			// a run that asked for its own branch must not fall back to landing in the checkout
 			if cerr := ws.CancelRunCommand(ctx, wshrpc.CommandCancelRunData{ChannelId: data.ChannelId, RunId: run.ID}); cerr != nil {

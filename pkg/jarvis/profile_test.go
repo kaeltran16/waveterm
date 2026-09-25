@@ -329,6 +329,21 @@ func TestValidateLanding(t *testing.T) {
 	}
 }
 
+// a run's own request wins over the profile, and a landing no one chose is a branch
+func TestEffectiveLanding(t *testing.T) {
+	cases := []struct{ requested, profile, want string }{
+		{"", "", Landing_Branch},
+		{"", Landing_Checkout, Landing_Checkout},
+		{Landing_Checkout, Landing_Branch, Landing_Checkout},
+		{Landing_Branch, Landing_Checkout, Landing_Branch},
+	}
+	for _, c := range cases {
+		if got := EffectiveLanding(c.requested, c.profile); got != c.want {
+			t.Errorf("EffectiveLanding(%q, %q) = %q, want %q", c.requested, c.profile, got, c.want)
+		}
+	}
+}
+
 func TestSaveGlobalProfileRejectsUnknownLanding(t *testing.T) {
 	dir := t.TempDir()
 	withConfigHome(t, dir)

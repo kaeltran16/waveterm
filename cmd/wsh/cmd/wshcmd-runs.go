@@ -104,6 +104,7 @@ func init() {
 	f.String("worker-runtime", "", "orchestrator worker harness (default: the lead's)")
 	f.String("worker-model", "", "orchestrator worker model id (needs --worker-runtime)")
 	f.Int("parallelism", 0, "orchestrator width (default: the project's profile)")
+	f.String("landing", "", "branch|checkout: where an orchestrator run commits (default: the project's profile, else branch)")
 	f.String("effort", "", "initiative to attach the run to (id from 'wsh effort list')")
 	f.String("chunk", "", "the initiative's chunk: its label or 1-based number")
 	f.Bool("json", false, "JSON output")
@@ -134,7 +135,7 @@ func runsStartRun(cmd *cobra.Command, args []string) error {
 	flag := func(name string) string { v, _ := cmd.Flags().GetString(name); return v }
 	parallelism, _ := cmd.Flags().GetInt("parallelism")
 	opts := runsStartOpts{
-		goal: goal, mode: flag("mode"), plan: flag("plan"), parallelism: parallelism,
+		goal: goal, mode: flag("mode"), plan: flag("plan"), parallelism: parallelism, landing: flag("landing"),
 		workerRuntime: flag("worker-runtime"), workerModel: flag("worker-model"),
 		effort: flag("effort"), chunk: flag("chunk"),
 	}
@@ -174,6 +175,7 @@ func runsStartRun(cmd *cobra.Command, args []string) error {
 type runsStartOpts struct {
 	goal, mode, plan           string
 	parallelism                int
+	landing                    string
 	workerRuntime, workerModel string
 	effort, chunk              string
 }
@@ -198,8 +200,8 @@ func runsStartData(o runsStartOpts) (wshrpc.CommandCreateRunData, error) {
 		return s, fmt.Errorf("pass a goal, or --plan <plan.md>")
 	}
 	engine := mode == jarvis.RunMode_Orchestrator
-	if !engine && (o.parallelism != 0 || o.workerRuntime != "" || o.workerModel != "") {
-		return s, fmt.Errorf("--parallelism and --worker-runtime/--worker-model need an orchestrator run")
+	if !engine && (o.parallelism != 0 || o.landing != "" || o.workerRuntime != "" || o.workerModel != "") {
+		return s, fmt.Errorf("--parallelism, --landing and --worker-runtime/--worker-model need an orchestrator run")
 	}
 	if o.workerModel != "" && o.workerRuntime == "" {
 		return s, fmt.Errorf("--worker-model needs --worker-runtime")
@@ -208,7 +210,7 @@ func runsStartData(o runsStartOpts) (wshrpc.CommandCreateRunData, error) {
 	if (effort == "") != (o.chunk == "") {
 		return s, fmt.Errorf("--effort and --chunk go together")
 	}
-	s.Goal, s.Mode, s.PlanPath, s.Parallelism = o.goal, mode, o.plan, o.parallelism
+	s.Goal, s.Mode, s.PlanPath, s.Parallelism, s.Landing = o.goal, mode, o.plan, o.parallelism, o.landing
 	if o.workerRuntime != "" {
 		s.WorkerRoute = &waveobj.RoutePin{Runtime: o.workerRuntime, Model: o.workerModel}
 	}

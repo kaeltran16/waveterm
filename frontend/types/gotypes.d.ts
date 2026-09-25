@@ -661,6 +661,7 @@ declare global {
         parallelism?: number;
         playbookid?: string;
         mode?: string;
+        landing?: string;
         radarorigin?: RunRadarOrigin;
         effortoid?: string;
         chunklabel?: string;
@@ -2870,6 +2871,7 @@ declare global {
         workspaceid: string;
         projectpath: string;
         landpath?: string;
+        basebranch?: string;
         basecommit?: string;
         endcommit?: string;
         report?: string;

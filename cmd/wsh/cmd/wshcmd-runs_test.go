@@ -39,6 +39,12 @@ func TestRunsStartData(t *testing.T) {
 		{name: "deleted pipeline mode is refused", opts: runsStartOpts{goal: "g", mode: "pipeline"}, wantErr: "--mode must be quick or orchestrator"},
 		{name: "needs a goal or a plan", opts: runsStartOpts{}, wantErr: "pass a goal"},
 		{name: "parallelism needs orchestrator", opts: runsStartOpts{goal: "g", parallelism: 3}, wantErr: "need an orchestrator run"},
+		{name: "landing needs orchestrator", opts: runsStartOpts{goal: "g", landing: jarvis.Landing_Checkout}, wantErr: "need an orchestrator run"},
+		{name: "landing is sent", opts: runsStartOpts{goal: "g", mode: jarvis.RunMode_Orchestrator, landing: jarvis.Landing_Checkout}, check: func(t *testing.T, d wshrpc.CommandCreateRunData) {
+			if d.Landing != jarvis.Landing_Checkout {
+				t.Fatalf("landing = %q, want %q", d.Landing, jarvis.Landing_Checkout)
+			}
+		}},
 		{name: "worker model needs worker runtime", opts: runsStartOpts{goal: "g", mode: jarvis.RunMode_Orchestrator, workerModel: "m"}, wantErr: "--worker-model needs --worker-runtime"},
 		{name: "effort without chunk", opts: runsStartOpts{goal: "g", effort: "e"}, wantErr: "--effort and --chunk go together"},
 		{name: "chunk without effort", opts: runsStartOpts{goal: "g", chunk: "2"}, wantErr: "--effort and --chunk go together"},
