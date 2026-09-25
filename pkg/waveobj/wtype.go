@@ -393,10 +393,12 @@ type TaskNode struct {
 	ReviewRound int `json:"reviewround,omitempty"`
 	// ReviewVerdict (pass | fail), ReviewNote (the summary, the findings, or why the review itself failed),
 	// ReviewDownstream (what later tasks must know, from a pass) and ReviewDownstreamFor (the tasks the reviewer
-	// named for it, which the engine delivers it to) are the latest review's outcome.
+	// named for it, which the engine delivers it to) are the latest review's outcome. ReviewUnverified is a
+	// pass's caveat: a check the task asked for that was not done, printed whole to the lead.
 	ReviewVerdict       string   `json:"reviewverdict,omitempty"`
 	ReviewNote          string   `json:"reviewnote,omitempty"`
 	ReviewDownstream    string   `json:"reviewdownstream,omitempty"`
+	ReviewUnverified    string   `json:"reviewunverified,omitempty"`
 	ReviewDownstreamFor []string `json:"reviewdownstreamfor,omitempty"`
 	// ReviewBase is the commit the task's first reviewed attempt started from, so a fix after a failed round
 	// is judged together with the work it fixes; ReviewCommit is the worker commit the latest verdict judged.

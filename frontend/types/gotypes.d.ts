@@ -701,6 +701,7 @@ declare global {
         runtime?: string;
         notes?: string;
         downstream?: string;
+        unverified?: string;
         downstreamfor?: string[];
     };
 
@@ -1969,6 +1970,7 @@ declare global {
         workerms: number;
         commits?: DagLandedCommit[];
         unverified?: boolean;
+        unverifiednotes?: DagUnverifiedNote[];
         answered: number;
         forwarded: number;
     };
@@ -2020,6 +2022,7 @@ declare global {
         reviewround?: number;
         reviewnote?: string;
         reviewdownstream?: string;
+        reviewunverified?: string;
     };
 
     // wshrpc.DagTaskDuration
@@ -2035,6 +2038,12 @@ declare global {
     type DagTold = {
         taskid: string;
         ts: number;
+        text: string;
+    };
+
+    // wshrpc.DagUnverifiedNote
+    type DagUnverifiedNote = {
+        taskid: string;
         text: string;
     };
 
@@ -3434,6 +3443,7 @@ declare global {
         reviewverdict?: string;
         reviewnote?: string;
         reviewdownstream?: string;
+        reviewunverified?: string;
         reviewdownstreamfor?: string[];
         reviewbase?: string;
         reviewcommit?: string;

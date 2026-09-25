@@ -79,6 +79,7 @@ func withReview(td *wshrpc.DagTaskDigest, t *waveobj.TaskNode, worker *waveobj.R
 	}
 	td.ReviewVerdict, td.ReviewRound = t.ReviewVerdict, t.ReviewRound
 	td.ReviewNote, td.ReviewDownstream = t.ReviewNote, t.ReviewDownstream
+	td.ReviewUnverified = t.ReviewUnverified
 }
 
 // PlanShapeOf is a plan's shape from its tasks. + Run's preview and the run card both read it, so the lanes
@@ -677,6 +678,9 @@ func buildReport(sn DagDigestSnapshot, durations wshrpc.DagDurationDigest) wshrp
 		// a lane lands one squash commit, recorded on its tip; earlier tasks keep the commits they reported
 		if c := endCommit[t.RunID]; t.Merged && c != "" && laneTip(g, laneOf(g, t.ID)).ID == t.ID {
 			r.Commits = append(r.Commits, wshrpc.DagLandedCommit{TaskId: t.ID, Commit: c})
+		}
+		if t.ReviewUnverified != "" {
+			r.UnverifiedNotes = append(r.UnverifiedNotes, wshrpc.DagUnverifiedNote{TaskId: t.ID, Text: t.ReviewUnverified})
 		}
 	}
 	for _, ev := range sn.Retained {

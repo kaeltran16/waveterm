@@ -130,6 +130,10 @@ func dagStatusLines(rtn *wshrpc.CommandDagStatusRtnData, now int64) []string {
 		}
 		lines = append(lines, "landed  "+strings.Join(landed, ", "))
 	}
+	// the run-end report is written from this section, so each reviewer's caveat is here whole
+	for _, n := range d.Report.UnverifiedNotes {
+		lines = append(lines, fmt.Sprintf("unverified  %s: %s", n.TaskId, flatText(n.Text)))
+	}
 	if len(g.Tasks) == 0 {
 		return lines
 	}
@@ -171,6 +175,9 @@ func dagStatusLines(rtn *wshrpc.CommandDagStatusRtnData, now int64) []string {
 		}
 		if td.ReviewNote != "" {
 			lines = append(lines, reviewLine(t.ID, td))
+		}
+		if td.ReviewUnverified != "" {
+			lines = append(lines, fmt.Sprintf("%s unverified: %s", t.ID, flatText(td.ReviewUnverified)))
 		}
 	}
 	// nothing wakes the lead for what the human typed to a worker, so this is where it learns of it
@@ -539,7 +546,8 @@ func dagReviewData(cmd *cobra.Command, args []string) (wshrpc.CommandDagActionDa
 	}
 	downstream, _ := cmd.Flags().GetString("downstream")
 	downstreamFor, _ := cmd.Flags().GetStringSlice("for")
-	return wshrpc.CommandDagActionData{ChannelId: channelId, RunId: runId, Action: "review-" + verdict, Notes: args[1], Downstream: downstream, DownstreamFor: downstreamFor}, nil
+	unverified, _ := cmd.Flags().GetString("unverified")
+	return wshrpc.CommandDagActionData{ChannelId: channelId, RunId: runId, Action: "review-" + verdict, Notes: args[1], Downstream: downstream, Unverified: unverified, DownstreamFor: downstreamFor}, nil
 }
 
 var dagReviewCmd = &cobra.Command{
@@ -676,6 +684,7 @@ func init() {
 	dagEscalateCmd.Flags().String("runtime", "", "runtime to retry on; empty keeps the task's current runtime")
 	dagReviewCmd.Flags().String("downstream", "", "with pass: what a later task must know (a renamed API, a plan assumption that turned out wrong)")
 	dagReviewCmd.Flags().StringSlice("for", nil, "with --downstream: the tasks it is for (t-3,t-5); the engine adds it to a task not started and types it to a running one. Without it the lead routes the note")
+	dagReviewCmd.Flags().String("unverified", "", "with pass: a check the task asked for (a test, a screenshot, a live run) that was not done, and why; the lead reads it whole")
 	dagMergeCmd.Flags().Bool("continue", false, "finish a resolved squash merge, or re-run a failed Verify after committing the fix")
 	dagRulesCmd.Flags().BoolVar(&dagRulesInject, "inject", false, "emit the rules as a Claude Code SessionStart hook's added context")
 	jarvisCmd.AddCommand(jarvisDagCmd)

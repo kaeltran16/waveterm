@@ -75,6 +75,7 @@ type CommandDagActionData struct {
 	Runtime    string `json:"runtime,omitempty"`    // escalate target runtime; empty = task's current runtime
 	Notes      string `json:"notes,omitempty"`      // forward: what the lead checked; review: summary or findings; amend: the note; tell: the text; sendback: guidance
 	Downstream string `json:"downstream,omitempty"` // review-pass: what later tasks must know
+	Unverified string `json:"unverified,omitempty"` // review-pass: what was not verified, and why
 	// DownstreamFor names the tasks a review-pass's Downstream is for; the engine delivers it to them
 	DownstreamFor []string `json:"downstreamfor,omitempty"`
 }
@@ -152,13 +153,20 @@ type DagReportDigest struct {
 	WorkerMs   int64             `json:"workerms"`             // the tasks' run time, summed
 	Commits    []DagLandedCommit `json:"commits,omitempty"`    // merged tasks' squash commits, in dag order
 	Unverified bool              `json:"unverified,omitempty"` // no merge point ran a Verify: no Verify line, or nothing to merge into
-	Answered   int               `json:"answered"`             // child questions answered, by the lead or the human
-	Forwarded  int               `json:"forwarded"`            // judgments handed to the human
+	// UnverifiedNotes are the reviewers' caveats on passed tasks, in dag order
+	UnverifiedNotes []DagUnverifiedNote `json:"unverifiednotes,omitempty"`
+	Answered        int                 `json:"answered"`  // child questions answered, by the lead or the human
+	Forwarded       int                 `json:"forwarded"` // judgments handed to the human
 }
 
 type DagLandedCommit struct {
 	TaskId string `json:"taskid"`
 	Commit string `json:"commit"`
+}
+
+type DagUnverifiedNote struct {
+	TaskId string `json:"taskid"`
+	Text   string `json:"text"`
 }
 
 type DagStatusCounts struct {
@@ -200,6 +208,7 @@ type DagTaskDigest struct {
 	ReviewRound      int      `json:"reviewround,omitempty"`      // failed reviews so far
 	ReviewNote       string   `json:"reviewnote,omitempty"`       // the reviewer's summary or findings, or why the review failed
 	ReviewDownstream string   `json:"reviewdownstream,omitempty"` // what later tasks must know, from a pass
+	ReviewUnverified string   `json:"reviewunverified,omitempty"` // what a pass's reviewer could not verify, whole
 }
 
 type DagDurationDigest struct {

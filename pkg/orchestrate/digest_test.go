@@ -4,6 +4,7 @@
 package orchestrate
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -807,6 +808,23 @@ func TestDigestCarriesTheWorkersResultAndReview(t *testing.T) {
 	td := d.Tasks[0]
 	if td.Result != "Added fmtDate and its tests." || td.ReviewVerdict != ReviewVerdict_Pass || td.ReviewNote != "adds fmtDate" || td.ReviewDownstream != "fmtDate lives in util/date.go" {
 		t.Fatalf("the lead must read what the task did, got %+v", td)
+	}
+}
+
+// a reviewer's caveat reaches the lead whole, on the task and in the run-end report it writes from
+func TestDigestCarriesAReviewersUnverifiedCaveat(t *testing.T) {
+	g := digestGroup(t, false, []waveobj.TaskNode{{ID: "t-1", Label: "a"}, {ID: "t-7", Label: "b"}})
+	g.Tasks[0].State = TaskState_Done
+	g.Tasks[1].State = TaskState_Done
+	g.Tasks[1].ReviewVerdict = ReviewVerdict_Pass
+	g.Tasks[1].ReviewUnverified = "no screenshot of the run card was taken"
+	d := BuildDigest(digestSnapshot(g, nil, nil, nil, time.UnixMilli(10_000)))
+	if d.Tasks[0].ReviewUnverified != "" || d.Tasks[1].ReviewUnverified != "no screenshot of the run card was taken" {
+		t.Fatalf("the task digest must carry the caveat, got %+v", d.Tasks)
+	}
+	want := []wshrpc.DagUnverifiedNote{{TaskId: "t-7", Text: "no screenshot of the run card was taken"}}
+	if !reflect.DeepEqual(d.Report.UnverifiedNotes, want) {
+		t.Fatalf("the report must list the caveat, got %+v", d.Report.UnverifiedNotes)
 	}
 }
 

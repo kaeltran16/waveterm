@@ -224,17 +224,23 @@ func applyReviewVerdict(ctx context.Context, g *waveobj.TaskGroup, t *waveobj.Ta
 			reason += "; resetting it failed: " + rerr.Error()
 		}
 		// the discarded verdict must not read as the review's outcome
-		t.ReviewVerdict, t.ReviewDownstream, t.ReviewDownstreamFor = "", "", nil
+		t.ReviewVerdict, t.ReviewDownstream, t.ReviewUnverified, t.ReviewDownstreamFor = "", "", "", nil
 		failReview(ctx, g, t, reason, afterCommit)
 		return
 	}
-	taskID, note, downstream := t.ID, t.ReviewNote, t.ReviewDownstream
+	taskID, note, downstream, unverified := t.ID, t.ReviewNote, t.ReviewDownstream, t.ReviewUnverified
 	if t.ReviewVerdict == ReviewVerdict_Pass {
 		t.State = TaskState_Done
 		t.LeadGuidance = ""
+		// the caveat is what the lead must act on, so it goes first and whole; reviewers put caveats last in the note,
+		// where the recap's cut dropped them
+		line := fmt.Sprintf("%s passed review: %s", taskID, truncateNote(note, handoffMaxSummaryLen))
+		if unverified != "" {
+			line = fmt.Sprintf("%s passed review. unverified: %s. %s", taskID, flatLine(unverified), truncateNote(note, handoffMaxSummaryLen))
+		}
 		*afterCommit = append(*afterCommit, func() {
-			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskReviewPassed, nil, map[string]any{"taskid": taskID, "note": note, "downstream": downstream})
-			PostQuiet(ctx, g.ChannelId, g.RunID, fmt.Sprintf("%s passed review: %s", taskID, truncateNote(note, handoffMaxSummaryLen)))
+			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskReviewPassed, nil, map[string]any{"taskid": taskID, "note": note, "downstream": downstream, "unverified": unverified})
+			PostQuiet(ctx, g.ChannelId, g.RunID, line)
 		})
 		if downstream != "" {
 			routeDownstream(ctx, g, taskID, downstream, t.ReviewDownstreamFor, afterCommit)
@@ -326,8 +332,8 @@ func failReview(ctx context.Context, g *waveobj.TaskGroup, t *waveobj.TaskNode, 
 
 // RecordReviewVerdict records a reviewer's verdict on the task it reviews. It does not schedule: the caller
 // does, off the reviewer's RPC, because the tick that applies a fail can spawn the next worker.
-func RecordReviewVerdict(ctx context.Context, dagID, reviewerRunID, verdict, note, downstream string, downstreamFor []string) error {
-	note, downstream = strings.TrimSpace(note), strings.TrimSpace(downstream)
+func RecordReviewVerdict(ctx context.Context, dagID, reviewerRunID, verdict, note, downstream, unverified string, downstreamFor []string) error {
+	note, downstream, unverified = strings.TrimSpace(note), strings.TrimSpace(downstream), strings.TrimSpace(unverified)
 	switch {
 	case verdict != ReviewVerdict_Pass && verdict != ReviewVerdict_Fail:
 		return fmt.Errorf("verdict must be %s or %s, got %q", ReviewVerdict_Pass, ReviewVerdict_Fail, verdict)
@@ -335,11 +341,13 @@ func RecordReviewVerdict(ctx context.Context, dagID, reviewerRunID, verdict, not
 		return fmt.Errorf("a %s verdict needs its note: the summary for a pass, the findings for a fail", verdict)
 	case verdict == ReviewVerdict_Fail && downstream != "":
 		return fmt.Errorf("--downstream goes with a pass; put what later tasks need in the findings")
+	case verdict == ReviewVerdict_Fail && unverified != "":
+		return fmt.Errorf("--unverified goes with a pass; a fail's findings already say what is missing")
 	case len(downstreamFor) > 0 && downstream == "":
 		return fmt.Errorf("--for names the tasks a --downstream note is for; give the note")
 	}
 	// refused rather than clipped: a clipped note silently drops the findings the next worker must fix
-	for _, n := range []struct{ name, text string }{{"note", note}, {"--downstream note", downstream}} {
+	for _, n := range []struct{ name, text string }{{"note", note}, {"--downstream note", downstream}, {"--unverified note", unverified}} {
 		if count := utf8.RuneCountInString(n.text); count > MaxReviewNoteLen {
 			return fmt.Errorf("the %s is %d characters; the limit is %d. Shorten it and send the verdict again", n.name, count, MaxReviewNoteLen)
 		}
@@ -364,6 +372,7 @@ func RecordReviewVerdict(ctx context.Context, dagID, reviewerRunID, verdict, not
 		t.ReviewVerdict = verdict
 		t.ReviewNote = note
 		t.ReviewDownstream = downstream
+		t.ReviewUnverified = unverified
 		g.UpdatedTs = time.Now().UnixMilli()
 		if err := wstore.UpdateDag(ctx, dagID, func(cur *waveobj.TaskGroup) error {
 			*cur = *g
@@ -417,7 +426,7 @@ func reviewPrompt(g *waveobj.TaskGroup, task *waveobj.TaskNode, worker *waveobj.
 	b.WriteString("Check it against the task below and the spec: every requirement met, nothing that contradicts the spec, no corners cut (stubs, skipped cases, weakened or deleted tests, TODOs), nothing outside the task's scope. The plan's Verify runs the tests after the merge, so don't run the full suite; run a focused test only to settle a doubt.\n")
 	b.WriteString("Only read: never edit, stage or commit, and ask no questions, since nobody answers a reviewer.\n")
 	b.WriteString("Finish with exactly one command, which ends your session:\n")
-	b.WriteString("- `wsh jarvis dag review pass \"<one paragraph: what landed>\"`, adding `--downstream \"<what a later task must know>\" --for <task ids>` when the change affects later tasks (a renamed API, a plan assumption that turned out wrong). The engine hands the note to the tasks you name; without --for it waits for the lead;\n")
+	b.WriteString("- `wsh jarvis dag review pass \"<one paragraph: what landed>\"`, adding `--downstream \"<what a later task must know>\" --for <task ids>` when the change affects later tasks (a renamed API, a plan assumption that turned out wrong). The engine hands the note to the tasks you name; without --for it waits for the lead. Also add `--unverified \"<what was not verified, and why>\"` when the task asked for a check (a test, a screenshot, a live run) that the diff and the worker's report show was not done: the lead reads it whole, ahead of your note;\n")
 	b.WriteString("- `wsh jarvis dag review fail \"<findings: each problem, where it is, and the fix>\"`.\n")
 	fmt.Fprintf(&b, "Keep each note within %d characters; a longer one is refused.\n", MaxReviewNoteLen)
 	if ahead := tasksAhead(g, task.ID); ahead != "" {
@@ -439,8 +448,9 @@ func reviewPrompt(g *waveobj.TaskGroup, task *waveobj.TaskNode, worker *waveobj.
 		b.WriteString("\n\n")
 		b.WriteString(task.Description)
 	}
+	// whole, unlike a dependent's handoff: the report is the reviewer's one account of what was and was not checked
 	if worker.Evidence != nil {
-		if note := truncateNote(worker.Evidence.Summary, handoffMaxSummaryLen); note != "" {
+		if note := strings.TrimSpace(worker.Evidence.Summary); note != "" {
 			fmt.Fprintf(&b, "\n\nThe worker reported: %s", note)
 		}
 	}

@@ -363,6 +363,30 @@ func TestDagReviewData(t *testing.T) {
 	}
 }
 
+func TestDagReviewDataCarriesTheUnverifiedCaveat(t *testing.T) {
+	cmd := newDagEscalateTestCmd(t, map[string]string{"channel": "ch", "runid": "reviewer-run"})
+	cmd.Flags().String("downstream", "", "")
+	cmd.Flags().StringSlice("for", nil, "")
+	cmd.Flags().String("unverified", "", "")
+	if err := cmd.Flags().Set("unverified", "u"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := dagReviewData(cmd, []string{"pass", "n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := wshrpc.CommandDagActionData{ChannelId: "ch", RunId: "reviewer-run", Action: "review-pass", Notes: "n", Unverified: "u", DownstreamFor: []string{}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("review data = %+v, want %+v", got, want)
+	}
+}
+
+func TestDagReviewExposesUnverifiedFlag(t *testing.T) {
+	if dagReviewCmd.Flags().Lookup("unverified") == nil {
+		t.Fatal("dag review must take --unverified")
+	}
+}
+
 func TestDagNoteDataSendbackWithoutGuidance(t *testing.T) {
 	cmd := newDagEscalateTestCmd(t, map[string]string{"channel": "ch", "runid": "run"})
 	got, err := dagNoteData(cmd, "sendback", []string{"t-2"})
@@ -372,6 +396,26 @@ func TestDagNoteDataSendbackWithoutGuidance(t *testing.T) {
 	want := wshrpc.CommandDagActionData{ChannelId: "ch", RunId: "run", TaskId: "t-2", Action: "sendback"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("sendback data = %+v, want %+v", got, want)
+	}
+}
+
+func TestDagStatusLinesPrintTheUnverifiedCaveatWhole(t *testing.T) {
+	caveat := strings.Repeat("u", 1500)
+	rtn := &wshrpc.CommandDagStatusRtnData{
+		Group: &waveobj.TaskGroup{ID: "d", Tasks: []waveobj.TaskNode{{ID: "t-7", Label: "a", State: "done"}}},
+		Digest: wshrpc.DagStatusDigest{
+			Tasks:  []wshrpc.DagTaskDigest{{TaskId: "t-7", ReviewVerdict: "pass", ReviewNote: "adds fmtDate", ReviewUnverified: caveat}},
+			Report: wshrpc.DagReportDigest{UnverifiedNotes: []wshrpc.DagUnverifiedNote{{TaskId: "t-7", Text: caveat}}},
+		},
+	}
+	lines := dagStatusLines(rtn, 0)
+	var task, report bool
+	for _, l := range lines {
+		task = task || l == "t-7 unverified: "+caveat
+		report = report || l == "unverified  t-7: "+caveat
+	}
+	if !task || !report {
+		t.Fatalf("status must print the caveat whole under the task and in the report, got:\n%s", strings.Join(lines, "\n"))
 	}
 }
 

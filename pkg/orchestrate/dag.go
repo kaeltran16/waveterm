@@ -66,7 +66,7 @@ const (
 func enterReview(t *waveobj.TaskNode, worker *waveobj.Run) {
 	t.State = TaskState_Reviewing
 	t.ReviewRunID, t.ReviewSpawnedTs, t.ReviewRespawns = "", 0, 0
-	t.ReviewVerdict, t.ReviewDownstream, t.ReviewDownstreamFor = "", "", nil
+	t.ReviewVerdict, t.ReviewDownstream, t.ReviewUnverified, t.ReviewDownstreamFor = "", "", "", nil
 	if t.ReviewBase == "" {
 		t.ReviewBase = worker.BaseCommit
 	}
@@ -253,7 +253,7 @@ func NewTaskGroup(runID, channelId, title string, parallelism int, mergeRequired
 			return waveobj.TaskGroup{}, fmt.Errorf("task %q escalations must be zero", t.ID)
 		}
 		if t.ReviewRunID != "" || t.ReviewSpawnedTs != 0 || t.ReviewRespawns != 0 || t.ReviewRound != 0 ||
-			t.ReviewVerdict != "" || t.ReviewNote != "" || t.ReviewDownstream != "" || len(t.ReviewDownstreamFor) != 0 || t.ReviewBase != "" || t.ReviewCommit != "" {
+			t.ReviewVerdict != "" || t.ReviewNote != "" || t.ReviewDownstream != "" || t.ReviewUnverified != "" || len(t.ReviewDownstreamFor) != 0 || t.ReviewBase != "" || t.ReviewCommit != "" {
 			return waveobj.TaskGroup{}, fmt.Errorf("task %q review fields must be empty", t.ID)
 		}
 		if t.LeadGuidance != "" || len(t.LeadNotes) != 0 || len(t.LeadTold) != 0 {

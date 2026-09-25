@@ -189,7 +189,7 @@ func TestReviewPassLandsTheTaskAndTellsTheLeadQuietly(t *testing.T) {
 	f := newFakeLead(t)
 	schedule(t, ctx, dag.OID)
 	reviewer := firstTask(t, ctx, dag.OID).ReviewRunID
-	if err := RecordReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Pass, "adds fmtDate with tests", "", nil); err != nil {
+	if err := RecordReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Pass, "adds fmtDate with tests", "", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	schedule(t, ctx, dag.OID)
@@ -205,6 +205,30 @@ func TestReviewPassLandsTheTaskAndTellsTheLeadQuietly(t *testing.T) {
 	}
 }
 
+// the caveat is what the lead must act on, so it comes first and whole; only the note's recap is cut
+func TestReviewPassPrintsTheUnverifiedCaveatWholeAheadOfTheNote(t *testing.T) {
+	ctx, dag, worker := seedReviewDag(t)
+	stubReviewTree(t, worker.EndCommit)
+	captureSpawns(t)
+	f := newFakeLead(t)
+	schedule(t, ctx, dag.OID)
+	reviewer := firstTask(t, ctx, dag.OID).ReviewRunID
+	unverified := strings.Repeat("u", 1499) + "!"
+	note := strings.Repeat("n", 1500)
+	if err := RecordReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Pass, note, "", unverified, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := firstTask(t, ctx, dag.OID).ReviewUnverified; got != unverified {
+		t.Fatalf("the caveat must be stored whole, got %d runes", utf8.RuneCountInString(got))
+	}
+	schedule(t, ctx, dag.OID)
+	joined := strings.Join(f.sends, "\n")
+	want := "t-0 passed review. unverified: " + unverified + ". " + strings.Repeat("n", handoffMaxSummaryLen) + "..."
+	if !strings.Contains(joined, want) {
+		t.Fatalf("want the whole caveat before the note's recap, got %q", f.sends)
+	}
+}
+
 func TestReviewPassWithDownstreamWakesTheLead(t *testing.T) {
 	ctx, dag, worker := seedReviewDag(t)
 	stubReviewTree(t, worker.EndCommit)
@@ -212,7 +236,7 @@ func TestReviewPassWithDownstreamWakesTheLead(t *testing.T) {
 	f := newFakeLead(t)
 	schedule(t, ctx, dag.OID)
 	reviewer := firstTask(t, ctx, dag.OID).ReviewRunID
-	if err := RecordReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Pass, "adds fmtDate", "fmtDate lives in\nutil/date.go", nil); err != nil {
+	if err := RecordReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Pass, "adds fmtDate", "fmtDate lives in\nutil/date.go", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	schedule(t, ctx, dag.OID)
@@ -228,7 +252,7 @@ func TestFirstFailedReviewSendsTheTaskBackWithFindings(t *testing.T) {
 	calls := captureSpawns(t)
 	schedule(t, ctx, dag.OID)
 	reviewer := firstTask(t, ctx, dag.OID).ReviewRunID
-	if err := RecordReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Fail, "misses the empty-input case", "", nil); err != nil {
+	if err := RecordReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Fail, "misses the empty-input case", "", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	schedule(t, ctx, dag.OID)
@@ -254,7 +278,7 @@ func TestSecondFailedReviewGoesToTheLead(t *testing.T) {
 	f := newFakeLead(t)
 	schedule(t, ctx, dag.OID)
 	reviewer := firstTask(t, ctx, dag.OID).ReviewRunID
-	if err := RecordReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Fail, "still misses it", "", nil); err != nil {
+	if err := RecordReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Fail, "still misses it", "", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	schedule(t, ctx, dag.OID)
@@ -275,33 +299,39 @@ func TestVerdictsAreRefusedWhenTheyCannotApply(t *testing.T) {
 	reviewer := firstTask(t, ctx, dag.OID).ReviewRunID
 	addTask(t, ctx, dag, waveobj.TaskNode{ID: "t-1", Label: "b", State: TaskState_Pending, Deps: []string{"t-0"}})
 	cases := []struct {
-		name, run, verdict, note, downstream string
-		downstreamFor                        []string
+		name, run, verdict, note, downstream, unverified string
+		downstreamFor                                    []string
 	}{
-		{"not the reviewer", worker.ID, ReviewVerdict_Pass, "ok", "", nil},
-		{"unknown verdict", reviewer, "maybe", "ok", "", nil},
-		{"no note", reviewer, ReviewVerdict_Fail, "  ", "", nil},
-		{"downstream on a fail", reviewer, ReviewVerdict_Fail, "bad", "later", nil},
-		{"targets without a note", reviewer, ReviewVerdict_Pass, "ok", "", []string{"t-1"}},
-		{"an unknown target", reviewer, ReviewVerdict_Pass, "ok", "later", []string{"t-9"}},
-		{"the reviewed task as its own target", reviewer, ReviewVerdict_Pass, "ok", "later", []string{"t-0"}},
-		{"a note over the limit", reviewer, ReviewVerdict_Fail, strings.Repeat("x", MaxReviewNoteLen+1), "", nil},
-		{"a downstream note over the limit", reviewer, ReviewVerdict_Pass, "ok", strings.Repeat("x", MaxReviewNoteLen+1), []string{"t-1"}},
+		{"not the reviewer", worker.ID, ReviewVerdict_Pass, "ok", "", "", nil},
+		{"unknown verdict", reviewer, "maybe", "ok", "", "", nil},
+		{"no note", reviewer, ReviewVerdict_Fail, "  ", "", "", nil},
+		{"downstream on a fail", reviewer, ReviewVerdict_Fail, "bad", "later", "", nil},
+		{"unverified on a fail", reviewer, ReviewVerdict_Fail, "bad", "", "x", nil},
+		{"targets without a note", reviewer, ReviewVerdict_Pass, "ok", "", "", []string{"t-1"}},
+		{"an unknown target", reviewer, ReviewVerdict_Pass, "ok", "later", "", []string{"t-9"}},
+		{"the reviewed task as its own target", reviewer, ReviewVerdict_Pass, "ok", "later", "", []string{"t-0"}},
+		{"a note over the limit", reviewer, ReviewVerdict_Fail, strings.Repeat("x", MaxReviewNoteLen+1), "", "", nil},
+		{"a downstream note over the limit", reviewer, ReviewVerdict_Pass, "ok", strings.Repeat("x", MaxReviewNoteLen+1), "", []string{"t-1"}},
+		{"an unverified note over the limit", reviewer, ReviewVerdict_Pass, "ok", "", strings.Repeat("x", MaxReviewNoteLen+1), nil},
 	}
 	for _, c := range cases {
-		if err := RecordReviewVerdict(ctx, dag.OID, c.run, c.verdict, c.note, c.downstream, c.downstreamFor); err == nil {
+		err := RecordReviewVerdict(ctx, dag.OID, c.run, c.verdict, c.note, c.downstream, c.unverified, c.downstreamFor)
+		if err == nil {
 			t.Fatalf("%s: want an error", c.name)
+		}
+		if c.name == "unverified on a fail" && !strings.Contains(err.Error(), "--unverified goes with a pass") {
+			t.Fatalf("a fail's caveat must be refused with the reason, got %v", err)
 		}
 	}
 	// the limit counts runes, not bytes, and a note at it is kept whole
 	atLimit := strings.Repeat("é", MaxReviewNoteLen)
-	if err := RecordReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Pass, atLimit, "", nil); err != nil {
+	if err := RecordReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Pass, atLimit, "", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if got := firstTask(t, ctx, dag.OID).ReviewNote; got != atLimit {
 		t.Fatalf("a note at the limit must be stored whole, got %d runes", utf8.RuneCountInString(got))
 	}
-	if err := RecordReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Fail, "changed my mind", "", nil); err == nil {
+	if err := RecordReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Fail, "changed my mind", "", "", nil); err == nil {
 		t.Fatal("a second verdict must be refused")
 	}
 }
@@ -332,7 +362,7 @@ func TestReviewerThatCommittedIsOverruled(t *testing.T) {
 	captureSpawns(t)
 	schedule(t, ctx, dag.OID)
 	reviewer := firstTask(t, ctx, dag.OID).ReviewRunID
-	if err := RecordReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Pass, "looks fine", "", nil); err != nil {
+	if err := RecordReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Pass, "looks fine", "", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	schedule(t, ctx, dag.OID)
@@ -406,7 +436,7 @@ func passWithDownstream(t *testing.T, ctx context.Context, dag *waveobj.TaskGrou
 	t.Helper()
 	schedule(t, ctx, dag.OID)
 	reviewer := firstTask(t, ctx, dag.OID).ReviewRunID
-	if err := RecordReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Pass, "adds fmtDate", "fmtDate lives in util/date.go", downstreamFor); err != nil {
+	if err := RecordReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Pass, "adds fmtDate", "fmtDate lives in util/date.go", "", downstreamFor); err != nil {
 		t.Fatal(err)
 	}
 	schedule(t, ctx, dag.OID)
@@ -485,6 +515,32 @@ func TestReviewDownstreamForAFinishedTaskWakesTheLead(t *testing.T) {
 	want := "wake: task t-0 passed review with a note for later tasks (not delivered to t-1, which is done): fmtDate lives in util/date.go. wsh jarvis dag status"
 	if !strings.Contains(strings.Join(f.sends, "\n"), want) {
 		t.Fatalf("want %q, got %q", want, f.sends)
+	}
+}
+
+// the worker's report is the reviewer's one account of the work, so it arrives whole, and the brief says when a
+// pass carries a caveat
+func TestReviewerBriefCarriesTheWholeReportAndTheUnverifiedFlag(t *testing.T) {
+	ctx, dag, worker := seedReviewDag(t)
+	report := strings.Repeat("did ", 374) + "end."
+	if err := wstore.UpdateRun(ctx, dag.ChannelId, worker.ID, func(r *waveobj.Run) error {
+		r.Evidence = &waveobj.RunEvidence{Summary: report}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stubReviewTree(t, worker.EndCommit)
+	calls := captureSpawns(t)
+	schedule(t, ctx, dag.OID)
+	if len(*calls) != 1 {
+		t.Fatalf("want the reviewer spawned, got %d spawns", len(*calls))
+	}
+	p := (*calls)[0].prompt
+	if utf8.RuneCountInString(report) != 1500 || !strings.Contains(p, "The worker reported: "+report) {
+		t.Fatalf("the brief must carry the whole %d-rune report, got %q", utf8.RuneCountInString(report), p)
+	}
+	if !strings.Contains(p, "`--unverified \"<what was not verified, and why>\"` when the task asked for a check (a test, a screenshot, a live run) that the diff and the worker's report show was not done") {
+		t.Fatalf("the brief must say when to use --unverified, got %q", p)
 	}
 }
 
