@@ -1224,3 +1224,40 @@ A third run, `b01cfdd6-49c8-4fb1-b330-d9d2e36ba561`, started 14:52:07 from a goa
 Not verified live: there is no screenshot of the new tree rows. The cockpit fixtures carry no runs or dags,
 and the only dev app running belongs to another session. The next orchestrator run after the rebuild shows
 the plan-review row within its first minutes, and a verifying row after its first merge.
+
+## Handoff (2026-09-25, after `b38f550c`)
+
+Done and committed: `8d03e12c` (29, 30, 31, 34, 36 and the 35 stopgap) and `b38f550c` (the merge label and
+the merge title), both in the table above. The main checkout's `dist/bin/wavesrv.x64.exe` was rebuilt from
+`main` at 17:24; the Final stage had overwritten it with the run's branch build. Arc is not rebuilt yet.
+
+Not verified live: the new Agent tree rows (plan review, final verification, a verifying task) and the
+landing labels. Check them on the first orchestrator run after the Arc rebuild.
+
+Next, in order:
+
+1. **Speed plan (23, 27).** Write a plan for approval before any engine code. The agreed direction:
+   - A per-merge Verify scoped to what the merge changed. The engine passes the merge's changed files to
+     Verify in an environment variable, so it stays language-agnostic. This repo gets a scoped verify script:
+     the changed Go packages and their reverse dependencies, and tsc only when a frontend file changed. The
+     full suite moves to Check, which the Final stage already runs on the merged result (`final.go:209`;
+     the Final stage does not run Verify). The guide and `PlanFormat` say so. The cost: a regression outside
+     the scoped packages shows only at the Final stage.
+   - Satisfy a dependency when it merges, not when its Verify passes (`depSatisfied` → `laneLanded`,
+     `lane.go:88`). A failed Verify then blocks the dependent's merge, not its start.
+   - `AutoMergeReady` merges first the task the most pending tasks wait on, then goes by plan order.
+   - Fold in 33: run Check once on the base at submit and record the failure, so workers and the Final stage
+     can tell "fails on the base too" from a task's own breakage.
+   - Fold in the re-check before landing (observed in run b01cfdd6): `reverifyHold` (`land.go`) re-runs
+     the full Check and Verify for a docs-only wrap-up commit, and runs them on the branch's own tree, not
+     on the result of merging into a base that moved.
+   - Deferred: the merge train with bisect (worth less once Verify is about a minute), the automatic retry
+     of a Verify that failed in a package the task didn't touch, and targeted worker checks with an
+     incremental tsc (measure CPU contention between parallel workers first).
+2. **32.** An answered escalation stays in `wsh runs attention` for about 2 minutes. The cause is not
+   traced; diagnose it before changing anything.
+3. **35, the real fix.** The final tree gets its own Vite port through `cargo tauri dev --config`
+   (`build.devUrl`, and a `beforeDevCommand` with `--port N --strictPort`), its own `CARGO_TARGET_DIR` and
+   its own `dist/bin`. First find out how the dev host locates `wavesrv`.
+
+The other open findings are in the Summary table; none of them is in this batch.
