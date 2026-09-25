@@ -394,6 +394,22 @@ func dagVerifs(ctx context.Context, run *waveobj.Run) ([]waveobj.EvidenceVerif, 
 	return out, nil
 }
 
+// RunTrailerKey is the commit trailer that marks a commit as a run's own: the engine writes
+// `Arc-Run: <runId>-t-N` on each lane it lands and the lead ends its own commits with `Arc-Run: <runId>`.
+const RunTrailerKey = "Arc-Run"
+
+// landsOnCheckout reports whether run is an engine run landing straight on its checkout. Its commits
+// interleave there with other sessions', so BaseCommit..EndCommit is not its own history; a run landing
+// on its own branch, and a dag child in its own worktree, keep the plain range.
+func landsOnCheckout(run *waveobj.Run) bool {
+	return run.DagORef != "" && run.TaskId == "" && run.LandPath == ""
+}
+
+// ownsRunMarker accepts the trailer values run runID wrote. The "-" keeps run R2 out of run R.
+func ownsRunMarker(runID string) func(string) bool {
+	return func(v string) bool { return v == runID || strings.HasPrefix(v, runID+"-") }
+}
+
 // SealEvidence derives and freezes a run's evidence snapshot. Idempotent: a run that already has
 // Evidence is left untouched (immutability). Locates transcripts from phase WorkerOrefs and git data
 // from ProjectPath — everything it needs is on the run. A transcript I/O failure degrades that section
@@ -442,7 +458,13 @@ func SealEvidence(ctx context.Context, run *waveobj.Run) error {
 	var ch *gitinfo.Changes
 	var gerr error
 	if run.EndCommit != "" && run.EndCommit != run.BaseCommit {
-		if ch, gerr = gitinfo.GetRangeChanges(ctx, run.ProjectPath, run.BaseCommit, run.EndCommit); gerr != nil {
+		rangeChanges := gitinfo.GetRangeChanges
+		if landsOnCheckout(run) {
+			rangeChanges = func(ctx context.Context, cwd, from, to string) (*gitinfo.Changes, error) {
+				return gitinfo.GetTrailerCommitsChanges(ctx, cwd, from, to, RunTrailerKey, ownsRunMarker(run.ID))
+			}
+		}
+		if ch, gerr = rangeChanges(ctx, run.ProjectPath, run.BaseCommit, run.EndCommit); gerr != nil {
 			ch, gerr = gitinfo.GetChanges(ctx, run.ProjectPath, run.BaseCommit) // reported SHA unresolvable
 		}
 	} else {

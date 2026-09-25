@@ -10,12 +10,14 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/wavetermdev/waveterm/pkg/jarvis"
 )
 
 var ErrMergeConflict = errors.New("merge conflict")
 
 // runTrailer names the lane a squash commit landed, which is how a retried merge recognizes its own commit.
-const runTrailer = "Arc-Run"
+const runTrailer = jarvis.RunTrailerKey
 
 // taskTrailer names each task a squash commit landed, so `git log --grep Arc-Task` finds a task's commit even
 // when its lane landed several tasks as one.

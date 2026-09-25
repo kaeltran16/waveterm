@@ -301,6 +301,67 @@ func TestGetRangeChangesExcludesSiblings(t *testing.T) {
 	}
 }
 
+func TestGetTrailerCommitsChangesSumsOnlyMatchingCommits(t *testing.T) {
+	ctx := context.Background()
+	dir := initRepo(t)
+	writeFile(t, dir, "base.txt", "base\n")
+	writeFile(t, dir, "old.txt", "keep\n")
+	commitAll(t, dir)
+	base, err := HeadCommit(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commit := func(msg string) {
+		t.Helper()
+		git(t, dir, "add", "-A")
+		git(t, dir, "commit", "-m", msg)
+	}
+	writeFile(t, dir, "mine.txt", "a\nb\n")
+	commit("lane\n\nArc-Run: R-t-1")
+	writeFile(t, dir, "other.txt", "o\n")
+	writeFile(t, dir, "mine.txt", "a\nb\nc\n")
+	commit("someone else")
+	writeFile(t, dir, "mine.txt", "a\nc\n")
+	git(t, dir, "rm", "-q", "old.txt")
+	commit("lead fix\n\nArc-Run: R")
+	writeFile(t, dir, "prefix.txt", "p\n")
+	commit("another run\n\nArc-Run: R2-t-1")
+	end, err := HeadCommit(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	match := func(v string) bool { return v == "R" || strings.HasPrefix(v, "R-") }
+	ch, err := GetTrailerCommitsChanges(ctx, dir, base, end, "Arc-Run", match)
+	if err != nil {
+		t.Fatalf("GetTrailerCommitsChanges: %v", err)
+	}
+	if !ch.IsRepo {
+		t.Fatal("expected IsRepo=true")
+	}
+	// mine.txt: +2 in the lane, then +0/-1 in the lead's fix (the unmatched commit's +1 is not counted)
+	if !strings.Contains(ch.Numstat, "2\t1\tmine.txt\n") {
+		t.Errorf("mine.txt should sum its matching commits to +2/-1, got %q", ch.Numstat)
+	}
+	if !strings.Contains(ch.Numstat, "0\t1\told.txt\n") {
+		t.Errorf("old.txt deletion missing, got %q", ch.Numstat)
+	}
+	for _, leaked := range []string{"other.txt", "prefix.txt"} {
+		if strings.Contains(ch.Numstat, leaked) || strings.Contains(ch.StatusZ, leaked) {
+			t.Errorf("%s belongs to another commit's author, leaked: %q / %q", leaked, ch.Numstat, ch.StatusZ)
+		}
+	}
+	// the last matching commit's status wins: mine.txt was added, then modified
+	if !strings.Contains(ch.StatusZ, "M  mine.txt\x00") || !strings.Contains(ch.StatusZ, "D  old.txt\x00") {
+		t.Errorf("statusZ = %q", ch.StatusZ)
+	}
+
+	nc, err := GetTrailerCommitsChanges(ctx, t.TempDir(), base, end, "Arc-Run", match)
+	if err != nil || nc.IsRepo {
+		t.Fatalf("non-repo: IsRepo=%v err=%v", nc != nil && nc.IsRepo, err)
+	}
+}
+
 func TestGetDiffRefShowsCommittedPatch(t *testing.T) {
 	dir, base := repoCommittedOnBase(t)
 	d, err := GetDiff(context.Background(), dir, "a.txt", base)

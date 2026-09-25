@@ -149,6 +149,105 @@ func GetRangeChanges(ctx context.Context, cwd, base, end string) (*Changes, erro
 	return &Changes{StatusZ: nameStatusToStatusZ(nameStatus), Numstat: numstat, IsRepo: true}, nil
 }
 
+// GetTrailerCommitsChanges is GetRangeChanges narrowed to the commits in from..to whose trailerKey
+// trailer has a value match accepts. On a checkout shared with other sessions the range interleaves their
+// commits with the ones being measured, and a trailer is the only mark that tells them apart. Counts are
+// summed per path over the kept commits (each measured against its first parent), and a path touched
+// twice takes the status of its last commit. The timeout is per commit: a long run keeps many commits,
+// and running out of time here fails the whole read.
+func GetTrailerCommitsChanges(ctx context.Context, cwd, from, to, trailerKey string, match func(string) bool) (*Changes, error) {
+	logCtx, cancel := context.WithTimeout(ctx, gitTimeout)
+	defer cancel()
+	inside, err := run(logCtx, cwd, "rev-parse", "--is-inside-work-tree")
+	if err != nil || strings.TrimSpace(inside) != "true" {
+		return &Changes{IsRepo: false}, nil
+	}
+	out, err := run(logCtx, cwd, "log", "--reverse", "--format=%H%x00%P%x00%(trailers:key="+trailerKey+",valueonly)%x1e", from+".."+to)
+	if err != nil {
+		return nil, err
+	}
+	type count struct{ add, del int }
+	var order []string
+	counts := map[string]*count{}
+	status := map[string]byte{}
+	for _, rec := range strings.Split(out, "\x1e") {
+		fields := strings.Split(strings.TrimSpace(rec), "\x00")
+		if len(fields) != 3 || !anyLineMatches(fields[2], match) {
+			continue
+		}
+		parent := emptyTreeHash
+		if parents := strings.Fields(fields[1]); len(parents) > 0 {
+			parent = parents[0]
+		}
+		nameStatus, numstat, err := commitDiffs(ctx, cwd, parent, fields[0])
+		if err != nil {
+			return nil, err
+		}
+		for _, entry := range strings.Split(nameStatusToStatusZ(nameStatus), "\x00") {
+			if len(entry) > 3 {
+				status[entry[3:]] = entry[0]
+			}
+		}
+		toks := strings.Split(numstat, "\x00")
+		for i := 0; i < len(toks); i++ {
+			cols := strings.SplitN(toks[i], "\t", 3)
+			if len(cols) != 3 {
+				continue
+			}
+			path := cols[2]
+			if path == "" { // a rename: "add\tdel\t" \0 old \0 new
+				if i+2 >= len(toks) {
+					break
+				}
+				path = toks[i+2]
+				i += 2
+			}
+			c := counts[path]
+			if c == nil {
+				c = &count{}
+				counts[path] = c
+				order = append(order, path)
+			}
+			add, _ := strconv.Atoi(cols[0]) // "-" (binary) -> 0
+			del, _ := strconv.Atoi(cols[1])
+			c.add += add
+			c.del += del
+		}
+	}
+	var statusZ, numstat strings.Builder
+	for _, path := range order {
+		if letter, ok := status[path]; ok {
+			fmt.Fprintf(&statusZ, "%c  %s\x00", letter, path)
+		}
+		fmt.Fprintf(&numstat, "%d\t%d\t%s\n", counts[path].add, counts[path].del, path)
+	}
+	return &Changes{StatusZ: statusZ.String(), Numstat: numstat.String(), IsRepo: true}, nil
+}
+
+func anyLineMatches(values string, match func(string) bool) bool {
+	for _, v := range strings.Split(values, "\n") {
+		if v = strings.TrimSpace(v); v != "" && match(v) {
+			return true
+		}
+	}
+	return false
+}
+
+// commitDiffs returns one commit's name-status and numstat against parent, both -z.
+func commitDiffs(ctx context.Context, cwd, parent, hash string) (string, string, error) {
+	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
+	defer cancel()
+	nameStatus, err := run(ctx, cwd, "diff", "--name-status", "-z", "--relative", parent, hash)
+	if err != nil {
+		return "", "", err
+	}
+	numstat, err := run(ctx, cwd, "diff", "--numstat", "-z", "--relative", parent, hash)
+	if err != nil {
+		return "", "", err
+	}
+	return nameStatus, numstat, nil
+}
+
 // RangeCommit is one commit in a base..end range: its SHA, author time (UnixMilli), and subject line.
 type RangeCommit struct {
 	Hash    string

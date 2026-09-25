@@ -713,6 +713,77 @@ func TestSealEvidenceScopesToEndCommit(t *testing.T) {
 	}
 }
 
+// sharedMainRepo lays down, on one branch: base, a lane commit of run R, a commit from another session,
+// the lead's own fix, and a commit from run R2 whose id shares R's prefix.
+func sharedMainRepo(t *testing.T) (dir, base, end string) {
+	t.Helper()
+	dir = t.TempDir()
+	gitCmd(t, dir, "init", "-b", "main")
+	commit := func(file, msg string) string {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, file), []byte(file+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		gitCmd(t, dir, "add", ".")
+		gitCmd(t, dir, "commit", "-m", msg)
+		head, err := gitinfo.HeadCommit(context.Background(), dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return head
+	}
+	base = commit("base.txt", "base")
+	commit("lane.txt", "lane\n\nArc-Run: R-t-1")
+	commit("other.txt", "another session")
+	commit("lead.txt", "lead fix\n\nArc-Run: R")
+	end = commit("r2.txt", "another run\n\nArc-Run: R2-t-1")
+	return dir, base, end
+}
+
+func sealedPaths(t *testing.T, run *waveobj.Run) map[string]bool {
+	t.Helper()
+	if err := SealEvidence(context.Background(), run); err != nil {
+		t.Fatal(err)
+	}
+	paths := map[string]bool{}
+	for _, f := range run.Evidence.Files {
+		paths[f.Path] = true
+	}
+	return paths
+}
+
+// a checkout-landed run shares main with other sessions, so only commits carrying its Arc-Run marker count
+func TestSealEvidenceCountsOnlyACheckoutRunsOwnCommits(t *testing.T) {
+	dir, base, end := sharedMainRepo(t)
+	run := &waveobj.Run{
+		ID: "R", Status: RunStatus_Done, ProjectPath: dir, DagORef: uuid.NewString(), BaseCommit: base, EndCommit: end, CreatedTs: 1000,
+		Phases: []waveobj.RunPhase{{Kind: PhaseKind_Execute, State: PhaseState_Done, DoneTs: 5000}},
+	}
+	paths := sealedPaths(t, run)
+	want := map[string]bool{"lane.txt": true, "lead.txt": true}
+	if !reflect.DeepEqual(paths, want) {
+		t.Fatalf("files = %v, want %v", paths, want)
+	}
+	if run.Evidence.AddTotal != 2 {
+		t.Errorf("AddTotal = %d, want 2", run.Evidence.AddTotal)
+	}
+}
+
+// a branch-landed run's range is the branch's own history, so it keeps the plain range diff
+func TestSealEvidenceKeepsTheRangeForABranchRun(t *testing.T) {
+	dir, base, end := sharedMainRepo(t)
+	run := &waveobj.Run{
+		ID: "R", Status: RunStatus_Done, ProjectPath: dir, LandPath: dir, DagORef: uuid.NewString(), BaseCommit: base, EndCommit: end, CreatedTs: 1000,
+		Phases: []waveobj.RunPhase{{Kind: PhaseKind_Execute, State: PhaseState_Done, DoneTs: 5000}},
+	}
+	paths := sealedPaths(t, run)
+	for _, p := range []string{"lane.txt", "other.txt", "lead.txt", "r2.txt"} {
+		if !paths[p] {
+			t.Errorf("expected %s in a branch run's range, got %v", p, paths)
+		}
+	}
+}
+
 // TestSealEvidenceFallsBackWithoutEndCommit guards the common single-run case: no reported commit falls
 // back to the working-tree-vs-baseline diff, so uncommitted work the worker left is still captured.
 func TestSealEvidenceFallsBackWithoutEndCommit(t *testing.T) {
