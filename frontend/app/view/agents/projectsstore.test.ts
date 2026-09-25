@@ -2,7 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { lastUsedFirst, launchCandidates, mergeSwitcherProjects, type SwitcherProject } from "./projectsstore";
+import {
+    launchCandidates,
+    mergeSwitcherProjects,
+    pushRecentProject,
+    RECENT_PROJECTS_CAP,
+    recentFirst,
+    type SwitcherProject,
+} from "./projectsstore";
 
 describe("mergeSwitcherProjects", () => {
     it("appends registry-only projects with zero counts and flags registered rows", () => {
@@ -47,15 +54,31 @@ describe("launchCandidates", () => {
     });
 });
 
-describe("lastUsedFirst", () => {
+describe("recentFirst", () => {
     const c = (name: string) => ({ name, path: `/${name}`, registered: true });
-    const list = [c("a"), c("b"), c("c")];
-    it("moves the last-used project to the top and keeps the rest in order", () => {
-        expect(lastUsedFirst(list, "c").map((p) => p.name)).toEqual(["c", "a", "b"]);
+    const list = [c("a"), c("b"), c("c"), c("d")];
+    it("orders used projects by recency, then the never-used ones in their original order", () => {
+        expect(recentFirst(list, ["c", "b"]).map((p) => p.name)).toEqual(["c", "b", "a", "d"]);
     });
-    it("leaves the order alone when the last-used project is first, unknown, or unset", () => {
-        expect(lastUsedFirst(list, "a").map((p) => p.name)).toEqual(["a", "b", "c"]);
-        expect(lastUsedFirst(list, "gone").map((p) => p.name)).toEqual(["a", "b", "c"]);
-        expect(lastUsedFirst(list, "").map((p) => p.name)).toEqual(["a", "b", "c"]);
+    it("ignores recent names that are no longer candidates", () => {
+        expect(recentFirst(list, ["gone", "d"]).map((p) => p.name)).toEqual(["d", "a", "b", "c"]);
+    });
+    it("leaves the order alone with no history", () => {
+        expect(recentFirst(list, []).map((p) => p.name)).toEqual(["a", "b", "c", "d"]);
+        expect(recentFirst(list, undefined).map((p) => p.name)).toEqual(["a", "b", "c", "d"]);
+    });
+});
+
+describe("pushRecentProject", () => {
+    it("puts the launched project at the head without duplicating it", () => {
+        expect(pushRecentProject(["a", "b", "c"], "b")).toEqual(["b", "a", "c"]);
+        expect(pushRecentProject([], "a")).toEqual(["a"]);
+    });
+    it("drops the oldest beyond the cap", () => {
+        const full = Array.from({ length: RECENT_PROJECTS_CAP }, (_, i) => `p${i}`);
+        const got = pushRecentProject(full, "new");
+        expect(got).toHaveLength(RECENT_PROJECTS_CAP);
+        expect(got[0]).toBe("new");
+        expect(got).not.toContain(`p${RECENT_PROJECTS_CAP - 1}`);
     });
 });

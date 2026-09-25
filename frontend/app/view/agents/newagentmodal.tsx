@@ -30,9 +30,9 @@ import {
     worktreeOutcome,
     type Runtime,
 } from "./launch";
-import { naFlagsAtom, naLastProjectAtom, naRememberFlagsAtom } from "./naflagsstore";
+import { naFlagsAtom, naRecentProjectsAtom, naRememberFlagsAtom } from "./naflagsstore";
 import { harnessPreferenceAtom, harnessesAtom, resolveDefaultRuntime } from "./harnessstore";
-import { lastUsedFirst, launchCandidates, projectsAtom, type LaunchCandidate } from "./projectsstore";
+import { launchCandidates, projectsAtom, pushRecentProject, recentFirst, type LaunchCandidate } from "./projectsstore";
 import { RuntimeMark } from "./runtimemark";
 
 const RUNTIMES: { id: Runtime; name: string }[] = [
@@ -53,7 +53,7 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
     const agents = useAtomValue(model.agentsAtom);
     const naFlags = useAtomValue(naFlagsAtom);
     const remember = useAtomValue(naRememberFlagsAtom);
-    const lastProject = useAtomValue(naLastProjectAtom);
+    const recentProjects = useAtomValue(naRecentProjectsAtom);
     const harnesses = useAtomValue(harnessesAtom);
     const [runtime, setRuntime] = useState<Runtime>("claude");
     const [project, setProject] = useState<string>("");
@@ -87,10 +87,10 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
         }
     }, [open]);
     // Launcher targets mirror the project switcher: registered projects ∪ live-derived ones, with the
-    // last-launched project first so it is the default.
+    // most recently launched first so the last one is the default.
     const candidates = useMemo(
-        () => lastUsedFirst(launchCandidates(registry, liveProjectsForLaunch(agents)), lastProject),
-        [registry, agents, lastProject]
+        () => recentFirst(launchCandidates(registry, liveProjectsForLaunch(agents)), recentProjects),
+        [registry, agents, recentProjects]
     );
     const offeredRuntimes = RUNTIMES.filter((r) => isRuntimeOffered(r.id, harnesses));
     const pathFor = (c: LaunchCandidate | undefined): string => (c ? c.path || resolvedPaths[c.name] || "" : "");
@@ -255,7 +255,7 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
             if (!globalStore.get(naRememberFlagsAtom)) {
                 globalStore.set(naFlagsAtom, {});
             }
-            globalStore.set(naLastProjectAtom, c.name);
+            globalStore.set(naRecentProjectsAtom, pushRecentProject(globalStore.get(naRecentProjectsAtom), c.name));
             setTask("");
             setTaskOpen(false);
             close();

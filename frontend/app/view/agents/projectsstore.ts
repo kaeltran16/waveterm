@@ -62,11 +62,19 @@ export function launchCandidates(
     return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-// Moves the last-launched project to the top so it is the launcher's default; the rest keep their order.
-export function lastUsedFirst(candidates: LaunchCandidate[], lastUsed: string): LaunchCandidate[] {
-    const i = candidates.findIndex((c) => c.name === lastUsed);
-    if (i <= 0) {
-        return candidates;
-    }
-    return [candidates[i], ...candidates.slice(0, i), ...candidates.slice(i + 1)];
+// bounds the list so projects removed long ago don't pile up in storage
+export const RECENT_PROJECTS_CAP = 20;
+
+export function pushRecentProject(recent: string[], name: string): string[] {
+    return [name, ...(recent ?? []).filter((n) => n !== name)].slice(0, RECENT_PROJECTS_CAP);
+}
+
+// Orders the launcher by recent use, so the head is its default; never-used projects keep their order after.
+export function recentFirst(candidates: LaunchCandidate[], recent: string[]): LaunchCandidate[] {
+    const rank = (name: string) => {
+        const i = (recent ?? []).indexOf(name);
+        return i < 0 ? Infinity : i;
+    };
+    // two never-used ranks subtract to NaN; || 0 keeps them tied so the stable sort holds their order
+    return [...candidates].sort((a, b) => rank(a.name) - rank(b.name) || 0);
 }

@@ -23,5 +23,5 @@ export const DEFAULT_REMEMBER_FLAGS = true;
 
 export const naRememberFlagsAtom = atomWithStorage<boolean>("agent.launch.remember", DEFAULT_REMEMBER_FLAGS);
 
-// The project the last agent launched in; the launcher lists it first and selects it by default.
-export const naLastProjectAtom = atomWithStorage<string>("agent.launch.project", "");
+// Projects agents were launched in, most recent first; the launcher orders by it and defaults to the head.
+export const naRecentProjectsAtom = atomWithStorage<string[]>("agent.launch.recentprojects", []);
