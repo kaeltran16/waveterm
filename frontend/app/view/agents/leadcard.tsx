@@ -271,8 +271,8 @@ export function LeadCard(p: LeadCardProps) {
                     <span className="min-w-0 flex-1 truncate text-accent-soft first-letter:uppercase">
                         {vm.activity}
                     </span>
-                    <span title={vm.cost || undefined} className="shrink-0 font-mono text-[10.5px]">
-                        {[vm.progress.total > 0 ? `${vm.progress.done}/${vm.progress.total}` : "", vm.elapsed]
+                    <span className="shrink-0 font-mono text-[10.5px]">
+                        {[vm.progress.total > 0 ? `${vm.progress.done}/${vm.progress.total}` : "", vm.elapsed, vm.cost]
                             .filter(Boolean)
                             .join(" · ")}
                     </span>
