@@ -865,7 +865,7 @@ export function buildFilesBindings(): Binding[] {
         },
         {
             // Shift:g, not bare "g": g is the leader key for the surface chords, and a bare letter
-            // that shadows a leader can never fire. The footer shows it as "G".
+            // that shadows a leader can never fire. The footer shows it as "⇧G".
             id: "files:toggle-graph",
             keys: "Shift:g",
             group: "Diff",
