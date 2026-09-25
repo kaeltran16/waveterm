@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
@@ -29,7 +30,8 @@ const (
 	// ReviewTimeout bounds one reviewer. Reading a diff against its task takes minutes; one silent past this
 	// is stuck whatever its process says.
 	ReviewTimeout = 20 * time.Minute
-	// MaxReviewNoteLen bounds a verdict's note in runes: it goes into a worker's prompt and the lead's status.
+	// MaxReviewNoteLen bounds a verdict's note in runes: it goes into a worker's prompt and the lead's status. A
+	// longer note is refused, not clipped.
 	MaxReviewNoteLen = 2000
 	// reviewEvidenceWait is how long review waits for the worker's evidence seal, which runs off the completion
 	// RPC and carries the worker's closing note: the one account of its work the reviewer gets.
@@ -336,6 +338,12 @@ func RecordReviewVerdict(ctx context.Context, dagID, reviewerRunID, verdict, not
 	case len(downstreamFor) > 0 && downstream == "":
 		return fmt.Errorf("--for names the tasks a --downstream note is for; give the note")
 	}
+	// refused rather than clipped: a clipped note silently drops the findings the next worker must fix
+	for _, n := range []struct{ name, text string }{{"note", note}, {"--downstream note", downstream}} {
+		if count := utf8.RuneCountInString(n.text); count > MaxReviewNoteLen {
+			return fmt.Errorf("the %s is %d characters; the limit is %d. Shorten it and send the verdict again", n.name, count, MaxReviewNoteLen)
+		}
+	}
 	return withDagMutation(dagID, func() error {
 		g, err := wstore.GetDag(ctx, dagID)
 		if err != nil {
@@ -354,8 +362,8 @@ func RecordReviewVerdict(ctx context.Context, dagID, reviewerRunID, verdict, not
 		}
 		t.ReviewDownstreamFor = targets
 		t.ReviewVerdict = verdict
-		t.ReviewNote = clipRunes(note, MaxReviewNoteLen)
-		t.ReviewDownstream = clipRunes(downstream, MaxReviewNoteLen)
+		t.ReviewNote = note
+		t.ReviewDownstream = downstream
 		g.UpdatedTs = time.Now().UnixMilli()
 		if err := wstore.UpdateDag(ctx, dagID, func(cur *waveobj.TaskGroup) error {
 			*cur = *g
@@ -411,6 +419,7 @@ func reviewPrompt(g *waveobj.TaskGroup, task *waveobj.TaskNode, worker *waveobj.
 	b.WriteString("Finish with exactly one command, which ends your session:\n")
 	b.WriteString("- `wsh jarvis dag review pass \"<one paragraph: what landed>\"`, adding `--downstream \"<what a later task must know>\" --for <task ids>` when the change affects later tasks (a renamed API, a plan assumption that turned out wrong). The engine hands the note to the tasks you name; without --for it waits for the lead;\n")
 	b.WriteString("- `wsh jarvis dag review fail \"<findings: each problem, where it is, and the fix>\"`.\n")
+	fmt.Fprintf(&b, "Keep each note within %d characters; a longer one is refused.\n", MaxReviewNoteLen)
 	if ahead := tasksAhead(g, task.ID); ahead != "" {
 		fmt.Fprintf(&b, "Tasks not finished yet, which --for can name: %s.\n", ahead)
 	}

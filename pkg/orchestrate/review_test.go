@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/agentask"
@@ -284,14 +285,21 @@ func TestVerdictsAreRefusedWhenTheyCannotApply(t *testing.T) {
 		{"targets without a note", reviewer, ReviewVerdict_Pass, "ok", "", []string{"t-1"}},
 		{"an unknown target", reviewer, ReviewVerdict_Pass, "ok", "later", []string{"t-9"}},
 		{"the reviewed task as its own target", reviewer, ReviewVerdict_Pass, "ok", "later", []string{"t-0"}},
+		{"a note over the limit", reviewer, ReviewVerdict_Fail, strings.Repeat("x", MaxReviewNoteLen+1), "", nil},
+		{"a downstream note over the limit", reviewer, ReviewVerdict_Pass, "ok", strings.Repeat("x", MaxReviewNoteLen+1), []string{"t-1"}},
 	}
 	for _, c := range cases {
 		if err := RecordReviewVerdict(ctx, dag.OID, c.run, c.verdict, c.note, c.downstream, c.downstreamFor); err == nil {
 			t.Fatalf("%s: want an error", c.name)
 		}
 	}
-	if err := RecordReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Pass, "ok", "", nil); err != nil {
+	// the limit counts runes, not bytes, and a note at it is kept whole
+	atLimit := strings.Repeat("é", MaxReviewNoteLen)
+	if err := RecordReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Pass, atLimit, "", nil); err != nil {
 		t.Fatal(err)
+	}
+	if got := firstTask(t, ctx, dag.OID).ReviewNote; got != atLimit {
+		t.Fatalf("a note at the limit must be stored whole, got %d runes", utf8.RuneCountInString(got))
 	}
 	if err := RecordReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Fail, "changed my mind", "", nil); err == nil {
 		t.Fatal("a second verdict must be refused")
