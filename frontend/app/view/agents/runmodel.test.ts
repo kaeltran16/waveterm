@@ -51,6 +51,9 @@ describe("runStatusView", () => {
     it("maps awaiting-review to a review tone with a spaced label", () => {
         expect(runStatusView("awaiting-review")).toEqual({ label: "awaiting review", tone: "review" });
     });
+    it("maps a dag's plan-review to a review tone", () => {
+        expect(runStatusView("plan-review")).toEqual({ label: "reviewing plan", tone: "review" });
+    });
     it("maps executing to a running tone", () => {
         expect(runStatusView("executing").tone).toBe("running");
     });

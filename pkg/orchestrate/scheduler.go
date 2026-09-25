@@ -70,9 +70,9 @@ func depSatisfied(g *waveobj.TaskGroup, taskID, depID string) bool {
 // running workers are untouched — this stops new work, it does not kill work in flight. A human dag
 // action clears the streak (applyActionLocked), which is the only way back: with the guard in place
 // no fresh success can arrive to clear it on its own. ReadyTasks stays unguarded so the digest can
-// still report which tasks are being held back.
+// still report which tasks are being held back. A plan still under review holds dispatch the same way.
 func NextToSpawn(g *waveobj.TaskGroup) []string {
-	if g.Failures >= MaxConsecutiveFailures {
+	if g.Failures >= MaxConsecutiveFailures || planReviewHolds(g) {
 		return nil
 	}
 	busy := 0

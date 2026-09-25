@@ -75,6 +75,7 @@ func enterReview(t *waveobj.TaskNode, worker *waveobj.Run) {
 // Dag statuses (derived by RecomputeDagStatus; cancelled is a terminal override).
 const (
 	DagStatus_Running        = "running"
+	DagStatus_PlanReview     = "plan-review" // the engine's plan reviewer holds dispatch (TaskGroup.PlanReview)
 	DagStatus_AwaitingReview = "awaiting-review"
 	DagStatus_Blocked        = "blocked"
 	DagStatus_Done           = "done"
@@ -323,9 +324,13 @@ func SameDagProposal(a, b *waveobj.TaskGroup) bool {
 }
 
 // RecomputeDagStatus derives g.Status from task states. Single source of truth.
-// Order matters: cancelled (terminal override) -> done -> blocked -> awaiting-review -> running.
+// Order matters: cancelled (terminal override) -> plan-review -> done -> blocked -> awaiting-review -> running.
 func RecomputeDagStatus(g *waveobj.TaskGroup) {
 	if g.Status == DagStatus_Cancelled {
+		return
+	}
+	if planReviewHolds(g) {
+		g.Status = DagStatus_PlanReview
 		return
 	}
 	cancelled := false

@@ -16,6 +16,8 @@ export function runStatusView(status: string): { label: string; tone: RunStatusT
             return { label: "planning", tone: "planning" };
         case "awaiting-review":
             return { label: "awaiting review", tone: "review" };
+        case "plan-review":
+            return { label: "reviewing plan", tone: "review" };
         case "executing":
             return { label: "executing", tone: "running" };
         case "blocked":

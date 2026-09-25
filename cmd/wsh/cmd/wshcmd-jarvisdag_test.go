@@ -411,6 +411,23 @@ func TestDagReviewData(t *testing.T) {
 	}
 }
 
+func TestDagPlanReviewData(t *testing.T) {
+	cmd := newDagEscalateTestCmd(t, map[string]string{"channel": "ch", "runid": "plan-reviewer-run"})
+	for _, verb := range []string{"pass", "fail", "accept"} {
+		got, err := dagPlanReviewData(cmd, []string{verb, "the text"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := wshrpc.CommandDagActionData{ChannelId: "ch", RunId: "plan-reviewer-run", Action: "planreview-" + verb, Notes: "the text"}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("planreview %s data = %+v, want %+v", verb, got, want)
+		}
+	}
+	if _, err := dagPlanReviewData(cmd, []string{"approve", "x"}); err == nil {
+		t.Fatal("an unknown verb must be refused before it is sent")
+	}
+}
+
 func TestDagReviewDataCarriesTheUnverifiedCaveat(t *testing.T) {
 	cmd := newDagEscalateTestCmd(t, map[string]string{"channel": "ch", "runid": "reviewer-run"})
 	cmd.Flags().String("downstream", "", "")

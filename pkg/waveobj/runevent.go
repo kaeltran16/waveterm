@@ -102,6 +102,12 @@ const (
 	RunEventKindReviewOverruled   = "review-overruled"
 	RunEventKindTaskAmended       = "task-amended"
 	RunEventKindTaskLeadTold      = "task-lead-told"
+
+	// dag-level judging sessions (spec 2026-09-25-orchestrator-findings-fixes):
+	//   stage-session-started  a plan reviewer or final verifier was spawned ("role", "runid")
+	//   plan-reviewed          the plan review reached a verdict ("state", "round", "findings")
+	RunEventKindStageSessionStarted = "stage-session-started"
+	RunEventKindPlanReviewed        = "plan-reviewed"
 )
 
 // Detail payload keys per kind (values are built as map[string]any by writers):

@@ -147,3 +147,21 @@ func TestSealEvidenceTotalsADagOwnersUsage(t *testing.T) {
 		t.Errorf("child usage = %+v, want none", storedChild.Evidence.Usage)
 	}
 }
+
+// a plan reviewer works no task, so without its StageRole it would count as the lead
+func TestUsageRoleOfAStageSession(t *testing.T) {
+	cases := []struct {
+		run  waveobj.Run
+		want string
+	}{
+		{waveobj.Run{StageRole: UsageRole_PlanReviewer}, UsageRole_PlanReviewer},
+		{waveobj.Run{TaskId: "t-1", Review: true}, UsageRole_Reviewer},
+		{waveobj.Run{TaskId: "t-1"}, UsageRole_Worker},
+		{waveobj.Run{}, UsageRole_Lead},
+	}
+	for _, c := range cases {
+		if got := UsageRole(&c.run); got != c.want {
+			t.Errorf("UsageRole(%+v) = %q, want %q", c.run, got, c.want)
+		}
+	}
+}

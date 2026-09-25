@@ -22,12 +22,16 @@ const (
 	UsageRole_Lead     = "lead"
 	UsageRole_Worker   = "worker"
 	UsageRole_Reviewer = "reviewer"
+	// UsageRole_PlanReviewer is a run's StageRole as well: the engine's plan reviewer at submit.
+	UsageRole_PlanReviewer = "plan-reviewer"
 )
 
-// UsageRole is the part a run played in its dag: the child that reviews a task, the child that works one,
-// or the lead that owns the dag.
+// UsageRole is the part a run played in its dag: a dag-level judging session (its StageRole), the child that
+// reviews a task, the child that works one, or the lead that owns the dag.
 func UsageRole(r *waveobj.Run) string {
 	switch {
+	case r.StageRole != "":
+		return r.StageRole
 	case r.Review:
 		return UsageRole_Reviewer
 	case r.TaskId != "":

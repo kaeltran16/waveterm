@@ -2585,6 +2585,16 @@ declare global {
         updatedat: number;
     };
 
+    // waveobj.PlanReviewStage
+    type PlanReviewStage = {
+        state: string;
+        round: number;
+        runid?: string;
+        findings?: string;
+        respawns?: number;
+        startedts?: number;
+    };
+
     // waveobj.Point
     type Point = {
         x: number;
@@ -2844,6 +2854,7 @@ declare global {
         leadsessionids?: string[];
         taskid?: string;
         review?: boolean;
+        stagerole?: string;
         branch?: string;
         workerroute?: RoutePin;
         orchestration?: string;
@@ -3353,6 +3364,7 @@ declare global {
         effortoid?: string;
         planpath?: string;
         specpath?: string;
+        planreview?: PlanReviewStage;
     };
 
     // waveobj.TaskNode

@@ -371,6 +371,8 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 	// review: apply verdicts, replace a reviewer that ended without one, spawn the missing ones. Before the
 	// task-done accounting below, so a pass is counted done in the tick that applied it.
 	advanceReviews(ctx, spawnCtx, g, owner, runs, now, &afterCommit)
+	// the plan reviewer, before dispatch: NextToSpawn holds every task until its review clears
+	advancePlanReview(ctx, spawnCtx, g, owner, now, &afterCommit)
 	// child-done: record the task-done lifecycle boundary (task id + child run id). A done child is not
 	// judgment, so the lead is not woken; the merge that follows wakes it only on a conflict.
 	for i := range g.Tasks {

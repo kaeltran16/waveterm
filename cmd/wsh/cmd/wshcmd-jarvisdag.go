@@ -637,6 +637,40 @@ var dagReviewCmd = &cobra.Command{
 	},
 }
 
+// dagPlanReviewData is the payload of a plan review verdict, or of the lead's accept. RunId resolves to the
+// caller's own run: the plan reviewer's for pass and fail, which is how the server knows the verdict is its.
+func dagPlanReviewData(cmd *cobra.Command, args []string) (wshrpc.CommandDagActionData, error) {
+	verb := args[0]
+	if verb != "pass" && verb != "fail" && verb != "accept" {
+		return wshrpc.CommandDagActionData{}, fmt.Errorf("planreview takes pass, fail or accept, got %q", verb)
+	}
+	channelId, runId, err := dagIds(cmd)
+	if err != nil {
+		return wshrpc.CommandDagActionData{}, err
+	}
+	return wshrpc.CommandDagActionData{ChannelId: channelId, RunId: runId, Action: "planreview-" + verb, Notes: args[1]}, nil
+}
+
+var dagPlanReviewCmd = &cobra.Command{
+	Use:     "planreview <pass|fail|accept> <text>",
+	Short:   "as the plan reviewer: record your verdict (a pass's summary, or a fail's findings), then end your session; as the lead: accept a failed plan review with the human's reason",
+	Args:    cobra.ExactArgs(2),
+	PreRunE: preRunSetupRpcClient,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		data, err := dagPlanReviewData(cmd, args)
+		if err != nil {
+			return err
+		}
+		if err := wshclient.DagActionCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: 10_000}); err != nil {
+			return err
+		}
+		if data.Action == "planreview-accept" {
+			return nil
+		}
+		return reportRunPhase(wshrpc.CommandReportRunPhaseData{Action: "complete"})
+	},
+}
+
 // dagNoteData is the payload of a lead action that carries text for a task: amend's note, tell's message,
 // sendback's optional guidance.
 func dagNoteData(cmd *cobra.Command, action string, args []string) (wshrpc.CommandDagActionData, error) {
@@ -754,7 +788,7 @@ func leadTree() string {
 }
 
 func init() {
-	jarvisDagCmd.AddCommand(dagSubmitCmd, dagStatusCmd, dagMergeCmd, dagAsksCmd, dagAnswerCmd, dagForwardCmd, dagRulesCmd, dagReviewCmd, dagAmendCmd, dagTellCmd)
+	jarvisDagCmd.AddCommand(dagSubmitCmd, dagStatusCmd, dagMergeCmd, dagAsksCmd, dagAnswerCmd, dagForwardCmd, dagRulesCmd, dagReviewCmd, dagPlanReviewCmd, dagAmendCmd, dagTellCmd)
 	jarvisDagCmd.AddCommand(dagAction("approve"), dagSendbackCmd, dagAction("retry"), dagAction("skip"), dagEscalateCmd, dagAction("cancel"), dagActionWithin("retry-cleanup", 60_000))
 	for _, c := range jarvisDagCmd.Commands() {
 		c.Flags().String("runid", "", "run id")

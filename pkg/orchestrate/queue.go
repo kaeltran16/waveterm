@@ -85,6 +85,24 @@ func reviewFailedWake(taskID string) string {
 	return fmt.Sprintf("wake: review failed for task %s. wsh jarvis dag status", taskID)
 }
 
+// planReviewFailedWake carries the plan reviewer's findings whole: the lead revises the plan from them. After
+// the last round the call is the human's.
+func planReviewFailedWake(round int, findings string, last bool) string {
+	if last {
+		return fmt.Sprintf("wake: plan review failed in round %d, the last: %s. Put it to the human; if they say to proceed, run `wsh jarvis dag planreview accept \"<the human's reason>\"`.", round, flatLine(findings))
+	}
+	return fmt.Sprintf("wake: plan review failed in round %d: %s. Revise the plan (put spec changes to the human) and run `wsh jarvis dag submit` again.", round, flatLine(findings))
+}
+
+// planReviewLostWake is for a plan reviewer that twice ended without a verdict: there are no findings to act
+// on, so the same plan can be submitted again.
+func planReviewLostWake(round int, reason string, last bool) string {
+	if last {
+		return fmt.Sprintf("wake: the plan reviewer did not finish in round %d, the last (%s). Put it to the human; if they say to proceed, run `wsh jarvis dag planreview accept \"<the human's reason>\"`.", round, reason)
+	}
+	return fmt.Sprintf("wake: the plan reviewer did not finish in round %d (%s). Run `wsh jarvis dag submit` again to review the plan once more.", round, reason)
+}
+
 // downstreamWake carries what a passed task's reviewer said later tasks must know. A wake is typed as one
 // line, so the note is flattened.
 func downstreamWake(taskID, note string) string {

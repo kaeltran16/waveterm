@@ -301,6 +301,8 @@ type Run struct {
 	// reviewer is placed only by these. Empty for runs the engine did not launch.
 	TaskId string `json:"taskid,omitempty"`
 	Review bool   `json:"review,omitempty"`
+	// StageRole marks a dag-level judging session, one that works no task: "plan-reviewer" or "verifier".
+	StageRole string `json:"stagerole,omitempty"`
 	// Branch is the git branch a dag child's worker committed on: its lane's wave/<key>. Cleanup deletes the
 	// branch and the worktree, so a finished worker's branch is known only from here. Empty outside a repo.
 	Branch string `json:"branch,omitempty"`
@@ -479,6 +481,20 @@ type TaskGroup struct {
 	// submitted as JSON.
 	PlanPath string `json:"planpath,omitempty"`
 	SpecPath string `json:"specpath,omitempty"`
+
+	// PlanReview is the engine's review of the spec and plan at submit. Nothing dispatches until it has
+	// passed or the lead accepted it on the human's word. Nil for a dag submitted as JSON.
+	PlanReview *PlanReviewStage `json:"planreview,omitempty"`
+}
+
+// PlanReviewStage is one dag's plan review: its round, the reviewer session judging it, and the verdict's text.
+type PlanReviewStage struct {
+	State     string `json:"state"` // reviewing | passed | failed | accepted
+	Round     int    `json:"round"`
+	RunID     string `json:"runid,omitempty"`    // the reviewer session's child run
+	Findings  string `json:"findings,omitempty"` // fail findings or pass summary, whole
+	Respawns  int    `json:"respawns,omitempty"`
+	StartedTs int64  `json:"startedts,omitempty"`
 }
 
 func (*TaskGroup) GetOType() string {

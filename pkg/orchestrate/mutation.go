@@ -66,6 +66,9 @@ func childRunIDs(g *waveobj.TaskGroup) []string {
 			out = append(out, g.Tasks[i].ReviewRunID)
 		}
 	}
+	if g.PlanReview != nil && g.PlanReview.RunID != "" {
+		out = append(out, g.PlanReview.RunID)
+	}
 	return out
 }
 

@@ -211,6 +211,11 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 	proposed.Verify, proposed.Setup, proposed.Check, proposed.Preamble = plan.Verify, plan.Setup, plan.Check, plan.Preamble
 	proposed.EffortOID = plan.EffortOID
 	proposed.PlanPath, proposed.SpecPath = data.PlanPath, data.SpecPath
+	// a plan file is reviewed before any worker starts; a JSON dag has no plan to review
+	if data.PlanPath != "" {
+		proposed.PlanReview = orchestrate.NewPlanReview()
+		orchestrate.RecomputeDagStatus(&proposed)
+	}
 	// the landing tree is where Verify runs, and the plan's Setup line is first known here. A run that
 	// already has a dag is a resubmit, whose merges may be running in that tree. Setup is bounded by its own
 	// timeout, not the caller's RPC deadline, and once it has run the submit finishes even if the caller
@@ -246,11 +251,19 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 	if err != nil {
 		return nil, err
 	}
-	if !created {
+	switch {
+	case !created && orchestrate.PlanReviewReplaceable(stored):
+		// the lead revised the plan its review failed: nothing was built on it, so the revision replaces it
+		replaced, err := orchestrate.ReplacePlanReviewProposal(ctx, stored.OID, &proposed)
+		if err != nil {
+			return nil, err
+		}
+		stored = replaced
+	case !created:
 		if !orchestrate.SameDagProposal(stored, &proposed) {
 			return nil, fmt.Errorf("dag conflict: run %s already holds a different dag; a run holds exactly one dag for its whole lifetime, so remaining work needs a new run, not a second submission", data.RunId)
 		}
-	} else {
+	default:
 		zero := 0
 		appendRunEvent(ctx, data.ChannelId, data.RunId, waveobj.RunEventKindPhaseStarted, &zero, map[string]any{})
 		// a lead that just handed its plan over compacts at that boundary (spec §7); a run with no lead
@@ -378,6 +391,25 @@ func (ws *WshServer) DagActionCommand(ctx context.Context, data wshrpc.CommandDa
 		go func() {
 			if err := orchestrate.Schedule(context.Background(), dagID); err != nil {
 				log.Printf("dag schedule after review verdict: %v", err)
+			}
+		}()
+		return nil
+	case "planreview-pass", "planreview-fail", "planreview-accept":
+		var err error
+		if data.Action == "planreview-accept" {
+			err = orchestrate.AcceptPlanReview(ctx, run.DagORef, data.Notes)
+		} else {
+			// RunId is the plan reviewer's own run, resolved from its terminal as `dag review` does
+			err = orchestrate.RecordPlanReviewVerdict(ctx, run.DagORef, data.RunId, strings.TrimPrefix(data.Action, "planreview-"), data.Notes)
+		}
+		if err != nil {
+			return err
+		}
+		// the verdict is durable; the tick it clears dispatches the first layer, which outlasts the caller's RPC budget
+		dagID := run.DagORef
+		go func() {
+			if err := orchestrate.Schedule(context.Background(), dagID); err != nil {
+				log.Printf("dag schedule after plan review: %v", err)
 			}
 		}()
 		return nil
