@@ -58,7 +58,7 @@ func LoadGlobalProfile() waveobj.JarvisProfile {
 		log.Printf("jarvis profile: malformed %s: %v (using builtin)", path, err)
 		return BuiltinProfile()
 	}
-	if err := ValidateGlobalPrinciples(profile.Principles); err != nil {
+	if err := validatePrincipleItems(profile.Principles); err != nil {
 		log.Printf("jarvis profile: invalid principles in %s: %v (using builtin)", path, err)
 		return BuiltinProfile()
 	}
@@ -122,7 +122,35 @@ func LandPath(run *waveobj.Run) string {
 	return run.ProjectPath
 }
 
+// ValidateGlobalPrinciples is the write path's check. It refuses a principle that repeats an earlier one,
+// which the read path (validatePrincipleItems) tolerates and RenderPrinciples drops, so a file saved before
+// the refusal still loads.
 func ValidateGlobalPrinciples(items waveobj.PrincipleList) error {
+	if err := validatePrincipleItems(items); err != nil {
+		return err
+	}
+	return duplicatePrinciple(items)
+}
+
+// normalizePrinciple is the text two principles are compared by: case, spacing and trailing punctuation
+// are not a difference. Near-duplicates stay the human's to edit.
+func normalizePrinciple(s string) string {
+	return strings.TrimRight(strings.Join(strings.Fields(strings.ToLower(s)), " "), ".,;:!")
+}
+
+func duplicatePrinciple(items waveobj.PrincipleList) error {
+	seen := make(map[string]waveobj.Principle, len(items))
+	for _, item := range items {
+		key := normalizePrinciple(item.Text)
+		if earlier, ok := seen[key]; ok {
+			return fmt.Errorf("principle %q repeats the earlier principle %q (%q)", item.Text, earlier.Text, earlier.ID)
+		}
+		seen[key] = item
+	}
+	return nil
+}
+
+func validatePrincipleItems(items waveobj.PrincipleList) error {
 	seen := make(map[string]struct{}, len(items))
 	for i, item := range items {
 		if strings.TrimSpace(item.ID) == "" {
@@ -139,8 +167,18 @@ func ValidateGlobalPrinciples(items waveobj.PrincipleList) error {
 	return nil
 }
 
+// ValidatePrinciplePatch is the write path's check for a project patch: on top of validatePatchItems, the
+// principles it resolves to must not repeat one another.
 func ValidatePrinciplePatch(global waveobj.PrincipleList, patch *waveobj.PrinciplePatch) error {
-	if err := ValidateGlobalPrinciples(global); err != nil {
+	if err := validatePatchItems(global, patch); err != nil {
+		return err
+	}
+	resolved, _ := ResolvePrinciples(global, patch)
+	return duplicatePrinciple(resolved)
+}
+
+func validatePatchItems(global waveobj.PrincipleList, patch *waveobj.PrinciplePatch) error {
+	if err := validatePrincipleItems(global); err != nil {
 		return fmt.Errorf("invalid global principles: %w", err)
 	}
 	if patch == nil {
@@ -209,7 +247,7 @@ func ResolvePrinciples(global waveobj.PrincipleList, patch *waveobj.PrinciplePat
 	if legacy, ok := patch.LegacyReplacement(); ok {
 		return waveobj.PrincipleList{{ID: waveobj.LegacyProjectPrincipleID, Text: legacy}}, nil
 	}
-	if ValidatePrinciplePatch(global, patch) != nil {
+	if validatePatchItems(global, patch) != nil {
 		return clonePrinciples(global), nil
 	}
 
@@ -302,7 +340,13 @@ func RenderPrinciples(items waveobj.PrincipleList) string {
 		return items[0].Text
 	}
 	lines := make([]string, 0, len(items))
+	seen := make(map[string]struct{}, len(items))
 	for _, item := range items {
+		key := normalizePrinciple(item.Text)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
 		lines = append(lines, "- "+item.Text)
 	}
 	return strings.Join(lines, "\n")

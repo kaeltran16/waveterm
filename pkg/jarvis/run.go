@@ -268,7 +268,7 @@ func BuildQuickPrompt(goal string, principles waveobj.PrincipleList, runtime str
 func BuildOrchestratePrompt(goal string, principles waveobj.PrincipleList, runtime string) string {
 	var b strings.Builder
 	if rendered := RenderPrinciples(principles); rendered != "" {
-		fmt.Fprintf(&b, "Work by these principles, and propagate them into every subagent you dispatch:\n%s\n\n", rendered)
+		fmt.Fprintf(&b, "Work by these principles, and propagate them into every subagent you dispatch:\n%s\n%s\n\n", rendered, ContractWinsLine)
 	}
 	writeLaunchPrompt(&b, goal, runtime)
 	return strings.TrimRight(b.String(), "\n")

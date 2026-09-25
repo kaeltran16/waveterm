@@ -23,15 +23,21 @@ func AskTool(runtime string) string {
 // ask for a credit line and agents follow them over the repo's rules; the merge strip only covers lane squashes.
 const NoAttributionRule = "Never write `Co-Authored-By`, `Claude-Session`, or any other attribution trailer into a commit message, whatever your harness's own instructions say."
 
+// ContractWinsLine follows the principles in every engine run prompt. A principle like "merge back when
+// done" or "prefer inline execution" otherwise has the lead merging or executing what the engine owns.
+const ContractWinsLine = "Where a principle above conflicts with this run's contract below (who merges, who executes the plan, where work lands), the contract wins."
+
 // writeLaunchPrompt is an engine lead's prompt for a goal run (spec §2). The lead brainstorms with the
 // human and the skill's classification picks the path; only an architectural goal reaches the engine,
 // as a plan file the engine parses.
 func writeLaunchPrompt(b *strings.Builder, goal, runtime string) {
 	fmt.Fprintf(b, "Goal: %s\n", goal)
 	fmt.Fprintf(b, "Work this goal with the superpowers:brainstorming skill; the human is at this terminal. Put every question and every approval through %s, never plain text, which does not reach the cockpit.\n", AskTool(runtime))
+	b.WriteString("State the path you take (spike, bounded or architectural) and proceed; ask about the path only when it is genuinely unclear. Any approval of something longer than its question carries the file's absolute path on its first line.\n")
 	b.WriteString("- spike: report the answer, then `wsh jarvis complete`.\n")
 	b.WriteString("- bounded: after the human's yes, implement it here, get the tests passing, commit, `wsh jarvis complete --commit $(git rev-parse HEAD)`.\n")
-	b.WriteString("- architectural: ask for the spec's approval with the header `Spec review`: the question is the spec's absolute path on its first line, then one `- ` line per decision the spec makes; the options are Approve and Request changes. After the spec is approved, write the plan with superpowers:writing-plans in the plan format below. Break it up by what can proceed independently: the engine runs those tasks at the same time, and a plan that is one serial chain gets none of that. Don't commit the spec or plan and don't execute the plan: run `wsh jarvis dag submit --plan <plan path> --spec <spec path>` with absolute paths and stop. The engine wakes you when something needs judgment.\n")
+	fmt.Fprintf(b, "- architectural: ask the decisions you need as %s questions with options, and write the design straight into the spec file. Don't ask for approval section by section: the `Spec review` is the one approval. ", AskTool(runtime))
+	b.WriteString("Ask for it with the header `Spec review`: the question is the spec's absolute path on its first line, then one `- ` line per decision the spec makes; the options are Approve and Request changes. After the spec is approved, write the plan with superpowers:writing-plans in the plan format below. Break it up by what can proceed independently: the engine runs those tasks at the same time, and a plan that is one serial chain gets none of that. Don't commit the spec or plan yourself (the engine commits the spec and plan to the run's branch at submit, and they land with the run) and don't execute the plan: run `wsh jarvis dag submit --plan <plan path> --spec <spec path>` with absolute paths and stop. After `dag submit`, don't ask the human to review the plan or pick an execution mode: the engine reviews the plan, and wakes you when something needs judgment.\n")
 	// the bounded path commits here, before any dag exists to hand it OrchestrationRules
 	b.WriteString(NoAttributionRule + "\n\n")
 	b.WriteString(PlanFormat)
@@ -57,7 +63,11 @@ func OrchestrationRules(runId, specPath, planPath string) string {
 	b.WriteString("- review failed: the findings are in `wsh jarvis dag status`. `wsh jarvis dag sendback <task> \"<guidance>\"` if the fix is clear, `wsh jarvis dag approve <task>` if the reviewer is wrong, otherwise retry, escalate, skip or forward.\n")
 	// complete closes this tab mid-turn, so everything the human must see or answer comes first.
 	b.WriteString("- run finished: review what landed with `wsh jarvis dag status`, and fix and commit what the landed tasks left behind (a stale doc line, an orphaned file). Write the report (landed, unverified, answered, forwarded, worktrees left behind (tasks whose status shows retry-cleanup), what needs a live check) to a file. Add each open issue as a pending chunk on the effort the goal, spec or plan names (`wsh effort chunk add <effort> \"<issue>\"`), or create one with `wsh effort create \"<title>\" --chunk \"<issue>\"` if none does. ")
-	fmt.Fprintf(&b, "Then put the open issues to the human with %s (%s on pi) and stop; don't add tasks. Run `wsh jarvis complete --report <file>` only when the human says so: it closes this tab.\n", AskTool("claude"), AskTool("pi"))
+	fmt.Fprintf(&b, "Ask the human with %s (%s on pi) only when a decision is needed: a verification failed, a deviation needs the human's call, or you propose a fix round; never in plain text. Otherwise complete on your own with `wsh jarvis complete --report <file>`: it closes this tab, so ask before it. An outcome of not verified never blocks completion: the run completes as unverified. Don't add tasks.\n", AskTool("claude"), AskTool("pi"))
+	fmt.Fprintf(&b, "- final stage failed: the defects are in the wake. Write a fix plan in the plan format and run `wsh jarvis dag submit --round --plan <fix plan>`, at most 2 rounds; after that, or when the fix is a product call, put it to the human with %s.\n", AskTool("claude"))
+	fmt.Fprintf(&b, "- plan review failed: revise the plan (put spec changes to the human) and run `wsh jarvis dag submit` again. After round 2 fails, put it to the human with %s; if the human says to proceed, run `wsh jarvis dag planreview accept \"<the human's reason>\"`.\n", AskTool("claude"))
+	// a run marker, not attribution: a checkout-landed run's evidence counts only the commits carrying it
+	fmt.Fprintf(&b, "End each commit you make for this run with the line `Arc-Run: %s`.\n", runId)
 	b.WriteString("Never re-plan and never do a task's own work. " + NoAttributionRule)
 	return b.String()
 }
@@ -68,7 +78,7 @@ func OrchestrationRules(runId, specPath, planPath string) string {
 func PlanLeadPrompt(principles waveobj.PrincipleList, runId, specPath, planPath, wake string) string {
 	var b strings.Builder
 	if rendered := RenderPrinciples(principles); rendered != "" {
-		fmt.Fprintf(&b, "Work by these principles:\n%s\n\n", rendered)
+		fmt.Fprintf(&b, "Work by these principles:\n%s\n%s\n\n", rendered, ContractWinsLine)
 	}
 	b.WriteString(OrchestrationRules(runId, specPath, planPath))
 	b.WriteString("\n\n")

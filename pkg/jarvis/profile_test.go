@@ -131,6 +131,35 @@ func TestRenderPrinciples(t *testing.T) {
 	}
 }
 
+// a principle added twice (finding 1) reached every prompt twice; case, spacing and trailing punctuation
+// are not a difference, and the earlier copy is the one kept
+func TestRepeatedPrinciplesRenderOnceAndAreRefusedOnWrite(t *testing.T) {
+	repeated := principles(
+		waveobj.Principle{ID: "a", Text: "Use worktree"},
+		waveobj.Principle{ID: "b", Text: "use  worktree."},
+		waveobj.Principle{ID: "c", Text: "KISS"},
+	)
+	if got := RenderPrinciples(repeated); got != "- Use worktree\n- KISS" {
+		t.Fatalf("repeated principle rendered twice: %q", got)
+	}
+	err := ValidateGlobalPrinciples(repeated)
+	if err == nil || !strings.Contains(err.Error(), `"Use worktree"`) || !strings.Contains(err.Error(), `"a"`) {
+		t.Fatalf("the write path must refuse the repeat and name the earlier principle: %v", err)
+	}
+	if err := ValidateGlobalPrinciples(principles(waveobj.Principle{ID: "a", Text: "Use worktree"}, waveobj.Principle{ID: "b", Text: "Use worktree instead of branch"})); err != nil {
+		t.Fatalf("a near-duplicate is the human's to edit, not refused: %v", err)
+	}
+	patch := &waveobj.PrinciplePatch{Additions: []waveobj.Principle{{ID: "p", Text: "KISS!"}}}
+	if err := ValidatePrinciplePatch(principles(waveobj.Principle{ID: "c", Text: "KISS"}), patch); err == nil || !strings.Contains(err.Error(), `"c"`) {
+		t.Fatalf("a project addition repeating a global principle must be refused on write: %v", err)
+	}
+	// a patch stored before the refusal still resolves; only the render drops the repeat
+	got, _ := ResolvePrinciples(principles(waveobj.Principle{ID: "c", Text: "KISS"}), patch)
+	if len(got) != 2 || RenderPrinciples(got) != "- KISS" {
+		t.Fatalf("a stored repeat must still resolve and render once: %#v", got)
+	}
+}
+
 func TestResolveProfile(t *testing.T) {
 	global := waveobj.JarvisProfile{Principles: principles(waveobj.Principle{ID: "simple", Text: "Simple."})}
 	patch := &waveobj.PrinciplePatch{Additions: []waveobj.Principle{{ID: "project", Text: "Project."}}}

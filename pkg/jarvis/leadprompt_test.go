@@ -80,10 +80,10 @@ func TestOrchestrationRulesNameRunSpecPlanAndCommands(t *testing.T) {
 	}
 }
 
-// complete closes the lead's tab mid-turn, so a lead that reports and completes in one turn leaves the
-// human no way to answer: the open issues go to the initiative and to the human first, and complete waits.
-func TestOrchestrationRulesHoldCompleteForTheHuman(t *testing.T) {
-	r := OrchestrationRules("run-1", "", "")
+// a lead that waited for the human's word to complete left finished runs open for hours (finding 17): it
+// completes on its own, and asks first only when a decision is needed, since complete closes its tab.
+func TestOrchestrationRulesCompleteOnTheirOwn(t *testing.T) {
+	r := OrchestrationRules("r1", "", "")
 	var finished string
 	for _, line := range strings.Split(r, "\n") {
 		if strings.HasPrefix(line, "- run finished:") {
@@ -102,14 +102,69 @@ func TestOrchestrationRulesHoldCompleteForTheHuman(t *testing.T) {
 		"report",
 		"to a file",
 		"wsh jarvis complete --report <file>",
-		"only when the human says so",
+		"complete on your own",
+		"only when a decision is needed: a verification failed, a deviation needs the human's call, or you propose a fix round",
+		"not verified never blocks completion",
 	} {
 		if !strings.Contains(finished, want) {
 			t.Fatalf("run-finished rule missing %q:\n%s", want, finished)
 		}
 	}
+	if strings.Contains(finished, "only when the human says so") {
+		t.Fatalf("the lead must not wait for the human's word to complete:\n%s", finished)
+	}
 	if strings.Index(finished, AskTool("claude")) > strings.Index(finished, "wsh jarvis complete") {
-		t.Fatalf("the lead must ask the human before it completes:\n%s", finished)
+		t.Fatalf("a question must come before complete, which closes the tab:\n%s", finished)
+	}
+	for _, want := range []string{
+		"wsh jarvis dag submit --round --plan <fix plan>",
+		"at most 2 rounds",
+		`wsh jarvis dag planreview accept "<the human's reason>"`,
+		"end each commit you make for this run with the line `Arc-Run: r1`",
+	} {
+		if !strings.Contains(strings.ToLower(r), strings.ToLower(want)) {
+			t.Fatalf("rules missing %q:\n%s", want, r)
+		}
+	}
+}
+
+// the launch prompt cuts the ceremony run b2d7fab1 went through (findings 4 to 7): the path is stated, not
+// asked; the design goes into the spec file with one approval; the engine commits the files and reviews the plan.
+func TestEngineLaunchPromptCutsTheCeremony(t *testing.T) {
+	for _, runtime := range []string{"claude", "pi"} {
+		p := BuildOrchestratePrompt("ship auth", nil, runtime)
+		for _, want := range []string{
+			"State the path you take",
+			"only when it is genuinely unclear",
+			"write the design straight into the spec file",
+			"Don't ask for approval section by section",
+			"Any approval of something longer than its question carries the file's absolute path on its first line",
+			"the engine commits the spec and plan to the run's branch at submit",
+			"don't ask the human to review the plan or pick an execution mode: the engine reviews the plan",
+		} {
+			if !strings.Contains(p, want) {
+				t.Fatalf("%s launch prompt missing %q:\n%s", runtime, want, p)
+			}
+		}
+		if strings.Contains(p, "Don't commit the spec or plan and") {
+			t.Fatalf("%s launch prompt still says the spec and plan stay uncommitted:\n%s", runtime, p)
+		}
+	}
+}
+
+// a principle like "merge back when done" had the lead doing what the engine owns (finding 1)
+func TestEngineRunPromptsPutTheContractOverPrinciples(t *testing.T) {
+	ps := waveobj.PrincipleList{{ID: "wt", Text: "Use worktree"}}
+	for name, p := range map[string]string{
+		"plan lead": PlanLeadPrompt(ps, "r1", "", "/repo/plan.md", "wake"),
+		"goal lead": BuildOrchestratePrompt("ship auth", ps, "claude"),
+	} {
+		if !strings.Contains(p, "- Use worktree\n"+ContractWinsLine+"\n\n") {
+			t.Fatalf("%s prompt must follow its principles with the contract line:\n%s", name, p)
+		}
+	}
+	if strings.Contains(BuildOrchestratePrompt("ship auth", nil, "claude"), ContractWinsLine) {
+		t.Fatal("with no principles there is nothing for the contract to win over")
 	}
 }
 
@@ -144,7 +199,7 @@ func TestPlanLeadPromptStartsFromTheRulesAndTheWake(t *testing.T) {
 		t.Fatalf("a plan-input lead has nothing to brainstorm:\n%s", p)
 	}
 	principled := PlanLeadPrompt(waveobj.PrincipleList{{ID: waveobj.LegacyGlobalPrincipleID, Text: "be tidy"}}, "run-1", "", "/repo/plan.md", wake)
-	if !strings.HasPrefix(principled, "Work by these principles:\nbe tidy\n\n") {
+	if !strings.HasPrefix(principled, "Work by these principles:\nbe tidy\n"+ContractWinsLine+"\n\n") {
 		t.Fatalf("the run's principles lead the prompt, as they do for a goal-run lead:\n%s", principled)
 	}
 }
