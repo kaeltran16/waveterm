@@ -2,7 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { AGGREGATE, buildCompareRows, compareNavIds, sideJumpTarget, type CompareRow } from "./comparerows";
+import {
+    AGGREGATE,
+    buildCompareRows,
+    compareNavIds,
+    formSentence,
+    sideJumpTarget,
+    splitLabel,
+    type CompareRow,
+} from "./comparerows";
 import type { GitChanges } from "./gitstatus";
 
 const NOW = 1_700_000_000_000;
@@ -109,5 +117,43 @@ describe("sideJumpTarget", () => {
 
     it("returns null for an unknown row id", () => {
         expect(sideJumpTarget(rows(), "nope")).toBeNull();
+    });
+});
+
+describe("the aggregate row", () => {
+    it("reads All changes", () => {
+        const rows = buildCompareRows({ base: "main", head: "x", ahead: [], behind: [], aggregate: null, now: 0 });
+        expect(rows[0]).toMatchObject({ kind: "aggregate", label: "All changes" });
+    });
+});
+
+describe("formSentence", () => {
+    it("says what the merge-base form leaves out", () => {
+        expect(formSentence("mergebase", "main", "exp-native", "7a4155cdead")).toBe(
+            "Only what exp-native added since the two split at 7a4155c. Commits main gained since are left out."
+        );
+    });
+    it("says what tip to tip includes", () => {
+        expect(formSentence("tips", "main", "exp-native", "7a4155cdead")).toBe(
+            "Everything that differs between the two tips, including what main gained since the split."
+        );
+    });
+    it("does not print an empty hash when there is no merge base", () => {
+        expect(formSentence("mergebase", "main", "x", "")).toBe(
+            "Only what x added since the two split. Commits main gained since are left out."
+        );
+    });
+});
+
+describe("splitLabel", () => {
+    const DAY = 86_400_000;
+    it("names the merge base and how long ago it was", () => {
+        expect(splitLabel("7a4155cdead", 1_000, 1_000 + 7 * DAY)).toBe("split at 7a4155c · 7d ago");
+    });
+    it("omits the age it does not know", () => {
+        expect(splitLabel("7a4155cdead", 0, 5 * DAY)).toBe("split at 7a4155c");
+    });
+    it("is empty without a merge base", () => {
+        expect(splitLabel("", 0, 0)).toBe("");
     });
 });

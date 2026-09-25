@@ -1176,6 +1176,22 @@ func TestGetDivergenceReportsMergeBase(t *testing.T) {
 	}
 }
 
+func TestGetDivergenceReportsMergeBaseTime(t *testing.T) {
+	dir := repoDiverged(t)
+	d, err := GetDivergence(context.Background(), dir, "main", "feature")
+	if err != nil {
+		t.Fatalf("GetDivergence: %v", err)
+	}
+	root, err := HistoryLog(context.Background(), dir, HistoryOpts{Ref: "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := root.Commits[len(root.Commits)-1].Ts
+	if d.MergeBaseTs != want {
+		t.Errorf("MergeBaseTs = %d, want the root commit's time %d", d.MergeBaseTs, want)
+	}
+}
+
 func TestGetDivergenceIdenticalRefs(t *testing.T) {
 	dir := repoDiverged(t)
 	d, err := GetDivergence(context.Background(), dir, "main", "main")

@@ -23,6 +23,7 @@ vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 import {
     compareOnAtom,
     compareRefsAtom,
+    compareSidesAtom,
     enterCompare,
     fetchStateAtom,
     leaveCompare,
@@ -86,6 +87,20 @@ describe("comparison as a range", () => {
         await enterCompare("/repo", "feat");
         expect(divergence).not.toHaveBeenCalled();
         expect(globalStore.get(compareOnAtom)).toBe(false);
+    });
+
+    it("carries when the refs split, 0 when the read has no time", async () => {
+        globalStore.set(diffScopeAtom, base);
+        listBranches.mockResolvedValue({ branches: [], default: "main" });
+        compareChanges.mockResolvedValue({ isrepo: true, statusz: "", numstat: "" });
+
+        divergence.mockResolvedValue({ isrepo: true, ahead: [], behind: [], mergebase: "m1", mergebasets: 42 });
+        await enterCompare("/repo", "feat");
+        expect(globalStore.get(compareSidesAtom)).toMatchObject({ mergeBase: "m1", mergeBaseTs: 42 });
+
+        divergence.mockResolvedValue({ isrepo: true, ahead: [], behind: [], mergebase: "" });
+        await enterCompare("/repo", "feat");
+        expect(globalStore.get(compareSidesAtom)).toMatchObject({ mergeBase: "", mergeBaseTs: 0 });
     });
 
     it("offers the pair last used when re-entering the same repository", async () => {

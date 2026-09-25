@@ -724,7 +724,9 @@ type Divergence struct {
 	Ahead     []HistoryCommit `json:"ahead"`
 	Behind    []HistoryCommit `json:"behind"`
 	MergeBase string          `json:"mergebase"`
-	IsRepo    bool            `json:"isrepo"`
+	// unix ms of the merge base's commit, the unit HistoryCommit.Ts uses; 0 when there is none
+	MergeBaseTs int64 `json:"mergebasets"`
+	IsRepo      bool  `json:"isrepo"`
 }
 
 // GetDivergence compares two refs. The per-side commit lists come from HistoryLog over the symmetric
@@ -747,11 +749,25 @@ func GetDivergence(ctx context.Context, cwd, base, head string) (*Divergence, er
 	if err != nil {
 		return nil, err
 	}
+	mbHash := strings.TrimSpace(mb)
+	var mbTs int64
+	if mbHash != "" {
+		out, err := run(mbCtx, cwd, "show", "-s", "--format=%ct", mbHash)
+		if err != nil {
+			return nil, err
+		}
+		secs, err := strconv.ParseInt(strings.TrimSpace(out), 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("merge base %s commit time: %w", mbHash, err)
+		}
+		mbTs = secs * 1000
+	}
 	return &Divergence{
-		Ahead:     ahead.Commits,
-		Behind:    behind.Commits,
-		MergeBase: strings.TrimSpace(mb),
-		IsRepo:    true,
+		Ahead:       ahead.Commits,
+		Behind:      behind.Commits,
+		MergeBase:   mbHash,
+		MergeBaseTs: mbTs,
+		IsRepo:      true,
 	}, nil
 }
 

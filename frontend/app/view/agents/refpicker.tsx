@@ -9,8 +9,9 @@
 
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import { cn } from "@/util/util";
+import { ArrowLeftRight, ChevronDown } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { SIDE_TEXT } from "./comparerows";
+import { SIDE_DOT, SIDE_TEXT } from "./comparerows";
 
 function Suggestions({
     branches,
@@ -64,14 +65,17 @@ function Suggestions({
     );
 }
 
-function SwapButton({ onClick }: { onClick: () => void }) {
+const CHIP = "rounded-[9px] border border-accent/30 bg-accentbg";
+
+function SwapButton({ title, className, onClick }: { title: string; className?: string; onClick: () => void }) {
     return (
         <button
             onClick={onClick}
-            title="Swap base and head"
-            className="flex-none px-[3px] font-mono text-[12px] text-ink-faint hover:text-foreground"
+            title={title}
+            aria-label={title}
+            className={cn("flex flex-none items-center justify-center text-ink-mid hover:text-foreground", className)}
         >
-            ⇄
+            <ArrowLeftRight size={14} />
         </button>
     );
 }
@@ -115,22 +119,24 @@ export function RefPicker({
         // The swap sits outside the chip's own button rather than inside it — nesting a button in a
         // button is invalid, and clicking swap must not also open the editor.
         return (
-            <div className="flex items-center gap-[4px] rounded-[9px] border border-accent/30 bg-accentbg pr-[8px]">
+            <div className={cn("flex items-center", CHIP)}>
+                {/* base first, the order `git diff base...head` reads in and the order the summary
+                    line beside this chip prints — the two used to name the same pair backwards */}
                 <button
-                    data-files-ref-expr
+                    data-ref-pair
                     onClick={onEdit}
-                    className="flex items-center gap-[8px] rounded-l-[9px] px-[11px] py-[6px] hover:bg-surface-hover"
+                    title="Change compare refs (c)"
+                    className="flex items-center gap-[8px] rounded-l-[9px] px-[10px] py-[6px] font-mono text-[12px] hover:bg-surface-hover"
                 >
-                    <span className="font-mono text-xxxs font-semibold uppercase tracking-[0.1em] text-ink-faint">
-                        Compare
-                    </span>
-                    {/* base first, the order `git diff base...head` reads in and the order the summary
-                        line beside this chip prints — the two used to name the same pair backwards */}
-                    <span className="font-mono text-[12px] text-ink-hi">
-                        {base || "—"} … {head || "—"}
-                    </span>
+                    <span className={cn("h-[7px] w-[7px] flex-none rounded-full", SIDE_DOT.base)} />
+                    <span className={SIDE_TEXT.base}>{base || "—"}</span>
+                    <span className="text-ink-faint">…</span>
+                    <span className={cn("h-[7px] w-[7px] flex-none rounded-full", SIDE_DOT.head)} />
+                    <span className={SIDE_TEXT.head}>{head || "—"}</span>
+                    <ChevronDown size={12} className="flex-none text-muted" />
                 </button>
-                <SwapButton onClick={onSwap} />
+                <span className="h-[18px] w-px flex-none bg-accent/30" />
+                <SwapButton title="Swap base and head (⇧S)" className="w-[32px] self-stretch" onClick={onSwap} />
             </div>
         );
     }
@@ -150,7 +156,7 @@ export function RefPicker({
     const field = "w-[150px] bg-transparent font-mono text-[12px] text-ink-hi outline-none placeholder:text-ink-faint";
 
     return (
-        <div className="relative flex items-center gap-[8px] rounded-[9px] border border-accent/30 bg-accentbg px-[11px] py-[6px]">
+        <div className={cn("relative flex items-center gap-[8px] px-[11px] py-[6px]", CHIP)}>
             <span className="font-mono text-xxxs font-semibold uppercase tracking-[0.1em] text-ink-faint">
                 Compare
             </span>
@@ -171,6 +177,8 @@ export function RefPicker({
             </div>
             {/* swaps the drafts, not the applied pair: nothing is read until Compare */}
             <SwapButton
+                title="Swap base and head"
+                className="px-[3px]"
                 onClick={() => {
                     setDraftBase(draftHead);
                     setDraftHead(draftBase);

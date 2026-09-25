@@ -53,10 +53,11 @@ type CommandGitDivergenceData struct {
 }
 
 type CommandGitDivergenceRtnData struct {
-	Ahead     []gitinfo.HistoryCommit `json:"ahead"`
-	Behind    []gitinfo.HistoryCommit `json:"behind"`
-	MergeBase string                  `json:"mergebase"`
-	IsRepo    bool                    `json:"isrepo"`
+	Ahead       []gitinfo.HistoryCommit `json:"ahead"`
+	Behind      []gitinfo.HistoryCommit `json:"behind"`
+	MergeBase   string                  `json:"mergebase"`
+	MergeBaseTs int64                   `json:"mergebasets"`
+	IsRepo      bool                    `json:"isrepo"`
 }
 
 type CommandGitCommitChangesData struct {

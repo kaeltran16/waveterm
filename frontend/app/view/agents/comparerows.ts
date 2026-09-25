@@ -8,6 +8,8 @@
 // on invisible state. Selection order, side colouring and the Tab jump all live here so the column
 // stays a renderer.
 
+import { formatAgo } from "./agentsviewmodel";
+import type { CompareForm } from "./diffcontent";
 import type { GitChanges } from "./gitstatus";
 import { toRow, type HistoryRow } from "./historyrows";
 
@@ -22,6 +24,7 @@ export type CompareSide = "head" | "base";
 export interface CompareAggregateRow {
     kind: "aggregate";
     id: typeof AGGREGATE;
+    label: "All changes";
     // null while the aggregate read is still in flight, so the row can render pending rather than "0 files"
     files: number | null;
     adds: number;
@@ -95,6 +98,7 @@ export function buildCompareRows(opts: BuildCompareRowsOpts): CompareRow[] {
     const aggregate: CompareAggregateRow = {
         kind: "aggregate",
         id: AGGREGATE,
+        label: "All changes",
         files: opts.aggregate ? opts.aggregate.files.length : null,
         adds: opts.aggregate?.adds ?? 0,
         dels: opts.aggregate?.dels ?? 0,
@@ -104,6 +108,25 @@ export function buildCompareRows(opts: BuildCompareRowsOpts): CompareRow[] {
         ...sideRows(opts.ahead, "head", opts.head, opts.now),
         ...sideRows(opts.behind, "base", opts.base, opts.now),
     ];
+}
+
+// The aggregate pane's sentence for each range form, so the switch is never a bare "..." vs "..".
+export function formSentence(form: CompareForm, base: string, head: string, mergeBase: string): string {
+    if (form === "tips") {
+        return `Everything that differs between the two tips, including what ${base} gained since the split.`;
+    }
+    const at = mergeBase ? ` at ${mergeBase.slice(0, 7)}` : "";
+    return `Only what ${head} added since the two split${at}. Commits ${base} gained since are left out.`;
+}
+
+// mergeBaseTs is unix ms (gitinfo.Divergence, the unit HistoryCommit.ts uses); 0 = unknown, and an
+// unknown age is left out rather than guessed.
+export function splitLabel(mergeBase: string, mergeBaseTs: number, now: number): string {
+    if (!mergeBase) {
+        return "";
+    }
+    const at = `split at ${mergeBase.slice(0, 7)}`;
+    return mergeBaseTs > 0 ? `${at} · ${formatAgo(now - mergeBaseTs)}` : at;
 }
 
 // What j/k walks: the aggregate and every commit, in column order. Headers are labels, not stops.

@@ -31,6 +31,8 @@ export interface CompareSides {
     ahead: HistoryCommit[];
     behind: HistoryCommit[];
     mergeBase: string;
+    // unix ms; 0 when the read carries no time
+    mergeBaseTs: number;
 }
 
 // Derived, not stored: there is exactly one place that says what the surface is showing, so the
@@ -164,6 +166,7 @@ export async function setCompareRefs(cwd: string, base: string, head: string): P
             ahead: div.ahead ?? [],
             behind: div.behind ?? [],
             mergeBase: div.mergebase ?? "",
+            mergeBaseTs: div.mergebasets ?? 0,
         });
         const changes = parseGitChanges(agg.statusz, agg.numstat);
         globalStore.set(compareAggregateAtom, changes);

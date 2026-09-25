@@ -32,7 +32,7 @@ func (ws *WshServer) GitDivergenceCommand(ctx context.Context, data wshrpc.Comma
 		return nil, err
 	}
 	return &wshrpc.CommandGitDivergenceRtnData{
-		Ahead: d.Ahead, Behind: d.Behind, MergeBase: d.MergeBase, IsRepo: d.IsRepo,
+		Ahead: d.Ahead, Behind: d.Behind, MergeBase: d.MergeBase, MergeBaseTs: d.MergeBaseTs, IsRepo: d.IsRepo,
 	}, nil
 }
 

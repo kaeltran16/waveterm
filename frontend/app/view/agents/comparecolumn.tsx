@@ -2,22 +2,26 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// Pane 1 of the Diff surface in its compare state (Wave-git-review.dc.html, lines 376-399): the
-// aggregate as row zero, then two labelled commit groups coloured by side, then the merge base. No
-// graph gutter — compare has no lane geometry to draw, so rows are flush-padded instead of indented.
+// Pane 1 of the Diff surface in its compare state (diff-polish Compare board): the merge base in the
+// header, where it stays visible rather than after 152 rows, then the aggregate as row zero, then two
+// labelled commit groups coloured by side. No graph gutter — compare has no lane geometry to draw, so
+// rows are flush-padded instead of indented.
 
 import { SkeletonLine } from "@/app/element/skeleton";
 import { cn } from "@/util/util";
+import { PanelLeftClose } from "lucide-react";
 import {
     AGGREGATE,
     SIDE_DOT,
     SIDE_TEXT,
+    splitLabel,
     type CompareCommitRow,
     type CompareHeaderRow,
     type CompareRow,
 } from "./comparerows";
 
 const ROW_H = 32;
+const AGGREGATE_ROW_H = 36;
 const PAD = 14;
 
 function CompareSkeleton() {
@@ -46,20 +50,20 @@ function AggregateRowView({
     return (
         <button
             onClick={onSelect}
-            style={{ height: ROW_H, paddingLeft: PAD }}
+            style={{ height: AGGREGATE_ROW_H, paddingLeft: PAD }}
             className={cn(
                 "relative flex w-full items-center gap-[9px] pr-[12px] text-left transition-colors duration-[140ms] hover:bg-surface",
                 selected && "bg-surface-selected"
             )}
         >
             {/* no left accent bar — the fill marks the selection, matching historypane.tsx */}
-            <span className="font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-muted">Aggregate</span>
+            <span className="text-[12.5px] font-semibold text-ink-hi">{row.label}</span>
             <div className="flex-1" />
             {row.files == null ? (
                 <SkeletonLine className="h-[8px] w-[80px]" />
             ) : (
                 <>
-                    <span className="font-mono text-[10.5px] text-ink-faint">
+                    <span className="font-mono text-[10.5px] text-ink-mid">
                         {row.files} {row.files === 1 ? "file" : "files"}
                     </span>
                     <span className="font-mono text-[10px] font-semibold text-success">+{row.adds}</span>
@@ -72,14 +76,10 @@ function AggregateRowView({
 
 function HeaderRowView({ row }: { row: CompareHeaderRow }) {
     return (
-        <div className="flex items-center gap-[8px] px-[14px] pb-[8px] pt-[12px]">
+        <div className="flex items-center gap-[8px] pb-[6px] pl-[14px] pr-[12px] pt-[12px]">
             <span className={cn("h-[7px] w-[7px] flex-none rounded-full", SIDE_DOT[row.side])} />
-            <span className={cn("font-mono text-[11.5px] font-semibold", SIDE_TEXT[row.side])}>{row.ref}</span>
-            <span className="text-[11.5px] text-muted">{row.note}</span>
-            <div className="flex-1" />
-            <span className="flex-none rounded-[5px] border border-edge-mid bg-surface-raised px-[7px] py-[2px] font-mono text-[10px] font-semibold text-ink-faint">
-                {row.count}
-            </span>
+            <span className={cn("truncate font-mono text-[11.5px] font-semibold", SIDE_TEXT[row.side])}>{row.ref}</span>
+            <span className="flex-none text-[11.5px] text-muted">{row.note}</span>
         </div>
     );
 }
@@ -104,7 +104,7 @@ function CommitRowView({
         >
             {/* no left accent bar — the fill marks the selection, matching historypane.tsx */}
             <span className={cn("h-[7px] w-[7px] flex-none rounded-full opacity-85", SIDE_DOT[row.side])} />
-            <span className="flex-none font-mono text-[11px] text-muted">{row.hash.slice(0, 7)}</span>
+            <span className="w-[52px] flex-none font-mono text-[11px] text-muted">{row.hash.slice(0, 7)}</span>
             <span
                 className={cn(
                     "min-w-0 flex-1 truncate text-[12.5px]",
@@ -113,7 +113,7 @@ function CommitRowView({
             >
                 {row.subject}
             </span>
-            <span className="max-w-[92px] flex-none truncate text-[11px] text-ink-faint">{row.author}</span>
+            <span className="flex-none text-right font-mono text-[10.5px] text-ink-faint">{row.when}</span>
         </button>
     );
 }
@@ -122,26 +122,40 @@ export function CompareColumn({
     rows,
     selected,
     mergeBase,
+    mergeBaseTs = 0,
     error,
     loading,
     onSelect,
+    onCollapse,
 }: {
     rows: CompareRow[];
     selected: string;
     mergeBase: string;
+    mergeBaseTs?: number;
     error: string | null;
     loading: boolean;
     onSelect: (id: string) => void;
+    onCollapse?: () => void;
 }) {
     const diverges = rows.some((r) => r.kind === "commit");
     return (
         <div data-compare-column className="flex min-h-0 flex-1 flex-col">
-            <div className="flex flex-none items-center gap-[9px] px-[14px] pb-[8px] pt-[10px]">
+            <div className="flex h-[40px] flex-none items-center gap-[9px] border-b border-edge-faint pl-[14px] pr-[8px]">
                 <span className="font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-muted">Compare</span>
-                <div className="flex-1" />
-                <span className="font-mono text-[10px] text-ink-faint">
-                    {loading || !diverges ? "" : `${rows.filter((r) => r.kind === "commit").length} divergent commits`}
+                <span className="min-w-0 truncate font-mono text-[10px] text-ink-faint">
+                    {splitLabel(mergeBase, mergeBaseTs, Date.now())}
                 </span>
+                <div className="flex-1" />
+                {onCollapse ? (
+                    <button
+                        onClick={onCollapse}
+                        title="Collapse history"
+                        aria-label="Collapse history"
+                        className="flex h-[26px] w-[26px] flex-none items-center justify-center rounded-[7px] text-muted hover:bg-surface hover:text-foreground"
+                    >
+                        <PanelLeftClose size={15} />
+                    </button>
+                ) : null}
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto pb-[24px]">
                 {error != null ? (
@@ -172,15 +186,6 @@ export function CompareColumn({
                         {/* A stated result, not an empty list: two refs that agree is an answer. */}
                         {!diverges ? (
                             <div className="px-[14px] py-[8px] text-[12px] text-ink-mid">These refs do not diverge.</div>
-                        ) : null}
-                        {mergeBase ? (
-                            <div className="mx-[14px] mb-[30px] mt-[8px] rounded-[9px] border border-edge-faint bg-surface px-[12px] py-[10px]">
-                                <p className="text-[11.5px] leading-[1.5] text-ink-faint">
-                                    Merge base{" "}
-                                    <span className="font-mono text-[11px] text-ink-mid">{mergeBase.slice(0, 7)}</span>.
-                                    The file list stays on the aggregate until you select a commit.
-                                </p>
-                            </div>
                         ) : null}
                     </>
                 )}

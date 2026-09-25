@@ -1203,6 +1203,7 @@ declare global {
         ahead: HistoryCommit[];
         behind: HistoryCommit[];
         mergebase: string;
+        mergebasets: number;
         isrepo: boolean;
     };
 
