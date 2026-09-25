@@ -9,22 +9,17 @@ type AgentSyncCommands interface {
 	AgentSyncStatusCommand(ctx context.Context) (*CommandAgentSyncStatusRtnData, error)
 	AgentSyncSteeringReadCommand(ctx context.Context) (*CommandAgentSyncSteeringReadRtnData, error)
 	AgentSyncSteeringWriteCommand(ctx context.Context, data CommandAgentSyncSteeringWriteData) (*CommandAgentSyncSteeringWriteRtnData, error)
-	AgentSyncHarnessReadCommand(ctx context.Context, data CommandAgentSyncHarnessReadData) (*CommandAgentSyncHarnessReadRtnData, error)
-	AgentSyncHarnessWriteCommand(ctx context.Context, data CommandAgentSyncHarnessWriteData) (*CommandAgentSyncHarnessWriteRtnData, error)
-	AgentSyncHarnessDropMemoryCommand(ctx context.Context, data CommandAgentSyncHarnessDropMemoryData) (*CommandAgentSyncHarnessDropMemoryRtnData, error)
 	AgentSyncApplyCommand(ctx context.Context, data CommandAgentSyncApplyData) (*CommandAgentSyncApplyRtnData, error)
 	AgentSyncAdoptCommand(ctx context.Context, data CommandAgentSyncAdoptData) (*CommandAgentSyncAdoptRtnData, error)
-	AgentSyncFoldCommand(ctx context.Context, data CommandAgentSyncFoldData) (*CommandAgentSyncFoldRtnData, error)
 	AgentSyncSkillsCommand(ctx context.Context) (*CommandAgentSyncSkillsRtnData, error)
 }
 
 type AgentSyncHarness struct {
-	Runtime  string `json:"runtime"`
-	Label    string `json:"label"`
-	Present  bool   `json:"present"`
-	Steering string `json:"steering"`
-	// Own reports rules this harness still holds outside the shared region — what a fold would move.
-	Own             bool   `json:"own"`
+	Runtime         string `json:"runtime"`
+	Label           string `json:"label"`
+	Path            string `json:"path"`
+	Present         bool   `json:"present"`
+	Steering        string `json:"steering"`
 	SkillsManaged   int    `json:"skillsmanaged"`
 	SkillsUnmanaged int    `json:"skillsunmanaged"`
 	Note            string `json:"note,omitempty"`
@@ -88,55 +83,6 @@ type CommandAgentSyncSteeringWriteData struct {
 type CommandAgentSyncSteeringWriteRtnData struct {
 	Mtime    int64 `json:"mtime"`
 	Conflict bool  `json:"conflict"`
-}
-
-type CommandAgentSyncHarnessReadData struct {
-	Runtime string `json:"runtime"`
-}
-
-// CommandAgentSyncHarnessReadRtnData is one harness's steering file in the three zones the Steering
-// tab shows: the rules it holds of its own, the shared block Arc projects, and the memory projection.
-type CommandAgentSyncHarnessReadRtnData struct {
-	Runtime string `json:"runtime"`
-	Path    string `json:"path"`
-	Present bool   `json:"present"`
-	Own     string `json:"own"`
-	Shared  string `json:"shared"`
-	Memory  string `json:"memory"`
-	State   string `json:"state"`
-	Mtime   int64  `json:"mtime"`
-	Carried int    `json:"carried"`
-}
-
-type CommandAgentSyncHarnessWriteData struct {
-	Runtime   string `json:"runtime"`
-	Own       string `json:"own"`
-	BaseMtime int64  `json:"basemtime"`
-}
-
-type CommandAgentSyncHarnessWriteRtnData struct {
-	Mtime    int64 `json:"mtime"`
-	Conflict bool  `json:"conflict"`
-}
-
-type CommandAgentSyncHarnessDropMemoryData struct {
-	Runtime   string `json:"runtime"`
-	BaseMtime int64  `json:"basemtime"`
-}
-
-type CommandAgentSyncHarnessDropMemoryRtnData struct {
-	Mtime    int64 `json:"mtime"`
-	Conflict bool  `json:"conflict"`
-}
-
-type CommandAgentSyncFoldData struct {
-	Runtime string `json:"runtime"`
-}
-
-type CommandAgentSyncFoldRtnData struct {
-	Runtime string   `json:"runtime"`
-	Lines   []string `json:"lines,omitempty"`
-	Seeded  bool     `json:"seeded"`
 }
 
 // AgentSyncSkill is one canonical skill and its state in each harness that scans a skills directory.

@@ -14,9 +14,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/harness"
 )
 
-// Adoption brings a harness's hand-maintained skill directories into the vault. Steering has no
-// adoption step any more — FoldIntoShared moves one harness's rules into the shared doc, one
-// harness at a time, with the result visible in the editor between steps.
+// Adoption brings a harness's hand-maintained skill directories into the vault.
 
 // SkillMove is one harness-local skill tree folded into the vault.
 type SkillMove struct {

@@ -46,30 +46,6 @@ func AgentSyncApplyCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentSyncApplyD
 	return resp, err
 }
 
-// command "agentsyncfold", wshserver.AgentSyncFoldCommand
-func AgentSyncFoldCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentSyncFoldData, opts *wshrpc.RpcOpts) (*wshrpc.CommandAgentSyncFoldRtnData, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAgentSyncFoldRtnData](w, "agentsyncfold", data, opts)
-	return resp, err
-}
-
-// command "agentsyncharnessdropmemory", wshserver.AgentSyncHarnessDropMemoryCommand
-func AgentSyncHarnessDropMemoryCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentSyncHarnessDropMemoryData, opts *wshrpc.RpcOpts) (*wshrpc.CommandAgentSyncHarnessDropMemoryRtnData, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAgentSyncHarnessDropMemoryRtnData](w, "agentsyncharnessdropmemory", data, opts)
-	return resp, err
-}
-
-// command "agentsyncharnessread", wshserver.AgentSyncHarnessReadCommand
-func AgentSyncHarnessReadCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentSyncHarnessReadData, opts *wshrpc.RpcOpts) (*wshrpc.CommandAgentSyncHarnessReadRtnData, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAgentSyncHarnessReadRtnData](w, "agentsyncharnessread", data, opts)
-	return resp, err
-}
-
-// command "agentsyncharnesswrite", wshserver.AgentSyncHarnessWriteCommand
-func AgentSyncHarnessWriteCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentSyncHarnessWriteData, opts *wshrpc.RpcOpts) (*wshrpc.CommandAgentSyncHarnessWriteRtnData, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAgentSyncHarnessWriteRtnData](w, "agentsyncharnesswrite", data, opts)
-	return resp, err
-}
-
 // command "agentsyncskills", wshserver.AgentSyncSkillsCommand
 func AgentSyncSkillsCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandAgentSyncSkillsRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAgentSyncSkillsRtnData](w, "agentsyncskills", nil, opts)

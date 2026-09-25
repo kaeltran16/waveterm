@@ -35,15 +35,6 @@ var agentSyncSyncCmd = &cobra.Command{
 	SilenceUsage: true,
 }
 
-var agentSyncFoldCmd = &cobra.Command{
-	Use:          "fold <runtime>",
-	Short:        "move one harness's own rules into the shared steering doc",
-	Args:         cobra.ExactArgs(1),
-	PreRunE:      preRunSetupRpcClient,
-	RunE:         agentSyncFoldRun,
-	SilenceUsage: true,
-}
-
 var agentSyncAdoptCmd = &cobra.Command{
 	Use:          "adopt",
 	Short:        "migrate hand-maintained skills into the vault",
@@ -61,7 +52,7 @@ var (
 func init() {
 	agentSyncSyncCmd.Flags().BoolVar(&agentSyncDryRun, "dry-run", false, "print the plan without writing")
 	agentSyncAdoptCmd.Flags().BoolVar(&agentSyncApply, "apply", false, "commit the migration (default is a dry run)")
-	agentSyncCmd.AddCommand(agentSyncStatusCmd, agentSyncSyncCmd, agentSyncFoldCmd, agentSyncAdoptCmd)
+	agentSyncCmd.AddCommand(agentSyncStatusCmd, agentSyncSyncCmd, agentSyncAdoptCmd)
 	rootCmd.AddCommand(agentSyncCmd)
 }
 
@@ -79,9 +70,6 @@ func agentSyncStatusRun(cmd *cobra.Command, args []string) error {
 		line := fmt.Sprintf("%-12s steering %-8s skills %d managed", h.Label, h.Steering, h.SkillsManaged)
 		if h.SkillsUnmanaged > 0 {
 			line += fmt.Sprintf(", %d unmanaged", h.SkillsUnmanaged)
-		}
-		if h.Own {
-			line += "  (holds rules of its own; fold them in)"
 		}
 		if h.Note != "" {
 			line += "  (" + h.Note + ")"
@@ -106,24 +94,6 @@ func agentSyncSyncRun(cmd *cobra.Command, args []string) error {
 			detail = "  " + a.Detail
 		}
 		WriteStdout("%-16s %-9s %s%s\n", a.Kind, a.Runtime, a.Path, detail)
-	}
-	return nil
-}
-
-func agentSyncFoldRun(cmd *cobra.Command, args []string) error {
-	res, err := wshclient.AgentSyncFoldCommand(RpcClient, wshrpc.CommandAgentSyncFoldData{Runtime: args[0]}, &wshrpc.RpcOpts{Timeout: 30000})
-	if err != nil {
-		return err
-	}
-	if res.Seeded {
-		WriteStdout("seeded the shared doc from %s\n", args[0])
-	}
-	if len(res.Lines) == 0 && !res.Seeded {
-		WriteStdout("nothing to fold: %s holds no line the shared doc lacks\n", args[0])
-		return nil
-	}
-	for _, l := range res.Lines {
-		WriteStdout("moved  %s\n", l)
 	}
 	return nil
 }
