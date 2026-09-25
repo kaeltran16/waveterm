@@ -302,7 +302,7 @@ const runsLifecycle = {
 // arrange needed; a populated-roster visual still relies on the manual inject-live-agents path.
 // Channels/Graph/Tasks merged into Jarvis and have no nav button left, so listing one here would make
 // h.goto throw before any step is recorded.
-const SMOKE_SURFACES = ["cockpit", "jarvis", "radar", "usage", "files", "settings", "code"];
+const SMOKE_SURFACES = ["cockpit", "jarvis", "radar", "usage", "files", "settings", "code", "setup"];
 
 const surfaceSmoke = {
     name: "surface-smoke",

@@ -21,7 +21,7 @@ func (ws *WshServer) AgentSyncStatusCommand(ctx context.Context) (*wshrpc.Comman
 	out := make([]wshrpc.AgentSyncHarness, len(rows))
 	for i, r := range rows {
 		out[i] = wshrpc.AgentSyncHarness{
-			Runtime: r.Runtime, Label: r.Label, Present: r.Present, Steering: r.Steering, Own: r.Own,
+			Runtime: r.Runtime, Label: r.Label, Present: r.Present, Path: r.Path, Steering: r.Steering,
 			SkillsManaged: r.SkillsManaged, SkillsUnmanaged: r.SkillsUnmanaged, Note: r.Note,
 		}
 	}
@@ -69,41 +69,6 @@ func (ws *WshServer) AgentSyncSteeringWriteCommand(ctx context.Context, data wsh
 		return nil, fmt.Errorf("writing the shared steering doc: %w", err)
 	}
 	return &wshrpc.CommandAgentSyncSteeringWriteRtnData{Mtime: res.Mtime, Conflict: res.Conflict}, nil
-}
-
-func (ws *WshServer) AgentSyncHarnessReadCommand(ctx context.Context, data wshrpc.CommandAgentSyncHarnessReadData) (*wshrpc.CommandAgentSyncHarnessReadRtnData, error) {
-	doc, err := agentsync.ReadHarness(agentsync.DefaultPaths(), data.Runtime)
-	if err != nil {
-		return nil, fmt.Errorf("reading the %s steering file: %w", data.Runtime, err)
-	}
-	return &wshrpc.CommandAgentSyncHarnessReadRtnData{
-		Runtime: doc.Runtime, Path: doc.Path, Present: doc.Present, Own: doc.Own, Shared: doc.Shared,
-		Memory: doc.Memory, State: doc.State, Mtime: doc.Mtime, Carried: doc.Carried,
-	}, nil
-}
-
-func (ws *WshServer) AgentSyncHarnessWriteCommand(ctx context.Context, data wshrpc.CommandAgentSyncHarnessWriteData) (*wshrpc.CommandAgentSyncHarnessWriteRtnData, error) {
-	res, err := agentsync.WriteHarnessOwn(agentsync.DefaultPaths(), data.Runtime, data.Own, data.BaseMtime)
-	if err != nil {
-		return nil, fmt.Errorf("writing the %s steering file: %w", data.Runtime, err)
-	}
-	return &wshrpc.CommandAgentSyncHarnessWriteRtnData{Mtime: res.Mtime, Conflict: res.Conflict}, nil
-}
-
-func (ws *WshServer) AgentSyncHarnessDropMemoryCommand(ctx context.Context, data wshrpc.CommandAgentSyncHarnessDropMemoryData) (*wshrpc.CommandAgentSyncHarnessDropMemoryRtnData, error) {
-	res, err := agentsync.DropMemory(agentsync.DefaultPaths(), data.Runtime, data.BaseMtime)
-	if err != nil {
-		return nil, fmt.Errorf("dropping the %s memory region: %w", data.Runtime, err)
-	}
-	return &wshrpc.CommandAgentSyncHarnessDropMemoryRtnData{Mtime: res.Mtime, Conflict: res.Conflict}, nil
-}
-
-func (ws *WshServer) AgentSyncFoldCommand(ctx context.Context, data wshrpc.CommandAgentSyncFoldData) (*wshrpc.CommandAgentSyncFoldRtnData, error) {
-	res, err := agentsync.FoldIntoShared(agentsync.DefaultPaths(), data.Runtime)
-	if err != nil {
-		return nil, fmt.Errorf("folding %s into the shared doc: %w", data.Runtime, err)
-	}
-	return &wshrpc.CommandAgentSyncFoldRtnData{Runtime: res.Runtime, Lines: res.Lines, Seeded: res.Seeded}, nil
 }
 
 func skillMoves(moves []agentsync.SkillMove) []wshrpc.AgentSyncSkillMove {

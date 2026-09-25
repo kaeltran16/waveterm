@@ -18,8 +18,8 @@ type HarnessStatus struct {
 	Label    string `json:"label"`
 	Present  bool   `json:"present"`
 	Steering string `json:"steering"` // current | stale | absent
-	// Own reports rules this harness still holds outside the shared region — what a fold would move.
-	Own bool `json:"own"`
+	// Path is the harness's steering file, whether or not it exists yet.
+	Path string `json:"path"`
 	// SkillsManaged counts skill directories Arc wrote; SkillsUnmanaged counts the user's own.
 	SkillsManaged   int    `json:"skillsmanaged"`
 	SkillsUnmanaged int    `json:"skillsunmanaged"`
@@ -34,12 +34,11 @@ func Status(p Paths) ([]HarnessStatus, error) {
 	specs := harness.List()
 	out := make([]HarnessStatus, 0, len(specs))
 	for _, spec := range specs {
-		st := HarnessStatus{Runtime: spec.Runtime, Label: spec.Label, Steering: "absent"}
+		st := HarnessStatus{Runtime: spec.Runtime, Label: spec.Label, Steering: "absent", Path: spec.SteeringPath(p.Home)}
 		st.Present = configRootExists(spec, p.Home)
 		if st.Present {
-			existing, _ := os.ReadFile(spec.SteeringPath(p.Home))
+			existing, _ := os.ReadFile(st.Path)
 			st.Steering = steeringState(string(existing), string(canonicalBody))
-			st.Own = len(strings.TrimSpace(blockBefore(string(existing)))) > 0
 		}
 		if dir := spec.SkillsPath(p.Home); dir != "" && st.Present {
 			observed, err := observeSkills(dir)

@@ -114,9 +114,9 @@ declare global {
     type AgentSyncHarness = {
         runtime: string;
         label: string;
+        path: string;
         present: boolean;
         steering: string;
-        own: boolean;
         skillsmanaged: number;
         skillsunmanaged: number;
         note?: string;
@@ -412,61 +412,6 @@ declare global {
     // wshrpc.CommandAgentSyncApplyRtnData
     type CommandAgentSyncApplyRtnData = {
         actions: AgentSyncAction[];
-    };
-
-    // wshrpc.CommandAgentSyncFoldData
-    type CommandAgentSyncFoldData = {
-        runtime: string;
-    };
-
-    // wshrpc.CommandAgentSyncFoldRtnData
-    type CommandAgentSyncFoldRtnData = {
-        runtime: string;
-        lines?: string[];
-        seeded: boolean;
-    };
-
-    // wshrpc.CommandAgentSyncHarnessDropMemoryData
-    type CommandAgentSyncHarnessDropMemoryData = {
-        runtime: string;
-        basemtime: number;
-    };
-
-    // wshrpc.CommandAgentSyncHarnessDropMemoryRtnData
-    type CommandAgentSyncHarnessDropMemoryRtnData = {
-        mtime: number;
-        conflict: boolean;
-    };
-
-    // wshrpc.CommandAgentSyncHarnessReadData
-    type CommandAgentSyncHarnessReadData = {
-        runtime: string;
-    };
-
-    // wshrpc.CommandAgentSyncHarnessReadRtnData
-    type CommandAgentSyncHarnessReadRtnData = {
-        runtime: string;
-        path: string;
-        present: boolean;
-        own: string;
-        shared: string;
-        memory: string;
-        state: string;
-        mtime: number;
-        carried: number;
-    };
-
-    // wshrpc.CommandAgentSyncHarnessWriteData
-    type CommandAgentSyncHarnessWriteData = {
-        runtime: string;
-        own: string;
-        basemtime: number;
-    };
-
-    // wshrpc.CommandAgentSyncHarnessWriteRtnData
-    type CommandAgentSyncHarnessWriteRtnData = {
-        mtime: number;
-        conflict: boolean;
     };
 
     // wshrpc.CommandAgentSyncSkillsRtnData

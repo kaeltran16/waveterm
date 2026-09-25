@@ -1472,7 +1472,8 @@ Kept, deliberately: `pkg/memroots` and `pkg/wavevault` (Jarvis's whole corpus re
 `memory:vaultpath` is still the vault root's source of truth), `pkg/jarvisrecall` (decoupled — `ask.go`,
 `retrieve.go` and `judge.go` never touched memvault), `pkg/agentsync` (the steering projection Pi does
 receive), and `agentsync.memoryRegion`, which now only *preserves* an `ARC-MEMORY` block an older Arc
-left in a steering file rather than writing one.
+left in a steering file rather than writing one. (2026-09-25: `memoryRegion` is gone too, with the
+steering-sync cleanup; the leftover blocks in codex and opencode were deleted by hand.)
 
 Two self-healing cleanups ship with it, because a removed subcommand that is still referenced on disk
 keeps firing: the `agent-memory-*` forms stay in `isManagedCommand`'s allowlist (recognition is what lets

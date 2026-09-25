@@ -29,6 +29,12 @@ func TestStatusReportsSteeringState(t *testing.T) {
 	if got := byRuntime()["pi"]; got.Present {
 		t.Fatalf("pi has no config root here: %+v", got)
 	}
+	if got := byRuntime()["codex"]; got.Path != filepath.Join(p.Home, ".codex", "AGENTS.md") {
+		t.Fatalf("codex path = %q, want its steering file", got.Path)
+	}
+	if got := byRuntime()["pi"]; got.Path == "" {
+		t.Fatalf("pi is not installed but its row still needs a path: %+v", got)
+	}
 	if _, err := Apply(p, false); err != nil {
 		t.Fatal(err)
 	}
@@ -63,35 +69,6 @@ func TestStatusCountsManagedAndUnmanagedSkills(t *testing.T) {
 		}
 		if s.SkillsManaged != 1 || s.SkillsUnmanaged != 1 {
 			t.Fatalf("codex = %+v, want 1 managed and 1 unmanaged", s)
-		}
-	}
-}
-
-func TestStatusReportsAHarnessHoldingItsOwnRules(t *testing.T) {
-	p := testPaths(t, "shared rules\n", ".codex")
-	writeFile(t, filepath.Join(p.Home, ".codex", "AGENTS.md"), "# Mine\n- a codex-only rule\n")
-	st, err := Status(p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, s := range st {
-		if s.Runtime != "codex" {
-			continue
-		}
-		if !s.Own {
-			t.Fatalf("codex = %+v, want Own set while it still holds unfolded rules", s)
-		}
-	}
-	if _, err := FoldIntoShared(p, "codex"); err != nil {
-		t.Fatal(err)
-	}
-	st, err = Status(p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, s := range st {
-		if s.Runtime == "codex" && s.Own {
-			t.Fatalf("codex = %+v, want Own cleared after the fold", s)
 		}
 	}
 }
