@@ -457,6 +457,36 @@ func TestDagPlanReviewData(t *testing.T) {
 	}
 }
 
+func TestDagFinalData(t *testing.T) {
+	cmd := newDagEscalateTestCmd(t, map[string]string{"channel": "ch", "runid": "verifier-run"})
+	cmd.Flags().String("unverified", "", "")
+	got, err := dagFinalData(cmd, []string{"fail", "the defects"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := wshrpc.CommandDagActionData{ChannelId: "ch", RunId: "verifier-run", Action: "final-fail", Notes: "the defects"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("final fail data = %+v, want %+v", got, want)
+	}
+	if err := cmd.Flags().Set("unverified", "u"); err != nil {
+		t.Fatal(err)
+	}
+	got, err = dagFinalData(cmd, []string{"pass", "the summary"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = wshrpc.CommandDagActionData{ChannelId: "ch", RunId: "verifier-run", Action: "final-pass", Notes: "the summary", Unverified: "u"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("final pass data = %+v, want %+v", got, want)
+	}
+	if _, err := dagFinalData(cmd, []string{"accept", "x"}); err == nil {
+		t.Fatal("an unknown verdict must be refused before it is sent")
+	}
+	if dagFinalCmd.Flags().Lookup("unverified") == nil {
+		t.Fatal("dag final must take --unverified")
+	}
+}
+
 func TestDagReviewDataCarriesTheUnverifiedCaveat(t *testing.T) {
 	cmd := newDagEscalateTestCmd(t, map[string]string{"channel": "ch", "runid": "reviewer-run"})
 	cmd.Flags().String("downstream", "", "")

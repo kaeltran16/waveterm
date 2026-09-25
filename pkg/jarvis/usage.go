@@ -24,6 +24,8 @@ const (
 	UsageRole_Reviewer = "reviewer"
 	// UsageRole_PlanReviewer is a run's StageRole as well: the engine's plan reviewer at submit.
 	UsageRole_PlanReviewer = "plan-reviewer"
+	// UsageRole_Verifier is a run's StageRole as well: the engine's final verifier on the merged result.
+	UsageRole_Verifier = "verifier"
 )
 
 // UsageRole is the part a run played in its dag: a dag-level judging session (its StageRole), the child that

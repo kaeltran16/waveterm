@@ -71,12 +71,12 @@ type CommandDagActionData struct {
 	ChannelId  string `json:"channelid"`
 	RunId      string `json:"runid"`
 	TaskId     string `json:"taskid"`
-	Action     string `json:"action"`               // approve | sendback | retry | skip | escalate | cancel | forward | takeover | relaunch-lead | review-pass | review-fail | planreview-pass | planreview-fail | planreview-accept | amend | tell
+	Action     string `json:"action"`               // approve | sendback | retry | skip | escalate | cancel | forward | takeover | relaunch-lead | review-pass | review-fail | planreview-pass | planreview-fail | planreview-accept | final-pass | final-fail | amend | tell
 	Model      string `json:"model,omitempty"`      // escalate target model (exact id); required
 	Runtime    string `json:"runtime,omitempty"`    // escalate target runtime; empty = task's current runtime
-	Notes      string `json:"notes,omitempty"`      // forward: what the lead checked; review, planreview: summary or findings; planreview-accept: the human's reason; amend: the note; tell: the text; sendback: guidance
+	Notes      string `json:"notes,omitempty"`      // forward: what the lead checked; review, planreview: summary or findings; final: summary or defects; planreview-accept: the human's reason; amend: the note; tell: the text; sendback: guidance
 	Downstream string `json:"downstream,omitempty"` // review-pass: what later tasks must know
-	Unverified string `json:"unverified,omitempty"` // review-pass: what was not verified, and why
+	Unverified string `json:"unverified,omitempty"` // review-pass, final-pass: what was not verified, and why
 	// DownstreamFor names the tasks a review-pass's Downstream is for; the engine delivers it to them
 	DownstreamFor []string `json:"downstreamfor,omitempty"`
 }

@@ -69,6 +69,9 @@ func childRunIDs(g *waveobj.TaskGroup) []string {
 	if g.PlanReview != nil && g.PlanReview.RunID != "" {
 		out = append(out, g.PlanReview.RunID)
 	}
+	if g.Final != nil && g.Final.VerifierRunID != "" {
+		out = append(out, g.Final.VerifierRunID)
+	}
 	return out
 }
 
@@ -424,6 +427,14 @@ func cancelLocked(ctx context.Context, dagID string) error {
 		}
 		if err := stopRunWorkers(cleanupCtx, run); err != nil {
 			errs = append(errs, fmt.Errorf("run %s: %w", runID, err))
+		}
+	}
+	// a verifying stage's detached tree outlived its commands; the verifier stopped above was its last user
+	if gCopy.Final != nil && gCopy.Final.State == FinalState_Verifying {
+		var release []func()
+		releaseFinalTree(gCopy, landOwner, &release)
+		for _, fn := range release {
+			fn()
 		}
 	}
 	// cancelled work is abandoned, so every task's tree goes through the same durable cleanup path.

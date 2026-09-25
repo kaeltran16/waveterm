@@ -30,7 +30,15 @@ func TestMain(m *testing.M) {
 	}
 	// fixtures store worker tabs no controller runs; only the tests that script a dead one should see it stall
 	workerControllerGone = func(context.Context, *waveobj.Run) bool { return false }
+	// a landed dag's verifier would need a workspace to spawn in; only the verifier's own tests start one
+	startVerifier = skipVerifier
 	code := m.Run()
 	os.RemoveAll(dir)
 	os.Exit(code)
+}
+
+// skipVerifier ends the final stage as though the verifier passed the moment it started.
+func skipVerifier(_, _ context.Context, g *waveobj.TaskGroup, owner *waveobj.Run, afterCommit *[]func()) {
+	finishFinal(g, afterCommit)
+	releaseFinalTree(g, owner, afterCommit)
 }

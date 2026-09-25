@@ -76,6 +76,9 @@ func finalOutDir(dagID string, round int) string {
 	return filepath.ToSlash(filepath.Join(os.TempDir(), "arc-final", dagID, fmt.Sprint(round)))
 }
 
+// finalTreeFailed opens the unverified reason of a stage that could not make its tree.
+const finalTreeFailed = "the final stage could not check the merged result: "
+
 // notGitRepo is why a dag outside git gets no final checks: its tree is the shared checkout, where the stage
 // never runs.
 func notGitRepo(path string) error {
@@ -84,8 +87,9 @@ func notGitRepo(path string) error {
 
 // advanceFinal moves the final stage along once every task landed (RecomputeDagStatus says finalizing). It
 // starts a round that has not started. With no Check and no Final command there is nothing to run, so the
-// stage goes straight on in this tick; otherwise the commands run off the tick, as Verify does, because they
-// take minutes and hold no dag lock while they run. The caller holds the dag mutation lock.
+// stage goes straight on to the verifier in this tick; otherwise the commands run off the tick, as Verify does,
+// because they take minutes and hold no dag lock while they run. Once the steps pass, each tick tends the
+// verifier. The caller holds the dag mutation lock.
 func advanceFinal(ctx, spawnCtx context.Context, g *waveobj.TaskGroup, owner *waveobj.Run, now int64, afterCommit *[]func()) {
 	if g.Status != DagStatus_Finalizing {
 		return
@@ -97,15 +101,27 @@ func advanceFinal(ctx, spawnCtx context.Context, g *waveobj.TaskGroup, owner *wa
 	if f.State == "" {
 		*f = waveobj.FinalStage{State: FinalState_Checking, Round: f.Round, OutDir: finalOutDir(g.OID, f.Round), StartedTs: now}
 		if g.Check == "" && g.FinalCmd == "" {
-			if owner.LandPath != "" {
+			switch {
+			case owner.LandPath != "":
 				f.Tree = owner.LandPath
 				head, err := landingHead(ctx, owner)
 				if err != nil {
 					log.Printf("dag %s: reading the landing head for the final stage: %v", g.OID, err)
 				}
 				f.Commit = head
-			} else if !IsGitRepo(owner.ProjectPath) {
+			case !IsGitRepo(owner.ProjectPath):
 				f.Unverified = append(f.Unverified, notGitRepo(owner.ProjectPath).Error())
+			default:
+				// the verifier reads a detached tree, never the shared checkout; releaseFinalTree removes it
+				tree, _, err := finalTree(ctx, g, owner)
+				if err != nil {
+					f.Unverified = append(f.Unverified, finalTreeFailed+err.Error())
+					break
+				}
+				f.Tree = tree
+				if f.Commit, err = git(ctx, tree, "rev-parse", "HEAD"); err != nil {
+					log.Printf("dag %s: reading the final tree's head: %v", g.OID, err)
+				}
 			}
 			f.State = FinalState_Verifying
 			startVerifier(ctx, spawnCtx, g, owner, afterCommit)
@@ -113,9 +129,13 @@ func advanceFinal(ctx, spawnCtx context.Context, g *waveobj.TaskGroup, owner *wa
 			return
 		}
 	}
-	if f.State == FinalState_Checking || f.State == FinalState_Final {
+	switch f.State {
+	case FinalState_Checking, FinalState_Final:
 		dagID, ownerCopy := g.OID, *owner
 		*afterCommit = append(*afterCommit, func() { startFinalCommands(dagID, &ownerCopy) })
+	case FinalState_Verifying:
+		tendVerifier(ctx, spawnCtx, g, owner, now, afterCommit)
+		RecomputeDagStatus(g)
 	}
 }
 
@@ -179,7 +199,7 @@ func runFinalSteps(ctx context.Context, dagID string, owner *waveobj.Run) finalR
 	res := finalResult{round: g.Final.Round}
 	tree, cleanup, err := finalTree(ctx, g, owner)
 	if err != nil {
-		res.unverified = []string{"the final stage could not check the merged result: " + err.Error()}
+		res.unverified = []string{finalTreeFailed + err.Error()}
 		return res
 	}
 	res.tree, res.cleanup = tree, cleanup
@@ -280,10 +300,18 @@ func recordFinalLocked(ctx, spawnCtx context.Context, dagID string, owner *waveo
 	return !finalTerminal(g.Final.State), nil
 }
 
-// startVerifier hands the merged result to the verifier session once the deterministic steps passed. Until the
-// verifier exists, the stage's outcome follows from the steps alone.
-func startVerifier(ctx, spawnCtx context.Context, g *waveobj.TaskGroup, owner *waveobj.Run, afterCommit *[]func()) {
-	finishFinal(g, afterCommit)
+// startVerifier is startVerifierSession, a var so the tests of everything but the final stage can end the stage
+// without a session.
+var startVerifier = startVerifierSession
+
+// startVerifierSession hands the merged result to the verifier session once the deterministic steps passed.
+// With no tree there is nothing for it to read, and why is already an unverified reason, so the stage ends on it.
+func startVerifierSession(ctx, spawnCtx context.Context, g *waveobj.TaskGroup, owner *waveobj.Run, afterCommit *[]func()) {
+	if g.Final.Tree == "" {
+		finishFinal(g, afterCommit)
+		return
+	}
+	tendVerifier(ctx, spawnCtx, g, owner, time.Now().UnixMilli(), afterCommit)
 }
 
 // finishFinal decides the stage's outcome: failed on a Detail, unverified when anything could not be verified,

@@ -921,7 +921,16 @@ func TestDagMergeCleanupFailurePersistsDebt(t *testing.T) {
 	if finalDag.Tasks[0].CleanupPending || finalDag.Tasks[0].CleanupError != "" || finalDag.Status != orchestrate.DagStatus_Finalizing {
 		t.Fatalf("retry must clear debt and hand the dag to the final stage: %s %+v", finalDag.Status, finalDag.Tasks[0])
 	}
-	// the next tick runs the final stage, which has nothing to run here
+	// the next tick runs the final stage, which has no commands here and goes straight to its verifier
+	if err := orchestrate.Schedule(ctx, g.OID); err != nil {
+		t.Fatal(err)
+	}
+	if finalDag, err = wstore.GetDag(ctx, g.OID); err != nil || finalDag.Final == nil || finalDag.Final.VerifierRunID == "" {
+		t.Fatalf("the final stage must start its verifier, got %+v (%v)", finalDag, err)
+	}
+	if err := orchestrate.RecordFinalVerdict(ctx, g.OID, finalDag.Final.VerifierRunID, orchestrate.ReviewVerdict_Pass, "the change does what the spec asks", ""); err != nil {
+		t.Fatal(err)
+	}
 	if err := orchestrate.Schedule(ctx, g.OID); err != nil {
 		t.Fatal(err)
 	}

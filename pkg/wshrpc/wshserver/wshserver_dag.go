@@ -464,6 +464,19 @@ func (ws *WshServer) DagActionCommand(ctx context.Context, data wshrpc.CommandDa
 			}
 		}()
 		return nil
+	case "final-pass", "final-fail":
+		// RunId is the verifier's own run, resolved from its terminal as `dag review` does
+		if err := orchestrate.RecordFinalVerdict(ctx, run.DagORef, data.RunId, strings.TrimPrefix(data.Action, "final-"), data.Notes, data.Unverified); err != nil {
+			return err
+		}
+		// the tick announces the dag done, which totals the run's usage from every transcript
+		dagID := run.DagORef
+		go func() {
+			if err := orchestrate.Schedule(context.Background(), dagID); err != nil {
+				log.Printf("dag schedule after final verdict: %v", err)
+			}
+		}()
+		return nil
 	case "amend":
 		return orchestrate.AmendTask(ctx, run.DagORef, data.TaskId, data.Notes)
 	case "tell":

@@ -709,6 +709,38 @@ var dagPlanReviewCmd = &cobra.Command{
 	},
 }
 
+// dagFinalData is the final verifier's verdict payload. RunId resolves to the verifier's own run, which is
+// how the server knows the verdict is its.
+func dagFinalData(cmd *cobra.Command, args []string) (wshrpc.CommandDagActionData, error) {
+	verdict := args[0]
+	if verdict != "pass" && verdict != "fail" {
+		return wshrpc.CommandDagActionData{}, fmt.Errorf("final takes pass or fail, got %q", verdict)
+	}
+	channelId, runId, err := dagIds(cmd)
+	if err != nil {
+		return wshrpc.CommandDagActionData{}, err
+	}
+	unverified, _ := cmd.Flags().GetString("unverified")
+	return wshrpc.CommandDagActionData{ChannelId: channelId, RunId: runId, Action: "final-" + verdict, Notes: args[1], Unverified: unverified}, nil
+}
+
+var dagFinalCmd = &cobra.Command{
+	Use:     "final <pass|fail> <text>",
+	Short:   "as the final verifier: record your verdict on the merged result (a pass's summary, or a fail's defects), then end your session",
+	Args:    cobra.ExactArgs(2),
+	PreRunE: preRunSetupRpcClient,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		data, err := dagFinalData(cmd, args)
+		if err != nil {
+			return err
+		}
+		if err := wshclient.DagActionCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: 10_000}); err != nil {
+			return err
+		}
+		return reportRunPhase(wshrpc.CommandReportRunPhaseData{Action: "complete"})
+	},
+}
+
 // dagNoteData is the payload of a lead action that carries text for a task: amend's note, tell's message,
 // sendback's optional guidance.
 func dagNoteData(cmd *cobra.Command, action string, args []string) (wshrpc.CommandDagActionData, error) {
@@ -826,7 +858,7 @@ func leadTree() string {
 }
 
 func init() {
-	jarvisDagCmd.AddCommand(dagSubmitCmd, dagStatusCmd, dagMergeCmd, dagAsksCmd, dagAnswerCmd, dagForwardCmd, dagRulesCmd, dagReviewCmd, dagPlanReviewCmd, dagAmendCmd, dagTellCmd)
+	jarvisDagCmd.AddCommand(dagSubmitCmd, dagStatusCmd, dagMergeCmd, dagAsksCmd, dagAnswerCmd, dagForwardCmd, dagRulesCmd, dagReviewCmd, dagPlanReviewCmd, dagFinalCmd, dagAmendCmd, dagTellCmd)
 	jarvisDagCmd.AddCommand(dagAction("approve"), dagSendbackCmd, dagAction("retry"), dagAction("skip"), dagEscalateCmd, dagAction("cancel"), dagActionWithin("retry-cleanup", 60_000))
 	for _, c := range jarvisDagCmd.Commands() {
 		c.Flags().String("runid", "", "run id")
@@ -840,6 +872,7 @@ func init() {
 	dagReviewCmd.Flags().String("downstream", "", "with pass: what a later task must know (a renamed API, a plan assumption that turned out wrong)")
 	dagReviewCmd.Flags().StringSlice("for", nil, "with --downstream: the tasks it is for (t-3,t-5); the engine adds it to a task not started and types it to a running one. Without it the lead routes the note")
 	dagReviewCmd.Flags().String("unverified", "", "with pass: a check the task asked for (a test, a screenshot, a live run) that was not done, and why; the lead reads it whole")
+	dagFinalCmd.Flags().String("unverified", "", "with pass: what you could not verify on the merged result, and why; the lead and the human read it whole")
 	dagMergeCmd.Flags().Bool("continue", false, "finish a resolved squash merge, or re-run a failed Verify after committing the fix")
 	dagRulesCmd.Flags().BoolVar(&dagRulesInject, "inject", false, "emit the rules as a Claude Code SessionStart hook's added context")
 	jarvisCmd.AddCommand(jarvisDagCmd)
