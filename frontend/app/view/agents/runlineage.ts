@@ -99,6 +99,14 @@ export function taskAgentOf<T extends { id: string; runId?: string }>(
     return (run && onTask.find((a) => holdsTask(run, taskId, a))) ?? onTask[0];
 }
 
+// runAgentsOf is every roster tab a run still holds: its lead and each of its tasks' tabs.
+export function runAgentsOf<T extends { id: string }>(lineage: Lineage, agents: T[], runId: string): T[] {
+    return agents.filter((a) => {
+        const role = lineage.roles[a.id];
+        return (role?.kind === "lead" && role.runId === runId) || (role?.kind === "worker" && role.leadRunId === runId);
+    });
+}
+
 const ENDED_WORKER_PREFIX = "ended:";
 
 // endedWorkerId is what a done task's worker is focused by. Its session has ended, so the surface reads it back

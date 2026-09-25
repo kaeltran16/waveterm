@@ -32,6 +32,28 @@ export function confirmCloseSession(vm: Pick<AgentVM, "id" | "name" | "kind">) {
     });
 }
 
+// Close every tab a run still holds. A run whose lead was closed stays in the roster for as long as any of its
+// task tabs does, and those hide under its folds, so the run row is the one place to clear them from.
+export function confirmCloseRun(title: string, tabIds: string[]) {
+    const ws = globalStore.get(atoms.workspace);
+    if (ws?.oid == null || tabIds.length === 0) {
+        return;
+    }
+    const sessions = tabIds.length === 1 ? "its 1 open session" : `its ${tabIds.length} open sessions`;
+    modalsModel.pushModal("ConfirmModal", {
+        title: "Close run",
+        message: `Close "${title}" and ${sessions}? This stops those agents and can't be undone.`,
+        confirmLabel: "Close run",
+        destructive: true,
+        onConfirm: () =>
+            fireAndForget(async () => {
+                for (const id of tabIds) {
+                    await WorkspaceService.CloseTab(ws.oid, id, false);
+                }
+            }),
+    });
+}
+
 // NUDGE_INPUT is what the rail's Resume types: a quiet agent picks it up as a new turn
 export const NUDGE_INPUT = "continue\r";
 

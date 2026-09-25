@@ -13,6 +13,7 @@ import {
     laneLabel,
     leadAgentOf,
     leadStandingBy,
+    runAgentsOf,
     runProgress,
     runRoleOf,
     runTitle,
@@ -126,6 +127,21 @@ describe("run facts", () => {
         expect(taskAgentOf(lineage, agents, "r1", "t-1")).toEqual({ id: "w" });
         expect(taskAgentOf(lineage, agents, "r1", "t-2")).toBeUndefined();
         expect(taskAgentOf(lineage, agents, "r2", "t-1")).toBeUndefined();
+    });
+
+    it("finds every roster tab a run still holds, its lead and all its task tabs", () => {
+        const lineage = {
+            roles: {
+                w1: { kind: "worker", leadRunId: "r1", taskId: "t-1" },
+                w2: { kind: "worker", leadRunId: "r1", taskId: "t-6" },
+                l: { kind: "lead", runId: "r1" },
+                other: { kind: "worker", leadRunId: "r2", taskId: "t-1" },
+            },
+            runs: {},
+        } as const;
+        const agents = [{ id: "w1" }, { id: "plain" }, { id: "w2" }, { id: "l" }, { id: "other" }];
+        expect(runAgentsOf(lineage, agents, "r1").map((a) => a.id)).toEqual(["w1", "w2", "l"]);
+        expect(runAgentsOf(lineage, agents, "r3")).toEqual([]);
     });
 
     it("shows a worker under its lead's project, else its run's", () => {

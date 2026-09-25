@@ -5,19 +5,20 @@ import { useSettle } from "@/app/element/motionhooks";
 import { cardVariants, composerReveal, computeEntrances, initialEntranceState } from "@/app/element/motiontokens";
 import { globalStore } from "@/app/store/jotaiStore";
 import { ContextMenuModel } from "@/app/store/contextmenu";
-import { cn } from "@/util/util";
+import { openTarget } from "@/app/view/jarvis/openref";
+import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { Copy, CopyPlus, Pencil, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { agentBranchesAtom, loadAgentBranch } from "./agentbranchstore";
-import { confirmCloseSession } from "./agentactions";
+import { confirmCloseRun, confirmCloseSession } from "./agentactions";
 import type { AgentsViewModel } from "./agents";
 import { buildAgentTree, treeAgentCount } from "./agenttreemodel";
 import { renamingRowAtom } from "./rowrenameatom";
 import { duplicateSession, renameSession, sessionCustomLabel } from "./session-models/sessionsidebarmodel";
 import { displayAgeMs, formatAgeShort, type AgentVM } from "./agentsviewmodel";
-import { endedWorkerId, laneLabel, leadStandingBy, runProgress, unmetDeps, workerAsk, workerSubtext, type RunInfo } from "./runlineage";
+import { endedWorkerId, laneLabel, leadStandingBy, runAgentsOf, runProgress, unmetDeps, workerAsk, workerSubtext, type RunInfo } from "./runlineage";
 import {
     toggleRunCollapsed,
     toggleRunDoneOpen,
@@ -316,10 +317,31 @@ function ParentRow({
 }
 
 // A run with workers in the roster and no lead there: a plan-path run before its first judgment event, or
-// one whose lead session was closed. Its workers nest under it the way they would under a lead.
-function RunRow({ run, open, live }: { run: RunInfo; open: boolean; live: number }) {
+// one whose lead session was closed. Its workers nest under it the way they would under a lead. Having no
+// session of its own to focus, it opens the run itself, and it is where the tabs left under its folds get closed.
+function RunRow({ model, run, open, live }: { model: AgentsViewModel; run: RunInfo; open: boolean; live: number }) {
+    const onContextMenu = (e: React.MouseEvent) => {
+        const tabIds = runAgentsOf(
+            globalStore.get(model.lineageAtom),
+            globalStore.get(model.agentsAtom),
+            run.runId
+        ).map((a) => a.id);
+        const items: ContextMenuItem[] = [
+            {
+                label: "Close run",
+                icon: <X size={15} />,
+                danger: true,
+                click: () => confirmCloseRun(run.title, tabIds),
+            },
+        ];
+        ContextMenuModel.getInstance().showContextMenu(items, e);
+    };
     return (
-        <div className="relative flex items-center gap-[9px] rounded-[9px] px-[11px] py-[10px]">
+        <div
+            onClick={() => fireAndForget(() => openTarget(model, { kind: "run", runId: run.runId }))}
+            onContextMenu={onContextMenu}
+            className="relative flex cursor-pointer items-center gap-[9px] rounded-[9px] px-[11px] py-[10px] transition-colors duration-[140ms] hover:bg-surface-hover"
+        >
             <span className="h-[7px] w-[7px] shrink-0 rounded-full border border-muted" />
             <div className="min-w-0 flex-1">
                 <div className="truncate font-mono text-[12px] font-semibold text-ink-hi">
@@ -615,7 +637,7 @@ export function AgentTree({ model }: { model: AgentsViewModel }) {
                                 break;
                             case "run":
                                 key = `run-${r.run.runId}`;
-                                body = <RunRow run={r.run} open={r.open} live={r.live} />;
+                                body = <RunRow model={model} run={r.run} open={r.open} live={r.live} />;
                                 break;
                             case "worker":
                                 key = r.agent?.id ?? `task-${r.run.runId}-${r.task.id}`;
