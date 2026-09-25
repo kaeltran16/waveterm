@@ -200,15 +200,25 @@ func RunOwnsWorker(run *waveobj.Run, workerORef string) bool {
 }
 
 // runWorkerTask is the classifier "task" context for a run worker: the phase it is executing, framed
-// against the run goal. Falls back to the bare goal for an out-of-range index.
+// against the whole run goal. Falls back to the bare goal for an out-of-range index.
 func runWorkerTask(run *waveobj.Run, phaseIdx int) string {
+	return runWorkerFrame(run, phaseIdx, run.Goal)
+}
+
+// runWorkerSource is the same frame around the goal's headline, for an attention row: the row's text is
+// the worker's question, and a whole goal in front of it hides it.
+func runWorkerSource(run *waveobj.Run, phaseIdx int) string {
+	return runWorkerFrame(run, phaseIdx, goalHeadline(run.Goal))
+}
+
+func runWorkerFrame(run *waveobj.Run, phaseIdx int, goal string) string {
 	if phaseIdx < 0 || phaseIdx >= len(run.Phases) {
-		return run.Goal
+		return goal
 	}
 	p := run.Phases[phaseIdx]
 	skill := p.Skill
 	if skill == "" {
 		skill = p.Kind
 	}
-	return fmt.Sprintf("%s phase (%s) of run goal: %s", p.Kind, skill, run.Goal)
+	return fmt.Sprintf("%s phase (%s) of run goal: %s", p.Kind, skill, goal)
 }

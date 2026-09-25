@@ -116,12 +116,14 @@ func optionIndexInRange(idx int, q baseds.AgentAskQuestion) bool {
 // concierge path (it also has channeloref). Concierge workers carry channeloref only. This flips the old
 // gatekeeper-then-run precedence, but is equivalent: run workers never appear in dispatch messages and
 // concierge workers have no run, so neither can match the other's path (Design Note 2). Returns
-// (nil, "") for a standalone agent no channel dispatched. Exported for the attention builder.
-func ResolveAskOwner(ctx context.Context, ownerORef string) (*waveobj.Channel, string) {
+// (nil, "", "") for a standalone agent no channel dispatched. Exported for the attention builder. The
+// second value is the classifier's task and the third is the attention row's source.
+func ResolveAskOwner(ctx context.Context, ownerORef string) (*waveobj.Channel, string, string) {
 	if m := ResolveRunWorkerFromMeta(ctx, ownerORef); m != nil {
-		return m.Channel, runWorkerTask(m.Run, m.PhaseIdx)
+		return m.Channel, runWorkerTask(m.Run, m.PhaseIdx), runWorkerSource(m.Run, m.PhaseIdx)
 	}
-	return resolveGatekeeperChannelByMeta(ctx, ownerORef)
+	ch, task := resolveGatekeeperChannelByMeta(ctx, ownerORef)
+	return ch, task, goalHeadline(task)
 }
 
 func handleAsk(ctx context.Context, data baseds.AgentAskData) {
@@ -131,7 +133,7 @@ func handleAsk(ctx context.Context, data baseds.AgentAskData) {
 	if m := ResolveRunWorkerFromMeta(ctx, ownerORef); m != nil && isDagChildRun(ctx, m.Run) {
 		return
 	}
-	ch, task := ResolveAskOwner(ctx, ownerORef)
+	ch, task, _ := ResolveAskOwner(ctx, ownerORef)
 	if ch == nil {
 		return // not owned by any gatekeeper-enabled channel or run
 	}

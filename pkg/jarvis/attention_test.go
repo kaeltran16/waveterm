@@ -502,3 +502,39 @@ func TestHeldLandSaysWhy(t *testing.T) {
 		t.Fatalf("item = %+v, want the reason and the retry named", got[0])
 	}
 }
+
+func TestGoalHeadline(t *testing.T) {
+	long := strings.Repeat("é", 100)
+	cases := []struct{ goal, want string }{
+		{"ship coupons", "ship coupons"},
+		{"", ""},
+		{"Fix five findings\nfrom the doc:\n(1) ...", "Fix five findings"},
+		{"\n\n  first real line  \nsecond", "first real line"},
+		{long, strings.Repeat("é", attentionSourceMaxLen-1) + "…"},
+	}
+	for _, c := range cases {
+		if got := goalHeadline(c.goal); got != c.want {
+			t.Errorf("goalHeadline(%q) = %q, want %q", c.goal, got, c.want)
+		}
+	}
+}
+
+func TestBuildAttentionShortensEveryGoalSource(t *testing.T) {
+	goal := "Fix the attention row " + strings.Repeat("and more words ", 20) + "\n(1) a long second line"
+	want := goalHeadline(goal)
+	gate := gatedRun("r1", goal, 500)
+	held := &waveobj.Run{ID: "r2", Goal: goal, Land: &waveobj.RunLand{State: "held", Reason: "dirty"}}
+	unverified := &waveobj.Run{ID: "r3", Goal: goal, Status: RunStatus_Done,
+		Evidence: &waveobj.RunEvidence{Verification: &waveobj.RunVerification{State: "unverified", Reasons: []string{"no check"}}}}
+	items := BuildAttention(AttentionInput{Channels: []AttentionChannel{
+		{OID: "c1", Name: "alpha", Runs: []*waveobj.Run{gate, held, unverified}},
+	}})
+	if len(items) != 3 {
+		t.Fatalf("want 3 items, got %+v", items)
+	}
+	for _, it := range items {
+		if it.Source != want {
+			t.Errorf("%s source = %q, want %q", it.Kind, it.Source, want)
+		}
+	}
+}

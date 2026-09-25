@@ -727,7 +727,7 @@ func runsAttentionLines(items []wshrpc.AttentionItem, now int64) []string {
 		if run == "" {
 			run = "-"
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s: %s\n", it.Action, it.Kind, where, run, runsAgo(it.WaitingSince, now), it.Source, runsClip(it.Text, runsGoalWidth))
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s: %s\n", it.Action, it.Kind, where, run, runsAgo(it.WaitingSince, now), runsClip(it.Source, runsGoalWidth), strings.Join(strings.Fields(it.Text), " "))
 	}
 	w.Flush()
 	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")

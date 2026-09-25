@@ -211,3 +211,19 @@ func TestResolveRunWorker_ResolvesALeadToItsOwnRunBesideAnotherRunOfTheSameProje
 		t.Fatalf("lead must resolve to its own run, got %+v", m)
 	}
 }
+
+func TestRunWorkerSourceCarriesOnlyTheHeadline(t *testing.T) {
+	run := &waveobj.Run{Goal: "ship coupons\nwith a long body the classifier needs", Phases: []waveobj.RunPhase{
+		{Kind: PhaseKind_Plan, Skill: "superpowers:writing-plans"},
+	}}
+	if task := runWorkerTask(run, 0); !contains(task, "with a long body") {
+		t.Fatalf("the classifier's task must keep the full goal: %q", task)
+	}
+	src := runWorkerSource(run, 0)
+	if !contains(src, "ship coupons") || contains(src, "long body") || !contains(src, "superpowers:writing-plans") {
+		t.Fatalf("source = %q", src)
+	}
+	if got := runWorkerSource(run, 5); got != "ship coupons" {
+		t.Fatalf("out-of-range source = %q", got)
+	}
+}
