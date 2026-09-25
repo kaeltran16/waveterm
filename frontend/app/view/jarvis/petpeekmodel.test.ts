@@ -1,5 +1,13 @@
+import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { describe, expect, it } from "vitest";
-import { dedupeUpdates, peekActForCommand, peekConditions, peekKeyCommand, queueRows } from "./petpeekmodel";
+import {
+    dedupeUpdates,
+    peekActForCommand,
+    peekConditions,
+    peekKeyCommand,
+    queueRows,
+    rowKindLabel,
+} from "./petpeekmodel";
 import type { PetEvent } from "./petvoice";
 
 const RUN = "run-1";
@@ -19,12 +27,12 @@ function item(over: Partial<AttentionItem> & Pick<AttentionItem, "kind" | "key">
 }
 
 // pkg/jarvis/attention.go fills Text per kind: a gate's is the constant "Approve before Jarvis proceeds.",
-// an ask's the constant "Waiting on your reply", while an escalation's is the worker's actual question.
+// while an escalation's and an ask's are the worker's actual question.
 const GATE = item({ kind: "gate", key: "gate:" + RUN, source: "Ship autonomy ladder tier gating", text: "Approve before Jarvis proceeds." }); // prettier-ignore
 const DAG_GATE = item({ kind: "dag-gate", key: "dag-gate:g1", text: "Approve the gate before the DAG proceeds." }); // prettier-ignore
 const ESCALATION = item({ kind: "escalation", key: "esc:m1", source: "gatekeeper", action: "Decide", text: "Phase 3 wants to rewrite peterrandmodel.ts — the tier only covers reads. Allow?" }); // prettier-ignore
 const DAG_BLOCKED = item({ kind: "dag-blocked", key: "dag-blocked:g2", text: "3 consecutive failures — decide retry/skip." }); // prettier-ignore
-const ASK = item({ kind: "ask", key: "ask:block:b1", source: "phase-2 worker", action: "Answer", text: "Waiting on your reply" }); // prettier-ignore
+const ASK = item({ kind: "ask", key: "ask:block:b1", source: "phase-2 worker", action: "Answer", text: "Keep the no-transcript fallback for pi workers, or drop it?" }); // prettier-ignore
 
 const RADAR = item({ kind: "radar-triage", key: "radar:rep-1", source: "waveterm", action: "Triage", text: "4 findings need triage.", channelid: "", runid: "", oref: "radarreport:rep-1" } as Partial<AttentionItem> & Pick<AttentionItem, "kind" | "key">); // prettier-ignore
 
@@ -45,14 +53,15 @@ describe("queueRows — detail earns its line, it is not given one", () => {
     // The row's scarcest resource is horizontal space, and four of the five kinds spend it on a constant
     // string that the verb button already implies. Only a question is worth the width.
     it("drops the detail of kinds whose text is boilerplate", () => {
-        const rows = queueRows([GATE, DAG_GATE, ASK]);
-        expect(rows.map((r) => r.detail)).toEqual([null, null, null]);
+        const rows = queueRows([GATE, DAG_GATE]);
+        expect(rows.map((r) => r.detail)).toEqual([null, null]);
     });
 
     it("keeps the detail of kinds whose text is the payload", () => {
-        const rows = queueRows([ESCALATION, DAG_BLOCKED]);
+        const rows = queueRows([ESCALATION, DAG_BLOCKED, ASK]);
         expect(rows[0].detail).toBe("Phase 3 wants to rewrite peterrandmodel.ts — the tier only covers reads. Allow?");
         expect(rows[1].detail).toBe("3 consecutive failures — decide retry/skip.");
+        expect(rows[2].detail).toBe("Keep the no-transcript fallback for pi workers, or drop it?");
     });
 
     // the row's left bar is toned by kind, and the renderer must not have to re-look-up the item to know
@@ -91,6 +100,16 @@ describe("queueRows — the button says what the item needs, not how to get ther
         const row = queueRows([orphan])[0];
         expect(row.primary).toBeNull();
         expect(row.source).toBe("a source");
+    });
+
+    // an ask with no run behind it still has somewhere to answer: the agent's own terminal, found by the
+    // ask's block in the roster
+    it("answers a run-less ask in the agent that raised it", () => {
+        const orphan = item({ kind: "ask", key: "ask:block:b9", runid: undefined, action: "Answer" });
+        const agents = [{ id: "tab-9", name: "pi · scratch", blockId: "b9" } as unknown as AgentVM];
+        const primary = queueRows([orphan], agents)[0].primary;
+        expect(primary?.label).toBe("Answer");
+        expect(primary?.target).toEqual({ kind: "oref", ref: "agent:tab-9" });
     });
 });
 
@@ -146,7 +165,6 @@ describe("peekKeyCommand", () => {
     });
 
     it("maps panel controls", () => {
-        expect(peekKeyCommand("c")).toBe("conditions");
         expect(peekKeyCommand("/")).toBe("composer");
         expect(peekKeyCommand("Escape")).toBe("close");
     });
@@ -155,6 +173,8 @@ describe("peekKeyCommand", () => {
     // not silently keep firing something
     it("ignores unrelated and uppercase keys", () => {
         expect(peekKeyCommand("a")).toBeNull();
+        // conditions are static lines now, with nothing to toggle
+        expect(peekKeyCommand("c")).toBeNull();
         expect(peekKeyCommand("s")).toBeNull();
         expect(peekKeyCommand("x")).toBeNull();
         expect(peekKeyCommand("A")).toBeNull();
@@ -170,7 +190,7 @@ describe("peekActForCommand", () => {
     // open is the only command that resolves to an act: no attention kind carries a verb a key could fire.
     it("returns no act for every other command", () => {
         const row = queueRows([GATE])[0];
-        for (const command of ["next", "previous", "conditions", "composer", "close"] as const) {
+        for (const command of ["next", "previous", "composer", "close"] as const) {
             expect(peekActForCommand(row, command)).toBeNull();
         }
     });
@@ -193,5 +213,17 @@ describe("peekConditions — every standing condition, readout marked", () => {
 
     it("stays empty when nothing is degraded", () => {
         expect(peekConditions({})).toEqual([]);
+    });
+});
+
+describe("rowKindLabel — a row names its kind in a word", () => {
+    it("reads every queue kind", () => {
+        expect(["gate", "dag-gate", "escalation", "dag-blocked", "ask"].map(rowKindLabel)).toEqual([
+            "Gate",
+            "Gate",
+            "Escalation",
+            "Blocked",
+            "Question",
+        ]);
     });
 });

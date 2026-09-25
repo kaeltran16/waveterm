@@ -7,10 +7,12 @@
 // and the creature keeps an unread marker until you look.
 
 import { PopoverReveal } from "@/app/element/popoverreveal";
+import { InlineMarkdown } from "@/app/view/agents/inlinemarkdown";
+import { cn } from "@/util/util";
 import { autoUpdate, offset, shift, useFloating, type Placement } from "@floating-ui/react";
 import { useEffect, useRef, useState } from "react";
 import type { PetCorner } from "./petstore";
-import type { PetEvent } from "./petvoice";
+import { eventLabel, type NotifyLevel, type PetEvent } from "./petvoice";
 
 const BUBBLE_MS = 6_000;
 
@@ -25,18 +27,37 @@ const ORIGIN: Record<PetCorner, string> = {
     "bottom-left": "bottom left",
 };
 
-// what register the utterance came from, in the design's own words
-const KIND_LABEL: Record<PetEvent["kind"], string> = {
-    resume: "Where we were",
-    sweep: "While you were out",
-    "distill-batch": "While you were out",
-    "bg-agent-done": "While you were out",
-    connection: "This just connected",
-    "loose-end": "Still open",
-    ledger: "Work state",
-    notify: "Notice",
-    ask: "Asking you",
+// Only a notification's level and a question get a dot, because those are the ones asking for something.
+// Accent stays reserved for things you can act on, so every other label reads muted.
+const LEVEL_TONE: Record<NotifyLevel, { dot: string; label: string }> = {
+    info: { dot: "bg-edge-strong", label: "text-muted" },
+    warn: { dot: "bg-warning", label: "text-warning-soft" },
+    error: { dot: "bg-error", label: "text-error-soft" },
 };
+
+export function eventTone(event: PetEvent): { dot: string | null; label: string } {
+    if (event.kind === "notify") {
+        return LEVEL_TONE[event.level ?? "info"];
+    }
+    return { dot: event.kind === "ask" ? "bg-accent" : null, label: "text-muted" };
+}
+
+// the register as a label: the dot (when the kind earns one) and the words, one grammar for bubble and peek
+export function EventLabel({ event, className }: { event: PetEvent; className?: string }) {
+    const tone = eventTone(event);
+    return (
+        <span
+            className={cn(
+                "inline-flex items-center gap-1.5 font-mono font-semibold uppercase tracking-[.09em]",
+                tone.label,
+                className
+            )}
+        >
+            {tone.dot != null ? <span className={cn("h-1.5 w-1.5 flex-none rounded-full", tone.dot)} /> : null}
+            {eventLabel(event)}
+        </span>
+    );
+}
 
 export function PetBubble({
     event,
@@ -93,18 +114,21 @@ export function PetBubble({
             <PopoverReveal
                 open={event != null}
                 origin={ORIGIN[corner]}
-                className="w-[268px] rounded-[11px] border border-border bg-surface-raised p-[11px] shadow-popover-md"
+                className="w-[268px] rounded-[12px] border border-border bg-surface-raised shadow-popover-md has-[button:hover]:border-edge-strong"
             >
                 {said != null ? (
                     <button
                         type="button"
+                        data-pet-bubble
                         onClick={onOpen}
-                        className="flex w-full cursor-pointer flex-col gap-1.5 text-left"
+                        className="flex w-full cursor-pointer flex-col gap-1.5 rounded-[12px] px-3 py-[11px] text-left hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                     >
-                        <span className="font-mono text-[9px] font-semibold uppercase tracking-[.09em] text-accent-soft">
-                            {KIND_LABEL[said.kind]}
+                        <EventLabel event={said} className="text-[9px]" />
+                        {/* clamped: a notification title passes through verbatim and would otherwise stretch
+                            the bubble. Inline only, and links as plain text — the bubble is one button. */}
+                        <span className="line-clamp-3 text-[12px] leading-[1.45] text-secondary [overflow-wrap:anywhere]">
+                            <InlineMarkdown text={said.text} plainLinks />
                         </span>
-                        <span className="text-[12px] leading-[1.45] text-secondary">{said.text}</span>
                     </button>
                 ) : null}
             </PopoverReveal>

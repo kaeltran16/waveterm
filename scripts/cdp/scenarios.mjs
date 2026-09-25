@@ -326,18 +326,21 @@ const surfaceSmoke = {
             });
             await h.shot(`cdp-shots/surface-${surface}.png`);
         }
-        // B3: a notify (wsh notify / wave_notify) surfaces as a cockpit toast and auto-dismisses.
-        // NotificationToasts mounts only on the cockpit surface.
+        // B3: a notify (wsh notify / wave_notify) is spoken by the avatar, which is its only voice: the
+        // bubble carries the title and leaves after 6s, and no corner toast repeats it underneath.
         await h.goto("cockpit");
         await h.rpc("notify", { title: "cdp surface-smoke", level: "info" });
         await h.ev("new Promise((r) => setTimeout(r, 600))");
-        const toastShown = await h.ev(`(() => !!document.querySelector('[data-notification-toast]'))()`);
+        const spoken = await h.ev(`(() => ({
+            bubble: document.querySelector('[data-pet-bubble]')?.textContent?.includes('cdp surface-smoke') ?? false,
+            toast: !!document.querySelector('[data-notification-toast]'),
+        }))()`);
         await h.ev("new Promise((r) => setTimeout(r, 7000))");
-        const toastGone = await h.ev(`(() => !document.querySelector('[data-notification-toast]'))()`);
+        const bubbleGone = await h.ev(`(() => !document.querySelector('[data-pet-bubble]'))()`);
         steps.push({
-            step: "wsh notify -> toast appears in the cockpit and auto-dismisses",
-            ok: toastShown === true && toastGone === true,
-            detail: `shown=${toastShown} gone=${toastGone}`,
+            step: "wsh notify -> the avatar says it once, with no toast, and the bubble leaves",
+            ok: spoken.bubble === true && spoken.toast === false && bubbleGone === true,
+            detail: `bubble=${spoken.bubble} toast=${spoken.toast} gone=${bubbleGone}`,
         });
         // B2: the steer input renders on a pi session card (AgentDetailsRail, Agent surface). Dev
         // runs rarely have a live pi session focused, so this is conditional: no steer input -> SKIP
@@ -2081,8 +2084,8 @@ const jarvisPeek = {
             `document.querySelector('[data-pet-peek]')?.contains(document.activeElement) ?? false`
         );
         rec(
-            "2. Tab starts at Close and reverse traversal stays inside the dialog",
-            firstTab.inside === true && firstTab.label === "Close Jarvis panel" && wrappedInside === true,
+            "2. Tab starts at Full view and reverse traversal stays inside the dialog",
+            firstTab.inside === true && firstTab.label === "Open full Jarvis view" && wrappedInside === true,
             JSON.stringify({ firstTab, wrappedInside })
         );
         // Each string below is one the old three-card panel rendered to report missing telemetry or repeat

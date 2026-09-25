@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { nextUtterance, type PetEvent, type PetWatermark } from "./petvoice";
+import { eventLabel, nextUtterance, type PetEvent, type PetWatermark } from "./petvoice";
 
 function ev(id: string, at: number, extra: Partial<PetEvent> = {}): PetEvent {
     return { id, at, kind: "sweep", text: `event ${id}`, ...extra };
@@ -16,7 +16,7 @@ describe("nextUtterance", () => {
     });
 
     it("is silent on an empty event set", () => {
-        expect(nextUtterance([], null)).toEqual({ utterance: null, watermark: null });
+        expect(nextUtterance([], null)).toEqual({ utterance: null, watermark: null, heard: [] });
     });
 
     it("says the newest of several rather than a digest of all", () => {
@@ -38,7 +38,7 @@ describe("the watermark", () => {
         const first = nextUtterance([e], null);
         expect(first.utterance?.id).toBe("a");
         const second = nextUtterance([e], first.watermark);
-        expect(second).toEqual({ utterance: null, watermark: null });
+        expect(second).toEqual({ utterance: null, watermark: null, heard: [] });
     });
 
     it("lets a genuinely newer event through while still suppressing the old one", () => {
@@ -69,7 +69,7 @@ describe("report-once", () => {
         expect(spoken.utterance).toBeNull();
         // but it counts as reported: the watermark advances so it is never reconsidered
         expect(spoken.watermark).toEqual(mark(sweep));
-        expect(nextUtterance([sweep], spoken.watermark)).toEqual({ utterance: null, watermark: null });
+        expect(nextUtterance([sweep], spoken.watermark)).toEqual({ utterance: null, watermark: null, heard: [] });
     });
 
     it("falls through to the newest speakable event when the newest is a condition change", () => {
@@ -117,5 +117,40 @@ describe("volunteered knowledge", () => {
         const { watermark } = nextUtterance([vol("loose-end:task-a:900", 900)], null);
         const next = nextUtterance([vol("loose-end:task-a:1800", 1800)], watermark);
         expect(next.utterance?.id).toBe("loose-end:task-a:1800");
+    });
+});
+
+describe("heard — a burst stays reachable", () => {
+    // Two notifications in one second: the newest is spoken, and the other must still reach the peek,
+    // which reads back only what the creature remembered hearing.
+    it("returns every new speakable event, newest first", () => {
+        const events = [ev("a", 1000), ev("c", 3000), ev("b", 2000)];
+        expect(nextUtterance(events, null).heard.map((e) => e.id)).toEqual(["c", "b", "a"]);
+    });
+
+    it("leaves out events the condition level already reports", () => {
+        const events = [ev("a", 1000), ev("b", 2000, { reportedAsCondition: true })];
+        expect(nextUtterance(events, null).heard.map((e) => e.id)).toEqual(["a"]);
+    });
+
+    it("leaves out events already past the watermark", () => {
+        const old = ev("a", 1000);
+        const fresh = ev("b", 2000);
+        expect(nextUtterance([old, fresh], mark(old)).heard.map((e) => e.id)).toEqual(["b"]);
+    });
+});
+
+describe("eventLabel — the register in words", () => {
+    it("names a kind by its register, never the raw kind", () => {
+        expect(eventLabel(ev("a", 1, { kind: "resume" }))).toBe("Where we were");
+        expect(eventLabel(ev("a", 1, { kind: "bg-agent-done" }))).toBe("While you were out");
+        expect(eventLabel(ev("a", 1, { kind: "ask" }))).toBe("Asking you");
+    });
+
+    it("names a notification by its level", () => {
+        expect(eventLabel(ev("n", 1, { kind: "notify", level: "info" }))).toBe("Notice");
+        expect(eventLabel(ev("n", 1, { kind: "notify", level: "warn" }))).toBe("Warning");
+        expect(eventLabel(ev("n", 1, { kind: "notify", level: "error" }))).toBe("Error");
+        expect(eventLabel(ev("n", 1, { kind: "notify" }))).toBe("Notice");
     });
 });

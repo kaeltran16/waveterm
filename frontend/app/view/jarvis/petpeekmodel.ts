@@ -5,8 +5,10 @@
 // are not already one of those rows. Pure, like petcondition.ts — petpeek.tsx is a renderer, not the thing
 // that decides.
 
+import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { actsForAttention, type PetAct } from "./petacts";
 import { conditionsFor, type PetExpression, type PetSignals } from "./petcondition";
+import { askAgent } from "./petjoin";
 import type { PetEvent } from "./petvoice";
 
 export interface PeekRow {
@@ -22,12 +24,42 @@ export interface PeekRow {
     primary: PetAct | null;
 }
 
-// pkg/jarvis/attention.go writes Text per kind, and only these two put anything in it that the row's own
-// verb does not already say. A gate's "Approve before Jarvis proceeds.", a dag-gate's near-twin and an
-// ask's "Waiting on your reply" are constants repeated on every row of that kind, so they are dropped and
-// the width goes to the source — the part that differs. (The tidier fix is for Go to stop sending a
-// sentence that Action already encodes; brief §7 rules backend changes out of this pass.)
-const DETAIL_KINDS = new Set(["escalation", "dag-blocked"]);
+// pkg/jarvis/attention.go writes Text per kind, and only these put anything in it that the row's own verb
+// does not already say: an escalation's and an ask's question (askText), a blocked dag's reason. A gate's
+// "Approve before Jarvis proceeds." and a dag-gate's near-twin are constants repeated on every row of that
+// kind, so they are dropped and the width goes to the source — the part that differs.
+const DETAIL_KINDS = new Set(["escalation", "dag-blocked", "ask"]);
+
+// A row names its kind in a word beside its dot, so the kind never rides on colour alone.
+const ROW_KIND_LABEL: Record<string, string> = {
+    gate: "Gate",
+    "dag-gate": "Gate",
+    escalation: "Escalation",
+    "dag-blocked": "Blocked",
+    ask: "Question",
+};
+
+export function rowKindLabel(kind: string): string {
+    return ROW_KIND_LABEL[kind] ?? kind;
+}
+
+// An ask with no run behind it is still answerable where it was raised: the agent's terminal, found by the
+// ask's block oref (the item key is "ask:<block oref>") in the roster.
+function answerInAgent(item: AttentionItem, agents: ReadonlyArray<AgentVM>): PetAct | null {
+    if (item.kind !== "ask") {
+        return null;
+    }
+    const agent = askAgent(agents, item.key.slice("ask:".length));
+    if (agent == null) {
+        return null;
+    }
+    return {
+        id: `${item.key}:open`,
+        verb: "open",
+        label: item.action,
+        target: { kind: "oref", ref: `agent:${agent.id}` },
+    };
+}
 
 // Radar triage is the one attention kind the creature has no business holding. It names no channel and no
 // run, so it arrives with no act behind it (petacts.actsForAttention) and renders as a project name, an age
@@ -36,7 +68,7 @@ const DETAIL_KINDS = new Set(["escalation", "dag-blocked"]);
 // queue, which is the same routing splitAttention already does to keep it off Cockpit.
 const PEEK_EXCLUDED_KIND = "radar-triage";
 
-export function queueRows(items: AttentionItem[]): PeekRow[] {
+export function queueRows(items: AttentionItem[], agents: ReadonlyArray<AgentVM> = []): PeekRow[] {
     return (items ?? [])
         .filter((item) => item.kind !== PEEK_EXCLUDED_KIND)
         .map((item) => {
@@ -50,7 +82,7 @@ export function queueRows(items: AttentionItem[]): PeekRow[] {
                 detail: DETAIL_KINDS.has(item.kind) ? item.text : null,
                 waitingsince: item.waitingsince,
                 // "Review" / "Decide" / "Answer" is the same navigation as "Open", named by what it is for.
-                primary: escort != null ? ({ ...escort, label: item.action } as PetAct) : null,
+                primary: escort != null ? ({ ...escort, label: item.action } as PetAct) : answerInAgent(item, agents),
             };
         });
 }
@@ -65,7 +97,7 @@ export function dedupeUpdates(events: PetEvent[], items: AttentionItem[]): PetEv
     );
 }
 
-export type PeekKeyCommand = "next" | "previous" | "open" | "conditions" | "composer" | "close";
+export type PeekKeyCommand = "next" | "previous" | "open" | "composer" | "close";
 
 export function peekKeyCommand(key: string): PeekKeyCommand | null {
     switch (key) {
@@ -77,8 +109,6 @@ export function peekKeyCommand(key: string): PeekKeyCommand | null {
             return "previous";
         case "Enter":
             return "open";
-        case "c":
-            return "conditions";
         case "/":
             return "composer";
         case "Escape":

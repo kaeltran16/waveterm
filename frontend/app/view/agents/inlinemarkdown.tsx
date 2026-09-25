@@ -34,9 +34,20 @@ const INLINE_COMPONENTS: Components = {
     code: ({ children }) => <code className="font-mono text-accent-soft">{children}</code>,
 };
 
-export function InlineMarkdown({ text }: { text: string }) {
+// for a line that is itself a button: a nested anchor would be invalid and would steal the click
+const PLAIN_LINK_COMPONENTS: Components = {
+    ...INLINE_COMPONENTS,
+    a: ({ children }) => <span className="text-accent">{children}</span>,
+};
+
+export function InlineMarkdown({ text, plainLinks = false }: { text: string; plainLinks?: boolean }) {
     return (
-        <ReactMarkdown remarkPlugins={[remarkGfm]} allowedElements={INLINE_ALLOWED} unwrapDisallowed components={INLINE_COMPONENTS}>
+        <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            allowedElements={INLINE_ALLOWED}
+            unwrapDisallowed
+            components={plainLinks ? PLAIN_LINK_COMPONENTS : INLINE_COMPONENTS}
+        >
             {condenseToLine(text)}
         </ReactMarkdown>
     );

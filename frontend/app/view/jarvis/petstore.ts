@@ -94,11 +94,15 @@ export function pushPetEvent(event: PetEvent): void {
     globalStore.set(petEventsAtom, [event, ...events].slice(0, PET_EVENTS_MAX));
 }
 
-// Retract a pending event (an ask cleared before it was spoken). Dedupe-by-id means the same id cannot
-// be re-queued afterwards, so the retract is safe even if the raise and the clear arrive in one tick.
+// Retract an event (an ask answered or withdrawn). Dedupe-by-id means the same id cannot be re-queued
+// afterwards, so the retract is safe even if the raise and the clear arrive in one tick. It reaches what was
+// already said too: an answered ask left there comes back as stale news once its queue row clears.
 export function removePetEvent(id: string): void {
-    const events = globalStore.get(petEventsAtom).filter((e) => e.id !== id);
-    globalStore.set(petEventsAtom, events);
+    globalStore.set(petEventsAtom, globalStore.get(petEventsAtom).filter((e) => e.id !== id));
+    globalStore.set(petSaidAtom, globalStore.get(petSaidAtom).filter((e) => e.id !== id));
+    if (globalStore.get(petBubbleAtom)?.id === id) {
+        globalStore.set(petBubbleAtom, null);
+    }
 }
 
 // What the bubble is showing, or null. Session-scoped: a bubble is a moment, not a state to restore.
@@ -201,5 +205,7 @@ if (import.meta.env.DEV) {
         setAttention: (items: AttentionItem[]) => globalStore.set(attentionAtom, items ?? []),
         // plural: setActState (singular, above) is the production one-act setter
         setActStates: (state: Record<string, PetActState>) => globalStore.set(petActStateAtom, state ?? {}),
+        // a reply in each status without a live consult behind it
+        setErrand: (errand: PetErrand | null) => globalStore.set(petErrandAtom, errand),
     };
 }

@@ -137,7 +137,14 @@ describe("eventFromNotify", () => {
             kind: "notify",
             text: "build finished",
             detail: "all 214 tests green",
+            level: "info",
         });
+    });
+
+    it("carries the level, and reads anything unrecognised as info", () => {
+        expect(eventFromNotify(notify({ level: "error" }), 1000, 1)?.level).toBe("error");
+        expect(eventFromNotify(notify({ level: "warn" }), 1000, 1)?.level).toBe("warn");
+        expect(eventFromNotify(notify({ level: "loud" }), 1000, 1)?.level).toBe("info");
     });
 
     it("ignores a missing or empty title", () => {

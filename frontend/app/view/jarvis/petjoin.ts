@@ -90,6 +90,7 @@ export function eventFromNotify(
         kind: "notify",
         text: title,
         detail: d.message?.trim() || undefined,
+        level: d.level === "error" || d.level === "warn" ? d.level : "info",
     };
 }
 

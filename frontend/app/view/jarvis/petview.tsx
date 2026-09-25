@@ -308,8 +308,11 @@ export function PetView({ model }: { model: AgentsViewModel }) {
             return;
         }
         setPetWatermark(speech.watermark);
+        // oldest first, so the newest lands at the head of what the peek reads back
+        for (const event of [...speech.heard].reverse()) {
+            rememberSaid(event);
+        }
         if (speech.utterance != null) {
-            rememberSaid(speech.utterance);
             globalStore.set(petBubbleAtom, speech.utterance);
             globalStore.set(petUnreadAtom, false); // the bubble itself is the notice
             markPetSpoke(performance.now()); // and the rings surge for it

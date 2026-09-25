@@ -31,7 +31,6 @@ import "./cockpit.scss";
 import { ShortcutsCheatSheet } from "./shortcuts-cheatsheet";
 import { makeSyntheticNodeModel } from "./synthetic-node-model";
 import { HintsFooter } from "./hints-footer";
-import { setupNotificationSubscription } from "./notificationstore";
 import { setupOpenFileSubscription } from "./openfilestore";
 import { setupUiClient } from "./uiclient";
 import { NotificationToasts } from "./notificationtoasts";
@@ -81,7 +80,6 @@ function CockpitBody({ waveEnv }: { waveEnv: WaveEnv }) {
     useApplyCockpitFonts();
     useEffect(() => initKeybindingDispatcher(model), [model]);
     useEffect(() => {
-        setupNotificationSubscription();
         setupOpenFileSubscription(model);
     }, [model]);
     useEffect(() => setupUiClient(model), [model]);

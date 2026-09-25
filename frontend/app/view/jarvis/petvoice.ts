@@ -40,6 +40,8 @@ export interface PetEvent {
     text: string;
     // message body / question body — the bubble shows only `text`; the peek renders this dimmed
     detail?: string;
+    // a notification's level, which is the only register that names one
+    level?: NotifyLevel;
     // address of the thing that raised this event (an ask's block oref) — carried for the peek to open
     ref?: string;
     reportedAsCondition?: boolean;
@@ -47,6 +49,32 @@ export interface PetEvent {
     // pass carries the notes it wrote. An utterance with none is either housekeeping that produced nothing
     // openable, or (for a pass) not said at all — see petjoin.ts.
     sources?: PetEventSource[];
+}
+
+export type NotifyLevel = "info" | "warn" | "error";
+
+// What register the utterance came from, in the design's own words. One table for the bubble and the peek,
+// so the two cannot name the same event differently.
+const KIND_LABEL: Record<PetEvent["kind"], string> = {
+    resume: "Where we were",
+    sweep: "While you were out",
+    "distill-batch": "While you were out",
+    "bg-agent-done": "While you were out",
+    connection: "This just connected",
+    "loose-end": "Still open",
+    ledger: "Work state",
+    notify: "Notice",
+    ask: "Asking you",
+};
+
+const LEVEL_LABEL: Record<NotifyLevel, string> = {
+    info: "Notice",
+    warn: "Warning",
+    error: "Error",
+};
+
+export function eventLabel(event: PetEvent): string {
+    return event.kind === "notify" ? LEVEL_LABEL[event.level ?? "info"] : KIND_LABEL[event.kind];
 }
 
 // The last event the creature considered, not merely the last one it said. Both fields are needed: `at`
@@ -62,9 +90,12 @@ export interface PetSpeech {
     // the watermark to store once said, or null when there was nothing new to consider. It is the newest
     // event seen — not the one spoken — so a skipped condition-reported event is never re-offered.
     watermark: PetWatermark | null;
+    // every new event worth remembering, newest first: one bubble speaks, but the peek reads back all of
+    // them, so the rest of a burst is not lost behind the one that was said
+    heard: PetEvent[];
 }
 
-const SILENCE: PetSpeech = { utterance: null, watermark: null };
+const SILENCE: PetSpeech = { utterance: null, watermark: null, heard: [] };
 
 function isNewer(a: { at: number; id: string }, b: { at: number; id: string }): boolean {
     return a.at !== b.at ? a.at > b.at : a.id > b.id;
@@ -79,8 +110,10 @@ export function nextUtterance(events: PetEvent[], seen: PetWatermark | null): Pe
     // narrating twenty stale ones one bubble at a time. The rest are recoverable from the peek.
     const newestFirst = [...unseen].sort((a, b) => (isNewer(a, b) ? -1 : 1));
     const newest = newestFirst[0];
+    const heard = newestFirst.filter((e) => e.reportedAsCondition !== true);
     return {
-        utterance: newestFirst.find((e) => e.reportedAsCondition !== true) ?? null,
+        utterance: heard[0] ?? null,
         watermark: { at: newest.at, id: newest.id },
+        heard,
     };
 }

@@ -1,9 +1,9 @@
-// Minimal toast store for the cockpit. Notifications arrive on the "notify" wave event
-// (wsh notify / wave_notify) and live only in this atom — no router, no persistence.
+// Minimal toast store for the cockpit's own transient feedback (a failed open, a focus warning). A
+// `wsh notify` is not a toast: the avatar is its only voice (petsources.tsx), so the two never say one
+// thing twice in the same corner.
 
 import { atom } from "jotai";
 import { globalStore } from "@/app/store/jotaiStore";
-import { waveEventSubscribeSingle } from "@/app/store/wps";
 
 export interface ToastNotification {
     id: number;
@@ -26,19 +26,4 @@ export function pushToast(n: Omit<ToastNotification, "id">): void {
 
 export function dismissToast(id: number): void {
     globalStore.set(toastsAtom, (prev) => prev.filter((t) => t.id !== id));
-}
-
-let subscribed = false;
-export function setupNotificationSubscription(): void {
-    if (subscribed) return;
-    subscribed = true;
-    waveEventSubscribeSingle({
-        eventType: "notify",
-        handler: (event) => {
-            const data = event.data as NotifyCommandData;
-            if (!data?.title) return;
-            const level = data.level === "error" || data.level === "warn" ? data.level : "info";
-            pushToast({ title: data.title, message: data.message ?? "", level });
-        },
-    });
 }
