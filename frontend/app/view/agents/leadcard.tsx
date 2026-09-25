@@ -7,17 +7,26 @@
 
 import { openFileInCode } from "@/app/cockpit/openfilestore";
 import { cardVariants, composerReveal } from "@/app/element/motiontokens";
+import { useDimensionsWithCallbackRef } from "@/app/hook/useDimensions";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { cn, fireAndForget } from "@/util/util";
-import { useAtomValue } from "jotai";
+import { atom, useAtomValue, type Atom, type PrimitiveAtom } from "jotai";
 import { motion } from "motion/react";
-import { useState, type KeyboardEvent, type ReactNode } from "react";
+import { useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { AgentComposer } from "./agentcomposer";
 import { entriesToShow } from "./agentrowmodel";
 import type { AgentsViewModel } from "./agents";
-import { askSentKey, displayAgeMs, formatAge, type AgentVM } from "./agentsviewmodel";
+import {
+    askSentKey,
+    displayAgeMs,
+    formatAge,
+    formatAgeShort,
+    latestMessageText,
+    type AgentEntry,
+    type AgentVM,
+} from "./agentsviewmodel";
 import { AnswerBar } from "./answerbar";
 import { AttentionBanner } from "./attentioncard";
 import { diffStatsByIdAtom } from "./cardgitstore";
@@ -27,7 +36,6 @@ import {
     foldOpen,
     REVIEW_ACTIONS,
     reviewFindings,
-    waitLabel,
     type LeadCardVM,
     type RowAction,
     type RowTone,
@@ -40,11 +48,21 @@ import type { RunInfo } from "./runlineage";
 import { openRunDag } from "./runrailsections";
 import { parseSpecReview, type SpecReview } from "./specreview";
 import { StatusLine } from "./statusline";
+import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
 
 const CTL_BOX =
     "flex h-[23px] w-[25px] shrink-0 cursor-pointer items-center justify-center rounded-sm border border-edge-mid text-secondary hover:border-edge-strong hover:bg-surface-hover";
 const BTN =
     "h-[23px] shrink-0 cursor-pointer rounded-[6px] border border-edge-mid bg-transparent px-[9px] text-[11.5px] font-medium text-secondary hover:border-edge-strong";
+const ROW_BTN =
+    "flex h-6 cursor-pointer items-center gap-1.5 rounded-[6px] border border-edge-strong bg-transparent pl-1.5 pr-2.5 text-[11.5px] font-semibold text-secondary hover:bg-surface-hover";
+const SECTION_LABEL = "text-[10px] font-semibold uppercase tracking-[0.08em] text-muted";
+
+// below this body height the lead's pane would squeeze the tasks, so a card that small starts it collapsed
+const LEAD_PANE_MIN_BODY_PX = 320;
+
+// the lead pane's open state per run id, set only once you toggle it; the card unmounts on a surface switch
+const leadPaneOpenAtom = atom<Record<string, boolean>>({}) as PrimitiveAtom<Record<string, boolean>>;
 
 const TONE_DOT: Record<RowTone, string> = {
     run: "bg-accent animate-[pulseDot_1.6s_infinite] motion-reduce:animate-none",
@@ -104,9 +122,10 @@ export function LeadCard(p: LeadCardProps) {
     const error = useAtomValue(runCardErrorAtom)[run.runId];
     const [panel, setPanel] = useState<"adjust" | "cancel" | null>(null);
     const [par, setPar] = useState<number | null>(null);
-    const [transcript, setTranscript] = useState(false);
     const [doneOpen, setDoneOpen] = useState(false);
-    const [waitOpen, setWaitOpen] = useState(false);
+    const [bodyRef, , bodyRect] = useDimensionsWithCallbackRef<HTMLDivElement>(null);
+    const paneOpen =
+        useAtomValue(leadPaneOpenAtom)[run.runId] ?? (bodyRect == null || bodyRect.height >= LEAD_PANE_MIN_BODY_PX);
     const telling = useAtomValue(tellingRowAtom);
     const [guide, setGuide] = useState<Record<string, string>>({});
 
@@ -242,145 +261,160 @@ export function LeadCard(p: LeadCardProps) {
                 <AttentionBanner glyph="diamond" label="Waiting on you" meta={formatAge(displayAgeMs(lead))} />
             ) : null}
 
-            <div className="flex shrink-0 flex-col gap-1.5 px-3.5 pb-1.5 pt-2">
+            <div className="flex shrink-0 flex-col gap-2 px-[18px] pb-2.5 pt-3">
                 <div className="flex h-[3px] gap-[3px]">
                     {vm.segs.map((s, i) => (
                         <div key={i} className={cn("h-full flex-1 rounded-[2px]", TONE_SEG[s])} />
                     ))}
                 </div>
-                <div className="flex items-center gap-2 font-mono text-[10.5px] text-muted">
-                    <span className="min-w-0 flex-1 truncate text-accent-soft">{vm.activity}</span>
-                    {vm.progress.total > 0 ? (
-                        <span className="shrink-0">
-                            {vm.progress.done}/{vm.progress.total} tasks
-                        </span>
-                    ) : null}
-                    {vm.cost ? <span className="shrink-0">{vm.cost}</span> : null}
+                <div className="flex items-center gap-2 text-[11.5px] text-muted">
+                    <span className="min-w-0 flex-1 truncate text-accent-soft first-letter:uppercase">
+                        {vm.activity}
+                    </span>
+                    <span title={vm.cost || undefined} className="shrink-0 font-mono text-[10.5px]">
+                        {[vm.progress.total > 0 ? `${vm.progress.done}/${vm.progress.total}` : "", vm.elapsed]
+                            .filter(Boolean)
+                            .join(" · ")}
+                    </span>
                 </div>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3.5 pb-2">
-                {p.leadDown ? (
-                    <div className="mb-1.5 mt-0.5 flex flex-wrap items-center gap-2.5 rounded-[7px] border border-error/35 bg-error/[0.08] px-2.5 py-2">
-                        <div className="min-w-[180px] flex-1">
-                            <div className="font-mono text-[11.5px] font-semibold text-error">Lead wake failed</div>
-                            <div className="text-[11.5px] leading-[1.45] text-secondary">
-                                Its judgment events and held questions come to you until you relaunch it.
+            <div ref={bodyRef} className="flex min-h-0 flex-1 flex-col">
+                <div
+                    className={cn(
+                        "min-h-0 overflow-y-auto overflow-x-hidden px-2.5 pb-3",
+                        lead && paneOpen ? "max-h-[50%]" : "flex-1"
+                    )}
+                >
+                    {p.leadDown ? (
+                        <div className="mb-1.5 mt-0.5 flex flex-wrap items-center gap-2.5 rounded-[7px] border border-error/35 bg-error/[0.08] px-2.5 py-2">
+                            <div className="min-w-[180px] flex-1">
+                                <div className="font-mono text-[11.5px] font-semibold text-error">Lead wake failed</div>
+                                <div className="text-[11.5px] leading-[1.45] text-secondary">
+                                    Its judgment events and held questions come to you until you relaunch it.
+                                </div>
                             </div>
+                            <button
+                                type="button"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    dag("", "relaunch-lead");
+                                }}
+                                className="h-[23px] cursor-pointer rounded-[6px] border-0 bg-error px-[11px] text-[11.5px] font-bold text-background"
+                            >
+                                Relaunch lead
+                            </button>
                         </div>
-                        <button
-                            type="button"
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                dag("", "relaunch-lead");
-                            }}
-                            className="h-[23px] cursor-pointer rounded-[6px] border-0 bg-error px-[11px] text-[11.5px] font-bold text-background"
-                        >
-                            Relaunch lead
-                        </button>
-                    </div>
-                ) : null}
+                    ) : null}
 
-                {vm.planning ? (
-                    <div className="mb-2 mt-0.5 rounded-[7px] bg-background px-[11px] py-[9px] text-[12px] leading-[1.5] text-muted">
-                        <b className="font-semibold text-secondary">Planning · no plan submitted yet.</b> The lead works
-                        the goal with you in its terminal. Tasks appear here when it submits a plan.
-                    </div>
-                ) : null}
+                    {vm.planning ? (
+                        <div className="mb-2 mt-0.5 rounded-[7px] bg-background px-[11px] py-[9px] text-[12px] leading-[1.5] text-muted">
+                            <b className="font-semibold text-secondary">Planning · no plan submitted yet.</b> The lead
+                            works the goal with you in its terminal. Tasks appear here when it submits a plan.
+                        </div>
+                    ) : null}
 
-                {leadAsking && lead ? (
-                    <div onClick={(e) => e.stopPropagation()} className="mb-2 flex flex-col gap-2">
-                        {spec ? (
-                            <SpecReviewBlock
-                                spec={spec}
-                                onOpen={() => fireAndForget(() => openFileInCode(model, spec.path))}
-                            />
-                        ) : question ? (
-                            <p className="m-0 text-[14px] font-semibold leading-[1.45] text-primary">{question}</p>
-                        ) : null}
-                        {answerBarFor(lead, "px-0 py-0")}
-                    </div>
-                ) : null}
-
-                <div className="-mx-1.5 flex flex-col gap-px">
-                    {vm.rows.map((row) => (
-                        <TaskRow
-                            key={row.key}
-                            row={row}
-                            focused={p.cursorKey === row.key}
-                            onFocus={() => p.onCursor(row.key)}
-                            onOpen={() => row.openId && p.onOpen(row.openId)}
-                            onAction={(a) => fireAndForget(() => rowAction(run, row, a))}
-                        >
-                            {telling === row.key ? (
-                                <TellInput taskId={row.taskId} onSend={(text) => dag(row.taskId, "tell", text)} />
+                    {leadAsking && lead ? (
+                        <div onClick={(e) => e.stopPropagation()} className="mb-2 flex flex-col gap-2">
+                            {spec ? (
+                                <SpecReviewBlock
+                                    spec={spec}
+                                    onOpen={() => fireAndForget(() => openFileInCode(model, spec.path))}
+                                />
+                            ) : question ? (
+                                <p className="m-0 text-[14px] font-semibold leading-[1.45] text-primary">{question}</p>
                             ) : null}
-                            {row.inline === "ask" && row.worker ? (
-                                <InlineBlock>
-                                    <p className="m-0 text-[13px] font-semibold leading-[1.45] text-primary">
-                                        {row.worker.ask?.questions?.[answerTab[row.worker.id] ?? 0]?.question}
-                                    </p>
-                                    {answerBarFor(row.worker, "px-0 py-0")}
-                                </InlineBlock>
-                            ) : null}
-                            {row.inline === "review" ? (
-                                <InlineBlock>
-                                    {reviewFindings(p.events, row.taskId).map((f) => (
-                                        <div
-                                            key={f.round}
-                                            className="grid grid-cols-[58px_minmax(0,1fr)] items-baseline gap-x-2"
-                                        >
-                                            <span className="font-mono text-[10px] font-semibold text-error">
-                                                Round {f.round}
-                                            </span>
-                                            <span className="text-[12px] leading-[1.45] text-secondary">{f.note}</span>
-                                        </div>
-                                    ))}
-                                    <div className="flex flex-wrap gap-1.5">
-                                        {REVIEW_ACTIONS.map(([action, label], i) => (
-                                            <button
-                                                key={action}
-                                                type="button"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    dag(
-                                                        row.taskId,
-                                                        action,
-                                                        action === "sendback" ? guide[row.taskId]?.trim() : undefined
-                                                    );
-                                                }}
-                                                className="flex cursor-pointer items-center gap-[7px] rounded-[6px] border border-edge-mid bg-transparent py-1 pl-1.5 pr-2.5 hover:border-warning"
+                            {answerBarFor(lead, "px-0 py-0")}
+                        </div>
+                    ) : null}
+
+                    <div className="flex flex-col gap-0.5">
+                        {vm.rows.map((row) => (
+                            <TaskRow
+                                key={row.key}
+                                row={row}
+                                focused={p.cursorKey === row.key}
+                                onFocus={() => p.onCursor(row.key)}
+                                onOpen={() => row.openId && p.onOpen(row.openId)}
+                                onAction={(a) => fireAndForget(() => rowAction(run, row, a))}
+                                tell={
+                                    telling === row.key ? (
+                                        <TellInput
+                                            taskId={row.taskId}
+                                            onSend={(text) => dag(row.taskId, "tell", text)}
+                                        />
+                                    ) : null
+                                }
+                            >
+                                {row.inline === "ask" && row.worker ? (
+                                    <InlineBlock>
+                                        <p className="m-0 text-[13px] font-semibold leading-[1.45] text-primary">
+                                            {row.worker.ask?.questions?.[answerTab[row.worker.id] ?? 0]?.question}
+                                        </p>
+                                        {answerBarFor(row.worker, "px-0 py-0")}
+                                    </InlineBlock>
+                                ) : null}
+                                {row.inline === "review" ? (
+                                    <InlineBlock>
+                                        {reviewFindings(p.events, row.taskId).map((f) => (
+                                            <div
+                                                key={f.round}
+                                                className="grid grid-cols-[58px_minmax(0,1fr)] items-baseline gap-x-2"
                                             >
-                                                <span className="inline-flex h-4 w-4 items-center justify-center rounded-[4px] bg-surface-code font-mono text-[10px] text-secondary">
-                                                    {i + 1}
+                                                <span className="font-mono text-[10px] font-semibold text-error">
+                                                    Round {f.round}
                                                 </span>
-                                                <span className="text-[12px] font-semibold text-primary">{label}</span>
-                                            </button>
+                                                <span className="text-[12px] leading-[1.45] text-secondary">
+                                                    {f.note}
+                                                </span>
+                                            </div>
                                         ))}
-                                    </div>
-                                    <input
-                                        value={guide[row.taskId] ?? ""}
-                                        onClick={(e) => e.stopPropagation()}
-                                        onChange={(e) => setGuide((g) => ({ ...g, [row.taskId]: e.target.value }))}
-                                        onKeyDown={(e) => {
-                                            e.stopPropagation();
-                                            if (e.key === "Enter" && guide[row.taskId]?.trim()) {
-                                                dag(row.taskId, "sendback", guide[row.taskId].trim());
-                                            }
-                                        }}
-                                        placeholder="guidance for the next round… (Enter sends back)"
-                                        className="w-full rounded-[6px] border border-edge-mid bg-surface-code px-[9px] py-[5px] text-[12px] text-primary outline-none"
-                                    />
-                                </InlineBlock>
-                            ) : null}
-                        </TaskRow>
-                    ))}
-                    <Fold
-                        label={waitLabel(vm.waiting)}
-                        open={foldOpen(waitOpen, vm.waiting, p.cursorKey)}
-                        onToggle={() => setWaitOpen((v) => !v)}
-                        hidden={vm.waiting.length === 0}
-                    >
+                                        <div className="flex flex-wrap gap-1.5">
+                                            {REVIEW_ACTIONS.map(([action, label], i) => (
+                                                <button
+                                                    key={action}
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        dag(
+                                                            row.taskId,
+                                                            action,
+                                                            action === "sendback"
+                                                                ? guide[row.taskId]?.trim()
+                                                                : undefined
+                                                        );
+                                                    }}
+                                                    className="flex cursor-pointer items-center gap-[7px] rounded-[6px] border border-edge-mid bg-transparent py-1 pl-1.5 pr-2.5 hover:border-warning"
+                                                >
+                                                    <span className="inline-flex h-4 w-4 items-center justify-center rounded-[4px] bg-surface-code font-mono text-[10px] text-secondary">
+                                                        {i + 1}
+                                                    </span>
+                                                    <span className="text-[12px] font-semibold text-primary">
+                                                        {label}
+                                                    </span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                        <input
+                                            value={guide[row.taskId] ?? ""}
+                                            onClick={(e) => e.stopPropagation()}
+                                            onChange={(e) => setGuide((g) => ({ ...g, [row.taskId]: e.target.value }))}
+                                            onKeyDown={(e) => {
+                                                e.stopPropagation();
+                                                if (e.key === "Enter" && guide[row.taskId]?.trim()) {
+                                                    dag(row.taskId, "sendback", guide[row.taskId].trim());
+                                                }
+                                            }}
+                                            placeholder="guidance for the next round… (Enter sends back)"
+                                            className="w-full rounded-[6px] border border-edge-mid bg-surface-code px-[9px] py-[5px] text-[12px] text-primary outline-none"
+                                        />
+                                    </InlineBlock>
+                                ) : null}
+                            </TaskRow>
+                        ))}
+                        {vm.waiting.length > 0 ? (
+                            <div className={cn(SECTION_LABEL, "px-2.5 pb-1 pt-3")}>Waiting · {vm.waiting.length}</div>
+                        ) : null}
                         {vm.waiting.map((row) => (
                             <TaskRow
                                 key={row.key}
@@ -391,27 +425,35 @@ export function LeadCard(p: LeadCardProps) {
                                 onAction={() => {}}
                             />
                         ))}
-                    </Fold>
-                    <Fold
-                        label={`${vm.done.length} done`}
-                        open={foldOpen(doneOpen, vm.done, p.cursorKey)}
-                        onToggle={() => setDoneOpen((v) => !v)}
-                        hidden={vm.done.length === 0}
-                    >
-                        {vm.done.map((row) => (
-                            <TaskRow
-                                key={row.key}
-                                row={row}
-                                focused={p.cursorKey === row.key}
-                                onFocus={() => p.onCursor(row.key)}
-                                onOpen={() => row.openId && p.onOpen(row.openId)}
-                                onAction={() => {}}
-                            />
-                        ))}
-                    </Fold>
+                        <Fold
+                            label={`Done · ${vm.done.length}`}
+                            open={foldOpen(doneOpen, vm.done, p.cursorKey)}
+                            onToggle={() => setDoneOpen((v) => !v)}
+                            hidden={vm.done.length === 0}
+                        >
+                            {vm.done.map((row) => (
+                                <TaskRow
+                                    key={row.key}
+                                    row={row}
+                                    focused={p.cursorKey === row.key}
+                                    onFocus={() => p.onCursor(row.key)}
+                                    onOpen={() => row.openId && p.onOpen(row.openId)}
+                                    onAction={() => {}}
+                                />
+                            ))}
+                        </Fold>
+                    </div>
                 </div>
-
-                {transcript && lead ? <LeadTranscript lead={lead} /> : null}
+                {lead ? (
+                    <LeadPane
+                        lead={lead}
+                        open={paneOpen}
+                        onToggle={() =>
+                            globalStore.set(leadPaneOpenAtom, (prev) => ({ ...prev, [run.runId]: !paneOpen }))
+                        }
+                        nowAtom={model.structuralNowAtom}
+                    />
+                ) : null}
             </div>
 
             {p.composerOpen && lead ? (
@@ -441,16 +483,6 @@ export function LeadCard(p: LeadCardProps) {
                 >
                     {vm.settings}
                 </span>
-                {lead ? (
-                    <button
-                        type="button"
-                        onClick={() => setTranscript((v) => !v)}
-                        title="The lead's own transcript"
-                        className={BTN}
-                    >
-                        {transcript ? "Hide transcript" : "Transcript"}
-                    </button>
-                ) : null}
                 {run.dag && !vm.finished ? (
                     <button
                         type="button"
@@ -568,12 +600,14 @@ function TellInput({ taskId, onSend }: { taskId: string; onSend: (text: string) 
     );
 }
 
+// One line per task; the cursor's row opens to what it is doing and what you can do about it.
 function TaskRow({
     row,
     focused,
     onFocus,
     onOpen,
     onAction,
+    tell,
     children,
 }: {
     row: TaskRowVM;
@@ -581,66 +615,81 @@ function TaskRow({
     onFocus: () => void;
     onOpen: () => void;
     onAction: (a: RowAction) => void;
+    tell?: ReactNode;
     children?: ReactNode;
 }) {
+    const wait = row.kind === "wait";
+    const canOpen = row.openId != null && !wait;
     return (
-        <>
-            <div
-                data-row-key={row.key}
-                data-agent-id={row.worker?.id}
-                onClick={(e) => {
-                    e.stopPropagation();
-                    onFocus();
-                }}
-                onDoubleClick={onOpen}
-                className={cn(
-                    "grid grid-cols-[8px_minmax(0,1fr)_auto] items-center gap-x-[9px] rounded-[7px] px-1.5 py-[5px] hover:bg-surface-hover",
-                    focused
-                        ? "bg-surface-raised shadow-[inset_2px_0_0_var(--color-accent)]"
-                        : row.needsYou && "bg-warning/[0.06]"
-                )}
-            >
+        <div
+            data-row-key={row.key}
+            data-agent-id={row.worker?.id}
+            onClick={(e) => {
+                e.stopPropagation();
+                onFocus();
+            }}
+            onDoubleClick={onOpen}
+            className={cn(
+                "rounded-[8px]",
+                focused ? "bg-surface-selected" : row.needsYou ? "bg-warning/[0.06]" : "hover:bg-surface-hover"
+            )}
+        >
+            <div className="grid grid-cols-[8px_minmax(0,1fr)_auto] items-center gap-x-3 px-2.5 py-[9px]">
                 <span className={cn("h-[7px] w-[7px] rounded-full", TONE_DOT[row.tone])} />
-                <div className="min-w-0">
-                    <div className="truncate font-mono text-[11.5px] font-semibold text-primary">{row.label}</div>
-                    <div
-                        className={cn(
-                            "truncate text-[10.5px]",
-                            row.tone === "ask" ? "text-warning" : row.tone === "warn" ? "text-warning" : "text-muted"
-                        )}
-                    >
+                <span className={cn("truncate text-[13px]", wait ? "text-ink-mid" : "font-medium text-primary")}>
+                    {row.label}
+                </span>
+                <span
+                    className={cn(
+                        "whitespace-nowrap font-mono text-[10.5px]",
+                        row.needsYou ? "text-warning" : row.tone === "err" ? "text-error" : "text-muted"
+                    )}
+                >
+                    {row.tag ?? row.age}
+                </span>
+            </div>
+            {focused || tell ? (
+                <div className="flex flex-col gap-[9px] pb-[11px] pl-[30px] pr-2.5">
+                    <div className={cn("truncate text-[11.5px]", row.tone === "warn" ? "text-warning" : "text-muted")}>
                         {row.sub}
                     </div>
+                    {tell ??
+                        (row.actions.length > 0 || canOpen ? (
+                            <div className="flex flex-wrap gap-1.5">
+                                {row.actions.map((a, i) => (
+                                    <button
+                                        key={a}
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onAction(a);
+                                        }}
+                                        className={ROW_BTN}
+                                    >
+                                        <span className="rounded-[3px] bg-surface-code px-1 font-mono text-[9.5px] text-ink-mid">
+                                            {i + 1}
+                                        </span>
+                                        {ACTION_LABEL[a]}
+                                    </button>
+                                ))}
+                                {canOpen ? (
+                                    <button
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onOpen();
+                                        }}
+                                        className={cn(ROW_BTN, "pl-2.5")}
+                                    >
+                                        {row.kind === "done" ? "Open transcript" : "Open worker"}
+                                    </button>
+                                ) : null}
+                            </div>
+                        ) : null)}
                 </div>
-                <div className="flex items-center gap-1.5">
-                    {row.tag ? (
-                        <span
-                            className={cn(
-                                "whitespace-nowrap font-mono text-[10px] font-medium",
-                                row.needsYou ? "text-warning" : row.tone === "err" ? "text-error" : "text-muted"
-                            )}
-                        >
-                            {row.tag}
-                        </span>
-                    ) : null}
-                    {row.actions.map((a, i) => (
-                        <button
-                            key={a}
-                            type="button"
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                onAction(a);
-                            }}
-                            className="h-[21px] cursor-pointer rounded-[5px] border border-edge-strong bg-transparent px-2 text-[11px] font-semibold text-secondary hover:bg-surface-hover"
-                        >
-                            {focused ? `${i + 1} ` : ""}
-                            {ACTION_LABEL[a]}
-                        </button>
-                    ))}
-                </div>
-            </div>
+            ) : null}
             {children}
-        </>
+        </div>
     );
 }
 
@@ -648,7 +697,7 @@ function InlineBlock({ children }: { children: ReactNode }) {
     return (
         <div
             onClick={(e) => e.stopPropagation()}
-            className="mb-1.5 ml-[23px] mr-1.5 flex flex-col gap-[7px] border-l-2 border-warning/55 pb-[5px] pl-[11px] pt-[3px]"
+            className="mb-2 ml-[30px] mr-2.5 flex flex-col gap-[7px] border-l-2 border-warning/55 pb-[5px] pl-[11px] pt-[3px]"
         >
             {children}
         </div>
@@ -678,10 +727,13 @@ function Fold({
                     e.stopPropagation();
                     onToggle();
                 }}
-                className="flex cursor-pointer items-center gap-[9px] rounded-[7px] px-1.5 py-[5px] font-mono text-[10.5px] text-muted hover:bg-surface-hover hover:text-secondary"
+                className={cn(
+                    SECTION_LABEL,
+                    "flex cursor-pointer items-center gap-2 px-2.5 pb-1 pt-3 hover:text-secondary"
+                )}
             >
                 {label}
-                <span className="ml-auto">{open ? "▾" : "▸"}</span>
+                <span className="ml-auto font-normal">{open ? "▾" : "▸"}</span>
             </div>
             {open ? children : null}
         </>
@@ -728,12 +780,83 @@ function SpecReviewBlock({ spec, onOpen }: { spec: SpecReview; onOpen: () => voi
     );
 }
 
-function LeadTranscript({ lead }: { lead: AgentVM }) {
+// The lead's own transcript under the tasks. Hidden, it stays as one line holding its newest message.
+function LeadPane({
+    lead,
+    open,
+    onToggle,
+    nowAtom,
+}: {
+    lead: AgentVM;
+    open: boolean;
+    onToggle: () => void;
+    nowAtom: Atom<number>;
+}) {
     const live = useAtomValue(entriesAtomFor(lead.id));
     const entries = entriesToShow(live, lead.previousInfo);
+    const now = useAtomValue(nowAtom);
+    const toggle = (e: MouseEvent) => {
+        e.stopPropagation();
+        onToggle();
+    };
+    if (open) {
+        return <LeadTranscript lead={lead} entries={entries} onHide={toggle} />;
+    }
+    // an idle lead's newest message is from when it went idle; a busy lead's has no time of its own
+    const age = lead.state === "idle" && lead.idleSince != null ? formatAgeShort(now - lead.idleSince) : "";
     return (
-        <div className="mt-2 rounded-[8px] bg-background px-3 py-2">
-            <NarrationTimeline entries={entries} accentLatest active={lead.state !== "idle"} />
+        <button
+            type="button"
+            onClick={toggle}
+            aria-expanded={false}
+            title="Show the lead's transcript"
+            className="flex w-full shrink-0 cursor-pointer items-center gap-2.5 border-0 border-t border-edge-mid bg-surface py-[9px] pl-[18px] pr-3 text-left hover:bg-surface-hover"
+        >
+            <span className={SECTION_LABEL}>Lead</span>
+            <span className="min-w-0 flex-1 truncate text-[12px] text-ink-mid">
+                {latestMessageText(entries) ?? lead.activity ?? ""}
+            </span>
+            {age ? <span className="shrink-0 font-mono text-[10px] text-muted">{age}</span> : null}
+            <span className="shrink-0 px-2 text-[11px] font-semibold text-ink-mid">Show</span>
+        </button>
+    );
+}
+
+// its own component so the scroll region pins to the newest entry each time the pane opens
+function LeadTranscript({
+    lead,
+    entries,
+    onHide,
+}: {
+    lead: AgentVM;
+    entries: AgentEntry[];
+    onHide: (e: MouseEvent) => void;
+}) {
+    const { scrollRef, onScroll, atBottom, jumpToBottom } = useStickToBottom(entries);
+    return (
+        <div className="flex min-h-0 flex-1 flex-col border-t border-edge-mid bg-surface">
+            <div className="flex shrink-0 items-center gap-2 pb-1 pl-[18px] pr-3 pt-[9px]">
+                <span className={cn(SECTION_LABEL, "flex-1")}>Lead</span>
+                <button
+                    type="button"
+                    onClick={onHide}
+                    aria-expanded={true}
+                    title="Hide the lead's transcript"
+                    className="h-[22px] cursor-pointer rounded-[5px] border-0 bg-transparent px-2 text-[11px] font-semibold text-ink-mid hover:bg-surface-hover hover:text-secondary"
+                >
+                    Hide
+                </button>
+            </div>
+            <div className="relative min-h-0 flex-1">
+                <div
+                    ref={scrollRef}
+                    onScroll={onScroll}
+                    className="h-full overflow-y-auto overflow-x-hidden px-5 pb-3.5"
+                >
+                    <NarrationTimeline entries={entries} accentLatest active={lead.state !== "idle"} />
+                </div>
+                {atBottom ? null : <JumpToLatestPill onClick={jumpToBottom} />}
+            </div>
         </div>
     );
 }

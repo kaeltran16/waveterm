@@ -48,6 +48,8 @@ export interface TaskRowVM {
     sub: string;
     tone: RowTone;
     tag?: string;
+    // how long it has run, or ran; the row shows its tag instead when it has one
+    age?: string;
     kind: "live" | "wait" | "done";
     inline?: "ask" | "review";
     waitOn?: "deps" | "slot";
@@ -67,6 +69,7 @@ export interface LeadCardVM {
     planning: boolean;
     finished: boolean;
     progress: { done: number; total: number };
+    elapsed: string;
     // what the lead is doing, and what the run has cost so far
     activity: string;
     cost: string;
@@ -127,20 +130,24 @@ function taskRow(input: LeadCardInput, task: TaskNode): TaskRowVM {
         sub: join(task.id, laneText),
         tone: "run",
         kind: "live",
+        age: task.firstactivity ? formatElapsed(now - task.firstactivity) : undefined,
         needsYou: false,
         worker,
         openId: worker?.id,
         actions: [],
     };
     switch (task.state) {
-        case "done":
+        case "done": {
+            const ranMs = run.digest?.durations?.tasks?.find((t) => t.taskid === task.id)?.runms;
             return {
                 ...base,
                 kind: "done",
                 tone: "ok",
+                age: ranMs ? formatElapsed(ranMs) : undefined,
                 sub: join(task.id, laneText, "landed"),
                 openId: endedWorkerId(run.runId, task.id),
             };
+        }
         case "skipped":
         case "cancelled":
             return {
@@ -148,6 +155,7 @@ function taskRow(input: LeadCardInput, task: TaskNode): TaskRowVM {
                 kind: "done",
                 tone: "muted",
                 sub: join(task.id, laneText, task.state),
+                age: undefined,
                 openId: undefined,
             };
         case "review-failed":
@@ -202,6 +210,7 @@ function taskRow(input: LeadCardInput, task: TaskNode): TaskRowVM {
                 kind: "wait",
                 tone: "wait",
                 waitOn: waits.length > 0 ? "deps" : slot ? "slot" : undefined,
+                tag: waitTag(waits, slot),
                 sub: join(
                     task.id,
                     waits.length > 0 ? `waits on ${waits.join(", ")}` : slot ? "waiting for a slot" : "queued"
@@ -223,13 +232,15 @@ function taskRow(input: LeadCardInput, task: TaskNode): TaskRowVM {
     return { ...base, sub: join(task.id, laneText, worker.activity), actions: ["tell"] };
 }
 
-/** Pure: the waiting fold's label, counting what its rows wait on. */
-export function waitLabel(waiting: Pick<TaskRowVM, "waitOn">[]): string {
-    const deps = waiting.filter((r) => r.waitOn === "deps").length;
-    const slot = waiting.filter((r) => r.waitOn === "slot").length;
-    return [`${waiting.length} waiting`, deps ? `${deps} on dependencies` : "", slot ? `${slot} for a slot` : ""]
-        .filter(Boolean)
-        .join(" · ");
+/** Pure: what a waiting row waits for, short enough for the row's end. */
+export function waitTag(deps: string[], slot: boolean): string {
+    if (deps.length > 1) {
+        return `after ${deps.length} tasks`;
+    }
+    if (deps.length === 1) {
+        return `after ${deps[0]}`;
+    }
+    return slot ? "for a slot" : "queued";
 }
 
 /** Pure: a run's lead card. Rows keep plan order; live rows list first, then what waits, then what is done. */
@@ -251,10 +262,12 @@ export function buildLeadCard(input: LeadCardInput): LeadCardVM {
         planning: dag == null,
         finished: dag != null && runFinished(run),
         progress: runProgress(dag),
+        elapsed: runElapsed(run, input.now),
         activity: leadActivity(run, lead, input.leadDown),
         cost: runCost(run.digest?.report?.workerms, input.tokens),
         settings: [
-            `${leadModel} · workers ${workerModel} · ×${dag?.parallelism ?? "?"}`,
+            `${leadModel} · workers ${workerModel}`,
+            dag ? `${dag.parallelism} at a time` : "",
             run.landPath ? `lands on wave/${run.runId.slice(0, 8)}` : "",
         ]
             .filter(Boolean)
@@ -281,6 +294,12 @@ export function leadActivity(run: RunInfo, lead: AgentVM | undefined, leadDown: 
         return running > 0 ? `standing by · engine running ${running} lane${running === 1 ? "" : "s"}` : "standing by";
     }
     return lead.activity || lead.state;
+}
+
+/** Pure: how long a run has gone, from its dag's creation; a finished run's from the digest, which knows when it ended. */
+export function runElapsed(run: RunInfo, now: number): string {
+    const ms = runFinished(run) ? run.digest?.durations?.elapsedms : run.dag?.createdts ? now - run.dag.createdts : 0;
+    return ms ? formatElapsed(ms) : "";
 }
 
 /** Pure: what a run has cost so far, leaving out what is not known. */

@@ -14,8 +14,9 @@ import {
     rowKey,
     rowKeyActions,
     runCost,
+    runElapsed,
     stopSelector,
-    waitLabel,
+    waitTag,
 } from "./leadcardmodel";
 import type { Lineage, RunInfo } from "./runlineage";
 
@@ -100,6 +101,7 @@ describe("buildLeadCard", () => {
             openId: "w2",
         });
         expect(vm.waiting[0].sub).toBe("t3 · waits on t2");
+        expect(vm.waiting[0].tag).toBe("after t2");
         expect(vm.waiting[0].waitOn).toBe("deps");
         expect(vm.done[0].openId).toBe("ended:R:t1");
         expect(vm.segs).toEqual(["ok", "run", "wait"]);
@@ -177,20 +179,32 @@ describe("buildLeadCard", () => {
         expect(buildLeadCard(input(run)).waiting[0].waitOn).toBe("slot");
     });
 
+    it("ages a live row from its first activity and a landed row by how long it ran", () => {
+        const run = runInfo(
+            [task("t1", "done"), task("t2", "running", { firstactivity: NOW - 8 * 60_000 }), task("t3", "running")],
+            { durations: { elapsedms: 0, tasks: [{ taskid: "t1", runms: 12 * 60_000 }] } }
+        );
+        const vm = buildLeadCard(input(run));
+        expect(vm.done[0].age).toBe("12m");
+        expect(vm.rows.map((r) => r.age)).toEqual(["8m", undefined]);
+    });
+
     it("is planning with no dag, and names lead and worker models in the settings line", () => {
         const planning = buildLeadCard(input({ runId: "R", channelId: "C", title: "t", project: "arc" }));
         expect(planning.planning).toBe(true);
         expect(planning.rows).toEqual([]);
         const vm = buildLeadCard(input(runInfo([])));
-        expect(vm.settings).toBe("lead opus · workers sonnet · ×3");
+        expect(vm.settings).toBe("lead opus · workers sonnet · 3 at a time");
         expect(buildLeadCard(input(runInfo([]), [], { lead: undefined })).settings).toBe(
-            "no lead · workers sonnet · ×3"
+            "no lead · workers sonnet · 3 at a time"
         );
     });
 
     it("names the branch a run lands on when it has its own", () => {
         const run = { ...runInfo([]), runId: "0123456789abcdef", landPath: "/p/.waveterm/worktrees/0123456789abcdef" };
-        expect(buildLeadCard(input(run)).settings).toBe("lead opus · workers sonnet · ×3 · lands on wave/01234567");
+        expect(buildLeadCard(input(run)).settings).toBe(
+            "lead opus · workers sonnet · 3 at a time · lands on wave/01234567"
+        );
         // the label is shortened; the full name is what a human types into git
         expect(buildLeadCard(input(run)).settingsTitle).toBe("lands on wave/0123456789abcdef");
         expect(buildLeadCard(input(runInfo([]))).settingsTitle).toBeUndefined();
@@ -283,11 +297,31 @@ describe("rowKeyActions", () => {
     });
 });
 
-describe("waitLabel", () => {
-    it("counts what the waiting rows wait on", () => {
-        const w = (waitOn?: "deps" | "slot") => ({ waitOn });
-        expect(waitLabel([w("deps"), w("slot"), w("deps"), w()])).toBe("4 waiting · 2 on dependencies · 1 for a slot");
-        expect(waitLabel([w()])).toBe("1 waiting");
+describe("waitTag", () => {
+    it("names the one task a row waits on, and counts several", () => {
+        expect(waitTag(["t-1"], false)).toBe("after t-1");
+        expect(waitTag(["t-1", "t-2", "t-3", "t-4"], false)).toBe("after 4 tasks");
+    });
+    it("says a row waits for a slot, or is queued", () => {
+        expect(waitTag([], true)).toBe("for a slot");
+        expect(waitTag([], false)).toBe("queued");
+    });
+});
+
+describe("runElapsed", () => {
+    it("counts a live run from its dag's creation", () => {
+        const run = runInfo([task("t1", "running")]);
+        run.dag!.createdts = NOW - 9 * 60_000;
+        expect(runElapsed(run, NOW)).toBe("9m");
+    });
+    it("takes a finished run's time from the digest, which knows when it ended", () => {
+        const run = runInfo([task("t1", "done")], { durations: { elapsedms: 42 * 60_000 } });
+        run.dag!.status = "done";
+        run.dag!.createdts = NOW - 90 * 60_000;
+        expect(runElapsed(run, NOW)).toBe("42m");
+    });
+    it("is empty when the run has no dag yet", () => {
+        expect(runElapsed({ runId: "R", channelId: "C", title: "t", project: "arc" }, NOW)).toBe("");
     });
 });
 
