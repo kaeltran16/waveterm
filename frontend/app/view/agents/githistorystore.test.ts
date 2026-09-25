@@ -27,7 +27,9 @@ import { filesStateAtom, requestFileLink } from "./filesstore";
 import {
     historyCommitsAtom,
     historyFailureAtom,
+    historyFiltersAtom,
     historyHasMoreAtom,
+    historyLoadStartedAtom,
     historyRowsAtom,
     historyScrollAtom,
     loadHistory,
@@ -35,10 +37,14 @@ import {
     refreshHistory,
     refreshHistoryIfMoved,
     resetHistory,
+    restoreNoticeAtom,
+    retryHistory,
     selectedCommitAtom,
     selectedFileAtom,
     setHistoryOpts,
+    startFromTop,
 } from "./githistorystore";
+import { NO_FILTERS } from "./historyquery";
 import { WORKING_TREE } from "./historyrows";
 
 const CWD = "C:/repo";
@@ -262,7 +268,7 @@ describe("range changes do not re-read git", () => {
         // row merely exists would pass without the setter, because that commit is in the list anyway
         const rows = globalStore.get(historyRowsAtom) ?? [];
         expect(rows.find((r) => r.hash === "bbb2222")?.divider).toBe("run base");
-        expect(rows[0]?.subject).toBe("Run changes — 3 files");
+        expect(rows[0]?.subject).toBe("Run changes");
     });
 
     // A different repository IS a different subject: filters and scroll from the old one are
@@ -397,5 +403,68 @@ describe("refreshing the commit column", () => {
         refreshHistory();
         await settle();
         expect(gitHistory).toHaveBeenCalledTimes(1);
+    });
+});
+
+// The slow-read notice counts from when a read started with nothing on screen, so the clock has to
+// stop whichever way that read settles, and restart when Retry supersedes it.
+describe("the slow-read clock", () => {
+    it("starts when a fresh read has nothing on screen and stops when rows arrive", async () => {
+        resetHistory();
+        let resolve!: (v: any) => void;
+        gitHistory.mockReturnValueOnce(new Promise((r) => (resolve = r)));
+        const p = loadHistory("C:/other", {});
+        expect(globalStore.get(historyLoadStartedAtom)).not.toBeNull();
+        resolve({ isrepo: true, head: "aaa", commits: [commit("aaa", "one")] });
+        await p;
+        expect(globalStore.get(historyLoadStartedAtom)).toBeNull();
+    });
+
+    it("stops on a failed read too", async () => {
+        resetHistory();
+        gitHistory.mockRejectedValueOnce(new Error("socket closed"));
+        await loadHistory("C:/other2", {});
+        expect(globalStore.get(historyLoadStartedAtom)).toBeNull();
+    });
+
+    it("restarts on retry", async () => {
+        resetHistory();
+        gitHistory.mockReturnValue(new Promise(() => {}));
+        void loadHistory("C:/slow", {});
+        const first = globalStore.get(historyLoadStartedAtom)!;
+        vi.useFakeTimers({ toFake: ["Date"] });
+        vi.setSystemTime(first + 20_000);
+        retryHistory();
+        expect(globalStore.get(historyLoadStartedAtom)).toBe(first + 20_000);
+        vi.useRealTimers();
+        gitHistory.mockReset();
+    });
+});
+
+describe("startFromTop", () => {
+    it("clears filters, scroll and selection, and dismisses the notice", async () => {
+        // a clean tree has no uncommitted row, so the tip is what the default selection lands on
+        globalStore.set(filesStateAtom, {
+            cwd: CWD,
+            branch: "main",
+            isRepo: true,
+            changes: { files: [] } as any,
+            ref: "",
+            head: "aaa",
+        });
+        globalStore.set(historyFiltersAtom, { author: "dana", path: "", text: "" });
+        globalStore.set(historyScrollAtom, 300);
+        globalStore.set(selectedCommitAtom, "bbb");
+        globalStore.set(restoreNoticeAtom, "Back where you left off: commit bbb.");
+        gitHistory.mockResolvedValueOnce({
+            isrepo: true,
+            head: "aaa",
+            commits: [commit("aaa", "one"), commit("bbb", "two")],
+        });
+        startFromTop();
+        await vi.waitFor(() => expect(globalStore.get(selectedCommitAtom)).toBe("aaa"));
+        expect(globalStore.get(historyFiltersAtom)).toEqual(NO_FILTERS);
+        expect(globalStore.get(historyScrollAtom)).toBe(0);
+        expect(globalStore.get(restoreNoticeAtom)).toBeNull();
     });
 });

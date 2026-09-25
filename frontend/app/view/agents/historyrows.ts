@@ -7,6 +7,7 @@
 // here so the pane stays a renderer. Lane assignment is gitgraph.ts; coordinates are gitgraphgeom.ts.
 
 import { formatAge } from "./agentsviewmodel";
+import type { DiffRange } from "./diffscope";
 import type { GraphCommit } from "./gitgraph";
 
 // Sentinel hash for the synthetic uncommitted row. Empty on purpose: gitgraphgeom skips falsy hashes
@@ -28,6 +29,8 @@ export interface HistoryRow extends GraphCommit {
     ts: number;
     when: string;
     refs: RefChip[];
+    // only the synthetic top row has one; it stands where a commit's author would
+    fileCount?: number;
 }
 
 export interface BuildRowsOpts {
@@ -130,14 +133,12 @@ export function buildRows(commits: HistoryCommit[], opts: BuildRowsOpts): Histor
     if (opts.dirtyFileCount <= 0) {
         return rows;
     }
-    const noun = opts.dirtyFileCount === 1 ? "file" : "files";
     rows.unshift({
         hash: WORKING_TREE,
         parents: opts.head ? [opts.head] : [],
         workingTree: true,
-        subject: opts.rowLabel
-            ? `${opts.rowLabel} — ${opts.dirtyFileCount} ${noun}`
-            : `Uncommitted — ${opts.dirtyFileCount} ${noun} in the working tree`,
+        subject: opts.rowLabel ?? "Uncommitted changes",
+        fileCount: opts.dirtyFileCount,
         author: "you",
         email: "",
         ts: opts.now,
@@ -146,6 +147,20 @@ export function buildRows(commits: HistoryCommit[], opts: BuildRowsOpts): Histor
         before: false,
     });
     return rows;
+}
+
+// The working-tree pane's one-line answer to "measured from what". HEAD is not a branch, so a
+// detached checkout says so rather than printing "On HEAD".
+export function worktreeCaption(range: DiffRange, branch: string, head: string, ref: string): string {
+    const on = branch && branch !== "HEAD" ? `On ${branch}` : "Detached HEAD";
+    switch (range.kind) {
+        case "session":
+            return `${on}, measured from session start ${ref.slice(0, 7)}`;
+        case "run":
+            return `${on}, measured from run base ${range.baseCommit.slice(0, 7)}`;
+        default:
+            return `${on}, measured from ${head.slice(0, 7)}`;
+    }
 }
 
 // What the surface selects when history first arrives: uncommitted work if there is any, else the tip.

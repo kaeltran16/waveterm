@@ -9,6 +9,7 @@ import {
     defaultSelection,
     keepSelection,
     refChipClass,
+    worktreeCaption,
     type RefKind,
 } from "./historyrows";
 
@@ -83,14 +84,16 @@ describe("buildRows", () => {
         expect(rows[0].hash).toBe(WORKING_TREE);
         expect(rows[0].workingTree).toBe(true);
         expect(rows[0].parents).toEqual(["aaa"]);
-        expect(rows[0].subject).toBe("Uncommitted — 3 files in the working tree");
+        expect(rows[0].subject).toBe("Uncommitted changes");
+        expect(rows[0].fileCount).toBe(3);
         expect(rows[0].when).toBe("now");
         expect(rows[1].hash).toBe("aaa");
     });
 
     it("uses the singular when exactly one file is dirty", () => {
         const rows = buildRows([commit("aaa")], { head: "aaa", dirtyFileCount: 1, now: NOW });
-        expect(rows[0].subject).toBe("Uncommitted — 1 file in the working tree");
+        expect(rows[0].subject).toBe("Uncommitted changes");
+        expect(rows[0].fileCount).toBe(1);
     });
 
     // The change set behind dirtyFileCount is only working-tree-vs-HEAD in repo scope. Agent scope
@@ -103,9 +106,11 @@ describe("buildRows", () => {
             rowLabel: "Since session start",
             now: NOW,
         });
-        expect(agent[0].subject).toBe("Since session start — 5 files");
+        expect(agent[0].subject).toBe("Since session start");
+        expect(agent[0].fileCount).toBe(5);
         const run = buildRows([commit("aaa")], { head: "aaa", dirtyFileCount: 1, rowLabel: "Run changes", now: NOW });
-        expect(run[0].subject).toBe("Run changes — 1 file");
+        expect(run[0].subject).toBe("Run changes");
+        expect(run[0].fileCount).toBe(1);
     });
 
     it("omits the uncommitted row on a clean tree", () => {
@@ -200,5 +205,29 @@ describe("keepSelection", () => {
 
     it("returns null for an empty result, so nothing is selected", () => {
         expect(keepSelection([], "aaa")).toBeNull();
+    });
+});
+
+describe("worktreeCaption", () => {
+    it("names the branch and the commit the working tree is measured from", () => {
+        expect(worktreeCaption({ kind: "working" }, "main", "3eaffac1234", "")).toBe("On main, measured from 3eaffac");
+    });
+    it("does not call a detached HEAD a branch", () => {
+        expect(worktreeCaption({ kind: "working" }, "", "3eaffac1234", "")).toBe(
+            "Detached HEAD, measured from 3eaffac"
+        );
+        expect(worktreeCaption({ kind: "working" }, "HEAD", "3eaffac1234", "")).toBe(
+            "Detached HEAD, measured from 3eaffac"
+        );
+    });
+    it("measures a session from its start commit", () => {
+        expect(worktreeCaption({ kind: "session", agentId: "a" }, "main", "3eaffac1234", "9f2c1de0000")).toBe(
+            "On main, measured from session start 9f2c1de"
+        );
+    });
+    it("measures a run from its base", () => {
+        expect(worktreeCaption({ kind: "run", runId: "r", baseCommit: "b41d000aaaa" }, "wave/r", "x", "")).toBe(
+            "On wave/r, measured from run base b41d000"
+        );
     });
 });

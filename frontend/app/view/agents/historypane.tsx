@@ -4,26 +4,35 @@
 
 // Pane 1 of the Diff surface (Wave-git-review.dc.html): commits newest-first, the uncommitted row at
 // the top, an optional lane gutter behind them. Rows are left-padded by the gutter width so the SVG
-// and the list stay in register without the rows knowing any geometry.
+// and the list stay in register without the rows knowing any geometry. The column owns its own
+// controls — count, Clear filters, Graph, collapse, and the filter row under them.
 
 import { SkeletonLine } from "@/app/element/skeleton";
+import { globalStore } from "@/app/store/jotaiStore";
 import { cn } from "@/util/util";
-import { useEffect, useRef } from "react";
+import { useAtomValue } from "jotai";
+import { Clock, GitGraph, PanelLeftClose } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { assignLanes, laneCount } from "./gitgraph";
 import { graphGeometry } from "./gitgraphgeom";
+import {
+    clearHistoryFilters,
+    graphOnAtom,
+    historyFiltersAtom,
+    historyLoadStartedAtom,
+    retryHistory,
+} from "./githistorystore";
 import { GraphGutter } from "./graphgutter";
-import { HISTORY_PAGE_SIZE, NEAR_BOTTOM_PX, SCROLL_THROTTLE_MS } from "./historyquery";
-import { WORKING_TREE, refChipClass, type HistoryRow } from "./historyrows";
+import { HistoryFilterRow } from "./historyfilterrow";
+import { HISTORY_PAGE_SIZE, NEAR_BOTTOM_PX, SCROLL_THROTTLE_MS, noMatchSentence, slowSeconds } from "./historyquery";
+import { refChipClass, type HistoryRow } from "./historyrows";
 
 const ROW_H = 34;
 const HASH_W = 52;
 // lanes past this fold into one grey column; nine concurrent lanes will not fit the history column
 const MAX_LANES = 7;
 const NO_GRAPH_PAD = 14;
-
-function shortHash(hash: string): string {
-    return hash === WORKING_TREE ? "·······" : hash.slice(0, 7);
-}
+const SLOW_TICK_MS = 1_000;
 
 // SkeletonLine takes only className, so the ragged widths are literal utility classes rather than an
 // inline style — Tailwind cannot generate a class from a computed string either, so no template here.
@@ -40,6 +49,65 @@ function HistorySkeleton() {
                     <SkeletonLine className="h-[8px] w-[34px]" />
                 </div>
             ))}
+        </div>
+    );
+}
+
+// A first read past SLOW_HISTORY_MS says so and offers Retry, so a hung git log does not look like an
+// endless skeleton. The tick runs only while a read is outstanding.
+function SlowNotice({ loading }: { loading: boolean }) {
+    const started = useAtomValue(historyLoadStartedAtom);
+    const [now, setNow] = useState(() => Date.now());
+    useEffect(() => {
+        if (!loading || started == null) {
+            return;
+        }
+        setNow(Date.now());
+        const id = setInterval(() => setNow(Date.now()), SLOW_TICK_MS);
+        return () => clearInterval(id);
+    }, [loading, started]);
+    const secs = loading ? slowSeconds(started, now) : null;
+    if (secs == null) {
+        return null;
+    }
+    return (
+        <div className="mx-[12px] mb-[8px] flex items-center gap-[10px] rounded-[9px] border border-edge-mid bg-surface px-[12px] py-[9px]">
+            <Clock size={14} className="flex-none text-warning" />
+            <div className="min-w-0 flex-1">
+                <div className="text-[12.5px] font-semibold text-ink-hi">Still reading history</div>
+                <div className="font-mono text-[11px] text-ink-faint">git log has been running for {secs}s</div>
+            </div>
+            <button
+                onClick={() => retryHistory()}
+                className="flex-none rounded-[6px] border border-edge-mid bg-surface-raised px-[10px] py-[4px] text-[11.5px] font-semibold text-ink-hi hover:border-edge-strong"
+            >
+                Retry
+            </button>
+        </div>
+    );
+}
+
+function ClearFiltersButton({ kbd }: { kbd?: boolean }) {
+    return (
+        <button
+            onClick={() => clearHistoryFilters()}
+            className="flex flex-none items-center gap-[7px] rounded-[7px] border border-edge-mid bg-surface px-[10px] py-[4px] text-[11.5px] font-semibold text-ink-hi hover:border-edge-strong"
+        >
+            Clear filters
+            {kbd ? <span className="font-mono text-[9.5px] text-ink-faint">esc</span> : null}
+        </button>
+    );
+}
+
+function NoMatch() {
+    const filters = useAtomValue(historyFiltersAtom);
+    return (
+        <div className="flex flex-col items-center gap-[8px] px-[20px] py-[48px] text-center">
+            <div className="text-[13px] font-semibold text-ink-hi">No commits match</div>
+            <div className="text-[12px] text-ink-mid">{noMatchSentence(filters)}</div>
+            <div className="mt-[4px]">
+                <ClearFiltersButton />
+            </div>
         </div>
     );
 }
@@ -69,11 +137,12 @@ function Row({
         >
             {/* no left accent bar: it lands 13px from lane 0's line in the same blue, so a selected row
                 grew a second thing that looks like a graph lane. The fill alone marks the selection. */}
-            <span
-                style={{ width: HASH_W }}
-                className={cn("flex-none font-mono text-[11px]", row.workingTree ? "text-ink-faint" : "text-muted")}
-            >
-                {shortHash(row.hash)}
+            <span style={{ width: HASH_W }} className="flex flex-none items-center font-mono text-[11px] text-muted">
+                {row.workingTree ? (
+                    <span className="h-[10px] w-[10px] rounded-full border border-dashed border-warning" />
+                ) : (
+                    row.hash.slice(0, 7)
+                )}
             </span>
             {chips.map((r) => (
                 <span
@@ -105,7 +174,11 @@ function Row({
             >
                 {row.subject}
             </span>
-            {row.refs.length === 0 ? (
+            {row.workingTree ? (
+                <span className="flex-none text-[11px] text-ink-faint">
+                    {row.fileCount} {row.fileCount === 1 ? "file" : "files"}
+                </span>
+            ) : row.refs.length === 0 ? (
                 <span className="flex-none truncate text-[11px] text-ink-faint" style={{ maxWidth: 92 }}>
                     {row.author}
                 </span>
@@ -140,13 +213,15 @@ export function HistoryPane({
     onSelect,
     onScroll,
     onLoadMore,
+    onCollapse,
 }: {
     rows: HistoryRow[];
     selected: string | null;
     graphOn: boolean;
     loading: boolean;
     countLabel: string;
-    // only for the empty state's wording — the graph is suppressed by the surface passing graphOn=false
+    // the empty state's wording and the header's filtered look — the graph is suppressed by the
+    // surface passing graphOn=false
     filtered: boolean;
     initialScroll: number;
     hasMore: boolean;
@@ -154,6 +229,8 @@ export function HistoryPane({
     onSelect: (hash: string) => void;
     onScroll: (top: number) => void;
     onLoadMore: () => void;
+    // the collapse button renders only when the surface can collapse the column
+    onCollapse?: () => void;
 }) {
     const laned = assignLanes(rows);
     const lanes = Math.min(Math.max(laneCount(laned), 1), MAX_LANES);
@@ -162,6 +239,9 @@ export function HistoryPane({
     const scrollRef = useRef<HTMLDivElement>(null);
     const restored = useRef(false);
     const lastWrite = useRef(0);
+    // the stored preference, not the graphOn prop: the surface forces the prop off under a filter, and
+    // the toggle must still show what the user chose
+    const graphPref = useAtomValue(graphOnAtom);
 
     // Restore once, on the first render that actually has rows to scroll through — setting scrollTop
     // before then would be clamped to 0 by a zero-height container. The surface unmounts on every nav
@@ -195,14 +275,43 @@ export function HistoryPane({
         <div className="flex min-h-0 flex-1 flex-col">
             <div className="flex flex-none items-center gap-[9px] px-[14px] pb-[8px] pt-[10px]">
                 <span className="font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-muted">History</span>
+                {filtered ? (
+                    <span data-filter-count className="font-mono text-[10px] font-semibold text-accent-soft">
+                        {countLabel}
+                    </span>
+                ) : (
+                    <span className="font-mono text-[10px] text-ink-faint">{countLabel}</span>
+                )}
                 {graphOn && geom.foldedCount > 0 ? (
                     <span className="rounded-[5px] border border-edge-mid bg-surface-raised px-[7px] py-[2px] font-mono text-[9.5px] font-semibold text-graphlane-fold">
                         {laneCount(laned)} lanes · {geom.foldedCount} folded
                     </span>
                 ) : null}
                 <div className="flex-1" />
-                <span className="font-mono text-[10px] text-ink-faint">{countLabel}</span>
+                {filtered ? <ClearFiltersButton kbd /> : null}
+                <button
+                    onClick={() => globalStore.set(graphOnAtom, !graphPref)}
+                    className={cn(
+                        "flex flex-none items-center gap-[6px] rounded-[7px] border px-[9px] py-[4px] text-[11.5px] font-semibold",
+                        graphPref ? "border-accent/30 bg-accentbg text-ink-hi" : "border-edge-mid bg-surface text-muted"
+                    )}
+                >
+                    <GitGraph size={13} />
+                    Graph
+                    <span className="font-mono text-[9.5px] text-ink-faint">⇧G</span>
+                </button>
+                {onCollapse ? (
+                    <button
+                        onClick={onCollapse}
+                        title="Collapse history"
+                        aria-label="Collapse history"
+                        className="flex h-[26px] w-[26px] flex-none items-center justify-center rounded-[6px] text-ink-faint hover:bg-surface hover:text-foreground"
+                    >
+                        <PanelLeftClose size={15} />
+                    </button>
+                ) : null}
             </div>
+            <HistoryFilterRow />
             <div
                 ref={scrollRef}
                 onScroll={handleScroll}
@@ -210,11 +319,16 @@ export function HistoryPane({
                 className="min-h-0 flex-1 overflow-y-auto pb-[24px]"
             >
                 {loading ? (
-                    <HistorySkeleton />
+                    <>
+                        <SlowNotice loading={loading} />
+                        <HistorySkeleton />
+                    </>
                 ) : rows.length === 0 ? (
-                    <div className="px-[14px] py-[6px] text-[12px] text-ink-mid">
-                        {filtered ? "No commits match these filters" : "No commits"}
-                    </div>
+                    filtered ? (
+                        <NoMatch />
+                    ) : (
+                        <div className="px-[14px] py-[6px] text-[12px] text-ink-mid">No commits</div>
+                    )
                 ) : (
                     <div className="relative">
                         {graphOn ? (

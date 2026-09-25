@@ -44,6 +44,9 @@ export const restoreNoticeAtom = atom<string | null>(null) as PrimitiveAtom<stri
 export const selectedCommitAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 export const selectedFileAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 export const graphOnAtom = atom<boolean>(true) as PrimitiveAtom<boolean>;
+// When the in-flight read started with nothing on screen; null once it settles. Feeds the pane's
+// slow-read notice, so only a read the user is actually waiting on sets it.
+export const historyLoadStartedAtom = atom<number | null>(null) as PrimitiveAtom<number | null>;
 
 const commitChangesAtom = atom<GitChanges | null>(null) as PrimitiveAtom<GitChanges | null>;
 // The scope's anchor/labels, held so the debounced filter reload can reissue the same scoped read.
@@ -118,6 +121,7 @@ export function resetHistory(): void {
     globalStore.set(selectedCommitAtom, null);
     globalStore.set(selectedFileAtom, null);
     globalStore.set(commitChangesAtom, null);
+    globalStore.set(historyLoadStartedAtom, null);
 }
 
 // Deliberately excludes the anchor: GitHistoryCommand takes cwd, limit and filters, so two loads that
@@ -163,6 +167,10 @@ export async function loadHistory(
         globalStore.set(historyCommitsAtom, null);
         globalStore.set(historyScrollAtom, 0);
     }
+    // restarted on every read that has nothing to show, so a Retry's notice counts from the Retry
+    if (globalStore.get(historyCommitsAtom) == null) {
+        globalStore.set(historyLoadStartedAtom, Date.now());
+    }
     globalStore.set(historyFailureAtom, null);
     globalStore.set(historyAppendAtom, "idle");
     try {
@@ -174,6 +182,7 @@ export async function loadHistory(
         if (current.token !== token) {
             return;
         }
+        globalStore.set(historyLoadStartedAtom, null);
         if (!h.isrepo) {
             globalStore.set(historyCommitsAtom, []);
             globalStore.set(historyHasMoreAtom, false);
@@ -194,6 +203,7 @@ export async function loadHistory(
         announceRestore();
     } catch (e) {
         if (current.token === token) {
+            globalStore.set(historyLoadStartedAtom, null);
             globalStore.set(historyFailureAtom, synthFailure("githistory", e));
             globalStore.set(historyCommitsAtom, []);
             globalStore.set(historyHasMoreAtom, false);
@@ -356,6 +366,15 @@ export function clearHistoryFilters(): void {
     }
     globalStore.set(historyFiltersAtom, NO_FILTERS);
     reloadFirstPage(); // immediate: clearing is a decision, not typing
+}
+
+// The restore banner's way out: the defaults the surface would have opened with. Selection goes
+// null first so the reload's settleSelection picks row zero instead of keeping the remembered row.
+export function startFromTop(): void {
+    globalStore.set(selectedCommitAtom, null);
+    globalStore.set(selectedFileAtom, null);
+    dismissRestoreNotice();
+    clearHistoryFilters();
 }
 
 export function retryHistory(): void {

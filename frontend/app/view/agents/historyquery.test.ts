@@ -6,12 +6,15 @@ import {
     HISTORY_PAGE_SIZE,
     NO_FILTERS,
     RESTORE_THRESHOLD_MS,
+    SLOW_HISTORY_MS,
     activeFilterCount,
     anyFilterActive,
     countLabel,
     filterSummary,
     hasMorePages,
+    noMatchSentence,
     restoreNotice,
+    slowSeconds,
     toHistoryQuery,
 } from "./historyquery";
 
@@ -102,7 +105,7 @@ describe("restoreNotice", () => {
                 filters: { author: "dana", path: "src/**", text: "" },
                 topRowHash: "aaaaaaa",
             })
-        ).toBe("Commit c41d8ec, history scroll offset and 2 filters came back with the surface.");
+        ).toBe("Back where you left off: commit c41d8ec, your scroll position and 2 filters.");
     });
 
     it("uses the singular for one filter and no list separator for a single item", () => {
@@ -114,12 +117,42 @@ describe("restoreNotice", () => {
                 filters: { author: "dana", path: "", text: "" },
                 topRowHash: "aaa",
             })
-        ).toBe("1 filter came back with the surface.");
+        ).toBe("Back where you left off: 1 filter.");
     });
 
     // the working-tree row's hash is "" and it is the default selection on a dirty tree, so it must
     // never count as "you were somewhere unusual"
     it("does not count the uncommitted row as a restored selection", () => {
         expect(restoreNotice({ awayMs: away, commit: "", scroll: 0, filters: NO_FILTERS, topRowHash: "" })).toBeNull();
+    });
+});
+
+describe("noMatchSentence", () => {
+    it("reads the author and the text together", () => {
+        expect(noMatchSentence({ author: "Kael", path: "", text: "workerr" })).toBe(
+            "No commit by Kael mentions “workerr”."
+        );
+    });
+    it("reads one filter alone", () => {
+        expect(noMatchSentence({ author: "Kael", path: "", text: "" })).toBe("No commit by Kael.");
+        expect(noMatchSentence({ author: "", path: "", text: "workerr" })).toBe("No commit mentions “workerr”.");
+    });
+    it("adds the path as its own clause", () => {
+        expect(noMatchSentence({ author: "", path: "pkg/", text: "" })).toBe("No commit touches pkg/.");
+        expect(noMatchSentence({ author: "Kael", path: "pkg/", text: "x" })).toBe(
+            "No commit by Kael mentions “x” and touches pkg/."
+        );
+    });
+});
+
+describe("slowSeconds", () => {
+    it("is silent for the first ten seconds", () => {
+        expect(slowSeconds(1_000, 1_000 + SLOW_HISTORY_MS - 1)).toBeNull();
+    });
+    it("counts whole seconds once the read is slow", () => {
+        expect(slowSeconds(1_000, 1_000 + 14_400)).toBe(14);
+    });
+    it("is silent when nothing is loading", () => {
+        expect(slowSeconds(null, 99_000)).toBeNull();
     });
 });

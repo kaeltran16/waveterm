@@ -29,6 +29,8 @@ export const RESTORE_DISMISS_MS = 6_000;
 export const SCROLL_THROTTLE_MS = 150;
 // How close to the bottom counts as "asking for the next page".
 export const NEAR_BOTTOM_PX = 200;
+// A first read slower than this gets a notice with a Retry, so a hung git log is not an endless skeleton.
+export const SLOW_HISTORY_MS = 10_000;
 
 const filled = (s: string): string => s.trim();
 
@@ -112,7 +114,7 @@ export function restoreNotice(s: RestoreState): string | null {
         parts.push(`commit ${s.commit.slice(0, 7)}`);
     }
     if (s.scroll > 0) {
-        parts.push("history scroll offset");
+        parts.push("your scroll position");
     }
     const n = activeFilterCount(s.filters);
     if (n > 0) {
@@ -122,5 +124,21 @@ export function restoreNotice(s: RestoreState): string | null {
         return null;
     }
     const list = parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
-    return `${list[0].toUpperCase()}${list.slice(1)} came back with the surface.`;
+    return `Back where you left off: ${list}.`;
+}
+
+export function slowSeconds(startedAt: number | null, now: number): number | null {
+    if (startedAt == null || now - startedAt < SLOW_HISTORY_MS) {
+        return null;
+    }
+    return Math.floor((now - startedAt) / 1000);
+}
+
+// The empty list's second line: the filters read back as a sentence, so a typo in one is visible.
+export function noMatchSentence(f: HistoryFilters): string {
+    const author = filled(f.author);
+    const text = filled(f.text);
+    const path = filled(f.path);
+    const verbs = [text ? `mentions “${text}”` : "", path ? `touches ${path}` : ""].filter(Boolean);
+    return `No commit${author ? ` by ${author}` : ""}${verbs.length ? ` ${verbs.join(" and ")}` : ""}.`;
 }

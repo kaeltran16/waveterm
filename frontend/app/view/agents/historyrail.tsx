@@ -2,10 +2,11 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// The history column at its collapsed width: hashes and lane colour, nothing else. A narrow
-// presentation of rows the surface already has — no second data path, no second selection model.
+// The history column at its collapsed width: one lane dot per row on a single line, nothing else. A
+// narrow presentation of rows the surface already has — no second data path, no second selection model.
 
 import { cn } from "@/util/util";
+import { PanelLeftOpen } from "lucide-react";
 import { WORKING_TREE, type HistoryRow } from "./historyrows";
 
 const ROW_H = 34;
@@ -26,25 +27,37 @@ export function HistoryRail({
             <button
                 onClick={onExpand}
                 title="Expand history"
-                className="flex-none border-b border-edge-faint py-[6px] text-[11px] text-ink-faint hover:text-foreground"
+                aria-label="Expand history"
+                className="flex flex-none items-center justify-center py-[8px] text-ink-faint hover:text-foreground"
             >
-                ›
+                <PanelLeftOpen size={15} />
             </button>
             <div className="min-h-0 flex-1 overflow-y-auto py-[4px]">
-                {rows.map((r) => (
-                    <button
-                        key={r.hash || WORKING_TREE}
-                        onClick={() => onSelect(r.hash)}
-                        title={r.subject}
-                        style={{ height: ROW_H }}
-                        className={cn(
-                            "flex w-full items-center justify-center font-mono text-[9px] text-ink-faint hover:text-foreground",
-                            r.hash === selected && "bg-surface-selected text-ink-hi"
-                        )}
-                    >
-                        {r.hash === WORKING_TREE ? "·······" : r.hash.slice(0, 7)}
-                    </button>
-                ))}
+                <div className="relative">
+                    <div className="absolute bottom-0 left-1/2 top-0 w-[2px] -translate-x-1/2 bg-graphlane-1/40" />
+                    {rows.map((r) => (
+                        <button
+                            key={r.hash || WORKING_TREE}
+                            onClick={() => onSelect(r.hash)}
+                            title={r.subject}
+                            style={{ height: ROW_H }}
+                            className={cn(
+                                "relative flex w-full items-center justify-center hover:bg-surface",
+                                r.hash === selected && "bg-surface-selected"
+                            )}
+                        >
+                            <span
+                                className={cn(
+                                    "h-[8px] w-[8px] rounded-full",
+                                    r.workingTree
+                                        ? "border border-dashed border-warning bg-background"
+                                        : "bg-graphlane-1",
+                                    r.hash === selected && "ring-2 ring-accent/40"
+                                )}
+                            />
+                        </button>
+                    ))}
+                </div>
             </div>
         </div>
     );
