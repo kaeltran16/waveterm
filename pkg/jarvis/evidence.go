@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -33,32 +34,42 @@ import (
 // Evidence-only: a command that does not match is simply not reported (we never invent expected steps).
 var verifPattern = regexp.MustCompile(`\b(test|typecheck|tsc|lint|vitest|jest|pytest|go test|cargo test|build|e2e|smoke)\b`)
 
-// runnerPattern matches a known test/build runner token. The action-verb pattern alone matches prose
-// ("git commit -m \"test: add auth\""), so a command must also invoke a real runner to be a
-// verification step. Token anywhere in the command: compound commands (`cd x && npm test`) still classify.
-var runnerPattern = regexp.MustCompile(`\b(npm|pnpm|yarn|bun|npx|go|cargo|dotnet|make|mvn|gradle|python|pytest|vitest|jest|tsc|eslint|prettier|tox|flutter)\b`)
+// VerifResult_Ran marks a verification line read from a worker's transcript. The command ran, but its exit
+// status is no verdict: a pipe to tail reports tail's, and a grep that finds nothing fails. Only the
+// engine's own Verify results (dagVerifs) are pass or fail.
+const VerifResult_Ran = "ran"
 
-// isVerifCommand reports whether command is a verification step: it names a verification action AND
-// invokes a known runner, so prose mentioning test/build words is not reported.
-func isVerifCommand(command string) bool {
-	return verifPattern.MatchString(command) && runnerPattern.MatchString(command)
+// verifRunners are the programs that run a test, build, lint or typecheck. A command counts only when one of
+// them leads a simple command in it, so a runner word elsewhere (a grep's --include=*.go) does not.
+var verifRunners = map[string]bool{
+	"npm": true, "pnpm": true, "yarn": true, "bun": true, "npx": true, "node": true, "go": true, "cargo": true,
+	"dotnet": true, "make": true, "task": true, "mvn": true, "gradle": true, "python": true, "pytest": true,
+	"vitest": true, "jest": true, "tsc": true, "eslint": true, "prettier": true, "tox": true, "flutter": true,
 }
 
-// classifyVerif reports whether command is a verification step and, if so, its pass/fail/unknown result.
-// resultText is the tool_result body; isError is the tool_result flag.
-func classifyVerif(command, resultText string, isError bool) (cmd string, result string, ok bool) {
-	command = strings.TrimSpace(command)
-	if command == "" || !isVerifCommand(command) {
-		return "", "", false
+// shellSegmentSep splits a command into the simple commands it chains or pipes. A separator inside a quoted
+// argument splits there too; at worst that drops a line, it never invents one.
+var shellSegmentSep = regexp.MustCompile(`&&|\|\||[;|\n]`)
+
+var envAssignment = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
+
+// isVerifCommand reports whether command runs a verification step: some simple command in it is led by a
+// known runner and names a verification action.
+func isVerifCommand(command string) bool {
+	for _, seg := range shellSegmentSep.Split(command, -1) {
+		fields := strings.Fields(seg)
+		for len(fields) > 0 && envAssignment.MatchString(fields[0]) {
+			fields = fields[1:]
+		}
+		if len(fields) == 0 {
+			continue
+		}
+		runner := strings.TrimSuffix(path.Base(strings.ReplaceAll(fields[0], `\`, "/")), ".exe")
+		if verifRunners[runner] && verifPattern.MatchString(seg) {
+			return true
+		}
 	}
-	switch {
-	case isError:
-		return command, "fail", true
-	case strings.TrimSpace(resultText) == "":
-		return command, "unknown", true // ran but produced no captured result
-	default:
-		return command, "pass", true
-	}
+	return false
 }
 
 // evBlock is a content block with the fields evidence needs (superset of agentobserve's internal block).
@@ -205,26 +216,22 @@ func (a *verifAccum) addTranscript(lines []string) {
 				}
 				delete(byToolID, b.ToolUseID)
 				txt, _ := resultText(b.Content)
-				cmd, res, ok := classifyVerif(command, txt, b.IsError)
-				if !ok {
-					continue
-				}
 				// tool output is captured with a TTY attached, so it carries ANSI color codes
-				detail := verifSummaryLine(utilfn.StripANSI(txt))
-				if i, seen := a.idx[cmd]; seen {
-					a.out[i] = waveobj.EvidenceVerif{Cmd: cmd, Result: res, Detail: detail}
+				v := waveobj.EvidenceVerif{Cmd: command, Result: VerifResult_Ran, Detail: verifSummaryLine(utilfn.StripANSI(txt))}
+				if i, seen := a.idx[command]; seen {
+					a.out[i] = v
 				} else {
-					a.idx[cmd] = len(a.out)
-					a.out = append(a.out, waveobj.EvidenceVerif{Cmd: cmd, Result: res, Detail: detail})
+					a.idx[command] = len(a.out)
+					a.out = append(a.out, v)
 				}
 			}
 		}
 	}
-	// a verification tool_use with no result at all -> unknown (ran, indeterminate)
+	// a verification tool_use with no result at all still ran
 	for _, command := range byToolID {
 		if _, seen := a.idx[command]; !seen {
 			a.idx[command] = len(a.out)
-			a.out = append(a.out, waveobj.EvidenceVerif{Cmd: command, Result: "unknown"})
+			a.out = append(a.out, waveobj.EvidenceVerif{Cmd: command, Result: VerifResult_Ran})
 		}
 	}
 }
