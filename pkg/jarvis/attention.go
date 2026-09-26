@@ -364,8 +364,9 @@ func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
 				continue
 			}
 			// The registry is authoritative: an escalation whose ask was answered (by Jarvis or the
-			// human) had its registry entry claimed and dropped, so it is no longer waiting.
-			if _, pending := in.PendingAsks[card.AskORef]; !pending {
+			// human) had its registry entry claimed and dropped, so it is no longer waiting. The ask id
+			// matters because the agent's next ask takes the same oref, and would revive this card.
+			if p, pending := in.PendingAsks[card.AskORef]; !pending || p.AskId != card.AskId {
 				continue
 			}
 			escalated[card.AskORef] = true

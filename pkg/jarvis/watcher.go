@@ -152,7 +152,7 @@ func handleAsk(ctx context.Context, data baseds.AgentAskData) {
 		if optionIndexInRange(idx, q) {
 			delivered, derr := deliverFn(data.ORef, data.AskId, []baseds.AgentAnswerItem{{SelectedIndexes: []int{idx}}})
 			if derr == nil && delivered {
-				postAnswered(ch.OID, q, idx, decision.Reason, data.ORef, ownerORef)
+				postAnswered(ch.OID, q, idx, decision.Reason, data.ORef, data.AskId, ownerORef)
 				return
 			}
 			// classifier chose answer but delivery raced a clear or failed — fail safe to escalate
@@ -178,12 +178,12 @@ func isDagChildRun(ctx context.Context, run *waveobj.Run) bool {
 	return err == nil && g.RunID != run.ID
 }
 
-func postAnswered(channelId string, q baseds.AgentAskQuestion, choiceIdx int, reason, askORef, workerORef string) {
+func postAnswered(channelId string, q baseds.AgentAskQuestion, choiceIdx int, reason, askORef, askId, workerORef string) {
 	text := fmt.Sprintf("Answered → %q", q.Options[choiceIdx].Label)
 	if reason != "" {
 		text += " — " + reason
 	}
-	data, _ := json.Marshal(BuildCardData(q, &choiceIdx, reason, askORef, workerORef))
+	data, _ := json.Marshal(BuildCardData(q, &choiceIdx, reason, askORef, askId, workerORef))
 	postJarvisData(channelId, "jarvis-answered", text, string(data))
 }
 
@@ -201,7 +201,7 @@ func postEscalation(channelId string, data baseds.AgentAskData, reason, workerOR
 		for i, o := range q.Options {
 			b.WriteString(fmt.Sprintf("  %d) %s\n", i, o.Label))
 		}
-		j, _ := json.Marshal(BuildCardData(q, nil, reason, data.ORef, workerORef))
+		j, _ := json.Marshal(BuildCardData(q, nil, reason, data.ORef, data.AskId, workerORef))
 		payload = string(j)
 	}
 	postJarvisData(channelId, "jarvis-escalation", strings.TrimRight(b.String(), "\n"), payload)

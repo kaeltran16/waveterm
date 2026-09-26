@@ -46,7 +46,7 @@ import { channelsAtom } from "./channelsstore";
 import { filterByFocus, focusBannerCopy } from "./focusscope";
 import { activeFocusAtom, focusRevealAtom, focusScopeAtom } from "./focusstore";
 import { FocusBanner } from "./focusbanner";
-import { answeredAskORefsAcross, needsHuman } from "./jarvisderive";
+import { answeredAskIdsAcross, needsHuman } from "./jarvisderive";
 import { IdleSection } from "./idlesection";
 import { LeadCard } from "./leadcard";
 import { rowAction } from "./leadcardactions";
@@ -96,7 +96,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     // rail dot and nav badge (raw asking historically over-counted). one answered set feeds both the
     // header counter and the need-you tab (liveAsking) below.
     const channels = useAtomValue(channelsAtom);
-    const answeredAsks = answeredAskORefsAcross(channels ?? []);
+    const answeredAsks = answeredAskIdsAcross(channels ?? []);
     const needsYou = agents.filter((a) => needsHuman(a, answeredAsks)).length;
 
     // `structuralNow` feeds structural computations below (usage-window rollover, the idle-grace window,

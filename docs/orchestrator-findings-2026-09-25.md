@@ -871,7 +871,15 @@ dag's update arrives.
 The lead's first question (`esc:be74ac85`) was answered at 14:57:26 (the lead's transcript has the
 tool result). `wsh runs attention --json` still listed it next to the spec-review ask at about 14:59:25,
 and it was gone by 15:00. A row that asks the human to decide something already decided invites a
-second answer. Cause not traced.
+second answer.
+
+Cause (read, and reproduced in a unit test; that it is what happened at 14:59 is inferred, since the
+run's logs are on the other machine): an escalation row stays while the pending-ask registry holds an ask
+at the card's `AskORef`, and that oref is the agent's block, shared by every ask the agent raises. The card
+carried no ask id. So the lead's next question, the spec review on the same block, made the answered card
+pending again, and it hid the new ask's own row behind the old question. It went when the spec review was
+answered, not on a timer. The frontend had the reverse: once Jarvis auto-answered one ask, every later ask
+from that agent dropped out of the "needs you" counts.
 
 ### 33. A base broken by another session fails every worker's Check (observed in run b01cfdd6, medium)
 
@@ -1257,8 +1265,8 @@ Next, in order:
    - Deferred: the merge train with bisect (worth less once Verify is about a minute), the automatic retry
      of a Verify that failed in a package the task didn't touch, and targeted worker checks with an
      incremental tsc (measure CPU contention between parallel workers first).
-2. **32.** An answered escalation stays in `wsh runs attention` for about 2 minutes. The cause is not
-   traced; diagnose it before changing anything.
+2. **32. Done:** see "Fixes after the handoff". The row stayed until the lead's next ask was answered,
+   not for a fixed 2 minutes.
 3. **35, the real fix.** The final tree gets its own Vite port through `cargo tauri dev --config`
    (`build.devUrl`, and a `beforeDevCommand` with `--port N --strictPort`), its own `CARGO_TARGET_DIR` and
    its own `dist/bin`. First find out how the dev host locates `wavesrv`.
@@ -1275,6 +1283,7 @@ The other open findings are in the Summary table; none of them is in this batch.
 | 27 | The merge queue lands first the lane the most pending tasks wait on (`waitingOn`), then plan order. | `TestAutoMergeableLandsFirstTheLaneMostPendingTasksWaitOn` |
 | 33 | The plan's Check runs once at submit, in a detached tree at the base commit (`basecheck.go`). A failure there wakes the lead, workers are told it is not theirs, and the final stage and the land report a Check failure the base shares as unverified, showing both outputs, since nothing tells the base's failures from the run's. A revised plan with another Check or Setup checks the base again. | `TestBaseCheckFailureIsRecordedAndWakesTheLead`, `TestBaseCheckPassesQuietlyAndRunsOnce`, `TestWorkerContractNamesABrokenBase`, `TestFinalCheckFailureTheBaseSharesIsUnverified`, `TestAReplacedPlanChecksItsNewCheckOnTheBase`, `TestABaseCheckResultForAnotherCommandIsDropped`, `TestLandNotesACheckFailureTheBaseShares` |
 | land | The land's re-check runs when the branch or the base moved. It merges the base into the landing tree without committing, runs Check and a Verify scoped to what differs from the verified commit, and aborts the merge. The land notes only base commits that arrived after that check, and holds when the landing tree is stopped mid-merge. | `TestLandChecksTheRunMergedWithItsMovedBase`, `TestLandHoldsALandingTreeLeftMidMerge` |
+| 32 | Gatekeeper cards carry the ask's `askId`. An escalation row needs that same ask pending, not any ask on the block, and the frontend's auto-answered set is keyed by ask id. Cards written before this have no id and never match, which is safe because the registry is in memory and empties on the upgrade's restart. | `TestBuildAttentionDropsAnAnsweredEscalationWhenItsAgentAsksAgain`, `jarviscards.test.ts`, `jarvisderive.test.ts` ("keeps a NEW ask…") |
 
 Not verified here: the saving per run. The next orchestrator run after an Arc rebuild shows it; compare its
 per-merge Verify times (`task-verify-passed` `ms`) and chain-link waits with finding 27's table.

@@ -19,7 +19,9 @@ type JarvisCardOption struct {
 // escalation cards. Serialized into ChannelMessage.Data. AskORef is the block-level ask oref (used to
 // deliver an answer); WorkerORef is the worker's tab oref (used to resolve the roster row + steer).
 type JarvisCardData struct {
-	AskORef    string             `json:"askORef"`
+	AskORef string `json:"askORef"`
+	// AskId names the one ask this card is about: every ask an agent raises shares its block's AskORef.
+	AskId      string             `json:"askId,omitempty"`
 	WorkerORef string             `json:"workerORef"`
 	Question   string             `json:"question"`
 	Options    []JarvisCardOption `json:"options"`
@@ -45,13 +47,14 @@ func SetCardHumanPick(data string, pick int) (string, error) {
 }
 
 // BuildCardData assembles the card payload from a single-select ask question.
-func BuildCardData(q baseds.AgentAskQuestion, choice *int, reason, askORef, workerORef string) JarvisCardData {
+func BuildCardData(q baseds.AgentAskQuestion, choice *int, reason, askORef, askId, workerORef string) JarvisCardData {
 	opts := make([]JarvisCardOption, 0, len(q.Options))
 	for _, o := range q.Options {
 		opts = append(opts, JarvisCardOption{Label: o.Label, Sub: o.Description})
 	}
 	return JarvisCardData{
 		AskORef:    askORef,
+		AskId:      askId,
 		WorkerORef: workerORef,
 		Question:   q.Question,
 		Options:    opts,

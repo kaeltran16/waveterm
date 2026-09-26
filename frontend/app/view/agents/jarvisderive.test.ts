@@ -58,11 +58,11 @@ describe("buildFleetSnapshot", () => {
         expect(buildFleetSnapshot(chan([]), [])).toEqual([]);
     });
 
-    it("carries the live ask oref for an asking worker", () => {
+    it("carries the live ask id for an asking worker", () => {
         const c = chan([{ kind: "dispatch", author: "claude", text: "go", reforef: "tab:w1" }]);
-        const agents = [agent({ id: "w1", name: "claude", state: "asking", ask: { oref: "block:ask1", questions: [{ question: "q?" }] } })];
+        const agents = [agent({ id: "w1", name: "claude", state: "asking", ask: { oref: "block:w1", askId: "ask1", questions: [{ question: "q?" }] } })];
         const snap = buildFleetSnapshot(c, agents);
-        expect(snap[0].askORef).toBe("block:ask1");
+        expect(snap[0].askId).toBe("ask1");
     });
 
     it("carries live activity, cost, and context% for a live worker with usage", () => {
@@ -127,34 +127,34 @@ describe("buildJarvisPrompt", () => {
 });
 
 describe("pendingAskCount", () => {
-    const answeredCard = (askORef: string) =>
-        JSON.stringify({ askORef, workerORef: "tab:x", question: "q", options: [{ label: "y" }], choice: 0 });
+    const answeredCard = (askId: string) =>
+        JSON.stringify({ askORef: "block:a", askId, workerORef: "tab:x", question: "q", options: [{ label: "y" }], choice: 0 });
     const testChan = (msgs: unknown[]) => ({ name: "c", messages: msgs }) as unknown as Channel;
-    const testAgent = (id: string, state: string, askoref?: string) =>
+    const testAgent = (id: string, state: string, askId?: string) =>
         ({
             id,
             name: "claude",
             state,
-            ask: askoref ? { oref: askoref, questions: [{ question: "q?" }] } : undefined,
+            ask: askId ? { oref: "block:a", askId, questions: [{ question: "q?" }] } : undefined,
         }) as unknown as AgentVM;
 
     it("counts an asking worker with no answered card", () => {
-        expect(pendingAskCount([testChan([])], [testAgent("w1", "asking", "block:a")])).toBe(1);
+        expect(pendingAskCount([testChan([])], [testAgent("w1", "asking", "ask-1")])).toBe(1);
     });
     it("drops an asking worker whose ask Jarvis already answered", () => {
-        const msgs = [{ id: "1", kind: "jarvis-answered", author: "jarvis", text: "", ts: 0, data: answeredCard("block:a") }];
-        expect(pendingAskCount([testChan(msgs)], [testAgent("w1", "asking", "block:a")])).toBe(0);
+        const msgs = [{ id: "1", kind: "jarvis-answered", author: "jarvis", text: "", ts: 0, data: answeredCard("ask-1") }];
+        expect(pendingAskCount([testChan(msgs)], [testAgent("w1", "asking", "ask-1")])).toBe(0);
     });
     it("keeps a NEW ask from a worker whose PREVIOUS ask was answered", () => {
-        const msgs = [{ id: "1", kind: "jarvis-answered", author: "jarvis", text: "", ts: 0, data: answeredCard("block:old") }];
-        expect(pendingAskCount([testChan(msgs)], [testAgent("w1", "asking", "block:new")])).toBe(1);
+        const msgs = [{ id: "1", kind: "jarvis-answered", author: "jarvis", text: "", ts: 0, data: answeredCard("ask-old") }];
+        expect(pendingAskCount([testChan(msgs)], [testAgent("w1", "asking", "ask-new")])).toBe(1);
     });
     it("ignores non-asking workers", () => {
         expect(pendingAskCount([testChan([])], [testAgent("w1", "working")])).toBe(0);
     });
     it("dedupes an ask answered in ANY channel", () => {
-        const answered = testChan([{ id: "1", kind: "jarvis-answered", author: "jarvis", text: "", ts: 0, data: answeredCard("block:a") }]);
-        expect(pendingAskCount([testChan([]), answered], [testAgent("w1", "asking", "block:a")])).toBe(0);
+        const answered = testChan([{ id: "1", kind: "jarvis-answered", author: "jarvis", text: "", ts: 0, data: answeredCard("ask-1") }]);
+        expect(pendingAskCount([testChan([]), answered], [testAgent("w1", "asking", "ask-1")])).toBe(0);
     });
     it("is 0 for no channels and no agents", () => {
         expect(pendingAskCount([], [])).toBe(0);

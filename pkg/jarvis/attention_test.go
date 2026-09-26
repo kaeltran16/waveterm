@@ -30,7 +30,11 @@ func gatedRun(id, goal string, doneTs int64) *waveobj.Run {
 }
 
 func escalationMsg(id, askORef, workerORef, question string, ts int64) *waveobj.ChannelMessage {
-	data, _ := json.Marshal(JarvisCardData{AskORef: askORef, WorkerORef: workerORef, Question: question})
+	return escalationMsgFor(id, askORef, "1", workerORef, question, ts)
+}
+
+func escalationMsgFor(id, askORef, askId, workerORef, question string, ts int64) *waveobj.ChannelMessage {
+	data, _ := json.Marshal(JarvisCardData{AskORef: askORef, AskId: askId, WorkerORef: workerORef, Question: question})
 	return &waveobj.ChannelMessage{ID: id, Kind: "jarvis-escalation", Ts: ts, Data: string(data)}
 }
 
@@ -77,6 +81,22 @@ func TestBuildAttentionCountsAnEscalationOnlyWhileItsAskIsPending(t *testing.T) 
 	if len(live) != 1 || live[0].Kind != AttentionEscalation || live[0].Text != "Which order?" ||
 		live[0].Source != "worker-3" || live[0].WaitingSince != 900 {
 		t.Fatalf("wrong escalation item: %+v", live)
+	}
+}
+
+// an agent raises every ask on its one block oref, so an answered escalation must not come back when the
+// same agent asks its next question: that one is waiting, the old card is not
+func TestBuildAttentionDropsAnAnsweredEscalationWhenItsAgentAsksAgain(t *testing.T) {
+	items := BuildAttention(AttentionInput{
+		Channels: []AttentionChannel{{OID: "c1", Name: "alpha",
+			Messages: []*waveobj.ChannelMessage{escalationMsgFor("m1", "block:a", "first", "tab:w", "Which landing?", 900)}}},
+		PendingAsks: map[string]agentask.PendingAsk{"block:a": {AskId: "second", Ts: 2000,
+			Questions: []baseds.AgentAskQuestion{{Question: "Spec review?"}}}},
+		AskChannel: map[string]string{"block:a": "c1"},
+		AskWorker:  map[string]string{"block:a": "lead"},
+	})
+	if len(items) != 1 || items[0].Kind != AttentionAsk || items[0].Text != "Spec review?" {
+		t.Fatalf("want only the new ask, got %+v", items)
 	}
 }
 

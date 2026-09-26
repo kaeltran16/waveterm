@@ -6,7 +6,7 @@
 // timeline into the prompt handed to a headless `claude -p`. No React, no Wave runtime imports.
 
 import type { AgentVM } from "./agentsviewmodel";
-import { answeredAskORefs } from "./jarviscards";
+import { answeredAskIds } from "./jarviscards";
 
 export interface WorkerState {
     oref: string; // "tab:<id>"
@@ -15,7 +15,7 @@ export interface WorkerState {
     task?: string; // live task (async-filled, may be empty), else the dispatch text
     dispatchTask?: string; // the literal task typed into this channel's dispatch message (ground truth)
     askText?: string; // first pending question, when asking
-    askORef?: string; // the worker's current ask oref (when asking), used to drop Jarvis-answered asks
+    askId?: string; // the worker's current ask id (when asking), used to drop Jarvis-answered asks
     activity?: string; // live activity line (AgentVM.activity); undefined when gone
     costUsd?: number; // session cost so far (AgentVM.usage?.costusd); undefined when gone/unreported
     contextPct?: number; // context-window fill % (AgentVM.usage?.contextpct); undefined when gone
@@ -81,7 +81,7 @@ export function buildFleetSnapshot(channel: Channel, agents: AgentVM[]): WorkerS
                     task: live.task || undefined,
                     dispatchTask,
                     askText: live.state === "asking" ? live.ask?.questions?.[0]?.question : undefined,
-                    askORef: live.state === "asking" ? live.ask?.oref : undefined,
+                    askId: live.state === "asking" ? live.ask?.askId : undefined,
                     activity: live.activity || undefined,
                     costUsd: live.usage?.costusd,
                     contextPct: live.usage?.contextpct,
@@ -137,11 +137,11 @@ export function buildJarvisPrompt(snapshot: WorkerState[], channel: Channel, foc
     ].join("\n");
 }
 
-// the set of ask orefs Jarvis has auto-answered across all channels (drives every "needs you" surface).
-export function answeredAskORefsAcross(channels: Channel[]): Set<string> {
+// the set of ask ids Jarvis has auto-answered across all channels (drives every "needs you" surface).
+export function answeredAskIdsAcross(channels: Channel[]): Set<string> {
     const answered = new Set<string>();
     for (const ch of channels) {
-        for (const o of answeredAskORefs(ch.messages ?? [])) {
+        for (const o of answeredAskIds(ch.messages ?? [])) {
             answered.add(o);
         }
     }
@@ -150,7 +150,7 @@ export function answeredAskORefsAcross(channels: Channel[]): Set<string> {
 
 // whether a worker is genuinely blocked on the human: asking, and not already answered by Jarvis.
 export function needsHuman(a: AgentVM, answered: Set<string>): boolean {
-    return a.state === "asking" && !(a.ask?.oref && answered.has(a.ask.oref));
+    return a.state === "asking" && !(a.ask?.askId && answered.has(a.ask.askId));
 }
 
 // Fleet-wide count of workers genuinely blocked on the human, deduped against Jarvis-answered asks across
@@ -158,6 +158,6 @@ export function needsHuman(a: AgentVM, answered: Set<string>): boolean {
 // badges instead split the server-computed attention list (attentionstore.splitAttention), and the Cockpit
 // "need you" counter inlines the same needsHuman filter (sharing its answered-set with the sticky bar).
 export function pendingAskCount(channels: Channel[], agents: AgentVM[]): number {
-    const answered = answeredAskORefsAcross(channels);
+    const answered = answeredAskIdsAcross(channels);
     return agents.filter((a) => needsHuman(a, answered)).length;
 }

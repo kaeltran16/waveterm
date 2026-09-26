@@ -22,8 +22,8 @@ func sampleQuestion() baseds.AgentAskQuestion {
 
 func TestBuildCardData_Answered(t *testing.T) {
 	choice := 0
-	cd := BuildCardData(sampleQuestion(), &choice, "low-risk, reversible", "block:abc", "tab:xyz")
-	if cd.AskORef != "block:abc" || cd.WorkerORef != "tab:xyz" {
+	cd := BuildCardData(sampleQuestion(), &choice, "low-risk, reversible", "block:abc", "ask-1", "tab:xyz")
+	if cd.AskORef != "block:abc" || cd.AskId != "ask-1" || cd.WorkerORef != "tab:xyz" {
 		t.Fatalf("orefs: %+v", cd)
 	}
 	if cd.Question != "Session cache TTL — 24h or 7d?" {
@@ -45,7 +45,7 @@ func TestBuildCardData_Answered(t *testing.T) {
 }
 
 func TestBuildCardData_Escalation_NoChoice(t *testing.T) {
-	cd := BuildCardData(sampleQuestion(), nil, "real fork", "block:abc", "tab:xyz")
+	cd := BuildCardData(sampleQuestion(), nil, "real fork", "block:abc", "ask-1", "tab:xyz")
 	if cd.Choice != nil {
 		t.Fatalf("expected nil choice, got %+v", cd.Choice)
 	}
@@ -53,7 +53,7 @@ func TestBuildCardData_Escalation_NoChoice(t *testing.T) {
 
 func TestSetCardHumanPick_SetsPickAndPreservesFields(t *testing.T) {
 	choice := 1
-	orig, err := json.Marshal(BuildCardData(sampleQuestion(), &choice, "reason", "block:abc", "tab:xyz"))
+	orig, err := json.Marshal(BuildCardData(sampleQuestion(), &choice, "reason", "block:abc", "ask-1", "tab:xyz"))
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}

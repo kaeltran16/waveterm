@@ -16,6 +16,7 @@ export interface JarvisCardOption {
 
 export interface JarvisCardData {
     askORef: string;
+    askId?: string; // the one ask this card is about: every ask an agent raises shares its block's askORef
     workerORef: string;
     question: string;
     options: JarvisCardOption[];
@@ -38,6 +39,7 @@ export function parseCardData(msg: ChannelMessage): JarvisCardData | null {
         }
         return {
             askORef: p.askORef,
+            askId: typeof p.askId === "string" ? p.askId : undefined,
             workerORef: typeof p.workerORef === "string" ? p.workerORef : "",
             question: p.question,
             options: p.options,
@@ -50,16 +52,16 @@ export function parseCardData(msg: ChannelMessage): JarvisCardData | null {
     }
 }
 
-// The set of ask orefs Jarvis has already auto-answered in this channel (jarvis-answered cards).
-export function answeredAskORefs(messages: ChannelMessage[]): Set<string> {
+// The set of ask ids Jarvis has already auto-answered in this channel (jarvis-answered cards).
+export function answeredAskIds(messages: ChannelMessage[]): Set<string> {
     const out = new Set<string>();
     for (const m of messages) {
         if (m.kind !== "jarvis-answered") {
             continue;
         }
         const card = parseCardData(m);
-        if (card?.askORef) {
-            out.add(card.askORef);
+        if (card?.askId) {
+            out.add(card.askId);
         }
     }
     return out;
@@ -68,13 +70,13 @@ export function answeredAskORefs(messages: ChannelMessage[]): Set<string> {
 // Workers genuinely blocked on the human: asking, and not already auto-answered by Jarvis. An ask Jarvis
 // answered on the worker's behalf is Jarvis's to resume, not a "needs you" for the human — so it drops
 // out even if the worker's live state is briefly still "asking". Matched by the worker's CURRENT ask
-// oref, so a new ask from the same worker still surfaces. Generic over any {state, askORef}-shaped row.
-export function pendingAsks<T extends { state: string; askORef?: string }>(
+// id, so a new ask from the same worker still surfaces. Generic over any {state, askId}-shaped row.
+export function pendingAsks<T extends { state: string; askId?: string }>(
     snapshot: T[],
     messages: ChannelMessage[]
 ): T[] {
-    const answered = answeredAskORefs(messages);
-    return snapshot.filter((w) => w.state === "asking" && !(w.askORef && answered.has(w.askORef)));
+    const answered = answeredAskIds(messages);
+    return snapshot.filter((w) => w.state === "asking" && !(w.askId && answered.has(w.askId)));
 }
 
 // unreadCount = channel messages strictly after lastReadTs, excluding the human's own posts.
