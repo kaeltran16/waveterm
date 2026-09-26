@@ -11,6 +11,7 @@ description: Use when you need to start an Arc run (quick, or orchestrator from 
   `--effort <id> --chunk <label|n>` attaches it to an initiative chunk (ids from `wsh effort list`).
 - `wsh runs list` shows this project's top-level runs; `--tasks` adds the runs that work one task of another.
 - `wsh runs show <run-id>` shows status, route, commits, the task digest and the sealed report.
+- `wsh runs answer <run-id> '<answers-json>'` answers the run's own pending question (a lead's AskUserQuestion), which `wsh runs show` prints with numbered options.
 - `wsh runs cancel <run-id>` cancels a run.
 - `wsh runs attention` lists everything waiting on the user, across every project.
 

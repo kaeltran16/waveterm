@@ -814,6 +814,7 @@ Run-level commands, from any terminal in the project:
 |---|---|
 | `wsh runs start [goal] [--plan <md>] [--landing branch\|checkout]` | start a run; `--landing` wins over the profile, and the default is branch |
 | `wsh runs show <run-id>` | status, commits, `usage`, the task digest, `outcome` with its reasons, `land`, the report |
+| `wsh runs answer <run-id> <answers-json>` | answer the run's own question (the lead's), which `runs show` prints |
 | `wsh runs land <run-id> [--force]` | retry a held land-back; `--force` lands a failed final stage (the human's call only) |
 | `wsh runs ack <run-id>` | acknowledge an unverified outcome, clearing its attention item |
 

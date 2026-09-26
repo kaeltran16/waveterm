@@ -828,6 +828,18 @@ export class RpcApiType {
         return client.wshRpcCall("routeunannounce", null, opts);
     }
 
+    // command "runanswer" [call]
+    RunAnswerCommand(client: WshClient, data: CommandRunAnswerData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "runanswer", data, opts);
+        return client.wshRpcCall("runanswer", data, opts);
+    }
+
+    // command "runasks" [call]
+    RunAsksCommand(client: WshClient, data: CommandRunAskData, opts?: RpcOpts): Promise<CommandDagAsksRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "runasks", data, opts);
+        return client.wshRpcCall("runasks", data, opts);
+    }
+
     // command "runtranscriptpath" [call]
     RunTranscriptPathCommand(client: WshClient, data: CommandRunTranscriptPathData, opts?: RpcOpts): Promise<string> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "runtranscriptpath", data, opts);

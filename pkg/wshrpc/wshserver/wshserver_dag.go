@@ -606,19 +606,28 @@ func (ws *WshServer) DagAnswerCommand(ctx context.Context, data wshrpc.CommandDa
 		if len(blocks) == 0 {
 			return fmt.Errorf("task %s has no worker blocks", data.TaskId)
 		}
-		for _, bo := range blocks {
-			if p, pending := agentask.GlobalRegistry.Get(bo); pending {
-				if data.Lead && p.Owner == agentask.AskOwner_User {
-					return leadAnswerRefused(data.TaskId, p.Note)
-				}
-				// child-answered is recorded by the shared answer hook inside DeliverAnswer, so
-				// this path cannot diverge from a cockpit or Gatekeeper answer.
-				return ws.AnswerAgentCommand(ctx, wshrpc.CommandAnswerAgentData{ORef: bo, Answers: data.Answers})
-			}
+		bo, p, pending := pendingRunAsk(ctx, child)
+		if !pending {
+			return fmt.Errorf("task %s has no pending ask", data.TaskId)
 		}
-		return fmt.Errorf("task %s has no pending ask", data.TaskId)
+		if data.Lead && p.Owner == agentask.AskOwner_User {
+			return leadAnswerRefused(data.TaskId, p.Note)
+		}
+		// child-answered is recorded by the shared answer hook inside DeliverAnswer, so
+		// this path cannot diverge from a cockpit or Gatekeeper answer.
+		return ws.AnswerAgentCommand(ctx, wshrpc.CommandAnswerAgentData{ORef: bo, Answers: data.Answers})
 	}
 	return fmt.Errorf("no task %q", data.TaskId)
+}
+
+// pendingRunAsk finds the pending ask on one of a run's own blocks: a lead's own question, or a task worker's.
+func pendingRunAsk(ctx context.Context, run *waveobj.Run) (string, agentask.PendingAsk, bool) {
+	for _, bo := range orchestrate.RunBlockORefs(ctx, run) {
+		if p, ok := agentask.GlobalRegistry.Get(bo); ok {
+			return bo, p, true
+		}
+	}
+	return "", agentask.PendingAsk{}, false
 }
 
 // leadAnswerRefused tells a lead why the question it answered is not its own any more, in the words the

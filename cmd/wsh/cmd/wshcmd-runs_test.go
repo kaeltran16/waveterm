@@ -210,14 +210,14 @@ func TestRunsShowLines(t *testing.T) {
 		EffortRef:  &waveobj.RunEffortRef{EffortOID: "e-1", ChunkLabel: "Build"},
 		BaseCommit: "aaaaaaaaaa", EndCommit: "bbbbbbbbbb", Report: "lead report",
 	}
-	out := strings.Join(runsShowLines(ch, run, nil, 2), "\n")
+	out := strings.Join(runsShowLines(ch, run, nil, 2, nil), "\n")
 	for _, want := range []string{"r-1", "ship it", "waveterm (channel ch-1)", "effort:e-1", `"Build"`, "aaaaaaa..bbbbbbb", "lead report"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("show output lacks %q:\n%s", want, out)
 		}
 	}
 	run.Evidence = &waveobj.RunEvidence{Summary: "sealed summary", AddTotal: 4, Files: []waveobj.EvidenceFile{{Path: "x"}}}
-	out = strings.Join(runsShowLines(ch, run, nil, 2), "\n")
+	out = strings.Join(runsShowLines(ch, run, nil, 2, nil), "\n")
 	if !strings.Contains(out, "sealed summary") || strings.Contains(out, "lead report") || !strings.Contains(out, "1 files  +4 -0") {
 		t.Fatalf("a sealed run must show its sealed summary:\n%s", out)
 	}
@@ -235,7 +235,7 @@ func TestRunsShowLinesPrintsUsage(t *testing.T) {
 			{Role: "reviewer", TaskId: "t-1", CacheRead: 500_000},
 		}}},
 	}
-	lines := runsShowLines(ch, run, digest, 2)
+	lines := runsShowLines(ch, run, digest, 2, nil)
 	if !slices.Contains(lines, "usage    lead 1.0M · workers 3.4M · reviewers 500k") {
 		t.Fatalf("show must print the dag's usage:\n%s", strings.Join(lines, "\n"))
 	}
@@ -244,11 +244,11 @@ func TestRunsShowLinesPrintsUsage(t *testing.T) {
 		{Role: "worker", TaskId: "t-1", Output: 3_400_000},
 		{Role: "reviewer", TaskId: "t-1", CacheRead: 500_000},
 	}}
-	lines = runsShowLines(ch, run, digest, 2)
+	lines = runsShowLines(ch, run, digest, 2, nil)
 	if !slices.Contains(lines, "usage    lead 1.2M · workers 3.4M · reviewers 500k") {
 		t.Fatalf("a sealed run must print its sealed usage:\n%s", strings.Join(lines, "\n"))
 	}
-	if lines = runsShowLines(ch, &waveobj.Run{ID: "r-2"}, nil, 2); slices.ContainsFunc(lines, func(l string) bool { return strings.HasPrefix(l, "usage") }) {
+	if lines = runsShowLines(ch, &waveobj.Run{ID: "r-2"}, nil, 2, nil); slices.ContainsFunc(lines, func(l string) bool { return strings.HasPrefix(l, "usage") }) {
 		t.Fatalf("a run with no total prints none:\n%s", strings.Join(lines, "\n"))
 	}
 }
@@ -267,6 +267,27 @@ func TestRunsAttentionLines(t *testing.T) {
 	}
 	if !strings.Contains(lines[1], " - ") {
 		t.Fatalf("a channel-less item must show placeholders: %q", lines[1])
+	}
+	if footer := lines[len(lines)-1]; !strings.Contains(footer, "wsh runs answer") {
+		t.Fatalf("footer = %q, want the runs answer command", footer)
+	}
+}
+
+func TestRunsShowLinesPrintsTheRunsOwnQuestion(t *testing.T) {
+	ch := &waveobj.Channel{OID: "c-1", Name: "alpha"}
+	run := &waveobj.Run{ID: "r-1", Goal: "g", Status: "executing"}
+	asks := []wshrpc.DagAskItem{{Questions: []baseds.AgentAskQuestion{{Header: "Path", Question: "Which path?", Options: []baseds.AgentAskOption{{Label: "A"}, {Label: "B", Description: "the other"}}}}}}
+	lines := runsShowLines(ch, run, nil, 2, asks)
+	for _, want := range []string{"question", "  [Path] Which path?", "    0) A", "    1) B - the other"} {
+		if !slices.Contains(lines, want) {
+			t.Fatalf("missing %q in:\n%s", want, strings.Join(lines, "\n"))
+		}
+	}
+	if !slices.ContainsFunc(lines, func(l string) bool { return strings.HasPrefix(l, "answer:  wsh runs answer r-1 ") }) {
+		t.Fatalf("no answer line in:\n%s", strings.Join(lines, "\n"))
+	}
+	if slices.Contains(runsShowLines(ch, run, nil, 2, nil), "question") {
+		t.Fatal("a run with no pending question printed a question block")
 	}
 }
 
@@ -304,7 +325,7 @@ func TestRunsShowLinesPrintVerificationAndLand(t *testing.T) {
 		Evidence: &waveobj.RunEvidence{Verification: &waveobj.RunVerification{State: "unverified", Reasons: []string{"the plan has no Verify"}}},
 		Land:     &waveobj.RunLand{State: "landed", Commit: "0123456789abcdef", Notes: []string{"merged onto 2 commits that landed on main during the run; the combination was not verified"}},
 	}
-	lines := runsShowLines(ch, run, nil, 2)
+	lines := runsShowLines(ch, run, nil, 2, nil)
 	for _, want := range []string{
 		"outcome  unverified",
 		"         unverified: the plan has no Verify",
@@ -316,7 +337,7 @@ func TestRunsShowLinesPrintVerificationAndLand(t *testing.T) {
 		}
 	}
 	run.Land = &waveobj.RunLand{State: "held", Reason: "the checkout is on x, not main"}
-	if lines = runsShowLines(ch, run, nil, 2); !slices.Contains(lines, "land     held: the checkout is on x, not main") {
+	if lines = runsShowLines(ch, run, nil, 2, nil); !slices.Contains(lines, "land     held: the checkout is on x, not main") {
 		t.Fatalf("show must print the held reason:\n%s", strings.Join(lines, "\n"))
 	}
 }
