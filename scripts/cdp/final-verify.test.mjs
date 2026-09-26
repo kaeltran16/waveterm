@@ -1,11 +1,11 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { EXIT_UNVERIFIED, inUse, pickPort, pickVitePort, unlinkBuildJunctions } from "./final-verify.mjs";
+import { EXIT_UNVERIFIED, acquireBuildLock, buildLockPath, inUse, pickPort, pickVitePort, unlinkBuildJunctions } from "./final-verify.mjs";
 
 const SCRIPT = fileURLToPath(new URL("./final-verify.mjs", import.meta.url));
 
@@ -80,6 +80,7 @@ describe("inUse", () => {
     });
 });
 
+// each test points LOCALAPPDATA at its own dir, so it never shares the build lock or a store with a real final stage
 describe("final-verify.mjs", () => {
     let dir;
     afterEach(() => {
@@ -103,6 +104,7 @@ describe("final-verify.mjs", () => {
 
         const r = await run({
             ...process.env,
+            LOCALAPPDATA: join(dir, "localappdata"),
             ARC_FINAL_OUT: join(dir, "out"),
             ARC_FINAL_BOOT_MS: "3000",
             ARC_FINAL_DEV_CMD: `node "${fakeDev}"`,
@@ -138,6 +140,7 @@ fs.writeFileSync(path.join(data, "waveapp.log"), "boot log");
         try {
             const r = await run({
                 ...process.env,
+                LOCALAPPDATA: join(dir, "localappdata"),
                 ARC_FINAL_OUT: out,
                 ARC_FINAL_BOOT_MS: "3000",
                 ARC_FINAL_DEV_CMD: `node "${fakeDev}"`,
@@ -155,15 +158,94 @@ fs.writeFileSync(path.join(data, "waveapp.log"), "boot log");
         expect(cfg.build.beforeDevCommand).toContain(`--port ${port} --strictPort`);
 
         const env = JSON.parse(readFileSync(envFile, "utf8"));
-        const base = join(process.env.LOCALAPPDATA || join(homedir(), ".cache"), "arc-final");
+        const base = join(dir, "localappdata", "arc-final");
         expect(env.CARGO_TARGET_DIR).toBe(join(base, "target"));
-        // wavesrv binds <store>/data/wave.sock, and windows caps a unix socket path at 108 bytes
-        expect(env.ARC_DEV_DATA_DIR.startsWith(join(base, "stores"))).toBe(true);
-        expect(join(env.ARC_DEV_DATA_DIR, "data", "wave.sock").length).toBeLessThan(108);
+        // wavesrv binds <store>/data/wave.sock, and windows caps a unix socket path at 108 bytes: measured on the
+        // real base, since this test's base sits under a longer temp dir
+        expect(dirname(env.ARC_DEV_DATA_DIR)).toBe(join(base, "stores"));
+        const realBase = join(process.env.LOCALAPPDATA || join(homedir(), ".cache"), "arc-final");
+        expect(join(realBase, "stores", basename(env.ARC_DEV_DATA_DIR), "data", "wave.sock").length).toBeLessThan(108);
         expect(existsSync(env.ARC_DEV_DATA_DIR)).toBe(false);
         expect(readFileSync(join(out, "waveapp.log"), "utf8")).toBe("boot log");
         expect(env.ARC_DEV_NO_GLOBAL_INSTALL).toBe("1");
         expect(env.WEBVIEW2_USER_DATA_FOLDER).toBe(join(out, "webview2-profile"));
+    });
+});
+
+// final stages share the cargo target dir and run the exe they build there, so they must not overlap
+describe("final-verify.mjs build lock", () => {
+    let dir;
+    afterEach(() => {
+        if (dir) rmSync(dir, { recursive: true, force: true });
+        dir = undefined;
+    });
+
+    // a dev app that logs its start and end to a shared file and exits after holdMs
+    function fakeDevEnv(name, logFile, holdMs) {
+        const fakeDev = join(dir, "fake-dev.cjs");
+        writeFileSync(
+            fakeDev,
+            `const fs = require("fs");
+fs.appendFileSync(${JSON.stringify(logFile)}, "start\\n");
+setTimeout(() => fs.appendFileSync(${JSON.stringify(logFile)}, "end\\n"), ${holdMs});
+`
+        );
+        return {
+            ...process.env,
+            LOCALAPPDATA: join(dir, "localappdata"),
+            ARC_FINAL_OUT: join(dir, name),
+            ARC_FINAL_BOOT_MS: "10000",
+            ARC_FINAL_DEV_CMD: `node "${fakeDev}"`,
+        };
+    }
+
+    it("runs two final stages one after the other", async () => {
+        dir = mkdtempSync(join(tmpdir(), "final-lock-"));
+        const logFile = join(dir, "dev.log");
+        const [a, b] = await Promise.all([
+            run(fakeDevEnv("out-a", logFile, 1500)),
+            run(fakeDevEnv("out-b", logFile, 1500)),
+        ]);
+        for (const r of [a, b]) {
+            expect(r.code).toBe(EXIT_UNVERIFIED);
+            expect(r.last).toMatch(/^dev app exited with code 0 before answering on :\d+$/);
+        }
+        expect(readFileSync(logFile, "utf8").trim().split(/\r?\n/)).toEqual(["start", "end", "start", "end"]);
+    }, 30_000);
+
+    it("is unverified when another final stage keeps the build past the wait", async () => {
+        dir = mkdtempSync(join(tmpdir(), "final-lock-"));
+        const base = join(dir, "localappdata", "arc-final");
+        mkdirSync(base, { recursive: true });
+        const held = await acquireBuildLock(buildLockPath(base), 0);
+        expect(held).not.toBeNull();
+        try {
+            const r = await run({ ...fakeDevEnv("out", join(dir, "dev.log"), 0), ARC_FINAL_LOCK_WAIT_MS: "1500" });
+            expect(r.code).toBe(EXIT_UNVERIFIED);
+            expect(r.last).toBe("another final stage held the shared build for 2s");
+            expect(existsSync(join(dir, "dev.log"))).toBe(false);
+        } finally {
+            await close(held);
+        }
+    });
+
+    it("is free once the stage holding it is killed", async () => {
+        dir = mkdtempSync(join(tmpdir(), "final-lock-"));
+        const base = join(dir, "localappdata", "arc-final");
+        mkdirSync(base, { recursive: true });
+        const lockPath = buildLockPath(base);
+        const holder = spawn(process.execPath, [
+            "-e",
+            `require("net").createServer().listen(${JSON.stringify(lockPath)}, () => console.log("held"));`,
+        ]);
+        await new Promise((resolve) => holder.stdout.once("data", resolve));
+        expect(await acquireBuildLock(lockPath, 0)).toBeNull();
+        holder.kill("SIGKILL");
+        await new Promise((resolve) => holder.once("exit", resolve));
+
+        const lock = await acquireBuildLock(lockPath, 5000);
+        expect(lock).not.toBeNull();
+        await close(lock);
     });
 });
 

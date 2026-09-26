@@ -1292,7 +1292,7 @@ applied), with the main checkout's dev app running on 5174. `final-verify.mjs su
 step skipped, as on the main app) on Vite 5175 after a cold cargo build of 2 min 38 s, and in 38 s once warm.
 Unchanged afterwards: the main checkout's `wavesrv`, `wsh` and `wave-tauri.exe`, `~/.arc/bin/wsh.exe`,
 `~/.claude/settings.json` and both global skills; the main dev app kept running. Not tested: two final stages
-at once, which share the target dir.
+at once, which share the target dir (now serialized; see "Fixes: the last gaps in 21, 22 and 35").
 
 Not verified here: the saving per run. The next orchestrator run after an Arc rebuild shows it; compare its
 per-merge Verify times (`task-verify-passed` `ms`) and chain-link waits with finding 27's table.
@@ -1312,8 +1312,8 @@ per-merge Verify times (`task-verify-passed` `ms`) and chain-link waits with fin
 Not verified live: none of this has run in an orchestrator run yet. The next run after an Arc rebuild should show
 staggered `task-spawned` stamps, `running a command` in `dag status` during a long test, and no false `stuck?`.
 The thresholds for 22 (20 min unchanged, 3 repeats, 5 min active) are unmeasured: they were set from 9 healthy
-transcripts on one machine, none of which looped. A known gap, not fixed: a worker resuming after a long pending
-ask can be flagged stagnant at once, because the unchanged-tree clock keeps running while it waits.
+transcripts on one machine, none of which looped. A known gap, since fixed (see "Fixes: the last gaps in 21, 22 and 35"): a worker resuming after a long
+pending ask could be flagged stagnant at once, because the unchanged-tree clock kept running while it waited.
 
 ## Fixes: merge train and Go test shards
 
@@ -1329,3 +1329,14 @@ ask can be flagged stagnant at once, because the unchanged-tree clock keeps runn
 
 The measurements behind these, CPU contention between parallel workers included, are in
 `docs/superpowers/specs/2026-09-27-orchestrator-merge-train-design.md`, section 1.
+
+## Fixes: the last gaps in 21, 22 and 35
+
+| # | Fix | Test |
+|---|---|---|
+| 22 | A progress check that finds the worker waiting on an ask restarts its unchanged-tree clock (`ProgressTs`), so the wait never counts toward `StagnationThreshold`: a worker answered after a long ask gets the whole 20 min from its last check during the ask. The fingerprint is left alone, so a tree that changed during the ask still reads as progress. | `TestSuspectWorkerResumingFromAnAskIsNotFlagged` |
+| 35 | Final stages run one at a time. They share `%LOCALAPPDATA%arc-final	arget`, and `cargo tauri dev` runs the `wave-tauri.exe` it builds there, so a second stage's build would overwrite, or fail to write, the exe the first is running; cargo's own lock covers the build, not the run. `final-verify.mjs` holds a lock from before it picks its Vite and CDP ports (two stages started together could otherwise pick the same free ports) until it stops its dev app. The lock is a named pipe on Windows (a unix socket elsewhere) keyed by the arc-final dir, so the OS drops it with a killed stage and nothing goes stale. A stage waits up to 10 min, then reports unverified: "another final stage held the shared build for 600s"; 10 min of waiting, the 10 min boot and the verify run fit the engine's 30 min `FinalTimeout`. Serializing was chosen over a target dir per stage, which would pay the cold cargo build (2 min 38 s measured) and several GB of disk on every stage, while a wait costs only when two stages overlap. | `final-verify.test.mjs` ("runs two final stages one after the other", which reads `start, start, end, end` without the lock; "is unverified when another final stage keeps the build past the wait"; "is free once the stage holding it is killed") |
+| 21 | The worker brief says not to pipe a test into `tail`, `head` or `grep`, since a pipe exits with its last command's status, and to run `set -o pipefail` first when it must pipe. The sealed report already lists a worker's own checks as `ran`, not `pass` (`2a26819f`); this keeps the worker from misreading its own run. | `TestWorkerContractKeepsATestsExitCodeThroughAPipe` |
+
+Not verified live: no orchestrator run has yet had a worker answered after a 20+ min ask, or two final stages
+at once. The tests drive the real `final-verify.mjs` with a stand-in dev app, not `cargo tauri dev`.

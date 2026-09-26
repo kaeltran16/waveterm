@@ -8,7 +8,11 @@
 //   ARC_FINAL_OUT=<dir> node scripts/cdp/final-verify.mjs [scenario...]
 //
 // ARC_FINAL_DEV_CMD (default `task dev` with the port override), ARC_FINAL_BOOT_MS (default 10 min, a cold cargo
-// build) and ARC_FINAL_VITE_PORT (the first port tried) exist so the test can drive the boot path without a real app.
+// build), ARC_FINAL_VITE_PORT (the first port tried) and ARC_FINAL_LOCK_WAIT_MS (default 10 min) exist so the test
+// can drive the boot path without a real app.
+//
+// Final stages run one at a time: they share the cargo target dir, and `cargo tauri dev` runs the exe it builds
+// there, so a second stage's build would overwrite the exe the first is running.
 //
 // The user's packaged Arc shares the dev app's image names, so only the PID this script spawned is ever killed.
 import { execFileSync, spawn } from "node:child_process";
@@ -36,6 +40,9 @@ const FINAL_BASE = join(process.env.LOCALAPPDATA || join(homedir(), ".cache"), "
 // one target dir for every final stage, outside any checkout: only the first pays the cold cargo build
 const FINAL_TARGET_DIR = join(FINAL_BASE, "target");
 const STORE_ID_LEN = 8;
+// with the 10 min boot and the verify run, a stage that waited this long still ends inside the engine's 30 min
+// FinalTimeout (pkg/orchestrate/final.go)
+const DEFAULT_LOCK_WAIT_MS = 600_000;
 
 // the dev app's store. wavesrv binds <store>/data/wave.sock and windows caps a unix socket path at 108 bytes, which
 // a store under ARC_FINAL_OUT (itself under %TEMP%) can pass, so it lives under a short path keyed by the out dir
@@ -52,6 +59,48 @@ function dropStore(store, out) {
         rmSync(store, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
     } catch (e) {
         console.log(`could not keep the log and drop the dev app's store ${store}: ${e.message}`);
+    }
+}
+
+// the os drops a pipe or socket with its process, so a killed stage leaves no stale lock on windows. keyed by the
+// base, which is what the stages share
+export function buildLockPath(base) {
+    const id = createHash("sha1").update(base).digest("hex").slice(0, STORE_ID_LEN);
+    return process.platform === "win32" ? `\\\\.\\pipe\\arc-final-build-${id}` : join(base, `build-${id}.sock`);
+}
+
+function listenOn(path) {
+    return new Promise((resolve, reject) => {
+        const srv = createServer();
+        srv.once("error", (e) => (e.code === "EADDRINUSE" ? resolve(null) : reject(e)));
+        srv.listen(path, () => resolve(srv));
+    });
+}
+
+// a posix socket file outlives a killed stage; one nothing answers on is dropped
+async function dropStaleSocket(path) {
+    if (process.platform === "win32") return;
+    const live = await new Promise((resolve) => {
+        const sock = connect(path);
+        sock.once("connect", () => {
+            sock.destroy();
+            resolve(true);
+        });
+        sock.once("error", () => resolve(false));
+    });
+    if (!live) rmSync(path, { force: true });
+}
+
+// resolves the held lock (close it to release), or null when another stage kept it past waitMs
+export async function acquireBuildLock(path, waitMs) {
+    const deadline = Date.now() + waitMs;
+    for (let waited = false; ; waited = true) {
+        const lock = await listenOn(path);
+        if (lock) return lock;
+        if (Date.now() >= deadline) return null;
+        if (!waited) console.log("waiting for another final stage to finish with the shared build");
+        await dropStaleSocket(path);
+        await new Promise((r) => setTimeout(r, POLL_MS));
     }
 }
 
@@ -179,6 +228,11 @@ async function main() {
     if (!out) unverified("ARC_FINAL_OUT is not set");
     const scenarios = process.argv.slice(2);
     const bootMs = Number(process.env.ARC_FINAL_BOOT_MS) || DEFAULT_BOOT_MS;
+    const lockWaitMs = Number(process.env.ARC_FINAL_LOCK_WAIT_MS) || DEFAULT_LOCK_WAIT_MS;
+    mkdirSync(FINAL_BASE, { recursive: true });
+    // taken before the ports are picked too: two stages started together would otherwise pick the same free ports
+    const lock = await acquireBuildLock(buildLockPath(FINAL_BASE), lockWaitMs);
+    if (!lock) unverified(`another final stage held the shared build for ${Math.round(lockWaitMs / 1000)}s`);
     const vitePort = await pickVitePort(Number(process.env.ARC_FINAL_VITE_PORT) || FIRST_VITE_PORT);
     mkdirSync(out, { recursive: true });
     const configPath = join(out, "tauri.final.json");
@@ -212,7 +266,10 @@ async function main() {
             ARC_DEV_NO_GLOBAL_INSTALL: "1",
         },
     });
-    const stop = () => killTree(dev.pid);
+    const stop = () => {
+        killTree(dev.pid);
+        lock.close();
+    };
     for (const sig of ["SIGINT", "SIGTERM"]) {
         process.on(sig, () => {
             stop();

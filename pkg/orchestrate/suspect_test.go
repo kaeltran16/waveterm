@@ -185,6 +185,25 @@ func TestSuspectWorkerOnAnAskIsNotFlagged(t *testing.T) {
 	}
 }
 
+// The wait on an ask is not stagnation: a worker answered after a long wait gets a whole threshold from then on.
+func TestSuspectWorkerResumingFromAnAskIsNotFlagged(t *testing.T) {
+	ctx, g, f, _ := seedSuspectChild(t, "suspect-ask-resume", 21*time.Minute)
+	oref := "block:worker-block"
+	agentask.GlobalRegistry.Set(oref, agentask.PendingAsk{AskId: "a", BlockId: "worker-block"})
+	t.Cleanup(func() { agentask.GlobalRegistry.Drop(oref) })
+	before := time.Now().UnixMilli()
+	if task := tick(t, ctx, g); task.ProgressTs < before {
+		t.Fatalf("a check that finds a pending ask re-arms the clock, got ts %d (before %d)", task.ProgressTs, before)
+	}
+	agentask.GlobalRegistry.Drop(oref)
+	if task := tick(t, ctx, g); task.SuspectTs != 0 {
+		t.Fatalf("a worker just answered is not stagnant, got reason %q", task.SuspectReason)
+	}
+	if n := f.countKind(waveobj.RunEventKindTaskSuspect); n != 0 {
+		t.Fatalf("want no task-suspect row, got %d", n)
+	}
+}
+
 // A tree git cannot read (deleted, mid-rebase, locked index) neither flags nor re-arms, and does not fail the tick.
 func TestSuspectProbeErrorSkipsTheCheck(t *testing.T) {
 	ctx, g, _, _ := seedSuspectChild(t, "suspect-probe-error", 21*time.Minute)

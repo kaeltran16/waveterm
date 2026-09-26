@@ -166,6 +166,14 @@ func TestWorkerContractForbidsAttributionTrailers(t *testing.T) {
 	}
 }
 
+// a piped test exits with its last command's status, so `go test ./... | tail` reads as a pass when it fails
+func TestWorkerContractKeepsATestsExitCodeThroughAPipe(t *testing.T) {
+	c := workerContract(&waveobj.TaskGroup{}, &waveobj.TaskNode{ID: "t-3"}, "claude", "")
+	if !strings.Contains(c, "`set -o pipefail`") {
+		t.Fatalf("contract must say how to keep a piped test's exit code:\n%s", c)
+	}
+}
+
 func TestWorkerContractNamesPlanSpecVerifyAndTool(t *testing.T) {
 	g := &waveobj.TaskGroup{PlanPath: "C:/p/plan.md", SpecPath: "C:/p/spec.md", Verify: "go test ./..."}
 	c := workerContract(g, &waveobj.TaskNode{ID: "t-3"}, "pi", "")
