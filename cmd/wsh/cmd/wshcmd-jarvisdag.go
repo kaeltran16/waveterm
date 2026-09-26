@@ -258,6 +258,8 @@ func taskSignal(state string, td wshrpc.DagTaskDigest, now int64) string {
 		return "ask: " + compactText(td.AskSummary, 60)
 	case td.VerifyStartedTs > 0:
 		return verifySignal(td, now)
+	case td.Suspect != "":
+		return "stuck? " + compactText(td.Suspect, 80)
 	case td.FreshnessTs > 0 && (state == orchestrate.TaskState_Running || state == orchestrate.TaskState_Stalled):
 		return workerSignal(td, now)
 	}

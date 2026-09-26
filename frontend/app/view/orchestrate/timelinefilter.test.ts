@@ -110,6 +110,13 @@ describe("eventClickTarget", () => {
         });
     });
 
+    it("routes a worker that may be stuck to that worker", () => {
+        expect(eventClickTarget(ev("task-suspect", { taskid: "t-4", command: "go test ./pkg/x", count: 3 }))).toEqual({
+            kind: "worker",
+            taskId: "t-4",
+        });
+    });
+
     it("routes a hand-off to the dag task", () => {
         expect(eventClickTarget(ev("task-forwarded", { taskid: "t-6", askid: "a-1", note: "yours" }))).toEqual({
             kind: "dag-task",

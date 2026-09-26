@@ -52,6 +52,11 @@ describe("buildRunTimeline", () => {
         expect(groups.find((g) => g.id === "run")?.events.map((e) => e.kind)).toEqual(["task-told"]);
     });
 
+    it("lists a worker that may be stuck under RUN", () => {
+        const { groups } = buildRunTimeline(fakeRun, [ev("task-suspect", 1)]);
+        expect(groups.find((g) => g.id === "run")?.events.map((e) => e.kind)).toEqual(["task-suspect"]);
+    });
+
     it("returns empty groups when there are no events", () => {
         const { groups, preview } = buildRunTimeline(fakeRun, []);
         expect(groups).toEqual([]);
@@ -71,6 +76,8 @@ describe("clickTargetFor", () => {
     it("maps stalled/blocked to open-dag and evidence-sealed to open-diff", () => {
         const stalled = { ...ev("task-stalled", 6), detail: JSON.stringify({ taskid: "t-2" }) };
         expect(clickTargetFor(stalled)).toEqual({ kind: "open-dag", taskId: "t-2" });
+        const suspect = { ...ev("task-suspect", 6), detail: JSON.stringify({ taskid: "t-3" }) };
+        expect(clickTargetFor(suspect)).toEqual({ kind: "open-dag", taskId: "t-3" });
         expect(clickTargetFor(ev("evidence-sealed", 7))).toEqual({ kind: "open-diff" });
     });
 
@@ -94,6 +101,7 @@ describe("toneFor", () => {
     it("stays within the existing tone utilities and falls back to muted", () => {
         expect(toneFor("phase-started")).toBe("text-success");
         expect(toneFor("task-stalled")).toBe("text-warning");
+        expect(toneFor("task-suspect")).toBe("text-warning");
         expect(toneFor("unknown-kind")).toBe("text-muted");
     });
 
@@ -117,6 +125,7 @@ describe("eventKindTitle", () => {
         expect(eventKindTitle("lead-exited")).toBe("Lead exited");
         expect(eventKindTitle("worker-exited")).toBe("Worker exited");
         expect(eventKindTitle("task-told")).toBe("You told a worker");
+        expect(eventKindTitle("task-suspect")).toBe("Task may be stuck");
     });
 });
 

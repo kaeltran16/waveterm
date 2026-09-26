@@ -29,6 +29,7 @@ func TestTaskSignalTellsBusyFromIdle(t *testing.T) {
 		{wshrpc.DagTaskDigest{FreshnessTs: quiet, Busy: true, LatestTool: "running go test ./pkg/x"}, "running a command 4m · running go test ./pkg/x"},
 		{wshrpc.DagTaskDigest{FreshnessTs: quiet}, "idle 4m"},
 		{wshrpc.DagTaskDigest{FreshnessTs: quiet, LatestTool: "editing a.go"}, "idle 4m · editing a.go"},
+		{wshrpc.DagTaskDigest{FreshnessTs: quiet, Busy: true, Suspect: "worktree unchanged 22m while active"}, "stuck? worktree unchanged 22m while active"},
 	}
 	for _, c := range cases {
 		if got := taskSignal(orchestrate.TaskState_Running, c.td, now); got != c.want {

@@ -340,6 +340,17 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 				})
 			}
 		}
+		// active but not progressing: liveness calls a worker that loops for an hour healthy. Every runtime, since only
+		// the failure scan needs a transcript; the lead judges, the engine does not act.
+		if t.State == TaskState_Running {
+			if reason, detail, flagged := checkProgress(ctx, t, runs[t.RunID], now); flagged {
+				taskID := t.ID
+				afterCommit = append(afterCommit, func() {
+					appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskSuspect, nil, detail)
+					PostWake(ctx, g.ChannelId, g.RunID, taskSuspectWake(taskID, reason))
+				})
+			}
+		}
 		// no readable activity source: the spawn-time seed would age into a stall on its own and hand
 		// the lead a retry that kills a working child. Report freshness unknown (zero) instead — a
 		// missed stall only costs a timeout. It skips the first-token deadline too: an unreadable child

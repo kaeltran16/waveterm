@@ -342,6 +342,19 @@ type TaskNode struct {
 	BusyTs int64 `json:"busyts,omitempty"`
 	// LatestTool is the worker's in-progress tool call from its status hook, "" between calls.
 	LatestTool string `json:"latesttool,omitempty"`
+	// ProgressHash is the worktree's last fingerprint and ProgressTs when it last changed (seeded at spawn): a
+	// worker can write its transcript for an hour while its tree stays put, and liveness alone calls that healthy.
+	// ProgressCheckTs throttles the git probe to once per check interval.
+	ProgressHash    string `json:"progresshash,omitempty"`
+	ProgressTs      int64  `json:"progressts,omitempty"`
+	ProgressCheckTs int64  `json:"progresscheckts,omitempty"`
+	// SuspectTs is when the task was last flagged as busy but not progressing, 0 while the stagnation flag is
+	// armed, so one stuck stretch wakes the lead once; a tree change re-arms it. SuspectReason is the flag's text.
+	SuspectTs     int64  `json:"suspectts,omitempty"`
+	SuspectReason string `json:"suspectreason,omitempty"`
+	// FlaggedFailures are the repeated-failure keys that already woke the lead in this attempt: they stay in the
+	// transcript tail after a re-arm and must not wake it again.
+	FlaggedFailures []string `json:"flaggedfailures,omitempty"`
 	// StallRetries counts the times the engine retried this task itself after it stalled with no live
 	// lead to judge it; MaxAutoStallRetries in orchestrate caps it.
 	StallRetries int `json:"stallretries,omitempty"`

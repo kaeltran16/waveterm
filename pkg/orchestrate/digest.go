@@ -489,6 +489,9 @@ func buildTaskDigest(g *waveobj.TaskGroup, t *waveobj.TaskNode, askByTask map[st
 		td.Busy = t.BusyTs > 0 && now-t.BusyTs <= BusyWindow.Milliseconds()
 		td.LatestTool = t.LatestTool
 	}
+	if t.State == TaskState_Running && t.SuspectTs > 0 {
+		td.Suspect = t.SuspectReason
+	}
 	if ask, ok := askByTask[t.ID]; ok {
 		td.WaitReason = "ask"
 		td.HumanActions = digestActionAnswer
