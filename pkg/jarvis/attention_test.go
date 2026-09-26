@@ -368,6 +368,74 @@ func TestDagGateAndBlockedWhyCountSkippedTasksAsFinished(t *testing.T) {
 	}
 }
 
+func TestBlockedReviewFailedNamesTheReviewAndItsActions(t *testing.T) {
+	items := BuildAttention(AttentionInput{Dags: []*waveobj.TaskGroup{{
+		ID: "d1", RunID: "r1", ChannelId: "c1", Status: "blocked", UpdatedTs: 5,
+		Tasks: []waveobj.TaskNode{
+			{ID: "t-1", Label: "Restore the steering RPCs", State: "review-failed", ReviewNote: "reviewer gave no verdict within 20m0s"},
+			{ID: "t-2", State: "pending"},
+		},
+	}}})
+	if len(items) != 1 {
+		t.Fatalf("items = %+v, want the one blocked dag", items)
+	}
+	it := items[0]
+	if want := "Review of Restore the steering RPCs failed: reviewer gave no verdict within 20m0s"; it.Text != want {
+		t.Fatalf("text = %q, want %q", it.Text, want)
+	}
+	for _, want := range []string{"0 of 2 tasks done.", "wsh jarvis dag approve t-1", "wsh jarvis dag sendback t-1"} {
+		if !strings.Contains(it.Why, want) {
+			t.Fatalf("why = %q, want %q in it", it.Why, want)
+		}
+	}
+	if strings.Contains(it.Text+it.Why, "consecutive failures") {
+		t.Fatalf("a review failure read as a failure count: %q / %q", it.Text, it.Why)
+	}
+	if it.TaskId != "t-1" || it.Retry {
+		t.Fatalf("taskid/retry = %q/%v, want t-1/false", it.TaskId, it.Retry)
+	}
+}
+
+func TestBlockedReviewFailedOutranksAMerge(t *testing.T) {
+	items := BuildAttention(AttentionInput{Dags: []*waveobj.TaskGroup{{
+		ID: "d1", RunID: "r1", ChannelId: "c1", Status: "blocked",
+		Tasks: []waveobj.TaskNode{{ID: "t-1", State: "blocked-merge"}, {ID: "t-2", State: "review-failed", ReviewNote: "two rounds failed"}},
+	}}})
+	if !strings.HasPrefix(items[0].Text, "Review of t-2 failed") || items[0].TaskId != "t-2" {
+		t.Fatalf("got %q (task %q), want t-2's review first, as the digest ranks it", items[0].Text, items[0].TaskId)
+	}
+}
+
+func TestBlockedFailedTaskNamesItsFailureNotACount(t *testing.T) {
+	items := BuildAttention(AttentionInput{Dags: []*waveobj.TaskGroup{{
+		ID: "d1", RunID: "r1", ChannelId: "c1", Status: "blocked", Failures: 1,
+		Tasks: []waveobj.TaskNode{{ID: "t-1", State: "failed", LastFailureKind: "exited"}},
+	}}})
+	if items[0].Text != "t-1 failed: exited" || !strings.Contains(items[0].Why, "wsh jarvis dag retry t-1") || strings.Contains(items[0].Text, "consecutive") {
+		t.Fatalf("got %q / %q", items[0].Text, items[0].Why)
+	}
+}
+
+func TestBlockedWithNoNamedCauseListsTheTasks(t *testing.T) {
+	items := BuildAttention(AttentionInput{Dags: []*waveobj.TaskGroup{{
+		ID: "d1", RunID: "r1", ChannelId: "c1", Status: "blocked",
+		Tasks: []waveobj.TaskNode{{ID: "t-1", State: "done"}, {ID: "t-2", State: "stalled"}},
+	}}})
+	if items[0].Text != "The group is blocked: t-2 is stalled" || !strings.Contains(items[0].Why, "wsh jarvis dag status") {
+		t.Fatalf("got %q / %q", items[0].Text, items[0].Why)
+	}
+}
+
+func TestBlockedWithNothingToNameSaysSo(t *testing.T) {
+	items := BuildAttention(AttentionInput{Dags: []*waveobj.TaskGroup{{
+		ID: "d1", RunID: "r1", ChannelId: "c1", Status: "blocked",
+		Tasks: []waveobj.TaskNode{{ID: "t-1", State: "done"}, {ID: "t-2", State: "pending"}},
+	}}})
+	if items[0].Text != "The group is blocked." {
+		t.Fatalf("text = %q, want no dangling list", items[0].Text)
+	}
+}
+
 func TestTriageWhySplitsNewFromRecurring(t *testing.T) {
 	dismissed := &waveobj.RadarDisposition{}
 	items := BuildAttention(AttentionInput{Radar: []*waveobj.RadarReport{{
