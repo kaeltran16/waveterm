@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Verify:** `CGO_ENABLED=1 CC="zig cc -target x86_64-windows-gnu" CGO_CFLAGS="-O2 -g -I$(pwd -W)/pkg/jarvisembed/csrc" node scripts/verify.mjs ./pkg/orchestrate/... ./pkg/jarvis/... ./pkg/wshrpc/... ./cmd/wsh/...`
+**Verify:** `CGO_ENABLED=1 CC="zig cc -target x86_64-windows-gnu" node scripts/verify.mjs ./pkg/orchestrate/... ./pkg/jarvis/... ./pkg/wshrpc/... ./cmd/wsh/...`
 **Setup:** `task worktree:prepare`
 **Check:** `go vet ./pkg/orchestrate/... && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /dev/null ./cmd/wsh/`
 
@@ -21,7 +21,7 @@
 - The existing command surface stays: `wsh jarvis dag merge <task>` and `--continue`, and the lead's instructions do not change.
 - `SHARD_MIN_TESTS = 100`, `SHARDS = 4`, `-test.timeout=10m`.
 - Wake text goes through the existing `verifyFailedWake(taskID, reason)` (`queue.go`); the bisect reason is `"<reason>; bisected from t-0, t-1, t-2"`.
-- Go tests in `pkg/orchestrate` need cgo: run them with `CGO_ENABLED=1 CC="zig cc -target x86_64-windows-gnu"`.
+- Go tests in `pkg/orchestrate` need cgo: run them with `CGO_ENABLED=1 CC="zig cc -target x86_64-windows-gnu"`. No `CGO_CFLAGS`.
 - Comments say why, lower case, only where needed. Match the surrounding code's naming and idiom.
 - Commit messages: `type(scope): description`, no attribution trailers.
 
@@ -62,6 +62,9 @@
 func TestReadyLanesMergeAsOneBatchWithOneVerify(t *testing.T) {
 	f := newMergeFixture(t, []waveobj.TaskNode{{ID: "t-0", Label: "a"}, {ID: "t-1", Label: "b"}})
 	f.setPlanCommands(t, verifyCmd, "")
+	effort := f.effortFor(t, "#1 a's", "#2 b's")
+	f.taskChunks(t, "t-0", "#1 a's")
+	f.taskChunks(t, "t-1", "#2 b's")
 	f.land(t)
 	for _, id := range []string{"t-0", "t-1"} {
 		f.finish(t, id)
@@ -77,6 +80,11 @@ func TestReadyLanesMergeAsOneBatchWithOneVerify(t *testing.T) {
 	for _, task := range g.Tasks {
 		if task.State != TaskState_Done || !task.Merged {
 			t.Fatalf("%s: want merged and done, got %s merged=%v", task.ID, task.State, task.Merged)
+		}
+	}
+	for _, label := range []string{"#1 a's", "#2 b's"} {
+		if c := chunkOf(t, f.ctx, effort, label); c.Status != "done" {
+			t.Fatalf("a passing batch closes every lane's chunks: %q is %q", label, c.Status)
 		}
 	}
 	got := calls.list()
@@ -146,10 +154,15 @@ func TestAConflictMidBatchDefersTheBatchVerifyToTheContinue(t *testing.T) {
 
 // a lane whose dependency merged earlier in the same batch is skipped, and the rest of the batch still lands
 func TestALaneWaitingOnABatchMateIsSkippedNotTheBatch(t *testing.T) {
-	// tasks: t-0; t-1 depends on t-0 and t-2 depends on t-0 (so t-0 is its own lane); t-3 independent.
-	// finish t-0 and t-3 only; stubMerge returns "sha-"+title; Verify blocks (stubBlockingVerify).
-	// after AutoMergeReady: t-0 and t-3 merged and verifying, one Verify running (the scheduler may
-	// start t-1 and t-2: stub spawns with stubSpawn).
+	// tasks: t-0; t-1 depends on t-0 and t-2 depends on t-0 (so t-0, t-1, t-2 are lanes of their own); t-3 independent.
+	// finish t-0, t-1 and t-3 by hand (f.finish): laneMergeReady (lane.go:50) does not check deps, so t-1 is
+	// merge-ready while t-0 is not yet merged, which is the case this test needs. stubMerge returns "sha-"+title;
+	// Verify blocks (stubBlockingVerify); stub spawns with stubSpawn.
+	// AutoMergeReady merges t-0 first (waitingOn: t-2 is pending behind it), then t-1 is refused because its
+	// dependency t-0 is now verifying, and t-3 still merges.
+	// want, while the Verify runs: t-0 and t-3 merged and verifying; t-1 not merged and still done, not
+	// blocked-merge and with no MergeError; exactly one Verify started (calls.list() has 1 entry).
+	// open the Verify and await it before the test ends.
 }
 
 // a lost claim resumes the whole batch's Verify, not one lane's
@@ -228,7 +241,7 @@ func batchScopeEnv(ctx context.Context, dagID, tree string, batch []batchTip) []
 }
 ```
 
-`startVerify(channelID, dagID, runID, projectPath, command string, l *landing)` loads the dag in its goroutine, takes `verifyBatch`, and runs Verify with `batchScopeEnv`. Progress goes to every batch tip. It then calls `judgeBatch(...)` and records the result under `WithDagMutation` with `recordBatchVerifyLocked`, then releases the claim and calls `Schedule` as today. `judgeBatch` in this task:
+`startVerify(channelID, dagID, runID, projectPath, command string, l *landing)` loads the dag in its goroutine, takes `verifyBatch`, and runs Verify with `batchScopeEnv`. Progress goes to every batch tip. It then calls `judgeBatch(ctx, ...)` with the claim's context, and records the result under `WithDagMutation` with `recordBatchVerifyLocked`, then releases the claim and calls `Schedule` as today. Today `startVerify` calls `cancel()` right after the command returns (`verify.go:157`). Move that call to after `judgeBatch` returns: Task 2's bisect runs inside `judgeBatch` on that context, and a context cancelled early would make every bisect step see `ctx.Err()` and record nothing. `stopDagVerify` still cancels it for a cancelled dag. `judgeBatch` in this task:
 
 ```go
 func judgeBatch(ctx context.Context, batch []batchTip, ordered bool, output string, verr error, run batchRunner) batchOutcome {
@@ -326,6 +339,10 @@ func mergeBatch(ctx context.Context, channelID string, owner *waveobj.Run, ready
 
 Run: `CGO_ENABLED=1 CC="zig cc -target x86_64-windows-gnu" go test ./pkg/orchestrate/ -count=1`
 Expected: PASS, including the whole package. Existing single-lane tests keep their behavior, because a batch of one is today's path. A test that called `startVerify` or `recordVerifyLocked` directly moves to the new names. Keep what it asserts.
+
+Two existing tests finish two lanes before the first merge, so the batch now lands both with one Verify. Rewrite them to keep what they test, a second lane arriving while a Verify runs:
+- `TestNextMergeWaitsForRunningVerify` (`verify_test.go:373`): call `f.finish(t, "t-1")` only after `verify.waitStarted(t)`. The watchdog tick while t-0's Verify runs must still make no second merge (`*merges == 1`). After `verify.open()`, the two `await()`s are t-0's Verify, whose tick lands t-1, and then t-1's. Both end done with 2 merges.
+- `TestManualMergeRefusesWhileVerifyRuns` (`verify_test.go:494`): call `f.finish(t, "t-1")` after `verify.waitStarted(t)`, then `MergeTask(..., "t-1")` must still fail with `errProjectBusy` naming t-0. After `verify.open()`, the two `await()`s are t-0's Verify and then t-1's, which its tick merges.
 
 - [ ] **Step 6: Commit**
 
@@ -506,7 +523,7 @@ func withDetachedTree(ctx context.Context, project, name, label, commit, setup s
 
 - [ ] **Step 4: Bisect in `judgeBatch`**
 
-On a failure, bisect when `ordered`, `len(batch) >= 2`, and `git rev-parse HEAD` in `run.tree` equals `batch[len(batch)-1].commit`. Otherwise keep Task 1's result.
+The `ctx` here is the claim's context, which Task 1 cancels only after `judgeBatch` returns. Check that in `startVerify` before relying on it: if the run's context were already cancelled, every step would stop at `ctx.Err()`. On a failure, bisect when `ordered`, `len(batch) >= 2`, and `git rev-parse HEAD` in `run.tree` equals `batch[len(batch)-1].commit`. Otherwise keep Task 1's result.
 
 ```go
 	lo, hi := 0, len(batch) // prefix i is the tree at batch[i-1].commit; prefix 0 passed its own Verify, prefix n just failed
@@ -665,15 +682,15 @@ Wiring, all in `verify.mjs`:
   4. Print each shard's collected output in shard order, then `goSummary(importPath, allPassed, seconds)`. Remember a failure, and go on to the next package.
 - After every sharded package ran: remove `<tmp>` (`rmSync(tmp, { recursive: true, force: true })`), and `process.exit(1)` if any failed, before tsc and vitest run. Like today, a Go failure stops the script.
 - `main` becomes `async`, and the script entry calls `main(...).catch((e) => { console.error(`verify: ${e.stack ?? e}`); process.exit(1); })`.
-- The child processes inherit `process.env`, so the Verify line's `CGO_ENABLED`/`CC`/`CGO_CFLAGS` reach `go test -c`. If `goTestEnv` from run 5952d714 is on this branch when you start, pass its result to the `go test -c` build as `run` does.
+- The child processes inherit `process.env`, so the Verify line's `CGO_ENABLED`/`CC` reach `go test -c`. If `goTestEnv` from run 5952d714 is on this branch when you start, pass its result to the `go test -c` build as `run` does.
 
 - [ ] **Step 4: Run the JS tests and the sharded Verify for real**
 
 Run: `node node_modules/vitest/vitest.mjs run scripts/verify.test.mjs`
 Expected: PASS.
 
-Run: `printf 'pkg/orchestrate/wake.go\n' > "$TEMP/changed.txt" && CGO_ENABLED=1 CC="zig cc -target x86_64-windows-gnu" CGO_CFLAGS="-O2 -g -I$(pwd -W)/pkg/jarvisembed/csrc" ARC_VERIFY_CHANGED="$TEMP/changed.txt" node scripts/verify.mjs ./pkg/orchestrate/... ./pkg/jarvis/... ./pkg/wshrpc/... ./cmd/wsh/...`
-Expected: exit 0. It prints `ok` summaries for `pkg/orchestrate`, `pkg/wshrpc/wshserver` and `cmd/wsh/cmd` from the sharded path, and `pkg/orchestrate` runs in well under the ~100 s one process takes. Put the wall time in your report.
+Run: `printf 'pkg/orchestrate/wake.go\n' > "$TEMP/changed.txt" && CGO_ENABLED=1 CC="zig cc -target x86_64-windows-gnu" ARC_VERIFY_CHANGED="$TEMP/changed.txt" node scripts/verify.mjs ./pkg/orchestrate/... ./pkg/jarvis/... ./pkg/wshrpc/... ./cmd/wsh/...`
+Expected: exit 0. It prints `ok` summaries for `pkg/orchestrate`, `pkg/wshrpc/wshserver` and `cmd/wsh/cmd` from the sharded path, and `pkg/orchestrate` runs in well under the ~100 s one process takes. Note the seconds its summary line printed: they go in the commit body (Step 5), where Task 4 reads them.
 
 Run a failing shard once to see it end to end: add a `func TestZZFails(t *testing.T) { t.Fatal("boom") }` to `pkg/orchestrate/zz_test.go` and run the command again. Expected: exit nonzero, and the output shows `--- FAIL: TestZZFails` followed by `FAIL\tgithub.com/.../pkg/orchestrate`. Delete `zz_test.go`.
 
@@ -681,7 +698,7 @@ Run a failing shard once to see it end to end: add a `func TestZZFails(t *testin
 
 ```bash
 git add scripts/verify.mjs scripts/verify.test.mjs pkg/orchestrate/watchdogscope_test.go
-git commit -m "perf(verify): shard the slow Go test packages; count only a watchdog test's own spawns"
+git commit -m "perf(verify): shard the slow Go test packages; count only a watchdog test's own spawns"   -m "Sharded pkg/orchestrate: <N> s in 4 processes (one process: ~100 s).""
 ```
 
 ### Task 4: Record the fixes and the dropped items
@@ -699,7 +716,7 @@ git commit -m "perf(verify): shard the slow Go test packages; count only a watch
 - [ ] **Step 2: The findings doc.** Add a section `## Fixes: merge train and Go test shards` after "Fixes after the handoff". Its table has the same columns as the earlier fix sections (`| # | Fix | Test |`). Rows:
   - `23, 27`, the merge train. Tests: the Task 1 test names.
   - `23, 27`, the bisect. Tests: the Task 2 test names.
-  - `23`, sharding. Tests: `scripts/verify.test.mjs`. Put the `pkg/orchestrate` wall time from Task 3's report in the row.
+  - `23`, sharding. Tests: `scripts/verify.test.mjs`. Put in the `pkg/orchestrate` wall time Task 3 wrote in its commit body. Read it with `git log --grep="shard the slow Go test packages" --format=%B`.
   - `23`, the watchdog test isolation. Test: the sharded `pkg/orchestrate` run.
   - Three rows `27 (dropped)`, one each for the automatic retry, targeted worker checks and incremental tsc, each with a one-sentence reason taken from spec section 4.
 
