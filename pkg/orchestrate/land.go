@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -343,17 +344,52 @@ const planTitleSuffix = " Implementation Plan"
 // a thousand characters.
 const maxLandTitleLen = 72
 
-// landTitle is the merge commit's subject: the plan's title, else the goal's first line.
+// landTitle is the merge commit's subject: the plan's title, else the goal's first line, each cut by landSubject.
 func landTitle(run *waveobj.Run, g *waveobj.TaskGroup) string {
 	if g != nil {
 		if title := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(g.Title), planTitleSuffix)); title != "" {
-			return clipRunes(title, maxLandTitleLen)
+			return landSubject(title)
 		}
 	}
 	if goal, _, _ := strings.Cut(strings.TrimSpace(run.Goal), "\n"); strings.TrimSpace(goal) != "" {
-		return clipRunes(strings.TrimSpace(goal), maxLandTitleLen)
+		return landSubject(strings.TrimSpace(goal))
 	}
 	return "Land run " + run.ID
+}
+
+// absPathToken is a word that is an absolute path (a drive, a share, root or home); trailing punctuation belongs
+// to the sentence around it.
+var absPathToken = regexp.MustCompile(`^([A-Za-z]:[\\/]|\\\\|/|~/)(.*?)([.,;:)]*)$`)
+
+var sentenceEnd = regexp.MustCompile(`[.?!]\s`)
+
+// landSubject makes one line of text a merge subject: absolute paths shrink to their base name, the text stops at
+// its first sentence, and a subject over maxLandTitleLen is cut at a word, so it never ends inside a path.
+func landSubject(s string) string {
+	words := strings.Fields(s)
+	for i, w := range words {
+		m := absPathToken.FindStringSubmatch(w)
+		if m == nil {
+			continue
+		}
+		p := strings.TrimRight(m[1]+m[2], `\/`)
+		if base := p[strings.LastIndexAny(p, `\/`)+1:]; base != "" {
+			words[i] = base + m[3]
+		}
+	}
+	s = strings.Join(words, " ")
+	if loc := sentenceEnd.FindStringIndex(s); loc != nil {
+		s = strings.TrimSuffix(s[:loc[0]+1], ".")
+	}
+	r := []rune(s)
+	if len(r) <= maxLandTitleLen {
+		return s
+	}
+	head := string(r[:maxLandTitleLen])
+	if i := strings.LastIndex(head, " "); i > 0 {
+		return strings.TrimRight(head[:i], ",;: ") + "…"
+	}
+	return clipRunes(s, maxLandTitleLen)
 }
 
 // movedBaseNote is set when the base branch took commits the land's check did not see: all of them when nothing
