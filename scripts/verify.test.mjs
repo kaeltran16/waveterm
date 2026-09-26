@@ -1,7 +1,7 @@
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { needsGoGraph, planVerify, readChanged, readChangedFile } from "./verify.mjs";
+import { SHARDS, countTopLevelTests, dealShards, goSummary, needsGoGraph, planVerify, readChanged, readChangedFile, runPattern } from "./verify.mjs";
 
 const MOD = "github.com/wavetermdev/waveterm";
 const graph = [
@@ -69,5 +69,33 @@ describe("needsGoGraph", () => {
 describe("readChangedFile", () => {
     it("returns null for a list it cannot read, so Verify runs unscoped", () => {
         expect(readChangedFile(join(tmpdir(), "no-such-arc-verify-list.txt"))).toBeNull();
+    });
+});
+
+describe("sharding", () => {
+    it("counts top-level tests, not TestMain, helpers or methods", () => {
+        const src = [
+            "func TestMain(m *testing.M) {}",
+            "func TestA(t *testing.T) {}",
+            "func Test_b(t *testing.T) {}",
+            "func Testhelper(t *testing.T) {}",
+            "func (s *suite) TestC(t *testing.T) {}",
+            "  func TestIndented(t *testing.T) {}",
+            "func TestD (t *testing.T) {}",
+        ].join("\n");
+        expect(countTopLevelTests(src)).toBe(3);
+    });
+    it("deals names round robin and keeps order within a shard", () => {
+        expect(dealShards(["a", "b", "c", "d", "e"], 2)).toEqual([["a", "c", "e"], ["b", "d"]]);
+    });
+    it("makes no empty shard when there are fewer names than shards", () => {
+        expect(dealShards(["a", "b"], SHARDS)).toEqual([["a"], ["b"]]);
+    });
+    it("anchors the run pattern so TestA does not also run TestAB", () => {
+        expect(runPattern(["TestA", "TestB"])).toBe("^(TestA|TestB)$");
+    });
+    it("summarizes a package like go test, so the engine's excerpt finds FAIL", () => {
+        expect(goSummary("example.com/m/pkg/a", true, 1.5)).toBe("ok  \texample.com/m/pkg/a\t1.500s");
+        expect(goSummary("example.com/m/pkg/a", false, 2)).toBe("FAIL\texample.com/m/pkg/a\t2.000s");
     });
 });

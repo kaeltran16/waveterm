@@ -4,9 +4,10 @@
 //
 // usage: node scripts/verify.mjs <go package pattern>...
 
-import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // a change to one of these can move any test's outcome
@@ -15,6 +16,13 @@ const TS_FILE = /\.(ts|tsx)$/;
 const JS_FILE = /\.(ts|tsx|js|jsx|mjs|cjs)$/;
 // the module's Go packages live under these; a path elsewhere cannot change what a Go test sees
 const GO_DIRS = /^(pkg|cmd|db)\//;
+// a package with at least this many top-level tests is split across processes: here those take 2.6 to 110 s, and
+// below it all but one run in seconds
+export const SHARD_MIN_TESTS = 100;
+// pkg/orchestrate took ~100 s in one process, 37-52 s in 4, and 33 s in 6
+export const SHARDS = 4;
+const TOP_LEVEL_TEST = /^func (Test[A-Z0-9_]\w*)\s*\(/gm;
+const LISTED_TEST = /^(Test|Example|Fuzz)\w*$/;
 
 // needsGoGraph reports whether a Go package can hold one of the paths: listing the module's graph takes tens of
 // seconds, and a merge of docs or frontend files cannot reach a Go test.
@@ -94,6 +102,24 @@ function owningPackage(path, pkgs, modulePath) {
     return null;
 }
 
+export function countTopLevelTests(source) {
+    return [...source.matchAll(TOP_LEVEL_TEST)].filter((m) => m[1] !== "TestMain").length;
+}
+
+export function dealShards(names, n) {
+    const shards = Array.from({ length: Math.min(n, names.length) }, () => []);
+    names.forEach((name, i) => shards[i % shards.length].push(name));
+    return shards;
+}
+
+export function runPattern(names) {
+    return `^(${names.join("|")})$`;
+}
+
+export function goSummary(pkg, ok, seconds) {
+    return `${ok ? "ok  " : "FAIL"}\t${pkg}\t${seconds.toFixed(3)}s`;
+}
+
 function run(cmd, args) {
     console.log(`verify: ${cmd} ${args.join(" ")}`);
     const r = spawnSync(cmd, args, { stdio: "inherit" });
@@ -124,10 +150,89 @@ function goGraph() {
     });
 }
 
+function goPackages(args) {
+    return goList(["-f", "{{.ImportPath}}\t{{.Dir}}", ...args]).map((line) => {
+        const [importPath, dir = ""] = line.split("\t");
+        return { importPath, dir };
+    });
+}
+
+function testSource(dir) {
+    return readdirSync(dir)
+        .filter((f) => f.endsWith("_test.go"))
+        .map((f) => readFileSync(join(dir, f), "utf8"))
+        .join("\n");
+}
+
+// goTest runs the packages like go test, except that a package with many tests is built once and its tests are
+// dealt across SHARDS processes; go test runs one package's tests in one process however many cores are idle.
+async function goTest(args) {
+    const pkgs = goPackages(args);
+    // a package go list could not resolve has no dir; go test reports why
+    const sharded = pkgs.filter((p) => p.dir && countTopLevelTests(testSource(p.dir)) >= SHARD_MIN_TESTS);
+    const plain = pkgs.filter((p) => !sharded.includes(p)).map((p) => p.importPath);
+    if (plain.length > 0) {
+        run("go", ["test", ...plain]);
+    }
+    if (sharded.length === 0) {
+        return;
+    }
+    const tmp = mkdtempSync(join(tmpdir(), "arc-verify-"));
+    let failed = false;
+    try {
+        for (const [i, pkg] of sharded.entries()) {
+            const bin = join(tmp, `${i}.test${process.platform === "win32" ? ".exe" : ""}`);
+            failed = !(await runSharded(pkg, bin)) || failed;
+        }
+    } finally {
+        rmSync(tmp, { recursive: true, force: true });
+    }
+    if (failed) {
+        process.exit(1);
+    }
+}
+
+async function runSharded(pkg, bin) {
+    console.log(`verify: go test -c -o ${bin} ${pkg.importPath}, then ${SHARDS} processes`);
+    const start = Date.now();
+    const built = spawnSync("go", ["test", "-c", "-o", bin, pkg.importPath], { stdio: "inherit" });
+    if (built.error || built.status !== 0) {
+        console.error(`verify: could not build the tests of ${pkg.importPath}${built.error ? `: ${built.error.message}` : ""}`);
+        console.log(`FAIL\t${pkg.importPath} [build failed]`);
+        return false;
+    }
+    // a TestMain logs to stderr, so stdout holds only the names
+    const listed = spawnSync(bin, ["-test.list", "."], { cwd: pkg.dir, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+    if (listed.error || listed.status !== 0) {
+        console.error(`verify: could not list the tests of ${pkg.importPath}:\n${listed.error?.message ?? listed.stderr}`);
+        console.log(goSummary(pkg.importPath, false, (Date.now() - start) / 1000));
+        return false;
+    }
+    const names = listed.stdout.split("\n").map((l) => l.trim()).filter((l) => LISTED_TEST.test(l));
+    const results = await Promise.all(dealShards(names, SHARDS).map((shard) => runShard(bin, pkg.dir, shard)));
+    for (const r of results) {
+        process.stdout.write(r.output);
+    }
+    const ok = results.every((r) => r.ok);
+    console.log(goSummary(pkg.importPath, ok, (Date.now() - start) / 1000));
+    return ok;
+}
+
+function runShard(bin, dir, names) {
+    return new Promise((done) => {
+        const chunks = [];
+        const child = spawn(bin, ["-test.run", runPattern(names), "-test.timeout=10m"], { cwd: dir });
+        child.stdout.on("data", (c) => chunks.push(c));
+        child.stderr.on("data", (c) => chunks.push(c));
+        child.on("error", (e) => done({ ok: false, output: `verify: could not run ${bin}: ${e.message}\n` }));
+        child.on("close", (code) => done({ ok: code === 0, output: Buffer.concat(chunks).toString("utf8") }));
+    });
+}
+
 const VITEST = ["node_modules/vitest/vitest.mjs", "run"];
 const TSC = ["--stack-size=4000", "node_modules/typescript/lib/tsc.js", "--noEmit"];
 
-function main(patterns) {
+async function main(patterns) {
     if (patterns.length === 0) {
         console.error("usage: node scripts/verify.mjs <go package pattern>...");
         process.exit(2);
@@ -135,7 +240,7 @@ function main(patterns) {
     const listFile = process.env.ARC_VERIFY_CHANGED;
     const changed = listFile ? readChangedFile(listFile) : null;
     if (!changed) {
-        run("go", ["test", ...patterns]);
+        await goTest(patterns);
         run("node", VITEST);
         return;
     }
@@ -150,7 +255,7 @@ function main(patterns) {
         return;
     }
     if (goArgs.length > 0) {
-        run("go", ["test", ...goArgs]);
+        await goTest(goArgs);
     }
     if (plan.tsc) {
         run("node", TSC);
@@ -172,5 +277,8 @@ function main(patterns) {
 // run as a script, not when the test imports it; Windows may differ in the drive letter's case
 const self = fileURLToPath(import.meta.url).toLowerCase();
 if (process.argv[1] && resolve(process.argv[1]).toLowerCase() === self) {
-    main(process.argv.slice(2));
+    main(process.argv.slice(2)).catch((e) => {
+        console.error(`verify: ${e.stack ?? e}`);
+        process.exit(1);
+    });
 }
