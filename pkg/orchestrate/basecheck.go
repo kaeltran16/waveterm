@@ -76,35 +76,58 @@ func startBaseCheck(dagID, runID, project, commit, setup, check string) {
 	}()
 }
 
-// runBaseCheck runs Check in a detached tree at commit, never in a tree anyone works in, and removes the tree.
-func runBaseCheck(ctx context.Context, runID, project, commit, setup, check string) (string, string) {
-	wt := worktreeDir(project, runID+"-base")
+// treeStepError is a step of a detached tree that could not run, as against the command run in it failing.
+type treeStepError struct {
+	step string
+	err  error
+}
+
+func (e *treeStepError) Error() string { return e.step + ": " + e.err.Error() }
+func (e *treeStepError) Unwrap() error { return e.err }
+
+// withDetachedTree runs fn in a tree detached at commit, never in a tree anyone works in, after the plan's Setup, and
+// removes the tree.
+func withDetachedTree(ctx context.Context, project, name, label, commit, setup string, fn func(wt string) error) error {
+	wt := worktreeDir(project, name)
 	if _, err := os.Stat(wt); err == nil {
 		if err := removeWorktreeDir(ctx, project, wt); err != nil {
-			return BaseCheckState_Skipped, "removing a stale base tree: " + err.Error()
+			return &treeStepError{"removing a stale " + label, err}
 		}
 	}
 	if _, err := git(ctx, project, "worktree", "add", "--detach", wt, commit); err != nil {
-		return BaseCheckState_Skipped, "creating the base tree: " + err.Error()
+		return &treeStepError{"creating the " + label, err}
 	}
 	defer func() {
 		if err := removeWorktreeDir(context.Background(), project, wt); err != nil {
-			log.Printf("run %s: removing the base tree: %v", runID, err)
+			log.Printf("removing the %s %s: %v", label, wt, err)
 		}
 	}()
 	if setup != "" {
 		if _, err := runPlanCommand(ctx, wt, setup, nil, SetupTimeout, nil); err != nil {
-			return BaseCheckState_Skipped, "Setup failed in the base tree: " + failureDetail(err)
+			return &treeStepError{"Setup failed in the " + label, errors.New(failureDetail(err))}
 		}
 	}
-	if _, err := runPlanCommand(ctx, wt, check, nil, VerifyTimeout, nil); err != nil {
-		var pe *planCommandError
-		if !errors.As(err, &pe) {
-			return BaseCheckState_Skipped, "running Check: " + err.Error()
-		}
+	return fn(wt)
+}
+
+// runBaseCheck runs Check in a detached tree at commit.
+func runBaseCheck(ctx context.Context, runID, project, commit, setup, check string) (string, string) {
+	err := withDetachedTree(ctx, project, runID+"-base", "base tree", commit, setup, func(wt string) error {
+		_, err := runPlanCommand(ctx, wt, check, nil, VerifyTimeout, nil)
+		return err
+	})
+	if err == nil {
+		return BaseCheckState_Passed, ""
+	}
+	var se *treeStepError
+	if errors.As(err, &se) {
+		return BaseCheckState_Skipped, err.Error()
+	}
+	var pe *planCommandError
+	if errors.As(err, &pe) {
 		return BaseCheckState_Failed, failureDetail(err)
 	}
-	return BaseCheckState_Passed, ""
+	return BaseCheckState_Skipped, "running Check: " + err.Error()
 }
 
 func recordBaseCheckLocked(ctx context.Context, dagID, setup, check, state, detail string) error {

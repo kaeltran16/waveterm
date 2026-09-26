@@ -136,7 +136,7 @@ func continueBlockedMerge(ctx context.Context, channelID string, owner *waveobj.
 		verify, ferr = FinishMergedTask(ctx, channelID, owner.DagORef, task.RunID, task.ID, sha)
 		return ferr
 	})
-	landAfterMerge(channelID, owner, task.ID, verify, l)
+	landAfterMerge(channelID, owner, verify, l)
 	return err
 }
 
@@ -158,20 +158,21 @@ func mergeTaskEntry(ctx context.Context, channelID, ownerRunID, taskID string, r
 	var verify string
 	err = withDagMutation(owner.DagORef, func() error {
 		var lerr error
-		verify, lerr = mergeTaskLocked(ctx, channelID, owner, taskID, requireCleanIndex)
+		verify, lerr = mergeTaskLocked(ctx, channelID, owner, taskID, requireCleanIndex, nil)
 		return lerr
 	})
-	landAfterMerge(channelID, owner, taskID, verify, l)
+	landAfterMerge(channelID, owner, verify, l)
 	return err
 }
 
-// landAfterMerge hands the project claim to the Verify a landed merge waits on, or releases it.
-func landAfterMerge(channelID string, owner *waveobj.Run, taskID, verify string, l *landing) {
+// landAfterMerge hands the project claim to the Verify a landed merge waits on, or releases it. That Verify judges
+// every verifying lane tip, not only this merge's.
+func landAfterMerge(channelID string, owner *waveobj.Run, verify string, l *landing) {
 	if verify == "" {
 		releaseProject(jarvis.LandPath(owner), l)
 		return
 	}
-	startVerify(channelID, owner.DagORef, owner.ID, taskID, jarvis.LandPath(owner), verify, l)
+	startVerify(channelID, owner.DagORef, owner.ID, jarvis.LandPath(owner), verify, l)
 }
 
 // errIndexNotClean is the automatic path's refusal: the squash commit commits whatever the index
@@ -180,8 +181,9 @@ var errIndexNotClean = errors.New("project index is not clean")
 
 // mergeTaskLocked lands the lane holding taskID and returns the plan's Verify command when the landed merge
 // now waits on it. A lane lands as one squash commit recorded on its tip, whichever of its tasks was named,
-// and only once every task in it is done or skipped.
-func mergeTaskLocked(ctx context.Context, channelID string, owner *waveobj.Run, taskID string, requireCleanIndex bool) (string, error) {
+// and only once every task in it is done or skipped. batch is the lane tips the caller merged before this one
+// under the same claim: they are verifying, and their Verify waits for this merge.
+func mergeTaskLocked(ctx context.Context, channelID string, owner *waveobj.Run, taskID string, requireCleanIndex bool, batch []string) (string, error) {
 	g, err := wstore.GetDag(ctx, owner.DagORef)
 	if err != nil {
 		return "", err
@@ -228,8 +230,10 @@ func mergeTaskLocked(ctx context.Context, channelID string, owner *waveobj.Run, 
 		// AutoMergeReady checks this from a read taken before the claim, which misses a Verify that failed
 		// and released in between
 		for _, state := range []string{TaskState_Verifying, TaskState_VerifyFailed} {
-			if held := tasksInState(g, state); len(held) > 0 {
-				return "", fmt.Errorf("%w: task %s is %s", errProjectBusy, held[0], state)
+			for _, id := range tasksInState(g, state) {
+				if !slices.Contains(batch, id) {
+					return "", fmt.Errorf("%w: task %s is %s", errProjectBusy, id, state)
+				}
 			}
 		}
 		clean, cerr := IndexClean(ctx, jarvis.LandPath(owner))
@@ -366,18 +370,19 @@ func persistMergedTask(ctx context.Context, channelID, dagID, childRunID, taskID
 // Under MergeRequired the merge is what unblocks a dependent in another lane, so leaving it to the
 // lead put a language model on the critical path of every edge in the dag; dispatch has always been
 // the watchdog's job and this makes the merge match. A conflict still stops at the human: the task
-// goes blocked-merge exactly as it does from the RPC, and is not retried on the next tick. A merge also
-// waits for the Verify of the one before it, and a failed Verify holds every later merge until it passes.
+// goes blocked-merge exactly as it does from the RPC, and is not retried on the next tick. Every ready lane
+// lands in one batch judged by one Verify; the next batch waits for it, and a failed Verify or a conflict
+// waiting for --continue holds every later merge until the lead acts.
 func AutoMergeReady(ctx context.Context, dagID string) {
 	g, err := wstore.GetDag(ctx, dagID)
 	if err != nil || g.Status == DagStatus_Cancelled || !g.MergeRequired {
 		return
 	}
-	if ids := tasksInState(g, TaskState_Verifying); len(ids) > 0 {
-		resumeVerify(ctx, g, ids[0])
+	if len(tasksInState(g, TaskState_VerifyFailed)) > 0 || conflictAwaitingContinue(g, "") != "" {
 		return
 	}
-	if len(tasksInState(g, TaskState_VerifyFailed)) > 0 {
+	if len(tasksInState(g, TaskState_Verifying)) > 0 {
+		resumeVerify(ctx, g)
 		return
 	}
 	ready := autoMergeable(g)
@@ -390,24 +395,57 @@ func AutoMergeReady(ctx context.Context, dagID string) {
 	if err != nil {
 		return
 	}
+	merged, err := mergeBatch(ctx, g.ChannelId, owner, ready)
+	switch {
+	case errors.Is(err, errIndexNotClean):
+		// the human is mid-edit in the project tree; the lanes stay merge-ready for them and the next
+		// tick retries. Reported once per tick, not once per lane.
+		log.Printf("dag %s: holding %d merge(s), project index is not clean", g.ID, len(ready)-merged)
+		noteMergesHeld(ctx, g, len(ready)-merged)
+	case err == nil, errors.Is(err, ErrMergeConflict), errors.Is(err, errProjectBusy):
+		// errProjectBusy is another landing's claim: its Verify ticks the dag when it finishes
+		noteMergesHeld(ctx, g, 0)
+	}
+}
+
+// mergeBatch lands each ready lane in order under one project claim, then hands the claim to one Verify for all of
+// them. A conflict leaves the tree mid-merge, so no Verify starts: the continue's Verify takes the whole batch.
+func mergeBatch(ctx context.Context, channelID string, owner *waveobj.Run, ready []string) (int, error) {
+	l, err := claimProject(jarvis.LandPath(owner), owner.DagORef, ready[0])
+	if err != nil {
+		return 0, err
+	}
+	var batch []string
+	verify := ""
 	for _, taskID := range ready {
-		err := mergeTaskEntry(ctx, g.ChannelId, owner.ID, taskID, true)
-		switch {
-		case err == nil, errors.Is(err, ErrMergeConflict):
-			noteMergesHeld(ctx, g, 0)
-		case errors.Is(err, errProjectBusy):
-			// a landing holds the checkout; its Verify ticks the dag when it finishes
-			return
-		case errors.Is(err, errIndexNotClean):
-			// the human is mid-edit in the project tree; the tasks stay merge-ready for them and
-			// the next tick retries. Reported once per tick, not once per task.
-			log.Printf("dag %s: holding %d merge(s), project index is not clean", g.ID, len(ready))
-			noteMergesHeld(ctx, g, len(ready))
-			return
-		default:
-			log.Printf("dag %s: auto-merging task %s: %v", g.ID, taskID, err)
+		var v string
+		err = withDagMutation(owner.DagORef, func() error {
+			var lerr error
+			v, lerr = mergeTaskLocked(ctx, channelID, owner, taskID, true, batch)
+			return lerr
+		})
+		// a merge whose cleanup failed still landed, and still returns the Verify it waits on
+		if err == nil || v != "" {
+			batch = append(batch, taskID)
+		}
+		if v != "" {
+			verify = v
+		}
+		if errors.Is(err, ErrMergeConflict) || errors.Is(err, errIndexNotClean) {
+			break
+		}
+		if err != nil {
+			// git refused this lane, or its dependency is verifying (maybe merged earlier in this batch): the rest can still land
+			log.Printf("dag %s: auto-merging task %s: %v", owner.DagORef, taskID, err)
+			err = nil
 		}
 	}
+	if verify == "" || errors.Is(err, ErrMergeConflict) {
+		releaseProject(jarvis.LandPath(owner), l)
+		return len(batch), err
+	}
+	startVerify(channelID, owner.DagORef, owner.ID, jarvis.LandPath(owner), verify, l)
+	return len(batch), err
 }
 
 // mergesHeld remembers which dags are currently holding their merges on a dirty index, so the hold is
@@ -433,8 +471,8 @@ func noteMergesHeld(ctx context.Context, g *waveobj.TaskGroup, held int) {
 
 // autoMergeable lists the lanes that can be landed without asking anyone, by their tip: every task
 // finished or skipped, nothing merged yet, every gate released. blocked-merge is excluded — a conflicted
-// tree is the human's. Only one lane lands per Verify, so the lane the most pending tasks wait on goes first,
-// then plan order.
+// tree is the human's. They land in this order in one batch, and the first that cannot land may end it, so the
+// lane the most pending tasks wait on goes first, then plan order.
 func autoMergeable(g *waveobj.TaskGroup) []string {
 	var out []string
 	for _, lane := range jarvis.Lanes(g.Tasks) {

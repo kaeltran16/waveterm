@@ -5,6 +5,8 @@ package orchestrate
 
 import (
 	"context"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -67,8 +69,11 @@ func silentSiblingDag(t *testing.T, name string, mutate func(*waveobj.TaskGroup)
 
 	spawns := 0
 	old := spawnWorker
-	spawnWorker = func(context.Context, runroute.Capability, string, string, string, string, jarvis.RunWorkerOptions) (string, error) {
-		spawns++
+	spawnWorker = func(_ context.Context, _ runroute.Capability, _, _, cwd, _ string, _ jarvis.RunWorkerOptions) (string, error) {
+		// watchdogTick also ticks dags other tests left in the store; only this dag's spawns break the rule
+		if strings.HasPrefix(filepath.Clean(cwd), filepath.Clean(ch.ProjectPath)) {
+			spawns++
+		}
 		return "tab:worker", nil
 	}
 	t.Cleanup(func() { spawnWorker = old })

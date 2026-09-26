@@ -16,7 +16,6 @@ func TestContinueReRunsAFailedVerify(t *testing.T) {
 	f := newMergeFixture(t, []waveobj.TaskNode{{ID: "t-0", Label: "first"}, {ID: "t-1", Label: "second"}})
 	f.setPlanCommands(t, verifyCmd, "")
 	f.finish(t, "t-0")
-	f.finish(t, "t-1")
 	merges := stubMerge(t, landedSha)
 	var failing atomic.Bool
 	failing.Store(true)
@@ -35,6 +34,8 @@ func TestContinueReRunsAFailedVerify(t *testing.T) {
 	if got := f.dag(t).Tasks[0].State; got != TaskState_VerifyFailed {
 		t.Fatalf("setup: want verify-failed, got %s", got)
 	}
+	// t-1 finishes after t-0's batch, so only a passing Verify lets it land
+	f.finish(t, "t-1")
 	if err := Schedule(f.ctx, f.dagID); err != nil {
 		t.Fatal(err)
 	}

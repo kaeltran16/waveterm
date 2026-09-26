@@ -243,8 +243,9 @@ that every task must edit is what sets a plan's width, so keep that edit out of 
 
 - **Setup** runs in every new lane worktree before its first worker (2-minute limit), and once in a run's own
   branch tree when the plan is submitted. **Verify** runs where lanes land (the project checkout, or the run's
-  own branch tree) after every lane merge (20-minute limit), with `ARC_VERIFY_CHANGED` naming a file that lists
-  the paths the merge changed, one per line: a Verify that reads it should test only what those paths can break.
+  own branch tree) after every batch of lane merges (20-minute limit), with `ARC_VERIFY_CHANGED` naming a file
+  that lists the paths the batch changed, one per line: a Verify that reads it should test only what those paths
+  can break.
   The final stage runs Verify once more with `ARC_VERIFY_CHANGED` unset, on the merged result, where it runs
   everything. Both are optional, both run in a POSIX shell (Git Bash on Windows).
 - **Check** is a fast whole-project static check. Each worker runs it itself instead of Verify, and the final
@@ -273,6 +274,19 @@ squash merge. The squash commit carries its workers' commit messages, oldest fir
 `Arc-Run:` trailer; the plan's task titles stand in only when those messages are empty. Independent tasks and tasks after a fork or join start their own lane. Lanes are what
 parallelism counts. A task whose dependency is in another lane starts once that lane has merged, while the merge's
 Verify still runs; a failed Verify holds the next merge, not a dependent's start.
+
+**Merges batch.** When nothing holds the merge queue, every ready lane merges, each as its own squash commit,
+and one Verify judges them all, scoped from the oldest of them to `HEAD`. A lane whose dependency merged earlier
+in the same batch waits for the next one. A conflict ends the batch, and no Verify starts while the tree is
+mid-merge: the lanes merged before it are verified with the conflicted one after the lead's `--continue`. If
+the Verify of a batch of two or more fails, the engine bisects it: it verifies prefixes of the batch in a
+detached tree, `<project>/.waveterm/worktrees/<run>-bisect`, set up with the plan's Setup, until it finds the
+first lane whose merge fails. The lanes before that one land. That one is verify-failed, and the lead is woken
+("… bisected from t-1, t-4, t-6"). The lanes after it stay verifying, shown as "held", and the Verify after the
+lead's fix and `dag merge <task> --continue` judges them together. A single lane is never bisected, and neither
+is a batch after a fix commit, since a prefix without the fix would blame that lane again: the oldest lane
+takes the failure. A bisect that cannot run (the tree or its Setup fails) blames the oldest lane not yet known
+good, so it never lands a lane no Verify passed.
 
 ### Start it
 
