@@ -177,7 +177,6 @@ func autoRetryStalled(ctx context.Context, g *waveobj.TaskGroup, taskID string) 
 		return false
 	}
 	task.StallRetries++
-	task.CPUSample, task.CPUSampleTs = 0, 0
 	return true
 }
 
@@ -297,6 +296,11 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		if t.State == TaskState_Running && workerControllerGone(ctx, runs[t.RunID]) {
 			t.State = TaskState_Stalled
 		}
+		verdict := cpuNone
+		if t.State == TaskState_Running || t.State == TaskState_Stalled {
+			verdict = sampleWorkerCPU(ctx, t, runs[t.RunID], now)
+			t.LatestTool = workerLatestTool(ctx, runs[t.RunID])
+		}
 		activity, tracked := lastActivityForRun(runs[t.RunID])
 		if activity > t.LastActivity {
 			t.LastActivity = activity
@@ -353,9 +357,11 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		// a worker whose turn ended with its run still open has nothing left to write, so its transcript can sit
 		// fresh for all of StallThreshold while nobody hears of it (run 28caa81f's t-4). Its CPU still decides,
 		// because a turn can end on a background test run.
-		quiet := t.LastActivity > 0 && now-t.LastActivity > StallThreshold.Milliseconds()
+		// silence is the transcript's and the CPU's together: a busy sample restarts it as a write would. Only a
+		// fresh idle sample, or none at all, lets a quiet task stall; a skipped or first reading defers a tick
+		quiet := t.LastActivity > 0 && now-max(t.LastActivity, t.BusyTs) > StallThreshold.Milliseconds()
 		if t.State == TaskState_Running && (quiet || turnEndedPast(ctx, runs[t.RunID], now)) &&
-			!childStillWorking(ctx, t, runs[t.RunID], now) {
+			(verdict == cpuIdle || verdict == cpuNone) {
 			t.State = TaskState_Stalled
 		}
 		// first-token deadline: a child that has written nothing has no mtime to age, so without this

@@ -259,9 +259,22 @@ func taskSignal(state string, td wshrpc.DagTaskDigest, now int64) string {
 	case td.VerifyStartedTs > 0:
 		return verifySignal(td, now)
 	case td.FreshnessTs > 0 && (state == orchestrate.TaskState_Running || state == orchestrate.TaskState_Stalled):
-		return "idle " + compactDur(now-td.FreshnessTs)
+		return workerSignal(td, now)
 	}
 	return ""
+}
+
+// workerSignal is how long the worker has been silent, and whether it is running a command meanwhile: a foreground
+// test writes no transcript, so silence alone read as "idle" while the worker was busy.
+func workerSignal(td wshrpc.DagTaskDigest, now int64) string {
+	head := "idle " + compactDur(now-td.FreshnessTs)
+	if td.Busy {
+		head = "running a command " + compactDur(now-td.FreshnessTs)
+	}
+	if td.LatestTool != "" {
+		head += " · " + compactText(td.LatestTool, 60)
+	}
+	return head
 }
 
 // verifySignal is a running Verify's age and its latest output line. Verify runs outside a block, so

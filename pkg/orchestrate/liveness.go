@@ -6,6 +6,7 @@ package orchestrate
 import (
 	"context"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/shirou/gopsutil/v4/process"
@@ -201,35 +202,72 @@ func processTree(root *process.Process) []*process.Process {
 	return tree
 }
 
-// childStillWorking reports whether a task whose transcript has gone quiet must not be stalled yet:
-// its worker is running and its process tree used CPU since the last sample. A worker sitting in a
-// foreground test run writes no transcript for as long as the run lasts, so the mtime cannot see it.
-// The first reading has nothing to compare with, so it is recorded and the verdict is deferred a tick
-// rather than guessed: a wrong stall costs a retry that kills live work, a late one costs a tick. A total
-// that fell counts as activity, because a child that finished and exited lowers the tree's sum; a rise
-// counts only above IdleCPUShare, because an idle harness at its prompt still ticks. No reading at all
-// returns false and leaves the mtime rule alone.
-func childStillWorking(ctx context.Context, t *waveobj.TaskNode, run *waveobj.Run, now int64) bool {
+// cpuSampleEvery is the least time between two CPU readings of a worker: event-driven Schedule calls land
+// seconds apart, and a delta over a few seconds says little. A var so tests that tick back to back can zero it.
+var cpuSampleEvery = 20 * time.Second
+
+// BusyWindow is how recent a busy CPU sample must be for status to call a worker busy: two sample intervals,
+// so one skipped sample doesn't flip a busy worker to idle.
+const BusyWindow = 2 * 20 * time.Second
+
+// MaxLatestToolLen bounds the in-progress tool call a task carries.
+const MaxLatestToolLen = 80
+
+// cpuVerdict is what one sampleWorkerCPU call showed.
+type cpuVerdict int
+
+const (
+	cpuNone cpuVerdict = iota
+	cpuSkipped
+	cpuBaseline
+	cpuBusy
+	cpuIdle
+)
+
+// sampleWorkerCPU reads the worker's process-tree CPU at most once per cpuSampleEvery and says what it showed.
+// cpuSkipped means too soon since the last reading; cpuBaseline, a first reading with nothing to compare; cpuNone,
+// no worker or no reading. A worker sitting in a foreground test run writes no transcript for as long as the run
+// lasts, so the mtime cannot see it; this can. A first reading defers the stall verdict a tick rather than
+// guessing it: a wrong stall costs a retry that kills live work, a late one costs a tick. A total that fell counts
+// as busy, because a child that finished and exited lowers the tree's sum; a rise counts only above IdleCPUShare,
+// because an idle harness at its prompt still ticks.
+func sampleWorkerCPU(ctx context.Context, t *waveobj.TaskNode, run *waveobj.Run, now int64) cpuVerdict {
+	if t.CPUSampleTs > 0 && now-t.CPUSampleTs < cpuSampleEvery.Milliseconds() {
+		return cpuSkipped
+	}
 	blockId, alive := workerBlockFn(ctx, run)
 	if !alive {
-		return false
+		return cpuNone
 	}
 	cpu, ok := childCPUTime(blockId)
 	if !ok {
-		return false
+		return cpuNone
 	}
 	prev, prevTs := t.CPUSample, t.CPUSampleTs
 	t.CPUSample, t.CPUSampleTs = cpu, now
 	if prevTs == 0 {
-		return true
+		return cpuBaseline
 	}
-	// a lower total means a child in the tree exited, which is activity; a rise counts only above an idle
-	// harness's own ticking
 	if delta := cpu - prev; delta < 0 || (delta > 0 && float64(delta) >= IdleCPUShare*float64(now-prevTs)) {
-		t.LastActivity = now
-		return true
+		t.BusyTs = now
+		return cpuBusy
 	}
-	return false
+	return cpuIdle
+}
+
+// workerLatestTool is the tool call a worker has in progress, from its latest status: the PreToolUse hook (claude)
+// and the status extension (pi) report working with a detail, and PostToolUse reports working without one.
+var workerLatestTool = func(ctx context.Context, run *waveobj.Run) string {
+	blockId, alive := workerBlockFn(ctx, run)
+	if blockId == "" || !alive {
+		return ""
+	}
+	st := latestAgentStatus(blockId, runTabID(run))
+	if st.State != baseds.AgentState_Working {
+		return ""
+	}
+	// a byte cut can split a rune
+	return strings.ToValidUTF8(truncateText(st.Detail, MaxLatestToolLen), "")
 }
 
 // workerControllerGone reports whether a child's worker block exists but no controller runs it, which is

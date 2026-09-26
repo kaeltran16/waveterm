@@ -1598,6 +1598,8 @@ declare global {
         askts?: number;
         askdeadline?: number;
         freshnessts?: number;
+        busy?: boolean;
+        latesttool?: string;
         verifystartedts?: number;
         verifylastline?: string;
         recoveredretry?: boolean;
@@ -2646,6 +2648,8 @@ declare global {
         lastactivity?: number;
         cpusample?: number;
         cpusamplets?: number;
+        busyts?: number;
+        latesttool?: string;
         stallretries?: number;
         firstactivity?: number;
         toldts?: number;

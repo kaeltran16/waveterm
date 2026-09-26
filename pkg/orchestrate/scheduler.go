@@ -115,6 +115,8 @@ func MarkRunning(g *waveobj.TaskGroup, taskID, runID string) error {
 		if g.Tasks[i].ID == taskID {
 			g.Tasks[i].State = TaskState_Running
 			g.Tasks[i].RunID = runID
+			// an earlier attempt's readings must never describe the new worker
+			g.Tasks[i].CPUSample, g.Tasks[i].CPUSampleTs, g.Tasks[i].BusyTs, g.Tasks[i].LatestTool = 0, 0, 0, ""
 			return nil
 		}
 	}

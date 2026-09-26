@@ -67,7 +67,7 @@ func BuildDigest(sn DagDigestSnapshot) wshrpc.DagStatusDigest {
 		}
 	}
 	for i := range g.Tasks {
-		td := buildTaskDigest(g, &g.Tasks[i], askByTask, retried)
+		td := buildTaskDigest(g, &g.Tasks[i], askByTask, retried, sn.Now.UnixMilli())
 		withReview(&td, &g.Tasks[i], runByID[g.Tasks[i].RunID])
 		d.Tasks = append(d.Tasks, td)
 	}
@@ -480,10 +480,14 @@ func dependencyWait(g *waveobj.TaskGroup) ([]string, []string) {
 	return waiting, blocking
 }
 
-func buildTaskDigest(g *waveobj.TaskGroup, t *waveobj.TaskNode, askByTask map[string]wshrpc.DagAskItem, retried map[string]bool) wshrpc.DagTaskDigest {
+func buildTaskDigest(g *waveobj.TaskGroup, t *waveobj.TaskNode, askByTask map[string]wshrpc.DagAskItem, retried map[string]bool, now int64) wshrpc.DagTaskDigest {
 	td := wshrpc.DagTaskDigest{
 		TaskId:      t.ID,
 		FreshnessTs: t.LastActivity,
+	}
+	if t.State == TaskState_Running || t.State == TaskState_Stalled {
+		td.Busy = t.BusyTs > 0 && now-t.BusyTs <= BusyWindow.Milliseconds()
+		td.LatestTool = t.LatestTool
 	}
 	if ask, ok := askByTask[t.ID]; ok {
 		td.WaitReason = "ask"

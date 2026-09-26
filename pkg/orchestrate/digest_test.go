@@ -797,6 +797,31 @@ func TestMergeGateWithoutDoneEventIsNotStale(t *testing.T) {
 	}
 }
 
+func TestDigestBusyIsARecentBusySample(t *testing.T) {
+	now := time.UnixMilli(10_000_000)
+	cases := []struct {
+		name   string
+		state  string
+		busyTs int64
+		want   bool
+	}{
+		{"busy 30s ago", TaskState_Running, now.UnixMilli() - 30_000, true},
+		{"busy 60s ago", TaskState_Running, now.UnixMilli() - 60_000, false},
+		{"a done task", TaskState_Done, now.UnixMilli() - 30_000, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			g := digestGroup(t, false, []waveobj.TaskNode{{ID: "t-0", Label: "a"}})
+			g.Tasks[0].State = c.state
+			g.Tasks[0].BusyTs = c.busyTs
+			d := BuildDigest(DagDigestSnapshot{Group: g, Now: now})
+			if d.Tasks[0].Busy != c.want {
+				t.Fatalf("Busy = %v, want %v", d.Tasks[0].Busy, c.want)
+			}
+		})
+	}
+}
+
 func TestDigestCarriesTheWorkersResultAndReview(t *testing.T) {
 	g := digestGroup(t, false, []waveobj.TaskNode{{ID: "t-1", Label: "a"}})
 	g.Tasks[0].State = TaskState_Done
