@@ -32,7 +32,7 @@ import (
 
 // verifPattern matches a shell command that is a verification step (test / lint / typecheck / build).
 // Evidence-only: a command that does not match is simply not reported (we never invent expected steps).
-var verifPattern = regexp.MustCompile(`\b(test|typecheck|tsc|lint|vitest|jest|pytest|go test|cargo test|build|e2e|smoke)\b`)
+var verifPattern = regexp.MustCompile(`\b(test|typecheck|tsc|lint|vitest|jest|pytest|go test|cargo test|build|vet|check|e2e|smoke)\b`)
 
 // VerifResult_Ran marks a verification line read from a worker's transcript. The command ran, but its exit
 // status is no verdict: a pipe to tail reports tail's, and a grep that finds nothing fails. Only the
@@ -51,25 +51,67 @@ var verifRunners = map[string]bool{
 // argument splits there too; at worst that drops a line, it never invents one.
 var shellSegmentSep = regexp.MustCompile(`&&|\|\||[;|\n]`)
 
-var envAssignment = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
+// leadingEnv matches the env assignments before a simple command's runner, quoted values included, so
+// CC="zig cc -target ..." does not hide the runner behind its value's words.
+var leadingEnv = regexp.MustCompile(`^\s*(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|\S*)\s+)*`)
 
-// isVerifCommand reports whether command runs a verification step: some simple command in it is led by a
-// known runner and names a verification action.
-func isVerifCommand(command string) bool {
-	for _, seg := range shellSegmentSep.Split(command, -1) {
-		fields := strings.Fields(seg)
-		for len(fields) > 0 && envAssignment.MatchString(fields[0]) {
-			fields = fields[1:]
+// inlineScriptFlags make a runner run a script given inline or on stdin. That is an edit or a probe, never a
+// check, even when the script names a test file.
+var inlineScriptFlags = map[string]map[string]bool{
+	"node":   {"-e": true, "--eval": true, "-p": true, "--print": true, "-": true},
+	"bun":    {"-e": true, "--eval": true, "-p": true, "--print": true, "-": true},
+	"python": {"-c": true, "-": true},
+}
+
+func inlineScript(runner string, args []string) bool {
+	for _, a := range args {
+		if inlineScriptFlags[runner][a] {
+			return true
 		}
+		if !strings.HasPrefix(a, "-") {
+			return false
+		}
+	}
+	return false
+}
+
+// heredocStart opens a heredoc; a <<< herestring does not.
+var heredocStart = regexp.MustCompile(`(?:^|[^<])<<-?\s*['"]?([A-Za-z_][A-Za-z0-9_]*)['"]?`)
+
+// stripHeredocs drops heredoc bodies, so a script's lines are never read as commands. An unterminated heredoc
+// drops the rest.
+func stripHeredocs(command string) string {
+	lines := strings.Split(command, "\n")
+	var out []string
+	for i := 0; i < len(lines); i++ {
+		out = append(out, lines[i])
+		m := heredocStart.FindStringSubmatch(lines[i])
+		if m == nil {
+			continue
+		}
+		for i+1 < len(lines) && strings.TrimSpace(lines[i+1]) != m[1] {
+			i++
+		}
+		i++
+	}
+	return strings.Join(out, "\n")
+}
+
+// verifChecks returns the simple commands in command that run a check: led by a known runner, naming a
+// verification action, and not an inline script. The edits, cds and pipes around them are not checks.
+func verifChecks(command string) []string {
+	var checks []string
+	for _, seg := range shellSegmentSep.Split(stripHeredocs(command), -1) {
+		fields := strings.Fields(leadingEnv.ReplaceAllString(seg, ""))
 		if len(fields) == 0 {
 			continue
 		}
 		runner := strings.TrimSuffix(path.Base(strings.ReplaceAll(fields[0], `\`, "/")), ".exe")
-		if verifRunners[runner] && verifPattern.MatchString(seg) {
-			return true
+		if verifRunners[runner] && !inlineScript(runner, fields[1:]) && verifPattern.MatchString(seg) {
+			checks = append(checks, strings.TrimSpace(seg))
 		}
 	}
-	return false
+	return checks
 }
 
 // evBlock is a content block with the fields evidence needs (superset of agentobserve's internal block).
@@ -206,8 +248,11 @@ func (a *verifAccum) addTranscript(lines []string) {
 		for _, b := range blocks {
 			switch b.Type {
 			case "tool_use":
-				if b.Name == "Bash" && isVerifCommand(b.Input.Command) {
-					byToolID[b.ID] = strings.TrimSpace(b.Input.Command)
+				// the accumulator keys on the checks alone, so the same test after different edits merges
+				if b.Name == "Bash" {
+					if checks := verifChecks(b.Input.Command); len(checks) > 0 {
+						byToolID[b.ID] = strings.Join(checks, "; ")
+					}
 				}
 			case "tool_result":
 				command, live := byToolID[b.ToolUseID]
