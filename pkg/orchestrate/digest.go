@@ -345,7 +345,7 @@ func buildNext(g *waveobj.TaskGroup, askByTask map[string]wshrpc.DagAskItem) wsh
 	if ids := mergeReadyIDs(g); len(ids) > 0 {
 		return mergeReadyStep(ids)
 	}
-	// 4c. a merged task's Verify is running; the next merge and its dependents wait on it
+	// 4c. a merged task's Verify is running; the next merge waits on it
 	if ids := tasksInState(g, TaskState_Verifying); len(ids) > 0 {
 		return wshrpc.DagNextStep{Kind: "verify-wait", TaskIds: ids}
 	}

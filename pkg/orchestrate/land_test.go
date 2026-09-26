@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -335,6 +336,133 @@ func TestLandReverifiesCommitsAfterTheFinalStage(t *testing.T) {
 			t.Fatalf("land = %+v, want landed without re-running Verify", land)
 		}
 	})
+}
+
+func (f *mergeFixture) setLandCommands(t *testing.T, check, verify string) {
+	t.Helper()
+	if err := wstore.UpdateDag(f.ctx, f.dagID, func(cur *waveobj.TaskGroup) error {
+		cur.Check, cur.Verify = check, verify
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// commitOnBase commits file on the checkout's branch, as another session would. Only that file: "." would also
+// commit the landing tree nested under .waveterm, which a real base never holds.
+func commitOnBase(t *testing.T, project, file, content string) {
+	t.Helper()
+	writeFile(t, filepath.Join(project, file), content)
+	gitCmd(t, project, "add", "--", file)
+	gitCmd(t, project, "commit", "-m", "change "+file)
+}
+
+// mergeInProgress reports whether dir is stopped inside a merge.
+func mergeInProgress(dir string) bool {
+	return exec.Command("git", "-C", dir, "rev-parse", "-q", "--verify", "MERGE_HEAD").Run() == nil
+}
+
+func TestLandChecksTheRunMergedWithItsMovedBase(t *testing.T) {
+	t.Run("the check sees the base's commits and lands with no note", func(t *testing.T) {
+		f, _ := landFixture(t)
+		commitOnBase(t, f.project, "upstream.txt", "base\n")
+		f.setLandCommands(t, "", "test -f upstream.txt && test -f feature.txt")
+		land := f.landRun(t, false)
+		if land.State != LandState_Landed || len(land.Notes) != 0 {
+			t.Fatalf("land = %+v, want landed with no unverified-combination note", land)
+		}
+	})
+	t.Run("a Verify that fails on the combination holds, and the tree is put back", func(t *testing.T) {
+		f, tree := landFixture(t)
+		commitOnBase(t, f.project, "upstream.txt", "base\n")
+		f.setLandCommands(t, "", "test ! -f upstream.txt")
+		head := gitCmd(t, f.project, "rev-parse", "main")
+		branchHead := gitCmd(t, tree, "rev-parse", "HEAD")
+		f.assertHeld(t, f.landRun(t, false), head, "Verify `test ! -f upstream.txt` failed")
+		if mergeInProgress(tree) || gitCmd(t, tree, "rev-parse", "HEAD") != branchHead {
+			t.Fatal("the landing tree is left mid-merge or moved")
+		}
+		if _, err := os.Stat(filepath.Join(tree, "upstream.txt")); !os.IsNotExist(err) {
+			t.Fatalf("the base's file is left in the landing tree, stat err %v", err)
+		}
+	})
+	t.Run("a conflict with the base holds, and the tree is put back", func(t *testing.T) {
+		f, tree := landFixture(t)
+		commitOnBase(t, f.project, "feature.txt", "the base's own feature\n")
+		f.setLandCommands(t, "", "true")
+		head := gitCmd(t, f.project, "rev-parse", "main")
+		f.assertHeld(t, f.landRun(t, false), head, "feature.txt")
+		if mergeInProgress(tree) {
+			t.Fatal("the landing tree is left mid-merge")
+		}
+	})
+	t.Run("Verify is scoped to what changed since the verified commit", func(t *testing.T) {
+		f, tree := landFixture(t)
+		commitOnBranch(t, tree, "wrapup.md", "wrap-up\n")
+		commitOnBase(t, f.project, "upstream.txt", "base\n")
+		out := filepath.ToSlash(t.TempDir())
+		f.setLandCommands(t, "", `cat "$ARC_VERIFY_CHANGED" > `+out+`/changed`)
+		if land := f.landRun(t, false); land.State != LandState_Landed {
+			t.Fatalf("land = %+v, want landed", land)
+		}
+		if got := strings.Fields(readFile(t, filepath.Join(out, "changed"))); !reflect.DeepEqual(got, []string{"upstream.txt", "wrapup.md"}) {
+			t.Fatalf("the scope is the wrap-up plus the base's change, got %q", got)
+		}
+	})
+	t.Run("a base commit that lands during the check is still noted", func(t *testing.T) {
+		f, _ := landFixture(t)
+		commitOnBase(t, f.project, "upstream.txt", "base\n")
+		// the check itself moves main, the way another session's commit would
+		f.setLandCommands(t, "git -C '"+filepath.ToSlash(f.project)+"' commit -q --allow-empty -m late", "true")
+		land := f.landRun(t, false)
+		want := []string{"merged onto 1 commit that landed on main during the run; the combination was not verified"}
+		if land.State != LandState_Landed || !reflect.DeepEqual(land.Notes, want) {
+			t.Fatalf("land = %+v, want landed noting only the late commit", land)
+		}
+	})
+}
+
+// a Check the base already failed at submit fails on the merged base too; holding on it would leave no way to land
+func TestLandNotesACheckFailureTheBaseShares(t *testing.T) {
+	setup := func(t *testing.T, verify string) *mergeFixture {
+		f, _ := landFixture(t)
+		commitOnBase(t, f.project, "upstream.txt", "base\n")
+		f.setLandCommands(t, "echo 'error TS2307: three'; exit 2", verify)
+		if err := wstore.UpdateDag(f.ctx, f.dagID, func(cur *waveobj.TaskGroup) error {
+			cur.BaseCheck = &waveobj.BaseCheck{State: BaseCheckState_Failed, Commit: "abc", Detail: "exit 2: error TS2307"}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return f
+	}
+	t.Run("it lands with a note", func(t *testing.T) {
+		land := setup(t, "true").landRun(t, false)
+		if land.State != LandState_Landed || !slices.ContainsFunc(land.Notes, func(n string) bool {
+			return strings.Contains(n, "already failed on the base") && strings.Contains(n, "TS2307")
+		}) {
+			t.Fatalf("land = %+v, want landed with a note on the shared Check failure", land)
+		}
+	})
+	t.Run("a failing Verify still holds", func(t *testing.T) {
+		f := setup(t, "exit 1")
+		head := gitCmd(t, f.project, "rev-parse", "main")
+		f.assertHeld(t, f.landRun(t, false), head, "Verify `exit 1` failed")
+	})
+}
+
+// a landing tree someone left mid-merge is not a tree the check can speak for
+func TestLandHoldsALandingTreeLeftMidMerge(t *testing.T) {
+	f, tree := landFixture(t)
+	commitOnBranch(t, tree, "wrapup.md", "wrap-up\n")
+	gitCmd(t, f.project, "branch", "side", "main")
+	gitCmd(t, f.project, "switch", "-q", "side")
+	commitOnBase(t, f.project, "side.txt", "side\n")
+	gitCmd(t, f.project, "switch", "-q", "main")
+	gitCmd(t, tree, "merge", "--no-commit", "--no-ff", "side")
+	f.setLandCommands(t, "", "true")
+	head := gitCmd(t, f.project, "rev-parse", "main")
+	f.assertHeld(t, f.landRun(t, false), head, "mid-merge")
 }
 
 func TestLandNotesCommitsThatLandedOnTheBaseDuringTheRun(t *testing.T) {

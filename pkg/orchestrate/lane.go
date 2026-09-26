@@ -74,9 +74,10 @@ func mergeReadyTip(g *waveobj.TaskGroup, t *waveobj.TaskNode) bool {
 	return tip != nil && tip.ID == t.ID
 }
 
-// laneLanded reports whether a lane's work is on the project branch and verified: each task skipped, or
-// done, merged and past its gate.
-func laneLanded(g *waveobj.TaskGroup, lane []string) bool {
+// laneMerged reports whether a lane's work is on the project branch: each task skipped, or merged and past its
+// gate. Its Verify may still be running, or have failed: that holds the next merge, not a dependent's start, so
+// a chain link no longer waits minutes for tests its dependent does not need to begin.
+func laneMerged(g *waveobj.TaskGroup, lane []string) bool {
 	for _, id := range lane {
 		t := taskByID(g, id)
 		if t == nil {
@@ -85,7 +86,7 @@ func laneLanded(g *waveobj.TaskGroup, lane []string) bool {
 		if t.State == TaskState_Skipped {
 			continue
 		}
-		if t.State != TaskState_Done || !t.Merged || (t.Gate && !t.Released) {
+		if !t.Merged || (t.Gate && !t.Released) {
 			return false
 		}
 	}

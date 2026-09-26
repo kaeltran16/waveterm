@@ -111,7 +111,8 @@ func landRun(ctx context.Context, run *waveobj.Run, g *waveobj.TaskGroup, force 
 	if reason := checkoutHold(ctx, run); reason != "" {
 		return heldLand(reason)
 	}
-	if reason := reverifyHold(ctx, run, g); reason != "" {
+	reason, checkedBase, checkNote := reverifyHold(ctx, run, g)
+	if reason != "" {
 		return heldLand(reason)
 	}
 	claim, err := claimProject(project, runDagID(run, g), "land-back")
@@ -136,7 +137,10 @@ func landRun(ctx context.Context, run *waveobj.Run, g *waveobj.TaskGroup, force 
 	if land.Commit, err = ProjectHeadCommit(ctx, project); err != nil {
 		log.Printf("run %s: reading the land's merge commit: %v", run.ID, err)
 	}
-	if note := movedBaseNote(ctx, run, pre); note != "" {
+	if checkNote != "" {
+		land.Notes = append(land.Notes, checkNote)
+	}
+	if note := movedBaseNote(ctx, run, pre, checkedBase); note != "" {
 		land.Notes = append(land.Notes, note)
 	}
 	// the evidence keeps the branch's tip, so the tree and the branch are no longer needed
@@ -201,34 +205,66 @@ func checkoutHold(ctx context.Context, run *waveobj.Run) string {
 	return ""
 }
 
-// reverifyHold runs Check and Verify again in the landing tree when the branch moved past the commit the final
-// stage verified: the lead's wrap-up commits land too, and nothing checked them.
-func reverifyHold(ctx context.Context, run *waveobj.Run, g *waveobj.TaskGroup) string {
-	if g == nil {
-		return ""
+// reverifyHold checks what the final stage never saw before the run lands: the lead's wrap-up commits after it,
+// and the base's commits since the run forked. It merges the base into the landing tree without committing, runs
+// Check, then Verify scoped to what differs from the verified commit, and puts the tree back. checkedBase is the
+// base commit the run was checked against, so the land notes only base commits that arrived after it.
+func reverifyHold(ctx context.Context, run *waveobj.Run, g *waveobj.TaskGroup) (reason, checkedBase, note string) {
+	if g == nil || (g.Check == "" && g.Verify == "") {
+		return "", "", ""
 	}
 	head, err := WorktreeHeadCommit(ctx, run.ProjectPath, run.ID)
 	if err != nil {
-		return "reading the run's branch: " + err.Error()
+		return "reading the run's branch: " + err.Error(), "", ""
 	}
-	if g.Final != nil && head == g.Final.Commit {
-		return ""
+	base, err := git(ctx, run.ProjectPath, "rev-parse", run.BaseBranch)
+	if err != nil {
+		return "reading " + run.BaseBranch + ": " + err.Error(), "", ""
 	}
-	if g.Check == "" && g.Verify == "" {
-		return ""
+	verified := ""
+	if g.Final != nil {
+		verified = g.Final.Commit
+	}
+	_, ancestorErr := git(ctx, run.ProjectPath, "merge-base", "--is-ancestor", base, head)
+	baseMoved := ancestorErr != nil
+	if head == verified && !baseMoved {
+		return "", base, ""
 	}
 	if err := checkLandingTree(ctx, run); err != nil {
-		return "the branch moved past what the final stage verified, and it cannot be checked again: " + err.Error()
+		return "the run changed after the final stage verified it, and it cannot be checked again: " + err.Error(), "", ""
 	}
-	for _, c := range []struct{ name, cmd string }{{"Check", g.Check}, {"Verify", g.Verify}} {
+	// a merge someone left open would be checked as if it were the run's
+	if _, err := git(ctx, run.LandPath, "rev-parse", "-q", "--verify", "MERGE_HEAD"); err == nil {
+		return "the landing tree " + run.LandPath + " is stopped mid-merge; finish or abort that merge there, then land again", "", ""
+	}
+	if baseMoved {
+		if _, err := git(ctx, run.LandPath, "merge", "--no-commit", "--no-ff", base); err != nil {
+			return "checking the run merged with " + run.BaseBranch + " in its landing tree: " + mergeRefusal(ctx, run.LandPath, run.BaseBranch, err), "", ""
+		}
+		defer func() {
+			if _, err := git(context.Background(), run.LandPath, "merge", "--abort"); err != nil {
+				log.Printf("run %s: putting the landing tree back after the land's check: %v", run.ID, err)
+			}
+		}()
+	}
+	env := changedFilesEnv(ctx, run.LandPath, verified, "", run.ID+"-land")
+	for _, c := range []struct {
+		name, cmd string
+		env       []string
+	}{{"Check", g.Check, nil}, {"Verify", g.Verify, env}} {
 		if c.cmd == "" {
 			continue
 		}
-		if _, err := runPlanCommand(ctx, run.LandPath, c.cmd, VerifyTimeout, nil); err != nil {
-			return fmt.Sprintf("the branch moved past what the final stage verified, and %s `%s` failed on it (%s)", c.name, c.cmd, failureDetail(err))
+		if _, err := runPlanCommand(ctx, run.LandPath, c.cmd, c.env, VerifyTimeout, nil); err != nil {
+			// the final stage let this through as unverified; holding here would leave no way to land
+			if c.name == "Check" && baseCheckFailed(g) {
+				note = sharedCheckFailure(g, "the run merged with "+run.BaseBranch, failureDetail(err))
+				continue
+			}
+			return fmt.Sprintf("the run changed after the final stage verified it, and %s `%s` failed on the run merged with %s (%s)", c.name, c.cmd, run.BaseBranch, failureDetail(err)), "", ""
 		}
 	}
-	return ""
+	return "", base, note
 }
 
 // clearUntrackedCopies removes an untracked file in the checkout that is the same as one the branch adds: the
@@ -320,13 +356,18 @@ func landTitle(run *waveobj.Run, g *waveobj.TaskGroup) string {
 	return "Land run " + run.ID
 }
 
-// movedBaseNote is set when the base branch took commits while the run worked: the final stage verified the
-// branch alone, never the two together. The run's own commits are excluded, should any reach the base.
-func movedBaseNote(ctx context.Context, run *waveobj.Run, pre string) string {
-	if run.BaseCommit == "" {
+// movedBaseNote is set when the base branch took commits the land's check did not see: all of them when nothing
+// was checked, else those after the base commit the check merged. The run's own commits are excluded, should any
+// reach the base.
+func movedBaseNote(ctx context.Context, run *waveobj.Run, pre, checkedBase string) string {
+	from := run.BaseCommit
+	if checkedBase != "" {
+		from = checkedBase
+	}
+	if from == "" {
 		return ""
 	}
-	out, err := git(ctx, run.ProjectPath, "rev-list", "--count", pre, "^"+run.BaseCommit, "^wave/"+run.ID)
+	out, err := git(ctx, run.ProjectPath, "rev-list", "--count", pre, "^"+from, "^wave/"+run.ID)
 	if err != nil {
 		log.Printf("run %s: counting the base's new commits: %v", run.ID, err)
 		return ""

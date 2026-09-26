@@ -22,18 +22,15 @@ func useVerifier(t *testing.T) {
 	t.Cleanup(func() { startVerifier = skipVerifier })
 }
 
-// verifyingFixture is a checkout-landed dag whose final stage has no commands, ticked once: its verifier is
+// verifyingFixture is a checkout-landed dag whose final stage runs only a passing Verify: its verifier is
 // working in the detached final tree. It returns the verifier's run id.
 func verifyingFixture(t *testing.T) (*mergeFixture, *fakeLead, string) {
 	t.Helper()
 	useVerifier(t)
 	captureSpawns(t)
 	lead := newFakeLead(t)
-	f := finalFixture(t, verifyCmd, "", "")
-	if err := Schedule(f.ctx, f.dagID); err != nil {
-		t.Fatal(err)
-	}
-	g := f.dag(t)
+	f := finalFixture(t, passVerify, "", "")
+	g := runFinal(t, f)
 	if g.Final.State != FinalState_Verifying || g.Final.VerifierRunID == "" {
 		t.Fatalf("want a verifier at work, got %+v", g.Final)
 	}
@@ -44,7 +41,7 @@ func TestTheVerifierJudgesTheMergedResultOnceTheStepsPass(t *testing.T) {
 	useVerifier(t)
 	calls := captureSpawns(t)
 	newFakeLead(t)
-	f := finalFixture(t, verifyCmd, "", "echo shot")
+	f := finalFixture(t, passVerify, "", "echo shot")
 	base := gitCmd(t, f.project, "rev-parse", "HEAD")
 	spec, plan := filepath.Join(f.project, "spec.md"), filepath.Join(f.project, "plan.md")
 	if err := wstore.UpdateRun(f.ctx, f.channel, f.ownerID, func(r *waveobj.Run) error {

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"slices"
 	"strings"
 	"time"
 
@@ -219,6 +220,10 @@ func mergeTaskLocked(ctx context.Context, channelID string, owner *waveobj.Run, 
 		}
 		return "", err
 	}
+	// a dependent starts at its dependency's merge, so it can finish while that merge's Verify runs or has failed
+	if dep := unverifiedDependency(g, lane); dep != nil {
+		return "", fmt.Errorf("%w: task %s depends on task %s, which is %s", errProjectBusy, task.ID, dep.ID, dep.State)
+	}
 	if requireCleanIndex {
 		// AutoMergeReady checks this from a read taken before the claim, which misses a Verify that failed
 		// and released in between
@@ -428,7 +433,8 @@ func noteMergesHeld(ctx context.Context, g *waveobj.TaskGroup, held int) {
 
 // autoMergeable lists the lanes that can be landed without asking anyone, by their tip: every task
 // finished or skipped, nothing merged yet, every gate released. blocked-merge is excluded — a conflicted
-// tree is the human's.
+// tree is the human's. Only one lane lands per Verify, so the lane the most pending tasks wait on goes first,
+// then plan order.
 func autoMergeable(g *waveobj.TaskGroup) []string {
 	var out []string
 	for _, lane := range jarvis.Lanes(g.Tasks) {
@@ -436,7 +442,50 @@ func autoMergeable(g *waveobj.TaskGroup) []string {
 			out = append(out, tip.ID)
 		}
 	}
+	slices.SortStableFunc(out, func(a, b string) int { return waitingOn(g, b) - waitingOn(g, a) })
 	return out
+}
+
+// unverifiedDependency returns a task in another lane that lane depends on and whose Verify is running or failed.
+func unverifiedDependency(g *waveobj.TaskGroup, lane []string) *waveobj.TaskNode {
+	for _, id := range lane {
+		for _, depID := range taskByID(g, id).Deps {
+			dep := taskByID(g, depID)
+			if dep != nil && !slices.Contains(lane, depID) && (dep.State == TaskState_Verifying || dep.State == TaskState_VerifyFailed) {
+				return dep
+			}
+		}
+	}
+	return nil
+}
+
+// waitingOn counts the pending tasks that depend on tipID's lane, directly or through other tasks.
+func waitingOn(g *waveobj.TaskGroup, tipID string) int {
+	behind := map[string]bool{}
+	for _, id := range laneOf(g, tipID) {
+		behind[id] = true
+	}
+	// to a fixed point, since nothing promises a JSON dag lists its tasks in dependency order
+	for grew := true; grew; {
+		grew = false
+		for i := range g.Tasks {
+			t := &g.Tasks[i]
+			if behind[t.ID] {
+				continue
+			}
+			if slices.ContainsFunc(t.Deps, func(d string) bool { return behind[d] }) {
+				behind[t.ID], grew = true, true
+			}
+		}
+	}
+	// the lane's own tasks are done, never pending, so only the tasks behind it count
+	n := 0
+	for id := range behind {
+		if t := taskByID(g, id); t != nil && t.State == TaskState_Pending {
+			n++
+		}
+	}
+	return n
 }
 
 // IndexClean reports whether the project has nothing staged. Unstaged edits are left alone by the

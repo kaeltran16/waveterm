@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -496,5 +497,32 @@ func TestHoldingMergesOnADirtyIndexIsRecordedOncePerHold(t *testing.T) {
 	}
 	if mergesHeld.Get(f.dagID) {
 		t.Fatal("a landed merge clears the hold")
+	}
+}
+
+func TestAutoMergeableLandsFirstTheLaneMostPendingTasksWaitOn(t *testing.T) {
+	g := mustGroup(t, []waveobj.TaskNode{
+		{ID: "t-0", Label: "leaf"},
+		{ID: "t-1", Label: "hub"},
+		// two dependents keep t-1 a lane of its own; t-4 waits on it through t-2
+		{ID: "t-2", Label: "a", Deps: []string{"t-1"}},
+		{ID: "t-3", Label: "b", Deps: []string{"t-1"}},
+		{ID: "t-4", Label: "c", Deps: []string{"t-2"}},
+	})
+	g.MergeRequired = true
+	for _, id := range []string{"t-0", "t-1"} {
+		task := taskByID(g, id)
+		task.State, task.RunID = TaskState_Done, "run-"+id
+	}
+	if got := autoMergeable(g); !reflect.DeepEqual(got, []string{"t-1", "t-0"}) {
+		t.Fatalf("want the hub first (3 tasks wait on it), then plan order, got %v", got)
+	}
+	if n := waitingOn(g, "t-1"); n != 3 {
+		t.Fatalf("t-2, t-3 and, through t-2, t-4 wait on t-1; got %d", n)
+	}
+	// a started task is no longer waiting
+	taskByID(g, "t-2").State = TaskState_Running
+	if n := waitingOn(g, "t-1"); n != 2 {
+		t.Fatalf("t-3 and t-4 still wait; got %d", n)
 	}
 }

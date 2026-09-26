@@ -46,7 +46,8 @@ func ReadyTasks(g *waveobj.TaskGroup) []string {
 
 // depSatisfied reports whether dependency depID lets taskID start. Without merges, finishing is enough.
 // With them, a dependency in the same lane only has to be done, because its commits are already in the tree
-// the lane shares; one in another lane is satisfied once its whole lane has landed on the project branch.
+// the lane shares; one in another lane is satisfied once its whole lane has merged onto the project branch,
+// before its Verify passes.
 func depSatisfied(g *waveobj.TaskGroup, taskID, depID string) bool {
 	dep := taskByID(g, depID)
 	if dep == nil {
@@ -59,7 +60,7 @@ func depSatisfied(g *waveobj.TaskGroup, taskID, depID string) bool {
 	if slices.Contains(lane, taskID) {
 		return dep.State == TaskState_Skipped || (dep.State == TaskState_Done && (!dep.Gate || dep.Released))
 	}
-	return laneLanded(g, lane)
+	return laneMerged(g, lane)
 }
 
 // NextToSpawn returns ready tasks the engine should spawn now: ready minus busy,

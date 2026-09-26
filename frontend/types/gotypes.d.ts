@@ -206,6 +206,13 @@ declare global {
         badge?: Badge;
     };
 
+    // waveobj.BaseCheck
+    type BaseCheck = {
+        state: string;
+        commit?: string;
+        detail?: string;
+    };
+
     // waveobj.Block
     type Block = WaveObj & {
         parentoref?: string;
@@ -2612,6 +2619,7 @@ declare global {
         verify?: string;
         setup?: string;
         check?: string;
+        basecheck?: BaseCheck;
         finalcmd?: string;
         prototype?: string;
         preamble?: string;

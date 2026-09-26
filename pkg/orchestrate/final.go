@@ -21,8 +21,8 @@ import (
 
 // Final stage states (TaskGroup.Final.State). Empty is a round set up but not started.
 const (
-	FinalState_Checking   = "checking"  // Check, then the Final command, are running
-	FinalState_Final      = "final"     // Check passed; the Final command is running
+	FinalState_Checking   = "checking"  // Check, Verify, then the Final command, are running
+	FinalState_Final      = "final"     // Check and Verify passed; the Final command is running
 	FinalState_Verifying  = "verifying" // the deterministic steps passed; the verifier session judges the result
 	FinalState_Passed     = "passed"
 	FinalState_Unverified = "unverified" // nothing failed, but something could not be verified
@@ -100,7 +100,7 @@ func advanceFinal(ctx, spawnCtx context.Context, g *waveobj.TaskGroup, owner *wa
 	f := g.Final
 	if f.State == "" {
 		*f = waveobj.FinalStage{State: FinalState_Checking, Round: f.Round, OutDir: finalOutDir(g.OID, f.Round), StartedTs: now}
-		if g.Check == "" && g.FinalCmd == "" {
+		if g.Check == "" && g.Verify == "" && g.FinalCmd == "" {
 			switch {
 			case owner.LandPath != "":
 				f.Tree = owner.LandPath
@@ -207,8 +207,19 @@ func runFinalSteps(ctx context.Context, dagID string, owner *waveobj.Run) finalR
 		log.Printf("dag %s: reading the final tree's head: %v", dagID, err)
 	}
 	if g.Check != "" {
-		if out, err := runPlanCommand(ctx, tree, g.Check, VerifyTimeout, nil); err != nil {
-			res.detail = fmt.Sprintf("Check `%s` failed (%s):\n%s", g.Check, commandReason(err), out)
+		if out, err := runPlanCommand(ctx, tree, g.Check, nil, VerifyTimeout, nil); err != nil {
+			if !baseCheckFailed(g) {
+				res.detail = fmt.Sprintf("Check `%s` failed (%s):\n%s", g.Check, commandReason(err), out)
+				return res
+			}
+			// a fix round cannot fix someone else's commit, so it goes on as unverified
+			res.unverified = append(res.unverified, sharedCheckFailure(g, "the merged result", failureDetail(err)))
+		}
+	}
+	// per merge Verify tested only what each merge changed; the whole suite runs once, here, on the merged result
+	if g.Verify != "" {
+		if out, err := runPlanCommand(ctx, tree, g.Verify, unscopedEnv, VerifyTimeout, nil); err != nil {
+			res.detail = fmt.Sprintf("Verify `%s` failed on the merged result (%s):\n%s", g.Verify, commandReason(err), out)
 			return res
 		}
 	}
@@ -375,7 +386,7 @@ func finalTree(ctx context.Context, g *waveobj.TaskGroup, owner *waveobj.Run) (s
 		}
 	}
 	if g.Setup != "" {
-		if _, err := runPlanCommand(ctx, wt, g.Setup, SetupTimeout, nil); err != nil {
+		if _, err := runPlanCommand(ctx, wt, g.Setup, nil, SetupTimeout, nil); err != nil {
 			cleanup()
 			return "", nil, fmt.Errorf("Setup failed in the final tree: %s", failureDetail(err))
 		}

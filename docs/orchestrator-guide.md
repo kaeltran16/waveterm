@@ -243,12 +243,17 @@ that every task must edit is what sets a plan's width, so keep that edit out of 
 
 - **Setup** runs in every new lane worktree before its first worker (2-minute limit), and once in a run's own
   branch tree when the plan is submitted. **Verify** runs where lanes land (the project checkout, or the run's
-  own branch tree) after every lane merge (20-minute limit). Both are optional, both run in a POSIX shell (Git
-  Bash on Windows).
+  own branch tree) after every lane merge (20-minute limit), with `ARC_VERIFY_CHANGED` naming a file that lists
+  the paths the merge changed, one per line: a Verify that reads it should test only what those paths can break.
+  The final stage runs Verify once more with `ARC_VERIFY_CHANGED` unset, on the merged result, where it runs
+  everything. Both are optional, both run in a POSIX shell (Git Bash on Windows).
 - **Check** is a fast whole-project static check. Each worker runs it itself instead of Verify, and the final
-  stage runs it once on the merged result. **Final** is one command the final stage runs on the merged result,
-  and **Prototype** names the design canvas the result should match (a path, not in backticks). All three are
-  optional; see [The final stage](#the-final-stage).
+  stage runs it once on the merged result. The engine also runs it once at submit, in a detached tree at the
+  commit the lanes start from; if it fails there, the lead is woken, every worker is told those failures are
+  not theirs, and the final stage and the land report a failing Check as unverified instead of failing.
+  **Final** is one command the final stage runs on the merged result, and **Prototype** names the design canvas
+  the result should match (a path, not in backticks). All three are optional; see
+  [The final stage](#the-final-stage).
 - Headings are `### Task N` or `## Task N`, numbered 1, 2, 3… in order.
 - `**Depends on:**` must be the first line after the heading. Left out, the task depends on the task before it,
   so a plan with no Depends lines is **serial**. `none` means independent. References must point backwards.
@@ -266,7 +271,8 @@ The engine turns tasks into **lanes**: a chain where each task has one dependenc
 shares one worktree and one branch, each task a fresh worker committing on top of the last, and lands as one
 squash merge. The squash commit carries its workers' commit messages, oldest first, and names the lane in an
 `Arc-Run:` trailer; the plan's task titles stand in only when those messages are empty. Independent tasks and tasks after a fork or join start their own lane. Lanes are what
-parallelism counts.
+parallelism counts. A task whose dependency is in another lane starts once that lane has merged, while the merge's
+Verify still runs; a failed Verify holds the next merge, not a dependent's start.
 
 ### Start it
 
@@ -544,12 +550,15 @@ removed when the stage ends. It never runs in the shared checkout.
 
 **The steps, in order:**
 
-1. **Check**, the plan's Check line, on the merged result (20-minute limit). A non-zero exit fails the stage.
-2. **Final**, the plan's `**Final:**` command, in a POSIX shell with `ARC_FINAL_OUT` set to a fresh directory
+1. **Check**, the plan's Check line, on the merged result (20-minute limit). A non-zero exit fails the stage,
+   unless Check already failed on the base at submit: then the stage goes on and reports it as unverified.
+2. **Verify**, the plan's Verify line with `ARC_VERIFY_CHANGED` unset, on the merged result (20-minute limit). A
+   non-zero exit fails the stage.
+3. **Final**, the plan's `**Final:**` command, in a POSIX shell with `ARC_FINAL_OUT` set to a fresh directory
    for its screenshots and reports (`<temp>/arc-final/<dag>/<round>`, outside every tree). Exit 0 passes. Exit
    3 means it could not verify, and its last output line becomes an unverified reason. Any other exit, or
    running past 30 minutes ("timed out"), fails the stage with the output tail.
-3. **The verifier**, a fresh session in the final tree on the lead's route, unless a step above failed. Its
+4. **The verifier**, a fresh session in the final tree on the lead's route, unless a step above failed. Its
    brief names the spec and plan, `git diff <base>..<head>` of the run, `ARC_FINAL_OUT`, the `**Prototype:**`
    canvas, and every unverified note so far. It checks that the combined change does what the spec asks, and
    looks for breaks where tasks meet: code one task changed that another uses, a name two tasks spell
@@ -561,7 +570,7 @@ removed when the stage ends. It never runs in the shared checkout.
    without a verdict, is replaced once. One lost twice adds the unverified reason
    `the verifier did not finish: <why>`.
 
-With no Check and no Final line, the stage goes straight to the verifier.
+With no Check, no Verify and no Final line, the stage goes straight to the verifier.
 
 **The outcome:**
 
@@ -621,12 +630,13 @@ evidence keeps the branch's tip. Landing is its own step with its own state, so 
 
 Before merging, the engine takes these steps:
 
-- If the branch moved past the commit the final stage verified, which the lead's wrap-up commits do, it runs Check
-  and Verify again in the landing tree.
+- If the branch moved past the commit the final stage verified, or the base took commits since the run forked, it
+  merges the base into the landing tree without committing and runs Check, then Verify with `ARC_VERIFY_CHANGED`
+  listing what differs from the verified commit. It then aborts that merge.
 - It removes an untracked file in the checkout that is identical to one the run adds, such as the spec or plan the
   lead wrote there before submit.
-- If the base took commits while the run worked, the land records the note "merged onto N commits that landed on
-  <base> during the run; the combination was not verified".
+- The land notes the base commits that arrived after that check, "merged onto N commits that landed on <base>
+  during the run; the combination was not verified".
 
 It **holds** the land, with a reason, and leaves the checkout as it was, when:
 
@@ -636,7 +646,9 @@ It **holds** the land, with a reason, and leaves the checkout as it was, when:
 - the checkout is stopped mid-merge, mid-rebase or mid-cherry-pick;
 - the checkout has staged changes;
 - an untracked file in the checkout differs from one the run adds;
-- the re-run Check or Verify fails;
+- the land's Check or Verify fails (a Check that already failed on the base at submit only adds a note), or
+  the run conflicts with the base in the landing tree;
+- the landing tree is stopped mid-merge;
 - the merge conflicts (it is aborted, and the reason names the files);
 - git refuses to overwrite uncommitted edits to files the merge touches (the edits stay).
 

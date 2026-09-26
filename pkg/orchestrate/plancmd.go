@@ -124,21 +124,16 @@ func shortDuration(d time.Duration) string {
 // a command nobody watches: only Verify has a surface waiting on its progress.
 type planProgress func(tail string) bool
 
-// runPlanCommand runs a plan command through a POSIX shell in dir and returns the tail of its output,
-// on a pass as well as a failure. A var so engine tests can script Setup and Verify without running
-// anything; a stub calls progress itself to script mid-run output.
-var runPlanCommand = execPlanCommand
+// runPlanCommand runs a plan command through a POSIX shell in dir, with env added to its environment, and
+// returns the tail of its output, on a pass as well as a failure. A var so engine tests can script Setup and
+// Verify without running anything; a stub calls progress itself to script mid-run output.
+var runPlanCommand = execPlanCommandEnv
 
 // RunSetup runs a plan's Setup command in dir under SetupTimeout and returns its output tail.
 func RunSetup(ctx context.Context, dir, command string) (string, error) {
-	return runPlanCommand(ctx, dir, command, SetupTimeout, nil)
+	return runPlanCommand(ctx, dir, command, nil, SetupTimeout, nil)
 }
 
-func execPlanCommand(ctx context.Context, dir, command string, timeout time.Duration, progress planProgress) (string, error) {
-	return execPlanCommandEnv(ctx, dir, command, nil, timeout, progress)
-}
-
-// execPlanCommandEnv is execPlanCommand with env added to the command's environment.
 func execPlanCommandEnv(ctx context.Context, dir, command string, env []string, timeout time.Duration, progress planProgress) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()

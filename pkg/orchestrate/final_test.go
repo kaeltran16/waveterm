@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +17,9 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
+
+// passVerify is a Verify the final stage can run for real and pass.
+const passVerify = "true"
 
 // finalFixture is a checkout-landed git dag whose one task has landed, with the plan's Verify, Check and
 // Final commands set. Its next tick starts the final stage.
@@ -95,10 +99,38 @@ func TestLandedDagStatusFollowsTheFinalStage(t *testing.T) {
 	}
 }
 
+func TestFinalRunsVerifyUnscopedAfterCheck(t *testing.T) {
+	out := filepath.ToSlash(t.TempDir())
+	verify := `test -z "$ARC_VERIFY_CHANGED" && test -f ` + out + `/check && echo verify > ` + out + `/verify`
+	f := finalFixture(t, verify, "echo check > "+out+"/check", "")
+
+	g := runFinal(t, f)
+
+	if g.Final.Detail != "" {
+		t.Fatalf("Check then an unscoped Verify pass, got %q", g.Final.Detail)
+	}
+	if _, err := os.Stat(filepath.Join(out, "verify")); err != nil {
+		t.Fatalf("the final stage runs the plan's Verify, unscoped, after Check: %v", err)
+	}
+}
+
+func TestFinalVerifyFailureFailsTheStage(t *testing.T) {
+	f := finalFixture(t, "echo '--- FAIL: TestX'; exit 1", "", "")
+
+	g := runFinal(t, f)
+
+	if g.Final.State != FinalState_Failed || !strings.Contains(g.Final.Detail, "Verify `echo '--- FAIL: TestX'; exit 1` failed on the merged result (exit 1)") {
+		t.Fatalf("a failing Verify fails the stage with its command and exit, got %s %q", g.Final.State, g.Final.Detail)
+	}
+	if !strings.Contains(g.Final.Detail, "--- FAIL: TestX") {
+		t.Fatalf("Detail keeps the output, got %q", g.Final.Detail)
+	}
+}
+
 func TestFinalCheckFailureFailsTheStageWithItsTailAndWakesTheLead(t *testing.T) {
 	lead := newFakeLead(t)
 	// the branch name shows the Check ran in a detached tree, not in the shared checkout
-	f := finalFixture(t, verifyCmd, "git rev-parse --abbrev-ref HEAD; echo 'vet: x.go:3: unreachable code'; exit 1", "")
+	f := finalFixture(t, passVerify, "git rev-parse --abbrev-ref HEAD; echo 'vet: x.go:3: unreachable code'; exit 1", "")
 
 	g := runFinal(t, f)
 
@@ -116,8 +148,33 @@ func TestFinalCheckFailureFailsTheStageWithItsTailAndWakesTheLead(t *testing.T) 
 	}
 }
 
+// the base broke before any task, so the run's own Check result cannot be told apart from it
+func TestFinalCheckFailureTheBaseSharesIsUnverified(t *testing.T) {
+	f := finalFixture(t, passVerify, "echo 'error TS2345: new'; exit 1", "")
+	if err := wstore.UpdateDag(f.ctx, f.dagID, func(cur *waveobj.TaskGroup) error {
+		cur.BaseCheck = &waveobj.BaseCheck{State: BaseCheckState_Failed, Commit: "abc", Detail: "exit 1: error TS2307"}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	g := runFinal(t, f)
+
+	if g.Final.State == FinalState_Failed || g.Final.Detail != "" {
+		t.Fatalf("a Check failure the base shares does not fail the stage, got %s %q", g.Final.State, g.Final.Detail)
+	}
+	// both outputs, and no claim the run added nothing: the human compares them
+	i := slices.IndexFunc(g.Final.Unverified, func(s string) bool { return strings.Contains(s, "already failed on the base") })
+	if i < 0 {
+		t.Fatalf("it is an unverified reason, got %q", g.Final.Unverified)
+	}
+	if r := g.Final.Unverified[i]; !strings.Contains(r, "TS2345") || !strings.Contains(r, "TS2307") || !strings.Contains(r, "may include failures the run introduced") {
+		t.Fatalf("the reason shows both failures and says the run's may be among them, got %q", r)
+	}
+}
+
 func TestFinalExit3IsUnverifiedWithItsLastLine(t *testing.T) {
-	f := finalFixture(t, verifyCmd, "", "echo booting; echo 'no dev app: cargo missing'; exit 3")
+	f := finalFixture(t, passVerify, "", "echo booting; echo 'no dev app: cargo missing'; exit 3")
 
 	g := runFinal(t, f)
 
@@ -130,7 +187,7 @@ func TestFinalExit3IsUnverifiedWithItsLastLine(t *testing.T) {
 }
 
 func TestFinalOtherExitFails(t *testing.T) {
-	f := finalFixture(t, verifyCmd, "", "echo 'FAIL board-layout'; exit 2")
+	f := finalFixture(t, passVerify, "", "echo 'FAIL board-layout'; exit 2")
 
 	g := runFinal(t, f)
 
@@ -143,7 +200,7 @@ func TestAFinalCommandThatHangsTimesOut(t *testing.T) {
 	orig := finalCommandTimeout
 	finalCommandTimeout = time.Second
 	t.Cleanup(func() { finalCommandTimeout = orig })
-	f := finalFixture(t, verifyCmd, "", "sleep 30")
+	f := finalFixture(t, passVerify, "", "sleep 30")
 
 	start := time.Now()
 	g := runFinal(t, f)
@@ -156,17 +213,14 @@ func TestAFinalCommandThatHangsTimesOut(t *testing.T) {
 	}
 }
 
-func TestFinalWithNothingToRunPassesInTheTick(t *testing.T) {
+func TestFinalWithOnlyAPassingVerifyPasses(t *testing.T) {
 	lead := newFakeLead(t)
-	f := finalFixture(t, verifyCmd, "", "")
+	f := finalFixture(t, passVerify, "", "")
 
-	if err := Schedule(f.ctx, f.dagID); err != nil {
-		t.Fatal(err)
-	}
+	g := runFinal(t, f)
 
-	g := f.dag(t)
 	if g.Final == nil || g.Final.State != FinalState_Passed || g.Final.Round != 1 || g.Status != DagStatus_Done {
-		t.Fatalf("no Check, no Final and nothing unverified passes in the same tick, got %+v / %s", g.Final, g.Status)
+		t.Fatalf("a passing Verify, no Check, no Final and nothing unverified passes, got %+v / %s", g.Final, g.Status)
 	}
 	if want := runFinishedWake + "\nThe final stage passed on the merged result."; len(lead.sends) != 1 || lead.sends[0] != want {
 		t.Fatalf("want %q, got %q", want, lead.sends)
@@ -207,7 +261,7 @@ func TestANonGitDagIsUnverified(t *testing.T) {
 }
 
 func TestAFixRoundsStageKeepsItsRound(t *testing.T) {
-	f := finalFixture(t, verifyCmd, "", "")
+	f := finalFixture(t, passVerify, "", "")
 	if err := wstore.UpdateDag(f.ctx, f.dagID, func(cur *waveobj.TaskGroup) error {
 		cur.Final = &waveobj.FinalStage{Round: 2}
 		return nil
@@ -215,18 +269,15 @@ func TestAFixRoundsStageKeepsItsRound(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := Schedule(f.ctx, f.dagID); err != nil {
-		t.Fatal(err)
-	}
+	g := runFinal(t, f)
 
-	g := f.dag(t)
 	if g.Final.Round != 2 || g.Final.State != FinalState_Passed || !strings.HasSuffix(g.Final.OutDir, "/2") {
 		t.Fatalf("the round a fix round set up runs as that round, got %+v", g.Final)
 	}
 }
 
 func TestCancelStopsARunningFinalCommand(t *testing.T) {
-	f := finalFixture(t, verifyCmd, "", "sleep 30")
+	f := finalFixture(t, passVerify, "", "sleep 30")
 	await := awaitFinal(t)
 	if err := Schedule(f.ctx, f.dagID); err != nil {
 		t.Fatal(err)

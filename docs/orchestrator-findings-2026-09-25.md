@@ -1236,7 +1236,10 @@ landing labels. Check them on the first orchestrator run after the Arc rebuild.
 
 Next, in order:
 
-1. **Speed plan (23, 27).** Write a plan for approval before any engine code. The agreed direction:
+1. **Speed plan (23, 27). Done:** see "Fixes after the handoff" below. One change from this direction: the
+   full suite stays in Verify, not Check, because every worker runs Check before `complete`. Still deferred:
+   the merge train with bisect, the automatic Verify retry, and targeted worker checks with an incremental tsc.
+   The agreed direction was:
    - A per-merge Verify scoped to what the merge changed. The engine passes the merge's changed files to
      Verify in an environment variable, so it stays language-agnostic. This repo gets a scoped verify script:
      the changed Go packages and their reverse dependencies, and tsc only when a frontend file changed. The
@@ -1261,3 +1264,17 @@ Next, in order:
    its own `dist/bin`. First find out how the dev host locates `wavesrv`.
 
 The other open findings are in the Summary table; none of them is in this batch.
+
+## Fixes after the handoff
+
+| # | Fix | Test |
+|---|---|---|
+| 23, 27 | Each per-merge Verify gets `ARC_VERIFY_CHANGED`, a file listing the paths the merge changed; a merge whose paths cannot be listed runs Verify unscoped. The final stage runs Verify once more, unscoped, after Check, so the full suite still runs once per run. | `TestVerifyIsScopedToWhatTheMergeChanged`, `TestVerifyRunsUnscopedWhenTheMergeCannotBeListed`, `TestFinalRunsVerifyUnscopedAfterCheck`, `TestFinalVerifyFailureFailsTheStage` |
+| 23, 27 | `scripts/verify.mjs`, this repo's Verify: at a merge it tests the changed Go packages and every package that imports them, runs tsc only for a TS change, and runs the related vitest files. A non-Go file under a Go package (a migration, a default config, an embedded script) tests that package. A docs-only merge runs nothing; an unreadable list runs everything. | `scripts/verify.test.mjs` |
+| 27 | A dependency is satisfied when its lane merges, not when its Verify passes (`laneMerged`); a failed or running Verify holds the next merge, not a dependent's start, and a manual `dag merge` of a lane whose dependency is verifying or verify-failed is refused. | `TestADependentStartsAtItsDependencysMergeNotItsVerify`, `TestAFailedVerifyHoldsTheDependentsMergeNotItsStart`, `TestAManualMergeWaitsOnItsDependencysFailedVerify` |
+| 27 | The merge queue lands first the lane the most pending tasks wait on (`waitingOn`), then plan order. | `TestAutoMergeableLandsFirstTheLaneMostPendingTasksWaitOn` |
+| 33 | The plan's Check runs once at submit, in a detached tree at the base commit (`basecheck.go`). A failure there wakes the lead, workers are told it is not theirs, and the final stage and the land report a Check failure the base shares as unverified, showing both outputs, since nothing tells the base's failures from the run's. A revised plan with another Check or Setup checks the base again. | `TestBaseCheckFailureIsRecordedAndWakesTheLead`, `TestBaseCheckPassesQuietlyAndRunsOnce`, `TestWorkerContractNamesABrokenBase`, `TestFinalCheckFailureTheBaseSharesIsUnverified`, `TestAReplacedPlanChecksItsNewCheckOnTheBase`, `TestABaseCheckResultForAnotherCommandIsDropped`, `TestLandNotesACheckFailureTheBaseShares` |
+| land | The land's re-check runs when the branch or the base moved. It merges the base into the landing tree without committing, runs Check and a Verify scoped to what differs from the verified commit, and aborts the merge. The land notes only base commits that arrived after that check, and holds when the landing tree is stopped mid-merge. | `TestLandChecksTheRunMergedWithItsMovedBase`, `TestLandHoldsALandingTreeLeftMidMerge` |
+
+Not verified here: the saving per run. The next orchestrator run after an Arc rebuild shows it; compare its
+per-merge Verify times (`task-verify-passed` `ms`) and chain-link waits with finding 27's table.

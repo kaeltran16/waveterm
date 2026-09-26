@@ -373,6 +373,8 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 	advanceReviews(ctx, spawnCtx, g, owner, runs, now, &afterCommit)
 	// the plan reviewer, before dispatch: NextToSpawn holds every task until its review clears
 	advancePlanReview(ctx, spawnCtx, g, owner, now, &afterCommit)
+	// the plan's Check on the base, beside the plan review, so a broken base is named once before any worker
+	advanceBaseCheck(ctx, g, owner, &afterCommit)
 	// child-done: record the task-done lifecycle boundary (task id + child run id). A done child is not
 	// judgment, so the lead is not woken; the merge that follows wakes it only on a conflict.
 	for i := range g.Tasks {
@@ -489,7 +491,7 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 				setupStart := time.Now()
 				// no progress sink: Setup runs under the dag mutation lock, so nothing can read a
 				// partial tail while it holds the lock anyway
-				_, serr := runPlanCommand(context.WithoutCancel(ctx), wt, g.Setup, SetupTimeout, nil)
+				_, serr := runPlanCommand(context.WithoutCancel(ctx), wt, g.Setup, nil, SetupTimeout, nil)
 				setupMs = time.Since(setupStart).Milliseconds()
 				if serr != nil {
 					// only a new tree is set up, so a retry must not reuse this half-prepared one. The branch
@@ -703,6 +705,9 @@ func workerContract(g *waveobj.TaskGroup, task *waveobj.TaskNode, runtime, tree 
 		fmt.Fprintf(&b, ", and `%s`,", g.Check)
 	}
 	b.WriteString(" and get them passing before you complete; if you can't, ask.")
+	if baseCheckFailed(g) {
+		fmt.Fprintf(&b, " `%s` already fails on the base, before any task (%s): don't fix those failures or count them as yours, and name them in your report.", g.Check, g.BaseCheck.Detail)
+	}
 	if g.Verify != "" {
 		fmt.Fprintf(&b, " Don't run the plan's full Verify (`%s`): the engine runs it after your task merges.", g.Verify)
 	}

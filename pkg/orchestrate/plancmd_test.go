@@ -14,7 +14,7 @@ import (
 
 func TestPlanCommandPassesQuotedArgumentsThrough(t *testing.T) {
 	dir := newGitRepo(t)
-	if _, err := execPlanCommand(context.Background(), dir, `git config wave.probe "two words"`, time.Minute, nil); err != nil {
+	if _, err := execPlanCommandEnv(context.Background(), dir, `git config wave.probe "two words"`, nil, time.Minute, nil); err != nil {
 		t.Fatal(err)
 	}
 	if got := gitCmd(t, dir, "config", "wave.probe"); got != "two words" {
@@ -27,7 +27,7 @@ func TestPlanCommandRunsInAPosixShell(t *testing.T) {
 	// an inline VAR=value prefix and $(...), which cmd.exe rejected in acceptance 2, and a /-leading
 	// argument Git Bash would otherwise rewrite into a Windows path
 	command := `WAVE_PROBE="$(echo two) words" sh -c 'git config wave.one "$WAVE_PROBE"' && git config wave.two /usr`
-	if _, err := execPlanCommand(context.Background(), dir, command, time.Minute, nil); err != nil {
+	if _, err := execPlanCommandEnv(context.Background(), dir, command, nil, time.Minute, nil); err != nil {
 		t.Fatal(err)
 	}
 	if got := gitCmd(t, dir, "config", "wave.one"); got != "two words" {
@@ -39,7 +39,7 @@ func TestPlanCommandRunsInAPosixShell(t *testing.T) {
 }
 
 func TestPlanCommandReportsExitCodeAndOutput(t *testing.T) {
-	_, err := execPlanCommand(context.Background(), newGitRepo(t), "git no-such-subcommand", time.Minute, nil)
+	_, err := execPlanCommandEnv(context.Background(), newGitRepo(t), "git no-such-subcommand", nil, time.Minute, nil)
 	var pe *planCommandError
 	if !errors.As(err, &pe) {
 		t.Fatalf("want a planCommandError, got %v", err)
@@ -50,7 +50,7 @@ func TestPlanCommandReportsExitCodeAndOutput(t *testing.T) {
 }
 
 func TestExecPlanCommandReturnsOutputOnSuccess(t *testing.T) {
-	out, err := execPlanCommand(context.Background(), t.TempDir(), "echo all green", time.Minute, nil)
+	out, err := execPlanCommandEnv(context.Background(), t.TempDir(), "echo all green", nil, time.Minute, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func TestExecPlanCommandReturnsOutputOnSuccess(t *testing.T) {
 }
 
 func TestPlanCommandTimesOut(t *testing.T) {
-	_, err := execPlanCommand(context.Background(), t.TempDir(), "sleep 5", 200*time.Millisecond, nil)
+	_, err := execPlanCommandEnv(context.Background(), t.TempDir(), "sleep 5", nil, 200*time.Millisecond, nil)
 	var pe *planCommandError
 	if !errors.As(err, &pe) || pe.reason() != "timed out after 200ms" {
 		t.Fatalf("want a timeout, got %v", err)
@@ -289,7 +289,7 @@ func TestFirstFailureExcerptPrefersTheFailingTest(t *testing.T) {
 
 func TestPlanCommandFailureKeepsTheFailingTest(t *testing.T) {
 	script := `printf -- '--- FAIL: TestReal (0.00s)\n    real_test.go:5: bad\n'; i=0; while [ $i -lt 300 ]; do echo "noise line $i of the package log"; i=$((i+1)); done; exit 1`
-	_, err := execPlanCommand(context.Background(), t.TempDir(), script, time.Minute, nil)
+	_, err := execPlanCommandEnv(context.Background(), t.TempDir(), script, nil, time.Minute, nil)
 	var pe *planCommandError
 	if !errors.As(err, &pe) || !strings.Contains(pe.output, "--- FAIL: TestReal") || !strings.HasPrefix(failureDetail(err), "exit 1: --- FAIL: TestReal") {
 		t.Fatalf("err = %v", err)

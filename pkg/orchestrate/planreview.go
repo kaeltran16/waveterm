@@ -175,6 +175,10 @@ func ReplacePlanReviewProposal(ctx context.Context, dagID string, proposed *wave
 			return fmt.Errorf("the plan review failed %d rounds, the most it gets; put it to the human, and if they say to proceed run `wsh jarvis dag planreview accept \"<the human's reason>\"`", pr.Round)
 		}
 		g.Title, g.Parallelism, g.WorkerRoute, g.Tasks = proposed.Title, proposed.Parallelism, proposed.WorkerRoute, proposed.Tasks
+		// the base was checked with the old commands; nothing has started, so the next tick checks it again
+		if proposed.Check != g.Check || proposed.Setup != g.Setup {
+			g.BaseCheck = nil
+		}
 		g.Verify, g.Setup, g.Check, g.Preamble = proposed.Verify, proposed.Setup, proposed.Check, proposed.Preamble
 		g.FinalCmd, g.Prototype = proposed.FinalCmd, proposed.Prototype
 		g.EffortOID, g.PlanPath, g.SpecPath = proposed.EffortOID, proposed.PlanPath, proposed.SpecPath

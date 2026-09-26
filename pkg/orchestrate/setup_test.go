@@ -6,6 +6,7 @@ package orchestrate
 import (
 	"context"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -14,7 +15,20 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
-type planCall struct{ dir, command string }
+type planCall struct {
+	dir, command string
+	env          []string
+}
+
+// envValue is the value env gives key, or "".
+func envValue(env []string, key string) string {
+	for _, kv := range env {
+		if k, v, ok := strings.Cut(kv, "="); ok && k == key {
+			return v
+		}
+	}
+	return ""
+}
 
 // planCalls records the Setup and Verify commands the engine ran. Verify runs on its own goroutine, so
 // reads go through list.
@@ -50,9 +64,9 @@ func stubPlanCommandProgress(t *testing.T, fn func(ctx context.Context, dir, com
 	t.Helper()
 	p := &planCalls{}
 	orig := runPlanCommand
-	runPlanCommand = func(ctx context.Context, dir, command string, _ time.Duration, progress planProgress) (string, error) {
+	runPlanCommand = func(ctx context.Context, dir, command string, env []string, _ time.Duration, progress planProgress) (string, error) {
 		p.mu.Lock()
-		p.calls = append(p.calls, planCall{dir, command})
+		p.calls = append(p.calls, planCall{dir, command, env})
 		p.mu.Unlock()
 		return fn(ctx, dir, command, progress)
 	}

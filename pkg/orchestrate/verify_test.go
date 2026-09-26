@@ -79,11 +79,11 @@ func (f *mergeFixture) projectPath(t *testing.T) string {
 
 func landedSha(context.Context, string, string, string) (string, error) { return "sha-1", nil }
 
-func TestVerifyPassAfterMergeUnblocksDependent(t *testing.T) {
+func TestADependentStartsAtItsDependencysMergeNotItsVerify(t *testing.T) {
 	f := newMergeFixture(t, []waveobj.TaskNode{
 		{ID: "t-0", Label: "first"},
 		{ID: "t-1", Label: "second", Deps: []string{"t-0"}},
-		// a second dependent makes t-0 a lane of its own, so it merges and verifies before either starts
+		// a second dependent makes t-0 a lane of its own, so it merges before either starts
 		{ID: "t-2", Label: "third", Deps: []string{"t-0"}},
 	})
 	f.setPlanCommands(t, verifyCmd, "")
@@ -102,8 +102,8 @@ func TestVerifyPassAfterMergeUnblocksDependent(t *testing.T) {
 	if g.Tasks[0].State != TaskState_Verifying || !g.Tasks[0].Merged {
 		t.Fatalf("a merged task waits on Verify, got %s merged=%v", g.Tasks[0].State, g.Tasks[0].Merged)
 	}
-	if g.Tasks[1].State != TaskState_Pending || len(spawned) != 0 {
-		t.Fatalf("the dependent waits for Verify to pass, got %s with %d spawns", g.Tasks[1].State, len(spawned))
+	if g.Tasks[1].State != TaskState_Running || g.Tasks[2].State != TaskState_Running || len(spawned) != 2 {
+		t.Fatalf("both dependents start at the merge, while Verify runs, got %s / %s with %d spawns", g.Tasks[1].State, g.Tasks[2].State, len(spawned))
 	}
 	verify.open()
 	await()
@@ -115,9 +115,6 @@ func TestVerifyPassAfterMergeUnblocksDependent(t *testing.T) {
 	if got := calls.list(); len(got) != 1 || got[0].dir != f.projectPath(t) || got[0].command != verifyCmd {
 		t.Fatalf("want Verify once in the project checkout, got %+v", got)
 	}
-	if g.Tasks[1].State != TaskState_Running {
-		t.Fatalf("the dependent dispatches once Verify passes, got %s", g.Tasks[1].State)
-	}
 }
 
 func TestVerifyFailureBlocksTheDagAndWakesTheLead(t *testing.T) {
@@ -125,7 +122,7 @@ func TestVerifyFailureBlocksTheDagAndWakesTheLead(t *testing.T) {
 	f := newMergeFixture(t, []waveobj.TaskNode{
 		{ID: "t-0", Label: "first"},
 		{ID: "t-1", Label: "second", Deps: []string{"t-0"}},
-		// a second dependent makes t-0 a lane of its own, so it merges and verifies before either starts
+		// a second dependent makes t-0 a lane of its own, so it merges before either starts
 		{ID: "t-2", Label: "third", Deps: []string{"t-0"}},
 	})
 	f.setPlanCommands(t, verifyCmd, "")
@@ -147,12 +144,84 @@ func TestVerifyFailureBlocksTheDagAndWakesTheLead(t *testing.T) {
 	if task := g.Tasks[0]; task.State != TaskState_VerifyFailed || task.VerifyError != "exit 1: FAIL pkg/orchestrate" {
 		t.Fatalf("want verify-failed with the reason and output, got %s %q", task.State, task.VerifyError)
 	}
-	if g.Status != DagStatus_Blocked || g.Tasks[1].State != TaskState_Pending || len(spawned) != 0 {
-		t.Fatalf("a failed Verify blocks the dag and its dependents, got %s / %s / %d spawns", g.Status, g.Tasks[1].State, len(spawned))
+	if g.Status != DagStatus_Blocked || g.Tasks[1].State != TaskState_Running || len(spawned) != 2 {
+		t.Fatalf("a failed Verify blocks the dag; the dependents started at the merge, got %s / %s / %d spawns", g.Status, g.Tasks[1].State, len(spawned))
 	}
 	want := "wake: Verify failed after merging task t-0 (exit 1). wsh jarvis dag status"
 	if len(lead.sends) != 1 || lead.sends[0] != want {
 		t.Fatalf("want %q, got %q", want, lead.sends)
+	}
+}
+
+// a dependent that started at its dependency's merge lands only once that dependency's Verify passed
+func TestAFailedVerifyHoldsTheDependentsMergeNotItsStart(t *testing.T) {
+	f := newMergeFixture(t, []waveobj.TaskNode{
+		{ID: "t-0", Label: "first"},
+		{ID: "t-1", Label: "second", Deps: []string{"t-0"}},
+		{ID: "t-2", Label: "third", Deps: []string{"t-0"}},
+	})
+	f.setPlanCommands(t, verifyCmd, "")
+	f.finish(t, "t-0")
+	merges := stubMerge(t, landedSha)
+	stubPlanCommand(t, func(context.Context, string, string) error {
+		return &planCommandError{exitCode: 1, output: "FAIL pkg/orchestrate"}
+	})
+	var spawned []string
+	stubSpawn(t, &spawned)
+	await := awaitVerify(t)
+	if err := Schedule(f.ctx, f.dagID); err != nil {
+		t.Fatal(err)
+	}
+	await()
+
+	f.finish(t, "t-1")
+	AutoMergeReady(f.ctx, f.dagID)
+	if g := f.dag(t); *merges != 1 || g.Tasks[1].Merged {
+		t.Fatalf("t-1 must not merge while t-0's Verify is failed, got %d merges, merged=%v", *merges, g.Tasks[1].Merged)
+	}
+}
+
+// the lead's `dag merge` holds a dependent too, but still lands a lane that depends on nothing failing
+func TestAManualMergeWaitsOnItsDependencysFailedVerify(t *testing.T) {
+	f := newMergeFixture(t, []waveobj.TaskNode{
+		{ID: "t-0", Label: "first"},
+		{ID: "t-1", Label: "second", Deps: []string{"t-0"}},
+		{ID: "t-2", Label: "third", Deps: []string{"t-0"}},
+		{ID: "t-3", Label: "fourth"},
+	})
+	f.setPlanCommands(t, verifyCmd, "")
+	f.finish(t, "t-0")
+	merges := stubMerge(t, landedSha)
+	calls := 0
+	stubPlanCommand(t, func(context.Context, string, string) error {
+		calls++
+		if calls == 1 {
+			return &planCommandError{exitCode: 1, output: "FAIL pkg/orchestrate"}
+		}
+		return nil
+	})
+	var spawned []string
+	stubSpawn(t, &spawned)
+	await := awaitVerify(t)
+	if err := MergeTask(f.ctx, f.channel, f.ownerID, "t-0"); err != nil {
+		t.Fatal(err)
+	}
+	await()
+
+	f.finish(t, "t-1")
+	if err := MergeTask(f.ctx, f.channel, f.ownerID, "t-1"); err == nil || !strings.Contains(err.Error(), "t-0") {
+		t.Fatalf("a dependent's merge names its failed dependency, got %v", err)
+	}
+	if *merges != 1 {
+		t.Fatalf("t-1 must not merge, got %d merges", *merges)
+	}
+	f.finish(t, "t-3")
+	if err := MergeTask(f.ctx, f.channel, f.ownerID, "t-3"); err != nil {
+		t.Fatalf("an independent lane still merges by hand, got %v", err)
+	}
+	await()
+	if *merges != 2 {
+		t.Fatalf("want t-3 merged, got %d merges", *merges)
 	}
 }
 

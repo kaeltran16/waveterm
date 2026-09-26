@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -74,6 +75,61 @@ func stopDagVerify(dagID string) {
 // can wait for it.
 var verifyFinished = func(dagID, taskID string) {}
 
+// verifyChangedEnv names the file a scoped Verify reads: one repo-relative path per line, what the merge
+// changed. A Verify that ignores it runs whole, which is what every plan did before it existed.
+const verifyChangedEnv = "ARC_VERIFY_CHANGED"
+
+// unscopedEnv runs Verify on everything. Set empty rather than left out, so a value inherited from the server's
+// own environment cannot scope it.
+var unscopedEnv = []string{verifyChangedEnv + "="}
+
+// changedFilesEnv lists the paths that differ between since and to in dir (to "" is the working tree) and
+// returns the env entry naming the list. unscopedEnv when they cannot be listed: Verify then runs unscoped,
+// which costs time and never a missed test.
+func changedFilesEnv(ctx context.Context, dir, since, to, name string) []string {
+	if since == "" {
+		return unscopedEnv
+	}
+	args := []string{"diff", "--name-only", "--no-renames", since}
+	if to != "" {
+		args = append(args, to)
+	}
+	out, err := git(ctx, dir, args...)
+	if err != nil {
+		log.Printf("listing the paths changed since %s in %s: %v", since, dir, err)
+		return unscopedEnv
+	}
+	path := filepath.Join(os.TempDir(), "arc-verify", name+".txt")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		log.Printf("writing the changed-path list %s: %v", path, err)
+		return unscopedEnv
+	}
+	if err := os.WriteFile(path, []byte(out+"\n"), 0o644); err != nil {
+		log.Printf("writing the changed-path list %s: %v", path, err)
+		return unscopedEnv
+	}
+	// Git Bash eats the backslashes of an unquoted Windows path
+	return []string{verifyChangedEnv + "=" + filepath.ToSlash(path)}
+}
+
+// verifyScopeEnv scopes a lane's Verify to what its squash commit, and any fix committed on top of it before a
+// `--continue`, changed. The squash commit has one parent, so <commit>^ is the tree before the lane landed.
+func verifyScopeEnv(ctx context.Context, channelID, dagID, taskID, tree string) []string {
+	g, err := wstore.GetDag(ctx, dagID)
+	if err != nil {
+		return unscopedEnv
+	}
+	task := taskByID(g, taskID)
+	if task == nil || task.RunID == "" {
+		return unscopedEnv
+	}
+	child, err := wstore.GetRun(ctx, channelID, task.RunID)
+	if err != nil || child.EndCommit == "" {
+		return unscopedEnv
+	}
+	return changedFilesEnv(ctx, tree, child.EndCommit+"^", "HEAD", dagID+"/"+taskID)
+}
+
 // startVerify runs Verify in the project checkout for a task the caller moved to verifying, and releases l
 // once the result is recorded. It runs on its own goroutine because Verify takes minutes and neither the
 // watchdog tick nor an RPC handler can wait on it, and it holds no dag lock while the command runs.
@@ -88,7 +144,8 @@ func startVerify(channelID, dagID, runID, taskID, projectPath, command string, l
 		start := time.Now()
 		// a tail is cosmetic, so it skips a beat rather than queueing behind a Setup: waiting here would
 		// stall the command's own completion, and with it the project claim every other lane's merge needs
-		output, verr := runPlanCommand(ctx, projectPath, command, VerifyTimeout, func(tail string) bool {
+		env := verifyScopeEnv(context.Background(), channelID, dagID, taskID, projectPath)
+		output, verr := runPlanCommand(ctx, projectPath, command, env, VerifyTimeout, func(tail string) bool {
 			ran, err := TryWithDagMutation(dagID, func() error {
 				return recordVerifyProgressLocked(context.Background(), dagID, taskID, tail)
 			})

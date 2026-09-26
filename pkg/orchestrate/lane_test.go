@@ -80,8 +80,8 @@ func TestDepSatisfiedInLaneAndAcrossLanes(t *testing.T) {
 			map[string]string{"t-1": TaskState_Done, "t-2": TaskState_Done, "t-3": TaskState_Skipped}, nil, "t-4", "t-3", false},
 		{"another lane: a skipped dependency once its lane landed", true,
 			map[string]string{"t-1": TaskState_Done, "t-2": TaskState_Done, "t-3": TaskState_Skipped}, []string{"t-1", "t-2"}, "t-4", "t-3", true},
-		{"another lane: a lane whose Verify is still running", true,
-			map[string]string{"t-1": TaskState_Done, "t-2": TaskState_Done, "t-3": TaskState_Verifying}, []string{"t-1", "t-2", "t-3"}, "t-4", "t-3", false},
+		{"another lane: a merged lane whose Verify is still running is, the next merge waits on it instead", true,
+			map[string]string{"t-1": TaskState_Done, "t-2": TaskState_Done, "t-3": TaskState_Verifying}, []string{"t-1", "t-2", "t-3"}, "t-4", "t-3", true},
 		{"no merges: a done dependency is enough anywhere", false,
 			map[string]string{"t-1": TaskState_Done, "t-2": TaskState_Done, "t-3": TaskState_Done}, nil, "t-4", "t-3", true},
 	}

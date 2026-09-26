@@ -443,12 +443,16 @@ type TaskGroup struct {
 	Usage []UsageRow `json:"usage,omitempty"`
 
 	// Verify, Setup and Check are the plan's commands (jarvis.PlanFormat). Setup runs in each new task
-	// worktree before its worker spawns; Verify runs in the project checkout after each squash merge; Check
+	// worktree before its worker spawns; Verify runs where lanes land after each squash merge, scoped by
+	// ARC_VERIFY_CHANGED, and once unscoped in the final stage; Check
 	// is a fast whole-project static check each worker runs itself instead of Verify. All three are empty
 	// for a dag submitted as JSON, which is then prepared by nobody and reported unverified.
 	Verify string `json:"verify,omitempty"`
 	Setup  string `json:"setup,omitempty"`
 	Check  string `json:"check,omitempty"`
+	// BaseCheck is the plan's Check run once on the commit the lanes start from, at submit, before any task.
+	// A failure there is the base's, not a task's. Nil for a dag with no Check.
+	BaseCheck *BaseCheck `json:"basecheck,omitempty"`
 
 	// FinalCmd is the plan's Final command, run once on the merged result by the final stage; Prototype is the
 	// design canvas path the final verifier compares against. Both empty when the plan names none.
@@ -490,6 +494,13 @@ type PlanReviewStage struct {
 	Findings  string `json:"findings,omitempty"` // fail findings or pass summary, whole
 	Respawns  int    `json:"respawns,omitempty"`
 	StartedTs int64  `json:"startedts,omitempty"`
+}
+
+// BaseCheck is one dag's Check on its base commit.
+type BaseCheck struct {
+	State  string `json:"state"`            // running | passed | failed | skipped (it could not run; Detail says why)
+	Commit string `json:"commit,omitempty"` // the commit it checked
+	Detail string `json:"detail,omitempty"` // the failure's reason and first failing lines
 }
 
 // FinalStage is one dag's final stage: the round it is in, where it runs, and what it found.

@@ -30,7 +30,7 @@ func processExists(pid int) bool {
 // minutes. The backgrounded sleep here stands in for that grandchild.
 func TestExecPlanCommandTimeoutKillsTheProcessTree(t *testing.T) {
 	command := `sleep 300 & echo WINPID=$(cat /proc/$!/winpid); wait`
-	_, err := execPlanCommand(context.Background(), t.TempDir(), command, 2*time.Second, nil)
+	_, err := execPlanCommandEnv(context.Background(), t.TempDir(), command, nil, 2*time.Second, nil)
 
 	var pe *planCommandError
 	if !errors.As(err, &pe) || pe.timeout == 0 {
@@ -54,5 +54,5 @@ func TestExecPlanCommandTimeoutKillsTheProcessTree(t *testing.T) {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	t.Fatalf("grandchild %d (sleep 300) still alive after execPlanCommand returned", pid)
+	t.Fatalf("grandchild %d (sleep 300) still alive after execPlanCommandEnv returned", pid)
 }

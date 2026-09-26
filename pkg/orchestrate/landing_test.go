@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -88,6 +89,55 @@ func TestDirtyCheckoutDoesNotHoldBranchMerges(t *testing.T) {
 	AutoMergeReady(f.ctx, f.dagID)
 	if !f.dag(t).Tasks[0].Merged {
 		t.Fatal("the automatic merge must land while the checkout has staged edits")
+	}
+}
+
+func TestVerifyIsScopedToWhatTheMergeChanged(t *testing.T) {
+	f := newMergeFixture(t, []waveobj.TaskNode{{ID: "t-0", Label: "first"}})
+	f.setPlanCommands(t, verifyCmd, "")
+	f.land(t)
+	f.finish(t, "t-0")
+	f.laneCommit(t, "t-0", "feature.txt")
+	calls := stubPlanCommand(t, func(context.Context, string, string) error { return nil })
+	await := awaitVerify(t)
+
+	if err := MergeTask(f.ctx, f.channel, f.ownerID, "t-0"); err != nil {
+		t.Fatal(err)
+	}
+	await()
+	got := calls.list()
+	if len(got) != 1 || got[0].command != verifyCmd {
+		t.Fatalf("want the plan's Verify command unchanged, once, got %+v", got)
+	}
+	path := envValue(got[0].env, verifyChangedEnv)
+	if path == "" || strings.Contains(path, `\`) {
+		t.Fatalf("Verify runs with %s set to a forward-slash path, env %q", verifyChangedEnv, got[0].env)
+	}
+	if lines := strings.Fields(readFile(t, path)); !reflect.DeepEqual(lines, []string{"feature.txt"}) {
+		t.Fatalf("the list names what the merge changed, got %q", lines)
+	}
+}
+
+// a merge the engine cannot diff still gets its Verify: unscoped is the safe direction
+func TestVerifyRunsUnscopedWhenTheMergeCannotBeListed(t *testing.T) {
+	f := newMergeFixture(t, []waveobj.TaskNode{{ID: "t-0", Label: "first"}})
+	f.setPlanCommands(t, verifyCmd, "")
+	f.finish(t, "t-0")
+	stubMerge(t, landedSha) // "sha-1" is no commit
+	calls := stubPlanCommand(t, func(context.Context, string, string) error { return nil })
+	await := awaitVerify(t)
+
+	if err := MergeTask(f.ctx, f.channel, f.ownerID, "t-0"); err != nil {
+		t.Fatal(err)
+	}
+	await()
+	got := calls.list()
+	// set empty, not left out, so a value in the server's own environment cannot scope it
+	if len(got) != 1 || !slices.Contains(got[0].env, verifyChangedEnv+"=") {
+		t.Fatalf("want one unscoped Verify, got %+v", got)
+	}
+	if f.dag(t).Tasks[0].State != TaskState_Done {
+		t.Fatalf("the Verify ran and passed, got %s", f.dag(t).Tasks[0].State)
 	}
 }
 
