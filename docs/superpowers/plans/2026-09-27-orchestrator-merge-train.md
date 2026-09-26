@@ -42,6 +42,7 @@
 - Modify: `pkg/orchestrate/verify.go` (the `startVerify` runner, `verifyScopeEnv`, `recordVerifyLocked`, `recordVerifyProgressLocked`, `resumeVerify`, `rerunVerify`)
 - Modify: `pkg/orchestrate/mergetask.go` (`AutoMergeReady`, `mergeTaskLocked`'s guard, `landAfterMerge`)
 - Test: `pkg/orchestrate/verifybatch_test.go` (new)
+- Modify: `pkg/orchestrate/verify_test.go`, `pkg/orchestrate/continue_test.go` (three existing tests rewritten, Step 5)
 - Existing tests that must stay green: `verify_test.go`, `landing_test.go`, `mergetask_test.go`, `digestverify_test.go`
 
 **Interfaces:**
@@ -241,7 +242,7 @@ func batchScopeEnv(ctx context.Context, dagID, tree string, batch []batchTip) []
 }
 ```
 
-`startVerify(channelID, dagID, runID, projectPath, command string, l *landing)` loads the dag in its goroutine, takes `verifyBatch`, and runs Verify with `batchScopeEnv`. Progress goes to every batch tip. It then calls `judgeBatch(ctx, ...)` with the claim's context, and records the result under `WithDagMutation` with `recordBatchVerifyLocked`, then releases the claim and calls `Schedule` as today. Today `startVerify` calls `cancel()` right after the command returns (`verify.go:157`). Move that call to after `judgeBatch` returns: Task 2's bisect runs inside `judgeBatch` on that context, and a context cancelled early would make every bisect step see `ctx.Err()` and record nothing. `stopDagVerify` still cancels it for a cancelled dag. `judgeBatch` in this task:
+`startVerify(channelID, dagID, runID, projectPath, command string, l *landing)` loads the dag in its goroutine and takes `verifyBatch`. It appends one `task-verify-started` event per batch tip (`taskid`, plus `batch` when there is more than one tip), where today's code appends one for its task (`verify.go:141`). Each tip's timeline row then shows its Verify starting. It then and runs Verify with `batchScopeEnv`. Progress goes to every batch tip. It then calls `judgeBatch(ctx, ...)` with the claim's context, and records the result under `WithDagMutation` with `recordBatchVerifyLocked`, then releases the claim and calls `Schedule` as today. Today `startVerify` calls `cancel()` right after the command returns (`verify.go:157`). Move that call to after `judgeBatch` returns: Task 2's bisect runs inside `judgeBatch` on that context, and a context cancelled early would make every bisect step see `ctx.Err()` and record nothing. `stopDagVerify` still cancels it for a cancelled dag. `judgeBatch` in this task:
 
 ```go
 func judgeBatch(ctx context.Context, batch []batchTip, ordered bool, output string, verr error, run batchRunner) batchOutcome {
@@ -340,9 +341,10 @@ func mergeBatch(ctx context.Context, channelID string, owner *waveobj.Run, ready
 Run: `CGO_ENABLED=1 CC="zig cc -target x86_64-windows-gnu" go test ./pkg/orchestrate/ -count=1`
 Expected: PASS, including the whole package. Existing single-lane tests keep their behavior, because a batch of one is today's path. A test that called `startVerify` or `recordVerifyLocked` directly moves to the new names. Keep what it asserts.
 
-Two existing tests finish two lanes before the first merge, so the batch now lands both with one Verify. Rewrite them to keep what they test, a second lane arriving while a Verify runs:
+Three existing tests finish two lanes before the first merge, so the batch now lands both with one Verify. Rewrite them to keep what they test, a second lane arriving while a Verify runs or after one failed:
 - `TestNextMergeWaitsForRunningVerify` (`verify_test.go:373`): call `f.finish(t, "t-1")` only after `verify.waitStarted(t)`. The watchdog tick while t-0's Verify runs must still make no second merge (`*merges == 1`). After `verify.open()`, the two `await()`s are t-0's Verify, whose tick lands t-1, and then t-1's. Both end done with 2 merges.
 - `TestManualMergeRefusesWhileVerifyRuns` (`verify_test.go:494`): call `f.finish(t, "t-1")` after `verify.waitStarted(t)`, then `MergeTask(..., "t-1")` must still fail with `errProjectBusy` naming t-0. After `verify.open()`, the two `await()`s are t-0's Verify and then t-1's, which its tick merges.
+- `TestContinueReRunsAFailedVerify` (`continue_test.go:15`): call `f.finish(t, "t-1")` after the first `await()`, once t-0 is verify-failed. The next `Schedule` must still make no second merge (`*merges == 1`), because a failed Verify holds the queue. After `ContinueMerge(..., "t-0")`, the two `await()`s are t-0's re-run, whose tick lands t-1, and then t-1's Verify. Both end done with 2 merges.
 
 - [ ] **Step 6: Commit**
 
@@ -446,6 +448,35 @@ func TestBisectFindsTheMiddleLaneAndLandsTheOneBefore(t *testing.T) {
 	}
 }
 
+// a batch of one fails as today: no bisect, no bisect tree
+func TestABatchOfOneFailsWithoutBisecting(t *testing.T) {
+	lead := newFakeLead(t)
+	f := newMergeFixture(t, []waveobj.TaskNode{{ID: "t-0", Label: "a"}})
+	f.setPlanCommands(t, verifyCmd, "")
+	f.land(t)
+	f.finish(t, "t-0")
+	f.laneCommit(t, "t-0", "t-0.txt")
+	calls := stubVerifyBreaksOn(t, "t-0.txt", "", nil)
+	await := awaitVerify(t)
+
+	AutoMergeReady(f.ctx, f.dagID)
+	await()
+
+	if got := f.dag(t).Tasks[0].State; got != TaskState_VerifyFailed {
+		t.Fatalf("want verify-failed, got %s", got)
+	}
+	if n := len(calls.list()); n != 1 {
+		t.Fatalf("a batch of one runs Verify once, got %d", n)
+	}
+	if _, err := os.Stat(worktreeDir(f.projectPath(t), f.ownerID+"-bisect")); !os.IsNotExist(err) {
+		t.Fatalf("no bisect tree is made, stat err %v", err)
+	}
+	want := "Verify failed after merging task t-0 (exit 1)."
+	if len(lead.sends) != 1 || !strings.Contains(lead.sends[0], want) {
+		t.Fatalf("today's wake, got %q", lead.sends)
+	}
+}
+
 func TestBisectBlamesTheLastLaneWhenOnlyItBreaks(t *testing.T) {
 	// threeLaneBatch(t, ""), stubVerifyBreaksOn(t, "t-2.txt", "", nil):
 	// want states done, done, verify-failed; 3 calls.
@@ -478,7 +509,7 @@ Write out the sketched tests in full.
 
 - [ ] **Step 2: Run them and see them fail**
 
-Run: `CGO_ENABLED=1 CC="zig cc -target x86_64-windows-gnu" go test ./pkg/orchestrate/ -run 'Bisect|AfterAFixCommit' -count=1`
+Run: `CGO_ENABLED=1 CC="zig cc -target x86_64-windows-gnu" go test ./pkg/orchestrate/ -run 'Bisect|AfterAFixCommit|BatchOfOne' -count=1`
 Expected: FAIL. Task 1's `judgeBatch` blames `t-0` with one call.
 
 - [ ] **Step 3: Move the detached tree into `withDetachedTree`**
@@ -589,7 +620,7 @@ git commit -m "feat(orchestrate): bisect a failed merge batch to the lane that b
 - Modify: `pkg/orchestrate/watchdogscope_test.go` (`silentSiblingDag`'s spawn stub only)
 
 **Interfaces:**
-- Produces (exported from `scripts/verify.mjs` for its test): `SHARD_MIN_TESTS`, `SHARDS`, `countTopLevelTests(source: string): number`, `dealShards(names: string[], n: number): string[][]`, `runPattern(names: string[]): string`, `goSummary(pkg: string, ok: boolean, seconds: number): string`.
+- Produces (exported from `scripts/verify.mjs` for its test): `SHARD_MIN_TESTS`, `SHARDS`, `countTopLevelTests(source: string): number`, `partitionByTests(pkgs: {importPath, dir}[], countFor: (pkg) => number): {sharded, plain}`, `dealShards(names: string[], n: number): string[][]`, `runPattern(names: string[]): string`, `goSummary(pkg: string, ok: boolean, seconds: number): string`.
 
 - [ ] **Step 1: Fix the watchdog helper.** In `silentSiblingDag`, count a spawn only for this test's own project. A dag another test left in the store is still ticked, but it isn't this test's spawn.
 
@@ -608,7 +639,7 @@ Check it: build the test binary (`CGO_ENABLED=1 CC="zig cc -target x86_64-window
 - [ ] **Step 2: Write the failing JS tests** in `scripts/verify.test.mjs`:
 
 ```js
-import { SHARDS, countTopLevelTests, dealShards, goSummary, runPattern } from "./verify.mjs";
+import { SHARDS, SHARD_MIN_TESTS, countTopLevelTests, dealShards, goSummary, partitionByTests, runPattern } from "./verify.mjs";
 
 describe("sharding", () => {
     it("counts top-level tests, not TestMain, helpers or methods", () => {
@@ -622,6 +653,11 @@ describe("sharding", () => {
             "func TestD (t *testing.T) {}",
         ].join("\n");
         expect(countTopLevelTests(src)).toBe(3);
+    });
+    it("shards a package at the threshold and above, and runs the rest plain, in order", () => {
+        const pkgs = [{ importPath: "a", dir: "a" }, { importPath: "b", dir: "b" }, { importPath: "c", dir: "c" }];
+        const counts = { a: SHARD_MIN_TESTS - 1, b: SHARD_MIN_TESTS, c: SHARD_MIN_TESTS + 1 };
+        expect(partitionByTests(pkgs, (p) => counts[p.importPath])).toEqual({ sharded: [pkgs[1], pkgs[2]], plain: [pkgs[0]] });
     });
     it("deals names round robin and keeps order within a shard", () => {
         expect(dealShards(["a", "b", "c", "d", "e"], 2)).toEqual([["a", "c", "e"], ["b", "d"]]);
@@ -656,6 +692,11 @@ export function countTopLevelTests(source) {
     return [...source.matchAll(TOP_LEVEL_TEST)].filter((m) => m[1] !== "TestMain").length;
 }
 
+export function partitionByTests(pkgs, countFor) {
+    const sharded = pkgs.filter((p) => countFor(p) >= SHARD_MIN_TESTS);
+    return { sharded, plain: pkgs.filter((p) => !sharded.includes(p)) };
+}
+
 export function dealShards(names, n) {
     const shards = Array.from({ length: Math.min(n, names.length) }, () => []);
     names.forEach((name, i) => shards[i % shards.length].push(name));
@@ -673,7 +714,7 @@ export function goSummary(pkg, ok, seconds) {
 
 Wiring, all in `verify.mjs`:
 - `goPackages(args)`: `go list -e -f '{{.ImportPath}}\t{{.Dir}}' <args>` gives `[{importPath, dir}]`. It serves both the scoped `goPkgs` and the unscoped `patterns`.
-- Split them: `countTopLevelTests` over the concatenated `*_test.go` files in `dir` (`readdirSync`) `>= SHARD_MIN_TESTS` means sharded, the rest plain.
+- Split them with `partitionByTests(pkgs, countFor)`, where `countFor(p)` is `countTopLevelTests` over the concatenated `*_test.go` files in `p.dir` (`readdirSync`). The split stays out of the wiring, so the test covers it.
 - Plain: `run("go", ["test", ...plain])`, as today. Skip it when `plain` is empty.
 - Sharded, one package after another:
   1. `go test -c -o <tmp>/<i>.test[.exe] <importPath>` via `spawnSync`, with `stdio: "inherit"`. `<tmp>` comes from `mkdtempSync(join(tmpdir(), "arc-verify-"))`, and `.exe` is added on `win32`. A build failure prints and fails the script.
@@ -698,7 +739,7 @@ Run a failing shard once to see it end to end: add a `func TestZZFails(t *testin
 
 ```bash
 git add scripts/verify.mjs scripts/verify.test.mjs pkg/orchestrate/watchdogscope_test.go
-git commit -m "perf(verify): shard the slow Go test packages; count only a watchdog test's own spawns"   -m "Sharded pkg/orchestrate: <N> s in 4 processes (one process: ~100 s).""
+git commit -m "perf(verify): shard the slow Go test packages; count only a watchdog test's own spawns"   -m "Sharded pkg/orchestrate: <N> s in 4 processes (one process: ~100 s)."
 ```
 
 ### Task 4: Record the fixes and the dropped items
