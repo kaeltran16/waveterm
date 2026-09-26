@@ -94,9 +94,20 @@ function owningPackage(path, pkgs, modulePath) {
     return null;
 }
 
-function run(cmd, args) {
+// goTestEnv turns cgo on for go test: the store's tests need sqlite, and without a C compiler on PATH go falls back
+// to cgo off and every one of them panics. On Windows the compiler is zig, the same one the Taskfile builds wavesrv
+// with; a CC the caller set wins.
+export function goTestEnv(env, platform, arch) {
+    if (platform !== "win32" || env.CC) {
+        return env;
+    }
+    const target = arch === "arm64" ? "aarch64-windows-gnu" : "x86_64-windows-gnu";
+    return { ...env, CGO_ENABLED: "1", CC: `zig cc -target ${target}` };
+}
+
+function run(cmd, args, env = process.env) {
     console.log(`verify: ${cmd} ${args.join(" ")}`);
-    const r = spawnSync(cmd, args, { stdio: "inherit" });
+    const r = spawnSync(cmd, args, { stdio: "inherit", env });
     if (r.error) {
         console.error(`verify: could not run ${cmd}: ${r.error.message}`);
         process.exit(1);
@@ -135,7 +146,7 @@ function main(patterns) {
     const listFile = process.env.ARC_VERIFY_CHANGED;
     const changed = listFile ? readChangedFile(listFile) : null;
     if (!changed) {
-        run("go", ["test", ...patterns]);
+        run("go", ["test", ...patterns], goTestEnv(process.env, process.platform, process.arch));
         run("node", VITEST);
         return;
     }
@@ -150,7 +161,7 @@ function main(patterns) {
         return;
     }
     if (goArgs.length > 0) {
-        run("go", ["test", ...goArgs]);
+        run("go", ["test", ...goArgs], goTestEnv(process.env, process.platform, process.arch));
     }
     if (plan.tsc) {
         run("node", TSC);
