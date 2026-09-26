@@ -401,9 +401,10 @@ working · 0/13 done"). The lead stops there; the engine wakes it when it needs 
 
 ![The lead after submitting its plan](images/orchestrator-guide/22-agent-tree-executing.png)
 
-A landing doesn't wake the lead. Each task that passes review queues a line (`t-4 passed review: …`) that goes
-out ahead of the lead's next wake, and the run-finished wake carries whatever is left, so the lead learns what
-landed without a turn per task. `wsh jarvis dag status` shows each task's result and latest review. While the lead
+A landing doesn't wake the lead. Each task that passes review queues a line (`t-4 passed review: …`) that rides on
+the lead's next wake, and the run-finished wake carries whatever is left, so the lead learns what landed without a
+turn per task. A wake reads its action first, then the questions, then `Unverified:` (what passed reviews could
+not verify), and the recaps last under `Since your last wake:`. `wsh jarvis dag status` shows each task's result and latest review. While the lead
 waits at its prompt, its row reads `standing by`.
 
 ---
@@ -425,9 +426,13 @@ you.
 | **A worker's question** | answers from the spec, plan and code, or forwards a product call with a note | forwarded questions and any it does not answer within **10 minutes** |
 | **Task failed** with its retry spent | `dag retry`, `dag escalate --model`, `dag skip`, or forwards | forwarded failures |
 | **Worker hung** (15 min silent, process alive, no ask pending) | same as a failure | same |
+| **Worker may be stuck** (worktree unchanged 20 min while active, or the same failure 3x) | `dag tell`, `dag retry`, `dag escalate`, or lets it run | same |
 | **Worker never started** (5 min after spawn, its terminal's shell never came up) | `dag retry` | same |
 | **Final stage failed** | writes a fix plan and runs `dag submit --round --plan <fix plan>`; puts it to you when no round is left or the fix is a product call | a failed last round, or a product call |
 | **Run finished** | fixes and commits what the landed tasks left behind, writes the report to a file, adds open issues to the initiative, then completes on its own with `wsh jarvis complete --report <file>` | a question only when a decision is needed (a failed verification, a deviation, a proposed fix round), then the Done face |
+
+In `dag status`, a running worker that has written nothing lately reads `idle Nm`, or `running a command Nm · <tool>`
+while its processes are busy (a long test writes no transcript); a flagged one reads `stuck? <reason>`.
 
 ### A task's review
 
