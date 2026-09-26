@@ -247,9 +247,11 @@ func TestReviewPassPrintsTheUnverifiedCaveatWholeAheadOfTheNote(t *testing.T) {
 	}
 	schedule(t, ctx, dag.OID)
 	joined := strings.Join(f.sends, "\n")
-	want := "t-0 passed review. unverified: " + unverified + ". " + strings.Repeat("n", handoffMaxSummaryLen) + "..."
-	if !strings.Contains(joined, want) {
-		t.Fatalf("want the whole caveat before the note's recap, got %q", f.sends)
+	if want := "Unverified:\nt-0: " + unverified; !strings.Contains(joined, want) {
+		t.Fatalf("want the whole caveat under Unverified, got %q", f.sends)
+	}
+	if want := "t-0 passed review: " + strings.Repeat("n", handoffMaxSummaryLen) + "..."; !strings.Contains(joined, want) {
+		t.Fatalf("want the recap with its note cut, got %q", f.sends)
 	}
 }
 

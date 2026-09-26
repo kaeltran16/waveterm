@@ -14,6 +14,7 @@ import (
 	"strings"
 	"text/tabwriter"
 	"time"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 	"github.com/wavetermdev/waveterm/pkg/agentask"
@@ -257,10 +258,25 @@ func taskSignal(state string, td wshrpc.DagTaskDigest, now int64) string {
 		return "ask: " + compactText(td.AskSummary, 60)
 	case td.VerifyStartedTs > 0:
 		return verifySignal(td, now)
+	case td.Suspect != "":
+		return "stuck? " + compactText(td.Suspect, 80)
 	case td.FreshnessTs > 0 && (state == orchestrate.TaskState_Running || state == orchestrate.TaskState_Stalled):
-		return "idle " + compactDur(now-td.FreshnessTs)
+		return workerSignal(td, now)
 	}
 	return ""
+}
+
+// workerSignal is how long the worker has been silent, and whether it is running a command meanwhile: a foreground
+// test writes no transcript, so silence alone read as "idle" while the worker was busy.
+func workerSignal(td wshrpc.DagTaskDigest, now int64) string {
+	head := "idle " + compactDur(now-td.FreshnessTs)
+	if td.Busy {
+		head = "running a command " + compactDur(now-td.FreshnessTs)
+	}
+	if td.LatestTool != "" {
+		head += " · " + compactText(td.LatestTool, 60)
+	}
+	return head
 }
 
 // verifySignal is a running Verify's age and its latest output line. Verify runs outside a block, so
@@ -613,8 +629,21 @@ var dagAnswerCmd = &cobra.Command{
 		}
 		return wshclient.DagAnswerCommand(RpcClient, wshrpc.CommandDagAnswerData{
 			ChannelId: channelId, RunId: runId, TaskId: args[0], Answers: answers, Lead: true,
-		}, &wshrpc.RpcOpts{Timeout: 10_000})
+		}, &wshrpc.RpcOpts{Timeout: dagAnswerTimeoutMs(answers)})
 	},
+}
+
+// dagAnswerBaseTimeoutMs is the answer's budget before any typing.
+const dagAnswerBaseTimeoutMs = 10_000
+
+// dagAnswerTimeoutMs covers the server typing a free-text answer one key per character, KeystrokeDelay apart,
+// twice over for a loaded machine: a fixed budget expired on long answers that then landed anyway.
+func dagAnswerTimeoutMs(answers []baseds.AgentAnswerItem) int64 {
+	runes := 0
+	for _, a := range answers {
+		runes += utf8.RuneCountInString(a.Text)
+	}
+	return dagAnswerBaseTimeoutMs + int64(runes)*agentask.KeystrokeDelay.Milliseconds()*2
 }
 
 // dagForwardData is the forward action's payload. The note is not checked here: the server owns what

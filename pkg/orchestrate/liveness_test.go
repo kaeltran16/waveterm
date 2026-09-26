@@ -220,7 +220,15 @@ func TestStalledTaskWakesLeadUnlessWorkerIsAsking(t *testing.T) {
 // live lead so a stall stays a stall. It returns the dag and the transcript's mtime.
 func seedQuietChild(t *testing.T, name string) (context.Context, *waveobj.TaskGroup, int64) {
 	ctx, g, _ := seedChildWrittenAt(t, name, time.Now().Add(-StallThreshold-time.Minute))
+	noCPUThrottle(t)
 	return ctx, g, g.Tasks[0].LastActivity
+}
+
+func noCPUThrottle(t *testing.T) {
+	t.Helper()
+	prev := cpuSampleEvery
+	cpuSampleEvery = 0
+	t.Cleanup(func() { cpuSampleEvery = prev })
 }
 
 // seedChildWrittenAt records a running pi child whose transcript last moved at lastWrite, under a live lead,
@@ -294,8 +302,52 @@ func TestBusyChildIsNotStalled(t *testing.T) {
 	if task.State != TaskState_Running {
 		t.Fatalf("a child whose CPU advanced is not stalled, got %s", task.State)
 	}
-	if task.LastActivity <= quiet || task.LastActivity < before {
-		t.Fatalf("busy CPU refreshes LastActivity past the transcript's %d, got %d", quiet, task.LastActivity)
+	if task.BusyTs < before || task.LastActivity != quiet {
+		t.Fatalf("busy CPU sets BusyTs and leaves the transcript's LastActivity %d, got %+v", quiet, task)
+	}
+}
+
+// finding 28: a worker in a long foreground command is seen as busy long before StallThreshold
+func TestCPUIsSampledWellInsideTheStallThreshold(t *testing.T) {
+	ctx, g, _ := seedChildWrittenAt(t, "fresh-busy", time.Now().Add(-2*time.Minute))
+	noCPUThrottle(t)
+	stubChildCPU(t, func(call int) (int64, bool) { return int64(call) * 5000, true })
+	tick(t, ctx, g)
+	task := tick(t, ctx, g)
+	if task.BusyTs == 0 || task.State != TaskState_Running {
+		t.Fatalf("a fresh busy worker gets BusyTs, got %+v", task)
+	}
+}
+
+func TestCPUSampleIsThrottled(t *testing.T) {
+	ctx, g, _ := seedChildWrittenAt(t, "throttled", time.Now().Add(-2*time.Minute))
+	calls := 0
+	stubChildCPU(t, func(int) (int64, bool) { calls++; return int64(calls) * 5000, true })
+	tick(t, ctx, g)
+	tick(t, ctx, g)
+	if calls != 1 {
+		t.Fatalf("two ticks inside cpuSampleEvery sample once, got %d", calls)
+	}
+}
+
+func TestLatestToolComesFromTheWorkersStatus(t *testing.T) {
+	ctx, g, _ := seedChildWrittenAt(t, "latest-tool", time.Now().Add(-2*time.Minute))
+	prev := workerLatestTool
+	workerLatestTool = func(context.Context, *waveobj.Run) string { return "running go test ./pkg/x" }
+	t.Cleanup(func() { workerLatestTool = prev })
+	if task := tick(t, ctx, g); task.LatestTool != "running go test ./pkg/x" {
+		t.Fatalf("LatestTool = %q", task.LatestTool)
+	}
+}
+
+func TestRetryClearsTheCPUReadings(t *testing.T) {
+	g := &waveobj.TaskGroup{Tasks: []waveobj.TaskNode{{ID: "t-0", CPUSample: 9, CPUSampleTs: 9, BusyTs: 9, LatestTool: "x"}}}
+	if err := MarkRunning(g, "t-0", "run-2"); err != nil {
+		t.Fatal(err)
+	}
+	n := g.Tasks[0]
+	if n.CPUSample != 0 || n.CPUSampleTs != 0 || n.BusyTs != 0 || n.LatestTool != "" {
+		t.Fatalf("a new attempt starts with no readings, got %+v", n)
 	}
 }
 
@@ -331,19 +383,20 @@ func TestIdleHarnessCPUTrickleIsNotWork(t *testing.T) {
 		name    string
 		next    int64
 		elapsed int64
-		want    bool
+		want    cpuVerdict
 	}{
-		{"idle claude's trickle", 5_110, 20_000, false},
-		{"a test run", 15_000, 20_000, true},
-		{"a child in the tree exited", 4_000, 20_000, true},
-		{"flat CPU in the same millisecond", 5_000, 0, false},
+		{"idle claude's trickle", 5_110, 20_000, cpuIdle},
+		{"a test run", 15_000, 20_000, cpuBusy},
+		{"a child in the tree exited", 4_000, 20_000, cpuBusy},
+		{"flat CPU in the same millisecond", 5_000, 0, cpuIdle},
 	}
+	noCPUThrottle(t)
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			stubChildCPU(t, func(int) (int64, bool) { return tc.next, true })
 			task := waveobj.TaskNode{CPUSample: 5_000, CPUSampleTs: now - tc.elapsed}
-			if got := childStillWorking(context.Background(), &task, &waveobj.Run{}, now); got != tc.want {
-				t.Fatalf("childStillWorking = %v, want %v", got, tc.want)
+			if got := sampleWorkerCPU(context.Background(), &task, &waveobj.Run{}, now); got != tc.want {
+				t.Fatalf("sampleWorkerCPU = %v, want %v", got, tc.want)
 			}
 		})
 	}
@@ -363,6 +416,7 @@ func TestLatestAgentStatusIgnoresAnEmptyScope(t *testing.T) {
 // because its transcript was fresh and an idle claude's CPU read as work.
 func TestWorkerThatEndedItsTurnWakesTheLead(t *testing.T) {
 	ctx, g, f := seedChildWrittenAt(t, "turn-ended", time.Now().Add(-4*time.Minute))
+	noCPUThrottle(t)
 	stubTurnEnded(t, time.Now().Add(-4*time.Minute).UnixMilli())
 	stubChildCPU(t, func(int) (int64, bool) { return 5_000, true })
 

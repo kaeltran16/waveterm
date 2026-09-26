@@ -26,6 +26,7 @@ const RUN_GROUP_KINDS = new Set([
     "task-spawned",
     "task-first-activity",
     "task-stalled",
+    "task-suspect",
     "task-retried",
     "dag-blocked",
     "dag-done",
@@ -108,6 +109,7 @@ const KIND_TITLE: Record<string, string> = {
     "task-spawned": "Task spawned",
     "task-first-activity": "Task produced its first output",
     "task-stalled": "Task stalled",
+    "task-suspect": "Task may be stuck",
     "task-retried": "Task retried",
     "dag-blocked": "DAG blocked",
     "dag-done": "DAG complete",
@@ -177,6 +179,7 @@ const KIND_TONE: Record<string, string> = {
     "dag-plan-sent-back": "text-warning",
     triage: "text-warning",
     "task-stalled": "text-warning",
+    "task-suspect": "text-warning",
     "dag-blocked": "text-warning",
     "task-retried": "text-warning",
     "task-failed": "text-warning",
@@ -302,6 +305,7 @@ export function clickTargetFor(event: RunEvent): TimelineClick {
         case "child-cancelled":
             return detail?.childrunid ? { kind: "select-child", childRunId: detail.childrunid } : { kind: "none" };
         case "task-stalled":
+        case "task-suspect":
         case "dag-blocked":
             return { kind: "open-dag", taskId: detail?.taskid ?? "" };
         // phase-held, gate-approved and gate-sent-back are rows only a run stored before slice 5c can

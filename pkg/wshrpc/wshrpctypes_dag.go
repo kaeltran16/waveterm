@@ -205,6 +205,9 @@ type DagTaskDigest struct {
 	AskTs            int64    `json:"askts,omitempty"`
 	AskDeadline      int64    `json:"askdeadline,omitempty"` // UnixMilli past which a lead-held ask moves to the human
 	FreshnessTs      int64    `json:"freshnessts,omitempty"`
+	Busy             bool     `json:"busy,omitempty"`            // the worker's tree was using CPU within BusyWindow
+	LatestTool       string   `json:"latesttool,omitempty"`      // the worker's in-progress tool call
+	Suspect          string   `json:"suspect,omitempty"`         // why the running worker may be stuck, while it is flagged
 	VerifyStartedTs  int64    `json:"verifystartedts,omitempty"` // UnixMilli a RUNNING merge-point Verify started; 0 in every other state
 	VerifyLastLine   string   `json:"verifylastline,omitempty"`  // the last line that running Verify has printed
 	RecoveredRetry   bool     `json:"recoveredretry,omitempty"`

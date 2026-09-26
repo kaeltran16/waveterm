@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
@@ -1568,5 +1570,48 @@ func TestWorkerContractNamesABrokenBase(t *testing.T) {
 	c := workerContract(g, &g.Tasks[0], "claude", "")
 	if !strings.Contains(c, "`tsc` already fails on the base, before any task (exit 2: error TS2307)") {
 		t.Fatalf("the contract names the base failure, got %q", c)
+	}
+}
+
+// a serial batch takes seconds per spawn, and stamping each task-spawned at the batch's commit bunches every
+// spawn on the timeline at the end of the batch
+func TestTaskSpawnedCarriesEachTasksOwnSpawnTime(t *testing.T) {
+	allowWorkerHarnessForTest(t)
+	ctx, g, channelID, runID := seedTwoTaskDispatchDag(t, "spawn-stamps")
+	var returned []int64
+	start := time.Now().UnixMilli()
+	old := spawnWorker
+	spawnWorker = func(context.Context, runroute.Capability, string, string, string, string, jarvis.RunWorkerOptions) (string, error) {
+		time.Sleep(50 * time.Millisecond)
+		returned = append(returned, time.Now().UnixMilli())
+		return waveobj.MakeORef(waveobj.OType_Tab, uuid.NewString()).String(), nil
+	}
+	t.Cleanup(func() { spawnWorker = old })
+
+	if err := ScheduleOnce(ctx, g); err != nil {
+		t.Fatal(err)
+	}
+	var stamps []int64
+	for _, ev := range lifecycleEvents(t, channelID, runID) {
+		if ev.Kind == waveobj.RunEventKindTaskSpawned {
+			stamps = append(stamps, ev.Ts)
+		}
+	}
+	if len(stamps) != 2 || len(returned) != 2 {
+		t.Fatalf("want two spawns, got stamps %v returned %v", stamps, returned)
+	}
+	sort.Slice(stamps, func(i, j int) bool { return stamps[i] < stamps[j] })
+	// the stub and the engine read the clock separately, so a stamp may trail its return by a millisecond, but
+	// never reach the next spawn's return: a batch-end stamp lands after the last one
+	if stamps[0] < returned[0] || stamps[0] >= returned[1] {
+		t.Fatalf("first task-spawned stamped %d, want in [%d, %d)", stamps[0], returned[0], returned[1])
+	}
+	if stamps[1] < returned[1] {
+		t.Fatalf("second task-spawned stamped %d, before its spawn returned at %d", stamps[1], returned[1])
+	}
+	// stamped at the spawn, not at the write after the tick's commit
+	dag := mustLoadDag(t, ctx, g.OID)
+	if stamps[1] > dag.UpdatedTs || stamps[0] < start {
+		t.Fatalf("stamps %v must fall between the tick's start %d and its commit %d", stamps, start, dag.UpdatedTs)
 	}
 }

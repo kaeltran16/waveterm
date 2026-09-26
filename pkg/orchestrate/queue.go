@@ -87,6 +87,12 @@ func taskNeverStartedWake(taskID string, silentMin int64) string {
 	return fmt.Sprintf("wake: task %s never started: no worker process %dm after spawn. wsh jarvis dag retry %s", taskID, silentMin, taskID)
 }
 
+// taskSuspectWake hands the lead a worker that is busy but not getting anywhere; the engine does not act on it,
+// because only the lead can tell a stuck worker from a hard task.
+func taskSuspectWake(taskID, reason string) string {
+	return fmt.Sprintf("wake: task %s may be stuck: %s. Tell it (`wsh jarvis dag tell %s \"…\"`), retry, escalate, or let it run. wsh jarvis dag status", taskID, reason, taskID)
+}
+
 func mergeConflictWake(taskID string) string {
 	return fmt.Sprintf("wake: merge conflict landing lane ending at task %s. git status", taskID)
 }

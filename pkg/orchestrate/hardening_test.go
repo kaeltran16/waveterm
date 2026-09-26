@@ -38,6 +38,29 @@ func seedDispatchDag(t *testing.T, name string) (context.Context, *waveobj.TaskG
 	return ctx, &g, ch.OID, owner.ID
 }
 
+// seedTwoTaskDispatchDag is seedDispatchDag with two independent ready tasks and parallelism 2, so one
+// tick spawns both.
+func seedTwoTaskDispatchDag(t *testing.T, name string) (context.Context, *waveobj.TaskGroup, string, string) {
+	t.Helper()
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, name, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
+	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
+		t.Fatal(err)
+	}
+	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 2, false, []waveobj.TaskNode{{ID: "t-0", Label: "a"}, {ID: "t-1", Label: "b"}}, 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := wstore.AppendDag(ctx, &g); err != nil {
+		t.Fatal(err)
+	}
+	return ctx, &g, ch.OID, owner.ID
+}
+
 // a task that dies before it starts has no child run and no transcript, so the reason must be
 // recorded at the dispatch site or it exists nowhere.
 func TestScheduleRecordsSpawnFailureReason(t *testing.T) {
