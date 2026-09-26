@@ -120,6 +120,14 @@ export function goSummary(pkg, ok, seconds) {
     return `${ok ? "ok  " : "FAIL"}\t${pkg}\t${seconds.toFixed(3)}s`;
 }
 
+// partitionPackages splits the packages into those whose tests are dealt across SHARDS processes and those run by
+// one plain go test. a package go list could not resolve has no dir; go test reports why.
+export function partitionPackages(pkgs, countOf) {
+    const sharded = pkgs.filter((p) => p.dir && countOf(p.dir) >= SHARD_MIN_TESTS);
+    const plain = pkgs.filter((p) => !sharded.includes(p));
+    return { sharded, plain };
+}
+
 function run(cmd, args) {
     console.log(`verify: ${cmd} ${args.join(" ")}`);
     const r = spawnSync(cmd, args, { stdio: "inherit" });
@@ -167,12 +175,9 @@ function testSource(dir) {
 // goTest runs the packages like go test, except that a package with many tests is built once and its tests are
 // dealt across SHARDS processes; go test runs one package's tests in one process however many cores are idle.
 async function goTest(args) {
-    const pkgs = goPackages(args);
-    // a package go list could not resolve has no dir; go test reports why
-    const sharded = pkgs.filter((p) => p.dir && countTopLevelTests(testSource(p.dir)) >= SHARD_MIN_TESTS);
-    const plain = pkgs.filter((p) => !sharded.includes(p)).map((p) => p.importPath);
+    const { sharded, plain } = partitionPackages(goPackages(args), (dir) => countTopLevelTests(testSource(dir)));
     if (plain.length > 0) {
-        run("go", ["test", ...plain]);
+        run("go", ["test", ...plain.map((p) => p.importPath)]);
     }
     if (sharded.length === 0) {
         return;

@@ -1,7 +1,7 @@
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { SHARDS, countTopLevelTests, dealShards, goSummary, needsGoGraph, planVerify, readChanged, readChangedFile, runPattern } from "./verify.mjs";
+import { SHARDS, SHARD_MIN_TESTS, countTopLevelTests, dealShards, goSummary, needsGoGraph, partitionPackages, planVerify, readChanged, readChangedFile, runPattern } from "./verify.mjs";
 
 const MOD = "github.com/wavetermdev/waveterm";
 const graph = [
@@ -97,5 +97,25 @@ describe("sharding", () => {
     it("summarizes a package like go test, so the engine's excerpt finds FAIL", () => {
         expect(goSummary("example.com/m/pkg/a", true, 1.5)).toBe("ok  \texample.com/m/pkg/a\t1.500s");
         expect(goSummary("example.com/m/pkg/a", false, 2)).toBe("FAIL\texample.com/m/pkg/a\t2.000s");
+    });
+    it("shards a package at the threshold and runs one below it plain", () => {
+        const pkgs = [
+            { importPath: "m/pkg/a", dir: "/a" },
+            { importPath: "m/pkg/b", dir: "/b" },
+        ];
+        const counts = { "/a": SHARD_MIN_TESTS, "/b": SHARD_MIN_TESTS - 1 };
+        const { sharded, plain } = partitionPackages(pkgs, (dir) => counts[dir]);
+        expect(sharded.map((p) => p.importPath)).toEqual(["m/pkg/a"]);
+        expect(plain.map((p) => p.importPath)).toEqual(["m/pkg/b"]);
+    });
+    it("runs a package go list could not resolve plain, without counting its tests", () => {
+        const seen = [];
+        const { sharded, plain } = partitionPackages([{ importPath: "m/pkg/gone", dir: "" }], (dir) => {
+            seen.push(dir);
+            return SHARD_MIN_TESTS;
+        });
+        expect(sharded).toEqual([]);
+        expect(plain.map((p) => p.importPath)).toEqual(["m/pkg/gone"]);
+        expect(seen).toEqual([]);
     });
 });
