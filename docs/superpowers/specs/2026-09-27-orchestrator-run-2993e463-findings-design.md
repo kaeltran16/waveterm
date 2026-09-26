@@ -130,25 +130,31 @@ retry/skip.` for everything else. Dag 9b17c7e9's t-1 is `review-failed` ("review
 with `Failures` 0, so its card read `0 consecutive failures`. `blockedTask` does not name a review-failed task
 either, so the item's `TaskId` is empty.
 
-**Change.** `dagBlockedReason` follows the digest's order (`buildNext`): review-failed, then a merge, a failed
-Verify, the final stage, a failed task, the circuit break, and a fallback.
+**Change.** `dagBlockedReason` checks, in this order: review-failed, a merge, a failed Verify, the final stage,
+the circuit break, a failed task, and a fallback. Review-failed goes first because the digest (`buildNext`) ranks
+it above every other human action. The merge, Verify and final-stage branches keep their current order (the
+digest ranks a failed final stage lower, as a lead action; the card keeps it where it is). The circuit break
+comes before a failed task (decided): at the limit the count explains why dispatch stopped, and the action is
+the same.
 
 | State | Text | Why (after `n of m tasks done.`) |
 |---|---|---|
 | review-failed | `Review of <task> failed: <first line of ReviewNote>` | `The lead was woken to judge it: approve it as it is with `wsh jarvis dag approve <id>`, send it back with `wsh jarvis dag sendback <id> "<guidance>"`, or retry or skip it.` |
 | blocked-merge, verify-failed, final | unchanged | unchanged |
-| failed | `<task> failed` plus `: <LastFailureKind>` when set | `Retry it with `wsh jarvis dag retry <id>`, skip it, or escalate it to another model.` |
-| circuit break (`Failures >= MaxConsecutiveFailures`, no task above) | unchanged: `<n> consecutive failures — decide retry/skip.` | unchanged |
-| anything else | `The group is blocked: <task> is <state>` for each task not done, skipped or pending | ``wsh jarvis dag status` lists each task's actions.`` |
+| circuit break (`Failures >= MaxConsecutiveFailures`) | unchanged: `<n> consecutive failures — decide retry/skip.` | unchanged |
+| failed, below the limit | `<task> failed` plus `: <LastFailureKind>` when set | `Retry it with `wsh jarvis dag retry <id>`, skip it, or escalate it to another model.` |
+| anything else | `The group is blocked: <task> is <state>` for each task not done, skipped or pending; `The group is blocked.` when there is none | ``wsh jarvis dag status` lists each task's actions.`` |
 
-The bare `consecutive failures` line is printed only when `Failures` reaches the limit. `blockedTask` returns a
+The `consecutive failures` line is printed only when `Failures` reaches the limit. `blockedTask` returns a
 review-failed task first (`retry` false), then as now. The new commands name the task id alone, like the existing
 merge line.
 
 **Tests.** `attention_test.go`: a review-failed task with `Failures` 0 gets its review note in the text, the
 approve and sendback commands in the why-line, its id in `TaskId`, and no `consecutive failures`; a failed task
-names its failure kind; a review-failed task outranks a blocked merge; the circuit-break case keeps its current
-text (`TestDagGateAndBlockedWhyCountSkippedTasksAsFinished` unchanged).
+below the limit names its failure kind; a review-failed task outranks a blocked merge; a blocked dag with nothing
+to name reads `The group is blocked.`. Unchanged and still passing: `TestDagGateAndBlockedWhyCountSkippedTasksAsFinished`,
+and in `attention_dag_test.go` `TestBuildAttentionKeepsTheFailureCountForFailedTasks` (a failed task at
+`Failures` 3 keeps the count) and `TestBuildAttentionDagBlocked`.
 
 ## 5. The findings doc
 

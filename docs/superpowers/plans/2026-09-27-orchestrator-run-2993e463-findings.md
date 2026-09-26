@@ -491,7 +491,7 @@ Run the step 1 command. Expected: PASS. Then run `go test ./pkg/jarvis/ -count=1
 
 **Files:**
 - Modify: `pkg/jarvis/attention.go:260-320` (`blockedTask`, `dagBlockedReason`)
-- Test: `pkg/jarvis/attention_test.go`
+- Test: `pkg/jarvis/attention_test.go` (new tests); `pkg/jarvis/attention_dag_test.go` (existing tests that must keep passing unchanged)
 
 - [ ] **Step 1: Write the failing tests** in `attention_test.go`:
 
@@ -553,19 +553,29 @@ func TestBlockedWithNoNamedCauseListsTheTasks(t *testing.T) {
 		t.Fatalf("got %q / %q", items[0].Text, items[0].Why)
 	}
 }
+
+func TestBlockedWithNothingToNameSaysSo(t *testing.T) {
+	items := BuildAttention(AttentionInput{Dags: []*waveobj.TaskGroup{{
+		ID: "d1", RunID: "r1", ChannelId: "c1", Status: "blocked",
+		Tasks: []waveobj.TaskNode{{ID: "t-1", State: "done"}, {ID: "t-2", State: "pending"}},
+	}}})
+	if items[0].Text != "The group is blocked." {
+		t.Fatalf("text = %q, want no dangling list", items[0].Text)
+	}
+}
 ```
 
-`TestDagGateAndBlockedWhyCountSkippedTasksAsFinished` stays as it is (the circuit break keeps its text). Run: `go test ./pkg/jarvis/ -run 'Blocked|DagGate' -count=1` (CGO env). Expected: FAIL.
+These existing tests stay as they are and must still pass: `TestDagGateAndBlockedWhyCountSkippedTasksAsFinished` (attention_test.go), and in `attention_dag_test.go` `TestBuildAttentionKeepsTheFailureCountForFailedTasks` (a failed task at `Failures` 3 keeps `3 consecutive failures — decide retry/skip.`: the circuit break is checked before a failed task) and `TestBuildAttentionDagBlocked`. Run: `go test ./pkg/jarvis/ -run 'Blocked|DagGate' -count=1` (CGO env). Expected: the new tests FAIL, the existing ones pass.
 
 - [ ] **Step 2: Implement.** In `attention.go`:
   - A mirror constant beside the task-state ones: `maxConsecutiveFailures = 3 // mirrors orchestrate.MaxConsecutiveFailures`, and `taskStateReviewFailed = "review-failed"`, `taskStatePending = "pending"` if not already spelled.
   - `blockedTask`: a first loop returns a `review-failed` task's id with `false`, then the existing loops.
-  - `dagBlockedReason`, in the digest's order (`buildNext`, `pkg/orchestrate/digest.go`); update its doc comment to say so:
+  - `dagBlockedReason`, in this order; update its doc comment to say review-failed comes first as the digest (`buildNext`) ranks it, and that at the failure limit the count wins over a failed task because it explains why dispatch stopped:
     1. review-failed: text `Review of <name> failed`, plus `: <firstLine(ReviewNote)>` when the note is not empty; why `<done> The lead was woken to judge it: approve it as it is with `wsh jarvis dag approve <id>`, send it back with `wsh jarvis dag sendback <id> "<guidance>"`, or retry or skip it.`
-    2. the existing blocked-merge, verify-failed and final-stage branches, unchanged.
-    3. failed: text `<name> failed`, plus `: <LastFailureKind>` when set; why `<done> Retry it with `wsh jarvis dag retry <id>`, skip it, or escalate it to another model.`
-    4. `g.Failures >= maxConsecutiveFailures`: the existing `<n> consecutive failures — decide retry/skip.` line and its why, unchanged.
-    5. fallback: text `The group is blocked: ` + `"<name> is <state>"` joined by `, ` for each task not done, skipped or pending; why `<done> `wsh jarvis dag status` lists each task's actions.`
+    2. the existing blocked-merge, verify-failed and final-stage branches, unchanged and in their current order.
+    3. `g.Failures >= maxConsecutiveFailures`: the existing `<n> consecutive failures — decide retry/skip.` line and its why, unchanged.
+    4. failed (so below the limit): text `<name> failed`, plus `: <LastFailureKind>` when set; why `<done> Retry it with `wsh jarvis dag retry <id>`, skip it, or escalate it to another model.`
+    5. fallback: text `The group is blocked: ` + `"<name> is <state>"` joined by `, ` for each task not done, skipped or pending, or `The group is blocked.` when no task is listed; why `<done> `wsh jarvis dag status` lists each task's actions.`
 
 Run the step 1 command, then `go test ./pkg/jarvis/ -count=1`. Expected: PASS.
 
