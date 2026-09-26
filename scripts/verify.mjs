@@ -128,9 +128,20 @@ export function partitionPackages(pkgs, countOf) {
     return { sharded, plain };
 }
 
-function run(cmd, args) {
+// goTestEnv turns cgo on for go test: the store's tests need sqlite, and without a C compiler on PATH go falls back
+// to cgo off and every one of them panics. On Windows the compiler is zig, the same one the Taskfile builds wavesrv
+// with; a CC the caller set wins.
+export function goTestEnv(env, platform, arch) {
+    if (platform !== "win32" || env.CC) {
+        return env;
+    }
+    const target = arch === "arm64" ? "aarch64-windows-gnu" : "x86_64-windows-gnu";
+    return { ...env, CGO_ENABLED: "1", CC: `zig cc -target ${target}` };
+}
+
+function run(cmd, args, env = process.env) {
     console.log(`verify: ${cmd} ${args.join(" ")}`);
-    const r = spawnSync(cmd, args, { stdio: "inherit" });
+    const r = spawnSync(cmd, args, { stdio: "inherit", env });
     if (r.error) {
         console.error(`verify: could not run ${cmd}: ${r.error.message}`);
         process.exit(1);
@@ -175,9 +186,10 @@ function testSource(dir) {
 // goTest runs the packages like go test, except that a package with many tests is built once and its tests are
 // dealt across SHARDS processes; go test runs one package's tests in one process however many cores are idle.
 async function goTest(args) {
+    const env = goTestEnv(process.env, process.platform, process.arch);
     const { sharded, plain } = partitionPackages(goPackages(args), (dir) => countTopLevelTests(testSource(dir)));
     if (plain.length > 0) {
-        run("go", ["test", ...plain.map((p) => p.importPath)]);
+        run("go", ["test", ...plain.map((p) => p.importPath)], env);
     }
     if (sharded.length === 0) {
         return;
@@ -187,7 +199,7 @@ async function goTest(args) {
     try {
         for (const [i, pkg] of sharded.entries()) {
             const bin = join(tmp, `${i}.test${process.platform === "win32" ? ".exe" : ""}`);
-            failed = !(await runSharded(pkg, bin)) || failed;
+            failed = !(await runSharded(pkg, bin, env)) || failed;
         }
     } finally {
         rmSync(tmp, { recursive: true, force: true });
@@ -197,10 +209,10 @@ async function goTest(args) {
     }
 }
 
-async function runSharded(pkg, bin) {
+async function runSharded(pkg, bin, env) {
     console.log(`verify: go test -c -o ${bin} ${pkg.importPath}, then ${SHARDS} processes`);
     const start = Date.now();
-    const built = spawnSync("go", ["test", "-c", "-o", bin, pkg.importPath], { stdio: "inherit" });
+    const built = spawnSync("go", ["test", "-c", "-o", bin, pkg.importPath], { stdio: "inherit", env });
     if (built.error || built.status !== 0) {
         console.error(`verify: could not build the tests of ${pkg.importPath}${built.error ? `: ${built.error.message}` : ""}`);
         console.log(`FAIL\t${pkg.importPath} [build failed]`);

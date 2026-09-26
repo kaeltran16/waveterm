@@ -28,6 +28,11 @@ const (
 	RunEventKindDagBlocked        = "dag-blocked"
 	RunEventKindDagDone           = "dag-done"
 	RunEventKindTaskRetried       = "task-retried"
+
+	// task-suspect: a running worker is active but not progressing (its worktree unchanged while active, or the
+	// same failure repeated) ("taskid", "unchangedms", "command", "count"). The lead judges it; the engine does not act.
+	RunEventKindTaskSuspect = "task-suspect"
+
 	// orchestration lifecycle transitions beyond run/phase/child coverage. Start/sent events append
 	// after the request is accepted or its delivery write succeeds; outcome events append only after
 	// the authoritative state mutation persists. Each writer attempts once at that boundary; a

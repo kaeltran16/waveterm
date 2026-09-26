@@ -14,9 +14,29 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/agentask"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
+	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
+
+func TestTaskSignalTellsBusyFromIdle(t *testing.T) {
+	now := int64(10_000_000)
+	quiet := now - 4*60_000
+	cases := []struct {
+		td   wshrpc.DagTaskDigest
+		want string
+	}{
+		{wshrpc.DagTaskDigest{FreshnessTs: quiet, Busy: true, LatestTool: "running go test ./pkg/x"}, "running a command 4m · running go test ./pkg/x"},
+		{wshrpc.DagTaskDigest{FreshnessTs: quiet}, "idle 4m"},
+		{wshrpc.DagTaskDigest{FreshnessTs: quiet, LatestTool: "editing a.go"}, "idle 4m · editing a.go"},
+		{wshrpc.DagTaskDigest{FreshnessTs: quiet, Busy: true, Suspect: "worktree unchanged 22m while active"}, "stuck? worktree unchanged 22m while active"},
+	}
+	for _, c := range cases {
+		if got := taskSignal(orchestrate.TaskState_Running, c.td, now); got != c.want {
+			t.Fatalf("taskSignal = %q, want %q", got, c.want)
+		}
+	}
+}
 
 func newDagEscalateTestCmd(t *testing.T, flags map[string]string) *cobra.Command {
 	t.Helper()

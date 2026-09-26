@@ -28,18 +28,24 @@ type runEventRow struct {
 	Data      []byte `db:"data"`
 }
 
-// AppendRunEvent appends one lifecycle event to a run's log, prunes to the newest
+// AppendRunEvent appends one lifecycle event stamped now. See AppendRunEventAt.
+func AppendRunEvent(ctx context.Context, channelId, runId, kind string, phaseIdx *int, detail any) (waveobj.RunEvent, error) {
+	return AppendRunEventAt(ctx, time.Now().UnixMilli(), channelId, runId, kind, phaseIdx, detail)
+}
+
+// AppendRunEventAt appends one lifecycle event to a run's log, prunes to the newest
 // maxRunEventsPerRun rows, and returns the persisted event (id + ts) so the caller can broadcast the
 // exact row it stored. Callers treat failures as non-fatal telemetry — the run transition they
-// accompany has already persisted; a log write must never fail the run it describes.
-func AppendRunEvent(ctx context.Context, channelId, runId, kind string, phaseIdx *int, detail any) (waveobj.RunEvent, error) {
+// accompany has already persisted; a log write must never fail the run it describes. A caller that
+// records an event after the fact passes the time it happened as ts.
+func AppendRunEventAt(ctx context.Context, ts int64, channelId, runId, kind string, phaseIdx *int, detail any) (waveobj.RunEvent, error) {
 	detailJSON, err := json.Marshal(detail)
 	if err != nil {
 		return waveobj.RunEvent{}, fmt.Errorf("run event detail: %w", err)
 	}
 	ev := waveobj.RunEvent{
 		ID: uuid.NewString(), RunID: runId, ChannelID: channelId,
-		Ts: time.Now().UnixMilli(), Kind: kind, PhaseIdx: phaseIdx, Detail: detailJSON,
+		Ts: ts, Kind: kind, PhaseIdx: phaseIdx, Detail: detailJSON,
 	}
 	return ev, WithTx(ctx, func(tx *TxWrap) error {
 		tx.Exec(`INSERT INTO db_runevent (oid, runid, channelid, ts, kind, phaseidx, data)

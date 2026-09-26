@@ -1,7 +1,7 @@
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { SHARDS, SHARD_MIN_TESTS, countTopLevelTests, dealShards, goSummary, needsGoGraph, partitionPackages, planVerify, readChanged, readChangedFile, runPattern } from "./verify.mjs";
+import { SHARDS, SHARD_MIN_TESTS, countTopLevelTests, dealShards, goSummary, goTestEnv, needsGoGraph, partitionPackages, planVerify, readChanged, readChangedFile, runPattern } from "./verify.mjs";
 
 const MOD = "github.com/wavetermdev/waveterm";
 const graph = [
@@ -117,5 +117,23 @@ describe("sharding", () => {
         expect(sharded).toEqual([]);
         expect(plain.map((p) => p.importPath)).toEqual(["m/pkg/gone"]);
         expect(seen).toEqual([]);
+    });
+});
+
+describe("goTestEnv", () => {
+    it("turns cgo on with zig on Windows, so the sqlite tests run", () => {
+        expect(goTestEnv({ PATH: "p" }, "win32", "x64")).toEqual({
+            PATH: "p",
+            CGO_ENABLED: "1",
+            CC: "zig cc -target x86_64-windows-gnu",
+        });
+        expect(goTestEnv({}, "win32", "arm64").CC).toBe("zig cc -target aarch64-windows-gnu");
+    });
+
+    it("leaves a caller's CC and other platforms alone", () => {
+        const env = { CC: "gcc" };
+        expect(goTestEnv(env, "win32", "x64")).toBe(env);
+        const linux = { PATH: "p" };
+        expect(goTestEnv(linux, "linux", "x64")).toBe(linux);
     });
 });

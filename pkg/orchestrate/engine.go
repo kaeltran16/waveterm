@@ -177,7 +177,6 @@ func autoRetryStalled(ctx context.Context, g *waveobj.TaskGroup, taskID string) 
 		return false
 	}
 	task.StallRetries++
-	task.CPUSample, task.CPUSampleTs = 0, 0
 	return true
 }
 
@@ -297,6 +296,11 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		if t.State == TaskState_Running && workerControllerGone(ctx, runs[t.RunID]) {
 			t.State = TaskState_Stalled
 		}
+		verdict := cpuNone
+		if t.State == TaskState_Running || t.State == TaskState_Stalled {
+			verdict = sampleWorkerCPU(ctx, t, runs[t.RunID], now)
+			t.LatestTool = workerLatestTool(ctx, runs[t.RunID])
+		}
 		activity, tracked := lastActivityForRun(runs[t.RunID])
 		if activity > t.LastActivity {
 			t.LastActivity = activity
@@ -336,6 +340,17 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 				})
 			}
 		}
+		// active but not progressing: liveness calls a worker that loops for an hour healthy. Every runtime, since only
+		// the failure scan needs a transcript; the lead judges, the engine does not act.
+		if t.State == TaskState_Running {
+			if reason, detail, flagged := checkProgress(ctx, t, runs[t.RunID], now); flagged {
+				taskID := t.ID
+				afterCommit = append(afterCommit, func() {
+					appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskSuspect, nil, detail)
+					PostWake(ctx, g.ChannelId, g.RunID, taskSuspectWake(taskID, reason))
+				})
+			}
+		}
 		// no readable activity source: the spawn-time seed would age into a stall on its own and hand
 		// the lead a retry that kills a working child. Report freshness unknown (zero) instead — a
 		// missed stall only costs a timeout. It skips the first-token deadline too: an unreadable child
@@ -353,9 +368,11 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		// a worker whose turn ended with its run still open has nothing left to write, so its transcript can sit
 		// fresh for all of StallThreshold while nobody hears of it (run 28caa81f's t-4). Its CPU still decides,
 		// because a turn can end on a background test run.
-		quiet := t.LastActivity > 0 && now-t.LastActivity > StallThreshold.Milliseconds()
+		// silence is the transcript's and the CPU's together: a busy sample restarts it as a write would. Only a
+		// fresh idle sample, or none at all, lets a quiet task stall; a skipped or first reading defers a tick
+		quiet := t.LastActivity > 0 && now-max(t.LastActivity, t.BusyTs) > StallThreshold.Milliseconds()
 		if t.State == TaskState_Running && (quiet || turnEndedPast(ctx, runs[t.RunID], now)) &&
-			!childStillWorking(ctx, t, runs[t.RunID], now) {
+			(verdict == cpuIdle || verdict == cpuNone) {
 			t.State = TaskState_Stalled
 		}
 		// first-token deadline: a child that has written nothing has no mtime to age, so without this
@@ -527,6 +544,7 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		oref, err := spawnWorker(spawnCtx, capability, owner.WorkspaceId, "", cwd, prompt,
 			jarvis.RunWorkerOptions{SessionId: sessionId, RunId: runID, TaskId: taskID, Label: task.Label})
 		spawnMs := time.Since(spawnStart).Milliseconds()
+		spawnedAt := time.Now().UnixMilli()
 		if err != nil {
 			failDispatch(ctx, g, taskID, FailureKindSpawn, err, &afterCommit)
 			continue
@@ -571,7 +589,8 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		spawnedTaskID := taskID
 		afterCommit = append(afterCommit, func() {
 			publishDagEvent(DagEventTaskSpawned, g, spawnedTaskID)
-			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskSpawned, nil, map[string]any{"taskid": spawnedTaskID, "worktreems": worktreeMs, "setupms": setupMs, "spawnms": spawnMs})
+			// the append waits for the whole batch's commit, and a serial batch takes seconds per task
+			appendRunEventAt(ctx, spawnedAt, g.ChannelId, g.RunID, waveobj.RunEventKindTaskSpawned, nil, map[string]any{"taskid": spawnedTaskID, "worktreems": worktreeMs, "setupms": setupMs, "spawnms": spawnMs})
 		})
 	}
 	RecomputeDagStatus(g)
@@ -878,8 +897,8 @@ func publishDagEvent(kind string, g *waveobj.TaskGroup, detail string) {
 // focused run card. Best-effort telemetry — a failure is logged, never returned: the engine's
 // scheduling must not fail over a log write. Local copy of the wshserver helper (that package imports
 // this one, so a shared implementation would be a cycle). Var so tests can stub an append failure.
-var appendRunEvent = func(ctx context.Context, channelId, runId, kind string, phaseIdx *int, detail any) {
-	if ev, err := wstore.AppendRunEvent(ctx, channelId, runId, kind, phaseIdx, detail); err != nil {
+var appendRunEventAt = func(ctx context.Context, ts int64, channelId, runId, kind string, phaseIdx *int, detail any) {
+	if ev, err := wstore.AppendRunEventAt(ctx, ts, channelId, runId, kind, phaseIdx, detail); err != nil {
 		log.Printf("appendRunEvent(%s): %v", kind, err)
 	} else {
 		wps.Broker.Publish(wps.WaveEvent{
@@ -888,4 +907,8 @@ var appendRunEvent = func(ctx context.Context, channelId, runId, kind string, ph
 			Data:   wshrpc.RunEventData{ChannelId: channelId, RunId: runId, Event: ev},
 		})
 	}
+}
+
+var appendRunEvent = func(ctx context.Context, channelId, runId, kind string, phaseIdx *int, detail any) {
+	appendRunEventAt(ctx, time.Now().UnixMilli(), channelId, runId, kind, phaseIdx, detail)
 }

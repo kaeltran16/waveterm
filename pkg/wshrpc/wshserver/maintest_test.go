@@ -4,12 +4,19 @@
 package wshserver
 
 import (
+	"encoding/json"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/wavetermdev/waveterm/pkg/memroots"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
+	"github.com/wavetermdev/waveterm/pkg/wconfig"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
+
+var testVaultDir string
 
 // TestMain points the wave data dir at a throwaway temp dir and initializes the wstore SQLite DB
 // (running the embedded migrations) so the resolver/dispatch tests can exercise routing to the
@@ -23,6 +30,21 @@ func TestMain(m *testing.M) {
 	if err := wavebase.EnsureWaveDBDir(); err != nil {
 		panic(err)
 	}
+	configDir := filepath.Join(dir, "config")
+	testVaultDir = filepath.Join(dir, "vault")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		panic(err)
+	}
+	settings, err := json.Marshal(map[string]any{wconfig.ConfigKey_MemoryVaultPath: testVaultDir})
+	if err != nil {
+		panic(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "settings.json"), settings, 0o644); err != nil {
+		panic(err)
+	}
+	wavebase.ConfigHome_VarCache = configDir
+	// the config is read only when the watcher starts; without it VaultRoot falls back to ~/.waveterm/vault
+	wconfig.GetWatcher().Start()
 	if err := wstore.InitWStore(); err != nil {
 		panic(err)
 	}
@@ -35,4 +57,11 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	os.RemoveAll(dir)
 	os.Exit(code)
+}
+
+// every run the package creates captures a dossier into the vault; a test must never write the user's
+func TestVaultIsTheTestsOwn(t *testing.T) {
+	if !strings.HasPrefix(filepath.Clean(memroots.VaultRoot()), filepath.Clean(testVaultDir)) {
+		t.Fatalf("vault root %q is outside the test vault %q", memroots.VaultRoot(), testVaultDir)
+	}
 }

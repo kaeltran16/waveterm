@@ -561,9 +561,9 @@ func TestQuietLinesWaitForAWake(t *testing.T) {
 		t.Fatalf("a quiet line must not wake the lead: %q", f.sends)
 	}
 	PostWake(ctx, wakeChannel, wakeRun, failedLine)
-	want := "Since your last wake:\nt-1 passed review: adds fmtDate\n" + failedLine
+	want := failedLine + "\nSince your last wake:\nt-1 passed review: adds fmtDate"
 	if len(f.sends) != 1 || f.sends[0] != want {
-		t.Fatalf("the wake must carry the quiet lines first, got %q", f.sends)
+		t.Fatalf("the wake must carry the quiet lines last, got %q", f.sends)
 	}
 	NoteLeadStatus(ctx, f.status(baseds.AgentState_Working))
 	PostWake(ctx, wakeChannel, wakeRun, finishedLine)
@@ -592,8 +592,96 @@ func TestLaunchedLeadGetsTheQuietLines(t *testing.T) {
 	ctx := context.Background()
 	PostQuiet(ctx, wakeChannel, wakeRun, "t-1 passed review: adds fmtDate")
 	PostWake(ctx, wakeChannel, wakeRun, failedLine)
-	want := "Since your last wake:\nt-1 passed review: adds fmtDate\n" + failedLine
+	want := failedLine + "\nSince your last wake:\nt-1 passed review: adds fmtDate"
 	if len(*launched) != 1 || (*launched)[0] != want {
 		t.Fatalf("the first lead must learn what landed before it, got %q", *launched)
+	}
+}
+
+func TestWakeLeadsWithTheActionThenCaveatsThenRecaps(t *testing.T) {
+	f := newFakeLead(t)
+	f.state.State = baseds.AgentState_Working // hold everything until the lead is back at its prompt
+	ctx := context.Background()
+	PostQuiet(ctx, wakeChannel, wakeRun, "t-1 passed review: recap one")
+	PostCaveat(ctx, wakeChannel, wakeRun, "t-2: the CDP screenshot was not taken")
+	PostQuiet(ctx, wakeChannel, wakeRun, "t-2 passed review: recap two")
+	PostWake(ctx, wakeChannel, wakeRun, "wake: merge conflict in t-3")
+	NoteLeadStatus(ctx, f.status(baseds.AgentState_Idle))
+	if len(f.sends) != 1 {
+		t.Fatalf("want one wake, got %q", f.sends)
+	}
+	want := strings.Join([]string{
+		"wake: merge conflict in t-3",
+		"Unverified:",
+		"t-2: the CDP screenshot was not taken",
+		"Since your last wake:",
+		"t-1 passed review: recap one",
+		"t-2 passed review: recap two",
+	}, "\n")
+	if f.sends[0] != want {
+		t.Fatalf("wake order:\n%s\nwant:\n%s", f.sends[0], want)
+	}
+}
+
+func TestWakePutsTheQuestionsLineRightAfterTheAction(t *testing.T) {
+	f := newFakeLead(t)
+	ctx := context.Background()
+	PostQuiet(ctx, wakeChannel, wakeRun, "t-1 passed review: recap")
+	seedLeadAsk("block:child", "ask-1", 1)
+	PostWake(ctx, wakeChannel, wakeRun, finishedLine)
+	want := finishedLine + "\nwake: 1 question waiting. wsh jarvis dag asks\nSince your last wake:\nt-1 passed review: recap"
+	if len(f.sends) != 1 || f.sends[0] != want {
+		t.Fatalf("action first, then questions, recaps last: %q", f.sends)
+	}
+}
+
+func TestRunFinishedUnverifiedBlockComesBeforeTheRecaps(t *testing.T) {
+	f := newFakeLead(t)
+	ctx := context.Background()
+	PostQuiet(ctx, wakeChannel, wakeRun, "t-1 passed review: recap")
+	finished := RunFinishedWake(&waveobj.FinalStage{State: FinalState_Unverified, Unverified: []string{"no screenshot: port taken"}})
+	PostWake(ctx, wakeChannel, wakeRun, finished)
+	if len(f.sends) != 1 || !strings.HasPrefix(f.sends[0], finished+"\n") {
+		t.Fatalf("the finished block, with its unverified list, leads the wake: %q", f.sends)
+	}
+	if !strings.HasSuffix(f.sends[0], "Since your last wake:\nt-1 passed review: recap") {
+		t.Fatalf("recaps come last: %q", f.sends[0])
+	}
+}
+
+func TestACaveatAloneStartsNoWake(t *testing.T) {
+	f := newFakeLead(t)
+	PostCaveat(context.Background(), wakeChannel, wakeRun, "t-1: not verified")
+	tickWakes(context.Background())
+	if len(f.sends) != 0 {
+		t.Fatalf("a caveat rides on the next wake, got %q", f.sends)
+	}
+}
+
+func TestLaunchedLeadGetsTheActionFirst(t *testing.T) {
+	f := newFakeLead(t)
+	f.state = leadState{NoLead: true}
+	launched := stubLaunch(t)
+	ctx := context.Background()
+	PostQuiet(ctx, wakeChannel, wakeRun, "t-1 passed review: adds fmtDate")
+	PostCaveat(ctx, wakeChannel, wakeRun, "t-1: the CDP screenshot was not taken")
+	PostWake(ctx, wakeChannel, wakeRun, failedLine)
+	want := failedLine + "\nUnverified:\nt-1: the CDP screenshot was not taken\nSince your last wake:\nt-1 passed review: adds fmtDate"
+	if len(*launched) != 1 || (*launched)[0] != want {
+		t.Fatalf("the launch prompt leads with the action, got %q", *launched)
+	}
+}
+
+func TestCaveatsAloneLaunchNoLead(t *testing.T) {
+	f := newFakeLead(t)
+	f.state = leadState{NoLead: true}
+	launched := stubLaunch(t)
+	ctx := context.Background()
+	PostCaveat(ctx, wakeChannel, wakeRun, "t-1: not verified")
+	PostWake(ctx, wakeChannel, wakeRun, finishedLine)
+	PostWake(ctx, wakeChannel, wakeRun, failedLine)
+	want := failedLine
+	if len(*launched) != 1 || (*launched)[0] != want {
+		t.Fatalf("a clean finish drops its caveats with it, got %q", *launched)
 	}
 }

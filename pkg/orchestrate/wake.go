@@ -87,9 +87,11 @@ func SetLaunchLeadForTest(fn func(ctx context.Context, channelId, runId, wake st
 type runWake struct {
 	channelId string
 	lines     []string
-	// quiet is what the lead should read that needs no judgment (a task passed review); it goes out ahead of
-	// the next wake and never starts one
-	quiet   []string
+	// quiet is what the lead should read that needs no judgment (a task passed review); it rides on the next
+	// wake, after its own lines, and never starts one
+	quiet []string
+	// caveats is what a passed review could not verify; it rides like quiet but reads ahead of the recaps.
+	caveats []string
 	blockId string
 	tabId   string
 	// sentAt is the UnixMilli of the unconfirmed wake, 0 when none is outstanding.
@@ -156,13 +158,32 @@ func PostQuiet(ctx context.Context, channelId, runId, line string) {
 	rw.quiet = append(rw.quiet, line)
 }
 
-// withQuiet puts the queued quiet lines ahead of a wake's own lines, under one heading.
-func withQuiet(quiet, lines []string) []string {
-	if len(quiet) == 0 {
-		return append([]string{}, lines...)
+// PostCaveat queues what a passed review could not verify. Like a quiet line it never starts a wake, and a dead
+// lead's are dropped.
+func PostCaveat(ctx context.Context, channelId, runId, line string) {
+	wakes.lock.Lock()
+	defer wakes.lock.Unlock()
+	rw := wakes.runLocked(channelId, runId)
+	if rw.dead {
+		return
 	}
-	out := append([]string{"Since your last wake:"}, quiet...)
-	return append(out, lines...)
+	rw.caveats = append(rw.caveats, line)
+}
+
+// composeWake orders a wake by what the lead must act on: its own lines, then the questions, then what passed
+// unverified, and the recaps last, where a long run of them cannot push the action out of sight.
+func composeWake(lines []string, questions string, caveats, quiet []string) string {
+	out := append([]string{}, lines...)
+	if questions != "" {
+		out = append(out, questions)
+	}
+	if len(caveats) > 0 {
+		out = append(append(out, "Unverified:"), caveats...)
+	}
+	if len(quiet) > 0 {
+		out = append(append(out, "Since your last wake:"), quiet...)
+	}
+	return strings.Join(out, "\n")
 }
 
 // PokeWake re-checks runId's question queue after an ask was raised or came back. A lead given up on
@@ -299,13 +320,13 @@ func (w *waker) flushLocked(ctx context.Context, runId string, rw *runWake) {
 		appendRunEvent(ctx, rw.channelId, runId, waveobj.RunEventKindLeadWoken, nil, map[string]any{"text": HandoffCompact})
 		return
 	}
-	lines := withQuiet(rw.quiet, rw.lines)
+	questions := ""
 	if untold {
-		lines = append(lines, questionsLine(asks))
+		questions = questionsLine(asks)
 	}
-	text := strings.Join(lines, "\n")
+	text := composeWake(rw.lines, questions, rw.caveats, rw.quiet)
 	sendWakeFn(st.BlockId, text)
-	rw.lines, rw.quiet, rw.sentAt, rw.retried = nil, nil, wakeNow(), false
+	rw.lines, rw.quiet, rw.caveats, rw.sentAt, rw.retried = nil, nil, nil, wakeNow(), false
 	for _, p := range asks {
 		rw.told[askTold(p)] = true
 	}
@@ -317,15 +338,15 @@ func (w *waker) flushLocked(ctx context.Context, runId string, rw *runWake) {
 // (MaybeCompleteLeadFreeRun), so run finished alone starts nothing.
 func (w *waker) launchLocked(ctx context.Context, runId string, rw *runWake, asks map[string]agentask.PendingAsk, untold bool) {
 	if !untold && onlyRunFinished(rw.lines) {
-		rw.lines, rw.quiet, rw.handoff = nil, nil, false
+		rw.lines, rw.quiet, rw.caveats, rw.handoff = nil, nil, nil, false
 		return
 	}
-	lines := withQuiet(rw.quiet, rw.lines)
-	rw.quiet = nil
+	questions := ""
 	if untold {
-		lines = append(lines, questionsLine(asks))
+		questions = questionsLine(asks)
 	}
-	text := strings.Join(lines, "\n")
+	text := composeWake(rw.lines, questions, rw.caveats, rw.quiet)
+	rw.quiet, rw.caveats = nil, nil
 	rw.launching, rw.launchLines, rw.lines = true, rw.lines, nil
 	for _, p := range asks {
 		rw.told[askTold(p)] = true
