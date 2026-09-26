@@ -71,7 +71,7 @@ as a veto once the transcript has been quiet past `StallThreshold` (15 min). Whe
     "editing digest.go". Bounded to 80 characters.
 - `liveness.go`: `childStillWorking` splits into:
   - `sampleWorkerCPU(ctx, t, run, now)`, which runs on every tick for a `running` or `stalled` task at most once
-    per `CPUSampleEvery` (20 s, a named const). The throttle keeps the delta meaningful when event-driven
+    per `cpuSampleEvery` (20 s, a package var so tests can zero it). The throttle keeps the delta meaningful when event-driven
     Schedule calls land seconds apart. It updates `CPUSample`/`CPUSampleTs` as today, and sets `BusyTs = now`
     under the same rule as today: the tree's total fell, or rose by at least `IdleCPUShare` of the interval.
   - The stall veto, which reads the sample instead of taking it.
@@ -93,7 +93,7 @@ as a veto once the transcript has been quiet past `StallThreshold` (15 min). Whe
   moves into `MarkRunning`.
 - Digest (`DagTaskDigest`, `pkg/wshrpc/wshrpctypes_dag.go`) gains:
   - `Busy bool`: derived once in `buildTaskDigest`, true when `BusyTs` is within `BusyWindow` (2 ×
-    `CPUSampleEvery`) of the snapshot's `Now`.
+    `cpuSampleEvery`) of the snapshot's `Now`.
   - `LatestTool string`.
 - CLI `taskSignal`: for a running or stalled task,
   - busy: `running a command <age>`, where `<age>` is the time since the last transcript write, which is how long
@@ -108,7 +108,7 @@ as a veto once the transcript has been quiet past `StallThreshold` (15 min). Whe
 - `liveness_test.go`: CPU is sampled on a tick well inside `StallThreshold`, and sets `BusyTs`.
 - The same file: `LastActivity` is not moved by CPU.
 - The same file: a busy worker past `StallThreshold` of transcript silence is not stalled; an idle one is.
-- The same file: the throttle skips a second sample inside `CPUSampleEvery`.
+- The same file: the throttle skips a second sample inside `cpuSampleEvery`.
 - A lead's `dag retry` clears the fields (through `MarkRunning`).
 - `digest_test.go`: `Busy` inside and outside `BusyWindow`.
 - `wshcmd-jarvisdag` test: the three signal texts, "running a command 4m · running go test ./pkg/x",
@@ -186,7 +186,8 @@ The fingerprint is one `git status --porcelain=v2 -z --branch --untracked-files=
 - It is one git process and a few `stat` calls: no `git diff` of a possibly large change.
 - Ignored files (`node_modules`, build output) are not listed, so a test run's artifacts are not progress.
 
-The check runs inside the tick for a `running` task that has a worktree, at most once per `ProgressCheckEvery`
+The check runs inside the tick for a `running` task that has a worktree, whatever its runtime (only the scan in 4.4
+needs a readable transcript), at most once per `progressCheckEvery`
 (1 min). It runs under the dag lock like the rest of the tick. The cost is one `git status` per running task per
 minute, measured at 70–80 ms in this run's worktree on this machine. A tree that git cannot read (the error is logged)
 skips the check for that tick: no flag and no reset.
@@ -196,15 +197,16 @@ skips the check for that tick: no flag and no reset.
 - `ProgressHash`, the last fingerprint;
 - `ProgressTs`, when it last changed, seeded at spawn;
 - `ProgressCheckTs`, the last check;
-- `SuspectTs`, when the current episode was flagged, 0 while armed;
-- `SuspectReason`, the flag's text.
+- `SuspectTs`, when the task was last flagged, 0 while the stagnation flag is armed;
+- `SuspectReason`, the flag's text;
+- `FlaggedFailures`, the failure keys (4.4) that already woke the lead in this attempt.
 
-`MarkRunning` resets all five, like the section 2 fields, and seeds `ProgressTs` with the spawn time.
+`MarkRunning` resets all six, like the section 2 fields, and seeds `ProgressTs` with the spawn time.
 
 ### 4.4 The repeated-failure scan
 
 The scan reads the last 256 KB of the worker's own transcript (`transcriptForRun`, the file liveness already
-stats), on the same `ProgressCheckEvery` cadence. It pairs tool calls with their results and keeps the failed
+stats), on the same `progressCheckEvery` cadence. It pairs tool calls with their results and keeps the failed
 ones:
 
 - claude: an assistant `tool_use` (`id`, `name`, `input.command`) with a user `tool_result` (`tool_use_id`,
@@ -213,24 +215,34 @@ ones:
   `isError`).
 
 The key is the command, trimmed (or the tool name when there is no command), plus a hash of the result's last
-400 characters. The largest group of 3 or more is the finding: its command, cut to 80 characters, and its count.
+400 characters. Keys in the task's `FlaggedFailures` are skipped, so failures that already woke the lead, still in
+the tail after a re-arm, never flag again. The largest remaining group of 3 or more is the finding: its key, its
+command cut to 80 characters, and its count. The scan runs on every check, whether or not the tree changed, so a
+worker that edits and then fails the same way each time is still caught.
 The tail's partial first line is dropped, as `tailLines` in `wshcmd-agenthook.go` does. A runtime with no
 readable transcript skips the scan. The scan is a pure function over lines, in its own file
 (`pkg/orchestrate/progress.go`, beside the fingerprint), so it is unit-tested without a store.
 
 ### 4.5 The flag and the wake
 
-On a check:
+The two signals fire independently, each once per episode:
 
-- A stagnant or repeated-failure task with `SuspectTs == 0` gets `SuspectTs = now` and a `SuspectReason` such as
-  "worktree unchanged 22m while active; `go test ./pkg/x` failed the same way 4x", naming whichever signals
-  fired. Then, after commit:
+- **Stagnation** fires when the task is stagnant and `SuspectTs == 0`. A fingerprint change re-arms it by clearing
+  `SuspectTs` and `SuspectReason`. So one stuck stretch wakes the lead once, however long it lasts, and a worker
+  that moves and then sticks again gets a new wake.
+- **Repeated failure** fires when the scan finds a group whose key is not in `FlaggedFailures`; the key is then
+  added. The episode is the key: one loop wakes the lead once per attempt, whether or not the tree changes
+  between failures, and a different loop (another command, or a new error) still wakes it.
+
+On a check where either fires:
+
+- The task gets `SuspectTs = now` and a `SuspectReason` such as "worktree unchanged 22m while active; `go test
+  ./pkg/x` failed the same way 4x; now: running go test ./pkg/x", naming whichever signals fired, plus the
+  worker's latest tool call when it has one. A check where both fire is one wake. Then, after commit:
   - a `task-suspect` run event (a new `RunEventKind`), with detail `taskid`, `unchangedms`, `command` and
     `count`;
   - `PostWake`: "wake: task t-3 may be stuck: <reason>. Tell it (`wsh jarvis dag tell t-3 "…"`), retry, escalate,
     or let it run. wsh jarvis dag status".
-- A fingerprint change clears `SuspectTs` and `SuspectReason`, which re-arms the flag. So one stuck episode
-  wakes the lead once, however long it lasts, and a worker that moves and then sticks again gets a new wake.
 - A task that leaves `running` (done, stalled, failed, asking) stops being checked. A worker waiting on an ask is
   not checked at all: the question queue owns it, as in `hungWake`.
 
@@ -252,7 +264,11 @@ Display:
   once, gets one `task-suspect` event and one wake, and is re-armed by a fingerprint change.
 - The same file: a quiet task is not flagged.
 - The same file: a task with a pending ask is not flagged.
-- The same file: the check runs at most once per `ProgressCheckEvery`.
+- The same file: the check runs at most once per `progressCheckEvery`.
+- The same file: a repeated failure wakes once; after a re-arm the same failures, still in the tail, wake nothing,
+  and a new failure key wakes again.
+- The same file: a worker that changes the tree between identical failures is flagged.
+- The same file: a runtime without a readable transcript still gets the stagnation check.
 - CLI and digest: `Suspect` is carried and printed.
 
 ## 5. Test hygiene
@@ -297,8 +313,9 @@ Display:
 
 - Finding 22 flags on worktree stagnation (20 min while active) or a repeated identical failure (3x); there is
   no token signal.
-- A flag wakes the lead once per stuck episode, re-armed by a worktree change. `dag status` shows `stuck?`. There
-  is no automatic action and no watchdog agent.
+- A flag wakes the lead once per episode. Stagnation is re-armed by a worktree change; a repeated failure wakes
+  once per failure key per attempt (`FlaggedFailures`), and the scan runs whether or not the tree changed.
+  `dag status` shows `stuck?`. There is no automatic action and no watchdog agent.
 - The worktree fingerprint is `git status --porcelain=v2 --branch` plus the size and mtime of the listed paths,
   checked once a minute per running task, under the dag lock.
 - Finding 28 samples CPU on every tick (throttled to 20 s), keeps `LastActivity` transcript-only, adds `BusyTs`

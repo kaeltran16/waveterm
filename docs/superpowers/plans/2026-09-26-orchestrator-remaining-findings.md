@@ -2,7 +2,7 @@
 
 **Verify:** `node scripts/verify.mjs ./pkg/orchestrate/... ./pkg/wstore/... ./pkg/wshrpc/... ./pkg/agentask/... ./pkg/waveobj/... ./cmd/wsh/...`
 **Setup:** `task worktree:prepare`
-**Check:** `node --stack-size=4000 node_modules/typescript/lib/tsc.js --noEmit && CGO_CFLAGS="-O2 -g -I$(pwd -W)/pkg/jarvisembed/csrc" go vet ./pkg/orchestrate/... ./pkg/wstore/... ./pkg/wshrpc/... ./cmd/wsh/... && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /dev/null ./cmd/wsh/`
+**Check:** `node --stack-size=4000 node_modules/typescript/lib/tsc.js --noEmit && go vet ./pkg/orchestrate/... ./pkg/wstore/... ./pkg/wshrpc/... ./cmd/wsh/... && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /dev/null ./cmd/wsh/`
 **Final:** `node scripts/cdp/final-verify.mjs surface-smoke`
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement your task. Steps use checkbox (`- [ ]`) syntax for tracking.
@@ -27,12 +27,12 @@
 - `gofmt -l` only the files you touched; HEAD is not formatter-clean, so never format the tree.
 - Comments: lower case, only for "why", matching the surrounding code's density.
 - Constants named in the spec, with these exact values:
-  - `CPUSampleEvery` = 20 s;
-  - `BusyWindow` = 2 × `CPUSampleEvery`;
+  - `cpuSampleEvery` = 20 s (a package var, so tests can zero it);
+  - `BusyWindow` = 2 × 20 s (a const);
   - `StagnationThreshold` = 20 min;
   - `ActiveWindow` = 5 min;
   - `RepeatedFailureMin` = 3;
-  - `ProgressCheckEvery` = 1 min;
+  - `progressCheckEvery` = 1 min (a package var, so tests can zero it);
   - `LatestTool` bounded to 80 characters;
   - the transcript tail is 256 KB;
   - the error key hashes the result's last 400 characters.
@@ -69,6 +69,7 @@ func TestTaskSpawnedCarriesEachTasksOwnSpawnTime(t *testing.T) {
 	// two ready tasks, parallelism 2 (mirror seedDispatchDag with a second TaskNode {ID: "t-1", Label: "b"})
 	ctx, g, channelID, runID := seedTwoTaskDispatchDag(t, "spawn-stamps")
 	var returned []int64
+	start := time.Now().UnixMilli()
 	old := spawnWorker
 	spawnWorker = func(context.Context, runroute.Capability, string, string, string, string, jarvis.RunWorkerOptions) (string, error) {
 		time.Sleep(50 * time.Millisecond)
@@ -90,15 +91,23 @@ func TestTaskSpawnedCarriesEachTasksOwnSpawnTime(t *testing.T) {
 		t.Fatalf("want two spawns, got stamps %v returned %v", stamps, returned)
 	}
 	sort.Slice(stamps, func(i, j int) bool { return stamps[i] < stamps[j] })
-	for i := range stamps {
-		if stamps[i] != returned[i] {
-			t.Fatalf("task-spawned %d stamped %d, want its spawn return %d", i, stamps[i], returned[i])
-		}
+	// the stub and the engine read the clock separately, so a stamp may trail its return by a millisecond, but
+	// never reach the next spawn's return: a batch-end stamp lands after the last one
+	if stamps[0] < returned[0] || stamps[0] >= returned[1] {
+		t.Fatalf("first task-spawned stamped %d, want in [%d, %d)", stamps[0], returned[0], returned[1])
+	}
+	if stamps[1] < returned[1] {
+		t.Fatalf("second task-spawned stamped %d, before its spawn returned at %d", stamps[1], returned[1])
+	}
+	// stamped at the spawn, not at the write after the tick's commit
+	dag := mustLoadDag(t, ctx, g.OID)
+	if stamps[1] > dag.UpdatedTs || stamps[0] < start {
+		t.Fatalf("stamps %v must fall between the tick's start %d and its commit %d", stamps, start, dag.UpdatedTs)
 	}
 }
 ```
 
-  If `lifecycleEvents` returns events newest-first, the sort handles it. Put `seedTwoTaskDispatchDag` beside `seedDispatchDag` in `hardening_test.go`.
+  If `lifecycleEvents` returns events newest-first, the sort handles it. `g.UpdatedTs` is set just before the commit, and after every spawn. Put `seedTwoTaskDispatchDag` beside `seedDispatchDag` in `hardening_test.go`.
 
 - [ ] **Step 2: Run it and see it fail.** `go test ./pkg/orchestrate/ -run TestTaskSpawnedCarriesEachTasksOwnSpawnTime -count=1`. Expected: FAIL, both stamps after the second return.
 
@@ -202,6 +211,20 @@ func TestWakePutsTheQuestionsLineRightAfterTheAction(t *testing.T) {
 	}
 }
 
+func TestRunFinishedUnverifiedBlockComesBeforeTheRecaps(t *testing.T) {
+	f := newFakeLead(t)
+	ctx := context.Background()
+	PostQuiet(ctx, wakeChannel, wakeRun, "t-1 passed review: recap")
+	finished := RunFinishedWake(&waveobj.FinalStage{State: FinalState_Unverified, Unverified: []string{"no screenshot: port taken"}})
+	PostWake(ctx, wakeChannel, wakeRun, finished)
+	if len(f.sends) != 1 || !strings.HasPrefix(f.sends[0], finished+"\n") {
+		t.Fatalf("the finished block, with its unverified list, leads the wake: %q", f.sends)
+	}
+	if !strings.HasSuffix(f.sends[0], "Since your last wake:\nt-1 passed review: recap") {
+		t.Fatalf("recaps come last: %q", f.sends[0])
+	}
+}
+
 func TestACaveatAloneStartsNoWake(t *testing.T) {
 	f := newFakeLead(t)
 	PostCaveat(context.Background(), wakeChannel, wakeRun, "t-1: not verified")
@@ -256,7 +279,14 @@ func composeWake(lines []string, questions string, caveats, quiet []string) stri
 		})
 ```
 
-  Remove the old combined `passed review. unverified:` format. Grep `passed review. unverified` in `pkg/` and update any test that asserted it: it now expects the caveat under `Unverified:` and the plain recap.
+  Remove the old combined `passed review. unverified:` format.
+
+  Existing tests that assert the old order must now expect the action first and the recaps last:
+  - `wake_test.go`: `TestQuietLinesWaitForAWake` and `TestLaunchedLeadGetsTheQuietLines`. Both `want` strings become `failedLine + "\nSince your last wake:\nt-1 passed review: adds fmtDate"`, and the first test's failure message says "last", not "first".
+  - `review_test.go:250`: it asserts `"t-0 passed review. unverified: …"`. It becomes two assertions: the wake holds `"Unverified:\nt-0: " + unverified`, and holds the plain recap `"t-0 passed review: "` with the cut note.
+  - `review_test.go`: `TestReviewPassLandsTheTaskAndTellsTheLeadQuietly` (:224) and `TestWorkerWithoutACommitTellsTheLeadQuietly` (:441) check with `strings.Contains` for `"Since your last wake:\n<recap>"`, which still holds. Rerun them; change them only if they fail.
+
+  Then grep `Since your last wake` across `pkg/` for any other assertion on the order.
 
 - [ ] **Step 4: Run the package.** `go test ./pkg/orchestrate/ -count=1`. Expected: PASS.
 
@@ -268,7 +298,7 @@ func composeWake(lines []string, questions string, caveats, quiet []string) stri
 **Files:**
 - Modify: `pkg/wshrpc/wshserver/wshserver_ctx_test.go`
 - Modify: `pkg/wshrpc/wshserver/maintest_test.go`
-- Modify: `cmd/wsh/cmd/wshcmd-jarvisdag.go` (the `dagAnswerCmd` RunE, near :600-618; Task 4 edits `taskSignal` near :254 in the same file, a distinct hunk)
+- Modify: `cmd/wsh/cmd/wshcmd-jarvisdag.go` (the `dagAnswerCmd` RunE, near :600-618; Tasks 4 and 5 later edit `taskSignal` in the same file, and Task 4 depends on this task)
 - Create: `cmd/wsh/cmd/wshcmd-jarvisdag_answer_test.go`. This is a new file, so Task 4's additions to `wshcmd-jarvisdag_test.go` cannot collide with it.
 
 **Interfaces:**
@@ -349,7 +379,7 @@ func dagAnswerTimeoutMs(answers []baseds.AgentAnswerItem) int64 {
 - [ ] **Step 6: Commit.** `test(wshserver): repeatable ctx tests, a temp vault; scale dag answer's timeout`
 
 ### Task 4: Busy vs quiet and the latest tool call in dag status (finding 28)
-**Depends on:** Task 1
+**Depends on:** Task 1, Task 3
 
 **Files:**
 - Modify: `pkg/waveobj/wtype.go` (`TaskNode`, near :332-347)
@@ -393,7 +423,7 @@ func noCPUThrottle(t *testing.T) {
 ```go
 // finding 28: a worker in a long foreground command is seen as busy long before StallThreshold
 func TestCPUIsSampledWellInsideTheStallThreshold(t *testing.T) {
-	ctx, g, _ := seedFreshChild(t, "fresh-busy") // like seedQuietChild, but lastWrite = now - 2m
+	ctx, g, _ := seedChildWrittenAt(t, "fresh-busy", time.Now().Add(-2*time.Minute))
 	noCPUThrottle(t)
 	stubChildCPU(t, func(call int) (int64, bool) { return int64(call) * 5000, true })
 	tick(t, ctx, g)
@@ -404,7 +434,7 @@ func TestCPUIsSampledWellInsideTheStallThreshold(t *testing.T) {
 }
 
 func TestCPUSampleIsThrottled(t *testing.T) {
-	ctx, g, _ := seedFreshChild(t, "throttled")
+	ctx, g, _ := seedChildWrittenAt(t, "throttled", time.Now().Add(-2*time.Minute))
 	calls := 0
 	stubChildCPU(t, func(int) (int64, bool) { calls++; return int64(calls) * 5000, true })
 	tick(t, ctx, g)
@@ -415,7 +445,7 @@ func TestCPUSampleIsThrottled(t *testing.T) {
 }
 
 func TestLatestToolComesFromTheWorkersStatus(t *testing.T) {
-	ctx, g, _ := seedFreshChild(t, "latest-tool")
+	ctx, g, _ := seedChildWrittenAt(t, "latest-tool", time.Now().Add(-2*time.Minute))
 	prev := workerLatestTool
 	workerLatestTool = func(context.Context, *waveobj.Run) string { return "running go test ./pkg/x" }
 	t.Cleanup(func() { workerLatestTool = prev })
@@ -436,7 +466,7 @@ func TestRetryClearsTheCPUReadings(t *testing.T) {
 }
 ```
 
-  - `seedFreshChild` goes beside `seedQuietChild`, sharing its body through a `lastWrite` parameter.
+  - `seedChildWrittenAt` (liveness_test.go:228) already seeds a running pi child with a given last write; use it, with no new helper. `seedQuietChild` wraps it.
   - Keep `TestIdleChildStillStalls` and `TestNoCPUReadingLeavesTheMtimeRule` as they are: they must still pass.
   - Replace the direct unit test of `childStillWorking` (`TestIdleHarnessCPUTrickleIsNotWork`) with the same table against `sampleWorkerCPU`, asserting `cpuBusy`/`cpuIdle`.
 
@@ -612,12 +642,13 @@ func workerSignal(td wshrpc.DagTaskDigest, now int64) string {
   - `const StagnationThreshold = 20 * time.Minute`, `ActiveWindow = 5 * time.Minute`, `RepeatedFailureMin = 3`, `transcriptTailBytes = 256 << 10`, `failureKeyTail = 400`;
   - `var progressCheckEvery = time.Minute` (a var for tests);
   - `func worktreeFingerprint(ctx context.Context, dir string) (string, error)`, a var `progressFingerprint` pointing at it for tests;
-  - `type repeatedFailure struct{ Command string; Count int }`;
-  - `func scanRepeatedFailure(lines []string) repeatedFailure`, which is zero when none reaches `RepeatedFailureMin`;
+  - `type repeatedFailure struct{ Key, Command string; Count int }`, where `Key` is the failure key (command + NUL + error hash);
+  - `func scanRepeatedFailure(lines []string, skip []string) repeatedFailure`, which skips the groups whose key is in `skip` and is zero when no other group reaches `RepeatedFailureMin`;
   - `func readTranscriptTail(path string, n int64) []string`;
   - `func suspectReason(unchangedMs int64, stagnant bool, rf repeatedFailure, latestTool string) string`;
   - `func taskSuspectWake(taskID, reason string) string` in `queue.go`.
-- Produces, on `TaskNode`: `ProgressHash string`, `ProgressTs int64`, `ProgressCheckTs int64`, `SuspectTs int64`, `SuspectReason string` (json tags lower-case, `omitempty`).
+- Produces, on `TaskNode`: `ProgressHash string`, `ProgressTs int64`, `ProgressCheckTs int64`, `SuspectTs int64`, `SuspectReason string`, `FlaggedFailures []string` (json tags lower-case, `omitempty`).
+- Produces: `func checkProgress(ctx context.Context, t *waveobj.TaskNode, run *waveobj.Run, now int64) (reason string, flagged bool)` in `progress.go`.
 - Produces, on `DagTaskDigest`: `Suspect string \`json:"suspect,omitempty"\``.
 
 - [ ] **Step 1: Failing tests for the fingerprint** in `progress_test.go`. Use a temp git repo: `git init`, a committed file, and a `.gitignore` holding `out/`.
@@ -691,8 +722,21 @@ func TestScanFindsTheSameFailureRepeated(t *testing.T) {
 		id := fmt.Sprint("c", i)
 		lines = append(lines, claudeCall(id, "go test ./pkg/x"), claudeResult(id, "--- FAIL: TestX\n want 2 got 3", true))
 	}
-	if rf := scanRepeatedFailure(lines); rf.Count != 4 || rf.Command != "go test ./pkg/x" {
+	rf := scanRepeatedFailure(lines, nil)
+	if rf.Count != 4 || rf.Command != "go test ./pkg/x" || rf.Key == "" {
 		t.Fatalf("got %+v", rf)
+	}
+	// a key that already woke the lead is skipped, though its failures are still in the tail
+	if again := scanRepeatedFailure(lines, []string{rf.Key}); again.Count != 0 {
+		t.Fatalf("a flagged key must not flag again, got %+v", again)
+	}
+	// a new loop beside the old one still flags
+	for i := 0; i < 3; i++ {
+		id := fmt.Sprint("n", i)
+		lines = append(lines, claudeCall(id, "go vet ./pkg/x"), claudeResult(id, "vet: unused x", true))
+	}
+	if other := scanRepeatedFailure(lines, []string{rf.Key}); other.Count != 3 || other.Command != "go vet ./pkg/x" {
+		t.Fatalf("a different failure key flags, got %+v", other)
 	}
 }
 
@@ -702,7 +746,7 @@ func TestScanReadsPiToo(t *testing.T) {
 		id := fmt.Sprint("p", i)
 		lines = append(lines, piCall(id, "npm test"), piResult(id, "1 failed", true))
 	}
-	if rf := scanRepeatedFailure(lines); rf.Count != 3 {
+	if rf := scanRepeatedFailure(lines, nil); rf.Count != 3 {
 		t.Fatalf("got %+v", rf)
 	}
 }
@@ -716,13 +760,13 @@ func TestScanIgnoresProgressingFailuresAndSuccesses(t *testing.T) {
 		ok := fmt.Sprint("ok", i)
 		lines = append(lines, claudeCall(ok, "git status"), claudeResult(ok, "clean", false))
 	}
-	if rf := scanRepeatedFailure(lines); rf.Count != 0 {
+	if rf := scanRepeatedFailure(lines, nil); rf.Count != 0 {
 		t.Fatalf("a changing failure is not a loop, got %+v", rf)
 	}
 }
 
 func TestScanSurvivesACutOrGarbledTail(t *testing.T) {
-	if rf := scanRepeatedFailure([]string{`{"type":"assistant","mess`, "not json", ""}); rf.Count != 0 {
+	if rf := scanRepeatedFailure([]string{`{"type":"assistant","mess`, "not json", ""}, nil); rf.Count != 0 {
 		t.Fatalf("got %+v", rf)
 	}
 	path := filepath.Join(t.TempDir(), "s.jsonl")
@@ -757,7 +801,8 @@ func TestScanSurvivesACutOrGarbledTail(t *testing.T) {
     - It records each tool call's `id → command` (claude `tool_use` with `input.command`, pi `toolCall` with `arguments.command`; the tool name when there is no command).
     - For each failed result (claude `tool_result` with `is_error`, pi `role: toolResult` with `isError`), it keys `command + "\x00" + sha256(last failureKeyTail chars of the result text)`.
     - Result content may be a string or an array of `{type:"text",text}` blocks; join the texts.
-    - It returns the largest group, with `Command` cut to 80 characters, when its count is ≥ `RepeatedFailureMin`, else the zero value.
+    - Groups whose key is in `skip` are ignored.
+    - It returns the largest remaining group, with its `Key`, its `Command` cut to 80 characters and its `Count`, when the count is ≥ `RepeatedFailureMin`, else the zero value. Break ties by the group whose last failure came latest, so the result is deterministic.
   - `suspectReason` joins the parts that fired with "; ":
     - "worktree unchanged <compact minutes>m while active";
     - "`<command>` failed the same way <n>x";
@@ -765,27 +810,51 @@ func TestScanSurvivesACutOrGarbledTail(t *testing.T) {
 
   Run the Step 1–2 tests. Expected: PASS.
 
-- [ ] **Step 5: Failing engine tests** (new file `pkg/orchestrate/suspect_test.go`). Seed a running task the way `seedQuietChild` does (a tracked session with a recent write), then stub:
-  - `progressFingerprint` to return a fixed string;
-  - `progressCheckEvery = 0`;
-  - `cpuSampleEvery = 0` and `stubChildCPU` rising (busy).
+- [ ] **Step 5: Failing engine tests** (new file `pkg/orchestrate/suspect_test.go`). The setup is shared through a helper:
 
-  Set the task's `ProgressTs` to now - 21 min through `wstore.UpdateDag`. Capture wakes with `newFakeLead(t)` (its `sends`, and its `rows` for `task-suspect`). Cases:
-  - Stagnant and active: one tick sets `SuspectTs`, `SuspectReason` contains "worktree unchanged 21m" and "now: " when `workerLatestTool` is stubbed. There is one `task-suspect` row and one wake sent, starting "wake: task t-0 may be stuck". A second tick sends no new wake.
-  - Re-arm: the fingerprint stub returns a new value; the tick clears `SuspectTs` and resets `ProgressTs` to now; no wake.
-  - Quiet (CPU flat, `LastActivity` older than `ActiveWindow`): no flag.
-  - A pending ask on the worker's block (`agentask.GlobalRegistry.Set(block oref, …)`): no flag.
-  - A probe error (the stub returns an error): no flag, `ProgressHash` unchanged, no tick failure.
-  - Repeated failure: write a claude transcript with 3 identical failures into the stubbed sessions root (`writeClaudeSession` or the pi equivalent the liveness tests use), with the fingerprint fresh (`ProgressTs` = now): flagged, with the reason naming the command.
-  - A retry (`MarkRunning`) zeroes all five progress fields and seeds `ProgressTs`.
+```go
+// seedSuspectChild is a running pi child that wrote a minute ago, whose tree has been at fp since unchangedFor ago.
+// The stored ProgressHash equals the stub's answer, so the first check sees an unchanged tree, not a fresh one.
+func seedSuspectChild(t *testing.T, name string, unchangedFor time.Duration) (context.Context, *waveobj.TaskGroup, *fakeLead, *string) {
+	t.Helper()
+	ctx, g, f := seedChildWrittenAt(t, name, time.Now().Add(-time.Minute))
+	fp := "fp-1"
+	prevFP, prevEvery, prevCPU := progressFingerprint, progressCheckEvery, cpuSampleEvery
+	progressFingerprint = func(context.Context, string) (string, error) { return fp, nil }
+	progressCheckEvery, cpuSampleEvery = 0, 0
+	t.Cleanup(func() { progressFingerprint, progressCheckEvery, cpuSampleEvery = prevFP, prevEvery, prevCPU })
+	stubChildCPU(t, func(call int) (int64, bool) { return int64(call) * 5000, true }) // busy
+	seeded := time.Now().Add(-unchangedFor).UnixMilli()
+	if err := wstore.UpdateDag(ctx, g.OID, func(cur *waveobj.TaskGroup) error {
+		cur.Tasks[0].ProgressHash, cur.Tasks[0].ProgressTs = fp, seeded
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	g.Tasks[0].ProgressHash, g.Tasks[0].ProgressTs = fp, seeded
+	return ctx, g, f, &fp
+}
+```
+
+  Check what `seedChildWrittenAt` gives the child as `ProjectPath` (a temp dir, `t.TempDir()`), since `checkProgress` skips a run with none. Wakes and rows come from the `fakeLead` it returns (`f.sends`, `f.countKind(waveobj.RunEventKindTaskSuspect)`). Cases, each a test:
+  - **Stagnant and active** (`unchangedFor` 21 min, `workerLatestTool` stubbed to "running go test ./..."): one tick sets `SuspectTs`, and `SuspectReason` contains "worktree unchanged 21m" and "now: running go test ./...". There is one `task-suspect` row and one wake starting "wake: task t-0 may be stuck". A second tick adds no row and no wake.
+  - **Re-arm**: after the flag, set `*fp = "fp-2"` and tick. `SuspectTs` and `SuspectReason` clear, `ProgressTs` moves to about now, and there is no new wake.
+  - **Throttle**: set `progressCheckEvery = time.Hour` after the first tick; `*fp = "fp-2"`; tick. `ProgressHash` is still "fp-1" and `ProgressCheckTs` unchanged, because the check did not run.
+  - **Quiet**: `stubChildCPU` flat and the child's last write 10 min ago, older than `ActiveWindow`. Seed with `seedChildWrittenAt(t, name, time.Now().Add(-10*time.Minute))` and write the progress fields yourself. No flag.
+  - **Pending ask** on the worker's block (`agentask.GlobalRegistry.Set("block:worker-block", agentask.PendingAsk{AskId: "a", BlockId: "worker-block"})`, the block `seedChildWrittenAt` stubs): no flag.
+  - **Probe error** (the stub returns `"", errors.New("not a git repository")`): no flag, `ProgressHash` still "fp-1", and `ScheduleOnce` returns nil.
+  - **Repeated failure, once per key** (`unchangedFor` 0): append 3 identical pi failures (`piCall`/`piResult` from `progress_test.go`) to the child's session file (the path `writePiSession` wrote for the session id `seedChildWrittenAt` used). The tick flags with the reason naming the command, and `FlaggedFailures` holds one key. Then `*fp = "fp-2"` and tick: no new wake, though the same failures are still in the tail. Then append 3 identical failures of another command and tick: one new wake naming it.
+  - **Edits between identical failures**: each tick sets `*fp` to a new value and appends one more identical failure. The third tick flags, since the scan runs whether or not the tree changed.
+  - **Untracked runtime**: set the child's `Runtime` to "codex" (untracked by liveness) and `unchangedFor` to 21 min. It is flagged on stagnation; `LastActivity` is 0 for an untracked child, so activity is the busy CPU sample.
+  - **Retry**: `MarkRunning` zeroes all six progress fields and seeds `ProgressTs` near now.
 
   Run `go test ./pkg/orchestrate/ -run Suspect -count=1`. Expected: FAIL.
 
 - [ ] **Step 6: Implement the tick.**
   - Add the `TaskNode` fields, with comments that say why.
-  - `MarkRunning` zeroes them and sets `ProgressTs = time.Now().UnixMilli()`.
+  - `MarkRunning` zeroes all six (including `FlaggedFailures`) and sets `ProgressTs = time.Now().UnixMilli()`.
   - Add `RunEventKindTaskSuspect = "task-suspect"` beside `RunEventKindTaskStalled`, and grep `task-lead-told` across `pkg/` and `frontend/` for any list of kinds it must also join.
-  - In `engine.go`'s liveness loop, after Task 4's sampling and the stall rule, for `t.State == TaskState_Running`:
+  - In `engine.go`'s liveness loop, the check runs for every runtime, so it goes before the `if !tracked { … continue }` early exit. It comes after Task 4's CPU sampling and after `LastActivity` is refreshed from `lastActivityForRun`, and applies to `t.State == TaskState_Running`. For an untracked child, `LastActivity` is 0 after its first tick (the `!tracked` branch zeroes it), so its activity is `BusyTs` alone, which `max` already handles. The call:
 
 ```go
 		if reason, flagged := checkProgress(ctx, t, runs[t.RunID], now); flagged {
@@ -801,11 +870,12 @@ func TestScanSurvivesACutOrGarbledTail(t *testing.T) {
   - Return false when `now - t.ProgressCheckTs < progressCheckEvery`, when the run has no worktree (`run.ProjectPath == ""`), or when the worker's block has a pending ask (`agentask.GlobalRegistry.Get(block oref)`, as `hungWake` does).
   - Set `ProgressCheckTs = now`.
   - Fingerprint the tree. On error, `log.Printf` with the dag/task and return false without touching the other fields.
-  - If the hash differs from `ProgressHash`, store it, set `ProgressTs = now`, clear `SuspectTs`/`SuspectReason`, and return false.
+  - If the hash differs from `ProgressHash`, store it, set `ProgressTs = now`, and clear `SuspectTs`/`SuspectReason` (this re-arms stagnation). Do not return: the scan below still runs on a changed tree.
   - `active := now - max(t.LastActivity, t.BusyTs) <= ActiveWindow`;
-    `stagnant := active && now - t.ProgressTs >= StagnationThreshold`.
-  - `rf := scanRepeatedFailure(readTranscriptTail(path, transcriptTailBytes))`, with the path from `transcriptForRun`, skipped when untracked.
-  - If `(stagnant || rf.Count > 0) && t.SuspectTs == 0`: set `SuspectTs = now`, set `SuspectReason = suspectReason(now-t.ProgressTs, stagnant, rf, t.LatestTool)`, and return the reason and true.
+    `stagnant := t.SuspectTs == 0 && active && now - t.ProgressTs >= StagnationThreshold`.
+  - `rf := scanRepeatedFailure(readTranscriptTail(path, transcriptTailBytes), t.FlaggedFailures)`, with the path from `transcriptForRun`. Skip the scan (`rf` stays zero) when the runtime is untracked or no transcript exists yet.
+  - If `stagnant || rf.Count > 0`: when `rf.Count > 0`, append `rf.Key` to `t.FlaggedFailures`. Set `SuspectTs = now`, set `SuspectReason = suspectReason(now-t.ProgressTs, stagnant, rf, t.LatestTool)`, and return the reason and true. A check where both fire is one reason and one wake.
+  - The stagnation part of `suspectReason` needs the unchanged time, so compute it before any re-arm would reset `ProgressTs`. On a changed tree `stagnant` is false anyway.
 
   `suspectDetail` returns `map[string]any{"taskid", "unchangedms", "command", "count"}`. In `queue.go`:
 
