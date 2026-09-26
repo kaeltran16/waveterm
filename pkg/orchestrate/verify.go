@@ -4,12 +4,15 @@
 package orchestrate
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -112,54 +115,233 @@ func changedFilesEnv(ctx context.Context, dir, since, to, name string) []string 
 	return []string{verifyChangedEnv + "=" + filepath.ToSlash(path)}
 }
 
-// verifyScopeEnv scopes a lane's Verify to what its squash commit, and any fix committed on top of it before a
-// `--continue`, changed. The squash commit has one parent, so <commit>^ is the tree before the lane landed.
-func verifyScopeEnv(ctx context.Context, channelID, dagID, taskID, tree string) []string {
-	g, err := wstore.GetDag(ctx, dagID)
-	if err != nil {
-		return unscopedEnv
+// batchTip is a verifying lane tip and its squash commit, "" when it is not known.
+type batchTip struct{ id, commit string }
+
+func tipIDs(batch []batchTip) []string {
+	ids := make([]string, len(batch))
+	for i, tip := range batch {
+		ids[i] = tip.id
 	}
-	task := taskByID(g, taskID)
-	if task == nil || task.RunID == "" {
-		return unscopedEnv
-	}
-	child, err := wstore.GetRun(ctx, channelID, task.RunID)
-	if err != nil || child.EndCommit == "" {
-		return unscopedEnv
-	}
-	return changedFilesEnv(ctx, tree, child.EndCommit+"^", "HEAD", dagID+"/"+taskID)
+	return ids
 }
 
-// startVerify runs Verify in the project checkout for a task the caller moved to verifying, and releases l
+// heldLine is a held tip's output: a later lane in a batch whose earlier lane failed is judged by the Verify
+// that follows that lane's fix.
+func heldLine(failedID string) string {
+	return "held: task " + failedID + "'s Verify failed; verified with its fix"
+}
+
+// verifyBatch lists every verifying lane tip, oldest squash commit first. ordered is false when a commit is unknown
+// or git cannot order them (a stubbed merge): the order then falls back to when each merged, and nothing may bisect it.
+func verifyBatch(ctx context.Context, g *waveobj.TaskGroup, tree string) ([]batchTip, bool) {
+	var batch []batchTip
+	ordered := true
+	for i := range g.Tasks {
+		t := &g.Tasks[i]
+		if t.State != TaskState_Verifying {
+			continue
+		}
+		tip := batchTip{id: t.ID}
+		if t.RunID != "" {
+			if child, err := wstore.GetRun(ctx, g.ChannelId, t.RunID); err == nil {
+				tip.commit = child.EndCommit
+			}
+		}
+		ordered = ordered && tip.commit != ""
+		batch = append(batch, tip)
+	}
+	started := func(id string) int64 { return taskByID(g, id).VerifyStartedTs }
+	slices.SortStableFunc(batch, func(a, b batchTip) int { return cmp.Compare(started(a.id), started(b.id)) })
+	if !ordered {
+		return batch, false
+	}
+	byCommit := slices.Clone(batch)
+	var gitErr error
+	slices.SortStableFunc(byCommit, func(a, b batchTip) int {
+		if a.commit == b.commit {
+			return 0
+		}
+		if _, err := git(ctx, tree, "merge-base", "--is-ancestor", a.commit, b.commit); err == nil {
+			return -1
+		}
+		if _, err := git(ctx, tree, "merge-base", "--is-ancestor", b.commit, a.commit); err == nil {
+			return 1
+		}
+		gitErr = fmt.Errorf("%s and %s are not on one line", a.commit, b.commit)
+		return 0
+	})
+	// a sort with a comparator that gave up is half git's order and half the fallback's: keep the fallback whole
+	if gitErr != nil {
+		return batch, false
+	}
+	return byCommit, true
+}
+
+// batchScopeEnv scopes Verify to everything from the batch's oldest squash commit to HEAD, which also takes in a fix
+// committed on top before a --continue. The squash commit has one parent, so <commit>^ is the tree before it landed.
+func batchScopeEnv(ctx context.Context, dagID, tree string, batch []batchTip) []string {
+	if len(batch) == 0 || batch[0].commit == "" {
+		return unscopedEnv
+	}
+	return changedFilesEnv(ctx, tree, batch[0].commit+"^", "HEAD", dagID+"/"+batch[0].id)
+}
+
+// batchRunner is what a Verify of a batch runs with: the landing tree it judged, the project the tree belongs to,
+// the plan's Setup and Verify commands and the progress sink.
+type batchRunner struct {
+	channelID, dagID, runID, project, tree, setup, command string
+	progress                                               planProgress
+}
+
+// batchOutcome is a batch's verdict: passed tips go done, failed goes verify-failed ("" on a pass), and held tips stay
+// verifying with the held line. output and err come from the run that judged failed, or the batch's run on a pass.
+// reason replaces the wake reason when it is not empty, and bisect counts the extra Verify runs.
+type batchOutcome struct {
+	batch, passed []string
+	failed        string
+	held          []string
+	output        string
+	err           error
+	reason        string
+	bisect        int
+	cancelled     bool // the claim was cancelled mid-judging: nothing is recorded
+}
+
+// verifyReason is the short cause a Verify failure's wake carries.
+func verifyReason(err error) string {
+	var pe *planCommandError
+	if errors.As(err, &pe) {
+		return pe.reason()
+	}
+	return "error"
+}
+
+// judgeBatch turns the batch's Verify result into its outcome. A failure of an ordered batch of two or more, with
+// nothing committed on top, is bisected over its prefixes in a detached tree to the tip that broke it; otherwise it
+// blames the oldest tip and holds the rest.
+func judgeBatch(ctx context.Context, batch []batchTip, ordered bool, output string, verr error, run batchRunner) batchOutcome {
+	out := batchOutcome{batch: tipIDs(batch), output: output, err: verr}
+	if verr == nil {
+		out.passed = out.batch
+		return out
+	}
+	out.failed, out.held = out.batch[0], out.batch[1:]
+	if !ordered || len(batch) < 2 {
+		return out
+	}
+	// a fix committed on top before a --continue is not any prefix's: the continued tip owns the failure
+	if head, err := git(ctx, run.tree, "rev-parse", "HEAD"); err != nil || head != batch[len(batch)-1].commit {
+		return out
+	}
+	lo, hi := 0, len(batch) // prefix i is the tree at batch[i-1].commit; prefix 0 passed its own Verify, prefix n just failed
+	failOut, failErr := output, verr
+	steps := 0
+	first := batch[len(batch)/2-1].commit
+	stepErr := withDetachedTree(ctx, run.project, run.runID+"-bisect", "bisect tree", first, run.setup, func(wt string) error {
+		for hi-lo > 1 {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			mid := (lo + hi) / 2
+			commit := batch[mid-1].commit
+			if _, err := git(ctx, wt, "checkout", "--detach", "--force", commit); err != nil {
+				return &treeStepError{"moving the bisect tree to " + commit, err}
+			}
+			if run.progress != nil {
+				run.progress(fmt.Sprintf("verify: bisecting: testing %s at %.8s", strings.Join(tipIDs(batch[:mid]), ", "), commit))
+			}
+			env := changedFilesEnv(ctx, wt, batch[0].commit+"^", commit, run.dagID+"/bisect")
+			stepOut, err := runPlanCommand(ctx, wt, run.command, env, VerifyTimeout, run.progress)
+			steps++
+			if err == nil {
+				lo = mid
+				continue
+			}
+			var pe *planCommandError
+			if !errors.As(err, &pe) {
+				return &treeStepError{"running Verify in the bisect tree", err}
+			}
+			hi, failOut, failErr = mid, stepOut, err
+		}
+		return nil
+	})
+	if ctx.Err() != nil {
+		return batchOutcome{batch: out.batch, cancelled: true}
+	}
+	out.bisect = steps
+	if stepErr != nil {
+		// only prefixes a Verify passed may land: the oldest tip past them is blamed
+		out.passed, out.failed, out.held = out.batch[:lo], out.batch[lo], out.batch[lo+1:]
+		out.reason = verifyReason(verr) + "; bisect stopped: " + stepErr.Error()
+		return out
+	}
+	out.passed, out.failed, out.held = out.batch[:hi-1], out.batch[hi-1], out.batch[hi:]
+	out.output, out.err = failOut, failErr
+	out.reason = verifyReason(failErr) + "; bisected from " + strings.Join(out.batch, ", ")
+	return out
+}
+
+// startVerify runs Verify in the project checkout for every lane tip the caller left verifying, and releases l
 // once the result is recorded. It runs on its own goroutine because Verify takes minutes and neither the
 // watchdog tick nor an RPC handler can wait on it, and it holds no dag lock while the command runs.
-func startVerify(channelID, dagID, runID, taskID, projectPath, command string, l *landing) {
+func startVerify(channelID, dagID, runID, projectPath, command string, l *landing) {
 	ctx, cancel := context.WithCancel(context.Background())
 	landings.Lock()
 	l.cancel = cancel
 	landings.Unlock()
-	appendRunEvent(ctx, channelID, runID, waveobj.RunEventKindTaskVerifyStarted, nil, map[string]any{"taskid": taskID})
 	go func() {
-		defer verifyFinished(dagID, taskID)
+		bg := context.Background()
+		var batch []batchTip
+		ordered := false
+		setup := ""
+		if g, err := wstore.GetDag(bg, dagID); err == nil {
+			batch, ordered = verifyBatch(bg, g, projectPath)
+			setup = g.Setup
+		}
+		first := ""
+		if len(batch) > 0 {
+			first = batch[0].id
+		}
+		defer verifyFinished(dagID, first)
+		if len(batch) == 0 {
+			cancel()
+			releaseProject(projectPath, l)
+			return
+		}
+		ids := tipIDs(batch)
+		started := map[string]any{"taskid": first}
+		if len(ids) > 1 {
+			started["batch"] = ids
+		}
+		appendRunEvent(ctx, channelID, runID, waveobj.RunEventKindTaskVerifyStarted, nil, started)
+		project := projectPath
+		if owner, err := wstore.GetRun(bg, channelID, runID); err == nil {
+			project = owner.ProjectPath
+		}
 		start := time.Now()
 		// a tail is cosmetic, so it skips a beat rather than queueing behind a Setup: waiting here would
 		// stall the command's own completion, and with it the project claim every other lane's merge needs
-		env := verifyScopeEnv(context.Background(), channelID, dagID, taskID, projectPath)
-		output, verr := runPlanCommand(ctx, projectPath, command, env, VerifyTimeout, func(tail string) bool {
+		progress := func(tail string) bool {
 			ran, err := TryWithDagMutation(dagID, func() error {
-				return recordVerifyProgressLocked(context.Background(), dagID, taskID, tail)
+				return recordVerifyProgressLocked(bg, dagID, ids, tail)
 			})
 			if err != nil {
-				log.Printf("dag %s task %s: publishing verify progress: %v", dagID, taskID, err)
+				log.Printf("dag %s task %s: publishing verify progress: %v", dagID, first, err)
 			}
 			return ran && err == nil
-		})
+		}
+		env := batchScopeEnv(bg, dagID, projectPath, batch)
+		output, verr := runPlanCommand(ctx, projectPath, command, env, VerifyTimeout, progress)
+		run := batchRunner{channelID: channelID, dagID: dagID, runID: runID, project: project, tree: projectPath,
+			setup: setup, command: command, progress: progress}
+		// judged on the claim's context, so a cancelled dag also stops whatever judging runs
+		out := judgeBatch(ctx, batch, ordered, output, verr, run)
 		cancel()
-		bg := context.Background()
 		if err := WithDagMutation(dagID, func() error {
-			return recordVerifyLocked(bg, dagID, taskID, output, verr, time.Since(start).Milliseconds())
+			return recordBatchVerifyLocked(bg, dagID, out, time.Since(start).Milliseconds())
 		}); err != nil {
-			log.Printf("dag %s task %s: recording verify: %v", dagID, taskID, err)
+			log.Printf("dag %s task %s: recording verify: %v", dagID, first, err)
 		}
 		releaseProject(projectPath, l)
 		// the next merge was held for this Verify, and a pass unblocks dependents
@@ -174,17 +356,24 @@ func startVerify(channelID, dagID, runID, taskID, projectPath, command string, l
 // signal — so a no-op publish would cost a status refetch for output nobody changed.
 var errVerifyProgressStale = errors.New("verify progress no longer applies")
 
-// recordVerifyProgressLocked stores a still-running Verify's output tail so the cockpit can show what it
-// is doing. It records output only, never state: a task that stopped verifying (its dag was cancelled, or
-// the run already recorded its result) takes nothing, so a late publish cannot overwrite a final output or
-// resurrect a finished task. The caller holds the dag mutation lock.
-func recordVerifyProgressLocked(ctx context.Context, dagID, taskID, tail string) error {
+// recordVerifyProgressLocked stores a still-running Verify's output tail on each tip of its batch so the cockpit
+// can show what it is doing. It records output only, never state: a task that stopped verifying (its dag was
+// cancelled, or the run already recorded its result) takes nothing, so a late publish cannot overwrite a final
+// output or resurrect a finished task. The caller holds the dag mutation lock.
+func recordVerifyProgressLocked(ctx context.Context, dagID string, taskIDs []string, tail string) error {
 	err := wstore.UpdateDag(ctx, dagID, func(cur *waveobj.TaskGroup) error {
-		task := taskByID(cur, taskID)
-		if task == nil || task.State != TaskState_Verifying || task.VerifyOutput == tail {
+		changed := false
+		for _, id := range taskIDs {
+			task := taskByID(cur, id)
+			if task == nil || task.State != TaskState_Verifying || task.VerifyOutput == tail {
+				continue
+			}
+			task.VerifyOutput = tail
+			changed = true
+		}
+		if !changed {
 			return errVerifyProgressStale
 		}
-		task.VerifyOutput = tail
 		cur.UpdatedTs = time.Now().UnixMilli()
 		return nil
 	})
@@ -198,29 +387,37 @@ func recordVerifyProgressLocked(ctx context.Context, dagID, taskID, tail string)
 	return nil
 }
 
-// recordVerifyLocked moves a verifying task to done or verify-failed, keeping the command's output tail
-// either way. A task that is no longer verifying, because its dag was cancelled, records nothing. The
-// caller holds the dag mutation lock.
-func recordVerifyLocked(ctx context.Context, dagID, taskID, output string, verr error, ms int64) error {
+// recordBatchVerifyLocked records a batch's outcome, keeping the command's output tail on the tips it judged. Only
+// tips still verifying are touched, and a cancelled dag records nothing. The caller holds the dag mutation lock.
+func recordBatchVerifyLocked(ctx context.Context, dagID string, out batchOutcome, ms int64) error {
 	g, err := wstore.GetDag(ctx, dagID)
 	if err != nil {
 		return err
 	}
-	task := taskByID(g, taskID)
-	if g.Status == DagStatus_Cancelled || task == nil || task.State != TaskState_Verifying {
+	if g.Status == DagStatus_Cancelled || out.cancelled {
 		return nil
 	}
-	reason := ""
-	task.VerifyOutput = output
-	if verr == nil {
-		task.State, task.VerifyError = TaskState_Done, ""
-	} else {
-		reason = "error"
-		var pe *planCommandError
-		if errors.As(verr, &pe) {
-			reason = pe.reason()
+	verifying := func(id string) *waveobj.TaskNode {
+		if t := taskByID(g, id); t != nil && t.State == TaskState_Verifying {
+			return t
 		}
-		task.State, task.VerifyError = TaskState_VerifyFailed, verr.Error()
+		return nil
+	}
+	var passed []string
+	for _, id := range out.passed {
+		if t := verifying(id); t != nil {
+			t.State, t.VerifyError, t.VerifyOutput = TaskState_Done, "", out.output
+			passed = append(passed, id)
+		}
+	}
+	failed := verifying(out.failed)
+	if failed != nil {
+		failed.State, failed.VerifyError, failed.VerifyOutput = TaskState_VerifyFailed, out.err.Error(), out.output
+	}
+	for _, id := range out.held {
+		if t := verifying(id); t != nil {
+			t.VerifyOutput = heldLine(out.failed)
+		}
 	}
 	RecomputeDagStatus(g)
 	g.UpdatedTs = time.Now().UnixMilli()
@@ -231,15 +428,33 @@ func recordVerifyLocked(ctx context.Context, dagID, taskID, output string, verr 
 		return err
 	}
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, dagID))
-	if verr == nil {
-		appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskVerifyPassed, nil, map[string]any{"taskid": taskID, "ms": ms})
-		closeLandedChunks(ctx, g, taskID)
+	withBatch := func(data map[string]any) map[string]any {
+		if len(out.batch) > 1 {
+			data["batch"] = out.batch
+		}
+		return data
+	}
+	for _, id := range passed {
+		data := withBatch(map[string]any{"taskid": id, "ms": ms})
+		if out.bisect > 0 {
+			data["bisect"] = true
+		}
+		appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskVerifyPassed, nil, data)
+		closeLandedChunks(ctx, g, id)
+	}
+	if failed == nil {
 		return nil
 	}
-	appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskVerifyFailed, nil, map[string]any{
-		"taskid": taskID, "reason": reason, "detail": failureDetail(verr),
-	})
-	PostWake(ctx, g.ChannelId, g.RunID, verifyFailedWake(taskID, reason))
+	reason := out.reason
+	if reason == "" {
+		reason = verifyReason(out.err)
+	}
+	data := withBatch(map[string]any{"taskid": out.failed, "reason": reason, "detail": failureDetail(out.err)})
+	if out.bisect > 0 {
+		data["bisect"] = out.bisect
+	}
+	appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskVerifyFailed, nil, data)
+	PostWake(ctx, g.ChannelId, g.RunID, verifyFailedWake(out.failed, reason))
 	return nil
 }
 
@@ -279,28 +494,30 @@ func closeLandedChunks(ctx context.Context, g *waveobj.TaskGroup, tipID string) 
 	}
 }
 
-// resumeVerify restarts a Verify the server lost: the task was persisted verifying and nothing holds its
-// project. A Verify still running holds the claim, so this starts nothing.
-func resumeVerify(ctx context.Context, g *waveobj.TaskGroup, taskID string) {
+// resumeVerify restarts a batch's Verify the server lost: its tips were persisted verifying and nothing holds
+// their project. A Verify still running holds the claim, so this starts nothing.
+func resumeVerify(ctx context.Context, g *waveobj.TaskGroup) {
+	ids := tasksInState(g, TaskState_Verifying)
+	if len(ids) == 0 {
+		return
+	}
 	owner, err := wstore.GetRun(ctx, g.ChannelId, g.RunID)
 	if err != nil {
 		return
 	}
-	l, err := claimProject(jarvis.LandPath(owner), g.OID, taskID)
+	l, err := claimProject(jarvis.LandPath(owner), g.OID, ids[0])
 	if err != nil {
 		return
 	}
-	// g predates the claim: a Verify that recorded its result and released in between must not run again
+	// g predates the claim: a Verify that recorded its result and released in between must not run again, and
+	// a failed tip or a conflict waiting for --continue holds its held tips until the lead acts
 	fresh, err := wstore.GetDag(ctx, g.OID)
-	if err != nil || fresh.Status == DagStatus_Cancelled {
+	if err != nil || fresh.Status == DagStatus_Cancelled || len(tasksInState(fresh, TaskState_Verifying)) == 0 ||
+		len(tasksInState(fresh, TaskState_VerifyFailed)) > 0 || conflictAwaitingContinue(fresh, "") != "" {
 		releaseProject(jarvis.LandPath(owner), l)
 		return
 	}
-	if task := taskByID(fresh, taskID); task == nil || task.State != TaskState_Verifying {
-		releaseProject(jarvis.LandPath(owner), l)
-		return
-	}
-	startVerify(g.ChannelId, g.OID, g.RunID, taskID, jarvis.LandPath(owner), fresh.Verify, l)
+	startVerify(g.ChannelId, g.OID, g.RunID, jarvis.LandPath(owner), fresh.Verify, l)
 }
 
 // rerunVerify re-runs Verify for a task whose Verify failed, after the caller committed a fix.
@@ -337,6 +554,6 @@ func rerunVerify(ctx context.Context, channelID string, owner *waveobj.Run, task
 		releaseProject(jarvis.LandPath(owner), l)
 		return err
 	}
-	startVerify(channelID, owner.DagORef, owner.ID, taskID, jarvis.LandPath(owner), verify, l)
+	startVerify(channelID, owner.DagORef, owner.ID, jarvis.LandPath(owner), verify, l)
 	return nil
 }

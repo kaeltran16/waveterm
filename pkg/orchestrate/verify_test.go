@@ -374,7 +374,6 @@ func TestNextMergeWaitsForRunningVerify(t *testing.T) {
 	f := newMergeFixture(t, []waveobj.TaskNode{{ID: "t-0", Label: "first"}, {ID: "t-1", Label: "second"}})
 	f.setPlanCommands(t, verifyCmd, "")
 	f.finish(t, "t-0")
-	f.finish(t, "t-1")
 	merges := stubMerge(t, landedSha)
 	verify, _ := stubBlockingVerify(t)
 	await := awaitVerify(t)
@@ -383,6 +382,8 @@ func TestNextMergeWaitsForRunningVerify(t *testing.T) {
 		t.Fatal(err)
 	}
 	verify.waitStarted(t)
+	// t-1 finishes while t-0's Verify runs, so it is not in t-0's batch
+	f.finish(t, "t-1")
 	// a watchdog tick while t-0's Verify runs
 	if err := Schedule(f.ctx, f.dagID); err != nil {
 		t.Fatal(err)
@@ -495,7 +496,6 @@ func TestManualMergeRefusesWhileVerifyRuns(t *testing.T) {
 	f := newMergeFixture(t, []waveobj.TaskNode{{ID: "t-0", Label: "first"}, {ID: "t-1", Label: "second"}})
 	f.setPlanCommands(t, verifyCmd, "")
 	f.finish(t, "t-0")
-	f.finish(t, "t-1")
 	stubMerge(t, landedSha)
 	verify, _ := stubBlockingVerify(t)
 	await := awaitVerify(t)
@@ -504,13 +504,14 @@ func TestManualMergeRefusesWhileVerifyRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 	verify.waitStarted(t)
+	f.finish(t, "t-1")
 	err := MergeTask(f.ctx, f.channel, f.ownerID, "t-1")
 	if !errors.Is(err, errProjectBusy) || !strings.Contains(err.Error(), "task t-0") {
 		t.Fatalf("a merge while t-0's Verify runs must say who holds the checkout, got %v", err)
 	}
 	verify.open()
-	await()
-	await()
+	await() // t-0's Verify; its tick lands t-1
+	await() // t-1's Verify
 }
 
 // effortFor stores an effort holding one pending chunk per label and points the fixture's dag at it.
@@ -728,7 +729,7 @@ func TestVerifyProgressNeverOverwritesARecordedResult(t *testing.T) {
 	}
 	// a publish still in flight when the result was recorded: it must take nothing
 	if err := WithDagMutation(f.dagID, func() error {
-		return recordVerifyProgressLocked(f.ctx, f.dagID, "t-0", "running pkg/one")
+		return recordVerifyProgressLocked(f.ctx, f.dagID, []string{"t-0"}, "running pkg/one")
 	}); err != nil {
 		t.Fatal(err)
 	}
