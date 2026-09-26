@@ -284,7 +284,8 @@ func suspectReason(unchangedMs int64, stagnant bool, rf repeatedFailure, latestT
 
 // checkProgress flags a running task whose worker is active but not progressing: its worktree unchanged for
 // StagnationThreshold while active, or the same failure repeated. Each fires once per episode: stagnation re-arms
-// on a tree change, a repeated failure once per key per attempt. A worker waiting on an ask is the question queue's.
+// on a tree change, a repeated failure once per key per attempt. A worker waiting on an ask is the question queue's,
+// and its unchanged-tree clock restarts while it waits.
 // detail is the task-suspect row's.
 func checkProgress(ctx context.Context, t *waveobj.TaskNode, run *waveobj.Run, now int64) (reason string, detail map[string]any, flagged bool) {
 	if run == nil || run.ProjectPath == "" || now-t.ProgressCheckTs < progressCheckEvery.Milliseconds() {
@@ -292,6 +293,8 @@ func checkProgress(ctx context.Context, t *waveobj.TaskNode, run *waveobj.Run, n
 	}
 	if blockId, _ := workerBlockFn(ctx, run); blockId != "" {
 		if _, asking := agentask.GlobalRegistry.Get(waveobj.MakeORef(waveobj.OType_Block, blockId).String()); asking {
+			// the wait is not stagnation: without this, a worker answered after a long ask is flagged at once
+			t.ProgressTs = now
 			return "", nil, false
 		}
 	}

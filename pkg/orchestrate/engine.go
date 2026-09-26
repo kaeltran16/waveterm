@@ -730,6 +730,7 @@ func workerContract(g *waveobj.TaskGroup, task *waveobj.TaskNode, runtime, tree 
 	if g.Verify != "" {
 		fmt.Fprintf(&b, " Don't run the plan's full Verify (`%s`): the engine runs it after your task merges.", g.Verify)
 	}
+	b.WriteString(" Don't pipe a test into `tail`, `head` or `grep`: a pipe exits with its last command's status, so a failing test reads as passing. If you must pipe, run `set -o pipefail` first.")
 	reportPath := WorkerReportPath(g.OID, task.ID)
 	fmt.Fprintf(&b, " Commit, then write your report with your file-writing tool to `%s`: what you did, what you did differently from the task and why, what a later task must know, and what you could not verify and why. Then run `wsh jarvis complete --commit $(git rev-parse HEAD) --report %s`. ", reportPath, reportPath)
 	b.WriteString(jarvis.NoAttributionRule)

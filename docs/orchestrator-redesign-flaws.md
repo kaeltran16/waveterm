@@ -82,13 +82,13 @@ the base commit, digest `health: "healthy"`, nothing advancing.
 
 | #  | Flaw                                                    | Evidence (2026-09-04 run)                                                      | Impact                                   | Status |
 | -- | ------------------------------------------------------- | ------------------------------------------------------------------------------ | ---------------------------------------- | ------ |
-| F11 | `MaxTasks = 8` has no path for a larger plan           | 13-task plan; `wsh jarvis dag import-tasks` → `Error: no more than 8 tasks are allowed` (`pkg/orchestrate/dag.go:137`) after the lead had already spent ~10 min producing 13 pi-tasks records. `MaxTasks` (`dag.go:39`) is referenced from that one call site and asserted by no test | plan rejected *after* the planning cost; only workaround is lossy compression | open |
+| F11 | `MaxTasks = 8` has no path for a larger plan           | 13-task plan; `wsh jarvis dag import-tasks` → `Error: no more than 8 tasks are allowed` (`pkg/orchestrate/dag.go:137`) after the lead had already spent ~10 min producing 13 pi-tasks records. `MaxTasks` (`dag.go:39`) is referenced from that one call site and asserted by no test | plan rejected *after* the planning cost; only workaround is lossy compression | ✅ Closed 2026-09-16 (`1e4bb179`) |
 | F12 | One run holds exactly one DAG, stated nowhere           | `wstore.CreateDagForRun` (`pkg/wstore/wstore_dag.go:88`) returns the *existing* dag whenever `run.DagORef != ""`; `DagSubmitCommand` fails a differing proposal with `dag conflict: run %s already linked to a different dag` (`wshserver_dag.go:91`). The lead's own recommended escalation answer — "two DAG phases, import 9–13 after the first integrates" — would have hard-failed at the second import, stranding tasks 9–13. Nothing in the prompt, CLI help, or error text says so | lead confidently recommends a dead-end shape; a human taking it discovers it eight tasks later | ✅ Resolved 2026-09-04 |
 | F13 | No first-token deadline: a dead lead looks like a thinking one | First launch pinned `openai-codex/gpt-5.3-codex-spark`; lead died on its first API call (`the 'gpt-5.3-codex-spark' model is not supported when using Codex with a ChatGPT account`) with a 4-line transcript, while the run read `executing / orchestrate:running`. Liveness is transcript-mtime only (`pkg/orchestrate/liveness.go:25`, `StallThreshold` 15 min), so dying *before* writing is indistinguishable from thinking | 15 min to notice a launch that failed in seconds | ✅ Resolved 2026-09-04 |
 | F14 | Route picker offers routes the account cannot run       | `openai-codex/gpt-5.3-codex-spark` listed, selectable, rejected by the provider; the `pi` **tier** routes resolve to a bare `deepseek-v4-pro`, which pi rejects as "ambiguous across providers". `ListHarnessesCommand` reports capability, not entitlement | the picker's first option is a guaranteed dead run | open |
 | F15 | `import-tasks` hardcodes `parallelism: 2`               | `cmd/wsh/cmd/wshcmd-jarvisdag.go:82` sends `Parallelism: 2` with no flag; `DagSubmitCommand` accepts up to `MaxParallelism = 8` (`dag.go:40`). This DAG had 4 independent backend tasks (t-1..t-4) draining two at a time — digest `next.kind = parallelism-wait` while t-1/t-4 were ready | ~2× wall clock on wide DAGs; only the CLI path pins it | ✅ Resolved 2026-09-04 |
 | F16 | Merge gate has no liveness and no age                   | 4 done / 4 worktrees on `wave/e4a54512-…-t-1..t-4`; digest `health: "healthy"`, 0 stalled, 0 attention, `next.kind = merge-ready`, `actions: ["resolve-merge"]`. `StallThreshold` covers only *running* children, so nothing ages the gate. Confirmed still parked at review time: project worktree still at `fcfca8da`, four child branches unmerged | a lead that died or drifted strands finished work indefinitely while health reads clean | ✅ Resolved 2026-09-04 |
-| F17 | `runtime` silently selects between two different orchestrators | `BuildOrchestratePrompt` (`pkg/jarvis/run.go:353`) forks: `pi` → create pi-tasks + `dag import-tasks`, engine schedules (the only path producing a `TaskGroup`); `claude`/`codex` → "execute it adaptively by dispatching your own subagents" — no TaskGroup, no managed worktrees, `pkg/orchestrate` never runs. Nothing in the composer says which one a route buys | same UI, two execution models; every DAG affordance silently absent on one of them | open |
+| F17 | `runtime` silently selects between two different orchestrators | `BuildOrchestratePrompt` (`pkg/jarvis/run.go:353`) forks: `pi` → create pi-tasks + `dag import-tasks`, engine schedules (the only path producing a `TaskGroup`); `claude`/`codex` → "execute it adaptively by dispatching your own subagents" — no TaskGroup, no managed worktrees, `pkg/orchestrate` never runs. Nothing in the composer says which one a route buys | same UI, two execution models; every DAG affordance silently absent on one of them | ✅ Closed 2026-09-16 (`1e4bb179`, `e9e480b3`) |
 
 *Also observed, outside the seven:* `.waveterm/worktrees/34571345-…-t-3` and `-t-4` sit in the main
 checkout on disk but are absent from `git worktree list` — orphans leaked by an earlier DAG. Worktree
@@ -156,9 +156,6 @@ reader does not assume more coverage than exists.
 
 Still open, and why:
 
-- **F11 (R9, first branch).** The cap raise (8 → 16) and the error text together satisfy R9 as
-  written, but the structural gap stands: a plan too big for one DAG still has no path to carry its
-  remainder. That is a feature — chaining a second run — not a message fix, and it was not built.
 - **F14 (R11).** Investigated 2026-09-04 and deliberately not fixed. Entitlement is not statically
   knowable: `ListHarnessesCommand` reports capability by construction, and a probe costs a process
   spawn per launch and goes stale anyway. The pi half **did not reproduce** — `pi --list-models` on
@@ -167,9 +164,23 @@ Still open, and why:
   ambiguous overnight), which also means a hardcoded provider prefix would be exactly as fragile.
   The durable fix is catalog-backed resolution at spawn, where ctx is available. F13 lowers the
   severity either way: a dead route now fails in seconds with the provider's own message.
-- **F17.** Close-out review, not a fix — see the `open-issues.md` note.
 
 None of the four is verified against a live DAG run; all are unit-tested only.
+
+Closed later:
+
+- **F11 — closed 2026-09-16 by `1e4bb179`** ("delete the plan gate, the task cap, adaptive
+  orchestration and pipeline mode"). The cap is gone rather than raised: `orchestrate.MaxTasks`,
+  `jarvis.MaxDagTasks`, `MAX_DAG_TASKS` and the `NewTaskGroup` check were deleted, so a plan of
+  any size fits one DAG and no remainder needs a second run. `MaxParallelism` still bounds
+  concurrent cost. (Until then it stayed open: the 2026-09-04 raise to 16 fixed the message, not the
+  structural gap.)
+- **F17 — closed 2026-09-16 by `1e4bb179` and `e9e480b3`** (2026-09-14, "run workers are claude
+  and pi only"). `1e4bb179` deleted adaptive orchestration: every orchestrator lead now drives the
+  engine and writes `Orchestration_Engine` (`jarvis.IsEngineRun`), so no route selects a second
+  orchestrator. `e9e480b3` made codex and opencode consult-only (`RunWorkerCapable: false`), so a
+  run's workers are claude or pi. What remains is a reader for runs stored before the change (an
+  empty or `adaptive` orchestration), which starts nothing.
 
 ## Capture 3 — code review after the Claude-lead change (2026-09-04)
 
