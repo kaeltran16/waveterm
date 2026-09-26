@@ -1245,8 +1245,9 @@ landing labels. Check them on the first orchestrator run after the Arc rebuild.
 Next, in order:
 
 1. **Speed plan (23, 27). Done:** see "Fixes after the handoff" below. One change from this direction: the
-   full suite stays in Verify, not Check, because every worker runs Check before `complete`. Still deferred:
-   the merge train with bisect, the automatic Verify retry, and targeted worker checks with an incremental tsc.
+   full suite stays in Verify, not Check, because every worker runs Check before `complete`. The merge train
+   with bisect shipped, and the automatic Verify retry, targeted worker checks and an incremental tsc were
+   dropped: see "Fixes: merge train and Go test shards" below.
    The agreed direction was:
    - A per-merge Verify scoped to what the merge changed. The engine passes the merge's changed files to
      Verify in an environment variable, so it stays language-agnostic. This repo gets a scoped verify script:
@@ -1295,3 +1296,18 @@ at once, which share the target dir.
 
 Not verified here: the saving per run. The next orchestrator run after an Arc rebuild shows it; compare its
 per-merge Verify times (`task-verify-passed` `ms`) and chain-link waits with finding 27's table.
+
+## Fixes: merge train and Go test shards
+
+| # | Fix | Test |
+|---|---|---|
+| 23, 27 | The merge train. When nothing holds the queue, `AutoMergeReady` merges every ready lane under one project claim, each as its own squash commit, and one Verify judges every `verifying` tip, scoped from the oldest tip's squash commit to `HEAD`. A pass lands them all. A failure that cannot be bisected blames the oldest tip, and the rest stay verifying as "held" until the Verify after the lead's `--continue`. A conflict mid-batch starts no Verify until that `--continue`; a lane whose dependency merged earlier in the batch is skipped, not the batch. Squash commits that cannot be read still get one unscoped Verify. Events carry `batch`, the tip ids in merge order, when there is more than one. | `TestReadyLanesMergeAsOneBatchWithOneVerify`, `TestAFailedBatchBlamesTheOldestAndHoldsTheRest`, `TestContinueVerifiesTheFailedLaneWithTheHeldOnes`, `TestAConflictMidBatchDefersTheBatchVerifyToTheContinue`, `TestALaneWaitingOnABatchMateIsSkippedNotTheBatch`, `TestResumeReverifiesTheWholeBatch` |
+| 23, 27 | The bisect. A failed batch of two or more whose newest squash commit is `HEAD` is bisected over its prefixes in a detached tree (`<run>-bisect`, with the plan's Setup; `withDetachedTree`, shared with the base Check). The lanes before the breaking one land, it is verify-failed with a "bisected from …" wake, and the ones after it are held. There is no bisect after a fix commit. A bisect step that cannot run blames the oldest lane not known good. The failed event's `bisect` is the number of extra Verify runs. | `TestBisectFindsTheMiddleLaneAndLandsTheOneBefore`, `TestBisectBlamesTheLastLaneWhenOnlyItBreaks`, `TestABisectWhoseSetupFailsBlamesTheOldestUnverifiedLane`, `TestAFailureAfterAFixCommitIsNotBisected`, `TestCancellingTheDagStopsTheBisect` |
+| 23 | `scripts/verify.mjs` builds each Go test package with 100 or more tests once and runs its tests in 4 processes (`-test.timeout=10m`), echoing each shard's output so `--- FAIL` still reaches the failure excerpt; a failing shard fails the script. `pkg/orchestrate` took 44.5 s in 4 processes, its test build included (one process: about 100 s). Sharded packages skip Go's test cache and always run. | `scripts/verify.test.mjs` |
+| 23 | Sharding exposed two order-dependent watchdog tests: `silentSiblingDag` counted every spawn in the process, and now counts only a spawn under its own test's project. | the sharded `pkg/orchestrate` run |
+| 27 (dropped) | The automatic retry of a Verify that fails outside what the task touched: the flake it was for is fixed, nothing flaked in 25 runs, the one such failure on record was a real regression, and a retry costs a Verify and hides new flakes. | none |
+| 27 (dropped) | Targeted worker checks: workers already run only the tests their task names plus Check, and the contention measured is compile and link time a worker needs whatever it filters. | none |
+| 27 (dropped) | An incremental tsc: it saves time only on a tree with no changes (4 s against 17.5 s), and any edit, even a comment, costs the full run. | none |
+
+The measurements behind these, CPU contention between parallel workers included, are in
+`docs/superpowers/specs/2026-09-27-orchestrator-merge-train-design.md`, section 1.

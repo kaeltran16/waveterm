@@ -74,11 +74,13 @@ const (
 	// owning run so the lead reads it in its status. It wakes nobody.
 	RunEventKindTaskTold = "task-told"
 
-	// merge-point Verify (orchestrator redesign §4): the plan's Verify command, run in the project
-	// checkout after a task's squash merge.
-	//   task-verify-started  "taskid"
-	//   task-verify-passed   "taskid", "ms"
-	//   task-verify-failed   "taskid", "reason" ("exit 1" or "timed out after 20m"), "detail"
+	// merge-point Verify (orchestrator redesign §4): the plan's Verify command, run where lanes land after
+	// a batch of squash merges. "batch" (the tip ids in merge order) is set only when the batch has more
+	// than one tip.
+	//   task-verify-started  "taskid" (the oldest tip), "batch"
+	//   task-verify-passed   "taskid", "ms", "batch", "bisect" (bool: landed by a bisect)
+	//   task-verify-failed   "taskid", "reason" ("exit 1" or "timed out after 20m"), "detail", "batch",
+	//                        "bisect" (int: the extra Verify runs a bisect took)
 	RunEventKindTaskVerifyStarted = "task-verify-started"
 	RunEventKindTaskVerifyPassed  = "task-verify-passed"
 	RunEventKindTaskVerifyFailed  = "task-verify-failed"
