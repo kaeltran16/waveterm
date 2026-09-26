@@ -82,6 +82,10 @@ func TestBisectFindsTheMiddleLaneAndLandsTheOneBefore(t *testing.T) {
 	if !strings.Contains(g.Tasks[1].VerifyOutput, "t-1.txt") || g.Tasks[2].VerifyOutput != heldLine("t-1") {
 		t.Fatalf("the blamed lane keeps its failing run's output, the later one is held: %q / %q", g.Tasks[1].VerifyOutput, g.Tasks[2].VerifyOutput)
 	}
+	// t-0 landed on the bisect step that tested it alone, which passed with "ok"
+	if g.Tasks[0].VerifyOutput != "ok" {
+		t.Fatalf("a lane the bisect lands keeps the output of the run that passed it, got %q", g.Tasks[0].VerifyOutput)
+	}
 	got := calls.list()
 	if len(got) != 3 {
 		t.Fatalf("one batch run and two bisect steps, got %d", len(got))
@@ -95,6 +99,34 @@ func TestBisectFindsTheMiddleLaneAndLandsTheOneBefore(t *testing.T) {
 	}
 	if len(lead.sends) != 1 || !strings.Contains(lead.sends[0], "task t-1 (exit 1; bisected from t-0, t-1, t-2)") {
 		t.Fatalf("one wake naming the bisect, got %q", lead.sends)
+	}
+}
+
+func TestABatchOfOneFailsWithoutBisecting(t *testing.T) {
+	lead := newFakeLead(t)
+	f := newMergeFixture(t, []waveobj.TaskNode{{ID: "t-0", Label: "a"}})
+	f.setPlanCommands(t, verifyCmd, "")
+	f.land(t)
+	f.finish(t, "t-0")
+	f.laneCommit(t, "t-0", "t-0.txt")
+	calls := stubVerifyBreaksOn(t, "t-0.txt", "", nil)
+	await := awaitVerify(t)
+
+	AutoMergeReady(f.ctx, f.dagID)
+	await()
+
+	if got := f.dag(t).Tasks[0].State; got != TaskState_VerifyFailed {
+		t.Fatalf("want verify-failed, got %s", got)
+	}
+	if n := len(calls.list()); n != 1 {
+		t.Fatalf("a batch of one runs Verify once, got %d", n)
+	}
+	if _, err := os.Stat(worktreeDir(f.projectPath(t), f.ownerID+"-bisect")); !os.IsNotExist(err) {
+		t.Fatalf("no bisect tree is made, stat err %v", err)
+	}
+	want := "Verify failed after merging task t-0 (exit 1)."
+	if len(lead.sends) != 1 || !strings.Contains(lead.sends[0], want) {
+		t.Fatalf("today's wake, got %q", lead.sends)
 	}
 }
 

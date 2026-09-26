@@ -195,13 +195,15 @@ type batchRunner struct {
 }
 
 // batchOutcome is a batch's verdict: passed tips go done, failed goes verify-failed ("" on a pass), and held tips stay
-// verifying with the held line. output and err come from the run that judged failed, or the batch's run on a pass.
-// reason replaces the wake reason when it is not empty, and bisect counts the extra Verify runs.
+// verifying with the held line. output and err come from the run that judged failed, or the batch's run on a pass;
+// passedOutput comes from the run that passed the passed tips. reason replaces the wake reason when it is not empty,
+// and bisect counts the extra Verify runs.
 type batchOutcome struct {
 	batch, passed []string
 	failed        string
 	held          []string
 	output        string
+	passedOutput  string
 	err           error
 	reason        string
 	bisect        int
@@ -223,7 +225,7 @@ func verifyReason(err error) string {
 func judgeBatch(ctx context.Context, batch []batchTip, ordered bool, output string, verr error, run batchRunner) batchOutcome {
 	out := batchOutcome{batch: tipIDs(batch), output: output, err: verr}
 	if verr == nil {
-		out.passed = out.batch
+		out.passed, out.passedOutput = out.batch, output
 		return out
 	}
 	out.failed, out.held = out.batch[0], out.batch[1:]
@@ -236,6 +238,7 @@ func judgeBatch(ctx context.Context, batch []batchTip, ordered bool, output stri
 	}
 	lo, hi := 0, len(batch) // prefix i is the tree at batch[i-1].commit; prefix 0 passed its own Verify, prefix n just failed
 	failOut, failErr := output, verr
+	passOut := ""
 	steps := 0
 	first := batch[len(batch)/2-1].commit
 	stepErr := withDetachedTree(ctx, run.project, run.runID+"-bisect", "bisect tree", first, run.setup, func(wt string) error {
@@ -255,7 +258,7 @@ func judgeBatch(ctx context.Context, batch []batchTip, ordered bool, output stri
 			stepOut, err := runPlanCommand(ctx, wt, run.command, env, VerifyTimeout, run.progress)
 			steps++
 			if err == nil {
-				lo = mid
+				lo, passOut = mid, stepOut
 				continue
 			}
 			var pe *planCommandError
@@ -273,11 +276,12 @@ func judgeBatch(ctx context.Context, batch []batchTip, ordered bool, output stri
 	if stepErr != nil {
 		// only prefixes a Verify passed may land: the oldest tip past them is blamed
 		out.passed, out.failed, out.held = out.batch[:lo], out.batch[lo], out.batch[lo+1:]
+		out.passedOutput = passOut
 		out.reason = verifyReason(verr) + "; bisect stopped: " + stepErr.Error()
 		return out
 	}
 	out.passed, out.failed, out.held = out.batch[:hi-1], out.batch[hi-1], out.batch[hi:]
-	out.output, out.err = failOut, failErr
+	out.passedOutput, out.output, out.err = passOut, failOut, failErr
 	out.reason = verifyReason(failErr) + "; bisected from " + strings.Join(out.batch, ", ")
 	return out
 }
@@ -406,7 +410,7 @@ func recordBatchVerifyLocked(ctx context.Context, dagID string, out batchOutcome
 	var passed []string
 	for _, id := range out.passed {
 		if t := verifying(id); t != nil {
-			t.State, t.VerifyError, t.VerifyOutput = TaskState_Done, "", out.output
+			t.State, t.VerifyError, t.VerifyOutput = TaskState_Done, "", out.passedOutput
 			passed = append(passed, id)
 		}
 	}
