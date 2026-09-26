@@ -14,6 +14,7 @@ import (
 	"strings"
 	"text/tabwriter"
 	"time"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 	"github.com/wavetermdev/waveterm/pkg/agentask"
@@ -613,8 +614,21 @@ var dagAnswerCmd = &cobra.Command{
 		}
 		return wshclient.DagAnswerCommand(RpcClient, wshrpc.CommandDagAnswerData{
 			ChannelId: channelId, RunId: runId, TaskId: args[0], Answers: answers, Lead: true,
-		}, &wshrpc.RpcOpts{Timeout: 10_000})
+		}, &wshrpc.RpcOpts{Timeout: dagAnswerTimeoutMs(answers)})
 	},
+}
+
+// dagAnswerBaseTimeoutMs is the answer's budget before any typing.
+const dagAnswerBaseTimeoutMs = 10_000
+
+// dagAnswerTimeoutMs covers the server typing a free-text answer one key per character, KeystrokeDelay apart,
+// twice over for a loaded machine: a fixed budget expired on long answers that then landed anyway.
+func dagAnswerTimeoutMs(answers []baseds.AgentAnswerItem) int64 {
+	runes := 0
+	for _, a := range answers {
+		runes += utf8.RuneCountInString(a.Text)
+	}
+	return dagAnswerBaseTimeoutMs + int64(runes)*agentask.KeystrokeDelay.Milliseconds()*2
 }
 
 // dagForwardData is the forward action's payload. The note is not checked here: the server owns what
