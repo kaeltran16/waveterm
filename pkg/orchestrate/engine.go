@@ -527,6 +527,7 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		oref, err := spawnWorker(spawnCtx, capability, owner.WorkspaceId, "", cwd, prompt,
 			jarvis.RunWorkerOptions{SessionId: sessionId, RunId: runID, TaskId: taskID, Label: task.Label})
 		spawnMs := time.Since(spawnStart).Milliseconds()
+		spawnedAt := time.Now().UnixMilli()
 		if err != nil {
 			failDispatch(ctx, g, taskID, FailureKindSpawn, err, &afterCommit)
 			continue
@@ -571,7 +572,8 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		spawnedTaskID := taskID
 		afterCommit = append(afterCommit, func() {
 			publishDagEvent(DagEventTaskSpawned, g, spawnedTaskID)
-			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskSpawned, nil, map[string]any{"taskid": spawnedTaskID, "worktreems": worktreeMs, "setupms": setupMs, "spawnms": spawnMs})
+			// the append waits for the whole batch's commit, and a serial batch takes seconds per task
+			appendRunEventAt(ctx, spawnedAt, g.ChannelId, g.RunID, waveobj.RunEventKindTaskSpawned, nil, map[string]any{"taskid": spawnedTaskID, "worktreems": worktreeMs, "setupms": setupMs, "spawnms": spawnMs})
 		})
 	}
 	RecomputeDagStatus(g)
@@ -878,8 +880,8 @@ func publishDagEvent(kind string, g *waveobj.TaskGroup, detail string) {
 // focused run card. Best-effort telemetry — a failure is logged, never returned: the engine's
 // scheduling must not fail over a log write. Local copy of the wshserver helper (that package imports
 // this one, so a shared implementation would be a cycle). Var so tests can stub an append failure.
-var appendRunEvent = func(ctx context.Context, channelId, runId, kind string, phaseIdx *int, detail any) {
-	if ev, err := wstore.AppendRunEvent(ctx, channelId, runId, kind, phaseIdx, detail); err != nil {
+var appendRunEventAt = func(ctx context.Context, ts int64, channelId, runId, kind string, phaseIdx *int, detail any) {
+	if ev, err := wstore.AppendRunEventAt(ctx, ts, channelId, runId, kind, phaseIdx, detail); err != nil {
 		log.Printf("appendRunEvent(%s): %v", kind, err)
 	} else {
 		wps.Broker.Publish(wps.WaveEvent{
@@ -888,4 +890,8 @@ var appendRunEvent = func(ctx context.Context, channelId, runId, kind string, ph
 			Data:   wshrpc.RunEventData{ChannelId: channelId, RunId: runId, Event: ev},
 		})
 	}
+}
+
+var appendRunEvent = func(ctx context.Context, channelId, runId, kind string, phaseIdx *int, detail any) {
+	appendRunEventAt(ctx, time.Now().UnixMilli(), channelId, runId, kind, phaseIdx, detail)
 }
