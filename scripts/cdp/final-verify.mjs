@@ -1,17 +1,21 @@
 // This repo's **Final:** command. The engine runs it in the final tree with ARC_FINAL_OUT set: it starts a dev
-// app from that tree on its own CDP port and WebView2 profile, runs verify.mjs against it, and copies the shots
-// and contact sheet into ARC_FINAL_OUT. Exit 0 passes, verify.mjs's nonzero code fails, and EXIT_UNVERIFIED
-// with the reason as the last stdout line means the UI could not be checked at all.
+// app from that tree, runs verify.mjs against it, and copies the shots and contact sheet into ARC_FINAL_OUT.
+// A dev app from the main checkout is usually running, so this one shares nothing it uses: its own CDP and Vite
+// ports, WebView2 profile, store, cargo target dir and dist/bin, and it installs no global agent hooks or skills.
+// Exit 0 passes, verify.mjs's nonzero code fails, and EXIT_UNVERIFIED with the reason as the last stdout line means
+// the UI could not be checked at all.
 //
 //   ARC_FINAL_OUT=<dir> node scripts/cdp/final-verify.mjs [scenario...]
 //
-// ARC_FINAL_DEV_CMD (default `task dev`), ARC_FINAL_BOOT_MS (default 10 min, a cold cargo build) and
-// ARC_FINAL_VITE_PORT (default VITE_PORT) exist so the test can drive the boot path without starting a real app.
+// ARC_FINAL_DEV_CMD (default `task dev` with the port override), ARC_FINAL_BOOT_MS (default 10 min, a cold cargo
+// build) and ARC_FINAL_VITE_PORT (the first port tried) exist so the test can drive the boot path without a real app.
 //
 // The user's packaged Arc shares the dev app's image names, so only the PID this script spawned is ever killed.
 import { execFileSync, spawn } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, openSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { cpSync, existsSync, lstatSync, mkdirSync, openSync, rmSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { connect, createServer } from "node:net";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -22,8 +26,34 @@ const PORT_SCAN = 100;
 const DEFAULT_BOOT_MS = 600_000;
 const POLL_MS = 1_000;
 const PROBE_TIMEOUT_MS = 2_000;
-// frontend/tauri/vite.config.ts pins the dev server here with strictPort
-export const VITE_PORT = 5174;
+// frontend/tauri/vite.config.ts pins the main dev app's vite here; the final one starts past it, so a dev app
+// started while this one runs still gets its port
+const FIRST_VITE_PORT = 5175;
+// the dirs worktree:prepare junctions into the main checkout that a build writes to. node_modules is left: npm
+// install replaces its junction with a real dir without touching the main checkout's
+const BUILD_JUNCTIONS = ["dist/bin", "src-tauri/target"];
+const FINAL_BASE = join(process.env.LOCALAPPDATA || join(homedir(), ".cache"), "arc-final");
+// one target dir for every final stage, outside any checkout: only the first pays the cold cargo build
+const FINAL_TARGET_DIR = join(FINAL_BASE, "target");
+const STORE_ID_LEN = 8;
+
+// the dev app's store. wavesrv binds <store>/data/wave.sock and windows caps a unix socket path at 108 bytes, which
+// a store under ARC_FINAL_OUT (itself under %TEMP%) can pass, so it lives under a short path keyed by the out dir
+function storeDir(out) {
+    return join(FINAL_BASE, "stores", createHash("sha1").update(out).digest("hex").slice(0, STORE_ID_LEN));
+}
+
+// keeps the dev app's log for whoever reads the result, then drops the throwaway store
+function dropStore(store, out) {
+    // runs in a finally, so a failure here is reported and must not replace the result
+    try {
+        const log = join(store, "data", "waveapp.log");
+        if (existsSync(log)) cpSync(log, join(out, "waveapp.log"));
+        rmSync(store, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
+    } catch (e) {
+        console.log(`could not keep the log and drop the dev app's store ${store}: ${e.message}`);
+    }
+}
 
 export function unverified(reason) {
     console.log(reason);
@@ -85,6 +115,43 @@ async function answers(port) {
     }
 }
 
+// a vite port nothing listens on, on either stack: vite on windows binds ::1 alone
+export async function pickVitePort(start = FIRST_VITE_PORT) {
+    for (let port = start; port < start + PORT_SCAN; port++) {
+        if ((await isFree(port)) && !(await inUse(port))) return port;
+    }
+    throw new Error(`no free vite port in ${start}-${start + PORT_SCAN - 1}`);
+}
+
+function isLink(p) {
+    try {
+        return lstatSync(p).isSymbolicLink();
+    } catch {
+        return false;
+    }
+}
+
+// removes the links alone, never what they point at: a build here must not write into the main checkout, where
+// a running dev app uses the binaries
+export function unlinkBuildJunctions(root) {
+    for (const rel of BUILD_JUNCTIONS) {
+        const p = join(root, rel);
+        if (!isLink(p)) continue;
+        if (process.platform === "win32") rmdirSync(p);
+        else unlinkSync(p);
+    }
+}
+
+// merged over src-tauri/tauri.conf.json by `cargo tauri dev --config`, which pins vite to 5174
+function tauriConfig(vitePort) {
+    return {
+        build: {
+            devUrl: `http://localhost:${vitePort}`,
+            beforeDevCommand: `npx vite --config frontend/tauri/vite.config.ts --port ${vitePort} --strictPort`,
+        },
+    };
+}
+
 // resolves true once CDP answers, false on timeout or when the dev app exits first
 async function waitForCdp(port, dev, bootMs) {
     const deadline = Date.now() + bootMs;
@@ -112,14 +179,14 @@ async function main() {
     if (!out) unverified("ARC_FINAL_OUT is not set");
     const scenarios = process.argv.slice(2);
     const bootMs = Number(process.env.ARC_FINAL_BOOT_MS) || DEFAULT_BOOT_MS;
-    const devCmd = process.env.ARC_FINAL_DEV_CMD || "task dev";
-    const vitePort = Number(process.env.ARC_FINAL_VITE_PORT) || VITE_PORT;
-
-    // another dev app holds the pinned vite port, so this one's vite would fail only after its build had
-    // written through the tree's dist/bin and src-tauri/target junctions into the main checkout
-    if (await inUse(vitePort)) {
-        unverified(`another dev app is running (vite port :${vitePort} is taken); stop it and rerun the final stage`);
-    }
+    const vitePort = await pickVitePort(Number(process.env.ARC_FINAL_VITE_PORT) || FIRST_VITE_PORT);
+    mkdirSync(out, { recursive: true });
+    const configPath = join(out, "tauri.final.json");
+    writeFileSync(configPath, JSON.stringify(tauriConfig(vitePort), null, 2));
+    const devCmd = process.env.ARC_FINAL_DEV_CMD || `task dev -- --config "${configPath}"`;
+    unlinkBuildJunctions(process.cwd());
+    const store = storeDir(out);
+    rmSync(store, { recursive: true, force: true });
 
     const port = await pickPort();
     const profile = join(out, "webview2-profile");
@@ -127,7 +194,7 @@ async function main() {
     // the dev app's output goes to a file so the last stdout line stays ours for the engine to read
     const logPath = join(out, "dev-app.log");
     const log = openSync(logPath, "a");
-    console.log(`starting \`${devCmd}\` on :${port} (log: ${logPath})`);
+    console.log(`starting \`${devCmd}\` on :${port}, vite :${vitePort} (log: ${logPath})`);
 
     // stdin stays an open pipe: `task dev` exits when its stdin closes
     const dev = spawn(devCmd, {
@@ -139,6 +206,10 @@ async function main() {
             ...process.env,
             WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port}`,
             WEBVIEW2_USER_DATA_FOLDER: profile,
+            CARGO_TARGET_DIR: FINAL_TARGET_DIR,
+            // read by a debug build of the dev host (src-tauri/src/paths.rs) and by sync:piartifacts
+            ARC_DEV_DATA_DIR: store,
+            ARC_DEV_NO_GLOBAL_INSTALL: "1",
         },
     });
     const stop = () => killTree(dev.pid);
@@ -163,6 +234,7 @@ async function main() {
         }
     } finally {
         stop();
+        dropStore(store, out);
     }
     if (reason) unverified(reason);
     process.exit(code);

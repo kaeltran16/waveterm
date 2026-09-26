@@ -17,6 +17,20 @@ const cdpPort = Number(process.env.CDP_PORT) || 9222; // worktree dev app can ru
 const h = await attach(cdpPort);
 console.log(`attached to ${h.url}`);
 
+// a freshly started app answers CDP before its first render, and a cold vite pre-bundles for a while first. Past
+// the deadline the scenarios run anyway and fail on the missing nav, which is a real failure of the app.
+const RENDER_WAIT_MS = 120_000;
+const RENDER_POLL_MS = 500;
+const waitStart = Date.now();
+let rendered = false;
+while (!rendered && Date.now() - waitStart < RENDER_WAIT_MS) {
+    // a reload mid-boot destroys the execution context, which is not an answer either way
+    rendered = await h.ev(`!!document.querySelector("nav button")`).catch(() => false);
+    if (!rendered) await new Promise((r) => setTimeout(r, RENDER_POLL_MS));
+}
+const waited = Math.round((Date.now() - waitStart) / 1000);
+console.log(rendered ? `nav rendered after ${waited}s` : `nav not rendered after ${waited}s`);
+
 // Pin the viewport so a scenario's result does not depend on how wide the developer left the dev window.
 // The Jarvis surface is width-responsive (jarvislayout.ts): below ~1290px its context rail closes and
 // below ~1034px the Subjects column drops to status dots, so a run in a 1000px window was asserting

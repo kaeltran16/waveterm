@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 // WAVETERM_APP_PATH: the dir whose `bin/` subdir holds the bundled wavesrv + wsh
@@ -22,6 +23,21 @@ pub fn data_base_for(base: &Path, is_dev: bool) -> PathBuf {
     }
     let name = base.file_name().and_then(|s| s.to_str()).unwrap_or("app");
     base.with_file_name(format!("{name}-dev"))
+}
+
+// a debug build started beside another dev app (the orchestrator's final stage) is pointed at its own store
+// through this, since two wavesrv on one data dir fight over its wave.lock. packaged builds ignore it.
+pub const DEV_DATA_DIR_ENV: &str = "ARC_DEV_DATA_DIR";
+
+// a debug build with this set leaves the user's global agent hooks alone: install-agent-hooks copies the
+// launching wsh to ~/.arc/bin, which every hook runs.
+pub const DEV_NO_GLOBAL_INSTALL_ENV: &str = "ARC_DEV_NO_GLOBAL_INSTALL";
+
+pub fn dev_data_base(default: PathBuf, is_dev: bool, override_dir: Option<OsString>) -> PathBuf {
+    match override_dir {
+        Some(dir) if is_dev && !dir.is_empty() => PathBuf::from(dir),
+        _ => default,
+    }
 }
 
 // wavesrv hard-requires both WAVETERM_DATA_HOME and WAVETERM_CONFIG_HOME; split the
@@ -69,6 +85,36 @@ mod tests {
             data_base_for(base, true),
             PathBuf::from("C:/u/AppData/Local/dev.arc.app-dev")
         );
+    }
+
+    #[test]
+    fn dev_data_base_takes_the_override() {
+        let got = dev_data_base(
+            PathBuf::from("C:/default"),
+            true,
+            Some(OsString::from("C:/final/arc-data")),
+        );
+        assert_eq!(got, PathBuf::from("C:/final/arc-data"));
+    }
+
+    #[test]
+    fn packaged_data_base_ignores_the_override() {
+        let got = dev_data_base(
+            PathBuf::from("C:/default"),
+            false,
+            Some(OsString::from("C:/final/arc-data")),
+        );
+        assert_eq!(got, PathBuf::from("C:/default"));
+    }
+
+    #[test]
+    fn empty_override_keeps_the_default() {
+        let default = PathBuf::from("C:/default");
+        assert_eq!(
+            dev_data_base(default.clone(), true, Some(OsString::new())),
+            default
+        );
+        assert_eq!(dev_data_base(default.clone(), true, None), default);
     }
 
     #[test]

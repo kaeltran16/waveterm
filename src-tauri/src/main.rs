@@ -233,9 +233,19 @@ fn main() {
             // resource_dir() only matters when packaged; avoid calling it in dev.
             let resource_dir = if is_dev { PathBuf::new() } else { app.path().resource_dir()? };
             let app_path = paths::resolve_app_path(is_dev, manifest_dir, &resource_dir);
-            let data_base = paths::data_base_for(&app.path().app_local_data_dir()?, is_dev);
+            let data_base = paths::dev_data_base(
+                paths::data_base_for(&app.path().app_local_data_dir()?, is_dev),
+                is_dev,
+                std::env::var_os(paths::DEV_DATA_DIR_ENV),
+            );
             applog::init(&paths::data_home_dirs(&data_base).0);
-            install_agent_hooks(&app_path);
+            if is_dev && std::env::var_os(paths::DEV_NO_GLOBAL_INSTALL_ENV).is_some() {
+                applog::log_line(
+                    "[tauri] ARC_DEV_NO_GLOBAL_INSTALL is set; skipping the agent-hooks install",
+                );
+            } else {
+                install_agent_hooks(&app_path);
+            }
             let child = spawn_wavesrv(
                 auth_key.clone(),
                 app_path,

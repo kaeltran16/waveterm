@@ -61,8 +61,14 @@ Other useful commands:
   runs a real `npm install` that replaces the `node_modules` junction — copy that checksum file from the
   main checkout first. Remove with `task worktree:cleanup -- <path>` — it deletes the junction links
   first, never a real directory (a recursive delete can follow a junction into the main checkout and
-  wipe its `node_modules`), then runs `git worktree remove` and `git branch -d`. To run a worktree dev app beside the main one, give it its own CDP port
-  and WebView2 profile: `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--remote-debugging-port=9223" WEBVIEW2_USER_DATA_FOLDER="$TEMP/wave-wt-profile" task dev`, then `CDP_PORT=9223 task verify:ui`.
+  wipe its `node_modules`), then runs `git worktree remove` and `git branch -d`. To run a worktree dev app beside the main one it needs its own everything:
+  CDP port and WebView2 profile (`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--remote-debugging-port=9223"`,
+  `WEBVIEW2_USER_DATA_FOLDER`), Vite port (`task dev -- --config <json>` setting `build.devUrl` and a
+  `beforeDevCommand` with `--port N --strictPort`), store (`ARC_DEV_DATA_DIR`, a short path: wavesrv binds
+  `data\wave.sock` under it, and Windows caps a unix socket path at 108 bytes), and its own `CARGO_TARGET_DIR`
+  and `dist/bin` instead of the junctions, which a build writes through into the main checkout.
+  `ARC_DEV_NO_GLOBAL_INSTALL=1` keeps it from installing its hooks, `~/.arc/bin/wsh` and skills over yours.
+  `scripts/cdp/final-verify.mjs` does all of it; then `CDP_PORT=<port> task verify:ui`.
 
 ### Visual verification (dev)
 

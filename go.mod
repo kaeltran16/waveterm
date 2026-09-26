@@ -2,6 +2,9 @@ module github.com/wavetermdev/waveterm
 
 go 1.25.6
 
+// npm's tree is not Go: it ships stray .go files (flatted), and a go mod tidy that runs while npm installs fails on it
+ignore ./node_modules
+
 require (
 	github.com/alexflint/go-filemutex v1.3.0
 	github.com/creack/pty v1.1.24

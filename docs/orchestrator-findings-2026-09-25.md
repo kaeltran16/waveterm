@@ -1267,9 +1267,8 @@ Next, in order:
      incremental tsc (measure CPU contention between parallel workers first).
 2. **32. Done:** see "Fixes after the handoff". The row stayed until the lead's next ask was answered,
    not for a fixed 2 minutes.
-3. **35, the real fix.** The final tree gets its own Vite port through `cargo tauri dev --config`
-   (`build.devUrl`, and a `beforeDevCommand` with `--port N --strictPort`), its own `CARGO_TARGET_DIR` and
-   its own `dist/bin`. First find out how the dev host locates `wavesrv`.
+3. **35. Done:** see "Fixes after the handoff". The final dev app turned out to share five things with a
+   running one, not three: also the dev store (with its `wave.lock`) and the agent-hook install on launch.
 
 The other open findings are in the Summary table; none of them is in this batch.
 
@@ -1283,7 +1282,16 @@ The other open findings are in the Summary table; none of them is in this batch.
 | 27 | The merge queue lands first the lane the most pending tasks wait on (`waitingOn`), then plan order. | `TestAutoMergeableLandsFirstTheLaneMostPendingTasksWaitOn` |
 | 33 | The plan's Check runs once at submit, in a detached tree at the base commit (`basecheck.go`). A failure there wakes the lead, workers are told it is not theirs, and the final stage and the land report a Check failure the base shares as unverified, showing both outputs, since nothing tells the base's failures from the run's. A revised plan with another Check or Setup checks the base again. | `TestBaseCheckFailureIsRecordedAndWakesTheLead`, `TestBaseCheckPassesQuietlyAndRunsOnce`, `TestWorkerContractNamesABrokenBase`, `TestFinalCheckFailureTheBaseSharesIsUnverified`, `TestAReplacedPlanChecksItsNewCheckOnTheBase`, `TestABaseCheckResultForAnotherCommandIsDropped`, `TestLandNotesACheckFailureTheBaseShares` |
 | land | The land's re-check runs when the branch or the base moved. It merges the base into the landing tree without committing, runs Check and a Verify scoped to what differs from the verified commit, and aborts the merge. The land notes only base commits that arrived after that check, and holds when the landing tree is stopped mid-merge. | `TestLandChecksTheRunMergedWithItsMovedBase`, `TestLandHoldsALandingTreeLeftMidMerge` |
+| 35 | The final stage shares nothing with a running dev app. `final-verify.mjs` picks a Vite port from 5175 up and passes it as `task dev -- --config tauri.final.json` (`tauri:dev` now forwards its CLI args). It unlinks the tree's `dist/bin` and `src-tauri/target` junctions, and builds into `%LOCALAPPDATA%\arc-final\target`, shared by final stages. It runs the app on a fresh store under `%LOCALAPPDATA%\arc-final\stores\`, a short path because wavesrv's `wave.sock` must stay under the 108-byte Windows socket path limit, which a store under `ARC_FINAL_OUT` can pass; the app's `waveapp.log` is copied out and the store dropped. A debug build honors `ARC_DEV_DATA_DIR` (the store) and `ARC_DEV_NO_GLOBAL_INSTALL`, which skips the agent-hook install (it copies the launching `wsh` to `~/.arc/bin`) and, in `sync:piartifacts`, the skill copies into `~/.claude/skills`. The stopgap refusal on a taken 5174 is gone. | `final-verify.test.mjs`, `paths.rs` tests |
+| 35, found live | A fresh tree's first `task dev` runs `npm:install` and `go:mod:tidy` in parallel, and tidy failed walking `node_modules` (a race with npm, inferred: the same tidy passed once npm had finished). `go.mod` now has `ignore ./node_modules` (Go 1.25), which also drops the stray `flatted` Go package from `go list ./...`. `verify.mjs` waits up to 2 min for the nav rail before its first scenario, since the app answers CDP before it renders. | live run below |
 | 32 | Gatekeeper cards carry the ask's `askId`. An escalation row needs that same ask pending, not any ask on the block, and the frontend's auto-answered set is keyed by ask id. Cards written before this have no id and never match, which is safe because the registry is in memory and empties on the upgrade's restart. | `TestBuildAttentionDropsAnAnsweredEscalationWhenItsAgentAsksAgain`, `jarviscards.test.ts`, `jarvisderive.test.ts` ("keeps a NEW ask…") |
+
+Live check of 35, 2026-09-26: a worktree prepared like a final tree (`worktree:prepare` junctions, this diff
+applied), with the main checkout's dev app running on 5174. `final-verify.mjs surface-smoke` passed 9/9 (one
+step skipped, as on the main app) on Vite 5175 after a cold cargo build of 2 min 38 s, and in 38 s once warm.
+Unchanged afterwards: the main checkout's `wavesrv`, `wsh` and `wave-tauri.exe`, `~/.arc/bin/wsh.exe`,
+`~/.claude/settings.json` and both global skills; the main dev app kept running. Not tested: two final stages
+at once, which share the target dir.
 
 Not verified here: the saving per run. The next orchestrator run after an Arc rebuild shows it; compare its
 per-merge Verify times (`task-verify-passed` `ms`) and chain-link waits with finding 27's table.

@@ -12,8 +12,8 @@ vars:
 
 tasks:
     tauri:dev:
-        desc: Run the Tauri application via the Vite dev server (enables hot reloading).
-        cmd: npm run dev
+        desc: Run the Tauri application via the Vite dev server (enables hot reloading). Arguments after -- go to `cargo tauri dev`, e.g. `task dev -- --config <file>`.
+        cmd: npm run dev -- {{.CLI_ARGS}}
         aliases:
             - dev
         deps:
@@ -271,9 +271,10 @@ tasks:
             - cmd: cp pi/extensions/waveterm-prose-core.ts cmd/wsh/cmd/pi-prose-core-extension.ts
             - cmd: cp pi/extensions/waveterm-simplify-gate.ts cmd/wsh/cmd/pi-simplify-gate-extension.ts
             - cmd: cp pi/extensions/waveterm-simplify-gate-core.ts cmd/wsh/cmd/pi-simplify-gate-core-extension.ts
-            # the skills install to the user's Claude Code skills dir, not into the repo
-            - cmd: mkdir -p "$HOME/.claude/skills/cockpit-runs" && cp pi/skills/cockpit-runs/SKILL.md "$HOME/.claude/skills/cockpit-runs/SKILL.md"
-            - cmd: mkdir -p "$HOME/.claude/skills/effort-tracking" && cp pi/skills/effort-tracking/SKILL.md "$HOME/.claude/skills/effort-tracking/SKILL.md"
+            # the skills install to the user's Claude Code skills dir, not into the repo. ARC_DEV_NO_GLOBAL_INSTALL
+            # (the orchestrator's final stage) skips them, so a run's branch never replaces the user's copy
+            - cmd: '[ -n "$ARC_DEV_NO_GLOBAL_INSTALL" ] || { mkdir -p "$HOME/.claude/skills/cockpit-runs" && cp pi/skills/cockpit-runs/SKILL.md "$HOME/.claude/skills/cockpit-runs/SKILL.md"; }'
+            - cmd: '[ -n "$ARC_DEV_NO_GLOBAL_INSTALL" ] || { mkdir -p "$HOME/.claude/skills/effort-tracking" && cp pi/skills/effort-tracking/SKILL.md "$HOME/.claude/skills/effort-tracking/SKILL.md"; }'
         sources:
             - pi/extensions/waveterm-status.ts
             - pi/themes/arc.json
