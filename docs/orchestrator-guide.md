@@ -432,7 +432,7 @@ you.
 
 | Event | The lead | What reaches you |
 |---|---|---|
-| **Plan review failed** | revises the plan and runs `dag submit` again; after round 2, asks you, and on your word runs `dag planreview accept "<your reason>"` | spec changes, and a second failed review |
+| **Plan review failed** | revises the plan and runs `dag submit` again; after round 2, asks you, and on your word runs `dag planreview accept "<your reason>"`, then carries each accepted finding into the pending tasks it affects with `dag amend` | spec changes, and a second failed review |
 | **Merge conflict** at a lane merge | fixes it where lanes land (the run's branch tree, or the checkout), commits, `wsh jarvis dag merge <task> --continue` | nothing, unless the lead forwards it or is dead |
 | **Verify failed** after a merge | fixes it, commits, `dag merge <task> --continue` (re-runs Verify at HEAD) | same |
 | **Review failed** twice, or the reviewer couldn't do its job | reads the findings in `dag status`; `dag sendback <task> "<guidance>"`, `dag approve <task>`, retry, escalate, skip or forward | forwarded review failures |
@@ -659,7 +659,8 @@ Before merging, the engine takes these steps:
 
 - If the branch moved past the commit the final stage verified, or the base took commits since the run forked, it
   merges the base into the landing tree without committing and runs Check, then Verify with `ARC_VERIFY_CHANGED`
-  listing what differs from the verified commit. It then aborts that merge.
+  listing what differs from the verified commit. It then aborts that merge. When the base has not moved and
+  every changed path is Markdown, it skips Check, which cannot scope itself; Verify still runs.
 - It removes an untracked file in the checkout that is identical to one the run adds, such as the spec or plan the
   lead wrote there before submit.
 - The land notes the base commits that arrived after that check, "merged onto N commits that landed on <base>
@@ -721,7 +722,7 @@ Done doesn't mean finished. The work after the last merge splits four ways:
 
 | Work | Whose job | On the backlog run |
 |---|---|---|
-| The run's report | **The lead's.** Its rules (`OrchestrationRules`, `leadprompt.go`) have it fix and commit what the landed tasks left behind, write the report to a file, and add each open issue as a pending chunk on the initiative (creating one if the run has none). Then it completes on its own with `wsh jarvis complete --report <file>`. It asks you first only when a decision is needed: a failed verification, a deviation that needs your call, or a proposed fix round. An unverified outcome never blocks completion. | Not written. The rules then said "write the report …, then `wsh jarvis complete`". The lead ran `complete` first, and the engine closed its tab before it could recover. The sandbox lead did the same. |
+| The run's report | **The lead's.** Its rules (`OrchestrationRules`, `leadprompt.go`) have it fix and commit what the landed tasks left behind in docs (a code defect found then is an open issue, not a wrap-up commit), write the report to a file, and add each open issue as a pending chunk on the initiative (creating one if the run has none). Then it completes on its own with `wsh jarvis complete --report <file>`, without asking whether to. It asks you first only when a decision is needed: a failed verification, a deviation that needs your call, or a proposed fix round. An unverified outcome never blocks completion. | Not written. The rules then said "write the report …, then `wsh jarvis complete`". The lead ran `complete` first, and the engine closed its tab before it could recover. The sandbox lead did the same. |
 | Closing the initiative's tracker chunks | **The engine's.** A task names its chunks with `**Chunk:**` lines after its Depends line, and the engine marks each done with the landed commit once the task's merge passes Verify. | The plan gave it to workers through a header line they never saw. The tracker read 3/16 with all 13 tasks landed. |
 | Merging the branch back | **The engine's** on a branch-landed run ([Landing back](#landing-back)); **yours** on a checkout-landed one, or when a land is held. | The run landed on the project checkout's branch, and merging it was left to the human. |
 | Checking what the final stage could not, committing anything | **Yours.** The unverified item names what nothing checked. | Four fixes still need a live check once the branch is on `main` and running in the dev app. |

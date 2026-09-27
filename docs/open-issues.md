@@ -264,6 +264,17 @@ Orchestrator findings fixes, left out of scope (2026-09-25, spec
   completing. The wrap-up rule (complete on your own) and the `run-unverified` attention item are meant to
   cover it. Revive on a run whose lead sat idle at `run finished` without completing.
 
+Open from run 33880f82 (`docs/orchestrator-findings-2026-09-25.md`, findings 45 to 47):
+
+- **Duplicate spec-and-plan snapshots (45):** each `dag submit` commits the spec and plan, so a resubmit after a
+  failed plan review adds a second commit with the same subject, which ends in the plan template's
+  "Implementation Plan".
+- **Landed branches stay (46):** `wave/<runId>` survives its land in the live checkout (four merged ones on
+  2026-09-27) although `RemoveRunWorktree` deletes it and its test passes; the delete's error is dropped
+  (`worktree.go:75`), so the cause is not known.
+- **A killed Check holds a land as a failure (47):** run c84aa179's land check was terminated from outside
+  (`0x40010004`) and held with a raw exit code as the reason; `wsh runs land` landed it once re-run.
+
 Reliability investigations (`docs/superpowers/briefs/2026-08-25-reliability-improvement-scan.md`):
 
 - **Consult cancellation cleanup (R5): resolved 2026-08-25** — reproduced on Windows (a descendant

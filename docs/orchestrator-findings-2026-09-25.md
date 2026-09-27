@@ -52,6 +52,13 @@ have said so dropped it. The lead caught it by its own diligence, and a human ha
 | 38 | The land subject falls back to the goal and is clipped mid-path (63ce6a224) | low | fixed: base names, sentence and word cut |
 | 39 | Sealed `verify ran` lines include the lead's inline edits (`node -e`, `sed -i`, `cp`) | medium | fixed: only the check part is sealed |
 | 40 | A review-failed task's blocked dag reads "0 consecutive failures" (dag 9b17c7e9) | medium | fixed: a reason and action per blocking state |
+| 41 | The lead asks whether to complete: its rule says "complete on your own … so ask before it" (run 33880f82) | medium | fixed: the rule says not to ask whether to |
+| 42 | A plan-review gap the human accepted is deferred to a code commit after the final stage; the lead's options leave out `dag amend` | medium | fixed: accepted findings go to pending tasks; code found at wrap-up is an open issue |
+| 43 | The land re-runs the whole Check for a docs-only wrap-up | low | fixed: skipped on an unmoved base; Verify still runs |
+| 44 | A lane of several tasks lands under a ~150-character subject | low | fixed: cut like a land title |
+| 45 | Each `dag submit` snapshots the spec and plan: a resubmit adds a second identical commit, its subject ending "Implementation Plan" | low | open |
+| 46 | Landed runs' `wave/<runId>` branches are not deleted: 4 merged ones remain | low | open, cause not traced |
+| 47 | A Check killed from outside holds the land as a failure, with a raw exit code as the reason (c84aa179: `exit 1073807364`) | low | open |
 
 **Run under observation:** `b2d7fab1-00de-4fbb-b04d-9754d6248b45`, an orchestrator run with a goal, not a
 plan file. Lead and workers are `claude` / `claude-opus-5-5`, base `6dd1600`, started 09:33 in prod Arc
@@ -1388,3 +1395,61 @@ Also seen in this run:
   22 s for t-1), four finished sessions' exits (two at each time) logged `loading dag for child outcome: context deadline
   exceeded` and `outcome not posted` (`waveapp.log`, 02:07:43 and 02:10:38). The tasks still reached done,
   so there was no visible harm in this run.
+
+## Re-validation: run 33880f82
+
+A goal run, `33880f82-fa79-4db8-a0f5-2cac8a907f7e`, started 10:23:27 on 2026-09-27 to close R15, R16 and F16 in
+`docs/orchestrator-redesign-flaws.md`. Lead and workers are `claude` / `opus`, `--landing branch`, base `63ce6a2`.
+It is the first run on an Arc built after `63ce6a224` (installed 10:09 to 10:16), so everything through "Fixes:
+the last gaps in 21, 22 and 35" is live; run c84aa179's fixes (37 to 40) were not yet landed. DAG `20313ab3`: 4
+tasks, 3 lanes, parallelism 2. Elapsed 35 min from submit to done, 19 min 25 s of worker time, 15.3M tokens (lead
+6.1M, plan reviewer 2.8M, workers 4.3M, reviewers 1.3M, verifier 816k).
+
+| # | Status | Evidence in this run |
+|---|---|---|
+| 3 | fixed | The escalation rows read "orchestrate phase … of run goal: Close the three remainin…: <the whole question>". |
+| 5 | fixed | The `Spec review` ask carried the spec's absolute path on its first line. |
+| 7 | worked as designed | Round 1 (10:45:46 to 10:47:18) caught Tasks 1 and 2, with no Depends between them, both editing `digest_test.go`; the lead resubmitted in 38 s. Round 2 (10:47:56 to 10:49:43) failed on one real gap (the cancel confirm counts a merge-gate row as running) and one cosmetic one ("merge waiting 0s"). The human accepted at 10:51:50. |
+| 29 | fixed | No `/compact` during either failed round; `lead-woken` carried it at 10:51:54, 4 s after the accept. The compacted summary kept the promised cleanup. |
+| 20 | fixed | `task-spawned` t-1 10:51:52.268, t-2 10:51:54.451, each after its own worktree (1508 and 1610 ms). |
+| 28 | fixed | During the workers' Go tests `dag status` read `running a command · running CGO_ENABLED=1 CC="zig cc …`, not `idle`. |
+| 22 | not falsified | No `task-suspect` row. The workers ran 2.5 to 13 min, under the 20 min threshold, so this says little. |
+| 14 | fixed | All four workers completed with `--report`; `wsh runs show` prints each report file whole. |
+| 23, 27 | fixed | Per-merge Verify: t-1 48.9 s (TypeScript), the t-2 + t-3 lane 133.0 s (Go and TypeScript), t-4 163 ms (docs only, nothing to test). Earlier runs took 168 to 410 s per merge. No two lanes were ready at once, so the merge train did not batch. |
+| 27 | fixed | t-4 spawned at 11:08:23, 2 s after the lane it depends on merged (11:08:20), while that merge's Verify ran to 11:10:34. |
+| 13 | fixed, new gap | Lane commit `50a51fcd` carries `Arc-Task: t-2` and `Arc-Task: t-3`, but its subject joins both task titles: about 150 characters (44). |
+| 35 | fixed | The Final stage's dev app ran on Vite 5175 (`tauri.final.json`) and built into `%LOCALAPPDATA%\arc-final\target` (11:14); the main checkout's `dist/bin/wavesrv.x64.exe` kept its 10:09 build. `surface-smoke` wrote 9 shots. |
+| 11, 15 | worked as designed | The verifier ran 11:15:23 to 11:20:50 and returned unverified with one reason: the lead card's merge-waiting row was not seen rendered, since no CDP scenario injects a merge-ready digest. The lead filed that as a chunk on effort `4d24005d`. |
+| 26 | fixed | The `run finished` wake opened with the action and the unverified reason. |
+| 17 | regressed | 11:23:58, after a wrap-up code commit, the lead asked "Complete the run now?" (41). |
+| 18 | fixed | Sealed evidence is 15 files, +822/−20: exactly `63ce6a2..0ad9e3d`. |
+| 36 | partly checked | 56 s after `complete`, `wsh runs show --json` read `land.state: pending` while the run read `done`; the card's "landing" label was not screenshotted. |
+| land | worked as designed | The lead's wrap-up commit `0ad9e3d` (code) came after the Final stage, so the land re-ran Check and a scoped Verify; it landed `2475b62` at 11:27:30, 56 s after `complete`. |
+| 21 | not exercised | No worker piped a test into `tail`, `head` or `grep`. |
+| Not exercised | — | A worker answered after a 20+ min ask; two final stages at once; a merge-train batch; the lead card's merge-waiting row on screen. |
+
+Also seen in this run:
+
+- **The goal was stale, and the lead caught it.** R15 named `waitDecision`, deleted with `dag wait` in
+  `2ce4161b4` (2026-09-14); R16 named `buildEngineOrchestratePrompt`, replaced in `117b42724` (2026-09-15). The
+  flaws tracker still described both as open. The lead checked the code before designing, and asked.
+- **The lead deferred an accepted gap to a code commit after the Final stage (42).** Its options after the
+  failed round 2 were "accept, fix after" or "cancel and replan"; `dag amend` on the not-yet-started Task 3 would
+  have put the fix through a worker and a reviewer. The post-Final commit then cost the land a full re-check.
+- **Run c84aa179's held land was a killed Check (47).** Its land had been held since about 02:50 with "Check
+  `task check:ts` failed … (exit 1073807364 …)". 1073807364 is `0x40010004`, a process terminated from outside,
+  not a type error. `wsh runs land c84aa179-…` at 11:32 re-ran the check on the moved base and landed
+  `0a7ea6d` in 3 min 5 s, with no conflicts.
+- **Landed branches stay (46).** After both lands, `git branch --merged main --list 'wave/*'` lists
+  `wave/2993e463…`, `wave/33880f82…`, `wave/5952d714…` and `wave/9ef34e06…`. `RemoveRunWorktree` deletes the
+  branch best-effort and drops the error (`worktree.go:75`), and `TestLandMergesTheBranchIntoACleanCheckout`
+  passes, so the failure is specific to the live checkout. Not traced.
+
+## Fixes: run 33880f82
+
+| # | Fix | Test |
+|---|---|---|
+| 41 | The run-finished rule reads "complete on your own … without asking whether to: it closes this tab, so any question comes before it", in place of "so ask before it", which the lead read as "ask whether to complete". | `TestOrchestrationRulesCompleteOnTheirOwn` |
+| 42 | After `planreview accept`, the lead carries each accepted finding into the pending tasks it affects with `dag amend`, so a worker fixes it and a reviewer checks it; one no pending task can take is an open issue. At run finished, wrap-up commits are docs (a stale line, a shipped plan), and a code defect found then is an open issue, since nothing reviews it and the land checks it again in full. | `TestOrchestrationRulesCompleteOnTheirOwn` |
+| 43 | `reverifyHold` skips Check when the base has not moved and every path changed since the verified commit is Markdown (`onlyMarkdown`); Verify still runs, scoped. A code path in the diff, a moved base, or a listing that fails runs Check as before. | `TestLandReverifiesCommitsAfterTheFinalStage` (four new cases) |
+| 44 | `mergeMessage` passes a several-task lane's joined titles through `landSubject`, as a land title is: a word cut at 72 runes. The body keeps each worker's subject and the `Arc-Task` lines. | `TestMergeSquashOfASeveralTaskLaneCutsItsSubjectLine` |

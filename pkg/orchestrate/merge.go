@@ -137,12 +137,13 @@ func foldIntoTree(ctx context.Context, tree, path string) (string, error) {
 // mergeMessage is the branch's commit messages, oldest first, each once and without agent attribution,
 // then the run trailer and one task trailer per landed task. The branch always starts at a commit on the
 // project branch, so HEAD..branch is exactly its workers' commits. A lane of several tasks takes its title
-// as the subject, since any one worker's subject names only that worker's task. A one-task lane falls back
-// to the title only when the messages are empty or unreadable.
+// as the subject, since any one worker's subject names only that worker's task, cut to a subject line as a land
+// title is: two task titles joined run past it. A one-task lane falls back to the title only when the messages
+// are empty or unreadable.
 func mergeMessage(ctx context.Context, projectPath, runID string, lane MergeLane) string {
 	var msgs []string
 	if len(lane.TaskIDs) > 1 {
-		msgs = []string{firstLine(lane.Title)}
+		msgs = []string{landSubject(firstLine(lane.Title))}
 	}
 	out, err := git(ctx, projectPath, "log", "--reverse", "--format=%B%x00", "HEAD..wave/"+runID)
 	if err != nil {
@@ -154,7 +155,7 @@ func mergeMessage(ctx context.Context, projectPath, runID string, lane MergeLane
 		}
 	}
 	if len(msgs) == 0 {
-		msgs = []string{firstLine(lane.Title)}
+		msgs = []string{landSubject(firstLine(lane.Title))}
 	}
 	trailers := []string{runTrailer + ": " + runID}
 	for _, id := range lane.TaskIDs {

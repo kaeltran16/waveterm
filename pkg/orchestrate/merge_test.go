@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestMergeSquash(t *testing.T) {
@@ -78,6 +79,32 @@ func TestMergeSquashOfASeveralTaskLaneNamesEveryTask(t *testing.T) {
 	}
 	if sha, err := MergeRunWorktree(context.Background(), dir, "run-1", lane, nil); err != nil || sha != landed {
 		t.Fatalf("retry: want %s, got %q (%v)", landed, sha, err)
+	}
+}
+
+// run 33880f82's t-2 + t-3 lane joined two task titles into a ~150-character subject; the body still names both
+func TestMergeSquashOfASeveralTaskLaneCutsItsSubjectLine(t *testing.T) {
+	dir := newGitRepo(t)
+	base := gitCmd(t, dir, "rev-parse", "HEAD")
+	wt, _ := CreateRunWorktree(context.Background(), dir, "run-1", base)
+	for i, msg := range []string{"feat(orchestrate): show how long a merge gate has sat", "feat(cockpit): show a waiting merge gate"} {
+		os.WriteFile(filepath.Join(wt, fmt.Sprintf("f%d.txt", i)), []byte("x\n"), 0o644)
+		gitCmd(t, wt, "add", ".")
+		gitCmd(t, wt, "commit", "-m", msg)
+	}
+	title := "F16 — the digest carries the merge gate's clock; `dag status` shows its age; F16 — the lead card shows a waiting merge gate and its age"
+	if _, err := MergeRunWorktree(context.Background(), dir, "run-1", MergeLane{Title: title, TaskIDs: []string{"t-2", "t-3"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	subject := gitCmd(t, dir, "log", "-1", "--format=%s")
+	if n := utf8.RuneCountInString(subject); n > maxLandTitleLen || !strings.HasPrefix(subject, "F16 — the digest carries") {
+		t.Fatalf("subject = %q (%d runes), want the lane title cut to %d", subject, n, maxLandTitleLen)
+	}
+	body := gitCmd(t, dir, "log", "-1", "--format=%b")
+	for _, want := range []string{"feat(cockpit): show a waiting merge gate", "Arc-Task: t-2", "Arc-Task: t-3"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body lost %q:\n%s", want, body)
+		}
 	}
 }
 

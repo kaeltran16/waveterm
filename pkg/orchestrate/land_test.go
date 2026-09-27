@@ -332,6 +332,43 @@ func TestLandReverifiesCommitsAfterTheFinalStage(t *testing.T) {
 			}
 		}
 	})
+	// run 33880f82's docs-only wrap-ups paid for a whole Check (tsc, go vet, a build) that Markdown cannot break
+	t.Run("a docs-only wrap-up skips Check and still runs Verify", func(t *testing.T) {
+		f, tree := landFixture(t)
+		commitOnBranch(t, tree, "docs/wrapup.md", "wrap-up\n")
+		out := filepath.ToSlash(t.TempDir())
+		f.setLandCommands(t, "exit 1", "echo verify > "+out+"/verify")
+		if land := f.landRun(t, false); land.State != LandState_Landed {
+			t.Fatalf("land = %+v, want landed without Check", land)
+		}
+		if _, err := os.Stat(filepath.Join(out, "verify")); err != nil {
+			t.Fatalf("Verify did not run: %v", err)
+		}
+	})
+	t.Run("a wrap-up with code beside its docs runs Check", func(t *testing.T) {
+		f, tree := landFixture(t)
+		commitOnBranch(t, tree, "wrapup.md", "wrap-up\n")
+		commitOnBranch(t, tree, "code.txt", "code\n")
+		f.setLandCommands(t, "exit 1", "true")
+		head := gitCmd(t, f.project, "rev-parse", "main")
+		f.assertHeld(t, f.landRun(t, false), head, "Check `exit 1` failed")
+	})
+	t.Run("a docs-only wrap-up on a moved base runs Check", func(t *testing.T) {
+		f, tree := landFixture(t)
+		commitOnBranch(t, tree, "wrapup.md", "wrap-up\n")
+		commitOnBase(t, f.project, "upstream.txt", "base\n")
+		f.setLandCommands(t, "exit 1", "true")
+		head := gitCmd(t, f.project, "rev-parse", "main")
+		f.assertHeld(t, f.landRun(t, false), head, "Check `exit 1` failed")
+	})
+	t.Run("a verified commit that cannot be listed runs Check", func(t *testing.T) {
+		f, tree := landFixture(t)
+		commitOnBranch(t, tree, "wrapup.md", "wrap-up\n")
+		f.setFinal(t, &waveobj.FinalStage{State: FinalState_Passed, Round: 1, Commit: strings.Repeat("0", 40)})
+		f.setLandCommands(t, "exit 1", "true")
+		head := gitCmd(t, f.project, "rev-parse", "main")
+		f.assertHeld(t, f.landRun(t, false), head, "Check `exit 1` failed")
+	})
 	t.Run("an unmoved branch runs nothing", func(t *testing.T) {
 		f, _ := landFixture(t)
 		if err := wstore.UpdateDag(f.ctx, f.dagID, func(cur *waveobj.TaskGroup) error {

@@ -208,8 +208,10 @@ func checkoutHold(ctx context.Context, run *waveobj.Run) string {
 
 // reverifyHold checks what the final stage never saw before the run lands: the lead's wrap-up commits after it,
 // and the base's commits since the run forked. It merges the base into the landing tree without committing, runs
-// Check, then Verify scoped to what differs from the verified commit, and puts the tree back. checkedBase is the
-// base commit the run was checked against, so the land notes only base commits that arrived after it.
+// Check, then Verify scoped to what differs from the verified commit, and puts the tree back. A docs-only wrap-up
+// on an unmoved base skips Check, which cannot scope itself and would re-run whole for Markdown; Verify still runs.
+// checkedBase is the base commit the run was checked against, so the land notes only base commits that arrived
+// after it.
 func reverifyHold(ctx context.Context, run *waveobj.Run, g *waveobj.TaskGroup) (reason, checkedBase, note string) {
 	if g == nil || (g.Check == "" && g.Verify == "") {
 		return "", "", ""
@@ -249,11 +251,12 @@ func reverifyHold(ctx context.Context, run *waveobj.Run, g *waveobj.TaskGroup) (
 		}()
 	}
 	env := changedFilesEnv(ctx, run.LandPath, verified, "", run.ID+"-land")
+	skipCheck := !baseMoved && verified != "" && onlyMarkdown(ctx, run.ProjectPath, verified, head)
 	for _, c := range []struct {
 		name, cmd string
 		env       []string
 	}{{"Check", g.Check, nil}, {"Verify", g.Verify, env}} {
-		if c.cmd == "" {
+		if c.cmd == "" || (c.name == "Check" && skipCheck) {
 			continue
 		}
 		if _, err := runPlanCommand(ctx, run.LandPath, c.cmd, c.env, VerifyTimeout, nil); err != nil {
@@ -266,6 +269,22 @@ func reverifyHold(ctx context.Context, run *waveobj.Run, g *waveobj.TaskGroup) (
 		}
 	}
 	return "", base, note
+}
+
+// onlyMarkdown reports whether every path that differs between from and to is a Markdown file. A listing that
+// fails is not, so the caller checks in full.
+func onlyMarkdown(ctx context.Context, dir, from, to string) bool {
+	out, err := git(ctx, dir, "diff", "--name-only", "--no-renames", from, to)
+	if err != nil {
+		log.Printf("listing the paths changed between %s and %s in %s: %v", from, to, dir, err)
+		return false
+	}
+	for _, p := range strings.Split(out, "\n") {
+		if p = strings.TrimSpace(p); p != "" && !strings.EqualFold(filepath.Ext(p), ".md") {
+			return false
+		}
+	}
+	return true
 }
 
 // clearUntrackedCopies removes an untracked file in the checkout that is the same as one the branch adds: the

@@ -110,8 +110,18 @@ func TestOrchestrationRulesCompleteOnTheirOwn(t *testing.T) {
 			t.Fatalf("run-finished rule missing %q:\n%s", want, finished)
 		}
 	}
-	if strings.Contains(finished, "only when the human says so") {
-		t.Fatalf("the lead must not wait for the human's word to complete:\n%s", finished)
+	// run 33880f82's lead read "so ask before it" as "ask whether to complete", and asked
+	for _, gone := range []string{"only when the human says so", "so ask before it"} {
+		if strings.Contains(finished, gone) {
+			t.Fatalf("the lead must not wait for the human's word to complete (%q):\n%s", gone, finished)
+		}
+	}
+	if !strings.Contains(finished, "without asking whether to") {
+		t.Fatalf("the run-finished rule must say not to ask whether to complete:\n%s", finished)
+	}
+	// a code fix committed at wrap-up skips review and costs the land a full Check (run 33880f82)
+	if !strings.Contains(finished, "A code defect found now is not a wrap-up commit") {
+		t.Fatalf("the run-finished rule must keep code out of the wrap-up:\n%s", finished)
 	}
 	if strings.Index(finished, AskTool("claude")) > strings.Index(finished, "wsh jarvis complete") {
 		t.Fatalf("a question must come before complete, which closes the tab:\n%s", finished)
@@ -120,6 +130,8 @@ func TestOrchestrationRulesCompleteOnTheirOwn(t *testing.T) {
 		"wsh jarvis dag submit --round --plan <fix plan>",
 		"at most 2 rounds",
 		`wsh jarvis dag planreview accept "<the human's reason>"`,
+		// an accepted finding goes to a pending task, not to a post-final wrap-up commit (run 33880f82)
+		"then carry each accepted finding into the pending tasks it affects with `wsh jarvis dag amend <task>",
 		"end each commit you make for this run with the line `Arc-Run: r1`",
 	} {
 		if !strings.Contains(strings.ToLower(r), strings.ToLower(want)) {
