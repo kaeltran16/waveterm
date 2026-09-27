@@ -116,6 +116,29 @@ func TestFailureDetailKeepsTheReasonPrefix(t *testing.T) {
 	}
 }
 
+// run c84aa179's land Check was terminated from outside and held as "exit 1073807364", which reads as a failure
+func TestKilledFromOutsideNamesAForcedExit(t *testing.T) {
+	for _, c := range []struct {
+		code  int
+		state string
+		want  string
+	}{
+		{1073807364, "exit status 1073807364", "exit 0x40010004"},
+		{3221225786, "exit status 3221225786", "exit 0xc000013a"},
+		{-1, "signal: killed", "signal: killed"},
+		{1, "exit status 1", ""},
+		{2, "exit status 2", ""},
+	} {
+		if got := killedFromOutside(c.code, c.state); got != c.want {
+			t.Errorf("killedFromOutside(%d, %q) = %q, want %q", c.code, c.state, got, c.want)
+		}
+	}
+	got := failureDetail(&planCommandError{exitCode: 1073807364, killed: "exit 0x40010004", output: "tsc"})
+	if !strings.HasPrefix(got, "killed from outside (exit 0x40010004): ") {
+		t.Fatalf("a killed command's detail must say so, got %q", got)
+	}
+}
+
 func TestTailBufferPublishesOnlyAChangedTailOncePerInterval(t *testing.T) {
 	var published []string
 	b := &tailBuffer{

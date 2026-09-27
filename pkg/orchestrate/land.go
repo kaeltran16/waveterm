@@ -265,6 +265,9 @@ func reverifyHold(ctx context.Context, run *waveobj.Run, g *waveobj.TaskGroup) (
 				note = sharedCheckFailure(g, "the run merged with "+run.BaseBranch, failureDetail(err))
 				continue
 			}
+			if planCommandKilled(err) {
+				return fmt.Sprintf("the run changed after the final stage verified it, and %s `%s` did not finish on the run merged with %s (%s); `wsh runs land %s` runs it again", c.name, c.cmd, run.BaseBranch, failureDetail(err), run.ID), "", ""
+			}
 			return fmt.Sprintf("the run changed after the final stage verified it, and %s `%s` failed on the run merged with %s (%s)", c.name, c.cmd, run.BaseBranch, failureDetail(err)), "", ""
 		}
 	}

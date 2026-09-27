@@ -41,15 +41,43 @@ const (
 type planCommandError struct {
 	exitCode int           // -1 when there is no exit code to report
 	timeout  time.Duration // set when the command was killed at its timeout
+	killed   string        // the forced exit, set when something outside ended the command
 	output   string
 }
 
 // reason is the short cause a wake line carries.
 func (e *planCommandError) reason() string {
-	if e.timeout > 0 {
+	switch {
+	case e.timeout > 0:
 		return "timed out after " + shortDuration(e.timeout)
+	case e.killed != "":
+		return "killed from outside (" + e.killed + ")"
 	}
 	return fmt.Sprintf("exit %d", e.exitCode)
+}
+
+// windowsKillStatuses are exit statuses Windows gives a process something else ended, never one it chose.
+var windowsKillStatuses = map[uint32]bool{
+	0x40010004: true, // DBG_TERMINATE_PROCESS
+	0xC000013A: true, // STATUS_CONTROL_C_EXIT
+}
+
+// killedFromOutside names an exit forced on a command, from its exit code and process state text, or "" for an
+// exit the command made: a POSIX signal reports -1, a Windows kill one of windowsKillStatuses.
+func killedFromOutside(code int, state string) string {
+	switch {
+	case code == -1:
+		return state
+	case windowsKillStatuses[uint32(code)]:
+		return fmt.Sprintf("exit %#x", uint32(code))
+	}
+	return ""
+}
+
+// planCommandKilled reports whether err is a plan command something outside ended.
+func planCommandKilled(err error) bool {
+	var pe *planCommandError
+	return errors.As(err, &pe) && pe.killed != ""
 }
 
 func (e *planCommandError) Error() string {
@@ -162,6 +190,7 @@ func execPlanCommandEnv(ctx context.Context, dir, command string, env []string, 
 		pe.timeout = timeout
 	case errors.As(err, &exitErr):
 		pe.exitCode = exitErr.ExitCode()
+		pe.killed = killedFromOutside(pe.exitCode, exitErr.ProcessState.String())
 	case pe.output == "":
 		pe.output = err.Error()
 	}

@@ -58,7 +58,7 @@ have said so dropped it. The lead caught it by its own diligence, and a human ha
 | 44 | A lane of several tasks lands under a ~150-character subject | low | fixed: cut like a land title |
 | 45 | Each `dag submit` snapshots the spec and plan: a resubmit adds a second identical commit, its subject ending "Implementation Plan" | low | open |
 | 46 | Landed runs' `wave/<runId>` branches are not deleted: 4 merged ones remain | low | fixed |
-| 47 | A Check killed from outside holds the land as a failure, with a raw exit code as the reason (c84aa179: `exit 1073807364`) | low | open |
+| 47 | A Check killed from outside holds the land as a failure, with a raw exit code as the reason (c84aa179: `exit 1073807364`) | low | fixed |
 
 **Run under observation:** `b2d7fab1-00de-4fbb-b04d-9754d6248b45`, an orchestrator run with a goal, not a
 plan file. Lead and workers are `claude` / `claude-opus-5-5`, base `6dd1600`, started 09:33 in prod Arc
@@ -1459,3 +1459,4 @@ Also seen in this run:
 | 43 | `reverifyHold` skips Check when the base has not moved and every path changed since the verified commit is Markdown (`onlyMarkdown`); Verify still runs, scoped. A code path in the diff, a moved base, or a listing that fails runs Check as before. | `TestLandReverifiesCommitsAfterTheFinalStage` (four new cases) |
 | 44 | `mergeMessage` passes a several-task lane's joined titles through `landSubject`, as a land title is: a word cut at 72 runes. The body keeps each worker's subject and the `Arc-Task` lines. | `TestMergeSquashOfASeveralTaskLaneCutsItsSubjectLine` |
 | 46 | `RemoveRunWorktree` deletes the branch even when the directory's delete fails: git has unregistered the tree by then, so the branch is free, and git still refuses a branch a registered tree has checked out. A branch delete that fails after a clean removal is logged instead of dropped. The empty directory stays until something removes it by hand. | `TestRemoveRunWorktreeDeletesTheBranchOfAHeldDir` (Windows) |
+| 47 | A plan command whose exit status shows something outside ended it (a POSIX signal, or Windows `0x40010004` or `0xC000013A`) reports `killed from outside (exit 0x40010004)` instead of a raw exit code, wherever its reason shows. A land whose Check or Verify was killed holds with "did not finish … `wsh runs land <id>` runs it again" instead of "failed". It does not retry by itself: what killed it may kill it again. | `TestKilledFromOutsideNamesAForcedExit`, `TestLandReverifiesCommitsAfterTheFinalStage` (a Check killed from outside) |

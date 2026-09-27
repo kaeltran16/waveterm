@@ -4,6 +4,7 @@
 package orchestrate
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -368,6 +370,28 @@ func TestLandReverifiesCommitsAfterTheFinalStage(t *testing.T) {
 		f.setLandCommands(t, "exit 1", "true")
 		head := gitCmd(t, f.project, "rev-parse", "main")
 		f.assertHeld(t, f.landRun(t, false), head, "Check `exit 1` failed")
+	})
+	// run c84aa179's Check was killed from outside mid-land, and the hold read as a failure of the run's work
+	t.Run("a Check killed from outside holds with a retry", func(t *testing.T) {
+		f, tree := landFixture(t)
+		commitOnBranch(t, tree, "code.txt", "code\n")
+		f.setLandCommands(t, "task check:ts", "true")
+		orig := runPlanCommand
+		runPlanCommand = func(ctx context.Context, dir, command string, env []string, timeout time.Duration, progress planProgress) (string, error) {
+			if command == "task check:ts" {
+				return "", &planCommandError{exitCode: 1073807364, killed: "exit 0x40010004"}
+			}
+			return orig(ctx, dir, command, env, timeout, progress)
+		}
+		t.Cleanup(func() { runPlanCommand = orig })
+		head := gitCmd(t, f.project, "rev-parse", "main")
+		land := f.landRun(t, false)
+		f.assertHeld(t, land, head, "Check `task check:ts` did not finish")
+		for _, want := range []string{"killed from outside (exit 0x40010004)", "`wsh runs land " + f.ownerID + "` runs it again"} {
+			if !strings.Contains(land.Reason, want) {
+				t.Fatalf("held reason %q, want it to contain %q", land.Reason, want)
+			}
+		}
 	})
 	t.Run("an unmoved branch runs nothing", func(t *testing.T) {
 		f, _ := landFixture(t)
