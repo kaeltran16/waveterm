@@ -16,6 +16,7 @@ import {
     rowKeyActions,
     runCost,
     runElapsed,
+    runningCount,
     stopSelector,
     waitTag,
 } from "./leadcardmodel";
@@ -344,6 +345,24 @@ describe("mergeWaitTag", () => {
         expect(mergeWaitTag(undefined, NOW)).toBe("merge waiting");
         expect(mergeWaitTag(0, NOW)).toBe("merge waiting");
         expect(mergeWaitTag(NOW + 5_000, NOW)).toBe("merge waiting");
+    });
+
+    // formatElapsed floors to whole seconds, so a gate opened this second would read "0s"
+    it("shows no age under a second", () => {
+        expect(mergeWaitTag(NOW - 500, NOW)).toBe("merge waiting");
+        expect(mergeWaitTag(NOW - 1_000, NOW)).toBe("merge waiting 1s");
+    });
+});
+
+describe("runningCount", () => {
+    // the cancel confirm stops running tasks; a merge gate's worker has finished and the engine lands it
+    it("leaves the merge gate out of the running tasks", () => {
+        const run = runInfo([task("t1", "done"), task("t2", "running")], {
+            tasks: [{ taskid: "t1", mergestate: "ready", mergegatets: NOW - 60_000 } as DagTaskDigest],
+        });
+        const vm = buildLeadCard(input(run));
+        expect(vm.rows).toHaveLength(2);
+        expect(runningCount(vm.rows)).toBe(1);
     });
 });
 

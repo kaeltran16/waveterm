@@ -36,6 +36,7 @@ import {
     foldOpen,
     REVIEW_ACTIONS,
     reviewFindings,
+    runningCount,
     type LeadCardVM,
     type RowAction,
     type RowTone,
@@ -548,8 +549,8 @@ export function LeadCard(p: LeadCardProps) {
                 {panel === "cancel" ? (
                     <div className="flex w-full flex-wrap items-center gap-2 rounded-[7px] bg-error/[0.08] px-2.5 py-2">
                         <span className="min-w-[200px] flex-1 text-[11.5px] leading-[1.45] text-primary">
-                            Stop {vm.rows.length} running tasks and cancel this run? Landed tasks, transcripts and
-                            artifacts are kept.
+                            Stop {runningCount(vm.rows)} running tasks and cancel this run? Landed tasks, transcripts
+                            and artifacts are kept.
                         </span>
                         <button type="button" onClick={() => setPanel(null)} className={BTN}>
                             Keep running

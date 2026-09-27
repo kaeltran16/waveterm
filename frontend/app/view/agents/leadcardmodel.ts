@@ -257,10 +257,17 @@ export function waitTag(deps: string[], slot: boolean): string {
 }
 
 /** Pure: how long a finished lane has waited to land. A gate with no clock (its done event was pruned), or one
- *  stamped ahead of this clock, shows no age rather than one from the epoch or a negative one. */
+ *  stamped ahead of this clock, shows no age rather than one from the epoch or a negative one; nor does one under a
+ *  second old, which formatElapsed would floor to "0s". */
 export function mergeWaitTag(mergeGateTs: number | undefined, now: number): string {
     const ms = mergeGateTs ? now - mergeGateTs : 0;
-    return ms > 0 ? `merge waiting ${formatElapsed(ms)}` : "merge waiting";
+    return ms >= 1000 ? `merge waiting ${formatElapsed(ms)}` : "merge waiting";
+}
+
+/** Pure: how many live rows a cancel would stop. The merge gate is the one live row toned wait; its worker has
+ *  finished and the engine lands it. */
+export function runningCount(rows: Pick<TaskRowVM, "tone">[]): number {
+    return rows.filter((r) => r.tone !== "wait").length;
 }
 
 /** Pure: a run's lead card. Rows keep plan order; live rows list first, then what waits, then what is done. */
