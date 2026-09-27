@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -69,11 +70,16 @@ func RemoveRunWorktree(ctx context.Context, projectPath, runID string) error {
 	if _, err := os.Stat(wt); err != nil {
 		return nil // nothing to remove
 	}
-	if err := removeWorktreeDir(ctx, projectPath, wt); err != nil {
-		return err
+	err := removeWorktreeDir(ctx, projectPath, wt)
+	// a process holding the directory fails its delete after git has unregistered the tree, which frees the
+	// branch; git refuses to delete a branch a still-registered tree has checked out
+	branch := "wave/" + runID
+	if _, serr := git(ctx, projectPath, "show-ref", "--verify", "-q", "refs/heads/"+branch); serr == nil {
+		if _, berr := git(ctx, projectPath, "branch", "-D", branch); berr != nil && err == nil {
+			log.Printf("removed worktree %s; deleting its branch %s: %v", wt, branch, berr)
+		}
 	}
-	git(ctx, projectPath, "branch", "-D", "wave/"+runID) // best-effort
-	return nil
+	return err
 }
 
 // removeWorktreeDir unregisters and deletes a linked worktree's directory and keeps its branch.

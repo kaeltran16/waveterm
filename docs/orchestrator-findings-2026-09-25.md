@@ -57,7 +57,7 @@ have said so dropped it. The lead caught it by its own diligence, and a human ha
 | 43 | The land re-runs the whole Check for a docs-only wrap-up | low | fixed: skipped on an unmoved base; Verify still runs |
 | 44 | A lane of several tasks lands under a ~150-character subject | low | fixed: cut like a land title |
 | 45 | Each `dag submit` snapshots the spec and plan: a resubmit adds a second identical commit, its subject ending "Implementation Plan" | low | open |
-| 46 | Landed runs' `wave/<runId>` branches are not deleted: 4 merged ones remain | low | open, cause not traced |
+| 46 | Landed runs' `wave/<runId>` branches are not deleted: 4 merged ones remain | low | fixed |
 | 47 | A Check killed from outside holds the land as a failure, with a raw exit code as the reason (c84aa179: `exit 1073807364`) | low | open |
 
 **Run under observation:** `b2d7fab1-00de-4fbb-b04d-9754d6248b45`, an orchestrator run with a goal, not a
@@ -1443,7 +1443,12 @@ Also seen in this run:
 - **Landed branches stay (46).** After both lands, `git branch --merged main --list 'wave/*'` lists
   `wave/2993e463…`, `wave/33880f82…`, `wave/5952d714…` and `wave/9ef34e06…`. `RemoveRunWorktree` deletes the
   branch best-effort and drops the error (`worktree.go:75`), and `TestLandMergesTheBranchIntoACleanCheckout`
-  passes, so the failure is specific to the live checkout. Not traced.
+  passes, so the failure is specific to the live checkout. **Traced 2026-09-27:** `waveapp.log` has, for all
+  four, `run … landed; removing its landing tree: … unlinkat …: The process cannot access the file because it is
+  being used by another process`. The land runs after the lead's `complete`, while the lead's process still has
+  the landing tree as its working directory. Git had already unregistered the tree (none of the four is in
+  `git worktree list`) and emptied it, but `RemoveRunWorktree` returned on the directory's error before the
+  branch delete. Four empty directories stay under `.waveterm/worktrees/` for the same reason.
 
 ## Fixes: run 33880f82
 
@@ -1453,3 +1458,4 @@ Also seen in this run:
 | 42 | After `planreview accept`, the lead carries each accepted finding into the pending tasks it affects with `dag amend`, so a worker fixes it and a reviewer checks it; one no pending task can take is an open issue. At run finished, wrap-up commits are docs (a stale line, a shipped plan), and a code defect found then is an open issue, since nothing reviews it and the land checks it again in full. | `TestOrchestrationRulesCompleteOnTheirOwn` |
 | 43 | `reverifyHold` skips Check when the base has not moved and every path changed since the verified commit is Markdown (`onlyMarkdown`); Verify still runs, scoped. A code path in the diff, a moved base, or a listing that fails runs Check as before. | `TestLandReverifiesCommitsAfterTheFinalStage` (four new cases) |
 | 44 | `mergeMessage` passes a several-task lane's joined titles through `landSubject`, as a land title is: a word cut at 72 runes. The body keeps each worker's subject and the `Arc-Task` lines. | `TestMergeSquashOfASeveralTaskLaneCutsItsSubjectLine` |
+| 46 | `RemoveRunWorktree` deletes the branch even when the directory's delete fails: git has unregistered the tree by then, so the branch is free, and git still refuses a branch a registered tree has checked out. A branch delete that fails after a clean removal is logged instead of dropped. The empty directory stays until something removes it by hand. | `TestRemoveRunWorktreeDeletesTheBranchOfAHeldDir` (Windows) |

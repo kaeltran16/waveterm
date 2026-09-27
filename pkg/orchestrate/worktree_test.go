@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -281,6 +282,33 @@ func TestRemoveWorktreeDirKeepsTheBranch(t *testing.T) {
 // Git drops a worktree's registration before it deletes the tree, so a removal that fails part-way
 // leaves an unregistered directory on disk. Cleanup used to read unregistered as removed and report
 // task-cleanup-completed over a worktree that was still there.
+// A landed run's lead still has its landing tree open when the land removes it, so the directory's delete fails
+// after git has already unregistered the tree. The branch is free by then and must go with it: runs 2993e463,
+// 33880f82, 5952d714 and 9ef34e06 each left their wave/ branch behind this way.
+func TestRemoveRunWorktreeDeletesTheBranchOfAHeldDir(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("only Windows refuses to delete a directory holding an open file")
+	}
+	dir := newGitRepo(t)
+	base := gitCmd(t, dir, "rev-parse", "HEAD")
+	wt, err := CreateRunWorktree(context.Background(), dir, "run-1", base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	held, err := os.Open(filepath.Join(wt, "base.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+
+	if err := RemoveRunWorktree(context.Background(), dir, "run-1"); err == nil {
+		t.Fatal("removing a held worktree dir must report the directory it could not delete")
+	}
+	if out := gitCmd(t, dir, "branch", "--list", "wave/run-1"); out != "" {
+		t.Fatalf("the unregistered tree's branch must be deleted, still have %q", out)
+	}
+}
+
 func TestRemoveRunWorktreeDeletesAnUnregisteredDir(t *testing.T) {
 	dir := newGitRepo(t)
 	base := gitCmd(t, dir, "rev-parse", "HEAD")
