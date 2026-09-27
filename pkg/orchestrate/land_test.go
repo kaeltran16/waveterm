@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -142,6 +143,37 @@ func TestLandMergesTheBranchIntoACleanCheckout(t *testing.T) {
 	if again := f.landRun(t, false); !reflect.DeepEqual(again, land) {
 		t.Fatalf("second land = %+v, want the first %+v", again, land)
 	}
+}
+
+// the land runs while the lead is still finishing in its landing tree, so the first removal fails; four runs left
+// an empty directory under .waveterm/worktrees this way
+func TestLandRemovesALandingTreeItsLeadHeldOnceItLetsGo(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("only Windows refuses to delete a directory holding an open file")
+	}
+	every, attempts := landTreeRetryEvery, landTreeRetryAttempts
+	landTreeRetryEvery, landTreeRetryAttempts = 20*time.Millisecond, 500
+	t.Cleanup(func() { landTreeRetryEvery, landTreeRetryAttempts = every, attempts })
+	f, tree := landFixture(t)
+	held, err := os.Open(filepath.Join(tree, "feature.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if land := f.landRun(t, false); land.State != LandState_Landed {
+		held.Close()
+		t.Fatalf("land = %+v, want landed", land)
+	}
+	if _, err := os.Stat(tree); err != nil {
+		held.Close()
+		t.Fatalf("the held tree must survive the land's own removal: %v", err)
+	}
+	held.Close()
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		if _, err := os.Stat(tree); os.IsNotExist(err) {
+			return
+		}
+	}
+	t.Fatalf("the landing tree %s is still there after its lead let go", tree)
 }
 
 func TestLandTitleNamesTheChangeOnOneLine(t *testing.T) {

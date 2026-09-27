@@ -85,8 +85,10 @@ func TestSnapshotDocsWithUnchangedDocsCommitsNothing(t *testing.T) {
 	}
 }
 
-// a resubmit after a failed plan review carries revised docs, including a spec edited outside the tree
-func TestSnapshotDocsCommitsRevisedDocsAgain(t *testing.T) {
+// a resubmit after a failed plan review carries revised docs, including a spec edited outside the tree. No lane
+// has been cut from the first snapshot yet, so the revision replaces it: run 33880f82 left two commits with the
+// same subject on main.
+func TestSnapshotDocsRevisesTheSnapshotNoLaneHasCut(t *testing.T) {
 	tree, spec, plan := snapshotFixture(t)
 	if _, err := SnapshotDocs(context.Background(), tree, "run-1", "coupons", spec, plan); err != nil {
 		t.Fatal(err)
@@ -97,14 +99,61 @@ func TestSnapshotDocsCommitsRevisedDocsAgain(t *testing.T) {
 	if _, err := SnapshotDocs(context.Background(), tree, "run-1", "coupons", spec, plan); err != nil {
 		t.Fatal(err)
 	}
-	if after := commitCount(t, tree); after == before {
-		t.Fatal("revised docs made no commit")
+	if after := commitCount(t, tree); after != before {
+		t.Fatalf("commits went from %s to %s, want the revision to replace the first snapshot", before, after)
+	}
+	if msg := gitCmd(t, tree, "log", "-1", "--format=%B"); msg != "docs: spec and plan for coupons\n\nArc-Run: run-1" {
+		t.Fatalf("message = %q", msg)
 	}
 	if got := gitCmd(t, tree, "show", "HEAD:docs/specs/s.md"); got != "# spec, revised" {
 		t.Fatalf("the branch holds spec %q", got)
 	}
 	if got := gitCmd(t, tree, "show", "HEAD:docs/plans/p.md"); got != "# plan, revised" {
 		t.Fatalf("the branch holds plan %q", got)
+	}
+}
+
+// a lane cut from the snapshot has read it, so a later one (a fix round's plan) is a commit of its own
+func TestSnapshotDocsKeepsASnapshotALaneWasCutFrom(t *testing.T) {
+	tree, spec, plan := snapshotFixture(t)
+	if _, err := SnapshotDocs(context.Background(), tree, "run-1", "coupons", spec, plan); err != nil {
+		t.Fatal(err)
+	}
+	first := gitCmd(t, tree, "rev-parse", "HEAD")
+	gitCmd(t, tree, "branch", "wave/run-1-t-1", first)
+	writeDoc(t, plan, "# plan, fix round\n")
+	if _, err := SnapshotDocs(context.Background(), tree, "run-1", "coupons, fix round 1", plan); err != nil {
+		t.Fatal(err)
+	}
+	if parent := gitCmd(t, tree, "rev-parse", "HEAD~1"); parent != first {
+		t.Fatalf("the new snapshot's parent is %s, want the first snapshot %s kept", parent, first)
+	}
+}
+
+// another run's snapshot, or the lead's own commit, is never rewritten
+func TestSnapshotDocsKeepsAHeadThatIsNotThisRunsSnapshot(t *testing.T) {
+	tree, spec, plan := snapshotFixture(t)
+	if _, err := SnapshotDocs(context.Background(), tree, "run-2", "coupons", spec, plan); err != nil {
+		t.Fatal(err)
+	}
+	first := gitCmd(t, tree, "rev-parse", "HEAD")
+	writeDoc(t, plan, "# plan, revised\n")
+	if _, err := SnapshotDocs(context.Background(), tree, "run-1", "coupons", spec, plan); err != nil {
+		t.Fatal(err)
+	}
+	if parent := gitCmd(t, tree, "rev-parse", "HEAD~1"); parent != first {
+		t.Fatalf("the new snapshot's parent is %s, want %s kept", parent, first)
+	}
+}
+
+// the plan's H1 is the dag title, and the writing-plans template ends it in "Implementation Plan"
+func TestSnapshotDocsSubjectDropsThePlanTemplateSuffix(t *testing.T) {
+	tree, spec, plan := snapshotFixture(t)
+	if _, err := SnapshotDocs(context.Background(), tree, "run-1", "Coupon codes Implementation Plan", spec, plan); err != nil {
+		t.Fatal(err)
+	}
+	if got := gitCmd(t, tree, "log", "-1", "--format=%s"); got != "docs: spec and plan for Coupon codes" {
+		t.Fatalf("subject = %q", got)
 	}
 }
 

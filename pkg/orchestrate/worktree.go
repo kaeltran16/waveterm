@@ -114,8 +114,13 @@ func isWorktreeRegistered(ctx context.Context, projectPath, wt string) bool {
 	if err != nil {
 		return true // can't tell — assume registered so caller surfaces the error
 	}
-	// porcelain lists "worktree <path>" per entry
-	return strings.Contains(out, wt)
+	// porcelain lists "worktree <path>" per entry, with forward slashes on Windows
+	for _, line := range strings.Split(out, "\n") {
+		if p, ok := strings.CutPrefix(strings.TrimRight(line, "\r"), "worktree "); ok && strings.EqualFold(filepath.Clean(p), filepath.Clean(wt)) {
+			return true
+		}
+	}
+	return false
 }
 
 // unlinkReparsePoints removes every symlink and junction inside wt without following it. A junction

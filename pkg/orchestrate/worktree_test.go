@@ -282,6 +282,25 @@ func TestRemoveWorktreeDirKeepsTheBranch(t *testing.T) {
 // Git drops a worktree's registration before it deletes the tree, so a removal that fails part-way
 // leaves an unregistered directory on disk. Cleanup used to read unregistered as removed and report
 // task-cleanup-completed over a worktree that was still there.
+// git prints a worktree's path with forward slashes on Windows, where the engine's paths use backslashes
+func TestIsWorktreeRegisteredFindsARegisteredTree(t *testing.T) {
+	dir := newGitRepo(t)
+	wt, err := CreateRunWorktree(context.Background(), dir, "run-1", gitCmd(t, dir, "rev-parse", "HEAD"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isWorktreeRegistered(context.Background(), dir, wt) {
+		t.Fatalf("%s is registered", wt)
+	}
+	if isWorktreeRegistered(context.Background(), dir, wt+"-other") {
+		t.Fatalf("%s-other is not registered", wt)
+	}
+	gitCmd(t, dir, "worktree", "remove", "--force", wt)
+	if isWorktreeRegistered(context.Background(), dir, wt) {
+		t.Fatalf("%s was removed", wt)
+	}
+}
+
 // A landed run's lead still has its landing tree open when the land removes it, so the directory's delete fails
 // after git has already unregistered the tree. The branch is free by then and must go with it: runs 2993e463,
 // 33880f82, 5952d714 and 9ef34e06 each left their wave/ branch behind this way.

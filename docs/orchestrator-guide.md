@@ -195,9 +195,11 @@ over at `dag submit`. A failed review sends the plan back to a lead that still h
 it knows it is the lead of a run when it next wakes.
 
 On a run landing on its own branch, `dag submit` commits the spec and plan to `wave/<runId>` before any lane is
-cut (subject `docs: spec and plan for <title>`, trailer `Arc-Run: <runId>`). Every lane branches from that
+cut (subject `docs: spec and plan for <title>`, without the plan template's " Implementation Plan", trailer
+`Arc-Run: <runId>`). Every lane branches from that
 commit, so each worker and reviewer reads that snapshot in its own tree, never the lead's live copy, and the docs
-land with the run. A resubmit with revised docs commits them again; identical content commits nothing. On a
+land with the run. A resubmit with revised docs amends that commit while no lane has been cut from it (after a
+failed plan review), and commits anew once one has (a fix round's plan); identical content commits nothing. On a
 checkout-landed run the docs stay uncommitted until the first lane merges, and the engine folds both into that
 lane's squash commit.
 

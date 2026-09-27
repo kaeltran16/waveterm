@@ -264,16 +264,6 @@ Orchestrator findings fixes, left out of scope (2026-09-25, spec
   completing. The wrap-up rule (complete on your own) and the `run-unverified` attention item are meant to
   cover it. Revive on a run whose lead sat idle at `run finished` without completing.
 
-Open from run 33880f82 (`docs/orchestrator-findings-2026-09-25.md`, findings 45 and 46):
-
-- **Duplicate spec-and-plan snapshots (45):** each `dag submit` commits the spec and plan, so a resubmit after a
-  failed plan review adds a second commit with the same subject, which ends in the plan template's
-  "Implementation Plan".
-- **A landed run leaves an empty landing tree directory (46, branch half fixed 2026-09-27):** the land runs while
-  the lead still has the tree as its working directory, so the directory's delete fails after git has emptied and
-  unregistered it. The branch is now deleted anyway; the empty directory under `.waveterm/worktrees/` stays.
-  Revive if the leftovers get in the way: removing the tree again when the lead's tab closes would take them.
-
 Reliability investigations (`docs/superpowers/briefs/2026-08-25-reliability-improvement-scan.md`):
 
 - **Consult cancellation cleanup (R5): resolved 2026-08-25** — reproduced on Windows (a descendant

@@ -146,9 +146,30 @@ func landRun(ctx context.Context, run *waveobj.Run, g *waveobj.TaskGroup, force 
 	}
 	// the evidence keeps the branch's tip, so the tree and the branch are no longer needed
 	if err := RemoveRunWorktree(ctx, project, run.ID); err != nil {
-		log.Printf("run %s landed; removing its landing tree: %v", run.ID, err)
+		log.Printf("run %s landed; removing its landing tree: %v; retrying until its lead lets go of it", run.ID, err)
+		go retryLandTreeRemoval(project, run.ID)
 	}
 	return land
+}
+
+// landTreeRetryEvery and landTreeRetryAttempts pace retryLandTreeRemoval over about five minutes; vars so a test
+// can shorten them.
+var (
+	landTreeRetryEvery    = 10 * time.Second
+	landTreeRetryAttempts = 30
+)
+
+// retryLandTreeRemoval removes a landed run's tree once its lead lets go of it. The land runs as the lead
+// completes, while the tree is still its working directory, and on Windows only the lead's exit frees it.
+func retryLandTreeRemoval(project, runID string) {
+	var err error
+	for range landTreeRetryAttempts {
+		time.Sleep(landTreeRetryEvery)
+		if err = RemoveRunWorktree(context.Background(), project, runID); err == nil {
+			return
+		}
+	}
+	log.Printf("run %s: gave up removing its landing tree after %d attempts: %v", runID, landTreeRetryAttempts, err)
 }
 
 func runDagID(run *waveobj.Run, g *waveobj.TaskGroup) string {
@@ -358,9 +379,14 @@ func mergeRefusal(ctx context.Context, project, base string, merr error) string 
 	return "git refused the merge: " + merr.Error()
 }
 
-// planTitleSuffix ends the H1 of a plan written from the writing-plans template; a merge subject names the
+// planTitleSuffix ends the H1 of a plan written from the writing-plans template; a commit subject names the
 // change, not the plan.
 const planTitleSuffix = " Implementation Plan"
+
+// changeTitle is a dag title as a commit subject names it, without planTitleSuffix.
+func changeTitle(title string) string {
+	return strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(title), planTitleSuffix))
+}
 
 // maxLandTitleLen keeps the merge subject to one line of `git log --oneline`: a one-line goal can run to
 // a thousand characters.
@@ -369,7 +395,7 @@ const maxLandTitleLen = 72
 // landTitle is the merge commit's subject: the plan's title, else the goal's first line, each cut by landSubject.
 func landTitle(run *waveobj.Run, g *waveobj.TaskGroup) string {
 	if g != nil {
-		if title := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(g.Title), planTitleSuffix)); title != "" {
+		if title := changeTitle(g.Title); title != "" {
 			return landSubject(title)
 		}
 	}

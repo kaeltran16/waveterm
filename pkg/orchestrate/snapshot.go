@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
@@ -48,12 +50,31 @@ func SnapshotDocs(ctx context.Context, landTree, runID, title string, paths ...s
 	if _, err := git(ctx, landTree, append([]string{"add", "--"}, staged...)...); err != nil {
 		return nil, err
 	}
+	args := []string{"commit", "-m", snapshotSubjectPrefix + changeTitle(title), "-m", runTrailer + ": " + runID}
+	// a resubmit after a failed plan review revises docs no lane has read yet, so it replaces their snapshot
+	// rather than adding a second commit with the same subject
+	if revisableSnapshot(ctx, landTree, runID) {
+		args = append(args, "--amend")
+	}
 	// the pathspec keeps anything else the lead staged in the tree out of the commit
-	args := []string{"commit", "-m", "docs: spec and plan for " + title, "-m", runTrailer + ": " + runID, "--"}
+	args = append(args, "--")
 	if _, err := git(ctx, landTree, append(args, staged...)...); err != nil {
 		return nil, err
 	}
 	return rels, nil
+}
+
+const snapshotSubjectPrefix = "docs: spec and plan for "
+
+// revisableSnapshot reports whether the tree's HEAD is runID's own earlier docs snapshot and only the run's
+// landing branch holds it. A lane cut from it is a branch that holds it too, and has read those docs.
+func revisableSnapshot(ctx context.Context, tree, runID string) bool {
+	msg, err := git(ctx, tree, "log", "-1", "--format=%B", "HEAD")
+	if err != nil || !strings.HasPrefix(msg, snapshotSubjectPrefix) || !slices.Contains(strings.Split(msg, "\n"), runTrailer+": "+runID) {
+		return false
+	}
+	refs, err := git(ctx, tree, "for-each-ref", "--contains", "HEAD", "--format=%(refname)", "refs/heads")
+	return err == nil && strings.TrimSpace(refs) == "refs/heads/wave/"+runID
 }
 
 // snapshotInto puts p in tree, copied when it lives elsewhere in the repository, and returns its
