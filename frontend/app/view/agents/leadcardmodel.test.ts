@@ -8,6 +8,7 @@ import {
     foldOpen,
     isLeadDown,
     leadActivity,
+    mergeWaitTag,
     REVIEW_ACTIONS,
     reviewFindings,
     rowCardId,
@@ -15,6 +16,7 @@ import {
     rowKeyActions,
     runCost,
     runElapsed,
+    runningCount,
     stopSelector,
     waitTag,
 } from "./leadcardmodel";
@@ -106,6 +108,30 @@ describe("buildLeadCard", () => {
         expect(vm.done[0].openId).toBe("ended:R:t1");
         expect(vm.segs).toEqual(["ok", "run", "wait"]);
         expect(vm.progress).toEqual({ done: 1, total: 3 });
+    });
+
+    // a finished lane that has not landed is not "landed": it waits on the merge, visibly, with how long it has sat
+    it("lifts a merge-ready task out of Done and tags it with the gate's age", () => {
+        const run = runInfo([task("t1", "done"), task("t2", "done")], {
+            tasks: [
+                { taskid: "t1", mergestate: "ready", mergegatets: NOW - 34 * 60_000 } as DagTaskDigest,
+                { taskid: "t2", mergestate: "merged" } as DagTaskDigest,
+            ],
+        });
+        const vm = buildLeadCard(input(run));
+        expect(vm.rows.map((r) => r.taskId)).toEqual(["t1"]);
+        expect(vm.rows[0]).toMatchObject({ tag: "merge waiting 34m", tone: "wait", needsYou: false, actions: [] });
+        expect(vm.rows[0].sub).toBe("t1 · merge ready");
+        expect(vm.done.map((r) => r.taskId)).toEqual(["t2"]);
+        expect(vm.done[0].sub).toBe("t2 · landed");
+    });
+
+    it("keeps a done task landed when the digest has not loaded or the dag needs no merge", () => {
+        expect(buildLeadCard(input(runInfo([task("t1", "done")]))).done[0].sub).toBe("t1 · landed");
+        const unmerged = runInfo([task("t1", "done")], {
+            tasks: [{ taskid: "t1", mergestate: "not-required" } as DagTaskDigest],
+        });
+        expect(buildLeadCard(input(unmerged)).done[0].sub).toBe("t1 · landed");
     });
 
     it("answers a worker's question you hold inline and counts it", () => {
@@ -305,6 +331,38 @@ describe("waitTag", () => {
     it("says a row waits for a slot, or is queued", () => {
         expect(waitTag([], true)).toBe("for a slot");
         expect(waitTag([], false)).toBe("queued");
+    });
+});
+
+describe("mergeWaitTag", () => {
+    it("ages a gate from its clock", () => {
+        expect(mergeWaitTag(NOW - 34 * 60_000, NOW)).toBe("merge waiting 34m");
+        expect(mergeWaitTag(NOW - 65 * 60_000, NOW)).toBe("merge waiting 1h5m");
+    });
+
+    // pruned history leaves no clock; a gate stamped ahead of this clock (skew) must not read as a negative age
+    it("shows no age without a clock or before it", () => {
+        expect(mergeWaitTag(undefined, NOW)).toBe("merge waiting");
+        expect(mergeWaitTag(0, NOW)).toBe("merge waiting");
+        expect(mergeWaitTag(NOW + 5_000, NOW)).toBe("merge waiting");
+    });
+
+    // formatElapsed floors to whole seconds, so a gate opened this second would read "0s"
+    it("shows no age under a second", () => {
+        expect(mergeWaitTag(NOW - 500, NOW)).toBe("merge waiting");
+        expect(mergeWaitTag(NOW - 1_000, NOW)).toBe("merge waiting 1s");
+    });
+});
+
+describe("runningCount", () => {
+    // the cancel confirm stops running tasks; a merge gate's worker has finished and the engine lands it
+    it("leaves the merge gate out of the running tasks", () => {
+        const run = runInfo([task("t1", "done"), task("t2", "running")], {
+            tasks: [{ taskid: "t1", mergestate: "ready", mergegatets: NOW - 60_000 } as DagTaskDigest],
+        });
+        const vm = buildLeadCard(input(run));
+        expect(vm.rows).toHaveLength(2);
+        expect(runningCount(vm.rows)).toBe(1);
     });
 });
 

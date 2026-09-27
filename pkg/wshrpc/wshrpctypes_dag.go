@@ -210,6 +210,7 @@ type DagTaskDigest struct {
 	Suspect          string   `json:"suspect,omitempty"`         // why the running worker may be stuck, while it is flagged
 	VerifyStartedTs  int64    `json:"verifystartedts,omitempty"` // UnixMilli a RUNNING merge-point Verify started; 0 in every other state
 	VerifyLastLine   string   `json:"verifylastline,omitempty"`  // the last line that running Verify has printed
+	MergeGateTs      int64    `json:"mergegatets,omitempty"`     // UnixMilli an open merge gate's clock started (the lane tip's task-done); 0 with no gate or no clock
 	RecoveredRetry   bool     `json:"recoveredretry,omitempty"`
 	MergeState       string   `json:"mergestate"`                 // not-required | waiting | ready | blocked | merged
 	CleanupState     string   `json:"cleanupstate"`               // not-required | clear | pending | failed

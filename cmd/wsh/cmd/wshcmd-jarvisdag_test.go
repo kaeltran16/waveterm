@@ -437,6 +437,47 @@ func TestDagStatusShowsARunningVerifysAgeAndLatestLine(t *testing.T) {
 	}
 }
 
+// a merge gate open past its threshold turns health to needs-you; this row is where the lead reads how long
+// it has sat. A gate whose done event was pruned has no clock and shows no age, never one from the epoch.
+func TestDagStatusShowsHowLongAMergeGateHasSat(t *testing.T) {
+	g := &waveobj.TaskGroup{ID: "d-1", Status: "running", Parallelism: 2, Tasks: []waveobj.TaskNode{
+		{ID: "t-0", Label: "first", State: "done"},
+		{ID: "t-1", Label: "second", State: "done"},
+		{ID: "t-2", Label: "third", State: "done"},
+	}}
+	now := int64(40 * 60_000)
+	rtn := &wshrpc.CommandDagStatusRtnData{Group: g, Digest: wshrpc.DagStatusDigest{
+		Tasks: []wshrpc.DagTaskDigest{
+			{TaskId: "t-0", MergeState: "ready", MergeGateTs: now - 34*60_000},
+			{TaskId: "t-1", MergeState: "ready"},
+			{TaskId: "t-2", MergeState: "merged"},
+		},
+	}}
+	lines := dagStatusLines(rtn, now)
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "t-0  done  merge waiting 34m") {
+		t.Fatalf("an open gate shows its age, got:\n%s", joined)
+	}
+	for _, l := range lines {
+		if strings.HasPrefix(l, "t-1 ") && !strings.Contains(l, "merge waiting") {
+			t.Fatalf("a gate with no clock still shows it is waiting, got %q", l)
+		}
+		if strings.HasPrefix(l, "t-2 ") && strings.Contains(l, "merge waiting") {
+			t.Fatalf("a merged task is not waiting, got %q", l)
+		}
+	}
+}
+
+// the signal alone, because tabwriter pads the column and a row cannot show where the signal text ends
+func TestMergeGateSignalShowsNoAgeWithoutAClock(t *testing.T) {
+	now := int64(40 * 60_000)
+	for name, ts := range map[string]int64{"pruned": 0, "skewed ahead of this clock": now + 5_000} {
+		if got := mergeGateSignal(wshrpc.DagTaskDigest{MergeState: "ready", MergeGateTs: ts}, now); got != "merge waiting" {
+			t.Fatalf("%s gate must show no age, got %q", name, got)
+		}
+	}
+}
+
 func TestDagReviewData(t *testing.T) {
 	cmd := newDagEscalateTestCmd(t, map[string]string{"channel": "ch", "runid": "reviewer-run"})
 	cmd.Flags().String("downstream", "", "")

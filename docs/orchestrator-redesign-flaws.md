@@ -146,13 +146,16 @@ reader does not assume more coverage than exists.
 - **F15 (R12) — resolved.** `import-tasks --parallelism`, defaulting to
   `orchestrate.DefaultParallelism` — the dag's ready width, capped at `MaxParallelism`. The `submit`
   JSON path still requires an explicit width; it was never the path that pinned a literal.
-- **F16 (R10, half) — resolved as a signal, not as a renderer.** A merge-ready task open past
+- **F16 (R10) — resolved.** A merge-ready task open past
   `MergeGateStaleAfter` (30 min) counts as attention, so `health` leaves `healthy` for `needs-you`.
   Purely a digest derivation — no schema change, no new event kind — aged from the retained
   task-done boundary. **Two limits.** Run events are pruned by volume, so a gate whose done event is
   gone has no clock and is deliberately left alone (a missed escalation costs a timeout; a
-  fabricated one raises a false alarm on live work). And the age is not *rendered* anywhere: the CLI
-  and UI report that the gate needs you, not how long it has sat.
+  fabricated one raises a false alarm on live work). **Renderer shipped 2026-09-27:** the digest
+  carries the gate's clock as `DagTaskDigest.MergeGateTs`, from the same `mergeGateClock` the stale
+  check reads. `wsh jarvis dag status` shows `merge waiting 34m` on the gate's row, and the lead card
+  lifts the gate out of Done as a live `merge waiting 34m` row. A gate with no clock shows
+  `merge waiting` with no age.
 
 Still open, and why:
 
@@ -235,6 +238,11 @@ still assumes pi on the other side.
   `wshcmd-jarvisdag.go:150` still substitutes `d.Health` for an empty `TerminalStatus`. That is now
   unblocked and safe to take, but it is a hardening step, not a live defect: with `buildNext` total
   over a running DAG, nothing produces the bare `terminal` it would have to catch.
+  **Closed 2026-09-27.** `waitDecision` itself was deleted with `wsh jarvis dag wait` in `2ce4161b4`,
+  when the engine began waking the lead by typing into its terminal. The last consumer that invented
+  a status, the cockpit's `nextStepText`, now renders an empty `terminalstatus` as a digest contract
+  error instead of `done`. `TestNextTerminalCancelledCarriesItsStatus` pins that `buildNext` names
+  the cancelled status too.
 - **R16 (F20):** the prompt uses the digest's words. One constant set for `merge-ready` /
   `resolve-merge`, referenced from both the prompt builder and the digest, so they cannot drift again.
   **Half shipped `d966c27e`:** the prompt now says "when the digest reports `merge-ready` with the
@@ -242,6 +250,12 @@ still assumes pi on the other side.
   constant* was not built — `run.go` still writes the words as literals in prose while `digest.go`
   keeps its own `digestActionResolveMerge`, so the two can drift again. A comment at `run.go:426`
   pins the intent; that is the only thing holding them together.
+  **Closed as obsolete 2026-09-27.** `buildEngineOrchestratePrompt` was replaced by
+  `OrchestrationRules` (`pkg/jarvis/leadprompt.go`) in `117b42724`. The current prompt never writes
+  `merge-ready` or `resolve-merge`, because the engine merges by itself, and a wake names each
+  conflict or failed Verify the lead fixes. `TestEngineLaunchPromptDropsTheOldPlanningProtocol`
+  fails if `resolve-merge` returns. With no prompt reading the digest's words, a shared constant
+  would have one reader, and `jarvis` cannot import `orchestrate`.
 - **R17 (F21):** `dagDigestChildRunLimit` follows `jarvis.MaxDagTasks`, or is removed — sixteen run
   reads per status call is not a cost worth a partial digest. **Shipped `d966c27e`:** the constant is
   now `= jarvis.MaxDagTasks`, so raising the task cap carries the digest cap with it.

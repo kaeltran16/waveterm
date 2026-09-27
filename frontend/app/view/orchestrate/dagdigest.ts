@@ -138,7 +138,9 @@ export function nextStepText(next: DagNextStep, briefs?: Map<string, TaskBrief>)
         case "cleanup-wait":
             return "waiting on worktree cleanup" + (named ? `: ${named}` : "");
         case "terminal":
-            return `finished (${next.terminalstatus ?? "done"})`;
+            return next.terminalstatus
+                ? `finished (${next.terminalstatus})`
+                : "finished with no status (digest contract error)";
         default:
             return "refreshing status";
     }

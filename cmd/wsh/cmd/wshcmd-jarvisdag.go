@@ -262,6 +262,8 @@ func taskSignal(state string, td wshrpc.DagTaskDigest, now int64) string {
 		return "stuck? " + compactText(td.Suspect, 80)
 	case td.FreshnessTs > 0 && (state == orchestrate.TaskState_Running || state == orchestrate.TaskState_Stalled):
 		return workerSignal(td, now)
+	case td.MergeState == "ready":
+		return mergeGateSignal(td, now)
 	}
 	return ""
 }
@@ -290,6 +292,17 @@ func verifySignal(td wshrpc.DagTaskDigest, now int64) string {
 		parts = append(parts, compactText(td.VerifyLastLine, 60))
 	}
 	return strings.Join(parts, " · ")
+}
+
+// mergeGateSignal is how long a finished lane has waited to land. The digest carries the gate's clock, so this
+// row and the cockpit's agree; a gate whose done event was pruned has none and shows no age.
+func mergeGateSignal(td wshrpc.DagTaskDigest, now int64) string {
+	if td.MergeGateTs > 0 {
+		if age := compactDur(now - td.MergeGateTs); age != "" {
+			return "merge waiting " + age
+		}
+	}
+	return "merge waiting"
 }
 
 // reportLine carries what the lead's run-end report is written from.

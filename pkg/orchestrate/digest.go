@@ -47,7 +47,8 @@ func BuildDigest(sn DagDigestSnapshot) wshrpc.DagStatusDigest {
 	}
 	askByTask := askIndex(sn.Asks)
 	retried := retriedTaskSet(sn.Retained)
-	staleGate := staleMergeGates(g, sn.Retained, sn.Now)
+	gateClock := mergeGateClock(g, sn.Retained)
+	staleGate := staleMergeGates(gateClock, sn.Now)
 	d := wshrpc.DagStatusDigest{
 		DagVersion: g.Version,
 		Health:     buildHealth(g, askByTask, staleGate),
@@ -67,7 +68,7 @@ func BuildDigest(sn DagDigestSnapshot) wshrpc.DagStatusDigest {
 		}
 	}
 	for i := range g.Tasks {
-		td := buildTaskDigest(g, &g.Tasks[i], askByTask, retried, sn.Now.UnixMilli())
+		td := buildTaskDigest(g, &g.Tasks[i], askByTask, retried, gateClock, sn.Now.UnixMilli())
 		withReview(&td, &g.Tasks[i], runByID[g.Tasks[i].RunID])
 		d.Tasks = append(d.Tasks, td)
 	}
@@ -143,15 +144,25 @@ func eventTaskID(ev waveobj.RunEvent) string {
 // StallThreshold because a live lead legitimately finishes other work before coming back to merge.
 const MergeGateStaleAfter = 30 * time.Minute
 
-// staleMergeGates returns the merge-ready tasks whose gate has been open past MergeGateStaleAfter,
-// aged from the task-done boundary. A task whose done event has been pruned has no clock and is left
-// out: a missed escalation costs a timeout, a fabricated one raises a false alarm on live work.
-func staleMergeGates(g *waveobj.TaskGroup, retained []waveobj.RunEvent, now time.Time) map[string]bool {
-	stale := map[string]bool{}
-	nowMs := now.UnixMilli()
+// mergeGateClock maps each merge-ready lane tip to the start of its gate: the retained task-done boundary. A
+// task whose done event has been pruned has no clock and is left out. The stale check and the rendered age both
+// read this map, so they cannot disagree on when a gate opened.
+func mergeGateClock(g *waveobj.TaskGroup, retained []waveobj.RunEvent) map[string]int64 {
+	clock := map[string]int64{}
 	for _, id := range mergeReadyIDs(g) {
-		doneTs := firstTaskEventTs(retained, waveobj.RunEventKindTaskDone, id, true)
-		if doneTs > 0 && nowMs-doneTs > MergeGateStaleAfter.Milliseconds() {
+		if doneTs := firstTaskEventTs(retained, waveobj.RunEventKindTaskDone, id, true); doneTs > 0 {
+			clock[id] = doneTs
+		}
+	}
+	return clock
+}
+
+// staleMergeGates returns the gates open past MergeGateStaleAfter. A gate with no clock is left out: a missed
+// escalation costs a timeout, a fabricated one raises a false alarm on live work.
+func staleMergeGates(gateClock map[string]int64, now time.Time) map[string]bool {
+	stale := map[string]bool{}
+	for id, doneTs := range gateClock {
+		if now.UnixMilli()-doneTs > MergeGateStaleAfter.Milliseconds() {
 			stale[id] = true
 		}
 	}
@@ -480,7 +491,7 @@ func dependencyWait(g *waveobj.TaskGroup) ([]string, []string) {
 	return waiting, blocking
 }
 
-func buildTaskDigest(g *waveobj.TaskGroup, t *waveobj.TaskNode, askByTask map[string]wshrpc.DagAskItem, retried map[string]bool, now int64) wshrpc.DagTaskDigest {
+func buildTaskDigest(g *waveobj.TaskGroup, t *waveobj.TaskNode, askByTask map[string]wshrpc.DagAskItem, retried map[string]bool, gateClock map[string]int64, now int64) wshrpc.DagTaskDigest {
 	td := wshrpc.DagTaskDigest{
 		TaskId:      t.ID,
 		FreshnessTs: t.LastActivity,
@@ -522,6 +533,7 @@ func buildTaskDigest(g *waveobj.TaskGroup, t *waveobj.TaskNode, askByTask map[st
 		td.RecoveredRetry = true
 	}
 	td.MergeState = taskMergeState(g, t)
+	td.MergeGateTs = gateClock[t.ID]
 	td.CleanupState = taskCleanupState(g, t)
 	return td
 }
