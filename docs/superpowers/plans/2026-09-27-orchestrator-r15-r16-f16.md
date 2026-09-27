@@ -32,7 +32,7 @@
 - The cockpit clock is behind wavesrv's (`now < mergegatets`): the card shows `merge waiting` with no age, never a negative age (test in Task 3). The CLI gets this for free from `compactDur` returning `""` for ≤ 0 (test in Task 2).
 - A done task that is merged, a DAG without MergeRequired, or a run whose digest has not loaded: the row still reads `landed` in the Done fold (test in Task 3).
 - A non-tip task in a finished-but-unmerged lane carries no `MergeGateTs`: only the tip is the gate (test in Task 2).
-- A terminal step from a `cancelled` DAG carries `cancelled`, and an empty one never renders as `done` (tests in Task 1).
+- A terminal step from a `cancelled` DAG carries `cancelled` (test in Task 2), and an empty one never renders as `done` (test in Task 1).
 
 ---
 
@@ -42,7 +42,8 @@
 **Files:**
 - Modify: `frontend/app/view/orchestrate/dagdigest.ts` (the `case "terminal":` in `nextStepText`, ~line 140)
 - Test: `frontend/app/view/orchestrate/dagdigest.test.ts` (the `describe("nextStepText"` block, ~line 66)
-- Test: `pkg/orchestrate/digest_test.go` (beside `TestNextTerminal`, ~line 422)
+
+The Go half of R15, a test that pins the cancelled terminal status, is in Task 2, which owns `pkg/orchestrate/digest_test.go`.
 
 **Interfaces:** none consumed or produced.
 
@@ -80,32 +81,14 @@ with
 
 Then run `npx prettier --check frontend/app/view/orchestrate/dagdigest.ts`. If it is not clean, wrap the ternary the way prettier wants: run `npx prettier --write` on **this file only**, and revert any hunk outside this case.
 
-- [ ] **Step 4: Add the Go test pinning the cancelled terminal status.** Below `TestNextTerminal` in `pkg/orchestrate/digest_test.go`:
+- [ ] **Step 4: Run the suite and confirm it passes.**
+Run: `npx vitest run frontend/app/view/orchestrate/dagdigest.test.ts`
+Expected: PASS.
 
-```go
-// buildNext's terminal step is the lead's stop signal and always names the status the dag ended in; a
-// consumer that finds it empty reports a contract error rather than inventing one (R15).
-func TestNextTerminalCancelledCarriesItsStatus(t *testing.T) {
-	g := digestGroup(t, false, plainTasks())
-	setTaskStates(g, map[string]string{"t-0": TaskState_Cancelled, "t-1": TaskState_Cancelled, "t-2": TaskState_Cancelled})
-	g.Status = DagStatus_Cancelled
-	d := BuildDigest(digestSnapshot(g, nil, nil, nil, digestNow))
-	if d.Next.Kind != "terminal" || d.Next.TerminalStatus != DagStatus_Cancelled {
-		t.Fatalf("cancelled dag must be terminal next with its status, got %+v", d.Next)
-	}
-}
-```
-
-(`g.Status` is set after `setTaskStates` because `RecomputeDagStatus` does not derive `cancelled`; cancel is an explicit transition.)
-
-- [ ] **Step 5: Run both suites and confirm they pass.**
-Run: `npx vitest run frontend/app/view/orchestrate/dagdigest.test.ts` and `CGO_ENABLED=1 CC="zig cc -target x86_64-windows-gnu" go test ./pkg/orchestrate/ -run 'TestNextTerminal' -v`
-Expected: PASS. The Go test passes on first run: it pins existing behavior, and that is its purpose.
-
-- [ ] **Step 6: Commit.**
+- [ ] **Step 5: Commit.**
 
 ```bash
-git add frontend/app/view/orchestrate/dagdigest.ts frontend/app/view/orchestrate/dagdigest.test.ts pkg/orchestrate/digest_test.go
+git add frontend/app/view/orchestrate/dagdigest.ts frontend/app/view/orchestrate/dagdigest.test.ts
 git commit -m "fix(orchestrate): report a terminal step with no status as a contract error"
 ```
 
@@ -114,10 +97,10 @@ git commit -m "fix(orchestrate): report a terminal step with no status as a cont
 
 **Files:**
 - Modify: `pkg/wshrpc/wshrpctypes_dag.go` (`DagTaskDigest`, ~line 198)
-- Modify: `pkg/orchestrate/digest.go` (`BuildDigest` ~line 43, `staleMergeGates` ~line 146, `buildTaskDigest` ~line 483)
+- Modify: `pkg/orchestrate/digest.go` (`BuildDigest` ~line 43, `staleMergeGates` ~line 146, `buildTaskDigest` ~line 483, which gains a `gateClock map[string]int64` parameter)
 - Modify: `cmd/wsh/cmd/wshcmd-jarvisdag.go` (`taskSignal`, ~line 255)
 - Regenerated (do not hand-edit): `frontend/types/gotypes.d.ts` via `task generate`
-- Test: `pkg/orchestrate/digest_test.go` (beside `TestStaleMergeGateNeedsYou`, ~line 744)
+- Test: `pkg/orchestrate/digest_test.go` (beside `TestNextTerminal` ~line 422, and beside `TestStaleMergeGateNeedsYou` ~line 744)
 - Test: `cmd/wsh/cmd/wshcmd-jarvisdag_test.go` (beside `TestDagStatusShowsARunningVerifysAgeAndLatestLine`, ~line 417)
 
 **Interfaces:**
@@ -185,6 +168,26 @@ func TestMergeGateTsOnlyOnTheLaneTip(t *testing.T) {
 
 Before relying on `TestMergeGateTsOnlyOnTheLaneTip`, confirm that `t-0 → t-1` forms one lane in `jarvis.Lanes` (a linear chain does). If the assertion on `d.Tasks[1]` fails because `MergeState` is not `ready`, print `d.Tasks` and fix the fixture, not the product code.
 
+- [ ] **Step 1b: Add the Go test pinning the cancelled terminal status (R15).** Below `TestNextTerminal` in `pkg/orchestrate/digest_test.go`:
+
+```go
+// buildNext's terminal step is the lead's stop signal and always names the status the dag ended in; a
+// consumer that finds it empty reports a contract error rather than inventing one (R15).
+func TestNextTerminalCancelledCarriesItsStatus(t *testing.T) {
+	g := digestGroup(t, false, plainTasks())
+	setTaskStates(g, map[string]string{"t-0": TaskState_Cancelled, "t-1": TaskState_Cancelled, "t-2": TaskState_Cancelled})
+	g.Status = DagStatus_Cancelled
+	d := BuildDigest(digestSnapshot(g, nil, nil, nil, digestNow))
+	if d.Next.Kind != "terminal" || d.Next.TerminalStatus != DagStatus_Cancelled {
+		t.Fatalf("cancelled dag must be terminal next with its status, got %+v", d.Next)
+	}
+}
+```
+
+(`g.Status` is set after `setTaskStates` because `RecomputeDagStatus` does not derive `cancelled`; cancel is an explicit transition.)
+
+It pins existing behavior, so it passes as soon as the package compiles again (Step 5 runs it). The cockpit half of R15 is Task 1.
+
 - [ ] **Step 2: Run them and watch them fail to compile** (`MergeGateTs` does not exist yet).
 Run: `CGO_ENABLED=1 CC="zig cc -target x86_64-windows-gnu" go test ./pkg/orchestrate/ -run 'TestMergeGateTs' -v`
 Expected: build failure, `d.Tasks[0].MergeGateTs undefined`.
@@ -233,16 +236,28 @@ In `BuildDigest`, replace `staleGate := staleMergeGates(g, sn.Retained, sn.Now)`
 	staleGate := staleMergeGates(gateClock, sn.Now)
 ```
 
-In the task loop of `BuildDigest`, after `td := buildTaskDigest(...)`, add:
+`buildTaskDigest` copies the gate's clock, as the spec says. Its one caller is the loop in `BuildDigest`. Change that call to
 
 ```go
-		td.MergeGateTs = gateClock[g.Tasks[i].ID]
+		td := buildTaskDigest(g, &g.Tasks[i], askByTask, retried, gateClock, sn.Now.UnixMilli())
+```
+
+and the function's signature to
+
+```go
+func buildTaskDigest(g *waveobj.TaskGroup, t *waveobj.TaskNode, askByTask map[string]wshrpc.DagAskItem, retried map[string]bool, gateClock map[string]int64, now int64) wshrpc.DagTaskDigest {
+```
+
+then, in its body, beside the `td.MergeState = taskMergeState(g, t)` line, add:
+
+```go
+	td.MergeGateTs = gateClock[t.ID]
 ```
 
 Grep for any other `staleMergeGates(` caller (`grep -rn "staleMergeGates(" pkg`) and update it to the new signature.
 
 - [ ] **Step 5: Run the digest tests, new and existing stale-gate ones.**
-Run: `CGO_ENABLED=1 CC="zig cc -target x86_64-windows-gnu" go test ./pkg/orchestrate/ -run 'MergeGate|StaleMergeGate' -v`
+Run: `CGO_ENABLED=1 CC="zig cc -target x86_64-windows-gnu" go test ./pkg/orchestrate/ -run 'MergeGate|StaleMergeGate|TestNextTerminal' -v`
 Expected: PASS, including the unchanged `TestStaleMergeGateNeedsYou`, `TestFreshMergeGateStaysHealthy` and `TestMergeGateWithoutDoneEventIsNotStale`.
 
 - [ ] **Step 6: Regenerate bindings.** Run `task generate`. Confirm with `git diff --stat` that `frontend/types/gotypes.d.ts` gained `mergegatets?: number;` on `DagTaskDigest`. Keep any other generated diff only if it comes from this change.
