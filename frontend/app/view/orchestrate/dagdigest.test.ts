@@ -77,6 +77,16 @@ describe("nextStepText", () => {
         expect(nextStepText({ kind: "terminal", terminalstatus: "done" })).toBe("finished (done)");
     });
 
+    // buildNext always names the status it ended in; a terminal step without one broke the digest contract,
+    // and reading it as "done" would tell the human a run finished cleanly when nothing said so
+    it("reports a terminal step with no status as a contract error, never as done", () => {
+        expect(nextStepText({ kind: "terminal" })).toBe("finished with no status (digest contract error)");
+        expect(nextStepText({ kind: "terminal", terminalstatus: "" })).toBe(
+            "finished with no status (digest contract error)"
+        );
+        expect(nextStepText({ kind: "terminal", terminalstatus: "cancelled" })).toBe("finished (cancelled)");
+    });
+
     it("falls back to a refresh cue for an unknown kind rather than inventing a claim", () => {
         expect(nextStepText({ kind: "mystery" })).toBe("refreshing status");
     });
