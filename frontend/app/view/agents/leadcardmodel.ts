@@ -140,6 +140,17 @@ function taskRow(input: LeadCardInput, task: TaskNode): TaskRowVM {
     };
     switch (task.state) {
         case "done": {
+            // the lane tip waiting to land is the merge gate: live, not landed, and the engine's to merge
+            const td = run.digest?.tasks?.find((t) => t.taskid === task.id);
+            if (td?.mergestate === "ready") {
+                return {
+                    ...base,
+                    tone: "wait",
+                    tag: mergeWaitTag(td.mergegatets, now),
+                    sub: join(task.id, laneText, "merge ready"),
+                    openId: endedWorkerId(run.runId, task.id),
+                };
+            }
             const ranMs = run.digest?.durations?.tasks?.find((t) => t.taskid === task.id)?.runms;
             return {
                 ...base,
@@ -243,6 +254,13 @@ export function waitTag(deps: string[], slot: boolean): string {
         return `after ${deps[0]}`;
     }
     return slot ? "for a slot" : "queued";
+}
+
+/** Pure: how long a finished lane has waited to land. A gate with no clock (its done event was pruned), or one
+ *  stamped ahead of this clock, shows no age rather than one from the epoch or a negative one. */
+export function mergeWaitTag(mergeGateTs: number | undefined, now: number): string {
+    const ms = mergeGateTs ? now - mergeGateTs : 0;
+    return ms > 0 ? `merge waiting ${formatElapsed(ms)}` : "merge waiting";
 }
 
 /** Pure: a run's lead card. Rows keep plan order; live rows list first, then what waits, then what is done. */

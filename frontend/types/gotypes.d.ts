@@ -1603,6 +1603,7 @@ declare global {
         suspect?: string;
         verifystartedts?: number;
         verifylastline?: string;
+        mergegatets?: number;
         recoveredretry?: boolean;
         mergestate: string;
         cleanupstate: string;

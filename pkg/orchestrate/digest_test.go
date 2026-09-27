@@ -430,6 +430,18 @@ func TestNextTerminal(t *testing.T) {
 	}
 }
 
+// buildNext's terminal step is the lead's stop signal and always names the status the dag ended in; a
+// consumer that finds it empty reports a contract error rather than inventing one (R15).
+func TestNextTerminalCancelledCarriesItsStatus(t *testing.T) {
+	g := digestGroup(t, false, plainTasks())
+	setTaskStates(g, map[string]string{"t-0": TaskState_Cancelled, "t-1": TaskState_Cancelled, "t-2": TaskState_Cancelled})
+	g.Status = DagStatus_Cancelled
+	d := BuildDigest(digestSnapshot(g, nil, nil, nil, digestNow))
+	if d.Next.Kind != "terminal" || d.Next.TerminalStatus != DagStatus_Cancelled {
+		t.Fatalf("cancelled dag must be terminal next with its status, got %+v", d.Next)
+	}
+}
+
 // --- counts ---
 
 func TestCountsOverlapSemantics(t *testing.T) {
@@ -794,6 +806,61 @@ func TestMergeGateWithoutDoneEventIsNotStale(t *testing.T) {
 	d := BuildDigest(DagDigestSnapshot{Group: g, Now: time.Now()})
 	if d.Health != "healthy" {
 		t.Fatalf("a gate with no done boundary has no age; want healthy, got %q", d.Health)
+	}
+}
+
+// The gate's age is rendered by the CLI and the cockpit, so the digest carries the clock it is aged from:
+// the same retained task-done boundary the stale check reads, and only on the lane tip that is the gate.
+func TestMergeGateTsIsTheDoneBoundaryOfTheGate(t *testing.T) {
+	g := digestGroup(t, true, []waveobj.TaskNode{{ID: "t-0", Label: "a"}, {ID: "t-1", Label: "b"}})
+	setTaskStates(g, map[string]string{"t-0": TaskState_Done, "t-1": TaskState_Done})
+	g.Tasks[1].Merged = true
+	now := time.Now()
+	doneTs := now.Add(-34 * time.Minute).UnixMilli()
+	d := BuildDigest(DagDigestSnapshot{
+		Group: g,
+		Retained: []waveobj.RunEvent{
+			retainedEvent(waveobj.RunEventKindTaskDone, "t-0", doneTs),
+			retainedEvent(waveobj.RunEventKindTaskDone, "t-1", doneTs),
+		},
+		Now: now,
+	})
+	if d.Tasks[0].MergeGateTs != doneTs {
+		t.Fatalf("an open gate carries its done boundary, got %d want %d", d.Tasks[0].MergeGateTs, doneTs)
+	}
+	if d.Tasks[1].MergeGateTs != 0 {
+		t.Fatalf("a merged task has no open gate, got %d", d.Tasks[1].MergeGateTs)
+	}
+}
+
+// Pruned history leaves the gate with no clock: no timestamp, so nothing renders an age from the epoch.
+func TestMergeGateTsIsZeroWithoutADoneEvent(t *testing.T) {
+	g := digestGroup(t, true, []waveobj.TaskNode{{ID: "t-0", Label: "a"}})
+	setTaskStates(g, map[string]string{"t-0": TaskState_Done})
+	d := BuildDigest(DagDigestSnapshot{Group: g, Now: time.Now()})
+	if d.Tasks[0].MergeState != "ready" || d.Tasks[0].MergeGateTs != 0 {
+		t.Fatalf("a ready gate with no done event has no clock, got state %q ts %d", d.Tasks[0].MergeState, d.Tasks[0].MergeGateTs)
+	}
+}
+
+// A lane merges as one at its tip; an earlier task in the lane is not a gate and carries no clock.
+func TestMergeGateTsOnlyOnTheLaneTip(t *testing.T) {
+	g := digestGroup(t, true, []waveobj.TaskNode{{ID: "t-0", Label: "a"}, {ID: "t-1", Label: "b", Deps: []string{"t-0"}}})
+	setTaskStates(g, map[string]string{"t-0": TaskState_Done, "t-1": TaskState_Done})
+	now := time.Now()
+	d := BuildDigest(DagDigestSnapshot{
+		Group: g,
+		Retained: []waveobj.RunEvent{
+			retainedEvent(waveobj.RunEventKindTaskDone, "t-0", now.Add(-40*time.Minute).UnixMilli()),
+			retainedEvent(waveobj.RunEventKindTaskDone, "t-1", now.Add(-5*time.Minute).UnixMilli()),
+		},
+		Now: now,
+	})
+	if d.Tasks[0].MergeGateTs != 0 {
+		t.Fatalf("a non-tip lane task is not the gate, got ts %d", d.Tasks[0].MergeGateTs)
+	}
+	if d.Tasks[1].MergeGateTs == 0 {
+		t.Fatalf("the lane tip is the gate and carries its clock")
 	}
 }
 
