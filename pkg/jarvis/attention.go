@@ -44,15 +44,18 @@ const (
 	AttentionRadarTriage = "radar-triage"
 )
 
-// mirrors orchestrate.TaskState_Done and the two RadarReport/RadarFinding vocabularies, spelled here
+// mirrors orchestrate.TaskState_* and the two RadarReport/RadarFinding vocabularies, spelled here
 // for the same reason as the dag statuses above.
 const (
-	taskStateDone        = "done"
-	taskStateSkipped     = "skipped"
-	radarStatusCompleted = "completed"
-	radarStatusPartial   = "partial"
-	radarGroupNew        = "new"
-	radarGroupRecurring  = "recurring"
+	taskStateDone          = "done"
+	taskStateSkipped       = "skipped"
+	taskStatePending       = "pending"
+	taskStateReviewFailed  = "review-failed"
+	maxConsecutiveFailures = 3 // mirrors orchestrate.MaxConsecutiveFailures
+	radarStatusCompleted   = "completed"
+	radarStatusPartial     = "partial"
+	radarGroupNew          = "new"
+	radarGroupRecurring    = "recurring"
 )
 
 // AttentionChannel is one channel's contribution: its identity plus the rows the builder reads.
@@ -255,9 +258,15 @@ func goalHeadline(goal string) string {
 	return line
 }
 
-// blockedTask is the task a blocked group is stopped on, and whether retrying it is the action: a merge
-// git refused or a failed Verify is resolved by hand, so only a failed task is retryable.
+// blockedTask is the task a blocked group is stopped on, and whether retrying it is the action: a failed
+// review is judged, and a merge git refused or a failed Verify is resolved by hand, so only a failed task
+// is retryable.
 func blockedTask(g *waveobj.TaskGroup) (string, bool) {
+	for _, t := range g.Tasks {
+		if t.State == taskStateReviewFailed {
+			return t.ID, false
+		}
+	}
 	for _, t := range g.Tasks {
 		if t.State == "blocked-merge" || t.State == "verify-failed" {
 			return t.ID, false
@@ -280,9 +289,11 @@ func fixTree(owner *waveobj.Run) string {
 	return "the project checkout"
 }
 
-// dagBlockedReason says what holds a blocked dag, in the order the engine's digest ranks the human's
-// actions: a merge, then a failed Verify, then failed tasks. A blocked merge is not a failure, and reading
-// it as one printed "0 consecutive failures".
+// dagBlockedReason says what holds a blocked dag, in the order the engine's digest (buildNext) ranks the
+// human's actions: a failed review, a merge, a failed Verify, then failed tasks. At the failure limit the
+// count wins over a failed task, because it explains why dispatch stopped. Anything else names each task
+// that is not finished or waiting, since the count read "0 consecutive failures" for a state it did not
+// cover.
 func dagBlockedReason(g *waveobj.TaskGroup, owner *waveobj.Run) (text, why string) {
 	done := fmt.Sprintf("%d of %d tasks done.", doneTasks(g), len(g.Tasks))
 	name := func(t waveobj.TaskNode) string {
@@ -290,6 +301,16 @@ func dagBlockedReason(g *waveobj.TaskGroup, owner *waveobj.Run) (text, why strin
 			return t.Label
 		}
 		return t.ID
+	}
+	for _, t := range g.Tasks {
+		if t.State != taskStateReviewFailed {
+			continue
+		}
+		text = fmt.Sprintf("Review of %s failed", name(t))
+		if note := firstLine(t.ReviewNote); note != "" {
+			text += ": " + note
+		}
+		return text, fmt.Sprintf("%s The lead was woken to judge it: approve it as it is with `wsh jarvis dag approve %s`, send it back with `wsh jarvis dag sendback %s \"<guidance>\"`, or retry or skip it.", done, t.ID, t.ID)
 	}
 	for _, t := range g.Tasks {
 		if t.State != "blocked-merge" {
@@ -313,8 +334,31 @@ func dagBlockedReason(g *waveobj.TaskGroup, owner *waveobj.Run) (text, why strin
 		return "The final stage failed on the merged result: " + strings.TrimSuffix(firstLine(g.Final.Detail), ":"),
 			done + " The lead fixes it in a fix round (`wsh jarvis dag submit --round`); after the last round the call is yours."
 	}
-	return fmt.Sprintf("%d consecutive failures — decide retry/skip.", g.Failures),
-		done + " The group stays stopped until you retry or skip."
+	if g.Failures >= maxConsecutiveFailures {
+		return fmt.Sprintf("%d consecutive failures — decide retry/skip.", g.Failures),
+			done + " The group stays stopped until you retry or skip."
+	}
+	for _, t := range g.Tasks {
+		if t.State != "failed" {
+			continue
+		}
+		text = name(t) + " failed"
+		if t.LastFailureKind != "" {
+			text += ": " + t.LastFailureKind
+		}
+		return text, fmt.Sprintf("%s Retry it with `wsh jarvis dag retry %s`, skip it, or escalate it to another model.", done, t.ID)
+	}
+	var held []string
+	for _, t := range g.Tasks {
+		if t.State != taskStateDone && t.State != taskStateSkipped && t.State != taskStatePending {
+			held = append(held, fmt.Sprintf("%s is %s", name(t), t.State))
+		}
+	}
+	text = "The group is blocked."
+	if len(held) > 0 {
+		text = "The group is blocked: " + strings.Join(held, ", ")
+	}
+	return text, done + " `wsh jarvis dag status` lists each task's actions."
 }
 
 func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {

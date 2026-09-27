@@ -940,6 +940,33 @@ func (ws *WshServer) AckRunCommand(ctx context.Context, data wshrpc.CommandAckRu
 	return nil
 }
 
+// RunAsksCommand lists the pending question on a run's own session, for `wsh runs show`. A task's asks are its
+// dag's (`dag asks`); this is the lead's own AskUserQuestion, which no dag command reaches.
+func (ws *WshServer) RunAsksCommand(ctx context.Context, data wshrpc.CommandRunAskData) (*wshrpc.CommandDagAsksRtnData, error) {
+	run, err := wstore.GetRun(ctx, data.ChannelId, data.RunId)
+	if err != nil {
+		return nil, fmt.Errorf("loading run: %w", err)
+	}
+	rtn := &wshrpc.CommandDagAsksRtnData{Asks: []wshrpc.DagAskItem{}}
+	if bo, p, ok := pendingRunAsk(ctx, run); ok && len(p.Questions) > 0 {
+		rtn.Asks = append(rtn.Asks, wshrpc.DagAskItem{AskId: p.AskId, Owner: p.Owner, Deadline: p.Deadline, Note: p.Note, Questions: p.Questions, BlockORef: bo, Ts: p.Ts})
+	}
+	return rtn, nil
+}
+
+// RunAnswerCommand answers a run's own pending question through the same delivery as the cockpit's ask card.
+func (ws *WshServer) RunAnswerCommand(ctx context.Context, data wshrpc.CommandRunAnswerData) error {
+	run, err := wstore.GetRun(ctx, data.ChannelId, data.RunId)
+	if err != nil {
+		return fmt.Errorf("loading run: %w", err)
+	}
+	bo, _, ok := pendingRunAsk(ctx, run)
+	if !ok {
+		return fmt.Errorf("run %s has no pending question", data.RunId)
+	}
+	return ws.AnswerAgentCommand(ctx, wshrpc.CommandAnswerAgentData{ORef: bo, Answers: data.Answers})
+}
+
 // SealRunEvidenceCommand derives and persists a done run's evidence snapshot if it has none yet — the
 // lazy backfill for runs completed before the feature existed (new runs seal at completion in
 // AdvanceRun). Idempotent: a run already sealed is a no-op. Only seals runs in the done state.

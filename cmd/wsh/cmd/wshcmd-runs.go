@@ -5,6 +5,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/gitinfo"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/orchestrate"
@@ -78,6 +80,14 @@ var runsShowCmd = &cobra.Command{
 	RunE:    runsShowRun,
 }
 
+var runsAnswerCmd = &cobra.Command{
+	Use:     "answer <run-id> <answers-json>",
+	Short:   "answer a run's own pending question, which `wsh runs show` prints (answers-json: [{\"selectedindexes\":[0]}] or [{\"text\":\"...\"}])",
+	Args:    cobra.ExactArgs(2),
+	PreRunE: preRunSetupRpcClient,
+	RunE:    runsAnswerRun,
+}
+
 var runsCancelCmd = &cobra.Command{
 	Use:   "cancel <run-id>",
 	Short: "cancel a run; a run with live workers needs --yes",
@@ -130,7 +140,7 @@ func init() {
 	f.String("effort", "", "initiative to attach the run to (id from 'wsh effort list')")
 	f.String("chunk", "", "the initiative's chunk: its label or 1-based number")
 	f.Bool("json", false, "JSON output")
-	for _, c := range []*cobra.Command{runsStartCmd, runsListCmd, runsShowCmd, runsCancelCmd, runsLandCmd, runsAckCmd} {
+	for _, c := range []*cobra.Command{runsStartCmd, runsListCmd, runsShowCmd, runsAnswerCmd, runsCancelCmd, runsLandCmd, runsAckCmd} {
 		c.Flags().String("project", "", "project directory (default: the current directory)")
 		c.Flags().String("channel", "", "channel id, instead of resolving the project")
 	}
@@ -142,7 +152,7 @@ func init() {
 	runsCancelCmd.Flags().Bool("yes", false, "cancel even though workers are live")
 	runsLandCmd.Flags().Bool("force", false, "land even though the final stage failed")
 	runsAttentionCmd.Flags().Bool("json", false, "JSON output")
-	runsCmd.AddCommand(runsStartCmd, runsListCmd, runsShowCmd, runsCancelCmd, runsLandCmd, runsAckCmd, runsAttentionCmd)
+	runsCmd.AddCommand(runsStartCmd, runsListCmd, runsShowCmd, runsAnswerCmd, runsCancelCmd, runsLandCmd, runsAckCmd, runsAttentionCmd)
 	rootCmd.AddCommand(runsCmd)
 }
 
@@ -525,22 +535,34 @@ func runsShowRun(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	digest := runsDigest(ch.OID, run)
+	asks := runsAsks(ch.OID, run)
 	if isJSON(cmd) {
-		return jsonOut(map[string]any{"channel": ch.Name, "channelid": ch.OID, "run": run, "dag": digest})
+		return jsonOut(map[string]any{"channel": ch.Name, "channelid": ch.OID, "run": run, "dag": digest, "asks": asks})
 	}
-	for _, line := range runsShowLines(ch, run, digest, time.Now().UnixMilli()) {
+	for _, line := range runsShowLines(ch, run, digest, time.Now().UnixMilli(), asks) {
 		fmt.Println(line)
 	}
 	return nil
 }
 
-func runsShowLines(ch *waveobj.Channel, r *waveobj.Run, digest *wshrpc.CommandDagStatusRtnData, now int64) []string {
+// runsAsks reads a run's own pending question, or nil when the read fails; show is still useful without it.
+func runsAsks(channelId string, run *waveobj.Run) []wshrpc.DagAskItem {
+	rtn, err := wshclient.RunAsksCommand(RpcClient, wshrpc.CommandRunAskData{ChannelId: channelId, RunId: run.ID}, &wshrpc.RpcOpts{Timeout: runsReadTimeoutMs})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "pending question unavailable: %v\n", err)
+		return nil
+	}
+	return rtn.Asks
+}
+
+func runsShowLines(ch *waveobj.Channel, r *waveobj.Run, digest *wshrpc.CommandDagStatusRtnData, now int64, asks []wshrpc.DagAskItem) []string {
 	lines := []string{
 		"run      " + r.ID,
 		"goal     " + runsClip(r.Goal, runsShowGoalWidth),
 		fmt.Sprintf("project  %s (channel %s)", ch.Name, ch.OID),
 		fmt.Sprintf("status   %s  mode=%s  created %s", r.Status, runsMode(r), runsAgo(r.CreatedTs, now)),
 	}
+	lines = append(lines, runsQuestionLines(r.ID, asks)...)
 	route := r.Runtime
 	if r.Model != "" {
 		route += " " + r.Model
@@ -606,6 +628,31 @@ func runsReport(r *waveobj.Run) string {
 		return r.Evidence.Summary
 	}
 	return r.Report
+}
+
+func runsQuestionLines(runId string, asks []wshrpc.DagAskItem) []string {
+	if len(asks) == 0 {
+		return nil
+	}
+	lines := []string{"question"}
+	for _, a := range asks {
+		for _, q := range a.Questions {
+			lines = append(lines, dagQuestionLines(q)...)
+		}
+	}
+	return append(lines, fmt.Sprintf(`answer:  wsh runs answer %s '[{"selectedindexes":[0]}]'  (one item per question, in order; {"text":"..."} for free text)`, runId))
+}
+
+func runsAnswerRun(cmd *cobra.Command, args []string) error {
+	var answers []baseds.AgentAnswerItem
+	if err := json.Unmarshal([]byte(args[1]), &answers); err != nil {
+		return fmt.Errorf("answers json: %w", err)
+	}
+	ch, run, err := runsFind(cmd, args[0])
+	if err != nil {
+		return err
+	}
+	return wshclient.RunAnswerCommand(RpcClient, wshrpc.CommandRunAnswerData{ChannelId: ch.OID, RunId: run.ID, Answers: answers}, &wshrpc.RpcOpts{Timeout: dagAnswerTimeoutMs(answers)})
 }
 
 func runsCancelRun(cmd *cobra.Command, args []string) error {
@@ -731,7 +778,7 @@ func runsAttentionLines(items []wshrpc.AttentionItem, now int64) []string {
 	}
 	w.Flush()
 	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
-	return append(lines, "", "a run's detail: wsh runs show <run-id>; its tasks' questions: wsh jarvis dag asks --channel <id> --runid <run-id>")
+	return append(lines, "", "a run's detail and its own question: wsh runs show <run-id>, answered with wsh runs answer <run-id> '<answers-json>'; its tasks' questions: wsh jarvis dag asks --channel <id> --runid <run-id>")
 }
 
 func runsMode(r *waveobj.Run) string {

@@ -1320,6 +1320,19 @@ declare global {
         reportid: string;
     };
 
+    // wshrpc.CommandRunAnswerData
+    type CommandRunAnswerData = {
+        channelid: string;
+        runid: string;
+        answers: AgentAnswerItem[];
+    };
+
+    // wshrpc.CommandRunAskData
+    type CommandRunAskData = {
+        channelid: string;
+        runid: string;
+    };
+
     // wshrpc.CommandRunTranscriptPathData
     type CommandRunTranscriptPathData = {
         channelid: string;

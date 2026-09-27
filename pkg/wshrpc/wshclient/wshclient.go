@@ -821,6 +821,18 @@ func RouteUnannounceCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) error {
 	return err
 }
 
+// command "runanswer", wshserver.RunAnswerCommand
+func RunAnswerCommand(w *wshutil.WshRpc, data wshrpc.CommandRunAnswerData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "runanswer", data, opts)
+	return err
+}
+
+// command "runasks", wshserver.RunAsksCommand
+func RunAsksCommand(w *wshutil.WshRpc, data wshrpc.CommandRunAskData, opts *wshrpc.RpcOpts) (*wshrpc.CommandDagAsksRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandDagAsksRtnData](w, "runasks", data, opts)
+	return resp, err
+}
+
 // command "runtranscriptpath", wshserver.RunTranscriptPathCommand
 func RunTranscriptPathCommand(w *wshutil.WshRpc, data wshrpc.CommandRunTranscriptPathData, opts *wshrpc.RpcOpts) (string, error) {
 	resp, err := sendRpcRequestCallHelper[string](w, "runtranscriptpath", data, opts)

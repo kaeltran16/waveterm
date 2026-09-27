@@ -6,6 +6,7 @@ package wshrpc
 import (
 	"context"
 
+	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
 
@@ -17,9 +18,11 @@ type RunCommands interface {
 	SealRunEvidenceCommand(ctx context.Context, data CommandSealRunEvidenceData) error                                // derive+seal a done run's evidence if absent (idempotent backfill)
 	LandRunCommand(ctx context.Context, data CommandLandRunData) (*waveobj.RunLand, error)                            // merge a done branch-landed run's wave/<runId> back into its base, or hold it with the reason
 	AckRunCommand(ctx context.Context, data CommandAckRunData) error                                                  // acknowledge a done run's unverified outcome, which clears its attention item
+	RunAsksCommand(ctx context.Context, data CommandRunAskData) (*CommandDagAsksRtnData, error)                       // the pending question on a run's own session (a lead's, or a quick run's)
+	RunAnswerCommand(ctx context.Context, data CommandRunAnswerData) error                                            // answer a run's own pending question
 	ReportRunPhaseCommand(ctx context.Context, data CommandReportRunPhaseData) error                                  // lead self-reports hold/complete; resolves run/phase from its own oref
 	CreateChildRunCommand(ctx context.Context, data CommandCreateChildRunData) (*CommandCreateChildRunRtnData, error) // orchestrator lead spawns a hands-off child run for one backlog unit; parent resolved from the caller's oref
-	SetRunSettingsCommand(ctx context.Context, data CommandSetRunSettingsData) error                                   // change a live engine run's scheduler settings (pending on the Run before a DAG exists, live on its TaskGroup after)
+	SetRunSettingsCommand(ctx context.Context, data CommandSetRunSettingsData) error                                  // change a live engine run's scheduler settings (pending on the Run before a DAG exists, live on its TaskGroup after)
 	RunTranscriptPathCommand(ctx context.Context, data CommandRunTranscriptPathData) (string, error)                  // the transcript of a run launched under a session id, "" when none was written
 }
 
@@ -93,6 +96,17 @@ type CommandLandRunData struct {
 type CommandAckRunData struct {
 	ChannelId string `json:"channelid"`
 	RunId     string `json:"runid"`
+}
+
+type CommandRunAskData struct {
+	ChannelId string `json:"channelid"`
+	RunId     string `json:"runid"`
+}
+
+type CommandRunAnswerData struct {
+	ChannelId string                   `json:"channelid"`
+	RunId     string                   `json:"runid"`
+	Answers   []baseds.AgentAnswerItem `json:"answers"`
 }
 
 type CommandReportRunPhaseData struct {

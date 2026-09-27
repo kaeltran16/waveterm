@@ -146,6 +146,7 @@ func TestLandTitleNamesTheChangeOnOneLine(t *testing.T) {
 	// a subject git log --oneline shows whole
 	const subjectLen = 72
 	long := strings.Repeat("fix the orchestrator findings ", 40)
+	goal2993 := `Close the last open orchestrator gaps in C:\Users\cktra\Projects\waveterm\docs\orchestrator-findings-2026-09-25.md and C:\Users\cktra\Projects\waveterm\docs\orchestrator-redesign-flaws.md. 1. Finding 22 known gap: a worker resuming after a long ask`
 	cases := []struct {
 		name, title, goal, want string
 	}{
@@ -153,7 +154,14 @@ func TestLandTitleNamesTheChangeOnOneLine(t *testing.T) {
 		{"the template's suffix dropped", "Orchestrator small findings Implementation Plan", "", "Orchestrator small findings"},
 		{"a title that is only the suffix", " Implementation Plan", "Add coupons\nmore", "Implementation Plan"},
 		{"the goal's first line with no title", "", "Add coupons\nand more", "Add coupons"},
-		{"a long goal clipped", "", long, string([]rune(long)[:subjectLen-1]) + "…"},
+		{"run 2993e463's goal is cut before the path", "", goal2993, "Close the last open orchestrator gaps in…"},
+		{"an absolute path becomes its base name", "", `Fix the land title in C:\x\pkg\orchestrate\land.go`, "Fix the land title in land.go"},
+		{"a unix path becomes its base name", "", "Fix /home/u/src/land.go, then ship", "Fix land.go, then ship"},
+		{"the first sentence only", "", "Fix it. Then more", "Fix it"},
+		{"a question keeps its mark", "", "Why does it hang? Find out", "Why does it hang?"},
+		{"a long goal is cut at a word", "", long, "fix the orchestrator findings fix the orchestrator findings fix the…"},
+		{"a long title is cut at a word", long, "", "fix the orchestrator findings fix the orchestrator findings fix the…"},
+		{"one long token is clipped", "", strings.Repeat("x", 100), strings.Repeat("x", 71) + "…"},
 		{"nothing to go on", "", "", "Land run r-1"},
 	}
 	for _, c := range cases {

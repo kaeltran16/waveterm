@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -22,46 +23,74 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
-func TestIsVerifCommand(t *testing.T) {
+func TestVerifChecks(t *testing.T) {
+	nodeEdit := "cd \"C:/w\" && node -e '\nconst fs=require(\"fs\");const p=\"scripts/cdp/final-verify.test.mjs\";\nfs.writeFileSync(p,s);' && sed -n 209p scripts/cdp/final-verify.test.mjs; npx vitest run scripts/cdp/final-verify.test.mjs 2>&1 | tail -25"
+	mutate := `cp scripts/cdp/final-verify.mjs "$TMP/fv.bak" && sed -i 's|a|b|' scripts/cdp/final-verify.mjs && npx vitest run scripts/cdp/final-verify.test.mjs -t "one after the other" 2>&1 | head -20; cp "$TMP/fv.bak" scripts/cdp/final-verify.mjs`
+	heredoc := "node - <<'EOF'\nconst x = 1;\ngo test ./pkg/fake/\nEOF\nnpx vitest run a.test.ts"
 	cases := []struct {
 		cmd  string
-		want bool
+		want []string
 	}{
 		// runner-led invocations classify; prose that merely mentions a test/build word does not
-		{"pnpm test coupons", true},
-		{"pnpm typecheck", true},
-		{"npm run lint", true},
-		{"go test ./...", true},
-		{"npm test", true},
-		{"vitest run", true},
-		{"pytest -q", true},
-		{"npx tsc --noEmit", true},
-		{"pnpm build", true},
-		{"echo hi && pnpm test", true},
-		{"ls -la", false},
-		{"git commit -m \"test: add auth\"", false},
-		{"echo build it", false},
-		{"git diff --stat", false},
-		{"git commit -m \"build: bump deps\"", false},
+		{"pnpm test coupons", []string{"pnpm test coupons"}},
+		{"pnpm typecheck", []string{"pnpm typecheck"}},
+		{"npm run lint", []string{"npm run lint"}},
+		{"go test ./...", []string{"go test ./..."}},
+		{"vitest run", []string{"vitest run"}},
+		{"pytest -q", []string{"pytest -q"}},
+		{"npx tsc --noEmit", []string{"npx tsc --noEmit"}},
+		{"pnpm build", []string{"pnpm build"}},
+		{"echo hi && pnpm test", []string{"pnpm test"}},
+		{"ls -la", nil},
+		{`git commit -m "test: add auth"`, nil},
+		{"echo build it", nil},
+		{"git diff --stat", nil},
+		{`git commit -m "build: bump deps"`, nil},
 		// finding 21's four commands
-		{`grep -rn "landing" frontend --include=*.ts | grep -iv "^.*test" | head -20; grep -rln "landing" pkg --include=*.go`, false},
-		{"go test ./pkg/jarvis/ -run EffectiveLanding 2>&1 | tail -3; go test ./pkg/orchestrate/ 2>&1 | tail -3", true},
-		{"git diff frontend/types/gotypes.d.ts && go test ./pkg/jarvis/ 2>&1 | tail -30", true},
-		{"sed -i '599s/a/b/' pkg/waveobj/wtype.go && task generate && go build ./... && go vet ./pkg/...", true},
-		// a runner behind env, a cd, a path, or .exe
-		{"CGO_ENABLED=0 GOOS=linux go test ./pkg/...", true},
-		{`cd "C:/work/tree" && npm test`, true},
-		{`C:\Go\bin\go.exe test ./...`, true},
-		{"./node_modules/.bin/vitest run", true},
-		{"node --stack-size=4000 node_modules/typescript/lib/tsc.js --noEmit", true},
+		{`grep -rn "landing" frontend --include=*.ts | grep -iv "^.*test" | head -20; grep -rln "landing" pkg --include=*.go`, nil},
+		{"go test ./pkg/jarvis/ -run EffectiveLanding 2>&1 | tail -3; go test ./pkg/orchestrate/ 2>&1 | tail -3", []string{"go test ./pkg/jarvis/ -run EffectiveLanding 2>&1", "go test ./pkg/orchestrate/ 2>&1"}},
+		{"git diff frontend/types/gotypes.d.ts && go test ./pkg/jarvis/ 2>&1 | tail -30", []string{"go test ./pkg/jarvis/ 2>&1"}},
+		{"sed -i '599s/a/b/' pkg/waveobj/wtype.go && task generate && go build ./... && go vet ./pkg/...", []string{"go build ./...", "go vet ./pkg/..."}},
+		// run 2993e463's lead: an edit, then a test
+		{nodeEdit, []string{"npx vitest run scripts/cdp/final-verify.test.mjs 2>&1"}},
+		{mutate, []string{`npx vitest run scripts/cdp/final-verify.test.mjs -t "one after the other" 2>&1`}},
+		{heredoc, []string{"npx vitest run a.test.ts"}},
+		// inline scripts are edits or probes
+		{`node -e 'require("fs").writeFileSync("a.test.ts", "")'`, nil},
+		{`python -c "import pytest"`, nil},
+		// checks by name
+		{"go vet ./pkg/...", []string{"go vet ./pkg/..."}},
+		{"task check:ts", []string{"task check:ts"}},
+		{"npx prettier --check a.ts", []string{"npx prettier --check a.ts"}},
+		{"git checkout main", nil},
+		// a runner behind env (quoted too), a cd, a path, or .exe
+		{"CGO_ENABLED=0 GOOS=linux go test ./pkg/...", []string{"CGO_ENABLED=0 GOOS=linux go test ./pkg/..."}},
+		{`CGO_ENABLED=1 CC="zig cc -target x86_64-windows-gnu" go test ./pkg/orchestrate/ -count=1`, []string{`CGO_ENABLED=1 CC="zig cc -target x86_64-windows-gnu" go test ./pkg/orchestrate/ -count=1`}},
+		{`cd "C:/work/tree" && npm test`, []string{"npm test"}},
+		{`C:\Go\bin\go.exe test ./...`, []string{`C:\Go\bin\go.exe test ./...`}},
+		{"./node_modules/.bin/vitest run", []string{"./node_modules/.bin/vitest run"}},
+		{"node --stack-size=4000 node_modules/typescript/lib/tsc.js --noEmit", []string{"node --stack-size=4000 node_modules/typescript/lib/tsc.js --noEmit"}},
 		// an edit or a search alone is not a check
-		{"sed -i 's/test/spec/' pkg/x_test.go", false},
-		{"rg -n 'go test' docs", false},
+		{"sed -i 's/test/spec/' pkg/x_test.go", nil},
+		{"rg -n 'go test' docs", nil},
 	}
 	for _, c := range cases {
-		if got := isVerifCommand(c.cmd); got != c.want {
-			t.Errorf("isVerifCommand(%q) = %v, want %v", c.cmd, got, c.want)
+		if got := verifChecks(c.cmd); !slices.Equal(got, c.want) {
+			t.Errorf("verifChecks(%q) = %q, want %q", c.cmd, got, c.want)
 		}
+	}
+}
+
+func TestTranscriptSealsOnlyTheCheckAfterAnEdit(t *testing.T) {
+	acc := newVerifAccum()
+	acc.addTranscript([]string{
+		verifToolUseLine("b1", `node -e 'require("fs").writeFileSync("a.ts", "x")' && npx vitest run a.test.ts 2>&1 | tail -5`),
+		verifResultLine("b1", false, "Tests  1 failed"),
+		verifToolUseLine("b2", `sed -i 's/x/y/' a.ts && npx vitest run a.test.ts 2>&1 | tail -5`),
+		verifResultLine("b2", false, "Tests  1 passed"),
+	})
+	if len(acc.out) != 1 || acc.out[0].Cmd != "npx vitest run a.test.ts 2>&1" || acc.out[0].Detail != "Tests  1 passed" {
+		t.Fatalf("got %+v, want one line holding only the test and its last result", acc.out)
 	}
 }
 
