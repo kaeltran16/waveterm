@@ -13,7 +13,9 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -99,6 +101,120 @@ func stubMerge(t *testing.T, fn func(ctx context.Context, projectPath, runID, go
 	}
 	t.Cleanup(func() { mergeWorktree = old })
 	return &calls
+}
+
+// c84aa179: the tree's removal held the dag lock 22-39 s, and every exit it caused waited on that lock
+func TestMergeRemovesTheTreeWithoutHoldingTheDagLock(t *testing.T) {
+	f := newMergeFixture(t, []waveobj.TaskNode{{ID: "t-0", Label: "first"}})
+	f.finish(t, "t-0")
+	stubMerge(t, func(context.Context, string, string, string) (string, error) { return "sha-1", nil })
+	entered, release := make(chan struct{}), make(chan struct{})
+	stubCleanupRemover(t, func(context.Context, string, string) error {
+		close(entered)
+		<-release
+		return nil
+	})
+	stubStopRunWorkers(t)
+	done := make(chan error, 1)
+	go func() { done <- MergeTask(f.ctx, f.channel, f.ownerID, "t-0") }()
+	<-entered
+	ran, err := TryWithDagMutation(f.dagID, func() error { return nil })
+	close(release)
+	if err != nil || !ran {
+		t.Fatalf("the dag lock was held while the tree was removed (ran=%v err=%v)", ran, err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if task := f.dag(t).Tasks[0]; task.CleanupPending || task.CleanupError != "" || !task.Merged {
+		t.Fatalf("after removal: merged %v pending %v error %q", task.Merged, task.CleanupPending, task.CleanupError)
+	}
+}
+
+// a merge RPC whose client gave up still finishes the removal it started
+func TestRemovalFinishesAfterTheMergeCallerCancels(t *testing.T) {
+	f := newMergeFixture(t, []waveobj.TaskNode{{ID: "t-0", Label: "first"}})
+	f.finish(t, "t-0")
+	stubMerge(t, func(context.Context, string, string, string) (string, error) { return "sha-1", nil })
+	stubStopRunWorkers(t)
+	caller, cancel := context.WithCancel(f.ctx)
+	entered, release := make(chan struct{}), make(chan struct{})
+	stubCleanupRemover(t, func(ctx context.Context, _, _ string) error {
+		close(entered)
+		<-release
+		return ctx.Err() // a removal on the caller's context would fail here
+	})
+	done := make(chan error, 1)
+	go func() { done <- MergeTask(caller, f.channel, f.ownerID, "t-0") }()
+	<-entered
+	cancel()
+	close(release)
+	<-done
+	if task := f.dag(t).Tasks[0]; task.CleanupPending || task.CleanupError != "" {
+		t.Fatalf("the removal failed with its caller: pending %v error %q", task.CleanupPending, task.CleanupError)
+	}
+}
+
+// c84aa179: an outcome that arrives while a merge's tree is being removed is recorded, not timed out
+func TestAChildOutcomeLandsWhileAMergesTreeIsRemoved(t *testing.T) {
+	f := newMergeFixture(t, []waveobj.TaskNode{{ID: "t-0", Label: "first"}, {ID: "t-1", Label: "second"}})
+	allowWorkerHarnessForTest(t)
+	oldSpawn := spawnWorker
+	spawnWorker = func(context.Context, runroute.Capability, string, string, string, string, jarvis.RunWorkerOptions) (string, error) {
+		tabID, blockID := uuid.NewString(), uuid.NewString()
+		worker := waveobj.MakeORef(waveobj.OType_Tab, tabID).String()
+		if err := wstore.DBInsert(f.ctx, &waveobj.Tab{OID: tabID, BlockIds: []string{blockID}, Meta: waveobj.MetaMapType{}}); err != nil {
+			return "", err
+		}
+		if err := wstore.DBInsert(f.ctx, &waveobj.Block{OID: blockID, ParentORef: worker, Meta: waveobj.MetaMapType{}}); err != nil {
+			return "", err
+		}
+		return worker, nil
+	}
+	t.Cleanup(func() { spawnWorker = oldSpawn })
+	if err := Schedule(f.ctx, f.dagID); err != nil {
+		t.Fatal(err)
+	}
+	// t-1's worker: its child run's roster names it
+	run, err := wstore.GetRun(f.ctx, f.channel, f.dag(t).Tasks[1].RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	worker := run.Phases[jarvis.RunningPhaseIndex(*run)].WorkerOrefs[0]
+	f.finish(t, "t-0")
+	stubMerge(t, func(context.Context, string, string, string) (string, error) { return "sha-1", nil })
+	stubStopRunWorkers(t)
+	entered, release := make(chan struct{}), make(chan struct{})
+	stubCleanupRemover(t, func(context.Context, string, string) error {
+		close(entered)
+		<-release
+		return nil
+	})
+	merged := make(chan error, 1)
+	go func() { merged <- MergeTask(f.ctx, f.channel, f.ownerID, "t-0") }()
+	<-entered
+	outcome := make(chan error, 1)
+	go func() {
+		// the exit's real deadline, so this fails only if the removal holds the lock, whether or not Task 2 landed
+		exitCtx, cancel := context.WithTimeout(f.ctx, 10*time.Second)
+		defer cancel()
+		outcome <- HandleChildOutcome(exitCtx, worker, jarvis.OutcomeData{Status: "failed", Summary: "tool call errored: invalid input", ExitCode: 2})
+	}()
+	select {
+	case err := <-outcome:
+		if err != nil {
+			t.Fatalf("outcome lost while the tree was removed: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the outcome waited on the tree's removal")
+	}
+	close(release)
+	if err := <-merged; err != nil {
+		t.Fatal(err)
+	}
+	if task := f.dag(t).Tasks[1]; task.Attempts != 1 {
+		t.Fatalf("t-1's failure not recorded: attempts %d", task.Attempts)
+	}
 }
 
 func stubSpawn(t *testing.T, spawned *[]string) {

@@ -5,12 +5,15 @@ package orchestrate
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/wavetermdev/waveterm/pkg/jarvis"
+	"github.com/wavetermdev/waveterm/pkg/util/keyedmutex"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
@@ -159,59 +162,111 @@ func cleanupProjectPath(ctx context.Context, g *waveobj.TaskGroup) (string, erro
 	return ch.ProjectPath, nil
 }
 
-// RetryPendingCleanup runs the idempotent helper over every task carrying cleanup debt, in DAG
-// order, and returns the first cleanup error it hits. Tasks whose retry succeeds are cleared
-// (including ones that failed before); tasks over the attempt cap are left alone. The caller
-// persists the group and publishes.
-func RetryPendingCleanup(ctx context.Context, g *waveobj.TaskGroup) error {
-	var firstErr error
-	for _, task := range PendingCleanupTasks(g) {
-		if cleanupGivenUp(task) {
-			continue
-		}
-		if err := CleanupTaskWorktree(ctx, g, task.ID); err != nil && firstErr == nil {
-			firstErr = err
-		}
+// treeRemovals serializes removals of one tree. The merge path, the tick's debt retry, cancel and retry-cleanup
+// can each reach the same tree, and none of them holds the dag lock while it removes.
+var treeRemovals = keyedmutex.New()
+
+// removeTaskTree removes one task's tree and records the result. The caller must not hold the dag lock: reaping
+// and removing take tens of seconds on Windows, and each worker the reap stops exits into HandleChildOutcome,
+// which takes that lock. wait=false skips a tree another caller is removing.
+func removeTaskTree(ctx context.Context, dagID, taskID string, wait bool) error {
+	g, err := wstore.GetDag(ctx, dagID)
+	if err != nil {
+		return fmt.Errorf("loading dag: %w", err)
 	}
-	return firstErr
+	task := taskByID(g, taskID)
+	if task == nil {
+		return fmt.Errorf("no task %q", taskID)
+	}
+	if !task.CleanupPending && task.CleanupError == "" {
+		return nil
+	}
+	project, err := cleanupProjectPath(ctx, g)
+	if err != nil {
+		// counted like a failed removal, so an unresolvable repo still reaches the retry cap
+		task.CleanupPending, task.CleanupError = false, boundedCleanupError(err)
+		task.CleanupAttempts++
+		return errors.Join(err, withDagMutation(dagID, func() error { return persistTaskCleanupLocked(ctx, dagID, task) }))
+	}
+	tree := worktreeDir(project, LaneWorktreeKey(g, taskID))
+	if wait {
+		treeRemovals.Lock(tree)
+	} else if !treeRemovals.TryLock(tree) {
+		return nil
+	}
+	defer treeRemovals.Unlock(tree)
+	// re-read under the tree lock: a removal that finished while this one waited leaves no debt
+	if g, err = wstore.GetDag(ctx, dagID); err != nil {
+		return fmt.Errorf("loading dag: %w", err)
+	}
+	if task = taskByID(g, taskID); task == nil {
+		return fmt.Errorf("no task %q", taskID)
+	}
+	if !task.CleanupPending && task.CleanupError == "" {
+		return nil
+	}
+	cleanupErr := CleanupTaskWorktree(ctx, g, taskID)
+	if err := withDagMutation(dagID, func() error { return persistTaskCleanupLocked(ctx, dagID, task) }); err != nil {
+		return errors.Join(cleanupErr, err)
+	}
+	if cleanupErr != nil {
+		appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskCleanupFailed, nil, map[string]any{"taskid": taskID, "error": cleanupErr.Error()})
+		return cleanupErr
+	}
+	appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskCleanupCompleted, nil, map[string]any{"taskid": taskID})
+	if !task.Merged || task.RunID == "" {
+		return nil
+	}
+	child, err := wstore.GetRun(ctx, g.ChannelId, task.RunID)
+	if err != nil {
+		return fmt.Errorf("loading child run: %w", err)
+	}
+	return jarvis.SealEvidence(ctx, child)
 }
 
-// PersistCleanupState copies only cleanup fields onto the current stored DAG, recomputes status,
-// then publishes the committed version. Callers can safely persist a stale cleanup snapshot without
-// overwriting unrelated scheduler mutations.
-func PersistCleanupState(ctx context.Context, g *waveobj.TaskGroup) error {
-	type cleanupState struct {
-		pending  bool
-		err      string
-		attempts int
-	}
-	states := make(map[string]cleanupState, len(g.Tasks))
-	for i := range g.Tasks {
-		states[g.Tasks[i].ID] = cleanupState{pending: g.Tasks[i].CleanupPending, err: g.Tasks[i].CleanupError, attempts: g.Tasks[i].CleanupAttempts}
-	}
-	if err := wstore.UpdateDag(ctx, g.OID, func(cur *waveobj.TaskGroup) error {
-		for i := range cur.Tasks {
-			state, ok := states[cur.Tasks[i].ID]
-			if !ok {
-				continue
-			}
-			cur.Tasks[i].CleanupPending = state.pending
-			cur.Tasks[i].CleanupError = state.err
-			cur.Tasks[i].CleanupAttempts = state.attempts
+// persistTaskCleanupLocked writes one task's cleanup fields onto the stored dag, leaving every other task's as
+// stored. The caller holds the dag lock.
+func persistTaskCleanupLocked(ctx context.Context, dagID string, done *waveobj.TaskNode) error {
+	if err := wstore.UpdateDag(ctx, dagID, func(cur *waveobj.TaskGroup) error {
+		t := taskByID(cur, done.ID)
+		if t == nil {
+			return fmt.Errorf("no task %q", done.ID)
 		}
+		t.CleanupPending, t.CleanupError, t.CleanupAttempts = done.CleanupPending, done.CleanupError, done.CleanupAttempts
 		RecomputeDagStatus(cur)
 		cur.UpdatedTs = time.Now().UnixMilli()
 		return nil
 	}); err != nil {
 		return err
 	}
-	fresh, err := wstore.GetDag(ctx, g.OID)
-	if err != nil {
-		return err
-	}
-	*g = *fresh
-	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, g.OID))
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, dagID))
 	return nil
+}
+
+// RetryCleanupDebt retries every tree still owed a removal, under the retry cap. A stuck tree never blocks
+// scheduling, and a tree another caller is removing is skipped, not waited on.
+func RetryCleanupDebt(ctx context.Context, dagID string) {
+	g, err := wstore.GetDag(ctx, dagID)
+	if err != nil {
+		return
+	}
+	retryCleanupDebt(ctx, g)
+}
+
+// retryCleanupDebt retries the debt g records. A snapshot taken before a cancel lists only merged tasks, so it
+// never reaches a tree whose uncommitted work the cancel has yet to dump.
+func retryCleanupDebt(ctx context.Context, g *waveobj.TaskGroup) {
+	if !HasCleanupDebt(g) {
+		return
+	}
+	for _, task := range PendingCleanupTasks(g) {
+		if cleanupGivenUp(task) {
+			continue
+		}
+		if err := removeTaskTree(ctx, g.OID, task.ID, false); err != nil {
+			log.Printf("dag %s task %s: retrying cleanup: %v", g.OID, task.ID, err)
+		}
+	}
 }
 
 // RetryCleanup is the human's retry-cleanup: it gives a task's stuck worktree a fresh set of attempts and tries
@@ -219,7 +274,7 @@ func PersistCleanupState(ctx context.Context, g *waveobj.TaskGroup) error {
 // so without this a tree freed later (an editor closed, a shell exited) stays debt until the dag is cancelled.
 // A cancelled dag is allowed: cancelling is what queued its trees.
 func RetryCleanup(ctx context.Context, dagID, taskID string) error {
-	return withDagMutation(dagID, func() error {
+	if err := withDagMutation(dagID, func() error {
 		g, err := wstore.GetDag(ctx, dagID)
 		if err != nil {
 			return fmt.Errorf("loading dag: %w", err)
@@ -232,17 +287,15 @@ func RetryCleanup(ctx context.Context, dagID, taskID string) error {
 			return fmt.Errorf("task %s has no worktree left to clean up", taskID)
 		}
 		task.CleanupAttempts = 0
-		cleanupErr := CleanupTaskWorktree(ctx, g, taskID)
-		if err := PersistCleanupState(ctx, g); err != nil {
-			return err
-		}
-		if cleanupErr != nil {
-			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskCleanupFailed, nil, map[string]any{"taskid": taskID, "error": cleanupErr.Error()})
-			return fmt.Errorf("task %s's worktree still could not be removed: %w", taskID, cleanupErr)
-		}
-		appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskCleanupCompleted, nil, map[string]any{"taskid": taskID})
-		return nil
-	})
+		return persistTaskCleanupLocked(ctx, dagID, task)
+	}); err != nil {
+		return err
+	}
+	// after the lock, and outliving the RPC that asked: removal takes tens of seconds
+	if err := removeTaskTree(context.WithoutCancel(ctx), dagID, taskID, true); err != nil {
+		return fmt.Errorf("task %s's worktree still could not be removed: %w", taskID, err)
+	}
+	return nil
 }
 
 func boundedCleanupError(err error) string {

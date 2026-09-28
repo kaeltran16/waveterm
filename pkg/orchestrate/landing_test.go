@@ -131,7 +131,7 @@ func TestVerifyRunsUnscopedWhenTheMergeCannotBeListed(t *testing.T) {
 		t.Fatal(err)
 	}
 	await()
-	got := calls.list()
+	got := calls.in(f.project)
 	// set empty, not left out, so a value in the server's own environment cannot scope it
 	if len(got) != 1 || !slices.Contains(got[0].env, verifyChangedEnv+"=") {
 		t.Fatalf("want one unscoped Verify, got %+v", got)

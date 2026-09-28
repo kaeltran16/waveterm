@@ -59,6 +59,8 @@ have said so dropped it. The lead caught it by its own diligence, and a human ha
 | 45 | Each `dag submit` snapshots the spec and plan: a resubmit adds a second identical commit, its subject ending "Implementation Plan" | low | fixed |
 | 46 | Landed runs' `wave/<runId>` branches are not deleted: 4 merged ones remain | low | fixed |
 | 47 | A Check killed from outside holds the land as a failure, with a raw exit code as the reason (c84aa179: `exit 1073807364`) | low | fixed |
+| 48 | A merge Verify fails on an unprepared landing tree: no plan Setup line, so no tree is prepared (c84aa179 t-1) | medium | fixed: a project default Setup in `.arc/setup` |
+| 49 | A child's outcome times out behind a merge's cleanup, which holds the dag lock 22-39 s (c84aa179) | medium | fixed: removal outside the lock; outcomes detached from the exit deadline |
 
 **Run under observation:** `b2d7fab1-00de-4fbb-b04d-9754d6248b45`, an orchestrator run with a goal, not a
 plan file. Lead and workers are `claude` / `claude-opus-5-5`, base `6dd1600`, started 09:33 in prod Arc
@@ -1384,14 +1386,14 @@ Live check: run c84aa179 (dag 44b3e104), 2026-09-27, on the installed Arc. Its `
 
 Also seen in this run:
 
-- **Verify failed on an unprepared landing tree.** t-1's merge Verify failed at 02:13:26. The lead's
+- **Verify failed on an unprepared landing tree (48).** t-1's merge Verify failed at 02:13:26. The lead's
   landing tree (`.waveterm/worktrees/<run>`) had no `node_modules`, so `scripts/verify.mjs` could not load
   `node_modules/typescript/lib/tsc.js`; tsc ran because t-1 regenerated `wshclientapi.ts`. The Go tests had
   passed, and t-2's Verify passed earlier because t-2 touched no TypeScript. The lead ran
   `node scripts/worktree-junctions.mjs prepare` in the tree and `dag merge t-1 --continue` 30 s after the
-  wake, and the re-run passed at 02:17:23. The plan had no Setup line (`setupms` 0 on every spawn). Not
-  checked: whether a Setup line would have prepared the landing tree.
-- **Outcome lookup timed out during cleanup.** While a merge's worktree cleanup held the dag (39 s for t-2,
+  wake, and the re-run passed at 02:17:23. The plan had no Setup line (`setupms` 0 on every spawn). A Setup
+  line would have prepared it: `DagSubmitCommand` runs the plan's Setup in the landing tree at the first submit.
+- **Outcome lookup timed out during cleanup (49).** While a merge's worktree cleanup held the dag (39 s for t-2,
   22 s for t-1), four finished sessions' exits (two at each time) logged `loading dag for child outcome: context deadline
   exceeded` and `outcome not posted` (`waveapp.log`, 02:07:43 and 02:10:38). The tasks still reached done,
   so there was no visible harm in this run.
@@ -1461,3 +1463,10 @@ Also seen in this run:
 | 46 | `RemoveRunWorktree` deletes the branch even when the directory's delete fails: git has unregistered the tree by then, so the branch is free, and git still refuses a branch a registered tree has checked out. A branch delete that fails after a clean removal is logged instead of dropped. A land whose removal fails retries it in the background every 10 s for about five minutes, until the lead's exit lets go of the directory. `isWorktreeRegistered` also matched the backslash path against git's forward-slash listing, so on Windows it never found a tree; it now compares each listed path as a path. | `TestRemoveRunWorktreeDeletesTheBranchOfAHeldDir`, `TestLandRemovesALandingTreeItsLeadHeldOnceItLetsGo` (both Windows), `TestIsWorktreeRegisteredFindsARegisteredTree` |
 | 45 | `SnapshotDocs` amends the run's earlier snapshot when HEAD is that commit (its subject and `Arc-Run` line) and no branch but `wave/<runId>` holds it, which is the resubmit after a failed plan review. Once a lane has been cut from it, a new snapshot is a commit of its own. The subject drops " Implementation Plan" through `changeTitle`, which `landTitle` now shares. Lanes read the landing tree's head at spawn, so none is cut from the replaced commit. | `TestSnapshotDocsRevisesTheSnapshotNoLaneHasCut`, `TestSnapshotDocsKeepsASnapshotALaneWasCutFrom`, `TestSnapshotDocsKeepsAHeadThatIsNotThisRunsSnapshot`, `TestSnapshotDocsSubjectDropsThePlanTemplateSuffix` |
 | 47 | A plan command whose exit status shows something outside ended it (a POSIX signal, or Windows `0x40010004` or `0xC000013A`) reports `killed from outside (exit 0x40010004)` instead of a raw exit code, wherever its reason shows. A land whose Check or Verify was killed holds with "did not finish … `wsh runs land <id>` runs it again" instead of "failed". It does not retry by itself: what killed it may kill it again. | `TestKilledFromOutsideNamesAForcedExit`, `TestLandReverifiesCommitsAfterTheFinalStage` (a Check killed from outside) |
+
+## Fixes: run c84aa179
+
+| # | Fix | Test |
+|---|---|---|
+| 48 | Every tree the engine makes is prepared only by Setup, and c84aa179's plan had none. `ProjectSetup` reads a checked-in `.arc/setup` (`ProjectSetupFile`): one command, with lines trimmed and blank ones ignored; more than one is refused with `.arc/setup must hold one command, found N lines`, and a missing file is no default. `DagSubmitCommand` takes it into the plan when the plan names no Setup, so the landing tree runs it at submit, and worker, bisect, base-check and final trees run it from `g.Setup`. A plan's own line wins. This repo's is `node scripts/worktree-junctions.mjs prepare`. | `TestProjectSetupReadsTheCheckedInDefault`, `TestDagSubmitRunsSetupInTheLandingTree` (three new cases: a plan with no Setup line runs the project's default, the plan's Setup line wins, a malformed default fails the submit) |
+| 49 | `FinishMergedTask` reaped the lane's workers and removed the tree under the dag lock (22-39 s). Each reaped worker's exit ran `HandleChildOutcome` on `OnWorkerExit`'s 10 s context, which expired while it waited on that lock, and the channel lookup after it failed on the same context. Removal now runs outside the lock in `removeTaskTree`, one tree at a time under `treeRemovals`, re-reading the task under the tree lock so a finished removal is not repeated, and recorded per task by `persistTaskCleanupLocked`, so one tree's result never reverts another's. `FinishMergedTask` only stamps the merge. The merge, the batch (after the claim passes to its Verify), `--continue`, the tick's retry (`Schedule`, before the lock, skipping a tree in flight and a cancelled dag), retry-cleanup and cancel paths all use it, on `context.WithoutCancel`, so a removal outlives the RPC that started it; the startup sweep calls `RetryCleanupDebt`. `HandleChildOutcome` runs on `context.WithoutCancel`, and `OnWorkerExit` resolves the dispatch channel before the hook. | `TestMergeRemovesTheTreeWithoutHoldingTheDagLock`, `TestAChildOutcomeLandsWhileAMergesTreeIsRemoved`, `TestTheTickSkipsATreeAnotherCallerIsRemoving`, `TestRemovingOneTreeKeepsAnotherTreesRecordedResult`, `TestRemovalFinishesAfterTheMergeCallerCancels`, `TestHandleChildOutcomeOutlivesTheExitDeadline`, `TestOnWorkerExitPostsTheOutcomeWhenTheHookOutlivesTheDeadline` |

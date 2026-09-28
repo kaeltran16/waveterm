@@ -6,6 +6,7 @@ package orchestrate
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -41,6 +42,18 @@ func (p *planCalls) list() []planCall {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return append([]planCall(nil), p.calls...)
+}
+
+// in lists the calls run in dir. Once every task lands the final stage runs the plan's Verify again in its own
+// tree, and a test that waited on the merge's removal can see it.
+func (p *planCalls) in(dir string) []planCall {
+	var out []planCall
+	for _, c := range p.list() {
+		if filepath.Clean(c.dir) == filepath.Clean(dir) {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 func stubPlanCommand(t *testing.T, fn func(ctx context.Context, dir, command string) error) *planCalls {

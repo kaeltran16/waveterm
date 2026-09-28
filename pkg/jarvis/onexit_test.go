@@ -7,9 +7,11 @@ import (
 	"bytes"
 	"context"
 	"log"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/agentsessions"
@@ -152,5 +154,67 @@ func TestOnWorkerExitReportsALeadExitBeforeTheTranscriptParses(t *testing.T) {
 
 	if len(got) != 1 || got[0] != tabORef {
 		t.Fatalf("run worker exit hook calls = %v, want [%s]", got, tabORef)
+	}
+}
+
+// seedDispatchedWorker seeds a claude worker tab whose block stamps a finished transcript, dispatched from a
+// channel, and returns the block and channel ids.
+func seedDispatchedWorker(t *testing.T) (string, string) {
+	t.Helper()
+	ctx := context.Background()
+	tpath := filepath.Join(t.TempDir(), "session.jsonl")
+	transcript := `{"type":"user","cwd":"/repo","message":{"content":"do the thing"}}` + "\n" +
+		`{"type":"assistant","message":{"model":"claude-opus","content":[{"type":"text","text":"done."}]}}` + "\n"
+	if err := os.WriteFile(tpath, []byte(transcript), 0o644); err != nil {
+		t.Fatalf("write transcript: %v", err)
+	}
+	tabOID, blockOID := uuid.NewString(), uuid.NewString()
+	worker := waveobj.MakeORef(waveobj.OType_Tab, tabOID).String()
+	if err := wstore.DBInsert(ctx, &waveobj.Tab{OID: tabOID, BlockIds: []string{blockOID}, Meta: waveobj.MetaMapType{"session:agent": "claude"}}); err != nil {
+		t.Fatalf("seed tab: %v", err)
+	}
+	if err := wstore.DBInsert(ctx, &waveobj.Block{OID: blockOID, ParentORef: worker, Meta: waveobj.MetaMapType{waveobj.MetaKey_AgentTranscriptPath: tpath}}); err != nil {
+		t.Fatalf("seed block: %v", err)
+	}
+	ch, err := wstore.CreateChannel(ctx, "onexit-dispatch", "/p")
+	if err != nil {
+		t.Fatalf("create channel: %v", err)
+	}
+	if _, err := wstore.PostChannelMessage(ctx, ch.OID, wstore.NewChannelMessage("dispatch", "claude", "do the thing", worker, 10)); err != nil {
+		t.Fatalf("post dispatch: %v", err)
+	}
+	return blockOID, ch.OID
+}
+
+func channelHasOutcome(t *testing.T, channelOID string) bool {
+	t.Helper()
+	ch, err := wstore.DBMustGet[*waveobj.Channel](context.Background(), channelOID)
+	if err != nil {
+		t.Fatalf("load channel: %v", err)
+	}
+	for _, m := range ch.Messages {
+		if m.Kind == "outcome" {
+			return true
+		}
+	}
+	return false
+}
+
+func TestOnWorkerExitPostsTheOutcomeWhenTheHookOutlivesTheDeadline(t *testing.T) {
+	blockOID, channelOID := seedDispatchedWorker(t)
+	oldTimeout := exitReadTimeout
+	exitReadTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { exitReadTimeout = oldTimeout })
+	oldHook := ChildOutcomeHook
+	t.Cleanup(func() { ChildOutcomeHook = oldHook })
+	ChildOutcomeHook = func(context.Context, string, OutcomeData) error {
+		time.Sleep(4 * exitReadTimeout) // a dag lock held past the exit's deadline
+		return nil
+	}
+
+	OnWorkerExit(blockOID, 0)
+
+	if !channelHasOutcome(t, channelOID) {
+		t.Fatal("the outcome was not posted to the dispatch channel")
 	}
 }

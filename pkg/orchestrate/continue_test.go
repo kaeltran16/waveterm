@@ -83,8 +83,8 @@ func TestContinueAfterConflictRunsVerify(t *testing.T) {
 	await()
 
 	task := f.dag(t).Tasks[0]
-	if !task.Merged || task.State != TaskState_Done || len(calls.list()) != 1 {
-		t.Fatalf("a continued merge is verified like any other, got merged=%v %s with %d runs", task.Merged, task.State, len(calls.list()))
+	if !task.Merged || task.State != TaskState_Done || len(calls.in(f.project)) != 1 {
+		t.Fatalf("a continued merge is verified like any other, got merged=%v %s with %d runs", task.Merged, task.State, len(calls.in(f.project)))
 	}
 }
 

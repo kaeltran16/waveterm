@@ -8,8 +8,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -160,6 +162,34 @@ var runPlanCommand = execPlanCommandEnv
 // RunSetup runs a plan's Setup command in dir under SetupTimeout and returns its output tail.
 func RunSetup(ctx context.Context, dir, command string) (string, error) {
 	return runPlanCommand(ctx, dir, command, nil, SetupTimeout, nil)
+}
+
+// ProjectSetupFile is where a project checks in its default Setup: the command every tree the engine makes runs
+// when the plan names none, so a lead that leaves Setup out still gets prepared trees.
+const ProjectSetupFile = ".arc/setup"
+
+// ProjectSetup reads dir's default Setup command. No file is no default.
+func ProjectSetup(dir string) (string, error) {
+	b, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(ProjectSetupFile)))
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("reading %s: %w", ProjectSetupFile, err)
+	}
+	var lines []string
+	for _, line := range strings.Split(string(b), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			lines = append(lines, line)
+		}
+	}
+	if len(lines) > 1 {
+		return "", fmt.Errorf("%s must hold one command, found %d lines", ProjectSetupFile, len(lines))
+	}
+	if len(lines) == 0 {
+		return "", nil
+	}
+	return lines[0], nil
 }
 
 func execPlanCommandEnv(ctx context.Context, dir, command string, env []string, timeout time.Duration, progress planProgress) (string, error) {

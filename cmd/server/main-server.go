@@ -132,12 +132,8 @@ func retryCleanupDebtAtStartup() {
 		return
 	}
 	for _, g := range groups {
-		if err := orchestrate.RetryPendingCleanup(ctx, g); err != nil {
-			log.Printf("startup cleanup retry for dag %s: %v\n", g.ID, err)
-		}
-		if err := orchestrate.PersistCleanupState(ctx, g); err != nil {
-			log.Printf("error persisting cleanup retry for dag %s: %v\n", g.ID, err)
-		}
+		// records and logs its own results
+		orchestrate.RetryCleanupDebt(ctx, g.OID)
 	}
 }
 

@@ -7,10 +7,44 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestProjectSetupReadsTheCheckedInDefault(t *testing.T) {
+	write := func(t *testing.T, body string) string {
+		t.Helper()
+		dir := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(dir, ".arc"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, ".arc", "setup"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+	t.Run("no file is no default", func(t *testing.T) {
+		got, err := ProjectSetup(t.TempDir())
+		if err != nil || got != "" {
+			t.Fatalf("ProjectSetup = %q, %v; want empty, nil", got, err)
+		}
+	})
+	t.Run("one line, trimmed", func(t *testing.T) {
+		got, err := ProjectSetup(write(t, "\r\n  cmd arg \r\n\r\n"))
+		if err != nil || got != "cmd arg" {
+			t.Fatalf("ProjectSetup = %q, %v; want %q", got, err, "cmd arg")
+		}
+	})
+	t.Run("two commands are refused", func(t *testing.T) {
+		_, err := ProjectSetup(write(t, "a\nb\n"))
+		if err == nil || !strings.Contains(err.Error(), ".arc/setup must hold one command, found 2 lines") {
+			t.Fatalf("err = %v, want the one-command refusal", err)
+		}
+	})
+}
 
 func TestPlanCommandPassesQuotedArgumentsThrough(t *testing.T) {
 	dir := newGitRepo(t)
