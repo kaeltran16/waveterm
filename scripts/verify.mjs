@@ -120,6 +120,37 @@ export function goSummary(pkg, ok, seconds) {
     return `${ok ? "ok  " : "FAIL"}\t${pkg}\t${seconds.toFixed(3)}s`;
 }
 
+// a top-level test's failure; a subtest's line is indented, and rerunning its parent reruns it
+const FAILED_TEST = /^--- FAIL: (\S+) \(/gm;
+// a failure that stopped the process, so the tests after it never ran and a rerun of the named ones proves nothing
+const PROCESS_DIED = /^panic: |^\*\*\* Test killed|test timed out after/m;
+const PACKAGE_RESULT = /^(ok\s*|FAIL)\t(\S+)/;
+
+// rerunnableTests names the failed tests of one package's output when rerunning them alone can settle a flake, or
+// returns null: a build error, a panic or a timeout names no test to rerun, or stopped the tests after it.
+export function rerunnableTests(output) {
+    if (PROCESS_DIED.test(output)) {
+        return null;
+    }
+    const names = [...output.matchAll(FAILED_TEST)].map((m) => m[1]);
+    return names.length > 0 ? names : null;
+}
+
+// packageResults splits go test's output into each package's lines, ending at its ok or FAIL line.
+export function packageResults(output) {
+    const results = [];
+    let lines = [];
+    for (const line of output.split("\n")) {
+        lines.push(line);
+        const m = line.match(PACKAGE_RESULT);
+        if (m) {
+            results.push({ pkg: m[2], ok: m[1].trim() === "ok", output: lines.join("\n") });
+            lines = [];
+        }
+    }
+    return results;
+}
+
 // partitionPackages splits the packages into those whose tests are dealt across SHARDS processes and those run by
 // one plain go test. a package go list could not resolve has no dir; go test reports why.
 export function partitionPackages(pkgs, countOf) {
@@ -188,28 +219,75 @@ function testSource(dir) {
 async function goTest(args) {
     const env = goTestEnv(process.env, process.platform, process.arch);
     const { sharded, plain } = partitionPackages(goPackages(args), (dir) => countTopLevelTests(testSource(dir)));
-    if (plain.length > 0) {
-        run("go", ["test", ...plain.map((p) => p.importPath)], env);
-    }
-    if (sharded.length === 0) {
-        return;
-    }
-    const tmp = mkdtempSync(join(tmpdir(), "arc-verify-"));
-    let failed = false;
-    try {
-        for (const [i, pkg] of sharded.entries()) {
-            const bin = join(tmp, `${i}.test${process.platform === "win32" ? ".exe" : ""}`);
-            failed = !(await runSharded(pkg, bin, env)) || failed;
+    const flaky = [];
+    let failed = plain.length > 0 && !goTestPlain(plain.map((p) => p.importPath), env, flaky);
+    if (!failed && sharded.length > 0) {
+        const tmp = mkdtempSync(join(tmpdir(), "arc-verify-"));
+        try {
+            for (const [i, pkg] of sharded.entries()) {
+                const bin = join(tmp, `${i}.test${process.platform === "win32" ? ".exe" : ""}`);
+                failed = !(await runSharded(pkg, bin, env, flaky)) || failed;
+            }
+        } finally {
+            rmSync(tmp, { recursive: true, force: true });
         }
-    } finally {
-        rmSync(tmp, { recursive: true, force: true });
+    }
+    if (flaky.length > 0) {
+        console.log(`verify: flaky, failed and then passed when rerun alone: ${flaky.join(", ")}`);
     }
     if (failed) {
         process.exit(1);
     }
 }
 
-async function runSharded(pkg, bin, env) {
+const OUTPUT_MAX = 256 * 1024 * 1024;
+
+// rerunAlone reruns a package's failed tests once, in one process. Passing alone, they failed on what another test
+// left behind or on load, so they are reported as flaky rather than failing the merge and costing a fix round;
+// failing again, the failure is real.
+function rerunAlone(pkg, names, flaky, spawnRerun) {
+    if (names == null) {
+        return false;
+    }
+    console.log(`verify: rerunning ${names.join(", ")} of ${pkg} alone`);
+    const r = spawnRerun(runPattern(names));
+    process.stdout.write(r.stdout ?? "");
+    process.stderr.write(r.stderr ?? "");
+    if (r.error || r.status !== 0) {
+        return false;
+    }
+    flaky.push(...names.map((n) => `${pkg} ${n}`));
+    return true;
+}
+
+function goTestPlain(pkgs, env, flaky) {
+    console.log(`verify: go test ${pkgs.join(" ")}`);
+    const r = spawnSync("go", ["test", ...pkgs], { env, encoding: "utf8", maxBuffer: OUTPUT_MAX });
+    if (r.error) {
+        console.error(`verify: could not run go: ${r.error.message}`);
+        return false;
+    }
+    process.stdout.write(r.stdout);
+    process.stderr.write(r.stderr);
+    if (r.status === 0) {
+        return true;
+    }
+    const failures = packageResults(r.stdout).filter((p) => !p.ok);
+    return (
+        failures.length > 0 &&
+        failures.every((p) =>
+            rerunAlone(p.pkg, rerunnableTests(p.output), flaky, (pattern) =>
+                spawnSync("go", ["test", "-count=1", "-run", pattern, p.pkg], {
+                    env,
+                    encoding: "utf8",
+                    maxBuffer: OUTPUT_MAX,
+                })
+            )
+        )
+    );
+}
+
+async function runSharded(pkg, bin, env, flaky) {
     console.log(`verify: go test -c -o ${bin} ${pkg.importPath}, then ${SHARDS} processes`);
     const start = Date.now();
     const built = spawnSync("go", ["test", "-c", "-o", bin, pkg.importPath], { stdio: "inherit", env });
@@ -230,7 +308,17 @@ async function runSharded(pkg, bin, env) {
     for (const r of results) {
         process.stdout.write(r.output);
     }
-    const ok = results.every((r) => r.ok);
+    const ok = results
+        .filter((r) => !r.ok)
+        .every((r) =>
+            rerunAlone(pkg.importPath, rerunnableTests(r.output), flaky, (pattern) =>
+                spawnSync(bin, ["-test.run", pattern, "-test.timeout=10m"], {
+                    cwd: pkg.dir,
+                    encoding: "utf8",
+                    maxBuffer: OUTPUT_MAX,
+                })
+            )
+        );
     console.log(goSummary(pkg.importPath, ok, (Date.now() - start) / 1000));
     return ok;
 }

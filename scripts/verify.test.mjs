@@ -1,7 +1,7 @@
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { SHARDS, SHARD_MIN_TESTS, countTopLevelTests, dealShards, goSummary, goTestEnv, needsGoGraph, partitionPackages, planVerify, readChanged, readChangedFile, runPattern } from "./verify.mjs";
+import { SHARDS, SHARD_MIN_TESTS, countTopLevelTests, dealShards, goSummary, goTestEnv, needsGoGraph, packageResults, partitionPackages, planVerify, readChanged, readChangedFile, rerunnableTests, runPattern } from "./verify.mjs";
 
 const MOD = "github.com/wavetermdev/waveterm";
 const graph = [
@@ -117,6 +117,43 @@ describe("sharding", () => {
         expect(sharded).toEqual([]);
         expect(plain.map((p) => p.importPath)).toEqual(["m/pkg/gone"]);
         expect(seen).toEqual([]);
+    });
+});
+
+describe("rerunning a failure alone", () => {
+    it("names the failed top-level tests, not their subtests", () => {
+        const out = [
+            "--- FAIL: TestABatchOfOneFailsWithoutBisecting (0.41s)",
+            "    verifybisect_test.go:129: today's wake, got []",
+            "--- FAIL: TestTable (0.00s)",
+            "    --- FAIL: TestTable/empty (0.00s)",
+            "FAIL",
+        ].join("\n");
+        expect(rerunnableTests(out)).toEqual(["TestABatchOfOneFailsWithoutBisecting", "TestTable"]);
+    });
+    it("reruns nothing when the process died, since the tests after the failure never ran", () => {
+        expect(rerunnableTests("--- FAIL: TestA (0.00s)\npanic: runtime error [recovered]\nFAIL")).toBeNull();
+        expect(rerunnableTests("panic: test timed out after 10m0s\nrunning tests:\n\tTestA (10m0s)")).toBeNull();
+    });
+    it("reruns nothing for a failure with no failed test, such as a build error", () => {
+        expect(rerunnableTests("# m/pkg/a\npkg/a/a.go:3:1: syntax error\nFAIL\tm/pkg/a [build failed]")).toBeNull();
+    });
+    it("splits go test's output into each package's result", () => {
+        const out = [
+            "ok  \tm/pkg/a\t0.5s",
+            "--- FAIL: TestB (0.00s)",
+            "FAIL",
+            "FAIL\tm/pkg/b\t1.2s",
+            "ok  \tm/pkg/c\t(cached)",
+            "FAIL",
+        ].join("\n");
+        const results = packageResults(out);
+        expect(results.map((r) => [r.pkg, r.ok])).toEqual([
+            ["m/pkg/a", true],
+            ["m/pkg/b", false],
+            ["m/pkg/c", true],
+        ]);
+        expect(rerunnableTests(results[1].output)).toEqual(["TestB"]);
     });
 });
 
