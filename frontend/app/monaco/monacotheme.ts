@@ -35,8 +35,8 @@ const SELECTION_ALPHA = 0.5;
 const LINE_HIGHLIGHT_ALPHA = 0.35;
 // the diff editor paints the whole changed line, then the changed words again on top, so the line
 // wash has to stay faint enough that the two stack without drowning the code
-const DIFF_LINE_ALPHA = 0.08;
-const DIFF_TEXT_ALPHA = 0.18;
+const DIFF_LINE_ALPHA = 0.12;
+const DIFF_TEXT_ALPHA = 0.24;
 
 // token family -> cockpit role. "storage"/"control" read as keyword-family declarations
 // (let/const/type), "delimiter" joins "punctuation" (braces, brackets, separators).
@@ -83,8 +83,8 @@ export function monacoThemeFromTokens(
     if (chrome.lineHighlight != null) {
         colors["editor.lineHighlightBackground"] = colord(chrome.lineHighlight).alpha(LINE_HIGHLIGHT_ALPHA).toHex();
     }
-    // without these the diff pane keeps vs-dark's olive #9ccc2c and pure red, which neither match the
-    // +N/-N counts the change list prints beside them nor follow a theme switch
+    // without these the diff pane keeps vs-dark's olive #9ccc2c and pure red, which do not match the
+    // +N/-N counts the change list prints beside them
     if (chrome.added != null) {
         colors["diffEditor.insertedLineBackground"] = colord(chrome.added).alpha(DIFF_LINE_ALPHA).toHex();
         colors["diffEditor.insertedTextBackground"] = colord(chrome.added).alpha(DIFF_TEXT_ALPHA).toHex();
@@ -119,8 +119,8 @@ export function readChromeRoles(root: HTMLElement): MonacoChrome {
         foreground: cssVar(root, "--color-foreground"),
         selection: cssVar(root, "--color-surface-selected"),
         lineHighlight: cssVar(root, "--color-surface-hover"),
-        added: cssVar(root, "--color-success"),
-        removed: cssVar(root, "--color-error"),
+        added: cssVar(root, "--color-diff-added"),
+        removed: cssVar(root, "--color-diff-removed"),
     };
 }
 
@@ -128,18 +128,20 @@ export function readChromeRoles(root: HTMLElement): MonacoChrome {
 // through the engine's own pure buildThemeVars rather than computed style, because this layout
 // effect runs BEFORE cockpit-root's (child effects run first) and a computed-style read would race
 // the engine on the commit where the theme changes. Syntax tokens are static, so readSyntaxTokens
-// is safe here. The dynamic import keeps monaco-editor out of the surface's static chunk graph.
+// is safe here, as are the static diff colors. The dynamic import keeps monaco-editor out of the
+// surface's static chunk graph.
 export function useSyncMonacoTheme(): void {
     const preset = useAtomValue(themePresetAtom);
     const overrides = useAtomValue(themeOverridesAtom);
     useLayoutEffect(() => {
         const vars = buildThemeVars(activePalette(preset), overrides);
+        const root = document.documentElement;
         const chrome: MonacoChrome = {
             foreground: vars["--color-foreground"],
             selection: vars["--color-surface-selected"],
             lineHighlight: vars["--color-surface-hover"],
-            added: vars["--color-success"],
-            removed: vars["--color-error"],
+            added: cssVar(root, "--color-diff-added"),
+            removed: cssVar(root, "--color-diff-removed"),
         };
         const tokens = readSyntaxTokens(document.documentElement);
         let cancelled = false;

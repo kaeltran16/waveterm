@@ -106,8 +106,8 @@ export function CommitPane({
                     {count} {count === 1 ? "file" : "files"}
                 </span>
                 <div className="flex-1" />
-                <span className="font-mono text-[11px] font-semibold text-success">+{changes?.adds ?? 0}</span>
-                <span className="font-mono text-[11px] font-semibold text-error">−{changes?.dels ?? 0}</span>
+                <span className="font-mono text-[11px] font-semibold text-diff-added">+{changes?.adds ?? 0}</span>
+                <span className="font-mono text-[11px] font-semibold text-diff-removed">−{changes?.dels ?? 0}</span>
                 <TreeModeToggle />
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-[8px] pb-[20px]">

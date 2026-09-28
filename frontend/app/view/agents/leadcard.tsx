@@ -214,8 +214,8 @@ export function LeadCard(p: LeadCardProps) {
                         title="Review changes in Diff"
                         className="flex shrink-0 cursor-pointer items-center gap-1 rounded-[5px] border border-edge-mid px-1.5 py-0.5 font-mono text-[9.5px] font-bold hover:border-accent hover:bg-accent/10"
                     >
-                        <span className="text-success">+{diff.adds}</span>
-                        <span className="text-error">−{diff.dels}</span>
+                        <span className="text-diff-added">+{diff.adds}</span>
+                        <span className="text-diff-removed">−{diff.dels}</span>
                     </button>
                 ) : null}
                 {lead ? (

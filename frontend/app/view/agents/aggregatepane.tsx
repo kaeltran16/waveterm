@@ -77,8 +77,8 @@ export function AggregatePane({
                     <span className="font-mono text-[11px] font-semibold text-muted">
                         {count} {count === 1 ? "file" : "files"}
                     </span>
-                    <span className="font-mono text-[11px] font-semibold text-success">+{changes?.adds ?? 0}</span>
-                    <span className="font-mono text-[11px] font-semibold text-error">−{changes?.dels ?? 0}</span>
+                    <span className="font-mono text-[11px] font-semibold text-diff-added">+{changes?.adds ?? 0}</span>
+                    <span className="font-mono text-[11px] font-semibold text-diff-removed">−{changes?.dels ?? 0}</span>
                     <div className="flex-1" />
                     <TreeModeToggle />
                 </div>

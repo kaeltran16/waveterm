@@ -67,8 +67,8 @@ export function CodeChangedPane({ model }: { model: AgentsViewModel }) {
                             <span className="text-muted">{dir}</span>
                             <span className="text-secondary">{name}</span>
                         </span>
-                        <span className="flex-none font-mono text-[10px] text-success">+{s.adds}</span>
-                        <span className="flex-none font-mono text-[10px] text-error">-{s.dels}</span>
+                        <span className="flex-none font-mono text-[10px] text-diff-added">+{s.adds}</span>
+                        <span className="flex-none font-mono text-[10px] text-diff-removed">-{s.dels}</span>
                     </div>
                 );
             })}

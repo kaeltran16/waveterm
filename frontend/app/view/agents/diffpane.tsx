@@ -153,8 +153,8 @@ export function DiffPane({
                     </span>
                     <span className="flex-none font-semibold text-ink-hi">{file}</span>
                 </span>
-                <span className="flex-none font-mono text-[11px] font-bold text-success">+{adds}</span>
-                <span className="flex-none font-mono text-[11px] font-bold text-error">−{dels}</span>
+                <span className="flex-none font-mono text-[11px] font-bold text-diff-added">+{adds}</span>
+                <span className="flex-none font-mono text-[11px] font-bold text-diff-removed">−{dels}</span>
                 {empty?.kind === "toolarge" && pair != null ? (
                     <span className="flex-none font-mono text-[11px] text-ink-faint">{fmtBytes(pair.size)}</span>
                 ) : null}

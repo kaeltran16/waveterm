@@ -199,8 +199,8 @@ function FileRow({
         <>
             <span className={cn("flex-none font-bold", statusColor(status))}>{status}</span>
             <span className="min-w-0 flex-1 truncate">{path}</span>
-            <span className="flex-none text-[10.5px] text-success">+{adds}</span>
-            {dels > 0 ? <span className="flex-none text-[10.5px] text-error">−{dels}</span> : null}
+            <span className="flex-none text-[10.5px] text-diff-added">+{adds}</span>
+            {dels > 0 ? <span className="flex-none text-[10.5px] text-diff-removed">−{dels}</span> : null}
         </>
     );
     const cls =
