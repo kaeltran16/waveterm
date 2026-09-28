@@ -69,10 +69,22 @@ func TestLeadCompletingABranchRunRecordsTheLandingTip(t *testing.T) {
 	}
 }
 
+// writeProjectSetup checks body in as dir's .arc/setup.
+func writeProjectSetup(t *testing.T, dir, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(dir, ".arc"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".arc", "setup"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestDagSubmitRunsSetupInTheLandingTree(t *testing.T) {
 	ctx := context.Background()
-	// newRun returns the run's project and a submit of the plan whose Setup is setup, in the given context
-	newRun := func(t *testing.T, landPath, setup string) (string, func(context.Context) error) {
+	// newRun returns the run's project, a submit of the plan whose Setup is setup (no Setup line when empty) in
+	// the given context, and a read of the dag that submit stored
+	newRun := func(t *testing.T, landPath, setup string) (string, func(context.Context) error, func() *waveobj.TaskGroup) {
 		t.Helper()
 		ch, err := wstore.CreateChannel(ctx, "landing-setup", t.TempDir())
 		if err != nil {
@@ -90,24 +102,84 @@ func TestDagSubmitRunsSetupInTheLandingTree(t *testing.T) {
 			planDir = landPath
 		}
 		plan := filepath.Join(planDir, "plan.md")
-		if err := os.WriteFile(plan, []byte("**Setup:** `"+setup+"`\n\n### Task 1: input\n"), 0o644); err != nil {
+		body := "### Task 1: input\n"
+		if setup != "" {
+			body = "**Setup:** `" + setup + "`\n\n" + body
+		}
+		if err := os.WriteFile(plan, []byte(body), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		return ch.ProjectPath, func(c context.Context) error {
+		do := func(c context.Context) error {
 			_, err := (&WshServer{}).DagSubmitCommand(c, wshrpc.CommandDagSubmitData{ChannelId: ch.OID, RunId: run.ID, PlanPath: plan})
 			return err
 		}
+		dag := func() *waveobj.TaskGroup {
+			t.Helper()
+			stored, err := wstore.GetRun(ctx, ch.OID, run.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			g, err := wstore.GetDag(ctx, stored.DagORef)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return g
+		}
+		return ch.ProjectPath, do, dag
 	}
 	submit := func(t *testing.T, landPath, setup string) (string, error) {
 		t.Helper()
-		project, do := newRun(t, landPath, setup)
+		project, do, _ := newRun(t, landPath, setup)
 		return project, do(ctx)
 	}
+	// c84aa179: a plan with no Setup line left the landing tree without node_modules
+	t.Run("a plan with no Setup line runs the project's default", func(t *testing.T) {
+		tree, _ := newLandingRepo(t)
+		writeProjectSetup(t, tree, "echo ok > default.txt")
+		_, do, dag := newRun(t, tree, "")
+		if err := do(ctx); err != nil {
+			t.Fatalf("submit: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(tree, "default.txt")); err != nil {
+			t.Fatalf("the default Setup did not run in the landing tree: %v", err)
+		}
+		// and the dag carries it, so worker, bisect, base-check and final trees run it too
+		if g := dag(); g.Setup != "echo ok > default.txt" {
+			t.Fatalf("dag Setup = %q, want the project default", g.Setup)
+		}
+	})
+
+	t.Run("the plan's Setup line wins over the project default", func(t *testing.T) {
+		tree, _ := newLandingRepo(t)
+		writeProjectSetup(t, tree, "echo ok > default.txt")
+		_, do, dag := newRun(t, tree, "echo ok > plan.txt")
+		if err := do(ctx); err != nil {
+			t.Fatalf("submit: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(tree, "plan.txt")); err != nil {
+			t.Fatalf("the plan's Setup did not run: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(tree, "default.txt")); err == nil {
+			t.Fatal("the project default ran although the plan names a Setup")
+		}
+		if g := dag(); g.Setup != "echo ok > plan.txt" {
+			t.Fatalf("dag Setup = %q, want the plan's", g.Setup)
+		}
+	})
+
+	t.Run("a malformed default fails the submit", func(t *testing.T) {
+		tree, _ := newLandingRepo(t)
+		writeProjectSetup(t, tree, "a\nb\n")
+		_, do, _ := newRun(t, tree, "")
+		if err := do(ctx); err == nil || !strings.Contains(err.Error(), "must hold one command") {
+			t.Fatalf("submit err = %v, want the one-command refusal", err)
+		}
+	})
 
 	// a lead's `dag submit` carries a short RPC deadline; a Setup such as a fresh install outlives it
 	t.Run("setup is not bound by the submit's deadline", func(t *testing.T) {
 		tree, _ := newLandingRepo(t)
-		_, do := newRun(t, tree, "sleep 2 && echo ok > prepared.txt")
+		_, do, _ := newRun(t, tree, "sleep 2 && echo ok > prepared.txt")
 		short, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 		defer cancel()
 		if err := do(short); err != nil {
@@ -121,7 +193,7 @@ func TestDagSubmitRunsSetupInTheLandingTree(t *testing.T) {
 	// a resubmit after a client timeout finds the dag stored and merges possibly running in the tree
 	t.Run("a resubmit does not run setup again", func(t *testing.T) {
 		tree, _ := newLandingRepo(t)
-		_, do := newRun(t, tree, "echo run >> setup.log")
+		_, do, _ := newRun(t, tree, "echo run >> setup.log")
 		if err := do(ctx); err != nil {
 			t.Fatal(err)
 		}

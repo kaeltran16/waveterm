@@ -191,6 +191,15 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 	if data.Round {
 		return submitFixRound(ctx, run, data)
 	}
+	// a plan written without a Setup line still gets prepared trees: the project's checked-in default fills it,
+	// read from the landing tree, which is at the commit the run builds from
+	if plan.Setup == "" {
+		setup, err := orchestrate.ProjectSetup(jarvis.LandPath(run))
+		if err != nil {
+			return nil, err
+		}
+		plan.Setup = setup
+	}
 	if err := checkDagEffort(ctx, plan.EffortOID, data.Tasks); err != nil {
 		return nil, err
 	}
