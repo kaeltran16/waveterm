@@ -51,8 +51,8 @@ func TestHumanPromptsClaudeKeepsOnlyTypedPrompts(t *testing.T) {
 // the lead's own `dag tell` would not match the text it sent (run 6c7652be recorded it as the human's)
 func TestHumanPromptsClaudeUnwrapsPastedContent(t *testing.T) {
 	path := writeTranscript(t, []string{
-		`{"type":"attachment","timestamp":"2026-09-17T06:02:17.000Z","attachment":{"type":"queued_command","prompt":"<pasted_content id=\"6336\">\nPlan review round 2 findings.\nThey are part of your task.\n</pasted_content id=\"6336\">","commandMode":"prompt","origin":{"kind":"human"}}}`,
-		`{"type":"user","timestamp":"2026-09-17T06:02:18.000Z","origin":{"kind":"human"},"message":{"role":"user","content":"see <pasted_content id=\"7\">\nlog a\n</pasted_content id=\"7\"> and <pasted_content id=\"8\">\nlog b\n</pasted_content id=\"8\">"}}`,
+		`{"type":"attachment","timestamp":"2026-09-17T06:02:17.000Z","attachment":{"type":"queued_command","prompt":"<pasted_content id=\"63b4\">\nPlan review round 2 findings.\nThey are part of your task.\n</pasted_content id=\"63b4\">","commandMode":"prompt","origin":{"kind":"human"}}}`,
+		`{"type":"user","timestamp":"2026-09-17T06:02:18.000Z","origin":{"kind":"human"},"message":{"role":"user","content":"see <pasted_content id=\"be41\">\nlog a\n</pasted_content id=\"be41\"> and <pasted_content id=\"8\">\nlog b\n</pasted_content id=\"8\">"}}`,
 	})
 	got := HumanPrompts(path, "claude")
 	want := []HumanPrompt{

@@ -101,8 +101,9 @@ func claudeTypedText(rec claudePromptLine) string {
 }
 
 // pastedContentRe is the tag claude code wraps a long typed or pasted message in before recording it. The text
-// inside is what was typed, and what a sender of that text (the lead's `dag tell`) matches against.
-var pastedContentRe = regexp.MustCompile(`(?s)<pasted_content id="\d+">\n?(.*?)\n?</pasted_content id="\d+">`)
+// inside is what was typed, and what a sender of that text (the lead's `dag tell`) matches against. The id is
+// hex, not decimal: most real ids carry letters (63b4, be41).
+var pastedContentRe = regexp.MustCompile(`(?s)<pasted_content id="[^"]+">\n?(.*?)\n?</pasted_content id="[^"]+">`)
 
 // claudePromptText is a user record's typed text: its string content, or the text blocks of an array holding no
 // tool result, which is the harness answering the model rather than anyone typing.
