@@ -28,6 +28,11 @@ const (
 // one after the lead revised it.
 const MaxPlanReviewRounds = 2
 
+// proceedPastPlanReview is what the lead does when the human says to go on after the last round. Every task waits
+// while the review holds, so an amend made before accept reaches them all; after it, accept may already have
+// spawned the task (run 6c7652be).
+const proceedPastPlanReview = "if they say to proceed, carry each finding you accept into the pending tasks it affects with `wsh jarvis dag amend <task> \"<note>\"` first, then run `wsh jarvis dag planreview accept \"<the human's reason>\"`"
+
 // NewPlanReview is the review a plan-file submit starts with.
 func NewPlanReview() *waveobj.PlanReviewStage {
 	return &waveobj.PlanReviewStage{State: PlanReviewState_Reviewing, Round: 1}
@@ -172,7 +177,7 @@ func ReplacePlanReviewProposal(ctx context.Context, dagID string, proposed *wave
 			return fmt.Errorf("dag conflict: run %s's plan review is %s, so its dag can no longer be replaced", g.RunID, pr.State)
 		}
 		if pr.Round >= MaxPlanReviewRounds {
-			return fmt.Errorf("the plan review failed %d rounds, the most it gets; put it to the human, and if they say to proceed run `wsh jarvis dag planreview accept \"<the human's reason>\"`", pr.Round)
+			return fmt.Errorf("the plan review failed %d rounds, the most it gets; put it to the human, and %s", pr.Round, proceedPastPlanReview)
 		}
 		g.Title, g.Parallelism, g.WorkerRoute, g.Tasks = proposed.Title, proposed.Parallelism, proposed.WorkerRoute, proposed.Tasks
 		// the base was checked with the old commands; nothing has started, so the next tick checks it again

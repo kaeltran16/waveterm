@@ -78,5 +78,7 @@ func viewRun(cmd *cobra.Command, args []string) (rtnErr error) {
 	if err != nil {
 		return fmt.Errorf("running view command: %w", err)
 	}
+	// the open-file event has no acknowledgement, so this says what was sent, not that it opened
+	fmt.Printf("sent %s to the cockpit's code surface\n", absFile)
 	return nil
 }

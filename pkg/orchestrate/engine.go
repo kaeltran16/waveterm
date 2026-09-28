@@ -723,8 +723,10 @@ func workerContract(g *waveobj.TaskGroup, task *waveobj.TaskNode, runtime, tree 
 		fmt.Fprintf(&b, " `%s` already fails on the base, before any task (%s): don't fix those failures or count them as yours, and name them in your report.", g.Check, g.BaseCheck.Detail)
 	}
 	if g.Verify != "" {
-		fmt.Fprintf(&b, " Don't run the plan's full Verify (`%s`): the engine runs it after your task merges.", g.Verify)
+		// the brief wins over a plan whose task steps name whole-package runs (run 6c7652be spent most worker time on them)
+		fmt.Fprintf(&b, " Don't run the plan's full Verify (`%s`), a whole package or the full suite, even when your task says to: the engine runs Verify after your task merges and again on the merged result. Run the tests your task names alone (for Go, `-run '<names>'`).", g.Verify)
 	}
+	b.WriteString(" To reproduce a flake, run the one failing test alone (for Go, `-run '^TestX$' -count=N`), never `-count=N` on a whole package.")
 	b.WriteString(" Don't pipe a test into `tail`, `head` or `grep`: a pipe exits with its last command's status, so a failing test reads as passing. If you must pipe, run `set -o pipefail` first.")
 	reportPath := WorkerReportPath(g.OID, task.ID)
 	fmt.Fprintf(&b, " Commit, then write your report with your file-writing tool to `%s`: what you did, what you did differently from the task and why, what a later task must know, and what you could not verify and why. Then run `wsh jarvis complete --commit $(git rev-parse HEAD) --report %s`. ", reportPath, reportPath)

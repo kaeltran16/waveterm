@@ -159,8 +159,13 @@ func TestPlanReviewAfterTheLastRoundGoesToTheHuman(t *testing.T) {
 	if err := RecordPlanReviewVerdict(ctx, dag.OID, reviewer, ReviewVerdict_Fail, "still no task for 4.1"); err != nil {
 		t.Fatal(err)
 	}
-	if want := "Put it to the human; if they say to proceed, run `wsh jarvis dag planreview accept \"<the human's reason>\"`"; !strings.Contains(strings.Join(f.sends, "\n"), want) {
+	if want := "Put it to the human; " + proceedPastPlanReview; !strings.Contains(strings.Join(f.sends, "\n"), want) {
 		t.Fatalf("after the last round the wake must say to forward, got %q", f.sends)
+	}
+	// the lead carries the accepted findings in while every task still waits: accept spawns the first ones (run 6c7652be)
+	taskID := loadDag(t, ctx, dag.OID).Tasks[0].ID
+	if err := AmendTask(ctx, dag.OID, taskID, "also cover 4.1"); err != nil {
+		t.Fatalf("amend must reach a task while the plan review holds: %v", err)
 	}
 	if _, err := ReplacePlanReviewProposal(ctx, dag.OID, &waveobj.TaskGroup{PlanPath: "p.md", Tasks: []waveobj.TaskNode{{ID: "t-0", Label: "a", State: TaskState_Pending}}}); err == nil || !strings.Contains(err.Error(), "put it to the human") {
 		t.Fatalf("a resubmit past the last round must be refused, got %v", err)
@@ -175,6 +180,9 @@ func TestPlanReviewAfterTheLastRoundGoesToTheHuman(t *testing.T) {
 	g := loadDag(t, ctx, dag.OID)
 	if g.PlanReview.State != PlanReviewState_Accepted || g.Tasks[0].State != TaskState_Running || len(*calls) != 2 {
 		t.Fatalf("accept starts dispatch, got review %s task %s after %d spawns", g.PlanReview.State, g.Tasks[0].State, len(*calls))
+	}
+	if len(g.Tasks[0].LeadNotes) != 1 || g.Tasks[0].LeadNotes[0] != "also cover 4.1" {
+		t.Fatalf("the spawned task must carry the note amended before accept, got %q", g.Tasks[0].LeadNotes)
 	}
 	if err := AcceptPlanReview(ctx, dag.OID, "again"); err == nil {
 		t.Fatal("an accepted review cannot be accepted again")

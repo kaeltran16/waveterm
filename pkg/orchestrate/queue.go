@@ -122,7 +122,7 @@ func reviewFailedWake(taskID string) string {
 // the last round the call is the human's.
 func planReviewFailedWake(round int, findings string, last bool) string {
 	if last {
-		return fmt.Sprintf("wake: plan review failed in round %d, the last: %s. Put it to the human; if they say to proceed, run `wsh jarvis dag planreview accept \"<the human's reason>\"`.", round, flatLine(findings))
+		return fmt.Sprintf("wake: plan review failed in round %d, the last: %s. Put it to the human; %s.", round, flatLine(findings), proceedPastPlanReview)
 	}
 	return fmt.Sprintf("wake: plan review failed in round %d: %s. Revise the plan (put spec changes to the human) and run `wsh jarvis dag submit` again.", round, flatLine(findings))
 }
@@ -131,7 +131,7 @@ func planReviewFailedWake(round int, findings string, last bool) string {
 // on, so the same plan can be submitted again.
 func planReviewLostWake(round int, reason string, last bool) string {
 	if last {
-		return fmt.Sprintf("wake: the plan reviewer did not finish in round %d, the last (%s). Put it to the human; if they say to proceed, run `wsh jarvis dag planreview accept \"<the human's reason>\"`.", round, reason)
+		return fmt.Sprintf("wake: the plan reviewer did not finish in round %d, the last (%s). Put it to the human; %s.", round, reason, proceedPastPlanReview)
 	}
 	return fmt.Sprintf("wake: the plan reviewer did not finish in round %d (%s). Run `wsh jarvis dag submit` again to review the plan once more.", round, reason)
 }
