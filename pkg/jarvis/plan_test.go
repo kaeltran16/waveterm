@@ -176,6 +176,13 @@ func TestPlanFormatParses(t *testing.T) {
 	}
 }
 
+// a worker runs what its task names, so a plan that names whole packages repeats Verify's work in every task
+func TestPlanFormatKeepsTaskTestsFocused(t *testing.T) {
+	if !strings.Contains(PlanFormat, "never a whole package or the full suite") {
+		t.Fatalf("the format must keep a task's tests to the focused ones:\n%s", PlanFormat)
+	}
+}
+
 func node(id string, deps ...string) waveobj.TaskNode {
 	return waveobj.TaskNode{ID: id, Label: id, Deps: deps}
 }

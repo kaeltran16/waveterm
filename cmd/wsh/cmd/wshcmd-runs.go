@@ -652,7 +652,11 @@ func runsAnswerRun(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	return wshclient.RunAnswerCommand(RpcClient, wshrpc.CommandRunAnswerData{ChannelId: ch.OID, RunId: run.ID, Answers: answers}, &wshrpc.RpcOpts{Timeout: dagAnswerTimeoutMs(answers)})
+	if err := wshclient.RunAnswerCommand(RpcClient, wshrpc.CommandRunAnswerData{ChannelId: ch.OID, RunId: run.ID, Answers: answers}, &wshrpc.RpcOpts{Timeout: dagAnswerTimeoutMs(answers)}); err != nil {
+		return err
+	}
+	fmt.Printf("answer delivered to run %s's question\n", run.ID)
+	return nil
 }
 
 func runsCancelRun(cmd *cobra.Command, args []string) error {

@@ -66,7 +66,11 @@ var jarvisCompleteCmd = &cobra.Command{
 			}
 			report = r
 		}
-		return reportRunPhase(wshrpc.CommandReportRunPhaseData{Action: "complete", Artifacts: artifacts, Commit: commit, Report: report})
+		if err := reportRunPhase(wshrpc.CommandReportRunPhaseData{Action: "complete", Artifacts: artifacts, Commit: commit, Report: report}); err != nil {
+			return err
+		}
+		fmt.Println("run phase marked complete; the engine takes it from here")
+		return nil
 	},
 	PreRunE: preRunSetupRpcClient,
 }

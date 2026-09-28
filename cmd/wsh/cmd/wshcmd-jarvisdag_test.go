@@ -644,3 +644,24 @@ func TestDagStatusLinesPrintTheFinalStage(t *testing.T) {
 		}
 	}
 }
+
+// a state-changing dag command that prints nothing on success cannot be told from one that did nothing (run
+// 6c7652be's plan reviewer guessed): every action a dag command sends has its line
+func TestDagDoneLineCoversEveryAction(t *testing.T) {
+	for _, action := range []string{"approve", "retry", "escalate", "skip", "retry-cleanup", "forward", "amend", "tell", "sendback", "answer", "merge"} {
+		if got := dagDoneLine(action, "t-3"); !strings.Contains(got, "task t-3") {
+			t.Errorf("%s: line must name the task, got %q", action, got)
+		}
+	}
+	if dagDoneLine("cancel", "t-3") == "" {
+		t.Error("cancel has no line")
+	}
+	for _, action := range []string{"review-pass", "review-fail", "planreview-pass", "planreview-fail", "final-pass", "final-fail"} {
+		if got := dagDoneLine(action, ""); !strings.HasSuffix(got, "Ending this session") {
+			t.Errorf("%s ends the caller's session and must say so, got %q", action, got)
+		}
+	}
+	if got := dagDoneLine("planreview-accept", ""); got == "" || strings.Contains(got, "Ending") {
+		t.Errorf("accept keeps the lead's session, got %q", got)
+	}
+}

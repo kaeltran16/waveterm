@@ -450,6 +450,35 @@ func dagIds(cmd *cobra.Command) (string, string, error) {
 	return rtn.ChannelId, rtn.RunId, nil
 }
 
+// dagDoneLines is the one line a dag command prints on success: what it recorded and what happens next. A silent
+// success reads the same as doing nothing, and a caller that resends a verdict or an answer is not harmless (run
+// 6c7652be). {task} is the command's task id.
+var dagDoneLines = map[string]string{
+	"approve":           "task {task} approved; the engine lands or dispatches it on its next tick",
+	"retry":             "task {task} re-queued; a fresh worker starts when a slot is free",
+	"escalate":          "task {task} re-queued on the chosen model; a fresh worker starts when a slot is free",
+	"skip":              "task {task} skipped; it will not run",
+	"cancel":            "dag cancelled; its workers stop and their worktrees are cleaned up",
+	"retry-cleanup":     "task {task}'s worktree cleanup retried; `wsh jarvis dag status` shows whether it cleared",
+	"forward":           "task {task} forwarded; it waits on the human in the cockpit",
+	"amend":             "note added to task {task}; its worker's prompt carries it",
+	"tell":              "message typed into task {task}'s terminal",
+	"sendback":          "task {task} sent back; a worker takes it again",
+	"answer":            "answer delivered to task {task}",
+	"merge":             "task {task} merge requested; `wsh jarvis dag status` shows whether it landed or is blocked on a conflict",
+	"review-pass":       "review pass recorded; the engine merges the task. Ending this session",
+	"review-fail":       "review fail recorded; the lead gets the findings. Ending this session",
+	"planreview-pass":   "plan review pass recorded; the engine dispatches the first tasks. Ending this session",
+	"planreview-fail":   "plan review fail recorded; the lead revises the plan. Ending this session",
+	"planreview-accept": "plan review accepted; the engine dispatches the first tasks",
+	"final-pass":        "final pass recorded; the run completes. Ending this session",
+	"final-fail":        "final fail recorded; the lead gets the defects. Ending this session",
+}
+
+func dagDoneLine(action, taskID string) string {
+	return strings.ReplaceAll(dagDoneLines[action], "{task}", taskID)
+}
+
 func dagAction(action string) *cobra.Command {
 	return dagActionWithin(action, 10_000)
 }
@@ -465,9 +494,13 @@ func dagActionWithin(action string, timeoutMs int64) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return wshclient.DagActionCommand(RpcClient, wshrpc.CommandDagActionData{
+			if err := wshclient.DagActionCommand(RpcClient, wshrpc.CommandDagActionData{
 				ChannelId: channelId, RunId: runId, TaskId: args[0], Action: action,
-			}, &wshrpc.RpcOpts{Timeout: timeoutMs})
+			}, &wshrpc.RpcOpts{Timeout: timeoutMs}); err != nil {
+				return err
+			}
+			fmt.Println(dagDoneLine(action, args[0]))
+			return nil
 		},
 	}
 }
@@ -502,7 +535,11 @@ var dagEscalateCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		return wshclient.DagActionCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: 10_000})
+		if err := wshclient.DagActionCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: 10_000}); err != nil {
+			return err
+		}
+		fmt.Println(dagDoneLine(data.Action, data.TaskId))
+		return nil
 	},
 }
 
@@ -533,7 +570,11 @@ var dagMergeCmd = &cobra.Command{
 			fmt.Printf("task %s continued; the plan's Verify, if it has one, runs next and a failure wakes you\n", args[0])
 			return nil
 		}
-		return wshclient.DagMergeCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: 60_000})
+		if err := wshclient.DagMergeCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: 60_000}); err != nil {
+			return err
+		}
+		fmt.Println(dagDoneLine("merge", args[0]))
+		return nil
 	},
 }
 
@@ -640,9 +681,13 @@ var dagAnswerCmd = &cobra.Command{
 		if err := json.Unmarshal([]byte(args[1]), &answers); err != nil {
 			return fmt.Errorf("answers json: %w", err)
 		}
-		return wshclient.DagAnswerCommand(RpcClient, wshrpc.CommandDagAnswerData{
+		if err := wshclient.DagAnswerCommand(RpcClient, wshrpc.CommandDagAnswerData{
 			ChannelId: channelId, RunId: runId, TaskId: args[0], Answers: answers, Lead: true,
-		}, &wshrpc.RpcOpts{Timeout: dagAnswerTimeoutMs(answers)})
+		}, &wshrpc.RpcOpts{Timeout: dagAnswerTimeoutMs(answers)}); err != nil {
+			return err
+		}
+		fmt.Println(dagDoneLine("answer", args[0]))
+		return nil
 	},
 }
 
@@ -679,7 +724,11 @@ var dagForwardCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		return wshclient.DagActionCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: 10_000})
+		if err := wshclient.DagActionCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: 10_000}); err != nil {
+			return err
+		}
+		fmt.Println(dagDoneLine(data.Action, data.TaskId))
+		return nil
 	},
 }
 
@@ -713,6 +762,7 @@ var dagReviewCmd = &cobra.Command{
 		if err := wshclient.DagActionCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: 10_000}); err != nil {
 			return err
 		}
+		fmt.Println(dagDoneLine(data.Action, ""))
 		return reportRunPhase(wshrpc.CommandReportRunPhaseData{Action: "complete"})
 	},
 }
@@ -744,6 +794,7 @@ var dagPlanReviewCmd = &cobra.Command{
 		if err := wshclient.DagActionCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: 10_000}); err != nil {
 			return err
 		}
+		fmt.Println(dagDoneLine(data.Action, ""))
 		if data.Action == "planreview-accept" {
 			return nil
 		}
@@ -779,6 +830,7 @@ var dagFinalCmd = &cobra.Command{
 		if err := wshclient.DagActionCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: 10_000}); err != nil {
 			return err
 		}
+		fmt.Println(dagDoneLine(data.Action, ""))
 		return reportRunPhase(wshrpc.CommandReportRunPhaseData{Action: "complete"})
 	},
 }
@@ -808,7 +860,11 @@ func dagNoteCmd(use, action, short string, args cobra.PositionalArgs) *cobra.Com
 			if err != nil {
 				return err
 			}
-			return wshclient.DagActionCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: 10_000})
+			if err := wshclient.DagActionCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: 10_000}); err != nil {
+				return err
+			}
+			fmt.Println(dagDoneLine(action, data.TaskId))
+			return nil
 		},
 	}
 }
