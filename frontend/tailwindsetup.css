@@ -212,6 +212,11 @@
     --color-syntax-punct: #8b939d;
     --color-syntax-ident: #cdd3da;
 
+    /* git diff added/removed (diff bands, +N/-N counts). Deliberately not success/error: a deleted
+       line is not a failure, and the two need tuning independently. Theme-agnostic like syntax. */
+    --color-diff-added: #3fb950;
+    --color-diff-removed: #f85149;
+
     --container-w600: 600px;
     --container-w450: 450px;
     --container-w350: 350px;

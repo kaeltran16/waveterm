@@ -169,12 +169,14 @@ func WritePing(conn *websocket.Conn) error {
 	now := time.Now()
 	pingMessage := map[string]interface{}{"type": "ping", "stime": now.UnixMilli()}
 	jsonVal, _ := json.Marshal(pingMessage)
+	return writeWsMessage(conn, jsonVal)
+}
+
+// every write needs its own deadline: relying on the last ping's lapses between pings, and under busy
+// traffic a message landing in that gap failed with a spurious i/o timeout that dropped the socket.
+func writeWsMessage(conn *websocket.Conn, barr []byte) error {
 	_ = conn.SetWriteDeadline(time.Now().Add(wsWriteWaitTimeout)) // no error
-	err := conn.WriteMessage(websocket.TextMessage, jsonVal)
-	if err != nil {
-		return err
-	}
-	return nil
+	return conn.WriteMessage(websocket.TextMessage, barr)
 }
 
 func WriteLoop(conn *websocket.Conn, outputCh chan any, closeCh chan any, routeId string) {
@@ -196,7 +198,7 @@ func WriteLoop(conn *websocket.Conn, outputCh chan any, closeCh chan any, routeI
 					break
 				}
 			}
-			err = conn.WriteMessage(websocket.TextMessage, barr)
+			err = writeWsMessage(conn, barr)
 			if err != nil {
 				conn.Close()
 				log.Printf("[websocket] WritePump error (%s): %v\n", routeId, err)

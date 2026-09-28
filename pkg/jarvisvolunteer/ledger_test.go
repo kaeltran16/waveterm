@@ -37,11 +37,12 @@ func tieredChannel(keys ...string) *waveobj.Channel {
 	return &waveobj.Channel{OID: "ch-1", Meta: meta}
 }
 
-// The ladder is the volume knob: a concierge channel (no tier meta) must stay exactly as silent about
-// ledger facts as it was before this feature existed.
+// The ladder is the volume knob: a channel set to concierge must stay exactly as silent about ledger
+// facts as it was before this feature existed.
 func TestLedgerSilentOnConciergeChannel(t *testing.T) {
+	concierge := &waveobj.Channel{OID: "ch-1", Meta: waveobj.MetaMapType{jarvis.MetaKey_GatekeeperEnabled: false}}
 	got, err := ledgerFixture(
-		tieredChannel(),
+		concierge,
 		[]*waveobj.Run{shippedRun("r1", "ask bridge", 1000, "landed")},
 		[]wshrpc.AttentionItem{{RunId: "r2", Source: "worker", Action: "Review", Text: "the diff", WaitingSince: 900}},
 		2000,
@@ -54,10 +55,9 @@ func TestLedgerSilentOnConciergeChannel(t *testing.T) {
 	}
 }
 
-// gatekeeper:enabled alone unlocks the register; delegator:enabled also counts (nesting is enforced by
-// the writer, the OR is defensive against a future writer that sets only the delegator key).
-func TestLedgerSpeaksOnGatekeeperAndDelegatorChannels(t *testing.T) {
-	for _, keys := range [][]string{{jarvis.MetaKey_GatekeeperEnabled}, {jarvis.MetaKey_DelegatorEnabled}} {
+// gatekeeper is the default tier, so a channel nobody has configured speaks as well as one set to it.
+func TestLedgerSpeaksOnGatekeeperAndUnconfiguredChannels(t *testing.T) {
+	for _, keys := range [][]string{{jarvis.MetaKey_GatekeeperEnabled}, {}} {
 		got, err := ledgerFixture(
 			tieredChannel(keys...),
 			[]*waveobj.Run{shippedRun("r1", "ask bridge", 1000, "landed")},

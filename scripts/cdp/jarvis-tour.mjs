@@ -9,8 +9,8 @@
 //
 // SAFETY — this script must never dispatch work. It does not press Enter on a channel Launch composer,
 // does not pick a channel in the off-channel dispatch picker, and does not press Save in the profile
-// drawer; each of those spawns a real worker or writes real config. The one setting it changes (the
-// autonomy tier, for the Delegator shot) is read first and restored afterwards.
+// drawer; each of those spawns a real worker or writes real config. It opens the autonomy panel but never
+// picks a tier.
 //
 // ORDERING CONSTRAINT: the two "nothing to focus" peek shots must be taken after a page reload, before
 // any peek has focused anything. graphSelectedIdAtom is a module atom and the focusing effect returns
@@ -225,21 +225,12 @@ await step("record-band-one", async () => {
     return "one edge";
 });
 
-// the autonomy tier is the only setting this script changes — read it, then put it back
-const tierOf = async () => {
-    const res = await h.rpc("getchannels", null);
-    const c = (res.channels || []).find((x) => x.name === CHANNEL);
-    return c?.meta?.["delegator:enabled"] ? "Delegator" : c?.meta?.["gatekeeper:enabled"] ? "Gatekeeper" : "Concierge";
-};
-const tierBefore = await tierOf();
-await step("autonomy-delegator", async () => {
-    await click("button", "Delegator", { exact: true });
-    if (!/report|manage|fanout/.test((await body()) ?? "")) throw new Error("no dispatch modes at Delegator");
-    return `dispatch modes shown (tier was ${tierBefore})`;
+await step("autonomy-ladder", async () => {
+    await click('[data-jarvis-autonomy="chip"]', "");
+    if (!/Concierge[\s\S]*Gatekeeper/.test((await body()) ?? "")) throw new Error("autonomy panel did not open");
+    return "both rungs shown, tier unchanged";
 });
-await tryClick("button", tierBefore, { exact: true });
-const tierAfter = await tierOf();
-console.log(`     autonomy tier: ${tierBefore} -> ${tierAfter}${tierAfter === tierBefore ? "" : "  *** NOT RESTORED ***"}`);
+await esc();
 
 await step("profile-drawer", async () => {
     await click("button", "⚙", { exact: true });

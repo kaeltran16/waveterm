@@ -74,7 +74,7 @@ func seedGatekeeperChannel(t *testing.T, ctx context.Context, task string) (*wav
 	if err != nil {
 		t.Fatalf("create channel: %v", err)
 	}
-	if err := wstore.UpdateObjectMeta(ctx, waveobj.MakeORef(waveobj.OType_Channel, ch.OID),
+	if _, err := wstore.UpdateObjectMeta(ctx, waveobj.MakeORef(waveobj.OType_Channel, ch.OID),
 		waveobj.MetaMapType{MetaKey_GatekeeperEnabled: true}, false); err != nil {
 		t.Fatalf("enable gatekeeper: %v", err)
 	}
@@ -239,6 +239,74 @@ func TestHandleAskSkipsDagChildren(t *testing.T) {
 			handled := delivered > 0 || len(channelMessages(t, ctx, ch.OID)) > 0
 			if handled != tc.wantHandled {
 				t.Fatalf("gatekeeper handled = %v, want %v", handled, tc.wantHandled)
+			}
+		})
+	}
+}
+
+// seedQuickRunWorker files a quick run's worker under a channel with the given gatekeeper meta (nil
+// leaves the flag unset) and returns the channel and the worker's block oref.
+func seedQuickRunWorker(t *testing.T, ctx context.Context, meta waveobj.MetaMapType) (*waveobj.Channel, string) {
+	t.Helper()
+	ch, err := wstore.CreateChannel(ctx, "gk-tier", t.TempDir())
+	if err != nil {
+		t.Fatalf("create channel: %v", err)
+	}
+	if meta != nil {
+		if _, err := wstore.UpdateObjectMeta(ctx, waveobj.MakeORef(waveobj.OType_Channel, ch.OID), meta, false); err != nil {
+			t.Fatalf("set tier: %v", err)
+		}
+	}
+	tabId, blockId := uuid.NewString(), uuid.NewString()
+	if err := wstore.DBInsert(ctx, &waveobj.Tab{OID: tabId, BlockIds: []string{blockId}, Meta: waveobj.MetaMapType{}}); err != nil {
+		t.Fatalf("seed worker tab: %v", err)
+	}
+	if err := wstore.DBInsert(ctx, &waveobj.Block{OID: blockId, ParentORef: "tab:" + tabId, Meta: waveobj.MetaMapType{}}); err != nil {
+		t.Fatalf("seed worker block: %v", err)
+	}
+	run := NewRun("quick", "ws-1", ch.ProjectPath, nil, RunMode_Quick, QuickPlaybook(), 1)
+	run.ID = uuid.NewString()
+	run.Phases[0].WorkerOrefs = []string{waveobj.MakeORef(waveobj.OType_Tab, tabId).String()}
+	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
+		t.Fatalf("append run: %v", err)
+	}
+	return ch, waveobj.MakeORef(waveobj.OType_Block, blockId).String()
+}
+
+// The tier governs run workers too: a project set to concierge leaves a quick run's routine question
+// for you (no classifier, no answer, no card), and a gatekeeper or never-configured project judges it.
+func TestHandleAskHonoursTheTierForRunWorkers(t *testing.T) {
+	ctx := context.Background()
+	origDeliver := deliverFn
+	defer func() { deliverFn = origDeliver }()
+	cases := []struct {
+		name        string
+		meta        waveobj.MetaMapType
+		wantHandled bool
+	}{
+		{"concierge", waveobj.MetaMapType{MetaKey_GatekeeperEnabled: false}, false},
+		{"gatekeeper", waveobj.MetaMapType{MetaKey_GatekeeperEnabled: true}, true},
+		{"never configured", nil, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			classified := 0
+			oldRun := runFn
+			runFn = func(_ context.Context, _ consult.RuntimeSpec, _ string, _ string, _ func(string)) (string, error) {
+				classified++
+				return `{"action":"answer","optionindex":0,"reason":"routine"}`, nil
+			}
+			t.Cleanup(func() { runFn = oldRun })
+			delivered := 0
+			deliverFn = func(string, string, []baseds.AgentAnswerItem) (bool, error) {
+				delivered++
+				return true, nil
+			}
+			ch, blockORef := seedQuickRunWorker(t, ctx, tc.meta)
+			handleAsk(ctx, baseds.AgentAskData{ORef: blockORef, AskId: uuid.NewString(), Questions: singleSelect(2)})
+			handled := classified > 0 || delivered > 0 || len(channelMessages(t, ctx, ch.OID)) > 0
+			if handled != tc.wantHandled {
+				t.Fatalf("gatekeeper handled = %v (classified %d, delivered %d), want %v", handled, classified, delivered, tc.wantHandled)
 			}
 		})
 	}

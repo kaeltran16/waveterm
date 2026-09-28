@@ -94,6 +94,9 @@ colors:
   syntax-comment: "#6b7178"
   syntax-punct: "#8b939d"
   syntax-ident: "#cdd3da"
+  # git diff added/removed lines and +N/-N counts
+  diff-added: "#3fb950"
+  diff-removed: "#f85149"
 typography:
   font-sans:
     fontFamily: "Hanken Grotesk, system-ui, sans-serif"
@@ -265,6 +268,10 @@ green, `mem-feedback` amber, `mem-user` purple), **jarvis graph node kinds**
 - **Syntax tokens** (`syntax-keyword` `#aebfff`, `syntax-string` `#7fd6ab`,
   `syntax-number` `#e6b450`, `syntax-comment` `#6b7178`, `syntax-punct`,
   `syntax-ident`) color transcript code blocks.
+- **Diff tokens** (`diff-added` `#3fb950`, `diff-removed` `#f85149`) color
+  git diff bands, inline diff lines, and every `+N` / `−N` count. They are
+  not `success` / `error`: a removed line is not a failure. Theme-agnostic
+  like the syntax tokens.
 - **`--ansi-*`** literals are fallbacks only: `buildThemeVars` in
   `frontend/app/view/agents/themes.ts` derives ANSI + terminal palettes from
   the active theme at runtime so CSS and the live terminal cannot drift. Do

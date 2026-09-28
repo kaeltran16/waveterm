@@ -13,10 +13,8 @@ import (
 )
 
 func ch(name string, enabled bool, msgs ...waveobj.ChannelMessage) *waveobj.Channel {
-	meta := waveobj.MetaMapType{}
-	if enabled {
-		meta[MetaKey_GatekeeperEnabled] = true
-	}
+	// explicit both ways: an unset flag now means on, so "disabled" has to be written
+	meta := waveobj.MetaMapType{MetaKey_GatekeeperEnabled: enabled}
 	return &waveobj.Channel{OID: name, Name: name, Meta: meta, Messages: msgs}
 }
 func dispatch(oref, text string) waveobj.ChannelMessage {
@@ -96,22 +94,42 @@ func TestResolve_NoOwner(t *testing.T) {
 	}
 }
 
-func TestTierMeta(t *testing.T) {
+func TestGatekeeperForTier(t *testing.T) {
 	cases := []struct {
-		tier           string
-		wantGatekeeper bool
-		wantDelegator  bool
+		tier    string
+		want    bool
+		wantErr bool
 	}{
-		{"delegator", true, true},
 		{"gatekeeper", true, false},
 		{"concierge", false, false},
-		{"", false, false},
-		{"bogus", false, false},
+		// the retired third rung, and anything else, must not quietly land on either tier
+		{"delegator", false, true},
+		{"", false, true},
+		{"bogus", false, true},
 	}
 	for _, c := range cases {
-		gk, del := TierMeta(c.tier)
-		if gk != c.wantGatekeeper || del != c.wantDelegator {
-			t.Errorf("TierMeta(%q) = (%v,%v), want (%v,%v)", c.tier, gk, del, c.wantGatekeeper, c.wantDelegator)
+		got, err := GatekeeperForTier(c.tier)
+		if (err != nil) != c.wantErr || got != c.want {
+			t.Errorf("GatekeeperForTier(%q) = (%v, %v), want (%v, err=%v)", c.tier, got, err, c.want, c.wantErr)
+		}
+	}
+}
+
+// A project nobody has configured is gatekept; only an explicit concierge pick turns it off.
+func TestGatekeeperOnDefaultsOn(t *testing.T) {
+	cases := []struct {
+		name string
+		meta waveobj.MetaMapType
+		want bool
+	}{
+		{"nil meta", nil, true},
+		{"never set", waveobj.MetaMapType{}, true},
+		{"gatekeeper", waveobj.MetaMapType{MetaKey_GatekeeperEnabled: true}, true},
+		{"concierge", waveobj.MetaMapType{MetaKey_GatekeeperEnabled: false}, false},
+	}
+	for _, c := range cases {
+		if got := GatekeeperOn(&waveobj.Channel{Meta: c.meta}); got != c.want {
+			t.Errorf("%s: GatekeeperOn = %v, want %v", c.name, got, c.want)
 		}
 	}
 }

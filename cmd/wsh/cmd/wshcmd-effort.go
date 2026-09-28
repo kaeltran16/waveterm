@@ -193,7 +193,11 @@ var effortDeleteCmd = &cobra.Command{
 		if rtn.Effort.Status != "archived" && !force {
 			return fmt.Errorf("EC-NOT-ARCHIVED: effort %s is %s — set status archived or pass --force", args[0], rtn.Effort.Status)
 		}
-		return wshclient.EffortDeleteCommand(RpcClient, wshrpc.CommandEffortDeleteData{EffortOID: args[0]}, nil)
+		if err := wshclient.EffortDeleteCommand(RpcClient, wshrpc.CommandEffortDeleteData{EffortOID: args[0]}, nil); err != nil {
+			return err
+		}
+		fmt.Printf("deleted effort %s\n", args[0])
+		return nil
 	},
 }
 

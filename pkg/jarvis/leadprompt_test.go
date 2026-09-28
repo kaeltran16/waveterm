@@ -126,12 +126,16 @@ func TestOrchestrationRulesCompleteOnTheirOwn(t *testing.T) {
 	if strings.Index(finished, AskTool("claude")) > strings.Index(finished, "wsh jarvis complete") {
 		t.Fatalf("a question must come before complete, which closes the tab:\n%s", finished)
 	}
+	// accept spawns the first tasks, so an amend after it misses them (run 6c7652be)
+	if strings.Index(r, "carry each accepted finding") > strings.Index(r, "dag planreview accept") {
+		t.Fatalf("the plan review rule must amend before accept:\n%s", r)
+	}
 	for _, want := range []string{
 		"wsh jarvis dag submit --round --plan <fix plan>",
 		"at most 2 rounds",
 		`wsh jarvis dag planreview accept "<the human's reason>"`,
 		// an accepted finding goes to a pending task, not to a post-final wrap-up commit (run 33880f82)
-		"then carry each accepted finding into the pending tasks it affects with `wsh jarvis dag amend <task>",
+		"first carry each accepted finding into the pending tasks it affects with `wsh jarvis dag amend <task>",
 		"end each commit you make for this run with the line `Arc-Run: r1`",
 	} {
 		if !strings.Contains(strings.ToLower(r), strings.ToLower(want)) {

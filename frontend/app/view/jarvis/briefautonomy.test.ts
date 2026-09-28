@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { autonomySummary, channelAutonomy, sharedMode } from "./briefautonomy";
+import { autonomySummary, channelAutonomy } from "./briefautonomy";
 
 function channel(over: Partial<Channel> & { meta?: Record<string, unknown> }): Channel {
     return {
@@ -15,21 +15,17 @@ function channel(over: Partial<Channel> & { meta?: Record<string, unknown> }): C
 }
 
 describe("channelAutonomy", () => {
-    it("reads the nested tier and the dispatch mode off each channel's meta", () => {
+    it("reads the tier off each channel's meta", () => {
         const rows = channelAutonomy(
             [
-                channel({
-                    oid: "c1",
-                    name: "waveterm",
-                    meta: { "delegator:enabled": true, "delegator:mode": "fanout" },
-                }),
+                channel({ oid: "c1", name: "waveterm", meta: { "gatekeeper:enabled": false } }),
                 channel({ oid: "c2", name: "arc", meta: { "gatekeeper:enabled": true } }),
             ],
             {}
         );
         expect(rows).toEqual([
-            { channelId: "c2", name: "arc", tier: "gatekeeper", mode: "" },
-            { channelId: "c1", name: "waveterm", tier: "delegator", mode: "fanout" },
+            { channelId: "c2", name: "arc", tier: "gatekeeper" },
+            { channelId: "c1", name: "waveterm", tier: "concierge" },
         ]);
     });
 
@@ -37,15 +33,15 @@ describe("channelAutonomy", () => {
         const rows = channelAutonomy(
             [
                 channel({ oid: "c1", name: "waveterm", meta: {} }),
-                channel({ oid: "c2", name: "old", meta: { archived: true, "delegator:enabled": true } }),
+                channel({ oid: "c2", name: "old", meta: { archived: true, "gatekeeper:enabled": false } }),
             ],
             {}
         );
         expect(rows.map((r) => r.channelId)).toEqual(["c1"]);
     });
 
-    it("falls to concierge for a channel that has never been given a tier", () => {
-        expect(channelAutonomy([channel({})], {})[0]).toMatchObject({ tier: "concierge", mode: "" });
+    it("defaults to gatekeeper for a channel that has never been given a tier", () => {
+        expect(channelAutonomy([channel({})], {})[0]).toMatchObject({ tier: "gatekeeper" });
     });
 
     it("survives a null roster, which is what the store holds before the first load", () => {
@@ -72,20 +68,21 @@ describe("channelAutonomy", () => {
 });
 
 describe("autonomySummary", () => {
-    const row = (tier: string, name: string) => ({ channelId: name, name, tier, mode: "" }) as never;
+    const row = (tier: string, name: string) => ({ channelId: name, name, tier }) as never;
 
     it("states the tier and what it costs you when every project agrees", () => {
-        expect(autonomySummary([row("delegator", "a"), row("delegator", "b")])).toEqual({
-            label: "Delegator · answers routine asks",
-            tier: "delegator",
+        expect(autonomySummary([row("gatekeeper", "a"), row("gatekeeper", "b")])).toEqual({
+            label: "Gatekeeper · answers routine asks",
+            tier: "gatekeeper",
             mixed: false,
         });
+        expect(autonomySummary([row("concierge", "a")])?.label).toBe("Concierge · asks you everything");
     });
 
     it("names the highest tier in force when they disagree, because that is the one acting without you", () => {
-        expect(autonomySummary([row("delegator", "a"), row("concierge", "b"), row("gatekeeper", "c")])).toEqual({
-            label: "Mixed · 1 of 3 delegator",
-            tier: "delegator",
+        expect(autonomySummary([row("concierge", "a"), row("gatekeeper", "b"), row("concierge", "c")])).toEqual({
+            label: "Mixed · 1 of 3 gatekeeper",
+            tier: "gatekeeper",
             mixed: true,
         });
     });
@@ -100,22 +97,5 @@ describe("autonomySummary", () => {
     // a snapshot that has not landed
     it("says nothing at all when there are no projects", () => {
         expect(autonomySummary([])).toBeNull();
-    });
-});
-
-describe("sharedMode", () => {
-    const row = (mode: string) => ({ channelId: mode, name: mode, tier: "delegator", mode }) as never;
-
-    it("is the mode every project agrees on", () => {
-        expect(sharedMode([row("fanout"), row("fanout")])).toBe("fanout");
-    });
-
-    // one pill lit over projects that disagree would claim a policy only some of them follow
-    it("is empty when the projects disagree", () => {
-        expect(sharedMode([row("fanout"), row("report")])).toBe("");
-    });
-
-    it("is empty with no projects", () => {
-        expect(sharedMode([])).toBe("");
     });
 });

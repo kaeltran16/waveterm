@@ -95,7 +95,8 @@ export async function selectChannel(channelId: string): Promise<void> {
 
 export async function createChannel(name: string, projectPath: string): Promise<string> {
     const ch = await RpcApi.CreateChannelCommand(TabRpcClient, { name, projectpath: projectPath });
-    await loadChannels();
+    // not loadChannels: it drops the call while a load is in flight, and that load predates this channel
+    await fetchChannelsInto();
     await selectChannel(ch.oid);
     return ch.oid;
 }
@@ -104,10 +105,10 @@ export async function createChannel(name: string, projectPath: string): Promise<
 // reads the channelsAtom snapshot (not live WOS), so a tier change is invisible until loadChannels()
 // re-fetches — mirrors how create/delete already refresh. One refresh for the batch, not one per channel:
 // the autonomy control writes every project at once.
-export async function setChannelTiers(changes: { channelId: string; tier: string; mode: string }[]): Promise<void> {
+export async function setChannelTiers(changes: { channelId: string; tier: string }[]): Promise<void> {
     await Promise.all(
         changes.map((c) =>
-            RpcApi.SetChannelTierCommand(TabRpcClient, { channelid: c.channelId, tier: c.tier, mode: c.mode })
+            RpcApi.SetChannelTierCommand(TabRpcClient, { channelid: c.channelId, tier: c.tier })
         )
     );
     await loadChannels();

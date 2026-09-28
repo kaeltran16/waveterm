@@ -122,23 +122,23 @@ export function ToolDetailBody({ detail, variant }: { detail: ActionDetail; vari
                             {f.badge}
                         </span>
                         <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-ink-hi">{f.path}</span>
-                        <span className="font-mono text-[9.5px] font-bold text-success">+{f.adds}</span>
-                        <span className="font-mono text-[9.5px] font-bold text-error">−{f.dels}</span>
+                        <span className="font-mono text-[9.5px] font-bold text-diff-added">+{f.adds}</span>
+                        <span className="font-mono text-[9.5px] font-bold text-diff-removed">−{f.dels}</span>
                     </div>
                     <div className="overflow-x-auto bg-surface-code py-1">
                         <div className="min-w-min">
                             {f.lines.map((l, k) => (
                                 <div
                                     key={k}
-                                    className={`flex whitespace-pre font-mono text-[11px] leading-[1.7] ${l.sign === "+" ? "bg-success/[0.09]" : l.sign === "-" ? "bg-error/[0.09]" : ""}`}
+                                    className={`flex whitespace-pre font-mono text-[11px] leading-[1.7] ${l.sign === "+" ? "bg-diff-added/[0.09]" : l.sign === "-" ? "bg-diff-removed/[0.09]" : ""}`}
                                 >
                                     <span
-                                        className={`w-[13px] shrink-0 text-center ${l.sign === "+" ? "text-success" : l.sign === "-" ? "text-error" : "text-ink-faint"}`}
+                                        className={`w-[13px] shrink-0 text-center ${l.sign === "+" ? "text-diff-added" : l.sign === "-" ? "text-diff-removed" : "text-ink-faint"}`}
                                     >
                                         {l.sign}
                                     </span>
                                     <span
-                                        className={`pr-3.5 ${l.sign === "+" ? "text-success-soft" : l.sign === "-" ? "text-error" : "text-secondary"}`}
+                                        className={`pr-3.5 ${l.sign === "+" ? "text-diff-added" : l.sign === "-" ? "text-diff-removed" : "text-secondary"}`}
                                     >
                                         {l.text}
                                     </span>
@@ -338,8 +338,8 @@ function EditBurstRow({ files, adds, dels }: { files: EditFile[]; adds: number; 
                     edited
                 </span>
                 <span className="font-mono text-[10.5px] text-feed-summary">{action.target}</span>
-                <span className="shrink-0 font-mono text-[10px] text-success">+{adds}</span>
-                <span className="shrink-0 font-mono text-[10px] text-error">−{dels}</span>
+                <span className="shrink-0 font-mono text-[10px] text-diff-added">+{adds}</span>
+                <span className="shrink-0 font-mono text-[10px] text-diff-removed">−{dels}</span>
                 <div className="min-w-[6px] flex-1" />
                 <span className="shrink-0 font-mono text-xxxs text-edge-strong">{toModal ? "↗" : open ? "▼" : "▶"}</span>
             </div>

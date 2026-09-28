@@ -6,8 +6,13 @@ package web
 import (
 	"bytes"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 const wsForwardTestTimeout = time.Second
@@ -82,4 +87,35 @@ func TestForwardRpcMessagesStopsWhenOutputIsFull(t *testing.T) {
 
 	close(closeCh)
 	waitForForwarder(t, done)
+}
+
+// a message written after the last ping's deadline has lapsed must still go out: the ping deadline
+// alone used to govern every write, so busy traffic hit spurious i/o timeouts and dropped the socket.
+func TestWriteWsMessageIgnoresStalePingDeadline(t *testing.T) {
+	serverConnCh := make(chan *websocket.Conn, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upgrade: %v", err)
+			return
+		}
+		serverConnCh <- conn
+	}))
+	defer srv.Close()
+	client, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(srv.URL, "http"), nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer client.Close()
+	server := <-serverConnCh
+	defer server.Close()
+
+	_ = server.SetWriteDeadline(time.Now().Add(-time.Second))
+	if err := writeWsMessage(server, []byte(`{"type":"x"}`)); err != nil {
+		t.Fatalf("write after a lapsed ping deadline failed: %v", err)
+	}
+	_ = client.SetReadDeadline(time.Now().Add(wsForwardTestTimeout))
+	if _, msg, err := client.ReadMessage(); err != nil || string(msg) != `{"type":"x"}` {
+		t.Fatalf("client read %q, %v", msg, err)
+	}
 }

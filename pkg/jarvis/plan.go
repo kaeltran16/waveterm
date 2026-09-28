@@ -23,6 +23,8 @@ const PlanFormat = "Plan format. Verify, Setup and Check are optional, go before
 	"final stage runs Verify once more with ARC_VERIFY_CHANGED unset, on the merged result, where it should run " +
 	"everything. Check is a fast whole-project static check (for example typecheck plus go vet) that each worker runs " +
 	"itself, instead of Verify, before it completes. " +
+	"A task step names only the focused tests that prove it (for Go, `go test ./pkg/x -run '<names>'`), never a whole " +
+	"package or the full suite: Verify runs those at each merge and in the final stage. " +
 	"An optional Final line, also one command in backticks, runs once on the merged result after every task landed and Check " +
 	"passed, with ARC_FINAL_OUT set to a directory for its screenshots and reports: exit 0 passes, exit 3 means it could not " +
 	"verify and its last output line says why, and any other exit fails the run. An optional Prototype line names the design " +

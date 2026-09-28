@@ -79,8 +79,7 @@ describe("queueRows — detail earns its line, it is not given one", () => {
 });
 
 describe("queueRows — the button says what the item needs, not how to get there", () => {
-    // actsForAttention returns exactly one act for everything but a delegator-tier gate, and it is
-    // labelled "Open". "Review" / "Decide" / "Answer" is the same navigation named by its purpose.
+    // actsForAttention returns exactly one act for any item with a run, and it is labelled "Open". "Review" / "Decide" / "Answer" is the same navigation named by its purpose.
     it("labels the primary act from the item's own action verb", () => {
         expect(queueRows([GATE])[0].primary?.label).toBe("Review");
         expect(queueRows([ESCALATION])[0].primary?.label).toBe("Decide");

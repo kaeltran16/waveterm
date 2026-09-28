@@ -20,6 +20,7 @@
 // the control recipe, a borderless one is a label. Dressing something inert as a control and camouflaging
 // a real control among labels are the same lie, so neither happens here.
 
+import { pushToast } from "@/app/cockpit/notificationstore";
 import { cardVariants, computeEntrances, initialEntranceState, MOTION, paneReveal } from "@/app/element/motiontokens";
 import { ContextMenuModel } from "@/app/store/contextmenu";
 import { globalStore } from "@/app/store/jotaiStore";
@@ -30,9 +31,8 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { attentionAtom } from "@/app/view/agents/attentionstore";
-import { resolveTargetChannel } from "@/app/view/agents/channelderive";
 import { jumpToAgent } from "@/app/view/agents/channelsprimitives";
-import { channelsAtom, loadChannels, runAtom } from "@/app/view/agents/channelsstore";
+import { channelsAtom, createChannel, loadChannels, runAtom } from "@/app/view/agents/channelsstore";
 import { projectsAtom } from "@/app/view/agents/projectsstore";
 import { RollingCount } from "@/app/view/agents/rollingcount";
 import { confirmCancelRun, pendingRunDraftAtom } from "@/app/view/agents/runactions";
@@ -142,6 +142,7 @@ import {
 } from "./jarvisstore";
 import { clearSubject, persistedSubjectAtom, stageRunAtom } from "./jarvissubjectstore";
 import { NewInitiativeControl } from "./newinitiativecontrol";
+import { radarDraftLanding } from "./newrun";
 import { NewRunControl } from "./newruncontrol";
 import { openAddress, openChannelSheet, openTarget } from "./openref";
 import { loadTaskList, taskListAtom } from "./tasksstore";
@@ -513,16 +514,28 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     const channels = useAtomValue(channelsAtom);
 
     // Radar "Start investigation": put its project's channel on the subject, so the sheet opens on that
-    // channel's launcher holding the draft rather than dropping it on the queue.
+    // channel's launcher holding the draft rather than dropping it on the queue. A project with no channel yet
+    // gets one minted, as + Run does.
     useEffect(() => {
         if (pendingDraft == null || pendingDraft.landed) {
             return;
         }
-        const target = resolveTargetChannel(channels ?? [], pendingDraft.projectPath);
-        if (target != null) {
-            void openChannelSheet(target.oid, null);
+        const landing = radarDraftLanding(channels, pendingDraft);
+        if (landing === "wait") {
+            return;
         }
         setPendingDraft({ ...pendingDraft, landed: true });
+        if (landing === "none") {
+            return;
+        }
+        fireAndForget(async () => {
+            try {
+                const oid = landing.kind === "existing" ? landing.oid : await createChannel(landing.name, landing.path);
+                await openChannelSheet(oid, null);
+            } catch (e) {
+                pushToast({ title: "Couldn't open the investigation's project", message: String(e), level: "error" });
+            }
+        });
     }, [pendingDraft, channels, setPendingDraft]);
 
     // Boot restore, Brief edition. A subject stored by the three-pane composition has no Stage to land on

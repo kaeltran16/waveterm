@@ -66,11 +66,13 @@ func (ws *WshServer) SetMetaCommand(ctx context.Context, data wshrpc.CommandSetM
 	// log key names only; meta values can contain secrets (env, keys)
 	log.Printf("SetMetaCommand: %s | meta keys=%v\n", data.ORef, metaKeys)
 	oref := data.ORef
-	err := wstore.UpdateObjectMeta(ctx, oref, data.Meta, false)
+	changed, err := wstore.UpdateObjectMeta(ctx, oref, data.Meta, false)
 	if err != nil {
 		return fmt.Errorf("error updating object meta: %w", err)
 	}
-	wcore.SendWaveObjUpdate(oref)
+	if changed {
+		wcore.SendWaveObjUpdate(oref)
+	}
 	return nil
 }
 

@@ -66,8 +66,8 @@ function AggregateRowView({
                     <span className="font-mono text-[10.5px] text-ink-mid">
                         {row.files} {row.files === 1 ? "file" : "files"}
                     </span>
-                    <span className="font-mono text-[10px] font-semibold text-success">+{row.adds}</span>
-                    <span className="font-mono text-[10px] font-semibold text-error">−{row.dels}</span>
+                    <span className="font-mono text-[10px] font-semibold text-diff-added">+{row.adds}</span>
+                    <span className="font-mono text-[10px] font-semibold text-diff-removed">−{row.dels}</span>
                 </>
             )}
         </button>

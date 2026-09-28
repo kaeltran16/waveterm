@@ -197,10 +197,10 @@ export function RunCompletion({ channel, run, model }: { channel: Channel; run: 
                                         <span className="font-mono text-[10px] text-ink-faint">
                                             git diff since run baseline
                                         </span>
-                                        <span className="font-mono text-[11px] font-semibold text-success">
+                                        <span className="font-mono text-[11px] font-semibold text-diff-added">
                                             +{ev.addtotal}
                                         </span>
-                                        <span className="font-mono text-[11px] font-semibold text-error">
+                                        <span className="font-mono text-[11px] font-semibold text-diff-removed">
                                             −{ev.deltotal}
                                         </span>
                                     </>
@@ -225,10 +225,10 @@ export function RunCompletion({ channel, run, model }: { channel: Channel; run: 
                                             <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-secondary">
                                                 {f.path}
                                             </span>
-                                            <span className="w-[34px] text-right font-mono text-[10.5px] font-semibold text-success">
+                                            <span className="w-[34px] text-right font-mono text-[10.5px] font-semibold text-diff-added">
                                                 +{f.add}
                                             </span>
-                                            <span className="w-[30px] text-right font-mono text-[10.5px] font-semibold text-error">
+                                            <span className="w-[30px] text-right font-mono text-[10.5px] font-semibold text-diff-removed">
                                                 −{f.del}
                                             </span>
                                         </button>

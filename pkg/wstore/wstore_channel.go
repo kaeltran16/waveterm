@@ -420,7 +420,8 @@ func StampWorkerOwner(ctx context.Context, workerTabORef, runORef, channelORef s
 	if len(meta) == 0 {
 		return nil
 	}
-	return UpdateObjectMeta(ctx, oref, meta, false)
+	_, err = UpdateObjectMeta(ctx, oref, meta, false)
+	return err
 }
 
 // GetWorkerOwner reads the owning run:/channel: orefs stamped on a worker tab's meta (Phase-1/2 stamp).

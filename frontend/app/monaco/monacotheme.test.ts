@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { monacoThemeFromTokens, type MonacoChrome, type SyntaxTokens } from "./monacotheme";
+import { monacoThemeFromTokens, readChromeRoles, type MonacoChrome, type SyntaxTokens } from "./monacotheme";
 
 const TOKENS: SyntaxTokens = {
     keyword: "#aebfff",
@@ -17,8 +17,8 @@ const CHROME: MonacoChrome = {
     foreground: "#e2e8f0",
     selection: "#1a222c",
     lineHighlight: "#171c22",
-    added: "#54c79a",
-    removed: "#e0726c",
+    added: "#3fb950",
+    removed: "#f85149",
 };
 
 describe("monacoThemeFromTokens", () => {
@@ -67,10 +67,10 @@ describe("monacoThemeFromTokens", () => {
 
     it("paints the diff bands from the cockpit's add/remove roles, not vs-dark's olive", () => {
         const t = monacoThemeFromTokens(TOKENS, CHROME, true);
-        expect(t.colors["diffEditor.insertedLineBackground"]).toMatch(/^#54c79a[0-9a-f]{2}$/);
-        expect(t.colors["diffEditor.insertedTextBackground"]).toMatch(/^#54c79a[0-9a-f]{2}$/);
-        expect(t.colors["diffEditor.removedLineBackground"]).toMatch(/^#e0726c[0-9a-f]{2}$/);
-        expect(t.colors["diffEditor.removedTextBackground"]).toMatch(/^#e0726c[0-9a-f]{2}$/);
+        expect(t.colors["diffEditor.insertedLineBackground"]).toMatch(/^#3fb950[0-9a-f]{2}$/);
+        expect(t.colors["diffEditor.insertedTextBackground"]).toMatch(/^#3fb950[0-9a-f]{2}$/);
+        expect(t.colors["diffEditor.removedLineBackground"]).toMatch(/^#f85149[0-9a-f]{2}$/);
+        expect(t.colors["diffEditor.removedTextBackground"]).toMatch(/^#f85149[0-9a-f]{2}$/);
     });
 
     it("keeps the line wash fainter than the word highlight, and both translucent", () => {
@@ -110,5 +110,24 @@ describe("monacoThemeFromTokens", () => {
 
     it("selects the light base when dark is false", () => {
         expect(monacoThemeFromTokens(TOKENS, CHROME, false).base).toBe("vs");
+    });
+});
+
+describe("readChromeRoles", () => {
+    it("takes the diff colors from the diff tokens, not the success/error status colors", () => {
+        const vars: Record<string, string> = {
+            "--color-success": "#54c79a",
+            "--color-error": "#e0726c",
+            "--color-diff-added": "#3fb950",
+            "--color-diff-removed": "#f85149",
+        };
+        const root = {
+            ownerDocument: {
+                defaultView: { getComputedStyle: () => ({ getPropertyValue: (n: string) => vars[n] ?? "" }) },
+            },
+        } as unknown as HTMLElement;
+        const chrome = readChromeRoles(root);
+        expect(chrome.added).toBe("#3fb950");
+        expect(chrome.removed).toBe("#f85149");
     });
 });

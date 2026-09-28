@@ -86,8 +86,8 @@ function FileRow({
             >
                 {label}
             </span>
-            <span className="flex-none font-mono text-[10px] font-semibold text-success">+{change.adds}</span>
-            <span className="flex-none font-mono text-[10px] font-semibold text-error">−{change.dels}</span>
+            <span className="flex-none font-mono text-[10px] font-semibold text-diff-added">+{change.adds}</span>
+            <span className="flex-none font-mono text-[10px] font-semibold text-diff-removed">−{change.dels}</span>
         </button>
     );
 }
@@ -105,8 +105,8 @@ function DirRow({ row, collapsed, onToggle }: { row: FileTreeRow; collapsed: boo
                 {row.label}
             </span>
             <span className="flex-none font-mono text-[9.5px] text-ink-faint">{row.files}</span>
-            <span className="flex-none font-mono text-[9.5px] text-success">+{row.adds}</span>
-            <span className="flex-none font-mono text-[9.5px] text-error">−{row.dels}</span>
+            <span className="flex-none font-mono text-[9.5px] text-diff-added">+{row.adds}</span>
+            <span className="flex-none font-mono text-[9.5px] text-diff-removed">−{row.dels}</span>
         </button>
     );
 }

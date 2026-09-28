@@ -47,6 +47,23 @@ func TestHumanPromptsClaudeKeepsOnlyTypedPrompts(t *testing.T) {
 	}
 }
 
+// claude code wraps a long typed or pasted message in a pasted_content tag before the transcript records it, so
+// the lead's own `dag tell` would not match the text it sent (run 6c7652be recorded it as the human's)
+func TestHumanPromptsClaudeUnwrapsPastedContent(t *testing.T) {
+	path := writeTranscript(t, []string{
+		`{"type":"attachment","timestamp":"2026-09-17T06:02:17.000Z","attachment":{"type":"queued_command","prompt":"<pasted_content id=\"63b4\">\nPlan review round 2 findings.\nThey are part of your task.\n</pasted_content id=\"63b4\">","commandMode":"prompt","origin":{"kind":"human"}}}`,
+		`{"type":"user","timestamp":"2026-09-17T06:02:18.000Z","origin":{"kind":"human"},"message":{"role":"user","content":"see <pasted_content id=\"be41\">\nlog a\n</pasted_content id=\"be41\"> and <pasted_content id=\"8\">\nlog b\n</pasted_content id=\"8\">"}}`,
+	})
+	got := HumanPrompts(path, "claude")
+	want := []HumanPrompt{
+		{Ts: 1789624937000, Text: "Plan review round 2 findings.\nThey are part of your task."},
+		{Ts: 1789624938000, Text: "see log a and log b"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("HumanPrompts = %+v\nwant %+v", got, want)
+	}
+}
+
 func TestHumanPromptsPiReadsTheActiveBranch(t *testing.T) {
 	path := writeTranscript(t, []string{
 		`{"type":"session","version":3,"id":"s1","timestamp":"2026-09-17T06:00:00Z","cwd":"C:\\repo"}`,

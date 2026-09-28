@@ -299,7 +299,7 @@ func (sc *ShellController) run(logCtx context.Context, bdata *waveobj.Block, blo
 				waveobj.MetaKey_CmdRunOnce:    false,
 				waveobj.MetaKey_CmdRunOnStart: false,
 			}
-			err := wstore.UpdateObjectMeta(ctx, waveobj.MakeORef(waveobj.OType_Block, sc.BlockId), metaUpdate, false)
+			_, err := wstore.UpdateObjectMeta(ctx, waveobj.MakeORef(waveobj.OType_Block, sc.BlockId), metaUpdate, false)
 			if err != nil {
 				log.Printf("error updating block meta (in blockcontroller.run): %v\n", err)
 				return

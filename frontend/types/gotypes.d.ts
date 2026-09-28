@@ -1368,7 +1368,6 @@ declare global {
     type CommandSetChannelTierData = {
         channelid: string;
         tier: string;
-        mode?: string;
     };
 
     // wshrpc.CommandSetDossierStatusData

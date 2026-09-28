@@ -119,9 +119,14 @@ describe("planMessage @jarvis is no longer reserved", () => {
 });
 
 describe("tierFromMeta", () => {
-    it("reads the nested tier from meta booleans", () => {
-        expect(tierFromMeta({})).toBe("concierge");
+    it("is gatekeeper unless the channel was explicitly set to concierge", () => {
+        expect(tierFromMeta(undefined)).toBe("gatekeeper");
+        expect(tierFromMeta({})).toBe("gatekeeper");
         expect(tierFromMeta({ "gatekeeper:enabled": true })).toBe("gatekeeper");
-        expect(tierFromMeta({ "gatekeeper:enabled": true, "delegator:enabled": true })).toBe("delegator");
+        expect(tierFromMeta({ "gatekeeper:enabled": false })).toBe("concierge");
+    });
+
+    it("reads a project left on the retired delegator rung as gatekeeper", () => {
+        expect(tierFromMeta({ "gatekeeper:enabled": true, "delegator:enabled": true })).toBe("gatekeeper");
     });
 });

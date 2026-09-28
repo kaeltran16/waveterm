@@ -182,7 +182,8 @@ func TestWorkerContractNamesPlanSpecVerifyAndTool(t *testing.T) {
 		"don't re-plan or pause for design approval",
 		"ask once with ask_user_question and concrete options, then wait",
 		"Run the tests your task names and get them passing before you complete; if you can't, ask.",
-		"Don't run the plan's full Verify (`go test ./...`): the engine runs it after your task merges.",
+		"Don't run the plan's full Verify (`go test ./...`), a whole package or the full suite, even when your task says to: the engine runs Verify after your task merges and again on the merged result. Run the tests your task names alone (for Go, `-run '<names>'`).",
+		"To reproduce a flake, run the one failing test alone (for Go, `-run '^TestX$' -count=N`), never `-count=N` on a whole package.",
 		"Commit, then write your report",
 		"If your context was compacted, re-read your task from the plan.",
 	} {
@@ -210,12 +211,14 @@ func TestWorkerContractWithoutPlanOrVerify(t *testing.T) {
 		"You are the worker for task t-3 of this run's dag.",
 		"ask once with AskUserQuestion",
 		"Run the tests your task names and get them passing before you complete; if you can't, ask.",
+		"To reproduce a flake, run the one failing test alone",
 	} {
 		if !strings.Contains(c, want) {
 			t.Fatalf("contract missing %q:\n%s", want, c)
 		}
 	}
-	for _, gone := range []string{"plan at", "spec:", "re-read your task", "full Verify"} {
+	// with no Verify nothing else runs the package, so the task's own whole-package step stands
+	for _, gone := range []string{"plan at", "spec:", "re-read your task", "full Verify", "whole package or the full suite"} {
 		if strings.Contains(c, gone) {
 			t.Fatalf("a dag without a plan names none, found %q:\n%s", gone, c)
 		}
@@ -229,7 +232,7 @@ func TestWorkerContractNamesCheckAndLeavesVerifyToTheEngine(t *testing.T) {
 	c := workerContract(g, &waveobj.TaskNode{ID: "t-3"}, "claude", "")
 	for _, want := range []string{
 		"Run the tests your task names, and `go vet ./...`, and get them passing before you complete; if you can't, ask.",
-		"Don't run the plan's full Verify (`go test ./...`): the engine runs it after your task merges.",
+		"Don't run the plan's full Verify (`go test ./...`), a whole package or the full suite, even when your task says to: the engine runs Verify after your task merges",
 	} {
 		if !strings.Contains(c, want) {
 			t.Fatalf("contract missing %q:\n%s", want, c)
